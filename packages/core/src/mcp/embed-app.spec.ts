@@ -111,6 +111,7 @@ describe("embedApp", () => {
     expect(html).toContain("await runModuleScriptAsClassic(script, config)");
     expect(html).toContain("stripDevOnlyModuleImports");
     expect(html).toContain("__x00__virtual:react-router");
+    expect(html).toContain("(?:inject-)?hmr-runtime");
     expect(html).toContain("__vite_plugin_react_preamble_installed__");
     expect(html).toContain("$RefreshReg$");
     expect(html).toContain("$RefreshSig$");

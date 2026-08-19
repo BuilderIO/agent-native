@@ -613,6 +613,7 @@ const messages: AgentChatTranslation = {
   "share.unknownPerson": "Persona desconocida",
   "share.viewer": "Lector",
   "share.viewerDescription": "Puede ver",
+  "share.userGroup": "Grupo de usuarios",
 };
 
 export default messages;

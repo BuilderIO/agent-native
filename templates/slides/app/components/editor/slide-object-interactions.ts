@@ -83,7 +83,7 @@ export interface SlideSelectionIdentity {
 }
 
 function escapeAttributeValue(value: string): string {
-  return value.split("\\").join("\\\\").split('"').join('\\"');
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
 export function getSlideSelectionIdentity(

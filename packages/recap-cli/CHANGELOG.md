@@ -1,5 +1,11 @@
 # @agent-native/recap-cli
 
+## 0.5.5
+
+### Patch Changes
+
+- 16cbc53: Stop PR Visual Recap gate skips from creating visible pull request comments.
+
 ## 0.5.4
 
 ### Patch Changes

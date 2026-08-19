@@ -31,6 +31,8 @@ const DESKTOP_LOGOUT_ALL_PATH = "/_agent-native/auth/logout-all";
 const DEFAULT_CEREMONY_TIMEOUT_MS = 5 * 60 * 1000;
 const DEFAULT_SESSION_COOKIE_WAIT_MS = 10_000;
 const DEFAULT_AVAILABILITY_TIMEOUT_MS = 5_000;
+const DEFAULT_STATUS_REVALIDATION_INTERVAL_MS = 5 * 60 * 1000;
+const DEFAULT_STATUS_TIMEOUT_MS = 10_000;
 const SESSION_COOKIE_POLL_INTERVAL_MS = 25;
 const DESKTOP_EXCHANGE_POLL_INTERVAL_MS = 500;
 const DESKTOP_EXCHANGE_PATH = "/_agent-native/auth/desktop-exchange";
@@ -262,6 +264,8 @@ export interface DesktopIdentityBrokerOptions {
   onStatus?: (status: DesktopIdentityStatus) => void;
   timeoutMs?: number;
   sessionCookieWaitMs?: number;
+  statusRevalidationIntervalMs?: number;
+  statusTimeoutMs?: number;
 }
 
 interface DesktopSignOutIntent {
@@ -478,6 +482,8 @@ export class DesktopIdentityBroker {
   private readonly internalRevocationNonce =
     randomBytes(16).toString("base64url");
   private status: DesktopIdentityStatus = "idle";
+  private statusVerifiedAt = 0;
+  private statusRevalidationRetryAt = 0;
   private ceremonyGeneration = 0;
   private availability: "unknown" | "available" | "unavailable";
 
@@ -512,6 +518,23 @@ export class DesktopIdentityBroker {
   }
 
   async refreshStatus(authorityApp: DesktopIdentityApp | null): Promise<void> {
+    // A verified workspace session is the source of truth for the desktop
+    // shell. App tabs must not turn a normal navigation into another remote
+    // session check or strand the user behind a loading gate. Revalidate on a
+    // bounded interval so external expiry or revocation is still observed.
+    // Sign-out is a ceremony boundary: do not let the signed-in fast path
+    // make a tab activation look healthy while session revocation is running.
+    if (this.signOutOperation) return;
+    if (
+      this.status === "signed-in" &&
+      Date.now() -
+        Math.max(this.statusVerifiedAt, this.statusRevalidationRetryAt) <
+        (this.options.statusRevalidationIntervalMs ??
+          DEFAULT_STATUS_REVALIDATION_INTERVAL_MS)
+    ) {
+      return;
+    }
+
     const observedStatus = this.status;
     const observedGeneration = this.ceremonyGeneration;
     if (
@@ -547,9 +570,32 @@ export class DesktopIdentityBroker {
       }
       if (available) this.availability = "available";
     }
-    const verifiedEmail = await this.verifyIdentitySession(authorityApp).catch(
-      () => null,
-    );
+    let verifiedEmail: string | null;
+    try {
+      verifiedEmail = await this.verifyIdentitySession(authorityApp);
+    } catch (error) {
+      // A transient network, server, timeout, or session-partition read
+      // failure must not turn a verified workspace into a sign-in screen. An
+      // authoritative missing-session response still returns null below and
+      // correctly requires sign-in.
+      console.warn("[desktop identity] session status refresh failed", {
+        reason: error instanceof Error ? error.message : "unknown error",
+      });
+      if (
+        this.status !== observedStatus ||
+        this.ceremonyGeneration !== observedGeneration ||
+        this.signOutOperation
+      ) {
+        return;
+      }
+      if (observedStatus === "signed-in") {
+        // Preserve the verified session through a transient outage, but
+        // bound retries so every tab activation does not start another remote
+        // request while the authority is unavailable.
+        this.statusRevalidationRetryAt = Date.now();
+      } else this.setStatus("sign-in-required");
+      return;
+    }
     if (
       this.status !== observedStatus ||
       this.ceremonyGeneration !== observedGeneration ||
@@ -1734,7 +1780,18 @@ export class DesktopIdentityBroker {
     }
 
     const previousStatus = this.status;
+    const previousStatusVerifiedAt = this.statusVerifiedAt;
     this.setStatus("signing-in");
+    const restorePreviousStatus = () => {
+      if (!this.isCeremonyCurrent(generation)) return;
+      if (previousStatus === "signed-in") {
+        this.status = previousStatus;
+        this.statusVerifiedAt = previousStatusVerifiedAt;
+        this.options.onStatus?.(previousStatus);
+        return;
+      }
+      this.setStatus("idle");
+    };
     const previousAuthorityCookies = currentIdentityCookies.filter(
       (cookie) =>
         cookieMatchesOrigin(cookie, authority.origin) &&
@@ -1767,9 +1824,7 @@ export class DesktopIdentityBroker {
           authority,
           previousAuthorityCookies,
         );
-        if (this.isCeremonyCurrent(generation)) {
-          this.setStatus(previousStatus === "signed-in" ? "signed-in" : "idle");
-        }
+        restorePreviousStatus();
         return false;
       }
 
@@ -1790,9 +1845,7 @@ export class DesktopIdentityBroker {
           authority,
           previousAuthorityCookies,
         );
-        if (this.isCeremonyCurrent(generation)) {
-          this.setStatus(previousStatus === "signed-in" ? "signed-in" : "idle");
-        }
+        restorePreviousStatus();
         return false;
       }
 
@@ -1836,9 +1889,7 @@ export class DesktopIdentityBroker {
         authority,
         previousAuthorityCookies,
       );
-      if (this.isCeremonyCurrent(generation)) {
-        this.setStatus(previousStatus === "signed-in" ? "signed-in" : "idle");
-      }
+      restorePreviousStatus();
       console.warn("[desktop identity] automatic session adoption failed", {
         appId: sourceApp.id,
         reason: error instanceof Error ? error.message : "unknown error",
@@ -1964,30 +2015,74 @@ export class DesktopIdentityBroker {
     authority: DesktopIdentityApp,
     identitySession: Session = this.options.identitySession,
   ): Promise<string | null> {
-    const cookieHeader = await getSessionCookieHeader(
-      authority,
-      identitySession,
-    );
-    const response = await identitySession.fetch(
-      new URL("/_agent-native/auth/session", authority.origin).toString(),
-      {
-        method: "GET",
-        redirect: "manual",
-        credentials: "include",
-        headers: {
-          Accept: "application/json",
-          ...(cookieHeader ? { Cookie: cookieHeader } : {}),
-        },
-      },
-    );
-    if (!response.ok) return null;
-    const body = (await response.json().catch((error) => {
-      void error;
-      return null;
-    })) as { email?: unknown } | null;
-    return typeof body?.email === "string" && body.email.trim().length > 0
-      ? body.email.trim()
-      : null;
+    const controller = new AbortController();
+    const timeoutMs = this.options.statusTimeoutMs ?? DEFAULT_STATUS_TIMEOUT_MS;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        reject(
+          new Error(
+            `Desktop identity session check timed out after ${timeoutMs}ms`,
+          ),
+        );
+      }, timeoutMs);
+    });
+
+    try {
+      const cookieHeader = await Promise.race([
+        getSessionCookieHeader(authority, identitySession),
+        timeout,
+      ]);
+      const response = await Promise.race([
+        identitySession.fetch(
+          new URL("/_agent-native/auth/session", authority.origin).toString(),
+          {
+            method: "GET",
+            redirect: "manual",
+            credentials: "include",
+            signal: controller.signal,
+            headers: {
+              Accept: "application/json",
+              ...(cookieHeader ? { Cookie: cookieHeader } : {}),
+            },
+          },
+        ),
+        timeout,
+      ]);
+      if (!response.ok) {
+        if (
+          response.status >= 500 ||
+          response.status === 408 ||
+          response.status === 429
+        ) {
+          throw new Error(
+            `Desktop identity session check failed with status ${response.status}`,
+          );
+        }
+        return null;
+      }
+
+      let body: { email?: unknown } | null;
+      try {
+        body = (await Promise.race([response.json(), timeout])) as {
+          email?: unknown;
+        } | null;
+      } catch (error) {
+        if (
+          error instanceof Error &&
+          error.message.startsWith("Desktop identity session check timed out")
+        ) {
+          throw error;
+        }
+        throw new Error("Desktop identity session response was invalid.");
+      }
+      return typeof body?.email === "string" && body.email.trim().length > 0
+        ? body.email.trim()
+        : null;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 
   async prepareExternalSignOut(
@@ -3006,6 +3101,8 @@ export class DesktopIdentityBroker {
       this.completedModernAppSessions.clear();
     }
     this.status = status;
+    this.statusVerifiedAt = status === "signed-in" ? Date.now() : 0;
+    this.statusRevalidationRetryAt = 0;
     this.options.onStatus?.(status);
   }
 }

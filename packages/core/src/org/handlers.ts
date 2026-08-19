@@ -44,14 +44,31 @@ import { getSession } from "../server/auth.js";
 import { renderInviteEmail } from "../server/email-templates.js";
 import { sendEmail, isEmailConfigured } from "../server/email.js";
 import { readBody } from "../server/h3-helpers.js";
+import { getOrgSetting, putOrgSetting } from "../settings/org-settings.js";
 import { setActiveOrgId } from "./active-org.js";
 import { setRequiredAuthProvider } from "./auth-policy.js";
 import { invalidateDomainMatchCache } from "./auto-join-domain.js";
 import { getOrgContext, createOrganization } from "./context.js";
 import { isFreeEmailProvider } from "./free-email-providers.js";
 import { invalidateMemberOrgCaches } from "./request-org-cache.js";
-import type { OrgRole, RequiredAuthProvider } from "./types.js";
+import type {
+  OrgRole,
+  RequiredAuthProvider,
+  WorkspaceAppDefaultVisibility,
+} from "./types.js";
 import { parseWorkspaceUrl } from "./workspace-url.js";
+
+const WORKSPACE_APP_DEFAULT_VISIBILITY_KEY = "workspace-app-default-visibility";
+
+function normalizeWorkspaceAppDefaultVisibility(
+  value: unknown,
+): WorkspaceAppDefaultVisibility {
+  if (value === "private" || value === "org") return value;
+  if (value == null) return "org";
+  throw new Error(
+    "Workspace app default visibility is invalid; refusing to widen access.",
+  );
+}
 
 function getInviteAppUrl(event: H3Event): string {
   return getAppProductionUrl(event);
@@ -140,6 +157,16 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
   }
 
   const isOwnerOrAdmin = ctx.role === "owner" || ctx.role === "admin";
+  let workspaceAppDefaultVisibility: WorkspaceAppDefaultVisibility = "org";
+  if (ctx.orgId) {
+    const setting = await getOrgSetting(
+      ctx.orgId,
+      WORKSPACE_APP_DEFAULT_VISIBILITY_KEY,
+    );
+    workspaceAppDefaultVisibility = normalizeWorkspaceAppDefaultVisibility(
+      setting?.visibility,
+    );
+  }
 
   const invitesRes = await e.execute({
     // Case-insensitive match: invitations are stored with whatever case
@@ -170,6 +197,7 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
     allowedDomain,
     workspaceUrl,
     requiredAuthProvider,
+    workspaceAppDefaultVisibility,
     // Never serialize the A2A secret here. This route runs on every page load,
     // so the value would sit in JSON any script on the page can read, and it
     // signs the JWTs peers accept as first-party callers. Reveal is an explicit
@@ -177,6 +205,37 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
     a2aSecretSet: isOwnerOrAdmin ? a2aSecretSet : undefined,
   };
 });
+
+/** PUT /_agent-native/org/workspace-app-default-visibility - org admins only */
+export const setWorkspaceAppDefaultVisibilityHandler = defineEventHandler(
+  async (event: H3Event) => {
+    const ctx = await getOrgContext(event);
+    if (ctx.role !== "owner" && ctx.role !== "admin") {
+      throw createError({
+        statusCode: 403,
+        message: "Only organization admins can change app defaults.",
+      });
+    }
+    if (!ctx.orgId) {
+      throw createError({
+        statusCode: 400,
+        message: "Join an organization before changing app defaults.",
+      });
+    }
+    const body = await readBody(event);
+    if (body?.visibility !== "private" && body?.visibility !== "org") {
+      throw createError({
+        statusCode: 400,
+        message: "visibility must be either private or org.",
+      });
+    }
+    const visibility: WorkspaceAppDefaultVisibility = body.visibility;
+    await putOrgSetting(ctx.orgId, WORKSPACE_APP_DEFAULT_VISIBILITY_KEY, {
+      visibility,
+    });
+    return { visibility };
+  },
+);
 
 /** POST /_agent-native/org — create a new organization */
 export const createOrgHandler = defineEventHandler(async (event: H3Event) => {

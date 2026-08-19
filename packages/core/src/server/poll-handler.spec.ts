@@ -1082,6 +1082,17 @@ describe("poll handler", () => {
         owner: "test@example.com",
       }),
     ]);
+    const extensionScan = mockExecute.mock.calls.find(([query]) => {
+      if (typeof query === "string") return false;
+      return (
+        query?.sql?.includes(
+          "SELECT session_id, value, updated_at FROM application_state WHERE key = ? AND updated_at > ?",
+        ) && query?.args?.[0] === "__extensions_change__"
+      );
+    });
+    expect(extensionScan?.[0]).toMatchObject({
+      args: ["__extensions_change__", 700],
+    });
     // The extension-marker scan is bounded by the same watermark clause, so
     // match on the key argument rather than the SQL text: this asserts the
     // screen-refresh scan did not run, not that no bounded scan ran.

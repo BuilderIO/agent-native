@@ -46,6 +46,10 @@ let updateCheckInFlight: Promise<unknown> | null = null;
 let lastUpdateCheckStartedAt = 0;
 let notifiedUpdateVersion: string | null = null;
 let updateInstallInFlight = false;
+let updateQuitOwned = false;
+let quitRequestedDuringUpdatePreparation = false;
+let updateHelpersNeedRestore = false;
+let updateHelpersRestorePromise: Promise<void> | null = null;
 let installingUpdateForRetry: Extract<
   UpdateStatus,
   { state: "downloaded" }
@@ -59,6 +63,7 @@ export interface UpdatesIpcDeps {
   refreshApplicationMenu: () => void;
   focusMainWindow: () => void;
   prepareForUpdate?: () => Promise<void>;
+  restoreAfterUpdateFailure?: () => Promise<void>;
 }
 
 export interface UpdateCheckOptions {
@@ -69,6 +74,19 @@ export interface UpdateCheckOptions {
 // functions below can be invoked (autoUpdater events fire only after
 // registration, and the app menu isn't clickable until the app is ready).
 let deps: UpdatesIpcDeps | null = null;
+
+const UPDATE_CHECK_ERROR_MESSAGE =
+  "Couldn't check for updates. Please try again.";
+const UPDATE_DOWNLOAD_ERROR_MESSAGE =
+  "Couldn't download the update. Please try again.";
+const UPDATE_GENERIC_ERROR_MESSAGE =
+  "Couldn't complete the software update. Please try again.";
+
+function updateErrorMessage(error: unknown, message: string): string {
+  const detail = error instanceof Error ? error.message : String(error);
+  console.warn("[updates] update operation failed:", detail);
+  return message;
+}
 
 function getDeps(): UpdatesIpcDeps {
   if (!deps) {
@@ -82,6 +100,41 @@ export function getCurrentUpdateStatus(): UpdateStatus {
   return currentUpdateStatus;
 }
 
+/** Remembers a user quit that Electron deferred while helpers are closing. */
+export function requestQuitAfterUpdatePreparation(): void {
+  if (isPreparingDownloadedUpdate()) {
+    quitRequestedDuringUpdatePreparation = true;
+  }
+}
+
+function completeDeferredQuitIfRequested(): void {
+  const shouldQuit = quitRequestedDuringUpdatePreparation;
+  quitRequestedDuringUpdatePreparation = false;
+  if (shouldQuit) {
+    queueMicrotask(() => app.quit());
+  }
+}
+
+async function restoreHelpersAfterFailedUpdate(): Promise<void> {
+  if (!updateHelpersNeedRestore) return;
+  updateHelpersNeedRestore = false;
+  const restore = getDeps().restoreAfterUpdateFailure;
+  if (!restore) return;
+  if (!updateHelpersRestorePromise) {
+    updateHelpersRestorePromise = restore()
+      .catch((error) => {
+        console.warn(
+          "[updates] failed to restore desktop helpers after update handoff:",
+          error instanceof Error ? error.message : error,
+        );
+      })
+      .finally(() => {
+        updateHelpersRestorePromise = null;
+      });
+  }
+  await updateHelpersRestorePromise;
+}
+
 export async function installDownloadedUpdate(): Promise<void> {
   if (
     !UPDATE_SUPPORT.supported ||
@@ -93,16 +146,28 @@ export async function installDownloadedUpdate(): Promise<void> {
   installingUpdateForRetry =
     pendingDownloadedUpdate ||
     (currentUpdateStatus.state === "downloaded" ? currentUpdateStatus : null);
+  quitRequestedDuringUpdatePreparation = false;
   updateInstallInFlight = true;
+  // Preparation can fail after one of the native helpers has already been
+  // detached. Mark restoration before entering that multi-step operation so
+  // both synchronous and asynchronous handoff failures recover the shell.
+  updateHelpersNeedRestore = true;
   try {
     // Native helpers can outlive the Electron window. Close them before
     // Squirrel checks whether the old app is still running.
     await getDeps().prepareForUpdate?.();
+    // The updater owns quit only after preparation has completed and the
+    // installer handoff is about to happen. A normal user quit remains
+    // guarded while preparation is in flight.
+    updateQuitOwned = true;
+    quitRequestedDuringUpdatePreparation = false;
     // isSilent=false so any installer UI shows; isForceRunAfter=true so the
     // app relaunches after the update completes.
     autoUpdater.quitAndInstall(false, true);
   } catch (err) {
     updateInstallInFlight = false;
+    updateQuitOwned = false;
+    await restoreHelpersAfterFailedUpdate();
     const retryUpdate = installingUpdateForRetry;
     installingUpdateForRetry = null;
     if (retryUpdate) {
@@ -112,13 +177,24 @@ export async function installDownloadedUpdate(): Promise<void> {
         err,
       );
       broadcastUpdateStatus(retryUpdate);
-      return;
+    } else {
+      broadcastUpdateStatus({
+        state: "error",
+        message: err instanceof Error ? err.message : String(err),
+      });
     }
-    broadcastUpdateStatus({
-      state: "error",
-      message: err instanceof Error ? err.message : String(err),
-    });
+    completeDeferredQuitIfRequested();
   }
+}
+
+/** Whether the updater owns the next app quit lifecycle. */
+export function isInstallingDownloadedUpdate(): boolean {
+  return updateQuitOwned;
+}
+
+/** Whether the updater is still preparing helpers before taking over quit. */
+export function isPreparingDownloadedUpdate(): boolean {
+  return updateInstallInFlight && !updateQuitOwned;
 }
 
 function broadcastUpdateStatus(status: UpdateStatus) {
@@ -181,14 +257,22 @@ export async function checkForAppUpdates(
     updateCheckInFlight = withUpdateCheckTimeout(
       (async () => {
         const result = await autoUpdater.checkForUpdates();
-        await waitForDownloadedUpdate(result?.downloadPromise);
+        try {
+          await waitForDownloadedUpdate(result?.downloadPromise);
+        } catch (err) {
+          pendingDownloadedUpdate = null;
+          broadcastUpdateStatus({
+            state: "error",
+            message: updateErrorMessage(err, UPDATE_DOWNLOAD_ERROR_MESSAGE),
+          });
+        }
       })(),
     )
       .catch((err) => {
         pendingDownloadedUpdate = null;
         broadcastUpdateStatus({
           state: "error",
-          message: err instanceof Error ? err.message : String(err),
+          message: updateErrorMessage(err, UPDATE_CHECK_ERROR_MESSAGE),
         });
       })
       .finally(() => {
@@ -310,12 +394,14 @@ export function registerUpdatesIpc(ipcDeps: UpdatesIpcDeps): void {
       };
     });
 
-    autoUpdater.on("error", (err) => {
+    autoUpdater.on("error", async (err) => {
       const retryUpdate = updateInstallInFlight
         ? installingUpdateForRetry
         : null;
       updateInstallInFlight = false;
+      updateQuitOwned = false;
       installingUpdateForRetry = null;
+      await restoreHelpersAfterFailedUpdate();
       if (retryUpdate) {
         pendingDownloadedUpdate = retryUpdate;
         console.warn(
@@ -323,13 +409,15 @@ export function registerUpdatesIpc(ipcDeps: UpdatesIpcDeps): void {
           err,
         );
         broadcastUpdateStatus(retryUpdate);
+        completeDeferredQuitIfRequested();
         return;
       }
       pendingDownloadedUpdate = null;
       broadcastUpdateStatus({
         state: "error",
-        message: err?.message ?? String(err),
+        message: updateErrorMessage(err, UPDATE_GENERIC_ERROR_MESSAGE),
       });
+      completeDeferredQuitIfRequested();
     });
   }
 
@@ -367,7 +455,7 @@ export function registerUpdatesIpc(ipcDeps: UpdatesIpcDeps): void {
       pendingDownloadedUpdate = null;
       broadcastUpdateStatus({
         state: "error",
-        message: err instanceof Error ? err.message : String(err),
+        message: updateErrorMessage(err, UPDATE_DOWNLOAD_ERROR_MESSAGE),
       });
     }
     return currentUpdateStatus;
