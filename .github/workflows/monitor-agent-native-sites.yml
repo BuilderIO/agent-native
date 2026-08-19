@@ -1,0 +1,191 @@
+name: Monitor Agent Native site availability
+
+# This is deliberately independent from app health and Netlify build status:
+# an edge outage can make both the app health endpoint and the dashboard
+# unavailable while the deploy metadata still says "ready".
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: monitor-agent-native-sites
+  cancel-in-progress: true
+
+jobs:
+  monitor:
+    name: Probe production and beta hosts
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PAGERDUTY_ROUTING_KEY: ${{ secrets.PAGERDUTY_ROUTING_KEY }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 1
+          sparse-checkout: scripts/netlify-site-hosts.json
+          sparse-checkout-cone-mode: false
+
+      - name: Probe every public host
+        id: probe
+        run: |
+          set -o pipefail
+          node <<'NODE' | tee /tmp/agent-native-site-availability.log
+          const fs = require("node:fs");
+
+          const manifest = JSON.parse(
+            fs.readFileSync("scripts/netlify-site-hosts.json", "utf8"),
+          );
+          const hosts = [
+            ...manifest.production.map((host) => ({ environment: "production", host })),
+            ...manifest.beta.map((host) => ({ environment: "beta", host })),
+            ...manifest.workspace.map((host) => ({ environment: "workspace", host })),
+          ];
+          const timeoutMs = 15_000;
+
+          async function probe({ environment, host }) {
+            const startedAt = Date.now();
+            try {
+              const response = await fetch(`https://${host}/`, {
+                headers: { "user-agent": "agent-native-site-monitor" },
+                redirect: "manual",
+                signal: AbortSignal.timeout(timeoutMs),
+              });
+              await response.body?.cancel();
+              const ms = Date.now() - startedAt;
+              const ok = response.status >= 200 && response.status < 400;
+              return {
+                environment,
+                host,
+                ok,
+                detail: `HTTP ${response.status} in ${ms}ms`,
+              };
+            } catch (error) {
+              return {
+                environment,
+                host,
+                ok: false,
+                detail:
+                  error?.name === "TimeoutError"
+                    ? `timeout after ${timeoutMs}ms`
+                    : String(error?.message ?? error),
+              };
+            }
+          }
+
+          (async () => {
+            const results = await Promise.all(hosts.map(probe));
+            results.sort((left, right) => left.host.localeCompare(right.host));
+            for (const result of results) {
+              console.log(
+                `${result.ok ? "PASS" : "FAIL"}\t${result.environment}\t${result.host}\t${result.detail}`,
+              );
+            }
+            const failures = results.filter((result) => !result.ok);
+            console.log(`Checked ${results.length} hosts; ${failures.length} failed.`);
+            if (failures.length > 0) process.exitCode = 1;
+          })().catch((error) => {
+            console.error(error instanceof Error ? error.message : error);
+            process.exitCode = 1;
+          });
+          NODE
+
+      - name: Page and open a rolling incident
+        if: failure()
+        shell: bash
+        run: |
+          set -euo pipefail
+          ISSUE_TITLE="Agent Native site availability failing"
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          FAILING="$(grep '^FAIL[[:space:]]' /tmp/agent-native-site-availability.log || true)"
+          if [ -z "$FAILING" ]; then
+            FAILING="(the monitor itself failed before producing per-host results)"
+          fi
+          # Strip timings and status codes so repeated copies of one outage
+          # keep one signature and do not bury the actionable issue.
+          SIGNATURE="$(printf '%s' "$FAILING" | tr -d '0-9' | shasum | cut -c1-12)"
+          # shellcheck disable=SC2016
+          BODY="$(printf '%s\n\n```\n%s\n```\n\n%s\n\n<!-- availability-signature: %s -->' \
+            "The five-minute public-host availability monitor is failing." "$FAILING" "$RUN_URL" "$SIGNATURE")"
+
+          page_oncall() {
+            if [ -z "${PAGERDUTY_ROUTING_KEY:-}" ]; then
+              echo "::warning::PAGERDUTY_ROUTING_KEY is not configured; GitHub issue fallback is active but no page was sent."
+              return 0
+            fi
+            # The jq program intentionally uses jq variables, not shell vars.
+            # shellcheck disable=SC2016
+            jq -n \
+              --arg routing_key "$PAGERDUTY_ROUTING_KEY" \
+              --arg dedup_key "agent-native-site-availability" \
+              --arg summary "Agent Native public site availability is failing" \
+              --arg source "${{ github.repository }}" \
+              --arg run_url "$RUN_URL" \
+              --arg failing "$FAILING" \
+              --arg signature "$SIGNATURE" \
+              '{routing_key: $routing_key, event_action: "trigger", dedup_key: $dedup_key, payload: {summary: $summary, source: $source, severity: "critical", custom_details: {run_url: $run_url, failing_hosts: $failing, availability_signature: $signature}}}' \
+              | curl --fail-with-body --connect-timeout 10 --max-time 20 --silent --show-error \
+                  --header 'Content-Type: application/json' \
+                  --data-binary @- \
+                  https://events.pagerduty.com/v2/enqueue
+          }
+
+          pagerduty_status=0
+          page_oncall || pagerduty_status=$?
+          ISSUE_NUMBER="$(gh issue list --repo "${{ github.repository }}" --state open \
+            --search "\"$ISSUE_TITLE\" in:title" --json number,title \
+            --jq ".[] | select(.title == \"$ISSUE_TITLE\") | .number" | head -n1)"
+          if [ -z "$ISSUE_NUMBER" ]; then
+            gh issue create --repo "${{ github.repository }}" \
+              --title "$ISSUE_TITLE" --body "$BODY"
+          else
+            LAST="$(gh issue view "$ISSUE_NUMBER" --repo "${{ github.repository }}" \
+              --json comments,body --jq '[.body] + [.comments[].body] | last')"
+            if printf '%s' "$LAST" | grep -q "availability-signature: $SIGNATURE"; then
+              echo "Same failure as the last report - issue #$ISSUE_NUMBER remains open without a duplicate comment."
+            else
+              gh issue comment "$ISSUE_NUMBER" --repo "${{ github.repository }}" --body "$BODY"
+            fi
+          fi
+          if [ "$pagerduty_status" -ne 0 ]; then
+            echo "::error::PagerDuty delivery failed; GitHub issue reporting completed but the audit remains failed." >&2
+            exit "$pagerduty_status"
+          fi
+
+      - name: Resolve PagerDuty and close a recovered incident
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          ISSUE_TITLE="Agent Native site availability failing"
+          pagerduty_status=0
+          if [ -n "${PAGERDUTY_ROUTING_KEY:-}" ]; then
+            # shellcheck disable=SC2016
+            jq -n \
+              --arg routing_key "$PAGERDUTY_ROUTING_KEY" \
+              --arg dedup_key "agent-native-site-availability" \
+              --arg source "${{ github.repository }}" \
+              '{routing_key: $routing_key, event_action: "resolve", dedup_key: $dedup_key, payload: {summary: "Agent Native public site availability recovered", source: $source}}' \
+              | curl --fail-with-body --connect-timeout 10 --max-time 20 --silent --show-error \
+                  --header 'Content-Type: application/json' \
+                  --data-binary @- \
+                  https://events.pagerduty.com/v2/enqueue || pagerduty_status=$?
+          else
+            echo "PagerDuty resolve skipped: PAGERDUTY_ROUTING_KEY is not configured."
+          fi
+          ISSUE_NUMBER="$(gh issue list --repo "${{ github.repository }}" --state open \
+            --search "\"$ISSUE_TITLE\" in:title" --json number,title \
+            --jq ".[] | select(.title == \"$ISSUE_TITLE\") | .number" | head -n1)"
+          if [ -n "$ISSUE_NUMBER" ]; then
+            gh issue close "$ISSUE_NUMBER" --repo "${{ github.repository }}" \
+              --comment "Public-host monitor is green again: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          fi
+          if [ "$pagerduty_status" -ne 0 ]; then
+            echo "::error::PagerDuty resolve failed; GitHub issue bookkeeping completed only if available." >&2
+            exit "$pagerduty_status"
+          fi

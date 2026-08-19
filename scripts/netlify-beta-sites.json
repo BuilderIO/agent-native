@@ -1,0 +1,82 @@
+[
+  {
+    "id": "analytics",
+    "siteId": "5ff4aa83-7a85-4719-a409-e969ee1afc8d",
+    "host": "beta.analytics.agent-native.com"
+  },
+  {
+    "id": "assets",
+    "siteId": "1351f40a-f93a-4e37-aaa6-bb18e9303ab4",
+    "host": "beta.assets.agent-native.com"
+  },
+  {
+    "id": "brain",
+    "siteId": "b8530db5-528c-41c7-9de9-68036fe8635a",
+    "host": "beta.brain.agent-native.com"
+  },
+  {
+    "id": "calendar",
+    "siteId": "bbfece2d-884f-4792-a38f-ed2edd322286",
+    "host": "beta.calendar.agent-native.com"
+  },
+  {
+    "id": "clips",
+    "siteId": "00a3cd58-6292-4add-ac4d-b7cc3dd91f71",
+    "host": "beta.clips.agent-native.com"
+  },
+  {
+    "id": "content",
+    "siteId": "180fec45-74c1-47d1-b23c-ce57afe7c1b3",
+    "host": "beta.content.agent-native.com"
+  },
+  {
+    "id": "crm",
+    "siteId": "bef68db5-5bbc-41c6-b3d8-edeb7b871b5e",
+    "host": "beta.crm.agent-native.com"
+  },
+  {
+    "id": "design",
+    "siteId": "31e65ebd-a1c4-4932-b0bd-d63687e17018",
+    "host": "beta.design.agent-native.com"
+  },
+  {
+    "id": "dispatch",
+    "siteId": "98bdfefc-5414-46f0-b53c-a8ed23dcdb3e",
+    "host": "beta.dispatch.agent-native.com"
+  },
+  {
+    "id": "factory",
+    "siteId": "abc64ffe-e85f-4a88-802b-5c388c5a79b9",
+    "host": "beta.factory.agent-native.com"
+  },
+  {
+    "id": "forms",
+    "siteId": "598a6cb4-8181-492d-b593-bb0813c36a4c",
+    "host": "beta.forms.agent-native.com"
+  },
+  {
+    "id": "macros",
+    "siteId": "9625fdd3-f169-4456-8caa-6d00a57a597f",
+    "host": "beta.macros.agent-native.com"
+  },
+  {
+    "id": "mail",
+    "siteId": "c9088636-2c0e-419c-a5ff-e8c1aa8fde41",
+    "host": "beta.mail.agent-native.com"
+  },
+  {
+    "id": "plan",
+    "siteId": "3095efb3-fdbb-4239-bc4e-735a5d1c7e79",
+    "host": "beta.plan.agent-native.com"
+  },
+  {
+    "id": "slides",
+    "siteId": "10f840a9-ee0f-4d0c-8fb4-945b5665111f",
+    "host": "beta.slides.agent-native.com"
+  },
+  {
+    "id": "chat",
+    "siteId": "ec18e125-c197-449d-8779-96dfb004e23c",
+    "host": "beta.chat.agent-native.com"
+  }
+]

@@ -30,8 +30,10 @@ describe("EnvironmentBadge render", () => {
       value: {
         hostname: "beta.plan.agent-native.com",
         href: "https://beta.plan.agent-native.com/inbox?tab=all#runs",
+        replace: vi.fn(),
       },
     });
+    window.localStorage.removeItem("agent-native:beta-opt-out-until");
   });
 
   afterEach(() => {
@@ -65,5 +67,49 @@ describe("EnvironmentBadge render", () => {
     act(() => root.render(<EnvironmentBadge />));
 
     expect(container.querySelector("button")).toBeNull();
+  });
+
+  it("automatically redirects an employee from production to beta", () => {
+    const replace = vi.fn();
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: {
+        hostname: "plan.agent-native.com",
+        href: "https://plan.agent-native.com/inbox?tab=all#runs",
+        replace,
+      },
+    });
+    useSessionMock.mockReturnValue({
+      session: { email: "employee@builder.io" },
+      status: "authenticated",
+    });
+
+    act(() => root.render(<EnvironmentBadge />));
+
+    expect(replace).toHaveBeenCalledWith(
+      "https://beta.plan.agent-native.com/inbox?tab=all#runs",
+    );
+  });
+
+  it("does not redirect when production carries a valid opt-out", () => {
+    const replace = vi.fn();
+    const expiry = Date.now() + 60 * 60 * 1000;
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: {
+        hostname: "plan.agent-native.com",
+        href: `https://plan.agent-native.com/inbox?agentNativeBetaOptOut=${expiry}`,
+        replace,
+      },
+    });
+    useSessionMock.mockReturnValue({
+      session: { email: "employee@builder.io" },
+      status: "authenticated",
+    });
+
+    act(() => root.render(<EnvironmentBadge />));
+
+    expect(replace).not.toHaveBeenCalled();
+    expect(window.history.replaceState).toBeDefined();
   });
 });

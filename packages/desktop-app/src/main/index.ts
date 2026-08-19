@@ -211,6 +211,7 @@ import {
   SwiftDesktopHelperClient,
 } from "./computer-control";
 import { DesktopDesignPreviewManager } from "./design-preview-manager";
+import { isAllowedEnvironmentNavigation } from "./environment-navigation";
 import {
   DESKTOP_IDENTITY_PARTITION,
   DesktopIdentityBroker,
@@ -11225,6 +11226,7 @@ function navigationPort(url: URL): string {
 
 function isSameWebviewAppOrigin(current: URL, next: URL): boolean {
   if (current.origin === next.origin) return true;
+  if (isAllowedEnvironmentNavigation(current, next)) return true;
   if (current.protocol !== next.protocol) return false;
   return (
     normalizedNavigationHost(current.hostname) ===
