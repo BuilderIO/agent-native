@@ -57,7 +57,11 @@ import {
   type PlaybackComment,
 } from "./playback-comment-overlay";
 import { PlayerControls, SPEED_OPTIONS } from "./player-controls";
-import type { ReactionHandler } from "./reactions-tray";
+import type {
+  ReactionHandler,
+  ReactionHandlerResult,
+  ReactionSummary,
+} from "./reactions-tray";
 
 function resolveLocalUrl(url: string | null | undefined): string | undefined {
   if (!url) return undefined;
@@ -499,16 +503,16 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         }),
         reactions: [
           ...(reactions ?? []).flatMap((reaction) => {
-          const editedMs = mapMarker(reaction.videoTimestampMs);
-          return editedMs === null
-            ? []
-            : [
-                {
-                  id: reaction.id,
-                  emoji: reaction.emoji,
-                  videoTimestampMs: editedMs,
-                },
-              ];
+            const editedMs = mapMarker(reaction.videoTimestampMs);
+            return editedMs === null
+              ? []
+              : [
+                  {
+                    id: reaction.id,
+                    emoji: reaction.emoji,
+                    videoTimestampMs: editedMs,
+                  },
+                ];
           }),
           ...optimisticReactions.flatMap((reaction) => {
             const editedMs = mapMarker(reaction.videoTimestampMs);
