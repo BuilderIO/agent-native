@@ -23,6 +23,7 @@
  *   node scripts/agent-friction-report.mjs                # last 8 weeks
  *   node scripts/agent-friction-report.mjs --weeks 4
  *   node scripts/agent-friction-report.mjs --pattern cheap-model
+ *   node scripts/agent-friction-report.mjs --self-test
  *
  * Reads only local transcript files; makes no network calls and writes nothing.
  */
@@ -38,6 +39,54 @@ import { createInterface } from "node:readline";
  * climbing after its skill landed is a visible failure of that skill — not a
  * reason to reach for a tool-level block first.
  */
+const FOLLOWUP_ACTION = String.raw`(?:check(?:ed)?(?:\s+(?:back|whether|if))?|re-?check(?:ed)?|follow(?:ed)?[ -]+up(?:\s+(?:on|with))?|re-?read|revisit|re-?triage|disposition)`;
+const FOLLOWUP_TARGET = String.raw`(?:clarification|unanswered\s+feedback|follow[ -]?up|reporter|repl(?:y|ies|ied)|response|thread)`;
+const MISSED_FOLLOWUP_CONTEXT = String.raw`(?:miss(?:ed|ing)|prior|previous(?:ly)?|unanswered|pending|no\s+(?:reply|response)|still\s+(?:waiting|unanswered|no\s+(?:reply|response))|waiting\s+for|asked\s+for|requested\s+(?:a\s+)?clarification|reporter\s+(?:hasn['’]t|didn['’]t|never)\s+(?:repl(?:y|ied|ies)|respond))`;
+const FEEDBACK_CORRECTION_GUARDS = String.raw`(?=[^.!?]{0,140}\b${FOLLOWUP_ACTION}\b)(?=[^.!?]{0,140}\b${FOLLOWUP_TARGET}\b)(?=[^.!?]{0,140}\b${MISSED_FOLLOWUP_CONTEXT}\b)[^.!?]{0,180}`;
+
+const UNANSWERED_FEEDBACK_FOLLOWUP_RE = new RegExp(
+  [
+    String.raw`\b(?:did|have)\s+(?:you|we)\s+check\s+(?:whether|if)\s+the\s+reporter\s+(?:repl(?:y|ies|ied)|respond(?:ed|s)?)\s+to\s+the\s+clarification\b`,
+    String.raw`\b(?:did|have)\s+(?:you|we)\b${FEEDBACK_CORRECTION_GUARDS}`,
+    String.raw`\b(?:you|we)\s+(?:still\s+)?(?:haven['’]t|didn['’]t|never)\b${FEEDBACK_CORRECTION_GUARDS}`,
+    String.raw`\b(?:why|how\s+come)\b[^.!?]{0,80}\b(?:didn['’]t|haven['’]t|never|still|not)\b${FEEDBACK_CORRECTION_GUARDS}`,
+    String.raw`\b(?:please|can you|make sure|be sure)\b${FEEDBACK_CORRECTION_GUARDS}`,
+  ].join("|"),
+  "i",
+);
+
+const FEEDBACK_REGEX_CASES = [
+  [true, "Did you recheck the unanswered feedback?"],
+  [true, "Did you check whether the reporter replied to the clarification?"],
+  [true, "Have you followed up on the clarification after the prior request?"],
+  [true, "Why haven't you re-read the thread after the missed reporter reply?"],
+  [true, "Please re-triage the pending clarification; no response arrived."],
+  [false, "Have you checked back with the reporter about the thread?"],
+  [false, "Please re-triage this clarification."],
+  [false, "Nobody has responded."],
+  [false, "Can you re-read the thread after the deploy?"],
+  [false, "Did you re-triage this clarification again?"],
+  [false, "Answered clarification from yesterday."],
+  [false, "Follow-up pass complete."],
+  [false, "eyes-only thread"],
+];
+
+if (process.argv.includes("--self-test")) {
+  const failures = FEEDBACK_REGEX_CASES.filter(
+    ([expected, message]) =>
+      UNANSWERED_FEEDBACK_FOLLOWUP_RE.test(message) !== expected,
+  );
+  if (failures.length > 0) {
+    console.error("Feedback regex self-test failed:", failures);
+    process.exitCode = 1;
+  } else {
+    console.log(
+      `Feedback regex self-test passed (${FEEDBACK_REGEX_CASES.length} cases).`,
+    );
+  }
+  process.exit(failures.length > 0 ? 1 : 0);
+}
+
 const PATTERNS = [
   {
     key: "branch-moves",
@@ -68,6 +117,14 @@ const PATTERNS = [
     label: "Had to ask whether sibling call sites were swept",
     fixedBy: ".agents/skills/fix-at-the-boundary (2026-07-31)",
     re: /\b(any other (apps?|providers?|templates?|places?)|other (apps?|templates?) (that )?do(es)? this|same (bug|issue|thing) (in|across)|sweep of other|fix that too)\b/i,
+  },
+  {
+    key: "unanswered-feedback-followup",
+    label: "Had to ask whether unanswered feedback was rechecked",
+    fixedBy: ".agents/skills/review-latest-feedback (2026-08-19)",
+    // Keep this correction-specific: routine re-triage, answered-clarification,
+    // eyes-only, and reporter-status text are not friction by themselves.
+    re: UNANSWERED_FEEDBACK_FOLLOWUP_RE,
   },
   {
     key: "collision",

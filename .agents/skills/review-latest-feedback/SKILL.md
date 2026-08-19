@@ -118,6 +118,82 @@ Our own question is what makes a thread eligible for the first work item,
 which is why this pass runs first. Without it every thread we asked about can
 become invisible on later runs and the reporter's answer is never read.
 
+## Clarification follow-up aging
+
+A clarification is a pending work item, not a reason to wait forever. When a
+**Clarification needed** reply is posted, record its timestamp and schedule a
+recurring recheck - every four hours is the default unless the invocation gives
+another interval. Each recheck must re-read the complete thread, look for a new
+reporter answer, and re-enter triage immediately if one arrived. Do not post a
+duplicate reminder just because the scheduled check ran.
+
+### Durable tracking and discovery
+
+The Slack thread is the source of truth for the question and reporter answer;
+the cross-run workflow state lives in the task-scoped JSON ledger at
+`$XDG_STATE_HOME/review-latest-feedback/<codex_task_id>/clarification-ledger.json`
+when `XDG_STATE_HOME` is set, otherwise
+`~/.codex/state/review-latest-feedback/<codex_task_id>/clarification-ledger.json`
+(or under the task-scoped directory supplied by
+`REVIEW_LATEST_FEEDBACK_LEDGER_DIR`, with the same `<codex_task_id>` suffix).
+Never accept one shared complete-path override for multiple tasks. For a
+thread-target schedule, use its stable target thread id. For a global schedule
+that starts a fresh run on every tick, use the persisted schedule id or another
+persistent heartbeat target id that the scheduler passes into every run. Never
+derive `<codex_task_id>` from a fresh per-tick run id. If the scheduler cannot
+expose a stable id, require the external persistence mechanism to provide one
+before claiming scheduled coverage. This is local Codex state, not a recap and
+not a file committed to
+a worktree. The ledger has `schema_version`, `codex_task_id`,
+`owner_identities`, and an `items` map keyed by
+`<slack_channel_id>:<parent_ts>`. Each item has
+`parent_ts`, `clarification_ts`, `last_recheck_at`, `next_recheck_at`,
+`reporter_reply_ts` (or `null`), `aging_audit_at` (or `null`),
+`aging_outcome` (`not-due`, `candidate-fixed`, `clarification-remains`,
+`external`, or `ambiguous`), and `owner_identity`. Acquire the ledger lock,
+read it before scanning, upsert by that key after every disposition, and write
+it through a temporary file plus rename so a killed heartbeat cannot leave a
+partial cursor. The scheduled heartbeat must use the same path and protocol on
+the next run, then append the loaded and updated rows to its recap.
+
+Initialize `owner_identities` with the invoking Slack identity and the
+configured `agent-native` identity. During the required full-thread read,
+inspect **Fixed** and **Clarification needed** replies from every author, not
+only Steve. Scheduled discovery first queries all exact terminal replies in
+the channel, joins them to eye-marked parents, and reads each candidate thread
+without an author filter. If the full thread or assignment establishes a new
+investigator or owner, add that identity and persist it in the ledger before
+applying the owner filter on later scans. A known-owner filter may optimize
+subsequent reads, but it must never gate this bootstrap query. If no recurring
+automation is available, say that the follow-up is manual and do not claim
+scheduled coverage exists.
+
+If there is still no reporter answer after the aging threshold, make one bounded
+source investigation before leaving the item pending. The threshold is exactly
+24 weekday wall-clock hours in the task timezone - here, America/Los_Angeles -
+counting elapsed hours on local Monday through Friday and pausing during local
+Saturday and Sunday. For example, Wednesday at 10:00 reaches the threshold
+Thursday at 10:00, while Friday at 10:00 reaches it Monday at 10:00. Record
+`aging_audit_at` and the `aging_outcome` after that one audit. On later scheduled
+rechecks, skip the aging path when that field is set unless a reporter reply or
+new code, deployment, or runtime evidence changes the case; still re-read the
+thread every time.
+
+Inspect the parent evidence, linked artifacts, the likely owning code path,
+existing regressions, recent fixes, and available runtime or deployment
+evidence. An educated guess is useful only when the evidence points to a narrow
+repo-owned culprit and the fix can be tested at the owning boundary. In that
+case, fix it, add focused coverage, run verification, and use `/ship` when
+publishing is authorized. Do not invent a global rule, patch every plausible
+call site, or call **Fixed** from a hunch. If the audit cannot establish a
+likely culprit, keep one precise **Clarification needed** question open, set
+`aging_outcome` to `clarification-remains`, and record why the source evidence
+was insufficient.
+
+Weekend aging pauses the threshold, not the reply obligation: every scheduled
+recheck still reads for a reporter response, and an answer at any time always
+preempts the aging path and gets the full answered-clarification treatment.
+
 Before choosing a new start cursor, re-read every thread that this workflow
 left in **In progress**, oldest open ownership first. Verify the claimed fix or
 continue the handoff; do not ask the reporter to repeat details. Keep doing
