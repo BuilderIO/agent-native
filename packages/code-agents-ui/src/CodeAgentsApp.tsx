@@ -136,6 +136,8 @@ import type {
   CodeAgentRun,
   CodeAgentRunDetail,
   CodeAgentRunListResult,
+  CodeAgentScheduleListResult,
+  CodeAgentScheduleResult,
   CodeAgentTerminalRequest,
   CodeAgentTerminalResult,
   CodeAgentTranscriptEvent,
@@ -169,6 +171,11 @@ import {
 
 export interface CodeAgentsHost {
   listRuns: (goalId?: string) => Promise<CodeAgentRunListResult>;
+  listSchedules?: () => Promise<CodeAgentScheduleListResult>;
+  createSchedule?: (input: unknown) => Promise<CodeAgentScheduleResult>;
+  updateSchedule?: (input: unknown) => Promise<CodeAgentScheduleResult>;
+  deleteSchedule?: (input: unknown) => Promise<CodeAgentScheduleResult>;
+  runScheduleNow?: (input: unknown) => Promise<CodeAgentScheduleResult>;
   listModels?: () => Promise<CodeAgentModelListResult>;
   getHostMetadata?: () => Promise<CodeAgentHostMetadata>;
   runComputerSetupAction?: (
