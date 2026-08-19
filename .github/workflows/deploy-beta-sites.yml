@@ -137,6 +137,15 @@ jobs:
                 readJson(await request(`${api}/builds/${site.buildId}`, { headers }), `[${site.id}] build status`),
                 readJson(await request(`${api}/deploys/${site.deployId}`, { headers }), `[${site.id}] deploy status`),
               ]);
+              const noContentChange = [build.error, deploy.error_message].some(
+                (value) =>
+                  typeof value === "string" &&
+                  value.includes("Canceled build due to no content change"),
+              );
+              if (noContentChange) {
+                console.log(`[${site.id}] no content change; reusing the existing beta deploy.`);
+                return;
+              }
               if (build.error || deploy.state === "error") {
                 throw new Error(`[${site.id}] deploy failed: ${build.error || deploy.error_message || deploy.state}`);
               }
