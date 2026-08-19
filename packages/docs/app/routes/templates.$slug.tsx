@@ -26,8 +26,8 @@ const genericFaqCounts: Partial<Record<Template["slug"], number>> = {
 
 const genericHeroScreenshots: Partial<Record<Template["slug"], string>> = {
   assets:
-    "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F797d0b56b93a4e779baa0d7a5724e0db?format=webp&width=2200",
-  chat: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F202088a9b7de469b8b0faf5aca061ff0?format=webp&width=2200",
+    "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa4ec9bd5a9ba4d98bf00bde9b7425f17",
+  chat: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F70073f5fc11b406aaaddb148abb08bd6",
 };
 
 function findTemplate(slug: string | undefined) {

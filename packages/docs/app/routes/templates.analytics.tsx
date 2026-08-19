@@ -173,7 +173,7 @@ export default function AnalyticsTemplate() {
         }
         media={
           <img
-            src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff1e7ffee62d64d26b0411c1f6a50e1e1?format=webp&width=800&height=1200"
+            src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F816761dfcd484a79b71ba38379f7beda"
             crossOrigin="anonymous"
             alt={t("templateLanding.analytics.s001")}
             loading="lazy"

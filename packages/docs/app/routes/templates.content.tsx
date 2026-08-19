@@ -130,7 +130,7 @@ export default function ContentTemplate() {
         }
         media={
           <img
-            src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F84aeddce626e47feb6fd4b2d201db07c?format=webp&width=800&height=1200"
+            src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F5cbd796ed40a43eb9e044c33d7d7fdea"
             crossOrigin="anonymous"
             alt={t("templateLanding.content.s001")}
             loading="lazy"

@@ -246,7 +246,7 @@ export default function PlanTemplate() {
         description={<p className="m-0">{t("templateLanding.plan.s016")}</p>}
         media={
           <img
-            src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F62611d0841544a819df6e057251306a1?format=webp&width=800&height=1200"
+            src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fde31fbcbb81b4b799146d46dd4719eb0"
             crossOrigin="anonymous"
             alt={t("templateLanding.plan.s001")}
             loading="lazy"
