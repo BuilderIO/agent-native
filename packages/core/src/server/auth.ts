@@ -1744,9 +1744,7 @@ function parseDesktopExchangeStoredEntry(
     const encoded = isMagicLinkExchange
       ? packed.slice(DESKTOP_MAGIC_LINK_EXCHANGE_PREFIX.length)
       : packed;
-    const verifierSeparator = isMagicLinkExchange
-      ? encoded.indexOf("::")
-      : -1;
+    const verifierSeparator = isMagicLinkExchange ? encoded.indexOf("::") : -1;
     const verifierHash =
       verifierSeparator >= 0 ? encoded.slice(0, verifierSeparator) : undefined;
     if (
@@ -2035,7 +2033,8 @@ async function readDesktopExchangeFromDB(
     });
     if (rows.length === 0) return { status: "missing" };
     const packed = (rows[0].email ?? rows[0][0]) as string | null;
-    const entry = packed ? parseDesktopExchangeStoredEntry(packed) : null;
+    if (packed === null) return { status: "malformed", packed };
+    const entry = parseDesktopExchangeStoredEntry(packed);
     return entry
       ? { status: "entry", entry, packed }
       : { status: "malformed", packed };
@@ -2057,10 +2056,7 @@ async function consumeDesktopExchangeFromDB(
     const client = getDbExec();
     const { rows } = await client.execute({
       sql: `SELECT email FROM sessions WHERE token = ? AND created_at > ? LIMIT 1`,
-      args: [
-        `dex:${flowId}`,
-        Date.now() - DESKTOP_EXCHANGE_TTL_MS,
-      ],
+      args: [`dex:${flowId}`, Date.now() - DESKTOP_EXCHANGE_TTL_MS],
     });
     if (rows.length === 0) return { status: "missing" };
     const packed = (rows[0].email ?? rows[0][0]) as string | null;
@@ -2073,11 +2069,7 @@ async function consumeDesktopExchangeFromDB(
     // one-time consumers.
     const deleted = await client.execute({
       sql: `DELETE FROM sessions WHERE token = ? AND created_at > ? AND email = ? RETURNING email`,
-      args: [
-        `dex:${flowId}`,
-        Date.now() - DESKTOP_EXCHANGE_TTL_MS,
-        packed,
-      ],
+      args: [`dex:${flowId}`, Date.now() - DESKTOP_EXCHANGE_TTL_MS, packed],
     });
     if (deleted.rows.length === 0) return { status: "missing" };
     forgetCachedSessionEmail(`dex:${flowId}`);

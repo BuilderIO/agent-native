@@ -557,8 +557,7 @@ describe("server/auth", () => {
             const row = sessions.get(token);
             const exactPacked = args?.[2];
             const matches =
-              row &&
-              (exactPacked === undefined || row.email === exactPacked);
+              row && (exactPacked === undefined || row.email === exactPacked);
             if (!matches) return { rows: [] };
             sessions.delete(token);
             return { rows: [{ email: row.email }] };
@@ -3477,6 +3476,282 @@ describe("server/auth", () => {
       expect(event.res.headers.get("set-cookie")).toContain(
         "session-token-abc",
       );
+    });
+
+    it("does not publish a token before durable persistence completes", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      const verifier = "desktop-persist-verifier-123456789012345";
+      const verifierHash = crypto
+        .createHash("sha256")
+        .update(verifier)
+        .digest("base64url");
+      const flowId = "flow-persist-before-publish";
+      const storedExchange =
+        `__magic-link-exchange__::${verifierHash}::` +
+        "session-token-persisted::user@gmail.com";
+      const sessions = new Map<string, string>();
+      let resolveInsert!: () => void;
+      const insertComplete = new Promise<void>((resolve) => {
+        resolveInsert = resolve;
+      });
+      let insertStarted!: () => void;
+      const insertObserved = new Promise<void>((resolve) => {
+        insertStarted = resolve;
+      });
+      const mockExecute = vi.fn(
+        async ({ sql, args }: { sql?: string; args?: unknown[] } = {}) => {
+          const statement = typeof sql === "string" ? sql : "";
+          const token = args?.[0] as string | undefined;
+          if (statement.includes("INSERT") && token) {
+            insertStarted();
+            await insertComplete;
+            sessions.set(token, String(args?.[1]));
+            return { rows: [] };
+          }
+          if (statement.includes("SELECT email FROM sessions") && token) {
+            const email = sessions.get(token);
+            return email ? { rows: [{ email }] } : { rows: [] };
+          }
+          if (statement.includes("DELETE FROM sessions") && token) {
+            const email = sessions.get(token);
+            if (!email || (args?.[2] && args[2] !== email)) {
+              return { rows: [] };
+            }
+            sessions.delete(token);
+            return { rows: [{ email }] };
+          }
+          return { rows: [] };
+        },
+      );
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: mockExecute }),
+        isPostgres: () => false,
+        isLocalDatabase: () => false,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+
+      const { autoMountAuth, setDesktopExchange } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+      const exchangeHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/desktop-exchange",
+      )?.[1];
+      const setPromise = setDesktopExchange(
+        flowId,
+        "session-token-persisted",
+        "user@gmail.com",
+        verifierHash,
+      );
+      await insertObserved;
+
+      await expect(
+        exchangeHandler(
+          createMockEvent({
+            path: "/_agent-native/auth/desktop-exchange",
+            query: { flow_id: flowId },
+            headers: { "x-agent-native-desktop-verifier": verifier },
+          }),
+        ),
+      ).resolves.toEqual({ pending: true, flow: flowId.slice(-10) });
+
+      resolveInsert();
+      await setPromise;
+      await expect(
+        exchangeHandler(
+          createMockEvent({
+            path: "/_agent-native/auth/desktop-exchange",
+            query: { flow_id: flowId },
+            headers: { "x-agent-native-desktop-verifier": verifier },
+          }),
+        ),
+      ).resolves.toEqual({
+        token: "session-token-persisted",
+        email: "user@gmail.com",
+      });
+      await expect(
+        exchangeHandler(
+          createMockEvent({
+            path: "/_agent-native/auth/desktop-exchange",
+            query: { flow_id: flowId },
+            headers: { "x-agent-native-desktop-verifier": verifier },
+          }),
+        ),
+      ).resolves.toEqual({ pending: true, flow: flowId.slice(-10) });
+      expect(sessions.has(`dex:${flowId}`)).toBe(false);
+    });
+
+    it("allows only one concurrent poller to claim a durable exchange", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      const verifier = "desktop-concurrent-verifier-123456789012";
+      const verifierHash = crypto
+        .createHash("sha256")
+        .update(verifier)
+        .digest("base64url");
+      const flowId = "flow-concurrent-claim";
+      const storedExchange =
+        `__magic-link-exchange__::${verifierHash}::` +
+        "session-token-concurrent::user@gmail.com";
+      let stored = true;
+      const mockExecute = vi.fn(
+        async ({ sql }: { sql?: string; args?: unknown[] } = {}) => {
+          const statement = typeof sql === "string" ? sql : "";
+          if (statement.includes("SELECT email FROM sessions")) {
+            return stored
+              ? { rows: [{ email: storedExchange }] }
+              : { rows: [] };
+          }
+          if (statement.includes("DELETE FROM sessions")) {
+            if (!stored) return { rows: [] };
+            stored = false;
+            return { rows: [{ email: storedExchange }] };
+          }
+          return { rows: [] };
+        },
+      );
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: mockExecute }),
+        isPostgres: () => false,
+        isLocalDatabase: () => false,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+      const exchangeHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/desktop-exchange",
+      )?.[1];
+      const makeEvent = () =>
+        createMockEvent({
+          path: "/_agent-native/auth/desktop-exchange",
+          query: { flow_id: flowId },
+          headers: { "x-agent-native-desktop-verifier": verifier },
+        });
+
+      const results = await Promise.all([
+        exchangeHandler(makeEvent()),
+        exchangeHandler(makeEvent()),
+      ]);
+      expect(results).toHaveLength(2);
+      expect(
+        results.filter(
+          (result: unknown) =>
+            JSON.stringify(result) ===
+            JSON.stringify({
+              token: "session-token-concurrent",
+              email: "user@gmail.com",
+            }),
+        ),
+      ).toHaveLength(1);
+      expect(
+        results.filter(
+          (result: unknown) =>
+            JSON.stringify(result) ===
+            JSON.stringify({ pending: true, flow: flowId.slice(-10) }),
+        ),
+      ).toHaveLength(1);
+    });
+
+    it("retains malformed durable exchange rows for diagnosis", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      const flowId = "flow-malformed-payload";
+      const malformed = "__magic-link-exchange__::not-a-valid-payload";
+      const mockExecute = vi.fn(async ({ sql }: { sql?: string } = {}) => {
+        const statement = typeof sql === "string" ? sql : "";
+        if (statement.includes("SELECT email FROM sessions")) {
+          return { rows: [{ email: malformed }] };
+        }
+        if (statement.includes("DELETE FROM sessions")) {
+          throw new Error("malformed payload must not be deleted");
+        }
+        return { rows: [] };
+      });
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: mockExecute }),
+        isPostgres: () => false,
+        isLocalDatabase: () => false,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+      const exchangeHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/desktop-exchange",
+      )?.[1];
+      const event = createMockEvent({
+        path: "/_agent-native/auth/desktop-exchange",
+        query: { flow_id: flowId },
+      });
+
+      await expect(exchangeHandler(event)).resolves.toEqual({
+        error: "Desktop exchange storage is invalid.",
+        code: "exchange_storage_invalid",
+      });
+      expect(event.res.status).toBe(500);
+      expect(mockExecute).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          sql: expect.stringContaining("DELETE FROM sessions"),
+        }),
+      );
+      await expect(
+        exchangeHandler(
+          createMockEvent({
+            path: "/_agent-native/auth/desktop-exchange",
+            query: { flow_id: flowId },
+          }),
+        ),
+      ).resolves.toMatchObject({
+        code: "exchange_storage_invalid",
+      });
     });
 
     it("desktop exchange can deliver OAuth errors to the app surface", async () => {

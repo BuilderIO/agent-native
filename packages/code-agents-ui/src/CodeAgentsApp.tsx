@@ -1514,6 +1514,12 @@ export default function CodeAgentsApp({
 
         pendingFrames.delete(frame);
         editor.focus();
+        const selection = window.getSelection();
+        const range = document.createRange();
+        range.selectNodeContents(editor);
+        range.collapse(false);
+        selection?.removeAllRanges();
+        selection?.addRange(range);
         document.execCommand("insertText", false, prompt.trim());
       };
 
