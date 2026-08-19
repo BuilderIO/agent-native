@@ -71,6 +71,7 @@ const messages = {
     status: "Status",
     coverage: "Abdeckung",
     reason: "Grund",
+    updatedAt: "Aktualisiert",
     detailTitle: "Entscheidungsdetails",
     selectItem: "Element auswählen, um Belege und Entscheidungen zu prüfen.",
     detailError: "Diese Beobachtung konnte nicht geladen werden.",
@@ -224,11 +225,15 @@ const messages = {
     automationSchedulePlaceholder: "Zum Beispiel werktags um 09:00 Uhr",
     automationEnabledLabel: "Automatisierung ist aktiviert",
     automationPrompt: "Prompt",
+    automationLastUpdated: "zuletzt aktualisiert",
     automationPromptPlaceholder: "Was soll Factory bei der Ausführung tun?",
     promptEditorHint: "Hier bearbeiten und anschließend speichern.",
     pastRuns: "Vergangene Läufe",
     pastRunsEmpty: "Noch keine Läufe aufgezeichnet.",
     saveAutomation: "Speichern",
+    automationSaved: "Gespeichert",
+    automationSaveFailed:
+      "Die Automatisierung konnte nicht gespeichert werden.",
     runNow: "Jetzt ausführen",
     automationHealthTitle: "Scheduler-Status",
     automationHealthDescription:
