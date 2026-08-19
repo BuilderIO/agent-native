@@ -933,10 +933,12 @@ export default function CodeAgentsHub({
   const openScheduledChatWithPrompt = useCallback(
     (prompt: string) => {
       returnToChatFirstChats();
-      setScheduledChatPromptRequest({
-        prompt,
-        nonce: ++scheduledChatPromptSequence.current,
-      });
+      window.setTimeout(() => {
+        setScheduledChatPromptRequest({
+          prompt,
+          nonce: ++scheduledChatPromptSequence.current,
+        });
+      }, 0);
     },
     [returnToChatFirstChats],
   );
