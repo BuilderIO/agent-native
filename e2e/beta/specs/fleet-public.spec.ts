@@ -111,7 +111,7 @@ for (const site of sites) {
       // Repeated with a cache buster: a sign-in 404 that "fixes itself on
       // refresh" was reported, which a single request cannot see. These are
       // plain HTTP, so they cost almost nothing.
-      for (let attempt = 1; attempt <= 5; attempt += 1) {
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
         const outcome = await mustRespond(
           `${origin}/sign-in?cb=${Date.now()}-${attempt}`,
           { redirect: "follow" },

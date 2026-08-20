@@ -57,11 +57,11 @@ export default defineConfig({
   // distinguishes a slow host from a broken one. It cannot mask a broken one:
   // every assertion here is deterministic given a responsive host.
   retries: isCi ? 2 : 1,
-  // GitHub's ubuntu-latest has 4 vCPUs. Six concurrent Chromium instances
-  // oversubscribe it, and every navigation slows down together — measured at
-  // 5-15s per page load in CI against 1-2s locally. Matching the core count
-  // trades a little theoretical parallelism for pages that actually load.
-  workers: isCi ? 4 : 4,
+  // Two constraints, both measured. GitHub's ubuntu-latest has 4 vCPUs, so
+  // more Chromium instances than that thrash. And the fleet sits behind one
+  // CDN that throttles a bursty datacenter caller, which shows up as stalled
+  // navigations rather than refusals. Fewer workers is faster here.
+  workers: isCi ? 3 : 4,
   timeout: 240_000,
   expect: { timeout: 30_000 },
   // Per-lane report paths. The workflow invokes this config once per lane, and
@@ -88,9 +88,13 @@ export default defineConfig({
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
     video: "retain-on-failure",
-    actionTimeout: 30_000,
-    navigationTimeout: 90_000,
-    userAgent: `agent-native-beta-e2e (+https://github.com/BuilderIO/agent-native) Chrome/${devices["Desktop Chrome"].userAgent?.match(/Chrome\/([\d.]+)/)?.[1] ?? "latest"}`,
+    actionTimeout: 20_000,
+    // A dead host should be cheap to discover. These hosts sit behind
+    // Cloudflare and stall rather than refuse when they throttle a caller, so
+    // every timeout is paid in full — at 90s, times retries, times sixteen
+    // hosts, that dominated the run. Anything that cannot answer in 45s after
+    // the warm-up is broken for a user too.
+    navigationTimeout: 45_000,
   },
   projects: [
     // Gating lanes: a red here is a reason not to promote.
