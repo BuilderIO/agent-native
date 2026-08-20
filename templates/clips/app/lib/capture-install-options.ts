@@ -44,6 +44,19 @@ export function markDesktopAppDownloaded(): void {
   downloadedListeners.forEach((fn) => fn());
 }
 
+// A failed launch attempt (the protocol handler is gone, e.g. after an
+// uninstall) reverts both flags set by markDesktopAppDownloaded, so CTAs flip
+// back to the install/download state instead of staying stuck on "Open".
+export function clearDesktopAppDownloaded(): void {
+  try {
+    window.localStorage?.removeItem(DESKTOP_DOWNLOADED_STORAGE_KEY);
+    window.localStorage?.removeItem(DESKTOP_PROMO_DISMISSED_STORAGE_KEY);
+  } catch {
+    // Best-effort; a fresh protocol attempt next time still recovers.
+  }
+  downloadedListeners.forEach((fn) => fn());
+}
+
 export function hasDismissedDesktopPromo(): boolean {
   try {
     return (
@@ -69,7 +82,7 @@ export function markDesktopPromoDismissed(): void {
  * to query whether the protocol is registered, so we watch for the tab losing
  * focus (the app taking over) within a short window; if that never happens we
  * assume the app is not installed and navigate to the fallback. A successful
- * launch self-heals the stored "downloaded" flag.
+ * launch self-heals the stored "downloaded" flag, and a failed one clears it.
  */
 export function attemptOpenDesktopApp(fallbackHref = "/download"): void {
   if (typeof window === "undefined") return;
@@ -95,7 +108,10 @@ export function attemptOpenDesktopApp(fallbackHref = "/download"): void {
 
   window.setTimeout(() => {
     cleanup();
-    if (!launched) window.location.href = fallbackUrl;
+    if (!launched) {
+      clearDesktopAppDownloaded();
+      window.location.href = fallbackUrl;
+    }
   }, DESKTOP_APP_LAUNCH_FALLBACK_MS);
 
   try {
