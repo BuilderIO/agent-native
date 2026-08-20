@@ -120,12 +120,16 @@ jobs:
           const raw = (process.env.REQUESTED_APPS || "all").trim();
           let apps;
           if (!raw || raw === "all") {
-            apps = known;
+            apps = [...new Set(known)];
           } else {
-            apps = raw
-              .split(",")
-              .map((value) => value.trim().toLowerCase())
-              .filter(Boolean);
+            apps = [
+              ...new Set(
+                raw
+                  .split(",")
+                  .map((value) => value.trim().toLowerCase())
+                  .filter(Boolean),
+              ),
+            ];
             const unknown = apps.filter((id) => !known.includes(id));
             if (unknown.length > 0) {
               throw new Error(
@@ -185,13 +189,19 @@ jobs:
     timeout-minutes: 20
     env:
       BETA_E2E_APPS: ${{ inputs.apps }}
+      BETA_E2E_GREP: ${{ inputs.grep || '' }}
       BETA_E2E_AUTHED: "0"
       BETA_E2E_REPORT_SLOT: fleet
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: ./.github/actions/beta-e2e-setup
       - name: Cross-host checks
-        run: pnpm e2e:beta --project=fleet
+        run: |
+          if [ -n "$BETA_E2E_GREP" ]; then
+            pnpm e2e:beta --project=fleet --grep "$BETA_E2E_GREP"
+          else
+            pnpm e2e:beta --project=fleet
+          fi
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: ${{ always() }}
         with:

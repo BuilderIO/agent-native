@@ -177,6 +177,13 @@ if (workflow) {
       `${workflowPath} no longer runs the fleet lane. The public lane is sharded one host per runner, so cross-host checks only mean something in a run that sees every host.`,
     );
   }
+  if (
+    !workflow.includes('pnpm e2e:beta --project=fleet --grep "$BETA_E2E_GREP"')
+  ) {
+    issues.push(
+      `${workflowPath} no longer passes BETA_E2E_GREP through the fleet lane. Filtered dispatches must not run the full cross-host suite.`,
+    );
+  }
   if (!workflow.includes("--project=advisory")) {
     issues.push(
       `${workflowPath} no longer runs the advisory lane. Non-blocking findings that stop being reported stop being fixed.`,
@@ -214,6 +221,14 @@ if (workflow) {
   if (!workflow.includes("fromJSON(needs.discover.outputs.matrix)")) {
     issues.push(
       `${workflowPath} no longer shards the public lane across runners. A page load against a beta host costs 20-40s from a GitHub runner, so one runner for the whole fleet is a ~28 minute gate nobody waits for.`,
+    );
+  }
+  if (
+    !workflow.includes("apps = [...new Set(known)]") ||
+    !workflow.includes("...new Set(\n                raw")
+  ) {
+    issues.push(
+      `${workflowPath} no longer deduplicates app IDs before emitting the shard matrix. Duplicate IDs would launch jobs with colliding artifact names.`,
     );
   }
 }
