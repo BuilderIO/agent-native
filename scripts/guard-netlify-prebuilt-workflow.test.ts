@@ -163,6 +163,37 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(String(artifact.run), /GUARD_SSR_CACHE_ARTIFACT_DIR/);
   });
 
+  it("gives the beta branch-deploy build release and warm-runtime ownership", () => {
+    const workflow = readFileSync(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+      "utf8",
+    );
+    const buildStart = workflow.indexOf(
+      "name: Build with the Netlify project configuration",
+    );
+    const buildEnd = workflow.indexOf(
+      "name: Verify deploy directories",
+      buildStart,
+    );
+    const build = workflow.slice(buildStart, buildEnd);
+    const betaStart = build.indexOf('if [[ "$TARGET" == "beta" ]]');
+    const clipsStart = build.indexOf(
+      'if [[ "$SOURCE_TEMPLATE" == "clips" ]]',
+      betaStart,
+    );
+    const beta = build.slice(betaStart, clipsStart);
+
+    for (const flag of [
+      "AGENT_NATIVE_RELEASE_MIGRATIONS=1",
+      "AGENT_NATIVE_RUN_RELEASE_MIGRATIONS=1",
+      "AGENT_NATIVE_ENABLE_KEEP_WARM=1",
+      "AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND=1",
+      "AGENT_NATIVE_HOSTED_HARNESS=true",
+    ]) {
+      assert.match(beta, new RegExp(`export ${flag.replace(/[=]/g, "\\=")}`));
+    }
+  });
+
   it("rejects a purge step that is no longer production-only and success-gated", () => {
     const workflow = readWorkflow(
       ".github/workflows/deploy-netlify-prebuilt.yml",
