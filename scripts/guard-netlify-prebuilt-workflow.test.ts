@@ -528,9 +528,13 @@ describe("production Netlify site concurrency guard", () => {
     const run = String(disable.run);
     assert.match(run, /'Content-Type': 'application\/json'/);
     assert.match(run, /hasGitConnectedBuild/);
+    assert.match(run, /current\.git_provider/);
+    assert.match(run, /current\.repo\?\.repo_path/);
     assert.match(run, /stop_builds: true/);
     assert.match(run, /for \(let attempt = 0; attempt < 6; attempt \+= 1\)/);
     assert.match(run, /stop_builds=\$\{String\(observed\)\}/);
+    assert.match(run, /changedStopBuilds/);
+    assert.match(run, /Netlify docs build pause rollback/);
   });
 
   it("requires the exact shared queue on deploy, manage, and promote jobs", () => {

@@ -112,7 +112,11 @@ jobs:
             );
             const hasGitConnectedBuild = Boolean(
               current.build_settings?.repo_url ||
+                current.build_settings?.repo_path ||
                 current.build_settings?.provider ||
+                current.repo?.repo_url ||
+                current.repo?.repo_path ||
+                current.git_provider ||
                 current.repo?.provider ||
                 current.repo?.repo,
             );
@@ -120,7 +124,9 @@ jobs:
               console.log('Netlify docs site has no Git-connected build; no auto-build race exists.');
               return;
             }
-            if (current.build_settings?.stop_builds !== true) {
+            const wasStopped = current.build_settings?.stop_builds === true;
+            let changedStopBuilds = false;
+            if (!wasStopped) {
               await readJson(
                 await fetch(siteUrl, {
                   method: 'PATCH',
@@ -130,6 +136,7 @@ jobs:
                 }),
                 'Netlify docs build pause',
               );
+              changedStopBuilds = true;
             }
 
             let observed;
@@ -143,6 +150,23 @@ jobs:
               if (observed === true) {
                 console.log('Docs site is now owned by the GitHub Actions prebuilt publisher.');
                 return;
+              }
+            }
+            if (changedStopBuilds) {
+              try {
+                await readJson(
+                  await fetch(siteUrl, {
+                    method: 'PATCH',
+                    headers,
+                    body: JSON.stringify({ build_settings: { stop_builds: false } }),
+                    signal: AbortSignal.timeout(30_000),
+                  }),
+                  'Netlify docs build pause rollback',
+                );
+              } catch (rollbackError) {
+                throw new Error(
+                  `Netlify docs Git-connected builds were not disabled (last observed stop_builds=${String(observed)}); rollback also failed: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
+                );
               }
             }
             throw new Error(
