@@ -123,8 +123,11 @@ async function capture(): Promise<void> {
       }
 
       if (email && email !== resolved.email) {
-        console.error(
-          `[${site.id}] signed in as ${resolved.email} but a previous app captured ${email}. Use one account for the whole suite.`,
+        // Stop rather than warn: continuing emits a token map spanning two
+        // accounts, which looks like a successful capture and then fails in
+        // global setup on whichever host disagrees with BETA_E2E_EMAIL.
+        throw new Error(
+          `[${site.id}] signed in as ${resolved.email} but a previous app captured ${email}. The suite runs as one identity — sign in with the same account on every app and re-run.`,
         );
       }
       email ??= resolved.email;

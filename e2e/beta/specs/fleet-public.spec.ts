@@ -24,7 +24,11 @@ interface HealthSample {
   db?: boolean;
   dbTimedOut?: boolean;
   ms?: number;
+  database?: { urlHash?: string };
 }
+
+/** Samples per lane. Enough to see a flap, few enough to stay in budget. */
+const SAMPLE_COUNT = 4;
 
 const sites = selectedSites();
 
@@ -128,93 +132,93 @@ for (const site of sites) {
     });
 
     test("reaches its database", async () => {
-      // Sampled, not asked once. beta.macros has been measured answering
-      // db:true and dbTimedOut:true alternately within seconds — a serverless
-      // database that sometimes fails to wake inside the health budget. One
-      // sample cannot tell that apart from a host that is simply down, and the
-      // two need different responses.
-      const samples: HealthSample[] = [];
-      for (let attempt = 1; attempt <= 4; attempt += 1) {
-        const outcome = await mustRespond(`${origin}/_agent-native/health`, {
-          attempts: 3,
-          timeoutMs: 60_000,
-        });
-        expect(
-          outcome.status,
-          `${site.host} health returned HTTP ${outcome.status}`,
-        ).toBe(200);
-        samples.push(
-          parseJson<HealthSample>(outcome, `health sample ${attempt}`),
+      // Bounded explicitly: up to eight samples (four beta, four production)
+      // each with their own retries would otherwise be able to outrun the
+      // project timeout, turning a deterministic verdict into a generic
+      // Playwright timeout.
+      test.setTimeout(180_000);
+
+      const sample = async (host: string): Promise<HealthSample> =>
+        parseJson<HealthSample>(
+          await mustRespond(`https://${host}/_agent-native/health`, {
+            attempts: 2,
+            timeoutMs: 15_000,
+          }),
+          `${host} health`,
         );
-        if (attempt < 4) await new Promise((r) => setTimeout(r, 1_500));
-      }
 
-      const healthy = samples.filter(
-        (sample) => sample.db === true && sample.ready === true,
-      );
+      const isHealthy = (entry: HealthSample) =>
+        entry.db === true && entry.ready === true;
 
-      if (healthy.length < samples.length) {
-        const failed = samples.length - healthy.length;
-        test.info().annotations.push({
-          type: "degraded",
-          description: `${site.id}: database unreachable in ${failed}/${samples.length} health samples (${samples.filter((s) => s.dbTimedOut).length} timed out). Users hit this as intermittent sign-in and load failures.`,
-        });
+      const samples: HealthSample[] = [];
+      for (let attempt = 1; attempt <= SAMPLE_COUNT; attempt += 1) {
+        samples.push(await sample(site.host));
+        if (attempt < SAMPLE_COUNT) {
+          await new Promise((r) => setTimeout(r, 1_500));
+        }
       }
 
       // `ok` is deliberately not the signal: this endpoint returns ok:true
       // alongside db:false, so a host with no database reads as healthy.
-      if (healthy.length > 0) return;
-
-      // Reached the database in none of the samples. Before blocking a
-      // promotion, check whether production is in the same state — several
-      // beta hosts share a database with their production twin, so a database
-      // that is flapping there is flapping for everyone already and promoting
-      // this build changes nothing about it.
-      const production = productionHostFor(site);
-      // Sampled the same number of times as beta. A single production probe
-      // against a database that flaps — which is exactly the case being
-      // adjudicated — catches a good moment often enough to call a shared
-      // degradation a beta-only regression, and the test goes flaky instead of
-      // reporting the truth.
-      const prodSamples: HealthSample[] = [];
-      for (let attempt = 1; attempt <= samples.length; attempt += 1) {
-        const prodOutcome = await mustRespond(
-          `https://${production}/_agent-native/health`,
-          { attempts: 3, timeoutMs: 60_000 },
-        );
-        prodSamples.push(
-          parseJson<HealthSample>(prodOutcome, "production health"),
-        );
-        if (attempt < samples.length) {
-          await new Promise((r) => setTimeout(r, 1_500));
-        }
-      }
-      const prodHealthy = prodSamples.every(
-        (sample) => sample.db === true && sample.ready === true,
-      );
-
+      const healthy = samples.filter(isHealthy).length;
       const detail = JSON.stringify(
-        samples.map((sample) => ({
-          ok: sample.ok,
-          ready: sample.ready,
-          db: sample.db,
-          dbTimedOut: sample.dbTimedOut,
-          ms: sample.ms,
+        samples.map((entry) => ({
+          ok: entry.ok,
+          ready: entry.ready,
+          db: entry.db,
+          dbTimedOut: entry.dbTimedOut,
+          ms: entry.ms,
         })),
       );
 
-      if (!prodHealthy) {
+      if (healthy < SAMPLE_COUNT) {
+        test.info().annotations.push({
+          type: "degraded",
+          description: `${site.id}: database unreachable in ${SAMPLE_COUNT - healthy}/${SAMPLE_COUNT} health samples (${samples.filter((entry) => entry.dbTimedOut).length} timed out). Users hit this as intermittent sign-in and load failures.`,
+        });
+      }
+
+      // A host that answers most of the time is still a host people can use.
+      // Below half, sign-in and first load fail often enough that it is an
+      // outage, not a wobble.
+      if (healthy * 2 >= SAMPLE_COUNT) return;
+
+      // Under the threshold. Before blocking a promotion, check whether the
+      // same database is failing for production too — several beta hosts share
+      // one with their production twin, and promoting this build changes
+      // nothing about a database both lanes already sit on.
+      const production = productionHostFor(site);
+      const prodSamples: HealthSample[] = [];
+      for (let attempt = 1; attempt <= SAMPLE_COUNT; attempt += 1) {
+        prodSamples.push(await sample(production));
+        if (attempt < SAMPLE_COUNT) {
+          await new Promise((r) => setTimeout(r, 1_500));
+        }
+      }
+      const prodHealthy = prodSamples.filter(isHealthy).length;
+
+      // The waiver requires both halves: the two lanes must actually be on the
+      // same database, and production must be degraded at least as badly.
+      // Without the first, an isolated beta database could be waived by an
+      // unrelated production wobble; without the second, a total beta outage
+      // could be waived by a single bad production sample.
+      const sameDatabase =
+        samples[0]?.database?.urlHash != null &&
+        samples[0].database.urlHash === prodSamples[0]?.database?.urlHash;
+      const productionAtLeastAsBad = prodHealthy <= healthy;
+
+      if (sameDatabase && productionAtLeastAsBad) {
         test.info().annotations.push({
           type: "pre-existing",
-          description: `${site.id}: database unreachable on beta, and ${production} is degraded too (${prodSamples.filter((p) => p.db !== true).length}/${prodSamples.length} bad samples) — pre-existing, not a promotion regression. ${detail}`,
+          description: `${site.id}: ${healthy}/${SAMPLE_COUNT} healthy on beta and ${prodHealthy}/${SAMPLE_COUNT} on ${production}, both on database ${samples[0]?.database?.urlHash} — pre-existing, not a promotion regression. ${detail}`,
         });
         return;
       }
 
       expect(
-        healthy.length,
-        `${site.host} could not reach its database in any of ${samples.length} samples while ${production} is healthy — promoting would ship a build whose database this host cannot use. ${detail}`,
-      ).toBeGreaterThan(0);
+        healthy * 2,
+        `${site.host} reached its database in only ${healthy}/${SAMPLE_COUNT} samples while ${production} managed ${prodHealthy}/${SAMPLE_COUNT}${sameDatabase ? " on the same database" : " on a different database"}. Promoting would ship a build whose database this host mostly cannot use. ${detail}`,
+      ).toBeGreaterThanOrEqual(SAMPLE_COUNT);
     });
 
     test("publishes an A2A agent card bound to its own origin", async () => {
@@ -278,17 +282,35 @@ for (const site of sites) {
       const prodStatus =
         prodResult.kind === "responded" ? prodResult.status : undefined;
 
-      if (prodStatus === result.status) {
+      // Status alone is not the same failure: a 503 for "no A2A_SECRET
+      // configured" and a 503 from an overloaded host read identically. The
+      // JSON-RPC error code and message are what say *why*, so the waiver
+      // compares those.
+      const failureShape = (body: string): string => {
+        try {
+          const parsed = JSON.parse(body) as {
+            error?: { code?: unknown; message?: unknown };
+          };
+          return `${parsed.error?.code ?? "?"}:${String(parsed.error?.message ?? "").slice(0, 120)}`;
+        } catch {
+          return body.slice(0, 120);
+        }
+      };
+      const betaShape = failureShape(result.body);
+      const prodShape =
+        prodResult.kind === "responded" ? failureShape(prodResult.body) : "";
+
+      if (prodStatus === result.status && prodShape === betaShape) {
         test.info().annotations.push({
           type: "pre-existing",
-          description: `${site.id}: A2A answers HTTP ${result.status} on both beta and ${production} — pre-existing, not a promotion regression. ${result.body.slice(0, 200)}`,
+          description: `${site.id}: A2A answers HTTP ${result.status} with the same error on both beta and ${production} — pre-existing, not a promotion regression. ${result.body.slice(0, 200)}`,
         });
         return;
       }
 
       expect(
         result.status,
-        `${site.host} answered A2A with HTTP ${result.status} while ${production} answered ${prodStatus ?? "no response"} — promoting would regress cross-app delegation into this app. ${result.body.slice(0, 300)}`,
+        `${site.host} answered A2A with HTTP ${result.status} (${betaShape}) while ${production} answered ${prodStatus ?? "no response"} (${prodShape || "no response"}) — promoting would regress cross-app delegation into this app. ${result.body.slice(0, 300)}`,
       ).toBe(401);
     });
 

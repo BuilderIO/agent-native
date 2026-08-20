@@ -21,7 +21,12 @@ export const MODEL_SELECTION_STORAGE_KEY = "agent-native:chat-models:selection";
 /** Luna spellings differ per engine: the OpenAI catalog is dotted, Builder's is dashed. */
 export const LUNA_OPENAI_MODEL = "gpt-5.6-luna";
 export const LUNA_BUILDER_MODEL = "gpt-5-6-luna";
-export const LUNA_MODEL_PATTERN = /gpt-5[.-]6-luna/i;
+/**
+ * Anchored on purpose. An unanchored match accepts `gpt-5.6-luna-preview` and
+ * any other suffixed id, which is a different billable model wearing the
+ * budgeted name.
+ */
+export const LUNA_MODEL_PATTERN = /^(?:openai\/)?gpt-5[.-]6-luna$/i;
 
 export interface ModelSelection {
   model: string;
@@ -83,6 +88,8 @@ function isChatTurnRequest(url: string): boolean {
 export interface ChatRequestLog {
   /** Models seen on the wire, in order. */
   models: string[];
+  /** Engines seen on the wire, in order. */
+  engines: string[];
   /** Requests whose body carried no model field at all. */
   modelless: number;
   count: number;
@@ -99,7 +106,13 @@ export function watchChatRequests(page: Page): {
   log: ChatRequestLog;
   assertOnlyLuna: () => void;
 } {
-  const log: ChatRequestLog = { models: [], modelless: 0, count: 0 };
+  const log: ChatRequestLog = {
+    models: [],
+    engines: [],
+    modelless: 0,
+    count: 0,
+  };
+  const expected = lunaSelection();
 
   page.on("request", (request: Request) => {
     if (request.method() !== "POST") return;
@@ -111,7 +124,10 @@ export function watchChatRequests(page: Page): {
       return;
     }
     try {
-      const body = JSON.parse(raw) as { model?: unknown };
+      const body = JSON.parse(raw) as { model?: unknown; engine?: unknown };
+      if (typeof body.engine === "string" && body.engine.trim()) {
+        log.engines.push(body.engine);
+      }
       if (typeof body.model === "string" && body.model.trim()) {
         log.models.push(body.model);
       } else {
@@ -133,7 +149,13 @@ export function watchChatRequests(page: Page): {
       const offenders = log.models.filter(
         (model) => !LUNA_MODEL_PATTERN.test(model),
       );
-      if (offenders.length > 0 || log.modelless > 0) {
+      // The model name alone does not decide the bill: the same id routed
+      // through a different engine reaches a different provider, and not the
+      // separately-budgeted key this suite installs.
+      const wrongEngine = log.engines.filter(
+        (engine) => engine !== expected.engine,
+      );
+      if (offenders.length > 0 || log.modelless > 0 || wrongEngine.length > 0) {
         throw new Error(
           [
             "Agent chat did not run on luna, so this run billed an unbudgeted model.",
@@ -143,6 +165,9 @@ export function watchChatRequests(page: Page): {
               : "",
             log.modelless > 0
               ? `${log.modelless} request(s) carried no model field, so the app fell back to its own default`
+              : "",
+            wrongEngine.length > 0
+              ? `routed through engine(s) ${[...new Set(wrongEngine)].join(", ")} instead of ${expected.engine}, so the turn did not bill the dedicated key`
               : "",
             "The seeded selection is dropped when the app's model picker does not offer it — usually because the org is connected to a different engine, so the requested engine's catalog is not exposed. Check BETA_E2E_ENGINE/BETA_E2E_MODEL against what the app actually lists.",
           ]

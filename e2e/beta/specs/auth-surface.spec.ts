@@ -166,17 +166,19 @@ for (const site of sites) {
         waitUntil: "domcontentloaded",
         timeout: 90_000,
       });
-      await page.waitForTimeout(5_000);
-
       // Matched on the visible label rather than an accessible name: the
       // trigger currently renders without an aria-label, so a name-based
       // locator finds nothing on any host and the assertion would be red
       // everywhere for a reason unrelated to what it checks.
       const badge = page.locator("button").filter({ hasText: /^\s*beta\s*$/i });
-      expect(
-        await badge.count(),
+
+      // Waited for rather than sampled after a fixed sleep: this control is
+      // client-rendered, and a sleep long enough for the slowest host on a
+      // good day is still a race on a slow one.
+      await expect(
+        badge.first(),
         `${site.host} renders no environment switcher, so a user on beta has no in-app way back to ${production}`,
-      ).toBeGreaterThan(0);
+      ).toBeVisible({ timeout: 30_000 });
     });
   });
 }

@@ -22,6 +22,22 @@ import { defineConfig, devices } from "@playwright/test";
 
 const isCi = Boolean(process.env.CI);
 
+/**
+ * Artifact settings for the lanes that run signed in.
+ *
+ * A Playwright trace records real request headers, so a trace of an
+ * authenticated run carries the e2e account's live session cookie — a
+ * replayable credential, in an artifact anyone with repo read access can
+ * download. Screenshots cannot carry a header, so they stay on; the trace and
+ * the video do not. Diagnosis for these lanes comes from assertion messages,
+ * which are written to name the cause rather than to be read alongside a trace.
+ */
+const AUTHED_ARTIFACTS = {
+  trace: "off",
+  video: "off",
+  screenshot: "only-on-failure",
+} as const;
+
 export default defineConfig({
   testDir: "./specs",
   globalSetup: "./global-setup.ts",
@@ -66,11 +82,13 @@ export default defineConfig({
       // One retry, not two: each retry of a chat spec is another paid agent
       // turn, and a turn that fails twice is a finding rather than a flake.
       retries: 1,
+      use: { ...AUTHED_ARTIFACTS },
     },
     {
       name: "journeys",
       testMatch: /specs\/apps\/.*\.spec\.ts$/,
       retries: 1,
+      use: { ...AUTHED_ARTIFACTS },
     },
     // Non-gating: real findings that do not stop a user, reported separately so
     // a red here never trains anyone to ignore a red run.
