@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.164.20
+
+### Patch Changes
+
+- bfe4163: Report Telegram webhook registration failures instead of treating rejected `setWebhook` responses as successful setup.
+
 ## 0.164.19
 
 ### Patch Changes
