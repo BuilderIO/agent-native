@@ -363,19 +363,6 @@ describe("AgentEngine registry", () => {
 
   it("treats per-user Builder OAuth as a runnable engine without legacy keys", async () => {
     const identity = { userEmail: "person@example.com", orgId: "org-builder" };
-    const hasBuilderOAuthSession = vi.fn(
-      async (email: string) => email === identity.userEmail,
-    );
-    const resolveBuilderOAuthRequestAccess = vi.fn(async () => ({
-      accessToken: "oauth-access-token",
-      scopes: ["builder:ai:invoke"],
-      ownerEmail: identity.userEmail,
-    }));
-    vi.doMock("../../server/builder-oauth.js", () => ({
-      BUILDER_OAUTH_SCOPE: "builder:ai:invoke",
-      hasBuilderOAuthSession,
-      resolveBuilderOAuthRequestAccess,
-    }));
     const resolveBuilderGatewayCredentialsDetailed = vi.fn(async () => ({
       privateKey: null,
       publicKey: null,
@@ -389,6 +376,18 @@ describe("AgentEngine registry", () => {
         resolveBuilderGatewayCredentialsDetailed,
       }),
     );
+    const {
+      hasBuilderOAuthSession,
+      resolveBuilderOAuthRequestAccess,
+    } = await import("../../server/builder-oauth.js");
+    vi.mocked(hasBuilderOAuthSession).mockImplementation(
+      async (email: string) => email === identity.userEmail,
+    );
+    vi.mocked(resolveBuilderOAuthRequestAccess).mockResolvedValue({
+      accessToken: "oauth-access-token",
+      scopes: ["builder:ai:invoke"],
+      ownerEmail: identity.userEmail,
+    });
 
     const {
       registerAgentEngine,
@@ -420,11 +419,6 @@ describe("AgentEngine registry", () => {
 
   it("does not fall through to gateway keys when Builder OAuth custody is unusable", async () => {
     const identity = { userEmail: "person@example.com", orgId: "org-builder" };
-    vi.doMock("../../server/builder-oauth.js", () => ({
-      BUILDER_OAUTH_SCOPE: "builder:ai:invoke",
-      hasBuilderOAuthSession: vi.fn(async () => true),
-      resolveBuilderOAuthRequestAccess: vi.fn(async () => null),
-    }));
     const resolveBuilderGatewayCredentialsDetailed = vi.fn(async () => ({
       privateKey: "btk-site-token",
       publicKey: "space-abc",
@@ -438,6 +432,12 @@ describe("AgentEngine registry", () => {
         resolveBuilderGatewayCredentialsDetailed,
       }),
     );
+    const {
+      hasBuilderOAuthSession,
+      resolveBuilderOAuthRequestAccess,
+    } = await import("../../server/builder-oauth.js");
+    vi.mocked(hasBuilderOAuthSession).mockResolvedValue(true);
+    vi.mocked(resolveBuilderOAuthRequestAccess).mockResolvedValue(null);
 
     const { registerAgentEngine, isResolvedEngineUsableForRequest } =
       await import("./registry.js");
