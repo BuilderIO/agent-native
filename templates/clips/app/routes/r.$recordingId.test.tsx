@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 import {
-  BackToLibraryButton,
+  BackButton,
   handleReactionWrite,
   mergeRecordingReactions,
   removePendingReaction,
@@ -31,7 +31,13 @@ function LocationProbe() {
   );
 }
 
-describe("BackToLibraryButton", () => {
+function BackToLibraryButton() {
+  const navigate = useNavigate();
+
+  return <BackButton onBack={() => navigate("/library", { replace: true })} />;
+}
+
+describe("BackButton", () => {
   let container: HTMLDivElement;
   let root: Root;
 

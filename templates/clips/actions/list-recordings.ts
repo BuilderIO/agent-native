@@ -421,9 +421,17 @@ export default defineAction({
         description: r.description,
         thumbnailUrl: r.thumbnailUrl,
         animatedThumbnailUrl: r.animatedThumbnailUrl,
-        // Edited length, not the original recorded length — matches what the
-        // clip page itself shows once trims/cuts are applied.
-        durationMs: effectiveDuration(r.durationMs, parseEdits(r.editsJson)),
+        // Raw source length. StitchManager sums this across queued
+        // recordings to size the concatenated export, which always
+        // includes each source's full untrimmed media — trims are applied
+        // at export/playback time, not by dropping bytes from the source.
+        durationMs: r.durationMs,
+        // Edited length, not the original recorded length — matches what
+        // the clip page itself shows once trims/cuts are applied.
+        effectiveDurationMs: effectiveDuration(
+          r.durationMs,
+          parseEdits(r.editsJson),
+        ),
         status: r.status,
         uploadProgress: r.uploadProgress,
         failureReason: r.failureReason,

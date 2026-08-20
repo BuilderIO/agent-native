@@ -86,6 +86,7 @@ const recording: RecordingSummary = {
   thumbnailUrl: null,
   animatedThumbnailUrl: null,
   durationMs: 1_000,
+  effectiveDurationMs: 1_000,
   status: "ready",
   visibility: "private",
   ownerEmail: "owner@example.com",
