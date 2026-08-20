@@ -1125,10 +1125,4 @@
 
 - bdbe6a1: Keep Portal device authentication working when a proxy supplies or strips the Authorization header.
 
-## 0.157.11
-
-### Patch Changes
-
-- 5e19db2: Treat Netlify function runtimes as serverless when configuring database pools so abandoned transactions are reaped.
-
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
