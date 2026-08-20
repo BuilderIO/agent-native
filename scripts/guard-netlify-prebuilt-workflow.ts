@@ -2,16 +2,13 @@ import { readFileSync } from "node:fs";
 
 import { parse } from "yaml";
 
+import { validateProductionSiteConcurrency } from "./netlify-production-concurrency.ts";
+
 const reusablePath = ".github/workflows/deploy-netlify-prebuilt.yml";
 const productionPath = ".github/workflows/deploy-production-sites-prebuilt.yml";
 const betaPath = ".github/workflows/deploy-beta-sites-prebuilt.yml";
 const manageProductionPath = ".github/workflows/manage-production-sites.yml";
 const promotePath = ".github/workflows/promote-netlify-deploy.yml";
-
-// promote /restore locks the site, and prebuilt unlock/upload is not atomic;
-// all three production lanes must therefore share one per-site queue.
-export const PRODUCTION_SITE_GROUP =
-  "agent-native-production-site-${{ matrix.site }}";
 
 const reusable = readFileSync(reusablePath, "utf8");
 const production = readFileSync(productionPath, "utf8");
@@ -26,32 +23,6 @@ const asRecord = (value: unknown): Record<string, unknown> | null =>
   value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
-
-export function validateProductionSiteConcurrency(workflows: {
-  production: Record<string, unknown>;
-  manage: Record<string, unknown>;
-  promote: Record<string, unknown>;
-}): string[] {
-  const issues: string[] = [];
-  const jobs = (workflow: Record<string, unknown>) => asRecord(workflow.jobs);
-  const jobConcurrency = (workflow: Record<string, unknown>, jobName: string) =>
-    asRecord(asRecord(jobs(workflow)?.[jobName])?.concurrency);
-
-  for (const [path, workflow, jobName] of [
-    [productionPath, workflows.production, "deploy"],
-    [manageProductionPath, workflows.manage, "manage"],
-    [promotePath, workflows.promote, "promote"],
-  ] as const) {
-    const group = jobConcurrency(workflow, jobName)?.group;
-    if (group !== PRODUCTION_SITE_GROUP) {
-      issues.push(
-        `${path} ${jobName} job concurrency.group must equal ${PRODUCTION_SITE_GROUP}`,
-      );
-    }
-  }
-
-  return issues;
-}
 
 try {
   for (const [path, source] of [

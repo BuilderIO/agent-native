@@ -7,7 +7,7 @@ import { parse } from "yaml";
 import {
   PRODUCTION_SITE_GROUP,
   validateProductionSiteConcurrency,
-} from "./guard-netlify-prebuilt-workflow.ts";
+} from "./netlify-production-concurrency.ts";
 
 type Workflow = Record<string, unknown>;
 
