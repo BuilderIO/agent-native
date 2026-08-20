@@ -1068,20 +1068,28 @@ function DatabaseTable({
       ),
     [orderedProperties, items, activeView],
   );
-  const exportContext = useMemo<DatabaseExportContext>(
-    () => ({
-      viewId: activeView.id,
-      viewName: activeView.name,
-      query: { search: searchQuery, filters, sorts, filterMode },
-      properties: orderedProperties.map((property) => ({
-        id: property.definition.id,
-        name: property.definition.name,
-        type: property.definition.type,
-        visible: isDatabasePropertyVisibleInView(property, items, activeView),
-      })),
-    }),
+  const exportContext = useMemo<DatabaseExportContext | null>(
+    () =>
+      data
+        ? {
+            viewId: activeView.id,
+            viewName: activeView.name,
+            query: { search: searchQuery, filters, sorts, filterMode },
+            properties: orderedProperties.map((property) => ({
+              id: property.definition.id,
+              name: property.definition.name,
+              type: property.definition.type,
+              visible: isDatabasePropertyVisibleInView(
+                property,
+                items,
+                activeView,
+              ),
+            })),
+          }
+        : null,
     [
       activeView,
+      data,
       filterMode,
       filters,
       items,

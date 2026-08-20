@@ -604,6 +604,16 @@ function DocumentEditorBody({
   const [localContent, setLocalContent] = useState("");
   const [databaseExportContext, setDatabaseExportContext] =
     useState<DatabaseExportContext | null>(null);
+  const databaseExportContextFingerprintRef = useRef("null");
+  const handleDatabaseExportContextChange = useCallback(
+    (context: DatabaseExportContext | null) => {
+      const fingerprint = JSON.stringify(context);
+      if (databaseExportContextFingerprintRef.current === fingerprint) return;
+      databaseExportContextFingerprintRef.current = fingerprint;
+      setDatabaseExportContext(context);
+    },
+    [],
+  );
   const [newDocumentTypeChosen, setNewDocumentTypeChosen] = useState(false);
   const [localContentUpdatedAt, setLocalContentUpdatedAt] = useState<
     string | null
@@ -1903,7 +1913,7 @@ function DocumentEditorBody({
                     <DocumentDatabase
                       document={document}
                       canEdit={canEdit}
-                      onExportContextChange={setDatabaseExportContext}
+                      onExportContextChange={handleDatabaseExportContextChange}
                     />
                   </div>
                 ) : null}
