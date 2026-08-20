@@ -4159,6 +4159,19 @@ function getProviderGate(metadata: CodeAgentHostMetadata | null): {
   };
 }
 
+export function shouldShowCodeAgentCredentialCallout({
+  providerBlocked,
+  hasCredentialHistory,
+  phase,
+}: {
+  providerBlocked: boolean;
+  hasCredentialHistory: boolean;
+  phase?: string;
+}): boolean {
+  if (!hasCredentialHistory) return false;
+  return providerBlocked || phase === "missing-credentials";
+}
+
 function ProviderGateNotice({
   description,
   connecting,
@@ -4184,7 +4197,7 @@ function ProviderGateNotice({
   return (
     <CodeProviderNotice
       className="code-agents-provider-gate"
-      title="Connect a provider to chat"
+      title="Connect AI"
       description={message ?? description}
       primaryActionLabel={connecting ? "Waiting..." : "Connect Builder.io"}
       primaryDisabled={connecting}
@@ -5374,7 +5387,11 @@ function RunDetailCard({
     run,
     transcriptEvents,
   );
-  const hasCredentialGap = providerBlocked && hasCredentialHistory;
+  const hasCredentialGap = shouldShowCodeAgentCredentialCallout({
+    providerBlocked,
+    hasCredentialHistory,
+    phase: run.phase,
+  });
   const pendingApproval = hasCredentialGap ? null : getPendingApproval(run);
   // The inline per-tool-call approval affordance (rendered by AssistantChat /
   // ToolCallDisplay via the tool-call's `approval` field) already covers this
@@ -5403,7 +5420,7 @@ function RunDetailCard({
       {hasCredentialGap && (
         <CodeProviderNotice
           className="code-agents-credential-callout"
-          title="Provider needed"
+          title="Connect AI"
           description={
             builderConnectMessage ??
             "Connect Builder.io or add custom keys to continue coding."
