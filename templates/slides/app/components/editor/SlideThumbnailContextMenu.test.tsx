@@ -1,6 +1,5 @@
 // @vitest-environment happy-dom
 import { fireEvent, render, screen, cleanup } from "@testing-library/react";
-import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { SlideThumbnailContextMenu } from "./SlideThumbnailContextMenu";

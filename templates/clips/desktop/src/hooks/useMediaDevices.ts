@@ -1,4 +1,3 @@
-import { emit } from "@tauri-apps/api/event";
 import {
   useCallback,
   useEffect,

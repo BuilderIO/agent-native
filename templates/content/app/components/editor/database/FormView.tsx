@@ -12,7 +12,7 @@ import {
   IconExternalLink,
 } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router";
+import { Link } from "react-router";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -298,7 +298,7 @@ export function DatabaseFormView({
   canEdit,
 }: DatabaseFormViewProps) {
   const t = useT();
-  const navigate = useNavigate();
+
   const submit = useSubmitContentDatabaseForm(databaseDocumentId);
   const questions = useMemo(
     () => contentDatabaseFormQuestions(view, properties),

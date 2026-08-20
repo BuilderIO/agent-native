@@ -1,0 +1,33 @@
+{
+  "categories": { "correctness": "off" },
+  "rules": {
+    "eslint/no-unused-vars": [
+      "error",
+      { "args": "none", "caughtErrors": "none", "ignoreRestSiblings": true }
+    ]
+  },
+  "ignorePatterns": [
+    "**/dist/**",
+    "**/build/**",
+    "**/.output/**",
+    "**/node_modules/**",
+    "**/*.spec.ts",
+    "**/*.spec.tsx",
+    "**/*.e2e-host.tsx",
+    "packages/core/src/cli/**",
+    "packages/core/src/templates/**",
+    "packages/core/src/provider-api/**",
+    "templates/plan/**",
+    "templates/analytics/actions/provider-api-request.ts",
+    "apps/email-automation-console/**",
+    "apps/appointment-blocker-fresh/**",
+    "apps/email-automation-fresh/**",
+    "apps/research-to-deck-fresh/**",
+    "apps/safe-share-fresh/**",
+    "apps/source-to-publish-fresh/**",
+    ".github/**",
+    "scripts/**",
+    ".changeset/**",
+    ".agents/**"
+  ]
+}

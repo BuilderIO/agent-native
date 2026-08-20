@@ -6,11 +6,9 @@ import {
 import type {
   DesignSystemKey,
   MenuItem,
-  PickerOption,
   DesignSystemSize,
 } from "@agent-native/toolkit/design-system";
 import {
-  Alert,
   Avatar as MuiAvatar,
   Badge,
   Box,

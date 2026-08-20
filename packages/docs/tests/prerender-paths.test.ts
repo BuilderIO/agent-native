@@ -1,12 +1,7 @@
-import path from "node:path";
-
 import { describe, expect, it } from "vitest";
 
 import { isRedirectedDocsPath } from "../app/components/docs-slug-redirects";
-import {
-  buildPrerenderPaths,
-  buildSitemapPaths,
-} from "../app/vite-sitemap-plugin";
+import { buildPrerenderPaths } from "../app/vite-sitemap-plugin";
 
 describe("isRedirectedDocsPath", () => {
   it("excludes docs slugs whose loader answers with a 301", () => {
@@ -29,9 +24,6 @@ describe("isRedirectedDocsPath", () => {
 // one result across the assertions rather than paying for it per test.
 describe("buildPrerenderPaths", () => {
   const paths = buildPrerenderPaths();
-  const sitemapPaths = buildSitemapPaths(
-    path.resolve(import.meta.dirname, ".."),
-  );
 
   it("enumerates docs, locale docs, and static marketing pages", () => {
     expect(paths).toContain("/");

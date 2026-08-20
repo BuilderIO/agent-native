@@ -48,11 +48,7 @@ import {
   applyVisualEdit,
   buildCodeLayerProjection,
 } from "../shared/code-layer.js";
-import type {
-  CodeLayerSource,
-  ClassEditIntent,
-  StyleEditIntent,
-} from "../shared/code-layer.js";
+import type { CodeLayerSource, ClassEditIntent } from "../shared/code-layer.js";
 import { agentSelectionDescriptor } from "../shared/collab-selection.js";
 import {
   componentNameFor,

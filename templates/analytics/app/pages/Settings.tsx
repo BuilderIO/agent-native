@@ -20,7 +20,6 @@ import { Link } from "react-router";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 
 import changelog from "../../CHANGELOG.md?raw";

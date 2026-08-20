@@ -27,7 +27,6 @@ import {
   IconMessage,
   IconPlayerPause,
   IconPlayerPlay,
-  IconPlus,
   IconRefresh,
   IconSearch,
   IconTrash,

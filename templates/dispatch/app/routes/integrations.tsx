@@ -68,7 +68,6 @@ import {
   IconChartBar,
   IconCheck,
   IconChevronDown,
-  IconCircleDashed,
   IconClock,
   IconDatabase,
   IconEdit,

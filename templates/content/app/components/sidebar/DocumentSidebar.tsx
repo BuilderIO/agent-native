@@ -11,28 +11,12 @@ import { useT } from "@agent-native/core/client/i18n";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
 import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
-import {
-  closestCenter,
-  DndContext,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from "@dnd-kit/core";
-import {
-  arrayMove,
-  SortableContext,
-  sortableKeyboardCoordinates,
-  verticalListSortingStrategy,
-} from "@dnd-kit/sortable";
 import type {
   ContentDatabaseItem,
   ContentDatabasePersonalViewOverrides,
   ContentDatabaseResponse,
   ContentSidebarViewOrder,
   Document,
-  DocumentTreeNode,
 } from "@shared/api";
 import { CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION } from "@shared/api";
 import {
@@ -49,19 +33,11 @@ import {
   IconLayoutSidebarLeftExpand,
   IconChevronDown,
   IconChevronRight,
-  IconDots,
   IconTrash,
   IconGitBranch,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
@@ -87,7 +63,6 @@ import {
   DropdownMenuItem,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -125,7 +100,6 @@ import {
   useRestoreDocument,
   useTrashedDocuments,
   useUpdateDocument,
-  buildDocumentTree,
   filterDocumentTreeDocuments,
   documentQueryFilter,
   rollbackOptimisticCreatedDocument,
@@ -148,11 +122,8 @@ import {
 } from "@/lib/optimistic-document";
 import { cn } from "@/lib/utils";
 
-import {
-  getDocumentSidebarSections,
-  isDirectLocalDocument,
-} from "./document-sidebar-sections";
-import { DocumentSidebarIcon, DocumentTreeItem } from "./DocumentTreeItem";
+import { getDocumentSidebarSections } from "./document-sidebar-sections";
+import { DocumentSidebarIcon } from "./DocumentTreeItem";
 import {
   firstLocalSourceDocumentId,
   localSourceItemIdentity,
@@ -903,13 +874,13 @@ export function DocumentSidebar({
     [t],
   );
   const documentsQuery = useDocuments();
-  const { data: documents = [], isLoading } = documentsQuery;
+  const { data: documents = [] } = documentsQuery;
   const createDocument = useCreateDocument();
   const createDatabase = useCreateContentDatabase(null);
   const deleteContentDatabase = useDeleteContentDatabase();
   const deleteDocument = useDeleteDocument();
   const permanentlyDeleteDocument = usePermanentlyDeleteDocument();
-  const moveDocument = useMoveDocument();
+
   const restoreDocument = useRestoreDocument();
   const { data: trashedDocuments } = useTrashedDocuments();
   const restoreContentDatabase = useRestoreContentDatabase();
@@ -1176,7 +1147,7 @@ export function DocumentSidebar({
   // Track user-expanded nodes only; active ancestors are derived below so they
   // do not stay open after navigation unless the user explicitly expanded them.
   const expandedIdsRef = useRef(new Set<string>());
-  const [, forceUpdate] = useState(0);
+  const [] = useState(0);
   const [isResizing, setIsResizing] = useState(false);
   const [storedCollapsedSections, setStoredCollapsedSections] = useLocalStorage<
     Partial<Record<SidebarSectionId, boolean>>
@@ -1208,14 +1179,6 @@ export function DocumentSidebar({
   } | null>(null);
   const confirmedDeleteIdRef = useRef<string | null>(null);
   const settingsActive = location.pathname.startsWith("/settings");
-  const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: { distance: 6 },
-    }),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-    }),
-  );
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
@@ -1247,20 +1210,9 @@ export function DocumentSidebar({
   );
 
   const treeDocuments = filterDocumentTreeDocuments(documents);
-  const {
-    localFileMode,
-    localSourceDocuments,
-    databaseDocuments,
-    showFavorites,
-  } = getDocumentSidebarSections(documents, treeDocuments);
-  const localFileTree = buildDocumentTree(localSourceDocuments);
-  const databaseTree = buildDocumentTree(databaseDocuments);
-  const importedLocalFileCount = localFileMode
-    ? 0
-    : localSourceDocuments.filter(
-        (document) => document.source?.kind !== "folder",
-      ).length;
-  const canRemoveLocalFiles = localFileMode || importedLocalFileCount > 0;
+  const { localFileMode, databaseDocuments, showFavorites } =
+    getDocumentSidebarSections(documents, treeDocuments);
+
   const activeDocument = activeDocumentId
     ? documents.find((doc) => doc.id === activeDocumentId)
     : null;
@@ -1285,19 +1237,6 @@ export function DocumentSidebar({
 
   const expandedIds = new Set(expandedIdsRef.current);
   for (const id of activeAncestorIds) expandedIds.add(id);
-
-  const handleToggleExpanded = useCallback(
-    (id: string) => {
-      if (activeAncestorIds.has(id)) return;
-      if (expandedIdsRef.current.has(id)) {
-        expandedIdsRef.current.delete(id);
-      } else {
-        expandedIdsRef.current.add(id);
-      }
-      forceUpdate((n) => n + 1);
-    },
-    [activeAncestorIds],
-  );
 
   const navigateToDocument = useCallback(
     (id: string) => {
@@ -1587,89 +1526,6 @@ export function DocumentSidebar({
     });
   }, []);
 
-  const handleReorderPage = useCallback(
-    async (id: string, overId: string) => {
-      if (id === overId) return;
-      const current = documents.find((doc) => doc.id === id);
-      const target = documents.find((doc) => doc.id === overId);
-      if (!current || !target) return;
-      if (current.parentId !== target.parentId) {
-        return;
-      }
-
-      const siblings = documents
-        .filter((doc) => doc.parentId === current.parentId)
-        .sort(compareDocumentsByPosition);
-      const currentIndex = siblings.findIndex((doc) => doc.id === id);
-      const nextIndex = siblings.findIndex((doc) => doc.id === overId);
-      if (currentIndex < 0 || nextIndex < 0 || currentIndex === nextIndex) {
-        return;
-      }
-
-      const reordered = arrayMove(siblings, currentIndex, nextIndex);
-      const nextPositionById = new Map(
-        reordered.map((doc, index) => [doc.id, index]),
-      );
-      const changed = reordered.filter(
-        (doc) => doc.position !== nextPositionById.get(doc.id),
-      );
-      if (changed.length === 0) return;
-      if (changed.some((doc) => doc.canEdit === false)) {
-        toast.error(t("sidebar.cannotReorderPages"), {
-          description: t("sidebar.oneAffectedPageReadOnly"),
-        });
-        return;
-      }
-
-      queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: unknown) => {
-        const cachedDocs: Document[] =
-          (old as { documents?: Document[] })?.documents ??
-          (Array.isArray(old) ? old : documents);
-        const nextDocs = cachedDocs.map((doc) => {
-          const nextPosition = nextPositionById.get(doc.id);
-          return nextPosition === undefined
-            ? doc
-            : { ...doc, position: nextPosition };
-        });
-        return withDocumentsCacheShape(old, nextDocs);
-      });
-
-      try {
-        await Promise.all(
-          changed.map((doc) =>
-            moveDocument.mutateAsync({
-              id: doc.id,
-              position: nextPositionById.get(doc.id)!,
-            }),
-          ),
-        );
-      } catch (err) {
-        queryClient.invalidateQueries({
-          queryKey: ["action", "list-documents"],
-        });
-        toast.error(t("sidebar.failedMovePage"), {
-          description:
-            err instanceof Error ? err.message : t("empty.genericError"),
-        });
-      }
-    },
-    [documents, moveDocument, queryClient],
-  );
-
-  const handleDragEnd = useCallback(
-    (event: DragEndEvent) => {
-      const { active, over } = event;
-      const activeId = String(active.id);
-      const overId = over ? String(over.id) : null;
-      if (!overId || activeId === overId) return;
-      if (parentByDocumentId.get(activeId) !== parentByDocumentId.get(overId)) {
-        return;
-      }
-      void handleReorderPage(activeId, overId);
-    },
-    [handleReorderPage, parentByDocumentId],
-  );
-
   const handlePinnedReorder = useCallback(
     (_itemIds: string[], moved: { itemId: string; position: number }) => {
       if (!favoritesDatabaseId) return;
@@ -1829,33 +1685,6 @@ export function DocumentSidebar({
       )
     : null;
 
-  const renderDocumentTree = (nodes: DocumentTreeNode[]) => (
-    <SortableContext
-      items={nodes.map((node) => node.id)}
-      strategy={verticalListSortingStrategy}
-    >
-      {nodes.map((node) => (
-        <DocumentTreeItem
-          key={node.id}
-          node={node}
-          depth={0}
-          sidebarWidth={width}
-          activeId={activeDocumentId}
-          expandedIds={expandedIds}
-          onToggleExpanded={handleToggleExpanded}
-          onSelect={(id) => {
-            navigateToDocument(id);
-            onNavigate?.();
-          }}
-          onCreateChildPage={(parentId) => handleCreatePage(parentId)}
-          onCreateChildDatabase={(parentId) => handleCreateDatabase(parentId)}
-          onDelete={requestDelete}
-          onToggleFavorite={handleToggleFavorite}
-        />
-      ))}
-    </SortableContext>
-  );
-
   const renderNewButton = (space = selectedSpace) =>
     space ? (
       <button
@@ -1989,78 +1818,6 @@ export function DocumentSidebar({
     });
   };
 
-  const renderLocalFilesSectionActions = () => (
-    <DropdownMenu>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              aria-label={t("sidebar.localFilesActions")}
-              className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-            >
-              <IconDots size={14} />
-            </button>
-          </DropdownMenuTrigger>
-        </TooltipTrigger>
-        <TooltipContent>{t("sidebar.localFilesActions")}</TooltipContent>
-      </Tooltip>
-      <DropdownMenuContent align="end" className="w-56">
-        <DropdownMenuItem asChild>
-          <Link to="/local-files">
-            <IconFolderOpen className="me-2 size-4" />
-            {t("sidebar.manageLocalFolders")}
-          </Link>
-        </DropdownMenuItem>
-        {canRemoveLocalFiles && (
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              className="text-destructive focus:text-destructive"
-              disabled={removeLocalFileSource.isPending}
-              onSelect={(event) => {
-                event.preventDefault();
-                setRemoveLocalFilesDialogOpen(true);
-              }}
-            >
-              <IconTrash className="me-2 size-4" />
-              {t("sidebar.removeLocalFilesFromSidebar")}
-            </DropdownMenuItem>
-          </>
-        )}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-
-  const renderSectionHeader = (
-    id: SidebarSectionId,
-    label: string,
-    actions?: ReactNode,
-  ) => {
-    const collapsed = collapsedSections[id];
-    return (
-      <div className="flex min-w-0 items-center gap-1 px-1">
-        <button
-          type="button"
-          aria-expanded={!collapsed}
-          className="flex min-w-0 flex-1 items-center gap-1 rounded-md px-2 py-1.5 text-start text-[10px] font-semibold uppercase tracking-wider text-muted-foreground hover:bg-accent/40 hover:text-foreground"
-          onClick={() => toggleSection(id)}
-        >
-          <IconChevronRight
-            size={12}
-            className={cn(
-              "shrink-0 transition-transform",
-              !collapsed && "rotate-90",
-              "rtl:-scale-x-100",
-            )}
-          />
-          <span className="min-w-0 flex-1 truncate">{label}</span>
-        </button>
-        {actions}
-      </div>
-    );
-  };
-
   const renderTreeSkeleton = () => (
     <div aria-hidden="true" className="grid gap-1 px-3 py-1">
       {[70, 55, 85, 60, 45].map((w, i) => (
@@ -2074,57 +1831,6 @@ export function DocumentSidebar({
       ))}
     </div>
   );
-
-  const renderTreeSection = ({
-    id,
-    label,
-    nodes,
-    emptyLabel,
-    className,
-    headerActions,
-    footer,
-  }: {
-    id: SidebarSectionId;
-    label: string;
-    nodes: DocumentTreeNode[];
-    emptyLabel: string;
-    className?: string;
-    headerActions?: ReactNode;
-    footer?: ReactNode;
-  }) => {
-    const collapsed = collapsedSections[id];
-    return (
-      <div className={className}>
-        {renderSectionHeader(id, label, headerActions)}
-        {!collapsed && (
-          <>
-            <DndContext
-              sensors={sensors}
-              collisionDetection={closestCenter}
-              onDragEnd={handleDragEnd}
-            >
-              {isLoading ? (
-                renderTreeSkeleton()
-              ) : documentsQuery.isError ? (
-                <QueryErrorState
-                  compact
-                  onRetry={() => void documentsQuery.refetch()}
-                  retrying={documentsQuery.isFetching}
-                />
-              ) : nodes.length === 0 ? (
-                <div className="px-3 py-4 text-center text-sm text-muted-foreground">
-                  {emptyLabel}
-                </div>
-              ) : (
-                renderDocumentTree(nodes)
-              )}
-            </DndContext>
-            {footer}
-          </>
-        )}
-      </div>
-    );
-  };
 
   const renderWorkspaceRoot = (
     space: ContentSpaceSummary,

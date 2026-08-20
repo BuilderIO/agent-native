@@ -73,7 +73,6 @@ function ShareMeetingContent({
   shareTranscript: boolean;
   transcriptReady: boolean;
 }) {
-  const t = useT();
   const shareUrl = useMemo(
     () => `${window.location.origin}${appPath(`/share/meeting/${meetingId}`)}`,
     [meetingId],

@@ -13,7 +13,6 @@ import type {
   CrmFieldDefinition,
   CrmObjectDefinition,
   CrmObjectKind,
-  CrmObjectRef,
   CrmProvenance,
   CrmRecord,
   CrmRecordRef,

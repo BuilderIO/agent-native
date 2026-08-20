@@ -31,10 +31,7 @@ import {
   DISPATCH_WORKSPACE_SSO_FLAG,
   isWorkspaceSsoAppUrl,
 } from "../../shared/workspace-sso.js";
-import {
-  listWorkspaceApps,
-  type WorkspaceAppSummary,
-} from "./app-creation-store.js";
+import { listWorkspaceApps } from "./app-creation-store.js";
 import {
   getDispatchMcpAppAccessSettings,
   isAppAllowedByMcpAccess,

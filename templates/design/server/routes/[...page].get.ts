@@ -10,7 +10,6 @@ import {
 } from "@agent-native/core/shared";
 import {
   defineEventHandler,
-  getHeader,
   getQuery,
   getRequestURL,
   setResponseHeader,

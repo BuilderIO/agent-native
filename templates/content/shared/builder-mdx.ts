@@ -18,7 +18,6 @@ import {
 } from "./nfm-registry";
 import type {
   SourceComponentData,
-  SourceComponentPreview,
   SourceComponentPreviewTable,
 } from "./source-component-block";
 

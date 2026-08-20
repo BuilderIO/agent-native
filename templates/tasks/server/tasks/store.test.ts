@@ -5,7 +5,7 @@ import { listTaskFieldValues } from "../custom-fields/task-fields.js";
 import { updateCustomFieldValuesByTaskId } from "../custom-fields/values/store.js";
 import { BULK_WRITE_CHUNK_SIZE } from "../db/bulk-write.js";
 import { createInMemoryTasksDb } from "../db/test-tasks-table.js";
-import { createInboxItem, updateInboxItem } from "../inbox/store.js";
+import { createInboxItem } from "../inbox/store.js";
 import { getStoredItem } from "../stored-items/store.js";
 import {
   createTask,

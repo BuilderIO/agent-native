@@ -12,10 +12,7 @@ import { useEffect, useRef } from "react";
 import type { FieldDefinition } from "@/hooks/use-custom-fields";
 import { useCustomFields } from "@/hooks/use-custom-fields";
 
-import {
-  invalidateVisibleTaskFields,
-  LIST_VISIBLE_TASK_FIELDS_QUERY_KEY,
-} from "./cache";
+import { invalidateVisibleTaskFields } from "./cache";
 
 export { DEFAULT_TASK_CARD_FIELD_NAMES, TASK_CARD_FIELD_LIMIT };
 

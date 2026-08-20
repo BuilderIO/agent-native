@@ -1,11 +1,6 @@
 import type { RemoteRun, RemoteTranscriptEvent } from "../remote-sessions-api";
 import { applyWireEvent, initialTurnState } from "./reducer";
-import type {
-  ChatContentPart,
-  ChatMessage,
-  ChatTurnState,
-  WireEvent,
-} from "./types";
+import type { ChatMessage, ChatTurnState, WireEvent } from "./types";
 
 export interface RemoteChatState {
   messages: ChatMessage[];

@@ -1,4 +1,4 @@
-import { callAction, setClientAppState } from "@agent-native/core/client/hooks";
+import { callAction } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   buildReviewThreads,

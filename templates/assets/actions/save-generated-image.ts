@@ -1,10 +1,5 @@
 import { defineAction } from "@agent-native/core";
 import type { ActionRunContext } from "@agent-native/core/action";
-import {
-  deleteAppState,
-  readAppState,
-  writeAppState,
-} from "@agent-native/core/application-state";
 import { z } from "zod";
 
 import { markAssetSaved } from "../server/handlers/assets.js";

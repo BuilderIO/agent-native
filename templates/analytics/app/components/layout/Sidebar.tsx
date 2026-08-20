@@ -15,7 +15,6 @@ import {
   IconArchive,
   IconActivity,
   IconHeartbeat,
-  IconPlus,
   IconLock,
   IconLink,
   IconMessageCircle,
@@ -46,7 +45,6 @@ import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { useAuth } from "@/components/auth/AuthProvider";
-import { getIdToken } from "@/lib/auth";
 import { ANALYTICS_CHAT_STORAGE_KEY } from "@/lib/chat-handoff";
 import { cn, shortcutModifierLabel } from "@/lib/utils";
 import {
@@ -121,7 +119,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
 import {
   Popover,
   PopoverTrigger,

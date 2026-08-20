@@ -4,10 +4,8 @@ import {
   defineTheme,
 } from "@agent-native/toolkit/design-system";
 import type {
-  DesignSystemKey,
   DesignSystemSize,
   MenuItem,
-  PickerOption,
 } from "@agent-native/toolkit/design-system";
 import {
   Avatar as AntAvatar,

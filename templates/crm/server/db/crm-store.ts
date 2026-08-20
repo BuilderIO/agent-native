@@ -1,4 +1,4 @@
-import { accessFilter, assertAccess } from "@agent-native/core/sharing";
+import { accessFilter } from "@agent-native/core/sharing";
 import { and, asc, desc, eq, exists, inArray, isNull, like } from "drizzle-orm";
 
 import type {

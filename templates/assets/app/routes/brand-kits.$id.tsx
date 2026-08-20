@@ -346,7 +346,7 @@ export function BrandKitDetailRoute({
   const urlTab = libraryTabFromValue(searchParams.get("tab"));
   const libraryId = explicitLibraryId ?? id!;
   const { data } = useActionQuery("get-library", { id: libraryId }) as any;
-  const updateLibrary = useActionMutation("update-library");
+
   const archiveLibrary = useActionMutation("archive-library");
   const duplicateLibrary = useActionMutation("duplicate-library");
   const updateAsset = useActionMutation("update-asset");
@@ -3784,7 +3784,7 @@ export function LiveCandidatesStage({
     asset?: any;
   } | null>(null);
   const dismissing = dismissSlot.isPending || deleteAsset.isPending;
-  const totalCount = slots.length + draftAssets.length;
+
   const [activeItemId, setActiveItemId] = useState<string | null>(null);
 
   async function handleDismissCandidate() {

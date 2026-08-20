@@ -1,94 +1,24 @@
-import {
-  useActionMutation,
-  useActionQuery,
-} from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import type { TweakDefinition } from "@shared/api";
-import {
-  getBreakpointOverrideState,
-  type BreakpointOverrideState,
-} from "@shared/breakpoint-media";
-import {
-  composeTransform3D,
-  isTransform3DActive,
-  parseTransform3DParts,
-  type Transform3DParts,
-} from "@shared/canvas-math";
-import {
-  alphaToOpacity,
-  parseCssColor,
-  rgbaToCss,
-  rgbaToHex,
-  withColorOpacity,
-} from "@shared/color-utils";
-import { propNameToDataAttribute } from "@shared/component-model";
+import { alphaToOpacity, parseCssColor } from "@shared/color-utils";
 import {
   listInteractionStates,
   readResolvedStateStyles,
   type InteractionState,
 } from "@shared/interaction-states";
 import {
-  IconAlignCenter,
-  IconAlignJustified,
-  IconAlignLeft,
-  IconAlignRight,
-  IconAngle,
-  IconArrowAutofitHeight,
-  IconArrowAutofitWidth,
-  IconArrowRight,
-  IconAxisX,
-  IconAxisY,
-  IconBackground,
-  IconBlur,
-  IconBorderCorners,
-  IconBorderRadius,
-  IconBorderStyle,
-  IconCheck,
   IconChevronDown,
   IconChevronRight,
   IconCode,
   IconComponents,
   IconDeviceMobile,
   IconExternalLink,
-  IconDroplet,
-  IconEye,
-  IconEyeOff,
-  IconFlipHorizontal,
-  IconFlipVertical,
   IconFrame,
-  IconGridDots,
-  IconGripVertical,
-  IconLayoutDistributeHorizontal,
-  IconLayoutGrid,
-  IconLoader2,
-  IconLayoutAlignBottom,
-  IconLayoutAlignCenter,
-  IconLayoutAlignLeft,
-  IconLayoutAlignMiddle,
-  IconLayoutAlignRight,
-  IconLayoutAlignTop,
-  IconLetterCase,
-  IconLetterSpacing,
-  IconLineHeight,
-  IconLink,
-  IconLinkOff,
-  IconMinus,
-  IconPerspective,
   IconPhoto,
   IconPlus,
-  IconRadiusBottomLeft,
-  IconRadiusBottomRight,
-  IconRadiusTopLeft,
-  IconRadiusTopRight,
   IconRefresh,
-  IconRotate3d,
-  IconShadow,
-  IconSquare,
-  IconUnlink,
   IconVector,
-  IconWaveSine,
 } from "@tabler/icons-react";
-import { useQueryClient } from "@tanstack/react-query";
 import {
   memo,
   useCallback,
@@ -96,20 +26,10 @@ import {
   useMemo,
   useRef,
   useState,
-  type DragEvent,
   type ReactNode,
 } from "react";
-import { useParams } from "react-router";
-import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -117,15 +37,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Slider } from "@/components/ui/slider";
-import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Tooltip,
@@ -135,11 +46,7 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
-import {
-  AppearanceProperties,
-  AppearanceScrubField,
-  CornerRadiusControl,
-} from "./edit-panel/appearance-properties";
+import { AppearanceProperties } from "./edit-panel/appearance-properties";
 import {
   alpineDataValueLiteral,
   canRebuildAlpineDataLosslessly,
@@ -163,54 +70,27 @@ import {
 } from "./edit-panel/document-colors";
 import { EffectsProperties } from "./edit-panel/effects-properties";
 import {
-  autoLayoutAlignmentFromStyles,
-  availableSizingForElement,
-  commitElementMinMax,
-  commitElementSizing,
-  componentNameForElementInfo,
-  cssElementSize,
-  displayLabel,
   elementIsComponentSelection,
-  horizontalToJustify,
-  inferElementSizing,
   inspectorObjectTitle,
   isContainerElement,
-  isParentFlex,
-  isParentGrid,
   isTextElement,
-  justifyToHorizontal,
-  parentFlexDirection,
-  readElementMinMax,
   TEXT_TAGS,
-  verticalToAlign,
 } from "./edit-panel/element-classification";
 import {
   deriveLockedAspectSize,
   interactionStateSelectionKey,
-  useAspectRatioLock,
 } from "./edit-panel/element-identity";
-import {
-  commitStylePatch,
-  DesignSpacingControl,
-  FieldTrailer,
-  ScrubStyleInput,
-} from "./edit-panel/field-primitives";
+import { commitStylePatch } from "./edit-panel/field-primitives";
 import {
   averageGradientOpacity,
   buildGradientLayer,
   DEFAULT_EXPORT_SETTINGS,
-  defaultGradientLayer,
   defaultGradientStops,
-  clampNumber,
-  fillLayerId,
-  fillLayerIndex,
   type FillLayerArrays,
-  gradientLabel,
   isLayerHiddenBySize,
   joinCssLayers,
   parseGradientLayer,
   removeFillLayerAtIndex,
-  SOLID_FILL_ID,
   solidToGradientPatch,
   splitCssLayers,
   withLayerSizeMarker,
@@ -218,13 +98,7 @@ import {
 import { FillProperties } from "./edit-panel/fill-properties";
 import { FramePresetsPanel } from "./edit-panel/frame-presets-panel";
 import type { InspectCodeSourceLocation } from "./edit-panel/inspect-code-source";
-import {
-  InspectorIconButton,
-  InspectorSegment,
-  RowDragHandle,
-  SectionIconButton,
-  useRowDragReorder,
-} from "./edit-panel/inspector-controls";
+import { SectionIconButton } from "./edit-panel/inspector-controls";
 import {
   authoredStyleValue,
   elementWithInteractionStateStyles,
@@ -236,18 +110,13 @@ import {
 } from "./edit-panel/layout-properties";
 import {
   ColorInput,
-  FieldLabel,
   PanelSection,
   PropInput,
   PropSelect,
-  PropSlider,
   SubsectionLabel,
 } from "./edit-panel/panel-primitives";
 import {
-  colorHasVisibleAlpha,
-  compactCssValue,
   cssColorOrFallback,
-  cssLengthNumber,
   fourValuesEqual,
   outlineOffsetForPosition,
   readStrokeOutlinePosition,
@@ -255,86 +124,41 @@ import {
   resolveTextStrokeColor,
   roundToOneDecimal,
   strokeHiddenByColor,
-  strokeIsVisible,
   swatchStyle,
   textStrokeIsVisible,
 } from "./edit-panel/position-helpers";
 import { PositionLayoutProperties } from "./edit-panel/position-layout-properties";
-import {
-  isMixedValue,
-  MIXED_VALUE,
-  mixedElementFromSelection,
-  sameOrMixed,
-} from "./edit-panel/selection-helpers";
+import { mixedElementFromSelection } from "./edit-panel/selection-helpers";
 import { StrokeProperties } from "./edit-panel/stroke-properties";
 import {
   type BreakpointOverrideFieldContext,
   type MotionKeyframeFieldContext,
-  resolveBreakpointOverride,
   type StyleChangeHandler,
   type StyleChangeMeta,
   type StylesChangeHandler,
 } from "./edit-panel/style-change-types";
 import {
-  ALIGN_SELF_OPTIONS,
-  BLEND_MODE_OPTIONS,
-  optionValue,
-  parseNumericValue,
-  resolveLineHeight,
-  sidesAreLinked,
-  STROKE_POSITION_OPTIONS,
-} from "./edit-panel/style-options";
-import {
   mergeRotationValue,
-  mergeTranslateFunction,
   normalizeRotationDegrees,
-  parseRotationValue,
-  parseScaleValue,
 } from "./edit-panel/transform-helpers";
 import {
   displayFontFamilyName,
   FONT_FAMILY_OPTIONS,
-  FONT_WEIGHT_OPTIONS,
   resolveFontFamilySelectValue,
-  splitFontFamilyList,
-  type TextResizeMode,
 } from "./edit-panel/typography-helpers";
 import { TypographyProperties } from "./edit-panel/typography-properties";
 import {
-  AutoLayoutMatrix,
-  BreakpointOverrideIndicator,
-  ConstraintsPreview,
-  ConstraintsWidget,
   ExportSettingsPanel,
   DesignColorPicker,
-  FRAME_SIZE_PRESET_CATEGORIES,
-  MotionKeyframeDiamond,
-  motionPropertyHasKeyframe,
   ScrubInput,
-  SizingField,
-  type AlignmentMatrixValue,
-  type AutoLayoutMatrixValue,
-  type AutoLayoutSizing,
-  type AutoLayoutSizingAxis,
-  type ConstraintsValue,
   type ExportSettingsValue,
   type FrameSizePreset,
-  type FrameSizePresetCategoryKey,
   InteractionStatePanel,
   type ActiveInteractionState,
-  type DesignFillRow,
-  type DesignGradientStop,
-  type DesignGradientType,
-  type ImageFillValue,
   type MotionKeyframeCssProperty,
-  type ScrubInputChangeMeta,
 } from "./inspector";
-import { IconLayoutSettings, IconText } from "./inspector/design-icons";
-import type { DesignPaintType } from "./inspector/DesignColorPicker";
-import {
-  GlslShaderEffectSection,
-  type GlslShaderPanelContext,
-} from "./inspector/GlslShaderPanel";
+import { IconText } from "./inspector/design-icons";
+import { type GlslShaderPanelContext } from "./inspector/GlslShaderPanel";
 import {
   ReviewCommentsPanel,
   type ReviewCommentsPanelProps,

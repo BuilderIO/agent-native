@@ -42,7 +42,7 @@
  */
 
 import { matchInlineMathAt } from "./inline-math.js";
-import { isRegistryBlockTag, registryBlockSpecByTag } from "./nfm-registry.js";
+import { registryBlockSpecByTag } from "./nfm-registry.js";
 
 // ── Shared PM JSON types ────────────────────────────────────────────
 export interface PMMark {
@@ -1998,7 +1998,6 @@ function parseContainer(
     return { nodes: [withIndentAttr(node)], end: start + 1 };
   }
   const closeIdx = i;
-  const innerEnd = closeIdx;
 
   // <details> with a <summary> on the next line.
   if (tagKey === "<details") {

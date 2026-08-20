@@ -117,7 +117,6 @@ type OverlayState = {
   countdownEndsAtMs: number;
 };
 
-const COUNTDOWN_FALLBACK = 3;
 const params = new URLSearchParams(location.search);
 const part = params.get("part");
 const root = document.getElementById("root") as HTMLDivElement;

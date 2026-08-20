@@ -1669,9 +1669,7 @@ export default function CodeAgentsApp({
     () => getProviderGate(hostMetadata),
     [hostMetadata],
   );
-  const computerControlMetadata = hostMetadata?.computerControl
-    ? hostMetadata!
-    : null;
+
   const [providerGateBouncePulse, setProviderGateBouncePulse] = useState(0);
   const bounceProviderGate = useCallback(() => {
     setProviderGateBouncePulse((pulse) => pulse + 1);

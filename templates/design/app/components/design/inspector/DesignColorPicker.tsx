@@ -61,7 +61,7 @@ import {
   parseImageFillCss,
   type ImageFillValue,
 } from "./ImageFillControls";
-import { ShaderFillsPanel, shaderDescriptorToCss } from "./ShaderFillsPanel";
+import { ShaderFillsPanel } from "./ShaderFillsPanel";
 
 // ─── Public types ──────────────────────────────────────────────────────────────
 
@@ -716,7 +716,7 @@ export function DesignColorPicker({
   const copy = { ...DEFAULT_LABELS, ...labels };
   const color = parseCssColorExtended(value) ?? FALLBACK_COLOR;
   const hsv = rgbaToHsv(color);
-  const hsl = rgbaToHsl(color);
+
   const effectiveOpacity = opacity ?? alphaToOpacity(color.a);
   const blendModeValue = BLEND_MODE_OPTIONS.some(
     (option) => option.value === blendMode,

@@ -9959,7 +9959,7 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     });
     var gestureState =
       memberStates[groupEls.indexOf(gestureEl)] || memberStates[0];
-    var originalInlineOpacity = gestureState.originalOpacity;
+
     var originLeft = gestureState.originLeft;
     var originTop = gestureState.originTop;
     function setMembersOpacity(value: string | null): void {

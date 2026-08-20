@@ -997,9 +997,9 @@ export function App() {
     setPopoverView("settings");
   }
 
-  const [rewindSettingsReturnView, setRewindSettingsReturnView] = useState<
-    "recorder" | "settings"
-  >("recorder");
+  const [rewindSettingsReturnView] = useState<"recorder" | "settings">(
+    "recorder",
+  );
   const [rewindAgentPromptCopied, setRewindAgentPromptCopied] = useState(false);
   const [agentHandoff, setAgentHandoff] =
     useState<RewindAgentHandoffRequest | null>(null);
@@ -1037,7 +1037,7 @@ export function App() {
   // popover auto-hide during the macOS screen-picker focus dance.
   const [recordingFlowActive, setRecordingFlowActive] = useState(false);
   const [recordingStopFinalizing, setRecordingStopFinalizing] = useState(false);
-  const [lastRecordingId, setLastRecordingId] = useState<string | null>(null);
+  const [, setLastRecordingId] = useState<string | null>(null);
   const [authStatus, setAuthStatus] = useState<"unknown" | "authed" | "anon">(
     "unknown",
   );
@@ -1071,7 +1071,6 @@ export function App() {
   const {
     cameraId,
     setCameraId,
-    micId,
     setMicId,
     cameraLabel,
     setCameraLabel,
@@ -4387,7 +4386,7 @@ function PendingUploadBanner({
 
   const retrying = retryingUploadId === latest.recordingId;
   const storageSetupFailure = isStorageSetupFailureMessage(latest.lastError);
-  const exporting = exportingUploadId === latest.recordingId;
+
   const canOpenFolder = latest.kind === "native" && !!latest.folderPath;
   const canExport = latest.kind === "browser";
   const actionsDisabled =
@@ -5516,7 +5515,7 @@ function Setup({
   const [rewindLocalBusy, setRewindLocalBusy] = useState(false);
   const [rewindLocalError, setRewindLocalError] = useState<string | null>(null);
   const [rewindReplayId, setRewindReplayId] = useState<string | null>(null);
-  const [excludedBundleIdsInput, setExcludedBundleIdsInput] = useState("");
+  const [, setExcludedBundleIdsInput] = useState("");
   const [excludedApps, setExcludedApps] = useState<RewindExcludedApplication[]>(
     [],
   );

@@ -9,7 +9,7 @@ import type {
 } from "@shared/api";
 import { formulaValueText, isComputedPropertyType } from "@shared/properties";
 
-import { calendarDateKey, propertyDateValue } from "./calendar-timeline";
+import { propertyDateValue } from "./calendar-timeline";
 import {
   type ColumnKey,
   type DatabaseConditionMoveDirection,

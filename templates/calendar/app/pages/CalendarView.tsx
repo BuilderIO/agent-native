@@ -88,7 +88,6 @@ import {
 import {
   addCalendarDays,
   dateKeyToDate,
-  dateKeyToTimezoneIso,
   dateToCalendarDateKey,
   eventOverlapsCalendarDay,
   getBrowserTimezone,

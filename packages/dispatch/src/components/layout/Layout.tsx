@@ -15,7 +15,6 @@ import {
   resolveChatFirstAppTarget,
   subscribeChatFirstOpenBrowser,
   subscribeChatFirstOpenApp,
-  writeChatFirstAppLayout,
   useChatFirstSessionWatch,
   useChatFirstSurfacePanel,
   useChatFirstSurfaceResize,
@@ -58,10 +57,7 @@ import {
   type ChatFirstPrimaryTab,
 } from "@agent-native/core/client/chat-first";
 import { writeClipboardText } from "@agent-native/core/client/clipboard";
-import {
-  useActionMutation,
-  useActionQuery,
-} from "@agent-native/core/client/hooks";
+import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { InvitationBanner, OrgSwitcher } from "@agent-native/core/client/org";
@@ -119,12 +115,6 @@ import {
 import { CHAT_FIRST_PANE_STATE_KEY } from "../../shared/chat-first-pane";
 import { AppIcon } from "../app-icon";
 import { CreateAppPopover } from "../create-app-popover";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "../ui/dropdown-menu";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "../ui/sheet";
 import { Skeleton } from "../ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";

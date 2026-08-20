@@ -10,7 +10,6 @@ import {
   IconClock,
   IconMapPin,
   IconVideo,
-  IconRefresh,
   IconBell,
   IconLayoutSidebarRight,
   IconFileText,

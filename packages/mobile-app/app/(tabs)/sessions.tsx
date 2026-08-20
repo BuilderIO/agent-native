@@ -25,7 +25,6 @@ import {
   createRemoteRun,
   decidePendingCommand,
   getPendingCommand,
-  getRemoteRelayBaseUrl,
   getRemoteRunDetail,
   isRemoteAuthError,
   isRemoteRunActive,

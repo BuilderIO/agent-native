@@ -1150,14 +1150,8 @@ export async function getConfiguredEngineNameForRequest(
 export async function resolveEngine(
   config: ResolveEngineConfig,
 ): Promise<AgentEngine> {
-  const {
-    engineOption,
-    apiKey,
-    apiKeyEnvVar,
-    model: _model,
-    appId,
-    credentialIdentity,
-  } = config;
+  const { engineOption, apiKey, apiKeyEnvVar, appId, credentialIdentity } =
+    config;
 
   // 1. Explicit instance passed directly
   if (

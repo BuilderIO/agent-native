@@ -11,7 +11,6 @@ import {
 import {
   SCREEN_CAPTURE_FRAME_RATE,
   screenCaptureDisplayOptions,
-  screenCaptureVideoConstraints,
 } from "@shared/recording-capture";
 import {
   chunkUploadUrl,

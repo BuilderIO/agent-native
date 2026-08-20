@@ -1,8 +1,4 @@
-import {
-  parseCssColor,
-  rgbaToCss,
-  withColorOpacity,
-} from "@shared/color-utils";
+import { parseCssColor } from "@shared/color-utils";
 import { IconChevronDown, IconChevronRight } from "@tabler/icons-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
@@ -28,7 +24,6 @@ import type { DesignPaintType } from "../inspector/DesignColorPicker";
 import type { GlslShaderPanelContext } from "../inspector/GlslShaderPanel";
 import {
   buildGradientLayer,
-  defaultGradientLayer,
   defaultGradientStops,
   fillLayerId,
   fillLayerIndex,
