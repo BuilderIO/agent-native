@@ -308,9 +308,12 @@ export function stripMcpOAuthAppBasePath(
 ): string {
   const normalizedBase = `/${basePath.replace(/^\/+|\/+$/g, "")}`;
   if (normalizedBase === "/") return path;
-  if (path === normalizedBase) return "/";
-  return path.startsWith(`${normalizedBase}/`)
-    ? path.slice(normalizedBase.length)
+  const suffixStart = path.search(/[?#]/);
+  const pathname = suffixStart === -1 ? path : path.slice(0, suffixStart);
+  const suffix = suffixStart === -1 ? "" : path.slice(suffixStart);
+  if (pathname === normalizedBase) return `/${suffix}`;
+  return pathname.startsWith(`${normalizedBase}/`)
+    ? `${pathname.slice(normalizedBase.length)}${suffix}`
     : path;
 }
 

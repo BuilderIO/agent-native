@@ -208,6 +208,12 @@ describe("managed MCP OAuth clients", () => {
     expect(
       stripMcpOAuthAppBasePath("/settings/integrations", "/workspace"),
     ).toBe("/settings/integrations");
+    expect(
+      stripMcpOAuthAppBasePath("/workspace?connected=1", "/workspace"),
+    ).toBe("/?connected=1");
+    expect(stripMcpOAuthAppBasePath("/workspace#tab", "/workspace")).toBe(
+      "/#tab",
+    );
   });
 
   it("rejects organization scope for managed MCP OAuth servers", () => {

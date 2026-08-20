@@ -61,16 +61,20 @@ export async function mutateUserSetting(
 ): Promise<Record<string, unknown>> {
   const normalized = userKey(email, key);
   const legacy = legacyUserKey(email, key);
-  return mutateSetting(
+  let migratedLegacy = false;
+  const result = await mutateSetting(
     normalized,
     async (current) => {
       if (current !== null) return updater(current);
       const legacyCurrent =
         legacy === normalized ? null : await getSetting(legacy);
+      if (legacyCurrent !== null) migratedLegacy = true;
       return updater(legacyCurrent);
     },
     options,
   );
+  if (migratedLegacy) await deleteSetting(legacy, options);
+  return result;
 }
 
 /** Delete a user-scoped setting. */
@@ -79,5 +83,10 @@ export async function deleteUserSetting(
   key: string,
   options?: StoreWriteOptions,
 ): Promise<boolean> {
-  return deleteSetting(userKey(email, key), options);
+  const normalized = userKey(email, key);
+  const deletedNormalized = await deleteSetting(normalized, options);
+  const legacy = legacyUserKey(email, key);
+  if (legacy === normalized) return deletedNormalized;
+  const deletedLegacy = await deleteSetting(legacy, options);
+  return deletedNormalized || deletedLegacy;
 }

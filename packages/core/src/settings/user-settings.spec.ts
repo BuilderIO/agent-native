@@ -104,6 +104,10 @@ describe("user-settings", () => {
       expect(updater).toHaveBeenCalledWith({
         servers: [{ id: "mcps_legacy" }],
       });
+      expect(mockDeleteSetting).toHaveBeenCalledWith(
+        "u:Alice@Test.com:mcp-servers-remote",
+        undefined,
+      );
     });
   });
 
@@ -115,6 +119,24 @@ describe("user-settings", () => {
 
       expect(mockDeleteSetting).toHaveBeenCalledWith(
         "u:alice@test.com:old",
+        undefined,
+      );
+      expect(result).toBe(true);
+    });
+
+    it("deletes both canonical and legacy keys", async () => {
+      mockDeleteSetting.mockResolvedValueOnce(true).mockResolvedValueOnce(true);
+
+      const result = await deleteUserSetting("Alice@Test.com", "old");
+
+      expect(mockDeleteSetting).toHaveBeenNthCalledWith(
+        1,
+        "u:alice@test.com:old",
+        undefined,
+      );
+      expect(mockDeleteSetting).toHaveBeenNthCalledWith(
+        2,
+        "u:Alice@Test.com:old",
         undefined,
       );
       expect(result).toBe(true);
