@@ -26,6 +26,7 @@ import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import {
   readOAuthCredentialState,
   resolveOAuthCredentialAccess,
+  markOAuthReconnectRequired,
   revokeOAuthCredential,
   saveOAuthCredential,
   type OAuthCredential,
@@ -595,6 +596,24 @@ export async function getMcpOAuthConnectionState(options: {
 }): Promise<OAuthCredentialState<McpOAuthCredentialBundle>> {
   const serverUrl = canonicalServerUrl(options.serverUrl);
   return readOAuthCredentialState<McpOAuthCredentialBundle>(
+    credentialIdentity({ ...options, serverUrl }),
+    {
+      allowLegacy: true,
+      legacyAccountKey: true,
+      validateCredential: (credential) =>
+        serverUrlsMatch(credential.serverUrl, serverUrl),
+    },
+  );
+}
+
+export async function markMcpOAuthReconnectRequired(options: {
+  key: string;
+  scope: "user" | "org";
+  scopeId: string;
+  serverUrl: string;
+}): Promise<boolean> {
+  const serverUrl = canonicalServerUrl(options.serverUrl);
+  return markOAuthReconnectRequired<McpOAuthCredentialBundle>(
     credentialIdentity({ ...options, serverUrl }),
     {
       allowLegacy: true,
