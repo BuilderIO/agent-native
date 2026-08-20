@@ -9,6 +9,7 @@ import { describe, it } from "node:test";
 import { parse } from "yaml";
 
 import {
+  PRODUCTION_PURGE_CONDITION,
   PRODUCTION_SITE_GROUP,
   validateProductionPurgeCondition,
   validateReusableWorkflowConcurrency,
@@ -129,11 +130,15 @@ describe("production Netlify site concurrency guard", () => {
     );
 
     assert(purge);
-    const mutatedIf = String(purge.if).replace(
-      "inputs.target == 'production' && inputs.deploy && inputs.deploy_mode == 'production' && success()",
-      "inputs.deploy",
-    );
-    assert.notDeepEqual(validateProductionPurgeCondition(mutatedIf), []);
+    assert.equal(String(purge.if), PRODUCTION_PURGE_CONDITION);
+    for (const mutatedIf of [
+      "inputs.target == 'production' && inputs.deploy_mode == 'production' && success()",
+      "inputs.target == 'production' && !inputs.deploy && inputs.deploy_mode == 'production' && success()",
+      "inputs.target == 'production' && inputs.deploy && inputs.deploy_mode == 'production' && !success()",
+      "inputs.target == 'production' && inputs.deploy && inputs.deploy_mode == 'production' || success()",
+    ]) {
+      assert.notDeepEqual(validateProductionPurgeCondition(mutatedIf), []);
+    }
   });
 
   it("ignores stale ready deploys after a locked cutover", () => {

@@ -12,6 +12,8 @@ const promotePath = ".github/workflows/promote-netlify-deploy.yml";
 // all three production lanes must therefore share one per-site queue.
 export const PRODUCTION_SITE_GROUP =
   "agent-native-production-site-${{ matrix.site }}";
+export const PRODUCTION_PURGE_CONDITION =
+  "inputs.target == 'production' && inputs.deploy && inputs.deploy_mode == 'production' && success()";
 
 const reusable = readFileSync(reusablePath, "utf8");
 const production = readFileSync(productionPath, "utf8");
@@ -48,13 +50,9 @@ export function validateReusableWorkflowConcurrency(
 }
 
 export function validateProductionPurgeCondition(ifValue: unknown): string[] {
-  if (
-    typeof ifValue !== "string" ||
-    !ifValue.includes("inputs.target == 'production'") ||
-    !ifValue.includes("inputs.deploy") ||
-    !ifValue.includes("inputs.deploy_mode == 'production'") ||
-    !ifValue.includes("success()")
-  ) {
+  const normalized =
+    typeof ifValue === "string" ? ifValue.trim().replace(/\s+/g, " ") : "";
+  if (normalized !== PRODUCTION_PURGE_CONDITION) {
     return [
       `${reusablePath} production cache purge must run only after a successful production deploy`,
     ];
