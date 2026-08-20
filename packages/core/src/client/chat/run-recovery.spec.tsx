@@ -253,6 +253,49 @@ describe("run recovery surfaces", () => {
     expect(container.textContent).toContain("Kopieren fehlgeschlagen");
   });
 
+  it("keeps recovery actions compact in a narrow chat panel", async () => {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <RunErrorRecoveryCard
+            info={{
+              message: "Desktop app chat relay failed",
+              errorCode: "connection_error",
+              runId: "run-123",
+              recoverable: true,
+            }}
+            onContinue={vi.fn()}
+            onRetry={vi.fn()}
+            onDismiss={vi.fn()}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    const retryButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Retry"]',
+    );
+    const newChatButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="New chat"]',
+    );
+    const copyButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Copy debug info"]',
+    );
+
+    expect(retryButton).toBeTruthy();
+    expect(newChatButton).toBeTruthy();
+    expect(copyButton).toBeTruthy();
+    expect(retryButton?.title).toBe("Retry");
+    expect(newChatButton?.title).toBe("New chat");
+    expect(copyButton?.title).toBe("Copy debug info");
+    expect(retryButton?.textContent).toBe("");
+    expect(newChatButton?.textContent).toBe("");
+  });
+
   it("shows the searchable provider setup while disclosing API keys", async () => {
     await act(async () => {
       root.render(

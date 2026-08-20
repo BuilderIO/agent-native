@@ -746,6 +746,27 @@ const messages = {
     settingsSummary:
       "Manage scheduled and event-triggered agent tasks together from the Automations page.",
     openAutomations: "Open Automations",
+    nextRunNeverScheduler: "Never — no scheduler in this deploy",
+    nextRunSchedulerUnknown:
+      "{{date}} — unconfirmed, the scheduler check failed",
+    nextRunSchedulerUnknownNoDate: "Unknown — the scheduler check failed",
+    scheduleUnknownTitle: "Couldn't check whether schedules run here",
+    scheduleUnknownDetail:
+      "The scheduler status check failed, so the next run times below are unconfirmed. Reload to check again.",
+    scheduleUnavailableTitle: "Schedules won't run in this deploy",
+    scheduleUnavailableLocalTitle: "Schedules don't run in local development",
+    scheduleUnavailableDisabled:
+      "This app was built with recurring jobs turned off, so no scheduled automation will fire. Event-triggered automations and Run now still work.",
+    scheduleUnavailableNoScheduler:
+      "This hosting target has no durable scheduler, so no scheduled automation will fire. Event-triggered automations and Run now still work.",
+    scheduleUnavailableLocal:
+      "Schedules stay off on a dev machine unless you opt in. Event-triggered automations and Run now still work.",
+    scheduleUnavailableDisabledFix:
+      "To enable recurring jobs, set AGENT_NATIVE_DISABLE_RECURRING_JOBS=false in the build environment.",
+    scheduleUnavailableLocalFix:
+      "Set AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS=true to run schedules on this machine.",
+    scheduleUnavailableFixLabel: "Show more",
+    scheduleUnavailableFixLabelOpen: "Show less",
   },
   share: {
     titleWithResource: 'Share "{{title}}"',
