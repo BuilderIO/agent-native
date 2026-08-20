@@ -5,6 +5,17 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 Older updates live in [the changelog folder](./changelog/) and are included in the in-app "What's new" view.
 
+## 2026-08-20
+
+### Improved
+
+- Recording controls now follow you across browser tabs and page navigations.
+
+### Fixed
+
+- Clips overlays now follow tab switches during the recording countdown and recover cleanly on tabs opened before Clips.
+- Clips now opens provider setup instead of retrying a rejected key in a loop.
+
 ## 2026-08-19
 
 ### Added
@@ -50,13 +61,3 @@ Older updates live in [the changelog folder](./changelog/) and are included in t
 
 - Long desktop recordings now complete or abort resumable uploads cleanly, preserve local recovery copies, and show the actual upload error when saving fails.
 - Clips now uses consistent text-only share controls with compact copy actions and an expandable Share with agents section across recordings and meetings.
-
-## 2026-08-13
-
-### Added
-
-- Private meeting notes can be shared with an external agent through a temporary link.
-
-### Improved
-
-- Comments now render inline Markdown for emphasis, inline code, links, and line breaks while keeping headings out of compact comment surfaces.

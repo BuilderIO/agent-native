@@ -5,6 +5,12 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 Older updates live in [the changelog folder](./changelog/) and are included in the in-app "What's new" view.
 
+## 2026-08-20
+
+### Improved
+
+- Analytics now explains how to recover when staged data reaches its size limit.
+
 ## 2026-08-18
 
 ### Fixed
@@ -36,16 +42,3 @@ Older updates live in [the changelog folder](./changelog/) and are included in t
 
 - Feature flags can be managed across apps whose workspace records use different local IDs
 - Kept feature flag details readable by stacking rollout controls at narrow widths.
-
-## 2026-08-11
-
-### Improved
-
-- Full-page chat composers stay at a focused 750px width.
-
-### Fixed
-
-- Analytics custom blocks keep loading when they use the legacy BigQuery query action name.
-- Analytics dashboards keep the selected tab when reopened
-- Analytics routes company-knowledge and Slack-context questions to Brain
-- Chrome no longer offers to install Analytics as a desktop app.
