@@ -5975,23 +5975,32 @@ function Setup({
     if (!featureConfig) return;
     setScreenMemoryMessage(null);
     const previous = screenMemoryRef.current;
-    const next = {
+    // Optimistic UI only — the persisted payload is built inside the queued
+    // callback from the on-disk config plus THIS call's patch, so a failed
+    // earlier mutation's values can never ride along in a later write.
+    const optimistic = {
       ...DEFAULT_SCREEN_MEMORY_CONFIG,
       ...previous,
       ...patch,
     };
     const version = ++screenMemoryMutationVersionRef.current;
     screenMemoryMutationRef.current += 1;
-    screenMemoryRef.current = next;
-    setScreenMemory(next);
+    screenMemoryRef.current = optimistic;
+    setScreenMemory(optimistic);
     setScreenMemoryConfigBusy(true);
     let operation!: Promise<void>;
     operation = screenMemoryMutationTailRef.current
       .catch(() => {})
       .then(async () => {
         // Read the latest complete config at execution time so a queued Rewind
-        // edit cannot overwrite an unrelated setting changed while it waited.
+        // edit cannot overwrite an unrelated setting changed while it waited —
+        // and cannot re-apply a predecessor's failed patch.
         const current = await invoke<FeatureConfig>("get_feature_config");
+        const next = {
+          ...DEFAULT_SCREEN_MEMORY_CONFIG,
+          ...current.screenMemory,
+          ...patch,
+        };
         await invoke("set_feature_config", {
           config: { ...current, screenMemory: next },
         });
@@ -6916,7 +6925,11 @@ function Setup({
               <UiAlertDialogFooter>
                 <UiAlertDialogCancel>Not now</UiAlertDialogCancel>
                 <UiAlertDialogAction
-                  disabled={screenMemoryConfigBusy}
+                  /* Also disabled until featureConfig loads:
+                     setScreenMemoryConfig no-ops without it, and the finally
+                     below would close the dialog with nothing written and
+                     nothing said. */
+                  disabled={screenMemoryConfigBusy || !featureConfig}
                   onClick={(event) => {
                     // Radix closes on click by default, which would unmount
                     // the busy label before the invoke even starts. Hold the
