@@ -148,7 +148,7 @@ export async function readSignInAffordances(
 ): Promise<SignInAffordances> {
   await page.goto(`${origin}/sign-in`, {
     waitUntil: "domcontentloaded",
-    timeout: 90_000,
+    timeout: 45_000,
   });
   // Waits for the document to render rather than sleeping a fixed amount:
   // this runs once per host, and a flat pause is dead time multiplied by the

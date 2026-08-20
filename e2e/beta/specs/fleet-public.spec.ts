@@ -64,7 +64,6 @@ for (const site of sites) {
       // `ignoreHTTPSErrors` stays off, so it is deliberately never set.
       const response = await page.goto(`${origin}/`, {
         waitUntil: "domcontentloaded",
-        timeout: 90_000,
       });
       expect(response, `${origin}/ produced no response`).toBeTruthy();
       expect.soft(response!.status(), `${origin}/ status`).toBeLessThan(400);
@@ -72,6 +71,9 @@ for (const site of sites) {
       // Waits for real content instead of sleeping: a fixed pause is dead time
       // on every host, and 16 hosts of dead time is minutes of the sweep.
       await renderedText(page, `${site.host} landing page`);
+      // Keep the page listeners alive through late hydration and lazy-loaded
+      // resources. A rendered body is not the same as a settled application.
+      await page.waitForTimeout(5_000);
 
       // The environment switcher is built from a static host map. A beta host
       // missing from that map renders no switcher, stranding users on beta
@@ -375,14 +377,12 @@ for (const site of sites) {
         `${site.host} agent-chat answered HTTP ${outcome.status} to an anonymous caller`,
       ).toBe(401);
     });
-
     test("sends an anonymous visitor to sign-in without looping", async ({
       page,
     }) => {
       const settings = `${origin}/settings/general`;
       await page.goto(settings, {
         waitUntil: "domcontentloaded",
-        timeout: 90_000,
       });
 
       const gate = await settleAuthGate(page);

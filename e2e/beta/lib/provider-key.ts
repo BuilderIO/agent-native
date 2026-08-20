@@ -35,14 +35,20 @@ export interface ResolvedOpenAiKey {
  * for it, and every caller reports which source it got.
  */
 export function resolveOpenAiKey(): ResolvedOpenAiKey | undefined {
-  const dedicated = process.env.BETA_E2E_OPENAI_API_KEY?.trim();
-  if (dedicated) return { key: dedicated, source: "dedicated" };
-
   const allowShared = /^(1|true)$/i.test(
     process.env.BETA_E2E_ALLOW_SHARED_KEY?.trim() ?? "",
   );
-  const shared = process.env.BETA_E2E_SHARED_OPENAI_API_KEY?.trim();
-  if (allowShared && shared) return { key: shared, source: "shared" };
+
+  // Resolve the explicitly selected source first. A shared dispatch must not
+  // silently fall back to the dedicated key, or the run will bill the wrong
+  // credential while reporting a successful setup.
+  if (allowShared) {
+    const shared = process.env.BETA_E2E_SHARED_OPENAI_API_KEY?.trim();
+    return shared ? { key: shared, source: "shared" } : undefined;
+  }
+
+  const dedicated = process.env.BETA_E2E_OPENAI_API_KEY?.trim();
+  if (dedicated) return { key: dedicated, source: "dedicated" };
 
   return undefined;
 }
@@ -66,7 +72,7 @@ export async function installOpenAiKey(
   try {
     await page.goto(`${origin}/`, {
       waitUntil: "domcontentloaded",
-      timeout: 90_000,
+      timeout: 45_000,
     });
     const result = await page.evaluate(
       async ([route, key]) => {
