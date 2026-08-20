@@ -945,11 +945,6 @@ function serializeBlock(node: PMNode, indent: number): string[] {
   }
 }
 
-function serializeChildrenAfterFirst(node: PMNode, indent: number): string[] {
-  const children = (node.content || []).slice(1);
-  return serializeBlocks(children, indent);
-}
-
 function serializeQuote(node: PMNode, ind: number): string[] {
   const textPara = firstParagraph(node);
   const out: string[] = [];

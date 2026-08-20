@@ -10581,20 +10581,6 @@ function SourceChangeSetReviewCard({
   );
 }
 
-function SourceMetadataRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex min-w-0 items-start justify-between gap-3 text-xs">
-      <span className="shrink-0 text-muted-foreground">{label}</span>
-      <span
-        className="min-w-0 max-w-[65%] break-words text-right"
-        title={value}
-      >
-        {value}
-      </span>
-    </div>
-  );
-}
-
 function sourceRiskClass(risk: ContentDatabaseSourceChangeSet["riskLevel"]) {
   return cn(
     "rounded border px-1.5 py-0.5",
@@ -10762,14 +10748,6 @@ export function builderSourceContinuationWatchdogDelay(refires: number) {
     BUILDER_SOURCE_CONTINUATION_MAX_BACKOFF_MS,
     BUILDER_SOURCE_CONTINUATION_STALL_MS * 2 ** Math.max(0, refires),
   );
-}
-
-function sourceBuilderReadModeSummary(source: ContentDatabaseSource) {
-  if (source.metadata.liveReadConfigured) return "Builder API read-only";
-  if (source.metadata.readMode === "fixture") {
-    return "Local fixture; Builder credentials unavailable";
-  }
-  return "Local fixture";
 }
 
 function sourcePushModeLabel(
@@ -11577,139 +11555,6 @@ function DatabasePropertyPickerSubContent({
         </div>
       ) : null}
     </DropdownMenuSubContent>
-  );
-}
-
-function DatabaseGroupMenu({
-  activeView,
-  properties,
-  groupIds,
-  onGroupByChange,
-  onHideEmptyGroupsChange,
-  onGroupsCollapsedChange,
-}: {
-  activeView: Pick<
-    ContentDatabaseView,
-    "type" | "groupByPropertyId" | "hideEmptyGroups"
-  >;
-  properties: DocumentProperty[];
-  groupIds: string[];
-  onGroupByChange: (propertyId: string | null) => void;
-  onHideEmptyGroupsChange: (hideEmptyGroups: boolean) => void;
-  onGroupsCollapsedChange: (groupIds: string[], collapsed: boolean) => void;
-}) {
-  const groupableProperties = databaseViewGroupableProperties(properties);
-  const groupProperty = databaseViewGroupingProperty(activeView, properties);
-  const hideEmptyGroups = activeView.hideEmptyGroups === true;
-  const [propertyQuery, setPropertyQuery] = useState("");
-  const groupPropertyItems = databasePropertyPickerItems(
-    groupableProperties,
-    propertyQuery,
-    { includeName: false },
-  );
-  const canGroupView =
-    activeView.type === "table" ||
-    activeView.type === "list" ||
-    activeView.type === "gallery";
-
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          disabled={!canGroupView}
-          aria-label={
-            groupProperty
-              ? `Group by ${groupProperty.definition.name}`
-              : "Group"
-          }
-          title="Group"
-          className={cn(databaseToolbarIconButtonClass(Boolean(groupProperty)))}
-        >
-          <IconLayoutKanban className="size-3.5" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-56">
-        <DropdownMenuLabel className="text-xs text-muted-foreground">
-          {dbText("groupBy")}
-        </DropdownMenuLabel>
-        <DropdownMenuItem
-          onSelect={(event) => {
-            event.preventDefault();
-            onGroupByChange(null);
-          }}
-        >
-          <span className="flex-1">None</span>
-          {!groupProperty ? (
-            <IconCheck className="size-4 text-muted-foreground" />
-          ) : null}
-        </DropdownMenuItem>
-        {groupableProperties.length > 0 ? <DropdownMenuSeparator /> : null}
-        {groupableProperties.length > 0 ? (
-          <DatabasePropertyPickerSearch
-            value={propertyQuery}
-            onChange={setPropertyQuery}
-          />
-        ) : null}
-        {groupPropertyItems.map((item) => (
-          <DatabasePropertyPickerItem
-            key={item.key}
-            item={item}
-            selected={groupProperty?.definition.id === item.key}
-            onSelect={(key) => onGroupByChange(key)}
-          />
-        ))}
-        {groupableProperties.length > 0 && groupPropertyItems.length === 0 ? (
-          <div className="px-2 py-1.5 text-xs text-muted-foreground">
-            {dbText("noPropertiesFound")}
-          </div>
-        ) : null}
-        {groupProperty ? (
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              onSelect={(event) => {
-                event.preventDefault();
-                onHideEmptyGroupsChange(!hideEmptyGroups);
-              }}
-            >
-              <IconEyeOff className="mr-2 size-4 text-muted-foreground" />
-              <span className="flex-1">{dbText("hideEmptyGroups")}</span>
-              {hideEmptyGroups ? (
-                <IconCheck className="size-4 text-muted-foreground" />
-              ) : null}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              disabled={groupIds.length === 0}
-              onSelect={(event) => {
-                event.preventDefault();
-                onGroupsCollapsedChange(groupIds, true);
-              }}
-            >
-              <IconChevronRight className="mr-2 size-4 text-muted-foreground" />
-              {dbText("collapseAllGroups")}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              disabled={groupIds.length === 0}
-              onSelect={(event) => {
-                event.preventDefault();
-                onGroupsCollapsedChange(groupIds, false);
-              }}
-            >
-              <IconChevronDown className="mr-2 size-4 text-muted-foreground" />
-              {dbText("expandAllGroups")}
-            </DropdownMenuItem>
-          </>
-        ) : null}
-        {groupableProperties.length === 0 ? (
-          <div className="px-2 py-1.5 text-xs text-muted-foreground">
-            {dbText("addAStatusSelectMultiSelectOrCheckboxPropertyToGroup")}
-          </div>
-        ) : null}
-      </DropdownMenuContent>
-    </DropdownMenu>
   );
 }
 
@@ -16700,163 +16545,6 @@ function ColumnHeaderMenuContent({
   );
 }
 
-function DatabasePropertiesMenu({
-  documentId,
-  databaseId,
-  properties,
-  hiddenCount,
-  activeView,
-  items,
-  onPropertyHiddenChange,
-  onPropertiesHiddenChange,
-}: {
-  documentId: string;
-  databaseId: string;
-  properties: DocumentProperty[];
-  hiddenCount: number;
-  activeView: ContentDatabaseView;
-  items: ContentDatabaseItem[];
-  onPropertyHiddenChange: (propertyId: string, hidden: boolean) => void;
-  onPropertiesHiddenChange: (propertyIds: string[], hidden: boolean) => void;
-}) {
-  const [query, setQuery] = useState("");
-  const normalizedQuery = query.trim().toLowerCase();
-  const filteredProperties = normalizedQuery
-    ? properties.filter((property) =>
-        property.definition.name.toLowerCase().includes(normalizedQuery),
-      )
-    : properties;
-  const visibleCount = properties.filter((property) =>
-    isDatabasePropertyVisibleInView(property, items, activeView),
-  ).length;
-  const propertyIds = properties.map((property) => property.definition.id);
-
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          aria-label={
-            hiddenCount > 0
-              ? `${hiddenCount} hidden properties`
-              : "Property visibility"
-          }
-          title={dbText("propertyVisibility")}
-          className={cn(
-            databaseToolbarIconButtonClass(hiddenCount > 0),
-            "relative",
-          )}
-        >
-          <IconEye className="size-3.5" />
-          {hiddenCount > 0 ? (
-            <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 shrink-0 items-center justify-center rounded-full bg-foreground px-1 text-[9px] leading-none text-background">
-              {formatCompactCountBadge(hiddenCount)}
-            </span>
-          ) : null}
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="end"
-        className="w-80"
-        onCloseAutoFocus={() => setQuery("")}
-      >
-        <DropdownMenuLabel className="text-xs text-muted-foreground">
-          Properties
-        </DropdownMenuLabel>
-        <div
-          className="grid gap-2 p-2 pt-1"
-          onKeyDown={(event) => event.stopPropagation()}
-        >
-          <div className="flex h-8 items-center gap-1 rounded border border-border bg-background px-2">
-            <IconSearch className="size-3.5 shrink-0 text-muted-foreground" />
-            <Input
-              value={query}
-              placeholder={dbText("searchProperties")}
-              aria-label={dbText("searchProperties")}
-              onChange={(event) => setQuery(event.target.value)}
-              className="h-7 border-0 bg-transparent px-0 text-xs shadow-none focus-visible:ring-0"
-            />
-          </div>
-          <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-            <span>
-              {visibleCount} shown, {properties.length - visibleCount} hidden
-            </span>
-            <div className="flex items-center gap-1">
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                className="h-7 px-2 text-xs"
-                disabled={hiddenCount === 0}
-                onClick={() => onPropertiesHiddenChange(propertyIds, false)}
-              >
-                <IconEye className="mr-1 size-3.5" />
-                {dbText("showAll")}
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                className="h-7 px-2 text-xs"
-                disabled={visibleCount === 0}
-                onClick={() => onPropertiesHiddenChange(propertyIds, true)}
-              >
-                <IconEyeOff className="mr-1 size-3.5" />
-                {dbText("hideAll")}
-              </Button>
-            </div>
-          </div>
-        </div>
-        {filteredProperties.length === 0 ? (
-          <div className="px-3 py-4 text-sm text-muted-foreground">
-            {dbText("noMatchingProperties")}
-          </div>
-        ) : null}
-        {filteredProperties.map((property) => {
-          const Icon = TYPE_ICONS[property.definition.type];
-          const visible = isDatabasePropertyVisibleInView(
-            property,
-            items,
-            activeView,
-          );
-          return (
-            <DropdownMenuItem
-              key={property.definition.id}
-              onSelect={(event) => {
-                event.preventDefault();
-                onPropertyHiddenChange(property.definition.id, visible);
-              }}
-            >
-              <Icon className="mr-2 size-4 text-muted-foreground" />
-              <span className="min-w-0 flex-1 truncate">
-                {property.definition.name}
-              </span>
-              <span className="mr-2 text-xs text-muted-foreground">
-                {visible ? "Shown" : "Hidden"}
-              </span>
-              {visible ? (
-                <IconCheck className="size-4 text-muted-foreground" />
-              ) : null}
-            </DropdownMenuItem>
-          );
-        })}
-        <div
-          className="border-t border-border p-2"
-          onKeyDown={(event) => event.stopPropagation()}
-        >
-          <AddProperty
-            documentId={documentId}
-            databaseId={databaseId}
-            label={dbText("newProperty")}
-          />
-        </div>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
 export function applyDatabaseView(
   items: ContentDatabaseItem[],
   properties: DocumentProperty[],
@@ -16871,31 +16559,6 @@ export function applyDatabaseView(
     sorts,
     filterMode,
   });
-}
-
-function databaseItemMatchesFilterTree(
-  item: ContentDatabaseItem,
-  properties: DocumentProperty[],
-  filters: DatabaseFilter[],
-  filterMode: DatabaseFilterMode,
-) {
-  const rootFilters = filters.filter((filter) => !filter.parentFilterGroupId);
-  const nestedGroups = nestedDatabaseFilterGroups(filters);
-  const matches = [
-    ...rootFilters.map((filter) =>
-      databaseItemMatchesFilter(item, properties, filter),
-    ),
-    ...nestedGroups.map((group) =>
-      combineDatabaseFilterMatches(
-        group.map((filter) =>
-          databaseItemMatchesFilter(item, properties, filter),
-        ),
-        filterMode,
-      ),
-    ),
-  ];
-
-  return combineDatabaseFilterMatches(matches, filterMode);
 }
 
 function nestedDatabaseFilterGroups(filters: DatabaseFilter[]) {
@@ -17338,37 +17001,6 @@ function databaseItemMatchesFilter(
   return normalizedValue.includes(normalizedFilter);
 }
 
-function databaseItemSearchText(
-  item: ContentDatabaseItem,
-  properties: DocumentProperty[],
-) {
-  return [
-    item.document.title || "Untitled",
-    ...properties.map((property) =>
-      propertyValueText(
-        item.properties.find(
-          (candidate) => candidate.definition.id === property.definition.id,
-        ) ?? property,
-      ),
-    ),
-  ].join(" ");
-}
-
-function databaseItemSortValue(
-  item: ContentDatabaseItem,
-  properties: DocumentProperty[],
-  key: string,
-) {
-  if (key === "name") return item.document.title || "";
-  const property = properties.find(
-    (candidate) => candidate.definition.id === key,
-  );
-  const itemProperty = item.properties.find(
-    (candidate) => candidate.definition.id === key,
-  );
-  return propertyValueText(itemProperty ?? property ?? null);
-}
-
 function databaseItemFilterValue(
   item: ContentDatabaseItem,
   properties: DocumentProperty[],
@@ -17459,23 +17091,6 @@ function propertyValueText(property: DocumentProperty | null | undefined) {
     return formulaValueText(value);
   }
   return formulaValueText(value);
-}
-
-function compareDatabaseSortValues(left: string, right: string) {
-  const leftNumber = Number(left);
-  const rightNumber = Number(right);
-  if (
-    left.trim() &&
-    right.trim() &&
-    Number.isFinite(leftNumber) &&
-    Number.isFinite(rightNumber)
-  ) {
-    return leftNumber - rightNumber;
-  }
-  return left.localeCompare(right, undefined, {
-    numeric: true,
-    sensitivity: "base",
-  });
 }
 
 function propertyNumberValue(property: DocumentProperty | null | undefined) {
@@ -18411,24 +18026,6 @@ function databaseFilterOptionIsSelected(
     (value) =>
       value === optionValue || value.trim().toLowerCase() === optionName,
   );
-}
-
-function databaseFilterChipLabel(
-  filter: DatabaseFilter,
-  properties: DocumentProperty[],
-) {
-  const operator = databaseFilterOperatorLabel(
-    filter.operator,
-    filter.key,
-    properties,
-  );
-  if (!filterOperatorNeedsValue(filter.operator)) {
-    return `${filter.label} ${operator.toLowerCase()}`;
-  }
-  return `${filter.label} ${operator.toLowerCase()} ${databaseFilterValueLabel(
-    filter,
-    properties,
-  )}`;
 }
 
 export function databaseInlineFilterLabel(

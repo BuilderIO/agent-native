@@ -2459,20 +2459,6 @@ function SourceChangeSetReviewCard({
   );
 }
 
-function SourceMetadataRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex min-w-0 items-start justify-between gap-3 text-xs">
-      <span className="shrink-0 text-muted-foreground">{label}</span>
-      <span
-        className="min-w-0 max-w-[65%] break-words text-right"
-        title={value}
-      >
-        {value}
-      </span>
-    </div>
-  );
-}
-
 function sourceRiskClass(risk: ContentDatabaseSourceChangeSet["riskLevel"]) {
   return cn(
     "rounded border px-1.5 py-0.5",
@@ -2570,14 +2556,6 @@ function formatRelativeSyncTime(value: string | null): string | null {
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours}h ago`;
   return `${Math.floor(hours / 24)}d ago`;
-}
-
-function sourceBuilderReadModeSummary(source: ContentDatabaseSource) {
-  if (source.metadata.liveReadConfigured) return "Builder API read-only";
-  if (source.metadata.readMode === "fixture") {
-    return "Local fixture; Builder credentials unavailable";
-  }
-  return "Local fixture";
 }
 
 function sourcePushModeLabel(

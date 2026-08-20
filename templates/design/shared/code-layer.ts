@@ -950,17 +950,6 @@ function cssIdent(value: string): string | null {
   return null;
 }
 
-function unquoteHtmlAttributeValue(value: string): string {
-  const trimmed = value.trim();
-  if (
-    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
-    (trimmed.startsWith("'") && trimmed.endsWith("'"))
-  ) {
-    return trimmed.slice(1, -1);
-  }
-  return trimmed;
-}
-
 function escapeHtmlAttribute(value: string): string {
   return value
     .replace(/&/g, "&amp;")
@@ -1775,18 +1764,6 @@ function utilityToStyleProperty(
   }
   if (/^text-/.test(utility)) return { property: "color", confidence: 0.45 };
   return null;
-}
-
-function classStyleToken(token: string): StyleToken | null {
-  const { utility } = parseClassToken(token);
-  const mapped = utilityToStyleProperty(utility);
-  if (!mapped) return null;
-  const { property, confidence } = mapped;
-  // The legacy value field preserves the original full token (including prefix)
-  // for backward compatibility.  The responsive path uses `breakpointValues`.
-  const value =
-    property === "display" ? (utility === "hidden" ? "none" : utility) : token;
-  return { property, value, token, source: "class", confidence };
 }
 
 function layoutFor(
@@ -3384,43 +3361,6 @@ const FLEX_ITEM_STRIP_PROPS = [
   "align-self",
   "order",
 ] as const;
-
-/**
- * Apply display:flex + direction + gap to a raw open-tag string and return it.
- * Only touches the style attribute.
- */
-function addAutoLayoutStyleToOpenTag(
-  openTag: string,
-  element: ParsedElement,
-  html: string,
-  direction: "row" | "column",
-  gap: string,
-): string {
-  const currentStyle = attributeValue(element, "style");
-  let declarations = parseStyleDeclarations(currentStyle);
-  const setOrReplace = (prop: string, val: string) => {
-    const existing = declarations.find((d) => d.property === prop);
-    if (existing) {
-      existing.value = val;
-    } else {
-      declarations.push({ property: prop, value: val });
-    }
-  };
-  setOrReplace("display", "flex");
-  setOrReplace("flex-direction", direction);
-  setOrReplace("gap", gap);
-  const nextStyle = serializeStyleDeclarations(declarations);
-  // We work on a scratch copy relative to element boundaries
-  const attr = getAttribute(element, "style");
-  if (attr) {
-    return `${openTag.slice(0, attr.start - element.start)}${attr.name}="${escapeHtmlAttribute(nextStyle)}"${openTag.slice(attr.end - element.start)}`;
-  }
-  // Insert before closing >
-  const closeChar = openTag.endsWith("/>")
-    ? openTag.length - 2
-    : openTag.length - 1;
-  return `${openTag.slice(0, closeChar)} style="${escapeHtmlAttribute(nextStyle)}"${openTag.slice(closeChar)}`;
-}
 
 /**
  * Strip absolute-positioning properties from a child's inline style, applying

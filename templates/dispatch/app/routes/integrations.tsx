@@ -472,13 +472,6 @@ function statusLabel(t: Translate, status: WorkspaceConnectionStatus): string {
   return t(`integrations.status.${status}`);
 }
 
-function readinessLabel(
-  t: Translate,
-  status: WorkspaceConnectionProviderReadinessStatus,
-): string {
-  return t(`integrations.readiness.${status}`);
-}
-
 function scopeLabel(
   t: Translate,
   scope: WorkspaceConnectionCredentialRef["scope"],
@@ -741,32 +734,6 @@ function nextAllowedApps(
   return current.filter((id) => id !== appId);
 }
 
-function summarizeGrant(
-  connection: WorkspaceConnection,
-  grantApps: GrantApp[],
-  grants: WorkspaceConnectionsResponse["grants"],
-  t: Translate,
-) {
-  if (connection.allowedApps.length === 0) return t("integrations.allApps");
-  const grantedAppIds = Array.from(
-    new Set([
-      ...connection.allowedApps,
-      ...grants
-        .filter((grant) => grant.connectionId === connection.id)
-        .map((grant) => grant.appId)
-        .filter((appId) => appId !== "*"),
-    ]),
-  );
-  const labels = grantedAppIds
-    .map((appId) => grantApps.find((app) => app.id === appId)?.label ?? appId)
-    .slice(0, 3);
-  const suffix =
-    grantedAppIds.length > labels.length
-      ? ` +${grantedAppIds.length - labels.length}`
-      : "";
-  return `${labels.join(", ")}${suffix}`;
-}
-
 function summarizeUserAccess(
   connection: WorkspaceConnection,
   t: Translate,
@@ -797,21 +764,6 @@ function summarizeUserAccess(
         }`
       : "";
   return `${labels.join(", ")}${suffix}`;
-}
-
-function summarizeAppList(
-  appIds: string[],
-  grantApps: GrantApp[],
-  t: Translate,
-): string {
-  const labels = appIds
-    .map((appId) => grantApps.find((app) => app.id === appId)?.label ?? appId)
-    .slice(0, 3);
-  const suffix =
-    appIds.length > labels.length ? ` +${appIds.length - labels.length}` : "";
-  return labels.length > 0
-    ? `${labels.join(", ")}${suffix}`
-    : t("integrations.noApps");
 }
 
 function startWorkspaceProviderOAuth(provider: WorkspaceConnectionProvider) {
@@ -3512,66 +3464,6 @@ export default function WorkspaceIntegrationsRoute() {
         onConfirm={confirmDelete}
       />
     </DispatchShell>
-  );
-}
-
-function IntegrationOnboarding() {
-  const t = useT();
-  const steps: Array<{
-    icon: IconComponent;
-    title: string;
-    detail: string;
-  }> = [
-    {
-      icon: IconPlugConnected,
-      title: t("integrations.onboardingConnectTitle"),
-      detail: t("integrations.onboardingConnectDetail"),
-    },
-    {
-      icon: IconShieldCheck,
-      title: t("integrations.onboardingGrantTitle"),
-      detail: t("integrations.onboardingGrantDetail"),
-    },
-    {
-      icon: IconDatabase,
-      title: t("integrations.onboardingLocalTitle"),
-      detail: t("integrations.onboardingLocalDetail"),
-    },
-  ];
-
-  return (
-    <section className="rounded-lg bg-muted/30 px-4 py-3">
-      <div className="dispatch-onboarding-grid grid gap-3">
-        <div>
-          <h2 className="text-sm font-semibold text-foreground">
-            {t("integrations.onboardingTitle")}
-          </h2>
-          <p className="mt-1 text-sm leading-5 text-muted-foreground">
-            {t("integrations.onboardingDescription")}
-          </p>
-        </div>
-        <div className="dispatch-onboarding-steps-grid grid gap-2">
-          {steps.map((step) => {
-            const Icon = step.icon;
-            return (
-              <div key={step.title} className="flex min-w-0 gap-2">
-                <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md bg-muted/50">
-                  <Icon size={14} className="text-muted-foreground" />
-                </div>
-                <div className="min-w-0">
-                  <div className="text-xs font-medium text-foreground">
-                    {step.title}
-                  </div>
-                  <div className="mt-0.5 text-xs leading-5 text-muted-foreground">
-                    {step.detail}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    </section>
   );
 }
 

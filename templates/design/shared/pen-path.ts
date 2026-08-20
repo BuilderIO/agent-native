@@ -683,7 +683,3 @@ function roundCoord(value: number) {
 function samePoint(a: PenPoint, b: PenPoint) {
   return a.x === b.x && a.y === b.y;
 }
-
-function isPenPoint(point: PenPoint | undefined): point is PenPoint {
-  return !!point;
-}

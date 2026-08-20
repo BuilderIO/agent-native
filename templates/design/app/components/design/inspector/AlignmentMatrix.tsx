@@ -41,8 +41,6 @@ export interface AlignmentMatrixProps {
   direction?: FlowDirection;
 }
 
-type MatrixIcon = ComponentType<{ className?: string }>;
-
 const DEFAULT_LABELS: AlignmentMatrixLabels = {
   title: "Align", // i18n-ignore fallback component label
   alignTopLeft: "Align top left", // i18n-ignore fallback component label

@@ -34,28 +34,6 @@ import {
 // HTML helpers (static analysis — no DOM runtime available server-side)
 // ---------------------------------------------------------------------------
 
-/** Extract all attribute values matching a simple regex over raw HTML. */
-function extractAttrs(
-  html: string,
-  tagPattern: RegExp,
-  attrName: string,
-): string[] {
-  const attrRegex = new RegExp(
-    `${attrName}\\s*=\\s*(?:"([^"]*?)"|'([^']*?)')`,
-    "gi",
-  );
-  const results: string[] = [];
-  let match: RegExpExecArray | null;
-  const tagMatches = [...html.matchAll(tagPattern)];
-  for (const tm of tagMatches) {
-    attrRegex.lastIndex = 0;
-    while ((match = attrRegex.exec(tm[0])) !== null) {
-      results.push(match[1] ?? match[2] ?? "");
-    }
-  }
-  return results;
-}
-
 /** Pull a node id from a raw tag string (data-agent-native-node-id attr). */
 function extractNodeId(tagHtml: string): string | undefined {
   const m = tagHtml.match(
