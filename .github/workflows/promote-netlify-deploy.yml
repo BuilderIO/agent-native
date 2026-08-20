@@ -57,7 +57,52 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  resolve-sites:
+    name: Resolve promotion site matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          sparse-checkout: scripts/netlify-sites.json
+          sparse-checkout-cone-mode: false
+
+      - name: Build one coordination slot per site
+        id: matrix
+        env:
+          TARGET: ${{ inputs.site }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('node:fs');
+          const sites = JSON.parse(fs.readFileSync('scripts/netlify-sites.json', 'utf8'));
+          const requested = process.env.TARGET.trim().toLowerCase();
+          if (!requested) throw new Error('site must be all or one production site.');
+          const names = requested === 'all' ? Object.keys(sites) : [requested];
+          const unknown = names.filter((name) => !sites[name]);
+          if (unknown.length) throw new Error(`Unknown site(s): ${unknown.join(', ')}`);
+          fs.appendFileSync(
+            process.env.GITHUB_OUTPUT,
+            `matrix=${JSON.stringify({
+              include: names.map((site) => ({ site, site_id: sites[site] })),
+            })}\n`,
+          );
+          console.log(`Resolved ${names.length} promotion site(s): ${names.join(', ')}`);
+          NODE
+
   promote:
+    name: Promote ${{ matrix.site }} production deploy
+    needs: resolve-sites
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix: ${{ fromJSON(needs.resolve-sites.outputs.matrix) }}
+    concurrency:
+      # Use the same per-site queue as fleet deploys and manager operations.
+      # This prevents restore from racing a prebuilt unlock/upload window.
+      group: agent-native-production-site-${{ matrix.site }}
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -68,7 +113,9 @@ jobs:
       - uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         env:
           NETLIFY_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
-          TARGET: ${{ inputs.site }}
+          TARGET: ${{ matrix.site }}
+          TARGET_ID: ${{ matrix.site_id }}
+          REQUESTED_SITE: ${{ inputs.site }}
           CLEAR_OTHERS: ${{ inputs.clear_others }}
           REBUILD: ${{ inputs.rebuild }}
         with:
@@ -83,12 +130,11 @@ jobs:
             }
 
             const target = process.env.TARGET;
+            const targetId = process.env.TARGET_ID;
+            const requestedSite = process.env.REQUESTED_SITE;
             const ref = 'main';
-            const targets = target === 'all'
-              ? Object.entries(sites)
-              : [[target, sites[target]]];
-            if (targets.some(([, id]) => !id)) {
-              core.setFailed(`Unknown site: ${target}`);
+            if (!sites[target] || sites[target] !== targetId) {
+              core.setFailed(`Unknown or mismatched site: ${target}`);
               return;
             }
 
@@ -97,7 +143,6 @@ jobs:
             const headers = { Authorization: `Bearer ${token}` };
             const API = 'https://api.netlify.com/api/v1';
             const CANCELABLE_STATES = new Set(['new', 'enqueued']);
-            let failed = false;
 
             async function readJson(response, label) {
               const text = await response.text();
@@ -202,7 +247,7 @@ jobs:
               return ok;
             }
 
-            if (clearOthers && target !== 'all') {
+            if (clearOthers && requestedSite !== 'all') {
               const others = Object.entries(sites).filter(([name]) => name !== target);
               let freed = 0;
               await Promise.all(others.map(async ([name, id]) => {
@@ -211,21 +256,10 @@ jobs:
               core.info(`Cleared ${freed} queued production deploys across other sites.`);
             }
 
-            for (const [name, targetId] of targets) {
-              if (rebuild) {
-                try {
-                  await buildAndPublish(name, targetId);
-                } catch (error) {
-                  core.setFailed(error?.message || String(error));
-                  failed = true;
-                  continue;
-                }
-              }
-              const freedTarget = await cancelQueuedProductionDeploys(name, targetId, { keepNewest: true });
-              core.info(`[${name}] ${rebuild ? 'cleared' : 'rebuild not requested; cleared'} ${freedTarget} older queued deploys.`);
+            if (rebuild) {
+              await buildAndPublish(target, targetId);
             }
+            const freedTarget = await cancelQueuedProductionDeploys(target, targetId, { keepNewest: true });
+            core.info(`[${target}] ${rebuild ? 'cleared' : 'rebuild not requested; cleared'} ${freedTarget} older queued deploys.`);
 
             core.info(`Promotion complete for ${target} (ref=${ref}, clear_others=${clearOthers}, rebuild=${rebuild}).`);
-            if (failed) {
-              core.setFailed('One or more production site promotions failed.');
-            }

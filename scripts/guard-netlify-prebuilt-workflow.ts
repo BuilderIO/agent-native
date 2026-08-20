@@ -89,6 +89,18 @@ if (
 ) {
   issues.push(`${promotePath} must use a promotion-specific production queue`);
 }
+const promoteJob = asRecord(
+  asRecord(parsedWorkflows.get(promotePath)?.jobs)?.promote,
+);
+const promoteJobConcurrency = asRecord(promoteJob?.concurrency);
+if (
+  typeof promoteJobConcurrency?.group !== "string" ||
+  !promoteJobConcurrency.group.includes("matrix.site")
+) {
+  issues.push(
+    `${promotePath} promotion jobs must coordinate each selected site independently`,
+  );
+}
 
 const reusableOn = asRecord(reusableDocument?.on);
 const workflowCall = asRecord(reusableOn?.workflow_call);
