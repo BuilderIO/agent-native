@@ -165,6 +165,7 @@ export default defineAction({
           summary: "Skipped because the pull request is closed or a draft.",
           details: { state: pullRequest.state, draft: pullRequest.draft },
         },
+        factoryId,
       );
       return { ok: true, action: "skipped", reason: "PR is closed or draft." };
     }
@@ -193,6 +194,7 @@ export default defineAction({
           summary: `${ownerOwnedArea} is owner-managed; no bot feedback was posted.`,
           details: { ownerOwnedArea },
         },
+        factoryId,
       );
       return {
         ok: true,
@@ -268,6 +270,7 @@ export default defineAction({
           reviewFeedbackClean: signal.isClean,
         },
       },
+      factoryId,
     );
     const now = new Date();
     const nowIso = now.toISOString();
@@ -337,6 +340,7 @@ export default defineAction({
         summary: "Posted the bounded feedback-fix request to builder-io-bot.",
         details: { commentUrl: comment.htmlUrl, quietForMinutes: 0 },
       },
+      factoryId,
     );
     await updateBabysitMetadata(itemId, orgId, {
       prBabysitState: "active",

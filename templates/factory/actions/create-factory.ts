@@ -15,6 +15,7 @@ import {
 } from "../server/factory-graph/contracts.js";
 import {
   resolveEnabledAutomations,
+  isFactoryIdConflict,
   isFactorySlackChannelConflict,
 } from "../server/lib/factory-automation-plan.js";
 import {
@@ -62,13 +63,11 @@ export default defineAction({
       workspaceMemberIdentityFromContext(context),
     );
     const db = getDb();
-    const factoryId = await resolveUniqueFactoryId(db, orgId, input.name);
     const description = input.description?.trim() ?? "";
     const graph = normalizeFactoryGraph(
       minimalFactoryGraph(input.name, description),
     );
     const now = new Date().toISOString();
-    const versionId = stableId("factory-graph", orgId, factoryId, "1");
     const automationPlan = resolveEnabledAutomations({
       observeSlack: input.observeSlack === true,
       slackChannelId: input.slackChannelId,
@@ -79,71 +78,87 @@ export default defineAction({
       sentryProjectSlug: input.sentryProjectSlug,
     });
 
-    try {
-      await db.transaction(async (tx) => {
-        await tx.insert(factoryDefinitions).values({
-          id: factoryId,
-          name: input.name,
-          description,
-          prompt: "",
-          graphVersion: 1,
-          graphJson: JSON.stringify(graph),
-          createdAt: now,
-          updatedAt: now,
-          ownerEmail: userEmail,
-          orgId,
-        });
-        await tx.insert(factoryGraphVersions).values({
-          id: versionId,
-          factoryId,
-          version: 1,
-          graphJson: JSON.stringify(graph),
-          source: "manual",
-          changeSummary: "Created from the new factory dialog.",
-          createdAt: now,
-          createdBy: userEmail,
-          ownerEmail: userEmail,
-          orgId,
-        });
-
-        if (automationPlan.hasConfig) {
-          const slackChannelId = input.slackChannelId?.trim() || null;
-          await assertUniqueSlackChannelForFactory(
-            tx as unknown as typeof db,
-            orgId,
-            factoryId,
-            slackChannelId,
-          );
-          await tx.insert(triageConfig).values({
-            id: factoryConfigRowId(orgId, factoryId),
-            factoryId,
-            slackWorkspace: "primary",
-            slackChannelId,
-            slackChannelName: input.slackChannelName?.trim() || null,
-            builderSlackUserId: null,
-            pollingEnabled: automationPlan.pollingEnabled ? 1 : 0,
-            githubPollingEnabled: automationPlan.githubPollingEnabled ? 1 : 0,
-            sentryPollingEnabled: automationPlan.sentryPollingEnabled ? 1 : 0,
-            sentryOrgSlug: input.sentryOrgSlug?.trim() || null,
-            sentryProjectSlug: input.sentryProjectSlug?.trim() || null,
-            sentryEnvironment: input.sentryEnvironment?.trim() || null,
-            repository: input.repository?.trim() || null,
-            automationFailureAlertsEnabled: 1,
-            automationFailureAlertEmail: null,
+    const MAX_FACTORY_CREATE_ATTEMPTS = 5;
+    let factoryId = "";
+    for (let attempt = 0; attempt < MAX_FACTORY_CREATE_ATTEMPTS; attempt++) {
+      factoryId = await resolveUniqueFactoryId(db, orgId, input.name);
+      const versionId = stableId("factory-graph", orgId, factoryId, "1");
+      try {
+        await db.transaction(async (tx) => {
+          await tx.insert(factoryDefinitions).values({
+            id: factoryId,
+            name: input.name,
+            description,
+            prompt: "",
+            graphVersion: 1,
+            graphJson: JSON.stringify(graph),
             createdAt: now,
             updatedAt: now,
             ownerEmail: userEmail,
             orgId,
           });
+          await tx.insert(factoryGraphVersions).values({
+            id: versionId,
+            factoryId,
+            version: 1,
+            graphJson: JSON.stringify(graph),
+            source: "manual",
+            changeSummary: "Created from the new factory dialog.",
+            createdAt: now,
+            createdBy: userEmail,
+            ownerEmail: userEmail,
+            orgId,
+          });
+
+          if (automationPlan.hasConfig) {
+            const slackChannelId = input.slackChannelId?.trim() || null;
+            await assertUniqueSlackChannelForFactory(
+              tx as unknown as typeof db,
+              orgId,
+              factoryId,
+              slackChannelId,
+            );
+            await tx.insert(triageConfig).values({
+              id: factoryConfigRowId(orgId, factoryId),
+              factoryId,
+              slackWorkspace: "primary",
+              slackChannelId,
+              slackChannelName: input.slackChannelName?.trim() || null,
+              builderSlackUserId: null,
+              pollingEnabled: automationPlan.pollingEnabled ? 1 : 0,
+              githubPollingEnabled: automationPlan.githubPollingEnabled ? 1 : 0,
+              sentryPollingEnabled: automationPlan.sentryPollingEnabled ? 1 : 0,
+              sentryOrgSlug: input.sentryOrgSlug?.trim() || null,
+              sentryProjectSlug: input.sentryProjectSlug?.trim() || null,
+              sentryEnvironment: input.sentryEnvironment?.trim() || null,
+              repository: input.repository?.trim() || null,
+              automationFailureAlertsEnabled: 1,
+              automationFailureAlertEmail: null,
+              createdAt: now,
+              updatedAt: now,
+              ownerEmail: userEmail,
+              orgId,
+            });
+          }
+        });
+        break;
+      } catch (error) {
+        if (isFactorySlackChannelConflict(error)) {
+          throw new Error(
+            "That Slack channel is already used by another Factory in this workspace.",
+          );
         }
-      });
-    } catch (error) {
-      if (isFactorySlackChannelConflict(error)) {
-        throw new Error(
-          "That Slack channel is already used by another Factory in this workspace.",
-        );
+        if (
+          isFactoryIdConflict(error) &&
+          attempt < MAX_FACTORY_CREATE_ATTEMPTS - 1
+        ) {
+          continue;
+        }
+        throw error;
       }
-      throw error;
+    }
+    if (!factoryId) {
+      throw new Error("Could not allocate a unique factory id.");
     }
 
     try {

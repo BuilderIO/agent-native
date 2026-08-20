@@ -105,7 +105,7 @@ export default defineAction({
     }
     const factoryId = itemFactoryId;
     const now = new Date().toISOString();
-    const databaseRunId = stableId("run", orgId, runId);
+    const databaseRunId = stableId("run", orgId, factoryId, runId);
     const result = reconcilePullRequestRun({
       triageItemId: itemId,
       runId,
@@ -117,13 +117,22 @@ export default defineAction({
     });
     const existingRun = (
       await db
-        .select({ progressLogJson: triageRuns.progressLogJson })
+        .select({
+          progressLogJson: triageRuns.progressLogJson,
+          factoryId: triageRuns.factoryId,
+        })
         .from(triageRuns)
         .where(
           and(eq(triageRuns.id, databaseRunId), eq(triageRuns.orgId, orgId)),
         )
         .limit(1)
     )[0];
+    if (
+      existingRun &&
+      (existingRun.factoryId ?? DEFAULT_FACTORY_ID) !== factoryId
+    ) {
+      throw new Error("Run id is already used by another factory.");
+    }
     const progressLog = appendProgressLog(existingRun?.progressLogJson, {
       at: now,
       state: result.state,

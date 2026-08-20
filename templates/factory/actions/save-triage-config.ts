@@ -3,7 +3,10 @@ import { z } from "zod";
 
 import { getDb } from "../server/db/index.js";
 import { triageConfig } from "../server/db/schema.js";
-import { DEFAULT_FACTORY_ID } from "../server/factory-graph/store.js";
+import {
+  readFactoryDefinition,
+  DEFAULT_FACTORY_ID,
+} from "../server/factory-graph/store.js";
 import {
   isFactorySlackChannelConflict,
   resolveEnabledAutomationsFromSavedConfig,
@@ -78,6 +81,10 @@ export default defineAction({
     );
     const now = new Date().toISOString();
     const db = getDb();
+    if (factoryId !== DEFAULT_FACTORY_ID) {
+      const factory = await readFactoryDefinition(orgId, factoryId);
+      if (!factory) throw new Error("Factory not found.");
+    }
     const existing = await readTriageConfigRow(db, orgId, factoryId);
     const persistText = (
       next: string | undefined,

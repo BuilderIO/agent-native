@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { getDb } from "../server/db/index.js";
 import { triageConfig, triageItems } from "../server/db/schema.js";
+import { repairFactoryAutomationsFromConfig } from "../server/lib/factory-automation-repair.js";
 import {
   factoryIdSchema,
   readTriageConfigRow,
@@ -21,7 +22,7 @@ import {
   hasTriageSourceChanged,
   statusAfterTriageSourceUpdate,
 } from "../server/triage/review-state.js";
-import { repairFactoryAutomationsFromConfig } from "../server/lib/factory-automation-repair.js";
+import { createSentryClient } from "../server/triage/sentry-client.js";
 
 export default defineAction({
   description:

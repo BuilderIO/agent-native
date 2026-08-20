@@ -88,7 +88,7 @@ export default defineAction({
       enabled,
       schedule,
       model: model?.trim() || null,
-      displayName: displayName ?? "",
+      ...(displayName !== undefined ? { displayName } : {}),
     });
     content = setAutomationFrontmatterField(content, "factoryId", factoryId);
     if (definition.meta.triggerType === "schedule" && isValidCron(schedule)) {

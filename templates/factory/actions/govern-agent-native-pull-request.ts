@@ -233,6 +233,7 @@ export default defineAction({
             "Skipped the pull request because it already has a current non-dismissed approval.",
           details: { repo, pullRequestNumber },
         },
+        factoryId,
       );
       if (itemId) {
         await getDb()
@@ -324,6 +325,7 @@ export default defineAction({
           guardResults: governance.guardResults,
         },
       },
+      factoryId,
     );
 
     if (itemId) {
@@ -450,6 +452,7 @@ export default defineAction({
           "Approved the pull request under the current review-prs policy.",
         details: { repo, pullRequestNumber, approvalUrl },
       },
+      factoryId,
     );
     return {
       ok: true,

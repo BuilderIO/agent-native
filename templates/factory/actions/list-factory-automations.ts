@@ -5,18 +5,20 @@ import {
 } from "@agent-native/core/triggers";
 import { z } from "zod";
 
+import { getDb } from "../server/db/index.js";
 import { readFactoryDefinition } from "../server/factory-graph/store.js";
+import { repairFactoryAutomationsFromConfig } from "../server/lib/factory-automation-repair.js";
 import {
   DEFAULT_FACTORY_ID,
   factoryIdSchema,
   readAutomationFactoryId,
+  readTriageConfigRow,
   resolveAutomationDisplayName,
 } from "../server/lib/factory-scope.js";
 import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
-import { ensureFactoryAutomations } from "../server/plugins/factory-scheduler-job.js";
 
 export default defineAction({
   description:
@@ -43,18 +45,19 @@ export default defineAction({
         readAutomationFactoryId(meta, resource.content) === factoryId,
     );
     if (scoped.length === 0) {
-      await ensureFactoryAutomations(userEmail, orgId, factoryId, {
-        enabled: factoryId === DEFAULT_FACTORY_ID,
-      });
-      definitions = await listAutomationDefinitions(
-        { userEmail, orgId, appId: "factory" },
-        "organization",
-      );
-      scoped = definitions.filter(
-        ({ meta, resource }) =>
-          meta.domain === "factory" &&
-          readAutomationFactoryId(meta, resource.content) === factoryId,
-      );
+      const config = await readTriageConfigRow(getDb(), orgId, factoryId);
+      if (config) {
+        await repairFactoryAutomationsFromConfig(userEmail, orgId, factoryId);
+        definitions = await listAutomationDefinitions(
+          { userEmail, orgId, appId: "factory" },
+          "organization",
+        );
+        scoped = definitions.filter(
+          ({ meta, resource }) =>
+            meta.domain === "factory" &&
+            readAutomationFactoryId(meta, resource.content) === factoryId,
+        );
+      }
     }
     return Promise.all(
       scoped.map(async ({ resource, name, meta, body, canUpdate }) => ({

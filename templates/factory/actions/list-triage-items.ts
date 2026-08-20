@@ -123,6 +123,7 @@ export default defineAction({
             decision: item.latestDecision?.outcome ?? null,
           },
         },
+        factoryId,
       );
     }
     return listedItems;

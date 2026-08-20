@@ -97,6 +97,7 @@ export default defineAction({
           coverage: item.coverage,
         },
       },
+      factoryId,
     );
 
     return {

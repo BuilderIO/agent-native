@@ -17,6 +17,7 @@ import { and, eq, isNull, lt, ne, or } from "drizzle-orm";
 
 import { getDb } from "../db/index.js";
 import { triageConfig } from "../db/schema.js";
+import { resolveEnabledAutomationsFromSavedConfig } from "../lib/factory-automation-plan.js";
 import {
   DEFAULT_FACTORY_ID,
   factoryAutomationJobPath,
@@ -663,6 +664,23 @@ async function ensureDefaultTriageConfig(
     ownerEmail,
     orgId,
   });
+  const enabledNames = resolveEnabledAutomationsFromSavedConfig({
+    pollingEnabled,
+    githubPollingEnabled,
+    sentryPollingEnabled: 0,
+    slackChannelId: DEFAULT_SLACK_CHANNEL_ID,
+    repository,
+    sentryOrgSlug: null,
+    sentryProjectSlug: null,
+  });
+  await ensureFactoryAutomations(ownerEmail, orgId, factoryId, {
+    enabledNames,
+  });
+  if (enabledNames.size > 0) {
+    await syncFactoryAutomationEnabledStates(ownerEmail, orgId, factoryId, [
+      ...enabledNames,
+    ]);
+  }
 }
 
 async function ensureSchedulerJobs(): Promise<void> {

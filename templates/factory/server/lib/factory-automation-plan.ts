@@ -107,6 +107,21 @@ export function resolveEnabledAutomationsFromSavedConfig(config: {
   return enabledNames;
 }
 
+export function isFactoryIdConflict(error: unknown): boolean {
+  const message = String(
+    (error as { message?: unknown } | null)?.message ?? "",
+  ).toLowerCase();
+  const code = String((error as { code?: unknown } | null)?.code ?? "");
+  return (
+    code === "23505" ||
+    code === "SQLITE_CONSTRAINT_PRIMARYKEY" ||
+    code === "SQLITE_CONSTRAINT_UNIQUE" ||
+    message.includes("unique constraint") ||
+    message.includes("duplicate key") ||
+    message.includes("primary key")
+  );
+}
+
 export function isFactorySlackChannelConflict(error: unknown): boolean {
   const message = String(
     (error as { message?: unknown } | null)?.message ?? "",
