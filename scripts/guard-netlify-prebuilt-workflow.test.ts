@@ -462,6 +462,10 @@ describe("production Netlify site concurrency guard", () => {
       String(resume?.run),
       /process\.env\.cutoverWasStopped === "true"/,
     );
+    assert.match(
+      String(resume?.run),
+      /process\.env\.cutoverHasGitConnectedBuild !== "true"/,
+    );
     assert.equal(
       (resume?.env as Record<string, unknown>).cutoverWasStopped,
       "${{ steps.pause.outputs.was_stopped }}",
@@ -469,6 +473,10 @@ describe("production Netlify site concurrency guard", () => {
     assert.equal(
       (resume?.env as Record<string, unknown>).cutoverWasPaused,
       "${{ steps.pause.outputs.cutover_acquired }}",
+    );
+    assert.equal(
+      (resume?.env as Record<string, unknown>).cutoverHasGitConnectedBuild,
+      "${{ steps.pause.outputs.has_git_connected_build }}",
     );
     assert.equal(typeof cleanup?.if, "string");
     assert.match(cleanup?.if as string, /failure\(\)/);
@@ -503,6 +511,9 @@ describe("production Netlify site concurrency guard", () => {
 
   it("records cutover acquisition before pause verification", () => {
     const pause = nodeHeredocs[0];
+    assert.match(pause, /hasGitConnectedBuild/);
+    assert.match(pause, /has_git_connected_build/);
+    assert.match(pause, /No Git-connected Netlify build is configured/);
     const acquiredIndex = pause.indexOf(
       'fs.appendFileSync(process.env.GITHUB_OUTPUT, "cutover_acquired=true\\n")',
     );
