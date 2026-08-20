@@ -998,21 +998,30 @@ describe("agent-native app config", () => {
     const previousAuth = process.env.AGENT_NATIVE_CONFIG_RUNTIME_AUTH_ENABLED;
     const previousLocales =
       process.env.AGENT_NATIVE_CONFIG_TRANSLATIONS_LOCALES;
+    const previousHarness = process.env.AGENT_NATIVE_CONFIG_HARNESS_RUNTIMES;
     process.env.AGENT_NATIVE_CONFIG_RUNTIME = JSON.stringify({
       auth: { enabled: false },
       database: { required: false },
+      environment: { required: ["PUBLIC_API_ORIGIN"] },
     });
     process.env.AGENT_NATIVE_CONFIG_RUNTIME_AUTH_ENABLED = "false";
     process.env.AGENT_NATIVE_CONFIG_TRANSLATIONS_LOCALES = JSON.stringify([
       "en-US",
       "es-ES",
     ]);
+    process.env.AGENT_NATIVE_CONFIG_HARNESS_RUNTIMES = JSON.stringify([
+      "codex",
+    ]);
 
     try {
       const config = defineConfig({
         agentNativeConfig: {
-          runtime: { auth: { enabled: true } },
+          runtime: {
+            auth: { enabled: true },
+            environment: { required: ["NOTION_API_KEY"] },
+          },
           translations: { locales: ["fr-FR"] },
+          harness: { runtimes: ["claude-code", "codex"] },
         },
       });
 
@@ -1022,8 +1031,10 @@ describe("agent-native app config", () => {
         runtime: {
           auth: { enabled: false },
           database: { required: false },
+          environment: { required: ["PUBLIC_API_ORIGIN"] },
         },
         translations: { locales: ["en-US", "es-ES"] },
+        harness: { runtimes: ["codex"] },
       });
     } finally {
       if (previousRuntime === undefined) {
@@ -1040,6 +1051,11 @@ describe("agent-native app config", () => {
         delete process.env.AGENT_NATIVE_CONFIG_TRANSLATIONS_LOCALES;
       } else {
         process.env.AGENT_NATIVE_CONFIG_TRANSLATIONS_LOCALES = previousLocales;
+      }
+      if (previousHarness === undefined) {
+        delete process.env.AGENT_NATIVE_CONFIG_HARNESS_RUNTIMES;
+      } else {
+        process.env.AGENT_NATIVE_CONFIG_HARNESS_RUNTIMES = previousHarness;
       }
     }
   });

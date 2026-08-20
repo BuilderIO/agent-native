@@ -3557,6 +3557,7 @@ function createAgentNativeConfig(
           : {},
       ),
       readAgentNativeConfigEnv(runtimeEnv),
+      { arrayStrategy: "replace" },
     ),
     configContext,
   );

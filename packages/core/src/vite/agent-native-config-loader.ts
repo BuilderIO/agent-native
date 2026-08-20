@@ -133,6 +133,7 @@ export async function loadResolvedAgentNativeConfig(
         projectConfig ? resolveAgentNativeConfig(projectConfig, context) : {},
       ),
       readAgentNativeConfigEnv(options.environment ?? process.env),
+      { arrayStrategy: "replace" },
     ),
     context,
   );

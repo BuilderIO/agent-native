@@ -557,7 +557,12 @@ export function normalizeAgentNativeConfig(
 export function mergeAgentNativeConfigs(
   base: AgentNativeConfig,
   override: AgentNativeConfig,
+  options: {
+    arrayStrategy?: "merge" | "replace";
+  } = {},
 ): AgentNativeConfig {
+  const arrayStrategy = options.arrayStrategy ?? "merge";
+
   return {
     ...(base.version === undefined && override.version === undefined
       ? {}
@@ -599,6 +604,7 @@ export function mergeAgentNativeConfigs(
                     required: mergeStringLists(
                       base.runtime?.environment?.required,
                       override.runtime?.environment?.required,
+                      arrayStrategy,
                     ),
                   }
                 : undefined,
@@ -647,7 +653,11 @@ export function mergeAgentNativeConfigs(
             ...override.changelog,
           }
         : undefined,
-    harness: mergeHarnessSettings(base.harness, override.harness),
+    harness: mergeHarnessSettings(
+      base.harness,
+      override.harness,
+      arrayStrategy,
+    ),
   };
 }
 
@@ -875,6 +885,7 @@ function normalizeHarnessConfig(
 function mergeHarnessSettings(
   base: AgentNativeHarnessSetting | undefined,
   override: AgentNativeHarnessSetting | undefined,
+  arrayStrategy: "merge" | "replace" = "merge",
 ): AgentNativeHarnessSetting | undefined {
   if (override === undefined) return base;
   if (typeof override === "boolean") return override;
@@ -884,10 +895,12 @@ function mergeHarnessSettings(
   }
   return {
     runtimes: [
-      ...new Set<AgentNativeHarnessRuntime>([
-        ...(base.runtimes ?? []),
-        ...(override.runtimes ?? []),
-      ]),
+      ...(arrayStrategy === "replace"
+        ? (override.runtimes ?? base.runtimes ?? [])
+        : new Set<AgentNativeHarnessRuntime>([
+            ...(base.runtimes ?? []),
+            ...(override.runtimes ?? []),
+          ])),
     ],
   };
 }
@@ -925,8 +938,10 @@ function normalizeRequiredEnvKeys(
 function mergeStringLists(
   base: string[] | undefined,
   override: string[] | undefined,
+  arrayStrategy: "merge" | "replace" = "merge",
 ): string[] | undefined {
   if (base === undefined && override === undefined) return undefined;
+  if (arrayStrategy === "replace") return override ?? base;
   return [...new Set([...(base ?? []), ...(override ?? [])])];
 }
 
