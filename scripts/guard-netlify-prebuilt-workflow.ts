@@ -251,6 +251,9 @@ if (unlockStart < 0 || (uploadStart >= 0 && unlockStart >= uploadStart)) {
     !unlock.includes("locked !== false") ||
     !unlock.includes("/deploys?per_page=100") ||
     !unlock.includes("nextPageUrl") ||
+    !unlock.includes("DEPLOY_LOOKBACK_MS") ||
+    !unlock.includes("oldestCreatedAt") ||
+    !unlock.includes("Date.parse(oldestCreatedAt) < cutoff") ||
     !unlock.includes("readyIsBlocking") ||
     !unlock.includes('candidate.state !== "ready" || readyIsBlocking') ||
     !unlock.includes("candidate.published_at")
