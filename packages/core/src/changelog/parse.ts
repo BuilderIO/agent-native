@@ -308,16 +308,41 @@ function splitChangelogBodyGroups(body: string): {
   prefix: string;
   groups: ChangelogBodyGroup[];
 } {
-  const matches = [...body.matchAll(/^###\s+(.+?)\s*$/gm)];
+  const matches: Array<{ title: string; start: number; headingEnd: number }> =
+    [];
+  let offset = 0;
+  let fenceMarker: string | undefined;
+  for (const line of body.split(/\r?\n/)) {
+    const lineEnd = offset + line.length;
+    const fence = /^\s*(`{3,}|~{3,})/.exec(line)?.[1];
+    if (fence) {
+      if (!fenceMarker) fenceMarker = fence[0];
+      else if (fenceMarker === fence[0]) fenceMarker = undefined;
+    } else if (!fenceMarker) {
+      const heading = /^###\s+(.+?)\s*$/.exec(line);
+      if (heading) {
+        matches.push({
+          title: heading[1].trim(),
+          start: offset,
+          headingEnd: lineEnd,
+        });
+      }
+    }
+    const newlineLength = body.startsWith("\r\n", lineEnd)
+      ? 2
+      : lineEnd < body.length
+        ? 1
+        : 0;
+    offset = lineEnd + newlineLength;
+  }
   if (matches.length === 0) return { prefix: body.trim(), groups: [] };
 
-  const prefix = body.slice(0, matches[0].index).trim();
+  const prefix = body.slice(0, matches[0].start).trim();
   const groups = matches.map((match, index) => {
-    const start = (match.index ?? 0) + match[0].length;
-    const end = matches[index + 1]?.index ?? body.length;
+    const end = matches[index + 1]?.start ?? body.length;
     return {
-      title: match[1].trim(),
-      body: body.slice(start, end).trim(),
+      title: match.title,
+      body: body.slice(match.headingEnd, end).trim(),
       index,
     };
   });
@@ -409,9 +434,17 @@ export function mergePendingChangelog(
 ): string {
   const cleanExisting = stripChangelogArchiveNotes(existing);
   const existingEntries = parseChangelog(cleanExisting);
+  const pendingSeen = new Set<string>();
   const pendingWithText = pending.filter((entry) => {
     const text = entry.text.trim();
     if (!text) return false;
+    const pendingKey = [
+      entry.date ?? "",
+      entry.type,
+      normalizedChangelogText(text),
+    ].join("\u0000");
+    if (pendingSeen.has(pendingKey)) return false;
+    pendingSeen.add(pendingKey);
     return !existingEntries.some((existingEntry) => {
       if (
         entry.date &&

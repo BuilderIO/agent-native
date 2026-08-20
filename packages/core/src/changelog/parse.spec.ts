@@ -259,6 +259,36 @@ describe("mergePendingChangelog", () => {
     expect(rerun.match(/^### Fixed$/gm)).toHaveLength(1);
   });
 
+  it("deduplicates identical pending entries in one batch", () => {
+    const next = mergePendingChangelog("", [
+      { type: "fixed", text: "One fix.", date: "2026-08-20" },
+      { type: "fixed", text: "One fix.", date: "2026-08-20" },
+    ]);
+
+    expect(next.match(/One fix\./g)).toHaveLength(1);
+  });
+
+  it("does not treat fenced headings as changelog categories", () => {
+    const existing = `# Changelog
+
+## 2026-08-20
+
+### Improved
+
+- Existing note.
+
+\`\`\`md
+### Not a category
+\`\`\`
+`;
+    const next = mergePendingChangelog(existing, [
+      { type: "improved", text: "New note.", date: "2026-08-20" },
+    ]);
+
+    expect(next.match(/^### Improved$/gm)).toHaveLength(1);
+    expect(next).toContain("### Not a category");
+  });
+
   it("deduplicates multiline folder entries after release rendering", () => {
     const next = mergePendingChangelog(SAMPLE, [
       {
