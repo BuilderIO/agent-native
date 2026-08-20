@@ -21,3 +21,12 @@ describe("emails handler Gmail draft listing", () => {
     expect(source).toContain("requestAccountEmail ?? attachment.accountEmail");
   });
 });
+
+describe("emails handler Gmail label listing", () => {
+  it("does not turn a full Gmail label read failure into local fallback data", () => {
+    const source = emailsHandlerSource();
+
+    expect(source).toContain("setResponseStatus(_event, 502)");
+    expect(source).toContain("Unable to load Gmail labels. Please retry.");
+  });
+});

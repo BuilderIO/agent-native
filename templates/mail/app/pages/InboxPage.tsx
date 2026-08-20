@@ -260,6 +260,7 @@ export function InboxPage() {
   const { data: settings } = useSettings();
   const [searchParams] = useSearchParams();
   const activeLabel = searchParams.get("label");
+  const activeInboxTab = searchParams.get("tab");
   const routeSearchSuffix = searchParams.toString()
     ? `?${searchParams.toString()}`
     : "";
@@ -304,6 +305,8 @@ export function InboxPage() {
     view === "inbox" &&
     mailLabelsInclude(triageLabels, activeLabel);
   const clientSliceTab = isPinnedTab && !searchQuery;
+  const isOtherTab =
+    view === "inbox" && activeInboxTab === "other" && !searchQuery;
   const effectiveLabel = clientSliceTab
     ? undefined
     : (activeLabel ?? undefined);
@@ -349,12 +352,7 @@ export function InboxPage() {
       return filterInboxTabEmails(filtered, activeLabel, pinnedLabels);
     }
     // "Other" tab — the inbox remainder, same partition as its badge.
-    if (
-      !searchQuery &&
-      view === "inbox" &&
-      !activeLabel &&
-      triageLabels.length > 0
-    ) {
+    if (isOtherTab) {
       return filterInboxTabEmails(filtered, null, pinnedLabels);
     }
 
@@ -407,6 +405,7 @@ export function InboxPage() {
     view,
     searchQuery,
     activeLabel,
+    isOtherTab,
     clientSliceTab,
     pinnedLabels,
     triageLabels,

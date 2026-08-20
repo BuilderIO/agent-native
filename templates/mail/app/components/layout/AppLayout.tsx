@@ -256,6 +256,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   const [searchParams] = useSearchParams();
   const activeSearchQuery = searchParams.get("q");
   const activeLabel = searchParams.get("label");
+  const activeInboxTab = searchParams.get("tab");
   const composeInitialExpanded =
     searchParams.get(COMPOSE_FULLSCREEN_PARAM) === "1";
   const clearComposeInitialExpanded = useCallback(() => {
@@ -400,14 +401,14 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       localStorage.removeItem(SIDEBAR_COLLAPSE_KEY);
     }
   }, [sidebarCollapsed]);
-  const showSidebar = sidebarOpen || (sidebarPinned && !isMobile);
+  const showSidebar = sidebarOpen || sidebarPinned;
   const showCollapsedSidebar =
     !isMobile &&
     showSidebar &&
     (sidebarPinned ? sidebarCollapsed : perAppChatOpen);
   const closeSidebar = useCallback(() => {
-    if (!sidebarPinned || isMobile) setSidebarOpen(false);
-  }, [sidebarPinned, isMobile]);
+    if (!sidebarPinned) setSidebarOpen(false);
+  }, [sidebarPinned]);
 
   const collapseButton =
     sidebarPinned && !isMobile ? (
@@ -559,7 +560,8 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         id: "inbox",
         label: t("mail.views.inbox"),
         href: "/inbox",
-        isActive: view === "inbox" && !activeLabel,
+        isActive:
+          view === "inbox" && !activeLabel && activeInboxTab !== "other",
         type: "system",
       });
     }
@@ -615,10 +617,11 @@ function AppLayoutInner({ children }: AppLayoutProps) {
 
     if (hasPinnedFilters) {
       tabs.push({
-        id: "inbox",
+        id: "other",
         label: t("mail.views.other"),
-        href: "/inbox",
-        isActive: view === "inbox" && !activeLabel,
+        href: "/inbox?tab=other",
+        isActive:
+          view === "inbox" && !activeLabel && activeInboxTab === "other",
         type: "system",
       });
     }
@@ -630,6 +633,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     labelAliases,
     view,
     activeLabel,
+    activeInboxTab,
     hasPinnedFilters,
     t,
   ]);
@@ -1030,20 +1034,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     return Math.max(serverCount, localCount);
   };
 
-  const isExclusivePinnedTab = (viewId: string) => {
-    if (!hasPinnedFilters) return false;
-    // Pinned label rows (the ones that contribute to the "Other" remainder)
-    // are exclusive: each inbox thread is counted in exactly one tab. Gmail's
-    // server label counts don't have that exclusivity (e.g. server "important"
-    // returns *all* important threads, regardless of whether they're also
-    // categorized elsewhere), so we can't mix the two — use local only.
-    return pinnedLabels.some((id) => {
-      if (collapsibleViews.some((view) => view.id === id)) return false;
-      const label = resolveLabelForCount(id);
-      return (label?.id ?? id) === viewId || id === viewId;
-    });
-  };
-
   const getOtherCount = (kind: CountKind) => {
     if (!hasPinnedFilters) return getInboxCount(kind);
     const localCounts = localCountsForKind(kind);
@@ -1056,16 +1046,13 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   };
 
   const getTabCount = (viewId: string, kind: CountKind) => {
-    if (viewId === "inbox") return getOtherCount(kind);
+    if (viewId === "other") return getOtherCount(kind);
+    if (viewId === "inbox") return getInboxCount(kind);
     const label = resolveLabelForCount(viewId);
     const countField = countFieldForKind(kind);
     const localCounts = localCountsForKind(kind);
     const localCount =
       localCounts[viewId] ?? (label ? (localCounts[label.id] ?? 0) : 0);
-    // Exclusive pinned tabs (when hasPinnedFilters is on, a thread belongs to
-    // exactly one tab) can't fall back to Gmail's non-exclusive server count
-    // — that would over-report the badge relative to what the tab renders.
-    if (isExclusivePinnedTab(viewId)) return localCount;
     const serverCount =
       useServerLabelCounts && viewId !== "note-to-self"
         ? (label?.[countField] ?? 0)
@@ -1158,7 +1145,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
           {/* Primary tabs stay mounted during search so navigation does not jump. */}
           <>
             {tabsLoading ? (
-              <nav className="flex items-center gap-2 overflow-x-auto hide-scrollbar">
+              <nav className="hidden sm:flex items-center gap-2 overflow-x-auto hide-scrollbar">
                 {[1, 2, 3].map((i) => (
                   <span
                     key={i}
@@ -1168,7 +1155,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                 ))}
               </nav>
             ) : (
-              <nav className="flex min-w-0 items-center gap-0.5 overflow-x-auto hide-scrollbar">
+              <nav className="hidden sm:flex min-w-0 items-center gap-0.5 overflow-x-auto hide-scrollbar">
                 {topBarTabs.map((tab, idx) => {
                   const visibleIndex = visibleTabs.findIndex(
                     (item) => item.id === tab.id,
@@ -1252,7 +1239,12 @@ function AppLayoutInner({ children }: AppLayoutProps) {
             )}
 
             {/* Tab settings cog */}
-            <div className={cn("relative", tabsLoading && "invisible")}>
+            <div
+              className={cn(
+                "relative hidden sm:block",
+                tabsLoading && "invisible",
+              )}
+            >
               <Popover
                 open={tabSettingsOpen}
                 onOpenChange={(open) => {
@@ -1497,7 +1489,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         {/* Sidebar overlay / pinned rail */}
         {showSidebar && (
           <>
-            {(!sidebarPinned || isMobile) && (
+            {!sidebarPinned && (
               <div
                 className="fixed inset-0 z-30 bg-[var(--mail-overlay-scrim)]"
                 onClick={() => setSidebarOpen(false)}
@@ -1531,7 +1523,12 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                           <button
                             type="button"
                             onClick={() => {
-                              setSidebarPinned((value) => !value);
+                              if (sidebarPinned) {
+                                setSidebarPinned(false);
+                                setSidebarOpen(!isMobile);
+                                return;
+                              }
+                              setSidebarPinned(true);
                               setSidebarOpen(true);
                             }}
                             className={cn(

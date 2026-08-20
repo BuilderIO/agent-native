@@ -300,6 +300,18 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(shellCss).toContain("[data-chat-first-rail-collapse]");
   });
 
+  it("routes Electron-forwarded Cmd+backslash to the chat sidebar", () => {
+    const hubSource = readFileSync(
+      "src/renderer/components/CodeAgentsHub.tsx",
+      "utf8",
+    );
+
+    expect(hubSource).toContain("isDesktopChatToggleShortcut");
+    expect(hubSource).toContain(
+      'window.dispatchEvent(new Event("agent-panel:toggle"))',
+    );
+  });
+
   it("orders pinned desktop apps ahead of unpinned apps and filters by name or description", () => {
     const apps = [
       {

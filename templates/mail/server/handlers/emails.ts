@@ -1743,10 +1743,13 @@ export const listLabels = defineEventHandler(async (_event: H3Event) => {
           totalCount: number;
         }
       >();
+      let successfulAccountReads = 0;
+      let failedAccountReads = 0;
       // Fetch labels from each account sequentially to avoid race conditions on the shared map
       for (const { accessToken } of accountTokens) {
         try {
           const res = await gmailListLabels(accessToken);
+          successfulAccountReads += 1;
           for (const label of res.labels || []) {
             if (!label.id || !label.name) continue;
             const gmailId = label.id;
@@ -1791,7 +1794,21 @@ export const listLabels = defineEventHandler(async (_event: H3Event) => {
               });
             }
           }
-        } catch {}
+        } catch {
+          // Keep labels from accounts that succeeded, but never present an
+          // empty map as a successful response when every Gmail read failed.
+          failedAccountReads += 1;
+        }
+      }
+      if (failedAccountReads > 0) {
+        console.warn(
+          `[listLabels] ${failedAccountReads} Gmail account label read(s) failed`,
+        );
+      }
+      if (accountTokens.length === 0 || successfulAccountReads === 0) {
+        console.error("[listLabels] Gmail label fetch failed");
+        setResponseStatus(_event, 502);
+        return { error: "Unable to load Gmail labels. Please retry." };
       }
       const labels: Label[] = Array.from(labelMap.values());
 
@@ -1821,7 +1838,11 @@ export const listLabels = defineEventHandler(async (_event: H3Event) => {
       }
 
       return labels;
-    } catch {}
+    } catch {
+      console.error("[listLabels] Gmail label request failed");
+      setResponseStatus(_event, 502);
+      return { error: "Unable to load Gmail labels. Please retry." };
+    }
   }
   return readLabels(email);
 });
