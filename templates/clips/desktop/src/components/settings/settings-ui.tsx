@@ -160,7 +160,13 @@ export function SettingsSelect({
     >
       <SelectTrigger
         aria-label={ariaLabel}
-        className={cn(ROW_CONTROL, "w-auto gap-1.5 shadow-none focus:ring-0")}
+        /* The registry trigger ships focus:ring-2 + ring-offset-2; zero BOTH or
+           the offset halo survives ring-0 and doubles up with ROW_CONTROL's
+           focus-visible ring. */
+        className={cn(
+          ROW_CONTROL,
+          "w-auto gap-1.5 shadow-none focus:ring-0 focus:ring-offset-0",
+        )}
       >
         <SelectValue placeholder={placeholder} />
       </SelectTrigger>
