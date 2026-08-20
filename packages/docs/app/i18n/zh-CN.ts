@@ -1525,6 +1525,8 @@ const zhCN = {
     fileUploads: "文件上传",
     deployment: "部署",
     deploymentOverview: "概览",
+    deploymentProviders: "提供商",
+    deploymentProduction: "生产与高级",
     deployAnApp: "部署应用",
     workspaceDeployment: "工作区部署",
     deploymentNodeDocker: "Node.js",

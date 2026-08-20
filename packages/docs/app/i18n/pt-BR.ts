@@ -1549,6 +1549,8 @@ const ptBR = {
     fileUploads: "Uploads de arquivos",
     deployment: "Deploy",
     deploymentOverview: "Visão geral",
+    deploymentProviders: "Provedores",
+    deploymentProduction: "Produção e avançado",
     deployAnApp: "Fazer deploy de um app",
     workspaceDeployment: "Deploy do Workspace",
     deploymentNodeDocker: "Node.js",
