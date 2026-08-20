@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.164.24
+
+### Patch Changes
+
+- 14a3f87: Preserve the beta environment opt-out when custom authentication pages are served.
+- 14a3f87: Keep BYOA sign-in and liveness routes available while unrelated serverless bootstrap work is waiting on the database.
+
 ## 0.164.23
 
 ### Patch Changes
