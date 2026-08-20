@@ -993,6 +993,57 @@ describe("route warmup config", () => {
 });
 
 describe("agent-native app config", () => {
+  it("loads JSON config fragments from environment paths before typed overrides", () => {
+    const previousRuntime = process.env.AGENT_NATIVE_CONFIG_RUNTIME;
+    const previousAuth = process.env.AGENT_NATIVE_CONFIG_RUNTIME_AUTH_ENABLED;
+    const previousLocales =
+      process.env.AGENT_NATIVE_CONFIG_TRANSLATIONS_LOCALES;
+    process.env.AGENT_NATIVE_CONFIG_RUNTIME = JSON.stringify({
+      auth: { enabled: false },
+      database: { required: false },
+    });
+    process.env.AGENT_NATIVE_CONFIG_RUNTIME_AUTH_ENABLED = "false";
+    process.env.AGENT_NATIVE_CONFIG_TRANSLATIONS_LOCALES = JSON.stringify([
+      "en-US",
+      "es-ES",
+    ]);
+
+    try {
+      const config = defineConfig({
+        agentNativeConfig: {
+          runtime: { auth: { enabled: true } },
+          translations: { locales: ["fr-FR"] },
+        },
+      });
+
+      expect(
+        JSON.parse(String(config.define?.__AGENT_NATIVE_APP_CONFIG__)),
+      ).toMatchObject({
+        runtime: {
+          auth: { enabled: true },
+          database: { required: false },
+        },
+        translations: { locales: ["fr-FR"] },
+      });
+    } finally {
+      if (previousRuntime === undefined) {
+        delete process.env.AGENT_NATIVE_CONFIG_RUNTIME;
+      } else {
+        process.env.AGENT_NATIVE_CONFIG_RUNTIME = previousRuntime;
+      }
+      if (previousAuth === undefined) {
+        delete process.env.AGENT_NATIVE_CONFIG_RUNTIME_AUTH_ENABLED;
+      } else {
+        process.env.AGENT_NATIVE_CONFIG_RUNTIME_AUTH_ENABLED = previousAuth;
+      }
+      if (previousLocales === undefined) {
+        delete process.env.AGENT_NATIVE_CONFIG_TRANSLATIONS_LOCALES;
+      } else {
+        process.env.AGENT_NATIVE_CONFIG_TRANSLATIONS_LOCALES = previousLocales;
+      }
+    }
+  });
+
   it("serializes the resolved onboarding mode into the client config", () => {
     const config = defineConfig({
       agentNativeConfig: {
@@ -1220,7 +1271,7 @@ describe("agent-native app config", () => {
     );
     fs.writeFileSync(
       path.join(tmpDir, ".env.production"),
-      "NOTION_API_KEY=local-test\n",
+      'NOTION_API_KEY=local-test\nAGENT_NATIVE_CONFIG_TRANSLATIONS_LOCALES=["en-US","es-ES"]\n',
     );
 
     try {
@@ -1228,9 +1279,17 @@ describe("agent-native app config", () => {
       const configPlugin = flatPlugins(agentNative()).find(
         (plugin) => plugin?.name === "agent-native-config",
       );
-      await configPlugin.config({}, { command: "build", mode: "production" });
+      const config = (await configPlugin.config(
+        {},
+        { command: "build", mode: "production" },
+      )) as any;
 
       expect(warn).not.toHaveBeenCalled();
+      expect(
+        JSON.parse(String(config.define.__AGENT_NATIVE_APP_CONFIG__)),
+      ).toMatchObject({
+        translations: { locales: ["en-US", "es-ES"] },
+      });
     } finally {
       warn.mockRestore();
       process.chdir(previousCwd);
