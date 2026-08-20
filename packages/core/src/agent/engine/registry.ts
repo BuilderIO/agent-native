@@ -780,12 +780,20 @@ async function hasUsableBuilderConnection(
 }
 
 /**
- * Either lane. Not {@link hasUsableBuilderConnection}, which asks the narrower
- * "did this user connect Builder" and is false on every credits-only site.
+ * Either lane. {@link hasUsableBuilderConnection} asks the narrower "did this
+ * user connect Builder" and is false on every credits-only site, so this still
+ * accepts the gateway-credits pair. When the user has Builder OAuth custody,
+ * match the Builder engine stream path: usable OAuth is enough to run, and
+ * unusable custody must not fall through to a legacy or deploy key.
  */
 async function canRunBuilderEngine(
   identity?: BuilderCredentialLookupIdentity,
 ): Promise<boolean> {
+  const ownerEmail =
+    identity?.userEmail?.trim().toLowerCase() || getRequestUserEmail();
+  if (ownerEmail && (await hasBuilderOAuthSession(ownerEmail))) {
+    return hasUsableBuilderConnection(identity);
+  }
   const creds = await resolveBuilderGatewayCredentialsDetailed(identity);
   assertCredentialStoreReadable(creds);
   return Boolean(creds.privateKey && creds.publicKey);
