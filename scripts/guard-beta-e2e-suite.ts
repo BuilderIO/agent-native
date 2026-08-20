@@ -200,6 +200,16 @@ if (workflow) {
       `${workflowPath} no longer passes BETA_E2E_GREP through the advisory lane without failing when no advisory test matches.`,
     );
   }
+  if (
+    !/BETA_E2E_AUTHED=0 pnpm e2e:beta[\s\\]+--project=authed --project=journeys[\s\\]+--grep "\$BETA_E2E_GREP" --list/.test(
+      workflow,
+    ) ||
+    !workflow.includes("Total: 0 tests in 0 files")
+  ) {
+    issues.push(
+      `${workflowPath} must discover filtered authenticated tests with auth disabled before running globalSetup. A public-only grep must not require session credentials.`,
+    );
+  }
   if (!/continue-on-error:\s*true/.test(workflow)) {
     issues.push(
       `${workflowPath} no longer marks the advisory lane non-gating. Gating on advisory findings trains people to ignore a red run.`,

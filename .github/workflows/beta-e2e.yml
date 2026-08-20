@@ -237,8 +237,29 @@ jobs:
         # Global setup fails loudly if a credential is missing rather than
         # degrading to an anonymous run that would pass without testing
         # anything. Not sharded: it establishes one session per app up front.
+        # A title filter can select only public/fleet tests, though. Ask
+        # Playwright for the authenticated selection first with auth disabled;
+        # --list does not run globalSetup, so an empty selection skips the
+        # credentialed setup without turning a requested auth run into a pass.
         run: |
           if [ -n "$BETA_E2E_GREP" ]; then
+            selection_file="$(mktemp)"
+            trap 'rm -f "$selection_file"' EXIT
+            set +e
+            BETA_E2E_AUTHED=0 pnpm e2e:beta \
+              --project=authed --project=journeys \
+              --grep "$BETA_E2E_GREP" --list >"$selection_file" 2>&1
+            selection_status="$?"
+            set -e
+            cat "$selection_file"
+            if grep -q "Total: 0 tests in 0 files" "$selection_file"; then
+              echo "No authenticated tests match BETA_E2E_GREP; skipping authenticated setup."
+              exit 0
+            fi
+            if [ "$selection_status" -ne 0 ]; then
+              echo "Authenticated test selection failed before execution." >&2
+              exit "$selection_status"
+            fi
             pnpm e2e:beta --project=authed --project=journeys --grep "$BETA_E2E_GREP" --pass-with-no-tests
           else
             pnpm e2e:beta --project=authed --project=journeys
