@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.167.0
+
+### Minor Changes
+
+- 3a7a8f0: support deterministic environment aliases and JSON fragments for public Agent-Native config
+
 ## 0.166.1
 
 ### Patch Changes
