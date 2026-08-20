@@ -26,7 +26,10 @@ import {
 } from "../org/auth-policy.js";
 import { SIGN_IN_ENTRY_PATH } from "../shared/sign-in-journey.js";
 import { getAppName } from "./app-name.js";
-import { signupAttributionContextFromCookieHeader } from "./attribution.js";
+import {
+  addSignupAttributionHeader,
+  signupAttributionContextFromCookieHeader,
+} from "./attribution.js";
 import { getSession, isExpectedAuthFailure, safeReturnPath } from "./auth.js";
 import {
   getBetterAuth,
@@ -46,7 +49,11 @@ import {
   isJtiReplayed,
   SSO_STATE_TTL_MS,
 } from "./identity-sso-store.js";
-import { getRequestContext, runWithRequestContext } from "./request-context.js";
+import {
+  getRequestContext,
+  hasContinuationLocalRequestContext,
+  runWithRequestContext,
+} from "./request-context.js";
 
 export { getIdentityHubUrl, identitySsoLoginButtonHtml, isIdentitySsoEnabled };
 
@@ -351,7 +358,10 @@ async function exchangeIdentityCode(
   }
 }
 
-async function jitLinkIdentity(identity: VerifiedIdentity): Promise<void> {
+async function jitLinkIdentity(
+  identity: VerifiedIdentity,
+  signupHeaders?: Headers,
+): Promise<void> {
   const adapter = await getBetterAuthInternalAdapter();
   let existing = adapter
     ? await adapter
@@ -371,6 +381,7 @@ async function jitLinkIdentity(identity: VerifiedIdentity): Promise<void> {
           password: createUnusableSsoCredential(),
           name: identity.name || identity.email.split("@")[0] || "User",
         },
+        ...(signupHeaders ? { headers: signupHeaders } : {}),
       });
     } catch (error) {
       if (!isExpectedAuthFailure(error)) throw error;
@@ -587,15 +598,23 @@ export async function handleIdentitySso(
     }
 
     try {
-      await runWithRequestContext(
-        {
-          ...(getRequestContext() ?? {}),
-          signupAttribution: signupAttributionContextFromCookieHeader(
-            getHeader(event, "cookie") ?? null,
-          ),
-        },
-        () => jitLinkIdentity(identity),
+      const signupCookieHeader = getHeader(event, "cookie") ?? null;
+      const signupAttribution =
+        signupAttributionContextFromCookieHeader(signupCookieHeader);
+      const signupHeaders = addSignupAttributionHeader(
+        event.headers,
+        signupAttribution,
       );
+      const linkIdentity = () => jitLinkIdentity(identity, signupHeaders);
+      await (hasContinuationLocalRequestContext()
+        ? runWithRequestContext(
+            {
+              ...(getRequestContext() ?? {}),
+              signupAttribution,
+            },
+            linkIdentity,
+          )
+        : linkIdentity());
     } catch {
       return errorPage(
         "Could not finish linking your account. Please try again.",

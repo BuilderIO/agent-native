@@ -1,12 +1,16 @@
 import { describe, it, expect } from "vitest";
 
 import {
+  addSignupAttributionHeader,
+  decodeSignupAttributionContext,
   deriveReferralSource,
   deriveSignupAttribution,
+  encodeSignupAttributionContext,
   parseCookieHeader,
   readAnalyticsAnonymousId,
   readFirstTouchAttribution,
   signupAttributionContextFromCookieHeader,
+  signupAttributionContextFromHeaders,
   signupAttributionFromCookieHeader,
   type FirstTouchAttribution,
 } from "./attribution.js";
@@ -252,5 +256,28 @@ describe("signupAttributionContextFromCookieHeader", () => {
     ).toEqual({
       attribution: { referral_source: "direct" },
     });
+  });
+});
+
+describe("signup attribution request handoff", () => {
+  it("round-trips through the explicit Better Auth header", () => {
+    const context = {
+      attribution: { referral_source: "clip_share", utm_campaign: "launch" },
+      anonymousId: "anon_signup_1",
+    };
+    const headers = addSignupAttributionHeader(
+      { cookie: "an_aid=wrong-client-value" },
+      context,
+    );
+
+    expect(signupAttributionContextFromHeaders(headers)).toEqual(context);
+    expect(
+      decodeSignupAttributionContext(encodeSignupAttributionContext(context)),
+    ).toEqual(context);
+  });
+
+  it("distinguishes malformed handoffs from direct attribution", () => {
+    expect(decodeSignupAttributionContext("not-json")).toBeUndefined();
+    expect(signupAttributionContextFromHeaders(new Headers())).toBeUndefined();
   });
 });

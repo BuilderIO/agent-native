@@ -3310,14 +3310,28 @@ describe("server/auth", () => {
       const result = await registerHandler(event);
 
       expect(result).toEqual({ ok: true });
-      expect(signUpEmail).toHaveBeenCalledWith({
+      const signUpCall = signUpEmail.mock.calls[0]?.[0];
+      expect(signUpCall).toMatchObject({
         body: {
           email: "steve+1@builder.io",
           password: "secret-password",
           name: "steve+1",
           callbackURL: "https://localhost/after",
         },
-        headers: event.headers,
+        headers: expect.any(Headers),
+      });
+      expect(signUpCall.headers.get("cookie")).toBe(
+        event.headers.get("cookie"),
+      );
+      expect(signUpCall.headers.get("x-forwarded-proto")).toBe("https");
+      const { signupAttributionContextFromHeaders } =
+        await import("./attribution.js");
+      expect(signupAttributionContextFromHeaders(signUpCall.headers)).toEqual({
+        attribution: {
+          referral_source: "plan_share",
+          referrer_user: "owner_42",
+          first_touch_path: "/plans/example",
+        },
       });
     });
 
@@ -4013,8 +4027,15 @@ describe("server/auth", () => {
 
       let observedSignupAttribution: unknown;
       const { getRequestContext } = await import("./request-context.js");
-      const betterAuthHandler = vi.fn(async () => {
+      const { signupAttributionContextFromHeaders } =
+        await import("./attribution.js");
+      let observedHeaderAttribution: unknown;
+      const betterAuthHandler = vi.fn(async (request: Request) => {
         observedSignupAttribution = getRequestContext()?.signupAttribution;
+        observedHeaderAttribution = signupAttributionContextFromHeaders(
+          request.headers,
+        );
+        await request.json();
         return new Response(JSON.stringify({ ok: true }), {
           headers: { "content-type": "application/json" },
         });
@@ -4069,6 +4090,7 @@ describe("server/auth", () => {
         },
         anonymousId: "anon_signup_1",
       });
+      expect(observedHeaderAttribution).toEqual(observedSignupAttribution);
       expect(getRequestContext()).toBeUndefined();
     });
 

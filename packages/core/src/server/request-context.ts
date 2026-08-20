@@ -278,6 +278,11 @@ export function assertRequestActionSurfaceIsolation(): void {
   );
 }
 
+/** Whether request context values are isolated across overlapping promises. */
+export function hasContinuationLocalRequestContext(): boolean {
+  return globalRef[CONTINUATION_LOCAL_KEY] === true;
+}
+
 /**
  * Register a callback fired every time `runWithRequestContext` enters a new
  * scope. The hook runs INSIDE the AsyncLocalStorage scope, so observability

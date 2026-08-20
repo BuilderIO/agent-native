@@ -128,10 +128,12 @@ import { injectAnalyticsIntoHtml } from "./analytics.js";
 import { getConfiguredAppBasePath } from "./app-base-path.js";
 import { getAppProductionUrl } from "./app-url.js";
 import {
+  addSignupAttributionHeader,
   readAnalyticsAnonymousId,
   readFirstTouchAttribution,
   signupAttributionContextFromCookieHeader,
   signupAttributionFromCookieHeader,
+  type SignupAttributionContext,
 } from "./attribution.js";
 import { getAuthLoginMode } from "./auth-login-mode.js";
 import { injectBetaOptOutPersistence } from "./beta-opt-out-html.js";
@@ -194,7 +196,11 @@ import {
   getResetPasswordHtml,
   type OnboardingHtmlOptions,
 } from "./onboarding-html.js";
-import { getRequestContext, runWithRequestContext } from "./request-context.js";
+import {
+  getRequestContext,
+  hasContinuationLocalRequestContext,
+  runWithRequestContext,
+} from "./request-context.js";
 import { captureAuthError } from "./sentry.js";
 import {
   forgetCachedSessionEmail,
@@ -216,12 +222,34 @@ function withSignupAttributionContext<T>(
   cookieHeader: string | null | undefined,
   fn: () => T | Promise<T>,
 ): T | Promise<T> {
+  const signupAttribution =
+    signupAttributionContextFromCookieHeader(cookieHeader);
+  if (!hasContinuationLocalRequestContext()) return fn();
   return runWithRequestContext(
     {
       ...(getRequestContext() ?? {}),
-      signupAttribution: signupAttributionContextFromCookieHeader(cookieHeader),
+      signupAttribution,
     },
     fn,
+  );
+}
+
+function requestWithSignupAttribution(
+  request: Request,
+  signupAttribution: SignupAttributionContext,
+): Request {
+  return new Request(request, {
+    headers: addSignupAttributionHeader(request.headers, signupAttribution),
+  });
+}
+
+function headersWithSignupAttribution(
+  headers: HeadersInit | undefined,
+  cookieHeader: string | null | undefined,
+): Headers {
+  return addSignupAttributionHeader(
+    headers,
+    signupAttributionContextFromCookieHeader(cookieHeader),
   );
 }
 
@@ -4818,6 +4846,9 @@ async function mountBetterAuthRoutes(
       const signupCookieHeader = isEmailSignup
         ? authRequest.headers.get("cookie")
         : undefined;
+      const signupAttribution = isEmailSignup
+        ? signupAttributionContextFromCookieHeader(signupCookieHeader)
+        : undefined;
       let magicLinkPreConsume: Record<string, unknown> | undefined;
 
       if (isMagicLinkVerification) {
@@ -4952,6 +4983,13 @@ async function mountBetterAuthRoutes(
           // Let Better Auth handle malformed bodies and return its normal
           // validation error.
         }
+      }
+
+      if (signupAttribution) {
+        requestForAuth = requestWithSignupAttribution(
+          requestForAuth,
+          signupAttribution,
+        );
       }
 
       let response: Response;
@@ -5348,7 +5386,10 @@ async function mountBetterAuthRoutes(
                 name: email.split("@")[0],
                 callbackURL,
               },
-              headers: event.headers,
+              headers: headersWithSignupAttribution(
+                event.headers,
+                getHeader(event, "cookie") ?? null,
+              ),
             }),
         );
         setFirstRunOnboardingCookie(event);
@@ -5643,7 +5684,10 @@ function mountAuthFallbackRoutes(app: H3App): void {
           () =>
             auth.api.signUpEmail({
               body: { email, password, name: email.split("@")[0] },
-              headers: event.headers,
+              headers: headersWithSignupAttribution(
+                event.headers,
+                getHeader(event, "cookie") ?? null,
+              ),
             }),
         );
         setFirstRunOnboardingCookie(event);
