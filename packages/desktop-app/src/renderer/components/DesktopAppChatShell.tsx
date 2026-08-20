@@ -35,6 +35,7 @@ import {
 import {
   DesktopChatRelayAppContext,
   installDesktopChatFetchRelay,
+  setDesktopChatRelayActive,
   setDesktopChatRelayBase,
 } from "../lib/desktop-chat-relay.js";
 import {
@@ -137,7 +138,7 @@ export default function DesktopAppChatShell({
     } catch {
       // Keep the default agent when storage is unavailable.
     }
-  }, [appId]);
+  }, [appId, isActive]);
 
   useEffect(() => {
     let cancelled = false;
@@ -247,6 +248,7 @@ export default function DesktopAppChatShell({
     let cancelled = false;
     setApiUrl(null);
     setDesktopChatRelayBase(appId, null);
+    setDesktopChatRelayActive(appId, false);
 
     const getApiUrl = window.electronAPI?.desktopChat?.getApiUrl;
     if (!getApiUrl) return () => undefined;
@@ -255,19 +257,29 @@ export default function DesktopAppChatShell({
       .then((nextApiUrl) => {
         if (cancelled) return;
         setDesktopChatRelayBase(appId, nextApiUrl);
+        setDesktopChatRelayActive(appId, isActive);
         setApiUrl(nextApiUrl);
       })
       .catch(() => {
         if (cancelled) return;
         setDesktopChatRelayBase(appId, null);
+        setDesktopChatRelayActive(appId, false);
         setApiUrl(null);
       });
 
     return () => {
       cancelled = true;
       setDesktopChatRelayBase(appId, null);
+      setDesktopChatRelayActive(appId, false);
     };
   }, [appId]);
+
+  useEffect(() => {
+    setDesktopChatRelayActive(appId, isActive);
+    return () => {
+      setDesktopChatRelayActive(appId, false);
+    };
+  }, [appId, isActive]);
 
   const startLocalCodeChange = useCallback(
     async (prompt: string) => {
