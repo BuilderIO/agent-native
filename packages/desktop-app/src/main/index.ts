@@ -13710,6 +13710,8 @@ app.whenReady().then(async () => {
     configureWebviewSession(wc.session, id);
     if (id) desktopWebviewAppIds.set(wc, id);
     let identitySyncAttemptedForApp: string | null = null;
+    let hiddenIdentitySsoUrl: string | null = null;
+    let hideIdentitySsoInFlight: Promise<void> | null = null;
 
     const syncLoadedApp = () => {
       id = resolveDesktopWebviewAppId(wc);
@@ -13718,9 +13720,26 @@ app.whenReady().then(async () => {
       configureWebviewSession(wc.session, appId);
       desktopWebviewAppIds.set(wc, appId);
       if (isDesktopSsoEnabled() && resolveDesktopIdentityApp(appId)) {
-        void wc
-          .executeJavaScript(HIDE_EMBEDDED_IDENTITY_SSO_SCRIPT, false)
-          .catch(() => {});
+        const currentUrl = wc.getURL();
+        if (
+          currentUrl !== hiddenIdentitySsoUrl &&
+          hideIdentitySsoInFlight === null
+        ) {
+          hideIdentitySsoInFlight = wc
+            .executeJavaScript(HIDE_EMBEDDED_IDENTITY_SSO_SCRIPT, false)
+            .then(() => {
+              if (wc.getURL() === currentUrl) hiddenIdentitySsoUrl = currentUrl;
+            })
+            .catch((error) => {
+              console.debug(
+                "[main] unable to hide embedded identity SSO:",
+                error instanceof Error ? error.message : error,
+              );
+            })
+            .then(() => {
+              hideIdentitySsoInFlight = null;
+            });
+        }
       }
       // Ordinary navigation only synchronizes an app after the identity
       // authority is already signed in. Adoption is reserved for an explicit
