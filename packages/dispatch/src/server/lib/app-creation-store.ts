@@ -1935,15 +1935,6 @@ const ADDABLE_TEMPLATES: AvailableWorkspaceTemplate[] = [
     colorRgb: "244 114 182",
     core: true,
   },
-  {
-    name: "videos",
-    label: "Video",
-    hint: "Video editing with Remotion",
-    icon: "Video",
-    color: "#EF4444",
-    colorRgb: "239 68 68",
-    core: false,
-  },
 ];
 
 export async function listAvailableWorkspaceTemplates(): Promise<

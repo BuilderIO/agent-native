@@ -291,6 +291,20 @@ type ProviderRequestActionArgs = StagingRequestArgs & {
   fetchAllPages?: ProviderApiRequestArgs["fetchAllPages"];
 };
 
+const STAGED_DATASET_BYTE_CAP_ERROR = /Staged dataset byte cap exceeded/i;
+
+function rethrowStagingError(error: unknown): never {
+  if (
+    error instanceof Error &&
+    STAGED_DATASET_BYTE_CAP_ERROR.test(error.message)
+  ) {
+    throw new Error(
+      `${error.message} Recover by deleting older staged datasets with list-staged-datasets/delete-staged-dataset, or switch this request to saveToFile / a smaller staged result before trying again.`,
+    );
+  }
+  throw error;
+}
+
 interface ProviderApiActionBaseOptions<TSchema extends ZodTypeAny> {
   schema?: TSchema;
   description?: string;
@@ -379,10 +393,14 @@ export function createProviderApiRequestAction<
         if (!ownerEmail) {
           throw new Error("No authenticated context for provider API staging.");
         }
-        return stagingExecuteRequest(args, runtime.executeRequest, {
-          appId: options.appId,
-          ownerEmail,
-        });
+        try {
+          return await stagingExecuteRequest(args, runtime.executeRequest, {
+            appId: options.appId,
+            ownerEmail,
+          });
+        } catch (error) {
+          rethrowStagingError(error);
+        }
       }
       return runtime.executeRequest(args);
     },
