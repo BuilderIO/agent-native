@@ -47,8 +47,8 @@ import {
   SettingsSelect,
   SettingsValueTrigger,
 } from "@/components/settings/settings-ui";
-// Aliased: `components/AlertDialog` is the tray's older plain-CSS adapter,
-// still driving the recorder's confirmations.
+// Aliased `Ui*` for symmetry with `UiSwitch`: the tray historically had a
+// plain-CSS AlertDialog adapter under the bare names.
 import {
   AlertDialog as UiAlertDialog,
   AlertDialogAction as UiAlertDialogAction,
@@ -74,16 +74,6 @@ import { Spinner } from "@/components/ui/spinner";
 import { Switch as UiSwitch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "./components/AlertDialog";
 import { FeedbackButton } from "./components/FeedbackButton";
 import {
   CamIcon,
