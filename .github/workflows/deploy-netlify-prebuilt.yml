@@ -97,7 +97,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ inputs.target == 'production' && format('agent-native-production-publish-{0}', inputs.site) || format('netlify-prebuilt-beta-{0}', inputs.site) }}
+  group: ${{ inputs.target == 'production' && 'agent-native-production-publish' || format('netlify-prebuilt-beta-{0}', inputs.site) }}
   # Beta follows the newest moving ref. Never cancel a production publish that
   # may already be uploading or becoming live.
   cancel-in-progress: ${{ inputs.target == 'beta' }}
@@ -231,6 +231,7 @@ jobs:
         id: deploy
         if: inputs.deploy
         env:
+          BUILD_CONTEXT: ${{ inputs.build_context }}
           DEPLOY_MODE: ${{ inputs.deploy_mode }}
           FUNCTIONS_DIRECTORY: ${{ steps.target.outputs.functions_directory }}
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
@@ -245,6 +246,7 @@ jobs:
             --dir "$PUBLISH_DIRECTORY"
             --functions "$FUNCTIONS_DIRECTORY"
             --filter "$SOURCE_TEMPLATE"
+            --context "$BUILD_CONTEXT"
             --no-build
             --message "GitHub Actions prebuilt deploy ${GITHUB_SHA}"
           )

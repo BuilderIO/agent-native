@@ -71,6 +71,7 @@
     "guard:db-tool-scoping": "node scripts/guard-db-tool-scoping.mjs",
     "guard:template-list": "node scripts/guard-template-list.mjs",
     "guard:netlify-private-env": "tsx scripts/guard-netlify-private-env.ts",
+    "guard:netlify-prebuilt-workflow": "tsx scripts/guard-netlify-prebuilt-workflow.ts",
     "guard:trusted-acceptance": "tsx scripts/guard-trusted-acceptance-workflow.ts",
     "guard:content-product-conformance": "tsx scripts/validate-content-product-impact-workflow.ts",
     "guard:content-product-docs": "tsx scripts/validate-content-product-docs.ts",
