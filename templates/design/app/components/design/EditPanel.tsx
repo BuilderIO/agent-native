@@ -407,6 +407,8 @@ interface EditPanelProps {
    *   always shows this row) but no-op, since EditPanel has no selection
    *   bbox/parent geometry of its own to act on.
    */
+  /** Convert this container to freeform, pinning children where they render. */
+  onDisableAutoLayout?: (nodeId: string) => void;
   onAlignSelection?: (
     edge: "left" | "center-h" | "right" | "top" | "center-v" | "bottom",
   ) => void;
@@ -1661,6 +1663,7 @@ export const EditPanel = memo(function EditPanel({
   activeTool,
   onCreateScreenFromPreset,
   onAlignSelection,
+  onDisableAutoLayout,
   onInteractionStateChange,
   availableInteractionStates,
   onEditCode,
@@ -2184,6 +2187,7 @@ export const EditPanel = memo(function EditPanel({
                     element={stateResolvedInspectorElement ?? inspectorElement}
                     onStyleChange={onStyleChange}
                     onStylesChange={onStylesChange}
+                    onDisableAutoLayout={onDisableAutoLayout}
                     motionKeyframeContext={motionKeyframeFieldContext}
                     breakpointOverrideContext={breakpointOverrideFieldContext}
                   />
