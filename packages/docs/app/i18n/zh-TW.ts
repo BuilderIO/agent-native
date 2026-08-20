@@ -1523,6 +1523,8 @@ const messages = {
     fileUploads: "檔案上傳",
     deployment: "部署",
     deploymentOverview: "總覽",
+    deploymentProviders: "提供者",
+    deploymentProduction: "正式環境與進階",
     deployAnApp: "部署應用程式",
     workspaceDeployment: "工作區部署",
     deploymentNodeDocker: "Node.js",

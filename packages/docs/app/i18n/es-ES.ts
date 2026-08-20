@@ -1553,6 +1553,8 @@ const esES = {
     fileUploads: "Subidas de archivos",
     deployment: "Despliegue",
     deploymentOverview: "Resumen",
+    deploymentProviders: "Proveedores",
+    deploymentProduction: "Producción y avanzado",
     deployAnApp: "Desplegar una aplicación",
     workspaceDeployment: "Despliegue del Workspace",
     deploymentNodeDocker: "Node.js",
