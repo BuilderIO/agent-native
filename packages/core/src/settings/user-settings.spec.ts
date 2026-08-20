@@ -194,12 +194,12 @@ describe("user-settings", () => {
 
       expect(mockDeleteSetting).toHaveBeenNthCalledWith(
         1,
-        "u:alice@test.com:old",
+        "u:Alice@Test.com:old",
         undefined,
       );
       expect(mockDeleteSetting).toHaveBeenNthCalledWith(
         2,
-        "u:Alice@Test.com:old",
+        "u:alice@test.com:old",
         undefined,
       );
       expect(result).toBe(true);

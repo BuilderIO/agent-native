@@ -89,7 +89,7 @@ export async function mutateUserSetting(
     !migratedLegacyValue ||
     !(await deleteSettingIfValue(legacy, migratedLegacyValue, options))
   ) {
-    if ((await getSetting(legacy)) !== null) return result;
+    if (await getSetting(legacy, { bypassCache: true })) return result;
     const removed = await deleteSettingIfValue(normalized, result, options);
     if (!removed) {
       throw new Error("User setting changed while migrating its legacy key");
@@ -106,9 +106,13 @@ export async function deleteUserSetting(
   options?: StoreWriteOptions,
 ): Promise<boolean> {
   const normalized = userKey(email, key);
-  const deletedNormalized = await deleteSetting(normalized, options);
   const legacy = legacyUserKey(email, key);
-  if (legacy === normalized) return deletedNormalized;
+  if (legacy === normalized) return deleteSetting(normalized, options);
+
+  // Retire the fallback row first. If the canonical delete fails, the
+  // remaining canonical value still wins reads instead of resurrecting legacy
+  // data after a partial delete; a retry can safely finish the operation.
   const deletedLegacy = await deleteSetting(legacy, options);
+  const deletedNormalized = await deleteSetting(normalized, options);
   return deletedNormalized || deletedLegacy;
 }
