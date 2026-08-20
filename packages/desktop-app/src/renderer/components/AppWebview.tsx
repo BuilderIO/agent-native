@@ -1207,8 +1207,10 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         isAgentNativeOpenPath(urlPath) &&
         canSoftOpenWebview(wv, url)
       ) {
-        void wv
-          .executeJavaScript(buildSoftOpenScript(urlPath), false)
+        void executeGuestScript(
+          `soft-open:${urlPath}`,
+          buildSoftOpenScript(urlPath),
+        )
           .then((ok) => {
             if (ok !== false) return;
             setIsLoading(true);
@@ -1233,6 +1235,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       urlPath,
       app.placeholder,
       deferDesktopWebviewLoad,
+      executeGuestScript,
     ]);
 
     // If the webview hasn't fired dom-ready within a few seconds, surface
