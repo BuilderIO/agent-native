@@ -33,6 +33,7 @@ const messages: AgentChatTranslation = {
   "aboutAgentNative.environment": "पर्यावरण",
   "aboutAgentNative.build": "बिल्ड",
   "aboutAgentNative.copyDiagnostics": "डायग्नोस्टिक कॉपी करें",
+  "aboutAgentNative.unknown": "अज्ञात",
   "common.agent": "एजेंट",
   "common.cancel": "रद्द करें",
   "common.collapse": "समेटें",

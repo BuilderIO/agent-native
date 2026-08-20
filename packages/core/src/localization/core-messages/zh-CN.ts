@@ -32,6 +32,7 @@ const messages: AgentChatTranslation = {
   "aboutAgentNative.environment": "环境",
   "aboutAgentNative.build": "构建",
   "aboutAgentNative.copyDiagnostics": "复制诊断信息",
+  "aboutAgentNative.unknown": "未知",
   "common.agent": "智能体",
   "common.cancel": "取消",
   "common.collapse": "收起",

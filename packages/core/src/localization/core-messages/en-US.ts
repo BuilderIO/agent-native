@@ -31,6 +31,7 @@ const messages = {
   "aboutAgentNative.environment": "Environment",
   "aboutAgentNative.build": "Build",
   "aboutAgentNative.copyDiagnostics": "Copy diagnostics",
+  "aboutAgentNative.unknown": "Unknown",
   "common.agent": "Agent",
   "common.cancel": "Cancel",
   "common.collapse": "Collapse",

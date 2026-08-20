@@ -33,6 +33,7 @@ const messages: AgentChatTranslation = {
   "aboutAgentNative.environment": "Ambiente",
   "aboutAgentNative.build": "Build",
   "aboutAgentNative.copyDiagnostics": "Copiar diagnósticos",
+  "aboutAgentNative.unknown": "Desconhecida",
   "common.agent": "Agente",
   "common.cancel": "Cancelar",
   "common.collapse": "Recolher",

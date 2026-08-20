@@ -386,16 +386,32 @@ export function CommandMenu({
   const aboutLabel = t("agentChat.aboutAgentNative.title", {
     defaultValue: "About Agent Native",
   });
+  const aboutVersionLabel = t("agentChat.aboutAgentNative.version", {
+    defaultValue: "Version",
+  });
+  const aboutEnvironmentLabel = t("agentChat.aboutAgentNative.environment", {
+    defaultValue: "Environment",
+  });
+  const aboutBuildLabel = t("agentChat.aboutAgentNative.build", {
+    defaultValue: "Build",
+  });
+  const aboutDiagnosticsLabel = t(
+    "agentChat.aboutAgentNative.copyDiagnostics",
+    {
+      defaultValue: "Copy diagnostics",
+    },
+  );
   const aboutRowMatches =
     !search ||
     [
       aboutLabel,
       "agent native",
-      "version",
+      aboutVersionLabel,
       "versions",
       "package",
-      "build",
-      "diagnostics",
+      aboutEnvironmentLabel,
+      aboutBuildLabel,
+      aboutDiagnosticsLabel,
     ]
       .join(" ")
       .toLowerCase()

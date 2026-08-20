@@ -88,7 +88,10 @@ export function AboutAgentNativeDialog({
             ))
           ) : (
             <div className="px-3 py-2 font-mono text-xs text-muted-foreground">
-              @agent-native/core - unknown
+              @agent-native/core -{" "}
+              {t("agentChat.aboutAgentNative.unknown", {
+                defaultValue: "Unknown",
+              })}
             </div>
           )}
         </div>
