@@ -59,7 +59,7 @@ describe("production Netlify site concurrency guard", () => {
   });
 
   it("executes every reusable workflow heredoc under the pinned Node loader", () => {
-    assert.equal(nodeHeredocs.length, 6);
+    assert.equal(nodeHeredocs.length, 7);
     const directory = mkdtempSync(
       join(tmpdir(), "agent-native-netlify-heredocs-"),
     );
@@ -79,6 +79,42 @@ describe("production Netlify site concurrency guard", () => {
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
+  });
+
+  it("purges the production cache after smoke and before relocking the deploy", () => {
+    const workflow = readWorkflow(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+    );
+    const jobs = workflow.jobs as Record<string, Workflow>;
+    const steps = (jobs.deploy.steps as Array<Workflow>).filter(Boolean);
+    const smokeIndex = steps.findIndex(
+      (step) => step.name === "Smoke-test the uploaded deploy",
+    );
+    const purgeIndex = steps.findIndex(
+      (step) => step.name === "Purge the production Netlify cache",
+    );
+    const lockIndex = steps.findIndex(
+      (step) => step.name === "Lock the published production deploy",
+    );
+    assert(
+      smokeIndex >= 0 && smokeIndex < purgeIndex && purgeIndex < lockIndex,
+    );
+
+    const purge = steps[purgeIndex];
+    assert.match(String(purge.if), /inputs.target == 'production'/);
+    assert.match(String(purge.if), /inputs.deploy_mode == 'production'/);
+    assert.match(String(purge.if), /success\(\)/);
+    assert.match(
+      String(purge.run),
+      /const api = "https:\/\/api\.netlify\.com\/api\/v1"/,
+    );
+    assert.match(String(purge.run), /fetch\(`\$\{api\}\/purge`/);
+    assert.match(String(purge.run), /method: "POST"/);
+    assert.match(
+      String(purge.run),
+      /JSON\.stringify\(\{ site_id: process\.env\.NETLIFY_SITE_ID \}\)/,
+    );
+    assert.match(String(purge.run), /if \(!response\.ok\)/);
   });
 
   it("ignores stale ready deploys after a locked cutover", () => {

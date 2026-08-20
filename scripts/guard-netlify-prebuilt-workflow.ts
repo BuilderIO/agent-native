@@ -177,6 +177,7 @@ const parsedUploadIndex = parsedStepIndex("Upload the prebuilt deploy");
 const parsedPublishWaitIndex = parsedStepIndex(
   "Wait for the Netlify deploy to publish",
 );
+const parsedPurgeIndex = parsedStepIndex("Purge the production Netlify cache");
 const parsedLockIndex = parsedStepIndex("Lock the published production deploy");
 const parsedResumeIndex = parsedStepIndex(
   "Resume automatic Netlify builds after production cutover",
@@ -189,6 +190,7 @@ if (
   parsedUnlockIndex < 0 ||
   parsedUploadIndex < 0 ||
   parsedPublishWaitIndex < 0 ||
+  parsedPurgeIndex < 0 ||
   parsedLockIndex < 0 ||
   parsedResumeIndex < 0 ||
   parsedCleanupIndex < 0
@@ -200,12 +202,13 @@ if (
   parsedPauseIndex >= parsedUnlockIndex ||
   parsedUnlockIndex >= parsedUploadIndex ||
   parsedUploadIndex >= parsedPublishWaitIndex ||
-  parsedPublishWaitIndex >= parsedLockIndex ||
+  parsedPublishWaitIndex >= parsedPurgeIndex ||
+  parsedPurgeIndex >= parsedLockIndex ||
   parsedLockIndex >= parsedResumeIndex ||
   parsedResumeIndex >= parsedCleanupIndex
 ) {
   issues.push(
-    `${reusablePath} parsed YAML steps must order unlock before upload before publish-wait before lock before resume before cleanup`,
+    `${reusablePath} parsed YAML steps must order unlock before upload before publish-wait before purge before lock before resume before cleanup`,
   );
 }
 const parsedUnlockIf = reusableSteps[parsedUnlockIndex]?.if;
@@ -237,6 +240,11 @@ const uploadEnd = reusable.indexOf(
   "name: Wait for the Netlify deploy to publish",
   uploadStart,
 );
+const purgeStart = reusable.indexOf("name: Purge the production Netlify cache");
+const purgeEnd = reusable.indexOf(
+  "name: Lock the published production deploy",
+  purgeStart,
+);
 const unlockStart = reusable.indexOf(
   "name: Unlock the published production deploy",
 );
@@ -260,6 +268,26 @@ if (unlockStart < 0 || (uploadStart >= 0 && unlockStart >= uploadStart)) {
   ) {
     issues.push(
       `${reusablePath} production unlock must handle ready deploys according to the published lock and verify locked=false`,
+    );
+  }
+}
+if (purgeStart < 0 || purgeEnd <= purgeStart) {
+  issues.push(
+    `${reusablePath} must purge the production cache before locking the published deploy`,
+  );
+} else {
+  const purge = reusable.slice(purgeStart, purgeEnd);
+  if (
+    !purge.includes('const api = "https://api.netlify.com/api/v1"') ||
+    !purge.includes("fetch(`${api}/purge`") ||
+    !purge.includes('method: "POST"') ||
+    !purge.includes(
+      "JSON.stringify({ site_id: process.env.NETLIFY_SITE_ID })",
+    ) ||
+    !purge.includes("response.ok")
+  ) {
+    issues.push(
+      `${reusablePath} production cache purge must POST the site_id to Netlify and fail on a non-success response`,
     );
   }
 }

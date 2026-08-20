@@ -622,6 +622,43 @@ jobs:
           curl --fail --silent --show-error --location --max-time 60 "${url%/}/" >/dev/null
           echo "Smoke check passed: ${url%/}/"
 
+      - name: Purge the production Netlify cache
+        if: inputs.target == 'production' && inputs.deploy && inputs.deploy_mode == 'production' && success()
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const api = "https://api.netlify.com/api/v1";
+          (async () => {
+            const response = await fetch(`${api}/purge`, {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}`,
+                "Content-Type": "application/json",
+                "User-Agent": "agent-native-prebuilt-production-cache-purge",
+              },
+              body: JSON.stringify({ site_id: process.env.NETLIFY_SITE_ID }),
+              signal: AbortSignal.timeout(30_000),
+            });
+            const text = await response.text();
+            let body = null;
+            try {
+              body = text ? JSON.parse(text) : null;
+            } catch {
+              body = text;
+            }
+            if (!response.ok) {
+              throw new Error(`Netlify production cache purge failed with HTTP ${response.status}: ${JSON.stringify(body)}`);
+            }
+            console.log(`Purged the Netlify production cache for ${process.env.NETLIFY_SITE_ID} (HTTP ${response.status}).`);
+          })().catch((error) => {
+            console.error(error instanceof Error ? error.message : error);
+            process.exitCode = 1;
+          });
+          NODE
+
       - name: Lock the published production deploy
         if: inputs.target == 'production' && inputs.deploy && inputs.deploy_mode == 'production' && success()
         env:
