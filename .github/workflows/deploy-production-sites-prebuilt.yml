@@ -129,7 +129,7 @@ jobs:
 
           fs.appendFileSync(
             process.env.GITHUB_OUTPUT,
-            `matrix=${JSON.stringify(buildable)}\n`,
+            `matrix=${JSON.stringify({ include: buildable })}\n`,
           );
           console.log(`Discovered ${buildable.length} buildable production sites.`);
           NODE
