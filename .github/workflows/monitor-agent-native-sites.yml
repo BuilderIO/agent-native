@@ -14,7 +14,9 @@ permissions:
 
 concurrency:
   group: monitor-agent-native-sites
-  cancel-in-progress: true
+  # Let an active outage run finish its paging and issue-reporting steps;
+  # GitHub still keeps at most one pending replacement for this concurrency group.
+  cancel-in-progress: false
 
 jobs:
   monitor:
