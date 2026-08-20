@@ -33,7 +33,7 @@ describe("EnvironmentBadge render", () => {
         replace: vi.fn(),
       },
     });
-    window.localStorage.removeItem("agent-native:beta-opt-out-until");
+    window.localStorage?.removeItem("agent-native:beta-opt-out-until");
   });
 
   afterEach(() => {
@@ -54,7 +54,10 @@ describe("EnvironmentBadge render", () => {
 
     act(() => root.render(<EnvironmentBadge />));
 
-    expect(container.querySelector("button")?.textContent).toContain("beta");
+    const trigger = container.querySelector("button");
+    expect(trigger?.textContent).toContain("beta");
+    expect(trigger?.className).toContain("border-primary/80");
+    expect(trigger?.className).not.toContain("bg-background/95");
     expect(container.textContent).toContain("beta");
   });
 
