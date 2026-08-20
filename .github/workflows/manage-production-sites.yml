@@ -290,18 +290,56 @@ jobs:
               return /^[^/]+\/[^/]+$/.test(normalized) ? normalized : null;
             }
 
-            function connectedRepoSlug(siteDetails) {
-              const candidates = [
-                siteDetails?.repo?.repo_path,
-                siteDetails?.repo?.repo_url,
-                siteDetails?.build_settings?.repo_path,
-                siteDetails?.build_settings?.repo_url,
-              ];
-              for (const candidate of candidates) {
-                const slug = normalizeRepoSlug(candidate);
-                if (slug) return slug;
+            function canonicalGithubRepoSlug(value) {
+              if (typeof value !== 'string' || !value.trim()) return null;
+              const raw = value.trim();
+              if (raw.startsWith('git@')) {
+                const separator = raw.indexOf(':');
+                if (separator < 0 || raw.slice(0, separator) !== 'git@github.com') {
+                  return null;
+                }
+                return normalizeRepoSlug(raw.slice(separator + 1));
               }
-              return null;
+              if (!raw.includes('://')) return null;
+              let parsed;
+              try {
+                parsed = new URL(raw);
+              } catch {
+                return null;
+              }
+              if (parsed.protocol !== 'https:' || parsed.hostname.toLowerCase() !== 'github.com') {
+                return null;
+              }
+              return normalizeRepoSlug(parsed.pathname);
+            }
+
+            function isGithubProvider(value) {
+              return (
+                typeof value === 'string' &&
+                ['github', 'github.com'].includes(value.trim().toLowerCase())
+              );
+            }
+
+            function connectedRepoSlug(siteDetails) {
+              const repo = siteDetails?.repo;
+              const buildSettings = siteDetails?.build_settings;
+              const providers = [
+                repo?.provider,
+                buildSettings?.provider,
+                siteDetails?.git_provider,
+              ];
+              const githubUrlSlug = [
+                repo?.repo_url,
+                buildSettings?.repo_url,
+              ]
+                .map(canonicalGithubRepoSlug)
+                .find(Boolean);
+              const pathSlug = [
+                siteDetails?.repo?.repo_path,
+                siteDetails?.build_settings?.repo_path,
+              ].map(normalizeRepoSlug).find(Boolean);
+              if (!githubUrlSlug && !providers.some(isGithubProvider)) return null;
+              return githubUrlSlug || pathSlug || null;
             }
 
             function assertConnectedSourceRepo(name, site, siteDetails) {
