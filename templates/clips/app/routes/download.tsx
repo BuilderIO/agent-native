@@ -362,11 +362,6 @@ export default function DownloadPage() {
                     variant="ghost"
                     size="sm"
                     className="h-7 gap-1.5 px-2 font-normal text-muted-foreground hover:bg-muted/50 hover:text-foreground"
-                    aria-label={t(
-                      channel === "nightly"
-                        ? "downloadRoute.switchToStable"
-                        : "downloadRoute.switchToNightly",
-                    )}
                     data-release-channel={channel}
                   >
                     <span
