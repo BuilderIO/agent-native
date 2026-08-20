@@ -105,6 +105,22 @@ jobs:
             return body;
           }
 
+          async function waitForBuildSetting(siteId, expected, label) {
+            let actual;
+            for (let attempt = 1; attempt <= 15; attempt += 1) {
+              const site = await readJson(
+                await fetch(`${api}/sites/${siteId}`, { headers, signal: AbortSignal.timeout(30_000) }),
+                `${label} verification attempt ${attempt}`,
+              );
+              actual = site.build_settings?.stop_builds;
+              if (actual === expected) return;
+              if (attempt < 15) {
+                await new Promise((resolve) => setTimeout(resolve, 2_000));
+              }
+            }
+            throw new Error(`${label} expected stop_builds=${expected}, got ${actual}.`);
+          }
+
           (async () => {
             const siteUrl = `${api}/sites/${siteId}`;
             const current = await readJson(
@@ -123,13 +139,7 @@ jobs:
               );
             }
 
-            const paused = await readJson(
-              await fetch(siteUrl, { headers, signal: AbortSignal.timeout(30_000) }),
-              'Netlify docs build pause verification',
-            );
-            if (paused.build_settings?.stop_builds !== true) {
-              throw new Error('Netlify docs Git-connected builds were not disabled.');
-            }
+            await waitForBuildSetting(siteId, true, 'Netlify docs build pause');
             console.log('Docs site is now owned by the GitHub Actions prebuilt publisher.');
           })().catch((error) => {
             console.error(error instanceof Error ? error.message : error);
