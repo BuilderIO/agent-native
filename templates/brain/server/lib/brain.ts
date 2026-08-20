@@ -755,6 +755,7 @@ export async function createCapture(values: {
       title: source.title,
       provider: source.provider as BrainSourceProvider,
       ownerEmail: source.ownerEmail,
+      orgId: source.orgId,
     },
     sourceConfig: parseJson<Record<string, unknown>>(source.configJson, {}),
     settings,

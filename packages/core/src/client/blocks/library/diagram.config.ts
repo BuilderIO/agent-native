@@ -44,7 +44,10 @@ export interface DiagramData {
    */
   html?: string;
   css?: string;
-  /** `design` forces clean HTML/CSS rendering without the sketch overlay. */
+  /**
+   * `design` forces clean HTML/CSS rendering without the sketch overlay. Use it
+   * for UI-like blocks such as cards, logo walls, tables, and controls.
+   */
   renderMode?: "wireframe" | "design";
   caption?: string;
   /** Outer surface frame. `auto` lets the host choose the right default. */

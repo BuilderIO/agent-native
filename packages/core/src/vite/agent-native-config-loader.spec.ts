@@ -55,7 +55,7 @@ describe("agent-native config loading", () => {
     });
   });
 
-  it("merges environment fragments before an explicit project config", async () => {
+  it("lets environment fragments override an explicit project config", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-native-config-"));
     temporaryRoots.push(root);
     const previousRuntime = process.env.AGENT_NATIVE_CONFIG_RUNTIME;
@@ -75,7 +75,7 @@ describe("agent-native config loading", () => {
         ),
       ).resolves.toEqual({
         runtime: {
-          auth: { enabled: true },
+          auth: { enabled: false },
           database: { required: false },
         },
       });

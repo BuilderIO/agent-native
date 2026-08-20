@@ -239,6 +239,17 @@ async function proxyRequest(
     upstreamResponse.on("end", () => response.end());
   });
   upstream.on("error", (error) => {
+    console.warn("[desktop-chat] upstream relay request failed", {
+      appId: relayPath.appId,
+      method: request.method ?? "GET",
+      targetOrigin: targetUrl.origin,
+      targetPath: targetUrl.pathname,
+      errorCode:
+        error instanceof Error && "code" in error
+          ? String((error as NodeJS.ErrnoException).code ?? "")
+          : "",
+      reason: error instanceof Error ? error.message : "unknown error",
+    });
     if (response.headersSent) {
       response.destroy(error);
       return;

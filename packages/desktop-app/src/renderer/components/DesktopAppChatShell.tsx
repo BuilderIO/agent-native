@@ -35,6 +35,7 @@ import {
 import {
   DesktopChatRelayAppContext,
   installDesktopChatFetchRelay,
+  setDesktopChatRelayActive,
   setDesktopChatRelayBase,
 } from "../lib/desktop-chat-relay.js";
 import {
@@ -80,11 +81,31 @@ export interface DesktopAppChatShellProps {
   ) => void;
 }
 
+const DESKTOP_APP_CHAT_OPEN_STORAGE_KEY =
+  "agent-native.desktop-app-chat.sidebar-open";
+
+function wasDesktopAppChatSidebarOpenBeforeMount(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return (
+      window.localStorage.getItem(DESKTOP_APP_CHAT_OPEN_STORAGE_KEY) === "true"
+    );
+    // coercion-ok: localStorage may be unavailable; replaying the entrance is the safe fallback.
+  } catch {
+    return false;
+  }
+}
+
 export function shouldAnimateDesktopAppChatSidebar(input: {
   isActive: boolean;
   hasSwitchedAway: boolean;
+  chatSidebarWasOpenBeforeMount?: boolean;
 }): boolean {
-  return input.isActive && !input.hasSwitchedAway;
+  return (
+    input.isActive &&
+    !input.hasSwitchedAway &&
+    !input.chatSidebarWasOpenBeforeMount
+  );
 }
 
 type LocalCodeChangeState =
@@ -105,6 +126,9 @@ export default function DesktopAppChatShell({
   const shellRootRef = useRef<HTMLDivElement>(null);
   const hasBeenActiveRef = useRef(isActive);
   const hasSwitchedAwayRef = useRef(false);
+  const chatSidebarWasOpenBeforeMountRef = useRef(
+    wasDesktopAppChatSidebarOpenBeforeMount(),
+  );
   const [apiUrl, setApiUrl] = useState<string | null>(null);
   const [localAgentModels, setLocalAgentModels] = useState<
     CodeAgentModelOption[]
@@ -127,6 +151,7 @@ export default function DesktopAppChatShell({
   const animateDesktopChatSidebar = shouldAnimateDesktopAppChatSidebar({
     isActive,
     hasSwitchedAway: hasSwitchedAwayRef.current,
+    chatSidebarWasOpenBeforeMount: chatSidebarWasOpenBeforeMountRef.current,
   });
 
   useEffect(() => {
@@ -137,7 +162,7 @@ export default function DesktopAppChatShell({
     } catch {
       // Keep the default agent when storage is unavailable.
     }
-  }, [appId]);
+  }, [appId, isActive]);
 
   useEffect(() => {
     let cancelled = false;
@@ -247,6 +272,7 @@ export default function DesktopAppChatShell({
     let cancelled = false;
     setApiUrl(null);
     setDesktopChatRelayBase(appId, null);
+    setDesktopChatRelayActive(appId, false);
 
     const getApiUrl = window.electronAPI?.desktopChat?.getApiUrl;
     if (!getApiUrl) return () => undefined;
@@ -255,19 +281,29 @@ export default function DesktopAppChatShell({
       .then((nextApiUrl) => {
         if (cancelled) return;
         setDesktopChatRelayBase(appId, nextApiUrl);
+        setDesktopChatRelayActive(appId, isActive);
         setApiUrl(nextApiUrl);
       })
       .catch(() => {
         if (cancelled) return;
         setDesktopChatRelayBase(appId, null);
+        setDesktopChatRelayActive(appId, false);
         setApiUrl(null);
       });
 
     return () => {
       cancelled = true;
       setDesktopChatRelayBase(appId, null);
+      setDesktopChatRelayActive(appId, false);
     };
   }, [appId]);
+
+  useEffect(() => {
+    setDesktopChatRelayActive(appId, isActive);
+    return () => {
+      setDesktopChatRelayActive(appId, false);
+    };
+  }, [appId, isActive]);
 
   const startLocalCodeChange = useCallback(
     async (prompt: string) => {
@@ -461,6 +497,7 @@ export default function DesktopAppChatShell({
                   label: appName,
                   contextKey: `desktop-app:${appId}`,
                 }}
+                isolateHistoryByScope
                 apiUrl={apiUrl}
                 agentChatSurface="desktop"
                 desktopIdentityUnauthenticated={desktopIdentityUnauthenticated}

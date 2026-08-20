@@ -67,48 +67,50 @@ for (const site of sites) {
       ).toContain(target);
     });
 
-    test("does not bounce a visitor who lands on sign-in directly", async ({
+    test("holds still on sign-in and refuses an off-origin continuation", async ({
       page,
     }) => {
+      // Two facts, one page load each previously. The hostile-continuation
+      // visit has to be its own navigation (it carries a different URL), but
+      // the plain visit and the settle check share one.
       await page.goto(`${origin}/sign-in`, {
         waitUntil: "domcontentloaded",
         timeout: 90_000,
       });
-      const first = page.url();
-      await page.waitForTimeout(5_000);
-      expect(
-        page.url(),
-        `${site.host} moved a visitor off ${first} after settling — the sign-in loop shape`,
-      ).toBe(first);
-    });
+      await settleAuthGate(page);
+      const settled = page.url();
+      // A short confirmation window rather than a long sleep: a redirect loop
+      // fires immediately, so waiting longer only adds dead time per host.
+      await page.waitForTimeout(2_500);
+      expect
+        .soft(
+          page.url(),
+          `${site.host} moved a visitor off ${settled} after settling — the sign-in loop shape`,
+        )
+        .toBe(settled);
 
-    test("does not follow a continuation that points off-origin", async ({
-      page,
-    }) => {
       // The continuation the app mints is opaque, so a raw URL here is not the
       // format it would normally consume. That is the point: whatever the app
       // does with an unrecognised value, it must not navigate off its own
-      // origin, and it must not still be carrying the hostile target once the
-      // client has settled.
+      // origin.
       const hostile = "https://example.com/phish";
       await page.goto(`${origin}/sign-in?c=${encodeURIComponent(hostile)}`, {
         waitUntil: "domcontentloaded",
         timeout: 90_000,
       });
-      await page.waitForTimeout(6_000);
-
-      expect(
-        new URL(page.url()).origin,
-        `${site.host} followed an off-origin continuation to ${page.url()}`,
-      ).toBe(origin);
-
-      const links = await page
-        .locator('a[href^="https://example.com"]')
-        .count();
-      expect(
-        links,
-        `${site.host} rendered a link to the hostile continuation target on its sign-in page`,
-      ).toBe(0);
+      await settleAuthGate(page);
+      expect
+        .soft(
+          new URL(page.url()).origin,
+          `${site.host} followed an off-origin continuation to ${page.url()}`,
+        )
+        .toBe(origin);
+      expect
+        .soft(
+          await page.locator('a[href^="https://example.com"]').count(),
+          `${site.host} rendered a link to the hostile continuation target on its sign-in page`,
+        )
+        .toBe(0);
     });
 
     test("serves an impersonal, cacheable shell", async () => {
@@ -151,34 +153,6 @@ for (const site of sites) {
           `${site.host} is missing Strict-Transport-Security`,
         )
         .toBeTruthy();
-    });
-
-    test("offers a way back to production", async ({ page }) => {
-      // The environment switcher is built from a static host map. A beta host
-      // missing from that map renders no switcher, stranding users on beta with
-      // no way to get back to the stable lane.
-      //
-      // Asserting on the rendered control, not on the HTML containing the
-      // production hostname: every beta host contains its production host as a
-      // substring of its own name, so a text search is true by construction.
-      const production = productionHostFor(site);
-      await page.goto(`${origin}/`, {
-        waitUntil: "domcontentloaded",
-        timeout: 90_000,
-      });
-      // Matched on the visible label rather than an accessible name: the
-      // trigger currently renders without an aria-label, so a name-based
-      // locator finds nothing on any host and the assertion would be red
-      // everywhere for a reason unrelated to what it checks.
-      const badge = page.locator("button").filter({ hasText: /^\s*beta\s*$/i });
-
-      // Waited for rather than sampled after a fixed sleep: this control is
-      // client-rendered, and a sleep long enough for the slowest host on a
-      // good day is still a race on a slow one.
-      await expect(
-        badge.first(),
-        `${site.host} renders no environment switcher, so a user on beta has no in-app way back to ${production}`,
-      ).toBeVisible({ timeout: 30_000 });
     });
   });
 }

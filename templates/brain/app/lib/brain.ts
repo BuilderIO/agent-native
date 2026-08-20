@@ -20,7 +20,14 @@ export type BrainView =
   | "settings";
 
 export type KnowledgeStatus = "approved" | "needs_review" | "draft" | "stale";
-export type SourceHealth = "healthy" | "degraded" | "paused" | "error";
+export type SourceHealth =
+  | "healthy"
+  | "needs_setup"
+  | "needs_sync"
+  | "stale"
+  | "degraded"
+  | "paused"
+  | "error";
 export type ReviewPriority = "high" | "medium" | "low";
 
 export interface Citation {
@@ -1144,8 +1151,11 @@ export function sourceDescription(source: BrainSource) {
 export function sourceHealth(source: BrainSource): SourceHealth {
   if (source.health) return source.health;
   if (sourceRetryAfter(source)) return "degraded";
-  if (source.status === "active")
-    return source.lastError ? "degraded" : "healthy";
+  if (source.status === "active") {
+    if (source.lastError) return "degraded";
+    if (sourceAutoSync(source) && !source.lastSyncedAt) return "needs_sync";
+    return "healthy";
+  }
   if (source.status === "error") return "error";
   if (source.status === "paused" || source.status === "archived")
     return "paused";
