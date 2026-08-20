@@ -6450,9 +6450,29 @@ function Setup({
     };
   }, [serverUrl, initial]);
 
+  const [serverUrlError, setServerUrlError] = useState<string | null>(null);
+
   function handleConnect() {
     const trimmed = url.trim();
-    if (!trimmed) return;
+    // Anything that parses as http(s) is allowed — reachability is the
+    // sign-in screen's job — but junk must not be persisted as the server
+    // URL, where it silently fails every request.
+    let parsed: URL | null = null;
+    try {
+      parsed = new URL(trimmed);
+    } catch {
+      // coercion-ok: null is the typed "not a URL" outcome the next branch
+      // reports to the user as an inline field error.
+      parsed = null;
+    }
+    if (
+      !parsed ||
+      (parsed.protocol !== "http:" && parsed.protocol !== "https:")
+    ) {
+      setServerUrlError("Enter a URL like http://localhost:8080");
+      return;
+    }
+    setServerUrlError(null);
     onConnect(trimmed);
   }
 
@@ -7334,21 +7354,37 @@ function Setup({
                 onOpenChange={setServerUrlOpen}
                 trigger={<SettingsValueTrigger mono value={serverHostLabel} />}
               >
-                <div className="flex items-center gap-2">
-                  <Input
-                    id="clips-url"
-                    type="url"
-                    value={url}
-                    onChange={(event) => setUrl(event.target.value)}
-                    placeholder="http://localhost:8080"
-                    className="h-8 text-sm"
-                  />
-                  <SettingsActionButton
-                    className="shrink-0"
-                    onClick={handleConnect}
-                  >
-                    Connect
-                  </SettingsActionButton>
+                <div className="grid gap-1.5">
+                  <div className="flex items-center gap-2">
+                    <Input
+                      id="clips-url"
+                      type="url"
+                      value={url}
+                      aria-invalid={serverUrlError ? true : undefined}
+                      onChange={(event) => {
+                        setUrl(event.target.value);
+                        setServerUrlError(null);
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          handleConnect();
+                        }
+                      }}
+                      placeholder="http://localhost:8080"
+                      className="h-8 text-sm"
+                    />
+                    <SettingsActionButton
+                      className="shrink-0"
+                      onClick={handleConnect}
+                      disabled={!url.trim()}
+                    >
+                      Connect
+                    </SettingsActionButton>
+                  </div>
+                  {serverUrlError ? (
+                    <p className="text-xs text-destructive">{serverUrlError}</p>
+                  ) : null}
                 </div>
               </SettingsPopover>
             }
