@@ -12,20 +12,57 @@ deployment system in this repository. Template-only values stay in the
 maintainer inventory; the setup tables below focus on the shared configuration
 most apps need.
 
-For a normal app, start with [Deployment: Environment Variables](/docs/deployment-environment-variables)
-and [Authentication](/docs/authentication). Keep user-, organization-, and
-workspace-scoped credentials in the database-backed secret or connection store;
-use environment variables for deploy-level configuration.
+For a normal app, start with the [Agent-Native app configuration guide](/docs/agent-native-config),
+then use [Deployment: Environment Variables](/docs/deployment-environment-variables)
+and [Authentication](/docs/authentication) for the deliberate environment-only
+parts. Keep user-, organization-, and workspace-scoped credentials in the
+database-backed secret or connection store; use environment variables for
+deploy-level configuration.
 
-For committed, non-secret app defaults such as first-run onboarding, use the
-[Agent-Native app configuration guide](/docs/agent-native-config) instead of
-adding another standalone environment setting. If a public config value must
-vary by deployment, use its deterministic `AGENT_NATIVE_CONFIG_<PATH>` alias,
-which also becomes part of the public browser bundle. Keep credentials and
-user-, organization-, or workspace-scoped values in the appropriate secret or
-connection store.
+For committed, non-secret app defaults, use `agent-native.config.ts` first. If a
+public config value must vary by deployment, use its deterministic
+`AGENT_NATIVE_CONFIG_<PATH>` alias. That alias is the final override of the
+typed/JSON config and also becomes part of the public browser bundle. Do not
+create another standalone Vite-prefixed or Agent-Native-prefixed variable for
+a public setting already represented by the config guide.
 
-## Common application and deployment variables
+## Start with Agent-Native app configuration
+
+The typed config is the primary documentation and default source for public
+app behavior. Its deployment aliases are the standard environment override:
+
+| Config path                    | Deployment override alias                            |
+| ----------------------------- | ----------------------------------------------------- |
+| `onboarding.firstRun`          | `AGENT_NATIVE_CONFIG_ONBOARDING_FIRST_RUN`            |
+| `runtime.auth.enabled`         | `AGENT_NATIVE_CONFIG_RUNTIME_AUTH_ENABLED`           |
+| `runtime.database.required`    | `AGENT_NATIVE_CONFIG_RUNTIME_DATABASE_REQUIRED`      |
+| `runtime.environment.required` | `AGENT_NATIVE_CONFIG_RUNTIME_ENVIRONMENT_REQUIRED`   |
+| `deployment.environment`       | `AGENT_NATIVE_CONFIG_DEPLOYMENT_ENVIRONMENT`         |
+| `diagnostics.failOnBuild`      | `AGENT_NATIVE_CONFIG_DIAGNOSTICS_FAIL_ON_BUILD`      |
+| `instructions.runtime`         | `AGENT_NATIVE_CONFIG_INSTRUCTIONS_RUNTIME`           |
+| `instructions.development`     | `AGENT_NATIVE_CONFIG_INSTRUCTIONS_DEVELOPMENT`       |
+| `translations.locales`         | `AGENT_NATIVE_CONFIG_TRANSLATIONS_LOCALES`            |
+| `changelog.enabled`            | `AGENT_NATIVE_CONFIG_CHANGELOG_ENABLED`              |
+| `harness`                      | `AGENT_NATIVE_CONFIG_HARNESS`                        |
+| `harness.runtimes`             | `AGENT_NATIVE_CONFIG_HARNESS_RUNTIMES`               |
+
+Use [Agent-Native app configuration](/docs/agent-native-config) for the full
+schema, mode-aware examples, JSON fragments, and precedence rules. The
+resolved public config is bundled into the browser, so it must contain only
+non-secret app policy.
+
+Some non-secret environment variables remain deliberate exceptions because
+they configure server-only behavior, platform facts, routing, or deployment
+secrets. Server-only product controls use the framework's `defineAppConfig()`
+schema and its declared aliases; they are not public `agent-native.config.ts`
+fields. The maintainer inventory's generated **Declared app configuration**
+section is the exhaustive list of those server fields and aliases.
+
+## Server, environment-only, and deployment variables
+
+The table below covers values that belong to the running deployment, a
+server-only config surface, or an environment-only compatibility surface. For
+public app behavior, use the config paths above instead.
 
 | Variable                                       | What it controls                                                                                                                                                        | Supported values or format                                                                                              |
 | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |

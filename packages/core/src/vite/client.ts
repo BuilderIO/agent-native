@@ -3552,11 +3552,11 @@ function createAgentNativeConfig(
     mergeAgentNativeConfigs(
       mergeAgentNativeConfigs(
         readAgentNativeJsonConfig(cwd),
-        readAgentNativeConfigEnv(runtimeEnv),
+        projectConfigInput
+          ? resolveAgentNativeConfig(projectConfigInput, configContext)
+          : {},
       ),
-      projectConfigInput
-        ? resolveAgentNativeConfig(projectConfigInput, configContext)
-        : {},
+      readAgentNativeConfigEnv(runtimeEnv),
     ),
     configContext,
   );

@@ -993,7 +993,7 @@ describe("route warmup config", () => {
 });
 
 describe("agent-native app config", () => {
-  it("loads JSON config fragments from environment paths before typed overrides", () => {
+  it("lets JSON config fragments from environment paths override typed config", () => {
     const previousRuntime = process.env.AGENT_NATIVE_CONFIG_RUNTIME;
     const previousAuth = process.env.AGENT_NATIVE_CONFIG_RUNTIME_AUTH_ENABLED;
     const previousLocales =
@@ -1020,10 +1020,10 @@ describe("agent-native app config", () => {
         JSON.parse(String(config.define?.__AGENT_NATIVE_APP_CONFIG__)),
       ).toMatchObject({
         runtime: {
-          auth: { enabled: true },
+          auth: { enabled: false },
           database: { required: false },
         },
-        translations: { locales: ["fr-FR"] },
+        translations: { locales: ["en-US", "es-ES"] },
       });
     } finally {
       if (previousRuntime === undefined) {
