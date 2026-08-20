@@ -301,6 +301,24 @@ jobs:
             throw new Error(`${label} expected stop_builds=${expected}, got ${actual}.`);
           }
 
+          async function updateBuildSetting(siteId, expected, label) {
+            const updated = await readJson(
+              await request(`${api}/sites/${siteId}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  build_settings: { stop_builds: expected },
+                  repo: { stop_builds: expected },
+                }),
+              }),
+              label,
+            );
+            const reported = updated.build_settings?.stop_builds ?? updated.repo?.stop_builds;
+            if (reported === expected) return true;
+            await waitForBuildSetting(siteId, expected, label);
+            return true;
+          }
+
           const siteId = process.env.NETLIFY_SITE_ID;
           if (!siteId) throw new Error("Netlify site id is required to pause automatic builds.");
           const site = await readJson(
@@ -310,18 +328,13 @@ jobs:
           const wasStopped =
             (site.build_settings?.stop_builds ?? site.repo?.stop_builds) === true;
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `was_stopped=${wasStopped}\n`);
-          if (!wasStopped) {
-            await readJson(
-              await request(`${api}/sites/${siteId}`, {
-                method: "PATCH",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ build_settings: { stop_builds: true } }),
-              }),
-              "Netlify automatic build pause",
-            );
-          }
+          const pauseVerified = wasStopped || await updateBuildSetting(
+            siteId,
+            true,
+            "Netlify automatic build pause",
+          );
           fs.appendFileSync(process.env.GITHUB_OUTPUT, "cutover_acquired=true\n");
-          const paused = await waitForBuildSetting(siteId, true, "Netlify automatic build pause");
+          const paused = pauseVerified;
           if (!paused) throw new Error("Netlify automatic build pause was not verified.");
           console.log(`Automatic Netlify builds paused for production cutover (previously stopped: ${wasStopped}).`);
           })().catch((error) => {
@@ -814,14 +827,6 @@ jobs:
             process.exit(0);
           }
           const siteId = process.env.NETLIFY_SITE_ID;
-          await readJson(
-            await request(`${api}/sites/${siteId}`, {
-              method: "PATCH",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ build_settings: { stop_builds: false } }),
-            }),
-            "Netlify automatic build resume",
-          );
           async function waitForBuildSetting(expected, label) {
             let actual;
             for (let attempt = 1; attempt <= 15; attempt += 1) {
@@ -837,7 +842,21 @@ jobs:
             }
             throw new Error(`${label} expected stop_builds=${expected}, got ${actual}.`);
           }
-          await waitForBuildSetting(false, "Netlify automatic build resume");
+          const updated = await readJson(
+            await request(`${api}/sites/${siteId}`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                build_settings: { stop_builds: false },
+                repo: { stop_builds: false },
+              }),
+            }),
+            "Netlify automatic build resume",
+          );
+          const reported = updated.build_settings?.stop_builds ?? updated.repo?.stop_builds;
+          if (reported !== false) {
+            await waitForBuildSetting(false, "Netlify automatic build resume");
+          }
           console.log("Automatic Netlify builds resumed after production cutover.");
           NODE
 

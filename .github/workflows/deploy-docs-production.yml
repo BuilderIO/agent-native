@@ -121,6 +121,25 @@ jobs:
             throw new Error(`${label} expected stop_builds=${expected}, got ${actual}.`);
           }
 
+          async function updateBuildSetting(siteId, expected, label) {
+            const updated = await readJson(
+              await fetch(`${api}/sites/${siteId}`, {
+                method: 'PATCH',
+                headers,
+                body: JSON.stringify({
+                  build_settings: { stop_builds: expected },
+                  repo: { stop_builds: expected },
+                }),
+                signal: AbortSignal.timeout(30_000),
+              }),
+              label,
+            );
+            const reported = updated.build_settings?.stop_builds ?? updated.repo?.stop_builds;
+            if (reported === expected) return true;
+            await waitForBuildSetting(siteId, expected, label);
+            return true;
+          }
+
           (async () => {
             const siteUrl = `${api}/sites/${siteId}`;
             const current = await readJson(
@@ -128,18 +147,8 @@ jobs:
               'Netlify docs site lookup',
             );
             if ((current.build_settings?.stop_builds ?? current.repo?.stop_builds) !== true) {
-              await readJson(
-                await fetch(siteUrl, {
-                  method: 'PATCH',
-                  headers,
-                  body: JSON.stringify({ build_settings: { stop_builds: true } }),
-                  signal: AbortSignal.timeout(30_000),
-                }),
-                'Netlify docs build pause',
-              );
+              await updateBuildSetting(siteId, true, 'Netlify docs build pause');
             }
-
-            await waitForBuildSetting(siteId, true, 'Netlify docs build pause');
             console.log('Docs site is now owned by the GitHub Actions prebuilt publisher.');
           })().catch((error) => {
             console.error(error instanceof Error ? error.message : error);
