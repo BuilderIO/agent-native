@@ -65,6 +65,7 @@ import { Button } from "@/components/ui/button";
 import {
   clearSlideEditingActive,
   deckIdFromPathname,
+  defaultSlideContent,
   hasUnsavedDeckChanges,
   markSlideEditingActive,
   type Slide,
@@ -100,6 +101,7 @@ import {
   shouldClearNewDeckGeneratingState,
   shouldShowNewDeckGeneratingOverlay,
   shouldShowNewDeckGeneratingProgress,
+  slideBeingFilledInPlace,
 } from "@/lib/generation-state";
 import { isMissingUploadProviderError } from "@/lib/image-drop-to-agent";
 import {
@@ -172,6 +174,14 @@ export default function DeckEditor() {
   const [activeSlideId, setActiveSlideId] = useState<string | null>(null);
   const [inlineEditActive, setInlineEditActive] = useState(false);
   const [addSlideGenerating, setAddSlideGenerating] = useState(false);
+  // The blank placeholder the agent was asked to fill in place. The rail must
+  // light THAT row up as AI-active instead of appending a synthetic generating
+  // row, which reads as a second, duplicate slide.
+  const [addSlideTargetId, setAddSlideTargetId] = useState<string | null>(null);
+  const endAddSlideGeneration = useCallback(() => {
+    setAddSlideGenerating(false);
+    setAddSlideTargetId(null);
+  }, []);
   const [generatingSlideSelected, setGeneratingSlideSelected] = useState(false);
   const { hasUnsavedChanges: hasUnsavedSave } = useSaveState();
   const hasPendingDeckEdits =
@@ -207,17 +217,37 @@ export default function DeckEditor() {
   // tracking correct across a remount.
   const { generating: addSlideAgentGenerating, submit: addSlideAgentSubmit } =
     useAgentGenerating();
+  // Neither hook above is actually scoped to THIS run until its own submit()
+  // call has fired: before that, `activeTabRef` inside useAgentGenerating is
+  // still null, so both hooks report on ANY chat activity system-wide, same
+  // as the broad instance. The target is set (and the popover's persistence
+  // wait starts) well before that submit call, so an unrelated run finishing
+  // during that wait could otherwise satisfy either "seen true" guard below
+  // and clear the freshly-set target before this run ever sent a request.
+  // Both cleanup effects stay inert until this flips true.
+  const addSlideRequestSentRef = useRef(false);
   const sawAddSlideAgentGeneratingRef = useRef(false);
   useEffect(() => {
+    if (!addSlideRequestSentRef.current) return;
     if (addSlideAgentGenerating) {
       sawAddSlideAgentGeneratingRef.current = true;
       return;
     }
     if (addSlideGenerating && sawAddSlideAgentGeneratingRef.current) {
       sawAddSlideAgentGeneratingRef.current = false;
-      setAddSlideGenerating(false);
+      endAddSlideGeneration();
     }
-  }, [addSlideGenerating, addSlideAgentGenerating]);
+  }, [addSlideGenerating, addSlideAgentGenerating, endAddSlideGeneration]);
+  // Same guard for the broad `generating` signal below, which is never scoped
+  // to this run at all (by design — it reflects ANY agent chat activity).
+  const sawGeneratingRef = useRef(false);
+  const submitAddSlideAgent = useCallback(
+    (message: string, context: string) => {
+      addSlideRequestSentRef.current = true;
+      addSlideAgentSubmit(message, context);
+    },
+    [addSlideAgentSubmit],
+  );
   // Generation intent can arrive after this route mounts because the user
   // answers pre-generation questions from the empty editor.
   const wasNewDeckCreation = useRef(searchParams.get("generating") === "1");
@@ -371,10 +401,18 @@ export default function DeckEditor() {
   });
 
   const showQuestionFlow = Boolean(questionFlowQuestions?.length);
+  const fillingPlaceholderSlideId = slideBeingFilledInPlace({
+    addSlideGenerating,
+    addSlideTargetId,
+    slides: deck?.slides ?? [],
+    blankContent: defaultSlideContent.blank,
+  });
   const generatingSlideVisible =
     canEdit &&
     !showQuestionFlow &&
-    (isNewDeckGenerating || addSlideGenerating || showNewDeckGeneratingOverlay);
+    (isNewDeckGenerating ||
+      (addSlideGenerating && !fillingPlaceholderSlideId) ||
+      showNewDeckGeneratingOverlay);
   const showCurrentSlideEditor =
     !generatingSlideSelected &&
     !showNewDeckGeneratingOverlay &&
@@ -385,10 +423,20 @@ export default function DeckEditor() {
   }, [generatingSlideVisible]);
 
   // The add-slide request is finished once the agent stops generating, so the
-  // rail's placeholder must not outlive it.
+  // rail's placeholder must not outlive it. Mirrors the "seen true first"
+  // guard above so this backstop can't fire while `generating` just hasn't
+  // caught up with a run that hasn't started sending yet.
   useEffect(() => {
-    if (!generating) setAddSlideGenerating(false);
-  }, [generating]);
+    if (!addSlideRequestSentRef.current) return;
+    if (generating) {
+      sawGeneratingRef.current = true;
+      return;
+    }
+    if (addSlideGenerating && sawGeneratingRef.current) {
+      sawGeneratingRef.current = false;
+      endAddSlideGeneration();
+    }
+  }, [generating, addSlideGenerating, endAddSlideGeneration]);
 
   // Below `md` the rail is a drawer behind a full-viewport dimming scrim; at
   // `md` and up it's docked with no scrim. `sidebarOpen` is seeded from the
@@ -1606,8 +1654,22 @@ export default function DeckEditor() {
                   onCloseDescribe={() => setDescribeSlideId(null)}
                   onAwaitAddSlidePersisted={() => flushDeckSave(id)}
                   onRemoveFailedSlide={(slideId) => deleteSlide(id, slideId)}
-                  addSlideAgentSubmit={addSlideAgentSubmit}
-                  onAddSlideGeneratingChange={setAddSlideGenerating}
+                  addSlideAgentSubmit={submitAddSlideAgent}
+                  onAddSlideGeneratingChange={(isGenerating, targetSlideId) => {
+                    if (isGenerating) {
+                      // A new run starts clean: neither guard's "seen true"
+                      // state may carry over from an unrelated chat run, or
+                      // from whatever state the previous add-slide run left
+                      // behind, or the auto-clear effects below could fire on
+                      // stale state before this run even sends its request.
+                      sawGeneratingRef.current = false;
+                      sawAddSlideAgentGeneratingRef.current = false;
+                      addSlideRequestSentRef.current = false;
+                    }
+                    setAddSlideGenerating(isGenerating);
+                    setAddSlideTargetId(isGenerating ? targetSlideId : null);
+                  }}
+                  aiGeneratingSlideId={fillingPlaceholderSlideId}
                   onSelectSlide={(slideId) => {
                     setGeneratingSlideSelected(false);
                     setActiveSlideId(slideId);
