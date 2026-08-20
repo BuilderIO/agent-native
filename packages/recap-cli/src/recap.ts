@@ -2060,6 +2060,9 @@ export function buildRecapPrompt(input: {
       `- The diff is LARGE — produce a **summarized** recap (top files + schema/API deltas), not an exhaustive one. The diff was truncated at the size cap — \`${input.statPath ?? "recap.stat"}\` contains the complete file list with per-file stats; for any file missing from \`${input.diffPath}\`, fetch it directly with \`git diff <base>...<head> -- <path>\`.`,
     );
   }
+  lines.push(
+    "Unified-diff framing is metadata, not recap content: never copy leading `+` or `-` markers, context-space prefixes, or `@@` hunk headers into the authored MDX. Every tag, paragraph, and block in `plan.mdx` must use the source content without patch markers.",
+  );
   lines.push("");
   if (input.localFiles) {
     lines.push(
@@ -2098,9 +2101,6 @@ export function buildRecapPrompt(input: {
     );
     lines.push(
       "3. Do not write `recap-url.txt`; the deterministic CLI publisher writes that after it successfully POSTs your source to `create-visual-recap`.",
-    );
-    lines.push(
-      "Unified-diff framing is metadata, not recap content: never copy leading `+` or `-` markers, context-space prefixes, or `@@` hunk headers into the authored MDX. Every tag, paragraph, and block in `plan.mdx` must use the source content without patch markers.",
     );
   }
   lines.push("");

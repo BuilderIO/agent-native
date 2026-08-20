@@ -54,12 +54,14 @@ jobs:
             ...manifest.workspace.map((host) => ({ environment: "workspace", host })),
           ];
           const timeoutMs = 15_000;
-          const probeAttemptTimeoutMs = 45_000;
+          const probeAttemptTimeoutMs = 30_000;
           const maxDocumentBytes = 2_000_000;
           const maxAssetCount = 500;
           const maxRedirects = 5;
           const maxAttempts = 3;
-          const hostConcurrency = 4;
+          // Three 30-second attempts plus retry delays take at most 93 seconds
+          // per host; twelve workers finish the 36-host manifest in three waves.
+          const hostConcurrency = 12;
           const assetConcurrency = 4;
 
           async function mapWithConcurrency(items, concurrency, mapper) {

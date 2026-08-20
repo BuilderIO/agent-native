@@ -1360,6 +1360,9 @@ describe("recap prompt builder", () => {
     expect(prompt).toContain(
       "npx @agent-native/core@latest plan local preview",
     );
+    expect(prompt).toContain(
+      "never copy leading `+` or `-` markers, context-space prefixes, or `@@` hunk headers",
+    );
     expect(prompt).not.toContain("preview.html");
     expect(prompt).toContain("recap-url.txt");
     expect(prompt).not.toContain("mcp__plan__create-visual-recap");
