@@ -23,7 +23,6 @@ import { toast } from "sonner";
 import type { DocumentUpdateConflictResponse } from "../../actions/update-document";
 import {
   documentQueryFilter,
-  documentQueryKey,
   type DocumentQueryContext,
 } from "../lib/document-query";
 import {

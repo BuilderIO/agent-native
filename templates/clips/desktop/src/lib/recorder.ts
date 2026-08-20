@@ -1992,14 +1992,6 @@ function isCountdownCancelledError(err: unknown) {
   );
 }
 
-function isRegionSelectionCancelledError(err: unknown) {
-  return (
-    err instanceof Error &&
-    err.name === "AbortError" &&
-    /region selection/i.test(err.message)
-  );
-}
-
 function normalizeRegionCaptureRect(value: unknown): RegionCaptureRect | null {
   if (!value || typeof value !== "object") return null;
   const rect = value as Partial<RegionCaptureRect>;

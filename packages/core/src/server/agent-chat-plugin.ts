@@ -74,6 +74,7 @@ import {
   actionsToEngineTools,
   executeAgentToolCall,
   filterActionsByAllowedNames,
+  normalizeAgentActionSurfaceResolution,
   readPersistedActionSurface,
   toolCallCacheKey,
   getActiveRunForThreadAsync,
@@ -354,6 +355,8 @@ import {
 } from "./agent-chat/prompt-resources.js";
 import {
   isNetlifyRecurringJobsRuntime,
+  resolveRecurringJobsBuildMarker,
+  scheduledTriggerAvailability,
   shouldDisableRecurringJobsRuntime,
 } from "./agent-chat/recurring-jobs-runtime.js";
 import {
@@ -412,6 +415,8 @@ export {
 export { shouldBlockInProductCodeEditingSurface };
 export { loadRunCodeToolEntries };
 export { isNetlifyRecurringJobsRuntime };
+export { resolveRecurringJobsBuildMarker };
+export { scheduledTriggerAvailability };
 export { shouldDisableRecurringJobsRuntime };
 export { finalizeClaimedAgentChatProcessRunFailure };
 
@@ -3814,13 +3819,16 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 ...details,
                 availableActionNames: appActionNames,
               });
+              const normalizedSurface =
+                normalizeAgentActionSurfaceResolution(surface);
+              if (normalizedSurface.mode === "default") return surface;
               const localActionNames = details.availableActionNames.filter(
                 (name) => localDevActionNames.has(name),
               );
               return {
                 allowedActionNames: [
                   ...new Set([
-                    ...surface.allowedActionNames,
+                    ...normalizedSurface.allowedActionNames,
                     ...localActionNames,
                   ]),
                 ],

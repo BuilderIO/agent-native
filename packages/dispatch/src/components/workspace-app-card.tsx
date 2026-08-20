@@ -15,13 +15,14 @@ import {
   IconFileText,
   IconKey,
   IconPin,
+  IconShare3,
   IconSettings,
   IconTrash,
   IconUser,
   IconUsersGroup,
   IconWorld,
 } from "@tabler/icons-react";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
@@ -66,6 +67,23 @@ import { AppResourceEffectiveStack } from "./workspace-resource-effective-stack"
 
 const APP_CARD_ACTION_CLASS =
   "size-7 rounded-md p-0 text-muted-foreground transition-[background-color,color] hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-accent data-[state=open]:text-foreground";
+
+function deferWorkspaceAppOverlayOpen(
+  event: { preventDefault: () => void },
+  closeMenu: () => void,
+  openOverlay: () => void,
+): void {
+  event.preventDefault();
+  closeMenu();
+  if (
+    typeof window !== "undefined" &&
+    typeof window.requestAnimationFrame === "function"
+  ) {
+    window.requestAnimationFrame(() => openOverlay());
+  } else {
+    setTimeout(openOverlay, 0);
+  }
+}
 
 export function WorkspaceAppCard({
   app,
@@ -211,17 +229,6 @@ export function WorkspaceAppCard({
             pendingOpenLabel={pendingOpenLabel}
             onTogglePinned={onTogglePinned}
           />
-          {!isPending ? (
-            <div className="pointer-events-auto">
-              <ShareButton
-                resourceType="workspace-app"
-                resourceId={app.id}
-                resourceTitle={app.name}
-                trigger="icon"
-                triggerClassName={APP_CARD_ACTION_CLASS}
-              />
-            </div>
-          ) : null}
           <WorkspaceAppSettings
             app={app}
             isArchived={isArchived}
@@ -236,6 +243,7 @@ export function WorkspaceAppCard({
               createdBy: t("agents.dashboardMetadataCreatedBy"),
               owner: t("dispatch.pages.appMetadataOwner"),
               teams: t("dispatch.pages.appMetadataTeams"),
+              share: t("share.share", { defaultValue: "Share" }),
             }}
           />
         </div>
@@ -376,6 +384,7 @@ type WorkspaceAppMetadataLabels = {
   createdBy: string;
   owner: string;
   teams: string;
+  share: string;
 };
 
 function WorkspaceAppSettings({
@@ -401,66 +410,112 @@ function WorkspaceAppSettings({
   onRemovePending: () => void;
   labels: WorkspaceAppMetadataLabels;
 }) {
+  const [shareOpen, setShareOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsTriggerRef = useRef<HTMLButtonElement>(null);
+
+  const handleShareOpenChange = (open: boolean) => {
+    setShareOpen(open);
+    if (open) return;
+
+    const restoreSettingsFocus = () => settingsTriggerRef.current?.focus();
+    if (
+      typeof window !== "undefined" &&
+      typeof window.requestAnimationFrame === "function"
+    ) {
+      window.requestAnimationFrame(restoreSettingsFocus);
+    } else {
+      setTimeout(restoreSettingsFocus, 0);
+    }
+  };
+
   return (
-    <DropdownMenu>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <DropdownMenuTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              aria-label={`Settings for ${app.name}`}
-              className={APP_CARD_ACTION_CLASS}
+    <>
+      <DropdownMenu open={settingsOpen} onOpenChange={setSettingsOpen}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                ref={settingsTriggerRef}
+                aria-label={`Settings for ${app.name}`}
+                className={APP_CARD_ACTION_CLASS}
+              >
+                <IconSettings size={15} />
+              </Button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent>App settings</TooltipContent>
+        </Tooltip>
+        <DropdownMenuContent
+          align="end"
+          className={cn(APP_ACTION_MENU_CONTENT_CLASS, "min-w-max")}
+        >
+          <DropdownMenuItem onSelect={onEdit}>
+            <IconEdit size={14} aria-hidden="true" />
+            Edit details
+          </DropdownMenuItem>
+          {!isPending ? (
+            <DropdownMenuItem
+              onSelect={(event) =>
+                deferWorkspaceAppOverlayOpen(
+                  event,
+                  () => setSettingsOpen(false),
+                  () => setShareOpen(true),
+                )
+              }
             >
-              <IconSettings size={15} />
-            </Button>
-          </DropdownMenuTrigger>
-        </TooltipTrigger>
-        <TooltipContent>App settings</TooltipContent>
-      </Tooltip>
-      <DropdownMenuContent
-        align="end"
-        className={cn(APP_ACTION_MENU_CONTENT_CLASS, "min-w-max")}
-      >
-        <DropdownMenuItem onSelect={onEdit}>
-          <IconEdit size={14} aria-hidden="true" />
-          Edit details
-        </DropdownMenuItem>
-        {!isPending && !isArchived ? (
-          <>
-            <DropdownMenuItem onSelect={onKeys}>
-              <IconKey size={14} aria-hidden="true" />
-              Manage keys
+              <IconShare3 size={14} aria-hidden="true" />
+              {labels.share}
             </DropdownMenuItem>
-            <DropdownMenuItem onSelect={onResources}>
-              <IconFileText size={14} aria-hidden="true" />
-              Agent resources
+          ) : null}
+          {!isPending && !isArchived ? (
+            <>
+              <DropdownMenuItem onSelect={onKeys}>
+                <IconKey size={14} aria-hidden="true" />
+                Manage keys
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={onResources}>
+                <IconFileText size={14} aria-hidden="true" />
+                Agent resources
+              </DropdownMenuItem>
+            </>
+          ) : null}
+          {isPending ? (
+            <DropdownMenuItem
+              onSelect={onRemovePending}
+              className="text-destructive focus:text-destructive"
+            >
+              <IconTrash size={14} aria-hidden="true" />
+              Remove from list
             </DropdownMenuItem>
-          </>
-        ) : null}
-        {isPending ? (
-          <DropdownMenuItem
-            onSelect={onRemovePending}
-            className="text-destructive focus:text-destructive"
-          >
-            <IconTrash size={14} aria-hidden="true" />
-            Remove from list
-          </DropdownMenuItem>
-        ) : isArchived ? (
-          <DropdownMenuItem onSelect={onUnarchive}>
-            <IconEye size={14} aria-hidden="true" />
-            Restore to list
-          </DropdownMenuItem>
-        ) : (
-          <DropdownMenuItem onSelect={onArchive}>
-            <IconEyeOff size={14} aria-hidden="true" />
-            Hide from list
-          </DropdownMenuItem>
-        )}
-        <WorkspaceAppMetadata app={app} labels={labels} />
-      </DropdownMenuContent>
-    </DropdownMenu>
+          ) : isArchived ? (
+            <DropdownMenuItem onSelect={onUnarchive}>
+              <IconEye size={14} aria-hidden="true" />
+              Restore to list
+            </DropdownMenuItem>
+          ) : (
+            <DropdownMenuItem onSelect={onArchive}>
+              <IconEyeOff size={14} aria-hidden="true" />
+              Hide from list
+            </DropdownMenuItem>
+          )}
+          <WorkspaceAppMetadata app={app} labels={labels} />
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {!isPending && shareOpen ? (
+        <ShareButton
+          resourceType="workspace-app"
+          resourceId={app.id}
+          resourceTitle={app.name}
+          defaultOpen
+          onOpenChange={handleShareOpenChange}
+          triggerClassName="sr-only"
+        />
+      ) : null}
+    </>
   );
 }
 

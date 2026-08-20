@@ -21,6 +21,8 @@ import { createRequire } from "module";
 import path from "path";
 import { fileURLToPath } from "url";
 
+import { loadEnv } from "vite";
+
 import {
   AGENT_BACKGROUND_FUNCTION_NAME,
   AGENT_BACKGROUND_FUNCTION_URL_PATH,
@@ -43,6 +45,11 @@ import {
   RECURRING_JOBS_SWEEP_PATH,
   RECURRING_JOBS_SWEEP_TOKEN_SUBJECT,
 } from "../jobs/scheduler-dispatch.js";
+import { findWorkspaceRoot as findAgentNativeWorkspaceRoot } from "../scripts/utils.js";
+import {
+  RECURRING_JOBS_BUILD_MARKER_ENV_VAR,
+  resolveRecurringJobsBuildMarker,
+} from "../server/agent-chat/recurring-jobs-runtime.js";
 import { normalizeAppBasePath } from "../server/app-base-path.js";
 import {
   DEFAULT_SPECULATION_RULES_PATH,
@@ -2998,8 +3005,13 @@ function isDisabledByEnv(name: string): boolean {
   return isTruthyEnv(name);
 }
 
+/**
+ * Routed through the same resolver that produces the runtime marker, so the gate
+ * that emits the scheduled function and the value the deployed app reports
+ * cannot drift: a build that skips the emit always ships `"disabled"`.
+ */
 export function isRecurringJobsDeployEnabled(): boolean {
-  return !isDisabledByEnv("AGENT_NATIVE_DISABLE_RECURRING_JOBS");
+  return resolveRecurringJobsBuildMarker(process.env) === "enabled";
 }
 
 /**
@@ -4856,6 +4868,13 @@ export function resolveNitroBuildReplacements(
     "process.env.AGENT_NATIVE_BUILD_DEPLOY_CONTEXT": JSON.stringify(
       env.CONTEXT?.trim() || env.NETLIFY_CONTEXT?.trim() || "",
     ),
+    // Whether the recurring-jobs scheduled function exists is decided HERE, by
+    // the build env. `scheduledTriggerAvailability` cannot re-derive it later —
+    // a pipeline that sets the kill switch only for the build leaves no runtime
+    // trace of it — so hand the decision to the runtime explicitly.
+    [`process.env.${RECURRING_JOBS_BUILD_MARKER_ENV_VAR}`]: JSON.stringify(
+      resolveRecurringJobsBuildMarker(env),
+    ),
     ...(configuredDeploymentEnvironment
       ? {
           "process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT": JSON.stringify(
@@ -4906,12 +4925,20 @@ async function buildWithNitro() {
   // own virtual module registration. Both paths reuse `readAgentsBundleFromFs`
   // from `server/agents-bundle.ts` to guarantee identical content.
   const { readAgentsBundleFromFs } = await import("../server/agents-bundle.js");
+  const nitroMode =
+    process.env.NODE_ENV === "development" ? "development" : "production";
+  const agentNativeWorkspaceRoot = findAgentNativeWorkspaceRoot(cwd);
+  const nitroEnvironment = {
+    ...(agentNativeWorkspaceRoot && agentNativeWorkspaceRoot !== cwd
+      ? loadEnv(nitroMode, agentNativeWorkspaceRoot, "")
+      : {}),
+    ...loadEnv(nitroMode, cwd, ""),
+    ...process.env,
+  };
   const nitroAgentConfig = await loadResolvedAgentNativeConfig(
     cwd,
-    createAgentNativeConfigContext(
-      "build",
-      process.env.NODE_ENV === "development" ? "development" : "production",
-    ),
+    createAgentNativeConfigContext("build", nitroMode),
+    { environment: nitroEnvironment },
   );
   // Resolve the workspace core (if present) up front so the bundle embeds
   // enterprise-wide AGENTS.md + skills alongside the template's.

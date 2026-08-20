@@ -190,6 +190,12 @@ createAgentChatPlugin({
 });
 ```
 
+Wenn derselbe Resolver auch den uneingeschränkten Standardchat behandelt, gib
+`{ mode: "default" }` zurück. Dadurch bleiben die normale Filterung über
+`initialToolNames` und die Suche mit `tool-search` erhalten, statt alle
+verfügbaren Schemas mit der ersten Modellanfrage zu laden. Der explizite Modus
+bleibt über dauerhafte Fortsetzungen hinweg erhalten.
+
 Eine leere Liste stellt keine nativen Actions bereit. Unbekannte Namen lassen
 die Anfrage fehlschlagen, statt den Zugriff zu erweitern. Alle erlaubten
 Actions werden direkt mit der ersten Modellanfrage geladen; `tool-search` wird

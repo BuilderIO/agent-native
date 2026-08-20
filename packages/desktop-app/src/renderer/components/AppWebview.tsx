@@ -317,6 +317,19 @@ export function resolveDesktopIdentityLazySyncStatus(
   return synchronized ? status : "failed";
 }
 
+export function shouldDeferDesktopAppWebviewLoad(input: {
+  eligible: boolean;
+  enabled: boolean | null;
+  sessionReady: boolean;
+  status: DesktopIdentityStatus | "checking";
+}): boolean {
+  return (
+    input.eligible &&
+    input.enabled !== false &&
+    (!input.sessionReady || input.status !== "signed-in")
+  );
+}
+
 const DESKTOP_IDENTITY_STATUS_CACHE_TTL_MS = 5 * 60 * 1000;
 const DESKTOP_IDENTITY_STATUS_POLL_INTERVAL_MS = 750;
 const DESKTOP_IDENTITY_STATUS_POLL_ATTEMPTS = 40;
@@ -673,9 +686,16 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       active: isActive,
       enabled: desktopIdentityEnabled,
     });
+    const deferDesktopWebviewLoad = shouldDeferDesktopAppWebviewLoad({
+      eligible: desktopIdentityGateEligible,
+      enabled: desktopIdentityEnabled,
+      sessionReady: desktopIdentitySessionReady,
+      status: desktopIdentityStatus,
+    });
     const optimizeDepRecoveryRef = useRef(false);
     const prevUrlRef = useRef(url);
     const prevUrlOpenNonceRef = useRef(urlOpenNonce);
+    const prevDesktopWebviewDeferredRef = useRef(deferDesktopWebviewLoad);
     const prevIsActiveRef = useRef(isActive);
     const onTitleChangeRef = useRef(onTitleChange);
     const onAuthStateChangeRef = useRef(onAuthStateChange);
@@ -685,35 +705,76 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     const onWebContentsIdChangeRef = useRef(onWebContentsIdChange);
     const perAppChatOpenRef = useRef(false);
     const authProbeSequenceRef = useRef(0);
+    const lastGuestChatSidebarSyncRef = useRef<string | null>(null);
+    const guestScriptInFlightRef = useRef(new Map<string, Promise<unknown>>());
+
+    const executeGuestScript = useCallback(
+      (key: string, script: string): Promise<unknown> => {
+        const wv = webviewRef.current;
+        if (!wv || app.placeholder) return Promise.resolve(undefined);
+
+        const inFlight = guestScriptInFlightRef.current.get(key);
+        if (inFlight) return inFlight;
+
+        let request: Promise<unknown>;
+        try {
+          request = wv.executeJavaScript(script, false).catch((error) => {
+            console.debug("[desktop-webview] guest script failed", {
+              appId: app.id,
+              key,
+              reason: error instanceof Error ? error.message : error,
+            });
+            return undefined;
+          });
+        } catch (error) {
+          console.debug("[desktop-webview] guest script failed", {
+            appId: app.id,
+            key,
+            reason: error instanceof Error ? error.message : error,
+          });
+          return Promise.resolve(undefined);
+        }
+        guestScriptInFlightRef.current.set(key, request);
+        void request.then(() => {
+          if (guestScriptInFlightRef.current.get(key) === request) {
+            guestScriptInFlightRef.current.delete(key);
+          }
+        });
+        return request;
+      },
+      [app.id, app.placeholder],
+    );
 
     const applyGuestTheme = useCallback(() => {
       const wv = webviewRef.current;
       if (!syncTheme || !wv || app.placeholder) return;
-      try {
-        void wv
-          .executeJavaScript(buildGuestThemeScript(theme), false)
-          .catch(() => {});
-        // coercion-ok: Theme sync is best-effort until the imperatively-created webview is attached.
-      } catch {
-        // The imperatively-created webview can exist before Chromium attaches it.
-      }
-    }, [app.placeholder, syncTheme, theme]);
+      void executeGuestScript(
+        `guest-theme:${theme}`,
+        buildGuestThemeScript(theme),
+      );
+    }, [app.placeholder, executeGuestScript, syncTheme, theme]);
 
-    const syncGuestAppChatSidebar = useCallback(() => {
-      const wv = webviewRef.current;
-      if (!wv || app.placeholder) return;
-      try {
-        void wv
-          .executeJavaScript(
-            buildGuestAppChatSidebarStateScript(perAppChatOpenRef.current),
-            false,
-          )
-          .catch(() => {});
-        // coercion-ok: Guest chrome sync is best-effort until Chromium attaches the webview.
-      } catch {
-        // The imperatively-created webview can exist before Chromium attaches it.
-      }
-    }, [app.placeholder]);
+    const syncGuestAppChatSidebar = useCallback(
+      (force = false) => {
+        const wv = webviewRef.current;
+        if (!wv || app.placeholder) return;
+        let currentUrl = "";
+        try {
+          currentUrl = wv.getURL() || wv.src;
+        } catch {
+          currentUrl = wv.src;
+        }
+        const open = perAppChatOpenRef.current;
+        const stateKey = `${currentUrl}:${open ? "open" : "closed"}`;
+        if (!force && lastGuestChatSidebarSyncRef.current === stateKey) return;
+        lastGuestChatSidebarSyncRef.current = stateKey;
+        void executeGuestScript(
+          `guest-chat-sidebar:${stateKey}`,
+          buildGuestAppChatSidebarStateScript(open),
+        );
+      },
+      [app.placeholder, executeGuestScript],
+    );
 
     useEffect(() => {
       onTitleChangeRef.current = onTitleChange;
@@ -973,15 +1034,13 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         toggleAgentSidebar() {
           const wv = webviewRef.current;
           if (!wv || app.placeholder) return;
-          void wv
-            .executeJavaScript(
-              `window.dispatchEvent(new Event("agent-panel:toggle"));`,
-              false,
-            )
-            .catch(() => {});
+          void executeGuestScript(
+            "toggle-agent-sidebar",
+            `window.dispatchEvent(new Event("agent-panel:toggle"));`,
+          );
         },
       }),
-      [app.placeholder, url],
+      [app.placeholder, executeGuestScript, url],
     );
 
     useEffect(() => {
@@ -993,10 +1052,11 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       const eventName = isActive
         ? "agent-native:app-foreground"
         : "agent-native:app-background";
-      void wv
-        .executeJavaScript(buildGuestLifecycleScript(eventName), false)
-        .catch(() => {});
-    }, [app.placeholder, isActive]);
+      void executeGuestScript(
+        `guest-lifecycle:${eventName}`,
+        buildGuestLifecycleScript(eventName),
+      );
+    }, [app.placeholder, executeGuestScript, isActive]);
 
     function reportActiveWebview() {
       const wv = webviewRef.current;
@@ -1056,12 +1116,12 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         if (disposed) return;
         emitTitle(candidate);
         emitTitle(wv.getTitle());
-        void wv
-          .executeJavaScript("document.title", false)
-          .then((title) => {
-            if (!disposed) emitTitle(title);
-          })
-          .catch(() => {});
+        void executeGuestScript(
+          `document-title:${wv.getURL() || wv.src}`,
+          "document.title",
+        ).then((title) => {
+          if (!disposed) emitTitle(title);
+        });
       };
       const emitCurrentTitleSoon = (candidate?: string) => {
         emitCurrentTitle(candidate);
@@ -1087,12 +1147,23 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         // Chromium can emit dom-ready for its internal error document after
         // did-fail-load. That event is not a successful app load.
         if (loadFailureRef.current) return;
+        if (deferDesktopWebviewLoad) {
+          let currentUrl = "";
+          try {
+            currentUrl = wv.getURL() || wv.src;
+          } catch {
+            // coercion-ok: Electron can expose the element src before Chromium attaches the contents.
+            currentUrl = wv.src;
+          }
+          if (!currentUrl || currentUrl === "about:blank") return;
+        }
         applyGuestTheme();
-        syncGuestAppChatSidebar();
+        syncGuestAppChatSidebar(true);
         if (app.id === "content") {
-          void wv
-            .executeJavaScript(buildContentDirectoryPickerBridgeScript(), false)
-            .catch(() => {});
+          void executeGuestScript(
+            "content-directory-picker-bridge",
+            buildContentDirectoryPickerBridgeScript(),
+          );
         }
         setError(false);
         setIsLoading(false);
@@ -1110,7 +1181,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       };
       const onNavigation = () => {
         applyGuestTheme();
-        syncGuestAppChatSidebar();
+        syncGuestAppChatSidebar(true);
         emitCurrentTitleSoon();
         emitAuthState();
       };
@@ -1153,7 +1224,6 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       wv.addEventListener("page-title-updated", onTitleUpdated);
       wv.addEventListener("did-navigate", onNavigation);
       wv.addEventListener("did-navigate-in-page", onNavigation);
-      wv.addEventListener("did-stop-loading", onNavigation);
       wv.addEventListener("did-fail-load", onFailed);
       wv.addEventListener("console-message", onConsoleMessage);
       wv.addEventListener("ipc-message", onIpcMessage);
@@ -1167,7 +1237,6 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         wv.removeEventListener("page-title-updated", onTitleUpdated);
         wv.removeEventListener("did-navigate", onNavigation);
         wv.removeEventListener("did-navigate-in-page", onNavigation);
-        wv.removeEventListener("did-stop-loading", onNavigation);
         wv.removeEventListener("did-fail-load", onFailed);
         wv.removeEventListener("console-message", onConsoleMessage);
         wv.removeEventListener("ipc-message", onIpcMessage);
@@ -1179,7 +1248,9 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       app.placeholder,
       isActive,
       applyGuestTheme,
+      executeGuestScript,
       syncGuestAppChatSidebar,
+      deferDesktopWebviewLoad,
     ]);
 
     useEffect(() => {
@@ -1191,7 +1262,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         const open = (event as CustomEvent<{ open?: unknown }>).detail?.open;
         if (typeof open !== "boolean") return;
         perAppChatOpenRef.current = open;
-        syncGuestAppChatSidebar();
+        syncGuestAppChatSidebar(true);
       };
 
       window.addEventListener(APP_CHAT_SIDEBAR_STATE_EVENT, handleChatState);
@@ -1282,9 +1353,12 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       if (!wv || app.placeholder) {
         return;
       }
+      const wasDeferred = prevDesktopWebviewDeferredRef.current;
+      prevDesktopWebviewDeferredRef.current = deferDesktopWebviewLoad;
+      if (deferDesktopWebviewLoad) return;
       const urlChanged = prevUrlRef.current !== url;
       const openNonceChanged = prevUrlOpenNonceRef.current !== urlOpenNonce;
-      if (!urlChanged && !openNonceChanged) return;
+      if (!wasDeferred && !urlChanged && !openNonceChanged) return;
 
       prevUrlRef.current = url;
       prevUrlOpenNonceRef.current = urlOpenNonce;
@@ -1298,8 +1372,10 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         isAgentNativeOpenPath(urlPath) &&
         canSoftOpenWebview(wv, url)
       ) {
-        void wv
-          .executeJavaScript(buildSoftOpenScript(urlPath), false)
+        void executeGuestScript(
+          `soft-open:${urlPath}`,
+          buildSoftOpenScript(urlPath),
+        )
           .then((ok) => {
             if (ok !== false) return;
             setIsLoading(true);
@@ -1317,13 +1393,23 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       setIsLoading(true);
       setSlowLoad(false);
       wv.setAttribute("src", url);
-    }, [url, urlOpenNonce, urlOpenSoft, urlPath, app.placeholder]);
+    }, [
+      url,
+      urlOpenNonce,
+      urlOpenSoft,
+      urlPath,
+      app.placeholder,
+      deferDesktopWebviewLoad,
+      executeGuestScript,
+    ]);
 
     // If the webview hasn't fired dom-ready within a few seconds, surface
     // a "still loading" hint. If it's still not ready after a bit longer,
     // assume the dev server isn't running and show the error screen.
     useEffect(() => {
-      if (app.placeholder || error || !isLoading) return;
+      if (app.placeholder || error || !isLoading || deferDesktopWebviewLoad) {
+        return;
+      }
       const slowT = setTimeout(() => setSlowLoad(true), 2500);
       const failT = setTimeout(
         () => {
@@ -1339,7 +1425,14 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         clearTimeout(slowT);
         clearTimeout(failT);
       };
-    }, [app.placeholder, error, isDevMode, isLoading, url]);
+    }, [
+      app.placeholder,
+      deferDesktopWebviewLoad,
+      error,
+      isDevMode,
+      isLoading,
+      url,
+    ]);
 
     // Auto-focus the webview when it becomes active so keyboard events
     // (e.g. Tab to cycle mail filters) go to the app, not the shell.
@@ -1476,7 +1569,10 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
                   partitionKey,
                 }),
               );
-              wv.setAttribute("src", url);
+              wv.setAttribute(
+                "src",
+                deferDesktopWebviewLoad ? "about:blank" : url,
+              );
               container.appendChild(wv);
               webviewRef.current = wv;
             }}

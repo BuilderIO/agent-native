@@ -128,9 +128,12 @@ import { injectAnalyticsIntoHtml } from "./analytics.js";
 import { getConfiguredAppBasePath } from "./app-base-path.js";
 import { getAppProductionUrl } from "./app-url.js";
 import {
+  addSignupAttributionHeader,
   readAnalyticsAnonymousId,
   readFirstTouchAttribution,
+  signupAttributionContextFromCookieHeader,
   signupAttributionFromCookieHeader,
+  type SignupAttributionContext,
 } from "./attribution.js";
 import { getAuthLoginMode } from "./auth-login-mode.js";
 import { injectBetaOptOutPersistence } from "./beta-opt-out-html.js";
@@ -193,6 +196,11 @@ import {
   getResetPasswordHtml,
   type OnboardingHtmlOptions,
 } from "./onboarding-html.js";
+import {
+  getRequestContext,
+  hasContinuationLocalRequestContext,
+  runWithRequestContext,
+} from "./request-context.js";
 import { captureAuthError } from "./sentry.js";
 import {
   forgetCachedSessionEmail,
@@ -208,6 +216,41 @@ import { isWorkspaceOAuthCallbackRelayEnabled } from "./workspace-oauth.js";
  */
 export function getSessionMaxAge(): number {
   return sessionMaxAge;
+}
+
+function withSignupAttributionContext<T>(
+  cookieHeader: string | null | undefined,
+  fn: () => T | Promise<T>,
+): T | Promise<T> {
+  const signupAttribution =
+    signupAttributionContextFromCookieHeader(cookieHeader);
+  if (!hasContinuationLocalRequestContext()) return fn();
+  return runWithRequestContext(
+    {
+      ...(getRequestContext() ?? {}),
+      signupAttribution,
+    },
+    fn,
+  );
+}
+
+function requestWithSignupAttribution(
+  request: Request,
+  signupAttribution: SignupAttributionContext,
+): Request {
+  return new Request(request, {
+    headers: addSignupAttributionHeader(request.headers, signupAttribution),
+  });
+}
+
+function headersWithSignupAttribution(
+  headers: HeadersInit | undefined,
+  cookieHeader: string | null | undefined,
+): Headers {
+  return addSignupAttributionHeader(
+    headers,
+    signupAttributionContextFromCookieHeader(cookieHeader),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -717,6 +760,10 @@ async function readDesktopSsoSafely(
   if (!isElectronRequest(event)) return null;
   if (!isLoopbackRequest(event)) return null;
   return await readDesktopSso();
+}
+
+function isDesktopSessionCookieOnlyCheck(event: H3Event): boolean {
+  return getHeader(event, "x-agent-native-session-check") === "cookie-only";
 }
 
 /**
@@ -3611,6 +3658,7 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
 async function resolveSessionUncached(
   event: H3Event,
 ): Promise<AuthSession | null> {
+  const cookieOnlyDesktopCheck = isDesktopSessionCookieOnlyCheck(event);
   // 1. MCP App embed session. This is a short-lived browser session minted
   // from a one-time ticket that was scoped to the authenticated MCP caller.
   // It lets an inline MCP App iframe load the real app without reusing the
@@ -3648,8 +3696,10 @@ async function resolveSessionUncached(
     // templates too. Gated on `readDesktopSsoSafely` so a non-loopback
     // request that spoofs `User-Agent: ... Electron/...` cannot read the
     // home-dir broker file (and so production builds never consult it).
-    const sso = await readDesktopSsoSafely(event);
-    if (sso?.email) return { email: sso.email, token: sso.token };
+    if (!cookieOnlyDesktopCheck) {
+      const sso = await readDesktopSsoSafely(event);
+      if (sso?.email) return { email: sso.email, token: sso.token };
+    }
     // Fall through to mobile _session check
   } else {
     // 4. Bearer session. Desktop/native clients can persist a legacy session
@@ -3687,9 +3737,11 @@ async function resolveSessionUncached(
     // a loopback (127.0.0.1 / ::1) source IP, and a non-production NODE_ENV
     // — anything else is rejected so a hostile network request cannot
     // impersonate whichever email last signed into the desktop app.
-    const sso = await readDesktopSsoSafely(event);
-    if (sso?.email) {
-      return { email: sso.email, token: sso.token };
+    if (!cookieOnlyDesktopCheck) {
+      const sso = await readDesktopSsoSafely(event);
+      if (sso?.email) {
+        return { email: sso.email, token: sso.token };
+      }
     }
   }
 
@@ -4793,11 +4845,19 @@ async function mountBetterAuthRoutes(
         reqPath.includes("/sign-in/magic-link") && getMethod(event) === "POST";
       const isMagicLinkVerification =
         reqPath.includes("/magic-link/verify") && getMethod(event) === "GET";
+      const isEmailSignup =
+        reqPath.includes("/sign-up/email") && getMethod(event) === "POST";
       const isSignOut =
         reqPath.includes("sign-out") && getMethod(event) === "POST";
       if (isSignOut) optOutOfAuthDisabledSession(event);
       const authRequest = toWebRequest(event);
       let requestForAuth = authRequest;
+      const signupCookieHeader = isEmailSignup
+        ? authRequest.headers.get("cookie")
+        : undefined;
+      const signupAttribution = isEmailSignup
+        ? signupAttributionContextFromCookieHeader(signupCookieHeader)
+        : undefined;
       let magicLinkPreConsume: Record<string, unknown> | undefined;
 
       if (isMagicLinkVerification) {
@@ -4934,9 +4994,20 @@ async function mountBetterAuthRoutes(
         }
       }
 
+      if (signupAttribution) {
+        requestForAuth = requestWithSignupAttribution(
+          requestForAuth,
+          signupAttribution,
+        );
+      }
+
       let response: Response;
       try {
-        response = await auth.handler(requestForAuth);
+        response = await (isEmailSignup
+          ? withSignupAttributionContext(signupCookieHeader, () =>
+              auth.handler(requestForAuth),
+            )
+          : auth.handler(requestForAuth));
       } catch (error) {
         if (isMagicLinkVerification) {
           logMagicLinkDebug(event, "verify-exception", {
@@ -5314,10 +5385,22 @@ async function mountBetterAuthRoutes(
       }
 
       try {
-        await auth.api.signUpEmail({
-          body: { email, password, name: email.split("@")[0], callbackURL },
-          headers: event.headers,
-        });
+        await withSignupAttributionContext(
+          getHeader(event, "cookie") ?? null,
+          () =>
+            auth.api.signUpEmail({
+              body: {
+                email,
+                password,
+                name: email.split("@")[0],
+                callbackURL,
+              },
+              headers: headersWithSignupAttribution(
+                event.headers,
+                getHeader(event, "cookie") ?? null,
+              ),
+            }),
+        );
         setFirstRunOnboardingCookie(event);
         return { ok: true };
       } catch (e: any) {
@@ -5605,10 +5688,17 @@ function mountAuthFallbackRoutes(app: H3App): void {
 
       try {
         const auth = await getBetterAuth();
-        await auth.api.signUpEmail({
-          body: { email, password, name: email.split("@")[0] },
-          headers: event.headers,
-        });
+        await withSignupAttributionContext(
+          getHeader(event, "cookie") ?? null,
+          () =>
+            auth.api.signUpEmail({
+              body: { email, password, name: email.split("@")[0] },
+              headers: headersWithSignupAttribution(
+                event.headers,
+                getHeader(event, "cookie") ?? null,
+              ),
+            }),
+        );
         setFirstRunOnboardingCookie(event);
         return { ok: true };
       } catch (e: any) {

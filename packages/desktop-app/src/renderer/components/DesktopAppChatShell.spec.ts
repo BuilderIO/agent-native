@@ -27,6 +27,13 @@ describe("desktop app chat shell", () => {
         hasSwitchedAway: true,
       }),
     ).toBe(false);
+    expect(
+      shouldAnimateDesktopAppChatSidebar({
+        isActive: true,
+        hasSwitchedAway: false,
+        chatSidebarWasOpenBeforeMount: true,
+      }),
+    ).toBe(false);
   });
 
   it("keeps the shell open state shared while chat threads stay app-scoped", () => {

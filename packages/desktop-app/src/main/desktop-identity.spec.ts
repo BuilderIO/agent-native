@@ -1865,7 +1865,7 @@ describe("DesktopIdentityBroker", () => {
     expect(mailCookies.set).toHaveBeenCalledTimes(cookieSetCount);
   });
 
-  it("keeps the Google exchange alive when its hosted callback closes the window", async () => {
+  it("keeps Google sign-in alive when its hosted callback closes the window", async () => {
     const authority = authorityFixture();
     const identityCookies = cookieStore();
     const authorityCookies = cookieStore();
@@ -1936,6 +1936,24 @@ describe("DesktopIdentityBroker", () => {
       clearLocalBroker: vi.fn(),
       timeoutMs: 3_000,
     });
+    const fanoutStarted = deferred<void>();
+    const releaseFanout = deferred<boolean>();
+    type SignInFanout = (
+      appId: string,
+      generation: number,
+      options?: { interactive?: boolean },
+    ) => Promise<boolean>;
+    const brokerWithFanout = broker as unknown as {
+      runSignInFanout: SignInFanout;
+    };
+    const runSignInFanout = brokerWithFanout.runSignInFanout.bind(broker);
+    vi.spyOn(brokerWithFanout, "runSignInFanout").mockImplementation(
+      async (...args) => {
+        fanoutStarted.resolve();
+        await releaseFanout.promise;
+        return runSignInFanout(...args);
+      },
+    );
 
     const signIn = broker.signIn(authority.id);
     await vi.waitFor(() => expect(identityWindow.loadURL).toHaveBeenCalled());
@@ -1950,10 +1968,13 @@ describe("DesktopIdentityBroker", () => {
     );
     closedListener?.();
 
+    await fanoutStarted.promise;
+    await new Promise((resolve) => setTimeout(resolve, 5_100));
+    releaseFanout.resolve(true);
     await expect(signIn).resolves.toBe(true);
     expect(reloadApp).toHaveBeenCalledWith(authority);
     expect(broker.getStatus()).toBe("signed-in");
-  });
+  }, 15_000);
 
   it("retries an unauthorized embed request through the main-process transport", async () => {
     const authority = authorityFixture();

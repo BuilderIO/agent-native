@@ -1,7 +1,6 @@
 import { IconColorPicker } from "@tabler/icons-react";
 import {
   useEffect,
-  useId,
   useRef,
   useState,
   type KeyboardEvent,

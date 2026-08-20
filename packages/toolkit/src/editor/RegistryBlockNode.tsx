@@ -21,14 +21,9 @@ import {
 } from "react";
 
 import {
-  RegistryBlockDataProvider,
   useRegistryBlockData,
   type RegistryBlockDataChangeMeta,
-  type RegistryBlockDataValue,
   type RegistryBlockEditSurfaceOptions,
-  type RegistryBlockNestedBlock,
-  type RegistryBlockRenderOptions,
-  type RegistryBlockRenderResult,
   type RegistryBlockSideMapBlock,
 } from "./RegistryBlockContext.js";
 

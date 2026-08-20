@@ -69,16 +69,12 @@ export function QuestionFlow({
       return v.trim().length > 0;
     return hasGuidedAnswer(v);
   };
-  const answeredCount = guidedQuestions.filter(isAnswered).length;
+
   const requiredQuestions = guidedQuestions.filter(
     (question) => question.required,
   );
   const requiredAnswered = requiredQuestions.filter(isAnswered).length;
   const allRequiredAnswered = requiredAnswered === requiredQuestions.length;
-  const progress =
-    guidedQuestions.length === 0
-      ? 0
-      : Math.round((answeredCount / guidedQuestions.length) * 100);
 
   return (
     /* `items-start` is what makes the trailing space real: stretched, this

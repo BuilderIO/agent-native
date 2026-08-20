@@ -13,7 +13,6 @@
  * See `DESIGN-STUDIO-PLAN.md` §4.2 for rationale.
  */
 
-import type { CodeLayerNode } from "./code-layer";
 import type { DesignCapabilityName } from "./design-source-capabilities";
 import type { DesignSourceType } from "./source-mode";
 

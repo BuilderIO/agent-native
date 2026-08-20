@@ -1,5 +1,56 @@
 # @agent-native/core
 
+## 0.167.2
+
+### Patch Changes
+
+- 95d9d70: Bound public-site monitor requests and clarify unified-diff framing in visual recap authoring prompts.
+- 7f22204: Warn on the Agent Automations page when schedule-triggered automations can never fire — recurring jobs disabled at build time, no durable scheduler on the hosting target, or local development — via a new `get-scheduled-trigger-status` action. The build embeds its recurring-jobs decision into the server bundle so the warning reflects whether a scheduled trigger was actually emitted, and a failed status check is reported as unverified rather than healthy.
+- Updated dependencies [95d9d70]
+  - @agent-native/recap-cli@0.5.7
+
+## 0.167.1
+
+### Patch Changes
+
+- ca9ee7e: Merge same-day changelog categories without duplicating headings.
+
+## 0.167.0
+
+### Minor Changes
+
+- 3a7a8f0: support deterministic environment aliases and JSON fragments for public Agent-Native config
+
+## 0.166.1
+
+### Patch Changes
+
+- 8fd035c: Keep authenticated Electron app sessions on their configured production lane instead of applying the browser-only employee beta redirect.
+- Updated dependencies [10de7b9]
+  - @agent-native/recap-cli@0.5.6
+  - @agent-native/toolkit@0.16.9
+
+## 0.166.0
+
+### Minor Changes
+
+- c50b009: Allow request action resolvers to preserve the default tool-loading surface.
+
+## 0.165.5
+
+### Patch Changes
+
+- 8d56ed2: Let the Builder gateway engine run on an OAuth-only connection. The pre-run
+  credential gate required a `BUILDER_PRIVATE_KEY`/`BUILDER_PUBLIC_KEY` pair, so
+  a user connected through Builder OAuth alone had every turn rejected with "No
+  LLM provider is connected" while the connect card reported them connected.
+
+## 0.165.4
+
+### Patch Changes
+
+- 841f072: Expand changelog history windows to 100 releases while preserving folder-backed history.
+
 ## 0.165.3
 
 ### Patch Changes
@@ -1092,37 +1143,5 @@
 
 - 1b7d8c2: Resolve hosted workspace app sign-in from the authenticated live registry so custom mounted apps can receive Dispatch embed sessions without a copied app list. Keep the registry action scoped to its verified A2A caller and refresh the desktop canary identity state before automatic sign-in.
 - 1b7d8c2: Keep framework-managed bearer routes reachable when authentication and action modules are loaded from separate server bundle instances.
-
-## 0.157.15
-
-### Patch Changes
-
-- fa0f828: Resolve hosted workspace app sign-in from the authenticated live registry so custom mounted apps can receive Dispatch embed sessions without a copied app list. Keep the registry action scoped to its verified A2A caller and refresh the desktop canary identity state before automatic sign-in.
-- fa0f828: Keep framework-managed bearer routes reachable when authentication and action modules are loaded from separate server bundle instances.
-
-## 0.157.14
-
-### Patch Changes
-
-- 4d8c36c: Keep framework-managed bearer routes reachable when authentication and action modules are loaded from separate server bundle instances.
-
-## 0.157.13
-
-### Patch Changes
-
-- 7dc2c91: Allow framework-managed feature-flag bearer routes to reach their own verifier before the cookie auth guard.
-- 7dc2c91: Create the Portal remote-device table during release migrations before serverless requests run.
-
-## 0.157.12
-
-### Patch Changes
-
-- bdbe6a1: Keep Portal device authentication working when a proxy supplies or strips the Authorization header.
-
-## 0.157.11
-
-### Patch Changes
-
-- 5e19db2: Treat Netlify function runtimes as serverless when configuring database pools so abandoned transactions are reaped.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

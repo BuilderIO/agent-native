@@ -393,6 +393,7 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     );
     expect(hubSource).toContain("AppOpenActions");
     expect(hubSource).toContain("desktop-app-card__actions");
+    expect(hubSource).not.toContain("ShareButton");
     expect(hubSource).toContain("Open in browser");
     expect(hubSource).toContain("Pin this app");
     expect(hubSource).toContain("Unpin this app");

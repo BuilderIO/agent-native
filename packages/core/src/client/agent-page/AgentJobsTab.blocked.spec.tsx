@@ -12,6 +12,7 @@ const jobMocks = vi.hoisted(() => ({
   useManageAutomation: vi.fn(),
   useManageRecurringJob: vi.fn(),
   useRecurringJobs: vi.fn(),
+  useScheduledTriggerState: vi.fn(),
 }));
 
 vi.mock("./use-jobs.js", () => ({
@@ -21,6 +22,7 @@ vi.mock("./use-jobs.js", () => ({
   useManageRecurringJob: jobMocks.useManageRecurringJob,
   useRecurringJobs: jobMocks.useRecurringJobs,
   useRunAutomationNow: jobMocks.useRunAutomationNow,
+  useScheduledTriggerState: jobMocks.useScheduledTriggerState,
 }));
 
 vi.mock("../AgentAskPopover.js", () => ({
@@ -107,6 +109,10 @@ describe("AgentJobsTab blocked automation", () => {
       isPending: false,
       mutate: vi.fn(),
     });
+    jobMocks.useScheduledTriggerState.mockReturnValue({
+      kind: "resolved",
+      status: { available: true, driver: "netlify-scheduled-function" },
+    });
   });
 
   afterEach(() => {
@@ -165,6 +171,57 @@ describe("AgentJobsTab blocked automation", () => {
     });
 
     expect(document.body.textContent).toContain("Open thread");
+  });
+
+  // The date itself is the misleading part: it is derived from the cron
+  // expression, so it renders identically whether or not anything will run it.
+  // A failed scheduler check must not let it read as confirmed.
+  it("qualifies the next run date when the scheduler check failed", () => {
+    jobMocks.useScheduledTriggerState.mockReturnValue({
+      kind: "unknown",
+      error: new Error("Failed to fetch"),
+    });
+
+    act(() => {
+      root.render(<AgentJobsTab />);
+    });
+
+    const detailsButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "View details",
+    );
+    act(() => {
+      detailsButton?.click();
+    });
+
+    expect(document.body.textContent).toContain(
+      "2026-08-01T08:00:00.000Z — unconfirmed, the scheduler check failed",
+    );
+  });
+
+  // The known-dead case keeps replacing the date outright: there is nothing to
+  // qualify when no driver exists.
+  it("replaces the next run date when no scheduler exists", () => {
+    jobMocks.useScheduledTriggerState.mockReturnValue({
+      kind: "resolved",
+      status: { available: false, reason: "no-platform-scheduler" },
+    });
+
+    act(() => {
+      root.render(<AgentJobsTab />);
+    });
+
+    const detailsButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "View details",
+    );
+    act(() => {
+      detailsButton?.click();
+    });
+
+    const dialog = document.querySelector('[role="dialog"]');
+    expect(dialog?.textContent).toContain(
+      "Next runNever — no scheduler in this deploy",
+    );
+    expect(dialog?.textContent).not.toContain("2026-08-01T08:00:00.000Z");
   });
 
   it("submits a new cron expression from the edit dialog", () => {
