@@ -104,7 +104,7 @@ const PATTERNS = [
     key: "ssr-cache-regression",
     label: "Had to repeat the public SSR/SWR cache contract",
     fixedBy:
-      "guard:ssr-cache-artifact + AGENTS.md cache artifact contract (2026-08-20)",
+      "guard:ssr-cache-artifact + performance skill cache artifact contract (2026-08-20)",
     re: /\b(?:cache|caching|cache-control|stale-while-revalidate|SWR|CDN)\b[^.!?]{0,140}\b(?:wrong|broken|slow|again|regression|revert|reverted|no-cache|no-store|max-age=0|must-revalidate|fire|every few weeks)\b/i,
   },
   {
