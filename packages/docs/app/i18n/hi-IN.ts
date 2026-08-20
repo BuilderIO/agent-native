@@ -1506,6 +1506,8 @@ const hiIN = {
     body: "आपके सभी agent-native ऐप एक ही desktop shell में। Production apps built-in हैं, और local development के लिए dev mode toggle है।",
     openDesktop: "Agent Native खोलें",
     downloadInstaller: "Installer डाउनलोड करें",
+    downloadStarted: "डाउनलोड शुरू हो गया",
+    downloadAgain: "काम नहीं किया? फिर से डाउनलोड करें",
     loadError: "नवीनतम desktop installer लोड नहीं हो सका।",
     checkingRelease: "नवीनतम desktop release जांच रहे हैं...",
     retry: "फिर कोशिश करें",

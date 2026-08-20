@@ -1517,6 +1517,8 @@ const jaJP = {
     body: "すべての agent-native アプリを 1 つのデスクトップシェルに集約。プロダクションアプリを内蔵し、ローカル開発向けの dev モード切り替えも備えています。",
     openDesktop: "Agent Native を開く",
     downloadInstaller: "インストーラーをダウンロード",
+    downloadStarted: "ダウンロードを開始しました",
+    downloadAgain: "うまくいきませんでしたか？もう一度ダウンロード",
     loadError: "最新のデスクトップインストーラーを読み込めませんでした。",
     checkingRelease: "最新のデスクトップリリースを確認しています...",
     retry: "再試行",
