@@ -604,12 +604,10 @@ export async function removeRemoteServer(
   let removed: StoredRemoteMcpServer | undefined;
   try {
     await mutateServerList(scope, scopeId, (servers) => {
+      removed = undefined;
       const latest = servers.find((server) => server.id === id);
       if (!latest) return servers;
-      if (
-        expected.oauthSecretKey &&
-        latest.oauthSecretKey !== expected.oauthSecretKey
-      ) {
+      if (latest.oauthSecretKey !== expected.oauthSecretKey) {
         throw new Error(
           `MCP OAuth credentials changed while removing ${expected.name}`,
         );

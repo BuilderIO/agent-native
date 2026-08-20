@@ -115,6 +115,29 @@ describe("user-settings", () => {
       );
     });
 
+    it("bypasses the request cache when reading a legacy value for migration", async () => {
+      const legacyValue = { servers: [{ id: "mcps_legacy" }] };
+      mockGetSetting
+        .mockResolvedValueOnce(legacyValue)
+        .mockResolvedValueOnce(legacyValue);
+      mockDeleteSettingIfValue.mockResolvedValue(true);
+      mockMutateSetting.mockImplementation(
+        async (_key: string, callback: (value: unknown) => unknown) =>
+          callback(null),
+      );
+
+      await mutateUserSetting(
+        "Alice@Test.com",
+        "mcp-servers-remote",
+        () => legacyValue,
+      );
+
+      expect(mockGetSetting).toHaveBeenCalledWith(
+        "u:Alice@Test.com:mcp-servers-remote",
+        { bypassCache: true },
+      );
+    });
+
     it("leaves a newer legacy value when migration loses the cleanup race", async () => {
       const legacyValue = { servers: [{ id: "mcps_legacy" }] };
       const newerLegacyValue = { servers: [{ id: "mcps_newer" }] };
@@ -238,6 +261,33 @@ describe("user-settings", () => {
         undefined,
       );
       expect(result).toBe(true);
+    });
+
+    it("removes a canonical row created by migration after legacy deletion", async () => {
+      const legacyValue = { servers: [{ id: "mcps_legacy" }] };
+      mockGetSetting
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(legacyValue)
+        .mockResolvedValueOnce(legacyValue);
+      mockDeleteSettingIfValue
+        .mockResolvedValueOnce(true)
+        .mockResolvedValueOnce(true);
+
+      await expect(
+        deleteUserSetting("Alice@Test.com", "mcp-servers-remote"),
+      ).resolves.toBe(true);
+
+      expect(mockGetSetting).toHaveBeenNthCalledWith(
+        3,
+        "u:alice@test.com:mcp-servers-remote",
+        { bypassCache: true },
+      );
+      expect(mockDeleteSettingIfValue).toHaveBeenNthCalledWith(
+        2,
+        "u:alice@test.com:mcp-servers-remote",
+        legacyValue,
+        undefined,
+      );
     });
 
     it("returns false when nothing was deleted", async () => {

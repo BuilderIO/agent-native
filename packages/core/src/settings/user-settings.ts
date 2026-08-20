@@ -72,7 +72,9 @@ export async function mutateUserSetting(
         return updater(current);
       }
       const legacyCurrent =
-        legacy === normalized ? null : await getSetting(legacy);
+        legacy === normalized
+          ? null
+          : await getSetting(legacy, { bypassCache: true });
       migratedLegacy = legacyCurrent !== null;
       migratedLegacyValue = legacyCurrent;
       return updater(legacyCurrent);
@@ -128,9 +130,17 @@ export async function deleteUserSetting(
     legacyCurrent === null
       ? false
       : await deleteSettingIfValue(legacy, legacyCurrent, options);
+  const normalizedAfterLegacyCleanup =
+    normalizedCurrent === null && deletedLegacy
+      ? await getSetting(normalized, { bypassCache: true })
+      : normalizedCurrent;
   const deletedNormalized =
-    normalizedCurrent === null
+    normalizedAfterLegacyCleanup === null
       ? false
-      : await deleteSettingIfValue(normalized, normalizedCurrent, options);
+      : await deleteSettingIfValue(
+          normalized,
+          normalizedAfterLegacyCleanup,
+          options,
+        );
   return deletedNormalized || deletedLegacy;
 }
