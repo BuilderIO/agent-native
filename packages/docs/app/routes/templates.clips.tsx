@@ -1,6 +1,7 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { forwardRef, useImperativeHandle, useRef, useState } from "react";
 
+import { BuilderImage } from "../components/builder-image";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { SectionDivider } from "../components/SectionDivider";
 import { TemplateDocsLink } from "../components/template-docs";
@@ -167,8 +168,9 @@ const ClipPreviewSlider = forwardRef<ClipPreviewSliderHandle>(
                 })
               }
             >
-              <img
+              <BuilderImage
                 src={clip.thumbnail}
+                sizes="(max-width: 768px) 82vw, 300px"
                 alt=""
                 loading="lazy"
                 decoding="async"
@@ -256,8 +258,9 @@ export default function ClipsTemplate() {
         }
         description={<p>{t("templateLanding.clips.s008")}</p>}
         media={
-          <img
+          <BuilderImage
             src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff41728ef6fa644aaad100c96df09c1d6"
+            sizes="(max-width: 900px) 100vw, 800px"
             crossOrigin="anonymous"
             alt={t("templateLanding.clips.s001")}
             loading="lazy"
@@ -640,8 +643,9 @@ export default function ClipsTemplate() {
             </p>
           </div>
           <div className="flex items-center justify-center px-6 py-10 sm:px-10 lg:w-2/3 lg:py-16">
-            <img
+            <BuilderImage
               src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F82f67949705e405898c665ecf4a2d8d4?format=webp&width=1400"
+              sizes="(max-width: 768px) 100vw, 560px"
               crossOrigin="anonymous"
               alt={t("templateLanding.clips.s026")}
               loading="lazy"
