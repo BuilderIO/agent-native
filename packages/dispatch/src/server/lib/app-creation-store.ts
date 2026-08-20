@@ -15,7 +15,11 @@ import {
   runBuilderAgent,
 } from "@agent-native/core/server";
 import { getOrgSetting } from "@agent-native/core/settings";
-import { getSetting, putSetting } from "@agent-native/core/settings";
+import {
+  getSetting,
+  mutateSetting,
+  putSetting,
+} from "@agent-native/core/settings";
 import { assertValidWorkspaceAppId } from "@agent-native/core/shared";
 import { resolveAccess } from "@agent-native/core/sharing";
 
@@ -167,6 +171,7 @@ interface PendingWorkspaceApp {
   contextId: string | null;
   contextLabel: string | null;
   audience?: WorkspaceAppAudience;
+  visibility?: WorkspaceAppVisibility;
   createdBy?: string | null;
   owner?: string | null;
   teams?: string[];
@@ -786,6 +791,9 @@ function parsePendingWorkspaceApps(value: unknown): PendingWorkspaceApp[] {
         ...(record.audience === undefined
           ? {}
           : { audience: normalizeWorkspaceAppAudience(record.audience) }),
+        ...(record.visibility === "private" || record.visibility === "org"
+          ? { visibility: record.visibility }
+          : {}),
         createdAt,
         updatedAt:
           typeof record.updatedAt === "string" && record.updatedAt.trim()
@@ -803,6 +811,122 @@ function parsePendingWorkspaceApps(value: unknown): PendingWorkspaceApp[] {
 async function listPendingWorkspaceApps(): Promise<PendingWorkspaceApp[]> {
   const raw = await readSettingsRecord();
   return parsePendingWorkspaceApps(raw.pendingApps);
+}
+
+async function assertPendingWorkspaceAppCreationAvailable(
+  appId: string,
+): Promise<void> {
+  const existing = (await listPendingWorkspaceApps())
+    .filter((app) => !isPendingWorkspaceAppExpired(app))
+    .find((app) => app.id === appId);
+  if (!existing) return;
+
+  const viewerEmail = currentOwnerEmail().trim().toLowerCase();
+  const ownerEmail = (existing.createdBy ?? existing.owner)
+    ?.trim()
+    .toLowerCase();
+  if (ownerEmail && ownerEmail !== viewerEmail) {
+    throw new Error(
+      `Workspace app "${appId}" is already being created by another member.`,
+    );
+  }
+}
+
+async function assertWorkspaceAppIdRegisteredFree(
+  appId: string,
+): Promise<void> {
+  let existing: { id?: unknown }[];
+  try {
+    const result = await getDbExec().execute({
+      sql: "SELECT id FROM workspace_apps WHERE id = ? LIMIT 1",
+      args: [appId],
+    });
+    existing = result.rows as { id?: unknown }[];
+  } catch {
+    throw new Error(
+      "Could not verify the workspace app registry; refusing to reuse an app id.",
+    );
+  }
+  if (existing.length > 0) {
+    throw new Error(`Workspace app "${appId}" is already registered.`);
+  }
+}
+
+async function reservePendingWorkspaceApp(input: {
+  appId: string;
+  description: string;
+  projectId: string | null;
+  visibility: WorkspaceAppVisibility;
+}): Promise<void> {
+  await assertWorkspaceAppIdRegisteredFree(input.appId);
+  const now = new Date().toISOString();
+  const context = pendingWorkspaceAppContext();
+  const creatorEmail = currentOwnerEmail();
+
+  await mutateSetting(scopedSettingsKey(), async (current) => {
+    const raw =
+      current && typeof current === "object" && !Array.isArray(current)
+        ? current
+        : {};
+    const pendingApps = parsePendingWorkspaceApps(raw.pendingApps);
+    const existing = pendingApps
+      .filter((app) => !isPendingWorkspaceAppExpired(app))
+      .find((app) => app.id === input.appId);
+    if (existing) {
+      throw new Error(
+        `Workspace app "${input.appId}" is already being created${
+          existing.createdBy || existing.owner
+            ? ` by ${existing.createdBy ?? existing.owner}`
+            : ""
+        }.`,
+      );
+    }
+
+    const reservation: PendingWorkspaceApp = {
+      id: input.appId,
+      name: titleCase(input.appId),
+      description:
+        input.description ||
+        "Builder is creating this app. The workspace path becomes live after the branch is merged and deployed.",
+      path: `/${input.appId}`,
+      builderUrl: null,
+      branchName: null,
+      projectId: input.projectId,
+      contextId: context?.id ?? null,
+      contextLabel: context?.label ?? null,
+      visibility: input.visibility,
+      createdBy: creatorEmail,
+      owner: creatorEmail,
+      createdAt: now,
+      updatedAt: now,
+      expiresAt: pendingWorkspaceAppExpiresAt(now),
+    };
+
+    return {
+      ...raw,
+      pendingApps: [reservation, ...pendingApps].slice(0, MAX_PENDING_APPS),
+    };
+  });
+}
+
+async function releasePendingWorkspaceAppReservation(appId: string) {
+  const contextId = pendingWorkspaceAppContext()?.id ?? null;
+  const creatorEmail = currentOwnerEmail().trim().toLowerCase();
+  await mutateSetting(scopedSettingsKey(), async (current) => {
+    const raw =
+      current && typeof current === "object" && !Array.isArray(current)
+        ? current
+        : {};
+    const pendingApps = parsePendingWorkspaceApps(raw.pendingApps);
+    return {
+      ...raw,
+      pendingApps: pendingApps.filter((app) => {
+        if (app.id !== appId || app.contextId !== contextId) return true;
+        const owner = (app.createdBy ?? app.owner)?.trim().toLowerCase();
+        return owner !== creatorEmail;
+      }),
+    };
+  });
 }
 
 function parseArchivedAppIds(value: unknown): string[] {
@@ -890,6 +1014,7 @@ function pendingAppToSummary(app: PendingWorkspaceApp): WorkspaceAppSummary {
     protectedPaths: [],
     status: "pending",
     statusLabel: "Pending Builder branch",
+    visibility: app.visibility,
     builderUrl: app.builderUrl,
     branchName: app.branchName,
     createdAt: app.createdAt,
@@ -1064,7 +1189,6 @@ async function ensureWorkspaceAppRecords(
 
   const orgId = currentOrgId();
   const metadata = await readWorkspaceAppMetadataSettings();
-  const defaultVisibility = await workspaceAppDefaultVisibility();
   const db = getDbExec();
   const records = new Map<
     string,
@@ -1107,14 +1231,13 @@ async function ensureWorkspaceAppRecords(
           cleanOptionalText(override?.createdBy) ??
           cleanOptionalText(app.createdBy) ??
           "";
-        const hasTrustedCreationMetadata = Boolean(ownerEmail);
         const visibility: WorkspaceAppVisibility =
           override?.visibility === "private"
             ? "private"
             : override?.visibility === "org"
               ? "org"
-              : hasTrustedCreationMetadata
-                ? defaultVisibility
+              : app.visibility === "private"
+                ? "private"
                 : "org";
         const createdAt = appRecordTimestamp(app.createdAt);
         await db.execute({
@@ -1176,7 +1299,20 @@ async function filterWorkspaceAppsByAccess(
   const visibleIds = new Set<string>();
   const candidates: WorkspaceAppSummary[] = [];
   for (const app of apps) {
-    if (app.status === "pending" || app.isDispatch) {
+    if (app.status === "pending") {
+      const viewerEmail = userEmail.toLowerCase();
+      const creatorEmail = app.createdBy?.trim().toLowerCase();
+      const ownerEmail = app.owner?.trim().toLowerCase();
+      if (
+        app.visibility !== "private" ||
+        creatorEmail === viewerEmail ||
+        ownerEmail === viewerEmail
+      ) {
+        visibleIds.add(app.id);
+      }
+      continue;
+    }
+    if (app.isDispatch) {
       visibleIds.add(app.id);
       continue;
     }
@@ -1225,6 +1361,7 @@ async function recordPendingWorkspaceApp(input: {
   projectId: string | null;
   description: string;
   sourcePrompt: string;
+  visibility: WorkspaceAppVisibility;
   branchName?: string | null;
   builderUrl?: string | null;
 }) {
@@ -1239,6 +1376,16 @@ async function recordPendingWorkspaceApp(input: {
   const existing = pendingApps
     .filter((app) => !isPendingWorkspaceAppExpired(app))
     .find(samePendingEntry);
+  const creatorEmail = currentOwnerEmail();
+  const existingOwnerEmail = existing?.createdBy ?? existing?.owner;
+  if (
+    existingOwnerEmail &&
+    existingOwnerEmail.trim().toLowerCase() !== creatorEmail.toLowerCase()
+  ) {
+    throw new Error(
+      `Workspace app "${input.appId}" is already being created by another member.`,
+    );
+  }
   const next: PendingWorkspaceApp = {
     id: input.appId,
     name: titleCase(input.appId),
@@ -1251,8 +1398,9 @@ async function recordPendingWorkspaceApp(input: {
     projectId: input.projectId,
     contextId: context?.id ?? null,
     contextLabel: context?.label ?? null,
-    createdBy: currentOwnerEmail(),
-    owner: currentOwnerEmail(),
+    visibility: input.visibility,
+    createdBy: existing?.createdBy ?? existing?.owner ?? creatorEmail,
+    owner: existing?.owner ?? existing?.createdBy ?? creatorEmail,
     createdAt: existing?.createdAt || now,
     updatedAt: now,
     expiresAt: pendingWorkspaceAppExpiresAt(existing?.createdAt || now),
@@ -1271,8 +1419,9 @@ async function recordPendingWorkspaceApp(input: {
     description: input.description,
     generated: true,
     sourcePrompt: input.sourcePrompt,
-    updatedBy: currentOwnerEmail(),
-    createdBy: currentOwnerEmail(),
+    updatedBy: creatorEmail,
+    createdBy: next.createdBy,
+    visibility: input.visibility,
   });
 
   await recordAudit({
@@ -1829,6 +1978,9 @@ export async function scaffoldWorkspaceAppFromTemplate(input: {
   const appId = (input.appId?.trim() || template).toLowerCase();
   assertValidWorkspaceAppId(appId);
 
+  await assertPendingWorkspaceAppCreationAvailable(appId);
+  await assertWorkspaceAppIdRegisteredFree(appId);
+
   const workspaceRoot = findWorkspaceRoot();
   if (!workspaceRoot) {
     throw new Error("No agent-native workspace detected for scaffolding.");
@@ -1838,10 +1990,34 @@ export async function scaffoldWorkspaceAppFromTemplate(input: {
     throw new Error(`apps/${appId} already exists.`);
   }
 
-  const output = await runScaffoldCli({
-    cwd: workspaceRoot,
-    args: ["add-app", appId, "--template", template],
-  });
+  const visibility = await workspaceAppDefaultVisibility();
+  const creatorEmail = currentOwnerEmail();
+  let output: string;
+  try {
+    output = await runScaffoldCli({
+      cwd: workspaceRoot,
+      args: ["add-app", appId, "--template", template],
+    });
+  } catch (error) {
+    if (fs.existsSync(appDir)) {
+      fs.rmSync(appDir, { recursive: true, force: true });
+    }
+    throw error;
+  }
+
+  try {
+    await writeWorkspaceAppMetadataOverride({
+      appId,
+      updatedBy: creatorEmail,
+      createdBy: creatorEmail,
+      visibility,
+    });
+  } catch (error) {
+    if (fs.existsSync(appDir)) {
+      fs.rmSync(appDir, { recursive: true, force: true });
+    }
+    throw error;
+  }
 
   await recordAudit({
     action: "workspace-app.scaffolded",
@@ -1864,6 +2040,7 @@ export async function scaffoldWorkspaceAppFromTemplate(input: {
       protectedPaths: [],
       status: "ready",
       createdBy: currentOwnerEmail(),
+      visibility,
     },
   ]);
 
@@ -2391,6 +2568,9 @@ export async function startWorkspaceAppCreation(input: {
     }
   }
 
+  const creationVisibility = await workspaceAppDefaultVisibility();
+  await assertPendingWorkspaceAppCreationAvailable(initial.appId);
+
   const selectedKeys = input.secretIds?.length
     ? (await listSecretOptions())
         .filter((secret) => input.secretIds?.includes(secret.id))
@@ -2413,6 +2593,15 @@ export async function startWorkspaceAppCreation(input: {
     generateWorkspaceAppDescription(input.prompt, built.appId);
 
   if (isLocal) {
+    await writeWorkspaceAppMetadataOverride({
+      appId: built.appId,
+      description: appDescription,
+      generated: true,
+      sourcePrompt: input.prompt,
+      updatedBy: currentOwnerEmail(),
+      createdBy: currentOwnerEmail(),
+      visibility: creationVisibility,
+    });
     await requestSelectedVaultKeys({
       appId: built.appId,
       selectedKeys,
@@ -2501,6 +2690,12 @@ export async function startWorkspaceAppCreation(input: {
   }
 
   const builderUserId = builderCreds.userId || undefined;
+  await reservePendingWorkspaceApp({
+    appId: built.appId,
+    description: appDescription,
+    projectId: builderProjectId,
+    visibility: creationVisibility,
+  });
 
   let result: {
     branchName: string;
@@ -2518,6 +2713,14 @@ export async function startWorkspaceAppCreation(input: {
       }),
     );
   } catch (err) {
+    try {
+      await releasePendingWorkspaceAppReservation(built.appId);
+    } catch (cleanupError) {
+      console.warn(
+        "[dispatch] failed to release pending workspace app reservation",
+        cleanupError,
+      );
+    }
     const detail =
       err instanceof Error && err.message
         ? err.message
@@ -2538,6 +2741,7 @@ export async function startWorkspaceAppCreation(input: {
     projectId: builderProjectId,
     description: appDescription,
     sourcePrompt: input.prompt,
+    visibility: creationVisibility,
     branchName: result.branchName,
     builderUrl: result.url,
   });

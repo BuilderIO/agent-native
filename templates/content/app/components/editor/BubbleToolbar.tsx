@@ -60,6 +60,109 @@ type SelectionFillRange = {
 };
 
 type TextStyle = "paragraph" | 1 | 2 | 3 | 4 | 5 | 6;
+type ColorAttribute = "color" | "bgColor";
+type ColorName =
+  | "gray"
+  | "brown"
+  | "orange"
+  | "yellow"
+  | "green"
+  | "blue"
+  | "purple"
+  | "pink"
+  | "red";
+
+const COLOR_NAMES: ColorName[] = [
+  "gray",
+  "brown",
+  "orange",
+  "yellow",
+  "green",
+  "blue",
+  "purple",
+  "pink",
+  "red",
+];
+
+export function getSelectionNotionSpanAttribute(
+  editor: Editor,
+  attribute: ColorAttribute,
+): string | null | "mixed" {
+  const { from, to } = editor.state.selection;
+  const markType = editor.state.schema.marks.notionSpan;
+  if (!markType) return null;
+
+  let observed: string | null = null;
+  let hasObserved = false;
+  let mixed = false;
+
+  editor.state.doc.nodesBetween(from, to, (node, _position, parent) => {
+    if (!node.isText || !parent?.type.allowsMarkType(markType)) return;
+    const mark = node.marks.find((candidate) => candidate.type === markType);
+    const value = (mark?.attrs[attribute] as string | null | undefined) ?? null;
+    if (!hasObserved) {
+      observed = value;
+      hasObserved = true;
+    } else if (observed !== value) {
+      mixed = true;
+    }
+  });
+
+  return mixed ? "mixed" : observed;
+}
+
+export function selectionHasColorableText(
+  state: EditorState,
+  from: number,
+  to: number,
+) {
+  const markType = state.schema.marks.notionSpan;
+  if (!markType) return false;
+
+  let hasText = false;
+  state.doc.nodesBetween(from, to, (node, _position, parent) => {
+    if (node.isText && parent?.type.allowsMarkType(markType)) hasText = true;
+    return !hasText;
+  });
+  return hasText;
+}
+
+export function setSelectionNotionSpanAttribute(
+  editor: Editor,
+  attribute: ColorAttribute,
+  value: string | null,
+) {
+  const { state } = editor;
+  const { from, to } = state.selection;
+  const markType = state.schema.marks.notionSpan;
+  if (!markType || from === to) return false;
+
+  const transaction = state.tr;
+  state.doc.nodesBetween(from, to, (node, position, parent) => {
+    if (!node.isText || !parent?.type.allowsMarkType(markType)) return;
+    const start = Math.max(from, position);
+    const end = Math.min(to, position + node.nodeSize);
+    if (start >= end) return;
+
+    const existing = node.marks.find((mark) => mark.type === markType);
+    const attrs = { ...existing?.attrs, [attribute]: value };
+    transaction.removeMark(start, end, markType);
+    if (
+      attrs.color ||
+      attrs.bgColor ||
+      attrs.underline ||
+      attrs.href ||
+      (attrs.attrsJson && attrs.attrsJson !== "{}")
+    ) {
+      transaction.addMark(start, end, markType.create(attrs));
+    }
+  });
+
+  if (!transaction.docChanged) return false;
+  editor.view.dispatch(transaction);
+  editor.commands.focus();
+  return true;
+}
 
 function activeTextStyle(editor: Editor): TextStyle {
   for (const level of [1, 2, 3, 4, 5, 6] as const) {
@@ -119,8 +222,16 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
   const [showLinkInput, setShowLinkInput] = useState(false);
   const [linkUrl, setLinkUrl] = useState("");
   const [textStyleOpen, setTextStyleOpen] = useState(false);
+  const [colorOpen, setColorOpen] = useState(false);
+  const [colorRevision, setColorRevision] = useState(0);
+  const [recentColor, setRecentColor] = useState<{
+    attribute: ColorAttribute;
+    value: string;
+  } | null>(null);
   const textStyleSelection = useRef<{ from: number; to: number } | null>(null);
+  const colorSelection = useRef<{ from: number; to: number } | null>(null);
   const textStyleApplied = useRef(false);
+  const colorApplied = useRef(false);
   const restoreEditorFocusOnClose = useRef(false);
   const [textStyle, setTextStyle] = useState<TextStyle>(() =>
     activeTextStyle(editor),
@@ -129,8 +240,12 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
   useEffect(() => {
     const syncTextStyle = () => {
       setTextStyle(activeTextStyle(editor));
+      setColorRevision((revision) => revision + 1);
       const { from, to } = editor.state.selection;
-      if (from !== to) textStyleSelection.current = { from, to };
+      if (from !== to) {
+        textStyleSelection.current = { from, to };
+        colorSelection.current = { from, to };
+      }
     };
     editor.on("selectionUpdate", syncTextStyle);
     editor.on("transaction", syncTextStyle);
@@ -197,6 +312,82 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
     textStyleApplied.current = true;
     setTextStyle(style);
     setTextStyleOpen(false);
+  };
+
+  const applyColor = (attribute: ColorAttribute, value: string | null) => {
+    if (colorSelection.current) {
+      editor.commands.setTextSelection(colorSelection.current);
+    }
+    if (!setSelectionNotionSpanAttribute(editor, attribute, value)) return;
+    if (value) setRecentColor({ attribute, value });
+    colorApplied.current = true;
+    setColorOpen(false);
+  };
+
+  const activeTextColor = getSelectionNotionSpanAttribute(editor, "color");
+  const activeBackgroundColor = getSelectionNotionSpanAttribute(
+    editor,
+    "bgColor",
+  );
+  void colorRevision;
+
+  const renderColorChoice = (
+    attribute: ColorAttribute,
+    value: string | null,
+  ) => {
+    const sectionLabel = t(
+      attribute === "color" ? "editor.textColor" : "editor.backgroundColor",
+    );
+    const colorName = value?.replace(/_bg$/, "") as ColorName | undefined;
+    const choiceLabel = colorName
+      ? t(`editor.color.${colorName}`)
+      : t("editor.defaultColor");
+    const activeValue =
+      attribute === "color" ? activeTextColor : activeBackgroundColor;
+    const isActive = activeValue !== "mixed" && activeValue === value;
+
+    return (
+      <button
+        key={`${attribute}-${value ?? "default"}`}
+        type="button"
+        role="menuitemradio"
+        aria-checked={isActive}
+        aria-label={`${sectionLabel}: ${choiceLabel}`}
+        onPointerDown={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          applyColor(attribute, value);
+        }}
+        onClick={(event) => {
+          if (event.detail === 0) applyColor(attribute, value);
+        }}
+        className={cn(
+          "relative flex size-8 items-center justify-center rounded-md border border-border bg-background text-sm font-semibold hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          isActive && "ring-2 ring-foreground",
+        )}
+      >
+        {attribute === "color" ? (
+          <span className={colorName ? `notion-block-color--${colorName}` : ""}>
+            A
+          </span>
+        ) : (
+          <span
+            className={cn(
+              "size-5 rounded border border-border",
+              colorName && `notion-block-bg--${colorName}`,
+            )}
+          />
+        )}
+        {isActive ? (
+          <IconCheck
+            aria-hidden="true"
+            className="absolute -end-1 -top-1 rounded-full bg-foreground p-0.5 text-background"
+            size={12}
+            strokeWidth={3}
+          />
+        ) : null}
+      </button>
+    );
   };
 
   const openLinkInput = useCallback(() => {
@@ -318,6 +509,15 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
   };
 
   const items = [
+    { type: "text-style" as const },
+    ...(selectionHasColorableText(
+      editor.state,
+      editor.state.selection.from,
+      editor.state.selection.to,
+    )
+      ? [{ type: "color" as const }]
+      : []),
+    { type: "divider" as const },
     {
       icon: IconBold,
       title: t("editor.bold"),
@@ -342,8 +542,6 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
       action: () => editor.chain().focus().toggleCode().run(),
       isActive: () => editor.isActive("code"),
     },
-    { type: "divider" as const },
-    { type: "text-style" as const },
     { type: "divider" as const },
     {
       icon: IconLink,
@@ -524,6 +722,103 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
                           </button>
                         );
                       })}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              );
+            }
+            if ("type" in item && item.type === "color") {
+              return (
+                <Popover
+                  key="color"
+                  open={colorOpen}
+                  onOpenChange={(open) => {
+                    if (open) {
+                      colorApplied.current = false;
+                      restoreEditorFocusOnClose.current = false;
+                      const { from, to } = editor.state.selection;
+                      if (from !== to) colorSelection.current = { from, to };
+                    }
+                    setColorOpen(open);
+                  }}
+                >
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      aria-label={t("editor.color.label")}
+                      className={cn(
+                        "flex size-8 items-center justify-center rounded text-sm font-semibold text-popover-foreground/85 hover:bg-accent hover:text-accent-foreground",
+                        colorOpen && "bg-accent text-accent-foreground",
+                      )}
+                    >
+                      A
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    portalled={false}
+                    align="start"
+                    sideOffset={24}
+                    className="w-52 p-2"
+                    onEscapeKeyDown={() => {
+                      restoreEditorFocusOnClose.current = true;
+                      window.setTimeout(() => editor.commands.focus(), 0);
+                    }}
+                    onCloseAutoFocus={(event) => {
+                      if (
+                        colorApplied.current ||
+                        restoreEditorFocusOnClose.current
+                      ) {
+                        event.preventDefault();
+                      }
+                      if (restoreEditorFocusOnClose.current) {
+                        editor.commands.focus();
+                      }
+                      colorApplied.current = false;
+                      restoreEditorFocusOnClose.current = false;
+                    }}
+                  >
+                    {recentColor ? (
+                      <div className="mb-2">
+                        <div className="mb-1 text-xs font-medium text-muted-foreground">
+                          {t("editor.color.recentlyUsed")}
+                        </div>
+                        <div role="menu">
+                          {renderColorChoice(
+                            recentColor.attribute,
+                            recentColor.value,
+                          )}
+                        </div>
+                      </div>
+                    ) : null}
+                    <div className="mb-2">
+                      <div className="mb-1 text-xs font-medium text-muted-foreground">
+                        {t("editor.textColor")}
+                      </div>
+                      <div
+                        role="menu"
+                        aria-label={t("editor.textColor")}
+                        className="grid grid-cols-5 gap-1"
+                      >
+                        {renderColorChoice("color", null)}
+                        {COLOR_NAMES.map((name) =>
+                          renderColorChoice("color", name),
+                        )}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="mb-1 text-xs font-medium text-muted-foreground">
+                        {t("editor.backgroundColor")}
+                      </div>
+                      <div
+                        role="menu"
+                        aria-label={t("editor.backgroundColor")}
+                        className="grid grid-cols-5 gap-1"
+                      >
+                        {renderColorChoice("bgColor", null)}
+                        {COLOR_NAMES.map((name) =>
+                          renderColorChoice("bgColor", `${name}_bg`),
+                        )}
+                      </div>
                     </div>
                   </PopoverContent>
                 </Popover>

@@ -1,5 +1,35 @@
 # @agent-native/core
 
+## 0.164.20
+
+### Patch Changes
+
+- bfe4163: Report Telegram webhook registration failures instead of treating rejected `setWebhook` responses as successful setup.
+
+## 0.164.19
+
+### Patch Changes
+
+- 5f4031b: Restore ownerless legacy app visibility while preserving explicit private defaults for new apps.
+
+## 0.164.18
+
+### Patch Changes
+
+- b34de4c: Report Telegram webhook registration failures instead of treating rejected `setWebhook` responses as successful setup.
+
+## 0.164.17
+
+### Patch Changes
+
+- d492462: Support TipTap mark rule helpers in generated SSR stubs.
+
+## 0.164.16
+
+### Patch Changes
+
+- 7d72340: Keep desktop Google exchanges alive through longer passkey ceremonies while retaining one-time verifier binding.
+
 ## 0.164.15
 
 ### Patch Changes
