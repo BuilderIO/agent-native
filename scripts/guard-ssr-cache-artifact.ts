@@ -42,20 +42,11 @@ export type PrerenderTarget = {
 };
 
 function readFileSafe(file: string): string | null {
-  try {
-    return readFileSync(file, "utf8");
-  } catch {
-    return null;
-  }
+  return existsSync(file) ? readFileSync(file, "utf8") : null;
 }
 
 function walk(dir: string): string[] {
-  let entries;
-  try {
-    entries = readdirSync(dir, { withFileTypes: true });
-  } catch {
-    return [];
-  }
+  const entries = readdirSync(dir, { withFileTypes: true });
 
   const files: string[] = [];
   for (const entry of entries) {

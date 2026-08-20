@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -69,18 +69,10 @@ function collectNetlifyConfigsFrom(repoRoot: string): string[] {
   const templatesDir = path.join(repoRoot, "templates");
   for (const entry of readdirSync(templatesDir)) {
     const file = path.join(templatesDir, entry, "netlify.toml");
-    try {
-      if (statSync(file).isFile()) files.push(file);
-    } catch {
-      // A template without a Netlify project is not part of this check.
-    }
+    if (existsSync(file) && statSync(file).isFile()) files.push(file);
   }
   const docsFile = path.join(repoRoot, "packages/docs/netlify.toml");
-  try {
-    if (statSync(docsFile).isFile()) files.push(docsFile);
-  } catch {
-    // The docs package is optional in narrowly extracted workspaces.
-  }
+  if (existsSync(docsFile) && statSync(docsFile).isFile()) files.push(docsFile);
   return files.sort();
 }
 
