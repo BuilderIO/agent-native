@@ -226,6 +226,238 @@ describe("mergePendingChangelog", () => {
     expect(next).toContain("A folder-only fix.");
   });
 
+  it("merges pending entries into existing release categories", () => {
+    const existing = `# Changelog
+
+## 2026-08-20
+
+### Improved
+
+- Existing overlay note.
+
+### Fixed
+
+- Existing recovery note.
+`;
+    const next = mergePendingChangelog(existing, [
+      { type: "improved", text: "New overlay note.", date: "2026-08-20" },
+      { type: "fixed", text: "New recovery note.", date: "2026-08-20" },
+    ]);
+
+    expect(next.match(/^### Improved$/gm)).toHaveLength(1);
+    expect(next.match(/^### Fixed$/gm)).toHaveLength(1);
+    expect(next).toContain("- New overlay note.");
+    expect(next).toContain("- Existing overlay note.");
+    expect(next).toContain("- New recovery note.");
+    expect(next).toContain("- Existing recovery note.");
+
+    const rerun = mergePendingChangelog(next, [
+      { type: "improved", text: "New overlay note.", date: "2026-08-20" },
+      { type: "fixed", text: "New recovery note.", date: "2026-08-20" },
+    ]);
+    expect(rerun.match(/^### Improved$/gm)).toHaveLength(1);
+    expect(rerun.match(/^### Fixed$/gm)).toHaveLength(1);
+  });
+
+  it("deduplicates identical pending entries in one batch", () => {
+    const next = mergePendingChangelog("", [
+      { type: "fixed", text: "One fix.", date: "2026-08-20" },
+      { type: "fixed", text: "One fix.", date: "2026-08-20" },
+    ]);
+
+    expect(next.match(/One fix\./g)).toHaveLength(1);
+  });
+
+  it("does not treat fenced headings as changelog categories", () => {
+    const existing = `# Changelog
+
+## 2026-08-20
+
+### Improved
+
+- Existing note.
+
+\`\`\`\`md
+\`\`\`md
+### Not a category
+\`\`\`
+\`\`\`\`
+`;
+    const next = mergePendingChangelog(existing, [
+      { type: "improved", text: "New note.", date: "2026-08-20" },
+    ]);
+
+    expect(next.match(/^### Improved$/gm)).toHaveLength(1);
+    expect(next).toContain("### Not a category");
+  });
+
+  it("does not treat HTML-comment headings as changelog categories", () => {
+    const existing = `# Changelog
+
+## 2026-08-20
+
+### Improved
+
+<!--
+### Improved
+- Hidden note.
+-->
+
+- Existing note.
+`;
+    const next = mergePendingChangelog(existing, [
+      { type: "improved", text: "New note.", date: "2026-08-20" },
+    ]);
+
+    expect(next.match(/^### Improved$/gm)).toHaveLength(2);
+    expect(next).toContain("<!--\n### Improved\n- Hidden note.\n-->");
+    expect(next.indexOf("New note.")).toBeLessThan(next.indexOf("<!--"));
+    expect(next.indexOf("Existing note.")).toBeGreaterThan(next.indexOf("-->"));
+  });
+
+  it("preserves unsupported H3 lines in multiline entries", () => {
+    const next = mergePendingChangelog("", [
+      {
+        type: "improved",
+        text: "A note\n### Important detail\nStill part of the note.",
+        date: "2026-08-20",
+      },
+    ]);
+
+    expect(next).toContain(
+      "- A note\n  ### Important detail\n  Still part of the note.",
+    );
+    expect(next.match(/^### /gm)).toHaveLength(1);
+  });
+
+  it("preserves inline comments on category headings", () => {
+    const existing = `# Changelog
+
+## 2026-08-20
+
+### Improved <!-- release note -->
+
+- Existing note.
+`;
+    const next = mergePendingChangelog(existing, [
+      { type: "improved", text: "New note.", date: "2026-08-20" },
+    ]);
+
+    expect(next).toContain("### Improved <!-- release note -->");
+    expect(next).toContain("- Existing note.");
+    expect(next).toContain("- New note.");
+  });
+
+  it("does not enter HTML-comment state from fenced code", () => {
+    const existing = `# Changelog
+
+## 2026-08-20
+
+### Improved
+
+\`\`\`\`html <!-- literal example
+### Not a category
+\`\`\`\`
+
+### Fixed
+
+- Existing fix.
+`;
+    const next = mergePendingChangelog(existing, [
+      { type: "fixed", text: "New fix.", date: "2026-08-20" },
+    ]);
+
+    expect(next.match(/^### Fixed$/gm)).toHaveLength(1);
+    expect(next).toContain("### Not a category");
+    expect(next).toContain("- Existing fix.");
+    expect(next).toContain("- New fix.");
+  });
+
+  it("ignores HTML markers inside inline code", () => {
+    const existing = `# Changelog
+
+## 2026-08-20
+
+### Improved
+
+- Docs: \`<!-- literal marker\`
+
+### Fixed
+
+- Existing fix.
+`;
+    const next = mergePendingChangelog(existing, [
+      { type: "fixed", text: "New fix.", date: "2026-08-20" },
+    ]);
+
+    expect(next.match(/^### Fixed$/gm)).toHaveLength(1);
+    expect(next).toContain("- Docs: `<!-- literal marker`");
+    expect(next).toContain("- Existing fix.");
+    expect(next).toContain("- New fix.");
+  });
+
+  it("tracks inline-code spans across lines", () => {
+    const existing = `# Changelog
+
+## 2026-08-20
+
+### Improved
+
+- Docs: \`<!-- literal marker
+### Not a category
+still code\`
+
+### Fixed
+
+- Existing fix.
+`;
+    const next = mergePendingChangelog(existing, [
+      { type: "fixed", text: "New fix.", date: "2026-08-20" },
+    ]);
+
+    expect(next.match(/^### Fixed$/gm)).toHaveLength(1);
+    expect(next).toContain("### Not a category");
+    expect(next).toContain("still code`");
+    expect(next).toContain("- Existing fix.");
+    expect(next).toContain("- New fix.");
+  });
+
+  it("merges indented category headings", () => {
+    const existing = `# Changelog
+
+## 2026-08-20
+
+  ### Improved
+
+- Existing note.
+`;
+    const next = mergePendingChangelog(existing, [
+      { type: "improved", text: "New note.", date: "2026-08-20" },
+    ]);
+
+    expect(next.match(/^### Improved$/gm)).toHaveLength(1);
+    expect(next).toContain("- Existing note.");
+    expect(next).toContain("- New note.");
+  });
+
+  it("normalizes category headings with closing markers", () => {
+    const existing = `# Changelog
+
+## 2026-08-20
+
+### Improved ###
+
+- Existing note.
+`;
+    const next = mergePendingChangelog(existing, [
+      { type: "improved", text: "New note.", date: "2026-08-20" },
+    ]);
+
+    expect(next.match(/^### Improved$/gm)).toHaveLength(1);
+    expect(next).toContain("- Existing note.");
+    expect(next).toContain("- New note.");
+  });
+
   it("deduplicates multiline folder entries after release rendering", () => {
     const next = mergePendingChangelog(SAMPLE, [
       {
