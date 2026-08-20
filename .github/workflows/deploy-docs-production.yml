@@ -91,12 +91,18 @@ jobs:
             try {
               body = text ? JSON.parse(text) : null;
             } catch {
-              body = text;
+              if (!response.ok) {
+                throw new Error(`${label} failed with HTTP ${response.status}: ${text}`);
+              }
+              throw new Error(`${label} returned an invalid JSON response.`);
             }
             if (!response.ok) {
               throw new Error(
                 `${label} failed with HTTP ${response.status}: ${typeof body === 'string' ? body : JSON.stringify(body)}`,
               );
+            }
+            if (!body || typeof body !== 'object' || Array.isArray(body)) {
+              throw new Error(`${label} returned an invalid JSON object.`);
             }
             return body;
           }

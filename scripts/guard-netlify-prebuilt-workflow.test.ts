@@ -538,6 +538,9 @@ describe("production Netlify site concurrency guard", () => {
     assert(disable);
     const run = String(disable.run);
     assert.match(run, /'Content-Type': 'application\/json'/);
+    assert.match(run, /returned an invalid JSON response/);
+    assert.match(run, /returned an invalid JSON object/);
+    assert.doesNotMatch(run, /body = text;/);
     assert.match(run, /hasGitConnectedBuild/);
     assert.match(run, /current\.git_provider/);
     assert.match(run, /current\.repo\?\.repo_path/);
