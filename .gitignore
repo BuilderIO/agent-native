@@ -137,3 +137,8 @@ packages/core/corpus.tmp-*/
 
 # Throwaway PPTX/PDF fidelity verification screenshots (regenerable; kept on disk, not in git)
 .fidelity-shots/
+
+# Beta E2E browser suite: reports and per-run traces are regenerable, and
+# e2e/beta/.auth holds live session cookies (already covered by **/.auth/).
+e2e/beta/playwright-report/
+e2e/beta/test-results/

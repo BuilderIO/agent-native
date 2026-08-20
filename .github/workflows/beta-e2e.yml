@@ -1,0 +1,135 @@
+name: Beta E2E (browser)
+
+# Manual gate for "is beta safe to promote to production?".
+#
+# Drives the deployed beta fleet with a real browser. Two gating lanes decide
+# the answer; a third advisory lane reports real-but-not-blocking findings so a
+# red run always means "do not promote".
+#
+# Deliberately workflow_dispatch only: the authenticated lane spends model
+# tokens against a dedicated OpenAI key, and most beta apps share a database
+# with production, so this is a decision someone makes, not a thing that fires
+# on every push.
+
+on:
+  workflow_dispatch:
+    inputs:
+      apps:
+        description: 'Beta apps to test ("all", or e.g. "slides,analytics,chat")'
+        required: false
+        default: "all"
+      lane:
+        description: "Which lanes to run"
+        required: false
+        default: "public+authed"
+        type: choice
+        options:
+          - public
+          - public+authed
+      grep:
+        description: "Only run tests whose title matches this (optional)"
+        required: false
+        default: ""
+
+concurrency:
+  # One promotion check at a time. Two concurrent runs would sign in as the
+  # same identity and interleave agent turns in the same threads.
+  group: beta-e2e
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  beta-e2e:
+    name: Beta fleet E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      # Dispatch inputs reach the shell through the environment, never through
+      # expression interpolation into a `run:` line: an expression is expanded
+      # into the script text before bash parses it, so a crafted input would run
+      # as a command in a step that has both secrets in scope.
+      BETA_E2E_APPS: ${{ inputs.apps }}
+      BETA_E2E_GREP: ${{ inputs.grep }}
+      BETA_E2E_EMAIL: ${{ secrets.BETA_E2E_EMAIL }}
+      BETA_E2E_SESSION_TOKENS: ${{ secrets.BETA_E2E_SESSION_TOKENS }}
+      BETA_E2E_OPENAI_API_KEY: ${{ secrets.BETA_E2E_OPENAI_API_KEY }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Restore Playwright browser cache
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: playwright-${{ runner.os }}-
+
+      - name: Typecheck the suite
+        # Fail before the browser starts and before any token is spent: `e2e/`
+        # is not a workspace package, so the repo-wide typecheck never sees it.
+        run: pnpm typecheck:e2e
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --only-shell chromium
+
+      - name: Public sweep
+        # No credentials, no model spend, every host. If this is red, promoting
+        # would ship a fleet users cannot sign into or load.
+        env:
+          BETA_E2E_AUTHED: "0"
+        run: |
+          if [ -n "$BETA_E2E_GREP" ]; then
+            pnpm e2e:beta --project=public --grep "$BETA_E2E_GREP"
+          else
+            pnpm e2e:beta --project=public
+          fi
+
+      - name: Authenticated journeys
+        if: ${{ inputs.lane != 'public' }}
+        # Requires BETA_E2E_SESSION_TOKENS + BETA_E2E_OPENAI_API_KEY. Global
+        # setup fails loudly if either is missing rather than degrading to an
+        # anonymous run that would pass without testing anything.
+        env:
+          BETA_E2E_AUTHED: "1"
+        run: |
+          if [ -n "$BETA_E2E_GREP" ]; then
+            pnpm e2e:beta --project=authed --project=journeys --grep "$BETA_E2E_GREP"
+          else
+            pnpm e2e:beta --project=authed --project=journeys
+          fi
+
+      - name: Advisory findings (non-gating)
+        # Always runs: it costs no credentials and no tokens, and findings that
+        # stop being reported stop being fixed. continue-on-error keeps a red
+        # here from meaning "do not promote".
+        if: ${{ always() }}
+        continue-on-error: true
+        env:
+          BETA_E2E_AUTHED: "0"
+        run: pnpm e2e:beta --project=advisory
+
+      - name: Upload report
+        if: ${{ always() }}
+        # Traces from the authenticated lane record real requests, so they
+        # carry the e2e account's live session cookie. That is why this suite
+        # insists on a dedicated identity and why retention is short — anyone
+        # with repo read access can download these.
+        # e2e/beta/.auth is deliberately not in this list.
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: beta-e2e-${{ github.run_id }}
+          path: |
+            e2e/beta/playwright-report/
+            e2e/beta/test-results/
+          if-no-files-found: warn
+          retention-days: 7
