@@ -1,3 +1,4 @@
+import fs from "fs";
 import os from "os";
 import path from "path";
 
@@ -38,7 +39,13 @@ function createFakeServer() {
 async function setupPlugin(root: string) {
   const plugin = agentsBundlePlugin();
   const fake = createFakeServer();
-  (plugin.configResolved as (config: { root: string }) => void)({ root });
+  (
+    plugin.configResolved as (config: {
+      command: "build";
+      mode: string;
+      root: string;
+    }) => void
+  )({ command: "build", mode: "development", root });
   await (plugin.configureServer as (server: unknown) => Promise<void> | void)(
     fake.server,
   );
@@ -47,6 +54,33 @@ async function setupPlugin(root: string) {
   };
   return { fake, fire };
 }
+
+it("loads mode-specific environment aliases for the agents bundle", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "agents-bundle-env-"));
+  const instructionPath = path.join(root, "custom", "AGENTS.md");
+  fs.mkdirSync(path.dirname(instructionPath), { recursive: true });
+  fs.writeFileSync(instructionPath, "# Custom runtime instructions\n");
+  fs.writeFileSync(
+    path.join(root, ".env.production"),
+    "AGENT_NATIVE_CONFIG_INSTRUCTIONS_RUNTIME=custom/AGENTS.md\n",
+  );
+
+  const plugin = agentsBundlePlugin();
+  const fake = createFakeServer();
+  (
+    plugin.configResolved as (config: {
+      command: "build";
+      mode: string;
+      root: string;
+    }) => void
+  )({ command: "build", mode: "production", root });
+  await (plugin.configureServer as (server: unknown) => Promise<void> | void)(
+    fake.server,
+  );
+
+  expect(fake.server.watcher.add).toHaveBeenCalledWith(instructionPath);
+  fs.rmSync(root, { recursive: true, force: true });
+});
 
 describe("agentsBundlePlugin full-reload coalescing", () => {
   const root = path.join(os.tmpdir(), "agents-bundle-plugin-spec-root");

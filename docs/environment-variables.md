@@ -29,9 +29,14 @@ The focused user-facing guides remain authoritative for their areas:
 For committed, non-secret app defaults such as first-run onboarding, prefer
 `agent-native.config.ts` and use the [Agent-Native app configuration
 guide](../packages/core/docs/content/agent-native-config.mdx) instead of adding
-another `VITE_*` flag. `agent-native.ts`, `agent-native.mts`,
-`agent-native.config.mts`, and `agent-native.json` remain supported. Keep credentials
-and deployment-specific values in the environment or scoped secret store.
+another standalone `VITE_*` or `AGENT_NATIVE_*` flag. A public config path can
+use the deterministic `AGENT_NATIVE_CONFIG_<PATH>` alias when its non-secret
+value must vary by deployment. `AGENT_NATIVE_CONFIG` supplies a complete JSON
+object, and every supported nested path accepts a JSON fragment. The resolved
+value is public browser configuration. `agent-native.ts`, `agent-native.mts`,
+`agent-native.config.mts`, and `agent-native.json` remain supported. Keep
+credentials and deployment-specific server values in the environment or
+scoped secret store.
 
 `runtime.environment.required` records environment variable names only. The
 resolved config is public browser configuration, so set the corresponding

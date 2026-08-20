@@ -150,7 +150,7 @@ export function runUngroupSelection({
     );
   }
 
-  applyLocalContentUpdate(content, { skipPreview: true });
+  applyLocalContentUpdate(content, { forcePreviewFullDocument: true });
 
   const finalProjection = buildCodeLayerProjection(content);
   const releasedNodes = finalProjection.nodes.filter((n) => {

@@ -1,5 +1,14 @@
 # @agent-native/core
 
+## 0.166.1
+
+### Patch Changes
+
+- 8fd035c: Keep authenticated Electron app sessions on their configured production lane instead of applying the browser-only employee beta redirect.
+- Updated dependencies [10de7b9]
+  - @agent-native/recap-cli@0.5.6
+  - @agent-native/toolkit@0.16.9
+
 ## 0.166.0
 
 ### Minor Changes
