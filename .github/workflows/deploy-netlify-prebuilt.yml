@@ -801,8 +801,13 @@ jobs:
             return body;
           }
 
-          if (process.env.cutoverWasPaused !== "true") {
-            console.log("No production cutover state was acquired; cleanup is not needed.");
+          if (
+            process.env.cutoverWasPaused !== "true" ||
+            !process.env.cutoverPublishedDeployId
+          ) {
+            console.log(
+              "No production deploy lock state was recorded; lock cleanup is not needed.",
+            );
             process.exit(0);
           }
           const originalDeployId = process.env.cutoverPublishedDeployId;

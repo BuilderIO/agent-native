@@ -10,6 +10,7 @@ import { parse } from "yaml";
 
 import {
   PRODUCTION_SITE_GROUP,
+  validateProductionPurgeCondition,
   validateReusableWorkflowConcurrency,
   validateProductionSiteConcurrency,
 } from "./guard-netlify-prebuilt-workflow.ts";
@@ -115,6 +116,24 @@ describe("production Netlify site concurrency guard", () => {
       /JSON\.stringify\(\{ site_id: process\.env\.NETLIFY_SITE_ID \}\)/,
     );
     assert.match(String(purge.run), /if \(!response\.ok\)/);
+  });
+
+  it("rejects a purge step that is no longer production-only and success-gated", () => {
+    const workflow = readWorkflow(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+    );
+    const jobs = workflow.jobs as Record<string, Workflow>;
+    const steps = (jobs.deploy.steps as Array<Workflow>).filter(Boolean);
+    const purge = steps.find(
+      (step) => step.name === "Purge the production Netlify cache",
+    );
+
+    assert(purge);
+    const mutatedIf = String(purge.if).replace(
+      "inputs.target == 'production' && inputs.deploy && inputs.deploy_mode == 'production' && success()",
+      "inputs.deploy",
+    );
+    assert.notDeepEqual(validateProductionPurgeCondition(mutatedIf), []);
   });
 
   it("ignores stale ready deploys after a locked cutover", () => {
@@ -290,6 +309,10 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(
       String(cleanup?.run),
       /process\.env\.cutoverWasPaused !== "true"/,
+    );
+    assert.match(
+      String(cleanup?.run),
+      /!process\.env\.cutoverPublishedDeployId/,
     );
     assert.match(String(cleanup?.run), /currentDeployId === newDeployId/);
     assert.match(String(cleanup?.run), /newly published deploy/);

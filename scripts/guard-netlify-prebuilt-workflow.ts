@@ -47,6 +47,21 @@ export function validateReusableWorkflowConcurrency(
   return [];
 }
 
+export function validateProductionPurgeCondition(ifValue: unknown): string[] {
+  if (
+    typeof ifValue !== "string" ||
+    !ifValue.includes("inputs.target == 'production'") ||
+    !ifValue.includes("inputs.deploy") ||
+    !ifValue.includes("inputs.deploy_mode == 'production'") ||
+    !ifValue.includes("success()")
+  ) {
+    return [
+      `${reusablePath} production cache purge must run only after a successful production deploy`,
+    ];
+  }
+  return [];
+}
+
 export function validateProductionSiteConcurrency(workflows: {
   production: Record<string, unknown>;
   manage: Record<string, unknown>;
@@ -234,6 +249,9 @@ if (
     `${reusablePath} must always attempt automatic-build restoration after a production cutover`,
   );
 }
+issues.push(
+  ...validateProductionPurgeCondition(reusableSteps[parsedPurgeIndex]?.if),
+);
 
 const uploadStart = reusable.indexOf("name: Upload the prebuilt deploy");
 const uploadEnd = reusable.indexOf(
@@ -352,9 +370,12 @@ if (
     `${reusablePath} production resume must leave automatic builds unchanged when pause state was not acquired`,
   );
 }
-if (!cleanup.includes(noCutoverStateCheck)) {
+if (
+  !cleanup.includes(noCutoverStateCheck) ||
+  !cleanup.includes("!process.env.cutoverPublishedDeployId")
+) {
   issues.push(
-    `${reusablePath} production cleanup must leave lock state unchanged when pause state was not acquired`,
+    `${reusablePath} production cleanup must leave lock state unchanged without a recorded unlock state`,
   );
 }
 if (uploadStart < 0 || uploadEnd <= uploadStart) {
