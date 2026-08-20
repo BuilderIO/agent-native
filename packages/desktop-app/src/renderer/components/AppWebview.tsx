@@ -189,6 +189,19 @@ export function resolveDesktopIdentityLazySyncStatus(
   return synchronized ? status : "failed";
 }
 
+export function shouldDeferDesktopAppWebviewLoad(input: {
+  eligible: boolean;
+  enabled: boolean | null;
+  sessionReady: boolean;
+  status: DesktopIdentityStatus | "checking";
+}): boolean {
+  return (
+    input.eligible &&
+    input.enabled !== false &&
+    (!input.sessionReady || input.status !== "signed-in")
+  );
+}
+
 const DESKTOP_IDENTITY_STATUS_CACHE_TTL_MS = 5 * 60 * 1000;
 const DESKTOP_IDENTITY_STATUS_POLL_INTERVAL_MS = 750;
 const DESKTOP_IDENTITY_STATUS_POLL_ATTEMPTS = 40;
@@ -542,9 +555,16 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       active: isActive,
       enabled: desktopIdentityEnabled,
     });
+    const deferDesktopWebviewLoad = shouldDeferDesktopAppWebviewLoad({
+      eligible: desktopIdentityGateEligible,
+      enabled: desktopIdentityEnabled,
+      sessionReady: desktopIdentitySessionReady,
+      status: desktopIdentityStatus,
+    });
     const optimizeDepRecoveryRef = useRef(false);
     const prevUrlRef = useRef(url);
     const prevUrlOpenNonceRef = useRef(urlOpenNonce);
+    const prevDesktopWebviewDeferredRef = useRef(deferDesktopWebviewLoad);
     const prevIsActiveRef = useRef(isActive);
     const onTitleChangeRef = useRef(onTitleChange);
     const onAuthStateChangeRef = useRef(onAuthStateChange);
@@ -1127,9 +1147,12 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       if (!wv || app.placeholder) {
         return;
       }
+      const wasDeferred = prevDesktopWebviewDeferredRef.current;
+      prevDesktopWebviewDeferredRef.current = deferDesktopWebviewLoad;
+      if (deferDesktopWebviewLoad) return;
       const urlChanged = prevUrlRef.current !== url;
       const openNonceChanged = prevUrlOpenNonceRef.current !== urlOpenNonce;
-      if (!urlChanged && !openNonceChanged) return;
+      if (!wasDeferred && !urlChanged && !openNonceChanged) return;
 
       prevUrlRef.current = url;
       prevUrlOpenNonceRef.current = urlOpenNonce;
@@ -1162,7 +1185,14 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       setIsLoading(true);
       setSlowLoad(false);
       wv.setAttribute("src", url);
-    }, [url, urlOpenNonce, urlOpenSoft, urlPath, app.placeholder]);
+    }, [
+      url,
+      urlOpenNonce,
+      urlOpenSoft,
+      urlPath,
+      app.placeholder,
+      deferDesktopWebviewLoad,
+    ]);
 
     // If the webview hasn't fired dom-ready within a few seconds, surface
     // a "still loading" hint. If it's still not ready after a bit longer,
@@ -1321,7 +1351,9 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
                   partitionKey,
                 }),
               );
-              wv.setAttribute("src", url);
+              if (!deferDesktopWebviewLoad) {
+                wv.setAttribute("src", url);
+              }
               container.appendChild(wv);
               webviewRef.current = wv;
             }}
