@@ -63,16 +63,19 @@ export async function mutateUserSetting(
   const normalized = userKey(email, key);
   const legacy = legacyUserKey(email, key);
   let migratedLegacy = false;
+  let migratedLegacyValue: Record<string, unknown> | null = null;
   const result = await mutateSetting(
     normalized,
     async (current) => {
       if (current !== null) {
         migratedLegacy = false;
+        migratedLegacyValue = null;
         return updater(current);
       }
       const legacyCurrent =
         legacy === normalized ? null : await getSetting(legacy);
       migratedLegacy = legacyCurrent !== null;
+      migratedLegacyValue = legacyCurrent;
       return updater(legacyCurrent);
     },
     options,
@@ -82,15 +85,17 @@ export async function mutateUserSetting(
   // If the legacy row disappeared after the updater read it, a concurrent
   // delete won the race. Remove only our exact canonical write; never delete
   // a newer canonical value from another writer.
-  if ((await getSetting(legacy)) === null) {
+  if (
+    !migratedLegacyValue ||
+    !(await deleteSettingIfValue(legacy, migratedLegacyValue, options))
+  ) {
+    if ((await getSetting(legacy)) !== null) return result;
     const removed = await deleteSettingIfValue(normalized, result, options);
     if (!removed) {
       throw new Error("User setting changed while migrating its legacy key");
     }
     throw new Error("User setting was deleted while migrating its legacy key");
   }
-
-  await deleteSetting(legacy, options);
   return result;
 }
 

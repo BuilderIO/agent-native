@@ -28,6 +28,7 @@ let previousDisableRecurringJobs: string | undefined;
 let previousNitroPreset: string | undefined;
 let previousVercel: string | undefined;
 let previousViteWorkspaceAppsJson: string | undefined;
+let previousViteAgentNativeFeedbackUrl: string | undefined;
 let previousViteAppBasePath: string | undefined;
 let previousViteWorkspaceAppAudience: string | undefined;
 let previousViteWorkspaceAppProtectedPaths: string | undefined;
@@ -74,6 +75,8 @@ beforeEach(() => {
   previousVercel = process.env.VERCEL;
   previousViteWorkspaceAppsJson =
     process.env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON;
+  previousViteAgentNativeFeedbackUrl =
+    process.env.VITE_AGENT_NATIVE_FEEDBACK_URL;
   previousViteAppBasePath = process.env.VITE_APP_BASE_PATH;
   previousViteWorkspaceAppAudience =
     process.env.VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE;
@@ -107,6 +110,7 @@ beforeEach(() => {
   delete process.env.NITRO_PRESET;
   delete process.env.VERCEL;
   delete process.env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON;
+  delete process.env.VITE_AGENT_NATIVE_FEEDBACK_URL;
   delete process.env.VITE_APP_BASE_PATH;
   delete process.env.VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE;
   delete process.env.VITE_AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS;
@@ -146,6 +150,10 @@ afterEach(() => {
     "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
     previousViteWorkspaceAppsJson,
   );
+  restoreEnv(
+    "VITE_AGENT_NATIVE_FEEDBACK_URL",
+    previousViteAgentNativeFeedbackUrl,
+  );
   restoreEnv("VITE_APP_BASE_PATH", previousViteAppBasePath);
   restoreEnv(
     "VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE",
@@ -181,6 +189,23 @@ afterEach(() => {
 });
 
 describe("workspace deploy", () => {
+  it("preserves an explicitly configured hosted feedback URL", async () => {
+    process.env.VITE_AGENT_NATIVE_FEEDBACK_URL =
+      "https://feedback.example.com/f/workspace/form-id";
+    makeWorkspaceApp(tmpDir, "dispatch");
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      args: ["--preset=netlify", "--build-only"],
+      execFile: execFile as typeof execFileSync,
+    });
+
+    expect(buildCallForApp("dispatch")?.env).toMatchObject({
+      VITE_AGENT_NATIVE_FEEDBACK_URL:
+        "https://feedback.example.com/f/workspace/form-id",
+    });
+  });
+
   it("collects Netlify static assets, functions, and redirects for a workspace", async () => {
     makeWorkspaceApp(tmpDir, "dispatch");
     makeWorkspaceApp(tmpDir, "starter");
@@ -199,6 +224,8 @@ describe("workspace deploy", () => {
       NITRO_PRESET: "netlify",
       APP_BASE_PATH: "/dispatch",
       VITE_APP_BASE_PATH: "/dispatch",
+      VITE_AGENT_NATIVE_FEEDBACK_URL:
+        "https://forms.agent-native.com/f/agent-native-feedback/_16ewV",
       VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON:
         dispatchCall?.env?.AGENT_NATIVE_WORKSPACE_APPS_JSON,
     });

@@ -24,7 +24,7 @@ import {
 
 describe("user-settings", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
   });
 
   describe("getUserSetting", () => {
@@ -91,7 +91,7 @@ describe("user-settings", () => {
       mockGetSetting
         .mockResolvedValueOnce(legacyValue)
         .mockResolvedValueOnce(legacyValue);
-      mockDeleteSetting.mockResolvedValue(true);
+      mockDeleteSettingIfValue.mockResolvedValue(true);
       const updater = vi.fn(() => legacyValue);
       mockMutateSetting.mockImplementation(
         async (_key: string, callback: (value: unknown) => unknown) =>
@@ -108,18 +108,47 @@ describe("user-settings", () => {
       expect(updater).toHaveBeenCalledWith({
         servers: [{ id: "mcps_legacy" }],
       });
-      expect(mockDeleteSetting).toHaveBeenCalledWith(
+      expect(mockDeleteSettingIfValue).toHaveBeenCalledWith(
         "u:Alice@Test.com:mcp-servers-remote",
+        legacyValue,
         undefined,
       );
     });
 
-    it("does not resurrect a legacy setting when deletion wins during migration", async () => {
-      const legacyValue = { servers: [{ id: "mcps_deleted" }] };
+    it("leaves a newer legacy value when migration loses the cleanup race", async () => {
+      const legacyValue = { servers: [{ id: "mcps_legacy" }] };
+      const newerLegacyValue = { servers: [{ id: "mcps_newer" }] };
       mockGetSetting
         .mockResolvedValueOnce(legacyValue)
-        .mockResolvedValueOnce(null);
-      mockDeleteSettingIfValue.mockResolvedValue(true);
+        .mockResolvedValueOnce(newerLegacyValue);
+      mockDeleteSettingIfValue.mockResolvedValue(false);
+      const updater = vi.fn(() => legacyValue);
+      mockMutateSetting.mockImplementation(
+        async (_key: string, callback: (value: unknown) => unknown) =>
+          callback(null),
+      );
+
+      await expect(
+        mutateUserSetting("Alice@Test.com", "mcp-servers-remote", updater),
+      ).resolves.toEqual(legacyValue);
+
+      expect(mockDeleteSettingIfValue).toHaveBeenCalledWith(
+        "u:Alice@Test.com:mcp-servers-remote",
+        legacyValue,
+        undefined,
+      );
+      expect(updater).toHaveBeenCalledWith(legacyValue);
+    });
+
+    it("does not resurrect a legacy setting when deletion wins during migration", async () => {
+      const legacyValue = { servers: [{ id: "mcps_deleted" }] };
+      let legacyReads = 0;
+      mockGetSetting.mockImplementation(async () =>
+        legacyReads++ === 0 ? legacyValue : null,
+      );
+      mockDeleteSettingIfValue.mockImplementation(
+        async (key: string) => key === "u:alice@test.com:mcp-servers-remote",
+      );
       mockMutateSetting.mockImplementation(
         async (_key: string, callback: (value: unknown) => unknown) =>
           callback(null),
@@ -130,7 +159,14 @@ describe("user-settings", () => {
           servers: legacyValue.servers,
         })),
       ).rejects.toThrow("deleted while migrating");
-      expect(mockDeleteSettingIfValue).toHaveBeenCalledWith(
+      expect(mockDeleteSettingIfValue).toHaveBeenNthCalledWith(
+        1,
+        "u:Alice@Test.com:mcp-servers-remote",
+        legacyValue,
+        undefined,
+      );
+      expect(mockDeleteSettingIfValue).toHaveBeenNthCalledWith(
+        2,
         "u:alice@test.com:mcp-servers-remote",
         { servers: legacyValue.servers },
         undefined,
