@@ -229,6 +229,15 @@ jobs:
         run: |
           set -euo pipefail
           : "${NETLIFY_AUTH_TOKEN:?NETLIFY_AUTH_TOKEN secret is required}"
+          if [[ "$SOURCE_TEMPLATE" == "clips" ]]; then
+            # Netlify's local CLI receives masked site secrets. Clips only needs
+            # valid build-time shapes here; the uploaded Functions read the real
+            # site-scoped values at runtime.
+            export agentNativePrebuiltBuild=true
+            export agentNativePrebuiltDatabaseUrl="postgresql://build-only.invalid/agent_native"
+            agentNativePrebuiltAuthSecret="$(node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("hex"))')"
+            export agentNativePrebuiltAuthSecret
+          fi
           netlify build --context "$BUILD_CONTEXT" --filter "$SOURCE_TEMPLATE"
 
       - name: Verify deploy directories
@@ -449,7 +458,7 @@ jobs:
             (
               await listDeploys(
                 "Netlify pre-existing production ready deploy lookup",
-                null,
+                Date.now() - DEPLOY_LOOKBACK_MS,
                 { production: "true", state: "ready" },
               )
             ).map((candidate) => candidate.id),

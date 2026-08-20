@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { parse } from "yaml";
 
 const reusablePath = ".github/workflows/deploy-netlify-prebuilt.yml";
+const clipsNetlifyPath = "templates/clips/netlify.toml";
 const productionPath = ".github/workflows/deploy-production-sites-prebuilt.yml";
 const betaPath = ".github/workflows/deploy-beta-sites-prebuilt.yml";
 const manageProductionPath = ".github/workflows/manage-production-sites.yml";
@@ -16,6 +17,7 @@ export const PRODUCTION_PURGE_CONDITION =
   "inputs.target == 'production' && inputs.deploy && inputs.deploy_mode == 'production' && success()";
 
 const reusable = readFileSync(reusablePath, "utf8");
+const clipsNetlify = readFileSync(clipsNetlifyPath, "utf8");
 const production = readFileSync(productionPath, "utf8");
 const beta = readFileSync(betaPath, "utf8");
 const manageProduction = readFileSync(manageProductionPath, "utf8");
@@ -127,6 +129,34 @@ if (
 ) {
   issues.push(
     `${productionPath} must keep fleet runs in a dedicated production queue`,
+  );
+}
+
+const buildStepStart = reusable.indexOf(
+  "name: Build with the Netlify project configuration",
+);
+const buildStepEnd = reusable.indexOf(
+  "name: Verify deploy directories",
+  buildStepStart,
+);
+const clipsBuild =
+  buildStepStart >= 0 && buildStepEnd > buildStepStart
+    ? reusable.slice(buildStepStart, buildStepEnd)
+    : "";
+if (
+  !clipsBuild.includes('[[ "$SOURCE_TEMPLATE" == "clips" ]]') ||
+  !clipsBuild.includes("agentNativePrebuiltBuild=true") ||
+  !clipsBuild.includes("agentNativePrebuiltDatabaseUrl=") ||
+  !clipsBuild.includes("agentNativePrebuiltAuthSecret=") ||
+  !clipsNetlify.includes("agentNativePrebuiltBuild") ||
+  !clipsNetlify.includes("agentNativePrebuiltDatabaseUrl") ||
+  !clipsNetlify.includes("agentNativePrebuiltAuthSecret") ||
+  !/agentNativePrebuiltBuild:-\}.*!= \\"true\\".*migrate:production/.test(
+    clipsNetlify,
+  )
+) {
+  issues.push(
+    `${reusablePath} must provide Clips build-only env overrides without running production migrations`,
   );
 }
 const manageConcurrency = asRecord(
@@ -292,6 +322,9 @@ if (unlockStart < 0 || (uploadStart >= 0 && unlockStart >= uploadStart)) {
     ).length < 2 ||
     !unlock.includes("candidate.published_at") ||
     !unlock.includes("Netlify pre-existing production ready deploy lookup") ||
+    !/Netlify pre-existing production ready deploy lookup[\s\S]*?Date\.now\(\) - DEPLOY_LOOKBACK_MS/.test(
+      unlock,
+    ) ||
     !unlock.includes("finalBeforeUnlock") ||
     (
       unlock.match(
