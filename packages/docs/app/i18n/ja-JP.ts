@@ -425,6 +425,7 @@ const jaJP = {
     viewDocs: "ドキュメントを見る",
     source: "ソース",
     readDocs: "ドキュメントを読む",
+    signIn: "サインイン",
   },
   templatesPage: {
     title: "あなたが所有するオープンソースのエージェントネイティブ アプリ",

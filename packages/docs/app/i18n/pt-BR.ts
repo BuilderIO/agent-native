@@ -424,6 +424,7 @@ const ptBR = {
     viewDocs: "Ver docs",
     source: "Fonte",
     readDocs: "Leia os documentos",
+    signIn: "Entrar",
   },
   templatesPage: {
     title: "Aplicativos de código aberto e nativos do agente que você possui",

@@ -280,7 +280,7 @@ export default function DownloadPage() {
             {channel === "nightly" && (
               <>
                 {" "}
-                <span className="text-blue-600 dark:text-blue-400">
+                <span className="text-highlight">
                   {t("downloadRoute.nightly")}
                 </span>
               </>
@@ -351,7 +351,7 @@ export default function DownloadPage() {
               >
                 <span
                   aria-hidden="true"
-                  className={`block size-3.5 rounded-full bg-white shadow-sm transition-transform ${
+                  className={`block size-3.5 rounded-full bg-primary-foreground shadow-sm transition-transform ${
                     channel === "nightly"
                       ? "translate-x-[18px]"
                       : "translate-x-[2px]"

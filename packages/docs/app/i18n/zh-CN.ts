@@ -418,6 +418,7 @@ const zhCN = {
     viewDocs: "查看文档",
     source: "来源",
     readDocs: "阅读文档",
+    signIn: "登录",
   },
   templatesPage: {
     title: "您拥有的开源、代理本机应用程序",
