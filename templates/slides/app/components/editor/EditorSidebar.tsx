@@ -1,7 +1,4 @@
-import {
-  agentNativePath,
-  appBasePath,
-} from "@agent-native/core/client/api-path";
+import { agentNativePath } from "@agent-native/core/client/api-path";
 import type {
   AttributedRecentEdit,
   CollabUser,

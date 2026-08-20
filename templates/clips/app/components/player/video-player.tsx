@@ -399,7 +399,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const [isFullscreen, setIsFullscreen] = useState(false);
     const nativeFullscreenRef = useRef(false);
     const [isPip, setIsPip] = useState(false);
-    const [canPlay, setCanPlay] = useState(false);
+    const [, setCanPlay] = useState(false);
     const [isPlayPending, setIsPlayPending] = useState(false);
     const [isBuffering, setIsBuffering] = useState(false);
     const [playError, setPlayError] = useState<string | null>(null);
@@ -467,7 +467,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     // first frame of a freshly-finalized clip so the user doesn't see a blank
     // black rectangle. Hidden on loadeddata / canplay / currentTime > 0, or
     // after a 10s safety timeout.
-    const [isPreparing, setIsPreparing] = useState<boolean>(!!videoUrl);
+    const [, setIsPreparing] = useState<boolean>(!!videoUrl);
     const edits = useMemo(() => parseEdits(editsJson), [editsJson]);
     const hasEditorThumbnail = Boolean(edits.thumbnail);
     const [shouldRefreshAutoThumbnail, setShouldRefreshAutoThumbnail] =
