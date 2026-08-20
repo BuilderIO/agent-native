@@ -135,7 +135,9 @@ Number leaves accept finite decimal values. String leaves accept normal
 environment strings or JSON-quoted strings. Object and array values must be
 valid JSON of the matching shape. An invalid JSON value or an unknown
 `AGENT_NATIVE_CONFIG*` path fails configuration loading with the offending
-variable name.
+variable name. Unknown keys inside fixed-shape JSON fragments fail as well;
+the per-mode `onboarding.firstRun` map is the intentional dynamic-key
+exception.
 
 These aliases are for public configuration only. Their resolved values are
 serialized into the browser bundle, just like values from

@@ -352,4 +352,24 @@ describe("agent-native config environment aliases", () => {
   ])("rejects invalid or unsupported aliases: %o", (env) => {
     expect(() => readAgentNativeConfigEnv(env)).toThrow();
   });
+
+  it.each([
+    {
+      AGENT_NATIVE_CONFIG: JSON.stringify({
+        runtime: { auth: { enabld: false } },
+      }),
+    },
+    {
+      AGENT_NATIVE_CONFIG_RUNTIME: JSON.stringify({
+        auth: { enabld: false },
+      }),
+    },
+    {
+      AGENT_NATIVE_CONFIG_RUNTIME_AUTH: JSON.stringify({ enabld: false }),
+    },
+  ])("rejects unknown keys inside JSON fragments: %o", (env) => {
+    expect(() => readAgentNativeConfigEnv(env)).toThrow(
+      "unsupported Agent-Native config path",
+    );
+  });
 });

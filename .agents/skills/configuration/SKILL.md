@@ -55,6 +55,8 @@ nested object values use the same namespace and accept JSON strings. Use these
 aliases for public values that need to vary by deployment. Do not create a new
 standalone `VITE_*` or `AGENT_NATIVE_*` variable for a value that belongs in
 this config surface.
+Unknown keys inside fixed-shape JSON fragments must fail loudly; the
+per-mode `onboarding.firstRun` map is the intentional dynamic-key exception.
 
 Those aliases are still public. The resolved config is serialized into the
 browser bundle, so credentials, provider keys, database URLs, and other secret

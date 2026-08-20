@@ -160,6 +160,7 @@ interface AgentNativeConfigEnvNode {
   path: readonly string[];
   kind: AgentNativeConfigEnvKind;
   aliases?: readonly string[];
+  dynamicObjectKeys?: boolean;
 }
 
 /**
@@ -173,7 +174,11 @@ const AGENT_NATIVE_CONFIG_ENV_NODES: readonly AgentNativeConfigEnvNode[] = [
   { path: [], kind: "object" },
   { path: ["version"], kind: "number" },
   { path: ["onboarding"], kind: "object" },
-  { path: ["onboarding", "firstRun"], kind: "union" },
+  {
+    path: ["onboarding", "firstRun"],
+    kind: "union",
+    dynamicObjectKeys: true,
+  },
   { path: ["runtime"], kind: "object" },
   { path: ["runtime", "auth"], kind: "object" },
   { path: ["runtime", "auth", "enabled"], kind: "boolean" },
@@ -304,6 +309,62 @@ function parseAgentNativeConfigEnvValue(
   }
 }
 
+function agentNativeConfigEnvNodeForPath(
+  path: readonly string[],
+): AgentNativeConfigEnvNode | undefined {
+  return AGENT_NATIVE_CONFIG_ENV_NODES.find(
+    (node) =>
+      node.path.length === path.length &&
+      node.path.every((segment, index) => segment === path[index]),
+  );
+}
+
+function agentNativeConfigEnvChildren(
+  path: readonly string[],
+): AgentNativeConfigEnvNode[] {
+  return AGENT_NATIVE_CONFIG_ENV_NODES.filter(
+    (node) =>
+      node.path.length === path.length + 1 &&
+      path.every((segment, index) => node.path[index] === segment),
+  );
+}
+
+function validateAgentNativeConfigEnvFragment(
+  value: unknown,
+  path: readonly string[],
+  key: string,
+): void {
+  const node = agentNativeConfigEnvNodeForPath(path);
+  if (!node) return;
+
+  if (node.kind === "object") {
+    if (!isRecord(value)) {
+      throw new Error(`${key} must contain a JSON object`);
+    }
+  } else if (node.kind !== "union" || !isRecord(value)) {
+    return;
+  }
+
+  if (node.dynamicObjectKeys) return;
+
+  const children = new Map(
+    agentNativeConfigEnvChildren(path).map((child) => [
+      child.path[child.path.length - 1],
+      child,
+    ]),
+  );
+  for (const [childKey, childValue] of Object.entries(value)) {
+    const child = children.get(childKey);
+    if (!child) {
+      const childPath = [...path, childKey].join(".");
+      throw new Error(
+        `${key} contains unsupported Agent-Native config path ${childPath}`,
+      );
+    }
+    validateAgentNativeConfigEnvFragment(childValue, child.path, key);
+  }
+}
+
 function mergeAgentNativeConfigEnvFragments(
   base: Record<string, unknown>,
   override: Record<string, unknown>,
@@ -391,12 +452,9 @@ export function readAgentNativeConfigEnv(
     for (const key of agentNativeConfigEnvKeys(node)) {
       const raw = env[key];
       if (raw === undefined || raw.trim() === "") continue;
-      assignAgentNativeConfigEnvFragment(
-        layer,
-        node.path,
-        parseAgentNativeConfigEnvValue(raw, key, node.kind),
-        key,
-      );
+      const value = parseAgentNativeConfigEnvValue(raw, key, node.kind);
+      validateAgentNativeConfigEnvFragment(value, node.path, key);
+      assignAgentNativeConfigEnvFragment(layer, node.path, value, key);
       break;
     }
   }

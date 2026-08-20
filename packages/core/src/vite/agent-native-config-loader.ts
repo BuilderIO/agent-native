@@ -106,6 +106,7 @@ export async function loadResolvedAgentNativeConfig(
   cwd: string,
   context: AgentNativeConfigContext,
   options: {
+    environment?: Record<string, string | undefined>;
     loadProjectConfig?: boolean;
     projectConfig?: AgentNativeConfigInput;
   } = {},
@@ -129,7 +130,7 @@ export async function loadResolvedAgentNativeConfig(
             : {},
           readAgentNativeJsonConfig(cwd),
         ),
-        readAgentNativeConfigEnv(process.env),
+        readAgentNativeConfigEnv(options.environment ?? process.env),
       ),
       projectConfig ? resolveAgentNativeConfig(projectConfig, context) : {},
     ),
