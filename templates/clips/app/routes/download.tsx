@@ -259,6 +259,8 @@ export default function DownloadPage() {
   };
 
   const handleChannelChange = (nextChannel: DownloadReleaseChannel) => {
+    if (nextChannel === channel) return;
+
     setManifest(null);
     setManifestError(false);
     setChannel(nextChannel);
