@@ -105,8 +105,10 @@ describe("Netlify release migration guard", () => {
 
   it("requires all beta-only runtime flags in the reusable build lane", () => {
     const source = `if [[ "$TARGET" == "beta" ]]; then
-  export AGENT_NATIVE_RELEASE_MIGRATIONS=1
-  export AGENT_NATIVE_RUN_RELEASE_MIGRATIONS=1
+  if [[ "$SOURCE_TEMPLATE" != "clips" ]]; then
+    export AGENT_NATIVE_RELEASE_MIGRATIONS=1
+    export AGENT_NATIVE_RUN_RELEASE_MIGRATIONS=1
+  fi
   export AGENT_NATIVE_ENABLE_KEEP_WARM=1
   export AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND=1
   export AGENT_NATIVE_HOSTED_HARNESS=true
@@ -116,6 +118,12 @@ if [[ "$SOURCE_TEMPLATE" == "clips" ]]; then`;
     assert.notDeepEqual(
       validateBetaPrebuiltReleaseEnvironment(
         source.replace("export AGENT_NATIVE_RUN_RELEASE_MIGRATIONS=1", ""),
+      ),
+      [],
+    );
+    assert.notDeepEqual(
+      validateBetaPrebuiltReleaseEnvironment(
+        source.replace('if [[ "$SOURCE_TEMPLATE" != "clips" ]]; then', ""),
       ),
       [],
     );

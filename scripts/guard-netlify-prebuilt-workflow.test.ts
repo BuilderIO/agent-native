@@ -182,10 +182,22 @@ describe("production Netlify site concurrency guard", () => {
       betaStart,
     );
     const beta = build.slice(betaStart, clipsStart);
+    const nonClipsStart = beta.indexOf(
+      'if [[ "$SOURCE_TEMPLATE" != "clips" ]]',
+    );
+    const nonClipsEnd = beta.indexOf("\n          fi", nonClipsStart);
+    const nonClips = beta.slice(nonClipsStart, nonClipsEnd);
 
     for (const flag of [
       "AGENT_NATIVE_RELEASE_MIGRATIONS=1",
       "AGENT_NATIVE_RUN_RELEASE_MIGRATIONS=1",
+    ]) {
+      assert.match(
+        nonClips,
+        new RegExp(`export ${flag.replace(/[=]/g, "\\=")}`),
+      );
+    }
+    for (const flag of [
       "AGENT_NATIVE_ENABLE_KEEP_WARM=1",
       "AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND=1",
       "AGENT_NATIVE_HOSTED_HARNESS=true",

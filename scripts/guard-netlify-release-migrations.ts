@@ -92,19 +92,50 @@ export function validateBetaPrebuiltReleaseEnvironment(
     betaStart >= 0 && betaEnd > betaStart
       ? source.slice(betaStart, betaEnd)
       : "";
-  const requiredExports = [
+  const nonClipsBlockMatch = betaBuild.match(
+    /if \[\[ "\$SOURCE_TEMPLATE" != "clips" \]\]; then([\s\S]*?)\n\s*fi/,
+  );
+  const nonClipsBlock = nonClipsBlockMatch?.[1] ?? "";
+  const releaseExports = [
     "export AGENT_NATIVE_RELEASE_MIGRATIONS=1",
     "export AGENT_NATIVE_RUN_RELEASE_MIGRATIONS=1",
+  ];
+  const warmRuntimeExports = [
     "export AGENT_NATIVE_ENABLE_KEEP_WARM=1",
     "export AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND=1",
     "export AGENT_NATIVE_HOSTED_HARNESS=true",
   ];
-  return requiredExports
-    .filter((entry) => !betaBuild.includes(entry))
-    .map(
-      (entry) =>
+  const issues: string[] = [];
+  for (const entry of warmRuntimeExports) {
+    if (!betaBuild.includes(entry)) {
+      issues.push(
         `${file}: beta build must export ${entry.replace(/^export /, "")} inside its beta-only build block`,
+      );
+    }
+  }
+  if (!nonClipsBlockMatch) {
+    issues.push(
+      `${file}: beta build must scope release migration exports to a non-Clips template block`,
     );
+  }
+  for (const entry of releaseExports) {
+    if (!nonClipsBlock.includes(entry)) {
+      issues.push(
+        `${file}: beta build must export ${entry.replace(/^export /, "")} inside the non-Clips template block`,
+      );
+    }
+  }
+  const betaOutsideNonClipsBlock = nonClipsBlockMatch
+    ? betaBuild.replace(nonClipsBlockMatch[0], "")
+    : betaBuild;
+  for (const entry of releaseExports) {
+    if (betaOutsideNonClipsBlock.includes(entry)) {
+      issues.push(
+        `${file}: ${entry.replace(/^export /, "")} must not be exported for Clips beta builds`,
+      );
+    }
+  }
+  return issues;
 }
 
 function readTomlSection(source: string, header: string): string | null {
