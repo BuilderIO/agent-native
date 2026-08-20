@@ -6,6 +6,7 @@ const oauthMocks = vi.hoisted(() => ({
   save: vi.fn(),
 }));
 const getUserSettingMock = vi.hoisted(() => vi.fn());
+const mutateUserSettingMock = vi.hoisted(() => vi.fn());
 const putUserSettingMock = vi.hoisted(() => vi.fn());
 const deleteUserSettingMock = vi.hoisted(() => vi.fn());
 
@@ -19,6 +20,7 @@ vi.mock("./oauth-client.js", () => ({
 vi.mock("../settings/user-settings.js", () => ({
   deleteUserSetting: deleteUserSettingMock,
   getUserSetting: getUserSettingMock,
+  mutateUserSetting: mutateUserSettingMock,
   putUserSetting: putUserSettingMock,
 }));
 
@@ -43,6 +45,19 @@ vi.mock("../mcp/org-directory.js", () => ({
 beforeEach(() => {
   vi.clearAllMocks();
   getUserSettingMock.mockResolvedValue(null);
+  mutateUserSettingMock.mockImplementation(
+    async (
+      email: string,
+      key: string,
+      updater: (
+        current: Record<string, unknown> | null,
+      ) => Record<string, unknown> | Promise<Record<string, unknown>>,
+    ) => {
+      const next = await updater(await getUserSettingMock(email, key));
+      await putUserSettingMock(email, key, next);
+      return next;
+    },
+  );
   oauthMocks.revoke.mockResolvedValue({
     remote: "succeeded",
     local: "deleted",
@@ -113,7 +128,7 @@ describe("OAuth remote MCP metadata", () => {
   });
 
   it("replaces an OAuth grant in place while preserving the server id", async () => {
-    getUserSettingMock.mockResolvedValueOnce({
+    getUserSettingMock.mockResolvedValue({
       servers: [
         {
           id: "mcps_oauth",
@@ -164,6 +179,86 @@ describe("OAuth remote MCP metadata", () => {
         key: "mcp_oauth:old",
         serverUrl: "https://mcp.example.com/",
       }),
+    );
+  });
+
+  it("keeps the replacement row when old-grant cleanup fails", async () => {
+    getUserSettingMock.mockResolvedValue({
+      servers: [
+        {
+          id: "mcps_oauth",
+          name: "sigma",
+          url: "https://mcp.example.com/",
+          oauthSecretKey: "mcp_oauth:old",
+          createdAt: 1,
+        },
+      ],
+    });
+    oauthMocks.revoke.mockRejectedValueOnce(new Error("old grant unavailable"));
+
+    await expect(
+      replaceOAuthRemoteServer("user", "user@example.com", "mcps_oauth", {
+        serverUrl: "https://mcp.example.com",
+        clientInformation: { client_id: "example-client" },
+        tokens: { access_token: "<NEW_ACCESS_TOKEN>", token_type: "bearer" },
+      }),
+    ).resolves.toMatchObject({ ok: true });
+
+    expect(oauthMocks.revoke).toHaveBeenCalledTimes(1);
+    expect(oauthMocks.revoke).toHaveBeenCalledWith(
+      expect.objectContaining({ key: "mcp_oauth:old" }),
+    );
+  });
+
+  it("revokes a replacement grant when the server changes before the CAS", async () => {
+    getUserSettingMock.mockResolvedValueOnce({
+      servers: [
+        {
+          id: "mcps_oauth",
+          name: "sigma",
+          url: "https://mcp.example.com/",
+          oauthSecretKey: "mcp_oauth:old",
+          createdAt: 1,
+        },
+      ],
+    });
+    mutateUserSettingMock.mockImplementationOnce(
+      async (
+        _email: string,
+        _key: string,
+        updater: (
+          current: Record<string, unknown> | null,
+        ) => Record<string, unknown> | Promise<Record<string, unknown>>,
+      ) =>
+        updater({
+          servers: [
+            {
+              id: "mcps_oauth",
+              name: "sigma",
+              url: "https://mcp.example.com/",
+              oauthSecretKey: "mcp_oauth:newer",
+              createdAt: 1,
+            },
+          ],
+        }),
+    );
+
+    await expect(
+      replaceOAuthRemoteServer("user", "user@example.com", "mcps_oauth", {
+        serverUrl: "https://mcp.example.com",
+        clientInformation: { client_id: "example-client" },
+        tokens: { access_token: "<NEW_ACCESS_TOKEN>", token_type: "bearer" },
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: expect.stringContaining("MCP server changed while reconnecting"),
+    });
+
+    expect(oauthMocks.revoke).toHaveBeenCalledWith(
+      expect.objectContaining({ key: expect.stringMatching(/^mcp_oauth:/) }),
+    );
+    expect(oauthMocks.revoke).not.toHaveBeenCalledWith(
+      expect.objectContaining({ key: "mcp_oauth:old" }),
     );
   });
 

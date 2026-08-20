@@ -15,6 +15,7 @@ import {
   resolveMcpOAuthScope,
   resolveManagedMcpOAuthClient,
   setMcpOAuthFlowCookie,
+  stripMcpOAuthAppBasePath,
   type McpOAuthFlow,
 } from "./oauth-routes.js";
 
@@ -33,6 +34,18 @@ const baseFlow: McpOAuthFlow = {
 };
 
 describe("MCP OAuth callback flow validation", () => {
+  it("strips a mounted app path before the callback rebuilds its URL", () => {
+    expect(
+      stripMcpOAuthAppBasePath(
+        "/workspace/settings/integrations?connected=mcp-linear",
+        "/workspace",
+      ),
+    ).toBe("/settings/integrations?connected=mcp-linear");
+    expect(
+      stripMcpOAuthAppBasePath("/settings/integrations", "/workspace"),
+    ).toBe("/settings/integrations");
+  });
+
   it("carries staged cookies on native redirects", () => {
     const event = {
       res: { headers: new Headers() },

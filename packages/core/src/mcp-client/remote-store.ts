@@ -30,11 +30,13 @@ import {
 } from "../secrets/storage.js";
 import {
   getOrgSetting,
+  mutateOrgSetting,
   putOrgSetting,
   deleteOrgSetting,
 } from "../settings/org-settings.js";
 import {
   getUserSetting,
+  mutateUserSetting,
   putUserSetting,
   deleteUserSetting,
 } from "../settings/user-settings.js";
@@ -186,10 +188,30 @@ async function readList(
     scope === "user"
       ? await getUserSetting(scopeId, SETTINGS_KEY)
       : await getOrgSetting(scopeId, SETTINGS_KEY);
+  return parseServerList(raw);
+}
+
+function parseServerList(
+  raw: Record<string, unknown> | null,
+): StoredRemoteMcpServer[] {
   if (!raw || !Array.isArray((raw as any).servers)) return [];
   return ((raw as any).servers as StoredRemoteMcpServer[]).filter(
     (s) => s && typeof s.id === "string" && typeof s.url === "string",
   );
+}
+
+async function mutateServerList(
+  scope: RemoteMcpScope,
+  scopeId: string,
+  updater: (
+    servers: StoredRemoteMcpServer[],
+  ) => StoredRemoteMcpServer[] | Promise<StoredRemoteMcpServer[]>,
+): Promise<StoredRemoteMcpServer[]> {
+  const mutate = scope === "user" ? mutateUserSetting : mutateOrgSetting;
+  const next = await mutate(scopeId, SETTINGS_KEY, async (raw) => ({
+    servers: await updater(parseServerList(raw)),
+  }));
+  return parseServerList(next);
 }
 
 async function writeList(
@@ -348,6 +370,7 @@ export async function replaceOAuthRemoteServer(
     ...credentials,
     serverUrl: credentialResource.url.toString(),
   };
+  let updated: StoredRemoteMcpServer[];
   try {
     await saveMcpOAuthCredentials({
       key: nextSecretKey,
@@ -355,22 +378,24 @@ export async function replaceOAuthRemoteServer(
       scopeId,
       credentials: nextCredentials,
     });
-    const server: StoredRemoteMcpServer = {
-      ...current,
-      url: nextCredentials.serverUrl,
-      oauthSecretKey: nextSecretKey,
-    };
-    const next = [...existing];
-    next[index] = server;
-    await writeList(scope, scopeId, next);
-
-    await revokeMcpOAuthCredentials({
-      key: current.oauthSecretKey,
-      scope,
-      scopeId,
-      serverUrl: current.url,
-    }).catch(() => undefined);
-    return { ok: true, server };
+    updated = await mutateServerList(scope, scopeId, (servers) => {
+      const latestIndex = servers.findIndex((server) => server.id === serverId);
+      const latest = latestIndex >= 0 ? servers[latestIndex] : undefined;
+      if (
+        !latest ||
+        latest.oauthSecretKey !== current.oauthSecretKey ||
+        latest.url !== current.url
+      ) {
+        throw new Error("MCP server changed while reconnecting");
+      }
+      const next = [...servers];
+      next[latestIndex] = {
+        ...latest,
+        url: nextCredentials.serverUrl,
+        oauthSecretKey: nextSecretKey,
+      };
+      return next;
+    });
   } catch (err: any) {
     await revokeMcpOAuthCredentials({
       key: nextSecretKey,
@@ -383,6 +408,19 @@ export async function replaceOAuthRemoteServer(
       error: `Failed to replace MCP OAuth credentials: ${err?.message ?? err}`,
     };
   }
+
+  // The settings row now points at the replacement grant. Old-grant cleanup
+  // is best effort and must not roll back or invalidate the committed row.
+  await revokeMcpOAuthCredentials({
+    key: current.oauthSecretKey,
+    scope,
+    scopeId,
+    serverUrl: current.url,
+  }).catch(() => undefined);
+  const server = updated.find((candidate) => candidate.id === serverId);
+  return server
+    ? { ok: true, server }
+    : { ok: false, error: "MCP server was not found" };
 }
 
 export async function addFirstPartyRemoteServer(

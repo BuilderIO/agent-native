@@ -23,6 +23,7 @@ export { readSetting, writeSetting, removeSetting } from "./script-helpers.js";
 export {
   getUserSetting,
   putUserSetting,
+  mutateUserSetting,
   deleteUserSetting,
 } from "./user-settings.js";
 

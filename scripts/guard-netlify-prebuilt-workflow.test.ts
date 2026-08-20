@@ -38,6 +38,18 @@ const nodeHeredocs = [
 ].map((match) => match[1]);
 
 describe("production Netlify site concurrency guard", () => {
+  it("uses exponential backoff when Netlify omits Retry-After", () => {
+    const workflow = readFileSync(
+      ".github/workflows/manage-production-sites.yml",
+      "utf8",
+    );
+    assert.match(
+      workflow,
+      /retryAfterHeader === null \? Number\.NaN : Number\(retryAfterHeader\)/,
+    );
+    assert.match(workflow, /Math\.min\(120_000, 30_000 \* 2 \*\* attempt\)/);
+  });
+
   it("requires a distinct reusable child queue selected by the caller input", () => {
     assert.deepEqual(
       validateReusableWorkflowConcurrency(
