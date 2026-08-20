@@ -191,6 +191,12 @@ createAgentChatPlugin({
 });
 ```
 
+Lorsque le même resolver gère aussi le chat par défaut sans restriction,
+renvoyez `{ mode: "default" }`. Le filtrage normal via `initialToolNames` et la
+découverte avec `tool-search` sont ainsi conservés, au lieu de charger tous les
+schémas disponibles dès la première requête au modèle. Ce mode explicite est
+conservé dans les continuations durables.
+
 Une liste vide n’expose aucune action native. Un nom inconnu fait échouer la
 requête au lieu d’élargir l’accès. Toutes les actions autorisées sont chargées
 dès la première requête au modèle ; ajoutez explicitement `tool-search`

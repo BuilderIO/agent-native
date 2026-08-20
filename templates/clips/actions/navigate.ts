@@ -16,7 +16,7 @@
  */
 
 import { defineAction } from "@agent-native/core";
-import { writeAppState } from "@agent-native/core/application-state";
+import { writeAppStateForCurrentTab } from "@agent-native/core/application-state";
 import { z } from "zod";
 
 const Views = [
@@ -91,7 +91,7 @@ export default defineAction({
     if (args.shareId) nav.shareId = args.shareId;
     if (args.search) nav.search = args.search;
     if (args.path) nav.path = args.path;
-    await writeAppState("navigate", nav);
+    await writeAppStateForCurrentTab("navigate", nav);
     const target =
       args.path ||
       [
