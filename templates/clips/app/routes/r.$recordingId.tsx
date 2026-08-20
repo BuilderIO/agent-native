@@ -1625,9 +1625,7 @@ export default function RecordingPage() {
               onDownload={() => {
                 void downloadRecording();
               }}
-              onDeleted={() => {
-                setTimeout(() => navigate("/library", { replace: true }), 0);
-              }}
+              onDeleted={() => navigate("/library", { replace: true })}
             />
           ) : null}
         </header>

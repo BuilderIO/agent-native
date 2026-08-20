@@ -146,11 +146,9 @@ export function RecordingOptionsMenu({
       {showDelete ? (
         <AlertDialogContent
           onCloseAutoFocus={(event) => {
-            setTimeout(() => {
-              if (!deletedWhileOpenRef.current) return;
-              deletedWhileOpenRef.current = false;
-              event.preventDefault();
-            }, 0);
+            if (!deletedWhileOpenRef.current) return;
+            deletedWhileOpenRef.current = false;
+            event.preventDefault();
             onDeleted?.();
           }}
         >
