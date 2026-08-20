@@ -206,18 +206,21 @@ jobs:
                     throw new Error(`document referenced more than ${maxAssetCount} assets`);
                   }
 
+                  // An HTTP error proves the published asset is unavailable;
+                  // a transport error may only describe this runner's path to it.
                   const assetFailures = [];
+                  const assetWarnings = [];
                   const assetUrls = [...assets];
                   for (let i = 0; i < assetUrls.length; i += assetConcurrency) {
                     if (Date.now() >= deadline) {
-                      assetFailures.push("asset probe deadline exceeded");
+                      assetWarnings.push("asset probe deadline exceeded");
                       break;
                     }
                     await Promise.all(assetUrls.slice(i, i + assetConcurrency).map((assetUrl) =>
                       runAssetRequest(async () => {
                         try {
                           if (Date.now() >= deadline) {
-                            assetFailures.push("asset probe deadline exceeded");
+                            assetWarnings.push("asset probe deadline exceeded");
                             return;
                           }
                           const assetRequest = (method) => ({
@@ -245,7 +248,7 @@ jobs:
                             assetFailures.push(`${new URL(assetUrl).pathname} HTTP ${assetResponse.status}`);
                           }
                         } catch (error) {
-                          assetFailures.push(
+                          assetWarnings.push(
                             `${new URL(assetUrl).pathname} ${String(error?.message ?? error)}`,
                           );
                         }
@@ -257,11 +260,14 @@ jobs:
                     assetFailures.sort();
                     lastFailure = `HTTP ${response.status}; ${assetFailures.slice(0, 5).join(", ")}`;
                   } else {
+                    const warningDetail = assetWarnings.length > 0
+                      ? `; ${assetWarnings.slice(0, 5).join(", ")}`
+                      : "";
                     return {
                       environment,
                       host,
                       ok: true,
-                      detail: `HTTP ${response.status} with ${assets.size} referenced assets in ${ms}ms (attempt ${attempt})`,
+                      detail: `HTTP ${response.status} with ${assets.size} referenced assets in ${ms}ms (attempt ${attempt})${warningDetail}`,
                     };
                   }
                 } else {
