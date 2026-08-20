@@ -427,16 +427,24 @@ export function McpIntegrationDialog({
     ) {
       return;
     }
+    if (!mcpServersQuery.isSuccess) return;
     const integration = defaultIntegrations.find(
       (candidate) => candidate.id === quickConnectIntegrationId,
     );
     if (!integration) return;
     quickConnectAttemptedRef.current = quickConnectIntegrationId;
     quickConnectRef.current?.(integration);
-  }, [defaultIntegrations, hasOrg, open, quickConnectIntegrationId]);
+  }, [
+    defaultIntegrations,
+    hasOrg,
+    mcpServersQuery.isSuccess,
+    open,
+    quickConnectIntegrationId,
+  ]);
 
   useEffect(() => {
     if (!open || !connectIntegrationId) return;
+    if (!mcpServersQuery.isSuccess) return;
     const integration = defaultIntegrations.find(
       (candidate) => candidate.id === connectIntegrationId,
     );
@@ -459,6 +467,7 @@ export function McpIntegrationDialog({
     connectIntegrationId,
     defaultIntegrations,
     hasOrg,
+    mcpServersQuery.isSuccess,
     open,
   ]);
 
