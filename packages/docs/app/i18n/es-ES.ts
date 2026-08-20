@@ -1524,6 +1524,8 @@ const esES = {
     body: "Todas tus apps agent-native en una sola shell de escritorio. Apps de producción integradas, con un modo de desarrollo para trabajo local.",
     openDesktop: "Abrir Agent Native",
     downloadInstaller: "Descargar instalador",
+    downloadStarted: "Descarga iniciada",
+    downloadAgain: "¿No funcionó? Intenta descargar de nuevo",
     loadError: "No se pudo cargar el instalador de escritorio más reciente.",
     checkingRelease: "Buscando la versión de escritorio más reciente...",
     retry: "Reintentar",

@@ -1526,6 +1526,8 @@ const frFR = {
     body: "Toutes vos apps agent-native dans une seule interface de bureau. Apps de production intégrées, avec un mode dev pour le développement local.",
     openDesktop: "Ouvrir Agent Native",
     downloadInstaller: "Télécharger l'installateur",
+    downloadStarted: "Téléchargement démarré",
+    downloadAgain: "Ça n’a pas fonctionné ? Réessayez le téléchargement",
     loadError: "Impossible de charger le dernier installateur desktop.",
     checkingRelease: "Recherche de la dernière version desktop...",
     retry: "Réessayer",

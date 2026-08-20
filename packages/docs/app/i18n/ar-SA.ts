@@ -1506,6 +1506,8 @@ const arSA = {
     body: "كل تطبيقاتك agent-native في واجهة سطح مكتب واحدة. تطبيقات الإنتاج مدمجة، مع تبديل وضع التطوير للتطوير المحلي.",
     openDesktop: "افتح Agent Native",
     downloadInstaller: "تنزيل المثبّت",
+    downloadStarted: "بدأ التنزيل",
+    downloadAgain: "ألم ينجح؟ حاول التنزيل مرة أخرى",
     loadError: "تعذر تحميل أحدث مثبّت لسطح المكتب.",
     checkingRelease: "جارٍ التحقق من أحدث إصدار لسطح المكتب...",
     retry: "إعادة المحاولة",

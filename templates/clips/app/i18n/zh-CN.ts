@@ -591,11 +591,16 @@ const messages = {
     alsoFor: "也可用于 {{platform}}",
     backToLibrary: "返回资料库",
     clipsDesktop: "Clips 桌面版",
+    stable: "稳定版",
+    nightly: "Nightly",
+    switchToNightly: "切换到 Nightly 构建",
+    switchToStable: "切换到稳定版构建",
+    retry: "重试",
     heroDescription:
       "用于屏幕、相机和屏幕+相机的菜单栏记录器。一键启动，可拖动相机气泡，停止时即时分享链接。",
     versionReleased: "版本 {{version}} — 发布 {{date}}",
     version: "版本{{version}}",
-    manifestError: "无法加载版本清单 - 从版本页面选择安装程序。",
+    manifestError: "无法加载版本清单，请重试。",
     loadingRelease: "正在加载最新版本...",
     chromeTitle: "Chrome 浏览器日志扩展",
     chromeDescription:

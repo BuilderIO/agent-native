@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   classifyClipsAsset,
   compareClipsReleaseTags,
+  isClipsReleaseForChannel,
+  normalizeClipsReleaseChannel,
 } from "../server/routes/api/clips-latest.json.get";
 
 describe("classifyClipsAsset", () => {
@@ -43,5 +45,55 @@ describe("compareClipsReleaseTags", () => {
     expect(
       compareClipsReleaseTags("clips-v1.0.0", "clips-v0.99.999"),
     ).toBeGreaterThan(0);
+    expect(
+      compareClipsReleaseTags(
+        "clips-nightly-v0.1.298-0",
+        "clips-nightly-v0.1.297-nightly.0",
+      ),
+    ).toBeGreaterThan(0);
+  });
+});
+
+describe("Clips release channels", () => {
+  const release = (tag_name: string, prerelease: boolean) => ({
+    tag_name,
+    name: tag_name,
+    published_at: "2026-08-20T00:00:00Z",
+    draft: false,
+    prerelease,
+    assets: [
+      {
+        name: "Clips_0.1.298_universal.dmg",
+        browser_download_url: "https://downloads.example.com/clips.dmg",
+        size: 1,
+      },
+    ],
+  });
+
+  it("keeps stable and Nightly releases in separate channels", () => {
+    expect(
+      isClipsReleaseForChannel(release("clips-v0.1.298", false), "production"),
+    ).toBe(true);
+    expect(
+      isClipsReleaseForChannel(
+        release("clips-nightly-v0.1.298-0", true),
+        "nightly",
+      ),
+    ).toBe(true);
+    expect(
+      isClipsReleaseForChannel(
+        release("clips-nightly-v0.1.298-0", true),
+        "production",
+      ),
+    ).toBe(false);
+    expect(
+      isClipsReleaseForChannel(release("clips-v0.1.298", false), "nightly"),
+    ).toBe(false);
+  });
+
+  it("normalizes unknown query values to the stable channel", () => {
+    expect(normalizeClipsReleaseChannel("nightly")).toBe("nightly");
+    expect(normalizeClipsReleaseChannel("production")).toBe("production");
+    expect(normalizeClipsReleaseChannel("other")).toBe("production");
   });
 });

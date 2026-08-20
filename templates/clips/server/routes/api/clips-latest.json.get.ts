@@ -1,4 +1,9 @@
-import { defineEventHandler, setResponseHeaders, createError } from "h3";
+import {
+  createError,
+  defineEventHandler,
+  getQuery,
+  setResponseHeaders,
+} from "h3";
 
 /**
  * Same-origin endpoint that tells the download page which user-facing
@@ -12,14 +17,13 @@ import { defineEventHandler, setResponseHeaders, createError } from "h3";
  * /download want the raw installers (.dmg / .msi / .AppImage).
  *
  * This route therefore hits GitHub's REST API, paginates through
- * releases until it finds the most recent published `clips-v*` release,
- * and returns its asset list plus metadata.
+ * releases until it finds the most recent published release for the requested
+ * channel, and returns its asset list plus metadata.
  *
- * The `clips-latest` pointer release is still the release-channel hint:
- * when it has a signed updater manifest, we resolve that manifest's
- * version back to the matching `clips-v*` release before scanning. That
- * keeps the manual download page and the in-app updater pointed at the
- * same build by default.
+ * The channel's pointer release is still the release-channel hint: when it
+ * has a signed updater manifest, we resolve that manifest's version back to
+ * the matching versioned release before scanning. That keeps the manual
+ * download page and the in-app updater pointed at the same build by default.
  *
  * ## Rate-limit hardening
  *
@@ -38,13 +42,29 @@ import { defineEventHandler, setResponseHeaders, createError } from "h3";
 
 const RELEASES_URL_BASE =
   "https://api.github.com/repos/BuilderIO/agent-native/releases";
-const UPDATER_MANIFEST_URL =
-  "https://github.com/BuilderIO/agent-native/releases/download/clips-latest/clips-latest.json";
 const PER_PAGE = 100;
-// Up to 10 pages = 1000 releases. If clips-v* hasn't shown up by then,
-// something else is wrong and the 404 is correct.
+// Up to 10 pages = 1000 releases. If the requested channel has not appeared
+// by then, something else is wrong and the 404 is correct.
 const MAX_PAGES = 10;
 const CACHE_TTL_MS = 5 * 60_000;
+
+export type ClipsReleaseChannel = "production" | "nightly";
+
+const RELEASE_CHANNEL_CONFIG: Record<
+  ClipsReleaseChannel,
+  { releasePrefix: string; updaterManifestUrl: string }
+> = {
+  production: {
+    releasePrefix: "clips-v",
+    updaterManifestUrl:
+      "https://github.com/BuilderIO/agent-native/releases/download/clips-latest/clips-latest.json",
+  },
+  nightly: {
+    releasePrefix: "clips-nightly-v",
+    updaterManifestUrl:
+      "https://github.com/BuilderIO/agent-native/releases/download/clips-nightly-latest/clips-nightly-latest.json",
+  },
+};
 
 interface GhAsset {
   name: string;
@@ -121,7 +141,9 @@ export function classifyClipsAsset(
 }
 
 function parseClipsVersion(tagName: string): number[] | null {
-  const match = /^clips-v(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/.exec(tagName);
+  const match = /^clips(?:-nightly)?-v(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/.exec(
+    tagName,
+  );
   if (!match) return null;
   return match.slice(1, 4).map((part) => Number(part));
 }
@@ -137,6 +159,22 @@ export function compareClipsReleaseTags(a: string, b: string): number {
     if (diff !== 0) return diff;
   }
   return 0;
+}
+
+export function isClipsReleaseForChannel(
+  release: GhRelease,
+  channel: ClipsReleaseChannel,
+): boolean {
+  if (release.draft || !hasInstallerAssets(release)) return false;
+  if (channel === "production") {
+    return (
+      !release.prerelease && /^clips-v\d+\.\d+\.\d+$/.test(release.tag_name)
+    );
+  }
+  return (
+    release.prerelease &&
+    /^clips-nightly-v\d+\.\d+\.\d+(?:[-+].*)?$/.test(release.tag_name)
+  );
 }
 
 function isBetterRelease(candidate: GhRelease, current: GhRelease | null) {
@@ -158,8 +196,11 @@ function hasInstallerAssets(release: GhRelease) {
   );
 }
 
-let cache: { data: DownloadManifest; ts: number } | null = null;
-let inFlight: Promise<DownloadManifest> | null = null;
+const cache = new Map<
+  ClipsReleaseChannel,
+  { data: DownloadManifest; ts: number }
+>();
+const inFlight = new Map<ClipsReleaseChannel, Promise<DownloadManifest>>();
 
 class UpstreamError extends Error {
   statusCode: number;
@@ -215,8 +256,10 @@ function isUpdaterManifestLike(value: unknown): value is UpdaterManifest {
   return typeof obj.version === "string" && obj.version.length > 0;
 }
 
-async function fetchUpdaterManifest(): Promise<UpdaterManifest> {
-  const res = await fetch(UPDATER_MANIFEST_URL, {
+async function fetchUpdaterManifest(
+  channel: ClipsReleaseChannel,
+): Promise<UpdaterManifest> {
+  const res = await fetch(RELEASE_CHANNEL_CONFIG[channel].updaterManifestUrl, {
     headers: {
       accept: "application/json",
       "user-agent": "clips-download-page",
@@ -236,35 +279,38 @@ async function fetchUpdaterManifest(): Promise<UpdaterManifest> {
   return json;
 }
 
-async function findUpdaterPinnedRelease(): Promise<GhRelease | null> {
+async function findUpdaterPinnedRelease(
+  channel: ClipsReleaseChannel,
+): Promise<GhRelease | null> {
   try {
-    const manifest = await fetchUpdaterManifest();
-    const version = manifest.version.replace(/^clips-v/, "");
-    const release = await fetchReleaseByTag(`clips-v${version}`);
-    if (!release) return null;
-    if (release.draft || release.prerelease) return null;
-    if (!release.tag_name.startsWith("clips-v")) return null;
-    if (!hasInstallerAssets(release)) return null;
-    return release;
+    const manifest = await fetchUpdaterManifest(channel);
+    const releasePrefix = RELEASE_CHANNEL_CONFIG[channel].releasePrefix;
+    const version = manifest.version
+      .replace(/^clips(?:-nightly)?-v/, "")
+      .replace(/^v/, "");
+    const release = await fetchReleaseByTag(`${releasePrefix}${version}`);
+    return release && isClipsReleaseForChannel(release, channel)
+      ? release
+      : null;
   } catch {
     return null;
   }
 }
 
-async function findLatestClipsRelease(): Promise<GhRelease | null> {
-  // Start with the updater's stable pointer so fresh manual installs and
+async function findLatestClipsRelease(
+  channel: ClipsReleaseChannel,
+): Promise<GhRelease | null> {
+  // Start with the updater's channel pointer so fresh manual installs and
   // auto-updates agree about the channel's current version. Then scan the
   // versioned releases as a fallback/guard and prefer the highest semver
   // tag; a republished older tag must not beat a newer build just because
   // it has a later `published_at`.
-  let best: GhRelease | null = await findUpdaterPinnedRelease();
+  let best: GhRelease | null = await findUpdaterPinnedRelease(channel);
   for (let page = 1; page <= MAX_PAGES; page++) {
     const batch = await fetchPage(page);
     if (batch.length === 0) break;
     for (const r of batch) {
-      if (r.draft || r.prerelease) continue;
-      if (!r.tag_name.startsWith("clips-v")) continue;
-      if (!hasInstallerAssets(r)) continue;
+      if (!isClipsReleaseForChannel(r, channel)) continue;
       if (isBetterRelease(r, best)) {
         best = r;
       }
@@ -274,16 +320,21 @@ async function findLatestClipsRelease(): Promise<GhRelease | null> {
   return best;
 }
 
-async function buildManifest(): Promise<DownloadManifest> {
-  const latest = await findLatestClipsRelease();
+async function buildManifest(
+  channel: ClipsReleaseChannel,
+): Promise<DownloadManifest> {
+  const latest = await findLatestClipsRelease(channel);
   if (!latest) {
     throw createError({
       statusCode: 404,
-      statusMessage: "No published clips-v* release found",
+      statusMessage:
+        channel === "nightly"
+          ? "No published clips-nightly-v* release found"
+          : "No published clips-v* release found",
     });
   }
   return {
-    version: latest.tag_name.replace(/^clips-v/, ""),
+    version: latest.tag_name.replace(/^clips(?:-nightly)?-v/, ""),
     tag: latest.tag_name,
     pub_date: latest.published_at,
     notes: latest.body,
@@ -296,31 +347,43 @@ async function buildManifest(): Promise<DownloadManifest> {
   };
 }
 
-async function getManifest(): Promise<DownloadManifest> {
+async function getManifest(
+  channel: ClipsReleaseChannel = "production",
+): Promise<DownloadManifest> {
   const now = Date.now();
-  if (cache && now - cache.ts < CACHE_TTL_MS) return cache.data;
-  if (inFlight) return inFlight;
-  inFlight = (async () => {
+  const cached = cache.get(channel);
+  if (cached && now - cached.ts < CACHE_TTL_MS) return cached.data;
+  const pending = inFlight.get(channel);
+  if (pending) return pending;
+  const request = (async () => {
     try {
-      const data = await buildManifest();
-      cache = { data, ts: Date.now() };
+      const data = await buildManifest(channel);
+      cache.set(channel, { data, ts: Date.now() });
       return data;
     } catch (err) {
       // Stale-while-error: if we have an older payload, serve it. Only
       // bubble the error if the cache is empty.
-      if (cache) return cache.data;
+      if (cached) return cached.data;
       throw err;
     } finally {
-      inFlight = null;
+      inFlight.delete(channel);
     }
   })();
-  return inFlight;
+  inFlight.set(channel, request);
+  return request;
+}
+
+export function normalizeClipsReleaseChannel(
+  value: unknown,
+): ClipsReleaseChannel {
+  return value === "nightly" ? "nightly" : "production";
 }
 
 export default defineEventHandler(async (event) => {
+  const channel = normalizeClipsReleaseChannel(getQuery(event).channel);
   let manifest: DownloadManifest;
   try {
-    manifest = await getManifest();
+    manifest = await getManifest(channel);
   } catch (err) {
     const e = err as {
       statusCode?: number;
