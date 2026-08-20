@@ -200,14 +200,29 @@ if (workflow) {
       `${workflowPath} no longer passes BETA_E2E_GREP through the advisory lane without failing when no advisory test matches.`,
     );
   }
-  if (
-    !/BETA_E2E_AUTHED=0 pnpm e2e:beta[\s\\]+--project=authed --project=journeys[\s\\]+--grep "\$BETA_E2E_GREP" --list/.test(
+  const hasAuthSelectionCommand =
+    /BETA_E2E_AUTHED=0 pnpm e2e:beta[\s\\]+--project=authed --project=journeys[\s\\]+--grep "\$BETA_E2E_GREP" --list/.test(
       workflow,
-    ) ||
-    !workflow.includes("Total: 0 tests in 0 files")
+    );
+  const selectionStatusCapture = workflow.indexOf('selection_status="$?"');
+  const selectionStatusCheck = workflow.indexOf(
+    'if [ "$selection_status" -ne 0 ]',
+  );
+  const noTestsMarker = workflow.indexOf('grep -q "Error: No tests found"');
+  const emptySelectionMarker = workflow.indexOf(
+    'grep -q "Total: 0 tests in 0 files"',
+  );
+  const selectionStatusExit = workflow.indexOf('exit "$selection_status"');
+  if (
+    !hasAuthSelectionCommand ||
+    selectionStatusCapture < 0 ||
+    selectionStatusCheck < selectionStatusCapture ||
+    noTestsMarker < selectionStatusCheck ||
+    emptySelectionMarker < selectionStatusCheck ||
+    selectionStatusExit < selectionStatusCheck
   ) {
     issues.push(
-      `${workflowPath} must discover filtered authenticated tests with auth disabled before running globalSetup. A public-only grep must not require session credentials.`,
+      `${workflowPath} must capture and propagate failed authenticated discovery, while skipping only an explicit no-tests result. A public-only grep must not require session credentials.`,
     );
   }
   if (!/continue-on-error:\s*true/.test(workflow)) {
