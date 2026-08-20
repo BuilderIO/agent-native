@@ -25,8 +25,13 @@ vi.mock("../db/client.js", () => ({
   isPostgres: () => false,
 }));
 
-const { getSetting, putSetting, deleteSetting, mutateSetting } =
-  await import("./store.js");
+const {
+  getSetting,
+  putSetting,
+  deleteSetting,
+  deleteSettingIfValue,
+  mutateSetting,
+} = await import("./store.js");
 
 beforeEach(() => {
   sqlite = new Database(":memory:");
@@ -87,6 +92,19 @@ describe("settings store", () => {
   it("returns false when deleting a key that does not exist", async () => {
     const deleted = await deleteSetting("ghost");
     expect(deleted).toBe(false);
+  });
+
+  it("conditionally deletes only the inspected value", async () => {
+    await putSetting("conditional", { value: "old" });
+
+    expect(await deleteSettingIfValue("conditional", { value: "new" })).toBe(
+      false,
+    );
+    expect(await getSetting("conditional")).toEqual({ value: "old" });
+    expect(await deleteSettingIfValue("conditional", { value: "old" })).toBe(
+      true,
+    );
+    expect(await getSetting("conditional")).toBeNull();
   });
 
   it("preserves every concurrent read-modify-write update", async () => {

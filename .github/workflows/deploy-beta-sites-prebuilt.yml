@@ -1,8 +1,9 @@
 name: Deploy Agent Native beta sites from GitHub
 
-# Additive cutover lane. The existing deploy-beta-sites.yml remains enabled so
-# every push currently produces a Netlify-built result and a GitHub-built
-# result. Remove that older workflow only after this lane has been compared.
+# GitHub Actions is the sole automatic beta publisher. It builds once and
+# uploads prebuilt artifacts to the independent Netlify beta sites; Netlify
+# Git-connected auto-builds are disabled to prevent stale queued builds from
+# overwriting a newer result.
 on:
   push:
     branches: [main]

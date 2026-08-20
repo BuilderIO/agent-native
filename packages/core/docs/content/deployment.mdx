@@ -68,18 +68,41 @@ contract stay the same.
 <Diagram id="doc-block-deployment-targets" title="Supported deployment targets" summary="Agent-Native apps can deploy to Node.js, Docker, Vercel, Netlify, Cloudflare Pages, Cloudflare Workers, AWS Lambda, Deno Deploy, Azure Static Web Apps, Koyeb, and Render.">
 
 ```html
+<!-- i18n-copy-ignore: deployment target logo markup is visual-only; labels are unchanged. -->
 <div class="deployment-target-grid">
   <a class="deployment-target" href="/docs/node-js">
-    <span class="deployment-target-mark text-mark">N</span>
+    <span class="deployment-target-mark">
+      <img
+        class="deployment-target-logo"
+        src="/integration-logos/nodejs.svg"
+        alt=""
+      />
+    </span>
     <strong>Node.js</strong>
   </a>
   <a class="deployment-target" href="/docs/docker">
-    <span class="deployment-target-mark text-mark">D</span>
+    <span class="deployment-target-mark">
+      <img
+        class="deployment-target-logo"
+        src="/integration-logos/docker.svg"
+        alt=""
+      />
+    </span>
     <strong>Docker</strong>
   </a>
   <a class="deployment-target" href="/docs/vercel">
     <span class="deployment-target-mark">
-      <img src="/integration-logos/vercel.svg" alt="" />
+      <img
+        class="deployment-target-logo deployment-target-logo-light"
+        src="/integration-logos/vercel.svg"
+        alt=""
+      />
+      <img
+        class="deployment-target-logo deployment-target-logo-dark"
+        src="/integration-logos/vercel-white.svg"
+        alt=""
+        aria-hidden="true"
+      />
     </span>
     <strong>Vercel</strong>
   </a>
@@ -102,23 +125,71 @@ contract stay the same.
     <strong>Cloudflare Workers</strong>
   </a>
   <a class="deployment-target" href="/docs/aws-lambda">
-    <span class="deployment-target-mark text-mark">AWS</span>
+    <span class="deployment-target-mark">
+      <img
+        class="deployment-target-logo"
+        src="/integration-logos/aws-lambda.svg"
+        alt=""
+      />
+    </span>
     <strong>AWS Lambda</strong>
   </a>
   <a class="deployment-target" href="/docs/deno-deploy">
-    <span class="deployment-target-mark text-mark">D</span>
+    <span class="deployment-target-mark">
+      <img
+        class="deployment-target-logo deployment-target-logo-light"
+        src="/integration-logos/deno.svg"
+        alt=""
+      />
+      <img
+        class="deployment-target-logo deployment-target-logo-dark"
+        src="/integration-logos/deno-white.svg"
+        alt=""
+        aria-hidden="true"
+      />
+    </span>
     <strong>Deno Deploy</strong>
   </a>
   <a class="deployment-target" href="/docs/azure-static-web-apps">
-    <span class="deployment-target-mark text-mark">A</span>
+    <span class="deployment-target-mark">
+      <img
+        class="deployment-target-logo"
+        src="/integration-logos/azure.svg"
+        alt=""
+      />
+    </span>
     <strong>Azure Static Web Apps</strong>
   </a>
   <a class="deployment-target" href="/docs/koyeb">
-    <span class="deployment-target-mark text-mark">K</span>
+    <span class="deployment-target-mark">
+      <img
+        class="deployment-target-logo deployment-target-logo-light"
+        src="/integration-logos/koyeb.svg"
+        alt=""
+      />
+      <img
+        class="deployment-target-logo deployment-target-logo-dark"
+        src="/integration-logos/koyeb-white.svg"
+        alt=""
+        aria-hidden="true"
+      />
+    </span>
     <strong>Koyeb</strong>
   </a>
   <a class="deployment-target" href="/docs/render">
-    <span class="deployment-target-mark text-mark">R</span>
+    <span class="deployment-target-mark">
+      <img
+        class="deployment-target-logo deployment-target-logo-light"
+        src="/integration-logos/render.svg"
+        alt=""
+      />
+      <img
+        class="deployment-target-logo deployment-target-logo-dark"
+        src="/integration-logos/render-white.svg"
+        alt=""
+        aria-hidden="true"
+      />
+    </span>
     <strong>Render</strong>
   </a>
 </div>
@@ -151,16 +222,20 @@ contract stay the same.
   place-items: center;
   flex: 0 0 auto;
 }
-.deployment-target-mark img {
+.deployment-target-logo {
+  display: block;
   width: 26px;
   height: 26px;
   object-fit: contain;
 }
-.deployment-target-mark.text-mark {
-  border-radius: 7px;
-  background: hsl(var(--muted));
-  font-size: 12px;
-  font-weight: 700;
+.deployment-target-logo-dark {
+  display: none;
+}
+[data-theme="dark"] .deployment-target-logo-light {
+  display: none;
+}
+[data-theme="dark"] .deployment-target-logo-dark {
+  display: block;
 }
 @media (max-width: 640px) {
   .deployment-target-grid {

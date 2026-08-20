@@ -1786,6 +1786,7 @@ describe("DesktopIdentityBroker", () => {
         id === authority.id ? authority : id === mail.id ? mail : null,
       listApps: () => [authority, mail],
       createWindow,
+      userAgent: "Mozilla/5.0 Electron/43.4.0 AgentNativeDesktop/0.1.150",
       openExternal: vi.fn(async (url: string) => {
         openedUrls.push(url);
       }),
@@ -1796,6 +1797,13 @@ describe("DesktopIdentityBroker", () => {
     await expect(broker.signIn(mail.id)).resolves.toBe(true);
 
     expect(createWindow).toHaveBeenCalledOnce();
+    expect(createWindow).toHaveBeenCalledWith(
+      expect.objectContaining({
+        webPreferences: expect.objectContaining({
+          userAgent: expect.stringContaining("AgentNativeDesktop/"),
+        }),
+      }),
+    );
     expect(openedUrls).toHaveLength(0);
     expect(identityWindow.loadURL).toHaveBeenCalledWith(
       expect.stringContaining("accounts.google.com"),

@@ -162,6 +162,52 @@ describe("Desktop identity activation", () => {
     invalidateRememberedDesktopIdentityStatus();
   });
 
+  it("keeps the webview URL stable across state renders", () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(1_000_000);
+    try {
+      root = createRoot(container);
+      const app = {
+        id: "custom-mail",
+        name: "Mail",
+        icon: "mail",
+        description: "",
+        devPort: 3000,
+      };
+      const appConfig = {
+        ...app,
+        url: "https://mail.agent-native.com",
+        isBuiltIn: false,
+        enabled: true,
+        mode: "prod" as const,
+      };
+      const props = {
+        app,
+        appConfig,
+        isActive: true,
+        theme: "dark" as const,
+      };
+
+      act(() => {
+        root.render(React.createElement(AppWebview, props));
+      });
+
+      const webview = container.querySelector("webview");
+      const firstUrl = webview?.getAttribute("src");
+      expect(
+        Number(new URL(firstUrl!).searchParams.get("agentNativeBetaOptOut")),
+      ).toBe(87_400_000);
+
+      now.mockReturnValue(2_000_000);
+      act(() => {
+        root.render(React.createElement(AppWebview, props));
+      });
+
+      expect(webview?.getAttribute("src")).toBe(firstUrl);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
   it("keeps a remembered session gated until child synchronization completes", async () => {
     let resolveSynchronization!: (synchronized: boolean) => void;
     const ensureAppSession = vi.fn(
