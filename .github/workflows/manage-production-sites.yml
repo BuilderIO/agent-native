@@ -154,7 +154,9 @@ jobs:
                 });
                 if (response.status !== 429) return response;
 
-                const retryAfter = Number(response.headers.get('retry-after'));
+                const retryAfterHeader = response.headers.get('retry-after');
+                const retryAfter =
+                  retryAfterHeader === null ? Number.NaN : Number(retryAfterHeader);
                 await response.arrayBuffer();
                 const delayMs = Number.isFinite(retryAfter) && retryAfter >= 0
                   ? retryAfter * 1000
