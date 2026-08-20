@@ -79,6 +79,7 @@ import {
   IMMUTABLE_ASSET_CACHE_HEADERS,
   prefixAssetPath,
 } from "./immutable-assets.js";
+import { writeNetlifyStaticHeaders } from "./netlify-static-headers.js";
 import {
   discoverApiRoutes,
   discoverPlugins,
@@ -5098,6 +5099,10 @@ export default bundle;
     }
 
     writeSingleTemplateNetlifyRedirects(cwd);
+    // React Router prerendered pages bypass the SSR function and are served
+    // directly from Netlify's static backing store. Keep that artifact on the
+    // same public SWR policy as runtime SSR and .data responses.
+    writeNetlifyStaticHeaders(path.join(cwd, "dist"));
     assertSingleTemplateNetlifyBuildOutput(cwd);
   }
 

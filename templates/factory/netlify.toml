@@ -11,3 +11,6 @@ NPM_CONFIG_PRODUCTION = "false"
 
 [context.production.environment]
 AGENT_NATIVE_HOSTED_HARNESS = "true"
+# Production release migrations own schema setup; request functions must skip
+# migration probes on every serverless invocation.
+AGENT_NATIVE_RELEASE_MIGRATIONS = "1"

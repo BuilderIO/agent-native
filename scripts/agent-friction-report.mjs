@@ -101,6 +101,13 @@ const PATTERNS = [
     re: /\b(you (said|claimed) (you )?fixed|third time|still (broken|not working|happening)|didn'?t (actually )?(work|fix)|not (actually )?fixed)\b/i,
   },
   {
+    key: "ssr-cache-regression",
+    label: "Had to repeat the public SSR/SWR cache contract",
+    fixedBy:
+      "guard:ssr-cache-artifact + AGENTS.md cache artifact contract (2026-08-20)",
+    re: /\b(?:cache|caching|cache-control|stale-while-revalidate|SWR|CDN)\b[^.!?]{0,140}\b(?:wrong|broken|slow|again|regression|revert|reverted|no-cache|no-store|max-age=0|must-revalidate|fire|every few weeks)\b/i,
+  },
+  {
     key: "stopped-early",
     label: "Stopped mid-task / queued instead of doing",
     fixedBy: ".agents/skills/verifying-changes (2026-07-31)",

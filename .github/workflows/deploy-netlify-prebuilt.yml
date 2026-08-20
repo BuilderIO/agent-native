@@ -254,6 +254,13 @@ jobs:
           done
           du -sh "$PUBLISH_DIRECTORY" "$FUNCTIONS_DIRECTORY"
 
+      - name: Verify static SSR cache artifact
+        env:
+          PUBLISH_DIRECTORY: ${{ steps.target.outputs.publish_directory }}
+        run: |
+          set -euo pipefail
+          GUARD_SSR_CACHE_ARTIFACT_DIR="$PUBLISH_DIRECTORY" pnpm guard:ssr-cache-artifact
+
       - name: Pause automatic Netlify builds for production cutover
         id: pause
         if: inputs.target == 'production' && inputs.deploy && inputs.deploy_mode == 'production'
