@@ -171,12 +171,27 @@ for (const site of sites) {
       // that is flapping there is flapping for everyone already and promoting
       // this build changes nothing about it.
       const production = productionHostFor(site);
-      const prodOutcome = await mustRespond(
-        `https://${production}/_agent-native/health`,
-        { attempts: 3, timeoutMs: 60_000 },
+      // Sampled the same number of times as beta. A single production probe
+      // against a database that flaps — which is exactly the case being
+      // adjudicated — catches a good moment often enough to call a shared
+      // degradation a beta-only regression, and the test goes flaky instead of
+      // reporting the truth.
+      const prodSamples: HealthSample[] = [];
+      for (let attempt = 1; attempt <= samples.length; attempt += 1) {
+        const prodOutcome = await mustRespond(
+          `https://${production}/_agent-native/health`,
+          { attempts: 3, timeoutMs: 60_000 },
+        );
+        prodSamples.push(
+          parseJson<HealthSample>(prodOutcome, "production health"),
+        );
+        if (attempt < samples.length) {
+          await new Promise((r) => setTimeout(r, 1_500));
+        }
+      }
+      const prodHealthy = prodSamples.every(
+        (sample) => sample.db === true && sample.ready === true,
       );
-      const prod = parseJson<HealthSample>(prodOutcome, "production health");
-      const prodHealthy = prod.db === true && prod.ready === true;
 
       const detail = JSON.stringify(
         samples.map((sample) => ({
@@ -191,7 +206,7 @@ for (const site of sites) {
       if (!prodHealthy) {
         test.info().annotations.push({
           type: "pre-existing",
-          description: `${site.id}: database unreachable on beta AND on ${production} — pre-existing, not a promotion regression. ${detail}`,
+          description: `${site.id}: database unreachable on beta, and ${production} is degraded too (${prodSamples.filter((p) => p.db !== true).length}/${prodSamples.length} bad samples) — pre-existing, not a promotion regression. ${detail}`,
         });
         return;
       }
