@@ -1,0 +1,106 @@
+name: Deploy Agent Native beta sites from GitHub
+
+# Additive cutover lane. The existing deploy-beta-sites.yml remains enabled so
+# every push currently produces a Netlify-built result and a GitHub-built
+# result. Remove that older workflow only after this lane has been compared.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-agent-native-beta-sites-prebuilt
+  cancel-in-progress: true
+
+jobs:
+  wait-for-beta:
+    name: Wait for beta branch mirror
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      source_sha: ${{ steps.source.outputs.source_sha }}
+    steps:
+      - uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        id: source
+        with:
+          script: |
+            const expectedSha =
+              context.eventName === 'workflow_dispatch'
+                ? (await github.rest.git.getRef({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    ref: 'heads/main',
+                  })).data.object.sha
+                : context.sha;
+            const deadline = Date.now() + 10 * 60 * 1000;
+
+            while (Date.now() < deadline) {
+              const betaSha = (await github.rest.git.getRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: 'heads/beta',
+              })).data.object.sha;
+              if (betaSha === expectedSha) {
+                core.info(`beta is mirrored at ${expectedSha}`);
+                core.setOutput('source_sha', expectedSha);
+                return;
+              }
+              core.info(`waiting for beta ${betaSha} to reach ${expectedSha}`);
+              await new Promise((resolve) => setTimeout(resolve, 10_000));
+            }
+
+            core.setFailed(`beta did not reach ${expectedSha} within 10 minutes`);
+
+  discover-sites:
+    name: Discover beta sites
+    needs: wait-for-beta
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ needs.wait-for-beta.outputs.source_sha }}
+          fetch-depth: 1
+          sparse-checkout: scripts/netlify-beta-sites.json
+          sparse-checkout-cone-mode: false
+
+      - name: Build the beta site matrix
+        id: matrix
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('node:fs');
+          const sites = JSON.parse(
+            fs.readFileSync('scripts/netlify-beta-sites.json', 'utf8'),
+          );
+          if (!sites.length) throw new Error('No beta sites configured.');
+          const matrix = { include: sites.map(({ id }) => ({ site: id })) };
+          fs.appendFileSync(
+            process.env.GITHUB_OUTPUT,
+            `matrix=${JSON.stringify(matrix)}\n`,
+          );
+          console.log(`Discovered ${sites.length} beta sites.`);
+          NODE
+
+  deploy:
+    name: ${{ matrix.site }} beta prebuilt deploy
+    needs: [wait-for-beta, discover-sites]
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix: ${{ fromJSON(needs.discover-sites.outputs.matrix) }}
+    uses: ./.github/workflows/deploy-netlify-prebuilt.yml
+    with:
+      target: beta
+      site: ${{ matrix.site }}
+      caller: fleet
+      source_ref: ${{ needs.wait-for-beta.outputs.source_sha }}
+      build_context: branch-deploy
+      deploy: true
+      deploy_mode: production
+      smoke: true
+    secrets: inherit

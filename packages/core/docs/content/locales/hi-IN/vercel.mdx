@@ -1,0 +1,38 @@
+---
+title: "Vercel"
+description: "Vercel Nitro preset के साथ एक agent-native ऐप को Vercel पर तैनात करें, standalone या एक कार्यस्थान के रूप में।"
+---
+
+# Vercel
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "vercel" } })],
+});
+```
+
+Vercel CLI या git push के ज़रिए तैनात करें:
+
+```bash
+vercel deploy
+```
+
+एक कार्यस्थान के लिए, हर ऐप को एक Vercel Build Output API bundle में build करें:
+
+```bash
+npx @agent-native/core@latest deploy --preset vercel
+```
+
+Vercel Git deployments के लिए, build command को इस पर सेट करें:
+
+```bash
+npx @agent-native/core@latest deploy --preset vercel --build-only
+```
+
+कार्यस्थान build हर ऐप के Nitro `vercel` output को root `.vercel/output` में copy करता है, हर function को अपना खुद का mount-path environment देता है, और वह route config लिखता है जो ऐप्स को `/<app-id>` पर serve करता है।
+
+## आगे क्या है
+
+- [**तैनाती**](/docs/deployment) — पहले production deploy से पहले एक स्थायी डेटाबेस और एक preset चुनें
+- [**कार्यस्थान तैनाती**](/docs/workspace-deployment) — `deploy --preset vercel` कार्यस्थान build पूरे विस्तार से
+- [Node.js](/docs/node-js), [Docker](/docs/docker), [**Netlify**](/docs/netlify), [**Cloudflare**](/docs/cloudflare), और [**अन्य प्लेटफ़ॉर्म**](/docs/other-platforms) — बाकी Nitro presets

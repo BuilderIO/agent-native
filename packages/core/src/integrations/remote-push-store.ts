@@ -61,7 +61,7 @@ function buildCreateNotificationsSql(): string {
 `;
 }
 
-async function ensureTables(): Promise<void> {
+export async function ensureTables(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
       const client = getDbExec();

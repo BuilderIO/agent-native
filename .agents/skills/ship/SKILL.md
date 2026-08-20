@@ -3,7 +3,8 @@ name: ship
 description: >-
   Commit and push the complete current-branch snapshot, open a ready PR,
   babysit it, merge when clean, then create a fresh branch. Use when the user
-  asks to ship, publish, or hand off local changes.
+  asks to ship, publish, or hand off local changes. Main auto-deploys beta;
+  production promotion is manual.
 user-invocable: true
 scope: dev
 metadata:
@@ -54,12 +55,20 @@ changes", or "push up my local changes". Push the first coherent branch
 snapshot before long validation so CI and review can start, then publish later
 snapshots as local work arrives.
 
-If the branch updates templates or publishable packages, shipping does not stop
-at merge. Treat the work as shipped only after the affected templates are live in
-production and affected packages have successfully published/released. If a
-production template deploy or package publish fails, retrigger the failed job
-when the existing code already contains the fix; otherwise make the necessary
-code/config fix and ship that follow-up until production is live.
+## Deployment split
+
+Merges to `main` auto-deploy only beta sites at `beta.*.agent-native.com`.
+Production promotion is a separate manual operation. The normal `/ship` flow
+does not wait for or verify post-merge beta deployment; use
+`/ship-and-monitor` to verify beta and the release tail. It also must not imply
+an automatic production deploy. Critical fixes that must reach production need
+an explicit manual promotion, followed by
+`/ship-and-monitor` when the promotion and release tail need verification.
+
+Use `.github/workflows/deploy-production-sites-prebuilt.yml` or the targeted
+`promote-netlify-deploy.yml` workflow to promote a critical fix and let it
+manage Netlify lock transitions. Do not manually remove or clear a Netlify lock
+as a deployment step; clearing one is not the production promotion.
 
 ## Latest-feedback handoff
 
@@ -69,6 +78,26 @@ disposition table into the PR or ship recap. Every actionable item must have an
 owning source seam and focused verification, with one explicit disposition:
 fixed, awaiting reporter clarification, already owned or duplicate, deferred or
 informational, external or non-repo-owned, or unavailable/unverified.
+
+Honor the feedback ownership and reaction gates from `/review-latest-feedback`:
+
+- Never add or duplicate `👀` on a Slack parent. If the latest readable parent
+  already has an `👀` reaction from anyone, preserve that fact as an existing
+  investigation marker, but do not treat it as a disposition or suppression
+  signal. After classifying the parent, re-read the complete thread and, for
+  an actionable in-scope item, require a verified `@agent-native` **Fixed**,
+  **In progress**, or **Clarification needed** disposition; an eye-only or
+  stale eye-only item remains actionable for that handoff check. For items
+  routed to Sid or Alice, or classified as external, duplicate, deferred, or
+  informational, honor that owning disposition and do not turn the eye into a
+  merge blocker. If the reaction state is unavailable, record the item as
+  unavailable/unverified and refresh the feedback thread instead of guessing.
+- UX or interaction bugs in the Design app are owned by Sid. All Content app
+  feedback is owned by Alice. Keep those source links and ownership decisions
+  in the ship ledger, but do not include them as this workflow's fixes,
+  investigation, clarification requests, replies, dispatches, or merge
+  blockers. Only an explicit invocation assigning a specific item to this
+  workflow can override the owner route.
 
 When deciding whether an awaiting clarification is already answered, treat the
 requested URL, error, screenshot, repro, run ID, or other evidence as present
@@ -82,6 +111,32 @@ ask again for contents already known to be in the inaccessible artifact. If the
 available evidence is enough without it, continue and record the limitation as
 unavailable/unverified in the ship ledger.
 
+Before carrying any item forward from a prior handoff - fixed, in progress,
+awaiting clarification, already owned or duplicate, deferred or informational,
+external, or unavailable/unverified - always re-read the complete source thread
+and current handoff and reconcile them for new replies, reactions, linked
+evidence, resolution, or ownership signals. The handoff is a prior record, not
+the source of truth. After that refresh, if
+`@agent-native` or another participant already supplied the needed details,
+identified the cause, linked a fix, or said the issue is fixed, landed, or being
+fixed, do not reopen it as a clarification request or ask for duplicate
+information. Carry it as fixed pending verification, already owned, or in
+progress, and verify or follow up on that existing work. Only preserve an
+awaiting-clarification disposition when one specific reporter or product input
+is still missing after that check. Any eventual reporter-facing clarification
+must thank the person first and ask the question second; `Clarification needed`
+is an internal state, not an opening line.
+
+There may be only one unanswered clarification request per feedback thread. If
+the existing handoff or complete source thread contains a question from this
+workflow or `@agent-native`, re-read both and determine whether the exact
+requested detail has been semantically answered or explicitly resolved anywhere
+in the thread. A partial or unrelated reply does not clear the request. If it
+remains unresolved, carry its timestamp forward as the sole pending request and
+do not add another question. Once it is answered or resolved, re-read the
+thread and try the fix first; ask one new question only for one specific,
+non-repeating detail that still blocks the fix.
+
 Do not ship a feedback fix that is only a wording-specific rule or that lacks
 the evidence needed to identify its owner. Re-run or refresh the feedback sweep
 when the branch changes after triage or when new comments, Slack replies,
@@ -89,12 +144,17 @@ GitHub review comments, or Sentry findings arrive. Treat an unavailable
 connector as unavailable - never as “nothing matched” - and preserve that gap
 in the recap.
 
-The ship report and PR description must keep source-tested, built, published or
-deployed, and observed-live claims separate. A green test or PR does not prove
-that a feedback fix is live; verify the affected production surface after merge.
+The ship report and PR description must keep source-tested, built, and merged
+claims separate. A green test or PR does not prove that beta or production is
+live; deployment monitoring belongs to `/ship-now` or `/ship-and-monitor`.
 Before merging, `/babysit-pr` must re-check that every actionable feedback or
 review item has a fix or a concise reply and that no new evidence has been left
-without a disposition.
+without a disposition. Items routed to Sid or Alice remain outside this
+workflow's ownership. External, duplicate, deferred, and informational items
+also follow their recorded disposition rather than blocking this workflow. A
+parent marked with `👀` is not thereby complete or non-actionable: preserve the
+reaction without duplicating it, and for actionable in-scope items do not merge
+while an eye-only or stale eye-only item lacks a verified bot disposition.
 
 ## Worktree and branch setup
 
@@ -185,27 +245,14 @@ branch, stay on it.
    clean working tree, no unpushed commits, GitHub Actions green, all review
    comments addressed/replied, and mergeable.
 
-8. **Verify production is live when needed**: if the branch changed
-   `templates/*`, docs/sites that publish templates, or any deployment config
-   that affects templates, verify the affected template production deploys finish
-   successfully and the live site is serving the new build. If a deploy fails
-   because of a transient infra/build pickup issue, retrigger it; if it fails
-   because of code, config, dependency, or generated-file problems, fix the
-   issue and ship the follow-up. If the branch changed publishable packages such
-   as `packages/core`, `packages/dispatch`, `packages/scheduling`,
-   `packages/pinpoint`, or `packages/skills`, verify the release/publish
-   workflow completes and the package version is available from the registry or
-   package host. Retrigger transient publish failures; fix and ship code/config
-   failures.
-
-9. **Create the next branch after merge**: after the PR is merged and `origin/main`
+8. **Create the next branch after merge**: after the PR is merged and `origin/main`
    contains the merge commit, run `/new-branch`. Follow that skill’s preflight,
    stash gate, branch naming, and stash-reporting rules. This is the only branch
    movement in the ship flow.
 
-10. **Report**: summarize the PR URL, merge result, new branch name, validation,
-    production deploy/publish verification when applicable, and any feedback/CI
-    fixes handled.
+9. **Report**: summarize the PR URL, merge result, new branch name, validation,
+   and any feedback/CI fixes handled. Do not claim post-merge beta or production
+   monitoring unless you ran `/ship-now` or `/ship-and-monitor`.
 
 ## Important
 
@@ -219,8 +266,8 @@ branch, stay on it.
 - Treat `/babysit-pr` as the source of truth for CI/review monitoring cadence,
   comment handling, local-file push discipline, and merge gates. Update
   `babysit-pr` first if the watcher behavior changes.
-- Treat production deploy/publish verification as part of `/ship` whenever
-  templates or publishable packages changed. A green PR is not enough if the
-  affected template build or package publish later fails.
+- Treat `/ship` as complete after its merge and branch-rotation steps. Use
+  `/ship-now` or `/ship-and-monitor` for post-merge beta/release monitoring and
+  explicit manual production-promotion verification.
 - Treat `/new-branch` as mandatory after a successful merge so the workspace is
   ready for the next task on fresh `main`.

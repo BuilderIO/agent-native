@@ -29,7 +29,7 @@ description: "defineAction() 的結構：架構、run，以及 HTTP 設定，還
     {
       lines: "12-16",
       label: "單一實作",
-      note: "`run` 主體是唯一的真實來源。UI 按鈕和代理工具執行的都完全是這段程式碼。`getDb()` 和 `schema` 來自您應用程式的 `server/db/index.ts`。請參閱 [資料庫](/docs/database)。",
+      note: "`run` 主體是唯一的真實來源。UI 按鈕和代理工具執行的都完全是這段程式碼。`getDb()` 和 `schema` 來自您應用程式的 `server/db/index.ts`。請參閱 [資料庫](/docs/server-database)。",
     },
   ]}
 />
@@ -266,5 +266,5 @@ POST 是預設值，`http: { method: "GET" }` 會將它變成 GET。React 掛鉤
 - [**存取與授權**](/docs/actions-access-control) — `agentTool`、`toolCallable`、`authorize`，以及 `ctx` 範圍限定
 - [**執行情境**](/docs/actions-run-context) — 完整的 `ctx` 欄位表
 - [**其他介面**](/docs/actions-other-surfaces) — 原生聊天 UI、CLI、A2A、MCP，以及標準 actions
-- [**資料庫**](/docs/database) — `run()` 內使用的 `getDb()`/`schema`
+- [**資料庫**](/docs/server-database) — `run()` 內使用的 `getDb()`/`schema`
 - [**資料與同步**](/docs/client-data) — 從 UI 呼叫此 action

@@ -4,67 +4,36 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@agent-native/toolkit/ui/popover";
-import { IconExternalLink, IconGitBranch } from "@tabler/icons-react";
 import { useEffect, useMemo, useRef } from "react";
 
 import type {
   AgentNativeDeploymentEnvironment,
   AgentNativeConfig,
 } from "../config.js";
+import {
+  BETA_OPT_OUT_QUERY_PARAM,
+  BETA_OPT_OUT_STORAGE_KEY,
+  buildEnvironmentOptOutUrl,
+  buildEnvironmentUrl,
+  resolveEnvironmentTargets,
+  type EnvironmentBadgeTargets,
+} from "../shared/environment-lanes.js";
 import { trackEvent } from "./analytics.js";
 import { injectedAgentNativeConfig } from "./app-config.js";
 import { useSession } from "./use-session.js";
 
-export const BETA_OPT_OUT_QUERY_PARAM = "agentNativeBetaOptOut";
-export const BETA_OPT_OUT_STORAGE_KEY = "agent-native:beta-opt-out-until";
-export const BETA_OPT_OUT_DURATION_MS = 24 * 60 * 60 * 1000;
-
-const ENVIRONMENT_BETA_HOSTS = {
-  "agent-workspace.builder.io": "beta.agent-workspace.builder.io",
-  "analytics.agent-native.com": "beta.analytics.agent-native.com",
-  "assets.agent-native.com": "beta.assets.agent-native.com",
-  "brain.agent-native.com": "beta.brain.agent-native.com",
-  "calendar.agent-native.com": "beta.calendar.agent-native.com",
-  "chat.agent-native.com": "beta.chat.agent-native.com",
-  "clips.agent-native.com": "beta.clips.agent-native.com",
-  "content.agent-native.com": "beta.content.agent-native.com",
-  "crm.agent-native.com": "beta.crm.agent-native.com",
-  "design.agent-native.com": "beta.design.agent-native.com",
-  "dispatch.agent-native.com": "beta.dispatch.agent-native.com",
-  "factory.agent-native.com": "beta.factory.agent-native.com",
-  "forms.agent-native.com": "beta.forms.agent-native.com",
-  "macros.agent-native.com": "beta.macros.agent-native.com",
-  "mail.agent-native.com": "beta.mail.agent-native.com",
-  "plan.agent-native.com": "beta.plan.agent-native.com",
-  "slides.agent-native.com": "beta.slides.agent-native.com",
-} as const;
-
-export interface EnvironmentBadgeTargets {
-  betaHost: string;
-  productionHost: string;
-}
+export {
+  BETA_OPT_OUT_DURATION_MS,
+  BETA_OPT_OUT_QUERY_PARAM,
+  BETA_OPT_OUT_STORAGE_KEY,
+  buildEnvironmentOptOutUrl,
+  buildEnvironmentUrl,
+  resolveEnvironmentTargets,
+  type EnvironmentBadgeTargets,
+} from "../shared/environment-lanes.js";
 
 export function isBuilderIoEmployee(email: string | null | undefined): boolean {
   return email?.trim().toLowerCase().endsWith("@builder.io") ?? false;
-}
-
-export function resolveEnvironmentTargets(
-  hostname: string | undefined,
-): EnvironmentBadgeTargets | null {
-  const normalized = hostname?.trim().toLowerCase().replace(/\.$/, "");
-  if (!normalized) return null;
-
-  const productionHost = normalized.replace(/^beta\./, "");
-  const betaHost =
-    ENVIRONMENT_BETA_HOSTS[
-      productionHost as keyof typeof ENVIRONMENT_BETA_HOSTS
-    ];
-  if (!betaHost) return null;
-
-  return {
-    betaHost,
-    productionHost,
-  };
 }
 
 export function resolveEnvironmentChannel(
@@ -83,49 +52,12 @@ export function resolveEnvironmentChannel(
     : "production";
 }
 
-export function buildEnvironmentUrl(
-  sourceHref: string,
-  targetHost: string,
-): string | null {
-  try {
-    const target = new URL(sourceHref);
-    target.protocol = "https:";
-    target.hostname = targetHost;
-    target.port = "";
-    return target.toString();
-  } catch {
-    // coercion-ok: Invalid navigation input is an explicit absent target.
-    return null;
-  }
-}
-
 export function isBetaOptOutActive(
   value: string | number | null | undefined,
   now = Date.now(),
 ): boolean {
   const expiry = typeof value === "number" ? value : Number(value);
   return Number.isFinite(expiry) && expiry > now;
-}
-
-export function buildEnvironmentOptOutUrl(
-  sourceHref: string,
-  targetHost: string,
-  now = Date.now(),
-): string | null {
-  const targetHref = buildEnvironmentUrl(sourceHref, targetHost);
-  if (!targetHref) return null;
-
-  try {
-    const target = new URL(targetHref);
-    target.searchParams.set(
-      BETA_OPT_OUT_QUERY_PARAM,
-      String(now + BETA_OPT_OUT_DURATION_MS),
-    );
-    return target.toString();
-  } catch {
-    // coercion-ok: buildEnvironmentUrl already validated the URL.
-    return null;
-  }
 }
 
 function readBetaOptOutUntil(now = Date.now()): number | null {
@@ -181,50 +113,93 @@ function EnvironmentLink({ label, href }: { label: string; href: string }) {
   return (
     <Button
       asChild
-      className="w-full justify-start px-2"
+      className="w-full justify-center"
       size="sm"
-      variant="ghost"
+      variant="outline"
     >
-      <a href={href}>
-        <IconExternalLink aria-hidden="true" />
-        {label}
-      </a>
+      <a href={href}>{label}</a>
     </Button>
   );
 }
 
-/**
- * Small internal-only lane switcher for first-party hosted Agent-Native apps.
- * It is mounted inside the authenticated AppProviders shell so public pages,
- * embeds, and signed-out visitors never receive environment navigation.
- */
-export function EnvironmentBadge() {
+function EnvironmentBadgeContent({
+  environment,
+  targets,
+}: {
+  environment: "beta" | "production";
+  targets: EnvironmentBadgeTargets;
+}) {
+  if (typeof window === "undefined") return null;
+
+  const currentHref = window.location.href;
+  const betaHref = buildEnvironmentUrl(currentHref, targets.betaHost);
+  const productionHref = buildEnvironmentOptOutUrl(
+    currentHref,
+    targets.productionHost,
+  );
+  if (environment === "beta" ? !productionHref : !betaHref) return null;
+
+  const label = environment === "beta" ? "beta" : "prod";
+  const title =
+    environment === "beta"
+      ? "You're on Agent Native Beta"
+      : "You're on Agent Native Production";
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          aria-label={`Open ${title.toLowerCase()} switcher`}
+          className="fixed bottom-3 right-3 z-[100] h-6 min-w-0 rounded-xl border-border/80 bg-background/95 px-2 text-[11px] font-semibold uppercase tracking-[0.5px] shadow-sm backdrop-blur-sm"
+          size="sm"
+          variant={environment === "beta" ? "default" : "outline"}
+        >
+          {label}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="center"
+        className="w-[280px] p-5"
+        side="top"
+        sideOffset={8}
+      >
+        <div className="mb-1 text-sm font-semibold leading-5">{title}</div>
+        <div className="mb-4 text-sm text-muted-foreground">
+          Choose where you want to continue.
+        </div>
+        <div className="grid gap-2">
+          {environment === "beta" ? (
+            <EnvironmentLink
+              href={productionHref!}
+              label="Switch to production"
+            />
+          ) : (
+            <EnvironmentLink href={betaHref!} label="Go to beta" />
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function ProductionEnvironmentBadge({
+  targets,
+}: {
+  targets: EnvironmentBadgeTargets;
+}) {
   const { session, status } = useSession();
-  const config = useMemo(injectedAgentNativeConfig, []);
-  const didAutoRedirect = useRef(false);
-  const hostname =
-    typeof window === "undefined" ? undefined : window.location.hostname;
-  const environment = resolveEnvironmentChannel(config, hostname);
-  const targets = resolveEnvironmentTargets(hostname);
   const isEligible =
     typeof window !== "undefined" &&
     window.parent === window &&
     status === "authenticated" &&
-    isBuilderIoEmployee(session?.email) &&
-    !!environment &&
-    !!targets;
+    isBuilderIoEmployee(session?.email);
+  const didAutoRedirect = useRef(false);
 
   useEffect(() => {
-    if (
-      !isEligible ||
-      environment !== "production" ||
-      !targets ||
-      didAutoRedirect.current
-    ) {
+    if (!isEligible || didAutoRedirect.current) {
       return;
     }
 
-    didAutoRedirect.current = true;
     if (readBetaOptOutUntil() !== null) return;
     if (consumeBetaOptOutQueryParam(window.location.href)) return;
 
@@ -234,67 +209,48 @@ export function EnvironmentBadge() {
     );
     if (!betaHref || typeof window.location.replace !== "function") return;
 
+    didAutoRedirect.current = true;
     trackEvent("environment switched", {
       from_environment: "production",
       to_environment: "beta",
       trigger: "automatic_redirect",
     });
     window.location.replace(betaHref);
-  }, [environment, isEligible, session?.email, status, targets?.betaHost]);
+  }, [isEligible, session?.email, status, targets.betaHost]);
+
+  if (!isEligible) return null;
+  return <EnvironmentBadgeContent environment="production" targets={targets} />;
+}
+
+/**
+ * First-party hosted lane switcher. Beta is intentionally visible before
+ * authentication so a visitor can always leave beta from the sign-in page.
+ * Production remains an internal auto-redirect lane for authenticated staff.
+ */
+export function EnvironmentBadge({
+  showProduction = true,
+}: {
+  showProduction?: boolean;
+} = {}) {
+  const config = useMemo(injectedAgentNativeConfig, []);
+  const hostname =
+    typeof window === "undefined" ? undefined : window.location.hostname;
+  const environment = resolveEnvironmentChannel(config, hostname);
+  const targets = resolveEnvironmentTargets(hostname);
 
   if (
-    !isEligible ||
+    typeof window === "undefined" ||
+    window.parent !== window ||
     !environment ||
-    !targets ||
-    typeof window === "undefined"
+    !targets
   ) {
     return null;
   }
 
-  const currentHref = window.location.href;
-  const betaHref = buildEnvironmentUrl(currentHref, targets.betaHost);
-  const productionHref = buildEnvironmentOptOutUrl(
-    currentHref,
-    targets.productionHost,
-  );
-  if (!betaHref || !productionHref) return null;
+  if (environment === "beta") {
+    return <EnvironmentBadgeContent environment="beta" targets={targets} />;
+  }
 
-  const label = environment === "beta" ? "beta" : "prod";
-  const title =
-    environment === "beta" ? "Beta environment" : "Production environment";
-
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <Button
-          aria-label={`Open ${title.toLowerCase()} switcher`}
-          className="fixed bottom-3 right-3 z-[100] h-7 rounded-full border-border/80 bg-background/95 px-2.5 text-[11px] font-semibold uppercase tracking-[0.12em] shadow-sm backdrop-blur-sm"
-          size="sm"
-          variant={environment === "beta" ? "secondary" : "outline"}
-        >
-          <span
-            aria-hidden="true"
-            className={`size-1.5 rounded-full ${environment === "beta" ? "bg-primary" : "bg-muted-foreground"}`}
-          />
-          {label}
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-64 p-3" side="top">
-        <div className="mb-2 flex items-center gap-2 text-sm font-medium">
-          <IconGitBranch
-            aria-hidden="true"
-            className="size-4 text-muted-foreground"
-          />
-          {title}
-        </div>
-        <div className="grid gap-1">
-          {environment === "beta" ? (
-            <EnvironmentLink href={productionHref} label="Go to production" />
-          ) : (
-            <EnvironmentLink href={betaHref} label="Go to beta" />
-          )}
-        </div>
-      </PopoverContent>
-    </Popover>
-  );
+  if (!showProduction) return null;
+  return <ProductionEnvironmentBadge targets={targets} />;
 }

@@ -133,6 +133,7 @@ import {
   signupAttributionFromCookieHeader,
 } from "./attribution.js";
 import { getAuthLoginMode } from "./auth-login-mode.js";
+import { injectBetaOptOutPersistence } from "./beta-opt-out-html.js";
 import {
   createBetterAuthSessionForEmail,
   ensureGoogleAuthIdentity,
@@ -143,12 +144,9 @@ import {
 } from "./better-auth-instance.js";
 import type { BetterAuthConfig } from "./better-auth-instance.js";
 import {
-  BUILDER_CONNECT_OWNER_COOKIE,
   BUILDER_CONNECT_PARAM,
   BUILDER_RELAY_PATH,
   BUILDER_RELAY_STATE_PARAM,
-  BUILDER_STATE_PARAM,
-  verifyBuilderCallbackStateAndGetOwner,
   verifyBuilderConnectTokenAndGetOwner,
   verifyBuilderPreviewRelayStateForCallback,
 } from "./builder-browser.js";
@@ -649,7 +647,9 @@ export function getConfiguredLoginHtml(event: H3Event): string | null {
   const rawPath = queryStart >= 0 ? url.slice(0, queryStart) : url;
   const loginHtml =
     config.getLoginHtml?.(event, rawPath) ?? config.loginHtml ?? null;
-  return loginHtml ? injectLoginSocialImageMeta(loginHtml, event) : null;
+  return loginHtml
+    ? injectLoginSocialImageMeta(injectBetaOptOutPersistence(loginHtml), event)
+    : null;
 }
 
 /**
@@ -713,6 +713,7 @@ async function readDesktopSsoSafely(
   event: H3Event,
 ): Promise<Awaited<ReturnType<typeof readDesktopSso>>> {
   if (process.env.NODE_ENV === "production") return null;
+  if (getAppConfig().auth.disableDesktopSsoFallbackInDevelopment) return null;
   if (!isElectronRequest(event)) return null;
   if (!isLoopbackRequest(event)) return null;
   return await readDesktopSso();
@@ -1243,7 +1244,7 @@ export function isExpectedAuthFailure(error: unknown): boolean {
 let _sessionInitPromise: Promise<void> | undefined;
 let sessionMaxAge = DEFAULT_MAX_AGE;
 
-async function ensureSessionTable(): Promise<void> {
+export async function ensureSessionTable(): Promise<void> {
   if (!_sessionInitPromise) {
     _sessionInitPromise = (async () => {
       const client = getDbExec();
@@ -1614,9 +1615,8 @@ function areGenericGoogleOAuthRoutesEnabled(app: H3App): boolean {
 //
 // Primary: in-memory Map (fast, works for single-instance dev/preview builds).
 // Fallback: sessions table with a "dex:" prefixed key for cross-instance
-// durability (Cloudflare Workers, multi-region deployments). The value stored
-// in the `email` column is "{realToken}::{userEmail}" so both can be recovered
-// from a single DB lookup.
+// durability (Cloudflare Workers, multi-region deployments). Exchange entries
+// carry a verifier hash so a flow id alone can never retrieve a session token.
 export interface DesktopExchangeErrorPayload {
   message: string;
   code?: string;
@@ -1626,23 +1626,39 @@ export interface DesktopExchangeErrorPayload {
 }
 
 type DesktopExchangeEntry =
-  | { challenge: true; verifierHash: string; expiresAt: number }
   | {
-      token: string;
-      email: string;
+      challenge: true;
+      verifierHash: string;
+      browserBindingHash?: string;
       expiresAt: number;
-      verifierHash?: string;
     }
   | { error: DesktopExchangeErrorPayload; expiresAt: number };
 type DesktopExchangeStoredEntry =
-  | { challenge: true; verifierHash: string }
+  | {
+      challenge: true;
+      verifierHash: string;
+      browserBindingHash?: string;
+    }
   | { token: string; email: string; verifierHash?: string }
   | { error: DesktopExchangeErrorPayload };
+
+type DesktopExchangeDbReadResult =
+  | { status: "missing" }
+  | { status: "unavailable" }
+  | { status: "malformed"; packed: string | null }
+  | { status: "entry"; entry: DesktopExchangeStoredEntry; packed: string };
+
+type DesktopExchangeDbConsumeResult =
+  | { status: "missing" }
+  | { status: "unavailable" }
+  | { status: "malformed"; packed: string | null }
+  | { status: "entry"; entry: DesktopExchangeStoredEntry };
 
 const _desktopExchanges = new Map<string, DesktopExchangeEntry>();
 const DESKTOP_EXCHANGE_ERROR_PREFIX = "__error__::";
 const DESKTOP_MAGIC_LINK_CHALLENGE_PREFIX = "__magic-link-challenge__::";
 const DESKTOP_MAGIC_LINK_EXCHANGE_PREFIX = "__magic-link-exchange__::";
+export const DESKTOP_OAUTH_BROWSER_BINDING_COOKIE = "an_desktop_oauth_binding";
 const DESKTOP_AUTH_TOKEN_BODY_ORIGINS = new Set([
   "tauri://localhost",
   "http://tauri.localhost",
@@ -1650,8 +1666,8 @@ const DESKTOP_AUTH_TOKEN_BODY_ORIGINS = new Set([
   "http://localhost:1420",
 ]);
 
-// 5-minute TTL for exchange entries (short — single-use tokens).
-const DESKTOP_EXCHANGE_TTL_MS = 5 * 60 * 1000;
+// 10-minute TTL for exchange entries (short — single-use tokens).
+const DESKTOP_EXCHANGE_TTL_MS = 10 * 60 * 1000;
 
 function normalizeDesktopFlowId(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -1669,6 +1685,15 @@ function desktopFlowVerifierHash(verifier: string): string {
   return crypto.createHash("sha256").update(verifier).digest("base64url");
 }
 
+function matchesDesktopHash(actualHash: string, expectedHash: string): boolean {
+  const actual = Buffer.from(actualHash);
+  const expected = Buffer.from(expectedHash);
+  return (
+    actual.length === expected.length &&
+    crypto.timingSafeEqual(actual, expected)
+  );
+}
+
 function matchesDesktopFlowVerifier(
   verifier: string,
   expectedHash: string,
@@ -1684,36 +1709,70 @@ function matchesDesktopFlowVerifier(
 function parseDesktopExchangeStoredEntry(
   packed: string,
 ): DesktopExchangeStoredEntry | null {
-  if (packed.startsWith(DESKTOP_MAGIC_LINK_CHALLENGE_PREFIX)) {
-    const verifierHash = packed.slice(
-      DESKTOP_MAGIC_LINK_CHALLENGE_PREFIX.length,
+  try {
+    if (packed.startsWith(DESKTOP_MAGIC_LINK_CHALLENGE_PREFIX)) {
+      const raw = packed.slice(DESKTOP_MAGIC_LINK_CHALLENGE_PREFIX.length);
+      const parts = raw.split("::");
+      if (parts.length > 2) return null;
+      const [verifierHash, browserBindingHash] = parts;
+      if (!isValidDesktopFlowVerifierHash(verifierHash)) return null;
+      if (
+        browserBindingHash !== undefined &&
+        !isValidDesktopFlowVerifierHash(browserBindingHash)
+      ) {
+        return null;
+      }
+      return {
+        challenge: true,
+        verifierHash,
+        ...(browserBindingHash ? { browserBindingHash } : {}),
+      };
+    }
+    if (packed.startsWith(DESKTOP_EXCHANGE_ERROR_PREFIX)) {
+      const raw = packed.slice(DESKTOP_EXCHANGE_ERROR_PREFIX.length);
+      const parsed: unknown = JSON.parse(
+        Buffer.from(raw, "base64url").toString(),
+      );
+      if (
+        !parsed ||
+        typeof parsed !== "object" ||
+        typeof (parsed as { message?: unknown }).message !== "string"
+      ) {
+        return null;
+      }
+      return { error: parsed as DesktopExchangeErrorPayload };
+    }
+    const isMagicLinkExchange = packed.startsWith(
+      DESKTOP_MAGIC_LINK_EXCHANGE_PREFIX,
     );
-    return verifierHash ? { challenge: true, verifierHash } : null;
-  }
-  if (packed.startsWith(DESKTOP_EXCHANGE_ERROR_PREFIX)) {
-    const raw = packed.slice(DESKTOP_EXCHANGE_ERROR_PREFIX.length);
+    const encoded = isMagicLinkExchange
+      ? packed.slice(DESKTOP_MAGIC_LINK_EXCHANGE_PREFIX.length)
+      : packed;
+    const verifierSeparator = isMagicLinkExchange ? encoded.indexOf("::") : -1;
+    const verifierHash =
+      verifierSeparator >= 0 ? encoded.slice(0, verifierSeparator) : undefined;
+    if (
+      verifierHash !== undefined &&
+      !isValidDesktopFlowVerifierHash(verifierHash)
+    ) {
+      return null;
+    }
+    const tokenAndEmail =
+      verifierSeparator >= 0 ? encoded.slice(verifierSeparator + 2) : encoded;
+    const sepIdx = tokenAndEmail.indexOf("::");
+    if (sepIdx <= 0 || sepIdx === tokenAndEmail.length - 2) return null;
+    const token = tokenAndEmail.slice(0, sepIdx);
+    const email = tokenAndEmail.slice(sepIdx + 2);
+    if (!token || !email) return null;
     return {
-      error: JSON.parse(Buffer.from(raw, "base64url").toString()),
+      token,
+      email,
+      ...(verifierHash ? { verifierHash } : {}),
     };
+  } catch {
+    // coercion-ok: malformed desktop exchange payloads are rejected as absent.
+    return null;
   }
-  const isMagicLinkExchange = packed.startsWith(
-    DESKTOP_MAGIC_LINK_EXCHANGE_PREFIX,
-  );
-  const encoded = isMagicLinkExchange
-    ? packed.slice(DESKTOP_MAGIC_LINK_EXCHANGE_PREFIX.length)
-    : packed;
-  const verifierSeparator = isMagicLinkExchange ? encoded.indexOf("::") : -1;
-  const verifierHash =
-    verifierSeparator >= 0 ? encoded.slice(0, verifierSeparator) : undefined;
-  const tokenAndEmail =
-    verifierSeparator >= 0 ? encoded.slice(verifierSeparator + 2) : encoded;
-  const sepIdx = tokenAndEmail.indexOf("::");
-  if (sepIdx === -1) return null;
-  return {
-    token: tokenAndEmail.slice(0, sepIdx),
-    email: tokenAndEmail.slice(sepIdx + 2),
-    ...(verifierHash ? { verifierHash } : {}),
-  };
 }
 
 function isDesktopMagicLinkCallbackPath(value: string): boolean {
@@ -1740,10 +1799,50 @@ function withDesktopMagicLinkFlow(
 async function persistDesktopMagicLinkChallenge(
   flowId: string,
   verifierHash: string,
+  browserBindingHash?: string,
 ): Promise<void> {
   await addSession(
     `dex:${flowId}`,
-    `${DESKTOP_MAGIC_LINK_CHALLENGE_PREFIX}${verifierHash}`,
+    `${DESKTOP_MAGIC_LINK_CHALLENGE_PREFIX}${verifierHash}${
+      browserBindingHash ? `::${browserBindingHash}` : ""
+    }`,
+  );
+}
+
+function isValidDesktopFlowVerifierHash(value: unknown): value is string {
+  return typeof value === "string" && /^[A-Za-z0-9_-]{43}$/.test(value);
+}
+
+/**
+ * Create or reuse the browser-local binding for a desktop Google OAuth flow.
+ * The raw value stays in an HttpOnly cookie; only its hash travels in signed
+ * OAuth state and the exchange challenge. This prevents a caller from
+ * initiating a flow and handing its authorization URL to another browser.
+ */
+export function prepareDesktopOAuthBrowserBinding(event: H3Event): string {
+  let binding = getCookie(event, DESKTOP_OAUTH_BROWSER_BINDING_COOKIE);
+  if (!binding || !/^[A-Za-z0-9_-]{43}$/.test(binding)) {
+    binding = crypto.randomBytes(32).toString("base64url");
+    setCookie(event, DESKTOP_OAUTH_BROWSER_BINDING_COOKIE, binding, {
+      ...desktopOAuthBrowserBindingCookieAttrs(event),
+      httpOnly: true,
+      path: "/",
+      maxAge: Math.floor(DESKTOP_EXCHANGE_TTL_MS / 1_000),
+    });
+  }
+  return desktopFlowVerifierHash(binding);
+}
+
+/** Verify that a desktop OAuth callback is returning to its initiating browser. */
+export function matchesDesktopOAuthBrowserBinding(
+  event: H3Event,
+  expectedHash: string,
+): boolean {
+  const binding = getCookie(event, DESKTOP_OAUTH_BROWSER_BINDING_COOKIE);
+  return Boolean(
+    binding &&
+    isValidDesktopFlowVerifierHash(expectedHash) &&
+    matchesDesktopFlowVerifier(binding, expectedHash),
   );
 }
 
@@ -1754,13 +1853,13 @@ async function issueDesktopMagicLinkFlow(): Promise<{
   const flowId = crypto.randomBytes(32).toString("base64url");
   const verifier = crypto.randomBytes(32).toString("base64url");
   const verifierHash = desktopFlowVerifierHash(verifier);
-  _desktopExchanges.set(flowId, {
-    challenge: true,
-    verifierHash,
-    expiresAt: Date.now() + DESKTOP_EXCHANGE_TTL_MS,
-  });
   try {
     await persistDesktopMagicLinkChallenge(flowId, verifierHash);
+    _desktopExchanges.set(flowId, {
+      challenge: true,
+      verifierHash,
+      expiresAt: Date.now() + DESKTOP_EXCHANGE_TTL_MS,
+    });
   } catch (error) {
     _desktopExchanges.delete(flowId);
     throw error;
@@ -1768,20 +1867,116 @@ async function issueDesktopMagicLinkFlow(): Promise<{
   return { flowId, verifier };
 }
 
-export function setDesktopExchange(
+export async function setDesktopExchange(
   flowId: string,
   token: string,
   email: string,
-) {
-  _desktopExchanges.set(flowId, {
-    token,
-    email,
-    expiresAt: Date.now() + DESKTOP_EXCHANGE_TTL_MS,
-  });
-  // Persist to DB so the token survives cross-instance routing (e.g. when
-  // templates call this helper directly instead of going through the OAuth
-  // callback path).
-  void persistDesktopExchangeToDB(flowId, token, email);
+  verifierHash: string,
+): Promise<void> {
+  if (!isValidDesktopFlowVerifierHash(verifierHash)) {
+    throw new Error("Invalid desktop exchange challenge.");
+  }
+  // Persist before publishing anything to the in-memory cache. The DB is the
+  // durable source of truth for one-time tokens; publishing first would let a
+  // same-instance poll succeed while a delayed write recreated a token after
+  // it had already been consumed.
+  await persistDesktopExchangeToDB(flowId, token, email, verifierHash);
+  _desktopExchanges.delete(flowId);
+}
+
+/**
+ * Register the client-held verifier for a desktop OAuth flow before Google
+ * sees the request. Only the verifier hash is persisted; the initiating
+ * browser keeps the raw verifier and presents it when polling the exchange.
+ */
+export async function registerDesktopExchange(
+  flowId: string,
+  verifier: string,
+  browserBindingHash?: string,
+): Promise<string> {
+  const normalizedFlowId = normalizeDesktopFlowId(flowId);
+  const normalizedVerifier = normalizeDesktopFlowVerifier(verifier);
+  if (!normalizedFlowId || !normalizedVerifier) {
+    throw new Error("Invalid desktop exchange challenge.");
+  }
+  if (
+    browserBindingHash !== undefined &&
+    !isValidDesktopFlowVerifierHash(browserBindingHash)
+  ) {
+    throw new Error("Invalid desktop exchange browser binding.");
+  }
+  const verifierHash = desktopFlowVerifierHash(normalizedVerifier);
+  const current = _desktopExchanges.get(normalizedFlowId);
+  if (current && current.expiresAt >= Date.now()) {
+    if (
+      "challenge" in current &&
+      matchesDesktopFlowVerifier(normalizedVerifier, current.verifierHash)
+    ) {
+      if (
+        browserBindingHash !== undefined &&
+        (!current.browserBindingHash ||
+          !matchesDesktopHash(current.browserBindingHash, browserBindingHash))
+      ) {
+        throw new Error("Desktop exchange flow is already in use.");
+      }
+      return current.verifierHash;
+    }
+    throw new Error("Desktop exchange flow is already in use.");
+  }
+
+  const stored = await readDesktopExchangeFromDB(normalizedFlowId);
+  if (stored.status === "unavailable") {
+    throw new Error("Desktop exchange storage is unavailable.");
+  }
+  if (stored.status === "malformed") {
+    throw new Error("Desktop exchange storage is invalid.");
+  }
+  if (stored.status === "entry") {
+    const storedEntry = stored.entry;
+    if (
+      "challenge" in storedEntry &&
+      matchesDesktopFlowVerifier(normalizedVerifier, storedEntry.verifierHash)
+    ) {
+      if (
+        browserBindingHash !== undefined &&
+        (!storedEntry.browserBindingHash ||
+          !matchesDesktopHash(
+            storedEntry.browserBindingHash,
+            browserBindingHash,
+          ))
+      ) {
+        throw new Error("Desktop exchange flow is already in use.");
+      }
+      _desktopExchanges.set(normalizedFlowId, {
+        challenge: true,
+        verifierHash: storedEntry.verifierHash,
+        ...(storedEntry.browserBindingHash
+          ? { browserBindingHash: storedEntry.browserBindingHash }
+          : {}),
+        expiresAt: Date.now() + DESKTOP_EXCHANGE_TTL_MS,
+      });
+      return storedEntry.verifierHash;
+    }
+    throw new Error("Desktop exchange flow is already in use.");
+  }
+
+  try {
+    await persistDesktopMagicLinkChallenge(
+      normalizedFlowId,
+      verifierHash,
+      browserBindingHash,
+    );
+    _desktopExchanges.set(normalizedFlowId, {
+      challenge: true,
+      verifierHash,
+      ...(browserBindingHash ? { browserBindingHash } : {}),
+      expiresAt: Date.now() + DESKTOP_EXCHANGE_TTL_MS,
+    });
+  } catch (error) {
+    _desktopExchanges.delete(normalizedFlowId);
+    throw error;
+  }
+  return verifierHash;
 }
 
 export function setDesktopExchangeError(
@@ -1800,8 +1995,9 @@ export function setDesktopExchangeError(
  * cross-instance routing (e.g. Cloudflare Workers). Stored under a synthetic
  * token key "dex:{flowId}"; the `email` column packs both the real session
  * token and the user email so they can be recovered in one query.
- * Non-fatal — if the DB isn't ready yet the in-memory Map still works for
- * same-instance requests.
+ * Fail closed when the durable exchange cannot be written. A token must not
+ * be published only in memory because the callback and poll can land on
+ * different instances.
  */
 async function persistDesktopExchangeToDB(
   flowId: string,
@@ -1809,14 +2005,10 @@ async function persistDesktopExchangeToDB(
   email: string,
   verifierHash?: string,
 ): Promise<void> {
-  try {
-    const packed = verifierHash
-      ? `${DESKTOP_MAGIC_LINK_EXCHANGE_PREFIX}${verifierHash}::${token}::${email}`
-      : `${token}::${email}`;
-    await addSession(`dex:${flowId}`, packed);
-  } catch {
-    // non-fatal — in-memory Map is the primary path
-  }
+  const packed = verifierHash
+    ? `${DESKTOP_MAGIC_LINK_EXCHANGE_PREFIX}${verifierHash}::${token}::${email}`
+    : `${token}::${email}`;
+  await addSession(`dex:${flowId}`, packed);
 }
 
 async function persistDesktopExchangeErrorToDB(
@@ -1834,58 +2026,62 @@ async function persistDesktopExchangeErrorToDB(
   }
 }
 
-/**
- * Retrieve and consume a desktop exchange entry from the DB fallback.
- * Returns null if not found or already consumed.
- */
-async function consumeDesktopExchangeFromDB(
+/** Read the durable exchange without mutating it. */
+async function readDesktopExchangeFromDB(
   flowId: string,
-): Promise<DesktopExchangeStoredEntry | null> {
-  try {
-    // Atomic DELETE...RETURNING prevents token replay: two concurrent polls
-    // cannot both retrieve the token because only one DELETE will match the row.
-    // SQLite ≥3.35 and PostgreSQL both support this syntax.
-    // The created_at predicate enforces the 5-minute TTL so stale DB entries
-    // (e.g. the desktop app never polled) are rejected rather than silently
-    // redeemed with the session table's default 30-day TTL.
-    const client = getDbExec();
-    const { rows } = await client.execute({
-      sql: `DELETE FROM sessions WHERE token = ? AND created_at > ? AND email NOT LIKE ? RETURNING email`,
-      args: [
-        `dex:${flowId}`,
-        Date.now() - DESKTOP_EXCHANGE_TTL_MS,
-        `${DESKTOP_MAGIC_LINK_CHALLENGE_PREFIX}%`,
-      ],
-    });
-    forgetCachedSessionEmail(`dex:${flowId}`);
-    if (rows.length === 0) return null;
-    const packed = (rows[0].email ?? rows[0][0]) as string | null;
-    if (!packed) return null;
-    return parseDesktopExchangeStoredEntry(packed);
-  } catch {
-    // coercion-ok: a DB fallback outage leaves the exchange pending so polling can retry without consuming a token.
-    return null;
-  }
-}
-
-async function readDesktopMagicLinkChallengeFromDB(
-  flowId: string,
-): Promise<{ verifierHash: string } | null> {
+): Promise<DesktopExchangeDbReadResult> {
   try {
     const client = getDbExec();
     const { rows } = await client.execute({
       sql: `SELECT email FROM sessions WHERE token = ? AND created_at > ? LIMIT 1`,
       args: [`dex:${flowId}`, Date.now() - DESKTOP_EXCHANGE_TTL_MS],
     });
-    if (rows.length === 0) return null;
+    if (rows.length === 0) return { status: "missing" };
     const packed = (rows[0].email ?? rows[0][0]) as string | null;
-    if (!packed) return null;
+    if (packed === null) return { status: "malformed", packed };
     const entry = parseDesktopExchangeStoredEntry(packed);
-    return entry && "challenge" in entry
-      ? { verifierHash: entry.verifierHash }
-      : null;
+    return entry
+      ? { status: "entry", entry, packed }
+      : { status: "malformed", packed };
   } catch {
-    return null;
+    return { status: "unavailable" };
+  }
+}
+
+/**
+ * Parse and atomically consume a desktop exchange entry from the DB fallback.
+ * The exact packed payload is part of the DELETE predicate so concurrent
+ * pollers cannot both redeem a row, and malformed payloads remain available
+ * for diagnosis instead of being deleted before parsing.
+ */
+async function consumeDesktopExchangeFromDB(
+  flowId: string,
+): Promise<DesktopExchangeDbConsumeResult> {
+  try {
+    const client = getDbExec();
+    const { rows } = await client.execute({
+      sql: `SELECT email FROM sessions WHERE token = ? AND created_at > ? LIMIT 1`,
+      args: [`dex:${flowId}`, Date.now() - DESKTOP_EXCHANGE_TTL_MS],
+    });
+    if (rows.length === 0) return { status: "missing" };
+    const packed = (rows[0].email ?? rows[0][0]) as string | null;
+    const entry = packed ? parseDesktopExchangeStoredEntry(packed) : null;
+    if (!entry) return { status: "malformed", packed };
+
+    // SQLite >=3.35 and PostgreSQL both support RETURNING. Matching the
+    // payload makes the read/claim pair safe against a concurrent replacement
+    // of the same flow id, while the single DELETE makes concurrent pollers
+    // one-time consumers.
+    const deleted = await client.execute({
+      sql: `DELETE FROM sessions WHERE token = ? AND created_at > ? AND email = ? RETURNING email`,
+      args: [`dex:${flowId}`, Date.now() - DESKTOP_EXCHANGE_TTL_MS, packed],
+    });
+    if (deleted.rows.length === 0) return { status: "missing" };
+    forgetCachedSessionEmail(`dex:${flowId}`);
+    return { status: "entry", entry };
+  } catch {
+    // coercion-ok: a DB fallback outage leaves the exchange pending so polling can retry without consuming a token.
+    return { status: "unavailable" };
   }
 }
 
@@ -1905,14 +2101,14 @@ async function claimDesktopMagicLinkFlow(
     ) {
       return false;
     }
-    _desktopExchanges.set(flowId, {
-      token,
-      email,
-      verifierHash,
-      expiresAt: Date.now() + DESKTOP_EXCHANGE_TTL_MS,
-    });
-    await persistDesktopExchangeToDB(flowId, token, email, verifierHash);
-    return true;
+    try {
+      await persistDesktopExchangeToDB(flowId, token, email, verifierHash);
+      _desktopExchanges.delete(flowId);
+      return true;
+    } catch {
+      // coercion-ok: a failed persistence claim must not issue a native session token.
+      return false;
+    }
   }
 
   try {
@@ -2055,6 +2251,7 @@ function applyCorsHeaders(
           "X-Request-Source",
           "X-Agent-Native-CSRF",
           "X-User-Timezone",
+          "X-Agent-Native-Desktop-Verifier",
           EMBED_TARGET_HEADER,
         ].join(","),
   );
@@ -2165,12 +2362,6 @@ export function shouldBypassAuthForBuilderConnect(
   if (p === "/_agent-native/builder/callback") {
     const url = event.node?.req?.url ?? event.path ?? "/";
     const queryStart = url.indexOf("?");
-    const state =
-      queryStart >= 0
-        ? new URLSearchParams(url.slice(queryStart + 1)).get(
-            BUILDER_STATE_PARAM,
-          )
-        : null;
     const relayState =
       queryStart >= 0
         ? new URLSearchParams(url.slice(queryStart + 1)).get(
@@ -2184,22 +2375,9 @@ export function shouldBypassAuthForBuilderConnect(
         // Dedicated relay secret missing: let the auth guard fail closed.
       }
     }
-    // The signed `_an_state` authenticates this specific Builder callback
-    // flow back to our app. A stale localhost session cookie can otherwise
-    // make the global guard reject the callback before the handler gets to
-    // validate the state and owner. This only bypasses to the callback route;
-    // the callback handler still verifies the signed owner / pending flow.
-    if (verifyBuilderCallbackStateAndGetOwner(state)) return true;
-
-    // The legacy owner cookie is broader and can be stale across shared
-    // browser sessions, so keep it limited to the session-lost popup case.
-    const hasSession = getFrameworkSessionCookieValues(event).length > 0;
-    if (hasSession) return false;
-    return Boolean(
-      verifyBuilderConnectTokenAndGetOwner(
-        getCookie(event, BUILDER_CONNECT_OWNER_COOKIE),
-      ),
-    );
+    // Builder OAuth callback requires the signed-in session that started the
+    // flow; the handler verifies state + pending row + session owner. Do not
+    // bypass on legacy CLI `_an_state` or owner cookies.
   }
 
   return false;
@@ -2546,7 +2724,9 @@ function injectLoginSocialImageMeta(loginHtml: string, event: H3Event): string {
 
 function loginHtmlResponse(loginHtml: string, event: H3Event): Response {
   return new Response(
-    injectAnalyticsIntoHtml(injectLoginSocialImageMeta(loginHtml, event)),
+    injectAnalyticsIntoHtml(
+      injectLoginSocialImageMeta(injectBetaOptOutPersistence(loginHtml), event),
+    ),
     {
       status: 200,
       headers: {
@@ -3566,6 +3746,22 @@ function crossSiteCookieAttrs(event: H3Event): {
     : { sameSite: "lax", secure: false };
 }
 
+/**
+ * The binding cookie is set before navigating to Google and read after the
+ * provider redirects back. A partitioned cookie uses the top-level site from
+ * the bootstrap request, so it is unavailable when the callback starts from
+ * Google's top-level site. Keep this host-scoped cookie unpartitioned while
+ * retaining the cross-site and transport protections required by the flow.
+ */
+function desktopOAuthBrowserBindingCookieAttrs(event: H3Event): {
+  sameSite: "lax" | "none";
+  secure: boolean;
+} {
+  return isHttpsRequest(event)
+    ? { sameSite: "none", secure: true }
+    : { sameSite: "lax", secure: false };
+}
+
 function setFirstRunOnboardingCookie(event: H3Event): void {
   setCookie(event, FIRST_RUN_ONBOARDING_COOKIE, "1", {
     ...crossSiteCookieAttrs(event),
@@ -3834,9 +4030,10 @@ async function mountBetterAuthRoutes(
 
     app.use(
       "/_agent-native/google/auth-url",
-      defineEventHandler((event) => {
+      defineEventHandler(async (event) => {
         if (!areGenericGoogleOAuthRoutesEnabled(app)) return undefined;
-        if (getMethod(event) !== "GET") {
+        const method = getMethod(event);
+        if (method !== "GET" && method !== "POST") {
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };
         }
@@ -3854,7 +4051,43 @@ async function mountBetterAuthRoutes(
         const desktop =
           isElectronRequest(event) || q.desktop === "1" || q.desktop === "true";
         const mobile = q.mobile === "1" || q.mobile === "true";
-        const flowId = desktop ? (q.flow_id as string) || undefined : undefined;
+        const flowId =
+          desktop && typeof q.flow_id === "string"
+            ? normalizeDesktopFlowId(q.flow_id)
+            : undefined;
+        if (method === "POST" && (!desktop || !flowId)) {
+          setResponseStatus(event, 400);
+          return { error: "Invalid desktop exchange challenge." };
+        }
+        const requestedVerifier = desktop
+          ? getHeader(event, "x-agent-native-desktop-verifier")
+          : undefined;
+        let desktopVerifierHash: string | undefined;
+        let desktopBrowserBindingHash: string | undefined;
+        if (desktop && (q.flow_id !== undefined || q.verifier !== undefined)) {
+          if (
+            method !== "POST" ||
+            !flowId ||
+            !requestedVerifier ||
+            q.verifier !== undefined ||
+            q.redirect !== undefined
+          ) {
+            setResponseStatus(event, 400);
+            return { error: "Invalid desktop exchange challenge." };
+          }
+          try {
+            desktopBrowserBindingHash =
+              prepareDesktopOAuthBrowserBinding(event);
+            desktopVerifierHash = await registerDesktopExchange(
+              flowId,
+              requestedVerifier,
+              desktopBrowserBindingHash,
+            );
+          } catch {
+            setResponseStatus(event, 400);
+            return { error: "Invalid desktop exchange challenge." };
+          }
+        }
         // Validate the caller's return param up front and only embed it
         // into the OAuth state when it normalises to a non-root path —
         // skip embedding "/" (the default fallback) so the state stays
@@ -3881,7 +4114,9 @@ async function mountBetterAuthRoutes(
           addAccount: false,
           app: getOAuthStateAppId(),
           returnUrl,
-          flowId,
+          flowId: flowId ?? undefined,
+          desktopVerifierHash,
+          desktopBrowserBindingHash,
           signupAttribution,
           signupAnonymousId,
         });
@@ -3946,6 +4181,8 @@ async function mountBetterAuthRoutes(
             mobile,
             returnUrl,
             flowId,
+            desktopVerifierHash,
+            desktopBrowserBindingHash,
             signupAttribution,
             signupAnonymousId,
           } = decodeOAuthState(
@@ -4010,6 +4247,19 @@ async function mountBetterAuthRoutes(
               message: msg,
             });
             return oauthErrorPage(msg);
+          }
+
+          if (flowId) {
+            if (
+              !desktopVerifierHash ||
+              !desktopBrowserBindingHash ||
+              !matchesDesktopOAuthBrowserBinding(
+                event,
+                desktopBrowserBindingHash,
+              )
+            ) {
+              throw new Error("Desktop OAuth browser binding is invalid.");
+            }
           }
 
           const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
@@ -4099,7 +4349,15 @@ async function mountBetterAuthRoutes(
           });
 
           if (flowId && sessionToken) {
-            setDesktopExchange(flowId, sessionToken, email);
+            if (!desktopVerifierHash) {
+              throw new Error("Missing desktop exchange challenge.");
+            }
+            await setDesktopExchange(
+              flowId,
+              sessionToken,
+              email,
+              desktopVerifierHash,
+            );
             logGoogleOAuthDebug(event, "callback-exchange-stored", {
               flowId,
               desktop,
@@ -4149,88 +4407,130 @@ async function mountBetterAuthRoutes(
         setResponseStatus(event, 400);
         return { error: "Missing flow_id" };
       }
-      const verifier = normalizeDesktopFlowVerifier(getQuery(event).verifier);
-      let entry = _desktopExchanges.get(flowId);
-      if (!entry || entry.expiresAt < Date.now()) {
-        const challenge = await readDesktopMagicLinkChallengeFromDB(flowId);
-        if (challenge) {
-          if (
-            !verifier ||
-            !matchesDesktopFlowVerifier(verifier, challenge.verifierHash)
-          ) {
-            setResponseStatus(event, 403);
-            return { error: "Invalid desktop exchange verifier." };
-          }
-          return { pending: true, flow: oauthDebugFlowId(flowId) };
-        }
-        // In-memory miss — fall back to the DB-persisted entry. This handles
-        // cross-instance routing (Cloudflare Workers, multi-region) where the
-        // OAuth callback and the polling request may hit different isolates.
-        const fromDb = await consumeDesktopExchangeFromDB(flowId);
-        if (!fromDb) {
-          // Don't log on the pending path — clients poll every second for up
-          // to 5 minutes, so logging here floods telemetry. The auth-url,
-          // callback-start, callback-session-created, exchange-success, and
-          // exchange-error breadcrumbs already cover every meaningful state
-          // transition.
-          return { pending: true, flow: oauthDebugFlowId(flowId) };
-        }
-        entry =
-          "error" in fromDb
-            ? { error: fromDb.error, expiresAt: Date.now() + 1 }
-            : "challenge" in fromDb
-              ? {
-                  challenge: true,
-                  verifierHash: fromDb.verifierHash,
-                  expiresAt: Date.now() + 1,
-                }
-              : {
-                  token: fromDb.token,
-                  email: fromDb.email,
-                  ...(fromDb.verifierHash
-                    ? { verifierHash: fromDb.verifierHash }
-                    : {}),
-                  expiresAt: Date.now() + 1,
-                };
+      if (query.verifier !== undefined) {
+        setResponseStatus(event, 400);
+        return {
+          error: "Desktop exchange verifier must use a request header.",
+        };
       }
-      if ("challenge" in entry) {
+      const verifier = normalizeDesktopFlowVerifier(
+        getHeader(event, "x-agent-native-desktop-verifier"),
+      );
+      const cached = _desktopExchanges.get(flowId);
+      if (cached && cached.expiresAt < Date.now()) {
+        _desktopExchanges.delete(flowId);
+      }
+      const current = _desktopExchanges.get(flowId);
+      if (current && "challenge" in current) {
         if (
           !verifier ||
-          !matchesDesktopFlowVerifier(verifier, entry.verifierHash)
+          !matchesDesktopFlowVerifier(verifier, current.verifierHash)
         ) {
           setResponseStatus(event, 403);
           return { error: "Invalid desktop exchange verifier." };
         }
         return { pending: true, flow: oauthDebugFlowId(flowId) };
       }
-      if ("token" in entry && entry.verifierHash) {
+
+      if (current && "error" in current) {
+        _desktopExchanges.delete(flowId);
+        removeSession(`dex:${flowId}`).catch((err) => {
+          console.warn(
+            "[auth] desktop-exchange DB cleanup failed:",
+            describeDbError(err),
+          );
+        });
+        logGoogleOAuthDebug(event, "exchange-error", {
+          flowId,
+          message: current.error.message,
+          code: current.error.code,
+        });
+        setResponseStatus(event, 400);
+        return { error: current.error.message, ...current.error };
+      }
+
+      // The DB is authoritative for token exchanges. Read and validate before
+      // the conditional delete so malformed rows remain available for
+      // diagnosis and two instances cannot both redeem the same payload.
+      const fromDb = await readDesktopExchangeFromDB(flowId);
+      if (fromDb.status === "missing" || fromDb.status === "unavailable") {
+        // Don't log on the pending path — clients poll every second for up
+        // to 5 minutes, so logging here floods telemetry. The auth-url,
+        // callback-start, callback-session-created, exchange-success, and
+        // exchange-error breadcrumbs already cover every meaningful state
+        // transition.
+        return { pending: true, flow: oauthDebugFlowId(flowId) };
+      }
+      if (fromDb.status === "malformed") {
+        setResponseStatus(event, 500);
+        return {
+          error: "Desktop exchange storage is invalid.",
+          code: "exchange_storage_invalid",
+        };
+      }
+      if ("challenge" in fromDb.entry) {
         if (
           !verifier ||
-          !matchesDesktopFlowVerifier(verifier, entry.verifierHash)
+          !matchesDesktopFlowVerifier(verifier, fromDb.entry.verifierHash)
         ) {
           setResponseStatus(event, 403);
           return { error: "Invalid desktop exchange verifier." };
         }
+        return { pending: true, flow: oauthDebugFlowId(flowId) };
       }
-      _desktopExchanges.delete(flowId);
-      // Also wipe the DB-persisted entry so it cannot be replayed via the
-      // DB fallback path after in-memory consumption. Best-effort: a dropped
-      // Neon WebSocket rejects with a raw ErrorEvent, and a floating
-      // rejection here surfaces as an unhandled promise rejection.
-      removeSession(`dex:${flowId}`).catch((err) => {
-        console.warn(
-          "[auth] desktop-exchange DB cleanup failed:",
-          describeDbError(err),
-        );
-      });
-      if ("error" in entry) {
+
+      if (
+        "token" in fromDb.entry &&
+        (!fromDb.entry.verifierHash ||
+          !verifier ||
+          !matchesDesktopFlowVerifier(verifier, fromDb.entry.verifierHash))
+      ) {
+        setResponseStatus(event, 403);
+        return { error: "Invalid desktop exchange verifier." };
+      }
+
+      const consumed = await consumeDesktopExchangeFromDB(flowId);
+      if (consumed.status === "missing" || consumed.status === "unavailable") {
+        return { pending: true, flow: oauthDebugFlowId(flowId) };
+      }
+      if (consumed.status === "malformed") {
+        setResponseStatus(event, 500);
+        return {
+          error: "Desktop exchange storage is invalid.",
+          code: "exchange_storage_invalid",
+        };
+      }
+      if ("challenge" in consumed.entry) {
+        if (
+          !verifier ||
+          !matchesDesktopFlowVerifier(verifier, consumed.entry.verifierHash)
+        ) {
+          setResponseStatus(event, 403);
+          return { error: "Invalid desktop exchange verifier." };
+        }
+        return { pending: true, flow: oauthDebugFlowId(flowId) };
+      }
+      if ("error" in consumed.entry) {
         logGoogleOAuthDebug(event, "exchange-error", {
           flowId,
-          message: entry.error.message,
-          code: entry.error.code,
+          message: consumed.entry.error.message,
+          code: consumed.entry.error.code,
         });
         setResponseStatus(event, 400);
-        return { error: entry.error.message, ...entry.error };
+        return {
+          error: consumed.entry.error.message,
+          ...consumed.entry.error,
+        };
+      }
+
+      const entry = consumed.entry;
+      if (
+        !verifier ||
+        !entry.verifierHash ||
+        !matchesDesktopFlowVerifier(verifier, entry.verifierHash)
+      ) {
+        setResponseStatus(event, 403);
+        return { error: "Invalid desktop exchange verifier." };
       }
       // Make the exchange itself establish the app session. Older clients
       // still make a follow-up /auth/session?_session=... request, but the

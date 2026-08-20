@@ -1,3 +1,4 @@
+import { withSsrHtmlContentType } from "@agent-native/core/shared";
 import { redirect, type LoaderFunctionArgs } from "react-router";
 
 const TRAFFIC_DASHBOARD_PATH = "/dashboards/agent-native-templates-first-party";
@@ -7,11 +8,11 @@ function target(url: URL): string {
 }
 
 export function loader({ url }: LoaderFunctionArgs) {
-  throw redirect(target(url));
+  throw withSsrHtmlContentType(redirect(target(url)), { varyByQuery: true });
 }
 
 export function clientLoader({ url }: LoaderFunctionArgs) {
-  throw redirect(target(url));
+  throw withSsrHtmlContentType(redirect(target(url)), { varyByQuery: true });
 }
 
 export default function TrafficDashboardAliasRoute() {

@@ -445,6 +445,7 @@ describe("useChatThreads", () => {
     expect(hook!.activeThreadId).toBe("thread-1");
     expect(hook!.threads).toEqual([]);
     expect(hook!.isNewThread("thread-1")).toBe(false);
+    expect(hook!.restoredThreadIdOnListFailure).toBe("thread-1");
   });
 
   it("starts a fresh chat when a saved home thread no longer exists", async () => {

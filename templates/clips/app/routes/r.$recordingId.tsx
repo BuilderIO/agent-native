@@ -45,7 +45,7 @@ import {
   IconSparkles,
   IconExternalLink,
 } from "@tabler/icons-react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -109,6 +109,64 @@ const UPLOAD_STUCK_TIMEOUT_MS = 5 * 60 * 1000;
 const PROCESSING_STUCK_TIMEOUT_MS = 12 * 60 * 1000;
 const READY_MEDIA_SETTLE_POLL_MS = 20 * 1000;
 const READY_MEDIA_SETTLE_POLL_INTERVAL_MS = 1000;
+
+type RecordingReaction = {
+  id: string;
+  emoji: string;
+  videoTimestampMs: number;
+};
+
+type PendingRecordingReaction = RecordingReaction & {
+  recordingId: string;
+};
+
+export function mergeRecordingReactions(
+  serverReactions: RecordingReaction[] | undefined,
+  pendingReactions: PendingRecordingReaction[],
+  recordingId: string | undefined,
+) {
+  const seen = new Set<string>();
+  const merged: RecordingReaction[] = [];
+  const visiblePendingReactions = recordingId
+    ? pendingReactions.filter(
+        (reaction) => reaction.recordingId === recordingId,
+      )
+    : [];
+
+  for (const reaction of [
+    ...(serverReactions ?? []),
+    ...visiblePendingReactions,
+  ]) {
+    const key = `${reaction.id}:${reaction.emoji}:${reaction.videoTimestampMs}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(reaction);
+  }
+
+  return merged;
+}
+
+export function removePendingReaction(
+  pendingReactions: PendingRecordingReaction[],
+  pendingId: string,
+) {
+  return pendingReactions.filter((reaction) => reaction.id !== pendingId);
+}
+
+export function handleReactionWrite(
+  response: { ok: boolean; status: number },
+  refresh: () => Promise<unknown>,
+) {
+  if (!response.ok) throw new Error(`react failed: ${response.status}`);
+  // The write is authoritative. A transient read failure must not tell the
+  // player that the reaction failed.
+  void Promise.resolve()
+    .then(refresh)
+    .catch((refreshError) => {
+      console.warn("[clips] reaction refresh failed", refreshError);
+    });
+  return true;
+}
 
 export function meta() {
   return [{ title: enMessages.recordingRoute.pageTitle }];
@@ -263,16 +321,7 @@ export default function RecordingPage() {
   // live time bridge, so we fall back to the last position the player reported
   // via onTimeUpdate (seek/initial start).
   const resolvePlaybackMs = useCallback(() => {
-    const liveCt = playerRef.current?.video?.currentTime;
-    if (
-      typeof liveCt === "number" &&
-      Number.isFinite(liveCt) &&
-      liveCt >= 0 &&
-      liveCt < 1e7
-    ) {
-      return Math.floor(liveCt * 1000);
-    }
-    return currentMs;
+    return playerRef.current?.getCurrentOriginalMs() ?? currentMs;
   }, [currentMs]);
   // The compact layout stacks the panel below the video, so switching tabs
   // alone leaves the user looking at the player. Desktop always renders the
@@ -310,9 +359,13 @@ export default function RecordingPage() {
       recordingId ? { type: "recording" as const, id: recordingId } : null,
     [recordingId],
   );
+  const queryClient = useQueryClient();
   const lastPlayerStateWriteRef = useRef(0);
   const readyMediaPollRef = useRef<{ key: string; until: number } | null>(null);
   const [metadataRefreshUntil, setMetadataRefreshUntil] = useState(0);
+  const [pendingReactions, setPendingReactions] = useState<
+    PendingRecordingReaction[]
+  >([]);
 
   const playerDataQ = useActionQuery<any>(
     "get-recording-player-data",
@@ -414,7 +467,15 @@ export default function RecordingPage() {
     | "viewer"
     | undefined;
   const comments = playerDataQ.data?.comments ?? [];
-  const reactions = playerDataQ.data?.reactions ?? [];
+  const reactions = useMemo(
+    () =>
+      mergeRecordingReactions(
+        playerDataQ.data?.reactions,
+        pendingReactions,
+        recordingId,
+      ),
+    [pendingReactions, playerDataQ.data?.reactions, recordingId],
+  );
   const chapters = playerDataQ.data?.chapters ?? [];
   const transcriptSegments = playerDataQ.data?.transcript?.segments ?? [];
   const transcriptFullText = playerDataQ.data?.transcript?.fullText ?? null;
@@ -1628,7 +1689,7 @@ export default function RecordingPage() {
                   onReact={(emoji) => {
                     tracking.reportReaction(emoji);
                     const liveMs = resolvePlaybackMs();
-                    fetch(
+                    return fetch(
                       agentNativePath(
                         "/_agent-native/actions/react-to-recording",
                       ),
@@ -1643,13 +1704,14 @@ export default function RecordingPage() {
                       },
                     )
                       .then((res) => {
-                        if (!res.ok)
-                          throw new Error(`react failed: ${res.status}`);
-                        return playerDataQ.refetch();
+                        return handleReactionWrite(res, () =>
+                          playerDataQ.refetch(),
+                        );
                       })
-                      .catch((err) =>
-                        console.warn("[clips] react failed", err),
-                      );
+                      .catch((err) => {
+                        console.warn("[clips] react failed", err);
+                        return false;
+                      });
                   }}
                   className="h-full w-full rounded-none sm:rounded-xl"
                 />
@@ -1736,11 +1798,24 @@ export default function RecordingPage() {
                     ) : null}
                     {recording.enableReactions ? (
                       <ReactionsTray
+                        reactions={reactions}
                         disabled={!recording.enableReactions || !canComment}
                         onReact={(emoji) => {
                           tracking.reportReaction(emoji);
                           const liveMs = resolvePlaybackMs();
-                          fetch(
+                          const pendingReaction: PendingRecordingReaction = {
+                            id: `pending-${Date.now()}-${Math.random()
+                              .toString(36)
+                              .slice(2)}`,
+                            emoji,
+                            videoTimestampMs: liveMs,
+                            recordingId: recording.id,
+                          };
+                          setPendingReactions((current) => [
+                            ...current,
+                            pendingReaction,
+                          ]);
+                          return fetch(
                             agentNativePath(
                               "/_agent-native/actions/react-to-recording",
                             ),
@@ -1755,13 +1830,37 @@ export default function RecordingPage() {
                             },
                           )
                             .then((res) => {
-                              if (!res.ok)
-                                throw new Error(`react failed: ${res.status}`);
-                              return playerDataQ.refetch();
+                              const writeSucceeded = handleReactionWrite(
+                                res,
+                                () =>
+                                  Promise.all([
+                                    queryClient.invalidateQueries({
+                                      queryKey: [
+                                        "action",
+                                        "get-recording-player-data",
+                                      ],
+                                    }),
+                                    playerDataQ.refetch(),
+                                  ]),
+                              );
+                              setPendingReactions((current) =>
+                                removePendingReaction(
+                                  current,
+                                  pendingReaction.id,
+                                ),
+                              );
+                              return writeSucceeded;
                             })
-                            .catch((err) =>
-                              console.warn("[clips] react failed", err),
-                            );
+                            .catch((err) => {
+                              setPendingReactions((current) =>
+                                removePendingReaction(
+                                  current,
+                                  pendingReaction.id,
+                                ),
+                              );
+                              console.warn("[clips] react failed", err);
+                              return false;
+                            });
                         }}
                       />
                     ) : null}

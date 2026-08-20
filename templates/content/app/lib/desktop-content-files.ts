@@ -1,7 +1,17 @@
 export interface DesktopContentFilesFolder {
   id?: string;
   name: string;
-  path?: string;
+  kind?: "persistent" | "temporary";
+  repository?: {
+    localId: string;
+    branch?: string;
+    commit?: string;
+    detached?: boolean;
+  };
+  contentSource?: {
+    sourceId: string;
+    databaseId?: string;
+  };
   sourcePrefix?: string;
   updatedAt?: string;
 }
@@ -10,6 +20,27 @@ export interface DesktopContentFilesFolderRequest {
   folderId?: string;
 }
 
+/** Opaque content fingerprint returned by the trusted local bridge. */
+export type DesktopContentFileRevision = string;
+
+export interface DesktopContentFileConflict {
+  path: string;
+  expectedRevision?: string | null;
+  actualRevision?: string;
+}
+
+export type DesktopContentFilesChange = {
+  folderId: string;
+  revision: string;
+  changedAt: string;
+  missing?: boolean;
+  reason?: "attached" | "changed" | "missing";
+};
+
+export type DesktopContentFilesWatchResult =
+  | { ok: true; unsubscribe(): void }
+  | { ok: false; error: string; unavailable?: boolean };
+
 export type DesktopContentFilesResult =
   | {
       ok: true;
@@ -17,6 +48,8 @@ export type DesktopContentFilesResult =
       folders?: DesktopContentFilesFolder[];
       files?: string[];
       sources?: Record<string, string>;
+      revisions?: Record<string, DesktopContentFileRevision>;
+      identities?: Record<string, string>;
       controlResources?: Record<string, string>;
     }
   | {
@@ -25,6 +58,8 @@ export type DesktopContentFilesResult =
       canceled?: boolean;
       folder?: DesktopContentFilesFolder;
       folders?: DesktopContentFilesFolder[];
+      code?: "conflict" | "unavailable" | "invalid-request";
+      conflict?: DesktopContentFileConflict;
     };
 
 export interface DesktopContentFilesApi {
@@ -32,18 +67,27 @@ export interface DesktopContentFilesApi {
     request?: DesktopContentFilesFolderRequest,
   ): Promise<DesktopContentFilesResult>;
   chooseFolder(): Promise<DesktopContentFilesResult>;
+  associateSource?(request: {
+    folderId: string;
+    sourceId: string;
+    databaseId?: string;
+  }): Promise<DesktopContentFilesResult>;
   writeFiles(request: {
     folderId?: string;
     files: Record<string, string>;
+    expectedRevisions: Record<string, string | null>;
   }): Promise<DesktopContentFilesResult>;
   writeFile(request: {
     folderId?: string;
     path: string;
     content: string;
+    /** The revision observed by the editor; a mismatch must not overwrite. */
+    expectedRevision: string | null;
   }): Promise<DesktopContentFilesResult>;
   deleteFile?(request: {
     folderId?: string;
     path: string;
+    expectedRevision: string;
   }): Promise<DesktopContentFilesResult>;
   readFiles(
     request?: DesktopContentFilesFolderRequest,
@@ -55,6 +99,18 @@ export interface DesktopContentFilesApi {
   clearFolder(
     request?: DesktopContentFilesFolderRequest,
   ): Promise<DesktopContentFilesResult>;
+  subscribeChanges?(
+    request: DesktopContentFilesFolderRequest,
+  ): Promise<DesktopContentFilesResult>;
+  unsubscribeChanges?(
+    request: DesktopContentFilesFolderRequest,
+  ): Promise<DesktopContentFilesResult>;
+  onChange?(callback: (change: DesktopContentFilesChange) => void): () => void;
+  /** Optional until the installed Desktop bridge supports live folder events. */
+  watchFiles?(
+    request: DesktopContentFilesFolderRequest,
+    onChange: (change: DesktopContentFilesChange) => void,
+  ): Promise<DesktopContentFilesWatchResult>;
 }
 
 type WindowWithAgentNativeDesktop = Window & {

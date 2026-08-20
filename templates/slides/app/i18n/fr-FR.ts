@@ -571,13 +571,10 @@ const messages = {
   },
   deckEditor: {
     lookingForDeck: "Buscando este deck",
-    teamAccessCheckFailed: "No se pudo comprobar el acceso del equipo",
     joinTeamToOpen: "Únete a tu equipo para abrir este deck",
     deckUnavailable: "Deck no disponible",
     checkingSharedAccess:
       "Comprobando si esta presentación está compartida con tu cuenta.",
-    verifySharedAccessFailed:
-      "No pudimos verificar si esta presentación está compartida con tu cuenta. Inténtalo de nuevo para recargar el acceso del equipo y el deck.",
     joinTeamDescription:
       "Este enlace apunta a una presentación de equipo. Únete al equipo indicado arriba y el deck se abrirá aquí automáticamente.",
     deckUnavailableDescription:
@@ -594,6 +591,33 @@ const messages = {
     accessRequestSent: "Demande envoyée",
     requestAccess: "Demander l’accès",
     signInToRequestAccess: "Connectez-vous pour demander l’accès",
+    requestAccessDialogTitle: "Demander l’accès",
+    requestAccessDialogDescription:
+      "Connectez-vous ou saisissez l’adresse e-mail avec laquelle le propriétaire doit partager ce deck.",
+    requestAccessSignIn: "Se connecter ou s’inscrire",
+    requestAccessOr: "ou",
+    requestAccessEmailLabel: "Adresse e-mail",
+    requestAccessEmailPlaceholder: "you@example.com",
+    requestAccessEmailHint:
+      "Une fois l’accès accordé, connectez-vous avec cette adresse pour voir le deck.",
+    requestAccessWithEmail: "Demander par e-mail",
+    requestAccessEmailRequired: "Saisissez une adresse e-mail valide.",
+    requestingAccess: "Demande d’accès…",
+    accessRequestSentWithEmail:
+      "Le propriétaire a été invité à partager ce deck avec {{email}}.",
+    accessRequestFailed: "Impossible de demander l’accès. Réessayez.",
+    accessApprovalTitle: "Accès accordé",
+    accessApprovalAlreadyTitle: "Accès déjà accordé",
+    accessApprovalMessage: "{{email}} peut maintenant ouvrir ce deck.",
+    accessApprovalAlreadyMessage: "{{email}} a déjà accès à ce deck.",
+    accessApprovalErrorTitle: "Impossible d’accorder l’accès",
+    accessApprovalInvalid: "Cette demande d’accès est invalide ou expirée.",
+    accessApprovalSignInTitle: "Connectez-vous pour autoriser l’accès",
+    accessApprovalSignInMessage:
+      "Connectez-vous en tant que propriétaire ou administrateur du deck pour approuver cette demande.",
+    accessApprovalOpenDeck: "Ouvrir le deck",
+    accessApprovalSignIn: "Se connecter",
+    accessApprovalLoading: "Accès en cours...",
     backToDecks: "Retour aux decks",
     tryAgain: "Intentar de nuevo",
     imageUploadFailed: "Error al subir imagen",
@@ -745,6 +769,7 @@ const messages = {
     chooseReferences: "Choisir des références",
     addDesignSystem: "+ Système de design",
     importFrom: "Importer depuis",
+    attachedFiles: "Pièces jointes",
     imported: "Importé",
     importedReferenceDeck: "Deck de référence importé",
     referenceImportSuccess: "Importation réussie",

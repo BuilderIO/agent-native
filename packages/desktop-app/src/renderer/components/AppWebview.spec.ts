@@ -20,10 +20,15 @@ import {
   resolveAppWebviewPartition,
   resolveAppWebviewAuthState,
   resolveAppWebviewUrl,
+  withDesktopEnvironmentOptOut,
+  isDesktopIdentityAuthenticated,
   isDesktopIdentityGateEligible,
+  isDesktopIdentityGateUnauthenticated,
+  shouldUseDesktopIdentityGate,
   shouldSuppressDesktopSignInPrompt,
   resolveGuestChatCommand,
   resolveDesktopIdentityLazySyncStatus,
+  resolveDesktopIdentityStatusForChat,
   rememberDesktopIdentityStatus,
   invalidateRememberedDesktopIdentityStatus,
   shouldReuseRememberedDesktopIdentitySession,
@@ -54,6 +59,42 @@ beforeAll(() => {
 });
 
 describe("Desktop identity lazy child synchronization", () => {
+  it("keeps the chat handoff pending until child synchronization completes", () => {
+    expect(resolveDesktopIdentityStatusForChat("signed-in", false)).toBe(
+      "checking",
+    );
+    expect(resolveDesktopIdentityStatusForChat("signed-in", true)).toBe(
+      "signed-in",
+    );
+    expect(resolveDesktopIdentityStatusForChat("sign-in-required", false)).toBe(
+      "sign-in-required",
+    );
+  });
+
+  it("keeps the Electron gate active while its setting is unresolved", () => {
+    expect(
+      shouldUseDesktopIdentityGate({
+        eligible: true,
+        active: true,
+        enabled: null,
+      }),
+    ).toBe(true);
+    expect(
+      shouldUseDesktopIdentityGate({
+        eligible: true,
+        active: true,
+        enabled: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldUseDesktopIdentityGate({
+        eligible: true,
+        active: false,
+        enabled: null,
+      }),
+    ).toBe(false);
+  });
+
   it("does not demote a verified workspace session when child sync fails", () => {
     expect(resolveDesktopIdentityLazySyncStatus("signed-in", false)).toBe(
       "signed-in",
@@ -129,6 +170,7 @@ describe("Desktop identity activation", () => {
           resolveSynchronization = resolve;
         }),
     );
+    const identityStatuses: Array<"idle" | "checking" | "signed-in"> = [];
     Object.defineProperty(window, "electronAPI", {
       configurable: true,
       value: {
@@ -172,6 +214,15 @@ describe("Desktop identity activation", () => {
           appConfig,
           isActive: true,
           theme: "dark",
+          onDesktopIdentityStatusChange: (status) => {
+            if (
+              status === "idle" ||
+              status === "checking" ||
+              status === "signed-in"
+            ) {
+              identityStatuses.push(status);
+            }
+          },
         }),
       );
     });
@@ -186,6 +237,7 @@ describe("Desktop identity activation", () => {
       | undefined;
     expect(webviewSlot?.style.display).toBe("none");
     expect(container.textContent).not.toContain("Checking...");
+    expect(identityStatuses.at(-1)).toBe("checking");
 
     await act(async () => {
       resolveSynchronization(true);
@@ -193,6 +245,70 @@ describe("Desktop identity activation", () => {
     });
 
     expect(webviewSlot?.style.display).toBe("flex");
+    expect(identityStatuses.at(-1)).toBe("signed-in");
+  });
+
+  it("reconciles a completed sign-in when the status event was missed", async () => {
+    const getStatus = vi
+      .fn()
+      .mockResolvedValueOnce("signing-in")
+      .mockResolvedValue("signed-in");
+    const ensureAppSession = vi.fn(async () => true);
+    Object.defineProperty(window, "electronAPI", {
+      configurable: true,
+      value: {
+        identity: {
+          getSettings: vi.fn(async () => ({ ssoEnabled: true })),
+          getStatus,
+          ensureAppSession,
+          onStatusChange: vi.fn(() => () => {}),
+          signIn: vi.fn(async () => true),
+          authenticate: vi.fn(async () => ({ ok: true })),
+          requestMagicLink: vi.fn(async () => ({ ok: true })),
+        },
+      },
+    });
+    root = createRoot(container);
+
+    const app = {
+      id: "mail",
+      name: "Mail",
+      icon: "mail",
+      description: "",
+      devPort: 3000,
+    };
+    const appConfig = {
+      ...app,
+      url: "https://mail.agent-native.com",
+      isBuiltIn: true,
+      enabled: true,
+      mode: "prod" as const,
+    };
+
+    act(() => {
+      root.render(
+        React.createElement(AppWebview, {
+          app,
+          appConfig,
+          isActive: true,
+          theme: "dark",
+        }),
+      );
+    });
+
+    await vi.waitFor(
+      () => {
+        expect(ensureAppSession).toHaveBeenCalledWith("mail");
+        const webviewSlot = [
+          ...container.querySelectorAll(".webview-slot > div"),
+        ].find((element) => element.querySelector("webview")) as
+          | HTMLElement
+          | undefined;
+        expect(webviewSlot?.style.display).toBe("flex");
+        expect(container.textContent).not.toContain("Sign in with Google");
+      },
+      { timeout: 3_000 },
+    );
   });
 
   it("invalidates a remembered session when lazy sync is rejected", async () => {
@@ -448,6 +564,17 @@ describe("AppWebview auth state", () => {
     ).toBe("authenticated");
     expect(resolveAppWebviewAuthState("about:blank")).toBe("unknown");
   });
+
+  it("reports only native sign-in gate states as unauthenticated", () => {
+    expect(isDesktopIdentityGateUnauthenticated("sign-in-required")).toBe(true);
+    expect(isDesktopIdentityGateUnauthenticated("failed")).toBe(true);
+    expect(isDesktopIdentityGateUnauthenticated("checking")).toBe(false);
+    expect(isDesktopIdentityGateUnauthenticated("signed-in")).toBe(false);
+    expect(isDesktopIdentityGateUnauthenticated("idle")).toBe(false);
+    expect(isDesktopIdentityAuthenticated("signed-in")).toBe(true);
+    expect(isDesktopIdentityAuthenticated("sign-in-required")).toBe(false);
+    expect(isDesktopIdentityAuthenticated("checking")).toBe(false);
+  });
 });
 
 describe("AppWebview partition selection", () => {
@@ -520,6 +647,44 @@ describe("AppWebview URL resolution", () => {
         mode: "dev",
       }),
     ).toBe("http://localhost:3003");
+  });
+
+  it("keeps first-party production webviews out of the employee beta redirect", () => {
+    const url = withDesktopEnvironmentOptOut(
+      "https://mail.agent-native.com/inbox?label=important",
+    );
+    const parsed = new URL(url);
+    expect(parsed.origin).toBe("https://mail.agent-native.com");
+    expect(parsed.searchParams.get("label")).toBe("important");
+    expect(parsed.searchParams.has("agentNativeBetaOptOut")).toBe(true);
+  });
+
+  it("refreshes the beta opt-out expiry for each navigation", () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(1_000_000);
+    try {
+      const first = new URL(
+        withDesktopEnvironmentOptOut("https://mail.agent-native.com/inbox"),
+      );
+      now.mockReturnValue(2_000_000);
+      const second = new URL(
+        withDesktopEnvironmentOptOut("https://mail.agent-native.com/inbox"),
+      );
+
+      expect(Number(second.searchParams.get("agentNativeBetaOptOut"))).toBe(
+        Number(first.searchParams.get("agentNativeBetaOptOut")) + 1_000_000,
+      );
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it("does not rewrite custom or explicitly beta webviews", () => {
+    expect(
+      withDesktopEnvironmentOptOut("https://workspace.example/reports"),
+    ).toBe("https://workspace.example/reports");
+    expect(
+      withDesktopEnvironmentOptOut("https://beta.mail.agent-native.com/inbox"),
+    ).toBe("https://beta.mail.agent-native.com/inbox");
   });
 });
 

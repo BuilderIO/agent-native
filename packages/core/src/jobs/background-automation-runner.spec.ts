@@ -48,6 +48,17 @@ vi.mock(import("../db/client.js"), async (importOriginal) => {
   return { ...actual, getDbExec: () => rawClient };
 });
 
+const getThreadMock = vi.hoisted(() =>
+  vi.fn(async () => ({
+    id: "thread-1",
+    title: "Job: daily-digest",
+    preview: "",
+    threadData: "{}",
+    messageCount: 0,
+  })),
+);
+const updateThreadDataMock = vi.hoisted(() => vi.fn(async () => {}));
+
 vi.mock("../agent/run-loop-with-resume.js", () => ({
   runAgentLoopDirectWithSoftTimeout: vi.fn(async () => ({
     inputTokens: 0,
@@ -60,6 +71,10 @@ vi.mock("../agent/run-loop-with-resume.js", () => ({
 
 vi.mock("../chat-threads/store.js", () => ({
   createThread: vi.fn(async () => ({ id: "thread-1" })),
+  getThread: getThreadMock,
+  updateThreadData: updateThreadDataMock,
+  withThreadDataLock: async (_threadId: string, fn: () => Promise<unknown>) =>
+    fn(),
 }));
 
 // Narrow re-implementation, not `vi.importActual` — pulling in the real
@@ -232,6 +247,361 @@ describe("runBackgroundAutomation — background-run self-claim", () => {
       startSpy.mockRestore();
       attachSpy.mockRestore();
       finishSpy.mockRestore();
+    }
+  });
+});
+
+function persistedRepo() {
+  const threadData = updateThreadDataMock.mock.calls.at(-1)?.[1];
+  expect(typeof threadData).toBe("string");
+  return JSON.parse(threadData as string) as {
+    messages: Array<{ message?: { role?: string; content?: unknown[] } }>;
+  };
+}
+
+function assistantMessage() {
+  const repo = persistedRepo();
+  const entry = repo.messages[1];
+  return (entry?.message ?? entry) as {
+    content?: unknown[];
+    status?: { type?: string; reason?: string };
+    metadata?: {
+      custom?: { continued?: unknown; runError?: { errorCode?: string } };
+    };
+  };
+}
+
+function assistantContent() {
+  const content = assistantMessage().content;
+  return Array.isArray(content) ? content : [];
+}
+
+describe("runBackgroundAutomation — thread transcript", () => {
+  it("persists the prompt and tool-call turn, keeping the Job title", async () => {
+    const { runAgentLoopDirectWithSoftTimeout } =
+      await import("../agent/run-loop-with-resume.js");
+    vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
+      async (opts) => {
+        opts.send?.({ type: "text", text: "Checking Slack." });
+        opts.send?.({
+          type: "tool_start",
+          id: "tc_1",
+          tool: "poll-slack-channel",
+          input: { channel: "C123" },
+        });
+        opts.send?.({
+          type: "tool_done",
+          id: "tc_1",
+          tool: "poll-slack-channel",
+          result: JSON.stringify({ checked: 1 }),
+        });
+        return {
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "test-model",
+        };
+      },
+    );
+    updateThreadDataMock.mockClear();
+
+    await runBackgroundAutomation(
+      {
+        automation: {
+          name: "slack-feedback",
+          meta: { schedule: "* * * * *", enabled: true, model: "test-model" },
+          body: "Poll Slack.",
+          resource: {
+            owner: "alice@agent-native.test",
+            path: "jobs/slack-feedback.md",
+          } as any,
+        },
+        ownerEmail: "alice@agent-native.test",
+        prompt: "Poll the configured Slack channel.",
+        threadTitle: "Job: Slack Feedback — Aug 17, 2026",
+        runIdPrefix: "job-slack-feedback",
+        usageLabel: "recurring-job:slack-feedback",
+      },
+      {
+        getActions: () => ({}),
+        getSystemPrompt: async () => "system",
+        engine: testEngine,
+      },
+    );
+
+    expect(updateThreadDataMock).toHaveBeenCalledTimes(1);
+    const [, threadData, title, , messageCount] =
+      updateThreadDataMock.mock.calls[0];
+    expect(title).toBe("Job: Slack Feedback — Aug 17, 2026");
+    expect(messageCount).toBe(2);
+    expect(JSON.parse(threadData as string).messages).toHaveLength(2);
+    expect(assistantMessage().status).toEqual({
+      type: "complete",
+      reason: "stop",
+    });
+    expect(assistantContent()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "tool-call",
+          toolName: "poll-slack-channel",
+        }),
+      ]),
+    );
+  });
+
+  it("persists a partial turn when the run is cut off", async () => {
+    const { runAgentLoopDirectWithSoftTimeout } =
+      await import("../agent/run-loop-with-resume.js");
+    vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
+      async (opts) => {
+        opts.send?.({ type: "text", text: "Started polling." });
+        opts.send?.({ type: "auto_continue", reason: "no_progress" });
+        return {
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "test-model",
+        };
+      },
+    );
+    updateThreadDataMock.mockClear();
+
+    await expect(
+      runBackgroundAutomation(
+        {
+          automation: {
+            name: "cut-off-digest",
+            meta: { schedule: "* * * * *", enabled: true, model: "test-model" },
+            body: "Summarize the inbox.",
+            resource: {
+              owner: "alice@agent-native.test",
+              path: "jobs/cut-off-digest.md",
+            } as any,
+          },
+          ownerEmail: "alice@agent-native.test",
+          prompt: "Summarize the inbox.",
+          threadTitle: "Job: cut-off-digest — Aug 17, 2026",
+          runIdPrefix: "job-cut-off-digest",
+          usageLabel: "recurring-job:cut-off-digest",
+        },
+        {
+          getActions: () => ({}),
+          getSystemPrompt: async () => "system",
+          engine: testEngine,
+        },
+      ),
+    ).rejects.toThrow(/cut off before finishing \(no_progress\)/);
+
+    expect(updateThreadDataMock).toHaveBeenCalled();
+    const [, , title] = updateThreadDataMock.mock.calls[0];
+    expect(title).toBe("Job: cut-off-digest — Aug 17, 2026");
+    expect(assistantMessage().status).toEqual({
+      type: "incomplete",
+      reason: "error",
+    });
+    expect(assistantMessage().metadata?.custom?.continued).toBeUndefined();
+    expect(assistantMessage().metadata?.custom?.runError).toMatchObject({
+      errorCode: "background_automation_cut_off",
+    });
+    expect(assistantContent()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "text",
+          text: expect.stringMatching(
+            /Started polling\.[\s\S]*cut off before finishing \(no_progress\)/,
+          ),
+        }),
+      ]),
+    );
+  });
+
+  it("reports a cut-off automation to the error-capture system", async () => {
+    // The scheduler and the trigger dispatcher both swallow this into the
+    // automation's own metadata plus a console.error, so the capture seam is
+    // the only thing that puts it in front of anyone.
+    const { registerErrorCaptureProvider } =
+      await import("../server/capture-error.js");
+    const captured: Array<{ error: unknown; context: Record<string, any> }> =
+      [];
+    const unregister = registerErrorCaptureProvider(
+      "background-automation-spec",
+      (error, context) => {
+        captured.push({ error, context: context as Record<string, any> });
+        return undefined;
+      },
+    );
+
+    const { runAgentLoopDirectWithSoftTimeout } =
+      await import("../agent/run-loop-with-resume.js");
+    vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
+      async (opts) => {
+        opts.send?.({ type: "text", text: "Started polling." });
+        opts.send?.({ type: "auto_continue", reason: "no_progress" });
+        return {
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "test-model",
+        };
+      },
+    );
+
+    try {
+      await expect(
+        runBackgroundAutomation(
+          {
+            automation: {
+              name: "cut-off-digest",
+              meta: {
+                schedule: "* * * * *",
+                enabled: true,
+                model: "test-model",
+              },
+              body: "Summarize the inbox.",
+              resource: {
+                owner: "alice@agent-native.test",
+                path: "jobs/cut-off-digest.md",
+              } as any,
+            },
+            ownerEmail: "alice@agent-native.test",
+            prompt: "Summarize the inbox.",
+            threadTitle: "Job: cut-off-digest — Aug 17, 2026",
+            runIdPrefix: "job-cut-off-digest",
+            usageLabel: "recurring-job:cut-off-digest",
+          },
+          {
+            getActions: () => ({}),
+            getSystemPrompt: async () => "system",
+            engine: testEngine,
+          },
+        ),
+      ).rejects.toThrow(/cut off before finishing \(no_progress\)/);
+    } finally {
+      unregister();
+    }
+
+    expect(captured).toHaveLength(1);
+    expect(String((captured[0].error as Error).message)).toMatch(
+      /cut off before finishing \(no_progress\)/,
+    );
+    expect(captured[0].context.tags).toMatchObject({
+      area: "background-automation",
+      automation: "cut-off-digest",
+      scope: "personal",
+    });
+    // Joins the issue to its LLM trace; without it the report lands somewhere
+    // no backend can correlate with the run that produced it.
+    expect(captured[0].context.aiTraceId).toMatch(/^job-cut-off-digest-/);
+  });
+
+  it("persists a partial turn when the hard timeout fires", async () => {
+    const { runAgentLoopDirectWithSoftTimeout } =
+      await import("../agent/run-loop-with-resume.js");
+    vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
+      async (opts) => {
+        opts.send?.({ type: "text", text: "Still working." });
+        await new Promise<void>((_resolve, reject) => {
+          const signal = opts.signal;
+          if (signal?.aborted) {
+            reject(new Error("aborted"));
+            return;
+          }
+          signal?.addEventListener("abort", () => reject(new Error("aborted")));
+        });
+        return {
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "test-model",
+        };
+      },
+    );
+    updateThreadDataMock.mockClear();
+
+    const realSetTimeout = globalThis.setTimeout;
+    const pendingHardTimeouts: Array<() => void> = [];
+    const setTimeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((
+        handler: TimerHandler,
+        delay?: number,
+        ...args: unknown[]
+      ) => {
+        if (delay === BACKGROUND_RUN_HARD_TIMEOUT_MS) {
+          pendingHardTimeouts.push(() => {
+            if (typeof handler === "function") handler(...args);
+          });
+          return 0 as unknown as ReturnType<typeof setTimeout>;
+        }
+        return realSetTimeout(
+          handler as Parameters<typeof setTimeout>[0],
+          delay,
+          ...args,
+        );
+      }) as typeof setTimeout);
+
+    try {
+      const runPromise = runBackgroundAutomation(
+        {
+          automation: {
+            name: "hard-timeout-digest",
+            meta: {
+              schedule: "* * * * *",
+              enabled: true,
+              model: "test-model",
+            },
+            body: "Summarize the inbox.",
+            resource: {
+              owner: "alice@agent-native.test",
+              path: "jobs/hard-timeout-digest.md",
+            } as any,
+          },
+          ownerEmail: "alice@agent-native.test",
+          prompt: "Summarize the inbox.",
+          threadTitle: "Job: hard-timeout-digest — Aug 18, 2026",
+          runIdPrefix: "job-hard-timeout-digest",
+          usageLabel: "recurring-job:hard-timeout-digest",
+        },
+        {
+          getActions: () => ({}),
+          getSystemPrompt: async () => "system",
+          engine: testEngine,
+        },
+      );
+
+      await vi.waitFor(() => {
+        expect(pendingHardTimeouts.length).toBe(1);
+      });
+      pendingHardTimeouts[0]!();
+
+      await expect(runPromise).rejects.toThrow(/timed out after 10 minutes/);
+      expect(updateThreadDataMock).toHaveBeenCalled();
+      const [, , title] = updateThreadDataMock.mock.calls[0];
+      expect(title).toBe("Job: hard-timeout-digest — Aug 18, 2026");
+      expect(assistantMessage().status).toEqual({
+        type: "incomplete",
+        reason: "error",
+      });
+      expect(assistantMessage().metadata?.custom?.continued).toBeUndefined();
+      expect(assistantMessage().metadata?.custom?.runError).toMatchObject({
+        errorCode: "background_automation_hard_timeout",
+      });
+      expect(assistantContent()).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "text",
+            text: expect.stringMatching(
+              /Still working\.[\s\S]*timed out after 10 minutes/,
+            ),
+          }),
+        ]),
+      );
+    } finally {
+      setTimeoutSpy.mockRestore();
     }
   });
 });

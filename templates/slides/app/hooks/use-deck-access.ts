@@ -12,6 +12,7 @@ export type DeckAccessStatusResponse = {
   viewerName: string | null;
   role: "owner" | "viewer" | "commenter" | "editor" | "admin" | null;
   visibility: "private" | "org" | "public" | null;
+  accessRequestToken?: string;
 };
 
 export function useDeckAccessStatus(deckId?: string) {
@@ -44,8 +45,10 @@ function showActionError(message: string) {
 }
 
 export function useRequestDeckAccess() {
-  return useActionMutation<RequestDeckAccessResult, { deckId: string }>(
-    "request-deck-access",
-    { onError: showActionError("Failed to request access") },
-  );
+  return useActionMutation<
+    RequestDeckAccessResult,
+    { accessRequestToken?: string; deckId: string; requesterEmail?: string }
+  >("request-deck-access", {
+    onError: showActionError("Failed to request access"),
+  });
 }

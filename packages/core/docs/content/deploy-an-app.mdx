@@ -1,0 +1,115 @@
+---
+title: "Deploy an app"
+description: "Build and deploy one Agent-Native app to Node.js, Vercel, Netlify, Cloudflare, AWS, or Deno."
+search: "deploy app standalone build Nitro preset Node.js Docker Vercel Netlify Cloudflare AWS Lambda Deno Deploy Azure Koyeb Render"
+---
+
+# Deploy an app
+
+Use this path for a standalone app, or for one app from a workspace that you
+want to run on its own domain. For several apps on one origin, use [Deploy a
+workspace](/docs/workspace-deployment) instead.
+
+<Steps>
+
+### Create or open the app
+
+Create a standalone Chat app, or work from an existing app:
+
+```bash
+npx @agent-native/core@latest create my-app --standalone --template chat
+cd my-app
+pnpm install
+```
+
+### Choose a deployment target
+
+The default target is Node.js. For another host, set the Nitro preset in
+`vite.config.ts` or set `NITRO_PRESET` at build time.
+
+```ts filename="vite.config.ts"
+import { agentNative } from "@agent-native/core/vite";
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "vercel" } })],
+});
+```
+
+See the target page for the provider command and runtime details:
+
+- [**Node.js**](/docs/node-js)
+- [**Docker**](/docs/docker)
+- [**Vercel**](/docs/vercel)
+- [**Netlify**](/docs/netlify)
+- [**Cloudflare Pages**](/docs/cloudflare#cloudflare-pages)
+- [**Cloudflare Workers**](/docs/cloudflare#cloudflare-workers)
+- [**AWS Lambda**](/docs/aws-lambda)
+- [**Deno Deploy**](/docs/deno-deploy)
+- [**Azure Static Web Apps**](/docs/azure-static-web-apps)
+- [**Koyeb**](/docs/koyeb)
+- [**Render**](/docs/render)
+
+### Build the app
+
+Build the client and server output:
+
+```bash
+npx @agent-native/core@latest build
+```
+
+The default Node.js output runs with:
+
+```bash
+node .output/server/index.mjs
+```
+
+For a local production-shaped check with Postgres and Docker, follow the
+[Docker quickstart](/docs/docker#self-host-quickstart).
+
+### Configure the deployment
+
+Set `DATABASE_URL` to a persistent SQL database before the first production
+deploy. A standalone app using framework auth also needs a stable
+`BETTER_AUTH_SECRET`. Add the provider and integration variables your app uses.
+
+Use the [deployment environment reference](/docs/deployment-environment-variables)
+for production secrets, auth, webhooks, workspace inheritance, and runtime
+flags.
+
+### Deploy and verify
+
+Publish the output using your provider's normal deploy command. Then verify the
+public URL, sign-in flow, database reads and writes, and any OAuth callbacks or
+webhooks your app uses.
+
+</Steps>
+
+<Callout tone="warning">
+
+Do not use the local SQLite file as production storage. Do not reuse the sample
+auth secret from a local Docker setup. Keep secrets in the deployment
+provider's environment or managed secret store.
+
+</Callout>
+
+## Deploying one app from a workspace
+
+Each workspace app is independently deployable. Run the build from the app
+directory:
+
+```bash
+cd apps/<name>
+npx @agent-native/core@latest build
+```
+
+Give that app its own public origin and configure its database and auth URL for
+that origin. If the apps should share one origin, shared login, and same-origin
+app to app communication, use [Workspace Deployment](/docs/workspace-deployment).
+
+## What's next
+
+- [**Deployment**](/docs/deployment) - the database prerequisite and target overview
+- [**Workspace Deployment**](/docs/workspace-deployment) - one origin for many apps
+- [**Database**](/docs/server-database#production) - production SQL adapters and connections
+- [**Security**](/docs/security) - the production security checklist

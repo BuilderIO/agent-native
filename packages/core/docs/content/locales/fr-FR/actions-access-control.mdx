@@ -83,7 +83,144 @@ Utilisez-le uniquement pour des actions sûres, en lecture seule, ou d’ingesti
 
 Une poignée d’actions sont trop conséquentes pour laisser l’agent les exécuter seul, comme envoyer un email, débiter une carte, ou supprimer un compte. Définissez `needsApproval: true` (ou un prédicat `(args, ctx) => boolean | Promise<boolean>`) sur `defineAction()`, et la boucle se met en pause avant `run()`, exigeant qu’un humain approuve cet appel précis. La valeur par défaut est **désactivée**, et presque chaque action devrait le rester.
 
-Voir [Approbations humaines dans la boucle](/docs/human-approval) pour l’API du prédicat, l’événement `approval_required`, et le flux complet de bout en bout.
+<Callout tone="warning">
+  Gardez les approbations rares. Chaque action gardée est un arrêt complet dans
+  la boucle de l’agent. Elle interrompt l’exécution et exige un aller-retour
+  humain. Utilisez `needsApproval` seulement pour des opérations réellement
+  conséquentes, difficiles à annuler, et tournées vers l’extérieur. Si vous vous
+  surprenez à garder des lectures ou des écritures courantes, c’est le signe que
+  vous vous en servez mal. La valeur par défaut est **désactivée**, et presque
+  chaque action devrait le rester.
+</Callout>
+
+<AnnotatedCode
+  id="doc-block-13p4g9y"
+  title="Garder l’unique action conséquente"
+  filename="actions/send-email.ts"
+  language="ts"
+  code={
+    'export default defineAction({\n  description: "Send an email via Gmail.",\n  schema: z.object({\n    to: z.string(),\n    subject: z.string(),\n    body: z.string(),\n  }),\n  // Sending is outward-facing and hard to undo, so the agent can never send\n  // without a human approving the specific call. Drafting and queueing are\n  // not affected. Only the real send is gated.\n  needsApproval: true,\n  run: async (args) => {\n    /* ...actually send... */\n  },\n});'
+  }
+  annotations={[
+    {
+      lines: "10",
+      label: "La garde tout entière",
+      note: "Un seul flag. Quand il est vrai et que l’appel n’a pas encore été approuvé, la boucle s’arrête avant `run`. Le modèle n’atteint jamais l’effet de bord par lui-même.",
+    },
+    {
+      lines: "11-13",
+      label: "run() reste inchangé",
+      note: "Le gestionnaire reste identique. L’approbation est appliquée par la boucle qui l’entoure, pas par quoi que ce soit à l’intérieur de `run`.",
+    },
+  ]}
+/>
+
+- **`needsApproval: true`** exige toujours une approbation.
+- **`needsApproval: (args, ctx) => boolean | Promise<boolean>`** exige une approbation seulement quand le prédicat renvoie `true`. Utilisez ceci pour garder l’action de façon conditionnelle, par exemple seulement pour les destinataires externes ou seulement au-delà d’un certain montant :
+
+  ```ts
+  needsApproval: (args) => !args.to.endsWith("@your-company.com"),
+  ```
+
+  Gardez le prédicat pur et rapide. Si le prédicat lève une exception, le framework traite l’appel de la même façon que s’il avait renvoyé `true`, donc l’action se met en pause pour approbation au lieu de s’exécuter. Cela signifie qu’un prédicat défaillant ne peut jamais laisser silencieusement une action à conséquences importantes s’exécuter sans qu’un humain ne l’approuve d’abord.
+
+Quand `needsApproval` est omis, le comportement reste identique, octet pour octet. Il n’y a aucun coût supplémentaire sur le chemin courant.
+
+Cela fonctionne de la même façon pour les actions de style `parameters` hérité et pour les actions basées sur un schéma. Cela fonctionne aussi de la même façon pour l’agent intégré à l’application, les sous-agents, et les appelants A2A et MCP, parce que chaque surface d’agent passe par la même boucle.
+
+### Comment la boucle se met en pause {#loop}
+
+Quand l’agent appelle une action gardée et que cet appel précis n’a **pas** déjà été approuvé, la boucle n’exécute **pas** `run()`. À la place, elle :
+
+1. Résout la garde. Pour un prédicat, la boucle appelle `needsApproval(input, ctx)`. Si cet appel lève une exception, la boucle le traite de la même façon qu’un résultat `true`, donc l’action exige une approbation.
+2. Émet un événement `tool_start` (pour que l’UI affiche l’appel), immédiatement suivi d’un événement **`approval_required`**, puis arrête le tour. L’effet de bord de l’action ne se produit jamais.
+
+L’événement `approval_required` porte tout ce dont le client a besoin pour afficher une affordance :
+
+| Champ         | Type     | Notes                                                                  |
+| ------------- | -------- | ---------------------------------------------------------------------- |
+| `tool`        | `string` | Le nom de l’action que l’agent a essayé d’appeler.                     |
+| `input`       | object   | Les arguments que l’agent a passés.                                    |
+| `approvalKey` | `string` | **Clé stable** que le client renvoie pour approuver _cet appel exact_. |
+| `toolCallId`  | `string` | L’identifiant d’appel d’outil côté modèle, quand il est disponible.    |
+
+La `approvalKey` est dérivée de façon déterministe à partir du nom de l’outil et de son entrée, donc le même appel logique produit toujours la même clé. Le modèle ne la voit ni ne la définit jamais. Elle existe uniquement comme une poignée de main entre le framework et l’affordance Approuver de l’humain.
+
+L’outil en pause renvoie un résultat indiquant au modèle que le tour est en pause et de ne pas réessayer, afin que le modèle ne tourne pas en boucle.
+
+### Comment l’humain approuve {#approve}
+
+Sur `approval_required`, l’UI de chat affiche une affordance **Approuver / Refuser** sur l’appel d’outil en pause. Ceci est câblé automatiquement dans `AssistantChat`. Vous n’avez pas besoin de la construire par template.
+
+<WireframeBlock id="doc-block-humanapprovalwf1">
+  <Screen
+    surface="popover"
+    html={
+      "<div style='display:flex;flex-direction:column;box-sizing:border-box;padding:16px;gap:12px'><div class='wf-card' style='display:flex;flex-direction:column;gap:8px'><div style='display:flex;align-items:center;gap:8px'><span class='wf-pill warn'>Needs approval</span><strong>send-email</strong></div><div style='display:flex;flex-direction:column;gap:2px'><span class='wf-muted'>to: alex@acme.com</span><span class='wf-muted'>subject: Following up on the proposal</span></div><div style='display:flex;gap:8px'><button>Deny</button><button class='primary'>Approve</button></div></div></div>"
+    }
+  />
+</WireframeBlock>
+
+- **Approuver** réémet le tour comme un message de continuation ordinaire qui porte la clé de l’appel dans `approvedToolCalls: [approvalKey]`. Sur le tour réémis, la garde voit la clé dans l’ensemble approuvé et laisse cet appel précis s’exécuter normalement.
+- **Refuser** ferme l’affordance localement. Rien n’est réémis, donc l’action ne s’exécute jamais.
+
+`approvedToolCalls` est un champ de la requête de chat (`AgentChatRequest.approvedToolCalls`). Les clés qui n’y figurent pas restent en pause. Approuver un appel n’approuve jamais un autre appel. Parce que la clé est adressée par contenu, une approbation n’autorise que cet appel exact avec ces arguments exacts. Si le modèle propose plus tard un envoi différent, cela devient une nouvelle clé qui exige sa propre approbation.
+
+### De bout en bout {#flow}
+
+<Diagram id="doc-block-2nor1g" title="L’interruption d’approbation" summary={"Un appel gardé met le tour en pause avant que run() ne se déclenche. L’approbation réémet le tour en portant la clé de l’appel. C’est seulement alors que l’effet de bord se produit."}>
+
+```html
+<div class="diagram-approve">
+  <div class="diagram-box" data-rough>L'agent appelle send-email</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-panel warn" data-rough>
+    <strong>Garde vraie, appel pas encore approuvé</strong
+    ><small class="diagram-muted"
+      >la boucle émet tool_start + approval_required { tool, input, approvalKey
+      }</small
+    ><span class="diagram-pill warn">run() ne s'est pas exécuté</span>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-box" data-rough>
+    L'humain clique sur Approuver dans le chat<br /><small class="diagram-muted"
+      >le client réémet le tour avec approvedToolCalls: [approvalKey]</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-panel ok" data-rough>
+    <span class="diagram-pill ok"
+      >La garde voit la clé &rarr; run() s'exécute &rarr; l'email est
+      envoyé</span
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-approve {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.diagram-approve .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+  padding: 12px 16px;
+  text-align: center;
+}
+.diagram-approve .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+L’action `send-email` du template Mail est l’usage canonique de cette garde dans le framework, et elle est intentionnellement rare. Elle définit `needsApproval: true` afin que l’agent puisse rédiger et mettre en file d’attente des emails librement. Elle ne peut jamais réellement envoyer un message sans qu’un humain n’approuve cet envoi précis.
 
 ## Restreindre les appelants par rôle {#authorize}
 
@@ -220,7 +357,7 @@ Quelques autres options. `audit: { onRead: true }` audite une lecture sensible, 
 - [**Vue d’ensemble**](/docs/actions-overview) — ce qu’est une action et la démonstration hello-world
 - [**Définir des actions**](/docs/actions-defining) — anatomie de `defineAction()`, schéma, et configuration HTTP
 - [**Contexte d’exécution**](/docs/actions-run-context) — l’argument `ctx` que ces contrôles lisent
-- [**Approbations humaines dans la boucle**](/docs/human-approval) — le mécanisme `needsApproval` en détail
+- [**Template Mail**](/docs/template-mail) — `send-email` est l’exemple de référence pour `needsApproval`
 - [**Journal d’audit**](/docs/audit-log) — la piste automatique de qui-a-changé-quoi
 - [**Sécurité**](/docs/security) — `accessFilter`/`assertAccess` et la frontière de confiance de l’iframe d’extension
 - [**Partage**](/docs/sharing) — le système de partage du framework que ces aides soutiennent

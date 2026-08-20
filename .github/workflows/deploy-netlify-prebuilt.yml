@@ -1,0 +1,948 @@
+name: Pilot prebuilt Netlify deploy
+
+# Additive pilot lane for moving the build off Netlify while keeping Netlify as
+# the deploy/CDN layer. Existing Netlify site builds remain enabled during the
+# pilot; the automatic beta caller and manual production caller prove this path.
+#
+# Safe rollout:
+#   1. deploy=false + build_context=deploy-preview validates the GitHub runner.
+#   2. deploy=true + deploy_mode=draft validates a non-live Netlify upload.
+#   3. deploy=true + deploy_mode=production publishes after readiness checks.
+#
+# Production deploys use the production Netlify build context because the
+# existing netlify.toml commands own the current production environment setup
+# and migration behavior. Keep this lane manual until that behavior is audited.
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Netlify site family and source branch
+        required: true
+        type: choice
+        default: beta
+        options:
+          - beta
+          - production
+      site:
+        description: One site id (chat and starter are accepted aliases)
+        required: true
+        type: string
+        default: chat
+      build_context:
+        description: Netlify context used by the local build
+        required: true
+        type: choice
+        default: deploy-preview
+        options:
+          - branch-deploy
+          - deploy-preview
+          - production
+      source_ref:
+        description: Optional exact commit or ref to build
+        required: false
+        type: string
+        default: ""
+      deploy:
+        description: Upload the prebuilt output to Netlify
+        required: true
+        type: boolean
+        default: false
+      deploy_mode:
+        description: Draft creates a non-live deploy; production publishes it
+        required: true
+        type: choice
+        default: draft
+        options:
+          - draft
+          - production
+      smoke:
+        description: Probe the resulting deploy after upload
+        required: true
+        type: boolean
+        default: true
+  workflow_call:
+    inputs:
+      target:
+        required: false
+        type: string
+        default: beta
+      site:
+        required: true
+        type: string
+      build_context:
+        required: false
+        type: string
+        default: deploy-preview
+      source_ref:
+        required: false
+        type: string
+        default: ""
+      deploy:
+        required: false
+        type: boolean
+        default: false
+      deploy_mode:
+        required: false
+        type: string
+        default: draft
+      smoke:
+        required: false
+        type: boolean
+        default: true
+      caller:
+        required: false
+        type: string
+        default: direct
+    secrets:
+      NETLIFY_AUTH_TOKEN:
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  # Direct production dispatches share the per-site queue with the fleet,
+  # manager, and promotion jobs. A called workflow gets a distinct child queue
+  # because the fleet caller already owns the shared per-site lock.
+  group: >-
+    ${{ inputs.caller == 'fleet'
+        && format('netlify-prebuilt-child-{0}-{1}', inputs.target, inputs.site)
+        || inputs.target == 'production'
+        && format('agent-native-production-site-{0}', inputs.site)
+        || format('netlify-prebuilt-{0}-{1}', inputs.target, inputs.site) }}
+  # Beta follows the newest moving ref. Never cancel a production publish that
+  # may already be uploading or becoming live.
+  cancel-in-progress: ${{ inputs.target == 'beta' }}
+
+jobs:
+  deploy:
+    name: ${{ inputs.target }} ${{ inputs.site }} prebuilt deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Validate the source revision
+        id: source
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        env:
+          SOURCE_REF: ${{ inputs.source_ref }}
+          TARGET: ${{ inputs.target }}
+        with:
+          script: |
+            const requested = process.env.SOURCE_REF.trim();
+            const target = process.env.TARGET;
+            if (target === 'production') {
+              const mainSha = (await github.rest.git.getRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: 'heads/main',
+              })).data.object.sha;
+              const sourceSha = requested || mainSha;
+              if (!/^[0-9a-f]{40}$/i.test(sourceSha)) {
+                core.setFailed('Production source_ref must be a full 40-character commit SHA.');
+                return;
+              }
+              if (requested) {
+                const comparison = await github.rest.repos.compareCommits({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  base: sourceSha,
+                  head: mainSha,
+                });
+                if (!['ahead', 'identical'].includes(comparison.data.status)) {
+                  core.setFailed(`Production source ${sourceSha} is not an ancestor of main ${mainSha}.`);
+                  return;
+                }
+              }
+              core.setOutput('source_ref', sourceSha);
+              return;
+            }
+            if (target === 'beta') {
+              core.setOutput('source_ref', requested || 'beta');
+              return;
+            }
+            core.setFailed(`Unknown deployment target: ${target}`);
+
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          # Beta sites are dedicated production sites whose source branch is
+          # beta. Production sites continue to build from main.
+          ref: ${{ steps.source.outputs.source_ref }}
+          fetch-depth: 1
+
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install the pinned Netlify CLI
+        run: npm install --global netlify-cli@27.1.2 --ignore-scripts
+
+      - name: Validate rollout mode
+        env:
+          BUILD_CONTEXT: ${{ inputs.build_context }}
+          DEPLOY: ${{ inputs.deploy }}
+          DEPLOY_MODE: ${{ inputs.deploy_mode }}
+          SITE: ${{ inputs.site }}
+          TARGET: ${{ inputs.target }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$DEPLOY" != "true" && "$DEPLOY_MODE" != "draft" ]]; then
+            echo "::error::deploy_mode=production requires deploy=true."
+            exit 1
+          fi
+
+          if [[ "$BUILD_CONTEXT" == "production" && ( "$DEPLOY" != "true" || "$DEPLOY_MODE" != "production" ) ]]; then
+            echo "::error::The production Netlify build context can run migrations; pair it with an explicit production deploy."
+            exit 1
+          fi
+
+          if [[ "$TARGET" == "production" && "$BUILD_CONTEXT" != "production" ]]; then
+            echo "::error::Production sites must use the production Netlify build context."
+            exit 1
+          fi
+
+          if [[ "$TARGET" == "production" && ( "$SITE" == "chat" || "$SITE" == "www" ) ]]; then
+            echo "::error::Production prebuilt dispatches must use canonical site ids (starter or fw), not aliases."
+            exit 1
+          fi
+
+      - name: Resolve the canonical Netlify target
+        id: target
+        env:
+          TARGET: ${{ inputs.target }}
+          SITE: ${{ inputs.site }}
+        run: >-
+          node --experimental-strip-types scripts/netlify-prebuilt-target.ts
+          --target "$TARGET"
+          --site "$SITE"
+          --github-output "$GITHUB_OUTPUT"
+
+      - name: Build with the Netlify project configuration
+        env:
+          BUILD_CONTEXT: ${{ inputs.build_context }}
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+          SOURCE_TEMPLATE: ${{ steps.target.outputs.source_template }}
+        run: |
+          set -euo pipefail
+          : "${NETLIFY_AUTH_TOKEN:?NETLIFY_AUTH_TOKEN secret is required}"
+          if [[ "$SOURCE_TEMPLATE" == "clips" ]]; then
+            # Netlify's local CLI receives masked site secrets. Clips only needs
+            # valid build-time shapes here; the uploaded Functions read the real
+            # site-scoped values at runtime.
+            export agentNativePrebuiltBuild=true
+            export agentNativePrebuiltDatabaseUrl="postgresql://build-only.invalid/agent_native"
+            agentNativePrebuiltAuthSecret="$(node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("hex"))')"
+            export agentNativePrebuiltAuthSecret
+          fi
+          netlify build --context "$BUILD_CONTEXT" --filter "$SOURCE_TEMPLATE"
+
+      - name: Verify deploy directories
+        env:
+          FUNCTIONS_DIRECTORY: ${{ steps.target.outputs.functions_directory }}
+          PUBLISH_DIRECTORY: ${{ steps.target.outputs.publish_directory }}
+        run: |
+          set -euo pipefail
+          for directory in "$PUBLISH_DIRECTORY" "$FUNCTIONS_DIRECTORY"; do
+            if [[ ! -d "$directory" ]]; then
+              echo "::error::Expected prebuilt deploy directory is missing: $directory"
+              exit 1
+            fi
+          done
+          du -sh "$PUBLISH_DIRECTORY" "$FUNCTIONS_DIRECTORY"
+
+      - name: Pause automatic Netlify builds for production cutover
+        id: pause
+        if: inputs.target == 'production' && inputs.deploy && inputs.deploy_mode == 'production'
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          (async () => {
+          const fs = require("node:fs");
+          const api = "https://api.netlify.com/api/v1";
+          const headers = {
+            Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}`,
+            "User-Agent": "agent-native-prebuilt-production-build-pause",
+          };
+          const request = (url, options = {}) => fetch(url, {
+            ...options,
+            headers: { ...headers, ...(options.headers || {}) },
+            signal: AbortSignal.timeout(30_000),
+          });
+
+          async function readJson(response, label) {
+            const text = await response.text();
+            const body = text ? JSON.parse(text) : null;
+            if (!response.ok) {
+              throw new Error(`${label} failed with HTTP ${response.status}: ${JSON.stringify(body)}`);
+            }
+            return body;
+          }
+
+          const siteId = process.env.NETLIFY_SITE_ID;
+          if (!siteId) throw new Error("Netlify site id is required to pause automatic builds.");
+          const site = await readJson(
+            await request(`${api}/sites/${siteId}`),
+            "Netlify build setting lookup",
+          );
+          const wasStopped = site.build_settings?.stop_builds === true;
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `was_stopped=${wasStopped}\n`);
+          if (!wasStopped) {
+            await readJson(
+              await request(`${api}/sites/${siteId}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ build_settings: { stop_builds: true } }),
+              }),
+              "Netlify automatic build pause",
+            );
+          }
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, "cutover_acquired=true\n");
+          const paused = await readJson(
+            await request(`${api}/sites/${siteId}`),
+            "Netlify automatic build pause verification",
+          );
+          if (paused.build_settings?.stop_builds !== true) {
+            throw new Error("Netlify automatic builds were not paused before production cutover.");
+          }
+          console.log(`Automatic Netlify builds paused for production cutover (previously stopped: ${wasStopped}).`);
+          })().catch((error) => {
+            console.error(error instanceof Error ? error.message : error);
+            process.exitCode = 1;
+          });
+          NODE
+
+      - name: Unlock the published production deploy
+        id: unlock
+        if: inputs.target == 'production' && inputs.deploy && inputs.deploy_mode == 'production'
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          (async () => {
+          const api = "https://api.netlify.com/api/v1";
+          const headers = {
+            Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}`,
+            "User-Agent": "agent-native-prebuilt-production-unlock",
+          };
+
+          async function readJson(response, label) {
+            const text = await response.text();
+            let body = null;
+            try {
+              body = text ? JSON.parse(text) : null;
+            } catch {
+              body = text;
+            }
+            if (!response.ok) {
+              throw new Error(
+                `${label} failed with HTTP ${response.status}: ${typeof body === "string" ? body : JSON.stringify(body)}`,
+              );
+            }
+            return body;
+          }
+
+          const fs = require("node:fs");
+          const siteId = process.env.NETLIFY_SITE_ID;
+          if (!siteId) throw new Error("Netlify site id is required to unlock production.");
+
+          const request = (url, options = {}) =>
+            fetch(url, {
+              ...options,
+              headers: { ...headers, ...(options.headers || {}) },
+              signal: AbortSignal.timeout(30_000),
+            });
+          const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+          const ACTIVE_PRODUCTION_DEPLOY_STATES = [
+            "new",
+            "pending",
+            "enqueued",
+            "building",
+            "uploading",
+            "uploaded",
+            "preparing",
+            "prepared",
+            "processing",
+            "processed",
+            "retrying",
+            "pending_review",
+            "accepted",
+          ];
+
+          function nextPageUrl(linkHeader) {
+            if (!linkHeader) return null;
+            const links = /(?:^|,)\s*<([^>]+)>\s*;\s*rel="([^"]+)"/g;
+            for (const match of linkHeader.matchAll(links)) {
+              if (match[2].split(/\s+/).includes("next")) return match[1];
+            }
+            return null;
+          }
+
+          async function listDeploys(label, states) {
+            const deploysByState = await Promise.all(states.map(async (state) => {
+              const deploys = [];
+              let url = `${api}/sites/${siteId}/deploys?per_page=100&production=true&state=${encodeURIComponent(state)}`;
+              while (url) {
+                const response = await request(url);
+                const page = await readJson(response, `${label} (${state})`);
+                if (!Array.isArray(page)) throw new Error(`${label} returned a non-array response.`);
+                deploys.push(...page);
+                url = nextPageUrl(response.headers.get("link"));
+              }
+              return deploys;
+            }));
+            return deploysByState.flat();
+          }
+
+          function pendingProductionDeploys(deploys, publishedId, preexistingDeployIds) {
+            return deploys.filter(
+              (candidate) => {
+                if (
+                  candidate.id === publishedId ||
+                  candidate.context !== "production" ||
+                  candidate.published_at ||
+                  ["error", "canceled", "rejected"].includes(candidate.state)
+                ) {
+                  return false;
+                }
+                if (candidate.state !== "ready") return true;
+                return !preexistingDeployIds.has(candidate.id);
+              },
+            );
+          }
+
+          async function drainPendingDeploys(publishedId, preexistingDeployIds) {
+            const deadline = Date.now() + 5 * 60 * 1000;
+            const states = [...ACTIVE_PRODUCTION_DEPLOY_STATES, "ready"];
+            while (Date.now() < deadline) {
+              let pending = pendingProductionDeploys(
+                await listDeploys("Netlify pending production deploy lookup", states),
+                publishedId,
+                preexistingDeployIds,
+              );
+              const cancelable = pending.filter((candidate) =>
+                ["new", "enqueued"].includes(candidate.state),
+              );
+              for (const candidate of cancelable) {
+                await readJson(
+                  await request(`${api}/deploys/${candidate.id}/cancel`, {
+                    method: "POST",
+                  }),
+                  `Netlify deploy ${candidate.id} cancellation`,
+                );
+                console.log(`Canceled queued production deploy ${candidate.id}.`);
+              }
+
+              pending = pendingProductionDeploys(
+                await listDeploys("Netlify production deploy drain verification", states),
+                publishedId,
+                preexistingDeployIds,
+              );
+              const ready = pending.filter((candidate) => candidate.state === "ready");
+              if (ready.length) {
+                throw new Error(
+                  `Refusing to unlock ${publishedId} while ready production deploys are pending: ${ready.map((candidate) => candidate.id).join(", ")}.`,
+                );
+              }
+              if (!pending.length) return;
+
+              console.log(
+                `Waiting for pending production deploys to drain: ${pending.map((candidate) => `${candidate.id} (${candidate.state || "unknown"})`).join(", ")}`,
+              );
+              await sleep(10_000);
+            }
+            throw new Error(
+              `Production deploy queue did not drain before unlocking ${publishedId}.`,
+            );
+          }
+
+          // Snapshot every ready production ID before reading site/deploy state.
+          // A ready backlog predating this cutover is not a new blocker.
+          const preexistingDeployIds = new Set(
+            (
+              await listDeploys(
+                "Netlify pre-existing production ready deploy lookup",
+                ["ready"],
+              )
+            ).map((candidate) => candidate.id),
+          );
+
+          const site = await readJson(
+            await request(`${api}/sites/${siteId}`),
+            "Netlify published deploy lookup",
+          );
+          const deployId = site.published_deploy?.id;
+          if (!deployId) {
+            throw new Error("Netlify site has no published deploy to unlock.");
+          }
+
+          const published = await readJson(
+            await request(`${api}/deploys/${deployId}`),
+            `Netlify deploy ${deployId} lock lookup before drain`,
+          );
+          await drainPendingDeploys(deployId, preexistingDeployIds);
+
+          const beforeUnlock = await readJson(
+            await request(`${api}/sites/${siteId}`),
+            "Netlify published deploy verification before unlock",
+          );
+          if (beforeUnlock.published_deploy?.id !== deployId) {
+            throw new Error(
+              `Netlify published deploy changed from ${deployId} while draining the production queue; refusing to upload an unrelated production artifact.`,
+            );
+          }
+          const deploy = await readJson(
+            await request(`${api}/deploys/${deployId}`),
+            `Netlify deploy ${deployId} lookup`,
+          );
+          fs.appendFileSync(
+            process.env.GITHUB_OUTPUT,
+            `published_deploy_id=${deployId}\nwas_locked=${deploy.locked === true}\n`,
+          );
+
+          if (deploy.locked !== true) {
+            console.log(`Published deploy ${deployId} is already unlocked.`);
+          } else {
+            // Queue inspection and unlock are separate Netlify calls. Recheck
+            // immediately before the unlock so a ready deploy created during
+            // the final site/deploy lookups still fails closed.
+            await drainPendingDeploys(deployId, preexistingDeployIds);
+            const finalBeforeUnlock = await readJson(
+              await request(`${api}/sites/${siteId}`),
+              "Netlify final published deploy verification before unlock",
+            );
+            if (finalBeforeUnlock.published_deploy?.id !== deployId) {
+              throw new Error(
+                `Netlify published deploy changed from ${deployId} immediately before unlock; refusing to upload an unrelated production artifact.`,
+              );
+            }
+            await readJson(
+              await request(`${api}/deploys/${deployId}/unlock`, {
+                method: "POST",
+              }),
+              `Netlify deploy ${deployId} unlock`,
+            );
+
+            const unlocked = await readJson(
+              await request(`${api}/deploys/${deployId}`),
+              `Netlify deploy ${deployId} unlock verification`,
+            );
+            if (unlocked.locked !== false) {
+              throw new Error(
+                `Netlify deploy ${deployId} did not report locked=false after unlock.`,
+              );
+            }
+            console.log(`Unlocked published production deploy ${deployId}.`);
+          }
+          })().catch((error) => {
+            console.error(error instanceof Error ? error.message : error);
+            process.exitCode = 1;
+          });
+          NODE
+
+      - name: Upload the prebuilt deploy
+        id: deploy
+        if: inputs.deploy
+        env:
+          DEPLOY_MODE: ${{ inputs.deploy_mode }}
+          FUNCTIONS_DIRECTORY: ${{ steps.target.outputs.functions_directory }}
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+          PUBLISH_DIRECTORY: ${{ steps.target.outputs.publish_directory }}
+          SOURCE_TEMPLATE: ${{ steps.target.outputs.source_template }}
+        run: |
+          set -euo pipefail
+
+          deploy_args=(
+            --site "$NETLIFY_SITE_ID"
+            --dir "$PUBLISH_DIRECTORY"
+            --functions "$FUNCTIONS_DIRECTORY"
+            --filter "$SOURCE_TEMPLATE"
+            --no-build
+            --message "GitHub Actions prebuilt deploy ${GITHUB_SHA}"
+          )
+          if [[ "$DEPLOY_MODE" == "production" ]]; then
+            deploy_args+=(--prod)
+          fi
+
+          deploy_json="$RUNNER_TEMP/netlify-deploy.json"
+          netlify deploy "${deploy_args[@]}" --json | tee "$deploy_json"
+          deploy_details="$(node --input-type=module -e '
+            import { readFileSync } from "node:fs";
+            const result = JSON.parse(readFileSync(process.argv[1], "utf8"));
+            const deployUrl = result.deploy_url || result.url || "";
+            const deployId = result.deploy_id || result.id || "";
+            process.stdout.write(JSON.stringify({ deployId, deployUrl }));
+          ' "$deploy_json")"
+          deploy_url="$(node --input-type=module -e 'process.stdout.write(JSON.parse(process.argv[1]).deployUrl)' "$deploy_details")"
+          deploy_id="$(node --input-type=module -e 'process.stdout.write(JSON.parse(process.argv[1]).deployId)' "$deploy_details")"
+          if [[ "$deploy_url" != https://* ]]; then
+            echo "::error::Netlify did not return a deploy URL."
+            exit 1
+          fi
+          if [[ -z "$deploy_id" ]]; then
+            echo "::error::Netlify did not return a deploy id."
+            exit 1
+          fi
+          echo "deploy_url=$deploy_url" >> "$GITHUB_OUTPUT"
+          echo "deploy_id=$deploy_id" >> "$GITHUB_OUTPUT"
+          echo "Uploaded prebuilt ${DEPLOY_MODE} deploy: $deploy_url"
+
+      - name: Wait for the Netlify deploy to publish
+        if: inputs.deploy
+        env:
+          DEPLOY_ID: ${{ steps.deploy.outputs.deploy_id }}
+          DEPLOY_MODE: ${{ inputs.deploy_mode }}
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const api = "https://api.netlify.com/api/v1";
+          const headers = {
+            Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}`,
+          };
+          const request = (url) => fetch(url, {
+            headers,
+            signal: AbortSignal.timeout(30_000),
+          });
+          const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+          async function readJson(response, label) {
+            const text = await response.text();
+            const body = text ? JSON.parse(text) : null;
+            if (!response.ok) {
+              throw new Error(`${label} failed with HTTP ${response.status}: ${JSON.stringify(body)}`);
+            }
+            return body;
+          }
+
+          (async () => {
+            const deadline = Date.now() + 30 * 60 * 1000;
+            while (Date.now() < deadline) {
+              const deploy = await readJson(
+                await request(`${api}/deploys/${process.env.DEPLOY_ID}`),
+                "Netlify deploy status",
+              );
+              if (deploy.state === "error") {
+                throw new Error(`Netlify deploy failed: ${deploy.error_message || "unknown error"}`);
+              }
+              if (deploy.state === "ready") {
+                if (process.env.DEPLOY_MODE !== "production") return;
+                const site = await readJson(
+                  await request(`${api}/sites/${process.env.NETLIFY_SITE_ID}`),
+                  "Netlify published deploy lookup",
+                );
+                if (site.published_deploy?.id === process.env.DEPLOY_ID) {
+                  console.log(`Netlify published ${process.env.DEPLOY_ID}.`);
+                  return;
+                }
+                console.log("Deploy is ready; waiting for Netlify to publish it.");
+              } else {
+                console.log(`Netlify deploy state: ${deploy.state || "unknown"}`);
+              }
+              await sleep(10_000);
+            }
+            throw new Error(`Netlify deploy ${process.env.DEPLOY_ID} did not become ready and published within 30 minutes.`);
+          })().catch((error) => {
+            console.error(error instanceof Error ? error.message : error);
+            process.exitCode = 1;
+          });
+          NODE
+
+      - name: Smoke-test the uploaded deploy
+        if: inputs.deploy && inputs.smoke
+        env:
+          DEPLOY_MODE: ${{ inputs.deploy_mode }}
+          DEPLOY_URL: ${{ steps.deploy.outputs.deploy_url }}
+          HOST: ${{ steps.target.outputs.host }}
+        run: |
+          set -euo pipefail
+          url="$DEPLOY_URL"
+          if [[ "$DEPLOY_MODE" == "production" ]]; then
+            url="https://$HOST"
+          fi
+          curl --fail --silent --show-error --location --max-time 60 "${url%/}/" >/dev/null
+          echo "Smoke check passed: ${url%/}/"
+
+      - name: Purge the production Netlify cache
+        if: inputs.target == 'production' && inputs.deploy && inputs.deploy_mode == 'production' && success()
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const api = "https://api.netlify.com/api/v1";
+          (async () => {
+            const response = await fetch(`${api}/purge`, {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}`,
+                "Content-Type": "application/json",
+                "User-Agent": "agent-native-prebuilt-production-cache-purge",
+              },
+              body: JSON.stringify({ site_id: process.env.NETLIFY_SITE_ID }),
+              signal: AbortSignal.timeout(30_000),
+            });
+            const text = await response.text();
+            let body = null;
+            try {
+              body = text ? JSON.parse(text) : null;
+            } catch {
+              body = text;
+            }
+            if (!response.ok) {
+              throw new Error(`Netlify production cache purge failed with HTTP ${response.status}: ${JSON.stringify(body)}`);
+            }
+            console.log(`Purged the Netlify production cache for ${process.env.NETLIFY_SITE_ID} (HTTP ${response.status}).`);
+          })().catch((error) => {
+            console.error(error instanceof Error ? error.message : error);
+            process.exitCode = 1;
+          });
+          NODE
+
+      - name: Lock the published production deploy
+        if: inputs.target == 'production' && inputs.deploy && inputs.deploy_mode == 'production' && success()
+        env:
+          DEPLOY_ID: ${{ steps.deploy.outputs.deploy_id }}
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const api = "https://api.netlify.com/api/v1";
+          const headers = {
+            Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}`,
+            "User-Agent": "agent-native-prebuilt-production-lock",
+          };
+          const request = (url, options = {}) => fetch(url, {
+            ...options,
+            headers: { ...headers, ...(options.headers || {}) },
+            signal: AbortSignal.timeout(30_000),
+          });
+
+          async function readJson(response, label) {
+            const text = await response.text();
+            const body = text ? JSON.parse(text) : null;
+            if (!response.ok) {
+              throw new Error(`${label} failed with HTTP ${response.status}: ${JSON.stringify(body)}`);
+            }
+            return body;
+          }
+
+          const site = await readJson(
+            await request(`${api}/sites/${process.env.NETLIFY_SITE_ID}`),
+            "Netlify published deploy lookup before lock",
+          );
+          if (site.published_deploy?.id !== process.env.DEPLOY_ID) {
+            throw new Error(
+              `Expected deploy ${process.env.DEPLOY_ID} to be published before locking; Netlify serves ${site.published_deploy?.id || "no deploy"}.`,
+            );
+          }
+          const deployUrl = `${api}/deploys/${process.env.DEPLOY_ID}`;
+          const deploy = await readJson(await request(deployUrl), "Netlify deploy lock lookup");
+          if (deploy.locked !== true) {
+            await readJson(
+              await request(`${deployUrl}/lock`, { method: "POST" }),
+              `Netlify deploy ${process.env.DEPLOY_ID} lock`,
+            );
+          }
+          const locked = await readJson(await request(deployUrl), "Netlify deploy lock verification");
+          if (locked.locked !== true) {
+            throw new Error(`Netlify deploy ${process.env.DEPLOY_ID} did not report locked=true after lock.`);
+          }
+          console.log(`Locked published production deploy ${process.env.DEPLOY_ID}.`);
+          NODE
+
+      - name: Resume automatic Netlify builds after production cutover
+        if: inputs.target == 'production' && inputs.deploy && inputs.deploy_mode == 'production' && always()
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+          cutoverWasStopped: ${{ steps.pause.outputs.was_stopped }}
+          cutoverWasPaused: ${{ steps.pause.outputs.cutover_acquired }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const api = "https://api.netlify.com/api/v1";
+          const headers = {
+            Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}`,
+            "User-Agent": "agent-native-prebuilt-production-build-resume",
+          };
+          const request = (url, options = {}) => fetch(url, {
+            ...options,
+            headers: { ...headers, ...(options.headers || {}) },
+            signal: AbortSignal.timeout(30_000),
+          });
+
+          async function readJson(response, label) {
+            const text = await response.text();
+            const body = text ? JSON.parse(text) : null;
+            if (!response.ok) {
+              throw new Error(`${label} failed with HTTP ${response.status}: ${JSON.stringify(body)}`);
+            }
+            return body;
+          }
+
+          if (process.env.cutoverWasPaused !== "true") {
+            console.log("No production cutover state was acquired; automatic builds are unchanged.");
+            process.exit(0);
+          }
+          if (process.env.cutoverWasStopped === "true") {
+            console.log("Automatic Netlify builds were already stopped; preserving that setting.");
+            process.exit(0);
+          }
+          const siteId = process.env.NETLIFY_SITE_ID;
+          await readJson(
+            await request(`${api}/sites/${siteId}`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ build_settings: { stop_builds: false } }),
+            }),
+            "Netlify automatic build resume",
+          );
+          const resumed = await readJson(
+            await request(`${api}/sites/${siteId}`),
+            "Netlify automatic build resume verification",
+          );
+          if (resumed.build_settings?.stop_builds !== false) {
+            throw new Error("Netlify automatic builds were not resumed after production cutover.");
+          }
+          console.log("Automatic Netlify builds resumed after production cutover.");
+          NODE
+
+      - name: Restore the production deploy lock after a failed cutover
+        if: inputs.target == 'production' && inputs.deploy && inputs.deploy_mode == 'production' && failure()
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+          cutoverPublishedDeployId: ${{ steps.unlock.outputs.published_deploy_id }}
+          cutoverNewDeployId: ${{ steps.deploy.outputs.deploy_id }}
+          cutoverWasLocked: ${{ steps.unlock.outputs.was_locked }}
+          cutoverWasPaused: ${{ steps.pause.outputs.cutover_acquired }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const api = "https://api.netlify.com/api/v1";
+          const headers = {
+            Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}`,
+            "User-Agent": "agent-native-prebuilt-production-failure-cleanup",
+          };
+          const request = (url, options = {}) => fetch(url, {
+            ...options,
+            headers: { ...headers, ...(options.headers || {}) },
+            signal: AbortSignal.timeout(30_000),
+          });
+
+          async function readJson(response, label) {
+            const text = await response.text();
+            const body = text ? JSON.parse(text) : null;
+            if (!response.ok) {
+              throw new Error(`${label} failed with HTTP ${response.status}: ${JSON.stringify(body)}`);
+            }
+            return body;
+          }
+
+          if (
+            process.env.cutoverWasPaused !== "true" ||
+            !process.env.cutoverPublishedDeployId
+          ) {
+            console.log(
+              "No production deploy lock state was recorded; lock cleanup is not needed.",
+            );
+            process.exit(0);
+          }
+          const originalDeployId = process.env.cutoverPublishedDeployId;
+          const newDeployId = process.env.cutoverNewDeployId;
+          if (!originalDeployId) {
+            throw new Error("Cannot restore the production lock: unlock did not record the original published deploy.");
+          }
+          const site = await readJson(
+            await request(`${api}/sites/${process.env.NETLIFY_SITE_ID}`),
+            "Netlify published deploy lookup during failure cleanup",
+          );
+          const currentDeployId = site.published_deploy?.id;
+          if (!currentDeployId) {
+            throw new Error("Cannot restore the production lock: site has no published deploy.");
+          }
+          if (newDeployId && currentDeployId === newDeployId) {
+            const deployUrl = `${api}/deploys/${newDeployId}`;
+            const deploy = await readJson(await request(deployUrl), "Netlify newly published deploy lock lookup");
+            if (deploy.locked !== true) {
+              await readJson(
+                await request(`${deployUrl}/lock`, { method: "POST" }),
+                `Netlify newly published deploy ${newDeployId} failure lock`,
+              );
+            }
+            const locked = await readJson(await request(deployUrl), "Netlify newly published failure lock verification");
+            if (locked.locked !== true) {
+              throw new Error(`Netlify newly published deploy ${newDeployId} was not locked during failure cleanup.`);
+            }
+            console.log(`Locked newly published production deploy ${newDeployId} after cutover failure.`);
+            process.exit(0);
+          }
+          if (currentDeployId !== originalDeployId) {
+            throw new Error(
+              `Refusing failure cleanup to modify published deploy ${currentDeployId}; cutover started from ${originalDeployId}.`,
+            );
+          }
+          const deployUrl = `${api}/deploys/${originalDeployId}`;
+          const deploy = await readJson(await request(deployUrl), "Netlify published deploy lock lookup");
+          if (process.env.cutoverWasLocked === "true") {
+            if (deploy.locked !== true) {
+              await readJson(
+                await request(`${deployUrl}/lock`, { method: "POST" }),
+                `Netlify published deploy ${originalDeployId} failure lock`,
+              );
+            }
+            const locked = await readJson(await request(deployUrl), "Netlify failure lock verification");
+            if (locked.locked !== true) {
+              throw new Error(`Netlify published deploy ${originalDeployId} was not locked during failure cleanup.`);
+            }
+            console.log(`Restored production lock on deploy ${originalDeployId}.`);
+          } else {
+            if (deploy.locked === true) {
+              await readJson(
+                await request(`${deployUrl}/unlock`, { method: "POST" }),
+                `Netlify published deploy ${originalDeployId} failure unlock`,
+              );
+            }
+            const unlocked = await readJson(await request(deployUrl), "Netlify failure unlock verification");
+            if (unlocked.locked !== false) {
+              throw new Error(`Netlify published deploy ${originalDeployId} was not unlocked during failure cleanup.`);
+            }
+            console.log(`Restored production unlock state on deploy ${originalDeployId}.`);
+          }
+          NODE
+
+      - name: Summarize the pilot
+        if: always()
+        env:
+          BUILD_CONTEXT: ${{ inputs.build_context }}
+          DEPLOY: ${{ inputs.deploy }}
+          DEPLOY_MODE: ${{ inputs.deploy_mode }}
+          DEPLOY_URL: ${{ steps.deploy.outputs.deploy_url }}
+          SOURCE_REF: ${{ inputs.source_ref || steps.target.outputs.source_ref }}
+          SOURCE_TEMPLATE: ${{ steps.target.outputs.source_template }}
+          SITE_NAME: ${{ steps.target.outputs.site_name }}
+        run: |
+          {
+            echo "### Prebuilt Netlify pilot"
+            echo "- Site: $SITE_NAME"
+            echo "- Source: $SOURCE_TEMPLATE@$SOURCE_REF"
+            echo "- Build context: $BUILD_CONTEXT"
+            if [[ "$DEPLOY" == "true" ]]; then
+              echo "- Deploy: $DEPLOY_MODE ${DEPLOY_URL:-not returned}"
+            else
+              echo "- Deploy: build-only; no Netlify deploy was created"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

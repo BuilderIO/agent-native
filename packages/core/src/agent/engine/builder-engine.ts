@@ -8,12 +8,20 @@
  * concurrency) into structured stop events that carry an upgrade URL when
  * the chat UI needs to prompt the user to upgrade.
  *
- * Credentials come from the gateway lane (`resolveBuilderGatewayCredentials`):
- * the user's own Builder connection when they have one, otherwise the
- * deployment's Builder-credits pair. Base URL is overridable via
- * BUILDER_GATEWAY_BASE_URL.
+ * Interactive users authenticate with Builder OAuth. Existing connections may
+ * keep using BUILDER_PRIVATE_KEY + BUILDER_PUBLIC_KEY until they reconnect.
+ * When neither is present, credentials come from the gateway lane
+ * (`resolveBuilderGatewayCredentials`): the user's own Builder connection,
+ * otherwise the deployment's Builder-credits pair. Base URL is overridable
+ * via BUILDER_GATEWAY_BASE_URL.
  */
 
+import {
+  BUILDER_OAUTH_SCOPE,
+  hasBuilderOAuthSession,
+  markBuilderOAuthReconnectRequired,
+  resolveBuilderOAuthRequestAccess,
+} from "../../server/builder-oauth.js";
 import { captureError } from "../../server/capture-error.js";
 import {
   clearBuilderGatewayAuthFailure,
@@ -23,8 +31,10 @@ import {
   recordBuilderGatewayAuthFailure,
   type BuilderGatewayLane,
 } from "../../server/credential-provider.js";
+import { getRequestUserEmail } from "../../server/request-context.js";
 import { applyBuilderUtmTrackingParams } from "../../shared/builder-link-tracking.js";
 import {
+  allowsSamplingParams,
   isGPTReasoningModel,
   normalizeReasoningEffortForModel,
   type ReasoningEffort,
@@ -200,11 +210,36 @@ class BuilderEngine implements AgentEngine {
     const creds =
       this.configuredCredentials ??
       (await resolveBuilderGatewayCredentialsDetailed());
-    const creditsLane = isBuilderCreditsLane(creds);
-    const authHeader = creds.privateKey ? `Bearer ${creds.privateKey}` : null;
+    const ownerEmail = getRequestUserEmail();
+    let oauthAccess: Awaited<
+      ReturnType<typeof resolveBuilderOAuthRequestAccess>
+    > = null;
+    let hasStoredOAuth = false;
+    if (ownerEmail) {
+      hasStoredOAuth = await hasBuilderOAuthSession(ownerEmail);
+      if (hasStoredOAuth) {
+        try {
+          oauthAccess = await resolveBuilderOAuthRequestAccess({
+            ownerEmail,
+            requiredScope: BUILDER_OAUTH_SCOPE,
+          });
+        } catch {
+          // coercion-ok: unusable OAuth custody must not fall back to legacy keys.
+          oauthAccess = null;
+        }
+      }
+    }
+    // Prefer OAuth when present. If OAuth custody exists but is unusable,
+    // do not silently fall back to a legacy private key for the same user.
+    const authHeader = oauthAccess
+      ? `Bearer ${oauthAccess.accessToken}`
+      : !hasStoredOAuth && creds.privateKey
+        ? `Bearer ${creds.privateKey}`
+        : null;
     const spaceId = creds.publicKey;
-    const builderUserId = creds.userId;
-    if (!authHeader || !spaceId) {
+    const builderUserId = oauthAccess ? undefined : creds.userId;
+    const creditsLane = oauthAccess ? false : isBuilderCreditsLane(creds);
+    if (!authHeader || (!oauthAccess && !spaceId)) {
       yield gatewayErrorStop(
         {
           error: LLM_MISSING_CREDENTIALS_MESSAGE,
@@ -297,6 +332,17 @@ class BuilderEngine implements AgentEngine {
       }
     }
 
+    // The gateway turns `reasoning_effort` into Anthropic thinking on the
+    // Claude lane, and Anthropic rejects any temperature but 1 once thinking is
+    // on — the Opus 4.7+ / Sonnet 5 families reject the sampling parameters
+    // outright. Effort defaults to High for every reasoning-capable Claude
+    // model, so a caller that only asked for `temperature: 0` was building a
+    // request that always 400s. GPT and Gemini lanes keep their temperature.
+    const samplingAllowed = allowsSamplingParams({
+      model,
+      thinkingEnabled: Boolean(reasoningEffort) && /claude/i.test(model),
+    });
+
     const gptToolsRequireExplicitNoReasoning =
       cachedTools.length > 0 && isGPTReasoningModel(model);
     const body: Record<string, unknown> = {
@@ -309,7 +355,7 @@ class BuilderEngine implements AgentEngine {
         opts.maxOutputTokens,
         model,
       ),
-      ...(typeof opts.temperature === "number"
+      ...(samplingAllowed && typeof opts.temperature === "number"
         ? { temperature: opts.temperature }
         : {}),
       // OpenAI rejects `reasoning_effort` alongside function tools on Chat
@@ -346,7 +392,9 @@ class BuilderEngine implements AgentEngine {
       "messages",
       gatewayBaseUrl.endsWith("/") ? gatewayBaseUrl : `${gatewayBaseUrl}/`,
     );
-    gatewayUrl.searchParams.set("apiKey", spaceId);
+    // OAuth tokens carry Space identity in the JWT `org` claim. Sending a
+    // client-supplied apiKey/public key is legacy private-key behavior only.
+    if (spaceId && !oauthAccess) gatewayUrl.searchParams.set("apiKey", spaceId);
     const orgLabel = creds.orgName || "unknown-org";
     const tStart = Date.now();
     console.log(
@@ -366,7 +414,9 @@ class BuilderEngine implements AgentEngine {
           headers: {
             "Content-Type": "application/json",
             Authorization: authHeader,
-            "x-builder-api-key": spaceId,
+            ...(spaceId && !oauthAccess
+              ? { "x-builder-api-key": spaceId }
+              : {}),
             ...getBuilderGatewayRequestHeaders(),
             ...(builderUserId ? { "x-builder-user-id": builderUserId } : {}),
           },
@@ -405,7 +455,11 @@ class BuilderEngine implements AgentEngine {
       );
 
       if (!response.ok) {
-        yield* emitHttpError(response, { creditsLane, requestShape });
+        yield* emitHttpError(response, {
+          creditsLane,
+          requestShape,
+          recordLegacyCredentialFailure: !oauthAccess,
+        });
         return;
       }
 
@@ -413,18 +467,21 @@ class BuilderEngine implements AgentEngine {
       // again. Clear any prior auth-failure marker so status / chat-card
       // surfaces stop flagging the connection as broken. This is the only
       // self-healing path for workspace/env-managed credentials, which never
-      // flow through writeBuilderCredentials.
-      try {
-        const creds =
-          this.configuredCredentials ??
-          (await resolveBuilderGatewayCredentialsDetailed());
-        await clearBuilderGatewayAuthFailure({
-          privateKey: creds.privateKey,
-          publicKey: creds.publicKey,
-        });
-      } catch {
-        // Marker clearing is best-effort; a stale marker just means the user
-        // sees "reconnect Builder" until the next successful call clears it.
+      // flow through writeBuilderCredentials. OAuth failures are not tracked
+      // with the legacy private-key fingerprint marker.
+      if (!oauthAccess) {
+        try {
+          const legacyCreds =
+            this.configuredCredentials ??
+            (await resolveBuilderGatewayCredentialsDetailed());
+          await clearBuilderGatewayAuthFailure({
+            privateKey: legacyCreds.privateKey,
+            publicKey: legacyCreds.publicKey,
+          });
+        } catch {
+          // coercion-ok: clearing the legacy auth-failure marker is best-effort;
+          // a stale marker only keeps the reconnect CTA until the next success.
+        }
       }
 
       const contentType = response.headers.get("content-type") ?? "";
@@ -470,6 +527,7 @@ class BuilderEngine implements AgentEngine {
         gatewayUrl,
         requestStartedAt: tStart,
         requestShape,
+        recordLegacyCredentialFailure: !oauthAccess,
       });
     } finally {
       gatewayAbort.cleanup();
@@ -548,9 +606,31 @@ function gatewayErrorStop(
   };
 }
 
+async function recordAuthFailureForCurrentLane(opts: {
+  recordLegacyCredentialFailure?: boolean;
+  status?: number;
+  code?: string;
+  message?: string;
+}): Promise<void> {
+  if (opts.recordLegacyCredentialFailure !== false) {
+    await recordBuilderGatewayAuthFailure({
+      status: opts.status,
+      code: opts.code,
+      message: opts.message,
+    });
+    return;
+  }
+  const ownerEmail = getRequestUserEmail();
+  if (ownerEmail) await markBuilderOAuthReconnectRequired(ownerEmail);
+}
+
 async function* emitHttpError(
   response: Response,
-  opts: { creditsLane: boolean; requestShape?: EngineRequestShape },
+  opts: {
+    creditsLane: boolean;
+    requestShape?: EngineRequestShape;
+    recordLegacyCredentialFailure?: boolean;
+  },
 ): AsyncIterable<EngineEvent> {
   const status = response.status;
   // Read the body once as text and then try to parse — calling `.json()`
@@ -586,7 +666,12 @@ async function* emitHttpError(
     return;
   }
   if (status === 401 || code === "unauthorized") {
-    await recordBuilderGatewayAuthFailure({ status, code, message });
+    await recordAuthFailureForCurrentLane({
+      recordLegacyCredentialFailure: opts.recordLegacyCredentialFailure,
+      status,
+      code,
+      message,
+    });
     yield stop({
       error:
         "Builder authentication failed. Reconnect Builder (free tier available) via Settings.",
@@ -595,7 +680,12 @@ async function* emitHttpError(
     return;
   }
   if (status === 403 && isBuilderCredentialAuthError(message)) {
-    await recordBuilderGatewayAuthFailure({ status, code, message });
+    await recordAuthFailureForCurrentLane({
+      recordLegacyCredentialFailure: opts.recordLegacyCredentialFailure,
+      status,
+      code,
+      message,
+    });
     yield stop({
       error:
         "Builder authentication failed. Reconnect Builder (free tier available) via Settings.",
@@ -677,6 +767,7 @@ async function* parseJsonlStream(
     requestStartedAt?: number;
     creditsLane?: boolean;
     requestShape?: EngineRequestShape;
+    recordLegacyCredentialFailure?: boolean;
   } = {},
 ): AsyncIterable<EngineEvent> {
   const parts: EngineContentPart[] = [];
@@ -918,7 +1009,9 @@ async function* parseJsonlStream(
               `[builder-engine] stop reason=error model=${model} code=${errCode ?? "(none)"} requestId=${gatewayRequestId ?? "(none)"} error=${errMsg}`,
             );
             if (isCredentialAuthError) {
-              await recordBuilderGatewayAuthFailure({
+              await recordAuthFailureForCurrentLane({
+                recordLegacyCredentialFailure:
+                  captureContext.recordLegacyCredentialFailure,
                 code:
                   typeof gatewayErrCode === "string" ? gatewayErrCode : errCode,
                 message: String(errMsg),

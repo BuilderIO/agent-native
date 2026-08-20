@@ -2,6 +2,12 @@ import { createHash } from "node:crypto";
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
+vi.mock("../../server/builder-oauth.js", () => ({
+  BUILDER_OAUTH_SCOPE: "builder:ai:invoke",
+  hasBuilderOAuthSession: vi.fn(async () => false),
+  resolveBuilderOAuthRequestAccess: vi.fn(async () => null),
+}));
+
 function providerFailureFingerprint(key: string, value: string): string {
   return createHash("sha256")
     .update(key.trim().toUpperCase())
@@ -1070,6 +1076,9 @@ describe("AgentEngine registry", () => {
       });
       vi.doMock("../../db/client.js", () => ({
         isLocalDatabase: () => false,
+        getDbExec: () => ({
+          execute: async () => ({ rows: [] }),
+        }),
       }));
       // A hosted visitor has no org, and the membership read must answer
       // cleanly — an unreadable one is a different case with its own tests.
@@ -2548,6 +2557,9 @@ describe("AgentEngine registry", () => {
       });
       vi.doMock("../../db/client.js", () => ({
         isLocalDatabase: () => false,
+        getDbExec: () => ({
+          execute: async () => ({ rows: [] }),
+        }),
       }));
 
       const { registerAgentEngine, resolveEngine } =
@@ -2608,6 +2620,9 @@ describe("AgentEngine registry", () => {
       });
       vi.doMock("../../db/client.js", () => ({
         isLocalDatabase: () => false,
+        getDbExec: () => ({
+          execute: async () => ({ rows: [] }),
+        }),
       }));
 
       const { registerAgentEngine, resolveEngine } =
@@ -2676,6 +2691,9 @@ describe("AgentEngine registry", () => {
       }));
       vi.doMock("../../db/client.js", () => ({
         isLocalDatabase: () => false,
+        getDbExec: () => ({
+          execute: async () => ({ rows: [] }),
+        }),
       }));
 
       const { registerAgentEngine, resolveEngine } =

@@ -11,6 +11,7 @@ import {
 import {
   DEFAULT_SSR_CACHE_HEADERS,
   DISABLED_SSR_CACHE_HEADERS,
+  SSR_QUERY_CACHE_KEY_HEADER,
   ssrCacheHeadersForPolicy,
 } from "../shared/cache-control.js";
 import {
@@ -41,6 +42,7 @@ import {
   findInstalledPackageRoot,
   findInstalledResvgPackages,
   findServerlessBrowserRuntimeConsumer,
+  findNonLinuxBetterSqlite3Binaries,
   isServerlessNativePlatformPackage,
   generateCloudflarePagesStaticShellFromManifest,
   generateCloudflareModuleWorkerEntry,
@@ -290,7 +292,10 @@ function makeTempDir(): string {
   return dir;
 }
 
-async function importGeneratedWorker(entrySource: string) {
+async function importGeneratedWorker(
+  entrySource: string,
+  options: { responseHeaders?: Record<string, string> } = {},
+) {
   const dir = makeTempDir();
   const nodeModules = path.join(dir, "node_modules", "react-router");
   fs.mkdirSync(nodeModules, { recursive: true });
@@ -324,7 +329,11 @@ export function createRequestHandler() {
     if (url.pathname === "/redirect") {
       return new Response(null, {
         status: 302,
-        headers: { location: "/login", "content-type": "text/html" },
+        headers: {
+          location: "/login",
+          "content-type": "text/html",
+          ...${JSON.stringify(options.responseHeaders ?? {})},
+        },
       });
     }
     if (url.pathname === "/private-html") {
@@ -708,6 +717,25 @@ export default (event) =>
     );
 
     expect(response.headers.get("netlify-vary")).toBe("query=_routes|index");
+  });
+
+  it("uses the full Netlify query key for marked public redirects", async () => {
+    vi.stubEnv("NETLIFY", "true");
+    const source = generateWorkerEntry([], []);
+    const worker = await importGeneratedWorker(source, {
+      responseHeaders: {
+        [SSR_QUERY_CACHE_KEY_HEADER]: "query",
+      },
+    });
+
+    const response = await worker.fetch(
+      new Request("https://app.test/redirect?from=home"),
+      {},
+      {},
+    );
+
+    expect(response.headers.get("netlify-vary")).toBe("query");
+    expect(response.headers.get(SSR_QUERY_CACHE_KEY_HEADER)).toBeNull();
   });
 
   it("inlines the disabled SSR cache policy when AGENT_NATIVE_SSR_CACHE is off", async () => {
@@ -2719,6 +2747,97 @@ describe("durable-background Netlify function emit (single-template, default-on)
     prepareSingleTemplateNetlifyOutput(cwd);
 
     expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).not.toThrow();
+  });
+
+  it("rejects a macOS better-sqlite3 binary before Netlify publication", () => {
+    const cwd = setupNetlifyOutput();
+    prepareSingleTemplateNetlifyOutput(cwd);
+    const binary = path.join(
+      cwd,
+      ".netlify",
+      "functions-internal",
+      "server",
+      "node_modules",
+      "better-sqlite3",
+      "build",
+      "Release",
+      "better_sqlite3.node",
+    );
+    fs.mkdirSync(path.dirname(binary), { recursive: true });
+    fs.writeFileSync(binary, Buffer.from([0xcf, 0xfa, 0xed, 0xfe]));
+
+    const serverDir = path.join(
+      cwd,
+      ".netlify",
+      "functions-internal",
+      "server",
+    );
+    expect(findNonLinuxBetterSqlite3Binaries(serverDir)).toEqual([binary]);
+    expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).toThrow(
+      /non-Linux better-sqlite3 native binaries: .*better_sqlite3\.node/,
+    );
+  });
+
+  it("allows the Linux ELF better-sqlite3 binary", () => {
+    const cwd = setupNetlifyOutput();
+    prepareSingleTemplateNetlifyOutput(cwd);
+    const binary = path.join(
+      cwd,
+      ".netlify",
+      "functions-internal",
+      "server",
+      "node_modules",
+      "better-sqlite3",
+      "build",
+      "Release",
+      "better_sqlite3.node",
+    );
+    fs.mkdirSync(path.dirname(binary), { recursive: true });
+    const header = Buffer.alloc(20);
+    header.set([0x7f, 0x45, 0x4c, 0x46, 2, 1], 0);
+    header.writeUInt16LE(62, 18);
+    fs.writeFileSync(binary, header);
+
+    const serverDir = path.join(
+      cwd,
+      ".netlify",
+      "functions-internal",
+      "server",
+    );
+    expect(findNonLinuxBetterSqlite3Binaries(serverDir)).toEqual([]);
+    expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).not.toThrow();
+  });
+
+  it("rejects a Linux ELF better-sqlite3 binary for a non-x86_64 architecture", () => {
+    const cwd = setupNetlifyOutput();
+    prepareSingleTemplateNetlifyOutput(cwd);
+    const binary = path.join(
+      cwd,
+      ".netlify",
+      "functions-internal",
+      "server",
+      "node_modules",
+      "better-sqlite3",
+      "build",
+      "Release",
+      "better_sqlite3.node",
+    );
+    fs.mkdirSync(path.dirname(binary), { recursive: true });
+    const header = Buffer.alloc(20);
+    header.set([0x7f, 0x45, 0x4c, 0x46, 2, 1], 0);
+    header.writeUInt16LE(183, 18);
+    fs.writeFileSync(binary, header);
+
+    const serverDir = path.join(
+      cwd,
+      ".netlify",
+      "functions-internal",
+      "server",
+    );
+    expect(findNonLinuxBetterSqlite3Binaries(serverDir)).toEqual([binary]);
+    expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).toThrow(
+      /non-Linux better-sqlite3 native binaries: .*better_sqlite3\.node/,
+    );
   });
 
   it("fails a function that ships more than the per-function size budget", () => {

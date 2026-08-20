@@ -13,6 +13,8 @@ AGENT_CHAT_DURABLE_BACKGROUND = "true"
 
 [context.production.environment]
 AGENT_NATIVE_HOSTED_HARNESS = "true"
+AGENT_NATIVE_ENABLE_KEEP_WARM = "1"
+AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND = "1"
 
 # Emit the Netlify background function used by Design's durable agent-chat opt-in.
 # The normal server timeout still protects non-background HTTP handlers.

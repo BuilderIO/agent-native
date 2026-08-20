@@ -2,17 +2,96 @@ import { createHash, randomUUID } from "node:crypto";
 
 import { defineAction } from "@agent-native/core";
 import { notifyWithDelivery } from "@agent-native/core/notifications";
-import { isEmailConfigured } from "@agent-native/core/server";
+import {
+  isEmailConfigured,
+  sendEmail,
+  signScopedAgentAccessToken,
+  verifyScopedAgentAccessToken,
+} from "@agent-native/core/server";
 import {
   getRequestUserEmail,
   getRequestUserName,
 } from "@agent-native/core/server/request-context";
 import { currentAccess, resolveAccess } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { getDeckUrl } from "./_app-url.js";
+import {
+  renderDeckAccessRequestEmail,
+  SLIDES_DECK_ACCESS_REQUEST_EMAIL_ID,
+} from "../server/lib/access-request-email.js";
+import {
+  SLIDES_ACCESS_REQUEST_FALLBACK_TOKEN_PREFIX,
+  SLIDES_ACCESS_REQUEST_TOKEN_PREFIX,
+  deckAccessApprovalPath,
+  SLIDES_ACCESS_APPROVAL_TOKEN_PREFIX,
+  SLIDES_ACCESS_APPROVAL_TOKEN_TTL_SECONDS,
+} from "../shared/deck-access.js";
+import { getDeckUrl, getSlidesAppUrl } from "./_app-url.js";
+
+const ANONYMOUS_ACCESS_REQUEST_WINDOW_MS = 10 * 60 * 1000;
+const ANONYMOUS_ACCESS_REQUEST_MAX = 5;
+
+async function claimAnonymousAccessRequestSlot(
+  db: ReturnType<typeof getDb>,
+  deckId: string,
+): Promise<{ windowStartedAt: string }> {
+  const now = new Date();
+  const windowStartedAt = now.toISOString();
+  const resetBefore = new Date(
+    now.getTime() - ANONYMOUS_ACCESS_REQUEST_WINDOW_MS,
+  ).toISOString();
+  const limits = schema.deckAccessRequestLimits;
+  const [bucket] = await db
+    .insert(limits)
+    .values({
+      deckId,
+      windowStartedAt,
+      requestCount: 1,
+    })
+    .onConflictDoUpdate({
+      target: limits.deckId,
+      set: {
+        windowStartedAt: sql`CASE WHEN ${limits.windowStartedAt} <= ${resetBefore} THEN ${windowStartedAt} ELSE ${limits.windowStartedAt} END`,
+        requestCount: sql`CASE WHEN ${limits.windowStartedAt} <= ${resetBefore} THEN 1 ELSE ${limits.requestCount} + 1 END`,
+      },
+      where: sql`${limits.windowStartedAt} <= ${resetBefore} OR ${limits.requestCount} < ${ANONYMOUS_ACCESS_REQUEST_MAX}`,
+    })
+    .returning({
+      requestCount: limits.requestCount,
+      windowStartedAt: limits.windowStartedAt,
+    });
+
+  if (!bucket) {
+    throw httpError(
+      "Too many anonymous access requests for this deck. Try again later.",
+      429,
+    );
+  }
+  return { windowStartedAt: bucket.windowStartedAt };
+}
+
+async function refundAnonymousAccessRequestSlot(
+  db: ReturnType<typeof getDb>,
+  deckId: string,
+  windowStartedAt: string,
+): Promise<void> {
+  const limits = schema.deckAccessRequestLimits;
+  await db
+    .update(limits)
+    .set({
+      requestCount: sql`${limits.requestCount} - 1`,
+    })
+    .where(
+      and(
+        eq(limits.deckId, deckId),
+        eq(limits.windowStartedAt, windowStartedAt),
+        sql`${limits.requestCount} > 0`,
+      ),
+    )
+    .returning({ deckId: limits.deckId });
+}
 
 function httpError(message: string, statusCode: number): Error {
   return Object.assign(new Error(message), { statusCode });
@@ -35,8 +114,11 @@ function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
-function cleanSubjectPart(value: string): string {
-  return value.replace(/[\r\n]+/g, " ").trim();
+function absoluteDeckAccessApprovalUrl(
+  deckId: string,
+  approvalToken: string,
+): string {
+  return `${getSlidesAppUrl().replace(/\/+$/, "")}${deckAccessApprovalPath(deckId, approvalToken)}`;
 }
 
 function accessRequestEventId(deckId: string, requesterEmail: string): string {
@@ -55,6 +137,9 @@ type AccessRequestPayload = {
   requesterEmail?: string;
   requesterName?: string;
   requestedAt?: string;
+  approvalTokenHash?: string;
+  accessGrantedAt?: string;
+  accessShareId?: string;
   notifiedOwner?: boolean;
   notifiedAt?: string;
   inAppNotified?: boolean;
@@ -68,6 +153,7 @@ type AccessRequestNotificationState = {
   emailNotified: boolean;
   emailRequired: boolean;
   ownerCanNotify: boolean;
+  approvalTokenHash?: string;
 };
 
 const NOTIFICATION_CLAIM_TTL_MS = 5 * 60 * 1000;
@@ -104,6 +190,7 @@ function notificationStateFor(
     emailNotified: payload.emailNotified ?? legacyNotified,
     emailRequired: ownerCanNotify && emailConfigured,
     ownerCanNotify,
+    approvalTokenHash: payload.approvalTokenHash,
   };
 }
 
@@ -145,63 +232,148 @@ async function notifyAccessRequestOwner(input: {
   const ownerEmail = input.ownerEmail;
   if (!ownerEmail || !input.state.ownerCanNotify) return input.state;
 
-  const emailConfigured = await isEmailConfigured();
-  const state = {
-    ...input.state,
-    emailRequired: input.state.ownerCanNotify && emailConfigured,
-  };
-  const channels: string[] = [];
-  if (!state.inAppNotified) channels.push("inbox");
-  if (state.emailRequired && !state.emailNotified) channels.push("email");
-  if (channels.length === 0) return state;
+  let state = input.state;
 
-  try {
-    const delivery = await notifyWithDelivery(
-      {
-        severity: "info",
-        title: "Deck access requested",
-        body: `${input.requesterName} requested access to “${input.deckTitle}”.`,
-        channels,
-        metadata: {
-          deckId: input.deckId,
-          requesterEmail: input.requesterEmail,
-          link: getDeckUrl(input.deckId),
-          ...(channels.includes("email")
-            ? {
-                emailRecipients: [ownerEmail],
-                emailSubject: `${cleanSubjectPart(input.requesterName)} requested access to "${cleanSubjectPart(input.deckTitle)}"`,
-              }
-            : {}),
+  if (!state.inAppNotified) {
+    try {
+      const delivery = await notifyWithDelivery(
+        {
+          severity: "info",
+          title: "Deck access requested",
+          body: `${input.requesterName} requested access to “${input.deckTitle}”.`,
+          channels: ["inbox"],
+          metadata: {
+            deckId: input.deckId,
+            requesterEmail: input.requesterEmail,
+            link: getDeckUrl(input.deckId),
+          },
         },
-      },
-      { owner: ownerEmail },
-    );
-    return {
-      ...state,
-      inAppNotified:
-        state.inAppNotified || delivery.deliveredChannels.includes("inbox"),
-      emailNotified:
-        state.emailNotified || delivery.deliveredChannels.includes("email"),
-    };
-  } catch (error) {
-    console.warn("[deck-access] access request notification failed:", error);
-    return state;
+        { owner: ownerEmail },
+      );
+      state = {
+        ...state,
+        inAppNotified:
+          state.inAppNotified || delivery.deliveredChannels.includes("inbox"),
+      };
+    } catch (error) {
+      console.warn(
+        "[deck-access] in-app access request notification failed:",
+        error,
+      );
+    }
   }
+
+  if (state.emailRequired && !state.emailNotified) {
+    try {
+      const approvalToken = signScopedAgentAccessToken({
+        resourceKind: SLIDES_ACCESS_APPROVAL_TOKEN_PREFIX,
+        resourceId: input.deckId,
+        viewerEmail: input.requesterEmail,
+        ttlSeconds: SLIDES_ACCESS_APPROVAL_TOKEN_TTL_SECONDS,
+      });
+      await sendEmail({
+        ...renderDeckAccessRequestEmail({
+          requesterName: input.requesterName,
+          requesterEmail: input.requesterEmail,
+          deckTitle: input.deckTitle,
+          url: getDeckUrl(input.deckId),
+          allowAccessUrl: absoluteDeckAccessApprovalUrl(
+            input.deckId,
+            approvalToken,
+          ),
+        }),
+        to: ownerEmail,
+        replyTo: input.requesterEmail,
+        templateId: SLIDES_DECK_ACCESS_REQUEST_EMAIL_ID,
+      });
+      state = {
+        ...state,
+        emailNotified: true,
+        approvalTokenHash: createHash("sha256")
+          .update(approvalToken)
+          .digest("hex"),
+      };
+    } catch (error) {
+      console.warn("[deck-access] access request email failed:", error);
+    }
+  }
+
+  return state;
 }
 
 export default defineAction({
   description:
-    "Request access to a private Agent-Native Slides deck. Records an access-request event and notifies the owner when email is configured.",
+    "Request access to a private Agent-Native Slides deck. Signed-in viewers use their account email; anonymous viewers may provide an email address. Records an access-request event and notifies the owner in-app and by email when configured.",
   schema: z.object({
     deckId: z.string().min(1).describe("Deck ID to request access to."),
+    accessRequestToken: z
+      .string()
+      .trim()
+      .min(1)
+      .optional()
+      .describe("Short-lived capability from the private deck page."),
+    requesterEmail: z
+      .string()
+      .trim()
+      .email()
+      .optional()
+      .describe(
+        "Email address to request access for when the viewer is not signed in.",
+      ),
   }),
+  requiresAuth: false,
   agentTool: false,
-  run: async ({ deckId }) => {
-    const rawRequesterEmail = getRequestUserEmail();
-    if (!rawRequesterEmail) {
-      throw httpError("Sign in to request access to this deck.", 401);
+  run: async ({
+    deckId,
+    accessRequestToken,
+    requesterEmail: requesterEmailInput,
+  }) => {
+    const sessionEmail = getRequestUserEmail();
+    let requestToken = accessRequestToken
+      ? verifyScopedAgentAccessToken(accessRequestToken, {
+          resourceKind: SLIDES_ACCESS_REQUEST_TOKEN_PREFIX,
+          resourceId: deckId,
+        })
+      : { ok: false as const, reason: "missing" };
+    let accessProbeWasUnavailable = false;
+    if (accessRequestToken && !requestToken.ok) {
+      const fallbackToken = verifyScopedAgentAccessToken(accessRequestToken, {
+        resourceKind: SLIDES_ACCESS_REQUEST_FALLBACK_TOKEN_PREFIX,
+        resourceId: deckId,
+      });
+      if (fallbackToken.ok) {
+        requestToken = fallbackToken;
+        accessProbeWasUnavailable = true;
+      }
     }
-    const requesterEmail = normalizeEmail(rawRequesterEmail);
+    if (accessRequestToken && !requestToken.ok) {
+      throw httpError(`Deck ${deckId} not found`, 404);
+    }
+    if (!sessionEmail && !requestToken.ok) {
+      throw httpError(`Deck ${deckId} not found`, 404);
+    }
+    const normalizedRequesterEmail = sessionEmail
+      ? normalizeEmail(sessionEmail)
+      : requesterEmailInput
+        ? normalizeEmail(requesterEmailInput)
+        : null;
+    if (!normalizedRequesterEmail) {
+      throw httpError(
+        "Sign in or provide an email address to request access to this deck.",
+        401,
+      );
+    }
+    const tokenViewerEmail =
+      requestToken.ok && requestToken.viewerEmail
+        ? normalizeEmail(requestToken.viewerEmail)
+        : null;
+    if (tokenViewerEmail && tokenViewerEmail !== normalizedRequesterEmail) {
+      throw httpError(
+        "This request is tied to a different email. Sign in with the email that opened the link.",
+        403,
+      );
+    }
+    const requesterEmail = normalizedRequesterEmail;
 
     const db = getDb();
     const claimNotification = async (
@@ -313,6 +485,8 @@ export default defineAction({
         inAppNotified: state.inAppNotified,
         emailNotified: state.emailNotified,
         notifiedOwner: delivered,
+        approvalTokenHash:
+          state.approvalTokenHash ?? claimedPayload.approvalTokenHash,
         notificationClaimedAt: undefined,
         notificationClaimToken: undefined,
         ...(delivered ? { notifiedAt: new Date().toISOString() } : {}),
@@ -355,7 +529,9 @@ export default defineAction({
       throw httpError(`Deck ${deckId} not found`, 404);
     }
 
-    const access = await resolveAccess("deck", deckId, currentAccess());
+    const access = accessProbeWasUnavailable
+      ? null
+      : await resolveAccess("deck", deckId, currentAccess());
     if (access) {
       return {
         ok: true as const,
@@ -491,6 +667,10 @@ export default defineAction({
       };
     }
 
+    const anonymousSlot = sessionEmail
+      ? null
+      : await claimAnonymousAccessRequestSlot(db, deckId);
+
     const requestId = accessRequestEventId(deckId, requesterEmail);
     const requestedAt = new Date().toISOString();
     const initialPayload: AccessRequestPayload = {
@@ -506,21 +686,40 @@ export default defineAction({
     };
     const initialPayloadJson = JSON.stringify(initialPayload);
 
-    const [insertedRequest] = await db
-      .insert(schema.deckEvents)
-      .values({
-        id: requestId,
-        deckId,
-        type: "deck.access_requested",
-        message: `${requesterEmail} requested access to this deck.`,
-        payload: initialPayloadJson,
-        createdBy: "human",
-        createdAt: requestedAt,
-      })
-      .onConflictDoNothing()
-      .returning({ id: schema.deckEvents.id });
+    let insertedRequest: { id: string } | undefined;
+    try {
+      [insertedRequest] = await db
+        .insert(schema.deckEvents)
+        .values({
+          id: requestId,
+          deckId,
+          type: "deck.access_requested",
+          message: `${requesterEmail} requested access to this deck.`,
+          payload: initialPayloadJson,
+          createdBy: "human",
+          createdAt: requestedAt,
+        })
+        .onConflictDoNothing()
+        .returning({ id: schema.deckEvents.id });
+    } catch (error) {
+      if (anonymousSlot) {
+        await refundAnonymousAccessRequestSlot(
+          db,
+          deckId,
+          anonymousSlot.windowStartedAt,
+        );
+      }
+      throw error;
+    }
 
     if (!insertedRequest) {
+      if (anonymousSlot) {
+        await refundAnonymousAccessRequestSlot(
+          db,
+          deckId,
+          anonymousSlot.windowStartedAt,
+        );
+      }
       return {
         ok: true as const,
         alreadyHasAccess: false,

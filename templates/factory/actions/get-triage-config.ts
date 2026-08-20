@@ -33,6 +33,7 @@ export default defineAction({
         slackWorkspace: "primary",
         slackChannelId: null,
         slackChannelName: null,
+        builderSlackUserId: null,
         pollingEnabled: false,
         lastSlackTs: null,
         slackHistoryCursor: null,

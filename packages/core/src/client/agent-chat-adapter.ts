@@ -1785,15 +1785,29 @@ function isMissingCredentialMessage(message: string): boolean {
   );
 }
 
+function isMissingProviderErrorMessage(
+  message: string,
+  errorCode?: string,
+): boolean {
+  const text = message.toLowerCase();
+  const code = (errorCode ?? "").toLowerCase();
+  return (
+    text.includes("no llm provider") ||
+    text.includes("missing credentials") ||
+    text.includes("missing api key") ||
+    text.includes("missing_api_key") ||
+    ((code === "missing_credentials" || code === "missing_api_key") &&
+      text.includes("llm provider"))
+  );
+}
+
 function missingCredentialFailure(message: string): {
-  text: string;
   runError: { message: string; errorCode: string };
 } {
   try {
     const parsed = JSON.parse(message) as {
       error?: unknown;
       message?: unknown;
-      upgradeUrl?: unknown;
       errorCode?: unknown;
     };
     const raw =
@@ -1805,13 +1819,10 @@ function missingCredentialFailure(message: string): {
     const errorCode =
       typeof parsed.errorCode === "string"
         ? parsed.errorCode
-        : "missing_credentials";
+        : isMissingCredentialMessage(raw)
+          ? "missing_credentials"
+          : "authentication_error";
     return {
-      text: formatChatErrorText(
-        raw,
-        typeof parsed.upgradeUrl === "string" ? parsed.upgradeUrl : undefined,
-        errorCode,
-      ),
       runError: {
         message: normalizeChatError(raw).message,
         errorCode,
@@ -1819,10 +1830,11 @@ function missingCredentialFailure(message: string): {
     };
   } catch {
     return {
-      text: formatChatErrorText(message, undefined, "missing_credentials"),
       runError: {
         message: normalizeChatError(message).message,
-        errorCode: "missing_credentials",
+        errorCode: isMissingCredentialMessage(message)
+          ? "missing_credentials"
+          : "authentication_error",
       },
     };
   }
@@ -2137,6 +2149,14 @@ export function createAgentChatAdapter(
             activeRun.runId === runId)
         );
       };
+      const clearOwnedActiveRun = () => {
+        if (!ownsActiveRunState()) return;
+        if (threadId && runId) {
+          clearActiveRunIfMatches(threadId, runId);
+        } else {
+          clearActiveRun();
+        }
+      };
       // The adapter's own stream outranks AssistantChat's reconnect fallback:
       // when it attaches to a run, any reconnect reader folding the same run
       // must stop writing UI state or both folds render at once.
@@ -2145,6 +2165,18 @@ export function createAgentChatAdapter(
         if (threadId && runId) {
           preemptRunStream(threadId, runId, streamOwnershipToken);
         }
+      };
+      let terminalChatUiStopped = false;
+      const publishTerminalChatUiStopped = () => {
+        if (terminalChatUiStopped) return;
+        terminalChatUiStopped = true;
+        if (typeof window === "undefined") return;
+        dispatchTerminalChatUiCleanup(tabId);
+        window.dispatchEvent(
+          new CustomEvent("agentNative.chatRunning", {
+            detail: { isRunning: false, tabId },
+          }),
+        );
       };
       const settleTerminalChatRun = () => {
         if (threadId && runId) {
@@ -2156,13 +2188,7 @@ export function createAgentChatAdapter(
         } else {
           clearActiveRun();
         }
-        if (typeof window === "undefined") return;
-        dispatchTerminalChatUiCleanup(tabId);
-        window.dispatchEvent(
-          new CustomEvent("agentNative.chatRunning", {
-            detail: { isRunning: false, tabId },
-          }),
-        );
+        publishTerminalChatUiStopped();
       };
       const seenRunSeqs = new Map<string, number>();
       const preparingActionStatesByRun = new Map<
@@ -2540,7 +2566,7 @@ export function createAgentChatAdapter(
               );
               if (!reconnectRes.ok || !reconnectRes.body) {
                 if (reconnectRes.status === 404) {
-                  clearActiveRun();
+                  clearOwnedActiveRun();
                   return false;
                 }
                 lastReconnectError = new Error(
@@ -2586,7 +2612,7 @@ export function createAgentChatAdapter(
                 yield nextResult;
               }
               if (ownsActiveRunState()) {
-                clearActiveRun();
+                clearOwnedActiveRun();
               }
               return true;
             } catch (reconnectErr: unknown) {
@@ -2594,7 +2620,7 @@ export function createAgentChatAdapter(
                 reconnectErr instanceof Error &&
                 reconnectErr.name === "AbortError"
               ) {
-                clearActiveRun();
+                clearOwnedActiveRun();
                 return true;
               }
               if (reconnectErr instanceof AgentAutoContinueSignal) {
@@ -2673,7 +2699,7 @@ export function createAgentChatAdapter(
                 activeErr instanceof Error &&
                 activeErr.name === "AbortError"
               ) {
-                clearActiveRun();
+                clearOwnedActiveRun();
                 return true;
               }
               lastActiveRunError = activeErr;
@@ -2756,7 +2782,7 @@ export function createAgentChatAdapter(
                   activeErr instanceof Error &&
                   activeErr.name === "AbortError"
                 ) {
-                  clearActiveRun();
+                  clearOwnedActiveRun();
                   return true;
                 }
                 lastActiveRunError = activeErr;
@@ -2804,17 +2830,23 @@ export function createAgentChatAdapter(
           settleInterruptedToolCalls(content, undefined, {
             includeActivity: true,
           });
-          content.push({
-            type: "text",
-            text: formatChatErrorText(args.message, undefined, args.errorCode),
-          });
+          if (!isMissingProviderErrorMessage(args.message, args.errorCode)) {
+            content.push({
+              type: "text",
+              text: formatChatErrorText(
+                args.message,
+                undefined,
+                args.errorCode,
+              ),
+            });
+          }
           settleTerminalChatRun();
           yield {
             content: [...content],
             status: { type: "incomplete" as const, reason: "error" as const },
             metadata: { custom: { ...(runId ? { runId } : {}), runError } },
           } as ChatModelRunResult;
-          clearActiveRun();
+          clearOwnedActiveRun();
         };
 
         // Final outcome for a background turn the follow loop can no longer
@@ -2849,7 +2881,7 @@ export function createAgentChatAdapter(
                 },
               },
             } as ChatModelRunResult;
-            clearActiveRun();
+            clearOwnedActiveRun();
             return;
           }
           // terminal_reason is either a bare reason ("dispatch_payload_missing")
@@ -2932,7 +2964,7 @@ export function createAgentChatAdapter(
                 },
               },
             } as ChatModelRunResult;
-            clearActiveRun();
+            clearOwnedActiveRun();
             return;
           }
 
@@ -3040,16 +3072,16 @@ export function createAgentChatAdapter(
               }
               settleTerminalChatRun();
               yield missingFinalResponseResult;
-              clearActiveRun();
+              clearOwnedActiveRun();
               return "completed";
             }
             // readSSEStream returned normally: a terminal done/error was
             // consumed and rendered — the turn is over.
-            clearActiveRun();
+            clearOwnedActiveRun();
             return "completed";
           } catch (attachErr: unknown) {
             if (attachErr instanceof Error && attachErr.name === "AbortError") {
-              clearActiveRun();
+              clearOwnedActiveRun();
               return "aborted";
             }
             if (attachErr instanceof AgentAutoContinueSignal) {
@@ -3226,7 +3258,7 @@ export function createAgentChatAdapter(
 
           while (true) {
             if (abortSignal.aborted) {
-              clearActiveRun();
+              clearOwnedActiveRun();
               return "completed";
             }
             if (
@@ -3268,7 +3300,7 @@ export function createAgentChatAdapter(
               }
             } catch (pollErr: unknown) {
               if (pollErr instanceof Error && pollErr.name === "AbortError") {
-                clearActiveRun();
+                clearOwnedActiveRun();
                 return "completed";
               }
               activeUnreadable = true;
@@ -3277,7 +3309,7 @@ export function createAgentChatAdapter(
               // Unreadable: learn nothing, decide nothing, wait and re-ask.
               await delay(BACKGROUND_FOLLOW_POLL_INTERVAL_MS, abortSignal);
               if (abortSignal.aborted) {
-                clearActiveRun();
+                clearOwnedActiveRun();
                 return "completed";
               }
               continue;
@@ -3374,7 +3406,7 @@ export function createAgentChatAdapter(
                   const graceOutcome =
                     await awaitBackgroundErrorRecoverySuccessor(activeRunId);
                   if (graceOutcome === "aborted") {
-                    clearActiveRun();
+                    clearOwnedActiveRun();
                     return "completed";
                   }
                   if (graceOutcome === "successor") {
@@ -3508,7 +3540,7 @@ export function createAgentChatAdapter(
                     refetchErr instanceof Error &&
                     refetchErr.name === "AbortError"
                   ) {
-                    clearActiveRun();
+                    clearOwnedActiveRun();
                     return "completed";
                   }
                   secondOpinionUnreadable = true;
@@ -3627,7 +3659,7 @@ export function createAgentChatAdapter(
             );
             await delay(nextPollDelayMs, abortSignal);
             if (abortSignal.aborted) {
-              clearActiveRun();
+              clearOwnedActiveRun();
               return "completed";
             }
           }
@@ -3796,7 +3828,7 @@ export function createAgentChatAdapter(
           includeReferences = Boolean(runConfig?.custom?.references);
           internalContinuationRequest = true;
           startupRecoveryAttempts = 0;
-          clearActiveRun();
+          clearOwnedActiveRun();
           if (!isTransient) {
             return {
               ok: true,
@@ -4055,7 +4087,6 @@ export function createAgentChatAdapter(
                       }),
                     );
                   }
-                  content.push({ type: "text", text: failure.text });
                   settleTerminalChatRun();
                   yield {
                     content: [...content],
@@ -4153,17 +4184,17 @@ export function createAgentChatAdapter(
               }
               settleTerminalChatRun();
               yield missingFinalResponseResult;
-              clearActiveRun();
+              clearOwnedActiveRun();
               return;
             }
 
             // Run completed normally — clear active run state
-            clearActiveRun();
+            clearOwnedActiveRun();
             return;
           } catch (err: unknown) {
             if (err instanceof Error && err.name === "AbortError") {
               // User-initiated abort (Stop button) — clear active run
-              clearActiveRun();
+              clearOwnedActiveRun();
               return;
             }
 
@@ -4226,7 +4257,7 @@ export function createAgentChatAdapter(
                       },
                     },
                   };
-                  clearActiveRun();
+                  clearOwnedActiveRun();
                   return;
                 }
                 const preservedError =
@@ -4288,7 +4319,7 @@ export function createAgentChatAdapter(
                     custom: { ...(runId ? { runId } : {}), runError },
                   },
                 };
-                clearActiveRun();
+                clearOwnedActiveRun();
                 return;
               }
               if (continuation.resetVisibleContent) {
@@ -4365,7 +4396,7 @@ export function createAgentChatAdapter(
                   custom: { ...(runId ? { runId } : {}), runError },
                 },
               };
-              clearActiveRun();
+              clearOwnedActiveRun();
               return;
             }
 
@@ -4392,7 +4423,7 @@ export function createAgentChatAdapter(
                   reason: "error" as const,
                 },
               };
-              clearActiveRun();
+              clearOwnedActiveRun();
               return;
             }
 
@@ -4406,7 +4437,6 @@ export function createAgentChatAdapter(
                   }),
                 );
               }
-              content.push({ type: "text", text: failure.text });
               settleTerminalChatRun();
               yield {
                 content: [...content],
@@ -4416,7 +4446,7 @@ export function createAgentChatAdapter(
                 },
                 metadata: { custom: { runError: failure.runError } },
               };
-              clearActiveRun();
+              clearOwnedActiveRun();
               return;
             }
 
@@ -4480,7 +4510,7 @@ export function createAgentChatAdapter(
                 },
                 metadata: { custom: { ...(runId ? { runId } : {}), runError } },
               };
-              clearActiveRun();
+              clearOwnedActiveRun();
               return;
             }
 
@@ -4514,7 +4544,7 @@ export function createAgentChatAdapter(
                       },
                     },
                   };
-                  clearActiveRun();
+                  clearOwnedActiveRun();
                   return;
                 }
                 const message = exhaustedRecoveryMessage("stream_ended");
@@ -4551,7 +4581,7 @@ export function createAgentChatAdapter(
                     custom: { ...(runId ? { runId } : {}), runError },
                   },
                 };
-                clearActiveRun();
+                clearOwnedActiveRun();
                 return;
               }
               if (continuation.resetVisibleContent) {
@@ -4619,13 +4649,8 @@ export function createAgentChatAdapter(
           }
         }
       } finally {
-        if (typeof window !== "undefined" && ownsActiveRunState()) {
-          dispatchTerminalChatUiCleanup(tabId);
-          window.dispatchEvent(
-            new CustomEvent("agentNative.chatRunning", {
-              detail: { isRunning: false, tabId },
-            }),
-          );
+        if (ownsActiveRunState()) {
+          publishTerminalChatUiStopped();
         }
       }
     },

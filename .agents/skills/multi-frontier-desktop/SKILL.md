@@ -117,5 +117,4 @@ intent only.
 - `harness-agents` — native harness boundaries.
 - `security` — credential and sensitive-data handling.
 - `onboarding` — user-initiated provider connection flows.
-- `ship-desktop` — installed-app and packaged verification.
 - `frontend-design` and `shadcn-ui` — compact, accessible Desktop UI.

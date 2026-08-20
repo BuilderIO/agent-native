@@ -554,20 +554,16 @@ const messages = {
   },
   deckEditor: {
     lookingForDeck: "Looking for this deck",
-    teamAccessCheckFailed: "Couldn't check team access",
     joinTeamToOpen: "Join your team to open this deck",
     deckUnavailable: "Deck unavailable",
     checkingSharedAccess:
       "Checking whether this presentation is shared with your account.",
-    verifySharedAccessFailed:
-      "We couldn't verify whether this presentation is shared with your account. Try again to reload team access and the deck.",
     joinTeamDescription:
       "This link points to a team presentation. Join the team shown above and the deck will open here automatically.",
     deckUnavailableDescription:
       "This deck may have been removed, or your account does not have access to it.",
-    privateDeckTitle: "This deck is private",
-    privateDeckDescription:
-      "Ask the owner for access to open this deck. They’ll be notified when you send a request.",
+    privateDeckTitle: "You don't have access to this deck",
+    privateDeckDescription: "Request access and the owner will be notified.",
     signedInAs: "You're signed in as",
     accessRequestSentDescription:
       "The owner has been notified. You can open this deck once access is granted.",
@@ -577,6 +573,33 @@ const messages = {
     accessRequestSent: "Request sent",
     requestAccess: "Request access",
     signInToRequestAccess: "Sign in to request access",
+    requestAccessDialogTitle: "Request access",
+    requestAccessDialogDescription:
+      "Sign in, or enter the email address the owner should share this deck with.",
+    requestAccessSignIn: "Sign in or sign up",
+    requestAccessOr: "or",
+    requestAccessEmailLabel: "Email address",
+    requestAccessEmailPlaceholder: "you@example.com",
+    requestAccessEmailHint:
+      "After access is granted, sign in with this email to view the deck.",
+    requestAccessWithEmail: "Request with email",
+    requestAccessEmailRequired: "Enter a valid email address.",
+    requestingAccess: "Requesting access...",
+    accessRequestSentWithEmail:
+      "The deck owner was asked to share this deck with {{email}}.",
+    accessRequestFailed: "Couldn't request access. Try again.",
+    accessApprovalTitle: "Access granted",
+    accessApprovalAlreadyTitle: "Access already granted",
+    accessApprovalMessage: "{{email}} can now open this deck.",
+    accessApprovalAlreadyMessage: "{{email}} already has access to this deck.",
+    accessApprovalErrorTitle: "Couldn't grant access",
+    accessApprovalInvalid: "This access request is invalid or expired.",
+    accessApprovalSignInTitle: "Sign in to allow access",
+    accessApprovalSignInMessage:
+      "Sign in as the deck owner or an admin to approve this request.",
+    accessApprovalOpenDeck: "Open deck",
+    accessApprovalSignIn: "Sign in",
+    accessApprovalLoading: "Granting access...",
     backToDecks: "Back to Decks",
     tryAgain: "Try again",
     imageUploadFailed: "Image upload failed",
@@ -721,6 +744,7 @@ const messages = {
     chooseReferences: "Choose references",
     addDesignSystem: "+ Design system",
     importFrom: "Import from",
+    attachedFiles: "Attached",
     imported: "Imported",
     importedReferenceDeck: "Imported reference deck",
     referenceImportSuccess: "Imported successfully",

@@ -63,7 +63,8 @@ interface EditorSidebarProps {
   aspectRatio?: AspectRatio;
   /** Active deck design system used by slide content tokens. */
   designSystem?: DesignSystemData;
-  /** The next slide while the agent is preparing its HTML. */
+  /** The next slide while the agent is preparing its HTML. Omitted when the
+   *  agent is filling a placeholder that already has a row in this rail. */
   generatingSlide?: { index: number };
   generatingSlideSelected?: boolean;
   onSelectGeneratingSlide?: () => void;
@@ -75,8 +76,15 @@ interface EditorSidebarProps {
   /** Clears `describeSlideId` in the parent when the popover closes. */
   onCloseDescribe: () => void;
   /** Reports add-slide generation state up so the toolbar's New Slide button
-   *  can disable itself while a request is in flight. */
-  onAddSlideGeneratingChange?: (generating: boolean) => void;
+   *  can disable itself while a request is in flight. `targetSlideId` is the
+   *  placeholder the agent was asked to fill, so the parent can mark that row
+   *  as the AI-active one instead of appending a second generating row. */
+  onAddSlideGeneratingChange?: (
+    generating: boolean,
+    targetSlideId: string | null,
+  ) => void;
+  /** Slide the agent is filling in place, marked as AI-active in the rail. */
+  aiGeneratingSlideId?: string | null;
   /** Resolves once a just-inserted blank slide has actually reached the
    *  server, so the agent's update-slide request can't race the add-slide
    *  persistence. */
@@ -199,6 +207,7 @@ function SortableSlideThumb({
   onOverflowChange,
   readOnly = false,
   aiEditing = false,
+  isFillingPlaceholder = false,
   canDelete = true,
   hasSlideClipboard = false,
   onCutSlide,
@@ -219,7 +228,11 @@ function SortableSlideThumb({
   aspectRatio?: AspectRatio;
   designSystem?: DesignSystemData;
   onOverflowChange: (info: SlideOverflowInfo) => void;
+  /** A recent edit attributed to the agent — a lingering highlight, not a live signal. */
   aiEditing?: boolean;
+  /** This exact slide is the placeholder the agent is filling right now — the
+   *  one case where the shimmer belongs even without live presence. */
+  isFillingPlaceholder?: boolean;
   /** False when this is the deck's last remaining slide — Cut/Delete stay enabled elsewhere but must not remove it. */
   canDelete?: boolean;
   hasSlideClipboard?: boolean;
@@ -255,7 +268,11 @@ function SortableSlideThumb({
   const humanPresenceUsers = presenceUsers.filter(
     (user) => !isAgentPresenceUser(user),
   );
-  const showAiMarker = aiEditing || agentPresent;
+  const showAiMarker = aiEditing || agentPresent || isFillingPlaceholder;
+  // Narrower than the badge above: `aiEditing` also covers a slide's lingering
+  // post-edit highlight, which is "recently done," not "in progress." The
+  // shimmer should only run while the agent is actually live on this slide.
+  const showGeneratingShimmer = agentPresent || isFillingPlaceholder;
 
   return (
     <div ref={setNodeRef} style={style}>
@@ -331,6 +348,12 @@ function SortableSlideThumb({
                   designSystem={designSystem}
                   onOverflowChange={onOverflowChange}
                 />
+                {showGeneratingShimmer && (
+                  <div
+                    aria-hidden="true"
+                    className="slide-thumbnail-ai-shimmer pointer-events-none absolute inset-0 z-10"
+                  />
+                )}
                 {slide.skipped && (
                   // guard:allow-raw-color — dims an arbitrary-colored slide render, not app chrome; must stay black regardless of theme
                   <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/40">
@@ -454,6 +477,7 @@ export default function EditorSidebar({
   describeSlideId,
   onCloseDescribe,
   onAddSlideGeneratingChange,
+  aiGeneratingSlideId,
   onAwaitAddSlidePersisted,
   onRemoveFailedSlide,
   addSlideAgentSubmit,
@@ -662,6 +686,7 @@ export default function EditorSidebar({
                 aspectRatio={aspectRatio}
                 designSystem={designSystem}
                 aiEditing={aiEditedSlideIds.has(slide.id)}
+                isFillingPlaceholder={slide.id === aiGeneratingSlideId}
                 canDelete={slides.length > 1}
                 hasSlideClipboard={hasSlideClipboard}
                 onCutSlide={onCutSlide}
@@ -706,12 +731,12 @@ export default function EditorSidebar({
           slideCount={slides.length}
           targetSlideId={describeSlideId}
           agentSubmit={async (message, context) => {
-            onAddSlideGeneratingChange?.(true);
+            onAddSlideGeneratingChange?.(true, describeSlideId);
             try {
               await onAwaitAddSlidePersisted?.();
             } catch (error) {
               console.error("Failed to persist new slide:", error);
-              onAddSlideGeneratingChange?.(false);
+              onAddSlideGeneratingChange?.(false, null);
               // The popover already closed (AddSlidePopover doesn't wait on
               // this async callback), so the typed prompt is gone either
               // way. Only remove the placeholder if it's still untouched —

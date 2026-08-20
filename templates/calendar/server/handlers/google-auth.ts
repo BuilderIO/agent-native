@@ -16,6 +16,9 @@ import {
   oauthCallbackResponse,
   oauthDesktopExchangePage,
   oauthErrorPage,
+  registerDesktopExchange,
+  prepareDesktopOAuthBrowserBinding,
+  matchesDesktopOAuthBrowserBinding,
   setDesktopExchange,
   setDesktopExchangeError,
   safeReturnPath,
@@ -23,6 +26,8 @@ import {
 } from "@agent-native/core/server";
 import {
   defineEventHandler,
+  getHeader,
+  getMethod,
   getQuery,
   setResponseStatus,
   type H3Event,
@@ -55,6 +60,8 @@ type CalendarOAuthStateOptions = {
   app?: string;
   returnUrl?: string;
   flowId?: string;
+  desktopVerifierHash?: string;
+  desktopBrowserBindingHash?: string;
 };
 
 function encodeCalendarOAuthState(options: CalendarOAuthStateOptions): string {
@@ -226,6 +233,7 @@ function missingCredentialsResponse(
 export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
   try {
     const q = getQuery(event);
+    const method = getMethod(event);
     const redirectUri = resolveOAuthRedirectUri(event);
     if (!redirectUri) {
       setResponseStatus(event, 400);
@@ -241,6 +249,10 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
       isElectron(event) || q.desktop === "1" || q.desktop === "true";
     const mobile = q.mobile === "1" || q.mobile === "true";
     const flowId = desktop ? (q.flow_id as string) || undefined : undefined;
+    if (method === "POST" && (!desktop || !flowId)) {
+      setResponseStatus(event, 400);
+      return { error: "Invalid desktop exchange challenge." };
+    }
     const calendarConnect = isCalendarConnectRequest(q, owner);
     const credentials = calendarConnect
       ? await resolveCalendarOAuthCredentials(event)
@@ -264,6 +276,31 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
       };
     }
 
+    let desktopVerifierHash: string | undefined;
+    let desktopBrowserBindingHash: string | undefined;
+    if (flowId) {
+      if (method !== "POST" || q.redirect !== undefined) {
+        setResponseStatus(event, 400);
+        return { error: "Invalid desktop exchange challenge." };
+      }
+      const verifier = getHeader(event, "x-agent-native-desktop-verifier");
+      if (!verifier || q.verifier !== undefined) {
+        setResponseStatus(event, 400);
+        return { error: "Invalid desktop exchange challenge." };
+      }
+      try {
+        desktopBrowserBindingHash = prepareDesktopOAuthBrowserBinding(event);
+        desktopVerifierHash = await registerDesktopExchange(
+          flowId,
+          verifier,
+          desktopBrowserBindingHash,
+        );
+      } catch {
+        setResponseStatus(event, 400);
+        return { error: "Invalid desktop exchange challenge." };
+      }
+    }
+
     const requestedReturn =
       typeof q.return === "string" ? safeReturnPath(q.return) : "/";
     const returnUrl = requestedReturn !== "/" ? requestedReturn : undefined;
@@ -279,6 +316,8 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
       app: OAUTH_STATE_APP_ID,
       returnUrl,
       flowId,
+      desktopVerifierHash,
+      desktopBrowserBindingHash,
     });
 
     const url = calendarConnect
@@ -316,6 +355,17 @@ export const handleGoogleCallback = defineEventHandler(
       desktop = state.desktop ?? false;
       mobile = state.mobile ?? false;
       flowId = state.flowId;
+      if (
+        flowId &&
+        (!state.desktopVerifierHash ||
+          !state.desktopBrowserBindingHash ||
+          !matchesDesktopOAuthBrowserBinding(
+            event,
+            state.desktopBrowserBindingHash,
+          ))
+      ) {
+        throw new Error("Desktop OAuth browser binding is invalid.");
+      }
 
       const googleError = query.error as string | undefined;
       if (googleError) {
@@ -366,7 +416,15 @@ export const handleGoogleCallback = defineEventHandler(
         );
 
         if (flowId && sessionToken) {
-          setDesktopExchange(flowId, sessionToken, identity.email);
+          if (!state.desktopVerifierHash) {
+            throw new Error("Missing desktop exchange challenge.");
+          }
+          await setDesktopExchange(
+            flowId,
+            sessionToken,
+            identity.email,
+            state.desktopVerifierHash,
+          );
         }
 
         return oauthCallbackResponse(event, identity.email, {
@@ -410,7 +468,15 @@ export const handleGoogleCallback = defineEventHandler(
         : { sessionToken: undefined };
 
       if (flowId && sessionToken) {
-        setDesktopExchange(flowId, sessionToken, sessionOwner);
+        if (!state.desktopVerifierHash) {
+          throw new Error("Missing desktop exchange challenge.");
+        }
+        await setDesktopExchange(
+          flowId,
+          sessionToken,
+          sessionOwner,
+          state.desktopVerifierHash,
+        );
       }
 
       // 4. Return platform-appropriate response
@@ -436,10 +502,15 @@ export const getGoogleAddAccountUrl = defineEventHandler(
       return { error: "Must be logged in to add an account" };
     }
     const q = getQuery(event);
+    const method = getMethod(event);
     const desktop =
       isElectron(event) || q.desktop === "1" || q.desktop === "true";
     const mobile = q.mobile === "1" || q.mobile === "true";
     const flowId = desktop ? (q.flow_id as string) || undefined : undefined;
+    if (method === "POST" && (!desktop || !flowId)) {
+      setResponseStatus(event, 400);
+      return { error: "Invalid desktop exchange challenge." };
+    }
     if (!(await resolveCalendarOAuthCredentials(event))) {
       return missingCredentialsResponse(
         event,
@@ -456,6 +527,30 @@ export const getGoogleAddAccountUrl = defineEventHandler(
           message: "redirect_uri must stay on this app's _agent-native routes.",
         };
       }
+      let desktopVerifierHash: string | undefined;
+      let desktopBrowserBindingHash: string | undefined;
+      if (flowId) {
+        if (method !== "POST" || q.redirect !== undefined) {
+          setResponseStatus(event, 400);
+          return { error: "Invalid desktop exchange challenge." };
+        }
+        const verifier = getHeader(event, "x-agent-native-desktop-verifier");
+        if (!verifier || q.verifier !== undefined) {
+          setResponseStatus(event, 400);
+          return { error: "Invalid desktop exchange challenge." };
+        }
+        try {
+          desktopBrowserBindingHash = prepareDesktopOAuthBrowserBinding(event);
+          desktopVerifierHash = await registerDesktopExchange(
+            flowId,
+            verifier,
+            desktopBrowserBindingHash,
+          );
+        } catch {
+          setResponseStatus(event, 400);
+          return { error: "Invalid desktop exchange challenge." };
+        }
+      }
       const state = encodeCalendarOAuthState({
         redirectUri,
         owner: session.email,
@@ -465,6 +560,8 @@ export const getGoogleAddAccountUrl = defineEventHandler(
         addAccount: true,
         app: OAUTH_STATE_APP_ID,
         flowId,
+        desktopVerifierHash,
+        desktopBrowserBindingHash,
       });
       const url = await getAuthUrl(
         undefined,
@@ -499,6 +596,17 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
       desktop = state.desktop ?? false;
       mobile = state.mobile ?? false;
       flowId = state.flowId;
+      if (
+        flowId &&
+        (!state.desktopVerifierHash ||
+          !state.desktopBrowserBindingHash ||
+          !matchesDesktopOAuthBrowserBinding(
+            event,
+            state.desktopBrowserBindingHash,
+          ))
+      ) {
+        throw new Error("Desktop OAuth browser binding is invalid.");
+      }
 
       const googleError = query.error as string | undefined;
       if (googleError) {
@@ -547,7 +655,15 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
           : { sessionToken: undefined };
 
       if (flowId && sessionToken) {
-        setDesktopExchange(flowId, sessionToken, ownerEmail);
+        if (!state.desktopVerifierHash) {
+          throw new Error("Missing desktop exchange challenge.");
+        }
+        await setDesktopExchange(
+          flowId,
+          sessionToken,
+          ownerEmail,
+          state.desktopVerifierHash,
+        );
       }
 
       return oauthCallbackResponse(event, addedEmail, {

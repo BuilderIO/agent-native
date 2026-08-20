@@ -20,6 +20,7 @@ import {
   mergeDesktopAppLists,
   isDispatchControlPlanePath,
   isChatFirstSurfaceTabActive,
+  updateDesktopIdentityStatusByTab,
   orderDesktopApps,
   MultiFrontierModeControl,
 } from "./CodeAgentsHub.js";
@@ -232,6 +233,14 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     );
     expect(shellCss).toMatch(
       /\.desktop-chat-first-hub \.code-agents-start \.code-agents-overview-footer\s*\{[\s\S]*?margin-top: 10px;/,
+    );
+  });
+
+  it("keeps the light desktop composer aligned with the rail gray", () => {
+    const shellCss = readFileSync("src/renderer/shell.css", "utf8");
+
+    expect(shellCss).toMatch(
+      /\.light\s+\.desktop-chat-first-hub\s+\[data-chat-first-app-pane\]\s+\.agent-sidebar-panel\s+\.agent-composer-root\s*\{\s*background:\s*hsl\(var\(--sidebar-background\)\);\s*\}/,
     );
   });
 
@@ -600,5 +609,54 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(document.body.textContent).toContain(
       "Usage is updating from the connected subscription",
     );
+  });
+});
+
+describe("CodeAgentsHub desktop identity status", () => {
+  it("keeps duplicate app tabs isolated across identity transitions", () => {
+    let statusByTab = updateDesktopIdentityStatusByTab(
+      {},
+      "mail-tab-1",
+      "sign-in-required",
+    );
+    statusByTab = updateDesktopIdentityStatusByTab(
+      statusByTab,
+      "mail-tab-2",
+      "idle",
+    );
+    statusByTab = updateDesktopIdentityStatusByTab(
+      statusByTab,
+      "mail-tab-1",
+      "signed-in",
+    );
+
+    expect(statusByTab).toEqual({
+      "mail-tab-1": "signed-in",
+      "mail-tab-2": "idle",
+    });
+  });
+
+  it("rerenders the chat-first surface when identity state changes", () => {
+    const source = readFileSync(
+      "src/renderer/components/CodeAgentsHub.tsx",
+      "utf8",
+    );
+
+    expect(source).toContain("desktopIdentityStatusByTab");
+    expect(source).toContain("handleDesktopIdentityStatusChange");
+    expect(source).toContain("desktopIdentityStatusByTab,");
+    expect(source).toContain("handleDesktopIdentityStatusChange,");
+    expect(source).toContain("handleDesktopIdentityStatusChange(tab.id");
+  });
+
+  it("drops identity state for tabs that are no longer open", () => {
+    const source = readFileSync(
+      "src/renderer/components/CodeAgentsHub.tsx",
+      "utf8",
+    );
+
+    expect(source).toContain("const openTabIds = new Set");
+    expect(source).toContain("staleTabIds");
+    expect(source).toContain("delete next[tabId]");
   });
 });

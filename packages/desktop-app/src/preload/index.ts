@@ -19,6 +19,10 @@ import {
   type CodeAgentComputerSetupResult,
   type CodeAgentCreateRunRequest,
   type CodeAgentCreateRunResult,
+  type CodeAgentForkRunRequest,
+  type CodeAgentForkRunResult,
+  type CodeAgentRestoreWorktreeRequest,
+  type CodeAgentRestoreWorktreeResult,
   type CodeAgentRemoteWaitlistRequest,
   type CodeAgentRemoteWaitlistResult,
   type CodeAgentFollowUpRequest,
@@ -31,6 +35,7 @@ import {
   type CodeAgentModelListResult,
   type CodeAgentProjectListResult,
   type CodeAgentProjectSelectResult,
+  type CodeAgentWorktreeListResult,
   type CodeAgentRetryRunRequest,
   type CodeAgentRetryRunResult,
   type CodeAgentRerunRequest,
@@ -41,6 +46,8 @@ import {
   type CodeAgentControlResult,
   type CodeAgentMigrationRun,
   type CodeAgentRunListResult,
+  type CodeAgentScheduleListResult,
+  type CodeAgentScheduleResult,
   type CodeAgentTranscriptRequest,
   type CodeAgentTranscriptResult,
   type CodeAgentTerminalRequest,
@@ -387,12 +394,32 @@ const electronAPI = {
   codeAgents: {
     listRuns: (goalId?: string): Promise<CodeAgentRunListResult> =>
       ipcRenderer.invoke(IPC.CODE_AGENTS_LIST_RUNS, goalId),
+    listSchedules: (): Promise<CodeAgentScheduleListResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_LIST_SCHEDULES),
+    createSchedule: (input: unknown): Promise<CodeAgentScheduleResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_CREATE_SCHEDULE, input),
+    updateSchedule: (input: unknown): Promise<CodeAgentScheduleResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_UPDATE_SCHEDULE, input),
+    deleteSchedule: (input: unknown): Promise<CodeAgentScheduleResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_DELETE_SCHEDULE, input),
+    runScheduleNow: (input: unknown): Promise<CodeAgentScheduleResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_RUN_SCHEDULE_NOW, input),
+    listWorktrees: (cwd?: string): Promise<CodeAgentWorktreeListResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_LIST_WORKTREES, cwd),
     listModels: (): Promise<CodeAgentModelListResult> =>
       ipcRenderer.invoke(IPC.CODE_AGENTS_LIST_MODELS),
     createRun: (
       request: CodeAgentCreateRunRequest,
     ): Promise<CodeAgentCreateRunResult> =>
       ipcRenderer.invoke(IPC.CODE_AGENTS_CREATE_RUN, request),
+    forkRun: (
+      request: CodeAgentForkRunRequest,
+    ): Promise<CodeAgentForkRunResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_FORK_RUN, request),
+    restoreWorktree: (
+      request: CodeAgentRestoreWorktreeRequest,
+    ): Promise<CodeAgentRestoreWorktreeResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_RESTORE_WORKTREE, request),
     submitRemoteWaitlist: (
       request: CodeAgentRemoteWaitlistRequest,
     ): Promise<CodeAgentRemoteWaitlistResult> =>

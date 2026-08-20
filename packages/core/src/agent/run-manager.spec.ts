@@ -184,6 +184,7 @@ import {
   reapUnclaimedBackgroundRun,
   reconcileTerminalRunFromEvents,
   persistRunCheckpointEvent,
+  setRunInFlightMarker,
 } from "./run-store.js";
 
 const originalTimeoutEnv = process.env.AGENT_RUN_SOFT_TIMEOUT_MS;
@@ -3860,6 +3861,11 @@ describe("run manager soft timeout", () => {
       expect(resolveRunNoProgressTimeoutMs({ softTimeoutMs: 0 })).toBe(0);
     });
 
+    // The wedged-transport case the backstop was built for: keepalives with no
+    // engine call in flight (the loop never entered one, or died inside setup).
+    // Distinct from keepalives arriving INSIDE a `model_stream` bracket, which
+    // the next test covers — there the model is demonstrably generating and the
+    // loop's own 90s watchdog is the one on duty.
     it("checkpoints via auto_continue(no_progress) and aborts when only keepalives stream past the window", async () => {
       const events: AgentChatEvent[] = [];
       let aborted = false;
@@ -4156,6 +4162,130 @@ describe("run manager soft timeout", () => {
       expect(aborted).toBe(true);
       expect(abortReason).toBe("no_progress");
       expect(run.status).toBe("completed");
+    });
+
+    it("does NOT backstop a run with a model stream in flight, and re-arms when it ends", async () => {
+      const events: AgentChatEvent[] = [];
+      let aborted = false;
+      let abortReason: unknown;
+      let endStream: (() => void) | undefined;
+
+      const run = startRun(
+        "run-no-progress-model-stream-in-flight",
+        "thread-no-progress-model-stream-in-flight",
+        async (send, signal) => {
+          send({ type: "model_stream", status: "start" });
+          // Extended thinking: the engine is streaming frames the loop can see,
+          // but nothing forwarded here counts as progress. Before the bracket
+          // existed this window is what killed live runs at the backstop bound.
+          const keepaliveTimer = setInterval(() => {
+            send({ type: "stream_keepalive" });
+          }, 1500);
+          endStream = () => {
+            clearInterval(keepaliveTimer);
+            send({ type: "model_stream", status: "end" });
+          };
+          await new Promise<void>((resolve) => {
+            signal.addEventListener("abort", () => {
+              clearInterval(keepaliveTimer);
+              aborted = true;
+              abortReason = signal.reason;
+              resolve();
+            });
+          });
+        },
+        undefined,
+        { softTimeoutMs: 0, noProgressTimeoutMs: 5_000 },
+      );
+      run.subscribers.add((event) => events.push(event.event));
+
+      // Well past the window with the stream open — suspended, exactly like a
+      // tool call in flight.
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(aborted).toBe(false);
+      expect(events).not.toContainEqual(
+        expect.objectContaining({ type: "auto_continue" }),
+      );
+
+      // Closing the bracket both lifts the suspension and counts as progress,
+      // so the clock restarts from the `end` rather than firing immediately.
+      endStream?.();
+      await vi.advanceTimersByTimeAsync(3_000);
+      expect(aborted).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(3_000);
+      expect(aborted).toBe(true);
+      expect(abortReason).toBe("no_progress");
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "auto_continue",
+          reason: "no_progress",
+        }),
+      );
+    });
+
+    it("mirrors the SQL in-flight marker across the model-stream bracket", async () => {
+      vi.mocked(setRunInFlightMarker).mockClear();
+      let endStream: (() => void) | undefined;
+
+      const run = startRun(
+        "run-in-flight-marker-model-stream",
+        "thread-in-flight-marker-model-stream",
+        async (send, signal) => {
+          send({ type: "model_stream", status: "start" });
+          endStream = () => send({ type: "model_stream", status: "end" });
+          await new Promise<void>((resolve) => {
+            signal.addEventListener("abort", () => resolve());
+          });
+        },
+        undefined,
+        { softTimeoutMs: 0 },
+      );
+
+      await vi.waitFor(() =>
+        expect(vi.mocked(setRunInFlightMarker)).toHaveBeenCalledWith(
+          "run-in-flight-marker-model-stream",
+          true,
+          expect.any(Number),
+        ),
+      );
+
+      endStream?.();
+      await vi.waitFor(() =>
+        expect(vi.mocked(setRunInFlightMarker)).toHaveBeenCalledWith(
+          "run-in-flight-marker-model-stream",
+          false,
+          expect.any(Number),
+        ),
+      );
+
+      expect(abortRun("run-in-flight-marker-model-stream")).toBe(true);
+      await run.finalized;
+    });
+
+    it("clears a model-stream bracket leaked by a throw mid-stream", async () => {
+      vi.mocked(setRunInFlightMarker).mockClear();
+
+      // A stream that throws never reaches its own `end`; terminal cleanup is
+      // the backstop against a leaked increment holding the SQL grace marker.
+      const run = startRun(
+        "run-in-flight-marker-model-stream-leak",
+        "thread-in-flight-marker-model-stream-leak",
+        async (send) => {
+          send({ type: "model_stream", status: "start" });
+          throw new Error("transport died mid-stream");
+        },
+        undefined,
+        { softTimeoutMs: 0 },
+      );
+
+      await run.finalized;
+
+      expect(vi.mocked(setRunInFlightMarker)).toHaveBeenCalledWith(
+        "run-in-flight-marker-model-stream-leak",
+        false,
+        expect.any(Number),
+      );
     });
   });
 

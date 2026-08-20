@@ -252,6 +252,56 @@ export const runSlidesMigrations = runMigrations(
   );
   CREATE INDEX IF NOT EXISTS deck_events_deck_created_idx ON deck_events (deck_id, created_at)`,
     },
+    {
+      version: 23,
+      name: "slides-deck-access-request-rate-limits",
+      sql: `CREATE TABLE IF NOT EXISTS deck_access_request_limits (
+    deck_id TEXT PRIMARY KEY,
+    window_started_at TEXT NOT NULL,
+    request_count INTEGER NOT NULL DEFAULT 0
+  )`,
+    },
+    {
+      version: 24,
+      name: "slides-deck-shares-user-principal-unique",
+      // Reconcile legacy rows before adding the constraint. Older databases
+      // could contain case variants or concurrent duplicate user shares, and
+      // CREATE UNIQUE INDEX would otherwise fail before this migration is
+      // recorded. Keep the strongest grant; id/created_at make equal-role
+      // survivors deterministic, and lower the retained principal so the
+      // repaired row is canonical as well as uniquely indexed.
+      sql: `DELETE FROM deck_shares
+WHERE principal_type = 'user'
+  AND id NOT IN (
+    SELECT id
+    FROM (
+      SELECT id,
+        ROW_NUMBER() OVER (
+          PARTITION BY resource_id, LOWER(principal_id)
+          ORDER BY CASE LOWER(role)
+            WHEN 'owner' THEN 5
+            WHEN 'admin' THEN 4
+            WHEN 'editor' THEN 3
+            WHEN 'commenter' THEN 2
+            WHEN 'viewer' THEN 1
+            ELSE 0
+          END DESC,
+          created_at ASC,
+          id ASC
+        ) AS row_number
+      FROM deck_shares
+      WHERE principal_type = 'user'
+    ) AS ranked
+    WHERE row_number = 1
+  );
+UPDATE deck_shares
+SET principal_id = LOWER(principal_id)
+WHERE principal_type = 'user'
+  AND principal_id <> LOWER(principal_id);
+CREATE UNIQUE INDEX IF NOT EXISTS deck_shares_resource_user_principal_uidx
+ON deck_shares (resource_id, LOWER(principal_id))
+WHERE principal_type = 'user'`,
+    },
   ],
   { table: "slides_migrations" },
 );

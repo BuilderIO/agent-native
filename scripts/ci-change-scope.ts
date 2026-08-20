@@ -11,6 +11,7 @@ const DOCS_PATH_PREFIXES = [
 
 const DOCS_SUPPORT_PATHS = new Set([
   "scripts/i18n-catalog-english-value-baseline.txt",
+  "scripts/i18n-localized-doc-coverage-baseline.txt",
   "scripts/i18n-localized-docs-baseline.txt",
   "scripts/i18n-no-translate-terms.txt",
   "scripts/i18n-raw-literal-baseline.txt",

@@ -70,7 +70,7 @@ function settingsTable(): string {
   return isPostgres() ? "public.settings" : "settings";
 }
 
-async function ensureTable(): Promise<void> {
+export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
       const client = getDbExec();
@@ -294,6 +294,28 @@ export async function deleteSettingsByPrefix(
     });
   }
   return result.rowsAffected;
+}
+
+/**
+ * Read every setting whose key starts with `prefix`. Callers that only need
+ * one namespace must not use {@link getAllSettings} — that loads the whole
+ * table.
+ */
+export async function listSettingsByPrefix(
+  prefix: string,
+): Promise<Array<{ key: string; value: Record<string, unknown> }>> {
+  await ensureTable();
+  const client = getDbExec();
+  const table = settingsTable();
+  const escaped = prefix.replace(/[!%_]/g, (c) => `!${c}`);
+  const { rows } = await client.execute({
+    sql: `SELECT key, value FROM ${table} WHERE key LIKE ? ESCAPE '!'`,
+    args: [`${escaped}%`],
+  });
+  return rows.map((row) => ({
+    key: String(row.key),
+    value: JSON.parse(String(row.value)) as Record<string, unknown>,
+  }));
 }
 
 export async function getAllSettings(): Promise<

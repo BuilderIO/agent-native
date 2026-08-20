@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createSlackReader } from "./slack-client";
-import { pollSlackChannel } from "./slack-poller";
+import { pollSlackChannel, SLACK_USER_INFO_CONCURRENCY } from "./slack-poller";
 
 vi.mock("./slack-client", () => ({
   createSlackReader: vi.fn(),
@@ -11,7 +11,12 @@ const mockedCreateSlackReader = vi.mocked(createSlackReader);
 const mockedSlackReader = {
   getChannelHistory: vi.fn(),
   getTeamInfo: vi.fn(),
+  getUserInfo: vi.fn(),
   getThread: vi.fn(),
+  getEyesReaction: vi.fn(),
+  getCompleteThread: vi.fn(),
+  verifyAgentNativeIdentity: vi.fn(),
+  getAgentNativeIdentity: vi.fn(),
   addEyesReaction: vi.fn(),
   postThreadReply: vi.fn(),
 };
@@ -19,7 +24,18 @@ const mockedSlackReader = {
 beforeEach(() => {
   mockedCreateSlackReader.mockReset().mockReturnValue(mockedSlackReader);
   mockedSlackReader.getChannelHistory.mockReset();
+  mockedSlackReader.getUserInfo
+    .mockReset()
+    .mockImplementation(async (_workspace, userId: string) => ({
+      id: userId,
+      name: null,
+      displayName: null,
+    }));
   mockedSlackReader.getThread.mockReset();
+  mockedSlackReader.getEyesReaction.mockReset();
+  mockedSlackReader.getCompleteThread.mockReset();
+  mockedSlackReader.verifyAgentNativeIdentity.mockReset();
+  mockedSlackReader.getAgentNativeIdentity.mockReset();
   mockedSlackReader.addEyesReaction.mockReset();
   mockedSlackReader.postThreadReply.mockReset();
   mockedSlackReader.getTeamInfo
@@ -141,6 +157,78 @@ describe("pollSlackChannel", () => {
         coverage: "partial",
       },
     ]);
+  });
+
+  it("titles people with display name, then handle, then user id", async () => {
+    mockedSlackReader.getChannelHistory.mockResolvedValue({
+      messages: [
+        { type: "message", user: "U1", text: "named", ts: "40.1" },
+        { type: "message", user: "U2", text: "handled", ts: "40.2" },
+        { type: "message", user: "U3", text: "unknown", ts: "40.3" },
+        { type: "message", user: "U1", text: "same author again", ts: "40.4" },
+      ],
+      has_more: false,
+    });
+    mockedSlackReader.getUserInfo.mockImplementation(
+      async (_workspace, userId: string) => {
+        if (userId === "U1") {
+          return { id: "U1", name: "johnsmith", displayName: "John Smith" };
+        }
+        if (userId === "U2") {
+          return { id: "U2", name: "janedoe", displayName: null };
+        }
+        throw new Error("users_not_found");
+      },
+    );
+
+    const result = await pollSlackChannel({
+      workspace: "primary",
+      channelId: "C321",
+      priorLastSlackTs: "40.0",
+      ownerEmail: "owner@example.com",
+    });
+
+    expect(result.envelopes.map((envelope) => envelope.title)).toEqual([
+      "Slack user John Smith",
+      "Slack user @janedoe",
+      "Slack user U3",
+      "Slack user John Smith",
+    ]);
+    expect(mockedSlackReader.getUserInfo).toHaveBeenCalledTimes(3);
+  });
+
+  it("resolves Slack profiles with bounded concurrency", async () => {
+    const authors = Array.from({ length: 8 }, (_, index) => `U${index + 1}`);
+    mockedSlackReader.getChannelHistory.mockResolvedValue({
+      messages: authors.map((user, index) => ({
+        type: "message",
+        user,
+        text: `msg ${index}`,
+        ts: `50.${index + 1}`,
+      })),
+      has_more: false,
+    });
+
+    let inFlight = 0;
+    let maxInFlight = 0;
+    mockedSlackReader.getUserInfo.mockImplementation(async () => {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      inFlight -= 1;
+      return { id: "U", name: null, displayName: null };
+    });
+
+    await pollSlackChannel({
+      workspace: "primary",
+      channelId: "C654",
+      priorLastSlackTs: "50.0",
+      ownerEmail: "owner@example.com",
+    });
+
+    expect(mockedSlackReader.getUserInfo).toHaveBeenCalledTimes(authors.length);
+    expect(maxInFlight).toBeLessThanOrEqual(SLACK_USER_INFO_CONCURRENCY);
+    expect(maxInFlight).toBe(SLACK_USER_INFO_CONCURRENCY);
   });
 
   it("propagates Slack history failures", async () => {

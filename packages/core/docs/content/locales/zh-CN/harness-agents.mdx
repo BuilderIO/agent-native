@@ -327,7 +327,7 @@ const last = await getLatestAgentHarnessSessionForThread(threadId);
 当线束暂停等待批准时，它会发出 `approval-request` 事件，并且
 会话标记为 `idle`，并记录待批准，因此 UI 可以
 将其浮出水面并根据用户的决定继续。请参阅
-[Human Approval](/docs/human-approval) 为批准表面。
+[Human Approval](/docs/actions-access-control#needs-approval) 为批准表面。
 
 ## 活动 {#events}
 
@@ -417,4 +417,4 @@ registerAgentHarness({
 - [Agent-Native Code UI](/docs/code-agents-ui) — 可重用的编码工作区表面。
 - [Custom Agents & Teams](/docs/agent-teams) — 后台运行和子代理委派。
 - [Sandbox Adapters](/docs/sandbox-adapters) — 用于编码工具的可插入执行后端。
-- [Human Approval](/docs/human-approval) — 批准表面线束运行使用。
+- [Human Approval](/docs/actions-access-control#needs-approval) — 批准表面线束运行使用。

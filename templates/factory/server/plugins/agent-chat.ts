@@ -57,7 +57,9 @@ current factory graph, and executes only the explicit automation prompts that
 are stored in the organization.
 Use the Factory actions as the source of truth. When a user asks to
 create or change a factory, first inspect the current graph, then propose a complete
-versioned graph through save-factory-graph with source=ai and a concise changeSummary.
+versioned graph through save-factory-graph with source=ai, the inspected graphVersion
+as expectedGraphVersion, and a concise changeSummary. Never save a graph from a
+stale read: refresh and re-propose when the action reports a version conflict.
 Never hide a graph change in prose: the visual map and the saved graph must agree.
 The graph is currently a reviewable blueprint, not the runtime router: automation
 markdown resources are the runtime prompts, while enabled triage rules are evaluated
@@ -89,6 +91,9 @@ Builder, auto-approve, or auto-merge those items. Slack clear bugs use the
 thread-preserving start-builder-for-item flow; GitHub and Sentry clear bugs use
 the Builder agent-run flow. Slack repeat reports must be clustered by underlying
 symptom, with one Builder thread for the cluster and 👀 on every grouped report.
+After classifying an item, call start-builder-for-item with clearBug true or
+false and a short reason so a skip is recorded. Do not post Slack messages,
+reactions, or @mentions yourself; start-builder-for-item owns the Builder ping.
 Use /address-feedback for the repository feedback workflow. For pull requests,
 follow review-prs: read the complete diff and review evidence, verify current
 BuilderIO membership, preserve the ultra-scary safety gate, and distinguish

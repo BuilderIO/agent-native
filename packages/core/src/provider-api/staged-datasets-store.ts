@@ -28,7 +28,7 @@ export const MAX_BYTES_PER_APP = 50 * 1024 * 1024; // 50 MB
 
 let _initPromise: Promise<void> | undefined;
 
-async function ensureTables(): Promise<void> {
+export async function ensureTables(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
       const db = getDbExec();

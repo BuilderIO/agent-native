@@ -14,10 +14,17 @@ import {
   LOCALE_METADATA,
   LOCALE_STORAGE_KEY,
   SUPPORTED_LOCALES,
+  localeDisplayName,
   type LocaleCode,
 } from "../localization/shared.js";
 import { NATIVE_AUTH_COPY } from "../shared/auth-copy.js";
 import { docsUrl } from "../shared/docs-url.js";
+import {
+  BETA_OPT_OUT_DURATION_MS,
+  BETA_OPT_OUT_QUERY_PARAM,
+  BETA_OPT_OUT_STORAGE_KEY,
+  ENVIRONMENT_BETA_HOSTS,
+} from "../shared/environment-lanes.js";
 import {
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
@@ -33,8 +40,13 @@ import {
 } from "../shared/social-meta.js";
 import { normalizeAppBasePath } from "./app-base-path.js";
 import {
+  AUTH_MARKETING_LOCALE_COPY,
+  type AuthMarketingLocaleCopy,
+} from "./auth-marketing-locales.js";
+import {
   BUILT_IN_AUTH_MARKETING,
   resolveBuiltInAuthMarketing,
+  resolveBuiltInAuthMarketingSlug,
   type AuthMarketingContent,
 } from "./auth-marketing.js";
 import {
@@ -1008,129 +1020,32 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
 
 const defaultAuthCopy = AUTH_LOCALE_COPY[DEFAULT_LOCALE];
 
-type AuthMarketingLocalization = Pick<
-  AuthMarketingContent,
-  "tagline" | "description" | "features"
->;
-
-const AUTH_MARKETING_LOCALE_COPY: Partial<
-  Record<LocaleCode, Record<string, Partial<AuthMarketingLocalization>>>
-> = {
-  "zh-CN": {
-    forms: {
-      tagline: "你的 AI 代理与你一起构建、发布和分析表单。",
-      features: [
-        "用一句话创建完整表单",
-        "即时发布，生成可分享链接和验证码",
-        "按需获取回复摘要、导出和趋势分析",
-      ],
-    },
-  },
-  "zh-TW": {
-    forms: {
-      tagline: "你的 AI 代理會和你一起建立、發布與分析表單。",
-      features: [
-        "用一句話建立完整表單",
-        "立即發布，產生可分享連結與驗證碼",
-        "依需求取得回覆摘要、匯出與趨勢分析",
-      ],
-    },
-  },
-  "es-ES": {
-    forms: {
-      tagline: "Tu agente de IA crea, publica y analiza formularios contigo.",
-      features: [
-        "Crea formularios completos con una sola frase",
-        "Publicación instantánea con enlaces compartibles y captcha",
-        "Resúmenes de respuestas, exportaciones y análisis de tendencias al instante",
-      ],
-    },
-  },
-  "fr-FR": {
-    forms: {
-      tagline:
-        "Votre agent IA crée, publie et analyse des formulaires avec vous.",
-      features: [
-        "Créez des formulaires complets à partir d'une seule phrase",
-        "Publication instantanée avec liens partageables et captcha",
-        "Résumés de réponses, exports et analyse des tendances à la demande",
-      ],
-    },
-  },
-  "de-DE": {
-    forms: {
-      tagline:
-        "Dein KI-Agent erstellt, veröffentlicht und analysiert Formulare mit dir.",
-      features: [
-        "Erstelle vollständige Formulare aus einem einzigen Satz",
-        "Sofortige Veröffentlichung mit teilbaren Links und Captcha",
-        "Antwortzusammenfassungen, Exporte und Trendanalysen auf Abruf",
-      ],
-    },
-  },
-  "ja-JP": {
-    forms: {
-      tagline: "AI エージェントがフォームの作成、公開、分析を一緒に進めます。",
-      features: [
-        "一文から完全なフォームを作成",
-        "共有リンクと CAPTCHA 付きで即時公開",
-        "回答の要約、エクスポート、トレンド分析を必要なときに実行",
-      ],
-    },
-  },
-  "ko-KR": {
-    forms: {
-      tagline: "AI 에이전트가 양식 생성, 게시, 분석을 함께 도와줍니다.",
-      features: [
-        "한 문장으로 완성된 양식 만들기",
-        "공유 링크와 captcha로 즉시 게시",
-        "응답 요약, 내보내기, 추세 분석을 필요할 때 실행",
-      ],
-    },
-  },
-  "pt-BR": {
-    forms: {
-      tagline:
-        "Seu agente de IA cria, publica e analisa formulários junto com você.",
-      features: [
-        "Crie formulários completos a partir de uma única frase",
-        "Publicação instantânea com links compartilháveis e captcha",
-        "Resumos de respostas, exportações e análise de tendências sob demanda",
-      ],
-    },
-  },
-  "hi-IN": {
-    forms: {
-      tagline:
-        "आपका AI एजेंट आपके साथ फ़ॉर्म बनाता, प्रकाशित करता और उनका विश्लेषण करता है।",
-      features: [
-        "एक वाक्य से पूरे फ़ॉर्म बनाएं",
-        "शेयर करने योग्य लिंक और captcha के साथ तुरंत प्रकाशित करें",
-        "ज़रूरत पड़ने पर प्रतिक्रिया सारांश, exports और trend analysis पाएं",
-      ],
-    },
-  },
-  "ar-SA": {
-    forms: {
-      tagline: "يساعدك وكيل الذكاء الاصطناعي على إنشاء النماذج ونشرها وتحليلها.",
-      features: [
-        "أنشئ نماذج كاملة من جملة واحدة",
-        "نشر فوري مع روابط قابلة للمشاركة وcaptcha",
-        "ملخصات للإجابات وتصدير وتحليل اتجاهات عند الطلب",
-      ],
-    },
-  },
-};
-
 function resolveBuiltInMarketingSlug(
   marketing: AuthMarketingContent | undefined,
+  opts: { requestHost?: string; requestPath?: string } = {},
 ): string | undefined {
   if (!marketing) return undefined;
+
+  const matchesBuiltInMarketing = (builtIn: AuthMarketingContent) =>
+    marketing.appName === builtIn.appName &&
+    marketing.tagline === builtIn.tagline &&
+    marketing.description === builtIn.description &&
+    JSON.stringify(marketing.features ?? []) ===
+      JSON.stringify(builtIn.features ?? []) &&
+    JSON.stringify(marketing.signupLocalModeNote ?? null) ===
+      JSON.stringify(builtIn.signupLocalModeNote ?? null);
+
+  const requestSlug = resolveBuiltInAuthMarketingSlug(opts);
+  if (requestSlug) {
+    const builtIn = BUILT_IN_AUTH_MARKETING[requestSlug];
+    if (builtIn && matchesBuiltInMarketing(builtIn)) return requestSlug;
+  }
+
   for (const [slug, builtIn] of Object.entries(BUILT_IN_AUTH_MARKETING)) {
-    if (
-      marketing.appName === builtIn.appName &&
-      marketing.tagline === builtIn.tagline
-    ) {
+    // Caller-supplied marketing can reuse a built-in app name. Only an exact
+    // content match may claim a slug, or localized copy would overwrite the
+    // custom description/features.
+    if (matchesBuiltInMarketing(builtIn)) {
       return slug;
     }
   }
@@ -1252,15 +1167,26 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
       requestPath: opts.requestPath,
     });
   const hasMarketing = !!marketing && !simplifiedAuth;
-  const marketingSlug = resolveBuiltInMarketingSlug(marketing);
-  const defaultMarketingCopy: Partial<AuthMarketingLocalization> | undefined =
-    marketing
-      ? {
-          tagline: marketing.tagline,
-          description: marketing.description,
-          features: marketing.features,
-        }
-      : undefined;
+  const marketingSlug = resolveBuiltInMarketingSlug(marketing, {
+    requestHost: opts.requestHost,
+    requestPath: opts.requestPath,
+  });
+  const defaultMarketingCopy: AuthMarketingLocaleCopy | undefined = marketing
+    ? {
+        tagline: marketing.tagline,
+        description: marketing.description,
+        features: marketing.features,
+      }
+    : undefined;
+  const localizedMarketingCopy: Record<string, AuthMarketingLocaleCopy> = {};
+  if (marketingSlug) {
+    for (const [locale, copyBySlug] of Object.entries(
+      AUTH_MARKETING_LOCALE_COPY,
+    )) {
+      const copy = copyBySlug?.[marketingSlug];
+      if (copy) localizedMarketingCopy[locale] = copy;
+    }
+  }
   const signupLocalModeNote =
     isAgentNativeHostedHost(opts.requestHost) &&
     marketing?.signupLocalModeNote?.command.trim()
@@ -1306,14 +1232,10 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   const localeMenuItemsHtml = [
     `    <button type="button" class="locale-menu-item" role="menuitemradio" aria-checked="false" data-locale-value="system">
       <span class="locale-menu-check" aria-hidden="true">✓</span>
-      <span${i18nAttr("systemLanguage")}>${esc(t("systemLanguage"))}</span>
+      <span data-system-language>${esc(t("systemLanguage"))}</span>
     </button>`,
     ...SUPPORTED_LOCALES.map((locale) => {
-      const metadata = LOCALE_METADATA[locale];
-      const label =
-        metadata.nativeName === metadata.englishName
-          ? `${metadata.nativeName} (${metadata.code})`
-          : `${metadata.nativeName} (${metadata.englishName})`;
+      const label = localeDisplayName(locale);
       return `    <button type="button" class="locale-menu-item" role="menuitemradio" aria-checked="false" data-locale-value="${esc(locale)}">
       <span class="locale-menu-check" aria-hidden="true">✓</span>
       <span>${esc(label)}</span>
@@ -1334,6 +1256,15 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   </button>
   <div class="locale-menu" id="auth-locale-menu" role="menu" aria-labelledby="auth-locale-trigger" hidden>
 ${localeMenuItemsHtml}
+  </div>
+</div>`;
+  const environmentBadgeHtml = `
+<div class="environment-switcher" id="environment-switcher" hidden>
+  <button type="button" class="environment-badge" id="environment-badge" aria-expanded="false" aria-controls="environment-popover">beta</button>
+  <div class="environment-popover" id="environment-popover" role="dialog" aria-labelledby="environment-popover-title" hidden>
+    <div class="environment-popover-title" id="environment-popover-title">You're on Agent Native Beta</div>
+    <div class="environment-popover-copy">Choose where you want to continue.</div>
+    <a class="environment-production-link" id="environment-production-link" href="">Switch to production</a>
   </div>
 </div>`;
   const hostedSignupLegalNotice: SignupLegalNoticeOptions | undefined =
@@ -1729,8 +1660,81 @@ ${marketing!.description ? `      <p class="app-desc" data-marketing-field="desc
       }
     }
     if (!reducedMotion) startAnimation();
-  })();`
+    })();`
     : "";
+  const environmentBadgeScript = `
+  (function __anInitEnvironmentBadge() {
+    var switcher = document.getElementById('environment-switcher');
+    var button = document.getElementById('environment-badge');
+    var popover = document.getElementById('environment-popover');
+    var productionLink = document.getElementById('environment-production-link');
+    if (!switcher || !button || !popover || !productionLink) return;
+    if (window.parent !== window) return;
+
+    // Persist the beta opt-out before authentication replaces this cached shell.
+    try {
+      var optOutUrl = new URL(window.location.href);
+      var optOutValue = optOutUrl.searchParams.get(${JSON.stringify(BETA_OPT_OUT_QUERY_PARAM)});
+      if (optOutValue !== null) {
+        var optOutExpiry = Number(optOutValue);
+        var optOutIsActive = Number.isFinite(optOutExpiry) && optOutExpiry > Date.now();
+        var optOutStorageReady = false;
+        try {
+          if (optOutIsActive) {
+            window.localStorage.setItem(
+              ${JSON.stringify(BETA_OPT_OUT_STORAGE_KEY)},
+              String(optOutExpiry),
+            );
+          }
+          optOutStorageReady = true;
+        } catch (error) {
+          void error;
+        }
+        if (optOutStorageReady) {
+          optOutUrl.searchParams.delete(${JSON.stringify(BETA_OPT_OUT_QUERY_PARAM)});
+          window.history.replaceState(null, '', optOutUrl.toString());
+        }
+      }
+    } catch (error) {
+      void error;
+    }
+
+    var betaHosts = ${JSON.stringify(ENVIRONMENT_BETA_HOSTS)};
+    var hostname = (window.location.hostname || '').toLowerCase().replace(/\\.$/, '');
+    var productionHost = hostname.indexOf('beta.') === 0 ? hostname.slice(5) : '';
+    if (!productionHost || betaHosts[productionHost] !== hostname) return;
+
+    try {
+      var productionUrl = new URL(window.location.href);
+      productionUrl.protocol = 'https:';
+      productionUrl.hostname = productionHost;
+      productionUrl.port = '';
+      productionUrl.searchParams.set(
+        ${JSON.stringify(BETA_OPT_OUT_QUERY_PARAM)},
+        String(Date.now() + ${BETA_OPT_OUT_DURATION_MS}),
+      );
+      productionLink.href = productionUrl.toString();
+    } catch (error) {
+      void error;
+      return;
+    }
+
+    function setOpen(open) {
+      popover.hidden = !open;
+      button.setAttribute('aria-expanded', String(open));
+    }
+
+    switcher.hidden = false;
+    button.addEventListener('click', function() {
+      setOpen(popover.hidden);
+    });
+    document.addEventListener('click', function(event) {
+      if (!switcher.contains(event.target)) setOpen(false);
+    });
+    document.addEventListener('keydown', function(event) {
+      if (event.key === 'Escape') setOpen(false);
+    });
+  })();`;
 
   return `<!DOCTYPE html>
 <html lang="${DEFAULT_LOCALE}" dir="ltr">
@@ -1873,6 +1877,69 @@ ${
   .locale-menu-item[aria-checked="true"] .locale-menu-check {
     opacity: 1;
   }
+  /* guard:allow-raw-color - standalone auth HTML has no app theme token layer */
+  .environment-switcher {
+    position: fixed;
+    right: max(0.75rem, env(safe-area-inset-right));
+    bottom: max(0.75rem, env(safe-area-inset-bottom));
+    z-index: 100;
+  }
+  .environment-switcher[hidden],
+  .environment-popover[hidden] { display: none; }
+  .environment-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 1.5rem;
+    min-width: 0;
+    padding: 0 0.5rem;
+    background: #3a3a3a;
+    color: #fff;
+    border: 1px solid rgba(255,255,255,0.16);
+    border-radius: 0.75rem;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+    font: inherit;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.03125rem;
+    line-height: 1;
+    text-transform: uppercase;
+    cursor: pointer;
+  }
+  .environment-badge:hover,
+  .environment-badge[aria-expanded="true"] { background: #4a4a4a; }
+  .environment-badge:focus-visible,
+  .environment-production-link:focus-visible {
+    outline: 2px solid #33c4ff;
+    outline-offset: 2px;
+  }
+  .environment-popover {
+    position: absolute;
+    right: 0;
+    bottom: calc(100% + 0.5rem);
+    width: min(17.5rem, calc(100vw - 1.5rem));
+    padding: 1.25rem;
+    background: #141414;
+    color: #fff;
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 0.75rem;
+    box-shadow: 0 18px 50px rgba(0,0,0,0.42);
+  }
+  .environment-popover-title { margin-bottom: 0.25rem; font-size: 0.875rem; font-weight: 600; line-height: 1.25rem; }
+  .environment-popover-copy { margin-bottom: 1rem; color: #888; font-size: 0.875rem; line-height: 1.25rem; }
+  .environment-production-link {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 2rem;
+    padding: 0.375rem 0.75rem;
+    color: #e5e5e5;
+    border: 1px solid rgba(255,255,255,0.16);
+    border-radius: 0.375rem;
+    font-size: 0.8125rem;
+    text-decoration: none;
+  }
+  .environment-production-link:hover { background: #242424; }
   .card {
     width: 100%;
     max-width: 400px;
@@ -2292,6 +2359,7 @@ ${embeddedAuthCss}
 </head>
 <body${simplifiedAuth ? ' class="simplified-auth"' : hasMarketing ? ' class="has-marketing"' : ""}>
 ${localePickerHtml}
+${environmentBadgeHtml}
 ${marketingPanelHtml}
 <div class="card">
   <h1 id="heading"${i18nAttr(googleOnly ? "signInTitle" : "welcomeTitle")}>${esc(t(googleOnly ? "signInTitle" : "welcomeTitle"))}</h1>
@@ -2389,6 +2457,7 @@ ${signupLocalModeNoteHtml}
   <span${i18nAttr("localNotePrefix")}>${esc(t("localNotePrefix"))}</span> (<strong>${getConnectionLabel()}</strong>)<span${i18nAttr("localNoteSuffix")}>${esc(t("localNoteSuffix"))}</span>
 </p>${marketingCloseHtml}
 <script>
+${environmentBadgeScript}
   function __anBasePath() {
     var configured = ${JSON.stringify(appBasePath)};
     if (configured) return configured;
@@ -2430,7 +2499,7 @@ ${signInJourneyInlineScript()}
     var __AN_AUTH_HAS_MARKETING = ${JSON.stringify(hasMarketing)};
     var __AN_AUTH_MARKETING_SLUG = ${JSON.stringify(marketingSlug ?? "")};
     var __AN_AUTH_MARKETING_DEFAULT = ${JSON.stringify(defaultMarketingCopy ?? {})};
-    var __AN_AUTH_MARKETING_LOCALES = ${JSON.stringify(AUTH_MARKETING_LOCALE_COPY)};
+    var __AN_AUTH_MARKETING_LOCALES = ${JSON.stringify(localizedMarketingCopy)};
     var __anAuthLocale = __AN_AUTH_DEFAULT_LOCALE;
     var __anAuthLocalePreference = 'system';
     var __AN_AUTH_MODE = ${JSON.stringify(authMode)};
@@ -2475,17 +2544,26 @@ ${signInJourneyInlineScript()}
       } catch(e) {}
       return [];
     }
-    function __anResolveAuthLocale(preference) {
-      var normalizedPreference = __anNormalizeAuthLocalePreference(preference) || 'system';
-      if (normalizedPreference !== 'system') return normalizedPreference;
-      var rootLocale = __anNormalizeAuthLocale(document.documentElement.getAttribute('data-locale'));
-      if (rootLocale) return rootLocale;
+    function __anResolveAuthSystemLocale() {
       var locales = __anBrowserAuthLocales();
       for (var i = 0; i < locales.length; i++) {
         var match = __anNormalizeAuthLocale(locales[i]);
         if (match) return match;
       }
       return __AN_AUTH_DEFAULT_LOCALE;
+    }
+    function __anResolveAuthLocale(preference) {
+      var normalizedPreference = __anNormalizeAuthLocalePreference(preference) || 'system';
+      return normalizedPreference === 'system'
+        ? __anResolveAuthSystemLocale()
+        : normalizedPreference;
+    }
+    function __anApplyAuthSystemLanguage() {
+      var systemLanguage = document.querySelector('[data-system-language]');
+      if (!systemLanguage) return;
+      var systemLocale = __anResolveAuthSystemLocale();
+      var localized = __AN_AUTH_LOCALES[systemLocale] || __AN_AUTH_LOCALES[__AN_AUTH_DEFAULT_LOCALE] || {};
+      systemLanguage.textContent = localized.systemLanguage || 'System';
     }
     function __anT(key) {
       var localized = __AN_AUTH_LOCALES[__anAuthLocale] || __AN_AUTH_LOCALES[__AN_AUTH_DEFAULT_LOCALE] || {};
@@ -2539,7 +2617,7 @@ ${signInJourneyInlineScript()}
     }
     function __anMarketingCopy() {
       if (!__AN_AUTH_MARKETING_SLUG) return __AN_AUTH_MARKETING_DEFAULT || {};
-      var localeMarketing = (__AN_AUTH_MARKETING_LOCALES[__anAuthLocale] || {})[__AN_AUTH_MARKETING_SLUG] || {};
+      var localeMarketing = __AN_AUTH_MARKETING_LOCALES[__anAuthLocale] || {};
       return {
         tagline: localeMarketing.tagline || __AN_AUTH_MARKETING_DEFAULT.tagline,
         description: localeMarketing.description || __AN_AUTH_MARKETING_DEFAULT.description,
@@ -2588,6 +2666,7 @@ ${signInJourneyInlineScript()}
       document.title = __AN_AUTH_HAS_MARKETING && __AN_AUTH_MARKETING_APP_NAME
         ? __AN_AUTH_MARKETING_APP_NAME + ' — ' + __anT('pageTitleSignIn')
         : __anT('pageTitleWelcome');
+      __anApplyAuthSystemLanguage();
       __anApplyAuthMarketingCopy();
       __anRefreshAuthViewCopy();
     }
@@ -2986,10 +3065,8 @@ ${identitySsoScript}
       if (__anIsBuilderPreview()) return __anIsInFrame() ? 'popup' : 'redirect';
       // Per-session override for ad-hoc testing outside Builder: append
       // ?authMode=popup or ?authMode=redirect to the sign-in URL.
-      try {
-        var qp = new URLSearchParams(window.location.search).get('authMode');
-        if (qp === 'popup' || qp === 'redirect') return qp;
-      } catch(e) {}
+      var qp = new URLSearchParams(window.location.search).get('authMode');
+      if (qp === 'popup' || qp === 'redirect') return qp;
       var mode = __AN_GOOGLE_AUTH_MODE || 'auto';
       if (mode === 'popup') return 'popup';
       if (mode === 'redirect') return 'redirect';
@@ -3007,6 +3084,22 @@ ${identitySsoScript}
         }
       } catch(e) {}
       return 'builder-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
+    }
+    function __anNewOAuthVerifier() {
+      try {
+        if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+          return window.crypto.randomUUID() + window.crypto.randomUUID();
+        }
+        if (window.crypto && typeof window.crypto.getRandomValues === 'function') {
+          var bytes = new Uint8Array(32);
+          window.crypto.getRandomValues(bytes);
+          var binary = '';
+          for (var i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+          return btoa(binary).replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/, '');
+        }
+      } catch(e) { // coercion-ok: callers reject the empty verifier fallback.
+      }
+      return '';
     }
     function __anFlowDebugId(flowId) {
       return flowId ? String(flowId).slice(-10) : '';
@@ -3110,8 +3203,11 @@ ${identitySsoScript}
         __anOAuthPollCount++;
         try {
           var exchangeParams = '?flow_id=' + encodeURIComponent(flowId);
-          if (verifier) exchangeParams += '&verifier=' + encodeURIComponent(verifier);
-          var res = await fetch(__anPath('/_agent-native/auth/desktop-exchange') + exchangeParams, { credentials: 'include' });
+          var exchangeOptions = { credentials: 'include' };
+          if (verifier) {
+            exchangeOptions.headers = { 'X-Agent-Native-Desktop-Verifier': verifier };
+          }
+          var res = await fetch(__anPath('/_agent-native/auth/desktop-exchange') + exchangeParams, exchangeOptions);
           var data = await res.json().catch(function() { return {}; });
           if (data && (data.email || data.token)) {
             if (__anOAuthPollTimer) clearInterval(__anOAuthPollTimer);
@@ -3152,49 +3248,81 @@ ${identitySsoScript}
       __anOAuthPollTimer = setInterval(check, 1000);
       setTimeout(check, 500);
     }
-    function __anStartPopupOAuth(ret, btn, err) {
-      var flowId = __anNewOAuthFlowId();
-      var oauthReturn = __anIsBuilderPreview() ? __anOAuthReturnTarget(ret) : ret;
+    async function __anRequestDesktopOAuthUrl(flowId, verifier, oauthReturn) {
       var params = new URLSearchParams();
       if (oauthReturn) params.set('return', oauthReturn);
       params.set('desktop', '1');
       params.set('flow_id', flowId);
-      params.set('redirect', '1');
-      var url = __anGoogleAuthUrlPath() + '?' + params.toString();
+      var res = await fetch(__anGoogleAuthUrlPath() + '?' + params.toString(), {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Accept': 'application/json',
+          'X-Agent-Native-Desktop-Verifier': verifier
+        }
+      });
+      var data;
+      try {
+        data = await res.json();
+      } catch(e) {
+        throw new Error(__anT('failedToConnect'));
+      }
+      if (!res.ok || !data || typeof data.url !== 'string' || !data.url) {
+        throw new Error(__anAuthErrorText(data, __anT('failedToConnect')));
+      }
+      return data.url;
+    }
+    function __anStartPopupOAuth(ret, btn, err) {
+      var flowId = __anNewOAuthFlowId();
+      var verifier = __anNewOAuthVerifier();
+      if (!verifier) {
+        __anShowOAuthError(err, btn, __anT('failedToConnect'));
+        return;
+      }
+      var oauthReturn = __anIsBuilderPreview() ? __anOAuthReturnTarget(ret) : ret;
       try { sessionStorage.setItem('__an_signin', '1'); } catch(e) {}
       __anSetOAuthDebug('Opening Google sign-in popup', flowId);
+      var popup;
       try {
-        var popup = window.open('', '_blank', 'width=640,height=760');
+        popup = window.open('', '_blank', 'width=640,height=760');
         if (!popup) {
           __anHandlePopupOAuthFailure(ret, btn, err, flowId, 'Google popup was blocked; falling back to redirect', 'Google popup was blocked.');
           return;
         }
         try { popup.opener = null; } catch(e) {}
-        try {
-          popup.location.href = url;
-        } catch(e) {
-          try { popup.close(); } catch(closeErr) {}
-          __anHandlePopupOAuthFailure(ret, btn, err, flowId, 'Could not navigate Google popup; falling back to redirect', 'Could not navigate Google popup.');
-          return;
-        }
-        __anSetOAuthDebug('Google popup opened; waiting for callback', flowId);
       } catch(e) {
         __anHandlePopupOAuthFailure(ret, btn, err, flowId, 'Could not open Google popup; falling back to redirect', 'Could not open Google popup.');
         return;
       }
-      __anWaitForOAuthExchange(flowId, ret, btn, err);
+      __anRequestDesktopOAuthUrl(flowId, verifier, oauthReturn).then(function(url) {
+        try {
+          popup.location.href = url;
+          __anSetOAuthDebug('Google popup opened; waiting for callback', flowId);
+          __anWaitForOAuthExchange(flowId, ret, btn, err, 'google', verifier);
+        } catch(e) {
+          throw e;
+        }
+      }).catch(function(e) {
+        try { popup.close(); } catch(closeErr) {}
+        __anShowOAuthError(err, btn, e && e.message ? e.message : __anT('failedToConnect'));
+      });
     }
     function __anStartNativeDesktopOAuth(ret, btn, err) {
       var flowId = __anNewOAuthFlowId();
-      var params = new URLSearchParams();
-      if (ret) params.set('return', ret);
-      params.set('desktop', '1');
-      params.set('flow_id', flowId);
-      params.set('redirect', '1');
-      var url = __anGoogleAuthUrlPath() + '?' + params.toString();
-      __anSetOAuthDebug('Opening Google sign-in in system browser', flowId);
-      __anOpenOAuthUrl(url);
-      __anWaitForOAuthExchange(flowId, ret, btn, err);
+      var verifier = __anNewOAuthVerifier();
+      if (!verifier) {
+        __anShowOAuthError(err, btn, __anT('failedToConnect'));
+        return;
+      }
+      var oauthReturn = ret;
+      __anSetOAuthDebug('Preparing Google sign-in in system browser', flowId);
+      __anRequestDesktopOAuthUrl(flowId, verifier, oauthReturn).then(function(url) {
+        __anSetOAuthDebug('Opening Google sign-in in system browser', flowId);
+        __anOpenOAuthUrl(url);
+        __anWaitForOAuthExchange(flowId, ret, btn, err, 'google', verifier);
+      }).catch(function(e) {
+        __anShowOAuthError(err, btn, e && e.message ? e.message : __anT('failedToConnect'));
+      });
     }
     function __anOpenOAuthUrl(url) {
       try { sessionStorage.setItem('__an_signin', '1'); } catch(e) {}

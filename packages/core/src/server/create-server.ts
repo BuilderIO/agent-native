@@ -9,6 +9,7 @@ import {
   type H3Event,
 } from "h3";
 
+import { getAppConfig } from "../app-config/index.js";
 import { getOrgContext } from "../org/context.js";
 import { readBody } from "../server/h3-helpers.js";
 import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
@@ -49,7 +50,7 @@ export interface CreateServerOptions {
   cors?: Record<string, unknown> | false;
   /** JSON body parser limit. Kept for API compatibility (H3 uses readBody). */
   jsonLimit?: string;
-  /** Custom ping message. Default: reads PING_MESSAGE env var, falls back to "pong" */
+  /** Custom ping message. Default: reads the shared app config. */
   pingMessage?: string;
   /** Disable the /_agent-native/ping health check. Default: false */
   disablePing?: boolean;
@@ -195,8 +196,7 @@ export function createServer(
     router.get(
       "/_agent-native/ping",
       defineEventHandler((event) => {
-        const message =
-          options.pingMessage ?? process.env.PING_MESSAGE ?? "pong";
+        const message = options.pingMessage ?? getAppConfig().app.pingMessage;
         const configuration =
           event.url?.searchParams.get("configuration") === "1" ||
           event.url?.searchParams.get("configuration") === "true";
@@ -216,7 +216,7 @@ export function createServer(
           message,
           configuration: getRuntimeConfigReport(process.env, requirements, {
             phase: "runtime",
-            appName: process.env.APP_NAME,
+            appName: getAppConfig().app.name,
           }),
         };
       }),

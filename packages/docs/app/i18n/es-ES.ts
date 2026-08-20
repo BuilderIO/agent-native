@@ -21,9 +21,11 @@ const esES = {
     copyLogoSvg: "Copiar SVG del logotipo",
     copyWordmark: "Copiar logotipo textual",
     brandAssets: "Recursos de marca",
+    tryNow: "Probar ahora",
   },
   footer: {
     download: "Descargar",
+    pricing: "Precios",
     brand: "Marca",
     privacy: "Privacidad",
     terms: "Términos",
@@ -520,12 +522,6 @@ const esES = {
       description:
         "Creador de formularios nativo del agente. Genere formularios a partir de un mensaje, edite campos de forma visual o conversacional y envíe envíos a Slack, Discord, Google Sheets o webhooks.",
     },
-    brain: {
-      replaces:
-        "Reemplaza o aumenta los wikis del equipo, la recuperación estilo Glean y las herramientas de memoria institucional.",
-      description:
-        "Chat empresarial de página completa sobre memoria citada de Slack, Clips, Granola, GitHub y fuentes de transcripción, con puertas de revisión, evaluaciones y preparación de conexión compartida integradas.",
-    },
     assets: {
       replaces:
         "Reemplaza o aumenta DAMs, bibliotecas de activos de marca y generadores de medios AI",
@@ -549,14 +545,37 @@ const esES = {
     },
   },
   templateLanding: {
+    faq: {
+      eyebrow: "Preguntas frecuentes",
+      title: "Respuestas a preguntas frecuentes",
+    },
     analytics: {
+      faq: {
+        question1:
+          "¿Puedo hacer preguntas sobre mis analíticas en lenguaje natural?",
+        answer1:
+          "Sí. Haz la pregunta; el agente escribe el SQL, lo ejecuta en BigQuery y crea el gráfico. Las consultas conservan el historial, el número de filas y las URL que puedes compartir.",
+        question2: "¿En qué se diferencia Analytics de Amplitude o Mixpanel?",
+        answer2:
+          "Esas plataformas cobran por usuario y por evento, y la interfaz les pertenece. Analytics es gratuito y de código abierto, y el agente amplía la propia app —con nuevos gráficos y conectores— cuando se lo pides.",
+        question3: "¿Qué fuentes de datos puedo conectar?",
+        answer3:
+          "Más de diez conectores integrados: HubSpot, Stripe, GitHub, Jira, Sentry, Slack, Gong, Notion, Google Cloud y muchos más. Si falta el tuyo, el agente puede crear el conector.",
+        question4: "¿Necesito saber SQL?",
+        answer4:
+          "No: el lenguaje natural es la interfaz. Pero el explorador de SQL está ahí cuando lo necesitas, con acceso directo a BigQuery y el historial completo de consultas.",
+        question5: "¿Analytics es gratuito?",
+        answer5:
+          "Sí, es gratuito y de código abierto, sin facturación por evento. Tus datos permanecen en tu propio almacén de datos.",
+      },
       s001: "Analytics captura de pantalla de la plantilla",
       s002: "Conectores de datos",
       s003: "Tipos de gráficos",
       s004: "Explorador de consultas",
       s005: "lenguaje natural",
       s006: "Todas las plantillas",
-      s007: "La alternativa de código abierto a Amplitude y FullStory",
+      s007Primary: "La alternativa de código abierto a",
+      s007Secondary: "Amplitude y FullStory",
       s008: "Conecte cualquier fuente de datos, solicite cualquier gráfico, cree paneles reutilizables: el agente AI escribe el SQL.",
       s009: "Probar",
       s010: "que puedes hacer",
@@ -616,12 +635,27 @@ const esES = {
       s064: "Ver todas las plantillas",
     },
     calendar: {
+      faq: {
+        question1: "¿Puede la IA programar mis reuniones?",
+        answer1:
+          "Sí. Pide al agente que encuentre un hueco, cree un evento, compruebe la disponibilidad o reprograme una cita: trabaja dentro de tu calendario real y respeta los eventos existentes.",
+        question2: "¿Calendar ofrece enlaces de reserva como Calendly?",
+        answer2:
+          "Sí: páginas de reserva personalizables con disponibilidad por tipo, captura de información de visitantes, confirmaciones y dominios personalizados.",
+        question3: "¿Se sincroniza con Google Calendar?",
+        answer3:
+          "Sí: sincronización mediante OAuth, compatibilidad con varias cuentas y renovación automática de tokens. Crea, actualiza y elimina eventos directamente en Google.",
+        question4: "¿Calendar es gratuito?",
+        answer4:
+          "Sí. Es gratuito y de código abierto, incluidas las páginas de reserva.",
+      },
       s001: "Calendar captura de pantalla de la plantilla",
       s002: "Calendar vistas",
       s003: "Acciones del agente",
       s004: "Tipos de enlaces de reserva",
       s005: "Todas las plantillas",
-      s006: "La alternativa de código abierto Google Calendar y Calendly",
+      s006Primary: "La alternativa de código abierto",
+      s006Secondary: "Google Calendar y Calendly",
       s007: "Sincronización de cuentas múltiples Google Calendar, disponibilidad configurable y enlaces de reserva personalizables estilo Calendly, con un agente AI que programa en su nombre.",
       s008: "Probar",
       s009: "Iniciar sesión solo utiliza la identidad básica Google, pero conectar la sincronización Calendar solicita acceso al calendario. Es posible que algunos administradores de Workspace requieran aprobación para la demostración alojada. Ejecútelo localmente para utilizar su propio cliente Google OAuth.",
@@ -675,6 +709,35 @@ const esES = {
       s057: "Nota de la demo alojada",
       s058: "Sincronización bidireccional",
     },
+    assets: {
+      faq: {
+        question1: "¿Puede la IA generar imágenes que respeten mi marca?",
+        answer1:
+          "Sí: la generación se basa en tus bibliotecas de marca y referencias subidas, no en el gusto de un modelo genérico. Imágenes y vídeo fieles a la marca, creados a partir de reglas que el agente ha leído realmente.",
+        question2: "¿En qué se diferencia Assets de un DAM?",
+        answer2:
+          "Un DAM almacena archivos aprobados para que las personas los busquen. Assets hace eso y además convierte la marca en información legible por máquinas, para que los agentes generen y elijan contenido multimedia fiel a ella de forma predeterminada.",
+        question3: "¿Pueden usarlo mis otras apps?",
+        answer3:
+          "Sí: cualquier app Agent-Native puede invocar Assets mediante A2A o integrarlo como selector, para que apps como Slides y Design utilicen la misma biblioteca aprobada.",
+        question4: "¿Assets es gratuito?",
+        answer4:
+          "Sí, es gratuito y de código abierto. Ejecuta `npx @agent-native/core@latest create my-assets-app --template assets` y será tuyo.",
+      },
+    },
+    chat: {
+      faq: {
+        question1: "¿Qué es la plantilla Chat?",
+        answer1:
+          "Una base mínima al estilo de ChatGPT para tu propio agente: hilos duraderos, autenticación, acciones, sincronización en vivo, una barra lateral estándar y una vía clara para añadir pantallas o conectar tu backend.",
+        question2: "¿En qué se diferencia de ChatGPT?",
+        answer2:
+          "ChatGPT es la app de OpenAI para los modelos de OpenAI. Esta es tuya: tu backend de agente, tus datos y tus pantallas; un punto de partida que puedes ampliar, no un producto que alquilas.",
+        question3: "¿Está lista para producción?",
+        answer3:
+          "Es una base deliberadamente mínima: el punto de partida honesto para una app de chat, no una app terminada. Si quieres algo terminado, empieza con una de las otras apps.",
+      },
+    },
     clips: {
       s001: "Clips captura de pantalla de la plantilla",
       s002: "Registro de pantalla",
@@ -684,7 +747,7 @@ const esES = {
       s006: "Todas las plantillas",
       s007: "La alternativa de código abierto a Loom",
       s008: "Pegue un enlace Clips en un agente y este podrá escuchar la transcripción, leer resúmenes y ver fotogramas con marca de tiempo incluso si su modelo no puede ingerir video o audio sin procesar.",
-      s009: "Probar",
+      s009: "Pruébalo",
       s010: "que puedes hacer",
       s011: "Grabe, transcriba y depure: una aplicación, una biblioteca, sin la pila de suscripción.",
       s012: "Grabación de pantalla con un clic",
@@ -727,19 +790,52 @@ const esES = {
       s049: "Propiedad de los datos",
       s050: "almacenamiento del vendedor",
       s051: "La nube del vendedor",
-      s052: "Eres dueño del código",
+      s052: "Eres dueño de tus datos e incluso del propio código de la app.",
       s053: "Precios",
       s054: "$15-30 al mes por usuario",
       s055: "Niveles gratuitos + pagos",
       s056: "$18-25 al mes por usuario",
       s057: "$12-15 al mes por usuario",
       s058: "Gratis y de código abierto",
-      s059: "Comience en minutos",
-      s060: "Empieza con la plantilla, conecta tu almacenamiento y comienza a grabar clips que tu equipo realmente posee.",
-      s061: "Lea los documentos",
+      s059: "Empieza ahora",
+      s060: "Elige qué quieres capturar y, después, empieza a grabar en Clips.",
+      s061: "Ver más aplicaciones",
       s062: "Ver todas las plantillas",
+      quickStart: {
+        recordingMode: "Modo de grabación",
+        modeScreenCamera: "Pantalla + cámara",
+        modeScreenOnly: "Solo pantalla",
+        modeCameraOnly: "Solo cámara",
+        captureSource: "Fuente de captura",
+        surfaceWindow: "Ventana",
+        surfaceBrowser: "Pestaña del navegador",
+        surfaceScreen: "Pantalla",
+        audioSource: "Fuente de audio",
+        defaultMicrophone: "Micrófono predeterminado",
+        startRecording: "Iniciar grabación",
+        uploadVideo: "Subir vídeo",
+        importLoom: "Importar desde Loom",
+      },
     },
     content: {
+      faq: {
+        question1:
+          "¿Puede un agente de IA editar mis documentos sin exportaciones ni API?",
+        answer1:
+          "Sí. Content trabaja con archivos locales Markdown/MDX, los mismos que están en tu repositorio. Tu agente ya los tiene en el disco: no necesita API, sincronización ni un paso de exportación.",
+        question2: "¿En qué se diferencia Content de Notion u Obsidian?",
+        answer2:
+          "Notion guarda tus documentos en su base de datos, detrás de su API. Content utiliza archivos locales como Obsidian, pero añade un editor enriquecido y un agente que redacta, reescribe y publica con tu estilo.",
+        question3: "¿Puede la IA escribir con mi estilo?",
+        answer3:
+          "Sí. El agente aprende tu voz, tu guía de estilo y tu tono para que los borradores suenen como tú; además, puede reescribir, ampliar, resumir o cambiar el tono de cualquier selección.",
+        question4: "¿Puedo publicar en mi CMS?",
+        answer4:
+          "Sí: conecta cualquier CMS headless mediante scripts. WordPress, Contentful y Builder son compatibles, Notion se sincroniza en ambos sentidos y el agente ejecuta los scripts de publicación de forma autónoma.",
+        question5: "¿Content es gratuito?",
+        answer5:
+          "Sí. Es gratuito y de código abierto; como tus documentos son archivos locales normales, no tendrás nada que exportar si algún día dejas de usarlo.",
+      },
       s001: "Content captura de pantalla de la plantilla",
       s002: "Todas las plantillas",
       s003: "Obsidian de código abierto para MDX",
@@ -804,6 +900,24 @@ const esES = {
       s062: "Ver todas las plantillas",
     },
     design: {
+      faq: {
+        question1:
+          "¿Puede la IA generar un diseño que sea código real, no una maqueta?",
+        answer1:
+          "Sí. Design genera HTML completo y autónomo con estilos de Tailwind e interacciones de Alpine. El prototipo es la implementación: no hay que entregarlo para volver a crearlo.",
+        question2: "¿En qué se diferencia Design de Figma?",
+        answer2:
+          "Figma está pensado para equipos de diseño que trabajan al nivel del píxel, y su resultado es una imagen que alguien debe volver a implementar. Design empieza con un prompt y termina con HTML/CSS/JS funcional que puedes publicar o seguir mejorando.",
+        question3: "¿Puede seguir mi sistema de diseño?",
+        answer3:
+          "Sí. Guarda preferencias reutilizables del sistema de diseño y ajusta visualmente las variables habituales mientras el agente se ocupa de los cambios estructurales y de texto: «una paleta más cálida», «un titular más rotundo» y listo.",
+        question4: "¿Qué obtengo al exportar?",
+        answer4:
+          "El resultado real: HTML/CSS/JS completo en un archivo, un ZIP o un PDF. Es autónomo, no usa formatos propietarios y puedes publicarlo donde quieras.",
+        question5: "¿Design es gratuito?",
+        answer5:
+          "Sí, es gratuito y de código abierto, frente a herramientas de diseño que cobran una cuota mensual por usuario o miden el uso con créditos.",
+      },
       s001: "Design captura de pantalla de la plantilla",
       s002: "describir",
       s003: "generar",
@@ -811,7 +925,7 @@ const esES = {
       s005: "Todas las plantillas",
       s006: "El estudio de creación de prototipos de código abierto AI HTML",
       s007: "Genere prototipos Alpine/Tailwind interactivos desde un mensaje, compare variantes, refine con controles de ajuste y exporte archivos reales de su propiedad.",
-      s008: "Probar",
+      s008: "Diseña algo",
       s009: "como funciona",
       s010: "Todo lo que necesitas",
       s011: "Un estudio prototipo con un agente que escribe y refina la fuente.",
@@ -866,6 +980,27 @@ const esES = {
       s060: "Ver todas las plantillas",
     },
     dispatch: {
+      faq: {
+        question1:
+          "¿Cómo ejecuto varios agentes de IA sin tener que supervisar cada uno?",
+        answer1:
+          "Dispatch es la base de operaciones: escríbele desde Slack o Telegram y distribuirá el trabajo a tus otros agentes —Mail, Slides, Design— mediante A2A, con aprobaciones y programaciones en un único lugar.",
+        question2: "¿Puedo hablar con mi agente desde Slack?",
+        answer2:
+          "Sí: mensajería bidireccional con contexto del hilo y aprobaciones integradas, en Slack o Telegram. Los resultados del agente vuelven a la misma conversación.",
+        question3: "¿Puede el agente trabajar según un horario?",
+        answer3:
+          "Sí: jobs basados en cron para reuniones diarias, resúmenes semanales y comprobaciones cada hora. Los resultados llegan a tu aplicación de mensajería, no a un panel que debes acordarte de abrir.",
+        question4: "¿Recuerda las conversaciones anteriores?",
+        answer4:
+          "Sí: los aprendizajes se capturan automáticamente de cada conversación y se limitan por usuario, por organización o de forma global. La memoria se puede inspeccionar y editar; no es una caja negra.",
+        question5: "¿Y si no quiero que actúe por su cuenta?",
+        answer5:
+          "Los flujos de aprobación vienen integrados: las acciones sensibles —enviar un correo, publicar una actualización o ejecutar una automatización— esperan una aprobación con un toque en Slack. Tú configuras qué acciones necesitan autorización.",
+        question6: "¿Dispatch es gratuito?",
+        answer6:
+          "Sí. Es gratuito y de código abierto, frente a plataformas de agentes que cobran cuotas mensuales por usuario.",
+      },
       s001: "Dispatch captura de pantalla de la plantilla",
       s002: "+ Telegram incluido",
       s003: "Interagente",
@@ -922,12 +1057,30 @@ const esES = {
       s054: "Ver todas las plantillas",
     },
     forms: {
+      faq: {
+        question1: "¿Puede la IA crear un formulario por mí?",
+        answer1:
+          "Sí. Descríbelo y aparecerá un formulario completo. Después puedes refinarlo mediante conversación —«añade una lista desplegable obligatoria para el nivel de experiencia»— o mover campos en el editor visual con vista previa en vivo y opción de deshacer.",
+        question2: "¿Qué ocurre cuando alguien envía una respuesta?",
+        answer2:
+          "La respuesta se guarda en tu propia base de datos SQL y se envía de inmediato, de forma estructurada, a Slack, Discord, Google Sheets o un webhook. Los envíos llegan donde tu agente puede actuar, no a una exportación que nadie abre.",
+        question3: "¿En qué se diferencia Forms de Typeform?",
+        answer3:
+          "Typeform perfecciona la experiencia de rellenar formularios. Forms se centra en lo que ocurre después: respuestas en tu propia base de datos, enrutadas a tus herramientas, sin precios por respuesta; además, el propio formulario evoluciona mediante prompts.",
+        question4: "¿Forms es gratuito? ¿Hay límites de respuestas?",
+        answer4:
+          "Es gratuito y de código abierto, sin cuotas ni límites por respuesta. Los datos están en tu base de datos; el límite es la capacidad de tu base de datos.",
+        question5: "¿Puedo poner un formulario en mi propio sitio?",
+        answer5:
+          "Sí: intégralo en cualquier sitio web o alójalo en un dominio personalizado. Cada formulario también obtiene su propia URL pública optimizada para SEO.",
+      },
       s001: "Forms captura de pantalla de la plantilla",
       s002: "describir",
       s003: "generar",
       s004: "Ruta",
       s005: "Todas las plantillas",
-      s006: "La alternativa de código abierto AI a Typeform y Google Forms",
+      s006Primary: "La alternativa de código abierto AI a",
+      s006Secondary: "Typeform y Google Forms",
       s007: "Genere un formulario completo a partir de un mensaje, refine los campos de forma conversacional y dirija los envíos a Slack, Discord, Google Sheets o webhooks. Sea dueño de sus datos y de su flujo de trabajo, sin tarifas por respuesta.",
       s008: "Probar",
       s009: "como funciona",
@@ -983,13 +1136,30 @@ const esES = {
       s059: "Ver todas las plantillas",
     },
     mail: {
+      faq: {
+        question1: "¿Puede la IA organizar mi bandeja de entrada?",
+        answer1:
+          "Sí. El agente lee tu bandeja de entrada, destaca las prioridades, etiqueta y ordena, redacta respuestas, configura reglas de archivado automático y resume el correo sin leer extrayendo las tareas pendientes.",
+        question2: "¿En qué se diferencia Mail de Superhuman?",
+        answer2:
+          "La velocidad centrada en el teclado es el punto de partida: redacta, archiva y responde mediante atajos. La diferencia es un agente que trabaja de verdad en la bandeja de entrada, sin suscripción y con código que te pertenece.",
+        question3: "¿Mail funciona con Gmail?",
+        answer3: "Sí, funciona con Gmail y admite varias cuentas.",
+        question4: "¿Mi correo es privado?",
+        answer4:
+          "Mail es de código abierto y se ejecuta de forma local: tu correo permanece en tu infraestructura y puedes leer cada línea de código que accede a él.",
+        question5: "¿Mail es gratuito?",
+        answer5:
+          "Sí. Es gratuito y de código abierto, sin suscripción ni dependencia de un proveedor.",
+      },
       s001: "Mail captura de pantalla de la plantilla",
       s002: "Teclado primero",
       s003: "Clasificación de bandeja de entrada",
       s004: "Vistas",
       s005: "Personalizable",
       s006: "Todas las plantillas",
-      s007: "La alternativa de código abierto a Superhuman y Gmail",
+      s007Primary: "La alternativa de código abierto a",
+      s007Secondary: "Superhuman y Gmail",
       s008: "Probar",
       s009: "La demostración alojada utiliza la aplicación Google compartida de Agent-Native para el acceso de Gmail, por lo que Google puede pedirle que confirme antes de continuar. Ejecútelo localmente para utilizar su propio cliente Google OAuth.",
       s010: "que puedes hacer",
@@ -1045,6 +1215,28 @@ const esES = {
       s060: "Nota de la demo alojada",
     },
     plan: {
+      faq: {
+        question1:
+          "¿Puedo revisar el plan de un agente de programación de IA antes de que escriba código?",
+        answer1:
+          "Sí. Plans convierte la intención del agente en wireframes, diagramas y código anotado con una URL que puedes compartir. Tu equipo comenta, el agente revisa el plan y después escribe el código: la revisión ocurre antes de que exista el código, no después.",
+        question2: "¿Plans funciona con Claude Code, Codex y Cursor?",
+        answer2:
+          "Sí, además de GitHub Copilot, OpenCode y otros agentes de programación. Un solo comando lo añade como skill: `npx @agent-native/core@latest skills add visual-plan`. No hay ninguna app independiente que desplegar.",
+        question3: "¿Puede revisar el plan todo mi equipo, no solo yo?",
+        answer3:
+          "Cada plan recibe una URL pública con comentarios integrados. El equipo revisa wireframes y diffs anotados de forma asíncrona —sin terminal—, y el agente lee los comentarios y actualiza el plan.",
+        question4:
+          "¿En qué se diferencia del modo de planificación de Claude Code?",
+        answer4:
+          "El modo de planificación es texto en tu terminal, visible para una sola persona y desaparece cuando lo apruebas. Plans es visual —wireframes, diagramas y diffs anotados—, se puede compartir y es persistente: los agentes crean, leen y actualizan los planes durante todo el ciclo de vida de la funcionalidad.",
+        question5: "¿Puedo ver los planes junto a mi código?",
+        answer5:
+          "Sí. La extensión de VS Code abre los planes en un panel lateral y Agent Native Desktop replica los planes alojados en archivos MDX locales.",
+        question6: "¿Plans es gratuito?",
+        answer6:
+          "Sí. Es gratuito, de código abierto y tiene licencia MIT. Plans ofrece enlaces alojados para compartir y permite replicarlo todo en archivos locales.",
+      },
       s001: "Captura de pantalla de la plantilla de planes",
       s002: "Tipos de bloques",
       s003: "Integraciones de agentes",
@@ -1059,7 +1251,8 @@ const esES = {
       s012: "El agente itera",
       s013: "El agente lee sus comentarios y actualiza el plan en el lugar. Las diferencias muestran exactamente qué cambió y por qué.",
       s014: "Todas las plantillas",
-      s015: "Planes visuales para Codex, Claude Code y agentes de codificación",
+      s015Primary: "Planes visuales para Codex,",
+      s015Secondary: "Claude Code y agentes de codificación",
       s016: "Instalar en un solo comando. Su agente abre planes estructurados con estructuras alámbricas, diagramas, código anotado y enlaces de revisión para compartir, en lugar de arrojar paredes de rebajas en la terminal.",
       s017: "Probar",
       s018: "¿Qué pueden hacer los agentes?",
@@ -1121,23 +1314,41 @@ const esES = {
       s074: "N/D",
     },
     slides: {
+      faq: {
+        question1: "¿Puedo crear una presentación desde Claude o ChatGPT?",
+        answer1:
+          "Sí. Pide una presentación a Claude o ChatGPT y llegará a Slides —con tu marca, editable y exportable—, en lugar de obligarte a empezar de nuevo en un sitio de presentaciones.",
+        question2: "¿Puedo corregir los errores de la IA?",
+        answer2:
+          "De tres maneras: mediante un prompt, a mano —haz clic en cualquier elemento y doble clic en cualquier texto— o en el código. Nunca te quedas atrapado en el ciclo de regenerar y cruzar los dedos.",
+        question3: "¿Cómo mantienen los decks la identidad de marca?",
+        answer3:
+          "Marca como favorito un deck del que te sientas orgulloso. Cada deck nuevo heredará sus diseños, titulares, estilo visual y tokens de marca. Los generadores de un solo intento te dan un deck; esto te permite crear una práctica repetible para tus presentaciones.",
+        question4: "¿En qué se diferencia Slides de Gamma?",
+        answer4:
+          "Gamma crea rápidamente un deck aceptable en un solo intento; después estás en su lienzo, pagando su suscripción y regenerando cuando solo está bien al 85 %. Slides es gratuito, de código abierto, hereda tu marca y te permite editarlo todo.",
+        question5: "¿Slides es gratuito?",
+        answer5:
+          "Sí. Es gratuito y de código abierto, sin suscripción, contador de créditos ni precios por deck.",
+      },
       s001: "Slides captura de pantalla de la plantilla",
       s002: "describir",
       s003: "generar",
       s004: "Refinar",
       s005: "Todas las plantillas",
-      s006: "La alternativa AI de código abierto a PowerPoint y Canva",
-      s007: "Genere una plataforma completa a partir de un mensaje y luego refine de forma conversacional o edítela visualmente.",
+      s006Primary: "Presentaciones de diapositivas",
+      s006Secondary: "para personas y agentes",
+      s007: "Genera presentaciones de diapositivas con tu marca desde tu agente de IA, aplica tus propios cambios manuales en cualquier momento y expórtalas donde quieras.",
       s008: "Probar",
       s009: "como funciona",
       s010: "Todo lo que necesitas",
       s011: "Un estudio de presentación completo con AI integrado.",
-      s012: "8 diseños de diapositivas",
-      s013: "Título, sección, contenido, dos columnas, imagen, declaración, sangrado completo y en blanco.",
+      s012: "Diseños de diapositivas prediseñados",
+      s013: "Usa nuestras plantillas de diapositivas iniciales. Crea y reutiliza tus propias plantillas para más adelante.",
       s014: "Edición visual + de código",
       s015: "Haga clic para editar estilos, haga doble clic para ver texto. Cambie a HTML sin formato para obtener control total.",
-      s016: "AI Generación de imágenes",
-      s017: "Genera imágenes con Gemini. Referencias de estilo para la coherencia de la marca. 3 variaciones para elegir.",
+      s016: "Generación de imágenes sin fricciones",
+      s017: "Toma como referencia estilos y guías de marca. Elige entre las opciones generadas por Gemini AI.",
       s018: "Búsqueda de logotipos e imágenes",
       s019: "Busque logotipos de empresas a través de Logo.dev o Brandfetch. Google Imágenes para fotografías de archivo.",
       s020: "Arrastrar y soltar reordenamiento",
@@ -1175,10 +1386,88 @@ const esES = {
       s052: "Gratis / por asiento",
       s053: "Suscripción",
       s054: "Gratis y de código abierto",
-      s055: "Comience en minutos",
-      s056: "Empieza con la plantilla y comienza a crear presentaciones con AI.",
+      s055: "Crea una presentación ahora",
+      s056: "Elige tus preferencias de diseño y escribe un prompt para empezar. Siempre gratis.",
       s057: "Lea los documentos",
       s058: "Ver todas las plantillas",
+      howItWorksDescribe:
+        "Describe tu tema, audiencia y tono. Adjunta una presentación de referencia. Empieza en la interfaz o desde tu propio flujo de trabajo de IA.",
+      signInIntegration:
+        "Inicia sesión para acceder a Slides mediante una integración por webhook, MCP o A2A.",
+      signIn: "Iniciar sesión",
+      tryNow: {
+        step: "Paso {{current}} de {{total}}",
+        q1: "¿Qué tipo de presentación necesitas?",
+        q1Pitch: "Pitch deck para inversores",
+        q1Sales: "Presentación de ventas para clientes",
+        q1Talk: "Apoyo para una charla o clase en vivo",
+        q1Other: "Otra cosa",
+        q1OtherPlaceholder: "Describe el tipo de presentación",
+        q2Pitch: "¿Cuál es la empresa y la ronda de financiación?",
+        q2Sales: "¿Qué vendes y a quién?",
+        q2Talk: "¿De qué trata la charla y quién está en la sala?",
+        q2Other: "¿Qué debería cubrir la presentación?",
+        q2Detail:
+          "Escribe unas notas o dame simplemente la URL de un sitio web",
+        q2Placeholder: "Notas, o https://example.com",
+        q3: "Dame un estilo a seguir",
+        q3Detail:
+          "Pega un sitio web para replicar su estilo, o elige un ambiente en su lugar",
+        q3Placeholder: "https://example.com",
+        q3VibeToggle: "¿No tienes sitio web? Elige un ambiente",
+        q3VibeMinimal: "Minimalista y editorial",
+        q3VibeBold: "Audaz y de alto contraste",
+        q3VibeWarm: "Cálido y humano",
+        q3VibeTechnical: "Técnico y con muchos datos",
+        answerAction: "Añadir al prompt",
+        composerLabel: "Tu prompt",
+        composerPlaceholder:
+          "Describe la presentación que quieres, o responde a las preguntas de arriba.",
+        submit: "Generar mi presentación",
+        readyHint: "Tu prompt está listo: envíalo al agente.",
+        promptDeck: "Crea {{deck}}.",
+        promptSubject: "Esto es lo que debería cubrir: {{subject}}",
+        promptStyleSite: "Replica la estética y el estilo de {{style}}.",
+        promptStyleVibe: "Estilo: {{style}}.",
+        promptClose:
+          "Redacta la presentación completa con notas del orador y luego repasa el esquema conmigo.",
+        deckPitch: "un pitch deck para inversores",
+        deckSales: "una presentación de ventas para clientes",
+        deckTalk: "una presentación de apoyo para una charla en vivo",
+        designReference: "Referencia de diseño",
+        websiteUrl: "URL del sitio web",
+        websiteUrlPlaceholder: "https://example.com",
+        crawlWebsite: "Inspeccionar sitio web",
+        crawlError:
+          "No pudimos inspeccionar este sitio. Es posible que bloquee el acceso automatizado. Prueba con otra URL o sube una referencia de diseño.",
+        or: "o",
+        uploadDesignReference: "Subir referencia de diseño",
+        importDesignSystem: "Importar sistema de diseño",
+        loginDesignSystems:
+          "Inicia sesión para gestionar los sistemas de diseño.",
+        promptCreatePrefix: "Crea una presentación de",
+        deckTypeLabel: "Tipo de presentación",
+        deckCapitalRaise: "captación de capital",
+        deckOfferingMemorandum: "memorando de oferta",
+        deckB2bSales: "ventas B2B",
+        deckTeamMeeting: "agenda de reunión de equipo",
+        deckLiveTalk: "apoyo para una charla en directo",
+        promptDeckFor: "para",
+        promptTextShouldBe: "El texto debe ser",
+        textAmountLabel: "Cantidad de texto",
+        textMinimal: "mínimo",
+        textBrief: "breve",
+        textThorough: "detallado",
+        findingTitle: "título",
+        findingDescription: "descripción",
+        findingColors: "colores",
+        findingFonts: "fuentes",
+        findingPrimaryColor: "color principal",
+        findingAccentColor: "color de acento",
+        findingHeadingFont: "fuente de los encabezados",
+        findingBodyFont: "fuente del cuerpo",
+        styleGuidePrefix: "Guía de estilo para",
+      },
     },
   },
   skillsPage: {
@@ -1234,16 +1523,17 @@ const esES = {
     body: "Todas tus apps agent-native en una sola shell de escritorio. Apps de producción integradas, con un modo de desarrollo para trabajo local.",
     openDesktop: "Abrir Agent Native",
     downloadInstaller: "Descargar instalador",
-    viewInstallers: "Ver instaladores",
-    viewInstallersOnGithub: "Ver instaladores en GitHub",
-    latestRelease: "Latest desktop release: {{version}}",
-    loadError:
-      "No se pudo cargar la última versión de escritorio. La página de releases incluye todos los instaladores.",
+    loadError: "No se pudo cargar el instalador de escritorio más reciente.",
     checkingRelease: "Buscando la versión de escritorio más reciente...",
+    retry: "Reintentar",
+    unavailable: "Instalador no disponible para esta plataforma",
+    stable: "Estable",
+    nightly: "Nightly",
+    switchToNightly: "Cambiar a las compilaciones Nightly",
+    switchToStable: "Cambiar a las compilaciones estables",
     runFromSource: "O ejecutar desde el código fuente",
     runFromSourceBody:
       "¿Aún no hay instalador para tu plataforma o prefieres la CLI? Crea una app nueva con npm y ejecútala localmente; funciona en macOS, Windows y Linux.",
-    viewAllReleases: "Ver todas las releases en GitHub",
     platforms: {
       mac: {
         primary: "Descargar para Apple Silicon",
@@ -1497,6 +1787,7 @@ const esES = {
     gettingStartedPages: "Add a Page",
     whatIsAgentNative: "¿Qué es Agent-Native?",
     agentSurfaces: "Superficies del Agent",
+    agentNativeConfig: "Agent-Native Config",
     keyConcepts: "Conceptos clave",
     agentNativeToolkit: "Toolkit",
     toolkitOverview: "Resumen",
@@ -1543,13 +1834,32 @@ const esES = {
     actionsRunContext: "Contexto de ejecución",
     actionsOtherSurfaces: "Otras superficies",
     actionsAdvanced: "Avanzado y heredado",
-    humanApproval: "Aprobación humana",
+    actionsAgentTools: "Acceso del Agente en Producción",
     publicAgentWeb: "Agent Web público",
     database: "Base de datos",
     internationalization: "Internacionalización",
     localFileMode: "Modo de archivos locales",
     fileUploads: "Subidas de archivos",
     deployment: "Despliegue",
+    deploymentOverview: "Resumen",
+    deploymentProviders: "Proveedores",
+    deploymentProduction: "Producción y avanzado",
+    deployAnApp: "Desplegar una aplicación",
+    workspaceDeployment: "Despliegue del Workspace",
+    deploymentNodeDocker: "Node.js",
+    deploymentDocker: "Docker",
+    deploymentVercel: "Vercel",
+    deploymentNetlify: "Netlify",
+    deploymentCloudflare: "Cloudflare",
+    deploymentAwsLambda: "AWS Lambda",
+    deploymentDenoDeploy: "Deno Deploy",
+    deploymentAzureStaticWebApps: "Azure Static Web Apps",
+    deploymentKoyeb: "Koyeb",
+    deploymentRender: "Render",
+    deploymentOtherPlatforms: "Otras Plataformas",
+    ssrCaching: "Caché de SSR",
+    deploymentEnvironmentVariables: "Despliegue: Variables de Entorno",
+    updatingUiInProduction: "Actualizar la UI en Producción",
     environmentVariables: "Variables de entorno",
     progress: "Progreso",
     authentication: "Autenticación",
@@ -1574,8 +1884,6 @@ const esES = {
     realTimeCollaboration: "Colaboración en tiempo real",
     agentResourcesOverview: "Descripción general de los recursos del agente",
     skills: "Habilidades",
-    agents: "Agents",
-    agentsOverview: "Overview",
     customAgentsTeams: "Agents y equipos personalizados",
     workspaceGovernance: "Gobernanza del workspace",
     recurringJobs: "Tareas recurrentes",
@@ -1661,12 +1969,6 @@ const esES = {
     clipsAiAndEditing: "IA y edición",
     clipsSharingAndTeams: "Compartir y equipos",
     clipsDevelopers: "Guía para desarrolladores",
-    brain: "Brain",
-    brainOverview: "Visión general",
-    brainSources: "Conectar fuentes",
-    brainKnowledge: "Preguntas y citas",
-    brainAgent: "Hablar con el Agent",
-    brainDevelopers: "Guía para desarrolladores",
     assets: "Recursos",
     assetsOverview: "Visión general",
     assetsGeneration: "Generar y refinar",

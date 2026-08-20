@@ -69,7 +69,33 @@ describe("desktop passive-access regressions", () => {
     expect(handler).not.toContain("collectLocalControlResources");
   });
 
-  it("does not pull folders or local documents when Content mounts", () => {
+  it("revision-guards every Content file mutation path", () => {
+    const main = source("./index.ts");
+    const bulkWrite = between(
+      main,
+      "async function writeContentFilesForRequest(",
+      "async function writeContentFileForRequest(",
+    );
+    const deleteFile = between(
+      main,
+      "async function deleteContentFileForRequest(",
+      "async function revealContentFileForRequest(",
+    );
+    const pickerBridge = source(
+      "../renderer/lib/content-directory-picker-bridge.ts",
+    );
+    const localFilesRoute = source(
+      "../../../../templates/content/app/routes/_app.local-files.tsx",
+    );
+
+    expect(bulkWrite).toContain("expectedRevisions[filePath]");
+    expect(bulkWrite).toContain("removeStaleContentMarkdownFiles(");
+    expect(deleteFile).toContain("file.expectedRevision");
+    expect(pickerBridge).toContain("expectedRevision: expectedRevision");
+    expect(localFilesRoute).toContain("expectedRevisions,");
+  });
+
+  it("does not bulk-pull local folders when Content mounts", () => {
     const route = source(
       "../../../../templates/content/app/routes/_app.local-files.tsx",
     );
@@ -78,13 +104,8 @@ describe("desktop passive-access regressions", () => {
       "const restoreDirectories = async () =>",
       "restoreDirectories()",
     );
-    const editor = source(
-      "../../../../templates/content/app/components/editor/DocumentEditor.tsx",
-    );
-
     expect(restore).not.toContain("pullDirectoryFiles");
     expect(restore).not.toContain("connectLocalComponentWorkspaces");
-    expect(editor).not.toContain("readDocumentFromLinkedLocalSource");
   });
 
   it("stops Agent metadata and connector polling while hidden", () => {

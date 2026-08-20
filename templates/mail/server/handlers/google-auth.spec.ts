@@ -18,10 +18,13 @@ const mocks = vi.hoisted(() => ({
   oauthCallbackResponse: vi.fn(),
   oauthDesktopExchangePage: vi.fn(),
   oauthErrorPage: vi.fn(),
+  prepareDesktopOAuthBrowserBinding: vi.fn(),
   putUserSetting: vi.fn(),
   readBody: vi.fn(),
+  matchesDesktopOAuthBrowserBinding: vi.fn(),
   resolveOAuthOwner: vi.fn(),
   resolveOAuthRedirectUri: vi.fn(),
+  registerDesktopExchange: vi.fn(),
   safeReturnPath: vi.fn(),
   setAccountDisplayName: vi.fn(),
   setDesktopExchange: vi.fn(),
@@ -32,6 +35,8 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
+  getHeader: (event: any, name: string) => event.headers?.[name.toLowerCase()],
+  getMethod: (event: any) => event.method ?? "GET",
   getQuery: (event: any) => event.query ?? {},
   setResponseStatus: mocks.setResponseStatus,
 }));
@@ -46,9 +51,12 @@ vi.mock("@agent-native/core/server", () => ({
   oauthCallbackResponse: mocks.oauthCallbackResponse,
   oauthDesktopExchangePage: mocks.oauthDesktopExchangePage,
   oauthErrorPage: mocks.oauthErrorPage,
+  prepareDesktopOAuthBrowserBinding: mocks.prepareDesktopOAuthBrowserBinding,
   readBody: mocks.readBody,
+  matchesDesktopOAuthBrowserBinding: mocks.matchesDesktopOAuthBrowserBinding,
   resolveOAuthOwner: mocks.resolveOAuthOwner,
   resolveOAuthRedirectUri: mocks.resolveOAuthRedirectUri,
+  registerDesktopExchange: mocks.registerDesktopExchange,
   safeReturnPath: mocks.safeReturnPath,
   setDesktopExchange: mocks.setDesktopExchange,
   setDesktopExchangeError: mocks.setDesktopExchangeError,
@@ -89,8 +97,12 @@ vi.mock("../../shared/gmail-signature.js", () => ({
 const { getGoogleAddAccountUrl, getGoogleAuthUrl, handleGoogleCallback } =
   await import("./google-auth.js");
 
-function createEvent(query: Record<string, string> = {}) {
-  return { query };
+function createEvent(
+  query: Record<string, string> = {},
+  headers: Record<string, string> = {},
+  method = "GET",
+) {
+  return { query, headers, method };
 }
 
 describe("Mail Google auth-url handlers", () => {
@@ -111,48 +123,57 @@ describe("Mail Google auth-url handlers", () => {
       "https://mail.agent-native.com/_agent-native/google/callback",
     );
     mocks.encodeOAuthState.mockReturnValue("encoded-state");
+    mocks.registerDesktopExchange.mockResolvedValue("v".repeat(43));
+    mocks.prepareDesktopOAuthBrowserBinding.mockReturnValue("b".repeat(43));
+    mocks.matchesDesktopOAuthBrowserBinding.mockReturnValue(true);
     mocks.safeReturnPath.mockImplementation((value: string) => value);
   });
 
-  it("returns a native redirect Response for popup sign-in auth URLs", async () => {
+  it("returns a JSON auth URL for verifier-bound desktop sign-in", async () => {
     const response = await getGoogleAuthUrl(
-      createEvent({
-        desktop: "1",
-        flow_id: "flow-123",
-        redirect: "1",
-        return: "/inbox",
-      }) as any,
+      createEvent(
+        {
+          desktop: "1",
+          flow_id: "flow-123",
+          return: "/inbox",
+        },
+        { "x-agent-native-desktop-verifier": "v".repeat(32) },
+        "POST",
+      ) as any,
     );
 
-    expect(response).toBeInstanceOf(Response);
-    if (!(response instanceof Response)) {
-      throw new Error("expected a redirect Response");
-    }
-    expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe(
-      "https://accounts.google.com/o/oauth2/v2/auth?state=encoded-state",
-    );
-    await expect(response.text()).resolves.toBe("");
+    expect(response).toEqual({
+      url: "https://accounts.google.com/o/oauth2/v2/auth?state=encoded-state",
+    });
   });
 
-  it("returns a native redirect Response for add-account auth URLs", async () => {
+  it("returns a JSON auth URL for verifier-bound add-account sign-in", async () => {
     const response = await getGoogleAddAccountUrl(
-      createEvent({
-        desktop: "1",
-        flow_id: "flow-456",
-        redirect: "1",
-      }) as any,
+      createEvent(
+        {
+          desktop: "1",
+          flow_id: "flow-456",
+        },
+        { "x-agent-native-desktop-verifier": "v".repeat(32) },
+        "POST",
+      ) as any,
     );
 
-    expect(response).toBeInstanceOf(Response);
-    if (!(response instanceof Response)) {
-      throw new Error("expected a redirect Response");
-    }
-    expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe(
-      "https://accounts.google.com/o/oauth2/v2/auth?state=encoded-state",
+    expect(response).toEqual({
+      url: "https://accounts.google.com/o/oauth2/v2/auth?state=encoded-state",
+    });
+  });
+
+  it("rejects a navigated GET even when a verifier header is present", async () => {
+    const response = await getGoogleAuthUrl(
+      createEvent(
+        { desktop: "1", flow_id: "flow-get" },
+        { "x-agent-native-desktop-verifier": "v".repeat(32) },
+      ) as any,
     );
-    await expect(response.text()).resolves.toBe("");
+
+    expect(response).toEqual({ error: "Invalid desktop exchange challenge." });
+    expect(mocks.registerDesktopExchange).not.toHaveBeenCalled();
   });
 
   it("does not disclose which login owns a conflicting Google account", async () => {
@@ -179,8 +200,58 @@ describe("Mail Google auth-url handlers", () => {
 
     expect(mocks.oauthErrorPage).toHaveBeenCalledTimes(1);
     const [message] = mocks.oauthErrorPage.mock.calls[0];
-    expect(message).toContain("already connected to another login");
+    expect(message).toContain("connected to another login");
     expect(message).not.toContain("first-login@example.com");
     expect(message).not.toContain("second-login@example.com");
+  });
+
+  it("treats scope failures from the primary callback query as missing permissions", async () => {
+    mocks.decodeOAuthState.mockReturnValue({
+      redirectUri:
+        "https://mail.agent-native.com/_agent-native/google/callback",
+      owner: "owner@example.com",
+    });
+    mocks.getAppUrl.mockReturnValue(
+      "https://mail.agent-native.com/_agent-native/google/callback",
+    );
+    mocks.oauthErrorPage.mockImplementation((message: string) => message);
+
+    const response = await handleGoogleCallback({
+      query: {
+        error: "forbidden",
+        error_description: "Request had insufficient authentication scopes.",
+      },
+    } as any);
+
+    expect(response).toContain("required permissions");
+    expect(response).toContain("Google Cloud Console");
+  });
+
+  it("treats 403 scope failures as missing Google permissions", async () => {
+    const { handleGoogleAddAccountCallback } = await import("./google-auth.js");
+    mocks.getSession.mockResolvedValue({ email: "owner@example.com" });
+    mocks.decodeOAuthState.mockReturnValue({
+      redirectUri:
+        "https://mail.agent-native.com/_agent-native/google/add-account/callback",
+      owner: "owner@example.com",
+      desktop: false,
+      flowId: undefined,
+    });
+    mocks.getAppUrl.mockReturnValue(
+      "https://mail.agent-native.com/_agent-native/google/add-account/callback",
+    );
+    mocks.setResponseStatus.mockClear();
+    mocks.readBody.mockResolvedValue({});
+    mocks.oauthErrorPage.mockImplementation((message: string) => message);
+
+    const response = await handleGoogleAddAccountCallback({
+      query: {
+        error: "forbidden",
+        error_description: "Request had insufficient authentication scopes.",
+      },
+    } as any);
+
+    expect(response).toContain("required permissions");
+    expect(response).toContain("Google Cloud Console");
   });
 });

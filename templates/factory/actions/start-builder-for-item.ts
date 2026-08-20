@@ -25,9 +25,39 @@ import {
 import { detectOwnerOwnedArea } from "../server/triage/pr-policy.js";
 import { createSlackReader } from "../server/triage/slack-client.js";
 
-const replyTextPrefix =
-  "@builder.io please run /address-feedback in the repo to address this feedback. Read the address-feedback, address-feedback-with-replies, review-latest-feedback, and review-prs skills as relevant, inspect the full thread and linked evidence, and fix the owning boundary. Please send a PR when ready.";
+/** Slack notifies only with `<@USERID>`. Plaintext @handles do not ping anyone. */
+const REPLY_INSTRUCTION =
+  "please run /address-feedback in the repo to address this feedback. Read the address-feedback, address-feedback-with-replies, review-latest-feedback, and review-prs skills as relevant, inspect the full thread and linked evidence, and fix the owning boundary. Please send a PR when ready, then have the @agent-native bot post a concise Fixed, In progress, or Clarification needed disposition in this same thread; an 👀 reaction or this handoff alone is not completion.";
+const plaintextBuilderReplyPrefix =
+  "@builder.io please run /address-feedback in the repo to address this feedback.";
 const legacyReplyTextPrefix = "@builderio please fix this in a reply.";
+
+export function requireBuilderSlackUserId(
+  value: string | null | undefined,
+): string {
+  const id = typeof value === "string" ? value.trim() : "";
+  if (!/^[UW][A-Z0-9]+$/i.test(id)) {
+    throw new Error(
+      "Configure a Builder Slack member id in Factory settings before tagging Builder.",
+    );
+  }
+  return id.toUpperCase();
+}
+
+export function replyTextPrefixFor(builderSlackUserId: string): string {
+  return `<@${requireBuilderSlackUserId(builderSlackUserId)}> ${REPLY_INSTRUCTION}`;
+}
+
+function messageHasBuilderHandoff(
+  text: string,
+  builderSlackUserId: string,
+): boolean {
+  return (
+    text.includes(replyTextPrefixFor(builderSlackUserId)) ||
+    text.includes(plaintextBuilderReplyPrefix) ||
+    text.includes(legacyReplyTextPrefix)
+  );
+}
 
 type RelatedFeedbackItem = {
   id: string;
@@ -93,6 +123,7 @@ export function replyTextForItem(
     sourceUrl: string | null;
   },
   relatedItems: RelatedFeedbackItem[] = [],
+  builderSlackUserId: string,
 ): string {
   const relatedText =
     relatedItems.length > 0
@@ -105,7 +136,7 @@ export function replyTextForItem(
         ]
       : [];
   return [
-    replyTextPrefix,
+    replyTextPrefixFor(builderSlackUserId),
     `Factory item: ${item.id}`,
     item.sourceUrl ? `Source: ${item.sourceUrl}` : "",
     ...relatedText,
@@ -153,7 +184,7 @@ async function writeMetadata(
     .where(and(eq(triageItems.id, itemId), eq(triageItems.orgId, orgId)));
 }
 
-async function recordDecision(input: {
+export async function recordAutomaticBuilderDecision(input: {
   itemId: string;
   userEmail: string;
   orgId: string;
@@ -167,6 +198,7 @@ async function recordDecision(input: {
     input.itemId,
     "automatic-builder",
   );
+  const now = new Date().toISOString();
   await getDb()
     .insert(triageDecisions)
     .values({
@@ -179,17 +211,26 @@ async function recordDecision(input: {
       guardResultsJson: JSON.stringify(input.guardResults),
       model: "factory-automation",
       promptVersion: 1,
-      createdAt: new Date().toISOString(),
+      createdAt: now,
       ownerEmail: input.userEmail,
       orgId: input.orgId,
     })
-    .onConflictDoNothing();
+    .onConflictDoUpdate({
+      target: triageDecisions.id,
+      set: {
+        outcome: input.outcome,
+        reason: input.reason,
+        guardResultsJson: JSON.stringify(input.guardResults),
+        createdAt: now,
+        ownerEmail: input.userEmail,
+      },
+    });
   return id;
 }
 
 export default defineAction({
   description:
-    "Start the governed clear-bug Builder flow for a Factory item. Slack items are kept in-thread by adding 👀 and tagging @builder.io; grouped Slack repeats share one Builder thread. GitHub issues and Sentry errors use the Builder agent run API. Owner-managed Clips, Design, and Content items are always left for their owner.",
+    "Start the governed clear-bug Builder flow for a Factory item, or record a skip with a reason when clearBug is false. Slack items stay in-thread: this action adds 👀 and pings Builder with the configured Slack member id; do not post Slack messages or @handles yourself. Grouped Slack repeats share one Builder thread. GitHub issues and Sentry errors use the Builder agent run API. Owner-managed Clips, Design, and Content items are always left for their owner.",
   schema: z.object({
     itemId: z.string().min(1),
     clearBug: z.boolean(),
@@ -340,17 +381,12 @@ export default defineAction({
         : []),
     ];
     const blocked = guardResults.some((guard) => !guard.passed);
-    const decisionId = await recordDecision({
+    const decisionId = await recordAutomaticBuilderDecision({
       itemId,
       userEmail,
       orgId,
       outcome: blocked ? "needs_manual" : "propose_fix",
-      reason: blocked
-        ? guardResults
-            .filter((guard) => !guard.passed)
-            .map((guard) => guard.reason)
-            .join(" ")
-        : reason,
+      reason,
       guardResults,
     });
     await recordFactoryAudit(
@@ -363,7 +399,7 @@ export default defineAction({
         source: item.source,
         sourceUrl: item.sourceUrl,
         status: blocked ? "skipped" : "success",
-        summary: blocked ? "Factory kept this item for manual review." : reason,
+        summary: reason,
         details: {
           decisionId,
           clearBug,
@@ -383,10 +419,7 @@ export default defineAction({
         started: false,
         needsManual: true,
         decisionId,
-        reason: guardResults
-          .filter((guard) => !guard.passed)
-          .map((guard) => guard.reason)
-          .join(" "),
+        reason,
       };
     }
 
@@ -462,7 +495,10 @@ export default defineAction({
         }
         const config = (
           await db
-            .select({ slackWorkspace: triageConfig.slackWorkspace })
+            .select({
+              slackWorkspace: triageConfig.slackWorkspace,
+              builderSlackUserId: triageConfig.builderSlackUserId,
+            })
             .from(triageConfig)
             .where(
               and(eq(triageConfig.id, orgId), eq(triageConfig.orgId, orgId)),
@@ -471,65 +507,113 @@ export default defineAction({
         )[0];
         const workspace =
           config?.slackWorkspace === "secondary" ? "secondary" : "primary";
+        const builderSlackUserId = requireBuilderSlackUserId(
+          config?.builderSlackUserId,
+        );
         const slack = createSlackReader({ ownerEmail: userEmail, orgId });
-        for (const feedbackItem of [item, ...relatedItems]) {
-          const feedbackMetadata =
-            feedbackItem.id === itemId
-              ? metadata
-              : parseTriageMetadata(feedbackItem.metadataJson);
-          if (metadataBoolean(feedbackMetadata, "slackEyesReactedAt")) {
-            continue;
+        const thread = await slack.getCompleteThread(
+          workspace,
+          item.channelId,
+          item.threadTs,
+        );
+        const completeThreads = new Map([[item.id, thread]]);
+        if (thread.hasMore) {
+          throw new Error(
+            "Slack thread is truncated; refusing to dispatch without complete evidence.",
+          );
+        }
+        for (const related of relatedItems) {
+          if (!related.channelId || !related.threadTs) {
+            throw new Error(
+              "Grouped Slack feedback is missing a channel or thread identity.",
+            );
           }
-          const reaction = await slack.addEyesReaction(
+          const relatedThread = await slack.getCompleteThread(
+            workspace,
+            related.channelId,
+            related.threadTs,
+          );
+          completeThreads.set(related.id, relatedThread);
+          if (relatedThread.hasMore) {
+            throw new Error(
+              "A grouped Slack thread is truncated; refusing to dispatch without complete evidence.",
+            );
+          }
+        }
+        for (const feedbackItem of [item, ...relatedItems]) {
+          const reactionState = await slack.getEyesReaction(
             workspace,
             feedbackItem.channelId!,
             feedbackItem.threadTs!,
           );
+          const reaction = reactionState.eyesPresent
+            ? { added: false, already_present: true }
+            : await slack.addEyesReaction(
+                workspace,
+                feedbackItem.channelId!,
+                feedbackItem.threadTs!,
+              );
           await writeMetadata(feedbackItem.id, orgId, {
             slackEyesReactedAt: new Date().toISOString(),
             slackEyesReactionAlreadyPresent: reaction.already_present,
           });
         }
-        const thread = await slack.getThread(
-          workspace,
-          item.channelId,
-          item.threadTs,
-          100,
-        );
-        const hasCurrentBuilderReply = thread.messages.some((message) =>
-          message.text.includes(replyTextPrefix),
-        );
-        const hasLegacyBuilderReply = thread.messages.some((message) =>
-          message.text.includes(legacyReplyTextPrefix),
+        const hasBuilderReply = thread.messages.some((message) =>
+          messageHasBuilderHandoff(message.text, builderSlackUserId),
         );
         const hasRelatedClusterDetails = thread.messages.some((message) =>
           message.text.includes(
             "Related feedback in the same issue cluster - inspect and fix all of these too:",
           ),
         );
-        if (
-          thread.has_more &&
-          !hasCurrentBuilderReply &&
-          !hasLegacyBuilderReply
-        ) {
+        if (thread.hasMore && !hasBuilderReply) {
           throw new Error(
             "Slack thread is truncated; refusing to risk a duplicate Builder handoff.",
           );
         }
         if (
           !metadataBoolean(metadata, "slackBuilderReplyAt") &&
-          ((!hasCurrentBuilderReply && !hasLegacyBuilderReply) ||
+          (!hasBuilderReply ||
             (relatedItems.length > 0 && !hasRelatedClusterDetails))
         ) {
           const posted = await slack.postThreadReply(
             workspace,
             item.channelId,
             item.threadTs,
-            replyTextForItem(item, relatedItems),
+            replyTextForItem(item, relatedItems, builderSlackUserId),
           );
           await writeMetadata(itemId, orgId, {
             slackBuilderReplyAt: new Date().toISOString(),
             slackBuilderReplyTs: posted.ts,
+          });
+        }
+        const agentNative = await slack.getAgentNativeIdentity(workspace);
+        for (const feedbackItem of [item, ...relatedItems]) {
+          const feedbackThread = completeThreads.get(feedbackItem.id);
+          if (!feedbackThread) {
+            throw new Error(
+              `Slack thread evidence is missing for Factory item ${feedbackItem.id}.`,
+            );
+          }
+          const hasAgentNativeDisposition = feedbackThread.messages.some(
+            (message) =>
+              (message.user === agentNative.userId ||
+                message.username?.trim().toLowerCase() === "agent-native") &&
+              /^(Fixed|In progress|Clarification needed):/i.test(
+                message.text.trim(),
+              ),
+          );
+          if (hasAgentNativeDisposition) continue;
+          const disposition = await slack.postThreadReply(
+            workspace,
+            feedbackItem.channelId!,
+            feedbackItem.threadTs!,
+            `Thanks - Builder owns this feedback cluster and will follow up after verification. In progress: ${reason}`,
+          );
+          await writeMetadata(feedbackItem.id, orgId, {
+            slackDispositionAt: new Date().toISOString(),
+            slackDispositionTs: disposition.ts,
+            slackDisposition: "In progress",
           });
         }
         const clusterItemIds = [itemId, ...relatedItems.map(({ id }) => id)];
@@ -550,7 +634,7 @@ export default defineAction({
             .where(
               and(eq(triageItems.id, related.id), eq(triageItems.orgId, orgId)),
             );
-          await recordDecision({
+          await recordAutomaticBuilderDecision({
             itemId: related.id,
             userEmail,
             orgId,

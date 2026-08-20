@@ -37,14 +37,15 @@ describe("buildPrerenderPaths", () => {
     expect(paths).toContain("/");
     expect(paths).toContain("/docs");
     expect(paths).toContain("/docs/actions-overview");
+    expect(paths).toContain("/docs/what-is-agent-native");
     expect(paths).toContain("/ja-JP/docs/actions-overview");
     expect(paths.every((page) => !isRedirectedDocsPath(page))).toBe(true);
   });
 
-  // `agents.mdx` is `draft: true`; its loader 404s unless VITE_SHOW_DRAFTS is
-  // set, so prerendering it would freeze a 404 into a 200 static file.
-  it("omits draft docs in every locale while the sitemap still lists them", () => {
-    expect(paths.some((page) => page.endsWith("/docs/agents"))).toBe(false);
-    expect(sitemapPaths).toContain("/docs/agents");
-  });
+  // No doc is currently marked `draft: true` (agents.mdx, the last one, was
+  // removed as a content-free stub), so there's nothing left to exercise the
+  // draft-exclusion behavior against. Re-add a test here once a real draft
+  // page exists: it should be missing from `paths` (a draft doc's loader
+  // 404s unless VITE_SHOW_DRAFTS is set, so prerendering it would freeze a
+  // 404 into a 200 static file) while still appearing in `sitemapPaths`.
 });

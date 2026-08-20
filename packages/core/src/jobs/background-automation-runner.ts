@@ -14,20 +14,37 @@ import {
   type ActionEntry,
 } from "../agent/production-agent.js";
 import { runAgentLoopDirectWithSoftTimeout } from "../agent/run-loop-with-resume.js";
-import { resolveRunSoftTimeoutMs, startRun } from "../agent/run-manager.js";
+import {
+  resolveRunSoftTimeoutMs,
+  startRun,
+  type ActiveRun,
+} from "../agent/run-manager.js";
 import { claimBackgroundRun, insertRun } from "../agent/run-store.js";
+import {
+  buildAssistantMessage,
+  buildUserMessage,
+  extractThreadMeta,
+  foldAssistantTurn,
+  upsertUserMessage,
+} from "../agent/thread-data-builder.js";
 import { attachToolSearch } from "../agent/tool-search.js";
 import {
   resolveAutomationExecutionIdentity,
   type AutomationExecutionIdentity,
 } from "../automations/service.js";
-import { createThread } from "../chat-threads/store.js";
+import {
+  createThread,
+  getThread,
+  updateThreadData,
+  withThreadDataLock,
+} from "../chat-threads/store.js";
 import { queryOrgMembers } from "../org/context.js";
 import {
   organizationIdFromResourceOwner,
   organizationResourceOwner,
   type Resource,
 } from "../resources/store.js";
+import { captureError } from "../server/capture-error.js";
 import {
   runWithRequestContext,
   type RequestContext,
@@ -288,10 +305,36 @@ export async function runBackgroundAutomation(
   }
 
   let result: BackgroundAutomationRunResult;
+  // Populated as soon as the run id exists, so a failure that never returns a
+  // result can still be joined to its LLM trace (`aiTraceId` -> $ai_trace_id).
+  const runIdRef: { current: string | null } = { current: null };
   try {
-    result = await executeBackgroundAutomation(options, deps, historyId);
+    result = await executeBackgroundAutomation(
+      options,
+      deps,
+      historyId,
+      runIdRef,
+    );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    // Both callers (recurring-jobs scheduler, trigger dispatcher) record this
+    // onto the automation's own metadata and console.error it, and neither
+    // reports it. A failure visible only in a resource field and stdout is not
+    // a failure anyone sees: the run-level no-progress cutoff killed
+    // automations across two releases without ever raising an issue.
+    captureError(err, {
+      tags: {
+        area: "background-automation",
+        automation: automation.name,
+        scope: options.orgId ? "organization" : "personal",
+      },
+      extra: {
+        automationPath: automation.resource.path,
+        appId: deps.appId,
+        historyId,
+      },
+      ...(runIdRef.current ? { aiTraceId: runIdRef.current } : {}),
+    });
     await recordRunOutcome(
       historyId,
       "error",
@@ -326,6 +369,107 @@ async function recordRunThread(
   }
 }
 
+function backgroundAutomationPersistFailure(input: {
+  run: ActiveRun;
+  hardTimedOut: boolean;
+}): { message: string; errorCode: string } | undefined {
+  if (input.hardTimedOut) {
+    return {
+      message: `Background automation timed out after ${BACKGROUND_RUN_HARD_TIMEOUT_MS / 60_000} minutes`,
+      errorCode: "background_automation_hard_timeout",
+    };
+  }
+  const cutOffReason = backgroundRunCutOffReason(input.run);
+  if (!cutOffReason) return undefined;
+  return {
+    message: `Background automation was cut off before finishing (${cutOffReason})`,
+    errorCode: "background_automation_cut_off",
+  };
+}
+
+/**
+ * Chat opens `/chat/:threadId` from `thread_data`, not `agent_run_events`.
+ * Persist before the cut-off/status reject so a failed run still has a
+ * visible trace. Keep the scheduler title — `extractThreadMeta` would
+ * otherwise replace `Job: …` with the prompt excerpt.
+ *
+ * Cut-off and hard-abort turns have no terminal error event of their own.
+ * `suppressInternalContinuation` also drops `auto_continue`, so persist
+ * would otherwise store a completed assistant message. Append a
+ * non-recoverable error and skip that suppress so Open thread shows the
+ * incomplete state.
+ */
+async function persistBackgroundAutomationTurn(input: {
+  threadId: string;
+  threadTitle: string;
+  prompt: string;
+  run: ActiveRun;
+  persistFailure?: { message: string; errorCode: string };
+}): Promise<void> {
+  await withThreadDataLock(input.threadId, async () => {
+    const row = await getThread(input.threadId);
+    if (!row) {
+      throw new Error(
+        `Background automation thread ${input.threadId} was not found while saving run ${input.run.runId}.`,
+      );
+    }
+
+    let repo: unknown;
+    try {
+      repo = JSON.parse(row.threadData || "{}");
+    } catch {
+      throw new Error(
+        `Background automation thread ${input.threadId} has unreadable thread data.`,
+      );
+    }
+    if (!repo || typeof repo !== "object" || Array.isArray(repo)) {
+      throw new Error(
+        `Background automation thread ${input.threadId} has unreadable thread data.`,
+      );
+    }
+
+    repo = upsertUserMessage(
+      repo,
+      buildUserMessage({ text: input.prompt, runId: input.run.runId }),
+    );
+    const events = [...(input.run.events ?? [])];
+    if (input.persistFailure) {
+      events.push({
+        seq: events.length,
+        event: {
+          type: "error",
+          error: input.persistFailure.message,
+          errorCode: input.persistFailure.errorCode,
+          recoverable: false,
+        },
+      });
+    }
+    const assistantMsg = buildAssistantMessage(events, input.run.runId, {
+      suppressInternalContinuation: !input.persistFailure,
+      turnId: input.run.turnId,
+      runDurationMs: Number.isFinite(input.run.startedAt)
+        ? Math.max(0, Date.now() - input.run.startedAt)
+        : undefined,
+    });
+    if (assistantMsg) {
+      repo = foldAssistantTurn(repo, assistantMsg, {
+        runId: input.run.runId,
+        turnId: input.run.turnId,
+      });
+    }
+
+    const meta = extractThreadMeta(repo);
+    const messages = (repo as { messages?: unknown[] }).messages;
+    await updateThreadData(
+      input.threadId,
+      JSON.stringify(repo),
+      input.threadTitle || row.title,
+      meta.preview || row.preview,
+      Array.isArray(messages) ? messages.length : 0,
+    );
+  });
+}
+
 async function recordRunOutcome(
   historyId: string | null,
   status: "success" | "error",
@@ -346,6 +490,7 @@ async function executeBackgroundAutomation(
   options: BackgroundAutomationRunOptions,
   deps: BackgroundAutomationDeps,
   historyId: string | null,
+  runIdRef?: { current: string | null },
 ): Promise<BackgroundAutomationRunResult> {
   const { automation, ownerEmail, orgId, prompt, threadTitle, usageLabel } =
     options;
@@ -400,6 +545,7 @@ async function executeBackgroundAutomation(
         orgId: orgId ?? null,
       });
       const runId = createRunId(options.runIdPrefix);
+      if (runIdRef) runIdRef.current = runId;
       await recordRunThread(historyId, thread.id, runId);
 
       // Scheduled work is background work: it has no synchronous serverless
@@ -426,6 +572,7 @@ async function executeBackgroundAutomation(
       } = { current: null };
       let responseText = "";
       let hardAbortTimer: ReturnType<typeof setTimeout> | null = null;
+      let hardTimedOut = false;
 
       // This runner executes in-process, synchronously — there is no HTTP
       // self-dispatch to a separate worker. Self-claim the row into
@@ -487,13 +634,27 @@ async function executeBackgroundAutomation(
               clearTimeout(hardAbortTimer);
               hardAbortTimer = null;
             }
-            const cutOffReason = backgroundRunCutOffReason(run);
-            if (cutOffReason) {
-              reject(
-                new Error(
-                  `Background automation was cut off before finishing (${cutOffReason})`,
-                ),
-              );
+            const persistFailure = backgroundAutomationPersistFailure({
+              run,
+              hardTimedOut,
+            });
+            try {
+              await persistBackgroundAutomationTurn({
+                threadId: thread.id,
+                threadTitle,
+                prompt,
+                run,
+                persistFailure,
+              });
+            } catch (err) {
+              reject(err instanceof Error ? err : new Error(String(err)));
+              throw err;
+            }
+            // Hard timeout owns the runner reject so a serverless return
+            // waits for this persist via `activeRun.finalized`.
+            if (hardTimedOut) return;
+            if (persistFailure) {
+              reject(new Error(persistFailure.message));
               return;
             }
             if (run.status !== "completed") {
@@ -519,14 +680,17 @@ async function executeBackgroundAutomation(
 
         hardAbortTimer = setTimeout(() => {
           hardAbortTimer = null;
-          if (activeRun.status === "running") {
-            activeRun.abort.abort("background_automation_hard_timeout");
-            reject(
-              new Error(
-                `Background automation timed out after ${BACKGROUND_RUN_HARD_TIMEOUT_MS / 60_000} minutes`,
-              ),
-            );
-          }
+          if (activeRun.status !== "running") return;
+          hardTimedOut = true;
+          activeRun.abort.abort("background_automation_hard_timeout");
+          const timeoutError = new Error(
+            `Background automation timed out after ${BACKGROUND_RUN_HARD_TIMEOUT_MS / 60_000} minutes`,
+          );
+          void activeRun.finalized
+            .catch(() => {})
+            .then(() => {
+              reject(timeoutError);
+            });
         }, BACKGROUND_RUN_HARD_TIMEOUT_MS);
       }).finally(() => {
         if (hardAbortTimer) {

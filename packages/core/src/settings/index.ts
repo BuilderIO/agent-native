@@ -1,6 +1,7 @@
 // Store
 export {
   getSetting,
+  mutateSetting,
   putSetting,
   deleteSetting,
   getAllSettings,
