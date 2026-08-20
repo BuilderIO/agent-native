@@ -13,6 +13,7 @@ import { readFileSync } from "node:fs";
 
 /** Repo-relative path -> max `wc -w` words. See the header before raising one. */
 const BUDGETS = {
+  "AGENTS.md": 3430,
   "CLAUDE.md": 3430,
   ".agents/skills/visual-recap/SKILL.md": 5140,
   ".agents/skills/visual-plan/SKILL.md": 4740,
