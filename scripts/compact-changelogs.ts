@@ -74,8 +74,67 @@ function stripPackageArchiveNotes(markdown: string): string {
     .replace(/\s+$/, "");
 }
 
+function releaseSectionTitle(section: string): string | undefined {
+  return section.match(/^##\s+(?!#)(.+?)\s*$/m)?.[1]?.trim();
+}
+
 function releaseSectionDate(section: string): string | undefined {
-  return section.match(/\d{4}-\d{2}-\d{2}/)?.[0];
+  return releaseSectionTitle(section)?.match(/\d{4}-\d{2}-\d{2}/)?.[0];
+}
+
+type ReleaseVersion = {
+  major: number;
+  minor: number;
+  patch: number;
+  prerelease?: string;
+};
+
+function releaseSectionVersion(section: string): ReleaseVersion | undefined {
+  const title = releaseSectionTitle(section);
+  const match = title?.match(/^\[?v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?/);
+  if (!match) return undefined;
+  return {
+    major: Number(match[1]),
+    minor: Number(match[2]),
+    patch: Number(match[3]),
+    prerelease: match[4],
+  };
+}
+
+function comparePrerelease(
+  a: string | undefined,
+  b: string | undefined,
+): number {
+  if (a === b) return 0;
+  if (!a) return 1;
+  if (!b) return -1;
+
+  const aParts = a.split(".");
+  const bParts = b.split(".");
+  for (let index = 0; index < Math.max(aParts.length, bParts.length); index++) {
+    const aPart = aParts[index];
+    const bPart = bParts[index];
+    if (aPart === undefined) return -1;
+    if (bPart === undefined) return 1;
+    if (aPart === bPart) continue;
+
+    const aNumber = /^\d+$/.test(aPart) ? Number(aPart) : undefined;
+    const bNumber = /^\d+$/.test(bPart) ? Number(bPart) : undefined;
+    if (aNumber !== undefined && bNumber !== undefined) {
+      return aNumber > bNumber ? 1 : -1;
+    }
+    if (aNumber !== undefined) return -1;
+    if (bNumber !== undefined) return 1;
+    return aPart.localeCompare(bPart);
+  }
+  return 0;
+}
+
+function compareReleaseVersions(a: ReleaseVersion, b: ReleaseVersion): number {
+  if (a.major !== b.major) return a.major > b.major ? 1 : -1;
+  if (a.minor !== b.minor) return a.minor > b.minor ? 1 : -1;
+  if (a.patch !== b.patch) return a.patch > b.patch ? 1 : -1;
+  return comparePrerelease(a.prerelease, b.prerelease);
 }
 
 function uniqueNewestFirst(sections: string[]): string[] {
@@ -84,30 +143,44 @@ function uniqueNewestFirst(sections: string[]): string[] {
     .map((section, index) => ({
       section,
       index,
+      title: releaseSectionTitle(section),
       date: releaseSectionDate(section),
+      version: releaseSectionVersion(section),
     }))
-    .filter(({ section }) => {
-      const title = section.match(/^##\s+(.+?)\s*$/m)?.[1]?.trim();
+    .filter(({ title }) => {
       if (!title || seen.has(title)) return false;
       seen.add(title);
       return true;
     })
     .sort((a, b) => {
+      if (a.version && b.version) {
+        const versionOrder = compareReleaseVersions(b.version, a.version);
+        if (versionOrder !== 0) return versionOrder;
+      }
+      if (a.version && !b.version) return -1;
+      if (!a.version && b.version) return 1;
       if (a.date && b.date && a.date !== b.date) {
         return b.date.localeCompare(a.date);
       }
       if (a.date && !b.date) return -1;
       if (!a.date && b.date) return 1;
-      return a.index - b.index;
+      return (a.title ?? "").localeCompare(b.title ?? "") || a.index - b.index;
     })
     .map(({ section }) => section);
 }
 
 function compactApp(root: string, mode: Mode): boolean {
   const changelogPath = path.join(root, "CHANGELOG.md");
-  const existing = existsSync(changelogPath)
+  const rawExisting = existsSync(changelogPath)
     ? readFileSync(changelogPath, "utf8")
     : CHANGELOG_HEADER;
+  const hasPackageArchiveNote = [
+    packageArchiveNote,
+    ...legacyPackageArchiveNotes,
+  ].some((note) => rawExisting.includes(note));
+  const existing = hasPackageArchiveNote
+    ? stripPackageArchiveNotes(rawExisting)
+    : rawExisting;
   const next = compactChangelog(
     existing,
     readFolderEntries(path.join(root, "changelog")),

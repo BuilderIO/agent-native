@@ -77,7 +77,7 @@ const GROUP_LABELS: Record<ChangelogChangeType, string> = {
 const ISO_DATE = /(\d{4}-\d{2}-\d{2})/;
 
 function cleanChangelogBody(value: string): string {
-  return value.replace(/[ \t]+$/gm, "").trim();
+  return value.trim();
 }
 
 /** Lowercase, hyphenate, and strip to a URL/id-safe slug. */
