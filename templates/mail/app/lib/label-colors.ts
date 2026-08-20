@@ -4,25 +4,34 @@ export type LabelStyle = {
 };
 
 const labelColors: Record<string, LabelStyle> = {
-  automated: { bg: "bg-pink-500/20", text: "text-pink-700 dark:text-pink-300" },
-  social: { bg: "bg-blue-500/20", text: "text-blue-700 dark:text-blue-300" },
+  automated: {
+    bg: "bg-[hsl(var(--mail-label-automated-bg))]",
+    text: "text-[hsl(var(--mail-label-automated-text))]",
+  },
+  social: {
+    bg: "bg-[hsl(var(--mail-label-social-bg))]",
+    text: "text-[hsl(var(--mail-label-social-text))]",
+  },
   updates: {
-    bg: "bg-yellow-500/20",
-    text: "text-yellow-700 dark:text-yellow-300",
+    bg: "bg-[hsl(var(--mail-label-updates-bg))]",
+    text: "text-[hsl(var(--mail-label-updates-text))]",
   },
   promotions: {
-    bg: "bg-green-500/20",
-    text: "text-green-700 dark:text-green-300",
+    bg: "bg-[hsl(var(--mail-label-promotions-bg))]",
+    text: "text-[hsl(var(--mail-label-promotions-text))]",
   },
   forums: {
-    bg: "bg-sky-500/20",
-    text: "text-sky-700 dark:text-sky-300",
+    bg: "bg-[hsl(var(--mail-label-forums-bg))]",
+    text: "text-[hsl(var(--mail-label-forums-text))]",
   },
   finance: {
-    bg: "bg-emerald-500/20",
-    text: "text-emerald-700 dark:text-emerald-300",
+    bg: "bg-[hsl(var(--mail-label-finance-bg))]",
+    text: "text-[hsl(var(--mail-label-finance-text))]",
   },
-  travel: { bg: "bg-cyan-500/20", text: "text-cyan-700 dark:text-cyan-300" },
+  travel: {
+    bg: "bg-[hsl(var(--mail-label-travel-bg))]",
+    text: "text-[hsl(var(--mail-label-travel-text))]",
+  },
 };
 
 export function getLabelStyle(labelId: string): LabelStyle {

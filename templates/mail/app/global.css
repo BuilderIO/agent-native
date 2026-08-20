@@ -43,6 +43,20 @@
   --mail-toast-surface: hsl(var(--card));
   --mail-toast-border: hsl(var(--border));
   --mail-overlay-scrim: hsl(0 0% 0% / 0.2);
+  --mail-label-automated-bg: 330 81% 60% / 0.2;
+  --mail-label-automated-text: 336 69% 36%;
+  --mail-label-social-bg: 217 91% 60% / 0.2;
+  --mail-label-social-text: 224 76% 48%;
+  --mail-label-updates-bg: 45 93% 47% / 0.2;
+  --mail-label-updates-text: 32 95% 44%;
+  --mail-label-promotions-bg: 142 71% 45% / 0.2;
+  --mail-label-promotions-text: 142 72% 29%;
+  --mail-label-forums-bg: 199 89% 48% / 0.2;
+  --mail-label-forums-text: 201 96% 32%;
+  --mail-label-finance-bg: 160 84% 39% / 0.2;
+  --mail-label-finance-text: 163 94% 24%;
+  --mail-label-travel-bg: 187 85% 53% / 0.2;
+  --mail-label-travel-text: 192 91% 36%;
 }
 
 .dark {
@@ -81,6 +95,13 @@
   --mail-toast-surface: hsl(0 0% 15%);
   --mail-toast-border: hsl(0 0% 26%);
   --mail-overlay-scrim: hsl(0 0% 6% / 0.32);
+  --mail-label-automated-text: 336 75% 75%;
+  --mail-label-social-text: 213 94% 68%;
+  --mail-label-updates-text: 48 96% 64%;
+  --mail-label-promotions-text: 141 76% 73%;
+  --mail-label-forums-text: 199 95% 74%;
+  --mail-label-finance-text: 152 76% 70%;
+  --mail-label-travel-text: 188 86% 74%;
 }
 
 @layer base {
