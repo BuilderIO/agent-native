@@ -4250,41 +4250,40 @@ body[data-clips-route="recording-pill"] #root {
 }
 
 /* ------------------------------------------------------------------------- */
-/* Overlay: finalizing spinner                                                */
+/* Overlay: recording preparation                                              */
 /* ------------------------------------------------------------------------- */
 
 .preparing-root {
   position: fixed;
   inset: 0;
   display: flex;
-  align-items: flex-end;
-  justify-content: flex-start;
-  padding: 10px;
-  background: transparent;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.42);
+  pointer-events: none;
 }
 
-.preparing-card {
+.preparing-content {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 12px 14px;
-  border-radius: 16px;
-  background: rgba(20, 22, 28, 0.94);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  gap: 16px;
   color: white;
-  font-size: 13px;
-  font-weight: 600;
+}
+
+.preparing-label {
+  font-size: 20px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  line-height: 1;
 }
 
 .preparing-spinner {
-  width: 18px;
-  height: 18px;
+  width: 28px;
+  height: 28px;
   flex: 0 0 auto;
   border-radius: 50%;
-  border: 2px solid rgba(255, 255, 255, 0.18);
+  border: 3px solid rgba(255, 255, 255, 0.18);
   border-top-color: #ffffff;
   animation: finalizing-spin 0.9s linear infinite;
 }
