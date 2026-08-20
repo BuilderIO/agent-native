@@ -1,8 +1,41 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  awaitBootstrap: vi.fn(),
+  createAuthPlugin: vi.fn(),
+  createCoreRoutesPlugin: vi.fn(),
+  markDefaultPluginProvided: vi.fn(),
+  trackPluginInit: vi.fn(),
+}));
+
+vi.mock("./auth-plugin.js", () => ({
+  createAuthPlugin: mocks.createAuthPlugin,
+}));
+
+vi.mock("./core-routes-plugin.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("./core-routes-plugin.js")>();
+  return {
+    ...actual,
+    createCoreRoutesPlugin: mocks.createCoreRoutesPlugin,
+  };
+});
+
+vi.mock("./framework-request-handler.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("./framework-request-handler.js")>();
+  return {
+    ...actual,
+    awaitBootstrap: mocks.awaitBootstrap,
+    markDefaultPluginProvided: mocks.markDefaultPluginProvided,
+    trackPluginInit: mocks.trackPluginInit,
+  };
+});
 
 import {
   configureAgentNativeEmbeddedEnvironment,
   createAgentNativeEmbeddedAuthOptions,
+  mountAgentNativeEmbedded,
   normalizeAgentNativeEmbeddedSession,
 } from "./embedded.js";
 
@@ -21,7 +54,36 @@ function restoreEnv() {
 
 describe("embedded Agent-Native helpers", () => {
   afterEach(() => {
+    vi.clearAllMocks();
     restoreEnv();
+  });
+
+  it("mounts auth and core liveness before host bootstrap", async () => {
+    const events: string[] = [];
+    mocks.createAuthPlugin.mockImplementation(() => () => events.push("auth"));
+    mocks.createCoreRoutesPlugin.mockImplementation(
+      () => () => events.push("core-routes"),
+    );
+    mocks.awaitBootstrap.mockImplementation(() => {
+      events.push("bootstrap");
+    });
+
+    await mountAgentNativeEmbedded(
+      {},
+      {
+        auth: async () => null,
+        resources: false,
+        sentry: false,
+        org: false,
+        coreRoutes: {},
+        onboarding: false,
+        integrations: false,
+        terminal: false,
+        agentChat: false,
+      },
+    );
+
+    expect(events).toEqual(["auth", "core-routes", "bootstrap"]);
   });
 
   it("normalizes host-auth sessions into framework auth sessions", () => {

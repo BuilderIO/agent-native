@@ -402,6 +402,26 @@ describe("framework request handler", () => {
     release();
   });
 
+  it("does not wait for unscoped plugin initialization on an early route", async () => {
+    const nitroApp = createNitroApp();
+    let release!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    markFrameworkRoutesReadyBeforeBootstrap(nitroApp, [
+      "/_agent-native/sign-in",
+    ]);
+    getH3App(nitroApp).use("/_agent-native/sign-in", () => ({ ok: true }));
+    trackPluginInit(nitroApp, ready);
+
+    await expect(dispatch(nitroApp, "/_agent-native/sign-in")).resolves.toEqual(
+      { ok: true },
+    );
+
+    release();
+  });
+
   it("does not wait for an excluded route in a broad plugin readiness entry", async () => {
     const nitroApp = createNitroApp();
     let release!: () => void;

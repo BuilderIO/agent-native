@@ -104,4 +104,32 @@ describe("createAuthPlugin", () => {
     expect(mocks.awaitBootstrap).not.toHaveBeenCalled();
     expect(mocks.runBetterAuthMigrations).not.toHaveBeenCalled();
   });
+
+  it("marks BYOA routes before an asynchronous mount promise settles", async () => {
+    const nitroApp = {};
+    const h3App = { use: vi.fn() };
+    const options = { getSession: vi.fn() };
+    let resolveMount!: (value: boolean) => void;
+    mocks.autoMountAuth.mockReturnValue(
+      new Promise<boolean>((resolve) => {
+        resolveMount = resolve;
+      }),
+    );
+    mocks.getH3App.mockReturnValue(h3App);
+
+    createAuthPlugin(options)(nitroApp);
+
+    expect(mocks.markFrameworkRoutesReadyBeforeBootstrap).toHaveBeenCalledWith(
+      nitroApp,
+      [
+        "/_agent-native/auth",
+        "/_agent-native/sign-in",
+        "/_agent-native/login",
+        "/_agent-native/signup",
+      ],
+    );
+
+    resolveMount(true);
+    await mocks.trackPluginInit.mock.calls[0]?.[1];
+  });
 });

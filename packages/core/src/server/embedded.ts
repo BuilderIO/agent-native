@@ -185,11 +185,19 @@ export async function mountAgentNativeEmbedded(
 ): Promise<void> {
   configureAgentNativeEmbeddedEnvironment(options);
   markEmbeddedPluginStems(nitroApp);
-  await awaitBootstrap(nitroApp);
 
   await createAuthPlugin(createAgentNativeEmbeddedAuthOptions(options.auth))(
     nitroApp,
   );
+
+  // Mount framework auth and liveness before waiting on the host application's
+  // bootstrap. The embedded plugin tracks its full init as an unscoped promise,
+  // so early requests deliberately skip that promise.
+  if (options.coreRoutes !== false) {
+    await createCoreRoutesPlugin(options.coreRoutes ?? undefined)(nitroApp);
+  }
+
+  await awaitBootstrap(nitroApp);
 
   if (options.sentry !== false) {
     await createSentryPlugin()(nitroApp);
@@ -197,10 +205,6 @@ export async function mountAgentNativeEmbedded(
 
   if (options.org === true) {
     await createOrgPlugin()(nitroApp);
-  }
-
-  if (options.coreRoutes !== false) {
-    await createCoreRoutesPlugin(options.coreRoutes ?? undefined)(nitroApp);
   }
 
   if (options.resources !== false) {

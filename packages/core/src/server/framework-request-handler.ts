@@ -391,7 +391,9 @@ async function awaitFrameworkRoutesReadyForRequest(
         if (bootstrapPromise && !canDispatchBeforeBootstrap) {
           await bootstrapPromise;
         }
-        await awaitPluginsReady(nitroApp, reqPath);
+        await awaitPluginsReady(nitroApp, reqPath, {
+          skipUnscoped: canDispatchBeforeBootstrap,
+        });
         return true;
       })(),
       new Promise<boolean>((resolve) => {
@@ -589,6 +591,7 @@ function debugClientAbort(args: {
 export async function awaitPluginsReady(
   nitroApp: any,
   reqPath?: string,
+  options: { skipUnscoped?: boolean } = {},
 ): Promise<void> {
   const entries = nitroApp[PLUGIN_READY_KEY] as PluginReadyEntry[] | undefined;
   if (!entries?.length) return;
@@ -596,6 +599,7 @@ export async function awaitPluginsReady(
   const relevant = reqPath
     ? entries.filter(
         (entry) =>
+          !(options.skipUnscoped && !entry.paths?.length) &&
           !entry.excludedPaths?.some((path) =>
             resolveMountMatch(reqPath, path),
           ) &&

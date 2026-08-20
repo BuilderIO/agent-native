@@ -22,13 +22,15 @@ export function createAuthPlugin(options?: AuthOptions): NitroPluginDef {
       // immediately so a transient database outage in Better Auth or another
       // default plugin cannot make the custom sign-in document unavailable.
       if (isByoa) {
-        await autoMountAuth(app, options);
         // The guard is mounted synchronously by the BYOA branch above. Only
-        // now is it safe to let these paths skip unrelated bootstrap work.
+        // after that synchronous registration is it safe to let these paths
+        // skip unrelated bootstrap work.
+        const mountPromise = autoMountAuth(app, options);
         markFrameworkRoutesReadyBeforeBootstrap(
           nitroApp,
           FRAMEWORK_AUTH_EARLY_PATHS,
         );
+        await mountPromise;
         return;
       }
       await awaitBootstrap(nitroApp);
