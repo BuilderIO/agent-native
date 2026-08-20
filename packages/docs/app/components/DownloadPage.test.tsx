@@ -111,14 +111,6 @@ describe("DownloadPage", () => {
     expect(
       screen.getByRole("heading", { name: "Download Agent Native" }),
     ).toBeTruthy();
-    expect(
-      screen
-        .getByRole("button", { name: "macOS" })
-        .getAttribute("aria-pressed"),
-    ).toBe("true");
-    expect(
-      screen.getByRole("heading", { name: "Or run from source", level: 2 }),
-    ).toBeTruthy();
     expect(screen.queryByText(productionManifest.version)).toBeNull();
     expect(screen.queryByText(nightlyManifest.version)).toBeNull();
     expect(screen.queryByRole("link", { name: /GitHub/i })).toBeNull();
@@ -207,11 +199,6 @@ describe("DownloadPage", () => {
     const loadingButton = screen.getByRole("button", {
       name: "Checking the latest desktop release...",
     });
-    expect(
-      screen
-        .getByText("Checking the latest desktop release...", { exact: true })
-        .getAttribute("aria-live"),
-    ).toBe("polite");
     expect((loadingButton as HTMLButtonElement).disabled).toBe(true);
     expect(loadingButton.getAttribute("aria-busy")).toBe("true");
     expect(loadingButton.className).toContain("max-w-[18rem]");

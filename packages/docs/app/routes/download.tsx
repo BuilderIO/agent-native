@@ -345,17 +345,15 @@ export default function DownloadPage() {
           return (
             <button
               key={p}
-              type="button"
               onClick={() => handlePlatformChange(p)}
               aria-label={plt.name}
-              aria-pressed={active}
               className={`group flex items-center justify-center rounded-lg p-4 ${
                 active
                   ? "text-[var(--fg)]"
                   : "text-[var(--fg-secondary)] opacity-40 hover:opacity-65"
               }`}
             >
-              <Icon size={24} aria-hidden="true" />
+              <Icon size={24} />
               <span className="sr-only">{plt.name}</span>
             </button>
           );
@@ -448,10 +446,7 @@ export default function DownloadPage() {
 
         <div className="mt-4 min-h-4">
           {releaseStatus && (
-            <p
-              aria-live="polite"
-              className="text-xs text-[var(--fg-secondary)]"
-            >
+            <p className="text-xs text-[var(--fg-secondary)]">
               {releaseStatus}
             </p>
           )}
@@ -503,10 +498,10 @@ export default function DownloadPage() {
       {/* Run from source */}
       <div className="mt-16 mx-auto max-w-2xl">
         <div className="rounded-lg border border-[var(--docs-border)] px-6 py-5">
-          <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold">
-            <IconTerminal2 size={16} aria-hidden="true" />
+          <h4 className="mb-2 flex items-center gap-2 text-sm font-semibold">
+            <IconTerminal2 size={16} />
             {t("downloadPage.runFromSource")}
-          </h2>
+          </h4>
           <p className="mb-3 text-xs text-[var(--fg-secondary)]">
             {t("downloadPage.runFromSourceBody")}
           </p>
