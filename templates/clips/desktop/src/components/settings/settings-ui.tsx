@@ -34,8 +34,11 @@ import { cn } from "@/lib/utils";
  * the hover state and nothing else, so a row of controls reads as quiet until
  * the pointer is actually over one.
  */
+// `rounded-md` (radius − 2px), not the card's own `rounded-lg`: a control
+// nested inside a rounded card wants a concentrically smaller radius, or its
+// corners read puffier than the surface containing it.
 const ROW_CONTROL =
-  "h-8 rounded-lg border border-border bg-background px-3 text-sm font-medium text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50";
+  "h-8 rounded-md border border-border bg-background px-3 text-sm font-medium text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50";
 
 /** A card of rows. `label` is the small uppercase divider; omit it when the
  *  tab is a single card and its heading already names the group. */
@@ -230,13 +233,13 @@ export function SettingsActionButton({
       className={cn(
         "gap-1.5",
         emphasis === "soft" && ROW_CONTROL,
-        emphasis === "primary" && "h-8 rounded-lg px-3 text-sm font-medium",
+        emphasis === "primary" && "h-8 rounded-md px-3 text-sm font-medium",
         emphasis === "quiet" &&
-          "h-8 rounded-lg px-2 text-sm font-medium text-muted-foreground hover:bg-accent",
+          "h-8 rounded-md px-2 text-sm font-medium text-muted-foreground hover:bg-accent",
         // Quiet-red, not a filled slab: red text that gains a red-tinted wash
         // on hover. For actions that permanently delete data — nothing else.
         emphasis === "destructive" &&
-          "h-8 rounded-lg px-2 text-sm font-medium text-destructive hover:bg-destructive/10 hover:text-destructive",
+          "h-8 rounded-md px-2 text-sm font-medium text-destructive hover:bg-destructive/10 hover:text-destructive",
         className,
       )}
       {...props}
@@ -340,7 +343,7 @@ export function SettingsChoicePopover({
                 type="button"
                 aria-pressed={selected}
                 className={cn(
-                  "flex w-full items-center justify-between gap-2.5 rounded-md px-2 py-1.5 text-left text-sm font-medium transition-colors",
+                  "flex w-full items-center justify-between gap-2.5 rounded-sm px-2 py-1.5 text-left text-sm font-medium transition-colors",
                   selected
                     ? "bg-accent text-foreground"
                     : "text-muted-foreground hover:bg-accent hover:text-foreground",

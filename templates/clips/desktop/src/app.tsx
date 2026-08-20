@@ -4224,7 +4224,7 @@ export function App({
                 <Button
                   variant="outline"
                   size="sm"
-                  className="h-8 rounded-lg px-3 text-sm"
+                  className="h-8 rounded-md px-3 text-sm"
                   onClick={cancelSignIn}
                 >
                   Cancel
