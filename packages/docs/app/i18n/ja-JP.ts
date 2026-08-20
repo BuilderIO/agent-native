@@ -1230,17 +1230,17 @@ const jaJP = {
     body: "すべての agent-native アプリを 1 つのデスクトップシェルに集約。プロダクションアプリを内蔵し、ローカル開発向けの dev モード切り替えも備えています。",
     openDesktop: "Agent Native を開く",
     downloadInstaller: "インストーラーをダウンロード",
-    viewInstallers: "インストーラーを表示",
-    viewInstallersOnGithub: "GitHub でインストーラーを表示",
-    latestRelease: "Latest desktop release: {{version}}",
-    loadError:
-      "最新のデスクトップリリースを読み込めませんでした。releases ページにすべてのインストーラーがあります。",
+    loadError: "最新のデスクトップインストーラーを読み込めませんでした。",
     checkingRelease: "最新のデスクトップリリースを確認しています...",
-    nightlyBuilds: "Nightly ビルドをお探しですか？",
+    retry: "再試行",
+    unavailable: "このプラットフォームではインストーラーを利用できません",
+    stable: "安定版",
+    nightly: "Nightly",
+    switchToNightly: "Nightly ビルドに切り替え",
+    switchToStable: "安定版ビルドに切り替え",
     runFromSource: "またはソースから実行",
     runFromSourceBody:
       "お使いのプラットフォーム向けインストーラーがまだない場合、または CLI を使いたい場合は、npm で新しいアプリを作成してローカル実行できます。macOS、Windows、Linux で動作します。",
-    viewAllReleases: "GitHub ですべての releases を表示",
     platforms: {
       mac: {
         primary: "Apple Silicon 向けをダウンロード",

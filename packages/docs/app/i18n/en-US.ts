@@ -1227,17 +1227,17 @@ const enUS = {
     body: "All your agent-native apps in one desktop shell. Production apps built-in, with a dev mode toggle for local development.",
     openDesktop: "Open Agent Native",
     downloadInstaller: "Download installer",
-    viewInstallers: "View installers",
-    viewInstallersOnGithub: "View installers on GitHub",
-    latestRelease: "Latest desktop release: {{version}}",
-    loadError:
-      "Could not load the latest desktop release. The releases page has all installers.",
+    loadError: "Could not load the latest desktop installer.",
     checkingRelease: "Checking the latest desktop release...",
-    nightlyBuilds: "Looking for the Nightly build?",
+    retry: "Retry",
+    unavailable: "Installer unavailable for this platform",
+    stable: "Stable",
+    nightly: "Nightly",
+    switchToNightly: "Switch to Nightly builds",
+    switchToStable: "Switch to stable builds",
     runFromSource: "Or run from source",
     runFromSourceBody:
       "No installer for your platform yet, or prefer the CLI? Scaffold a new app with npm and run it locally — works on macOS, Windows, and Linux.",
-    viewAllReleases: "View all releases on GitHub",
     platforms: {
       mac: {
         primary: "Download for Apple Silicon",

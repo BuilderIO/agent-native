@@ -1,4 +1,9 @@
-import { defineEventHandler, setResponseHeaders, setResponseStatus } from "h3";
+import {
+  defineEventHandler,
+  getQuery,
+  setResponseHeaders,
+  setResponseStatus,
+} from "h3";
 
 import {
   DESKTOP_RELEASE_CACHE_HEADERS,
@@ -8,9 +13,11 @@ import {
 } from "../../../lib/desktop-releases";
 
 export default defineEventHandler(async (event) => {
+  const channel =
+    getQuery(event).channel === "nightly" ? "nightly" : "production";
   let manifest: DesktopDownloadManifest;
   try {
-    manifest = await getDesktopDownloadManifest();
+    manifest = await getDesktopDownloadManifest(channel);
   } catch (error) {
     const e = getDesktopReleaseError(error);
     setResponseStatus(event, e.statusCode, e.statusMessage);
