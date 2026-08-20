@@ -5,6 +5,11 @@ export interface McpOAuthNavigationGate {
 
 export type McpOAuthNavigationOutcome = "pending" | "success" | "error";
 
+export interface McpOAuthNavigationTarget {
+  isDestroyed(): boolean;
+  loadURL(url: string): Promise<unknown>;
+}
+
 function normalizedPath(path: string): string {
   return path.replace(/\/+$/, "") || "/";
 }
@@ -31,6 +36,15 @@ export function classifyMcpOAuthNavigation(input: {
     return "success";
   }
   return "pending";
+}
+
+export async function restoreMcpOAuthNavigationTarget(
+  target: McpOAuthNavigationTarget,
+  origin: string,
+  returnPath: string,
+): Promise<void> {
+  if (target.isDestroyed()) return;
+  await target.loadURL(new URL(returnPath, origin).toString());
 }
 
 export function createMcpOAuthNavigationGate(): McpOAuthNavigationGate {

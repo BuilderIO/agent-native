@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   classifyMcpOAuthNavigation,
   createMcpOAuthNavigationGate,
+  restoreMcpOAuthNavigationTarget,
 } from "./mcp-oauth-navigation.js";
 
 describe("MCP OAuth navigation gate", () => {
@@ -94,5 +95,22 @@ describe("MCP OAuth navigation outcomes", () => {
         httpResponseCode: 403,
       }),
     ).toBe("error");
+  });
+
+  it("restores a failed flow to the validated integrations route before retry", async () => {
+    const loadURL = vi.fn(async () => {});
+
+    await restoreMcpOAuthNavigationTarget(
+      {
+        isDestroyed: () => false,
+        loadURL,
+      },
+      navigation.origin,
+      navigation.returnPath,
+    );
+
+    expect(loadURL).toHaveBeenCalledExactlyOnceWith(
+      "https://dispatch.example.com/integrations",
+    );
   });
 });

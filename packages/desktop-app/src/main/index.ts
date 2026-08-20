@@ -286,6 +286,7 @@ import { registerWindowIpc } from "./ipc/window";
 import {
   classifyMcpOAuthNavigation,
   createMcpOAuthNavigationGate,
+  restoreMcpOAuthNavigationTarget,
 } from "./mcp-oauth-navigation.js";
 import {
   createMultiFrontierQuitGuard,
@@ -12980,19 +12981,37 @@ async function navigateMcpOAuthInDispatchWebview(
       },
       5 * 60 * 1000,
     );
-    const cleanup = () => {
+    const clearNavigationWatchers = () => {
       clearTimeout(timeout);
       target.removeListener("did-navigate", onNavigate);
       target.removeListener("did-navigate-in-page", onNavigateInPage);
       target.removeListener("did-fail-load", onFailLoad);
-      releaseMcpOAuthNavigation();
     };
     const finish = (error?: Error) => {
       if (settled) return;
       settled = true;
-      cleanup();
-      if (error) reject(error);
-      else resolve();
+      clearNavigationWatchers();
+      if (!error) {
+        releaseMcpOAuthNavigation();
+        resolve();
+        return;
+      }
+
+      // Keep the target gate active until the failed provider/callback page is
+      // replaced, so the restored integrations UI can safely start another flow.
+      void restoreMcpOAuthNavigationTarget(target, origin, normalizedReturnPath)
+        .catch((restoreError: unknown) => {
+          console.warn("[main] failed to restore MCP OAuth webview", {
+            reason:
+              restoreError instanceof Error
+                ? restoreError.message
+                : restoreError,
+          });
+        })
+        .finally(() => {
+          releaseMcpOAuthNavigation();
+          reject(error);
+        });
     };
     const onNavigate = (
       _event: Electron.Event,
