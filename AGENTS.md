@@ -265,6 +265,13 @@ argument rots into exactly the patchwork it warns about.
   environment variable is a declared `.meta({ env })` alias into that field, not
   a parallel namespace. Consumer code never reads `process.env` — four
   resolvers do, and `configuration` names them.
+- For new non-secret, client-visible app behavior or capability settings, extend
+  the typed `agent-native.config.ts` surface and use its deterministic
+  `AGENT_NATIVE_CONFIG_<UPPER_SNAKE_PATH>` alias when a deployment override is
+  needed. Do not add a standalone `VITE_*` or `AGENT_NATIVE_*` variable for a
+  setting that belongs in public app config. Keep secrets, provider keys, and
+  server-only deployment facts in their existing runtime or scoped-secret
+  paths. Read `configuration` before choosing the layer.
 - Never do heavy work at serverless cold start — migrations, backfills,
   aggregation, index builds, provider handshakes, or warmup probes in module
   load or plugin init run on every cold Lambda and surface as sitewide slowness,

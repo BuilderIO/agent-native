@@ -54,4 +54,37 @@ describe("agent-native config loading", () => {
       changelog: { enabled: false },
     });
   });
+
+  it("merges environment fragments before an explicit project config", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-native-config-"));
+    temporaryRoots.push(root);
+    const previousRuntime = process.env.AGENT_NATIVE_CONFIG_RUNTIME;
+    process.env.AGENT_NATIVE_CONFIG_RUNTIME = JSON.stringify({
+      auth: { enabled: false },
+      database: { required: false },
+    });
+
+    try {
+      await expect(
+        loadResolvedAgentNativeConfig(
+          root,
+          createAgentNativeConfigContext("serve", "test"),
+          {
+            projectConfig: { runtime: { auth: { enabled: true } } },
+          },
+        ),
+      ).resolves.toEqual({
+        runtime: {
+          auth: { enabled: true },
+          database: { required: false },
+        },
+      });
+    } finally {
+      if (previousRuntime === undefined) {
+        delete process.env.AGENT_NATIVE_CONFIG_RUNTIME;
+      } else {
+        process.env.AGENT_NATIVE_CONFIG_RUNTIME = previousRuntime;
+      }
+    }
+  });
 });

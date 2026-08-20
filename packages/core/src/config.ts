@@ -145,6 +145,265 @@ export function defineAgentNativeConfig(
   return config;
 }
 
+export const AGENT_NATIVE_CONFIG_ENV_PREFIX = "AGENT_NATIVE_CONFIG" as const;
+
+type AgentNativeConfigEnvKind =
+  | "array"
+  | "boolean"
+  | "deployment-environment"
+  | "number"
+  | "object"
+  | "string"
+  | "union";
+
+interface AgentNativeConfigEnvNode {
+  path: readonly string[];
+  kind: AgentNativeConfigEnvKind;
+  aliases?: readonly string[];
+}
+
+/**
+ * Serializable public config nodes that may be initialized from the
+ * deployment environment. Object nodes accept JSON fragments, which lets a
+ * deploy set a whole section without requiring a separate alias for every
+ * leaf. Dynamic keys in the onboarding mode map stay JSON-only at the union
+ * node because they are not part of the fixed config shape.
+ */
+const AGENT_NATIVE_CONFIG_ENV_NODES: readonly AgentNativeConfigEnvNode[] = [
+  { path: [], kind: "object" },
+  { path: ["version"], kind: "number" },
+  { path: ["onboarding"], kind: "object" },
+  { path: ["onboarding", "firstRun"], kind: "union" },
+  { path: ["runtime"], kind: "object" },
+  { path: ["runtime", "auth"], kind: "object" },
+  { path: ["runtime", "auth", "enabled"], kind: "boolean" },
+  { path: ["runtime", "database"], kind: "object" },
+  { path: ["runtime", "database", "required"], kind: "boolean" },
+  { path: ["runtime", "environment"], kind: "object" },
+  {
+    path: ["runtime", "environment", "required"],
+    kind: "array",
+  },
+  { path: ["deployment"], kind: "object" },
+  {
+    path: ["deployment", "environment"],
+    kind: "deployment-environment",
+    aliases: ["AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT"],
+  },
+  { path: ["diagnostics"], kind: "object" },
+  { path: ["diagnostics", "failOnBuild"], kind: "boolean" },
+  { path: ["instructions"], kind: "object" },
+  { path: ["instructions", "runtime"], kind: "string" },
+  { path: ["instructions", "development"], kind: "string" },
+  { path: ["translations"], kind: "object" },
+  { path: ["translations", "locales"], kind: "array" },
+  { path: ["changelog"], kind: "object" },
+  { path: ["changelog", "enabled"], kind: "boolean" },
+  { path: ["harness"], kind: "union" },
+  { path: ["harness", "runtimes"], kind: "array" },
+];
+
+function agentNativeConfigEnvSegment(segment: string): string {
+  return segment
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .replace(/[^A-Za-z0-9]+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_|_$/g, "")
+    .toUpperCase();
+}
+
+/** Convert a config path such as `runtime.auth.enabled` to its env name. */
+export function agentNativeConfigEnvName(path: readonly string[]): string {
+  if (path.length === 0) return AGENT_NATIVE_CONFIG_ENV_PREFIX;
+  return `${AGENT_NATIVE_CONFIG_ENV_PREFIX}_${path
+    .map(agentNativeConfigEnvSegment)
+    .join("_")}`;
+}
+
+function agentNativeConfigEnvKeys(node: AgentNativeConfigEnvNode): string[] {
+  return [agentNativeConfigEnvName(node.path), ...(node.aliases ?? [])];
+}
+
+function isAgentNativeConfigEnvKey(key: string): boolean {
+  return (
+    key === AGENT_NATIVE_CONFIG_ENV_PREFIX ||
+    key.startsWith(`${AGENT_NATIVE_CONFIG_ENV_PREFIX}_`)
+  );
+}
+
+function parseAgentNativeConfigJson(raw: string, key: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch (error) {
+    throw new Error(
+      `${key} must contain valid JSON: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
+function parseAgentNativeConfigEnvValue(
+  raw: string,
+  key: string,
+  kind: AgentNativeConfigEnvKind,
+): unknown {
+  const value = raw.trim();
+  switch (kind) {
+    case "object": {
+      const parsed = parseAgentNativeConfigJson(value, key);
+      if (!isRecord(parsed)) {
+        throw new Error(`${key} must contain a JSON object`);
+      }
+      return parsed;
+    }
+    case "array": {
+      const parsed = parseAgentNativeConfigJson(value, key);
+      if (!Array.isArray(parsed)) {
+        throw new Error(`${key} must contain a JSON array`);
+      }
+      return parsed;
+    }
+    case "boolean": {
+      const normalized = value.toLowerCase();
+      if (["1", "true", "yes", "on"].includes(normalized)) return true;
+      if (["0", "false", "no", "off"].includes(normalized)) return false;
+      throw new Error(`${key} must be a boolean`);
+    }
+    case "number": {
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed)) throw new Error(`${key} must be a number`);
+      return parsed;
+    }
+    case "deployment-environment":
+      return value.toLowerCase();
+    case "string": {
+      if (value.startsWith('"')) {
+        const parsed = parseAgentNativeConfigJson(value, key);
+        if (typeof parsed !== "string") {
+          throw new Error(`${key} must contain a string`);
+        }
+        return parsed;
+      }
+      return value;
+    }
+    case "union": {
+      if (value.startsWith("{") || value.startsWith("[")) {
+        return parseAgentNativeConfigJson(value, key);
+      }
+      const normalized = value.toLowerCase();
+      if (["1", "true", "yes", "on"].includes(normalized)) return true;
+      if (["0", "false", "no", "off"].includes(normalized)) return false;
+      if (value.startsWith('"')) {
+        const parsed = parseAgentNativeConfigJson(value, key);
+        if (typeof parsed !== "string") {
+          throw new Error(`${key} must contain a string or JSON object`);
+        }
+        return parsed;
+      }
+      return value;
+    }
+  }
+}
+
+function mergeAgentNativeConfigEnvFragments(
+  base: Record<string, unknown>,
+  override: Record<string, unknown>,
+): Record<string, unknown> {
+  const result = { ...base };
+  for (const [key, value] of Object.entries(override)) {
+    const existing = result[key];
+    result[key] =
+      isRecord(existing) && isRecord(value)
+        ? mergeAgentNativeConfigEnvFragments(existing, value)
+        : value;
+  }
+  return result;
+}
+
+function assignAgentNativeConfigEnvFragment(
+  target: Record<string, unknown>,
+  path: readonly string[],
+  value: unknown,
+  key: string,
+): void {
+  if (path.length === 0) {
+    if (!isRecord(value)) {
+      throw new Error(`${key} must contain a JSON object`);
+    }
+    Object.assign(target, mergeAgentNativeConfigEnvFragments(target, value));
+    return;
+  }
+
+  let node = target;
+  for (const [index, segment] of path.slice(0, -1).entries()) {
+    const existing = node[segment];
+    if (existing === undefined) {
+      node[segment] = {};
+    } else if (!isRecord(existing)) {
+      throw new Error(
+        `${key} conflicts with an earlier environment fragment at ${path.slice(0, index + 1).join(".")}`,
+      );
+    }
+    node = node[segment] as Record<string, unknown>;
+  }
+
+  const leaf = path[path.length - 1];
+  const existing = node[leaf];
+  node[leaf] =
+    isRecord(existing) && isRecord(value)
+      ? mergeAgentNativeConfigEnvFragments(existing, value)
+      : value;
+}
+
+/**
+ * Reads the public config's deterministic environment aliases.
+ *
+ * `AGENT_NATIVE_CONFIG` contains a complete JSON object. A suffixed name
+ * contains a JSON fragment at that config path, or a typed scalar at a leaf.
+ * Nodes are applied from shallowest to deepest so a more specific path wins.
+ */
+export function readAgentNativeConfigEnv(
+  env: Record<string, string | undefined>,
+): AgentNativeConfig {
+  const known = new Map<string, AgentNativeConfigEnvNode>();
+  for (const node of AGENT_NATIVE_CONFIG_ENV_NODES) {
+    for (const key of agentNativeConfigEnvKeys(node)) {
+      const previous = known.get(key);
+      if (previous && previous.path.join(".") !== node.path.join(".")) {
+        throw new Error(`Duplicate Agent-Native config environment key ${key}`);
+      }
+      known.set(key, node);
+    }
+  }
+
+  for (const key of Object.keys(env)) {
+    if (isAgentNativeConfigEnvKey(key) && !known.has(key)) {
+      throw new Error(
+        `${key} is not a supported Agent-Native config path. Use agent-native.config.ts or a documented config env alias.`,
+      );
+    }
+  }
+
+  const layer: Record<string, unknown> = {};
+  const nodes = [...AGENT_NATIVE_CONFIG_ENV_NODES].sort(
+    (left, right) => left.path.length - right.path.length,
+  );
+  for (const node of nodes) {
+    for (const key of agentNativeConfigEnvKeys(node)) {
+      const raw = env[key];
+      if (raw === undefined || raw.trim() === "") continue;
+      assignAgentNativeConfigEnvFragment(
+        layer,
+        node.path,
+        parseAgentNativeConfigEnvValue(raw, key, node.kind),
+        key,
+      );
+      break;
+    }
+  }
+
+  return normalizeAgentNativeConfig(layer, "Agent-Native config environment");
+}
+
 export function normalizeAgentNativeConfig(
   input: unknown,
   source = "agent-native config",

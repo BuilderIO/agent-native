@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 import {
   mergeAgentNativeConfigs,
   normalizeAgentNativeConfig,
+  readAgentNativeConfigEnv,
   resolveAgentNativeConfig,
   type AgentNativeConfig,
   type AgentNativeConfigContext,
@@ -122,10 +123,13 @@ export async function loadResolvedAgentNativeConfig(
   return resolveAgentNativeConfig(
     mergeAgentNativeConfigs(
       mergeAgentNativeConfigs(
-        workspaceConfig
-          ? resolveAgentNativeConfig(workspaceConfig, context)
-          : {},
-        readAgentNativeJsonConfig(cwd),
+        mergeAgentNativeConfigs(
+          workspaceConfig
+            ? resolveAgentNativeConfig(workspaceConfig, context)
+            : {},
+          readAgentNativeJsonConfig(cwd),
+        ),
+        readAgentNativeConfigEnv(process.env),
       ),
       projectConfig ? resolveAgentNativeConfig(projectConfig, context) : {},
     ),
