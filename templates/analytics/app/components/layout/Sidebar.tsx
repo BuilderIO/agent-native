@@ -256,7 +256,11 @@ function applyOrder<T extends { id: string }>(
   return ordered;
 }
 
-function matchesVisibilityFilter(
+function isVisibility(value: unknown): value is Visibility {
+  return value === "private" || value === "org" || value === "public";
+}
+
+export function matchesVisibilityFilter(
   item: { visibility?: Visibility },
   filter: SidebarVisibilityFilter,
 ): boolean {
@@ -265,6 +269,23 @@ function matchesVisibilityFilter(
     return item.visibility !== "org" && item.visibility !== "public";
   }
   return item.visibility === "org" || item.visibility === "public";
+}
+
+export function threadMatchesVisibilityFilter(
+  thread: ChatThreadSummary,
+  filter: SidebarVisibilityFilter,
+): boolean {
+  const runtimeThread = thread as ChatThreadSummary & {
+    visibility?: unknown;
+  };
+  return matchesVisibilityFilter(
+    {
+      visibility: isVisibility(runtimeThread.visibility)
+        ? runtimeThread.visibility
+        : "private",
+    },
+    filter,
+  );
 }
 
 function SidebarSectionSettingsPopover({
@@ -277,8 +298,8 @@ function SidebarSectionSettingsPopover({
   onShowHiddenChange,
 }: {
   label: string;
-  sortMode: SidebarSortMode;
-  onSortModeChange: (value: SidebarSortMode) => void;
+  sortMode?: SidebarSortMode;
+  onSortModeChange?: (value: SidebarSortMode) => void;
   visibilityFilter: SidebarVisibilityFilter;
   onVisibilityFilterChange: (value: SidebarVisibilityFilter) => void;
   showHidden?: boolean;
@@ -353,54 +374,56 @@ function SidebarSectionSettingsPopover({
               </Tooltip>
             </ToggleGroup>
           </div>
-          <div className="grid gap-1.5">
-            <p className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-              {t("sidebar.sortBy")}
-            </p>
-            <ToggleGroup
-              type="single"
-              value={sortMode}
-              onValueChange={(next) => {
-                if (
-                  next === "most-used" ||
-                  next === "alphabetical" ||
-                  next === "manual"
-                ) {
-                  onSortModeChange(next);
-                }
-              }}
-              className="grid grid-cols-3 gap-1 rounded-lg border border-border/60 bg-background/50 p-1"
-            >
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <ToggleGroupItem
-                    value="most-used"
-                    aria-label={t("sidebar.sortMostUsedPersonal")}
-                    className={segmentedItemClass}
-                  >
-                    {t("sidebar.used")}
-                  </ToggleGroupItem>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">
-                  {t("sidebar.usedExplainer")}
-                </TooltipContent>
-              </Tooltip>
-              <ToggleGroupItem
-                value="alphabetical"
-                aria-label={t("sidebar.sortAlphabetically")}
-                className={segmentedItemClass}
+          {sortMode && onSortModeChange ? (
+            <div className="grid gap-1.5">
+              <p className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                {t("sidebar.sortBy")}
+              </p>
+              <ToggleGroup
+                type="single"
+                value={sortMode}
+                onValueChange={(next) => {
+                  if (
+                    next === "most-used" ||
+                    next === "alphabetical" ||
+                    next === "manual"
+                  ) {
+                    onSortModeChange(next);
+                  }
+                }}
+                className="grid grid-cols-3 gap-1 rounded-lg border border-border/60 bg-background/50 p-1"
               >
-                {t("sidebar.alphabetical")}
-              </ToggleGroupItem>
-              <ToggleGroupItem
-                value="manual"
-                aria-label={t("sidebar.sortManually")}
-                className={segmentedItemClass}
-              >
-                {t("sidebar.manual")}
-              </ToggleGroupItem>
-            </ToggleGroup>
-          </div>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <ToggleGroupItem
+                      value="most-used"
+                      aria-label={t("sidebar.sortMostUsedPersonal")}
+                      className={segmentedItemClass}
+                    >
+                      {t("sidebar.used")}
+                    </ToggleGroupItem>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    {t("sidebar.usedExplainer")}
+                  </TooltipContent>
+                </Tooltip>
+                <ToggleGroupItem
+                  value="alphabetical"
+                  aria-label={t("sidebar.sortAlphabetically")}
+                  className={segmentedItemClass}
+                >
+                  {t("sidebar.alphabetical")}
+                </ToggleGroupItem>
+                <ToggleGroupItem
+                  value="manual"
+                  aria-label={t("sidebar.sortManually")}
+                  className={segmentedItemClass}
+                >
+                  {t("sidebar.manual")}
+                </ToggleGroupItem>
+              </ToggleGroup>
+            </div>
+          ) : null}
           <div className="grid gap-1">
             {onShowHiddenChange && showHidden !== undefined && (
               <label
@@ -1288,9 +1311,11 @@ function persistedAnalyticsThreadId() {
 function AnalyticsChatsSection({
   isAskRoute,
   open,
+  visibilityFilter,
 }: {
   isAskRoute: boolean;
   open: boolean;
+  visibilityFilter: SidebarVisibilityFilter;
 }) {
   const navigate = useNavigate();
   const t = useT();
@@ -1312,10 +1337,15 @@ function AnalyticsChatsSection({
   const visibleThreads = useMemo(
     () =>
       threads
-        .filter((thread) => thread.messageCount > 0 && !thread.archivedAt)
+        .filter(
+          (thread) =>
+            thread.messageCount > 0 &&
+            !thread.archivedAt &&
+            threadMatchesVisibilityFilter(thread, visibilityFilter),
+        )
         .sort(compareThreads)
         .slice(0, 15),
-    [threads],
+    [threads, visibilityFilter],
   );
   const chatItems = useMemo<ChatHistoryItem[]>(
     () =>
@@ -1491,6 +1521,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const [askOpen, setAskOpen] = useState(
     () => getStoredBooleanPreference(ASK_OPEN_KEY) ?? isAskRoute,
   );
+  const [askFilter, setAskFilter] = useState<SidebarVisibilityFilter>("all");
   const [dashOpen, setDashOpen] = useState(
     () =>
       getStoredBooleanPreference(DASHBOARDS_OPEN_KEY) ??
@@ -2298,6 +2329,11 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                       {t("navigation.ask")}
                     </span>
                   </Link>
+                  <SidebarSectionSettingsPopover
+                    label={t("navigation.ask")}
+                    visibilityFilter={askFilter}
+                    onVisibilityFilterChange={setAskFilter}
+                  />
                   <button
                     type="button"
                     onClick={toggleAskOpen}
@@ -2317,7 +2353,11 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                     />
                   </button>
                 </div>
-                <AnalyticsChatsSection isAskRoute={isAskRoute} open={askOpen} />
+                <AnalyticsChatsSection
+                  isAskRoute={isAskRoute}
+                  open={askOpen}
+                  visibilityFilter={askFilter}
+                />
               </div>
 
               {/* Sessions link */}
