@@ -5,10 +5,14 @@ import { parse } from "yaml";
 const reusablePath = ".github/workflows/deploy-netlify-prebuilt.yml";
 const productionPath = ".github/workflows/deploy-production-sites-prebuilt.yml";
 const betaPath = ".github/workflows/deploy-beta-sites-prebuilt.yml";
+const manageProductionPath = ".github/workflows/manage-production-sites.yml";
+const promotePath = ".github/workflows/promote-netlify-deploy.yml";
 
 const reusable = readFileSync(reusablePath, "utf8");
 const production = readFileSync(productionPath, "utf8");
 const beta = readFileSync(betaPath, "utf8");
+const manageProduction = readFileSync(manageProductionPath, "utf8");
+const promote = readFileSync(promotePath, "utf8");
 
 const issues: string[] = [];
 const parsedWorkflows = new Map<string, Record<string, unknown>>();
@@ -23,6 +27,8 @@ try {
     [reusablePath, reusable],
     [productionPath, production],
     [betaPath, beta],
+    [manageProductionPath, manageProduction],
+    [promotePath, promote],
   ] as const) {
     const document = asRecord(parse(source));
     if (!document) {
@@ -39,17 +45,28 @@ try {
   );
 }
 
+const reusableDocument = parsedWorkflows.get(reusablePath);
+const reusableConcurrency = asRecord(reusableDocument?.concurrency);
+const reusableGroup = reusableConcurrency?.group;
 if (
-  !reusable.includes(
-    "group: ${{ inputs.target == 'production' && 'agent-native-production-publish'",
-  )
+  typeof reusableGroup !== "string" ||
+  !reusableGroup.includes("inputs.target") ||
+  !reusableGroup.includes("inputs.site")
 ) {
   issues.push(
-    "production prebuilt deploys must share the fleet-wide production publish lock",
+    `${reusablePath} must serialize each target/site child without a dropping fleet-wide matrix queue`,
   );
 }
 
-const reusableDocument = parsedWorkflows.get(reusablePath);
+for (const path of [productionPath, manageProductionPath, promotePath]) {
+  const concurrency = asRecord(parsedWorkflows.get(path)?.concurrency);
+  if (concurrency?.group !== "agent-native-production-publish") {
+    issues.push(
+      `${path} must share the agent-native-production-publish fleet lock`,
+    );
+  }
+}
+
 const reusableOn = asRecord(reusableDocument?.on);
 const workflowCall = asRecord(reusableOn?.workflow_call);
 const workflowCallInputs = asRecord(workflowCall?.inputs);
@@ -93,6 +110,17 @@ if (
 ) {
   issues.push(
     `${reusablePath} parsed YAML steps must order unlock before upload before publish-wait`,
+  );
+}
+const parsedUnlockIf = reusableSteps[parsedUnlockIndex]?.if;
+if (
+  typeof parsedUnlockIf !== "string" ||
+  !parsedUnlockIf.includes("inputs.target == 'production'") ||
+  !parsedUnlockIf.includes("inputs.deploy") ||
+  !parsedUnlockIf.includes("inputs.deploy_mode == 'production'")
+) {
+  issues.push(
+    `${reusablePath} must restrict the production unlock step to production uploads`,
   );
 }
 

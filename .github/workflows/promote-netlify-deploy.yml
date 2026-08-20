@@ -51,7 +51,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: promote-netlify-deploy
+  group: agent-native-production-publish
   cancel-in-progress: false
 
 jobs:

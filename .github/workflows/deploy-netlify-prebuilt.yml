@@ -97,7 +97,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ inputs.target == 'production' && 'agent-native-production-publish' || format('netlify-prebuilt-beta-{0}', inputs.site) }}
+  # The fleet caller owns the shared production lock. Keep each reusable child
+  # in its own queue so a multi-site matrix cannot drop pending sites.
+  group: ${{ format('netlify-prebuilt-{0}-{1}', inputs.target, inputs.site) }}
   # Beta follows the newest moving ref. Never cancel a production publish that
   # may already be uploading or becoming live.
   cancel-in-progress: ${{ inputs.target == 'beta' }}
@@ -228,7 +230,7 @@ jobs:
           du -sh "$PUBLISH_DIRECTORY" "$FUNCTIONS_DIRECTORY"
 
       - name: Unlock the published production deploy
-        if: inputs.deploy && inputs.deploy_mode == 'production'
+        if: inputs.target == 'production' && inputs.deploy && inputs.deploy_mode == 'production'
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}

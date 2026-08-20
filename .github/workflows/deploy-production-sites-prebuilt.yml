@@ -27,7 +27,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: deploy-agent-native-production-sites-prebuilt
+  # Coordinate the whole fleet with manual deploys and rollback/promotion.
+  group: agent-native-production-publish
   cancel-in-progress: false
 
 jobs:
