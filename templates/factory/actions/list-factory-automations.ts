@@ -6,6 +6,7 @@ import {
 import { z } from "zod";
 
 import {
+  DEFAULT_FACTORY_ID,
   factoryIdSchema,
   readAutomationFactoryId,
   resolveAutomationDisplayName,
@@ -14,6 +15,7 @@ import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
+import { ensureFactoryAutomations } from "../server/plugins/factory-scheduler-job.js";
 
 export default defineAction({
   description:
@@ -26,43 +28,56 @@ export default defineAction({
     const { userEmail, orgId } = await requireWorkspaceMember(
       workspaceMemberIdentityFromContext(context),
     );
-    const definitions = await listAutomationDefinitions(
+    let definitions = await listAutomationDefinitions(
       { userEmail, orgId, appId: "factory" },
       "organization",
     );
+    let scoped = definitions.filter(
+      ({ meta, resource }) =>
+        meta.domain === "factory" &&
+        readAutomationFactoryId(meta, resource.content) === factoryId,
+    );
+    if (scoped.length === 0) {
+      await ensureFactoryAutomations(userEmail, orgId, factoryId, {
+        enabled: factoryId === DEFAULT_FACTORY_ID,
+      });
+      definitions = await listAutomationDefinitions(
+        { userEmail, orgId, appId: "factory" },
+        "organization",
+      );
+      scoped = definitions.filter(
+        ({ meta, resource }) =>
+          meta.domain === "factory" &&
+          readAutomationFactoryId(meta, resource.content) === factoryId,
+      );
+    }
     return Promise.all(
-      definitions
-        .filter(
-          ({ meta, resource }) =>
-            meta.domain === "factory" &&
-            readAutomationFactoryId(meta, resource.content) === factoryId,
-        )
-        .map(async ({ resource, name, meta, body, canUpdate }) => ({
-          id: resource.id,
-          name,
-          displayName: resolveAutomationDisplayName(name, resource.content),
-          prompt: body,
-          body,
-          model: meta.model ?? null,
-          schedule: meta.schedule || null,
-          enabled: meta.enabled,
-          triggerType: meta.triggerType,
-          event: meta.event ?? null,
-          timezone: meta.timezone ?? null,
-          condition: meta.condition ?? null,
-          createdBy: meta.createdBy ?? null,
-          updatedAt:
-            Number.isFinite(resource.updatedAt) && resource.updatedAt > 0
-              ? new Date(resource.updatedAt).toISOString()
-              : null,
-          canUpdate,
-          runs: await listAutomationRuns({
-            owners: [resource.owner],
-            automation: name,
-            appId: "factory",
-            limit: 20,
-          }),
-        })),
+      scoped.map(async ({ resource, name, meta, body, canUpdate }) => ({
+        id: resource.id,
+        name,
+        displayName: resolveAutomationDisplayName(name, resource.content),
+        prompt: body,
+        body,
+        model: meta.model ?? null,
+        schedule: meta.schedule || null,
+        enabled: meta.enabled,
+        triggerType: meta.triggerType,
+        event: meta.event ?? null,
+        timezone: meta.timezone ?? null,
+        condition: meta.condition ?? null,
+        createdBy: meta.createdBy ?? null,
+        updatedAt:
+          Number.isFinite(resource.updatedAt) && resource.updatedAt > 0
+            ? new Date(resource.updatedAt).toISOString()
+            : null,
+        canUpdate,
+        runs: await listAutomationRuns({
+          owners: [resource.owner],
+          automation: name,
+          appId: "factory",
+          limit: 20,
+        }),
+      })),
     );
   },
 });

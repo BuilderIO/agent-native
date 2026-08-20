@@ -677,9 +677,6 @@ async function ensureSchedulerJobs(): Promise<void> {
     orgId = existingConfig.orgId?.trim() || existingConfig.id;
   }
   await ensureDefaultTriageConfig(ownerEmail, orgId);
-  await ensureFactoryAutomations(ownerEmail, orgId, DEFAULT_FACTORY_ID, {
-    enabled: true,
-  });
   await disableLegacyObserver();
 }
 
