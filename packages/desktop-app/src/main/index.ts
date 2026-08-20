@@ -13739,7 +13739,6 @@ app.whenReady().then(async () => {
     wc.on("dom-ready", syncLoadedApp);
     wc.on("did-navigate", syncLoadedApp);
     wc.on("did-navigate-in-page", syncLoadedApp);
-    wc.on("did-stop-loading", syncLoadedApp);
     wc.on("did-finish-load", syncLoadedApp);
 
     // Capture renderer console messages to the log file so they survive
