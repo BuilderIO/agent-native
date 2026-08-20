@@ -301,6 +301,7 @@ jobs:
           if (paused.build_settings?.stop_builds !== true) {
             throw new Error("Netlify automatic builds were not paused before production cutover.");
           }
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, "cutover_acquired=true\n");
           console.log(`Automatic Netlify builds paused for production cutover (previously stopped: ${wasStopped}).`);
           })().catch((error) => {
             console.error(error instanceof Error ? error.message : error);
@@ -680,6 +681,7 @@ jobs:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
           cutoverWasStopped: ${{ steps.pause.outputs.was_stopped }}
+          cutoverWasPaused: ${{ steps.pause.outputs.cutover_acquired }}
         run: |
           set -euo pipefail
           node <<'NODE'
@@ -703,7 +705,7 @@ jobs:
             return body;
           }
 
-          if (process.env.cutoverWasStopped !== "true") {
+          if (process.env.cutoverWasPaused !== "true") {
             console.log("No production cutover state was acquired; automatic builds are unchanged.");
             process.exit(0);
           }
@@ -737,7 +739,7 @@ jobs:
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
           cutoverPublishedDeployId: ${{ steps.unlock.outputs.published_deploy_id }}
           cutoverWasLocked: ${{ steps.unlock.outputs.was_locked }}
-          cutoverWasStopped: ${{ steps.pause.outputs.was_stopped }}
+          cutoverWasPaused: ${{ steps.pause.outputs.cutover_acquired }}
         run: |
           set -euo pipefail
           node <<'NODE'
@@ -761,7 +763,7 @@ jobs:
             return body;
           }
 
-          if (process.env.cutoverWasStopped !== "true") {
+          if (process.env.cutoverWasPaused !== "true") {
             console.log("No production cutover state was acquired; cleanup is not needed.");
             process.exit(0);
           }

@@ -293,14 +293,15 @@ const pause = reusable.slice(pauseStart, unlockStart);
 if (
   !pause.includes("stop_builds") ||
   !pause.includes('method: "PATCH"') ||
-  !pause.includes("was_stopped")
+  !pause.includes("was_stopped") ||
+  !pause.includes("cutover_acquired")
 ) {
   issues.push(
     `${reusablePath} production cutovers must pause automatic Netlify builds and preserve the prior stop_builds setting`,
   );
 }
 const cleanup = reusable.slice(cleanupStart);
-if (!cleanup.includes("cutoverWasStopped") || cleanup.includes("stop_builds")) {
+if (!cleanup.includes("cutoverWasPaused") || cleanup.includes("stop_builds")) {
   issues.push(
     `${reusablePath} production cleanup must restore the prior automatic-build setting`,
   );
@@ -308,7 +309,7 @@ if (!cleanup.includes("cutoverWasStopped") || cleanup.includes("stop_builds")) {
 const resumeStart = reusable.indexOf(
   "name: Resume automatic Netlify builds after production cutover",
 );
-const noCutoverStateCheck = 'process.env.cutoverWasStopped !== "true"';
+const noCutoverStateCheck = 'process.env.cutoverWasPaused !== "true"';
 if (
   resumeStart < 0 ||
   !reusable

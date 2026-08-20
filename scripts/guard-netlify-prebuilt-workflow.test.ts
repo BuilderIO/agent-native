@@ -218,7 +218,16 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(resume?.if as string, /always\(\)/);
     assert.match(
       String(resume?.run),
-      /process\.env\.cutoverWasStopped !== "true"/,
+      /process\.env\.cutoverWasPaused !== "true"/,
+    );
+    assert.match(String(resume?.run), /process\.env\.cutoverWasStopped === "true"/);
+    assert.equal(
+      (resume?.env as Record<string, unknown>).cutoverWasStopped,
+      "${{ steps.pause.outputs.was_stopped }}",
+    );
+    assert.equal(
+      (resume?.env as Record<string, unknown>).cutoverWasPaused,
+      "${{ steps.pause.outputs.cutover_acquired }}",
     );
     assert.equal(typeof cleanup?.if, "string");
     assert.match(cleanup?.if as string, /failure\(\)/);
@@ -230,10 +239,14 @@ describe("production Netlify site concurrency guard", () => {
       (cleanup?.env as Record<string, unknown>).cutoverWasLocked,
       "${{ steps.unlock.outputs.was_locked }}",
     );
+    assert.equal(
+      (cleanup?.env as Record<string, unknown>).cutoverWasPaused,
+      "${{ steps.pause.outputs.cutover_acquired }}",
+    );
     assert.doesNotMatch(String(cleanup?.run), /stop_builds/);
     assert.match(
       String(cleanup?.run),
-      /process\.env\.cutoverWasStopped !== "true"/,
+      /process\.env\.cutoverWasPaused !== "true"/,
     );
   });
 
