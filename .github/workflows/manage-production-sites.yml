@@ -36,6 +36,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
+      source_sha: ${{ steps.matrix.outputs.source_sha }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -74,6 +75,10 @@ jobs:
             })),
           };
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `matrix=${JSON.stringify(matrix)}\n`);
+          fs.appendFileSync(
+            process.env.GITHUB_OUTPUT,
+            `source_sha=${require('node:child_process').execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()}\n`,
+          );
           console.log(`Resolved ${names.length} production site(s): ${names.join(', ')}`);
           NODE
 
@@ -95,7 +100,7 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
-          ref: main
+          ref: ${{ needs.resolve-sites.outputs.source_sha }}
           fetch-depth: 1
           sparse-checkout: scripts/netlify-production-sites.json
           sparse-checkout-cone-mode: false
@@ -103,11 +108,10 @@ jobs:
       - uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         env:
           NETLIFY_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
-          GITHUB_TOKEN_VALUE: ${{ github.token }}
           OPERATION: ${{ inputs.operation }}
           SITE_NAME: ${{ matrix.site }}
           SITE_ID: ${{ matrix.site_id }}
-          REPOSITORY: ${{ github.repository }}
+          SOURCE_SHA: ${{ needs.resolve-sites.outputs.source_sha }}
         with:
           script: |
             const fs = require('node:fs');
@@ -125,11 +129,6 @@ jobs:
             const headers = {
               Authorization: `Bearer ${token}`,
               'User-Agent': 'agent-native-production-site-manager',
-            };
-            const githubHeaders = {
-              Accept: 'application/vnd.github+json',
-              Authorization: `Bearer ${process.env.GITHUB_TOKEN_VALUE}`,
-              'X-GitHub-Api-Version': '2022-11-28',
             };
             const requestTimeoutMs = 30_000;
             const pollIntervalMs = 10_000;
@@ -198,17 +197,6 @@ jobs:
                 throw new Error(`Unknown production site(s): ${unknown.join(', ')}`);
               }
               return names.map((name) => [name, sites[name]]);
-            }
-
-            async function latestMainSha() {
-              const [owner, repo] = process.env.REPOSITORY.split('/');
-              const response = await request(
-                `https://api.github.com/repos/${owner}/${repo}/git/ref/heads/main`,
-                { headers: githubHeaders },
-              );
-              const ref = await readJson(response, 'main ref lookup');
-              if (!ref?.object?.sha) throw new Error('GitHub main ref had no SHA.');
-              return ref.object.sha;
             }
 
             async function waitForBuild(name, buildId) {
@@ -417,7 +405,10 @@ jobs:
                 throw new Error(`Resolved production site ${name || 'unknown'} does not match the selected site id.`);
               }
 
-              const sourceSha = operation === 'deploy-main' ? await latestMainSha() : null;
+              const sourceSha = operation === 'deploy-main' ? process.env.SOURCE_SHA : null;
+              if (operation === 'deploy-main' && !/^[0-9a-f]{40}$/i.test(sourceSha || '')) {
+                throw new Error('Resolved production source SHA is missing or invalid.');
+              }
               if (sourceSha) core.info(`[${name}] deploying the latest main commit ${sourceSha}.`);
               if (operation === 'deploy-main') {
                 await deployMain(name, site, sourceSha);

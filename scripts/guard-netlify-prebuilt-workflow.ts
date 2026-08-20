@@ -42,10 +42,16 @@ export function validateProductionSiteConcurrency(workflows: {
     [manageProductionPath, workflows.manage, "manage"],
     [promotePath, workflows.promote, "promote"],
   ] as const) {
-    const group = jobConcurrency(workflow, jobName)?.group;
+    const concurrency = jobConcurrency(workflow, jobName);
+    const group = concurrency?.group;
     if (group !== PRODUCTION_SITE_GROUP) {
       issues.push(
         `${path} ${jobName} job concurrency.group must equal ${PRODUCTION_SITE_GROUP}`,
+      );
+    }
+    if (concurrency?.["cancel-in-progress"] !== false) {
+      issues.push(
+        `${path} ${jobName} job concurrency.cancel-in-progress must be false`,
       );
     }
   }
@@ -82,7 +88,8 @@ const reusableGroup = reusableConcurrency?.group;
 if (
   typeof reusableGroup !== "string" ||
   !reusableGroup.includes("inputs.target") ||
-  !reusableGroup.includes("inputs.site")
+  !reusableGroup.includes("inputs.site") ||
+  !reusableGroup.includes("agent-native-production-site")
 ) {
   issues.push(
     `${reusablePath} must serialize each target/site child without a dropping fleet-wide matrix queue`,
@@ -157,20 +164,27 @@ const parsedUploadIndex = parsedStepIndex("Upload the prebuilt deploy");
 const parsedPublishWaitIndex = parsedStepIndex(
   "Wait for the Netlify deploy to publish",
 );
+const parsedLockIndex = parsedStepIndex("Lock the published production deploy");
+const parsedCleanupIndex = parsedStepIndex(
+  "Restore the production deploy lock after a failed cutover",
+);
 if (
   parsedUnlockIndex < 0 ||
   parsedUploadIndex < 0 ||
-  parsedPublishWaitIndex < 0
+  parsedPublishWaitIndex < 0 ||
+  parsedLockIndex < 0 ||
+  parsedCleanupIndex < 0
 ) {
   issues.push(
-    `${reusablePath} must define unlock, upload, and publish-wait steps in parsed YAML`,
+    `${reusablePath} must define unlock, upload, publish-wait, lock, and failure-cleanup steps in parsed YAML`,
   );
 } else if (
   parsedUnlockIndex >= parsedUploadIndex ||
-  parsedUploadIndex >= parsedPublishWaitIndex
+  parsedUploadIndex >= parsedPublishWaitIndex ||
+  parsedPublishWaitIndex >= parsedLockIndex
 ) {
   issues.push(
-    `${reusablePath} parsed YAML steps must order unlock before upload before publish-wait`,
+    `${reusablePath} parsed YAML steps must order unlock before upload before publish-wait before lock`,
   );
 }
 const parsedUnlockIf = reusableSteps[parsedUnlockIndex]?.if;
@@ -210,6 +224,25 @@ if (unlockStart < 0 || (uploadStart >= 0 && unlockStart >= uploadStart)) {
       `${reusablePath} production unlock must reject pending ready deploys and verify locked=false`,
     );
   }
+}
+const lockStart = reusable.indexOf(
+  "name: Lock the published production deploy",
+);
+const cleanupStart = reusable.indexOf(
+  "name: Restore the production deploy lock after a failed cutover",
+);
+if (
+  lockStart < 0 ||
+  cleanupStart < 0 ||
+  lockStart >= cleanupStart ||
+  !reusable.slice(lockStart, cleanupStart).includes("/lock") ||
+  !reusable.slice(lockStart, cleanupStart).includes("published_deploy") ||
+  !reusable.slice(cleanupStart).includes("failure()") ||
+  !reusable.slice(cleanupStart).includes("/lock")
+) {
+  issues.push(
+    `${reusablePath} must lock the new published deploy and fail-safe the production lock after cutover errors`,
+  );
 }
 if (uploadStart < 0 || uploadEnd <= uploadStart) {
   issues.push(

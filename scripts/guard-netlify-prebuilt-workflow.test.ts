@@ -60,4 +60,21 @@ describe("production Netlify site concurrency guard", () => {
       ),
     );
   });
+
+  it("rejects a production site queue that allows cancellation", () => {
+    const mutated = workflows();
+    const promoteJobs = mutated.promote.jobs as Record<string, Workflow>;
+    const promote = promoteJobs.promote;
+    const concurrency = promote.concurrency as Record<string, unknown>;
+    concurrency["cancel-in-progress"] = true;
+
+    const issues = validateProductionSiteConcurrency(mutated);
+    assert(
+      issues.some((issue) =>
+        issue.includes(
+          "promote-netlify-deploy.yml promote job concurrency.cancel-in-progress must be false",
+        ),
+      ),
+    );
+  });
 });
