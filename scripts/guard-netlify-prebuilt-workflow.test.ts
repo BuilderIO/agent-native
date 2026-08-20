@@ -220,7 +220,10 @@ describe("production Netlify site concurrency guard", () => {
       String(resume?.run),
       /process\.env\.cutoverWasPaused !== "true"/,
     );
-    assert.match(String(resume?.run), /process\.env\.cutoverWasStopped === "true"/);
+    assert.match(
+      String(resume?.run),
+      /process\.env\.cutoverWasStopped === "true"/,
+    );
     assert.equal(
       (resume?.env as Record<string, unknown>).cutoverWasStopped,
       "${{ steps.pause.outputs.was_stopped }}",

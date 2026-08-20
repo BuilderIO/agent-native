@@ -312,9 +312,7 @@ const resumeStart = reusable.indexOf(
 const noCutoverStateCheck = 'process.env.cutoverWasPaused !== "true"';
 if (
   resumeStart < 0 ||
-  !reusable
-    .slice(resumeStart, cleanupStart)
-    .includes(noCutoverStateCheck)
+  !reusable.slice(resumeStart, cleanupStart).includes(noCutoverStateCheck)
 ) {
   issues.push(
     `${reusablePath} production resume must leave automatic builds unchanged when pause state was not acquired`,
