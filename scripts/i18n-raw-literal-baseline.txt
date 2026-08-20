@@ -14,8 +14,6 @@ packages/docs/app/components/blocks/signature.tsx|Function signature
 packages/docs/app/components/blocks/steps.tsx|A numbered step-by-step procedure with circled step numbers.
 packages/docs/app/components/blocks/steps.tsx|Step title
 packages/docs/app/components/docBlocks.tsx|| Extract
-packages/docs/app/components/SlidesTryNow.tsx|Be specific. Say who it is for, paste your notes, or reference a website design...
-packages/docs/app/components/SlidesTryNow.tsx|Prompt tip
 templates/clips/app/components/recorder/storage-setup-card.tsx|AWS S3, Cloudflare R2, DigitalOcean Spaces, MinIO
 templates/clips/app/components/workspace/notifications-list.tsx|["formatDate"], formatRelativeTime: ReturnType
 templates/crm/app/components/crm/CreateCrmRecordDialog.tsx|This record lives in the local-authoritative Native SQL CRM. You can connect or mirror another CRM separately.
