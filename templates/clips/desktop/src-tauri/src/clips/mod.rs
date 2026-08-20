@@ -472,25 +472,17 @@ fn stop_countdown_control_tracking() {
     COUNTDOWN_CONTROL_TRACKING.store(false, Ordering::SeqCst);
 }
 
-/// Compact visible readiness state for the slow work that intentionally runs
-/// before the numeric countdown. This capture-excluded card briefly takes
-/// focus as the first stage of the explicit modal start flow, so the user sees
-/// that Start was accepted without changing the exact countdown-zero boundary.
+/// Full-screen visible readiness state for the slow work that intentionally
+/// runs before the numeric countdown. This capture-excluded overlay briefly
+/// takes focus as the first stage of the explicit modal start flow, so the user
+/// sees that Start was accepted without changing the exact countdown-zero
+/// boundary.
 #[tauri::command]
 pub async fn show_preparing(app: AppHandle) -> Result<(), String> {
     if let Some(existing) = app.get_webview_window(PREPARING_LABEL) {
         let _ = existing.close();
     }
     let (mx, my, mw, mh) = tray_monitor_physical_rect(&app);
-    let scale = overlay_scale_factor(&app);
-    let content_w: u32 = (260.0 * scale).round() as u32;
-    let content_h: u32 = (58.0 * scale).round() as u32;
-    let margin: i32 = (14.0 * scale).round() as i32;
-    let gutter = overlay_shadow_gutter_physical(&app);
-    let w = content_w + gutter * 2;
-    let h = content_h + gutter * 2;
-    let x = (mx + (mw.saturating_sub(w) / 2) as i32).max(mx);
-    let y = (my + mh as i32 - h as i32 - margin).max(my);
     let win = WebviewWindowBuilder::new(&app, PREPARING_LABEL, build_overlay_url("preparing"))
         .title("Preparing recording")
         .decorations(false)
@@ -503,14 +495,14 @@ pub async fn show_preparing(app: AppHandle) -> Result<(), String> {
         .focused(true)
         .build()
         .map_err(|error| format!("preparing window build failed: {error}"))?;
-    let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(w, h)));
-    let _ = win.set_position(PhysicalPosition::new(x, y));
+    let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(mw, mh)));
+    let _ = win.set_position(PhysicalPosition::new(mx, my));
     let _ = win.set_ignore_cursor_events(true);
     set_capture_excluded(&win);
     configure_overlay_behavior(&win);
     // Preparation and countdown are one explicit modal start flow. Making the
-    // compact readiness card key ensures it gets a real first paint and is
-    // announced before the full-screen countdown replaces it.
+    // readiness overlay key ensures it gets a real first paint and is announced
+    // before the countdown replaces it.
     present_interactive_window(&win);
     let _ = app.emit("clips:toolbar-preparing", true);
     // A newly-created webview needs one paint before the async preparation can
