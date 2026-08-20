@@ -534,6 +534,7 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(run, /for \(let attempt = 0; attempt < 6; attempt \+= 1\)/);
     assert.match(run, /stop_builds=\$\{String\(observed\)\}/);
     assert.match(run, /changedStopBuilds/);
+    assert.match(run, /verificationError/);
     assert.match(run, /Netlify docs build pause rollback/);
   });
 
