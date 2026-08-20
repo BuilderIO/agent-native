@@ -14,6 +14,7 @@ import {
 } from "drizzle-orm";
 import { z } from "zod";
 
+import { effectiveDuration, parseEdits } from "../app/lib/timestamp-mapping.js";
 import { getDb, schema } from "../server/db/index.js";
 import {
   agentRecordingAccessFilter,
@@ -303,6 +304,9 @@ export default defineAction({
           thumbnailUrl: schema.recordings.thumbnailUrl,
           animatedThumbnailUrl: schema.recordings.animatedThumbnailUrl,
           durationMs: schema.recordings.durationMs,
+          // Needed to derive the edited-length badge below; dropped before the
+          // response is built so the raw edits blob never reaches the client.
+          editsJson: schema.recordings.editsJson,
           status: schema.recordings.status,
           uploadProgress: schema.recordings.uploadProgress,
           failureReason: schema.recordings.failureReason,
@@ -417,7 +421,9 @@ export default defineAction({
         description: r.description,
         thumbnailUrl: r.thumbnailUrl,
         animatedThumbnailUrl: r.animatedThumbnailUrl,
-        durationMs: r.durationMs,
+        // Edited length, not the original recorded length — matches what the
+        // clip page itself shows once trims/cuts are applied.
+        durationMs: effectiveDuration(r.durationMs, parseEdits(r.editsJson)),
         status: r.status,
         uploadProgress: r.uploadProgress,
         failureReason: r.failureReason,

@@ -51,6 +51,7 @@ export function RecordingOptionsMenu({
   const [open, setOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const deletedWhileOpenRef = useRef(false);
+  const pendingDeleteConfirmRef = useRef(false);
   const showDownload = canDownload && Boolean(onDownload);
   const showDelete = canDelete;
   const trashRecording = useActionMutation<any, { id: string }>(
@@ -99,7 +100,22 @@ export function RecordingOptionsMenu({
             <IconDots className="h-4 w-4" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-44">
+        <DropdownMenuContent
+          align="end"
+          className="w-44"
+          onCloseAutoFocus={(event) => {
+            // Opening the AlertDialog while this menu is still tearing down
+            // leaves `pointer-events: none` stuck on <body>: two dismissable
+            // layers overlap and the survivor never restores the style. Wait
+            // for the menu to finish closing, and keep focus off the trigger
+            // so the dialog owns it.
+            if (pendingDeleteConfirmRef.current) {
+              event.preventDefault();
+              pendingDeleteConfirmRef.current = false;
+              setOpen(true);
+            }
+          }}
+        >
           {showDownload ? (
             <DropdownMenuItem
               onSelect={handleDownload}
@@ -116,7 +132,8 @@ export function RecordingOptionsMenu({
             <DropdownMenuItem
               onSelect={(event) => {
                 event.preventDefault();
-                setOpen(true);
+                pendingDeleteConfirmRef.current = true;
+                setMenuOpen(false);
               }}
               className="text-destructive focus:text-destructive"
             >
@@ -129,10 +146,12 @@ export function RecordingOptionsMenu({
       {showDelete ? (
         <AlertDialogContent
           onCloseAutoFocus={(event) => {
-            if (!deletedWhileOpenRef.current) return;
-            deletedWhileOpenRef.current = false;
-            event.preventDefault();
-            setTimeout(() => onDeleted?.(), 0);
+            setTimeout(() => {
+              if (!deletedWhileOpenRef.current) return;
+              deletedWhileOpenRef.current = false;
+              event.preventDefault();
+            }, 0);
+            onDeleted?.();
           }}
         >
           <AlertDialogHeader>
