@@ -74,6 +74,7 @@ import {
   actionsToEngineTools,
   executeAgentToolCall,
   filterActionsByAllowedNames,
+  normalizeAgentActionSurfaceResolution,
   readPersistedActionSurface,
   toolCallCacheKey,
   getActiveRunForThreadAsync,
@@ -3814,13 +3815,16 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 ...details,
                 availableActionNames: appActionNames,
               });
+              const normalizedSurface =
+                normalizeAgentActionSurfaceResolution(surface);
+              if (normalizedSurface.mode === "default") return surface;
               const localActionNames = details.availableActionNames.filter(
                 (name) => localDevActionNames.has(name),
               );
               return {
                 allowedActionNames: [
                   ...new Set([
-                    ...surface.allowedActionNames,
+                    ...normalizedSurface.allowedActionNames,
                     ...localActionNames,
                   ]),
                 ],

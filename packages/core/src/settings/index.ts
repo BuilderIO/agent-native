@@ -4,6 +4,7 @@ export {
   mutateSetting,
   putSetting,
   deleteSetting,
+  deleteSettingIfValue,
   getAllSettings,
   getSettingsEmitter,
   type StoreWriteOptions,

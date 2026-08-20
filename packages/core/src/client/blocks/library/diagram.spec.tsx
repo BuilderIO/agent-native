@@ -130,8 +130,12 @@ describe("DiagramBlock expand affordance", () => {
     });
 
     const frame = container.querySelector<HTMLElement>(".plan-diagram-frame");
+    const content = frame?.querySelector<HTMLElement>(
+      ".plan-diagram-frame-content",
+    );
 
     expect(frame?.getAttribute("data-theme")).toBe("dark");
+    expect(content?.getAttribute("data-theme")).toBe("dark");
     expect(frame?.querySelector(".diagram-card[data-rough]")).toBeTruthy();
     expect(frame?.querySelector(".diagram-box")).toBeTruthy();
   });

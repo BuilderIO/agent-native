@@ -615,12 +615,16 @@ const messages = {
     alsoFor: "Also available for {{platform}}",
     backToLibrary: "Back to library",
     clipsDesktop: "Clips Desktop",
+    stable: "Stable",
+    nightly: "Nightly",
+    switchToNightly: "Switch to Nightly builds",
+    switchToStable: "Switch to stable builds",
+    retry: "Try again",
     heroDescription:
       "A menu-bar recorder for screen, camera, and screen + camera. One-click start, draggable camera bubble, instant-share link when you stop.",
     versionReleased: "Version {{version}} — released {{date}}",
     version: "Version {{version}}",
-    manifestError:
-      "Could not load release manifest — pick an installer from the releases page.",
+    manifestError: "Could not load release manifest. Try again.",
     loadingRelease: "Loading latest release…",
     chromeTitle: "Chrome extension for browser logs",
     chromeDescription:

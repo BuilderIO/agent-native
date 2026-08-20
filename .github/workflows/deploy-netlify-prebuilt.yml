@@ -285,17 +285,55 @@ jobs:
             return body;
           }
 
+          async function waitForBuildSetting(siteId, expected, label) {
+            let actual;
+            for (let attempt = 1; attempt <= 15; attempt += 1) {
+              const site = await readJson(
+                await request(`${api}/sites/${siteId}`),
+                `${label} verification attempt ${attempt}`,
+              );
+              actual = site.build_settings?.stop_builds ?? site.repo?.stop_builds;
+              if (actual === expected) return true;
+              if (attempt < 15) {
+                await new Promise((resolve) => setTimeout(resolve, 2_000));
+              }
+            }
+            throw new Error(`${label} expected stop_builds=${expected}, got ${actual}.`);
+          }
           const siteId = process.env.NETLIFY_SITE_ID;
           if (!siteId) throw new Error("Netlify site id is required to pause automatic builds.");
+          const siteUrl = `${api}/sites/${siteId}`;
           const site = await readJson(
-            await request(`${api}/sites/${siteId}`),
+            await request(siteUrl),
             "Netlify build setting lookup",
           );
-          const wasStopped = site.build_settings?.stop_builds === true;
+          const wasStopped =
+            (site.build_settings?.stop_builds ?? site.repo?.stop_builds) === true;
+          const hasGitConnectedBuild = Boolean(
+            site.build_settings?.repo_url ||
+              site.build_settings?.repo_path ||
+              site.build_settings?.provider ||
+              site.repo?.repo_url ||
+              site.repo?.repo_path ||
+              site.git_provider ||
+              site.repo?.provider ||
+              site.repo?.repo,
+          );
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `was_stopped=${wasStopped}\n`);
+          fs.appendFileSync(
+            process.env.GITHUB_OUTPUT,
+            `has_git_connected_build=${hasGitConnectedBuild}\n`,
+          );
+          if (!hasGitConnectedBuild) {
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, "cutover_acquired=true\n");
+            console.log(
+              "No Git-connected Netlify build is configured; automatic builds are unchanged.",
+            );
+            return;
+          }
           if (!wasStopped) {
             await readJson(
-              await request(`${api}/sites/${siteId}`, {
+              await request(siteUrl, {
                 method: "PATCH",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ build_settings: { stop_builds: true } }),
@@ -304,13 +342,8 @@ jobs:
             );
           }
           fs.appendFileSync(process.env.GITHUB_OUTPUT, "cutover_acquired=true\n");
-          const paused = await readJson(
-            await request(`${api}/sites/${siteId}`),
-            "Netlify automatic build pause verification",
-          );
-          if (paused.build_settings?.stop_builds !== true) {
-            throw new Error("Netlify automatic builds were not paused before production cutover.");
-          }
+          const paused = await waitForBuildSetting(siteId, true, "Netlify automatic build pause");
+          if (!paused) throw new Error("Netlify automatic build pause was not verified.");
           console.log(`Automatic Netlify builds paused for production cutover (previously stopped: ${wasStopped}).`);
           })().catch((error) => {
             console.error(error instanceof Error ? error.message : error);
@@ -770,6 +803,7 @@ jobs:
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
           cutoverWasStopped: ${{ steps.pause.outputs.was_stopped }}
           cutoverWasPaused: ${{ steps.pause.outputs.cutover_acquired }}
+          cutoverHasGitConnectedBuild: ${{ steps.pause.outputs.has_git_connected_build }}
         run: |
           set -euo pipefail
           node <<'NODE'
@@ -797,6 +831,12 @@ jobs:
             console.log("No production cutover state was acquired; automatic builds are unchanged.");
             process.exit(0);
           }
+          if (process.env.cutoverHasGitConnectedBuild !== "true") {
+            console.log(
+              "No Git-connected Netlify build was configured; automatic builds are unchanged.",
+            );
+            process.exit(0);
+          }
           if (process.env.cutoverWasStopped === "true") {
             console.log("Automatic Netlify builds were already stopped; preserving that setting.");
             process.exit(0);
@@ -810,13 +850,22 @@ jobs:
             }),
             "Netlify automatic build resume",
           );
-          const resumed = await readJson(
-            await request(`${api}/sites/${siteId}`),
-            "Netlify automatic build resume verification",
-          );
-          if (resumed.build_settings?.stop_builds !== false) {
-            throw new Error("Netlify automatic builds were not resumed after production cutover.");
+          async function waitForBuildSetting(expected, label) {
+            let actual;
+            for (let attempt = 1; attempt <= 15; attempt += 1) {
+              const site = await readJson(
+                await request(`${api}/sites/${siteId}`),
+                `${label} verification attempt ${attempt}`,
+              );
+              actual = site.build_settings?.stop_builds ?? site.repo?.stop_builds;
+              if (actual === expected) return;
+              if (attempt < 15) {
+                await new Promise((resolve) => setTimeout(resolve, 2_000));
+              }
+            }
+            throw new Error(`${label} expected stop_builds=${expected}, got ${actual}.`);
           }
+          await waitForBuildSetting(false, "Netlify automatic build resume");
           console.log("Automatic Netlify builds resumed after production cutover.");
           NODE
 

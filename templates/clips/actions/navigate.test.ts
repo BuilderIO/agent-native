@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mockWriteAppState = vi.fn();
+const mockWriteAppStateForCurrentTab = vi.fn();
 
 vi.mock("@agent-native/core/application-state", () => ({
-  writeAppState: (...args: unknown[]) => mockWriteAppState(...args),
+  writeAppStateForCurrentTab: (...args: unknown[]) =>
+    mockWriteAppStateForCurrentTab(...args),
 }));
 
 import action from "./navigate";
@@ -16,7 +17,7 @@ describe("clips navigate action", () => {
   it("accepts the shared-with-me view", async () => {
     const result = await action.run({ view: "shared" });
 
-    expect(mockWriteAppState).toHaveBeenCalledWith("navigate", {
+    expect(mockWriteAppStateForCurrentTab).toHaveBeenCalledWith("navigate", {
       view: "shared",
     });
     expect(result).toBe("Navigating to shared");
@@ -25,7 +26,7 @@ describe("clips navigate action", () => {
   it("accepts the renamed dictate view", async () => {
     const result = await action.run({ view: "dictate" });
 
-    expect(mockWriteAppState).toHaveBeenCalledWith("navigate", {
+    expect(mockWriteAppStateForCurrentTab).toHaveBeenCalledWith("navigate", {
       view: "dictate",
     });
     expect(result).toBe("Navigating to dictate");
@@ -35,14 +36,22 @@ describe("clips navigate action", () => {
     await action.run({ view: "meeting", meetingId: "mtg_123" });
     await action.run({ view: "dictate", dictationId: "dct_456" });
 
-    expect(mockWriteAppState).toHaveBeenNthCalledWith(1, "navigate", {
-      view: "meeting",
-      meetingId: "mtg_123",
-    });
-    expect(mockWriteAppState).toHaveBeenNthCalledWith(2, "navigate", {
-      view: "dictate",
-      dictationId: "dct_456",
-    });
+    expect(mockWriteAppStateForCurrentTab).toHaveBeenNthCalledWith(
+      1,
+      "navigate",
+      {
+        view: "meeting",
+        meetingId: "mtg_123",
+      },
+    );
+    expect(mockWriteAppStateForCurrentTab).toHaveBeenNthCalledWith(
+      2,
+      "navigate",
+      {
+        view: "dictate",
+        dictationId: "dct_456",
+      },
+    );
   });
 
   it("still rejects empty commands", async () => {
@@ -50,6 +59,6 @@ describe("clips navigate action", () => {
       "at least --view or --path is required.",
     );
 
-    expect(mockWriteAppState).not.toHaveBeenCalled();
+    expect(mockWriteAppStateForCurrentTab).not.toHaveBeenCalled();
   });
 });

@@ -1,18 +1,18 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  writeAppState: vi.fn(),
+  writeAppStateForCurrentTab: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
-  writeAppState: mocks.writeAppState,
+  writeAppStateForCurrentTab: mocks.writeAppStateForCurrentTab,
 }));
 
 import action from "./navigate.js";
 
 describe("navigate", () => {
   beforeEach(() => {
-    mocks.writeAppState.mockReset();
+    mocks.writeAppStateForCurrentTab.mockReset();
   });
 
   it("writes editor overview and focused screen commands", async () => {
@@ -25,7 +25,7 @@ describe("navigate", () => {
       tool: "pen",
     });
 
-    expect(mocks.writeAppState).toHaveBeenCalledWith("navigate", {
+    expect(mocks.writeAppStateForCurrentTab).toHaveBeenCalledWith("navigate", {
       view: "editor",
       designId: "design_123",
       editorView: "overview",
@@ -46,7 +46,7 @@ describe("navigate", () => {
       screen: "settings",
     });
 
-    expect(mocks.writeAppState).toHaveBeenCalledWith(
+    expect(mocks.writeAppStateForCurrentTab).toHaveBeenCalledWith(
       "navigate",
       expect.objectContaining({
         editorView: "single",

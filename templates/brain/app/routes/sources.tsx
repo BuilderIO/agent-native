@@ -683,10 +683,6 @@ function scopedCredentialCount(provider: BrainConnectionProvider) {
   );
 }
 
-function countLabel(count: number, singular: string, plural = `${singular}s`) {
-  return `${count.toLocaleString()} ${count === 1 ? singular : plural}`;
-}
-
 function sharedConnectionReadiness(
   provider: BrainConnectionProvider,
   t: BrainT,

@@ -1519,6 +1519,8 @@ const ptBR = {
     body: "Todos os seus apps agent-native em uma única shell de desktop. Apps de produção integrados, com alternância de modo dev para desenvolvimento local.",
     openDesktop: "Abrir Agent Native",
     downloadInstaller: "Baixar instalador",
+    downloadStarted: "Download iniciado",
+    downloadAgain: "Não funcionou? Tente baixar novamente",
     loadError: "Não foi possível carregar o instalador desktop mais recente.",
     checkingRelease: "Verificando a versão desktop mais recente...",
     retry: "Tentar novamente",
