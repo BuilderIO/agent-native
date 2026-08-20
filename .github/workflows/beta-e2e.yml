@@ -14,6 +14,35 @@ name: Beta E2E (browser)
 # workflow on a six-hour cadence and reports failures to one deduplicated issue.
 
 on:
+  # Callable from another workflow — used by the production deploy's opt-in
+  # pre-flight gate and the six-hour scheduled wrapper. Still never fires on
+  # its own: there is no push, schedule, or pull_request trigger here.
+  workflow_call:
+    inputs:
+      apps:
+        description: 'Beta apps to test ("all", or e.g. "slides,analytics")'
+        required: false
+        default: "all"
+        type: string
+      lane:
+        description: "Which lanes to run"
+        required: false
+        default: "public+authed"
+        type: string
+      grep:
+        description: "Only run tests whose title matches this (optional)"
+        required: false
+        default: ""
+        type: string
+    secrets:
+      BETA_E2E_EMAIL:
+        required: false
+      BETA_E2E_SESSION_TOKENS:
+        required: false
+      BETA_E2E_OPENAI_API_KEY:
+        required: false
+      OPENAI_API_KEY:
+        required: false
   workflow_dispatch:
     inputs:
       apps:
@@ -44,34 +73,6 @@ on:
         description: "Only run tests whose title matches this (optional)"
         required: false
         default: ""
-  # Callable from the production deploy's opt-in pre-flight and from the
-  # six-hour scheduled wrapper. The caller chooses the lane explicitly.
-  workflow_call:
-    inputs:
-      apps:
-        description: 'Beta apps to test ("all", or e.g. "slides,analytics,chat")'
-        required: false
-        default: "all"
-        type: string
-      lane:
-        description: "Which lanes to run"
-        required: false
-        default: "public+authed"
-        type: string
-      grep:
-        description: "Only run tests whose title matches this (optional)"
-        required: false
-        default: ""
-        type: string
-    secrets:
-      BETA_E2E_EMAIL:
-        required: false
-      BETA_E2E_SESSION_TOKENS:
-        required: false
-      BETA_E2E_OPENAI_API_KEY:
-        required: false
-      OPENAI_API_KEY:
-        required: false
 
 concurrency:
   # One promotion check at a time. Two concurrent runs would sign in as the
