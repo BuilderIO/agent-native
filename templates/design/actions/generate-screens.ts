@@ -1,5 +1,8 @@
 import { defineAction, embedApp } from "@agent-native/core";
-import { writeAppState } from "@agent-native/core/application-state";
+import {
+  writeAppState,
+  writeAppStateForCurrentTab,
+} from "@agent-native/core/application-state";
 import { buildDeepLink } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import {
@@ -430,7 +433,7 @@ export default defineAction({
       designGenerationSessionKey(designId),
       session as unknown as Record<string, unknown>,
     );
-    await writeAppState("navigate", {
+    await writeAppStateForCurrentTab("navigate", {
       view: "editor",
       designId,
       editorView: "overview",

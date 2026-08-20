@@ -751,6 +751,31 @@ async function resolveProviderBaseUrl(
 }
 
 /**
+ * `null` means no custody — fall through to keys. Must mirror
+ * `BuilderGatewayEngine.stream`'s auth choice exactly: a preflight stricter
+ * than the engine rejects turns the engine would have served.
+ */
+async function builderOAuthLaneUsable(
+  identity?: BuilderCredentialLookupIdentity,
+): Promise<boolean | null> {
+  const ownerEmail =
+    identity?.userEmail?.trim().toLowerCase() || getRequestUserEmail();
+  if (!ownerEmail || !(await hasBuilderOAuthSession(ownerEmail))) return null;
+  try {
+    return Boolean(
+      await resolveBuilderOAuthRequestAccess({
+        ownerEmail,
+        requiredScope: BUILDER_OAUTH_SCOPE,
+      }),
+    );
+  } catch {
+    // coercion-ok: custody present but unusable is "not usable", not absent;
+    // reconnect UX is owned by /builder/status, not this boolean probe.
+    return false;
+  }
+}
+
+/**
  * A Builder connection we could not read is not a missing connection. Throwing
  * keeps that distinction instead of reporting "connect a provider" to a user
  * whose org-shared keys exist but were unreadable.
@@ -758,22 +783,8 @@ async function resolveProviderBaseUrl(
 async function hasUsableBuilderConnection(
   identity?: BuilderCredentialLookupIdentity,
 ): Promise<boolean> {
-  const ownerEmail =
-    identity?.userEmail?.trim().toLowerCase() || getRequestUserEmail();
-  if (ownerEmail && (await hasBuilderOAuthSession(ownerEmail))) {
-    try {
-      return Boolean(
-        await resolveBuilderOAuthRequestAccess({
-          ownerEmail,
-          requiredScope: BUILDER_OAUTH_SCOPE,
-        }),
-      );
-    } catch {
-      // coercion-ok: custody present but unusable is "not usable", not absent;
-      // reconnect UX is owned by /builder/status, not this boolean probe.
-      return false;
-    }
-  }
+  const oauthLane = await builderOAuthLaneUsable(identity);
+  if (oauthLane !== null) return oauthLane;
   const creds = await resolveBuilderCredentialsDetailed(identity);
   assertCredentialStoreReadable(creds);
   return Boolean(creds.privateKey && creds.publicKey);
@@ -786,6 +797,8 @@ async function hasUsableBuilderConnection(
 async function canRunBuilderEngine(
   identity?: BuilderCredentialLookupIdentity,
 ): Promise<boolean> {
+  const oauthLane = await builderOAuthLaneUsable(identity);
+  if (oauthLane !== null) return oauthLane;
   const creds = await resolveBuilderGatewayCredentialsDetailed(identity);
   assertCredentialStoreReadable(creds);
   return Boolean(creds.privateKey && creds.publicKey);
