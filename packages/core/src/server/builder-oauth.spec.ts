@@ -145,6 +145,8 @@ describe("Builder hosted user OAuth", () => {
       redirectUrl: "https://app.example.com/_agent-native/builder/callback",
       state: "<STATE_EXAMPLE>",
       scope: BUILDER_OAUTH_SCOPE,
+      resourceMetadataUrl:
+        "https://mcp.builder.io/.well-known/oauth-protected-resource/api",
     });
   });
 

@@ -23,6 +23,13 @@ export const BUILDER_OAUTH_SCOPES = [BUILDER_OAUTH_SCOPE] as const;
 // row; a bare shared key would let only the first connector hold a grant.
 const BUILDER_OAUTH_KEY = "builder-general-resource-v1";
 
+// Builder's general AI resource metadata lives at a non-default path; the
+// default api.builder.io well-known describes its Figma integration instead.
+// Point discovery here so live metadata resolves to the api.builder.io resource
+// and the mcp.builder.io authorization server.
+const BUILDER_OAUTH_PROTECTED_RESOURCE_METADATA =
+  "https://mcp.builder.io/.well-known/oauth-protected-resource/api";
+
 export type BuilderOAuthPendingFlow = {
   codeVerifier: string;
   clientInformation: unknown;
@@ -44,9 +51,14 @@ export type BuilderOAuthRequestAccess = BuilderOAuthSession & {
 // credential is scoped to the org so every member reads the same token.
 // Personal context (no org membership / active Personal) falls back to a
 // per-user scope so solo users still get their own connection.
-async function ownerOptions(ownerEmail: string) {
+function normalizeOwnerEmail(ownerEmail: string): string {
   const email = ownerEmail.trim().toLowerCase();
   if (!email) throw new Error("Builder OAuth owner email is required");
+  return email;
+}
+
+async function ownerOptions(ownerEmail: string) {
+  const email = normalizeOwnerEmail(ownerEmail);
   const orgId = await resolveOrgIdForEmail(email);
   if (orgId) {
     return {
@@ -113,12 +125,15 @@ export async function startBuilderOAuthAuthorization(input: {
   redirectUri: string;
   state: string;
 }): Promise<{ authorizationUrl: string; pending: BuilderOAuthPendingFlow }> {
-  await ownerOptions(input.ownerEmail);
+  // Start scopes nothing, so it validates the email without an org lookup;
+  // the org scope is resolved when the grant is stored and read.
+  normalizeOwnerEmail(input.ownerEmail);
   const started = await startMcpOAuthAuthorization({
     serverUrl: BUILDER_OAUTH_RESOURCE,
     redirectUrl: input.redirectUri,
     state: input.state,
     scope: BUILDER_OAUTH_SCOPE,
+    resourceMetadataUrl: BUILDER_OAUTH_PROTECTED_RESOURCE_METADATA,
   });
   return {
     authorizationUrl: started.authorizationUrl.toString(),

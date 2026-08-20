@@ -466,13 +466,22 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
 }
 
 export async function startMcpOAuthAuthorization(
-  options: McpOAuthProviderOptions & { scope?: string },
+  options: McpOAuthProviderOptions & {
+    scope?: string;
+    // Override the protected-resource metadata URL for servers whose metadata
+    // is not at the RFC 9728 default path; the SDK still discovers the resource
+    // and authorization-server endpoints from it live.
+    resourceMetadataUrl?: string;
+  },
 ): Promise<McpOAuthStartResult> {
   checkedRemoteUrl(options.serverUrl, "server");
   const provider = new McpOAuthClientProvider(options);
   const result = await auth(provider, {
     serverUrl: options.serverUrl,
     scope: options.scope,
+    ...(options.resourceMetadataUrl
+      ? { resourceMetadataUrl: new URL(options.resourceMetadataUrl) }
+      : {}),
     fetchFn: guardedOAuthFetch(),
   });
   if (result !== "REDIRECT" || !provider.authorizationRedirect) {
