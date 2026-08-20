@@ -1262,6 +1262,23 @@ const PROVIDER_SUPPORTED_FORMATS = new Set([
 ]);
 
 /**
+ * Anthropic's function-schema validator rejects regex lookaround -- `(?=`,
+ * `(?!`, `(?<=`, `(?<!` -- inside a `pattern`, with "Invalid JSON schema: regex
+ * lookaround is not supported", and it rejects the WHOLE request, before a
+ * token is generated. Interactive chat surfaces that as an error; a background
+ * run just dies with `http_400` in `agent_runs.error_detail` while the UI says
+ * nothing, which is how a scout can be down for days looking merely idle.
+ *
+ * Zod 4's `z.string().email()` compiles to two negative lookaheads, and it is
+ * written in ~35 action schemas across core, the templates, and the apps -- so
+ * this is answered here rather than by retyping every one of them, the same way
+ * typeless schemas and unsupported `format` values are. `pattern` is a hint for
+ * the model; the action's own zod schema still validates the value server-side,
+ * so dropping it widens nothing that was actually enforced.
+ */
+const LOOKAROUND_IN_PATTERN = /\(\?<?[=!]/;
+
+/**
  * Keywords that only ever CONSTRAIN a value and that OpenAI's validator rejects
  * outright. Removing a constraint can never make a previously-valid document
  * invalid, so this is safe in a way that rewriting structure would not be.
@@ -1287,6 +1304,12 @@ export function stripUnsupportedSchemaKeywords<T>(node: T): T {
     !PROVIDER_SUPPORTED_FORMATS.has(obj.format)
   ) {
     delete obj.format;
+  }
+  if (
+    typeof obj.pattern === "string" &&
+    LOOKAROUND_IN_PATTERN.test(obj.pattern)
+  ) {
+    delete obj.pattern;
   }
 
   for (const key of SUBSCHEMA_VALUE_KEYS) {
