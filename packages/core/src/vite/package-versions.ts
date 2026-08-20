@@ -14,6 +14,11 @@ interface PackageManifest {
   peerDependencies?: Record<string, string>;
 }
 
+interface ResolvedPackageManifest {
+  manifest: PackageManifest;
+  manifestPath: string;
+}
+
 function readPackageManifest(manifestPath: string): PackageManifest | null {
   try {
     const manifest = JSON.parse(
@@ -48,12 +53,15 @@ function dependencyNames(
 
 function resolvePackageManifest(
   packageName: string,
-  appRequire: NodeRequire,
-): PackageManifest | null {
+  resolutionBase: string,
+): ResolvedPackageManifest | null {
   let entryPath: string;
+  const packageRequire = createRequire(
+    path.join(resolutionBase, "package.json"),
+  );
 
   try {
-    entryPath = appRequire.resolve(packageName);
+    entryPath = packageRequire.resolve(packageName);
   } catch {
     if (packageName !== "@agent-native/core") {
       return null;
@@ -64,14 +72,17 @@ function resolvePackageManifest(
       "../../package.json",
     );
     const coreManifest = readPackageManifest(coreManifestPath);
-    return coreManifest?.name === packageName ? coreManifest : null;
+    return coreManifest?.name === packageName
+      ? { manifest: coreManifest, manifestPath: coreManifestPath }
+      : null;
   }
 
   let directory = path.dirname(entryPath);
   for (let depth = 0; depth < 20; depth += 1) {
-    const manifest = readPackageManifest(path.join(directory, "package.json"));
+    const manifestPath = path.join(directory, "package.json");
+    const manifest = readPackageManifest(manifestPath);
     if (manifest?.name === packageName) {
-      return manifest;
+      return { manifest, manifestPath };
     }
 
     const parent = path.dirname(directory);
@@ -94,23 +105,27 @@ export function resolveAgentNativePackageVersions(
       name.startsWith(AGENT_NATIVE_PACKAGE_PREFIX),
     ),
   ]);
-  const appRequire = createRequire(path.join(cwd, "package.json"));
   const resolvedVersions = new Map<string, string>();
-  const queuedPackages = [...packageNames];
+  const queuedPackages = [...packageNames].map((packageName) => ({
+    packageName,
+    resolutionBase: cwd,
+  }));
 
   while (queuedPackages.length > 0) {
-    const packageName = queuedPackages.shift();
-    if (!packageName) {
-      continue;
-    }
+    const queuedPackage = queuedPackages.shift();
+    if (!queuedPackage) continue;
 
-    const manifest = resolvePackageManifest(packageName, appRequire);
-    if (!manifest) {
+    const resolvedPackage = resolvePackageManifest(
+      queuedPackage.packageName,
+      queuedPackage.resolutionBase,
+    );
+    if (!resolvedPackage) {
       continue;
     }
+    const { manifest } = resolvedPackage;
 
     if (typeof manifest.version === "string" && manifest.version.trim()) {
-      resolvedVersions.set(packageName, manifest.version.trim());
+      resolvedVersions.set(queuedPackage.packageName, manifest.version.trim());
     }
 
     for (const dependencyName of dependencyNames(manifest)) {
@@ -119,7 +134,10 @@ export function resolveAgentNativePackageVersions(
         !packageNames.has(dependencyName)
       ) {
         packageNames.add(dependencyName);
-        queuedPackages.push(dependencyName);
+        queuedPackages.push({
+          packageName: dependencyName,
+          resolutionBase: path.dirname(resolvedPackage.manifestPath),
+        });
       }
     }
   }
