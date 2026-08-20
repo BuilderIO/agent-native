@@ -39,6 +39,7 @@ import {
   clampThinkingBudgetTokens,
   resolveMaxOutputTokensForEngine,
 } from "./output-tokens.js";
+import { temperatureForThinkingRequest } from "./thinking-temperature.js";
 import {
   engineToolsToAISDK,
   engineMessagesToAISDK,
@@ -448,6 +449,14 @@ class AISDKEngine implements AgentEngine {
       }
     }
 
+    // After `providerOpts.anthropic.thinking` is resolved above, not beside it.
+    const resolvedTemperature = temperatureForThinkingRequest(
+      opts.temperature,
+      (providerOpts.anthropic as { thinking?: unknown } | undefined)
+        ?.thinking !== undefined,
+      { engine: `ai-sdk-engine:${this.provider}`, model: opts.model },
+    );
+
     let assistantContent: EngineContentPart[] = [];
     const firstEventAbort = createFirstEventAbortController(opts.abortSignal);
     const toolInputs = createStreamedToolInputState();
@@ -463,8 +472,8 @@ class AISDKEngine implements AgentEngine {
         // backoff. Leaving the SDK on its default (2) multiplies the two retry
         // layers into ~12 HTTP requests per failed run.
         maxRetries: 1,
-        ...(opts.temperature !== undefined
-          ? { temperature: opts.temperature }
+        ...(resolvedTemperature !== undefined
+          ? { temperature: resolvedTemperature }
           : {}),
         abortSignal: firstEventAbort.signal,
         onStepFinish: (step: any) => {

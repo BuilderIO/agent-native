@@ -36,6 +36,7 @@ import {
   splitSystemPromptForCache,
   stablePrefixCacheControl,
 } from "./prompt-cache.js";
+import { temperatureForThinkingRequest } from "./thinking-temperature.js";
 import {
   engineToolsToAnthropic,
   engineMessagesToAnthropic,
@@ -194,14 +195,22 @@ class AnthropicEngine implements AgentEngine {
       }
     }
 
+    // `extra.thinking` is set above from the reasoning effort, which defaults
+    // to on — so this has to run after it, not beside it.
+    const resolvedTemperature = temperatureForThinkingRequest(
+      opts.temperature,
+      extra.thinking !== undefined,
+      { engine: "anthropic-engine", model: opts.model },
+    );
+
     const requestParams: any = {
       model: opts.model,
       max_tokens: resolvedMaxOutputTokens,
       system: systemBlocks,
       tools: cachedTools.length > 0 ? cachedTools : undefined,
       messages: cachedMessages,
-      ...(opts.temperature !== undefined
-        ? { temperature: opts.temperature }
+      ...(resolvedTemperature !== undefined
+        ? { temperature: resolvedTemperature }
         : {}),
       ...extra,
     };

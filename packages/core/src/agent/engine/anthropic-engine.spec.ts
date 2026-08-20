@@ -134,6 +134,59 @@ describe("createAnthropicEngine", () => {
     vi.doUnmock("@anthropic-ai/sdk");
   });
 
+  // The 400 this guards against: "`temperature` may only be set to 1 when
+  // thinking is enabled or in adaptive mode." Thinking is on by DEFAULT here
+  // (an absent reasoning effort becomes DEFAULT_REASONING_EFFORT), so passing
+  // only a temperature — an ordinary completeText option — used to make every
+  // request on a Claude reasoning model fail.
+  it("omits a non-1 temperature when it defaults thinking on", async () => {
+    const requestParams = await captureRequestParams({
+      model: "claude-sonnet-5",
+      systemPrompt: "You write haiku.",
+      messages: [
+        { role: "user", content: [{ type: "text", text: "mondays" }] },
+      ],
+      tools: [],
+      abortSignal: new AbortController().signal,
+      temperature: 0.7,
+    });
+
+    expect(requestParams.thinking).toBeDefined();
+    expect(requestParams).not.toHaveProperty("temperature");
+  });
+
+  it("keeps a temperature of 1, which is legal alongside thinking", async () => {
+    const requestParams = await captureRequestParams({
+      model: "claude-sonnet-5",
+      systemPrompt: "You write haiku.",
+      messages: [
+        { role: "user", content: [{ type: "text", text: "mondays" }] },
+      ],
+      tools: [],
+      abortSignal: new AbortController().signal,
+      temperature: 1,
+    });
+
+    expect(requestParams.thinking).toBeDefined();
+    expect(requestParams.temperature).toBe(1);
+  });
+
+  it("still sends the temperature on a model that takes no thinking block", async () => {
+    const requestParams = await captureRequestParams({
+      model: "claude-3-5-haiku-20241022",
+      systemPrompt: "You write haiku.",
+      messages: [
+        { role: "user", content: [{ type: "text", text: "mondays" }] },
+      ],
+      tools: [],
+      abortSignal: new AbortController().signal,
+      temperature: 0.7,
+    });
+
+    expect(requestParams.thinking).toBeUndefined();
+    expect(requestParams.temperature).toBe(0.7);
+  });
+
   it("adds a moving cache breakpoint on the last user message's last content block", async () => {
     const requestParams = await captureRequestParams({
       model: "claude-haiku-4-5-20251001",
