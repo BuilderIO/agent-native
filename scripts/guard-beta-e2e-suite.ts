@@ -149,6 +149,11 @@ if (workflow) {
     );
   }
 
+  if (!workflow.includes("--project=fleet")) {
+    issues.push(
+      `${workflowPath} no longer runs the fleet lane. The public lane is sharded one host per runner, so cross-host checks only mean something in a run that sees every host.`,
+    );
+  }
   if (!workflow.includes("--project=advisory")) {
     issues.push(
       `${workflowPath} no longer runs the advisory lane. Non-blocking findings that stop being reported stop being fixed.`,
@@ -159,9 +164,24 @@ if (workflow) {
       `${workflowPath} no longer marks the advisory lane non-gating. Gating on advisory findings trains people to ignore a red run.`,
     );
   }
-  if (!workflow.includes("pnpm typecheck:e2e")) {
+  // The preamble lives in a composite action shared by every lane, so look
+  // there as well as in the workflow itself.
+  const setupPath = ".github/actions/beta-e2e-setup/action.yml";
+  const setup = read(setupPath);
+  if (
+    !workflow.includes("pnpm typecheck:e2e") &&
+    !setup.includes("pnpm typecheck:e2e")
+  ) {
     issues.push(
-      `${workflowPath} dropped the typecheck step. e2e/ is outside the workspace typecheck sweep, so a type error would only surface after tokens were spent.`,
+      `Neither ${workflowPath} nor ${setupPath} runs typecheck:e2e. e2e/ is outside the workspace typecheck sweep, so a type error would only surface after tokens were spent.`,
+    );
+  }
+
+  // Sharding is what makes this gate usable; losing it silently returns the
+  // sweep to ~28 minutes on one runner.
+  if (!workflow.includes("fromJSON(needs.discover.outputs.matrix)")) {
+    issues.push(
+      `${workflowPath} no longer shards the public lane across runners. A page load against a beta host costs 20-40s from a GitHub runner, so one runner for the whole fleet is a ~28 minute gate nobody waits for.`,
     );
   }
 }

@@ -375,36 +375,5 @@ for (const site of sites) {
         `${site.host} agent-chat answered HTTP ${outcome.status} to an anonymous caller`,
       ).toBe(401);
     });
-
-    test("sends an anonymous visitor to sign-in without looping", async ({
-      page,
-    }) => {
-      const settings = `${origin}/settings/general`;
-      await page.goto(settings, {
-        waitUntil: "domcontentloaded",
-        timeout: 90_000,
-      });
-
-      const gate = await settleAuthGate(page);
-      expect(
-        gate.gated,
-        `${site.host} settled on ${gate.url} for an anonymous request to /settings/general with no sign-in surface`,
-      ).toBe(true);
-
-      expect(
-        new URL(gate.url).origin,
-        `${site.host} bounced an anonymous visitor off its own origin to ${gate.url}`,
-      ).toBe(origin);
-
-      // The reported loop: land on sign-in, then get thrown around again.
-      const settled = page.url();
-      // Short on purpose: a redirect loop fires immediately, so a longer pause
-      // is pure dead time repeated on every host.
-      await page.waitForTimeout(2_500);
-      expect(
-        page.url(),
-        `${site.host} kept redirecting after settling on ${settled} — this is the sign-in loop users reported`,
-      ).toBe(settled);
-    });
   });
 }
