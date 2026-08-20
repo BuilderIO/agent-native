@@ -52,7 +52,9 @@ export function clearDesktopAppDownloaded(): void {
     window.localStorage?.removeItem(DESKTOP_DOWNLOADED_STORAGE_KEY);
     window.localStorage?.removeItem(DESKTOP_PROMO_DISMISSED_STORAGE_KEY);
   } catch {
-    // Best-effort; a fresh protocol attempt next time still recovers.
+    // coercion-ok: storage access is optional; the CTA falls back to the
+    // stale "downloaded" label this session, and the next failed launch
+    // attempt retries the reset.
   }
   downloadedListeners.forEach((fn) => fn());
 }

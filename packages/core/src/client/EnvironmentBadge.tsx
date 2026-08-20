@@ -150,7 +150,7 @@ function EnvironmentBadgeContent({
       <PopoverTrigger asChild>
         <Button
           aria-label={`Open ${title.toLowerCase()} switcher`}
-          className="fixed bottom-3 left-3 z-[100] h-6 min-w-0 rounded-xl border-border/80 bg-background/95 px-2 text-[11px] font-semibold uppercase tracking-[0.5px] shadow-sm backdrop-blur-sm"
+          className="fixed top-3 right-3 z-[100] h-6 min-w-0 rounded-xl border-border/80 bg-background/95 px-2 text-[11px] font-semibold uppercase tracking-[0.5px] shadow-sm backdrop-blur-sm"
           size="sm"
           variant={environment === "beta" ? "default" : "outline"}
         >
@@ -160,7 +160,7 @@ function EnvironmentBadgeContent({
       <PopoverContent
         align="center"
         className="w-[280px] p-5"
-        side="top"
+        side="bottom"
         sideOffset={8}
       >
         <div className="mb-1 text-sm font-semibold leading-5">{title}</div>
