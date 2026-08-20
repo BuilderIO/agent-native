@@ -28,10 +28,24 @@ on:
         options:
           - public
           - public+authed
+      key_source:
+        description: "Which OpenAI credential the agent turns bill"
+        required: false
+        default: dedicated
+        type: choice
+        options:
+          # A key created for this suite with its own spend limit, stored as
+          # BETA_E2E_OPENAI_API_KEY. Keeps this suite's cost attributable.
+          - dedicated
+          # The repository's shared OPENAI_API_KEY. Works, but pools this
+          # suite's spend with every other consumer of that key.
+          - shared
       grep:
         description: "Only run tests whose title matches this (optional)"
         required: false
         default: ""
+  # Callable from the production deploy's opt-in pre-flight and from the
+  # six-hour scheduled wrapper. The caller chooses the lane explicitly.
   workflow_call:
     inputs:
       apps:
@@ -56,6 +70,8 @@ on:
         required: false
       BETA_E2E_OPENAI_API_KEY:
         required: false
+      OPENAI_API_KEY:
+        required: false
 
 concurrency:
   # One promotion check at a time. Two concurrent runs would sign in as the
@@ -77,10 +93,16 @@ jobs:
       # into the script text before bash parses it, so a crafted input would run
       # as a command in a step that has both secrets in scope.
       BETA_E2E_APPS: ${{ inputs.apps }}
-      BETA_E2E_GREP: ${{ inputs.grep }}
+      BETA_E2E_GREP: ${{ inputs.grep || '' }}
       BETA_E2E_EMAIL: ${{ secrets.BETA_E2E_EMAIL }}
       BETA_E2E_SESSION_TOKENS: ${{ secrets.BETA_E2E_SESSION_TOKENS }}
       BETA_E2E_OPENAI_API_KEY: ${{ secrets.BETA_E2E_OPENAI_API_KEY }}
+      # Never read implicitly — only when the dispatch explicitly asks for it,
+      # because billing the shared key is the thing a dedicated key prevents.
+      BETA_E2E_SHARED_OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      BETA_E2E_ALLOW_SHARED_KEY: ${{ inputs.key_source == 'shared' }}
+      # Called runs have no key_source input, so shared billing stays disabled;
+      # the scheduled wrapper therefore uses the dedicated key.
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -113,6 +135,7 @@ jobs:
         # would ship a fleet users cannot sign into or load.
         env:
           BETA_E2E_AUTHED: "0"
+          BETA_E2E_REPORT_SLOT: public
         run: |
           if [ -n "$BETA_E2E_GREP" ]; then
             pnpm e2e:beta --project=public --grep "$BETA_E2E_GREP"
@@ -127,6 +150,7 @@ jobs:
         # anonymous run that would pass without testing anything.
         env:
           BETA_E2E_AUTHED: "1"
+          BETA_E2E_REPORT_SLOT: authed
         run: |
           if [ -n "$BETA_E2E_GREP" ]; then
             pnpm e2e:beta --project=authed --project=journeys --grep "$BETA_E2E_GREP"
@@ -142,6 +166,7 @@ jobs:
         continue-on-error: true
         env:
           BETA_E2E_AUTHED: "0"
+          BETA_E2E_REPORT_SLOT: advisory
         run: |
           if [ -n "$BETA_E2E_GREP" ]; then
             pnpm e2e:beta --project=advisory --grep "$BETA_E2E_GREP"
