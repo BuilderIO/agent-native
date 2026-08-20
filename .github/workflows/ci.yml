@@ -49,6 +49,11 @@ jobs:
         with:
           node-version: "22"
 
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+
+      - name: Install test dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
       - name: Test change scope classifier
         run: node --experimental-strip-types --test scripts/ci-change-scope.test.ts
 
