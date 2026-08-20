@@ -50,6 +50,15 @@ describe("Inbox navigation commands", () => {
       "activeInboxTab: nav.activeInboxTab ?? null",
     );
   });
+
+  it("filters the view-screen snapshot to the active Other partition", () => {
+    const source = viewScreenSource();
+
+    expect(source).toContain("activeInboxTab?: string");
+    expect(source).toContain("activeInboxTab === OTHER_INBOX_TAB_PARAM");
+    expect(source).toContain("filterInboxTabEmails");
+    expect(source).toContain("nav.activeInboxTab");
+  });
 });
 
 describe("Inbox pagination", () => {

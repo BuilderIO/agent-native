@@ -1073,7 +1073,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     const serverCount = useServerLabelCounts
       ? (inboxLabel?.[countField] ?? 0)
       : 0;
-    const localCount = localCounts["inbox"] ?? 0;
+    const localCount = localCounts["__inboxTotal"] ?? 0;
     return Math.max(serverCount, localCount);
   };
 

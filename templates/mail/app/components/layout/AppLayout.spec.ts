@@ -20,6 +20,12 @@ describe("AppLayout inbox rail count", () => {
     );
   });
 
+  it("uses the whole-Inbox local count for the Inbox tab", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain('const localCount = localCounts["__inboxTotal"]');
+  });
+
   it("collapses the native rail while the per-app chat is open", () => {
     const source = appLayoutSource();
 
