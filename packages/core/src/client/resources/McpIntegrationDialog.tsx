@@ -194,6 +194,7 @@ export function McpIntegrationDialog({
 
   useEffect(() => {
     if (!open) return;
+    if (initialIntegrationId && !mcpServersQuery.isSuccess) return;
     const initialIntegration = initialIntegrationId
       ? defaultIntegrations.find(
           (integration) => integration.id === initialIntegrationId,
@@ -241,6 +242,7 @@ export function McpIntegrationDialog({
     open,
     safeDefaultScope,
     showCatalog,
+    mcpServersQuery.isSuccess,
   ]);
 
   useEffect(() => {
@@ -410,6 +412,7 @@ export function McpIntegrationDialog({
   };
 
   const selectCatalogConnection = (integration: DefaultMcpIntegration) => {
+    if (!mcpServersQuery.isSuccess) return;
     if (hasOrg) {
       setSelected(integration);
       setMode("choice");
@@ -731,6 +734,14 @@ export function McpIntegrationDialog({
                     {error}
                   </div>
                 )}
+                {!mcpServersQuery.isSuccess && !mcpServersQuery.isError ? (
+                  <div
+                    role="status"
+                    className="mb-3 rounded-md border border-border bg-muted/30 px-3 py-2 text-[12px] leading-relaxed text-muted-foreground"
+                  >
+                    {t("mcpIntegrations.loadingScopeMetadata")}
+                  </div>
+                ) : null}
                 <IntegrationGrid
                   items={filteredIntegrations.map((integration) => {
                     const connected = connectedUrls.has(
@@ -767,7 +778,7 @@ export function McpIntegrationDialog({
                           : setupOnly
                             ? t("mcpIntegrations.viewSetup")
                             : t("mcpIntegrations.connect"),
-                      disabled: connected || busy,
+                      disabled: connected || busy || !mcpServersQuery.isSuccess,
                       onAction: () => {
                         if (connected) {
                           openForm(integration);

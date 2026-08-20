@@ -38,6 +38,8 @@ vi.mock("../resources/use-mcp-servers.js", () => ({
   useMcpServersApi: mocks.useMcpServersApi,
   formatMcpServerError: (error: unknown) =>
     error instanceof Error ? error.message : String(error),
+  formatMcpServersLoadError: (error: unknown) =>
+    error instanceof Error ? error.message : String(error),
 }));
 
 describe("FirstRunOnboarding", () => {
@@ -64,6 +66,10 @@ describe("FirstRunOnboarding", () => {
     mocks.useMcpServers.mockReturnValue({
       data: { user: [], org: [], orgId: null, role: null },
       isSuccess: true,
+      isError: false,
+      error: null,
+      isFetching: false,
+      refetch: vi.fn().mockResolvedValue(undefined),
     });
     mocks.useMcpServersApi.mockReturnValue({ test: mocks.testMcpServer });
     mocks.createMcpServerMutation.mockReset();
@@ -284,6 +290,56 @@ describe("FirstRunOnboarding", () => {
     ).toBeTruthy();
     expect(document.body.textContent).not.toContain("This app is an agent.");
     expect(document.body.textContent).not.toContain("Agent integrations");
+  });
+
+  it("keeps first-run integrations disabled until scope metadata is ready", () => {
+    const refetch = vi.fn().mockResolvedValue(undefined);
+    mocks.useMcpServers.mockReturnValue({
+      data: { user: [], org: [], orgId: null, role: null },
+      isSuccess: false,
+      isError: true,
+      error: new Error("Scope metadata unavailable"),
+      isFetching: false,
+      refetch,
+    });
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue")
+        ?.click();
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-use-own-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue to tools")
+        ?.click();
+    });
+
+    expect(
+      document.body.querySelector('[role="alert"]')?.textContent,
+    ).toContain("Scope metadata unavailable");
+    expect(
+      document.body.querySelector('button[aria-label="Connect Context7"]'),
+    ).toHaveProperty("disabled", true);
+
+    const retry = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent === "Retry",
+    );
+    act(() => retry?.click());
+    expect(refetch).toHaveBeenCalledOnce();
+    expect(mocks.createMcpServerMutation).not.toHaveBeenCalled();
   });
 
   it("asks a workspace admin for scope before connecting a shared-capable integration", () => {

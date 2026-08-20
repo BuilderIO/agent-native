@@ -271,6 +271,82 @@ describe("McpIntegrationDialog", () => {
     expect(onCreateMcpServer).not.toHaveBeenCalled();
   });
 
+  it("disables catalog connections while scope metadata is loading", () => {
+    const context7 = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "context7",
+    )!;
+    mocks.mcpServersQuery.isSuccess = false;
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <McpIntegrationDialog
+            open
+            onOpenChange={() => {}}
+            defaultScope="user"
+            canCreateOrgMcp={false}
+            hasOrg={false}
+            onCreateMcpServer={vi.fn()}
+            integrations={[context7]}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(document.body.textContent).toContain("Loading connection scope…");
+    expect(
+      document.body.querySelector('button[aria-label="Connect Context7"]'),
+    ).toHaveProperty("disabled", true);
+    expect(mocks.navigateToMcpOAuthStart).not.toHaveBeenCalled();
+  });
+
+  it("waits for scope metadata before opening an initial setup", () => {
+    const gong = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "gong",
+    )!;
+    mocks.mcpServersQuery.isSuccess = false;
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <McpIntegrationDialog
+            open
+            onOpenChange={() => {}}
+            initialIntegrationId="gong"
+            defaultScope="user"
+            canCreateOrgMcp={false}
+            hasOrg={false}
+            onCreateMcpServer={vi.fn()}
+            integrations={[gong]}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(document.body.textContent).toContain("Loading connection scope…");
+    expect(document.body.textContent).not.toContain("Provider setup required");
+
+    mocks.mcpServersQuery.isSuccess = true;
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <McpIntegrationDialog
+            open
+            onOpenChange={() => {}}
+            initialIntegrationId="gong"
+            defaultScope="user"
+            canCreateOrgMcp
+            hasOrg
+            onCreateMcpServer={vi.fn()}
+            integrations={[gong]}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(document.body.textContent).toContain("Who should use this?");
+  });
+
   it("surfaces a retry when scope metadata fails before direct connecting", () => {
     const context7 = DEFAULT_MCP_INTEGRATIONS.find(
       (integration) => integration.id === "context7",
