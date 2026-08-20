@@ -426,6 +426,7 @@ const esES = {
     viewDocs: "Ver docs",
     source: "Fuente",
     readDocs: "Lea los documentos",
+    signIn: "Iniciar sesión",
   },
   templatesPage: {
     title: "Aplicaciones nativas del agente de código abierto de su propiedad",
@@ -1423,6 +1424,9 @@ const esES = {
         composerLabel: "Tu prompt",
         composerPlaceholder:
           "Describe la presentación que quieres, o responde a las preguntas de arriba.",
+        promptTip: "Consejo para el prompt",
+        promptPlaceholder:
+          "Sea específico. Diga para quién es, pegue sus notas o haga referencia a un diseño de sitio web...",
         submit: "Generar mi presentación",
         readyHint: "Tu prompt está listo: envíalo al agente.",
         promptDeck: "Crea {{deck}}.",

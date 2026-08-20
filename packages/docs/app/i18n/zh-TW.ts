@@ -416,6 +416,7 @@ const messages = {
     viewDocs: "檢視檔案",
     source: "來源",
     readDocs: "閱讀檔案",
+    signIn: "登入",
   },
   templatesPage: {
     title: "您擁有的開放原始碼、Agent-Native 應用程式",
@@ -1380,6 +1381,9 @@ const messages = {
         answerAction: "加入提示詞",
         composerLabel: "你的提示詞",
         composerPlaceholder: "描述你想要的簡報，或者回答上面的問題。",
+        promptTip: "提示詞小提示",
+        promptPlaceholder:
+          "要具體。說明這是給誰的，貼上你的筆記，或參考一個你想要的網站設計……",
         submit: "產生我的簡報",
         readyHint: "提示詞已就緒 —— 發送給代理吧。",
         promptDeck: "建立{{deck}}。",

@@ -425,6 +425,7 @@ const koKR = {
     viewDocs: "문서 보기",
     source: "소스",
     readDocs: "문서 읽기",
+    signIn: "로그인",
   },
   templatesPage: {
     title: "귀하가 소유한 오픈 소스 에이전트 기반 앱",
@@ -1399,6 +1400,9 @@ const koKR = {
         answerAction: "프롬프트에 추가",
         composerLabel: "내 프롬프트",
         composerPlaceholder: "원하는 덱을 설명하거나 위의 질문에 답해 주세요.",
+        promptTip: "프롬프트 팁",
+        promptPlaceholder:
+          "구체적으로 작성하세요. 누구를 위한 것인지 말하고, 노트를 붙여넣거나, 참고할 웹사이트 디자인을 알려주세요...",
         submit: "덱 생성하기",
         readyHint: "프롬프트가 준비되었습니다. 에이전트에게 보내세요.",
         promptDeck: "{{deck}}을(를) 만들어 주세요.",

@@ -41,7 +41,7 @@ export function SlidesTryNow() {
           <div className="group relative inline-flex items-center">
             <button
               type="button"
-              aria-label="Prompt tip"
+              aria-label={tn("promptTip")}
               className="inline-flex size-4 items-center justify-center rounded-full text-[var(--fg-secondary)] hover:text-[var(--fg)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--docs-accent)]"
             >
               <IconInfoCircle size={14} aria-hidden="true" />
@@ -64,7 +64,7 @@ export function SlidesTryNow() {
           aria-multiline="true"
           contentEditable
           suppressContentEditableWarning
-          data-placeholder="Be specific. Say who it is for, paste your notes, or reference a website design..."
+          data-placeholder={tn("promptPlaceholder")}
           className="min-h-48 w-full flex-1 rounded-lg border border-[var(--docs-border)] bg-[var(--bg)] p-4 text-sm leading-8 text-[var(--fg)] outline-none transition-colors empty:before:inline-block empty:before:text-[var(--fg-secondary)] empty:before:content-[attr(data-placeholder)] focus-visible:border-[var(--docs-accent)] focus-visible:ring-2 focus-visible:ring-[var(--docs-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg-secondary)]"
         />
         <div className="flex justify-end">

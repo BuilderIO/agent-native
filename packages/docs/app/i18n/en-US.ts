@@ -68,6 +68,7 @@ const enUS = {
     viewDocs: "View Docs",
     source: "Source",
     readDocs: "Read the docs",
+    signIn: "Sign in",
   },
   search: {
     dialogLabel: "Search documentation",
@@ -1410,6 +1411,9 @@ const enUS = {
         composerLabel: "Your prompt",
         composerPlaceholder:
           "Describe the deck you want, or answer the questions above.",
+        promptTip: "Prompt tip",
+        promptPlaceholder:
+          "Be specific. Say who it is for, paste your notes, or reference a website design...",
         submit: "Generate my deck",
         readyHint: "Your prompt is ready — send it to the agent.",
         promptDeck: "Create {{deck}}.",

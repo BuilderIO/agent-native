@@ -426,6 +426,7 @@ const frFR = {
     viewDocs: "Voir les docs",
     source: "Code source",
     readDocs: "Lire la documentation",
+    signIn: "Se connecter",
   },
   templatesPage: {
     title: "Applications open source natives pour agents que vous possédez",
@@ -1425,6 +1426,9 @@ const frFR = {
         composerLabel: "Votre prompt",
         composerPlaceholder:
           "Décrivez la présentation que vous voulez, ou répondez aux questions ci-dessus.",
+        promptTip: "Astuce pour le prompt",
+        promptPlaceholder:
+          "Soyez précis. Dites à qui cela s'adresse, collez vos notes, ou référencez le design d'un site web...",
         submit: "Générer ma présentation",
         readyHint: "Votre prompt est prêt — envoyez-le à l'agent.",
         promptDeck: "Crée {{deck}}.",

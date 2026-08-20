@@ -418,6 +418,7 @@ const zhCN = {
     viewDocs: "查看文档",
     source: "来源",
     readDocs: "阅读文档",
+    signIn: "登录",
   },
   templatesPage: {
     title: "您拥有的开源、代理本机应用程序",
@@ -1381,6 +1382,9 @@ const zhCN = {
         answerAction: "添加到提示词",
         composerLabel: "你的提示词",
         composerPlaceholder: "描述你想要的演示文稿，或者回答上面的问题。",
+        promptTip: "提示词小贴士",
+        promptPlaceholder:
+          "要具体。说明这是给谁的，粘贴你的笔记，或者参考一个你想要的网站设计……",
         submit: "生成我的演示文稿",
         readyHint: "提示词已就绪 —— 发送给代理吧。",
         promptDeck: "创建{{deck}}。",
