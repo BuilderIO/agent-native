@@ -4259,7 +4259,6 @@ body[data-clips-route="recording-pill"] #root {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.42);
   pointer-events: none;
 }
 
@@ -4283,8 +4282,8 @@ body[data-clips-route="recording-pill"] #root {
   height: 28px;
   flex: 0 0 auto;
   border-radius: 50%;
-  border: 3px solid rgba(255, 255, 255, 0.18);
-  border-top-color: #ffffff;
+  border: 3px solid color-mix(in srgb, currentColor 18%, transparent);
+  border-top-color: currentColor;
   animation: finalizing-spin 0.9s linear infinite;
 }
 
