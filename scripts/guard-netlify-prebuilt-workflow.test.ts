@@ -304,10 +304,7 @@ describe("production Netlify site concurrency guard", () => {
       ],
     ]);
 
-    const deploys = await listDeploys(
-      "test deploy lookup",
-      ["processing"],
-    );
+    const deploys = await listDeploys("test deploy lookup", ["processing"]);
     assert.deepEqual(
       deploys.map((deploy) => deploy.id),
       ["old-active"],

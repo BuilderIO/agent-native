@@ -321,7 +321,7 @@ if (unlockStart < 0 || (uploadStart >= 0 && unlockStart >= uploadStart)) {
     ) ||
     !unlock.includes("const preexistingDeployIds = new Set") ||
     !unlock.includes("preexistingDeployIds.has(candidate.id)") ||
-    !unlock.includes("candidate.state !== \"ready\"") ||
+    !unlock.includes('candidate.state !== "ready"') ||
     (
       unlock.match(/drainPendingDeploys\(deployId, preexistingDeployIds\)/g) ??
       []
