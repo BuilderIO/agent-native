@@ -8,10 +8,20 @@ import { TooltipProvider } from "./ui/tooltip";
 import { WorkspaceAppCard } from "./workspace-app-card";
 
 vi.mock("@agent-native/core/client/sharing", () => ({
-  ShareButton: ({ resourceTitle }: { resourceTitle?: string }) =>
+  ShareButton: ({
+    resourceTitle,
+    defaultOpen,
+  }: {
+    resourceTitle?: string;
+    defaultOpen?: boolean;
+  }) =>
     React.createElement(
       "button",
-      { type: "button", "aria-label": `Share ${resourceTitle ?? "app"}` },
+      {
+        type: "button",
+        "aria-label": `Share ${resourceTitle ?? "app"}`,
+        "data-default-open": defaultOpen ? "true" : undefined,
+      },
       "Share",
     ),
 }));
@@ -193,6 +203,56 @@ describe("WorkspaceAppCard", () => {
     }
   });
 
+  it("opens Share from the app settings menu instead of the card actions", async () => {
+    await act(async () => {
+      root.render(
+        <MemoryRouter>
+          <TooltipProvider>
+            <WorkspaceAppCard
+              app={{
+                id: "analytics",
+                name: "Analytics",
+                path: "/analytics",
+                status: "ready",
+              }}
+            />
+          </TooltipProvider>
+        </MemoryRouter>,
+      );
+    });
+
+    expect(
+      container.querySelector('button[aria-label="Share Analytics"]'),
+    ).toBeNull();
+
+    const settingsButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Settings for Analytics"]',
+    );
+    expect(settingsButton).not.toBeNull();
+
+    await act(async () => {
+      settingsButton?.dispatchEvent(
+        new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
+      );
+    });
+
+    const shareItem = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((item) => item.textContent?.trim() === "Share");
+    expect(shareItem).not.toBeUndefined();
+
+    await act(async () => shareItem?.click());
+
+    expect(
+      container.querySelector('button[aria-label="Share Analytics"]'),
+    ).not.toBeNull();
+    expect(
+      container
+        .querySelector('button[aria-label="Share Analytics"]')
+        ?.getAttribute("data-default-open"),
+    ).toBe("true");
+  });
+
   it("keeps pinning in the app open menu", async () => {
     const onTogglePinned = vi.fn();
     await act(async () => {
@@ -270,7 +330,7 @@ describe("WorkspaceAppCard", () => {
     expect(settingsMenu?.className).toContain("w-48");
     expect(settingsMenu?.className).toContain("bg-popover");
     expect(settingsMenu?.className).toContain("shadow-md");
-    expect(document.querySelectorAll('[role="menuitem"] svg').length).toBe(4);
+    expect(document.querySelectorAll('[role="menuitem"] svg').length).toBe(5);
 
     await act(async () => resourcesItem?.click());
 
