@@ -675,7 +675,7 @@ describe("MCP OAuth client", () => {
     );
   });
 
-  it("fails closed instead of posting a token to a loopback revocation endpoint", async () => {
+  it("retains custody when revocation fails so cleanup can retry", async () => {
     getOAuthTokensMock.mockResolvedValue({
       ...credentials,
       discoveryState: {
@@ -698,7 +698,7 @@ describe("MCP OAuth client", () => {
         scopeId: "alice@example.com",
         serverUrl: "https://mcp.example.com/mcp",
       }),
-    ).resolves.toEqual({ remote: "failed", local: "deleted" });
+    ).resolves.toEqual({ remote: "failed", local: "retained" });
 
     expect(ssrfSafeFetchMock).toHaveBeenCalledWith(
       "http://127.0.0.1:9000/revoke",
@@ -708,6 +708,8 @@ describe("MCP OAuth client", () => {
         maxRedirects: 0,
       }),
     );
+    expect(getOAuthTokensMock).toHaveBeenCalledTimes(1);
+    expect(deleteOAuthTokensIfRevisionMock).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

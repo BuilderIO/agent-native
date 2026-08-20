@@ -101,7 +101,7 @@ export interface OAuthRefreshContext<T extends OAuthCredential> {
 
 export interface OAuthRevocationResult {
   remote: "succeeded" | "failed" | "unsupported" | "not_attempted";
-  local: "deleted" | "missing" | "replaced";
+  local: "deleted" | "missing" | "replaced" | "retained";
 }
 
 interface LifecycleDependencies {
@@ -716,6 +716,8 @@ export async function revokeOAuthCredential<T extends OAuthCredential>(
     allowLegacy?: boolean;
     legacyAccountKey?: boolean;
     validateCredential?: (credential: T) => boolean;
+    /** Keep custody when remote revocation fails so a caller can retry. */
+    retainOnRemoteFailure?: boolean;
   } = {},
 ): Promise<OAuthRevocationResult> {
   const state = await readStoredOAuthCredentialState<T>(identity, {
@@ -740,6 +742,9 @@ export async function revokeOAuthCredential<T extends OAuthCredential>(
     }
   } else if (state.kind === "malformed") {
     remote = "not_attempted";
+  }
+  if (options.retainOnRemoteFailure && remote === "failed") {
+    return { remote, local: "retained" };
   }
   if (state.kind === "malformed" && state.reason !== "structure") {
     return { remote, local: "replaced" };

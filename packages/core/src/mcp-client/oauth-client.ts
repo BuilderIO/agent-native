@@ -637,6 +637,7 @@ export async function revokeMcpOAuthCredentials(options: {
   return revokeOAuthCredential<McpOAuthCredentialBundle>(identity, {
     allowLegacy: true,
     legacyAccountKey: true,
+    retainOnRemoteFailure: true,
     validateCredential: (credential) =>
       serverUrlsMatch(credential.serverUrl, serverUrl),
     revoke: async ({ credential }) => {

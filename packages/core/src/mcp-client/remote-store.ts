@@ -295,7 +295,9 @@ async function drainOAuthCleanup(
         scopeId,
         serverUrl: cleanup.serverUrl,
       });
-      if (result.local !== "deleted") retained.push(cleanup);
+      if (result.local !== "deleted" && result.local !== "missing") {
+        retained.push(cleanup);
+      }
     } catch {
       retained.push(cleanup);
     }
@@ -330,7 +332,9 @@ async function cleanupOAuthGrant(
       scopeId,
       serverUrl: cleanup.serverUrl,
     });
-    if (result.local === "deleted") return { ok: true };
+    if (result.local === "deleted" || result.local === "missing") {
+      return { ok: true };
+    }
     reason = "the credential revision changed during cleanup";
   } catch (err: any) {
     reason = err?.message ?? String(err);

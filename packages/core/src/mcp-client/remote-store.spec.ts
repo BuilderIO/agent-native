@@ -249,6 +249,81 @@ describe("OAuth remote MCP metadata", () => {
     );
   });
 
+  it("treats an already-missing cleanup credential as idempotently removed", async () => {
+    const cleanup = {
+      key: "mcp_oauth:old",
+      serverUrl: "https://mcp.example.com/",
+    };
+    let serverReads = 0;
+    getUserSettingMock.mockImplementation(
+      async (_email: string, key: string) => {
+        if (key === "mcp-oauth-pending-cleanups") {
+          return { cleanups: [cleanup] };
+        }
+        serverReads += 1;
+        return {
+          servers: [
+            {
+              id: "mcps_oauth",
+              name: "sigma",
+              url: "https://mcp.example.com/",
+              oauthSecretKey: serverReads === 1 ? cleanup.key : "mcp_oauth:new",
+              createdAt: 1,
+            },
+          ],
+        };
+      },
+    );
+    mutateUserSettingMock.mockImplementation(
+      async (
+        email: string,
+        key: string,
+        updater: (
+          current: Record<string, unknown> | null,
+        ) => Record<string, unknown> | Promise<Record<string, unknown>>,
+      ) => {
+        const current =
+          key === "mcp-oauth-pending-cleanups"
+            ? { cleanups: [cleanup] }
+            : {
+                servers: [
+                  {
+                    id: "mcps_oauth",
+                    name: "sigma",
+                    url: "https://mcp.example.com/",
+                    oauthSecretKey: cleanup.key,
+                    createdAt: 1,
+                  },
+                ],
+              };
+        const next = await updater(current);
+        await putUserSettingMock(email, key, next);
+        return next;
+      },
+    );
+    oauthMocks.revoke.mockResolvedValueOnce({
+      remote: "not_attempted",
+      local: "missing",
+    });
+
+    await expect(
+      replaceOAuthRemoteServer("user", "user@example.com", "mcps_oauth", {
+        serverUrl: "https://mcp.example.com",
+        clientInformation: { client_id: "example-client" },
+        tokens: { access_token: "<NEW_ACCESS_TOKEN>", token_type: "bearer" },
+      }),
+    ).resolves.toMatchObject({ ok: true });
+
+    expect(oauthMocks.revoke).toHaveBeenCalledWith(
+      expect.objectContaining({ key: cleanup.key }),
+    );
+    expect(putUserSettingMock).toHaveBeenCalledWith(
+      "user@example.com",
+      "mcp-oauth-pending-cleanups",
+      { cleanups: [] },
+    );
+  });
+
   it("revokes a replacement grant when the server changes before the CAS", async () => {
     getUserSettingMock.mockResolvedValueOnce({
       servers: [
