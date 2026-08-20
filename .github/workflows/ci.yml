@@ -52,6 +52,9 @@ jobs:
       - name: Test change scope classifier
         run: node --experimental-strip-types --test scripts/ci-change-scope.test.ts
 
+      - name: Test production deploy concurrency guard
+        run: node --experimental-strip-types --test scripts/guard-netlify-prebuilt-workflow.test.ts
+
       - name: Classify changed paths
         id: scope
         env:
