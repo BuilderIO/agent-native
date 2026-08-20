@@ -215,6 +215,7 @@ export default function DesktopIdentityGate({
     >
       <div className="desktop-identity-gate__panel desktop-identity-gate__panel--form">
         <div className="desktop-identity-gate__heading">
+          <span className="desktop-identity-gate__app-name">{appName}</span>
           <h1>{COPY.welcomeTitle}</h1>
           <p>{COPY.welcomeSubtitle}</p>
         </div>
