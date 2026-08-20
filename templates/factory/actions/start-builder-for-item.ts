@@ -8,7 +8,11 @@ import {
   triageItems,
   triageRuns,
 } from "../server/db/schema.js";
-import { DEFAULT_FACTORY_ID } from "../server/factory-graph/store.js";
+import {
+  DEFAULT_FACTORY_ID,
+  orgFactoryItemFilter,
+  orgFactoryRunFilter,
+} from "../server/lib/factory-scope.js";
 import { readTriageConfigRow } from "../server/lib/factory-scope.js";
 import { requireFactoryAutomation } from "../server/lib/require-factory-automation.js";
 import {
@@ -290,7 +294,7 @@ export default defineAction({
             .from(triageItems)
             .where(
               and(
-                eq(triageItems.orgId, orgId),
+                orgFactoryItemFilter(orgId, factoryId),
                 inArray(triageItems.id, relatedIds),
               ),
             )
@@ -324,7 +328,7 @@ export default defineAction({
             .from(triageRuns)
             .where(
               and(
-                eq(triageRuns.orgId, orgId),
+                orgFactoryRunFilter(orgId, factoryId),
                 inArray(triageRuns.itemId, relatedIds),
               ),
             )

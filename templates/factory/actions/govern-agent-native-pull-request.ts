@@ -12,6 +12,9 @@ import {
 import { DEFAULT_FACTORY_ID } from "../server/factory-graph/store.js";
 import {
   factoryIdSchema,
+  orgFactoryItemFilter,
+  orgFactoryRunFilter,
+  orgFactoryScopedItemWhere,
   readTriageConfigRow,
 } from "../server/lib/factory-scope.js";
 import { requireFactoryAutomation } from "../server/lib/require-factory-automation.js";
@@ -54,11 +57,12 @@ function requiredAiServicesEnv(
 async function hasVerifiedFactoryRun(input: {
   itemId: string | undefined;
   orgId: string;
+  factoryId: string;
   pullRequestBody: string | null;
   headRef: string;
 }): Promise<boolean> {
   const db = getDb();
-  const runConditions = [eq(triageRuns.orgId, input.orgId)];
+  const runConditions = [orgFactoryRunFilter(input.orgId, input.factoryId)];
   if (input.itemId) {
     runConditions.push(eq(triageRuns.itemId, input.itemId));
   }
@@ -95,7 +99,7 @@ async function hasVerifiedFactoryRun(input: {
   const items = await db
     .select({ id: triageItems.id, sourceUrl: triageItems.sourceUrl })
     .from(triageItems)
-    .where(eq(triageItems.orgId, input.orgId))
+    .where(orgFactoryItemFilter(input.orgId, input.factoryId))
     .orderBy(desc(triageItems.updatedAt))
     .limit(100);
   return items.some((item) => {
@@ -159,7 +163,7 @@ export default defineAction({
             pullRequestNumber: triageItems.pullRequestNumber,
           })
           .from(triageItems)
-          .where(and(eq(triageItems.id, itemId), eq(triageItems.orgId, orgId)))
+          .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId))
           .limit(1)
       )[0];
       if (
@@ -185,7 +189,7 @@ export default defineAction({
             status: "pr_observed",
             updatedAt: new Date().toISOString(),
           })
-          .where(and(eq(triageItems.id, itemId), eq(triageItems.orgId, orgId)));
+          .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId));
       }
       return {
         ok: true,
@@ -237,7 +241,7 @@ export default defineAction({
             status: "pr_observed",
             updatedAt: new Date().toISOString(),
           })
-          .where(and(eq(triageItems.id, itemId), eq(triageItems.orgId, orgId)));
+          .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId));
       }
       return {
         ok: true,
@@ -274,6 +278,7 @@ export default defineAction({
     const factoryTriggered = await hasVerifiedFactoryRun({
       itemId,
       orgId,
+      factoryId,
       pullRequestBody: pullRequest.body,
       headRef: pullRequest.headRef,
     });
@@ -326,7 +331,7 @@ export default defineAction({
         await getDb()
           .select()
           .from(triageItems)
-          .where(and(eq(triageItems.id, itemId), eq(triageItems.orgId, orgId)))
+          .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId))
           .limit(1)
       )[0];
       if (!item) throw new Error("Factory item not found for PR governance.");
@@ -368,7 +373,7 @@ export default defineAction({
             status: governance.ownerOwnedArea ? "needs_manual" : "pr_observed",
             updatedAt: new Date().toISOString(),
           })
-          .where(and(eq(triageItems.id, itemId), eq(triageItems.orgId, orgId)));
+          .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId));
       }
       return {
         ok: true,
@@ -389,7 +394,7 @@ export default defineAction({
             status: triageItems.status,
           })
           .from(triageItems)
-          .where(and(eq(triageItems.id, itemId), eq(triageItems.orgId, orgId)))
+          .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId))
           .limit(1)
       )[0];
       if (!item) throw new Error("Factory item disappeared after PR approval.");
@@ -418,7 +423,7 @@ export default defineAction({
             status: "auto_approved",
             updatedAt: new Date().toISOString(),
           })
-          .where(and(eq(triageItems.id, itemId), eq(triageItems.orgId, orgId)));
+          .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId));
       }
     } else {
       approvalUrl = (

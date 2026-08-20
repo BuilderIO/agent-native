@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { getDb } from "../db/index.js";
 import {
   factoryDefinitions,
+  factoryGraphVersions,
   triageConfig,
   triageDecisions,
   triageFeedback,
@@ -50,22 +51,58 @@ export async function resolveUniqueFactoryId(
   let candidate = base;
   let suffix = 2;
   while (true) {
-    const existing = (
-      await db
-        .select({ id: factoryDefinitions.id })
-        .from(factoryDefinitions)
-        .where(
-          and(
-            eq(factoryDefinitions.id, candidate),
-            eq(factoryDefinitions.orgId, orgId),
-          ),
-        )
-        .limit(1)
-    )[0];
-    if (!existing) return candidate;
+    if (!(await factoryIdExistsInOrg(db, orgId, candidate))) return candidate;
     candidate = `${base}-${suffix}`.slice(0, 120);
     suffix += 1;
   }
+}
+
+async function factoryIdExistsInOrg(
+  db: Db,
+  orgId: string,
+  factoryId: string,
+): Promise<boolean> {
+  const definition = (
+    await db
+      .select({ id: factoryDefinitions.id })
+      .from(factoryDefinitions)
+      .where(
+        and(
+          eq(factoryDefinitions.id, factoryId),
+          eq(factoryDefinitions.orgId, orgId),
+        ),
+      )
+      .limit(1)
+  )[0];
+  if (definition) return true;
+
+  const config = (
+    await db
+      .select({ factoryId: triageConfig.factoryId })
+      .from(triageConfig)
+      .where(
+        and(
+          eq(triageConfig.orgId, orgId),
+          eq(triageConfig.factoryId, factoryId),
+        ),
+      )
+      .limit(1)
+  )[0];
+  if (config) return true;
+
+  const graphVersion = (
+    await db
+      .select({ factoryId: factoryGraphVersions.factoryId })
+      .from(factoryGraphVersions)
+      .where(
+        and(
+          eq(factoryGraphVersions.orgId, orgId),
+          eq(factoryGraphVersions.factoryId, factoryId),
+        ),
+      )
+      .limit(1)
+  )[0];
+  return Boolean(graphVersion);
 }
 
 export function legacyFactoryConfigRowId(orgId: string): string {
@@ -113,6 +150,17 @@ export function orgFactoryFilter(
 
 export function orgFactoryItemFilter(orgId: string, factoryId: string): SQL {
   return orgFactoryFilter(triageItems, orgId, factoryId);
+}
+
+export function orgFactoryScopedItemWhere(
+  itemId: string,
+  orgId: string,
+  factoryId: string,
+): SQL {
+  return and(
+    eq(triageItems.id, itemId),
+    orgFactoryItemFilter(orgId, factoryId),
+  )!;
 }
 
 export function orgFactoryRuleFilter(orgId: string, factoryId: string): SQL {
@@ -288,4 +336,66 @@ export function setAutomationFrontmatterField(
     return `---\n${frontmatter.replace(pattern, `${key}: ${trimmed}\n`)}${content.slice(end)}`;
   }
   return `${content.slice(0, end)}\n${key}: ${trimmed}${content.slice(end)}`;
+}
+
+export function replaceAutomationBody(content: string, body: string): string {
+  if (!content.startsWith("---\n")) return content;
+  const end = content.indexOf("\n---", 4);
+  if (end === -1) return content;
+  const trimmedBody = body.trim();
+  return `${content.slice(0, end + 4)}\n${trimmedBody ? `${trimmedBody}\n` : ""}`;
+}
+
+export function patchAutomationResource(
+  content: string,
+  patch: {
+    body?: string;
+    enabled?: boolean;
+    schedule?: string;
+    model?: string | null;
+    displayName?: string;
+  },
+): string {
+  let next =
+    patch.body === undefined
+      ? content
+      : replaceAutomationBody(content, patch.body);
+  if (patch.enabled !== undefined) {
+    next = setAutomationFrontmatterField(
+      next,
+      "enabled",
+      patch.enabled ? "true" : "false",
+    );
+  }
+  if (patch.schedule !== undefined) {
+    next = setAutomationFrontmatterField(next, "schedule", patch.schedule);
+  }
+  if (patch.model !== undefined) {
+    next = setAutomationFrontmatterField(
+      next,
+      "model",
+      patch.model?.trim() ?? "",
+    );
+  }
+  if (patch.displayName !== undefined) {
+    next = setAutomationFrontmatterField(
+      next,
+      "displayName",
+      patch.displayName,
+    );
+  }
+  return next;
+}
+
+export function readAutomationEnabled(content: string): boolean {
+  const value = readFrontmatterField(content, "enabled")?.trim().toLowerCase();
+  return value === "true" || value === "1" || value === "yes";
+}
+
+export function readAutomationSchedule(content: string): string | null {
+  return readFrontmatterField(content, "schedule")?.trim() || null;
+}
+
+export function readAutomationModel(content: string): string | null {
+  return readFrontmatterField(content, "model")?.trim() || null;
 }

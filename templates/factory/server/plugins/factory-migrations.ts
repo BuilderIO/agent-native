@@ -358,6 +358,13 @@ const migrations = [
         ON factory_audit_events (org_id, factory_id, created_at);
     `,
   },
+  {
+    version: 23,
+    name: "factory-items-drop-org-dedupe-index",
+    sql: `
+      DROP INDEX IF EXISTS factory_items_org_dedupe_idx;
+    `,
+  },
 ];
 
 export const runFactoryMigrations = runMigrations(migrations, {

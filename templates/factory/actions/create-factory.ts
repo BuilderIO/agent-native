@@ -1,5 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
 import { buildDeepLink } from "@agent-native/core/server";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb } from "../server/db/index.js";
@@ -202,13 +203,41 @@ export default defineAction({
       }
     });
 
-    await ensureFactoryAutomations(userEmail, orgId, factoryId, {
-      enabledNames: automationPlan.enabledNames,
-    });
-    if (automationPlan.enabledNames.size > 0) {
-      await syncFactoryAutomationEnabledStates(userEmail, orgId, factoryId, [
-        ...automationPlan.enabledNames,
-      ]);
+    try {
+      await ensureFactoryAutomations(userEmail, orgId, factoryId, {
+        enabledNames: automationPlan.enabledNames,
+      });
+      if (automationPlan.enabledNames.size > 0) {
+        await syncFactoryAutomationEnabledStates(userEmail, orgId, factoryId, [
+          ...automationPlan.enabledNames,
+        ]);
+      }
+    } catch (error) {
+      await db
+        .delete(triageConfig)
+        .where(
+          and(
+            eq(triageConfig.orgId, orgId),
+            eq(triageConfig.factoryId, factoryId),
+          ),
+        );
+      await db
+        .delete(factoryGraphVersions)
+        .where(
+          and(
+            eq(factoryGraphVersions.orgId, orgId),
+            eq(factoryGraphVersions.factoryId, factoryId),
+          ),
+        );
+      await db
+        .delete(factoryDefinitions)
+        .where(
+          and(
+            eq(factoryDefinitions.id, factoryId),
+            eq(factoryDefinitions.orgId, orgId),
+          ),
+        );
+      throw error;
     }
 
     return {

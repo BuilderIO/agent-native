@@ -34,10 +34,6 @@ export const triageItems = table(
     factoryId: text("factory_id"),
   },
   (item) => ({
-    orgDedupeUnique: uniqueIndex("factory_items_org_dedupe_idx").on(
-      item.orgId,
-      item.dedupeKey,
-    ),
     orgFactoryDedupeUnique: uniqueIndex(
       "factory_items_org_factory_dedupe_idx",
     ).on(item.orgId, item.factoryId, item.dedupeKey),

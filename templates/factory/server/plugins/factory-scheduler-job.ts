@@ -12,10 +12,7 @@ import {
   defineNitroPlugin,
   runWithRequestContext,
 } from "@agent-native/core/server";
-import {
-  listAutomationDefinitions,
-  updateAutomation,
-} from "@agent-native/core/triggers";
+import { listAutomationDefinitions } from "@agent-native/core/triggers";
 import { and, eq, isNull, lt, ne, or } from "drizzle-orm";
 
 import { getDb } from "../db/index.js";
@@ -24,6 +21,7 @@ import {
   DEFAULT_FACTORY_ID,
   factoryAutomationJobPath,
   factoryConfigRowId,
+  patchAutomationResource,
   readAutomationFactoryId,
   readFactoryIdFromAutomationPath,
   readTriageConfigRow,
@@ -595,9 +593,11 @@ export async function syncFactoryAutomationEnabledStates(
   factoryId: string,
   enabledNames: readonly string[],
 ): Promise<void> {
-  const actor = { userEmail: ownerEmail, orgId, appId: "factory" };
   const enabledSet = new Set(enabledNames);
-  const definitions = await listAutomationDefinitions(actor, "organization");
+  const definitions = await listAutomationDefinitions(
+    { userEmail: ownerEmail, orgId, appId: "factory" },
+    "organization",
+  );
   await Promise.all(
     definitions
       .filter(
@@ -607,17 +607,25 @@ export async function syncFactoryAutomationEnabledStates(
             definition.resource.content,
           ) === factoryId,
       )
-      .map((definition) =>
-        updateAutomation(actor, {
-          name: definition.name,
-          scope: "organization",
-          enabled: enabledSet.has(definition.name),
-          schedule: definition.meta.schedule || "0 * * * *",
-          timezone: definition.meta.timezone,
-          body: definition.body,
-          model: definition.meta.model ?? undefined,
-        }),
-      ),
+      .map(async (definition) => {
+        const resource = await resourceGetByPath(
+          definition.resource.owner,
+          definition.resource.path,
+        );
+        if (!resource) return;
+        const leafName =
+          definition.resource.path.match(/([^/]+)\.md$/)?.[1] ??
+          definition.name;
+        const enabled = enabledSet.has(leafName);
+        const content = patchAutomationResource(resource.content, { enabled });
+        if (content === resource.content) return;
+        await resourcePut(
+          definition.resource.owner,
+          definition.resource.path,
+          content,
+          "text/markdown",
+        );
+      }),
   );
 }
 

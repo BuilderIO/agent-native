@@ -1,14 +1,15 @@
 import { defineAction } from "@agent-native/core/action";
 import { resourceGetByPath, resourcePut } from "@agent-native/core/resources";
-import {
-  listAutomationDefinitions,
-  updateAutomation,
-} from "@agent-native/core/triggers";
+import { listAutomationDefinitions } from "@agent-native/core/triggers";
 import { z } from "zod";
 
 import {
   factoryIdSchema,
+  patchAutomationResource,
+  readAutomationEnabled,
   readAutomationFactoryId,
+  readAutomationModel,
+  readAutomationSchedule,
   resolveAutomationDisplayName,
   setAutomationFrontmatterField,
 } from "../server/lib/factory-scope.js";
@@ -68,61 +69,34 @@ export default defineAction({
         "Factory automation id and name do not refer to the same automation.",
       );
     }
-    const updated = await updateAutomation(
-      { userEmail, orgId, appId: "factory" },
-      {
-        name: definition.name,
-        scope: "organization",
-        body: prompt,
-        model: model?.trim() || null,
-        schedule,
-        enabled,
-      },
-    );
     const resource = await resourceGetByPath(
       definition.resource.owner,
       definition.resource.path,
     );
-    if (resource) {
-      let stampedContent = setAutomationFrontmatterField(
-        resource.content,
-        "factoryId",
-        factoryId,
-      );
-      stampedContent = setAutomationFrontmatterField(
-        stampedContent,
-        "displayName",
-        displayName ?? "",
-      );
-      if (stampedContent !== resource.content) {
-        await resourcePut(
-          definition.resource.owner,
-          definition.resource.path,
-          stampedContent,
-          "text/markdown",
-        );
-      }
-    }
-    const content = resource
-      ? setAutomationFrontmatterField(
-          setAutomationFrontmatterField(
-            resource.content,
-            "factoryId",
-            factoryId,
-          ),
-          "displayName",
-          displayName ?? "",
-        )
-      : definition.resource.content;
+    if (!resource) throw new Error("Factory automation not found.");
+    let content = patchAutomationResource(resource.content, {
+      body: prompt,
+      enabled,
+      schedule,
+      model: model?.trim() || null,
+      displayName: displayName ?? "",
+    });
+    content = setAutomationFrontmatterField(content, "factoryId", factoryId);
+    await resourcePut(
+      definition.resource.owner,
+      definition.resource.path,
+      content,
+      "text/markdown",
+    );
     return {
       ok: true,
       id: definition.resource.id,
-      name: updated.name,
-      displayName: resolveAutomationDisplayName(updated.name, content),
-      prompt: updated.body,
-      model: updated.meta.model ?? null,
-      schedule: updated.meta.schedule || null,
-      enabled: updated.meta.enabled,
+      name: definition.name,
+      displayName: resolveAutomationDisplayName(definition.name, content),
+      prompt,
+      model: readAutomationModel(content),
+      schedule: readAutomationSchedule(content),
+      enabled: readAutomationEnabled(content),
     };
   },
 });

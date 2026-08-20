@@ -108,6 +108,9 @@ export default defineAction({
     )[0];
     if (!item) throw new Error("Factory item not found for PR babysitting.");
     const factoryId = factoryIdInput ?? item.factoryId ?? DEFAULT_FACTORY_ID;
+    if ((item.factoryId ?? DEFAULT_FACTORY_ID) !== factoryId) {
+      throw new Error("Factory item does not belong to this factory.");
+    }
     await requireFactoryAutomation(
       context,
       { userEmail, orgId },

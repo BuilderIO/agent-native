@@ -7,7 +7,10 @@ import { z } from "zod";
 import { getDb } from "../server/db/index.js";
 import { triageDecisions, triageFeedback } from "../server/db/schema.js";
 import { DEFAULT_FACTORY_ID } from "../server/factory-graph/store.js";
-import { factoryIdSchema } from "../server/lib/factory-scope.js";
+import {
+  factoryIdSchema,
+  orgFactoryDecisionFilter,
+} from "../server/lib/factory-scope.js";
 import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
@@ -39,14 +42,13 @@ export default defineAction({
         .where(
           and(
             eq(triageDecisions.id, decisionId),
-            eq(triageDecisions.orgId, orgId),
+            orgFactoryDecisionFilter(orgId, factoryId),
           ),
         )
         .limit(1)
     )[0];
     if (!decision) throw new Error("Triage decision not found");
-    const resolvedFactoryId =
-      decision.factoryId ?? factoryId ?? DEFAULT_FACTORY_ID;
+    const resolvedFactoryId = decision.factoryId ?? factoryId;
 
     const createdAt = new Date().toISOString();
     const id = randomUUID();
