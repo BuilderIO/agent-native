@@ -40,6 +40,7 @@ concurrency:
 jobs:
   deploy:
     name: docs production prebuilt deploy
+    needs: pause-netlify-builds
     uses: ./.github/workflows/deploy-netlify-prebuilt.yml
     with:
       target: production
@@ -52,13 +53,8 @@ jobs:
       smoke: ${{ github.event_name == 'push' || inputs.smoke }}
     secrets: inherit
 
-  disable-netlify-builds:
-    name: Keep docs site on GitHub Actions
-    needs: deploy
-    # The reusable production deploy must not own this persistent site setting.
-    # Reassert ownership after failures too, so a failed docs publish cannot
-    # leave a stale Git-connected build enabled.
-    if: always()
+  pause-netlify-builds:
+    name: Pause docs site's Git-connected Netlify builds
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -114,6 +110,16 @@ jobs:
               await fetch(siteUrl, { headers, signal: AbortSignal.timeout(30_000) }),
               'Netlify docs site lookup',
             );
+            const hasGitConnectedBuild = Boolean(
+              current.build_settings?.repo_url ||
+                current.build_settings?.provider ||
+                current.repo?.provider ||
+                current.repo?.repo,
+            );
+            if (!hasGitConnectedBuild) {
+              console.log('Netlify docs site has no Git-connected build; no auto-build race exists.');
+              return;
+            }
             if (current.build_settings?.stop_builds !== true) {
               await readJson(
                 await fetch(siteUrl, {

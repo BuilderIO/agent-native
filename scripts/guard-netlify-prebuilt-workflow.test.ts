@@ -61,7 +61,7 @@ describe("production Netlify site concurrency guard", () => {
   });
 
   it("executes every reusable workflow heredoc under the pinned Node loader", () => {
-    assert.equal(nodeHeredocs.length, 5);
+    assert.equal(nodeHeredocs.length, 7);
     const directory = mkdtempSync(
       join(tmpdir(), "agent-native-netlify-heredocs-"),
     );
@@ -168,7 +168,7 @@ describe("production Netlify site concurrency guard", () => {
   });
 
   it("allows Netlify-observed ready deploys but blocks newly observed ready deploys", () => {
-    const unlock = nodeHeredocs[0];
+    const unlock = nodeHeredocs[1];
     const pendingStart = unlock.indexOf("function pendingProductionDeploys");
     const drainStart = unlock.indexOf(
       "async function drainPendingDeploys",
@@ -229,7 +229,7 @@ describe("production Netlify site concurrency guard", () => {
   });
 
   it("captures the Netlify deploy baseline before draining production deploys", () => {
-    const unlock = nodeHeredocs[0];
+    const unlock = nodeHeredocs[1];
     assert.doesNotMatch(unlock, /readyIsBlocking/);
     const baselineIndex = unlock.indexOf(
       "const preexistingDeployIds = new Set",
@@ -243,7 +243,7 @@ describe("production Netlify site concurrency guard", () => {
   });
 
   it("rechecks the production queue immediately before unlocking", () => {
-    const unlock = nodeHeredocs[0];
+    const unlock = nodeHeredocs[1];
     const finalDrain = unlock.lastIndexOf(
       "await drainPendingDeploys(deployId, preexistingDeployIds);",
     );
@@ -258,7 +258,7 @@ describe("production Netlify site concurrency guard", () => {
   });
 
   it("uses production state filters without an age cutoff", async () => {
-    const unlock = nodeHeredocs[0];
+    const unlock = nodeHeredocs[1];
     const listStart = unlock.indexOf("async function listDeploys");
     const pendingStart = unlock.indexOf(
       "function pendingProductionDeploys",
@@ -315,7 +315,7 @@ describe("production Netlify site concurrency guard", () => {
   });
 
   it("does not treat rejected production deploys as active cutover blockers", () => {
-    const unlock = nodeHeredocs[0];
+    const unlock = nodeHeredocs[1];
     const statesStart = unlock.indexOf(
       "const ACTIVE_PRODUCTION_DEPLOY_STATES = [",
     );
@@ -330,7 +330,7 @@ describe("production Netlify site concurrency guard", () => {
   });
 
   it("finds old active production deploys through filtered state requests", async () => {
-    const unlock = nodeHeredocs[0];
+    const unlock = nodeHeredocs[1];
     const statesStart = unlock.indexOf(
       "const ACTIVE_PRODUCTION_DEPLOY_STATES = [",
     );
@@ -436,16 +436,39 @@ describe("production Netlify site concurrency guard", () => {
     );
   });
 
-  it("keeps failure lock cleanup independent of Netlify build settings", () => {
+  it("restores cutover state before failure lock cleanup", () => {
     const workflow = readWorkflow(
       ".github/workflows/deploy-netlify-prebuilt.yml",
     );
     const jobs = workflow.jobs as Record<string, Workflow>;
     const steps = (jobs.deploy.steps as Array<Workflow>).filter(Boolean);
+    const resume = steps.find(
+      (step) =>
+        step.name ===
+        "Resume automatic Netlify builds after production cutover",
+    );
     const cleanup = steps.find(
       (step) =>
         step.name ===
         "Restore the production deploy lock after a failed cutover",
+    );
+    assert.equal(typeof resume?.if, "string");
+    assert.match(resume?.if as string, /always\(\)/);
+    assert.match(
+      String(resume?.run),
+      /process\.env\.cutoverWasPaused !== "true"/,
+    );
+    assert.match(
+      String(resume?.run),
+      /process\.env\.cutoverWasStopped === "true"/,
+    );
+    assert.equal(
+      (resume?.env as Record<string, unknown>).cutoverWasStopped,
+      "${{ steps.pause.outputs.was_stopped }}",
+    );
+    assert.equal(
+      (resume?.env as Record<string, unknown>).cutoverWasPaused,
+      "${{ steps.pause.outputs.cutover_acquired }}",
     );
     assert.equal(typeof cleanup?.if, "string");
     assert.match(cleanup?.if as string, /failure\(\)/);
@@ -461,7 +484,15 @@ describe("production Netlify site concurrency guard", () => {
       (cleanup?.env as Record<string, unknown>).cutoverWasLocked,
       "${{ steps.unlock.outputs.was_locked }}",
     );
+    assert.equal(
+      (cleanup?.env as Record<string, unknown>).cutoverWasPaused,
+      "${{ steps.pause.outputs.cutover_acquired }}",
+    );
     assert.doesNotMatch(String(cleanup?.run), /stop_builds/);
+    assert.match(
+      String(cleanup?.run),
+      /process\.env\.cutoverWasPaused !== "true"/,
+    );
     assert.match(
       String(cleanup?.run),
       /!process\.env\.cutoverPublishedDeployId/,
@@ -470,23 +501,24 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(String(cleanup?.run), /newly published deploy/);
   });
 
-  it("does not include automatic-build toggles in the reusable workflow", () => {
-    const workflow = readFileSync(
-      ".github/workflows/deploy-netlify-prebuilt.yml",
-      "utf8",
+  it("records cutover acquisition before pause verification", () => {
+    const pause = nodeHeredocs[0];
+    const acquiredIndex = pause.indexOf(
+      'fs.appendFileSync(process.env.GITHUB_OUTPUT, "cutover_acquired=true\\n")',
     );
-    assert.doesNotMatch(workflow, /stop_builds/);
-    assert.doesNotMatch(workflow, /Pause automatic Netlify builds/);
-    assert.doesNotMatch(workflow, /Resume automatic Netlify builds/);
+    const verificationIndex = pause.indexOf("let observed");
+    assert(acquiredIndex >= 0);
+    assert(verificationIndex > acquiredIndex);
   });
 
-  it("keeps the docs site on the prebuilt publisher after deploy failures", () => {
+  it("pauses the docs site before the prebuilt publisher runs", () => {
     const workflow = readWorkflow(
       ".github/workflows/deploy-docs-production.yml",
     );
     const jobs = workflow.jobs as Record<string, Workflow>;
-    const ownership = jobs["disable-netlify-builds"];
-    assert.equal(String(ownership?.if), "always()");
+    const deploy = jobs.deploy;
+    const ownership = jobs["pause-netlify-builds"];
+    assert.equal(deploy?.needs, "pause-netlify-builds");
     const steps = (ownership?.steps as Array<Workflow>).filter(Boolean);
     const disable = steps.find(
       (step) =>
@@ -495,6 +527,7 @@ describe("production Netlify site concurrency guard", () => {
     assert(disable);
     const run = String(disable.run);
     assert.match(run, /'Content-Type': 'application\/json'/);
+    assert.match(run, /hasGitConnectedBuild/);
     assert.match(run, /stop_builds: true/);
     assert.match(run, /for \(let attempt = 0; attempt < 6; attempt \+= 1\)/);
     assert.match(run, /stop_builds=\$\{String\(observed\)\}/);
