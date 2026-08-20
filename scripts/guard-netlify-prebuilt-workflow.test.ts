@@ -106,6 +106,7 @@ describe("production Netlify site concurrency guard", () => {
       { id: "stale-ready", context: "production", state: "ready" },
       { id: "queued", context: "production", state: "enqueued" },
       { id: "failed", context: "production", state: "error" },
+      { id: "rejected", context: "production", state: "rejected" },
     ];
 
     assert.deepEqual(
@@ -119,6 +120,20 @@ describe("production Netlify site concurrency guard", () => {
         (deploy) => deploy.id,
       ),
       ["stale-ready", "queued"],
+    );
+  });
+
+  it("does not treat rejected production deploys as active cutover blockers", () => {
+    const unlock = nodeHeredocs[1];
+    const statesStart = unlock.indexOf(
+      "const ACTIVE_PRODUCTION_DEPLOY_STATES = [",
+    );
+    const statesEnd = unlock.indexOf("];", statesStart);
+    assert(statesStart >= 0 && statesEnd > statesStart);
+    assert.doesNotMatch(unlock.slice(statesStart, statesEnd), /"rejected"/);
+    assert.match(
+      unlock,
+      /!\["error", "canceled", "rejected"\]\.includes\(candidate\.state\)/,
     );
   });
 

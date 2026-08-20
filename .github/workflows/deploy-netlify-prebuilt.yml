@@ -364,7 +364,6 @@ jobs:
             "retrying",
             "pending_review",
             "accepted",
-            "rejected",
           ];
 
           function nextPageUrl(linkHeader) {
@@ -398,7 +397,7 @@ jobs:
                 candidate.id !== publishedId &&
                 candidate.context === "production" &&
                 !candidate.published_at &&
-                !["error", "canceled"].includes(candidate.state) &&
+                !["error", "canceled", "rejected"].includes(candidate.state) &&
                 (candidate.state !== "ready" || readyIsBlocking),
             );
           }

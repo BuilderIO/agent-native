@@ -263,6 +263,7 @@ if (unlockStart < 0 || (uploadStart >= 0 && unlockStart >= uploadStart)) {
     !unlock.includes("encodeURIComponent(state)") ||
     !unlock.includes("production=true") ||
     !unlock.includes("Promise.all(states.map") ||
+    !unlock.includes('["error", "canceled", "rejected"].includes(candidate.state)') ||
     !unlock.includes("readyIsBlocking") ||
     !unlock.includes('candidate.state !== "ready" || readyIsBlocking') ||
     !unlock.includes("candidate.published_at")
