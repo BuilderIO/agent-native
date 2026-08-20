@@ -2488,6 +2488,42 @@ describe("server/auth", () => {
       }
     });
 
+    it("preserves the beta opt-out in custom login HTML before authentication", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app, {
+        getSession: async () => null,
+        loginHtml:
+          "<!doctype html><html><head></head><body><form>QA login</form></body></html>",
+      });
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      const result = await guard(
+        createMockEvent({
+          path: "/sign-in?agentNativeBetaOptOut=4102444800000",
+        }),
+      );
+
+      expect(result).toBeInstanceOf(Response);
+      const html = await (result as Response).text();
+      expect(html).toContain("Persist the beta opt-out before authentication");
+      expect(html).toContain("agent-native:beta-opt-out-until");
+      expect(html).toContain('id="environment-switcher"');
+      expect(html).toContain('id="environment-production-link"');
+      expect(html).toContain("__anInitEnvironmentBadge");
+      expect(html.indexOf("data-agent-native-beta-opt-out")).toBeLessThan(
+        html.indexOf("</body>"),
+      );
+    });
+
     it("simplifies login HTML when the return path contains an initial prompt", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("AUTH_MAGIC_LINK", "0");

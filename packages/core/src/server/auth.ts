@@ -133,6 +133,7 @@ import {
   signupAttributionFromCookieHeader,
 } from "./attribution.js";
 import { getAuthLoginMode } from "./auth-login-mode.js";
+import { injectBetaOptOutPersistence } from "./beta-opt-out-html.js";
 import {
   createBetterAuthSessionForEmail,
   ensureGoogleAuthIdentity,
@@ -646,7 +647,9 @@ export function getConfiguredLoginHtml(event: H3Event): string | null {
   const rawPath = queryStart >= 0 ? url.slice(0, queryStart) : url;
   const loginHtml =
     config.getLoginHtml?.(event, rawPath) ?? config.loginHtml ?? null;
-  return loginHtml ? injectLoginSocialImageMeta(loginHtml, event) : null;
+  return loginHtml
+    ? injectLoginSocialImageMeta(injectBetaOptOutPersistence(loginHtml), event)
+    : null;
 }
 
 /**
@@ -2721,7 +2724,9 @@ function injectLoginSocialImageMeta(loginHtml: string, event: H3Event): string {
 
 function loginHtmlResponse(loginHtml: string, event: H3Event): Response {
   return new Response(
-    injectAnalyticsIntoHtml(injectLoginSocialImageMeta(loginHtml, event)),
+    injectAnalyticsIntoHtml(
+      injectLoginSocialImageMeta(injectBetaOptOutPersistence(loginHtml), event),
+    ),
     {
       status: 200,
       headers: {

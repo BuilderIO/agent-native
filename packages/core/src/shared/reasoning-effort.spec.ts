@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  allowsSamplingParams,
   DEFAULT_REASONING_EFFORT,
   getReasoningEffortOptionsForModel,
   normalizeReasoningEffortForModel,
@@ -161,5 +162,51 @@ describe("stepDownReasoningEffort", () => {
 
   it("passes through undefined unchanged", () => {
     expect(stepDownReasoningEffort(undefined)).toBeUndefined();
+  });
+});
+
+describe("allowsSamplingParams", () => {
+  it("blocks sampling whenever the request carries thinking", () => {
+    expect(
+      allowsSamplingParams({
+        model: "claude-haiku-4-5-20251001",
+        thinkingEnabled: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("blocks sampling on the Claude families that removed it", () => {
+    for (const model of [
+      "claude-sonnet-5",
+      "claude-opus-4-7",
+      "claude-opus-4-8",
+      "claude-opus-5",
+      "claude-fable-5",
+      "anthropic/claude-sonnet-5",
+    ]) {
+      expect(allowsSamplingParams({ model, thinkingEnabled: false })).toBe(
+        false,
+      );
+    }
+  });
+
+  it("keeps sampling on thinking-off models that still accept it", () => {
+    for (const model of [
+      "claude-haiku-4-5-20251001",
+      "claude-opus-4-6",
+      "claude-sonnet-4-6",
+      "gpt-5.6-sol",
+      "gemini-3-1-pro",
+    ]) {
+      expect(allowsSamplingParams({ model, thinkingEnabled: false })).toBe(
+        true,
+      );
+    }
+  });
+
+  it("leaves an unknown model alone", () => {
+    expect(
+      allowsSamplingParams({ model: undefined, thinkingEnabled: true }),
+    ).toBe(true);
   });
 });

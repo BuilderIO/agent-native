@@ -229,6 +229,15 @@ jobs:
         run: |
           set -euo pipefail
           : "${NETLIFY_AUTH_TOKEN:?NETLIFY_AUTH_TOKEN secret is required}"
+          if [[ "$SOURCE_TEMPLATE" == "clips" ]]; then
+            # Netlify's local CLI receives masked site secrets. Clips only needs
+            # valid build-time shapes here; the uploaded Functions read the real
+            # site-scoped values at runtime.
+            export agentNativePrebuiltBuild=true
+            export agentNativePrebuiltDatabaseUrl="postgresql://build-only.invalid/agent_native"
+            agentNativePrebuiltAuthSecret="$(node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("hex"))')"
+            export agentNativePrebuiltAuthSecret
+          fi
           netlify build --context "$BUILD_CONTEXT" --filter "$SOURCE_TEMPLATE"
 
       - name: Verify deploy directories
@@ -294,6 +303,7 @@ jobs:
               "Netlify automatic build pause",
             );
           }
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, "cutover_acquired=true\n");
           const paused = await readJson(
             await request(`${api}/sites/${siteId}`),
             "Netlify automatic build pause verification",
@@ -392,27 +402,31 @@ jobs:
             return deploysByState.flat();
           }
 
-          function pendingProductionDeploys(deploys, publishedId, readyIsBlocking) {
+          function pendingProductionDeploys(deploys, publishedId, preexistingDeployIds) {
             return deploys.filter(
-              (candidate) =>
-                candidate.id !== publishedId &&
-                candidate.context === "production" &&
-                !candidate.published_at &&
-                !["error", "canceled", "rejected"].includes(candidate.state) &&
-                (candidate.state !== "ready" || readyIsBlocking),
+              (candidate) => {
+                if (
+                  candidate.id === publishedId ||
+                  candidate.context !== "production" ||
+                  candidate.published_at ||
+                  ["error", "canceled", "rejected"].includes(candidate.state)
+                ) {
+                  return false;
+                }
+                if (candidate.state !== "ready") return true;
+                return !preexistingDeployIds.has(candidate.id);
+              },
             );
           }
 
-          async function drainPendingDeploys(publishedId, readyIsBlocking) {
+          async function drainPendingDeploys(publishedId, preexistingDeployIds) {
             const deadline = Date.now() + 5 * 60 * 1000;
-            const states = readyIsBlocking
-              ? [...ACTIVE_PRODUCTION_DEPLOY_STATES, "ready"]
-              : ACTIVE_PRODUCTION_DEPLOY_STATES;
+            const states = [...ACTIVE_PRODUCTION_DEPLOY_STATES, "ready"];
             while (Date.now() < deadline) {
               let pending = pendingProductionDeploys(
                 await listDeploys("Netlify pending production deploy lookup", states),
                 publishedId,
-                readyIsBlocking,
+                preexistingDeployIds,
               );
               const cancelable = pending.filter((candidate) =>
                 ["new", "enqueued"].includes(candidate.state),
@@ -430,7 +444,7 @@ jobs:
               pending = pendingProductionDeploys(
                 await listDeploys("Netlify production deploy drain verification", states),
                 publishedId,
-                readyIsBlocking,
+                preexistingDeployIds,
               );
               const ready = pending.filter((candidate) => candidate.state === "ready");
               if (ready.length) {
@@ -450,6 +464,17 @@ jobs:
             );
           }
 
+          // Snapshot every ready production ID before reading site/deploy state.
+          // A ready backlog predating this cutover is not a new blocker.
+          const preexistingDeployIds = new Set(
+            (
+              await listDeploys(
+                "Netlify pre-existing production ready deploy lookup",
+                ["ready"],
+              )
+            ).map((candidate) => candidate.id),
+          );
+
           const site = await readJson(
             await request(`${api}/sites/${siteId}`),
             "Netlify published deploy lookup",
@@ -463,8 +488,7 @@ jobs:
             await request(`${api}/deploys/${deployId}`),
             `Netlify deploy ${deployId} lock lookup before drain`,
           );
-          const readyIsBlocking = published.locked !== true;
-          await drainPendingDeploys(deployId, readyIsBlocking);
+          await drainPendingDeploys(deployId, preexistingDeployIds);
 
           const beforeUnlock = await readJson(
             await request(`${api}/sites/${siteId}`),
@@ -487,6 +511,19 @@ jobs:
           if (deploy.locked !== true) {
             console.log(`Published deploy ${deployId} is already unlocked.`);
           } else {
+            // Queue inspection and unlock are separate Netlify calls. Recheck
+            // immediately before the unlock so a ready deploy created during
+            // the final site/deploy lookups still fails closed.
+            await drainPendingDeploys(deployId, preexistingDeployIds);
+            const finalBeforeUnlock = await readJson(
+              await request(`${api}/sites/${siteId}`),
+              "Netlify final published deploy verification before unlock",
+            );
+            if (finalBeforeUnlock.published_deploy?.id !== deployId) {
+              throw new Error(
+                `Netlify published deploy changed from ${deployId} immediately before unlock; refusing to upload an unrelated production artifact.`,
+              );
+            }
             await readJson(
               await request(`${api}/deploys/${deployId}/unlock`, {
                 method: "POST",
@@ -636,6 +673,43 @@ jobs:
           curl --fail --silent --show-error --location --max-time 60 "${url%/}/" >/dev/null
           echo "Smoke check passed: ${url%/}/"
 
+      - name: Purge the production Netlify cache
+        if: inputs.target == 'production' && inputs.deploy && inputs.deploy_mode == 'production' && success()
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const api = "https://api.netlify.com/api/v1";
+          (async () => {
+            const response = await fetch(`${api}/purge`, {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}`,
+                "Content-Type": "application/json",
+                "User-Agent": "agent-native-prebuilt-production-cache-purge",
+              },
+              body: JSON.stringify({ site_id: process.env.NETLIFY_SITE_ID }),
+              signal: AbortSignal.timeout(30_000),
+            });
+            const text = await response.text();
+            let body = null;
+            try {
+              body = text ? JSON.parse(text) : null;
+            } catch {
+              body = text;
+            }
+            if (!response.ok) {
+              throw new Error(`Netlify production cache purge failed with HTTP ${response.status}: ${JSON.stringify(body)}`);
+            }
+            console.log(`Purged the Netlify production cache for ${process.env.NETLIFY_SITE_ID} (HTTP ${response.status}).`);
+          })().catch((error) => {
+            console.error(error instanceof Error ? error.message : error);
+            process.exitCode = 1;
+          });
+          NODE
+
       - name: Lock the published production deploy
         if: inputs.target == 'production' && inputs.deploy && inputs.deploy_mode == 'production' && success()
         env:
@@ -695,6 +769,7 @@ jobs:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
           cutoverWasStopped: ${{ steps.pause.outputs.was_stopped }}
+          cutoverWasPaused: ${{ steps.pause.outputs.cutover_acquired }}
         run: |
           set -euo pipefail
           node <<'NODE'
@@ -718,7 +793,7 @@ jobs:
             return body;
           }
 
-          if (!process.env.cutoverWasStopped) {
+          if (process.env.cutoverWasPaused !== "true") {
             console.log("No production cutover state was acquired; automatic builds are unchanged.");
             process.exit(0);
           }
@@ -751,8 +826,9 @@ jobs:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
           cutoverPublishedDeployId: ${{ steps.unlock.outputs.published_deploy_id }}
+          cutoverNewDeployId: ${{ steps.deploy.outputs.deploy_id }}
           cutoverWasLocked: ${{ steps.unlock.outputs.was_locked }}
-          cutoverWasStopped: ${{ steps.pause.outputs.was_stopped }}
+          cutoverWasPaused: ${{ steps.pause.outputs.cutover_acquired }}
         run: |
           set -euo pipefail
           node <<'NODE'
@@ -776,12 +852,18 @@ jobs:
             return body;
           }
 
-          if (!process.env.cutoverWasStopped) {
-            console.log("No production cutover state was acquired; cleanup is not needed.");
+          if (
+            process.env.cutoverWasPaused !== "true" ||
+            !process.env.cutoverPublishedDeployId
+          ) {
+            console.log(
+              "No production deploy lock state was recorded; lock cleanup is not needed.",
+            );
             process.exit(0);
           }
-          const deployId = process.env.cutoverPublishedDeployId;
-          if (!deployId) {
+          const originalDeployId = process.env.cutoverPublishedDeployId;
+          const newDeployId = process.env.cutoverNewDeployId;
+          if (!originalDeployId) {
             throw new Error("Cannot restore the production lock: unlock did not record the original published deploy.");
           }
           const site = await readJson(
@@ -792,37 +874,53 @@ jobs:
           if (!currentDeployId) {
             throw new Error("Cannot restore the production lock: site has no published deploy.");
           }
-          if (currentDeployId !== deployId) {
+          if (newDeployId && currentDeployId === newDeployId) {
+            const deployUrl = `${api}/deploys/${newDeployId}`;
+            const deploy = await readJson(await request(deployUrl), "Netlify newly published deploy lock lookup");
+            if (deploy.locked !== true) {
+              await readJson(
+                await request(`${deployUrl}/lock`, { method: "POST" }),
+                `Netlify newly published deploy ${newDeployId} failure lock`,
+              );
+            }
+            const locked = await readJson(await request(deployUrl), "Netlify newly published failure lock verification");
+            if (locked.locked !== true) {
+              throw new Error(`Netlify newly published deploy ${newDeployId} was not locked during failure cleanup.`);
+            }
+            console.log(`Locked newly published production deploy ${newDeployId} after cutover failure.`);
+            process.exit(0);
+          }
+          if (currentDeployId !== originalDeployId) {
             throw new Error(
-              `Refusing failure cleanup to modify published deploy ${currentDeployId}; cutover started from ${deployId}.`,
+              `Refusing failure cleanup to modify published deploy ${currentDeployId}; cutover started from ${originalDeployId}.`,
             );
           }
-          const deployUrl = `${api}/deploys/${deployId}`;
+          const deployUrl = `${api}/deploys/${originalDeployId}`;
           const deploy = await readJson(await request(deployUrl), "Netlify published deploy lock lookup");
           if (process.env.cutoverWasLocked === "true") {
             if (deploy.locked !== true) {
               await readJson(
                 await request(`${deployUrl}/lock`, { method: "POST" }),
-                `Netlify published deploy ${deployId} failure lock`,
+                `Netlify published deploy ${originalDeployId} failure lock`,
               );
             }
             const locked = await readJson(await request(deployUrl), "Netlify failure lock verification");
             if (locked.locked !== true) {
-              throw new Error(`Netlify published deploy ${deployId} was not locked during failure cleanup.`);
+              throw new Error(`Netlify published deploy ${originalDeployId} was not locked during failure cleanup.`);
             }
-            console.log(`Restored production lock on deploy ${deployId}.`);
+            console.log(`Restored production lock on deploy ${originalDeployId}.`);
           } else {
             if (deploy.locked === true) {
               await readJson(
                 await request(`${deployUrl}/unlock`, { method: "POST" }),
-                `Netlify published deploy ${deployId} failure unlock`,
+                `Netlify published deploy ${originalDeployId} failure unlock`,
               );
             }
             const unlocked = await readJson(await request(deployUrl), "Netlify failure unlock verification");
             if (unlocked.locked !== false) {
-              throw new Error(`Netlify published deploy ${deployId} was not unlocked during failure cleanup.`);
+              throw new Error(`Netlify published deploy ${originalDeployId} was not unlocked during failure cleanup.`);
             }
-            console.log(`Restored production unlock state on deploy ${deployId}.`);
+            console.log(`Restored production unlock state on deploy ${originalDeployId}.`);
           }
           NODE
 
