@@ -3530,6 +3530,7 @@ function createAgentNativeConfig(
   userConfig: UserConfig = {},
   mode = process.env.NODE_ENV === "production" ? "production" : "development",
   projectConfig?: AgentNativeConfigInput,
+  workspaceConfig?: AgentNativeConfigInput,
 ): UserConfig {
   const cwd = process.cwd();
   const configContext = createAgentNativeConfigContext(command, mode);
@@ -3551,7 +3552,12 @@ function createAgentNativeConfig(
   const appConfig = resolveAgentNativeConfig(
     mergeAgentNativeConfigs(
       mergeAgentNativeConfigs(
-        readAgentNativeJsonConfig(cwd),
+        mergeAgentNativeConfigs(
+          workspaceConfig
+            ? resolveAgentNativeConfig(workspaceConfig, configContext)
+            : {},
+          readAgentNativeJsonConfig(cwd),
+        ),
         projectConfigInput
           ? resolveAgentNativeConfig(projectConfigInput, configContext)
           : {},
@@ -3915,25 +3921,19 @@ function createAgentNativeConfigPlugin(
     name: "agent-native-config",
     enforce: "pre",
     async config(config: UserConfig, env: ConfigEnv) {
-      const context = createAgentNativeConfigContext(env.command, env.mode);
       const workspaceConfig = await loadWorkspaceAgentNativeConfigFile(
         process.cwd(),
       );
       const projectConfig =
         options.agentNativeConfig ??
         (await loadAgentNativeConfigFile(process.cwd()));
-      const resolvedConfig = mergeAgentNativeConfigs(
-        workspaceConfig
-          ? resolveAgentNativeConfig(workspaceConfig, context)
-          : {},
-        projectConfig ? resolveAgentNativeConfig(projectConfig, context) : {},
-      );
       return createAgentNativeConfig(
         options,
         env.command,
         config,
         env.mode,
-        resolvedConfig,
+        projectConfig,
+        workspaceConfig,
       );
     },
   };

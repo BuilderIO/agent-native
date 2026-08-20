@@ -1060,6 +1060,52 @@ describe("agent-native app config", () => {
     }
   });
 
+  it("keeps workspace config before app JSON in the Vite client path", async () => {
+    const previousCwd = process.cwd();
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "an-workspace-config-"),
+    );
+    const appDir = path.join(workspaceRoot, "apps", "mail");
+    fs.mkdirSync(appDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(workspaceRoot, "package.json"),
+      JSON.stringify({
+        name: "workspace",
+        "agent-native": { workspaceCore: "@workspace/shared" },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(workspaceRoot, "agent-native.config.ts"),
+      `export default {
+  runtime: { auth: { enabled: false } },
+};\n`,
+    );
+    fs.writeFileSync(
+      path.join(appDir, "agent-native.json"),
+      JSON.stringify({ runtime: { auth: { enabled: true } } }),
+    );
+
+    try {
+      process.chdir(appDir);
+      const configPlugin = flatPlugins(agentNative()).find(
+        (plugin) => plugin?.name === "agent-native-config",
+      );
+      const config = (await configPlugin.config(
+        {},
+        { command: "serve", mode: "development" },
+      )) as any;
+
+      expect(
+        JSON.parse(String(config.define.__AGENT_NATIVE_APP_CONFIG__)),
+      ).toMatchObject({
+        runtime: { auth: { enabled: true } },
+      });
+    } finally {
+      process.chdir(previousCwd);
+      fs.rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
   it("serializes the resolved onboarding mode into the client config", () => {
     const config = defineConfig({
       agentNativeConfig: {
