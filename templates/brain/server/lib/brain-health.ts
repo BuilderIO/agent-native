@@ -189,9 +189,9 @@ function latestIso(values: Array<string | null | undefined>) {
   return latest;
 }
 
-function sourceHealthState(
+export function sourceHealthState(
   source: SourceRow,
-  latestRun: SyncRunRow | null,
+  latestRun: Pick<SyncRunRow, "status"> | null,
   nextSyncAt: string | null,
   nowMs: number,
 ): BrainSourceHealthState {
@@ -530,12 +530,9 @@ export async function readBrainHealth() {
     };
   });
 
-  const sourceHealthCounts = countStatuses<
-    BrainSourceHealthState | "active" | "paused" | "error"
-  >([
-    ...sourceSummaries.map((source) => ({ status: source.health })),
-    ...sourceRows.map((source) => ({ status: source.status })),
-  ]);
+  const sourceHealthCounts = countStatuses<BrainSourceHealthState>(
+    sourceSummaries.map((source) => ({ status: source.health })),
+  );
   const captureCounts = countStatuses(captureRows);
   const captureDispositionCounts = countStatuses(
     captureRows.map((capture) => ({

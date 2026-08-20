@@ -1,5 +1,23 @@
 # @agent-native/core
 
+## 0.168.0
+
+### Minor Changes
+
+- 6203d5d: Add an About Agent Native command surface for inspecting deployed framework package versions and diagnostics.
+
+## 0.167.5
+
+### Patch Changes
+
+- d3210d7: Make documented `AGENT_NATIVE_CONFIG_*` environment aliases override typed and JSON public configuration defaults.
+
+## 0.167.4
+
+### Patch Changes
+
+- 8b73951: Isolate workspace app chat history and keep short chat-tab titles clear of the close target.
+
 ## 0.167.3
 
 ### Patch Changes

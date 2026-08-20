@@ -1003,6 +1003,19 @@ describe("Brain knowledge quality gates", () => {
     ]);
   });
 
+  it("includes canonical health for sources in the source listing", async () => {
+    seedSource({
+      provider: "granola",
+      configJson: JSON.stringify({ autoSync: true }),
+    });
+
+    const result = await listSourcesAction.run({ includeArchived: false });
+
+    expect(result.sources).toEqual([
+      expect.objectContaining({ id: "source-1", health: "needs_sync" }),
+    ]);
+  });
+
   it("lists captures with redacted review previews", async () => {
     seedSource({
       title: "Slack source alice@example.com",
