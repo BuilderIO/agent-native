@@ -73,8 +73,8 @@ export function buildChatFirstAppCreationPrompt(
     `Requested Dispatch workspace resources for this app:\n${resourceList}`,
     "Dispatch workspace resources with scope=all are inherited workspace context. Do not copy or sync them into the new app; every workspace app reads them at runtime and may override with app shared or personal resources.",
     "",
-    "Pick a UI template that fits the user's prompt - analytics, assets, brain, calendar, chat, content, design, dispatch, forms, mail, slides, or clips when none of the others fit.",
-    'If you use the chat template, treat it as scaffolding only: the finished app must use the requested app\'s real name, home screen, navigation, package metadata, and manifest, and it must not leave visible "Chat", "Starter", "Blank app", or "New app" UI behind.',
+    "Pick a UI template that fits the user's prompt - analytics, assets, base, brain, calendar, chat, content, design, dispatch, forms, mail, slides, or clips when none of the others fit.",
+    'If you use the base template, treat it as scaffolding only: the finished app must use the requested app\'s real name, home screen, navigation, package metadata, and manifest, and it must not leave visible "Base", "Chat", "Starter", "Blank app", or "New app" UI behind.',
     `Use the workspace app layout: create it under ${appRoot}, mount it at ${mountPath}, keep it on the shared workspace database/hosting model, and avoid table-name collisions by namespacing any new domain tables to the app.`,
     `Important routing rule: from outside the app, link to ${mountPath}; inside ${appRoot}, React Router routes are app-local. Use <Link to=\"/review\"> and navigate(\"/review\"), not \"${mountPath}/review\"; APP_BASE_PATH supplies the mounted prefix, and hardcoding it causes doubled URLs.`,
     'Prefer useActionQuery/useActionMutation for actions. If you must raw-fetch framework endpoints, wrap them with agentNativePath("/_agent-native/actions/<name>") so mounted apps call the right URL.',
@@ -83,7 +83,7 @@ export function buildChatFirstAppCreationPrompt(
     "Existing first-party apps are neighbors, not implementation details for this app. If the user's prompt mentions Mail, Calendar, Analytics, Brain, Assets, Dispatch, or other templates, treat them as existing hosted/connected apps that this app can link to or call through A2A/default connected agents. For example, Mail, Calendar, Analytics, Brain, and Assets already exist at https://mail.agent-native.com, https://calendar.agent-native.com, https://analytics.agent-native.com, https://brain.agent-native.com, and https://assets.agent-native.com.",
     `Do not create wrapper apps or scaffold child apps/routes for Mail, Calendar, Analytics, Brain, Assets, etc. inside ${appRoot} just so this app can access them. If the request is a cross-app dashboard or overview, build only the new dashboard/overview app and delegate to the existing apps for domain work.`,
     "Only create another first-party app when the user explicitly asks for a customized app from that template; otherwise keep using the hosted/shared app so improvements to the base app keep flowing to users.",
-    "Do not satisfy this by adding a route, page, component, or file inside apps/chat or another existing app unless the user explicitly asks to modify that existing app.",
+    "Do not satisfy this by adding a route, page, component, or file inside apps/base, apps/chat, or another existing app unless the user explicitly asks to modify that existing app.",
     input.vaultAccessMode === "all-apps"
       ? "Do not create per-app Dispatch vault grants unless the workspace switches vault access to manual or the user explicitly asks for manual grants."
       : keyList

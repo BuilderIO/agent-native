@@ -86,12 +86,12 @@ describe("createApp", { timeout: 30000 }, () => {
     );
   });
 
-  it("makes Chat the first and default create option", () => {
+  it("makes Base the first and default create option", () => {
     const prompt = _startShapePromptOptions();
 
-    expect(prompt.initialValue).toBe("chat");
+    expect(prompt.initialValue).toBe("base");
     expect(prompt.options.map((option) => option.value)).toEqual([
-      "chat",
+      "base",
       "template",
       "community",
       "headless",
@@ -253,7 +253,7 @@ describe("createApp", { timeout: 30000 }, () => {
     const agents = fs.readFileSync(path.join(root, "AGENTS.md"), "utf-8");
     expect(agents).toContain("This is a headless Agent Native app");
     expect(agents).toContain("This app is not stateless");
-    expect(agents).toContain("Chat template");
+    expect(agents).toContain("Base template");
     expect(agents).toContain("integration blueprints");
 
     expect(

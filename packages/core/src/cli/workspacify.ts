@@ -176,7 +176,7 @@ export function workspacifyApp(opts: WorkspacifyOptions): void {
     }
   }
 
-  if (["starter", "chat"].includes(opts.templateName ?? opts.appName)) {
+  if (["starter", "chat", "base"].includes(opts.templateName ?? opts.appName)) {
     writeInheritedChatPlugin(appDir, workspaceCoreName, {
       fileName: "auth.ts",
       exportName: "defaultAuthPlugin",

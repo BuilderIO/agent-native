@@ -835,11 +835,17 @@ const rawLiteralRoots = [
   "packages/docs/app/routes/skills.tsx",
   "packages/docs/app/routes/templates._index.tsx",
   "packages/docs/app/routes/templates.$slug.tsx",
-  ...safeReadDir(path.join(rootDir, "templates")).flatMap((template) => [
-    path.join("templates", template, "app", "components"),
-    path.join("templates", template, "app", "pages"),
-    path.join("templates", template, "app", "routes"),
-  ]),
+  ...safeReadDir(path.join(rootDir, "templates")).flatMap((template) => {
+    const hasCatalogs = existsSync(
+      path.join(rootDir, "templates", template, "app", "i18n"),
+    );
+    if (!hasCatalogs) return [];
+    return [
+      path.join("templates", template, "app", "components"),
+      path.join("templates", template, "app", "pages"),
+      path.join("templates", template, "app", "routes"),
+    ];
+  }),
 ];
 
 const rawLiteralBaselinePath = path.join(

@@ -620,6 +620,30 @@ describe("template materialize command", () => {
     expect(fs.existsSync(path.join(dest, ".github"))).toBe(false);
   }, 120_000);
 
+  it("materializes Base without i18n catalogs or changelog", async () => {
+    const out = fs.mkdtempSync(path.join(os.tmpdir(), "an-materialize-spec-"));
+    dirs.push(out);
+    const dest = path.join(out, "tree");
+
+    const run = collectIO();
+    const code = await runTemplate(
+      ["materialize", "--template", "base", "--out", dest],
+      run.io,
+    );
+
+    expect(code).toBe(0);
+    const pkg = JSON.parse(
+      fs.readFileSync(path.join(dest, "package.json"), "utf-8"),
+    ) as { name?: string };
+    expect(pkg.name).toBe("base");
+    expect(fs.existsSync(path.join(dest, "app", "i18n"))).toBe(false);
+    expect(fs.existsSync(path.join(dest, "CHANGELOG.md"))).toBe(false);
+    expect(
+      fs.readFileSync(path.join(dest, "server/plugins/agent-chat.ts"), "utf-8"),
+    ).toContain('appId: "base"');
+    expect(fs.existsSync(path.join(dest, "server/db/schema.ts"))).toBe(true);
+  }, 120_000);
+
   it("requires --out and --template", async () => {
     const noOut = collectIO();
     expect(

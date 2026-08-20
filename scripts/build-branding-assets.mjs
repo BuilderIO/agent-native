@@ -279,6 +279,7 @@ const TEMPLATE_DIRS = [
   "templates/mail",
   "templates/slides",
   "templates/chat",
+  "templates/base",
 ];
 
 for (const t of TEMPLATE_DIRS) {

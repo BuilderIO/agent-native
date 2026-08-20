@@ -144,6 +144,16 @@ export const BUILT_IN_AUTH_MARKETING: Record<string, AuthMarketingContent> = {
       "Real-time collaboration between you and the agent",
     ],
   },
+  base: {
+    appName: "Agent-Native Base",
+    tagline:
+      "Start from a chat-first app and add actions, screens, and workflows as your agent grows.",
+    features: [
+      "Full-page chat with durable threads and tool call history",
+      "Actions work from chat, UI, HTTP, MCP, A2A, and CLI",
+      "Use the built-in app-agent loop or plug in your own agent backend",
+    ],
+  },
   chat: {
     appName: "Agent-Native Chat",
     tagline:
@@ -189,8 +199,8 @@ export const BUILT_IN_AUTH_MARKETING: Record<string, AuthMarketingContent> = {
 
 const SLUG_ALIASES: Record<string, string> = {
   "agent-native": "",
-  "blank-app": "chat",
-  starter: "chat",
+  "blank-app": "base",
+  starter: "base",
   asset: "assets",
   image: "assets",
   images: "assets",

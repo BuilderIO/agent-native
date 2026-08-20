@@ -90,13 +90,13 @@ branch creation; Builder should still scaffold the separate workspace app. The
 workspace dev gateway (`pnpm dev`) detects new `apps/<app-name>` directories
 automatically.
 
-## Finishing A Chat-Template App
+## Finishing A Base-Template App
 
-When using the chat template, treat it as scaffolding only. The finished app
+When using the base template, treat it as scaffolding only. The finished app
 must be branded as the requested app, with its own home screen, navigation,
 package metadata, manifest, and domain workflow. Do not leave visible
-`Chat`, `Starter`, `Blank app`, `Start building`, or `New app` UI in a chat-derived
-app.
+`Base`, `Chat`, `Starter`, `Blank app`, `Start building`, or `New app` UI in a
+base-derived app.
 
 ## Related Skills
 

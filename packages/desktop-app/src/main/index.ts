@@ -8055,7 +8055,7 @@ function buildDesktopCreateAppAgentPrompt(input: {
     vaultAccessMode: "all-apps",
     appRoot: input.targetPath,
     mountPath: "/",
-    scaffoldCommand: `Run this non-interactive scaffold command from the current directory, then work only inside ${input.targetPath}:\nnpx --yes @agent-native/core@latest create ${input.folderName} --template chat`,
+    scaffoldCommand: `Run this non-interactive scaffold command from the current directory, then work only inside ${input.targetPath}:\nnpx --yes @agent-native/core@latest create ${input.folderName} --template base`,
     additionalInstructions: [
       `The Desktop shell will run the app on port ${input.port}; do not leave a long-running dev server running yourself.`,
       "Use production-quality behavior by default. Keep local development conveniences out of the shipped app unless the user is actively editing it.",

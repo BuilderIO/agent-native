@@ -1,11 +1,11 @@
 ---
 name: changelog
 description: >-
-  How to keep each app's user-facing changelog. Use when you ship a change a
-  user would notice (a new feature, a visible improvement, a bug fix), when
-  wiring the in-app "What's new" surface into a template, or when releasing
-  pending changelog entries. Apps opt in with
-  `changelog.enabled: true` in `agent-native.config.ts`.
+  How to keep each app's user-facing changelog. Use when the user asks about
+  changelogs, What's New, or release notes; when wiring that surface into an
+  app; or when shipping a user-visible change in an app that already has
+  `changelog.enabled: true`. Do not add CHANGELOG.md or What's New unless the
+  user asked or the app already opted in.
 scope: dev
 metadata:
   internal: true

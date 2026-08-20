@@ -197,7 +197,7 @@ function readTemplateApps(): TemplateApp[] {
       const description = entry.match(/description:\s*"([^"]+)"/)?.[1];
       const port = entry.match(/devPort:\s*(\d+)/)?.[1];
       if (!name || !label || !port) return null;
-      const sourceName = name === "starter" ? "chat" : name;
+      const sourceName = name === "starter" ? "base" : name;
       const dir = path.join(TEMPLATES_DIR, sourceName);
       if (!fs.existsSync(path.join(dir, "package.json"))) return null;
       return {
@@ -259,7 +259,7 @@ const requestedApps = (() => {
 })();
 
 function normalizeRequestedAppId(id: string): string {
-  return id === "starter" ? "chat" : id;
+  return id === "starter" ? "base" : id;
 }
 
 if (requestedApps.length === 0) {

@@ -1,6 +1,6 @@
-name: Push chat template to starter
+name: Push base template to starter
 
-# Vendor-branch mirror: materialize the post-processed templates/chat and push it
+# Vendor-branch mirror: materialize the post-processed templates/base and push it
 # to builder-agent-native-starter's `template` branch. The starter's own
 # `sync.yml` (on that branch) then git-merges it into `main`. This workflow only
 # ever handles pristine, public template output — no private starter content.
@@ -14,7 +14,7 @@ on:
   push:
     branches: [main]
     paths:
-      - "templates/chat/**"
+      - "templates/base/**"
       - ".github/workflows/push-starter-template.yml"
   # Fires when a publish completes (published == true). This is the reliable
   # second chance for anything the gate skipped during a publish-in-flight
@@ -91,11 +91,11 @@ jobs:
       - if: steps.gate.outputs.publishable == 'true'
         run: pnpm install --frozen-lockfile
 
-      - name: Materialize post-processed templates/chat
+      - name: Materialize post-processed templates/base
         if: steps.gate.outputs.publishable == 'true'
         run: >-
           pnpm exec tsx packages/core/src/cli/index.ts template materialize
-          --template chat --out ./dist/template
+          --template base --out ./dist/template
 
       # materialize pins toolkit to "latest", because core declares it as
       # workspace:^ in source and the resolver falls back to "latest" when it
@@ -177,5 +177,5 @@ jobs:
             echo "template branch already up to date."
             exit 0
           fi
-          git commit -m "chore: sync template from templates/chat@${SRC_SHA}"
+          git commit -m "chore: sync template from templates/base@${SRC_SHA}"
           git push origin template

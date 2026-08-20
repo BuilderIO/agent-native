@@ -35,6 +35,7 @@
     "src/templates/default",
     "src/templates/headless",
     "src/templates/chat",
+    "src/templates/base",
     "src/templates/workspace-core",
     "src/templates/workspace-root"
   ],

@@ -125,7 +125,7 @@ export class ValidationError extends Error {
  * line up with clack's default highlight.
  */
 function onRampFirst(templates: TemplateMeta[]): TemplateMeta[] {
-  return moveTemplatesToFront(templates, ["headless", "chat"]);
+  return moveTemplatesToFront(templates, ["headless", "base"]);
 }
 
 function moveTemplatesToFront(
@@ -176,7 +176,7 @@ export interface CreateAppOptions {
 /**
  * Main entry for `agent-native create [name]`.
  *
- * Default behavior: ask for a starting shape, with Chat and first-party
+ * Default behavior: ask for a starting shape, with Base and first-party
  * templates creating a workspace at <name>/. Use --standalone for the
  * single-app standalone flow.
  *
@@ -228,7 +228,7 @@ export async function createApp(
     (parsed.length > 1 || opts?.forceWorkspace)
   ) {
     clack.cancel(
-      "The headless scaffold is standalone-only. Use `agent-native create my-app --headless`, or use the Chat template when adding a UI app to a workspace.",
+      "The headless scaffold is standalone-only. Use `agent-native create my-app --headless`, or use the Base template when adding a UI app to a workspace.",
     );
     process.exit(1);
   }
@@ -257,10 +257,10 @@ export async function createApp(
       await createStandaloneApp(name, { ...opts, template: shape }, clack);
       return;
     }
-    if (shape === "chat") {
-      // Chat is the default workspace on-ramp. Keep the minimal chat app in
-      // the same workspace shape as every other first-party app so the next
-      // documented step, `add-app`, works immediately.
+    if (shape === "base") {
+      // Base is the default workspace on-ramp. Keep the minimal chat-first
+      // app in the same workspace shape as every other first-party app so the
+      // next documented step, `add-app`, works immediately.
       await createWorkspaceInteractive(
         name,
         { ...opts, template: shape },
@@ -287,32 +287,32 @@ export async function createApp(
  * choice made here implies the project structure, so we deliberately avoid a
  * separate "workspace or standalone?" question:
  *   - "template" → full app(s) in a workspace (the multi-select picker)
- *   - "chat"     → a minimal Chat app in a workspace with Dispatch
+ *   - "base"     → a minimal chat-first app in a workspace with Dispatch
  *   - "community" → a single standalone app from a public GitHub repository
  *   - "headless" → a single standalone action-first app with no UI shell
- * Headless cannot be a workspace member. Use `--standalone --template chat`
- * when a standalone Chat app is the intended shape.
+ * Headless cannot be a workspace member. Use `--standalone --template base`
+ * when a standalone blank app is the intended shape.
  */
 async function promptStartShape(
   clack: typeof import("@clack/prompts"),
-): Promise<"template" | "chat" | "community" | "headless"> {
+): Promise<"template" | "base" | "community" | "headless"> {
   const choice = await clack.select(startShapePromptOptions());
   if (clack.isCancel(choice)) {
     clack.cancel("Cancelled.");
     process.exit(0);
   }
-  return choice as "template" | "chat" | "community" | "headless";
+  return choice as "template" | "base" | "community" | "headless";
 }
 
 function startShapePromptOptions() {
   return {
     message: "How do you want to start?",
-    initialValue: "chat",
+    initialValue: "base",
     options: [
       {
-        value: "chat",
-        label: "Chat",
-        hint: "A minimal chat app in a workspace with the browser shell wired up",
+        value: "base",
+        label: "Blank app",
+        hint: "A minimal chat-first app in a workspace — start here and grow it into anything",
       },
       {
         value: "template",
@@ -472,7 +472,7 @@ async function createWorkspaceInteractive(
       "container — it isn't an app itself. Inside it you pick one or more apps",
       "(below), and each app gets its own route, agent, and UI. Apps in the",
       "same workspace share auth, database, and the agent chat. Add more apps",
-      "later with `npx @agent-native/core@latest add-app`. Chat is the UI on-ramp",
+      "later with `npx @agent-native/core@latest add-app`. Base is the UI on-ramp",
       "for a minimal chat-first app with the browser shell already wired.",
       "Dispatch is always included as the workspace control plane —",
       "it owns shared secrets, messaging, approvals, and cross-app routing.",
@@ -488,8 +488,8 @@ async function createWorkspaceInteractive(
     preselected.length > 0
       ? preselected.filter((t) => t !== "dispatch")
       : await promptTemplatePicker(preselected, clack, {
-          defaultTemplates: ["chat"],
-          preferredFirst: ["chat"],
+          defaultTemplates: ["base"],
+          preferredFirst: ["base"],
           excludeNames: ["dispatch"],
         });
   const templates = ["dispatch", ...optionalPicks];
@@ -813,7 +813,7 @@ export async function addAppToWorkspace(
   const preselected = parseTemplateList(opts?.template);
   if (preselected.includes("headless")) {
     clack.cancel(
-      "The headless scaffold is standalone-only. Use `agent-native create my-app --headless` outside a workspace, or use the Chat template when adding a UI app to a workspace.",
+      "The headless scaffold is standalone-only. Use `agent-native create my-app --headless` outside a workspace, or use the Base template when adding a UI app to a workspace.",
     );
     process.exit(1);
   }
@@ -836,7 +836,7 @@ export async function addAppToWorkspace(
     excludeNames: installed,
     message: "Which apps do you want to add?",
     defaultTemplates: hasDispatch ? undefined : ["dispatch"],
-    preferredFirst: hasDispatch ? ["chat"] : ["dispatch", "chat"],
+    preferredFirst: hasDispatch ? ["base"] : ["dispatch", "base"],
     recommendedNames: hasDispatch ? [] : ["dispatch"],
   });
   if (templates.length === 0) {
@@ -1021,7 +1021,7 @@ async function createStandaloneApp(
         "  pnpm action hello --name Builder",
         `  pnpm agent "Call hello for Builder"`,
         "",
-        "Add a UI later by starting from the Chat template; `agent-native add` is reserved for integration blueprints.",
+        "Add a UI later by starting from the Base template; `agent-native add` is reserved for integration blueprints.",
       ].join("\n"),
     );
   } else {
@@ -1251,7 +1251,7 @@ function localTemplateSourceKind(
 }
 
 function templateSourceName(name: string): string {
-  if (name === "starter") return "chat";
+  if (name === "starter") return "base";
   return name;
 }
 
@@ -2121,7 +2121,7 @@ async function promptTemplatePicker(
   if (options.length === 0) return [];
 
   // Default pre-selection: what the user passed via --template, falling
-  // back to caller defaults, then to "chat" when available.
+  // back to caller defaults, then to "base" when available.
   const defaults =
     preselected.length > 0
       ? preselected.filter((p) => options.some((o) => o.value === p))
@@ -2129,8 +2129,8 @@ async function promptTemplatePicker(
         ? opts.defaultTemplates.filter((p) =>
             options.some((o) => o.value === p),
           )
-        : options.some((o) => o.value === "chat")
-          ? ["chat"]
+        : options.some((o) => o.value === "base")
+          ? ["base"]
           : [];
 
   const baseMessage = opts?.message ?? "Which apps would you like to include?";
@@ -3181,8 +3181,12 @@ function appTitleForScaffold(appName: string): string {
   return titleCase(appName);
 }
 
-function isChatOnRampTemplate(templateName: string | undefined): boolean {
-  return templateName === "chat" || templateName === "starter";
+function isBlankOnRampTemplate(templateName: string | undefined): boolean {
+  return (
+    templateName === "base" ||
+    templateName === "starter" ||
+    templateName === "chat"
+  );
 }
 
 function trackingTemplateName(
@@ -3191,7 +3195,7 @@ function trackingTemplateName(
   if (templateName && isCommunityTemplateSelection(templateName)) {
     return undefined;
   }
-  return templateName === "starter" ? "chat" : templateName;
+  return templateName === "starter" ? "base" : templateName;
 }
 
 function defaultPackageDescriptionForScaffold(appName: string): string {
@@ -3216,7 +3220,7 @@ function fixPackageJsonName(
     const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
     pkg.name = name;
     const appTitle = appTitleForScaffold(name);
-    // When the user picked a custom name (e.g. `add-app todo --template=chat`)
+    // When the user picked a custom name (e.g. `add-app todo --template=base`)
     // the template's displayName would otherwise leak into the workspace apps
     // grid as the new app's label. Overwrite it so the app shows up as "Todo"
     // instead of the source template's branding.
@@ -3225,7 +3229,7 @@ function fixPackageJsonName(
     }
     if (
       shouldReplaceScaffoldDescription(pkg.description) ||
-      (isChatOnRampTemplate(templateName) && name !== templateName)
+      (isBlankOnRampTemplate(templateName) && name !== templateName)
     ) {
       pkg.description = defaultPackageDescriptionForScaffold(name);
     } else if (
@@ -3288,7 +3292,7 @@ function fixWebManifestName(
   sourceIdentity?: ScaffoldSourceIdentity,
 ): void {
   if (
-    (!isChatOnRampTemplate(templateName) || name === templateName) &&
+    (!isBlankOnRampTemplate(templateName) || name === templateName) &&
     !sourceIdentity
   ) {
     return;
@@ -3727,7 +3731,7 @@ function rewriteAgentChatAppId(
       if (next !== content) fs.writeFileSync(pluginPath, next);
       return;
     }
-    const sourceAppIds = ["chat", "starter"];
+    const sourceAppIds = ["chat", "starter", "base"];
     if (templateName && templateName !== appName) {
       sourceAppIds.push(templateName);
     }
@@ -3772,8 +3776,8 @@ function rewriteTrackingAppId(
     if (templateName && templateName !== appName) {
       sourceAppIds.push(escapeRegExp(templateName));
     }
-    if (isChatOnRampTemplate(templateName)) {
-      sourceAppIds.push("starter", "chat");
+    if (isBlankOnRampTemplate(templateName)) {
+      sourceAppIds.push("starter", "chat", "base");
     }
     const pattern = new RegExp(
       `(^\\s*app:\\s*)(["'])(?:${sourceAppIds.join("|")})\\2(\\s*,?)`,

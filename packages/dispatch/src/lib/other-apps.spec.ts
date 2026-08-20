@@ -105,14 +105,14 @@ describe("filterOtherApps", () => {
     ]);
   });
 
-  it("hides the generic chat starter from connected app launchers", () => {
+  it("hides the generic base starter from connected app launchers", () => {
     expect(
       filterOtherApps(
         [
           {
-            id: "chat",
-            name: "Chat",
-            url: "https://chat.agent-native.com",
+            id: "base",
+            name: "Base",
+            url: "https://starter.agent-native.com",
           },
           {
             id: "mail",

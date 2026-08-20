@@ -111,9 +111,11 @@ placeholders such as `${keys.SLACK_WEBHOOK}` or `<SLACK_WEBHOOK>`. Do not paste
 real keys, internal data, or customer data into instructions as examples.
 
 If the feature adds or changes visible UI copy, prompts, toasts, labels, empty
-states, or formatting, update the English source copy. Read the optional
-`internationalization` skill and update additional catalogs only when
-`translations.locales` in `agent-native.config.ts` includes them.
+states, or formatting: if the app already has `app/i18n/` catalogs, update the
+English source catalog (and locales listed in `translations.locales`). If it
+does not, edit the English strings inline in components. Do **not** add i18n
+catalogs unless the user explicitly asks for localization; only then read the
+`internationalization` skill.
 
 For app-backed skills, declare skill visibility in the app-skill manifest:
 

@@ -6,7 +6,7 @@ import {
   type AppConfig,
 } from "@agent-native/shared-app-config";
 
-const DESKTOP_DEFAULT_EXCLUDED_APP_IDS = new Set(["starter", "chat"]);
+const DESKTOP_DEFAULT_EXCLUDED_APP_IDS = new Set(["starter", "base", "chat"]);
 const DESKTOP_HIDDEN_APP_IDS: ReadonlySet<string> = new Set(["dispatch"]);
 const DEFAULT_DESKTOP_TEMPLATE_GATEWAY_URL = "http://127.0.0.1:8080";
 const DESKTOP_APP_ICON_OVERRIDES: Partial<Record<string, string>> = {

@@ -103,7 +103,7 @@ pnpm install
 pnpm dev
 ```
 
-Prefer flags? `create my-app --template chat`, `--headless`, or `--standalone` skip the prompt.
+Prefer flags? `create my-app --template base`, `--headless`, or `--standalone` skip the prompt.
 
 See the full [getting started docs](https://agent-native.com/docs).
 

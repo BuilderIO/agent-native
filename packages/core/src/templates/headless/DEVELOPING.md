@@ -23,4 +23,4 @@ Useful checks:
 pnpm typecheck
 ```
 
-This scaffold intentionally has no `app/` directory, React Router config, Vite config, or dev server. Add those only when you are ready for a UI surface; the Chat template is the UI-first scaffold.
+This scaffold intentionally has no `app/` directory, React Router config, Vite config, or dev server. Add those only when you are ready for a UI surface; the Base template is the UI-first scaffold.

@@ -144,6 +144,7 @@ const ROOT = workspaceRoot();
 const EXPECTED_ACTIVE_TEMPLATES = [
   "analytics",
   "assets",
+  "base",
   "brain",
   "calendar",
   "chat",

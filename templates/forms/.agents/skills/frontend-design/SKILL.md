@@ -265,8 +265,9 @@ task without a clear product reason:
 ## Verification
 
 Match verification effort to the size of the change. For one component, one
-form, one page, or a restyle, run the app's existing checks — formatter,
-`pnpm typecheck`, existing tests — and stop there.
+form, one page, or a restyle, run the app's existing checks **once at the end of
+the batch** — formatter, and `pnpm typecheck` only if types/imports changed —
+then stop. Do not typecheck after every file write.
 
 Escalate to browser verification only when the user asks for it, or when the
 change is a multi-step user-visible flow that cannot be confirmed any other

@@ -129,20 +129,21 @@ function readAllTextFiles(dir: string): string {
  * Standalone scaffold with a real template
  * ───────────────────────────────────────────────────────────────────────── */
 
-describe("standalone scaffold — chat template", { timeout: 180_000 }, () => {
-  it("rewrites the copied chat tracking app id to the generated app id", async () => {
-    await createApp("test-app", { template: "chat" });
+describe("standalone scaffold — base template", { timeout: 180_000 }, () => {
+  it("rewrites the copied base tracking app id to the generated app id", async () => {
+    await createApp("test-app", { template: "base" });
     const root = fs.readFileSync(
       path.join(tmpDir, "test-app", "app", "root.tsx"),
       "utf-8",
     );
 
     expect(root).toContain('app: "test-app"');
-    expect(root).toContain('template: "chat"');
+    expect(root).toContain('template: "base"');
+    expect(root).not.toContain('app: "base"');
     expect(root).not.toContain('app: "chat"');
   });
 
-  it("keeps starter as a legacy input alias for chat", async () => {
+  it("keeps starter as a legacy input alias for base", async () => {
     await createApp("legacy-app", { template: "starter" });
     const root = fs.readFileSync(
       path.join(tmpDir, "legacy-app", "app", "root.tsx"),
@@ -150,11 +151,11 @@ describe("standalone scaffold — chat template", { timeout: 180_000 }, () => {
     );
 
     expect(root).toContain('app: "legacy-app"');
-    expect(root).toContain('template: "chat"');
+    expect(root).toContain('template: "base"');
   });
 
-  it("brands a generated chat app as the generated app, not the source template", async () => {
-    await createApp("test-app", { template: "chat" });
+  it("brands a generated base app as the generated app, not the source template", async () => {
+    await createApp("test-app", { template: "base" });
 
     const appConfig = fs.readFileSync(
       path.join(tmpDir, "test-app", "app", "lib", "app-config.ts"),
@@ -193,8 +194,8 @@ describe("standalone scaffold — chat template", { timeout: 180_000 }, () => {
     expect(pkg.description).toBe("Workspace app for Test App.");
   });
 
-  it("teaches generated chat apps to discover and customize Toolkit features", async () => {
-    await createApp("test-app", { template: "chat" });
+  it("teaches generated base apps to discover and customize Toolkit features", async () => {
+    await createApp("test-app", { template: "base" });
     const root = path.join(tmpDir, "test-app");
     const agents = fs.readFileSync(path.join(root, "AGENTS.md"), "utf-8");
     const pkg = readPkg(root);
@@ -209,7 +210,7 @@ describe("standalone scaffold — chat template", { timeout: 180_000 }, () => {
     expect(agents).toContain("agent-native-toolkit");
     expect(agents).toContain("customizing-agent-native");
     expect(pkg["agent-native"]?.scaffold).toEqual({
-      template: "chat",
+      template: "base",
       frameworkSkills: "default",
       templateRef: expect.any(String),
       templateSource: expect.stringMatching(
@@ -242,7 +243,7 @@ describe("standalone scaffold — chat template", { timeout: 180_000 }, () => {
   });
 
   it("resolves all workspace:* deps for standalone install", async () => {
-    await createApp("test-app", { template: "chat" });
+    await createApp("test-app", { template: "base" });
     const pkg = readPkg(path.join(tmpDir, "test-app"));
     const deps = allDeps(pkg);
     for (const [key, val] of Object.entries(deps)) {
@@ -253,7 +254,7 @@ describe("standalone scaffold — chat template", { timeout: 180_000 }, () => {
   });
 
   it("resolves all catalog: refs to actual versions", async () => {
-    await createApp("test-app", { template: "chat" });
+    await createApp("test-app", { template: "base" });
     const pkg = readPkg(path.join(tmpDir, "test-app"));
     const deps = allDeps(pkg);
     for (const [key, val] of Object.entries(deps)) {
@@ -262,7 +263,7 @@ describe("standalone scaffold — chat template", { timeout: 180_000 }, () => {
   });
 
   it("pins React Router packages to tested exact versions for standalone installs", async () => {
-    await createApp("test-app", { template: "chat" });
+    await createApp("test-app", { template: "base" });
     const pkg = readPkg(path.join(tmpDir, "test-app"));
     const deps = allDeps(pkg);
 
@@ -280,7 +281,7 @@ describe("standalone scaffold — chat template", { timeout: 180_000 }, () => {
   });
 
   it("catalog: refs resolve to semver-like strings", async () => {
-    await createApp("test-app", { template: "chat" });
+    await createApp("test-app", { template: "base" });
     const pkg = readPkg(path.join(tmpDir, "test-app"));
     const deps = allDeps(pkg);
     const catalogKeys = ["tailwindcss", "@tailwindcss/vite", "vite"];
@@ -292,13 +293,13 @@ describe("standalone scaffold — chat template", { timeout: 180_000 }, () => {
   });
 
   it("includes the Postgres runtime for hosted SQL databases", async () => {
-    await createApp("test-app", { template: "chat" });
+    await createApp("test-app", { template: "base" });
     const pkg = readPkg(path.join(tmpDir, "test-app"));
     expect(pkg.dependencies?.postgres).toBeDefined();
   });
 
   it("allows Tesseract builds through pnpm-workspace.yaml", async () => {
-    await createApp("test-app", { template: "chat" });
+    await createApp("test-app", { template: "base" });
     const root = path.join(tmpDir, "test-app");
     const pkg = readPkg(root);
     const workspaceYaml = fs.readFileSync(
@@ -313,7 +314,7 @@ describe("standalone scaffold — chat template", { timeout: 180_000 }, () => {
   });
 
   it("pins the Tiptap family for fresh standalone installs", async () => {
-    await createApp("test-app", { template: "chat" });
+    await createApp("test-app", { template: "base" });
     const workspaceYaml = fs.readFileSync(
       path.join(tmpDir, "test-app", "pnpm-workspace.yaml"),
       "utf-8",
@@ -321,6 +322,25 @@ describe("standalone scaffold — chat template", { timeout: 180_000 }, () => {
 
     expect(workspaceYaml).toContain('"@tiptap/core": "3.28.0"');
     expect(workspaceYaml).toContain('"@tiptap/extension-list": "3.28.0"');
+  });
+
+  it("keeps Chat catalogs when scaffolding the Chat product", async () => {
+    await createApp("test-app", { template: "chat" });
+    const root = path.join(tmpDir, "test-app");
+    expect(fs.existsSync(path.join(root, "app", "i18n", "en-US.ts"))).toBe(
+      true,
+    );
+    expect(fs.existsSync(path.join(root, "CHANGELOG.md"))).toBe(true);
+  });
+
+  it("scaffolds Base without i18n catalogs or changelog", async () => {
+    await createApp("test-app", { template: "base" });
+    const root = path.join(tmpDir, "test-app");
+    expect(fs.existsSync(path.join(root, "app", "i18n"))).toBe(false);
+    expect(fs.existsSync(path.join(root, "CHANGELOG.md"))).toBe(false);
+    expect(fs.existsSync(path.join(root, "server", "db", "schema.ts"))).toBe(
+      true,
+    );
   });
 });
 
@@ -339,6 +359,22 @@ describe("installed package template discovery", () => {
     fs.writeFileSync(path.join(sourceTemplate, "package.json"), "{}\n");
 
     expect(_findLocalTemplateFrom(compiledCli, "chat")).toBe(sourceTemplate);
+  });
+
+  it("finds the bundled base template in an installed core package", () => {
+    const packageRoot = path.join(
+      tmpDir,
+      "node_modules",
+      "@agent-native",
+      "core",
+    );
+    const sourceTemplate = path.join(packageRoot, "src", "templates", "base");
+    const compiledCli = path.join(packageRoot, "dist", "cli");
+    fs.mkdirSync(sourceTemplate, { recursive: true });
+    fs.mkdirSync(compiledCli, { recursive: true });
+    fs.writeFileSync(path.join(sourceTemplate, "package.json"), "{}\n");
+
+    expect(_findLocalTemplateFrom(compiledCli, "base")).toBe(sourceTemplate);
   });
 });
 
@@ -386,7 +422,7 @@ describe("standalone scaffold — headless template", { timeout: 60000 }, () => 
     });
     expect(agents).toContain("This is a headless Agent Native app");
     expect(agents).toContain("This app is not stateless");
-    expect(agents).toContain("Chat template");
+    expect(agents).toContain("Base template");
     expect(agents).toContain("integration blueprints");
     expect(agents).toContain("agent-native-toolkit");
     expect(agents).toContain("customizing-agent-native");
@@ -1074,6 +1110,25 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
     expect(appPkg.description).toBe(
       "Minimal chat-first agent-native app template.",
     );
+  });
+
+  it("keeps the default workspace blank app branded as Base", async () => {
+    await createApp("my-ws", { template: "base,dispatch" });
+    const wsDir = path.join(tmpDir, "my-ws");
+    const appConfig = fs.readFileSync(
+      path.join(wsDir, "apps", "base", "app", "lib", "app-config.ts"),
+      "utf-8",
+    );
+    const appPkg = readPkg(path.join(wsDir, "apps", "base"));
+
+    expect(appConfig).toContain('rawAppTitle = "Base"');
+    expect(appPkg.displayName).toBe("Base");
+    expect(fs.existsSync(path.join(wsDir, "apps", "base", "app", "i18n"))).toBe(
+      false,
+    );
+    expect(
+      fs.existsSync(path.join(wsDir, "apps", "base", "CHANGELOG.md")),
+    ).toBe(false);
   });
 
   it("installs the portable guard contract at the workspace and app roots", async () => {

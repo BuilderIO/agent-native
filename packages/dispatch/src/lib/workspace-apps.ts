@@ -136,7 +136,11 @@ export function isPathMountedWorkspaceApp(
 
 export function isDefaultWorkspaceAppHiddenId(appId: string): boolean {
   const normalized = appId.trim().toLowerCase();
-  return normalized === "chat" || isDispatchWorkspaceAppId(normalized);
+  return (
+    normalized === "base" ||
+    normalized === "starter" ||
+    isDispatchWorkspaceAppId(normalized)
+  );
 }
 
 export function isWorkspaceAppVisibleInDefaultLaunchers(

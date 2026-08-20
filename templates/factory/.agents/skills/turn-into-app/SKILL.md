@@ -298,7 +298,7 @@ For a new UI-bearing standalone app, use the current Agent-Native scaffold and
 then read the generated `AGENTS.md`:
 
 ```bash
-npx @agent-native/core@latest create <app-directory> --template chat
+npx @agent-native/core@latest create <app-directory> --template base
 cd <app-directory>
 pnpm install
 ```
@@ -307,7 +307,7 @@ When working inside an existing Agent-Native workspace, create the app from
 the workspace root instead:
 
 ```bash
-pnpm exec agent-native add-app <slug> --template=chat
+pnpm exec agent-native add-app <slug> --template=base
 ```
 
 Do not use `create` for an existing workspace; it scaffolds a new standalone

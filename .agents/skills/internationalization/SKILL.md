@@ -1,10 +1,9 @@
 ---
 name: internationalization
 description: >-
-  How to add or edit localized UI copy in agent-native apps. Use when adding,
-  removing, or changing user-visible interface text, prompts, toasts, labels,
-  empty states, or date/number/list formatting. Apps opt in to additional
-  locales from `agent-native.config.ts`.
+  How to add localized UI copy when the user explicitly requests i18n, or when
+  editing an app that already ships catalogs. Do not load or apply this skill
+  for ordinary English UI edits in apps with no `app/i18n/`.
 scope: dev
 metadata:
   internal: true
@@ -12,20 +11,27 @@ metadata:
 
 # Internationalization — opt-in translations
 
-English (`en-US`) is the default source locale. Do not create or update
-additional locale catalogs unless the app's `agent-native.config.ts` lists them
-under `translations.locales`.
+English (`en-US`) is the default source locale. Do not create catalogs, add
+locales, or load this skill for ordinary English copy edits unless the app
+already has `app/i18n/` or the user explicitly asks for localization.
 
 ## Rule
 
-Visible framework/template UI copy belongs in the app's i18n catalog, not
-inline in components. When you add or edit UI text, update the English source
-catalog first, then update only the locale catalogs listed in
+**Opt-in only to add catalogs.** Do not add i18n catalogs, `LanguagePicker`,
+locale init scripts, or `AppProviders i18n={{...}}` unless the user explicitly
+asks for internationalization / localization / multiple languages.
+
+Apps that ship English-only inline copy should keep strings in components. Do
+not create `app/i18n/` for a restyle or copy tweak.
+
+When the app already has catalogs, or the user requested i18n: visible UI copy
+belongs in the app's i18n catalog, not inline in components. Update the English
+source catalog first, then update only the locale catalogs listed in
 `translations.locales`, and run the i18n guard.
 
 ## Catalogs
 
-Templates use `app/i18n/`:
+When enabling or editing i18n, use `app/i18n/`:
 
 - `en-US.ts` is the canonical source tree and fallback.
 - Other locale files keep the same non-plural keys and the same placeholders.
@@ -83,6 +89,7 @@ Run:
 pnpm guard:i18n-catalogs
 ```
 
-For broader changes, also run the affected template tests and `pnpm typecheck`.
+For broader changes, also run the affected template tests and a single
+`pnpm typecheck` at the end of the batch.
 Machine translation is only a starting point; high-visibility strings need
 human review.

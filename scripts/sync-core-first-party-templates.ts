@@ -13,49 +13,64 @@ import { fileURLToPath } from "node:url";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const rootDir = resolve(scriptDir, "..");
-const sourceRoot = join(rootDir, "templates", "chat");
-const targetRoot = join(
-  rootDir,
-  "packages",
-  "core",
-  "src",
-  "templates",
-  "chat",
-);
+
+/** First-party templates bundled into published `@agent-native/core`. */
+const BUNDLED_TEMPLATES = ["chat", "base"] as const;
 
 if (process.argv.includes("--clean")) {
-  rmSync(targetRoot, { recursive: true, force: true });
+  for (const template of BUNDLED_TEMPLATES) {
+    rmSync(join(rootDir, "packages", "core", "src", "templates", template), {
+      recursive: true,
+      force: true,
+    });
+  }
   process.exit(0);
 }
 
-const trackedFiles = execFileSync(
-  "git",
-  ["ls-files", "-z", "--", "templates/chat"],
-  { cwd: rootDir },
-)
-  .toString()
-  .split("\0")
-  .filter(Boolean);
-
-if (trackedFiles.length === 0) {
-  throw new Error(`No tracked files found under ${sourceRoot}.`);
+for (const template of BUNDLED_TEMPLATES) {
+  syncTemplate(template);
 }
 
-rmSync(targetRoot, { recursive: true, force: true });
-mkdirSync(targetRoot, { recursive: true });
+function syncTemplate(template: (typeof BUNDLED_TEMPLATES)[number]): void {
+  const sourceRoot = join(rootDir, "templates", template);
+  const targetRoot = join(
+    rootDir,
+    "packages",
+    "core",
+    "src",
+    "templates",
+    template,
+  );
 
-for (const trackedPath of trackedFiles) {
-  const relativePath = relative("templates/chat", trackedPath);
-  if (/\.(?:spec|test)\.(?:ts|tsx)$/.test(relativePath)) continue;
-  const sourcePath = join(rootDir, trackedPath);
-  const targetPath = join(targetRoot, relativePath);
-  const stat = lstatSync(sourcePath);
+  const trackedFiles = execFileSync(
+    "git",
+    ["ls-files", "-z", "--", `templates/${template}`],
+    { cwd: rootDir },
+  )
+    .toString()
+    .split("\0")
+    .filter(Boolean);
 
-  mkdirSync(dirname(targetPath), { recursive: true });
-  if (stat.isSymbolicLink()) {
-    symlinkSync(readlinkSync(sourcePath), targetPath);
-    continue;
+  if (trackedFiles.length === 0) {
+    throw new Error(`No tracked files found under ${sourceRoot}.`);
   }
 
-  writeFileSync(targetPath, readFileSync(sourcePath));
+  rmSync(targetRoot, { recursive: true, force: true });
+  mkdirSync(targetRoot, { recursive: true });
+
+  for (const trackedPath of trackedFiles) {
+    const relativePath = relative(`templates/${template}`, trackedPath);
+    if (/\.(?:spec|test)\.(?:ts|tsx)$/.test(relativePath)) continue;
+    const sourcePath = join(rootDir, trackedPath);
+    const targetPath = join(targetRoot, relativePath);
+    const stat = lstatSync(sourcePath);
+
+    mkdirSync(dirname(targetPath), { recursive: true });
+    if (stat.isSymbolicLink()) {
+      symlinkSync(readlinkSync(sourcePath), targetPath);
+      continue;
+    }
+
+    writeFileSync(targetPath, readFileSync(sourcePath));
+  }
 }

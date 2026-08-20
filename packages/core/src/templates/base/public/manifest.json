@@ -1,0 +1,20 @@
+{
+  "name": "Base",
+  "short_name": "Base",
+  "description": "Base chat-first agent-native app ready to customize",
+  "start_url": ".",
+  "background_color": "#111111",
+  "theme_color": "#18181B",
+  "icons": [
+    {
+      "src": "icon-192.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml"
+    },
+    {
+      "src": "icon-512.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml"
+    }
+  ]
+}

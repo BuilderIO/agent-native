@@ -10,7 +10,7 @@ serve both people and AI agents. You define your app's functionality once as
 [actions](/docs/actions-overview)—typed functions that your React UI calls
 from code and agents use as tools.
 
-In this guide, you'll create a Chat app and call its included `hello` action
+In this guide, you'll create a blank agent-native app and call its included `hello` action
 from the agent and the UI.
 
 ## Prerequisites
@@ -22,10 +22,10 @@ from the agent and the UI.
 
 ## Create an app
 
-In a new directory, create a Chat app:
+In a new directory, create a blank app:
 
 ```bash
-npx @agent-native/core@latest create my-app --standalone --template chat
+npx @agent-native/core@latest create my-app --standalone --template base
 cd my-app
 pnpm install
 ```
@@ -59,7 +59,7 @@ details.
 ## Run the action from the agent
 
 An action is a typed function that your React UI can call from code and agents
-can use as a tool. The Chat template includes a simple `hello` action so you
+can use as a tool. The blank app includes a simple `hello` action so you
 can try the pattern before writing one yourself.
 
 In the app, ask:

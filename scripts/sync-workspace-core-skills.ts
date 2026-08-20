@@ -63,6 +63,7 @@ const templateSharedSkillIncludes = [...DEFAULT_WORKSPACE_SKILLS];
 
 const requiredTemplateSharedSkills: Record<string, string[]> = {
   chat: ["agent-native-docs"],
+  base: ["agent-native-docs"],
 };
 
 /** Copied into every first-party template that uses shared skills. */
@@ -176,6 +177,7 @@ const requiredAgentWorkflowGuidance = [
   "packages/core/src/templates/workspace-core/AGENTS.md",
   "registry/agent-native-app/AGENTS.md",
   "templates/chat/AGENTS.md",
+  "templates/base/AGENTS.md",
 ].map((rel) => ({
   rel,
   pattern:
@@ -189,6 +191,7 @@ const requiredToolkitDiscoveryGuidance = [
   "packages/core/src/templates/workspace-root/AGENTS.md",
   "registry/agent-native-app/AGENTS.md",
   "templates/chat/AGENTS.md",
+  "templates/base/AGENTS.md",
 ];
 
 const requiredRegistryConventionSkills = [

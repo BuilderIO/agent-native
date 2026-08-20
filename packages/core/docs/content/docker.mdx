@@ -14,8 +14,9 @@ Node.js, Vercel, Netlify, Cloudflare, or another Nitro target.
 
 Create an app, install dependencies, and build the image:
 
+<!-- i18n-copy-ignore: CLI template flag is locale-invariant -->
 ```bash
-npx @agent-native/core@latest create my-app --standalone --template chat
+npx @agent-native/core@latest create my-app --standalone --template base
 cd my-app
 pnpm install
 docker build -t my-agent-native-app .

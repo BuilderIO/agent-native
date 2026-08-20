@@ -111,9 +111,11 @@ describe("workspace app routes", () => {
     ).toBe(true);
   });
 
-  it("hides the generic chat starter and Dispatch from default launchers", () => {
-    expect(isDefaultWorkspaceAppHiddenId(" Chat ")).toBe(true);
-    expect(isWorkspaceAppVisibleInDefaultLaunchers({ id: "chat" })).toBe(false);
+  it("hides the generic base starter and Dispatch from default launchers", () => {
+    expect(isDefaultWorkspaceAppHiddenId(" Base ")).toBe(true);
+    expect(isDefaultWorkspaceAppHiddenId("starter")).toBe(true);
+    expect(isWorkspaceAppVisibleInDefaultLaunchers({ id: "base" })).toBe(false);
+    expect(isWorkspaceAppVisibleInDefaultLaunchers({ id: "chat" })).toBe(true);
     expect(
       isWorkspaceAppVisibleInDefaultLaunchers({
         id: "dispatch",

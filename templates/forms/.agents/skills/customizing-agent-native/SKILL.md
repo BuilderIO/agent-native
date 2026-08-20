@@ -186,7 +186,7 @@ UI ownership may change; product contracts should not:
 - **Chat app:** keep `AgentChatSurface`, thread state, and chat transport in
   Core. Compose or eject Toolkit presentation such as chat-history UI around it.
 - **Headless app:** stay action-first while no UI is needed. When adding a UI,
-  use the Chat template as the on-ramp or add Toolkit components without
+  use the Base template as the on-ramp or add Toolkit components without
   replacing the existing actions.
 - **Workspace:** put one-app overrides in that app. Promote a local component
   to `packages/shared` only when multiple workspace apps use it.
@@ -195,7 +195,8 @@ UI ownership may change; product contracts should not:
 
 - Commit `agent-native.ejections.json` with the app-owned files and rewrites.
 - Remove unused dependencies and imports from the ejected files.
-- Keep visible text in the app's localization catalogs.
+- If the app has `app/i18n/` catalogs, keep visible text there. Otherwise
+  edit English strings inline; do not add catalogs unless the user asks.
 - Run the manifest verification commands plus the app's formatter, typecheck,
   and focused tests.
 - Re-check the installed source during future package upgrades; the app-owned

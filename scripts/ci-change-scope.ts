@@ -188,6 +188,7 @@ function buildChecks(
       dispatchChanged ||
       schedulingChanged ||
       hasPath(changedPaths, "templates/chat/") ||
+      hasPath(changedPaths, "templates/base/") ||
       calendarChanged ||
       hasPath(changedPaths, "templates/dispatch/"),
     ssr_boot:
