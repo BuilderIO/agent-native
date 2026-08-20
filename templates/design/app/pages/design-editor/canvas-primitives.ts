@@ -222,6 +222,16 @@ export function defaultCanvasTextColor(isBoardTarget: boolean): string {
   return isBoardTarget ? "#ffffff" : "currentColor";
 }
 
+/**
+ * A committed frame needs a surface of its own: once deselected, a bare
+ * container is indistinguishable from empty canvas, and so is the next one
+ * drawn beside it. White on every destination, as in Figma.
+ */
+export function defaultCanvasFrameFill(): string {
+  // guard:allow-raw-color — written into the user's design HTML, where the editor's theme tokens do not exist
+  return "#ffffff";
+}
+
 /** Default font stack for board-drawn text — Inter with the app's standard
  * system-font fallback chain, matching the rest of the editor's UI type
  * instead of the browser's serif default for an unstyled <div>. */
