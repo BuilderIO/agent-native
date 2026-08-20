@@ -292,6 +292,28 @@ describe("a primitive nested into a frame is positioned frame-relative", () => {
       )?.[1] ?? NaN,
     );
 
+  it("resolves inside a bordered frame's padding box, not its border box", () => {
+    const bordered =
+      appendCanvasPrimitiveToHtml(blankScreenHtml("S"), {
+        kind: "frame",
+        nodeId: "host",
+        geometry: { x: 100, y: 100, width: 400, height: 400 },
+        strokeWidth: 5,
+        stroke: "#000000",
+      }) ?? "";
+    const withRect =
+      appendCanvasPrimitiveToHtml(bordered, {
+        kind: "rectangle",
+        nodeId: "r",
+        geometry: { x: 150, y: 150, width: 50, height: 50 },
+      }) ?? "";
+    const style = styleOf(withRect, "r");
+    // 150 - 100 frame origin - 5 border: an absolute child starts inside the
+    // border, so ignoring it shifts everything dropped into the frame.
+    expect(px(style, "left")).toBe(45);
+    expect(px(style, "top")).toBe(45);
+  });
+
   it("gives a line the same frame-relative origin a rectangle gets", () => {
     const base = frameAt(100, 100);
     const withRect =

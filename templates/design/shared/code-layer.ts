@@ -3840,6 +3840,13 @@ function applyUnwrap(
 /**
  * CONVERT: toggle auto-layout (display:flex) on an existing container.
  */
+/** Whether an existing min-width/min-height already preserves `extent` px. */
+function holdsOpen(value: string, extent: number): boolean {
+  const trimmed = value.trim();
+  if (!/^[\d.]+px$/i.test(trimmed)) return !/^0[a-z%]*$/i.test(trimmed);
+  return Number.parseFloat(trimmed) >= extent;
+}
+
 function applyAutoLayout(
   html: string,
   build: ProjectionBuild,
@@ -3883,8 +3890,14 @@ function applyAutoLayout(
           ["min-width", rect.width],
           ["min-height", rect.height],
         ] as const) {
-          if (declarations.some((d) => d.property === property)) continue;
-          declarations.push({ property, value: `${Math.round(value)}px` });
+          const existing = declarations.find((d) => d.property === property);
+          // `min-height: 0` is the standard flex idiom and holds nothing open.
+          // Only a px minimum at least as large as the measured extent does.
+          if (existing && !holdsOpen(existing.value, value)) {
+            existing.value = `${Math.round(value)}px`;
+          } else if (!existing) {
+            declarations.push({ property, value: `${Math.round(value)}px` });
+          }
         }
       }
     }
@@ -3927,6 +3940,11 @@ function applyAutoLayout(
           if (existing) existing.value = value;
           else childDecls.push({ property, value });
         };
+        // The measured rect is a border box placed by its margin edge, so a
+        // content-box child would grow by its padding and a margin would shift
+        // it off the position we just measured.
+        setOnChild("box-sizing", "border-box");
+        setOnChild("margin", "0");
         setOnChild("position", "absolute");
         setOnChild("left", `${Math.round(rect.x)}px`);
         setOnChild("top", `${Math.round(rect.y)}px`);

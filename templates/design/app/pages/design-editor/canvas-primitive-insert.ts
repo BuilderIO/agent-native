@@ -220,8 +220,9 @@ function absoluteRect(
     ) {
       continue;
     }
-    originX += read(ancestor.style.left) ?? 0;
-    originY += read(ancestor.style.top) ?? 0;
+    const inset = inlineBorderInset(ancestor);
+    originX += (read(ancestor.style.left) ?? 0) + inset.x;
+    originY += (read(ancestor.style.top) ?? 0) + inset.y;
   }
   return { x: originX + x, y: originY + y, w, h };
 }
@@ -231,6 +232,16 @@ function absoluteRect(
  * `data-an-primitive="frame"` adopts. Bounds come from inline geometry
  * because this document is parsed, never laid out.
  */
+/** Inline border widths, which an absolute child's offsets resolve inside of. */
+function inlineBorderInset(element: Element): { x: number; y: number } {
+  const style = (element as HTMLElement).style;
+  const read = (value: string) => {
+    const parsed = Number.parseFloat(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+  return { x: read(style.borderLeftWidth), y: read(style.borderTopWidth) };
+}
+
 function deepestFrameContaining(
   root: Element,
   x: number,
@@ -292,10 +303,12 @@ export function appendCanvasPrimitiveToHtml(
     // pick a fill that is legible against its actual container.
     const host = deepestFrameContaining(doc.body, left, top);
     const hostOrBody: Element = host?.element ?? doc.body;
-    // The div branch subtracts the host origin below; an svg appended to the
-    // same host must use the same space or it lands outside and is clipped.
-    const hostLeft = host ? left - host.x : left;
-    const hostTop = host ? top - host.y : top;
+    // An absolute child resolves against the host's PADDING box, while
+    // host.x/host.y are its border-box origin — so a bordered frame shifts
+    // everything dropped into it by the border width.
+    const hostBorder = host ? inlineBorderInset(host.element) : { x: 0, y: 0 };
+    const hostLeft = host ? left - host.x - hostBorder.x : left;
+    const hostTop = host ? top - host.y - hostBorder.y : top;
 
     if (
       primitive.kind === "path" ||
@@ -470,8 +483,8 @@ export function appendCanvasPrimitiveToHtml(
     // glyph. Read by treeTypeForNode in shared/code-layer.ts.
     element.setAttribute("data-an-primitive", primitive.kind);
     element.style.position = "absolute";
-    element.style.left = `${left}px`;
-    element.style.top = `${top}px`;
+    element.style.left = `${hostLeft}px`;
+    element.style.top = `${hostTop}px`;
     if (!(primitive.kind === "text" && primitive.autoSize)) {
       element.style.width = `${width}px`;
       element.style.height = `${height}px`;
@@ -563,10 +576,6 @@ export function appendCanvasPrimitiveToHtml(
       element.style.borderRadius = canonical.borderRadius;
     }
 
-    if (host) {
-      element.style.left = `${left - host.x}px`;
-      element.style.top = `${top - host.y}px`;
-    }
     hostOrBody.appendChild(element);
     return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
   } catch {

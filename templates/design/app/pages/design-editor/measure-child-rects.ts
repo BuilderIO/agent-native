@@ -36,8 +36,12 @@ export function measureFreeformGeometry(nodeId: string): FreeformGeometry {
     // Absolute offsets resolve against the padding box, but a client rect is
     // the border box, so a bordered container shifts every child it pins.
     const borders = view?.getComputedStyle(container);
-    const originLeft = origin.left + edgeWidth(borders?.borderLeftWidth);
-    const originTop = origin.top + edgeWidth(borders?.borderTopWidth);
+    // Client rects are viewport-relative, so a scrolled container reports its
+    // children where they currently sit, not where the content box holds them.
+    const originLeft =
+      origin.left + edgeWidth(borders?.borderLeftWidth) - container.scrollLeft;
+    const originTop =
+      origin.top + edgeWidth(borders?.borderTopWidth) - container.scrollTop;
     const rects: Record<
       string,
       { x: number; y: number; width: number; height: number }

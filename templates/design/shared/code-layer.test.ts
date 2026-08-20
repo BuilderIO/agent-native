@@ -1392,6 +1392,40 @@ describe("autoLayout", () => {
     expect(patch.content).toContain("gap: 8px");
   });
 
+  it("replaces a min-height:0 that would let the container collapse anyway", () => {
+    const html =
+      `<div data-agent-native-node-id="container" style="display: flex; min-height: 0; overflow: hidden">` +
+      `<div data-agent-native-node-id="a">A</div>` +
+      `</div>`;
+    const patch = applyVisualEdit(html, {
+      kind: "autoLayout",
+      targetId: "container",
+      enabled: false,
+      childRects: { a: { x: 0, y: 0, width: 120, height: 40 } },
+      containerRect: { width: 120, height: 40 },
+    });
+    expect(patch.content).toMatch(/min-height:\s*40px/);
+  });
+
+  it("pins a padded child by its border box, not by its margin edge", () => {
+    const html =
+      `<div data-agent-native-node-id="container" style="display: flex">` +
+      `<div data-agent-native-node-id="a" style="padding: 8px; margin: 12px">A</div>` +
+      `</div>`;
+    const patch = applyVisualEdit(html, {
+      kind: "autoLayout",
+      targetId: "container",
+      enabled: false,
+      childRects: { a: { x: 12, y: 12, width: 120, height: 40 } },
+      containerRect: { width: 144, height: 64 },
+    });
+    const child = /data-agent-native-node-id="a" style="([^"]*)"/.exec(
+      patch.content,
+    )?.[1];
+    expect(child).toMatch(/box-sizing:\s*border-box/);
+    expect(child).toMatch(/margin:\s*0/);
+  });
+
   it("keeps the container's extent when every child leaves flow", () => {
     // A hug-sized flex container has no width/height of its own. Once every
     // child is absolute the content box is empty, so the container collapses
