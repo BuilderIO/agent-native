@@ -137,9 +137,7 @@ async function handleMcpOAuthStart(
   const reconnectServerId = text(query.serverId);
   const reconnectScope: RemoteMcpScope = query.scope === "org" ? "org" : "user";
   const reconnectOrg =
-    reconnectScope === "org"
-      ? await getOrgContext(event).catch(() => null)
-      : null;
+    reconnectScope === "org" ? await getOrgContext(event) : null;
   const reconnectScopeId =
     reconnectScope === "user" ? session.email : (reconnectOrg?.orgId ?? "");
   let reconnectServer:
