@@ -313,7 +313,9 @@ export function decodeSignupAttributionContext(
       attribution,
       ...(anonymousId ? { anonymousId } : {}),
     };
-  } catch {
+  } catch (error) {
+    // `undefined` distinguishes an unreadable handoff from direct attribution.
+    void error;
     return undefined;
   }
 }
