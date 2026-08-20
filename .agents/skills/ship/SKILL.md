@@ -58,10 +58,11 @@ snapshots as local work arrives.
 ## Deployment split
 
 Merges to `main` auto-deploy only beta sites at `beta.*.agent-native.com`.
-Production promotion is a separate manual operation. For the normal `/ship`
-flow, a healthy beta deploy is the expected deployment proof when applicable;
-do not wait for or imply an automatic production deploy. Critical fixes that
-must reach production need an explicit manual promotion, followed by
+Production promotion is a separate manual operation. The normal `/ship` flow
+does not wait for or verify post-merge beta deployment; use
+`/ship-and-monitor` to verify beta and the release tail. It also must not imply
+an automatic production deploy. Critical fixes that must reach production need
+an explicit manual promotion, followed by
 `/ship-and-monitor` when the promotion and release tail need verification.
 
 Use `.github/workflows/deploy-production-sites-prebuilt.yml` or the targeted

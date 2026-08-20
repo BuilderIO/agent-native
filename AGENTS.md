@@ -50,8 +50,9 @@ contract.
 - PRs use the current branch unless the user explicitly requests a new branch.
   PRs are ready for review by default, not drafts, unless requested.
 - Deployment split: merges to `main` auto-deploy only beta sites at
-  `beta.*.agent-native.com`. Production promotion is manual; a healthy beta
-  deploy is the normal ship proof, and critical fixes must be explicitly
+  `beta.*.agent-native.com`. Normal `/ship` does not monitor post-merge
+  deployments or claim beta health; use `/ship-and-monitor` to verify beta.
+  Production promotion is manual, and critical fixes must be explicitly
   promoted to production through the manual
   `.github/workflows/deploy-production-sites-prebuilt.yml` or targeted
   `promote-netlify-deploy.yml` workflows. Let the workflow manage Netlify lock
@@ -98,6 +99,12 @@ contract.
   meaning changes. If translations cannot be updated in the same change, call
   out the specific locales that need follow-up; reviewers should flag docs
   changes that only update one language.
+- During review, treat any user-facing copy change as a localization change:
+  UI labels, buttons, tooltips, placeholders, errors, empty states,
+  accessibility text, prompts, and documentation prose all need their English
+  source and configured locale translations updated together. Run
+  `pnpm guard:i18n-catalogs` and `pnpm guard:i18n-changed-copy`; do not approve
+  an unexplained `i18n-copy-ignore` marker or localization baseline update.
 - Docs-only commits start with `docs: ` in the present tense, e.g.
   `docs: fix broken link in provider API guide`, not `docs: fixed broken link`.
 
@@ -153,6 +160,12 @@ their change; never force past it. It is a Claude Code mechanism only: it gives
 Codex sessions and plain human edits nothing, so it is a backstop, not a
 guarantee. Read `concurrent-agents` before working in a shared checkout.
 `guard:hooks-registered` keeps this section and that file from drifting apart.
+`guard:i18n-catalogs` checks catalog shape, placeholders, raw UI literals,
+English-value debt, and localized docs coverage. `guard:i18n-changed-copy`
+checks the changed-source side of the contract: a changed English catalog or
+source doc must have the corresponding configured locale files/sections changed
+in the same diff. Use `i18n-copy-ignore` only for reviewed non-translatable or
+source-only edits, with the reason visible in the diff.
 
 Everything else is guidance — but guidance nobody measures is guidance nobody
 can tell is working. `node scripts/agent-friction-report.mjs --weeks 2` counts
