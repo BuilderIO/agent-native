@@ -82,6 +82,10 @@ function releaseSectionDate(section: string): string | undefined {
   return releaseSectionTitle(section)?.match(/\d{4}-\d{2}-\d{2}/)?.[0];
 }
 
+function releaseSectionIsUnreleased(section: string): boolean {
+  return releaseSectionTitle(section)?.toLowerCase() === "unreleased";
+}
+
 type ReleaseVersion = {
   major: number;
   minor: number;
@@ -137,7 +141,7 @@ function compareReleaseVersions(a: ReleaseVersion, b: ReleaseVersion): number {
   return comparePrerelease(a.prerelease, b.prerelease);
 }
 
-function uniqueNewestFirst(sections: string[]): string[] {
+export function uniqueNewestFirst(sections: string[]): string[] {
   const seen = new Set<string>();
   return sections
     .map((section, index) => ({
@@ -146,6 +150,7 @@ function uniqueNewestFirst(sections: string[]): string[] {
       title: releaseSectionTitle(section),
       date: releaseSectionDate(section),
       version: releaseSectionVersion(section),
+      unreleased: releaseSectionIsUnreleased(section),
     }))
     .filter(({ title }) => {
       if (!title || seen.has(title)) return false;
@@ -153,6 +158,8 @@ function uniqueNewestFirst(sections: string[]): string[] {
       return true;
     })
     .sort((a, b) => {
+      if (a.unreleased && !b.unreleased) return -1;
+      if (!a.unreleased && b.unreleased) return 1;
       if (a.version && b.version) {
         const versionOrder = compareReleaseVersions(b.version, a.version);
         if (versionOrder !== 0) return versionOrder;
@@ -246,16 +253,18 @@ function run(mode: Mode): string[] {
   return changed;
 }
 
-const mode: Mode = process.argv.includes("--write") ? "write" : "check";
-const changed = run(mode);
+if (import.meta.main) {
+  const mode: Mode = process.argv.includes("--write") ? "write" : "check";
+  const changed = run(mode);
 
-if (changed.length > 0) {
-  const verb = mode === "write" ? "Updated" : "Would update";
-  console.log(
-    `${verb} changelogs:\n${changed.map((item) => `- ${item}`).join("\n")}`,
-  );
-}
+  if (changed.length > 0) {
+    const verb = mode === "write" ? "Updated" : "Would update";
+    console.log(
+      `${verb} changelogs:\n${changed.map((item) => `- ${item}`).join("\n")}`,
+    );
+  }
 
-if (mode === "check" && changed.length > 0) {
-  process.exitCode = 1;
+  if (mode === "check" && changed.length > 0) {
+    process.exitCode = 1;
+  }
 }
