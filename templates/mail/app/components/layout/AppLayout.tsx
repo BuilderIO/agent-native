@@ -202,7 +202,7 @@ const collapsibleViews = [
 
 export function AppLayout({ children }: AppLayoutProps) {
   const location = useLocation();
-  const isMobile = useIsMobile();
+
   const t = useT();
   if (BARE_ROUTES.has(location.pathname)) {
     return <>{children}</>;
@@ -245,7 +245,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     targets: SnoozeTarget[];
   } | null>(null);
   const [searchFocused, setSearchFocused] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
+  const [, setSearchQuery] = useState("");
   const navigate = useNavigate();
   const location = useLocation();
   // Parse view and threadId from pathname since AppLayout is outside <Routes>
