@@ -26,6 +26,18 @@ on:
         options:
           - public
           - public+authed
+      key_source:
+        description: "Which OpenAI credential the agent turns bill"
+        required: false
+        default: dedicated
+        type: choice
+        options:
+          # A key created for this suite with its own spend limit, stored as
+          # BETA_E2E_OPENAI_API_KEY. Keeps this suite's cost attributable.
+          - dedicated
+          # The repository's shared OPENAI_API_KEY. Works, but pools this
+          # suite's spend with every other consumer of that key.
+          - shared
       grep:
         description: "Only run tests whose title matches this (optional)"
         required: false
@@ -55,6 +67,10 @@ jobs:
       BETA_E2E_EMAIL: ${{ secrets.BETA_E2E_EMAIL }}
       BETA_E2E_SESSION_TOKENS: ${{ secrets.BETA_E2E_SESSION_TOKENS }}
       BETA_E2E_OPENAI_API_KEY: ${{ secrets.BETA_E2E_OPENAI_API_KEY }}
+      # Never read implicitly — only when the dispatch explicitly asks for it,
+      # because billing the shared key is the thing a dedicated key prevents.
+      BETA_E2E_SHARED_OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      BETA_E2E_ALLOW_SHARED_KEY: ${{ inputs.key_source == 'shared' }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 

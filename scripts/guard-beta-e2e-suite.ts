@@ -90,7 +90,21 @@ if (chat) {
   }
 }
 
-// 5. Missing credentials must fail, never skip.
+// 5. The shared OpenAI key stays opt-in.
+if (workflow && !workflow.includes("inputs.key_source == 'shared'")) {
+  issues.push(
+    `${workflowPath} no longer gates BETA_E2E_ALLOW_SHARED_KEY on an explicit dispatch choice. Billing the repository's shared OPENAI_API_KEY implicitly is precisely what a dedicated, separately-limited key exists to prevent.`,
+  );
+}
+const providerKeyPath = "e2e/beta/lib/provider-key.ts";
+const providerKey = read(providerKeyPath);
+if (providerKey && !providerKey.includes("BETA_E2E_ALLOW_SHARED_KEY")) {
+  issues.push(
+    `${providerKeyPath} no longer requires an explicit opt-in before using the shared OpenAI key.`,
+  );
+}
+
+// 6. Missing credentials must fail, never skip.
 if (globalSetup && !/throw new Error/.test(globalSetup)) {
   issues.push(
     `${globalSetupPath} no longer throws. An authenticated run that degrades to an anonymous one reports green while testing nothing.`,
@@ -102,14 +116,14 @@ function stripComments(source: string): string {
   return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 }
 
-// 6. Certificate errors stay observable.
+// 7. Certificate errors stay observable.
 if (config && /ignoreHTTPSErrors/.test(stripComments(config))) {
   issues.push(
     `${configPath} sets ignoreHTTPSErrors. "The connection isn't private" was a real beta report; only a browser that still validates certificates can catch it.`,
   );
 }
 
-// 7. The workflow stays a manual gate and keeps the lanes separated.
+// 8. The workflow stays a manual gate and keeps the lanes separated.
 if (workflow) {
   try {
     const parsed = parse(workflow) as Record<string, unknown>;
