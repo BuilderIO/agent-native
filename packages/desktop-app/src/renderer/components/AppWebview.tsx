@@ -583,14 +583,24 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         const inFlight = guestScriptInFlightRef.current.get(key);
         if (inFlight) return inFlight;
 
-        const request = wv.executeJavaScript(script, false).catch((error) => {
+        let request: Promise<unknown>;
+        try {
+          request = wv.executeJavaScript(script, false).catch((error) => {
+            console.debug("[desktop-webview] guest script failed", {
+              appId: app.id,
+              key,
+              reason: error instanceof Error ? error.message : error,
+            });
+            return undefined;
+          });
+        } catch (error) {
           console.debug("[desktop-webview] guest script failed", {
             appId: app.id,
             key,
             reason: error instanceof Error ? error.message : error,
           });
-          return undefined;
-        });
+          return Promise.resolve(undefined);
+        }
         guestScriptInFlightRef.current.set(key, request);
         void request.then(() => {
           if (guestScriptInFlightRef.current.get(key) === request) {
