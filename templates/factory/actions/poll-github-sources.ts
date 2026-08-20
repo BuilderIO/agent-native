@@ -13,6 +13,7 @@ import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
+import { repairFactoryAutomationsFromConfig } from "../server/lib/factory-automation-repair.js";
 import { recordFactoryAudit } from "../server/triage/audit.js";
 import { createGitHubClient } from "../server/triage/github-client.js";
 import { itemDedupeKey } from "../server/triage/ids.js";
@@ -51,6 +52,7 @@ export default defineAction({
     );
     const db = getDb();
     const config = await readTriageConfigRow(db, orgId, factoryId);
+    await repairFactoryAutomationsFromConfig(userEmail, orgId, factoryId);
     if (config?.githubPollingEnabled !== 1) {
       throw new Error("Enable GitHub polling before polling GitHub sources.");
     }

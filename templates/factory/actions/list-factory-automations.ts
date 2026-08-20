@@ -5,6 +5,7 @@ import {
 } from "@agent-native/core/triggers";
 import { z } from "zod";
 
+import { readFactoryDefinition } from "../server/factory-graph/store.js";
 import {
   DEFAULT_FACTORY_ID,
   factoryIdSchema,
@@ -28,6 +29,10 @@ export default defineAction({
     const { userEmail, orgId } = await requireWorkspaceMember(
       workspaceMemberIdentityFromContext(context),
     );
+    const factory = await readFactoryDefinition(orgId, factoryId);
+    if (!factory && factoryId !== DEFAULT_FACTORY_ID) {
+      throw new Error("Factory not found.");
+    }
     let definitions = await listAutomationDefinitions(
       { userEmail, orgId, appId: "factory" },
       "organization",

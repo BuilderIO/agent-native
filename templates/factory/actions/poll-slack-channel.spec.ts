@@ -38,6 +38,10 @@ vi.mock("../server/lib/require-factory-automation.js", () => ({
   requireFactoryAutomation: requireFactoryAutomationMock,
 }));
 
+vi.mock("../server/lib/factory-automation-repair.js", () => ({
+  repairFactoryAutomationsFromConfig: vi.fn().mockResolvedValue(undefined),
+}));
+
 const mockedGetRequestOrgId = vi.mocked(getRequestOrgId);
 const mockedGetRequestUserEmail = vi.mocked(getRequestUserEmail);
 

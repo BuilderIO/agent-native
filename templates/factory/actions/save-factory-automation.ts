@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
+import { isValidCron, nextOccurrence } from "@agent-native/core/jobs";
 import { resourceGetByPath, resourcePut } from "@agent-native/core/resources";
 import { listAutomationDefinitions } from "@agent-native/core/triggers";
 import { z } from "zod";
@@ -69,6 +70,14 @@ export default defineAction({
         "Factory automation id and name do not refer to the same automation.",
       );
     }
+    if (!definition.canUpdate) {
+      throw new Error(
+        "Only the automation's creator or an organization admin can update it.",
+      );
+    }
+    if (definition.meta.triggerType === "schedule" && !isValidCron(schedule)) {
+      throw new Error(`Invalid cron expression "${schedule}".`);
+    }
     const resource = await resourceGetByPath(
       definition.resource.owner,
       definition.resource.path,
@@ -82,6 +91,14 @@ export default defineAction({
       displayName: displayName ?? "",
     });
     content = setAutomationFrontmatterField(content, "factoryId", factoryId);
+    if (definition.meta.triggerType === "schedule" && isValidCron(schedule)) {
+      const nextRun = nextOccurrence(
+        schedule,
+        undefined,
+        definition.meta.timezone,
+      ).toISOString();
+      content = setAutomationFrontmatterField(content, "nextRun", nextRun);
+    }
     await resourcePut(
       definition.resource.owner,
       definition.resource.path,

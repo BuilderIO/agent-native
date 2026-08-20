@@ -5,9 +5,9 @@ import { z } from "zod";
 import { getDb } from "../server/db/index.js";
 import { triageConfig, triageItems } from "../server/db/schema.js";
 import {
-  factoryConfigRowId,
   factoryIdSchema,
   readTriageConfigRow,
+  triageConfigUpdateRowId,
 } from "../server/lib/factory-scope.js";
 import { requireFactoryAutomation } from "../server/lib/require-factory-automation.js";
 import {
@@ -20,7 +20,7 @@ import {
   hasTriageSourceChanged,
   statusAfterTriageSourceUpdate,
 } from "../server/triage/review-state.js";
-import { pollSlackChannel } from "../server/triage/slack-poller.js";
+import { repairFactoryAutomationsFromConfig } from "../server/lib/factory-automation-repair.js";
 
 export default defineAction({
   description:
@@ -42,6 +42,7 @@ export default defineAction({
     );
     const db = getDb();
     const config = await readTriageConfigRow(db, orgId, factoryId);
+    await repairFactoryAutomationsFromConfig(userEmail, orgId, factoryId);
     if (config?.pollingEnabled !== 1) {
       throw new Error("Enable Slack polling before polling Slack.");
     }
@@ -60,7 +61,7 @@ export default defineAction({
       orgId,
     });
     const now = new Date().toISOString();
-    const configRowId = factoryConfigRowId(orgId, factoryId);
+    const configRowId = triageConfigUpdateRowId(config, orgId, factoryId);
 
     await db.transaction(async (tx) => {
       for (const envelope of result.envelopes) {

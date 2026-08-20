@@ -115,6 +115,15 @@ export function legacyFactoryConfigRowId(orgId: string): string {
   return orgId;
 }
 
+/** Row id to use when persisting poll cursors — follows the loaded config row. */
+export function triageConfigUpdateRowId(
+  config: { id: string } | null | undefined,
+  orgId: string,
+  factoryId: string,
+): string {
+  return config?.id ?? factoryConfigRowId(orgId, factoryId);
+}
+
 type Db = ReturnType<typeof getDb>;
 
 export async function readTriageConfigRow(

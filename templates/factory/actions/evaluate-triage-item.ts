@@ -93,6 +93,7 @@ export default defineAction({
         {
           action: "evaluate-triage-item",
           kind: "decision",
+          factoryId,
           status: "skipped",
           itemId,
           source: item.source,
@@ -163,6 +164,7 @@ export default defineAction({
         {
           action: "evaluate-triage-item",
           kind: "decision",
+          factoryId,
           itemId,
           source: item.source,
           sourceUrl: item.sourceUrl,
