@@ -19,9 +19,11 @@ const messages = {
     copyLogoSvg: "複製標誌 SVG",
     copyWordmark: "複製文字標誌",
     brandAssets: "品牌資源",
+    tryNow: "立即試用",
   },
   footer: {
     download: "下載",
+    pricing: "定價",
     brand: "品牌",
     privacy: "隱私",
     terms: "條款",
@@ -414,6 +416,7 @@ const messages = {
     viewDocs: "檢視檔案",
     source: "來源",
     readDocs: "閱讀檔案",
+    signIn: "登入",
   },
   templatesPage: {
     title: "您擁有的開放原始碼、Agent-Native 應用程式",
@@ -504,11 +507,6 @@ const messages = {
       description:
         "Agent-Native 表單生成器。根據提示生成表單，以可視方式或對話方式編輯欄位，並將提交內容傳送到 Slack、Discord、Google Sheets 或 webhooks。",
     },
-    brain: {
-      replaces: "替換或增強團隊維基、Glean 式回憶和機構記憶工具",
-      description:
-        "透過來自核准的 Slack、Clips、Granola、GitHub 和轉錄來源的引用記憶進行整頁面公司聊天，並內建審核門、評估和共用連線準備情況。",
-    },
     assets: {
       replaces: "替換或增強 DAMs、品牌資產庫和 AI 媒體生成器",
       description:
@@ -531,6 +529,10 @@ const messages = {
     },
   },
   templateLanding: {
+    faq: {
+      eyebrow: "常見問題",
+      title: "常見問題解答",
+    },
     analytics: {
       s001: "Analytics 範本螢幕截圖",
       s002: "資料連線器",
@@ -538,7 +540,8 @@ const messages = {
       s004: "查詢瀏覽器",
       s005: "自然語言",
       s006: "所有範本",
-      s007: "Amplitude 和 FullStory 的開放原始碼替代品",
+      s007Primary: "Amplitude 和 FullStory 的",
+      s007Secondary: "開放原始碼替代品",
       s008: "連線任何資料來源，提示任何圖表，建置可重複使用的儀表板 - AI 代理寫入 SQL。",
       s009: "試用",
       s010: "你能做什麼",
@@ -596,6 +599,23 @@ const messages = {
       s062: "從範本開始，連線資料，開始建置儀表板。",
       s063: "閱讀檔案",
       s064: "檢視所有範本",
+      faq: {
+        question1: "我可以用自然語言詢問分析問題嗎？",
+        answer1:
+          "可以。提出問題後，代理會撰寫 SQL，在 BigQuery 中執行查詢並建立圖表。查詢會保留歷史紀錄、資料列數和可分享的 URL。",
+        question2: "Analytics 與 Amplitude 或 Mixpanel 有什麼不同？",
+        answer2:
+          "Amplitude 和 Mixpanel 按席次和事件計費，而且介面由它們決定。Analytics 免費且開放原始碼，代理還能依需求擴充應用本身，例如新增圖表和連接器。",
+        question3: "可以連接哪些資料來源？",
+        answer3:
+          "內建十多種連接器，包括 HubSpot、Stripe、GitHub、Jira、Sentry、Slack、Gong、Notion、Google Cloud 等。如果缺少你需要的連接器，代理可以建立它。",
+        question4: "我需要懂 SQL 嗎？",
+        answer4:
+          "不需要，自然語言就是操作介面。不過，當你需要時，SQL 探索器就在旁邊，可直接存取 BigQuery 並查看完整查詢歷史。",
+        question5: "Analytics 免費嗎？",
+        answer5:
+          "免費且開放原始碼，不按事件計費。你的資料會留在自己的資料倉儲中。",
+      },
     },
     calendar: {
       s001: "Calendar 範本螢幕截圖",
@@ -603,7 +623,8 @@ const messages = {
       s003: "代理動作",
       s004: "預訂連結型別",
       s005: "所有範本",
-      s006: "開放原始碼 Google Calendar 和 Calendly 替代方案",
+      s006Primary: "開放原始碼",
+      s006Secondary: "Google Calendar 和 Calendly 替代方案",
       s007: "多帳戶 Google Calendar 同步、可設定的可用性和可自訂的 Calendly 式預訂連結 - 並由 AI 代理代表您進行安排。",
       s008: "試用",
       s009: "登入僅使用基本 Google 身分，但連線 Calendar 同步要求存取行事曆。某些工作區管理員可能需要獲得託管示範的核准。在本機執行以使用您自己的 Google OAuth 用戶端。",
@@ -656,6 +677,35 @@ const messages = {
       s056: "檢視所有範本",
       s057: "託管示範說明",
       s058: "雙向同步",
+      faq: {
+        question1: "AI 能幫我安排會議嗎？",
+        answer1:
+          "可以。請代理尋找時段、建立活動、檢查空檔或重新排程；它會在你的實際行事曆中操作，並尊重現有活動。",
+        question2: "Calendar 能像 Calendly 一樣提供預約連結嗎？",
+        answer2:
+          "可以。它提供可自訂的預約頁面，支援依類型設定可用時間、收集訪客資訊、傳送確認通知及使用自訂網域。",
+        question3: "它能與 Google Calendar 同步嗎？",
+        answer3:
+          "可以。它透過 OAuth 同步，支援多個帳戶和自動重新整理權杖，並可直接在 Google 上建立、更新和刪除活動。",
+        question4: "Calendar 免費嗎？",
+        answer4: "免費且開放原始碼，預約頁面也包含在內。",
+      },
+    },
+    assets: {
+      faq: {
+        question1: "AI 能產生符合品牌的圖片嗎？",
+        answer1:
+          "可以。生成會以你上傳的品牌素材庫和參考資料為依據，而不是依賴通用模型的審美。代理會實際讀取規則，據此生成符合品牌的圖片和影片。",
+        question2: "Assets 與 DAM 有什麼不同？",
+        answer2:
+          "DAM 儲存經過核准的檔案，供人搜尋。Assets 不僅能做到這點，還會讓品牌資訊變得機器可讀，使代理預設就能生成並選擇符合品牌的媒體。",
+        question3: "我的其他應用可以使用它嗎？",
+        answer3:
+          "可以。任何 Agent-Native 應用都能透過 A2A 呼叫 Assets，或將它嵌入為選取器，因此 Slides、Design 等應用可使用同一個經過核准的素材庫。",
+        question4: "Assets 免費嗎？",
+        answer4:
+          "免費且開放原始碼。執行 `npx @agent-native/core@latest create my-assets-app --template assets`，它就屬於你。",
+      },
     },
     clips: {
       s001: "Clips 範本螢幕截圖",
@@ -666,7 +716,7 @@ const messages = {
       s006: "所有範本",
       s007: "Loom 的開放原始碼替代方案",
       s008: "將 Clips 連結貼上到代理中，即使其模型無法攝取原始影片或音訊，它也可以聽到文字紀錄、讀取摘要並檢視帶時間戳的幀。",
-      s009: "試用",
+      s009: "試試看",
       s010: "你能做什麼",
       s011: "紀錄、轉錄和偵錯 — 一個應用程式、一個庫，無需訂閱堆堆疊。",
       s012: "一鍵錄屏",
@@ -709,17 +759,32 @@ const messages = {
       s049: "資料所有權",
       s050: "供應商的儲存",
       s051: "供應商的雲端",
-      s052: "您擁有程式碼",
+      s052: "你的資料，甚至應用程式的程式碼本身，都歸你所有。",
       s053: "定價",
       s054: "每使用者每月 $15-30",
       s055: "免費+付費等級",
       s056: "每使用者每月 $18-25",
       s057: "每使用者每月 $12-15",
       s058: "免費和開放原始碼",
-      s059: "幾分鐘內即可開始使用",
-      s060: "從範本開始，接入儲存，然後開始錄製您的團隊實際擁有的剪輯。",
-      s061: "閱讀檔案",
+      s059: "立即開始",
+      s060: "選擇要擷取的內容，然後在 Clips 中開始錄製。",
+      s061: "查看更多應用程式",
       s062: "檢視所有範本",
+      quickStart: {
+        recordingMode: "錄製模式",
+        modeScreenCamera: "螢幕 + 攝影機",
+        modeScreenOnly: "僅螢幕",
+        modeCameraOnly: "僅攝影機",
+        captureSource: "擷取來源",
+        surfaceWindow: "視窗",
+        surfaceBrowser: "瀏覽器分頁",
+        surfaceScreen: "螢幕",
+        audioSource: "音訊來源",
+        defaultMicrophone: "預設麥克風",
+        startRecording: "開始錄製",
+        uploadVideo: "上傳影片",
+        importLoom: "匯入 Loom",
+      },
     },
     content: {
       s001: "Content 範本螢幕截圖",
@@ -784,6 +849,23 @@ const messages = {
       s060: "帶上您的 MDX 檔案，生成互動式塊，然後開始使用 AI 進行寫作。",
       s061: "閱讀檔案",
       s062: "檢視所有範本",
+      faq: {
+        question1: "AI 代理不需匯出或 API 就能編輯我的文件嗎？",
+        answer1:
+          "可以。Content 直接處理本機 Markdown/MDX 檔案，也就是儲存庫中的同一批檔案。代理已經可以在磁碟上存取它們，不需要 API、同步或匯出步驟。",
+        question2: "Content 與 Notion 或 Obsidian 有什麼不同？",
+        answer2:
+          "Notion 將文件保存在自己的資料庫中，並透過 API 存取。Content 像 Obsidian 一樣使用本機檔案，同時提供富文字編輯器，以及能按你的風格起草、重寫和發布的代理。",
+        question3: "AI 能用我的風格寫作嗎？",
+        answer3:
+          "可以。代理會學習你的表達方式、風格指南和語氣，讓草稿聽起來像你；你也可以對任何選取範圍執行重寫、擴寫、摘要或改變語氣。",
+        question4: "我可以發布到自己的 CMS 嗎？",
+        answer4:
+          "可以。透過指令碼連接任何無頭 CMS。支援 WordPress、Contentful 和 Builder，Notion 可雙向同步，代理還能自主執行發布指令碼。",
+        question5: "Content 免費嗎？",
+        answer5:
+          "免費且開放原始碼。由於文件就是一般的本機檔案，即使以後離開，也沒有任何內容需要匯出。",
+      },
     },
     design: {
       s001: "Design 範本螢幕截圖",
@@ -793,7 +875,7 @@ const messages = {
       s005: "所有範本",
       s006: "開放原始碼 AI HTML 原型工作室",
       s007: "根據提示生成互動式 Alpine/Tailwind 原型，比較變體，使用調整控制項進行最佳化，並匯出您擁有的真實檔案。",
-      s008: "試用",
+      s008: "設計點什麼",
       s009: "它是如何運作的",
       s010: "你需要的一切",
       s011: "一個原型工作室，有一個代理來編寫和完善來源程式碼。",
@@ -846,6 +928,23 @@ const messages = {
       s058: "從範本開始並使用編輯來源的代理生成互動式原型。",
       s059: "閱讀檔案",
       s060: "檢視所有範本",
+      faq: {
+        question1: "AI 能產生真正的程式碼設計，而不只是模型圖嗎？",
+        answer1:
+          "可以。Design 會輸出完整、獨立的 HTML，使用 Tailwind 設定樣式並以 Alpine 實作互動。原型本身就是實作，不必再交接給別人重建。",
+        question2: "Design 與 Figma 有什麼不同？",
+        answer2:
+          "Figma 面向在像素層面工作的設計團隊，輸出的是需要他人重新實作的畫面。Design 從提示開始，以可直接發布或繼續迭代的 HTML/CSS/JS 結束。",
+        question3: "它能遵循我的設計系統嗎？",
+        answer3:
+          "可以。儲存可重複使用的設計系統偏好，然後以視覺方式調整常用變數，同時讓代理處理結構和文案變更，例如「使用更溫暖的配色」或「讓標題更醒目」。",
+        question4: "匯出時會得到什麼？",
+        answer4:
+          "得到的是真正的成品：可匯出為檔案、ZIP 或 PDF 的完整 HTML/CSS/JS。內容完全獨立，不使用專有格式，可以發布到任何地方。",
+        question5: "Design 免費嗎？",
+        answer5:
+          "免費且開放原始碼；相較之下，許多設計工具按席次每月收費，或按點數計量。",
+      },
     },
     dispatch: {
       s001: "Dispatch 範本螢幕截圖",
@@ -902,6 +1001,25 @@ const messages = {
       s052: "從範本開始，連線 Slack 或 Telegram，並將您的代理放入每個對話中。",
       s053: "閱讀檔案",
       s054: "檢視所有範本",
+      faq: {
+        question1: "如何同時執行多個 AI 代理，而不必逐一盯著它們？",
+        answer1:
+          "Dispatch 是統一控制中心：從 Slack 或 Telegram 傳訊息給它，它會透過 A2A 將工作路由到 Mail、Slides、Design 等其他代理，並在同一處管理核准和排程。",
+        question2: "我可以從 Slack 與代理對話嗎？",
+        answer2:
+          "可以。Slack 和 Telegram 都支援帶有對話串脈絡和行內核准的雙向訊息，代理的結果會回到同一段對話中。",
+        question3: "代理可以按排程執行嗎？",
+        answer3:
+          "可以。它支援以 cron 為基礎的工作，例如每日站會、每週摘要和每小時檢查。結果會傳送到你的訊息工具，而不是留在一個需要你記得開啟的儀表板中。",
+        question4: "它會記住以前的對話嗎？",
+        answer4:
+          "會。每次對話中的經驗都會自動擷取，並可按使用者、組織或全域限定範圍。記憶可檢查、可編輯，不是黑箱。",
+        question5: "如果我不希望它自行採取行動怎麼辦？",
+        answer5:
+          "內建核准工作流程：傳送電子郵件、發布更新或執行自動化等敏感操作，會等待 Slack 中的一鍵核准。你可以設定哪些操作需要簽核。",
+        question6: "Dispatch 免費嗎？",
+        answer6: "免費且開放原始碼；相較之下，許多代理平台按席次每月收費。",
+      },
     },
     forms: {
       s001: "Forms 範本螢幕截圖",
@@ -909,7 +1027,8 @@ const messages = {
       s003: "生成",
       s004: "路由",
       s005: "所有範本",
-      s006: "Typeform 和 Google Forms 的開放原始碼 AI 替代方案",
+      s006Primary: "Typeform 和 Google Forms 的",
+      s006Secondary: "開放原始碼 AI 替代方案",
       s007: "根據提示產生完整表單，以對話方式最佳化欄位，並將提交路由到 Slack、Discord、Google Sheets 或 Webhook。擁有您的資料和工作流程——無需按回覆付費。",
       s008: "試用",
       s009: "它是如何運作的",
@@ -963,6 +1082,23 @@ const messages = {
       s057: "從範本開始並收集您完全擁有的提交內容。",
       s058: "閱讀檔案",
       s059: "檢視所有範本",
+      faq: {
+        question1: "AI 能幫我建立表單嗎？",
+        answer1:
+          "可以。描述需求後，完整表單就會出現；你可以用對話繼續調整，例如「新增必填的經驗層級下拉選單」，也可以在具備即時預覽和復原功能的視覺化編輯器中拖曳欄位。",
+        question2: "有人提交表單後會發生什麼？",
+        answer2:
+          "提交內容會以結構化形式進入你自己的 SQL 資料庫，並在到達時路由到 Slack、Discord、Google Sheets 或 Webhook。提交會進入代理可以採取行動的地方，而不是無人查看的匯出檔案。",
+        question3: "Forms 與 Typeform 有什麼不同？",
+        answer3:
+          "Typeform 專注於美化填寫體驗。Forms 更關注提交之後：回覆保存在你自己的資料庫中並路由到你的工具，不按回覆計費，表單本身也能透過提示持續迭代。",
+        question4: "Forms 免費嗎？有回覆數量限制嗎？",
+        answer4:
+          "免費且開放原始碼，不按回覆收費，也沒有數量上限。資料在你的資料庫中，因此限制取決於你的資料庫。",
+        question5: "我可以把表單放在自己的網站上嗎？",
+        answer5:
+          "可以。可嵌入任何網站，也可託管在自訂網域上。每個表單還會取得自己的 SEO 友善公開 URL。",
+      },
     },
     mail: {
       s001: "Mail 範本螢幕截圖",
@@ -971,7 +1107,8 @@ const messages = {
       s004: "意見",
       s005: "可自訂",
       s006: "所有範本",
-      s007: "Superhuman 和 Gmail 的開放原始碼替代方案",
+      s007Primary: "Superhuman 和 Gmail 的",
+      s007Secondary: "開放原始碼替代方案",
       s008: "試用",
       s009: "託管示範使用 Agent-Native 的共用 Google 應用程式進行 Gmail 存取，因此 Google 可能會要求您確認後再繼續。在本機執行以使用您自己的 Google OAuth 用戶端。",
       s010: "你能做什麼",
@@ -1025,6 +1162,21 @@ const messages = {
       s058: "閱讀檔案",
       s059: "檢視所有範本",
       s060: "託管示範說明",
+      faq: {
+        question1: "AI 能幫我整理收件匣嗎？",
+        answer1:
+          "可以。代理會讀取收件匣、突顯優先事項、加上標籤並分類、起草回覆、設定自動封存規則，還會摘要未讀郵件並提取待辦事項。",
+        question2: "Mail 與 Superhuman 有什麼不同？",
+        answer2:
+          "鍵盤優先的速度只是基礎：撰寫、封存和回覆都支援快速鍵。不同之處在於，這裡有一個真正處理收件匣的代理，沒有訂閱費，而且程式碼歸你所有。",
+        question3: "Mail 支援 Gmail 嗎？",
+        answer3: "支援 Gmail，並支援多個帳戶。",
+        question4: "我的電子郵件是私密的嗎？",
+        answer4:
+          "Mail 採用開放原始碼並在本機執行，因此郵件留在你的基礎設施中，你可以查看處理郵件的每一行程式碼。",
+        question5: "Mail 免費嗎？",
+        answer5: "免費且開放原始碼，沒有訂閱費，也不會被供應商綁定。",
+      },
     },
     plan: {
       s001: "計畫範本截圖",
@@ -1041,7 +1193,8 @@ const messages = {
       s012: "代理迭代",
       s013: "代理會閱讀您的評論並就地更新計畫。差異準確地顯示了發生了什麼變化以及原因。",
       s014: "所有範本",
-      s015: "Codex、Claude Code 和編碼代理的視覺計畫",
+      s015Primary: "Codex、",
+      s015Secondary: "Claude Code 和編碼代理的視覺計畫",
       s016: "透過一個指令進行安裝。您的代理使用線框圖、圖表、帶註解的程式碼和可共用的審閱連結開啟結構化計畫，而不是在終端中傾倒大量的降價內容。",
       s017: "試用",
       s018: "代理可以做什麼",
@@ -1101,6 +1254,26 @@ const messages = {
       s072: "// 範例計畫塊",
       s073: "ChatGPT Canvas 與 Notion",
       s074: "不適用",
+      faq: {
+        question1: "我可以在 AI 編碼代理寫程式碼前審閱它的計畫嗎？",
+        answer1:
+          "可以。Plans 會把代理的意圖轉成線框圖、圖表和帶註解的程式碼，並產生可分享的 URL。團隊留下評論，代理據此修訂，然後才開始寫程式碼；審閱發生在程式碼出現之前，而不是之後。",
+        question2: "Plans 支援 Claude Code、Codex 和 Cursor 嗎？",
+        answer2:
+          "支援，還包括 GitHub Copilot、OpenCode 和其他編碼代理。只需一條指令即可將它加入為技能：`npx @agent-native/core@latest skills add visual-plan`。不需部署個別應用。",
+        question3: "整個團隊都能審閱計畫，而不只是我一個人嗎？",
+        answer3:
+          "每份計畫都會取得一個內建評論功能的公開 URL。團隊成員可以非同步審閱線框圖和帶註解的差異，不需使用終端；代理會讀取回饋並修訂計畫。",
+        question4: "這與 Claude Code 的 plan mode 有什麼不同？",
+        answer4:
+          "plan mode 是終端中的文字，只對一個人可見，核准後就會消失。Plans 是視覺化的，包含線框圖、圖表和帶註解的差異；它可分享、可持久保存，代理能在功能的整個生命週期中建立、讀取和更新計畫。",
+        question5: "我可以在程式碼旁邊查看計畫嗎？",
+        answer5:
+          "可以。VS Code 擴充功能會在側邊面板開啟計畫，Agent Native Desktop 還會把託管計畫鏡像為本機 MDX 檔案。",
+        question6: "Plans 免費嗎？",
+        answer6:
+          "免費、開放原始碼，並採用 MIT 授權。Plans 提供託管的分享連結，你也可以把所有內容鏡像到本機檔案。",
+      },
     },
     slides: {
       s001: "Slides 範本螢幕截圖",
@@ -1108,18 +1281,19 @@ const messages = {
       s003: "生成",
       s004: "精煉",
       s005: "所有範本",
-      s006: "PowerPoint 和 Canva 的開放原始碼 AI 替代品",
-      s007: "根據提示產生完整的簡報，然後透過對話方式進行完善或進行視覺化編輯。",
+      s006Primary: "為人與代理打造的",
+      s006Secondary: "幻燈片簡報",
+      s007: "使用 AI 代理產生符合品牌風格的投影片簡報，隨時手動修改，並可匯出到任何地方。",
       s008: "試用",
       s009: "它是如何運作的",
       s010: "你需要的一切",
       s011: "內建 AI 的完整示範工作室。",
-      s012: "8 種幻燈片布局",
-      s013: "標題、部分、內容、兩欄、圖片、聲明、全螢幕和空白。",
+      s012: "預設幻燈片版型",
+      s013: "使用我們的入門幻燈片範本。也可以建立並重複使用你自己的範本。",
       s014: "視覺+程式碼編輯",
       s015: "點選可編輯樣式，雙擊可編輯文字。切換到原始 HTML 以實現完全控制。",
-      s016: "AI 圖片生成",
-      s017: "使用 Gemini 產生圖片。品牌一致性的風格參考。 3 種變體可供選取。",
+      s016: "無縫圖片生成",
+      s017: "參考風格與品牌規範。從 Gemini AI 產生的多個方案中挑選。",
       s018: "標誌和圖片搜尋",
       s019: "透過 Logo.dev 或 Brandfetch 搜尋公司徽標。 Google 庫存照片圖片。",
       s020: "拖放重新排序",
@@ -1157,10 +1331,112 @@ const messages = {
       s052: "免費/每個座位",
       s053: "訂閱",
       s054: "免費和開放原始碼",
-      s055: "幾分鐘內即可開始使用",
-      s056: "從範本開始並開始使用 AI 建立簡報。",
+      s055: "立即建立一份簡報",
+      s056: "選擇你的設計偏好和提示詞即可開始。永遠免費。",
       s057: "閱讀檔案",
       s058: "檢視所有範本",
+      faq: {
+        question1: "我可以從 Claude 或 ChatGPT 建立簡報嗎？",
+        answer1:
+          "可以。請 Claude 或 ChatGPT 製作一份簡報，成品會直接進入 Slides，已經符合品牌、可編輯、可匯出，不需要你在簡報網站裡從頭重做。",
+        question2: "AI 做錯的地方可以修改嗎？",
+        answer2:
+          "有三種方式：透過提示修改、手動修改（點選任何元素，雙擊任何文字），或直接編輯程式碼。你永遠不會被困在反覆重新生成、只能碰運氣的流程中。",
+        question3: "簡報如何保持品牌一致？",
+        answer3:
+          "將你滿意的簡報標為星號。每份新簡報都會繼承它的版面配置、標題、視覺風格和品牌權杖。一次性生成器只做出一份簡報，而這裡建立的是可持續重複使用的簡報體系。",
+        question4: "Slides 與 Gamma 有什麼不同？",
+        answer4:
+          "Gamma 能快速一次生成一份不錯的簡報，但之後你會受限於它的畫布和訂閱，並在結果只有 85% 正確時不斷重新生成。Slides 免費、開放原始碼、繼承你的品牌，而且任何內容都可以編輯。",
+        question5: "Slides 免費嗎？",
+        answer5: "免費且開放原始碼，沒有訂閱費、點數計量或按簡報收費。",
+      },
+      howItWorksDescribe:
+        "描述你的主題、受眾和語氣。附上參考簡報。從 UI 或你自己的 AI 工作流程開始。",
+      signInIntegration:
+        "登入後，即可透過 webhook、MCP 或 A2A 整合存取 Slides。",
+      signIn: "登入",
+      tryNow: {
+        step: "第 {{current}} 步，共 {{total}} 步",
+        q1: "你需要什麼類型的簡報？",
+        q1Pitch: "投資人募資簡報",
+        q1Sales: "面向客戶的銷售簡報",
+        q1Talk: "現場演講或課程搭配材料",
+        q1Other: "其他",
+        q1OtherPlaceholder: "描述你需要的簡報類型",
+        q2Pitch: "公司是什麼，本輪募資情況如何？",
+        q2Sales: "你在賣什麼，賣給誰？",
+        q2Talk: "演講主題是什麼，聽眾是誰？",
+        q2Other: "這份簡報要涵蓋哪些內容？",
+        q2Detail: "輸入要點，或者直接給我一個網站連結",
+        q2Placeholder: "要點，或 https://example.com",
+        q3: "給我一個可參照的風格",
+        q3Detail: "貼上一個想要匹配的網站，或者直接選一種調性",
+        q3Placeholder: "https://example.com",
+        q3VibeToggle: "沒有網站？選一種調性",
+        q3VibeMinimal: "極簡、編輯風",
+        q3VibeBold: "大膽、高對比",
+        q3VibeWarm: "溫暖、有人情味",
+        q3VibeTechnical: "技術性強、資料密集",
+        answerAction: "加入提示詞",
+        composerLabel: "你的提示詞",
+        composerPlaceholder: "描述你想要的簡報，或者回答上面的問題。",
+        submit: "產生我的簡報",
+        readyHint: "提示詞已就緒 —— 發送給代理吧。",
+        promptDeck: "建立{{deck}}。",
+        promptSubject: "以下是它應該涵蓋的內容：{{subject}}",
+        promptStyleSite: "匹配 {{style}} 的外觀和風格。",
+        promptStyleVibe: "風格：{{style}}。",
+        promptClose: "起草完整的簡報並附上演講者備註，然後帶我過一遍大綱。",
+        deckPitch: "一份投資人募資簡報",
+        deckSales: "一份面向客戶的銷售簡報",
+        deckTalk: "一份現場演講的搭配簡報",
+        designReference: "設計參考",
+        websiteUrl: "網站 URL",
+        websiteUrlPlaceholder: "https://example.com",
+        crawlWebsite: "檢視網站",
+        crawlError:
+          "我們無法檢視此網站。它可能封鎖了自動存取。請嘗試其他網址，或上傳設計參考。",
+        or: "或",
+        uploadDesignReference: "上傳設計參考",
+        importDesignSystem: "匯入設計系統",
+        loginDesignSystems: "登入以管理設計系統。",
+        promptCreatePrefix: "建立一份",
+        deckTypeLabel: "簡報類型",
+        deckCapitalRaise: "募資",
+        deckOfferingMemorandum: "發行備忘錄",
+        deckB2bSales: "B2B 銷售提案",
+        deckTeamMeeting: "團隊會議議程",
+        deckLiveTalk: "現場演講搭配",
+        promptDeckFor: "簡報，主題為",
+        promptTextShouldBe: "文字應",
+        textAmountLabel: "文字量",
+        textMinimal: "極少",
+        textBrief: "簡潔",
+        textThorough: "詳盡",
+        findingTitle: "標題",
+        findingDescription: "說明",
+        findingColors: "顏色",
+        findingFonts: "字型",
+        findingPrimaryColor: "主色",
+        findingAccentColor: "強調色",
+        findingHeadingFont: "標題字型",
+        findingBodyFont: "內文字型",
+        styleGuidePrefix: "適用於以下網站的風格指南：",
+      },
+    },
+    chat: {
+      faq: {
+        question1: "Chat 範本是什麼？",
+        answer1:
+          "這是一個面向自有代理的極簡 ChatGPT 風格鷹架，提供持久對話串、驗證、actions、即時同步和標準側邊欄，並能清楚地擴充新頁面或接入你的後端。",
+        question2: "它與 ChatGPT 有什麼不同？",
+        answer2:
+          "ChatGPT 是 OpenAI 圍繞自家模型打造的應用。這個範本屬於你：使用你的代理後端、你的資料和你的畫面；它是可擴充的起點，而不是租用的產品。",
+        question3: "它可以直接用於正式環境嗎？",
+        answer3:
+          "它是一個刻意保持極簡的鷹架，是聊天應用誠實的起點，而不是完整成品。如果需要完成度更高的產品，請從其他應用之一開始。",
+      },
     },
   },
   skillsPage: {
@@ -1215,16 +1491,17 @@ const messages = {
     body: "所有 agent-native 應用都在一個桌面外殼中。內建正式環境應用，並提供用於本機開發的開發模式開關。",
     openDesktop: "開啟 Agent Native",
     downloadInstaller: "下載安裝程式",
-    viewInstallers: "檢視安裝程式",
-    viewInstallersOnGithub: "在 GitHub 檢視安裝程式",
-    latestRelease: "最新桌面版：{{version}}",
-    loadError: "無法載入最新桌面版。releases 頁面包含所有安裝程式。",
+    loadError: "無法載入最新桌面安裝程式。",
     checkingRelease: "正在檢查最新桌面版...",
-    nightlyBuilds: "想要 Nightly 版本嗎？",
+    retry: "重試",
+    unavailable: "此平台沒有可用的安裝程式",
+    stable: "穩定版",
+    nightly: "Nightly",
+    switchToNightly: "切換至 Nightly 建置",
+    switchToStable: "切換至穩定版建置",
     runFromSource: "或從來源碼執行",
     runFromSourceBody:
       "還沒有適用於你平台的安裝程式，或更喜歡 CLI？使用 npm 建立新應用並在本機執行；支援 macOS、Windows 和 Linux。",
-    viewAllReleases: "在 GitHub 檢視所有 releases",
     platforms: {
       mac: {
         primary: "下載 Apple Silicon 版本",
@@ -1523,6 +1800,8 @@ const messages = {
     fileUploads: "檔案上傳",
     deployment: "部署",
     deploymentOverview: "總覽",
+    deploymentProviders: "提供者",
+    deploymentProduction: "正式環境與進階",
     deployAnApp: "部署應用程式",
     workspaceDeployment: "工作區部署",
     deploymentNodeDocker: "Node.js",
@@ -1648,12 +1927,6 @@ const messages = {
     clipsAiAndEditing: "AI 與編輯",
     clipsSharingAndTeams: "分享與團隊",
     clipsDevelopers: "開發者指南",
-    brain: "知識庫",
-    brainOverview: "總覽",
-    brainSources: "連線來源",
-    brainKnowledge: "提問與引用",
-    brainAgent: "與 Agent 對話",
-    brainDevelopers: "開發者指南",
     assets: "資產",
     assetsOverview: "總覽",
     assetsGeneration: "產生與精煉",

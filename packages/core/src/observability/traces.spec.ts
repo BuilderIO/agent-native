@@ -189,6 +189,123 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     unregisterTrackingProvider("qa-ai-generation");
   });
 
+  // A run cut off at an `auto_continue` boundary never reaches the loop's
+  // outcome classification, so before this it reported no terminal state at
+  // all: `$ai_error` absent, `terminal_state` null, and the reason recoverable
+  // only from `agent_run_events` on a 7-day retention.
+  it("reports an unplanned cut-off with its reason as a failed terminal state", async () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        if (event.name === "$ai_trace" || event.name === "$ai_generation") {
+          events.push(event);
+        }
+      },
+    });
+
+    const loopOpts: any = {
+      engine: { name: "anthropic" },
+      model: "claude-test",
+      systemPrompt: "",
+      tools: [],
+      messages: [],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    };
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ send }) => {
+        send({ type: "text", text: "partial" });
+        send({ type: "auto_continue", reason: "no_progress" });
+        return {
+          inputTokens: 10,
+          outputTokens: 5,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "claude-test",
+          usageReported: true,
+        };
+      },
+      loopOpts,
+      runId: "run-cutoff-1",
+      threadId: "thread-cutoff-1",
+      config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+    });
+
+    await new Promise((r) => setTimeout(r, 0));
+
+    const trace = events.find((event) => event.name === "$ai_trace");
+    expect(trace).toBeDefined();
+    expect(trace!.properties).toMatchObject({
+      terminal_reason: "no_progress",
+      $ai_is_error: true,
+      $ai_error: expect.objectContaining({
+        terminal_state: "failed",
+        terminal_code: "no_progress",
+        retryable: true,
+      }),
+    });
+
+    const generation = events.find((event) => event.name === "$ai_generation");
+    expect(generation!.properties).toMatchObject({
+      status: "error",
+      terminal_state: "failed",
+      terminal_code: "no_progress",
+    });
+  });
+
+  it("does not count a planned run_timeout boundary as an error", async () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        if (event.name === "$ai_trace") events.push(event);
+      },
+    });
+
+    const loopOpts: any = {
+      engine: { name: "anthropic" },
+      model: "claude-test",
+      systemPrompt: "",
+      tools: [],
+      messages: [],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    };
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ send }) => {
+        send({ type: "text", text: "partial" });
+        send({ type: "auto_continue", reason: "run_timeout" });
+        return {
+          inputTokens: 10,
+          outputTokens: 5,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "claude-test",
+          usageReported: true,
+        };
+      },
+      loopOpts,
+      runId: "run-cutoff-2",
+      threadId: "thread-cutoff-2",
+      config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+    });
+
+    await new Promise((r) => setTimeout(r, 0));
+
+    // A hosted foreground chunk ends this way roughly every 40s by design; the
+    // reason is still recorded so the run_timeout:no_progress ratio is legible.
+    expect(events[0]!.properties).toMatchObject({
+      terminal_reason: "run_timeout",
+    });
+    expect(events[0]!.properties.$ai_is_error).toBe(false);
+    expect(events[0]!.properties.$ai_error).toBeUndefined();
+  });
+
   it("emits a PostHog-compatible AI generation tracking event", async () => {
     const events: TrackingEvent[] = [];
     registerTrackingProvider({

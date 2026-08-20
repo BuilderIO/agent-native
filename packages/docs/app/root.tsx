@@ -167,6 +167,7 @@ function DocsChrome({ children }: { children: React.ReactNode }) {
     <div className="w-full min-w-0 overflow-x-hidden">
       <ScrollManager />
       <Header />
+      <div aria-hidden="true" className="h-16" />
       {children}
       <Footer />
     </div>

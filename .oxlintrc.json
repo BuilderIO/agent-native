@@ -34,12 +34,6 @@
     "packages/core/src/provider-api/**",
     "templates/plan/**",
     "templates/analytics/actions/provider-api-request.ts",
-    "apps/email-automation-console/**",
-    "apps/appointment-blocker-fresh/**",
-    "apps/email-automation-fresh/**",
-    "apps/research-to-deck-fresh/**",
-    "apps/safe-share-fresh/**",
-    "apps/source-to-publish-fresh/**",
     ".github/**",
     "scripts/**",
     ".changeset/**",
@@ -59,12 +53,6 @@
         "templates/*/shared/**/*.ts"
       ],
       "rules": {}
-    },
-    {
-      "files": ["templates/videos/app/remotion/library-components/**/*.tsx"],
-      "rules": {
-        "react-hooks/rules-of-hooks": "warn"
-      }
     }
   ]
 }

@@ -1,7 +1,6 @@
 packages:
   - packages/*
   - examples/*
-  - templates/.retired/*
   - templates/*
   - templates/*/desktop
   - templates/*/chrome-extension
@@ -41,6 +40,7 @@ catalog:
   "@tiptap/extension-collaboration": 3.30.1
   "@tiptap/extension-collaboration-caret": 3.30.1
   "@tiptap/extension-color": 3.30.1
+  "@tiptap/extension-floating-menu": 3.30.1
   "@tiptap/extension-horizontal-rule": 3.30.1
   "@tiptap/extension-image": 3.30.1
   "@tiptap/extension-link": 3.30.1

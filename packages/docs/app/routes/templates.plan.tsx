@@ -1,10 +1,30 @@
-import { useLocale, useT } from "@agent-native/core/client/i18n";
-import { useState } from "react";
-import { Link } from "react-router";
+import { useT } from "@agent-native/core/client/i18n";
+import {
+  IconArrowLeft,
+  IconArrowRight,
+  IconBrandVisualStudio,
+  IconBraces,
+  IconCheck,
+  IconCopy,
+  IconFolders,
+  IconHierarchy,
+  IconLayoutKanban,
+  IconLink,
+} from "@tabler/icons-react";
+import { forwardRef, useImperativeHandle, useRef, useState } from "react";
 
-import { sitePathForLocale } from "../components/docs-locale";
-import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
-import { TemplateDocsLink } from "../components/template-docs";
+import { SectionDivider } from "../components/SectionDivider";
+import {
+  TemplateCapabilityGrid,
+  TemplateComparisonTable,
+  TemplateFinalCta,
+  TemplateHero,
+  TemplateLandingFaq,
+  TemplateLandingShell,
+  TemplateSplitFeature,
+  TemplateStatOrStepsGrid,
+  TemplateStatOrStepsGridItem,
+} from "../components/template-landing";
 import { templates, trackEvent } from "../components/TemplateCard";
 import { withTemplateSocialImage } from "../seo";
 
@@ -41,310 +61,277 @@ export const meta = () =>
 
 const template = templates.find((t) => t.slug === "plan")!;
 
-function CliCopy() {
-  const [copied, setCopied] = useState(false);
-  function handleCopy() {
-    navigator.clipboard.writeText(template.cliCommand);
-    setCopied(true);
-    trackEvent("copy cli command", {
-      template: template.slug,
-      location: "landing_page",
-    });
-    setTimeout(() => setCopied(false), 2000);
-  }
-  return (
-    <button
-      onClick={handleCopy}
-      data-template-cli-copy
-      className="group col-span-full flex w-full min-w-0 max-w-full items-center gap-3 rounded-md border border-[var(--code-border)] bg-[var(--code-bg)] px-4 py-3 font-mono text-sm transition hover:border-[var(--fg-secondary)] sm:w-auto sm:max-w-[min(100%,36rem)] sm:px-5"
-    >
-      <span className="shrink-0 text-[var(--fg-secondary)]">$</span>
-      <span
-        data-template-cli-copy-text
-        className="min-w-0 truncate text-[var(--fg)]"
+const INSTALL_COMMAND = "npx @agent-native/core@latest skills add visual-plan";
+const AGENT_PROMPT = `Install the Agent-Native Plans skill
+(${INSTALL_COMMAND}),
+then run /visual-plan on my current branch before writing any code.`;
+
+const PLAN_VIDEO_PREVIEWS = [
+  {
+    title: "Triggering code to diagram itself",
+    href: "https://clips.agent-native.com/share/F5l6RppFaQDF?ref=clip_share",
+    thumbnail: "https://clips.agent-native.com/api/thumbnail/F5l6RppFaQDF",
+  },
+  {
+    title: "Better, more visual plans for Claude Code",
+    href: "https://clips.agent-native.com/share/F6SlN9TdlK30?ref=clip_share",
+    thumbnail: "https://clips.agent-native.com/api/thumbnail/F6SlN9TdlK30",
+  },
+  {
+    title: "Visual MDX Plans for APIs, UIs, and Flows",
+    href: "https://clips.agent-native.com/share/YuM1nM1pcX3e?ref=clip_share",
+    thumbnail: "https://clips.agent-native.com/api/thumbnail/YuM1nM1pcX3e",
+  },
+];
+
+type PlanVideoCarouselHandle = {
+  scroll: (direction: -1 | 1) => void;
+};
+
+const PlanVideoCarousel = forwardRef<PlanVideoCarouselHandle>(
+  function PlanVideoCarousel(_props, ref) {
+    const sliderRef = useRef<HTMLDivElement>(null);
+
+    function scroll(direction: -1 | 1) {
+      const slider = sliderRef.current;
+      if (!slider) return;
+      const isRtl = getComputedStyle(slider).direction === "rtl";
+      slider.scrollBy({
+        left: direction * slider.clientWidth * 0.8 * (isRtl ? -1 : 1),
+        behavior: "smooth",
+      });
+    }
+
+    useImperativeHandle(ref, () => ({ scroll }), []);
+
+    return (
+      <div
+        ref={sliderRef}
+        aria-label="Visual plan videos"
+        className="flex snap-x snap-mandatory overflow-x-auto border border-[var(--docs-border)] bg-[var(--bg)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
-        {template.cliCommand}
-      </span>
-      <span className="ml-auto shrink-0 text-[var(--fg-secondary)] opacity-100 transition sm:opacity-0 sm:group-hover:opacity-100">
-        {copied ? (
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
+        {PLAN_VIDEO_PREVIEWS.map((video, index) => (
+          <a
+            key={video.href}
+            href={video.href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={`group flex basis-[82%] shrink-0 snap-start flex-col bg-[var(--bg)] text-[var(--fg)] no-underline transition hover:no-underline sm:basis-[46%] lg:basis-1/3 ${
+              index > 0 ? "border-s border-[var(--docs-border)]" : ""
+            }`}
+            onClick={() =>
+              trackEvent("view plan video preview", {
+                clip: video.href,
+                location: "landing_page_video_carousel",
+              })
+            }
           >
-            <polyline points="20 6 9 17 4 12" />
-          </svg>
-        ) : (
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-          </svg>
-        )}
-      </span>
-    </button>
-  );
-}
+            <img
+              src={video.thumbnail}
+              alt=""
+              loading="lazy"
+              decoding="async"
+              className="aspect-video w-full border-b border-[var(--docs-border)] object-cover"
+            />
+            <div className="flex flex-1 items-center justify-between gap-4 p-6 sm:p-8">
+              <h3 className="m-0 text-xl font-medium leading-[1.15] text-[var(--fg)]">
+                {video.title}
+              </h3>
+              <IconArrowRight
+                aria-hidden="true"
+                className="size-[18px] shrink-0 transition-transform group-hover:translate-x-1"
+              />
+            </div>
+          </a>
+        ))}
+      </div>
+    );
+  },
+);
 
 export default function PlanTemplate() {
   const t = useT();
-  const { locale } = useLocale();
+  const [agentPromptCopied, setAgentPromptCopied] = useState(false);
+  const videoCarouselRef = useRef<PlanVideoCarouselHandle>(null);
+
+  function handleCopyAgentPrompt() {
+    navigator.clipboard.writeText(AGENT_PROMPT);
+    setAgentPromptCopied(true);
+    trackEvent("copy agent prompt", {
+      template: template.slug,
+      location: "landing_page_final_cta",
+    });
+    setTimeout(() => setAgentPromptCopied(false), 2000);
+  }
+  const capabilities = [
+    {
+      icon: IconLayoutKanban,
+      title: t("templateLanding.plan.s020"),
+      body: t("templateLanding.plan.s021"),
+    },
+    {
+      icon: IconHierarchy,
+      title: t("templateLanding.plan.s022"),
+      body: t("templateLanding.plan.s023"),
+    },
+    {
+      icon: IconBraces,
+      title: t("templateLanding.plan.s024"),
+      body: t("templateLanding.plan.s025"),
+    },
+    {
+      icon: IconLink,
+      title: t("templateLanding.plan.s026"),
+      body: t("templateLanding.plan.s027"),
+    },
+    {
+      icon: IconFolders,
+      title: t("templateLanding.plan.s028"),
+      body: t("templateLanding.plan.s029"),
+    },
+  ];
+  const workflowSteps = [
+    {
+      step: "1",
+      title: t("templateLanding.plan.s006"),
+      body: t("templateLanding.plan.s007"),
+    },
+    {
+      step: "2",
+      title: t("templateLanding.plan.s008"),
+      body: t("templateLanding.plan.s009"),
+    },
+    {
+      step: "3",
+      title: t("templateLanding.plan.s010"),
+      body: t("templateLanding.plan.s011"),
+    },
+    {
+      step: "4",
+      title: t("templateLanding.plan.s012"),
+      body: t("templateLanding.plan.s013"),
+    },
+  ];
+  const faqItems = Array.from({ length: 6 }, (_, index) => {
+    const itemNumber = index + 1;
+    return {
+      id: `plan-question-${itemNumber}`,
+      question: t(`templateLanding.plan.faq.question${itemNumber}`),
+      answer: (
+        <p className="m-0">
+          {t(`templateLanding.plan.faq.answer${itemNumber}`)}
+        </p>
+      ),
+    };
+  });
+
   return (
-    <main className="template-detail-page mx-auto w-full max-w-[1200px] overflow-x-clip px-4 sm:px-6">
-      {/* Hero */}
-      <section className="py-12 sm:py-16 lg:py-20">
-        <div className="grid min-w-0 gap-10 lg:grid-cols-2 lg:items-start lg:gap-12">
-          <div>
-            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-3 py-1 text-xs text-[var(--fg-secondary)]">
-              <span
-                className="inline-block h-2 w-2 rounded-full"
-                style={{ background: template.color }}
-              />
-              {t("templateDetail.badge", { name: template.name })}
-            </div>
+    <TemplateLandingShell>
+      <TemplateHero
+        eyebrow={
+          <span style={{ color: template.color }}>
+            {t("templateDetail.badge", { name: template.name })}
+          </span>
+        }
+        title={
+          <>
+            <span className="text-[var(--fg)] lg:whitespace-nowrap">
+              {t("templateLanding.plan.s015Primary")}{" "}
+            </span>
+            <span className="text-[var(--fg-secondary)] lg:block">
+              {t("templateLanding.plan.s015Secondary")}
+            </span>
+          </>
+        }
+        description={<p className="m-0">{t("templateLanding.plan.s016")}</p>}
+        media={
+          <img
+            src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fde31fbcbb81b4b799146d46dd4719eb0"
+            crossOrigin="anonymous"
+            alt={t("templateLanding.plan.s001")}
+            loading="lazy"
+            decoding="async"
+            className="h-auto max-h-[536px] w-full object-cover object-top"
+          />
+        }
+      />
 
-            <h1 className="mb-4 text-[2rem] font-bold leading-[1.08] tracking-tight sm:text-4xl md:text-5xl">
-              {t("templateLanding.plan.s015")}
-            </h1>
+      <SectionDivider showOnSmallScreens={false} />
 
-            <p className="mb-6 text-base leading-7 text-[var(--fg-secondary)] sm:text-lg sm:leading-relaxed">
-              {t("templateLanding.plan.s016")}
-            </p>
-
-            <div className="template-detail-actions mb-8 grid grid-cols-2 items-stretch gap-3 sm:flex sm:flex-wrap sm:items-center">
-              <a
-                href="https://plan.agent-native.com"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 rounded-xl bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
-                onClick={(event) => {
-                  applyFirstTouchAttributionToLink(event.currentTarget);
-                  trackEvent("try live demo", {
-                    template: "plan",
-                    location: "landing_page",
-                  });
-                }}
-              >
-                {t("templateLanding.plan.s017")}
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-                  <polyline points="15 3 21 3 21 9" />
-                  <line x1="10" y1="14" x2="21" y2="3" />
-                </svg>
-              </a>
-              <TemplateDocsLink template={template} location="landing_page" />
-              <CliCopy />
-            </div>
-          </div>
-
-          <div className="overflow-hidden rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)]">
-            <img
-              src={template.screenshot}
-              alt={t("templateLanding.plan.s001")}
-              loading="lazy"
-              decoding="async"
-              className="w-full object-cover object-top"
-            />
-          </div>
-        </div>
-      </section>
-
-      {/* By the numbers */}
-      <section className="border-t border-[var(--docs-border)] py-16">
-        <div className="mx-auto grid max-w-3xl gap-px overflow-hidden rounded-xl border border-[var(--docs-border)] bg-[var(--docs-border)] sm:grid-cols-4">
+      <section className="border-t border-[var(--docs-border)]">
+        <TemplateStatOrStepsGrid className="sm:!grid-cols-4">
           {[
             { number: "10+", label: t("templateLanding.plan.s002") },
             { number: "3", label: t("templateLanding.plan.s003") },
             { number: "Live", label: t("templateLanding.plan.s004") },
             { number: "AI", label: t("templateLanding.plan.s005") },
           ].map((stat) => (
-            <div key={stat.label} className="bg-[var(--bg)] p-6 text-center">
-              <div className="mb-1 text-2xl font-bold text-[var(--docs-accent)]">
+            <TemplateStatOrStepsGridItem key={stat.label}>
+              <div
+                className="text-3xl font-medium tracking-tight sm:text-4xl"
+                style={{ color: template.color }}
+              >
                 {stat.number}
               </div>
-              <div className="text-sm text-[var(--fg-secondary)]">
+              <div className="text-lg text-[var(--fg-secondary)] sm:text-xl">
                 {stat.label}
               </div>
-            </div>
+            </TemplateStatOrStepsGridItem>
           ))}
-        </div>
+        </TemplateStatOrStepsGrid>
       </section>
 
-      {/* Core capabilities */}
-      <section className="border-t border-[var(--docs-border)] py-16">
-        <h2 className="mb-3 text-2xl font-bold tracking-tight">
-          {t("templateLanding.plan.s018")}
-        </h2>
-        <p className="mb-8 max-w-2xl text-base text-[var(--fg-secondary)]">
-          {t("templateLanding.plan.s019")}
-        </p>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
-            <div className="mb-3 text-[var(--docs-accent)]">
-              <svg
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <rect x="3" y="3" width="18" height="18" rx="2" />
-                <rect x="7" y="7" width="3" height="9" />
-                <rect x="14" y="7" width="3" height="5" />
-              </svg>
-            </div>
-            <h3 className="mb-1 text-sm font-semibold">
-              {t("templateLanding.plan.s020")}
-            </h3>
-            <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              {t("templateLanding.plan.s021")}
+      <SectionDivider showOnSmallScreens={false} />
+
+      <TemplateCapabilityGrid
+        intro={
+          <>
+            <h2 className="m-0 text-[1.75rem] font-medium leading-[1.15] tracking-tight text-[var(--fg)]">
+              {t("templateLanding.plan.s018")}
+            </h2>
+            <p className="m-0 max-w-[320px] text-lg leading-[1.3] text-[var(--fg-secondary)]">
+              {t("templateLanding.plan.s019")}
             </p>
-          </div>
-          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
-            <div className="mb-3 text-[var(--docs-accent)]">
-              <svg
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <circle cx="12" cy="5" r="2" />
-                <circle cx="5" cy="19" r="2" />
-                <circle cx="19" cy="19" r="2" />
-                <line x1="12" y1="7" x2="5" y2="17" />
-                <line x1="12" y1="7" x2="19" y2="17" />
-              </svg>
+          </>
+        }
+      >
+        {capabilities.map(({ icon: Icon, title, body }) => (
+          <div
+            key={title}
+            className="flex flex-col gap-6 border-b border-[var(--docs-border)] p-6 sm:border-e sm:p-8 sm:even:border-e-0 sm:[&:nth-child(5)]:border-b-0 sm:[&:nth-child(6)]:border-b-0"
+          >
+            <div
+              className="inline-flex size-9 items-center justify-center rounded-md border border-[var(--docs-border)]"
+              style={{ color: template.color }}
+            >
+              <Icon aria-hidden="true" className="size-[18px]" stroke={1.75} />
             </div>
-            <h3 className="mb-1 text-sm font-semibold">
-              {t("templateLanding.plan.s022")}
-            </h3>
-            <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              {t("templateLanding.plan.s023")}
-            </p>
-          </div>
-          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
-            <div className="mb-3 text-[var(--docs-accent)]">
-              <svg
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <polyline points="16 18 22 12 16 6" />
-                <polyline points="8 6 2 12 8 18" />
-                <line x1="12" y1="4" x2="12" y2="20" strokeDasharray="2 2" />
-              </svg>
+            <div className="flex flex-col gap-2">
+              <h3 className="m-0 text-lg font-medium leading-[1.15] text-[var(--fg)]">
+                {title}
+              </h3>
+              <p className="m-0 text-base leading-[1.4] text-[var(--fg-secondary)]">
+                {body}
+              </p>
             </div>
-            <h3 className="mb-1 text-sm font-semibold">
-              {t("templateLanding.plan.s024")}
-            </h3>
-            <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              {t("templateLanding.plan.s025")}
-            </p>
           </div>
-          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
-            <div className="mb-3 text-[var(--docs-accent)]">
-              <svg
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-              </svg>
-            </div>
-            <h3 className="mb-1 text-sm font-semibold">
-              {t("templateLanding.plan.s026")}
-            </h3>
-            <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              {t("templateLanding.plan.s027")}
-            </p>
+        ))}
+        <div className="flex flex-col gap-6 border-b border-[var(--docs-border)] p-6 sm:border-e sm:p-8 sm:even:border-e-0 sm:[&:nth-child(5)]:border-b-0 sm:[&:nth-child(6)]:border-b-0">
+          <div
+            className="inline-flex size-9 items-center justify-center rounded-md border border-[var(--docs-border)]"
+            style={{ color: template.color }}
+          >
+            <IconBrandVisualStudio
+              aria-hidden="true"
+              className="size-[18px]"
+              stroke={1.75}
+            />
           </div>
-          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
-            <div className="mb-3 text-[var(--docs-accent)]">
-              <svg
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M4 4h6l2 3h8v13H4z" />
-                <path d="M8 13h8" />
-                <path d="M12 9v8" />
-              </svg>
-            </div>
-            <h3 className="mb-1 text-sm font-semibold">
-              {t("templateLanding.plan.s028")}
-            </h3>
-            <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              {t("templateLanding.plan.s029")}
-            </p>
-          </div>
-          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
-            <div className="mb-3 text-[var(--docs-accent)]">
-              <svg
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <rect x="3" y="4" width="18" height="14" rx="2" />
-                <path d="M8 21h8" />
-                <path d="M12 18v3" />
-                <path d="M9 9l-3 2.5L9 14" />
-                <path d="M15 9l3 2.5L15 14" />
-              </svg>
-            </div>
-            <h3 className="mb-1 text-sm font-semibold">
+          <div className="flex flex-col gap-2">
+            <h3 className="m-0 text-lg font-medium leading-[1.15] text-[var(--fg)]">
               {t("templateLanding.plan.s061")}
             </h3>
-            <p className="m-0 text-sm text-[var(--fg-secondary)]">
+            <p className="m-0 text-base leading-[1.4] text-[var(--fg-secondary)]">
               {t("templateLanding.plan.s062")}{" "}
               <a
                 href="https://marketplace.visualstudio.com/items?itemName=Builder.agent-native"
@@ -358,65 +345,58 @@ export default function PlanTemplate() {
             </p>
           </div>
         </div>
-      </section>
+      </TemplateCapabilityGrid>
 
-      {/* How it works */}
-      <section className="border-t border-[var(--docs-border)] py-16">
-        <h2 className="mb-3 text-2xl font-bold tracking-tight">
-          {t("templateLanding.plan.s031")}
-        </h2>
-        <p className="mb-10 max-w-2xl text-base text-[var(--fg-secondary)]">
-          {t("templateLanding.plan.s032")}
-        </p>
-        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-          {[
-            {
-              step: "1",
-              title: t("templateLanding.plan.s006"),
-              body: t("templateLanding.plan.s007"),
-            },
-            {
-              step: "2",
-              title: t("templateLanding.plan.s008"),
-              body: t("templateLanding.plan.s009"),
-            },
-            {
-              step: "3",
-              title: t("templateLanding.plan.s010"),
-              body: t("templateLanding.plan.s011"),
-            },
-            {
-              step: "4",
-              title: t("templateLanding.plan.s012"),
-              body: t("templateLanding.plan.s013"),
-            },
-          ].map((item) => (
-            <div key={item.step} className="flex gap-4">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--bg-secondary)] text-sm font-bold text-[var(--docs-accent)] ring-1 ring-[var(--docs-border)]">
+      <SectionDivider showOnSmallScreens={false} />
+
+      <section className="border-t border-[var(--docs-border)]">
+        <div className="border-x border-[var(--docs-border)] px-6 pb-10 pt-16 sm:px-8 sm:pb-14 sm:pt-20">
+          <h2 className="m-0 text-[1.75rem] font-medium leading-[1.05] tracking-tight text-[var(--fg)] sm:text-4xl">
+            {t("templateLanding.plan.s031")}
+          </h2>
+          <p className="m-0 mt-4 max-w-2xl text-lg leading-[1.4] text-[var(--fg-secondary)]">
+            {t("templateLanding.plan.s032")}
+          </p>
+        </div>
+        <TemplateStatOrStepsGrid className="sm:!grid-cols-2 lg:!grid-cols-4">
+          {workflowSteps.map((item, index) => (
+            <TemplateStatOrStepsGridItem
+              key={item.step}
+              className={`${index > 1 ? "sm:!border-t" : "sm:!border-t-0"} ${
+                index % 2 === 0 ? "sm:!border-s-0" : "sm:!border-s"
+              } ${
+                index > 0 ? "lg:!border-s" : "lg:!border-s-0"
+              } lg:!border-t-0`}
+            >
+              <div
+                className="font-mono text-sm font-semibold uppercase tracking-[0.14em]"
+                style={{ color: template.color }}
+              >
                 {item.step}
               </div>
-              <div>
-                <h3 className="mb-1 text-sm font-semibold">{item.title}</h3>
-                <p className="m-0 text-sm text-[var(--fg-secondary)]">
-                  {item.body}
-                </p>
-              </div>
-            </div>
+              <h3 className="m-0 text-xl font-medium leading-[1.15] text-[var(--fg)]">
+                {item.title}
+              </h3>
+              <p className="m-0 text-base leading-[1.4] text-[var(--fg-secondary)]">
+                {item.body}
+              </p>
+            </TemplateStatOrStepsGridItem>
           ))}
-        </div>
+        </TemplateStatOrStepsGrid>
       </section>
 
-      {/* Block types deep-dive */}
-      <section className="border-t border-[var(--docs-border)] py-16">
-        <div className="grid gap-8 lg:grid-cols-2 lg:items-center">
-          <div>
-            <h2 className="mb-3 text-2xl font-bold tracking-tight">
+      <SectionDivider showOnSmallScreens={false} />
+
+      <TemplateSplitFeature
+        leading={
+          <div className="flex h-full flex-col px-6 py-10 sm:px-8 lg:px-10 lg:py-16">
+            <h2 className="m-0 text-[1.75rem] font-medium leading-[1.15] text-[var(--fg)]">
               {t("templateLanding.plan.s033")}
             </h2>
-            <p className="mb-6 text-base text-[var(--fg-secondary)]">
+            <p className="m-0 pt-5 text-lg leading-[1.3] text-[var(--fg-secondary)]">
               {t("templateLanding.plan.s034")}
             </p>
-            <ul className="m-0 list-none space-y-3 p-0 text-sm text-[var(--fg-secondary)]">
+            <ul className="m-0 mt-6 list-none p-0 text-base leading-[1.4] text-[var(--fg-secondary)]">
               {[
                 "s064",
                 "s065",
@@ -427,180 +407,217 @@ export default function PlanTemplate() {
                 "s070",
                 "s071",
               ].map((key) => (
-                <li key={key} className="flex items-start gap-2">
-                  <svg
-                    className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <polyline points="20 6 9 17 4 12" />
-                  </svg>
+                <li key={key} className="flex items-start gap-3 py-2">
+                  <IconCheck
+                    aria-hidden="true"
+                    className="mt-0.5 size-5 shrink-0"
+                    stroke={2}
+                    style={{ color: template.color }}
+                  />
                   {t(`templateLanding.plan.${key}`)}
                 </li>
               ))}
             </ul>
           </div>
-          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-6">
-            <div className="space-y-3 font-mono text-sm">
-              <div className="text-[var(--fg-secondary)]">
+        }
+        trailing={
+          <div className="flex h-full items-center p-6 sm:p-8 lg:p-10">
+            <div className="w-full overflow-x-auto border border-[var(--code-border)] bg-[var(--code-bg)] p-6 font-mono text-sm">
+              <div className="mb-4 text-[var(--fg-secondary)]">
                 {t("templateLanding.plan.s072")}
               </div>
-              <div>
-                <span className="text-[var(--docs-accent)]">type:</span>{" "}
-                <span className="text-[var(--fg)]">
+              <div className="grid min-w-[24rem] gap-3 text-[var(--fg)]">
+                <div>
+                  <span style={{ color: template.color }}>type:</span>{" "}
                   {t("templateLanding.plan.s035")}
-                </span>
-              </div>
-              <div>
-                <span className="text-[var(--docs-accent)]">file:</span>{" "}
-                <span className="text-[var(--fg)]">
+                </div>
+                <div>
+                  <span style={{ color: template.color }}>file:</span>{" "}
                   src/actions/create-post.ts
-                </span>
-              </div>
-              <div>
-                <span className="text-[var(--docs-accent)]">annotations:</span>
-              </div>
-              <div className="pl-4">
-                <span className="text-[var(--docs-accent)]">line 12:</span>{" "}
-                <span className="text-[var(--fg)]">
+                </div>
+                <div>
+                  <span style={{ color: template.color }}>annotations:</span>
+                </div>
+                <div className="ps-4">
+                  <span style={{ color: template.color }}>line 12:</span>{" "}
                   {t("templateLanding.plan.s036")}
-                </span>
-              </div>
-              <div className="pl-4">
-                <span className="text-[var(--docs-accent)]">line 24:</span>{" "}
-                <span className="text-[var(--fg)]">
+                </div>
+                <div className="ps-4">
+                  <span style={{ color: template.color }}>line 24:</span>{" "}
                   {t("templateLanding.plan.s037")}
-                </span>
-              </div>
-              <div>
-                <span className="text-[var(--docs-accent)]">change:</span>{" "}
-                <span className="text-[var(--fg)]">
+                </div>
+                <div>
+                  <span style={{ color: template.color }}>change:</span>{" "}
                   {t("templateLanding.plan.s038")}
-                </span>
+                </div>
               </div>
             </div>
           </div>
+        }
+      />
+
+      <SectionDivider showOnSmallScreens={false} />
+
+      <section className="border-t border-[var(--docs-border)]">
+        <div className="border-x border-[var(--docs-border)] px-6 pb-10 pt-16 sm:px-8 sm:pb-14 sm:pt-24 lg:pb-20 lg:pt-32">
+          <h2 className="m-0 text-[1.75rem] font-medium leading-[1.05] tracking-tight text-[var(--fg)] sm:text-4xl lg:text-[2.875rem]">
+            {t("templateLanding.plan.s039")}
+          </h2>
+        </div>
+        <TemplateComparisonTable
+          caption={t("templateLanding.plan.s039")}
+          featureHeader={t("templateLanding.plan.s039")}
+          columns={[
+            {
+              id: "markdown",
+              header: t("templateLanding.plan.s040"),
+            },
+            {
+              id: "canvas",
+              header: t("templateLanding.plan.s073"),
+            },
+            {
+              id: "agent-native",
+              emphasized: true,
+              agentNative: { color: template.color, name: template.name },
+            },
+          ]}
+          rows={[
+            {
+              id: "visual-rendering",
+              label: t("templateLanding.plan.s041"),
+              cells: {
+                markdown: t("templateLanding.plan.s042"),
+                canvas: t("templateLanding.plan.s043"),
+                "agent-native": t("templateLanding.plan.s044"),
+              },
+            },
+            {
+              id: "agent-update",
+              label: t("templateLanding.plan.s045"),
+              cells: {
+                markdown: t("templateLanding.plan.s046"),
+                canvas: t("templateLanding.plan.s047"),
+                "agent-native": t("templateLanding.plan.s048"),
+              },
+            },
+            {
+              id: "shareable-link",
+              label: t("templateLanding.plan.s049"),
+              cells: {
+                markdown: t("templateLanding.plan.s042"),
+                canvas: t("templateLanding.plan.s050"),
+                "agent-native": t("templateLanding.plan.s051"),
+              },
+            },
+            {
+              id: "prototype-runner",
+              label: t("templateLanding.plan.s005"),
+              cells: {
+                markdown: t("templateLanding.plan.s042"),
+                canvas: t("templateLanding.plan.s042"),
+                "agent-native": t("templateLanding.plan.s052"),
+              },
+            },
+            {
+              id: "agent-integrations",
+              label: t("templateLanding.plan.s053"),
+              cells: {
+                markdown: t("templateLanding.plan.s050"),
+                canvas: t("templateLanding.plan.s042"),
+                "agent-native": t("templateLanding.plan.s054"),
+              },
+            },
+            {
+              id: "open-source",
+              label: t("templateLanding.plan.s055"),
+              cells: {
+                markdown: t("templateLanding.plan.s074"),
+                canvas: t("templateLanding.plan.s042"),
+                "agent-native": t("templateLanding.plan.s056"),
+              },
+            },
+          ]}
+        />
+      </section>
+
+      <section
+        id="watch-plans"
+        className="border-t border-[var(--docs-border)]"
+      >
+        <div className="flex flex-col gap-6 border-x border-[var(--docs-border)] px-6 pb-10 pt-16 sm:flex-row sm:items-end sm:justify-between sm:px-8 sm:pb-14 sm:pt-24 lg:pb-20 lg:pt-32">
+          <h2 className="m-0 text-[1.75rem] font-medium leading-[1.05] tracking-tight text-[var(--fg)] sm:text-4xl lg:text-[2.875rem]">
+            Watch visual plans take shape
+          </h2>
+          <div className="flex gap-3">
+            <button
+              type="button"
+              aria-label="Previous video"
+              onClick={() => videoCarouselRef.current?.scroll(-1)}
+              className="inline-flex size-10 items-center justify-center rounded-md border border-[var(--docs-border)] bg-[var(--bg)] text-[var(--fg)] transition hover:border-[var(--fg-secondary)]"
+            >
+              <IconArrowLeft aria-hidden="true" className="size-[18px]" />
+            </button>
+            <button
+              type="button"
+              aria-label="Next video"
+              onClick={() => videoCarouselRef.current?.scroll(1)}
+              className="inline-flex size-10 items-center justify-center rounded-md border border-[var(--docs-border)] bg-[var(--bg)] text-[var(--fg)] transition hover:border-[var(--fg-secondary)]"
+            >
+              <IconArrowRight aria-hidden="true" className="size-[18px]" />
+            </button>
+          </div>
+        </div>
+        <div className="border-x border-[var(--docs-border)] pb-16">
+          <PlanVideoCarousel ref={videoCarouselRef} />
         </div>
       </section>
 
-      {/* Comparison table */}
-      <section className="border-t border-[var(--docs-border)] py-16">
-        <h2 className="mb-8 text-2xl font-bold tracking-tight">
-          {t("templateLanding.plan.s039")}
-        </h2>
-        <div className="overflow-x-auto rounded-xl border border-[var(--docs-border)]">
-          <table className="comparison-table min-w-[42rem] w-full text-sm">
-            <thead>
-              <tr className="border-b border-[var(--docs-border)] bg-[var(--bg-secondary)]">
-                <th className="px-5 py-3 text-left font-semibold text-[var(--fg)]"></th>
-                <th className="px-5 py-3 text-left font-semibold text-[var(--fg-secondary)]">
-                  {t("templateLanding.plan.s040")}
-                </th>
-                <th className="px-5 py-3 text-left font-semibold text-[var(--fg-secondary)]">
-                  {t("templateLanding.plan.s073")}
-                </th>
-                <th className="px-5 py-3 text-left font-semibold text-[var(--docs-accent)]">
-                  Agent-Native Plans
-                </th>
-              </tr>
-            </thead>
-            <tbody className="text-[var(--fg-secondary)]">
-              <tr className="border-b border-[var(--docs-border)]">
-                <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  {t("templateLanding.plan.s041")}
-                </td>
-                <td className="px-5 py-3">{t("templateLanding.plan.s042")}</td>
-                <td className="px-5 py-3">{t("templateLanding.plan.s043")}</td>
-                <td className="px-5 py-3 text-[var(--fg)]">
-                  {t("templateLanding.plan.s044")}
-                </td>
-              </tr>
-              <tr className="border-b border-[var(--docs-border)]">
-                <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  {t("templateLanding.plan.s045")}
-                </td>
-                <td className="px-5 py-3">{t("templateLanding.plan.s046")}</td>
-                <td className="px-5 py-3">{t("templateLanding.plan.s047")}</td>
-                <td className="px-5 py-3 text-[var(--fg)]">
-                  {t("templateLanding.plan.s048")}
-                </td>
-              </tr>
-              <tr className="border-b border-[var(--docs-border)]">
-                <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  {t("templateLanding.plan.s049")}
-                </td>
-                <td className="px-5 py-3">{t("templateLanding.plan.s042")}</td>
-                <td className="px-5 py-3">{t("templateLanding.plan.s050")}</td>
-                <td className="px-5 py-3 text-[var(--fg)]">
-                  {t("templateLanding.plan.s051")}
-                </td>
-              </tr>
-              <tr className="border-b border-[var(--docs-border)]">
-                <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  {t("templateLanding.plan.s005")}
-                </td>
-                <td className="px-5 py-3">{t("templateLanding.plan.s042")}</td>
-                <td className="px-5 py-3">{t("templateLanding.plan.s042")}</td>
-                <td className="px-5 py-3 text-[var(--fg)]">
-                  {t("templateLanding.plan.s052")}
-                </td>
-              </tr>
-              <tr className="border-b border-[var(--docs-border)]">
-                <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  {t("templateLanding.plan.s053")}
-                </td>
-                <td className="px-5 py-3">{t("templateLanding.plan.s050")}</td>
-                <td className="px-5 py-3">{t("templateLanding.plan.s042")}</td>
-                <td className="px-5 py-3 text-[var(--fg)]">
-                  {t("templateLanding.plan.s054")}
-                </td>
-              </tr>
-              <tr>
-                <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  {t("templateLanding.plan.s055")}
-                </td>
-                <td className="px-5 py-3">{t("templateLanding.plan.s074")}</td>
-                <td className="px-5 py-3">{t("templateLanding.plan.s042")}</td>
-                <td className="px-5 py-3 text-[var(--fg)]">
-                  {t("templateLanding.plan.s056")}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      {/* CTA */}
-      <section className="border-t border-[var(--docs-border)] py-16 text-center">
-        <h2 className="mb-3 text-2xl font-bold tracking-tight">
-          {t("templateLanding.plan.s057")}
-        </h2>
-        <p className="mx-auto mb-8 max-w-lg text-base text-[var(--fg-secondary)]">
+      <TemplateFinalCta
+        eyebrow={
+          <span
+            className="font-mono text-sm font-semibold uppercase tracking-[0.14em]"
+            style={{ color: template.color }}
+          >
+            Agent-Native {template.name}
+          </span>
+        }
+        title={t("templateLanding.plan.s057")}
+        actions={
+          <div className="flex w-full min-w-0 items-center gap-6 rounded-md border border-[var(--docs-border)] bg-[var(--code-bg)] px-4 py-3 sm:px-5">
+            <p className="m-0 min-w-0 flex-1 whitespace-pre-wrap font-mono text-sm leading-6 text-[var(--fg)] sm:text-base">
+              {AGENT_PROMPT}
+            </p>
+            <button
+              type="button"
+              onClick={handleCopyAgentPrompt}
+              aria-label="Copy agent prompt"
+              className="inline-flex size-[34px] shrink-0 items-center justify-center rounded-md border border-[var(--docs-border)] bg-[var(--bg)] text-[var(--fg)] transition hover:border-[var(--fg-secondary)]"
+            >
+              {agentPromptCopied ? (
+                <IconCheck aria-hidden="true" className="size-[18px]" />
+              ) : (
+                <IconCopy aria-hidden="true" className="size-[18px]" />
+              )}
+            </button>
+          </div>
+        }
+      >
+        <p className="m-0 max-w-2xl px-6 text-lg leading-[1.4] text-[var(--fg-secondary)] sm:px-8">
           {t("templateLanding.plan.s058")}
         </p>
-        <div className="template-detail-cta-actions flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center sm:gap-4">
-          <TemplateDocsLink
-            template={template}
-            location="landing_page_cta"
-            className="inline-flex items-center gap-2 rounded-xl bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
-          >
-            {t("templateLanding.plan.s059")}
-          </TemplateDocsLink>
-          <Link
-            data-an-prefetch="viewport"
-            to={sitePathForLocale("/apps", locale)}
-            className="inline-flex items-center gap-2 rounded-xl border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
-          >
-            {t("templateLanding.plan.s060")}
-          </Link>
-        </div>
-      </section>
-    </main>
+      </TemplateFinalCta>
+
+      <TemplateLandingFaq
+        idPrefix="plan-faq"
+        eyebrow={
+          <span style={{ color: template.color }}>
+            {t("templateLanding.faq.eyebrow")}
+          </span>
+        }
+        title={t("templateLanding.faq.title")}
+        items={faqItems}
+      />
+    </TemplateLandingShell>
   );
 }

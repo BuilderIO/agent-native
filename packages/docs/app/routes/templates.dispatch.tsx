@@ -1,10 +1,27 @@
 import { useLocale, useT } from "@agent-native/core/client/i18n";
-import { useState } from "react";
+import {
+  IconBrandSlack,
+  IconCheck,
+  IconClock,
+  IconHierarchy,
+  IconShieldCheck,
+} from "@tabler/icons-react";
 import { Link } from "react-router";
 
 import { sitePathForLocale } from "../components/docs-locale";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
-import { TemplateDocsLink } from "../components/template-docs";
+import { SectionDivider } from "../components/SectionDivider";
+import {
+  TemplateCapabilityGrid,
+  TemplateComparisonTable,
+  TemplateFinalCta,
+  TemplateHero,
+  TemplateLandingFaq,
+  TemplateLandingShell,
+  TemplateSplitFeature,
+  TemplateStatOrStepsGrid,
+  TemplateStatOrStepsGridItem,
+} from "../components/template-landing";
 import { templates, trackEvent } from "../components/TemplateCard";
 import { withTemplateSocialImage } from "../seo";
 
@@ -41,609 +58,377 @@ export const meta = () =>
 
 const template = templates.find((t) => t.slug === "dispatch")!;
 
-function CliCopy() {
-  const [copied, setCopied] = useState(false);
-  function handleCopy() {
-    navigator.clipboard.writeText(template.cliCommand);
-    setCopied(true);
-    trackEvent("copy cli command", {
-      template: template.slug,
-      location: "landing_page",
-    });
-    setTimeout(() => setCopied(false), 2000);
-  }
-  return (
-    <button
-      onClick={handleCopy}
-      data-template-cli-copy
-      className="group col-span-full flex w-full min-w-0 max-w-full items-center gap-3 rounded-md border border-[var(--code-border)] bg-[var(--code-bg)] px-4 py-3 font-mono text-sm transition hover:border-[var(--fg-secondary)] sm:w-auto sm:max-w-[min(100%,36rem)] sm:px-5"
-    >
-      <span className="shrink-0 text-[var(--fg-secondary)]">$</span>
-      <span
-        data-template-cli-copy-text
-        className="min-w-0 truncate text-[var(--fg)]"
-      >
-        {template.cliCommand}
-      </span>
-      <span className="ml-auto shrink-0 text-[var(--fg-secondary)] opacity-100 transition sm:opacity-0 sm:group-hover:opacity-100">
-        {copied ? (
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <polyline points="20 6 9 17 4 12" />
-          </svg>
-        ) : (
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-          </svg>
-        )}
-      </span>
-    </button>
-  );
-}
+const primaryLinkClassName = "primary-button";
 
 export default function DispatchTemplate() {
   const t = useT();
   const { locale } = useLocale();
+  const capabilities = [
+    {
+      icon: IconBrandSlack,
+      title: "Slack & Telegram",
+      body: t("templateLanding.dispatch.s012"),
+    },
+    {
+      icon: IconHierarchy,
+      title: "A2A Delegation",
+      body: t("templateLanding.dispatch.s013"),
+    },
+    {
+      icon: IconClock,
+      title: t("templateLanding.dispatch.s014"),
+      body: t("templateLanding.dispatch.s015"),
+    },
+    {
+      icon: IconShieldCheck,
+      title: t("templateLanding.dispatch.s016"),
+      body: t("templateLanding.dispatch.s017"),
+    },
+  ];
+  const faqItems = Array.from({ length: 6 }, (_, index) => {
+    const itemNumber = index + 1;
+    return {
+      id: `dispatch-question-${itemNumber}`,
+      question: t(`templateLanding.dispatch.faq.question${itemNumber}`),
+      answer: (
+        <p className="m-0">
+          {t(`templateLanding.dispatch.faq.answer${itemNumber}`)}
+        </p>
+      ),
+    };
+  });
+
   return (
-    <main className="template-detail-page mx-auto w-full max-w-[1200px] overflow-x-clip px-4 sm:px-6">
-      {/* Hero */}
-      <section className="py-12 sm:py-16 lg:py-20">
-        <div className="grid min-w-0 gap-10 lg:grid-cols-2 lg:items-start lg:gap-12">
-          <div>
-            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-3 py-1 text-xs text-[var(--fg-secondary)]">
-              <span
-                className="inline-block h-2 w-2 rounded-full"
-                style={{ background: template.color }}
-              />
-              Agent-Native {template.name}
-            </div>
+    <TemplateLandingShell>
+      <TemplateHero
+        eyebrow={
+          <span style={{ color: template.color }}>
+            Agent-Native {template.name}
+          </span>
+        }
+        title={t("templateLanding.dispatch.s007")}
+        description={
+          <p className="m-0">{t("templateLanding.dispatch.s008")}</p>
+        }
+        headingAction={
+          <a
+            href="https://dispatch.agent-native.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className={primaryLinkClassName}
+            onClick={(event) => {
+              applyFirstTouchAttributionToLink(event.currentTarget);
+              trackEvent("try live demo", {
+                template: "dispatch",
+                location: "landing_page_hero",
+              });
+            }}
+          >
+            {t("templateLanding.dispatch.s009")}
+          </a>
+        }
+        media={
+          <img
+            src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd0bd7821c20a41c59924a0cc5101a149"
+            crossOrigin="anonymous"
+            alt={t("templateLanding.dispatch.s001")}
+            loading="lazy"
+            decoding="async"
+            className="h-auto max-h-[536px] w-full object-cover object-top"
+          />
+        }
+      />
 
-            <h1 className="mb-4 text-[2rem] font-bold leading-[1.08] tracking-tight sm:text-4xl md:text-5xl">
-              {t("templateLanding.dispatch.s007")}
-            </h1>
+      <SectionDivider showOnSmallScreens={false} />
 
-            <p className="mb-6 text-base leading-7 text-[var(--fg-secondary)] sm:text-lg sm:leading-relaxed">
-              {t("templateLanding.dispatch.s008")}
-            </p>
-
-            <div className="template-detail-actions mb-8 grid grid-cols-2 items-stretch gap-3 sm:flex sm:flex-wrap sm:items-center">
-              <a
-                href="https://dispatch.agent-native.com"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 rounded-xl bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
-                onClick={(event) => {
-                  applyFirstTouchAttributionToLink(event.currentTarget);
-                  trackEvent("try live demo", {
-                    template: "dispatch",
-                    location: "landing_page",
-                  });
-                }}
-              >
-                {t("templateLanding.dispatch.s009")}
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-                  <polyline points="15 3 21 3 21 9" />
-                  <line x1="10" y1="14" x2="21" y2="3" />
-                </svg>
-              </a>
-              <TemplateDocsLink template={template} location="landing_page" />
-              <CliCopy />
-            </div>
-          </div>
-
-          <div className="overflow-hidden rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)]">
-            <img
-              src={template.screenshot}
-              alt={t("templateLanding.dispatch.s001")}
-              loading="lazy"
-              decoding="async"
-              className="w-full object-cover object-top"
-            />
-          </div>
-        </div>
-      </section>
-
-      {/* By the numbers */}
-      <section className="border-t border-[var(--docs-border)] py-16">
-        <div className="mx-auto grid max-w-3xl gap-px overflow-hidden rounded-xl border border-[var(--docs-border)] bg-[var(--docs-border)] sm:grid-cols-4">
+      <section className="border-t border-[var(--docs-border)]">
+        <TemplateStatOrStepsGrid className="sm:!grid-cols-4">
           {[
             { number: "Slack", label: t("templateLanding.dispatch.s002") },
             { number: "A2A", label: t("templateLanding.dispatch.s003") },
             { number: "∞", label: t("templateLanding.dispatch.s004") },
             { number: "Cron", label: t("templateLanding.dispatch.s005") },
           ].map((stat) => (
-            <div key={stat.label} className="bg-[var(--bg)] p-6 text-center">
-              <div className="mb-1 text-2xl font-bold text-[var(--docs-accent)]">
+            <TemplateStatOrStepsGridItem key={stat.label}>
+              <div
+                className="text-3xl font-medium tracking-tight sm:text-4xl"
+                style={{ color: template.color }}
+              >
                 {stat.number}
               </div>
-              <div className="text-sm text-[var(--fg-secondary)]">
+              <div className="text-lg text-[var(--fg-secondary)] sm:text-xl">
                 {stat.label}
               </div>
-            </div>
+            </TemplateStatOrStepsGridItem>
           ))}
-        </div>
+        </TemplateStatOrStepsGrid>
       </section>
 
-      {/* Core capabilities */}
-      <section className="border-t border-[var(--docs-border)] py-16">
-        <h2 className="mb-3 text-2xl font-bold tracking-tight">
-          {t("templateLanding.dispatch.s010")}
-        </h2>
-        <p className="mb-8 max-w-2xl text-base text-[var(--fg-secondary)]">
-          {t("templateLanding.dispatch.s011")}
-        </p>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
-            <div className="mb-3 text-[var(--docs-accent)]">
-              <svg
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-              </svg>
-            </div>
-            <h3 className="mb-1 text-sm font-semibold">Slack &amp; Telegram</h3>
-            <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              {t("templateLanding.dispatch.s012")}
-            </p>
-          </div>
-          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
-            <div className="mb-3 text-[var(--docs-accent)]">
-              <svg
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <circle cx="12" cy="12" r="3" />
-                <path d="M12 1v6m0 10v6m11-11h-6m-10 0H1m17.66-7.66l-4.24 4.24m-7.78 7.78l-4.24 4.24m12.02 0l-4.24-4.24m-7.78-7.78L1.1 1.1" />
-              </svg>
-            </div>
-            <h3 className="mb-1 text-sm font-semibold">A2A Delegation</h3>
-            <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              {t("templateLanding.dispatch.s013")}
-            </p>
-          </div>
-          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
-            <div className="mb-3 text-[var(--docs-accent)]">
-              <svg
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <circle cx="12" cy="12" r="10" />
-                <polyline points="12 6 12 12 16 14" />
-              </svg>
-            </div>
-            <h3 className="mb-1 text-sm font-semibold">
-              {t("templateLanding.dispatch.s014")}
-            </h3>
-            <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              {t("templateLanding.dispatch.s015")}
-            </p>
-          </div>
-          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
-            <div className="mb-3 text-[var(--docs-accent)]">
-              <svg
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <polyline points="9 11 12 14 22 4" />
-                <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
-              </svg>
-            </div>
-            <h3 className="mb-1 text-sm font-semibold">
-              {t("templateLanding.dispatch.s016")}
-            </h3>
-            <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              {t("templateLanding.dispatch.s017")}
-            </p>
-          </div>
-        </div>
-      </section>
+      <SectionDivider showOnSmallScreens={false} />
 
-      {/* Memory + Routing split */}
-      <section className="border-t border-[var(--docs-border)] py-16">
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="rounded-xl border border-[var(--docs-border)] p-6">
-            <h3 className="mb-2 text-base font-semibold">
+      <TemplateCapabilityGrid
+        intro={
+          <>
+            <h2 className="m-0 text-[1.75rem] font-medium leading-[1.15] tracking-tight text-[var(--fg)]">
+              {t("templateLanding.dispatch.s010")}
+            </h2>
+            <p className="m-0 max-w-[320px] text-lg leading-[1.3] text-[var(--fg-secondary)]">
+              {t("templateLanding.dispatch.s011")}
+            </p>
+          </>
+        }
+      >
+        {capabilities.map(({ icon: Icon, title, body }, index) => (
+          <div
+            key={title}
+            className={`flex flex-col gap-6 border-b border-[var(--docs-border)] p-6 sm:border-e sm:p-8 sm:even:border-e-0 sm:[&:nth-child(3)]:border-b-0 sm:[&:nth-child(4)]:border-b-0 ${
+              [1, 2].includes(index)
+                ? "!border !border-[var(--docs-border)] sm:!border"
+                : ""
+            } ${index === 1 ? "sm:!border-e-0" : ""}`}
+          >
+            <div
+              className="inline-flex size-9 items-center justify-center rounded-md border border-[var(--docs-border)]"
+              style={{ color: template.color }}
+            >
+              <Icon aria-hidden="true" className="size-[18px]" stroke={1.75} />
+            </div>
+            <div className="flex flex-col gap-2">
+              <h3 className="m-0 text-lg font-medium leading-[1.15] text-[var(--fg)]">
+                {title}
+              </h3>
+              <p className="m-0 text-base leading-[1.4] text-[var(--fg-secondary)]">
+                {body}
+              </p>
+            </div>
+          </div>
+        ))}
+      </TemplateCapabilityGrid>
+
+      <SectionDivider showOnSmallScreens={false} />
+
+      <TemplateSplitFeature
+        leading={
+          <div className="flex h-full flex-col px-6 py-10 sm:px-8 lg:px-10 lg:py-16">
+            <h3 className="m-0 text-[1.75rem] font-medium leading-[1.15] text-[var(--fg)]">
               {t("templateLanding.dispatch.s018")}
             </h3>
-            <p className="mb-4 text-sm text-[var(--fg-secondary)]">
+            <p className="m-0 pt-5 text-lg leading-[1.3] text-[var(--fg-secondary)]">
               {t("templateLanding.dispatch.s019")}
             </p>
-            <ul className="m-0 list-none space-y-2 p-0 text-sm text-[var(--fg-secondary)]">
-              <li className="flex items-start gap-2">
-                <svg
-                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-                {t("templateLanding.dispatch.s020")}
-              </li>
-              <li className="flex items-start gap-2">
-                <svg
-                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-                {t("templateLanding.dispatch.s021")}
-              </li>
-              <li className="flex items-start gap-2">
-                <svg
-                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-                {t("templateLanding.dispatch.s022")}
-              </li>
+            <ul className="m-0 mt-6 list-none p-0 text-base leading-[1.4] text-[var(--fg-secondary)]">
+              {["s020", "s021", "s022"].map((key) => (
+                <li key={key} className="flex items-start gap-3 py-2">
+                  <IconCheck
+                    aria-hidden="true"
+                    className="mt-0.5 size-5 shrink-0"
+                    stroke={2}
+                    style={{ color: template.color }}
+                  />
+                  {t(`templateLanding.dispatch.${key}`)}
+                </li>
+              ))}
             </ul>
           </div>
-          <div className="rounded-xl border border-[var(--docs-border)] p-6">
-            <h3 className="mb-2 text-base font-semibold">
+        }
+        trailing={
+          <div className="flex h-full flex-col px-6 py-10 sm:px-8 lg:px-10 lg:py-16">
+            <h3 className="m-0 text-[1.75rem] font-medium leading-[1.15] text-[var(--fg)]">
               {t("templateLanding.dispatch.s023")}
             </h3>
-            <p className="mb-4 text-sm text-[var(--fg-secondary)]">
+            <p className="m-0 pt-5 text-lg leading-[1.3] text-[var(--fg-secondary)]">
               {t("templateLanding.dispatch.s024")}
             </p>
-            <ul className="m-0 list-none space-y-2 p-0 text-sm text-[var(--fg-secondary)]">
-              <li className="flex items-start gap-2">
-                <svg
-                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-                {t("templateLanding.dispatch.s025")}
-              </li>
-              <li className="flex items-start gap-2">
-                <svg
-                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-                {t("templateLanding.dispatch.s026")}
-              </li>
-              <li className="flex items-start gap-2">
-                <svg
-                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-                {t("templateLanding.dispatch.s027")}
-              </li>
+            <ul className="m-0 mt-6 list-none p-0 text-base leading-[1.4] text-[var(--fg-secondary)]">
+              {["s025", "s026", "s027"].map((key) => (
+                <li key={key} className="flex items-start gap-3 py-2">
+                  <IconCheck
+                    aria-hidden="true"
+                    className="mt-0.5 size-5 shrink-0"
+                    stroke={2}
+                    style={{ color: template.color }}
+                  />
+                  {t(`templateLanding.dispatch.${key}`)}
+                </li>
+              ))}
             </ul>
           </div>
-        </div>
-      </section>
+        }
+      />
 
-      {/* Agent actions */}
-      <section className="border-t border-[var(--docs-border)] py-16">
-        <div className="grid gap-8 lg:grid-cols-2 lg:items-center">
-          <div>
-            <h2 className="mb-3 text-2xl font-bold tracking-tight">
+      <SectionDivider showOnSmallScreens={false} />
+
+      <TemplateSplitFeature
+        leading={
+          <div className="flex h-full flex-col justify-center px-6 py-10 sm:px-8 lg:px-10 lg:py-16">
+            <h2 className="m-0 text-[1.75rem] font-medium leading-[1.15] text-[var(--fg)]">
               {t("templateLanding.dispatch.s028")}
             </h2>
-            <p className="mb-6 text-base text-[var(--fg-secondary)]">
+            <p className="m-0 pt-5 text-lg leading-[1.3] text-[var(--fg-secondary)]">
               {t("templateLanding.dispatch.s029")}
             </p>
-            <ul className="m-0 list-none space-y-3 p-0 text-sm text-[var(--fg-secondary)]">
-              <li className="flex items-start gap-2">
-                <svg
-                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-                {t("templateLanding.dispatch.s030")}
-              </li>
-              <li className="flex items-start gap-2">
-                <svg
-                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-                {t("templateLanding.dispatch.s031")}
-              </li>
-              <li className="flex items-start gap-2">
-                <svg
-                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-                {t("templateLanding.dispatch.s032")}
-              </li>
-              <li className="flex items-start gap-2">
-                <svg
-                  className="mt-0.5 shrink-0 text-[var(--docs-accent)]"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-                {t("templateLanding.dispatch.s033")}
-              </li>
+            <ul className="m-0 mt-6 list-none p-0 text-base leading-[1.4] text-[var(--fg-secondary)]">
+              {["s030", "s031", "s032", "s033"].map((key) => (
+                <li key={key} className="flex items-start gap-3 py-2">
+                  <IconCheck
+                    aria-hidden="true"
+                    className="mt-0.5 size-5 shrink-0"
+                    stroke={2}
+                    style={{ color: template.color }}
+                  />
+                  {t(`templateLanding.dispatch.${key}`)}
+                </li>
+              ))}
             </ul>
           </div>
-          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-6">
-            <div className="space-y-3 font-mono text-sm">
-              <div className="text-[var(--fg-secondary)]">
+        }
+        trailing={
+          <div className="flex h-full items-center p-6 sm:p-8 lg:p-10">
+            <div className="w-full overflow-x-auto border border-[var(--code-border)] bg-[var(--code-bg)] p-6 font-mono text-sm">
+              <div className="mb-4 text-[var(--fg-secondary)]">
                 {"// Available agent actions"}
               </div>
-              <div>
-                <span className="text-[var(--docs-accent)]">$</span>{" "}
-                <span className="text-[var(--fg)]">
-                  pnpm action route --target slides
-                </span>
-              </div>
-              <div>
-                <span className="text-[var(--docs-accent)]">$</span>{" "}
-                <span className="text-[var(--fg)]">
-                  pnpm action schedule --cron "0 9 * * 1-5"
-                </span>
-              </div>
-              <div>
-                <span className="text-[var(--docs-accent)]">$</span>{" "}
-                <span className="text-[var(--fg)]">
-                  pnpm action remember --scope user
-                </span>
-              </div>
-              <div>
-                <span className="text-[var(--docs-accent)]">$</span>{" "}
-                <span className="text-[var(--fg)]">
-                  pnpm action approve --action send-email
-                </span>
+              <div className="grid min-w-[28rem] gap-3 text-[var(--fg)]">
+                <div>
+                  <span style={{ color: template.color }}>$</span> pnpm action
+                  route --target slides
+                </div>
+                <div>
+                  <span style={{ color: template.color }}>$</span> pnpm action
+                  schedule --cron "0 9 * * 1-5"
+                </div>
+                <div>
+                  <span style={{ color: template.color }}>$</span> pnpm action
+                  remember --scope user
+                </div>
+                <div>
+                  <span style={{ color: template.color }}>$</span> pnpm action
+                  approve --action send-email
+                </div>
               </div>
             </div>
           </div>
+        }
+      />
+
+      <SectionDivider showOnSmallScreens={false} />
+
+      <section className="border-t border-[var(--docs-border)]">
+        <div className="border-x border-[var(--docs-border)] px-6 pb-10 pt-16 sm:px-8 sm:pb-14 sm:pt-24 lg:pb-20 lg:pt-32">
+          <h2 className="m-0 text-[1.75rem] font-medium leading-[1.05] tracking-tight text-[var(--fg)] sm:text-4xl lg:text-[2.875rem]">
+            {t("templateLanding.dispatch.s034")}
+          </h2>
         </div>
+        <TemplateComparisonTable
+          caption={t("templateLanding.dispatch.s034")}
+          featureHeader={t("templateLanding.dispatch.s034")}
+          columns={[
+            { id: "slack-bots", header: "Slack Bots" },
+            {
+              id: "closed-assistants",
+              header: t("templateLanding.dispatch.s035"),
+            },
+            {
+              id: "agent-native",
+              emphasized: true,
+              agentNative: { color: template.color, name: template.name },
+            },
+          ]}
+          rows={[
+            {
+              id: "cross-app-routing",
+              label: t("templateLanding.dispatch.s036"),
+              cells: {
+                "slack-bots": t("templateLanding.dispatch.s037"),
+                "closed-assistants": t("templateLanding.dispatch.s038"),
+                "agent-native": "A2A to any agent-native app",
+              },
+            },
+            {
+              id: "memory",
+              label: t("templateLanding.dispatch.s004"),
+              cells: {
+                "slack-bots": "None",
+                "closed-assistants": t("templateLanding.dispatch.s039"),
+                "agent-native": t("templateLanding.dispatch.s040"),
+              },
+            },
+            {
+              id: "recurring-jobs",
+              label: t("templateLanding.dispatch.s005"),
+              cells: {
+                "slack-bots": t("templateLanding.dispatch.s041"),
+                "closed-assistants": t("templateLanding.dispatch.s042"),
+                "agent-native": "Cron + agent loop",
+              },
+            },
+            {
+              id: "customization",
+              label: t("templateLanding.dispatch.s043"),
+              cells: {
+                "slack-bots": t("templateLanding.dispatch.s044"),
+                "closed-assistants": t("templateLanding.dispatch.s045"),
+                "agent-native": t("templateLanding.dispatch.s046"),
+              },
+            },
+            {
+              id: "pricing",
+              label: t("templateLanding.dispatch.s047"),
+              cells: {
+                "slack-bots": t("templateLanding.dispatch.s048"),
+                "closed-assistants": t("templateLanding.dispatch.s049"),
+                "agent-native": t("templateLanding.dispatch.s050"),
+              },
+            },
+          ]}
+        />
       </section>
 
-      {/* Comparison table */}
-      <section className="border-t border-[var(--docs-border)] py-16">
-        <h2 className="mb-8 text-2xl font-bold tracking-tight">
-          {t("templateLanding.dispatch.s034")}
-        </h2>
-        <div className="overflow-x-auto rounded-xl border border-[var(--docs-border)]">
-          <table className="comparison-table min-w-[42rem] w-full text-sm">
-            <thead>
-              <tr className="border-b border-[var(--docs-border)] bg-[var(--bg-secondary)]">
-                <th className="px-5 py-3 text-left font-semibold text-[var(--fg)]"></th>
-                <th className="px-5 py-3 text-left font-semibold text-[var(--fg-secondary)]">
-                  Slack Bots
-                </th>
-                <th className="px-5 py-3 text-left font-semibold text-[var(--fg-secondary)]">
-                  {t("templateLanding.dispatch.s035")}
-                </th>
-                <th className="px-5 py-3 text-left font-semibold text-[var(--docs-accent)]">
-                  Agent-Native Dispatch
-                </th>
-              </tr>
-            </thead>
-            <tbody className="text-[var(--fg-secondary)]">
-              <tr className="border-b border-[var(--docs-border)]">
-                <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  {t("templateLanding.dispatch.s036")}
-                </td>
-                <td className="px-5 py-3">
-                  {t("templateLanding.dispatch.s037")}
-                </td>
-                <td className="px-5 py-3">
-                  {t("templateLanding.dispatch.s038")}
-                </td>
-                <td className="px-5 py-3 text-[var(--fg)]">
-                  A2A to any agent-native app
-                </td>
-              </tr>
-              <tr className="border-b border-[var(--docs-border)]">
-                <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  {t("templateLanding.dispatch.s004")}
-                </td>
-                <td className="px-5 py-3">None</td>
-                <td className="px-5 py-3">
-                  {t("templateLanding.dispatch.s039")}
-                </td>
-                <td className="px-5 py-3 text-[var(--fg)]">
-                  {t("templateLanding.dispatch.s040")}
-                </td>
-              </tr>
-              <tr className="border-b border-[var(--docs-border)]">
-                <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  {t("templateLanding.dispatch.s005")}
-                </td>
-                <td className="px-5 py-3">
-                  {t("templateLanding.dispatch.s041")}
-                </td>
-                <td className="px-5 py-3">
-                  {t("templateLanding.dispatch.s042")}
-                </td>
-                <td className="px-5 py-3 text-[var(--fg)]">
-                  Cron + agent loop
-                </td>
-              </tr>
-              <tr className="border-b border-[var(--docs-border)]">
-                <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  {t("templateLanding.dispatch.s043")}
-                </td>
-                <td className="px-5 py-3">
-                  {t("templateLanding.dispatch.s044")}
-                </td>
-                <td className="px-5 py-3">
-                  {t("templateLanding.dispatch.s045")}
-                </td>
-                <td className="px-5 py-3 text-[var(--fg)]">
-                  {t("templateLanding.dispatch.s046")}
-                </td>
-              </tr>
-              <tr>
-                <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  {t("templateLanding.dispatch.s047")}
-                </td>
-                <td className="px-5 py-3">
-                  {t("templateLanding.dispatch.s048")}
-                </td>
-                <td className="px-5 py-3">
-                  {t("templateLanding.dispatch.s049")}
-                </td>
-                <td className="px-5 py-3 text-[var(--fg)]">
-                  {t("templateLanding.dispatch.s050")}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      {/* CTA */}
-      <section className="border-t border-[var(--docs-border)] py-16 text-center">
-        <h2 className="mb-3 text-2xl font-bold tracking-tight">
-          {t("templateLanding.dispatch.s051")}
-        </h2>
-        <p className="mx-auto mb-8 max-w-lg text-base text-[var(--fg-secondary)]">
+      <TemplateFinalCta
+        eyebrow={
+          <span
+            className="font-mono text-sm font-semibold uppercase tracking-[0.14em]"
+            style={{ color: template.color }}
+          >
+            Agent-Native {template.name}
+          </span>
+        }
+        title={t("templateLanding.dispatch.s051")}
+        actions={
+          <>
+            <a
+              href={`${template.demoUrl}/_agent-native/sign-in`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={primaryLinkClassName}
+            >
+              {t("common.signIn")}
+            </a>
+            <Link
+              data-an-prefetch="viewport"
+              to={sitePathForLocale("/apps", locale)}
+              className="inline-flex items-center gap-2 rounded-xl border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
+            >
+              View more apps
+            </Link>
+          </>
+        }
+      >
+        <p className="m-0 max-w-2xl px-6 text-lg leading-[1.4] text-[var(--fg-secondary)] sm:px-8">
           {t("templateLanding.dispatch.s052")}
         </p>
-        <div className="template-detail-cta-actions flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center sm:gap-4">
-          <TemplateDocsLink
-            template={template}
-            location="landing_page_cta"
-            className="inline-flex items-center gap-2 rounded-xl bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
-          >
-            {t("templateLanding.dispatch.s053")}
-          </TemplateDocsLink>
-          <Link
-            data-an-prefetch="viewport"
-            to={sitePathForLocale("/apps", locale)}
-            className="inline-flex items-center gap-2 rounded-xl border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
-          >
-            {t("templateLanding.dispatch.s054")}
-          </Link>
-        </div>
-      </section>
-    </main>
+      </TemplateFinalCta>
+
+      <TemplateLandingFaq
+        idPrefix="dispatch-faq"
+        eyebrow={
+          <span style={{ color: template.color }}>
+            {t("templateLanding.faq.eyebrow")}
+          </span>
+        }
+        title={t("templateLanding.faq.title")}
+        items={faqItems}
+      />
+    </TemplateLandingShell>
   );
 }

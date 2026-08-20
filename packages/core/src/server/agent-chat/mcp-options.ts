@@ -165,15 +165,35 @@ export function resolveAgentChatMcpOptions(
     input?.disableMcp === undefined ? undefined : !input.disableMcp;
   const enabled = pick("enabled", "disableMcp", legacyEnabled, mcp.enabled);
 
+  const connectorCatalog = pick(
+    "connectorCatalog",
+    "connectorCatalog",
+    input?.connectorCatalog,
+    mcp.connectorCatalog,
+  );
+  // `catalogMode: "app"` short-circuits `connectorCatalogActive` in
+  // `build-server.ts`, so declaring both served the app's FULL registry while
+  // the allow-list sat in the config looking authoritative. That is the same
+  // unexplainable-report shape `pick` throws on, minus the legacy/nested pair:
+  // an allow-list is written to keep something off the external surface, and
+  // silently ignoring it hands every action schema to every connector client.
+  if (
+    mcp.catalog === "app" &&
+    connectorCatalog &&
+    connectorCatalog.length > 0
+  ) {
+    throw new Error(
+      `[agent-native] Conflicting agent-chat options: \`mcp.catalog: "app"\` serves this ` +
+        `app's entire action registry flat, which makes \`mcp.connectorCatalog\` ` +
+        `(${connectorCatalog.length} name(s)) inert. Keep \`connectorCatalog\` for a curated ` +
+        `external surface, or drop it and keep \`catalog: "app"\` — not both.`,
+    );
+  }
+
   return {
     enabled: enabled ?? true,
     catalog: mcp.catalog,
-    connectorCatalog: pick(
-      "connectorCatalog",
-      "connectorCatalog",
-      input?.connectorCatalog,
-      mcp.connectorCatalog,
-    ),
+    connectorCatalog,
     externalAgents: pick(
       "externalAgents",
       "externalAgents",

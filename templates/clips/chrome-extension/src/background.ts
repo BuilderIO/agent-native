@@ -6,6 +6,10 @@ import {
   shouldReconcilePersistedRecording,
   type OffscreenRecordingState,
 } from "./native-recording-state";
+import {
+  sendWithInjectionFallback,
+  shouldFollowOverlay,
+} from "./overlay-follow";
 import { captureExtensionError, initExtensionSentry } from "./sentry";
 
 initExtensionSentry("background");
@@ -263,16 +267,11 @@ let overlayBaseEpochMs = 0;
 // up, for both camera-only AND screen+camera recording (recordingShowsBubble).
 let overlayShowsBubble = false;
 let recordingShowsBubble = false;
-// Cross-tab follow: when true, the overlay is pushed to whatever tab the user
-// switches to mid-recording. That requires "<all_urls>" + a declarative content
-// script, which triggers Chrome's broad-host in-depth review. Shipped OFF
-// (activeTab-only: the overlay lives on the launch tab the user invoked the
-// extension from). Capture is unaffected — it runs in the offscreen document via
-// getDisplayMedia regardless. See PERMISSIONS.md to re-enable.
-// Typed `boolean` (not inferred literal `false`) so the cross-tab branches below
-// don't read as unreachable code; flip the value to re-enable. See PERMISSIONS.md.
-const CROSS_TAB_FOLLOW: boolean = false;
-// The tab the recording was launched from — the only tab activeTab lets us touch.
+// Cross-tab follow stays enabled for the next release. It needs the manifest's
+// broad-host review path (`<all_urls>` + declarative content script coverage) so
+// the face bubble and controls keep following the user across tabs and reloads.
+const CROSS_TAB_FOLLOW: boolean = true;
+// The launch tab stays the anchor for the explicit reload recovery path.
 let overlayTabId: number | null = null;
 let countdownEndsAtMs = 0;
 let armingNativeRecordingSessionId: string | null = null;
@@ -425,20 +424,19 @@ async function restoreRuntimeState(): Promise<void> {
 function sendTabMessage(
   tabId: number,
   message: Record<string, unknown>,
-): Promise<void> {
+): Promise<boolean> {
   return new Promise((resolve) => {
     try {
       chrome.tabs.sendMessage(tabId, message, () => {
-        void chrome.runtime.lastError;
-        resolve();
+        resolve(!chrome.runtime.lastError);
       });
     } catch {
-      resolve();
+      resolve(false);
     }
   });
 }
 
-async function ensureContentScript(tabId: number): Promise<void> {
+async function injectContentScript(tabId: number): Promise<boolean> {
   const scripting = (
     chrome as typeof chrome & {
       scripting?: {
@@ -449,18 +447,32 @@ async function ensureContentScript(tabId: number): Promise<void> {
       };
     }
   ).scripting;
-  if (!scripting) return;
-  await scripting
-    .executeScript({ target: { tabId }, files: ["assets/content-script.js"] })
-    .catch(() => undefined);
+  if (!scripting) return false;
+  try {
+    await scripting.executeScript({
+      target: { tabId },
+      files: ["assets/content-script.js"],
+    });
+    return true;
+  } catch {
+    // Unsupported pages (chrome://, the Chrome Web Store, and similar) reject
+    // injection. They still need to record without an in-page overlay.
+    return false;
+  }
 }
 
-async function mountOverlayOnTab(tabId: number): Promise<void> {
-  await ensureContentScript(tabId);
-  await sendTabMessage(tabId, {
-    type: "CLIPS_OVERLAY_MOUNT",
-    parts: desiredParts(),
-  });
+async function mountOverlayOnTab(
+  tabId: number,
+  parts: OverlayPart[] = desiredParts(),
+): Promise<boolean> {
+  return sendWithInjectionFallback(
+    () =>
+      sendTabMessage(tabId, {
+        type: "CLIPS_OVERLAY_MOUNT",
+        parts,
+      }),
+    () => injectContentScript(tabId),
+  );
 }
 
 function allTabs(): Promise<chrome.tabs.Tab[]> {
@@ -470,9 +482,8 @@ function allTabs(): Promise<chrome.tabs.Tab[]> {
 }
 
 async function broadcastMount(): Promise<void> {
-  // activeTab-only: keep the overlay on the launch tab (re-ensures the injected
-  // content script too, so it survives a worker suspend). Cross-tab broadcast is
-  // gated behind CROSS_TAB_FOLLOW because it needs broad host access.
+  // Cross-tab follow uses the declarative content script path, so every mounted
+  // tab can receive the current overlay parts and survive reloads.
   if (!CROSS_TAB_FOLLOW) {
     if (overlayTabId !== null) await mountOverlayOnTab(overlayTabId);
     return;
@@ -535,12 +546,9 @@ async function startPreview(wantsCamera: boolean): Promise<void> {
   if (!tab || typeof tab.id !== "number") return;
   if (previewTabId !== null && previewTabId !== tab.id) await stopPreview();
   previewTabId = tab.id;
-  await ensureContentScript(tab.id);
-  // Injection / send fail silently on unsupported pages (chrome://, etc.).
-  await sendTabMessage(tab.id, {
-    type: "CLIPS_OVERLAY_MOUNT",
-    parts: ["bubble"],
-  });
+  // Message delivery reuses the declarative script; fallback injection fails
+  // silently on unsupported pages (chrome://, the Web Store, and similar).
+  await mountOverlayOnTab(tab.id, ["bubble"]);
 }
 
 async function stopPreview(): Promise<void> {
@@ -2547,29 +2555,40 @@ async function dispatchRuntimeMessage(message: unknown): Promise<unknown> {
   }
 }
 
-// While a recording is active, keep the overlay following the user as they
-// switch tabs (programmatic injection covers tabs opened before the extension
-// loaded; declared content scripts cover navigations).
+// While a recording is active or arming, keep the overlay following the user as
+// they switch tabs. The message-first path reuses declarative scripts and only
+// injects for tabs that predate the extension or otherwise have no receiver.
 chrome.tabs.onActivated.addListener((info) => {
-  if (!CROSS_TAB_FOLLOW) return; // activeTab-only: overlay stays on the launch tab
+  if (!CROSS_TAB_FOLLOW) return;
   void (async () => {
     await ensureRestored();
-    if (overlayPhase === "idle" || !activeNativeRecording) return;
+    if (
+      !shouldFollowOverlay(
+        overlayPhase,
+        Boolean(activeNativeRecording),
+        Boolean(armingNativeRecordingSessionId),
+      )
+    )
+      return;
     await mountOverlayOnTab(info.tabId);
   })();
 });
 
-// The overlay content script is injected on demand (activeTab), so reloading the
-// launch tab wipes it — the camera bubble and toolbar would vanish for the rest
-// of the recording even though capture keeps running in the offscreen document.
-// Re-inject and re-mount once the launch tab finishes reloading while a recording
-// is active. Scoped to the launch tab (the only tab activeTab lets us touch); a
-// same-URL reload keeps that grant.
+// Keep the launch tab in sync after a reload. Declarative follow covers the
+// other tabs; this is the explicit recovery path for the tab that originally
+// started the recording.
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.status !== "complete") return;
   void (async () => {
     await ensureRestored();
-    if (overlayPhase === "idle" || !activeNativeRecording) return;
+    if (
+      !shouldFollowOverlay(
+        overlayPhase,
+        Boolean(activeNativeRecording),
+        Boolean(armingNativeRecordingSessionId),
+      )
+    )
+      return;
     if (tabId !== overlayTabId) return;
     await mountOverlayOnTab(tabId);
     broadcastOverlayState();
