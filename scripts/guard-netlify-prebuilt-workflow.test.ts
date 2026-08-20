@@ -331,6 +331,31 @@ describe("production Netlify site concurrency guard", () => {
 
   it("finds old active production deploys through filtered state requests", async () => {
     const unlock = nodeHeredocs[1];
+    const statesStart = unlock.indexOf(
+      "const ACTIVE_PRODUCTION_DEPLOY_STATES = [",
+    );
+    const statesEnd = unlock.indexOf("];", statesStart);
+    assert(statesStart >= 0 && statesEnd > statesStart);
+    assert.deepEqual(
+      [
+        ...unlock.slice(statesStart, statesEnd).matchAll(/\n\s+"([^"]+)",/g),
+      ].map((match) => match[1]),
+      [
+        "new",
+        "pending",
+        "enqueued",
+        "building",
+        "uploading",
+        "uploaded",
+        "preparing",
+        "prepared",
+        "processing",
+        "processed",
+        "retrying",
+        "pending_review",
+        "accepted",
+      ],
+    );
     const listStart = unlock.indexOf("async function listDeploys");
     const pendingStart = unlock.indexOf(
       "function pendingProductionDeploys",
@@ -368,6 +393,15 @@ describe("production Netlify site concurrency guard", () => {
     const requests: string[] = [];
     const pages = new Map([
       [
+        "https://netlify.test/api/sites/site-id/deploys?per_page=100&production=true&state=pending",
+        {
+          deploys: [
+            { id: "old-pending", context: "production", state: "pending" },
+          ],
+          next: null,
+        },
+      ],
+      [
         "https://netlify.test/api/sites/site-id/deploys?per_page=100&production=true&state=processing",
         {
           deploys: [
@@ -383,16 +417,22 @@ describe("production Netlify site concurrency guard", () => {
       ],
     ]);
 
-    const deploys = await listDeploys("test deploy lookup", ["processing"]);
-    assert.deepEqual(
-      deploys.map((deploy) => deploy.id),
-      ["old-active"],
-    );
-    assert.deepEqual(requests, [
+    const deploys = await listDeploys("test deploy lookup", [
+      "processing",
+      "pending",
+    ]);
+    assert.deepEqual(deploys.map((deploy) => deploy.id).sort(), [
+      "old-active",
+      "old-pending",
+    ]);
+    assert.deepEqual(requests.sort(), [
+      "https://netlify.test/api/sites/site-id/deploys?per_page=100&production=true&state=pending",
       "https://netlify.test/api/sites/site-id/deploys?per_page=100&production=true&state=processing",
     ]);
     assert(
-      requests.every((url) => url.includes("production=true&state=processing")),
+      requests.every((url) =>
+        /production=true&state=(pending|processing)$/.test(url),
+      ),
     );
   });
 
