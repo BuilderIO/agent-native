@@ -674,6 +674,15 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     [pinnedLabels],
   );
 
+  // The top-bar inbox tabs are hidden on mobile, so mirror their non-standard
+  // entries in the drawer. Collapsible system views already appear in the
+  // fixed drawer list below and must not be duplicated here.
+  const mobileInboxTabs = visibleTabs.filter(
+    (tab) =>
+      tab.id !== "inbox" &&
+      !collapsibleViews.some((view) => view.id === tab.id),
+  );
+
   // Is current view one of the hidden ones? If so force-show it
   const currentInHidden = hiddenViews.some((v) => v.id === view);
 
@@ -1023,6 +1032,15 @@ function AppLayoutInner({ children }: AppLayoutProps) {
 
   const useServerLabelCounts = activeAccounts.size === 0;
 
+  // Gmail totals overlap across labels, while these tabs are an exclusive
+  // partition of the loaded inbox. Keep their badges tied to that partition.
+  const inboxPartitionTabIds = new Set<string>(["other"]);
+  for (const pinnedId of pinnedTriageLabels(pinnedLabels)) {
+    inboxPartitionTabIds.add(pinnedId);
+    const label = resolveLabelForCount(pinnedId);
+    if (label) inboxPartitionTabIds.add(label.id);
+  }
+
   type CountKind = "unread" | "total";
   const countFieldForKind = (kind: CountKind) =>
     kind === "total" ? "totalCount" : "unreadCount";
@@ -1066,6 +1084,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       useServerLabelCounts && viewId !== "note-to-self"
         ? (label?.[countField] ?? 0)
         : 0;
+    if (inboxPartitionTabIds.has(viewId)) return localCount;
     return Math.max(serverCount, localCount);
   };
   const getTopBarCount = (viewId: string) => getTabCount(viewId, "total");
@@ -1732,63 +1751,56 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                         ))}
                       </div>
 
-                      {/* Pinned labels */}
-                      {pinnedLabels.filter(
-                        (l) => !collapsibleViews.some((v) => v.id === l),
-                      ).length > 0 && (
+                      {/* Mobile equivalents for the hidden top-bar inbox tabs */}
+                      {mobileInboxTabs.length > 0 && (
                         <>
                           <h2 className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-wider mt-5 mb-3">
                             {t("mail.views.labels")}
                           </h2>
                           <div className="space-y-0.5">
-                            {visibleTabs
-                              .filter(
-                                (t) => t.id !== "inbox" && t.type === "label",
-                              )
-                              .map((tab) => {
-                                const count = getUnreadCount(tab.id);
-                                const depth = labelDepth(
-                                  tab.fullLabel ?? tab.label,
-                                );
-                                return (
-                                  <Link
-                                    key={tab.id}
-                                    to={tab.href}
-                                    onClick={closeSidebar}
-                                    className={cn(
-                                      "flex items-center justify-between rounded-md px-3 py-2.5 text-[14px] transition-colors min-h-[44px]",
-                                      tab.isActive
-                                        ? "bg-accent/60 text-foreground font-medium"
-                                        : "text-foreground/70 hover:bg-accent/30",
-                                    )}
+                            {mobileInboxTabs.map((tab) => {
+                              const count = getUnreadCount(tab.id);
+                              const depth =
+                                tab.type === "label"
+                                  ? labelDepth(tab.fullLabel ?? tab.label)
+                                  : 0;
+                              return (
+                                <Link
+                                  key={tab.id}
+                                  to={tab.href}
+                                  onClick={closeSidebar}
+                                  className={cn(
+                                    "flex items-center justify-between rounded-md px-3 py-2.5 text-[14px] transition-colors min-h-[44px]",
+                                    tab.isActive
+                                      ? "bg-accent/60 text-foreground font-medium"
+                                      : "text-foreground/70 hover:bg-accent/30",
+                                  )}
+                                >
+                                  <span
+                                    className="flex min-w-0 items-center gap-2"
+                                    style={{ paddingLeft: depth * 12 }}
                                   >
-                                    <span
-                                      className="flex min-w-0 items-center gap-2"
-                                      style={{ paddingLeft: depth * 12 }}
-                                    >
-                                      {tab.color && (
-                                        <span
-                                          className="h-2 w-2 rounded-full shrink-0"
-                                          style={{ backgroundColor: tab.color }}
-                                        />
-                                      )}
+                                    {tab.color && (
                                       <span
-                                        className="truncate"
-                                        title={tab.fullLabel}
-                                      >
-                                        {shortLabelName(
-                                          tab.fullLabel ?? tab.label,
-                                        )}
-                                      </span>
-                                    </span>
-                                    {count > 0 && (
-                                      <span className="text-[12px] text-muted-foreground/50 tabular-nums">
-                                        {count}
-                                      </span>
+                                        className="h-2 w-2 rounded-full shrink-0"
+                                        style={{ backgroundColor: tab.color }}
+                                      />
                                     )}
-                                  </Link>
-                                );
-                              })}
+                                    <span
+                                      className="truncate"
+                                      title={tab.fullLabel ?? tab.label}
+                                    >
+                                      {tab.label}
+                                    </span>
+                                  </span>
+                                  {count > 0 && (
+                                    <span className="text-[12px] text-muted-foreground/50 tabular-nums">
+                                      {count}
+                                    </span>
+                                  )}
+                                </Link>
+                              );
+                            })}
                           </div>
                         </>
                       )}

@@ -37,6 +37,19 @@ describe("AppLayout inbox rail count", () => {
     expect(source).toContain('href: "/inbox?tab=other"');
     expect(source).toContain('params.set("tab", tab)');
   });
+
+  it("keeps exclusive tab badges local and mirrors primary tabs on mobile", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain(
+      'const inboxPartitionTabIds = new Set<string>(["other"]);',
+    );
+    expect(source).toContain(
+      "if (inboxPartitionTabIds.has(viewId)) return localCount;",
+    );
+    expect(source).toContain("const mobileInboxTabs = visibleTabs.filter(");
+    expect(source).toContain("{mobileInboxTabs.map((tab) => {");
+  });
 });
 
 describe("labelTabHref", () => {

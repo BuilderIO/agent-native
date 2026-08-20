@@ -418,7 +418,10 @@ export function InboxPage() {
   // Clear multi-selection when switching views or label tabs. Do NOT clear on
   // threadId changes — shift+j/k in detail view navigates between threads while
   // extending the selection, so selection must persist across thread nav.
-  useEffect(() => setSelectedIds(new Set()), [view, activeLabel]);
+  useEffect(
+    () => setSelectedIds(new Set()),
+    [view, activeLabel, activeInboxTab],
+  );
 
   // Sync current navigation state to file (write-only, so agent can read it)
   const searchQ = searchParams.get("q") ?? undefined;

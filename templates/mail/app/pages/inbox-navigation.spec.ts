@@ -20,6 +20,12 @@ describe("Inbox navigation commands", () => {
     expect(source).toContain("compose.setActiveId(navCommand.composeDraftId)");
     expect(source).toContain("FOCUS_COMPOSE_DRAFT_EVENT");
   });
+
+  it("clears selection when switching inbox partitions", () => {
+    const source = inboxSource();
+
+    expect(source).toContain("[view, activeLabel, activeInboxTab]");
+  });
 });
 
 describe("Inbox pagination", () => {
