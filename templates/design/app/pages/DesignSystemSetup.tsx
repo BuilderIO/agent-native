@@ -97,6 +97,8 @@ interface BuilderIndexInput {
   designMd?: string;
 }
 
+const MAX_INLINE_DESIGN_MD_BYTES = 2 * 1024 * 1024;
+
 export default function DesignSystemSetup() {
   const t = useT();
   const navigate = useNavigate();
@@ -127,6 +129,7 @@ export default function DesignSystemSetup() {
   const assetInputRef = useRef<HTMLInputElement>(null);
   const codeInputRef = useRef<HTMLInputElement>(null);
   const designMdInputRef = useRef<HTMLInputElement>(null);
+  const designMdUploadGenerationRef = useRef(0);
   const appliedSourceIdRef = useRef<string | null>(null);
 
   const { data: designsData } = useActionQuery<{
@@ -407,8 +410,14 @@ export default function DesignSystemSetup() {
       const file = files[0];
       e.target.value = "";
       if (!file) return;
+      const uploadGeneration = ++designMdUploadGenerationRef.current;
+      setDesignMdFiles([]);
       if (!isDesignMdFile({ name: file.name })) {
         setValidationError(t("designSystemSetup.errors.chooseDesignMd"));
+        return;
+      }
+      if (file.size > MAX_INLINE_DESIGN_MD_BYTES) {
+        setValidationError(t("designSystemSetup.errors.designMdTooLarge"));
         return;
       }
       const uploadedFile: UploadedFile = {
@@ -420,10 +429,16 @@ export default function DesignSystemSetup() {
       file
         .text()
         .then((text) => {
+          if (designMdUploadGenerationRef.current !== uploadGeneration) {
+            return;
+          }
           setDesignMdFiles([{ ...uploadedFile, textContent: text }]);
           setValidationError(null);
         })
         .catch(() => {
+          if (designMdUploadGenerationRef.current !== uploadGeneration) {
+            return;
+          }
           setValidationError(t("designSystemSetup.errors.readDesignMd"));
         });
     },

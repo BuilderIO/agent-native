@@ -1547,6 +1547,7 @@ const enUS = {
         "Could not start GitHub indexing. Check your Builder connection and repository access.",
       chooseDesignMd: "Please choose a design.md or design.mdx file.",
       readDesignMd: "Could not read the design.md file.",
+      designMdTooLarge: "design.md must be 2 MB or smaller.",
       designMdIndex:
         "Could not start design.md indexing. Check your Builder connection.",
       noSources: "Add at least one source before generating a design system.",
@@ -2032,6 +2033,7 @@ const designLocaleOverrides = {
           "无法启动 GitHub 索引。请检查 Builder 连接和仓库访问权限。",
         chooseDesignMd: "请选择 design.md 或 design.mdx 文件。",
         readDesignMd: "无法读取 design.md 文件。",
+        designMdTooLarge: "design.md 必须不超过 2 MB。",
         designMdIndex: "无法启动 design.md 索引。请检查 Builder 连接。",
         noSources: "在生成设计系统之前至少添加一个源。",
       },
@@ -2468,6 +2470,7 @@ const designLocaleOverrides = {
           "No se pudo iniciar la indexación de GitHub. Comprueba la conexión de Builder y el acceso al repositorio.",
         chooseDesignMd: "Elija un archivo design.md o design.mdx.",
         readDesignMd: "No se pudo leer el archivo design.md.",
+        designMdTooLarge: "design.md debe tener un tamaño máximo de 2 MB.",
         designMdIndex:
           "No se pudo iniciar la indexación de design.md. Comprueba la conexión de Builder.",
         noSources:
@@ -2919,6 +2922,7 @@ const designLocaleOverrides = {
           "Impossible de démarrer l’indexation GitHub. Vérifiez la connexion à Builder et l’accès au dépôt.",
         chooseDesignMd: "Veuillez choisir un fichier design.md ou design.mdx.",
         readDesignMd: "Impossible de lire le fichier design.md.",
+        designMdTooLarge: "design.md doit faire 2 Mo ou moins.",
         designMdIndex:
           "Impossible de démarrer l’indexation de design.md. Vérifiez la connexion à Builder.",
         noSources:
@@ -3371,6 +3375,7 @@ const designLocaleOverrides = {
           "GitHub-Indizierung konnte nicht gestartet werden. Prüfe die Builder-Verbindung und den Repository-Zugriff.",
         chooseDesignMd: "Wählen Sie eine design.md- oder design.mdx-Datei aus.",
         readDesignMd: "Die design.md-Datei konnte nicht gelesen werden.",
+        designMdTooLarge: "design.md darf höchstens 2 MB groß sein.",
         designMdIndex:
           "Die design.md-Indizierung konnte nicht gestartet werden. Prüfen Sie die Builder-Verbindung.",
         noSources:
@@ -3820,6 +3825,7 @@ const designLocaleOverrides = {
         chooseDesignMd:
           "design.md または design.mdx ファイルを選択してください。",
         readDesignMd: "design.md ファイルを読み込めませんでした。",
+        designMdTooLarge: "design.md は 2 MB 以下にしてください。",
         designMdIndex:
           "design.md のインデックス作成を開始できませんでした。Builder の接続を確認してください。",
         noSources:
@@ -4260,6 +4266,7 @@ const designLocaleOverrides = {
           "GitHub 인덱싱을 시작할 수 없습니다. Builder 연결과 저장소 접근 권한을 확인하세요.",
         chooseDesignMd: "design.md 또는 design.mdx 파일을 선택하세요.",
         readDesignMd: "design.md 파일을 읽을 수 없습니다.",
+        designMdTooLarge: "design.md 파일은 2MB 이하여야 합니다.",
         designMdIndex:
           "design.md 인덱싱을 시작할 수 없습니다. Builder 연결을 확인하세요.",
         noSources: "디자인 시스템을 생성하기 전에 소스를 하나 이상 추가하세요.",
@@ -4701,6 +4708,7 @@ const designLocaleOverrides = {
           "Não foi possível iniciar a indexação do GitHub. Verifique a conexão do Builder e o acesso ao repositório.",
         chooseDesignMd: "Escolha um arquivo design.md ou design.mdx.",
         readDesignMd: "Não foi possível ler o arquivo design.md.",
+        designMdTooLarge: "design.md deve ter no máximo 2 MB.",
         designMdIndex:
           "Não foi possível iniciar a indexação do design.md. Verifique a conexão do Builder.",
         noSources:
@@ -5141,6 +5149,7 @@ const designLocaleOverrides = {
           "GitHub इंडेक्सिंग शुरू नहीं हो सकी। Builder कनेक्शन और रिपॉजिटरी एक्सेस जाँचें।",
         chooseDesignMd: "कृपया design.md या design.mdx फ़ाइल चुनें।",
         readDesignMd: "design.md फ़ाइल पढ़ी नहीं जा सकी।",
+        designMdTooLarge: "design.md 2 MB या उससे छोटा होना चाहिए।",
         designMdIndex: "design.md इंडेक्सिंग शुरू नहीं हो सकी। Builder कनेक्शन जाँचें।",
         noSources: "डिज़ाइन सिस्टम तैयार करने से पहले कम से कम एक स्रोत जोड़ें।",
       },
@@ -5576,6 +5585,7 @@ const designLocaleOverrides = {
           "تعذر بدء فهرسة GitHub. تحقق من اتصال Builder ومن صلاحية الوصول إلى المستودع.",
         chooseDesignMd: "يرجى اختيار ملف design.md أو design.mdx.",
         readDesignMd: "تعذر قراءة ملف design.md.",
+        designMdTooLarge: "يجب ألا يتجاوز حجم design.md ‏2 ميغابايت.",
         designMdIndex: "تعذر بدء فهرسة design.md. تحقق من اتصال Builder.",
         noSources: "أضف مصدرًا واحدًا على الأقل قبل إنشاء نظام التصميم.",
       },

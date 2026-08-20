@@ -1342,6 +1342,7 @@ const messages = {
         "無法啟動 GitHub 索引。請檢查 Builder 連線和儲存庫存取權限。",
       chooseDesignMd: "請選取 design.md 或 design.mdx 檔案。",
       readDesignMd: "無法讀取 design.md 檔案。",
+      designMdTooLarge: "design.md 必須為 2 MB 或更小。",
       designMdIndex: "無法啟動 design.md 索引。請檢查 Builder 連線。",
       noSources: "在生成設計系統之前至少新增一個來源。",
     },
