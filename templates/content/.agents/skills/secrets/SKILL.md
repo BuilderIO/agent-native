@@ -38,7 +38,11 @@ connection exists:
   register a `kind: "oauth"` entry so the shared UI renders Connect and the
   runtime owns status, refresh, and reauthorization.
 - **Deploy- or app-level configuration** - use deployment/runtime
-  configuration, not a per-user secret row.
+  configuration, not a per-user secret row. For a non-secret public setting
+  already represented by `AgentNativeConfig`, put the default in
+  `agent-native.config.ts` and use its `AGENT_NATIVE_CONFIG_<PATH>` alias only
+  for a deployment override. Never put a credential or provider key in that
+  public namespace.
 - **Account, customer, manager, or other non-secret identifier** - store it as
   scoped connection metadata or app data, not as a masked secret field.
 
