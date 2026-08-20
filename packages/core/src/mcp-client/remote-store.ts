@@ -52,6 +52,7 @@ import { validateRemoteUrl } from "./remote-url.js";
 export { validateRemoteUrl } from "./remote-url.js";
 
 const SETTINGS_KEY = "mcp-servers-remote";
+const OAUTH_CLEANUP_SETTINGS_KEY = "mcp-oauth-pending-cleanups";
 
 export type RemoteMcpScope = "user" | "org";
 
@@ -198,6 +199,152 @@ function parseServerList(
   return ((raw as any).servers as StoredRemoteMcpServer[]).filter(
     (s) => s && typeof s.id === "string" && typeof s.url === "string",
   );
+}
+
+interface PendingOAuthCleanup {
+  key: string;
+  serverUrl: string;
+}
+
+function parsePendingOAuthCleanups(
+  raw: Record<string, unknown> | null,
+): PendingOAuthCleanup[] {
+  if (!raw || !Array.isArray(raw.cleanups)) return [];
+  return raw.cleanups.filter(
+    (cleanup): cleanup is PendingOAuthCleanup =>
+      !!cleanup &&
+      typeof cleanup === "object" &&
+      typeof (cleanup as PendingOAuthCleanup).key === "string" &&
+      typeof (cleanup as PendingOAuthCleanup).serverUrl === "string",
+  );
+}
+
+function pendingOAuthCleanupId(cleanup: PendingOAuthCleanup): string {
+  return `${cleanup.key}\u0000${cleanup.serverUrl}`;
+}
+
+function getScopedSetting(
+  scope: RemoteMcpScope,
+  scopeId: string,
+  key: string,
+): Promise<Record<string, unknown> | null> {
+  return scope === "user"
+    ? getUserSetting(scopeId, key)
+    : getOrgSetting(scopeId, key);
+}
+
+function mutateScopedSetting(
+  scope: RemoteMcpScope,
+  scopeId: string,
+  key: string,
+  updater: (
+    current: Record<string, unknown> | null,
+  ) => Record<string, unknown> | Promise<Record<string, unknown>>,
+): Promise<Record<string, unknown>> {
+  return scope === "user"
+    ? mutateUserSetting(scopeId, key, updater)
+    : mutateOrgSetting(scopeId, key, updater);
+}
+
+async function enqueueOAuthCleanup(
+  scope: RemoteMcpScope,
+  scopeId: string,
+  cleanup: PendingOAuthCleanup,
+): Promise<void> {
+  await mutateScopedSetting(
+    scope,
+    scopeId,
+    OAUTH_CLEANUP_SETTINGS_KEY,
+    (current) => {
+      const cleanups = parsePendingOAuthCleanups(current);
+      if (
+        cleanups.some(
+          (candidate) =>
+            pendingOAuthCleanupId(candidate) === pendingOAuthCleanupId(cleanup),
+        )
+      ) {
+        return { cleanups };
+      }
+      return { cleanups: [...cleanups, cleanup] };
+    },
+  );
+}
+
+async function drainOAuthCleanup(
+  scope: RemoteMcpScope,
+  scopeId: string,
+): Promise<void> {
+  const pending = parsePendingOAuthCleanups(
+    await getScopedSetting(scope, scopeId, OAUTH_CLEANUP_SETTINGS_KEY),
+  );
+  if (pending.length === 0) return;
+
+  const servers = await readList(scope, scopeId);
+  const retained = [] as PendingOAuthCleanup[];
+  for (const cleanup of pending) {
+    // A later reconnect may have reused this key. Keep the marker rather than
+    // revoking credentials that are referenced by the current settings row.
+    if (servers.some((server) => server.oauthSecretKey === cleanup.key)) {
+      retained.push(cleanup);
+      continue;
+    }
+    try {
+      const result = await revokeMcpOAuthCredentials({
+        key: cleanup.key,
+        scope,
+        scopeId,
+        serverUrl: cleanup.serverUrl,
+      });
+      if (result.local !== "deleted") retained.push(cleanup);
+    } catch {
+      retained.push(cleanup);
+    }
+  }
+
+  const attemptedIds = new Set(pending.map(pendingOAuthCleanupId));
+  const retainedIds = new Set(retained.map(pendingOAuthCleanupId));
+  await mutateScopedSetting(
+    scope,
+    scopeId,
+    OAUTH_CLEANUP_SETTINGS_KEY,
+    (current) => ({
+      cleanups: parsePendingOAuthCleanups(current).filter(
+        (cleanup) =>
+          !attemptedIds.has(pendingOAuthCleanupId(cleanup)) ||
+          retainedIds.has(pendingOAuthCleanupId(cleanup)),
+      ),
+    }),
+  );
+}
+
+async function cleanupOAuthGrant(
+  scope: RemoteMcpScope,
+  scopeId: string,
+  cleanup: PendingOAuthCleanup,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  let reason: string;
+  try {
+    const result = await revokeMcpOAuthCredentials({
+      key: cleanup.key,
+      scope,
+      scopeId,
+      serverUrl: cleanup.serverUrl,
+    });
+    if (result.local === "deleted") return { ok: true };
+    reason = "the credential revision changed during cleanup";
+  } catch (err: any) {
+    reason = err?.message ?? String(err);
+  }
+
+  try {
+    await enqueueOAuthCleanup(scope, scopeId, cleanup);
+    return { ok: true };
+  } catch (err: any) {
+    return {
+      ok: false,
+      error: `${reason}; failed to queue retry: ${err?.message ?? String(err)}`,
+    };
+  }
 }
 
 async function mutateServerList(
@@ -365,6 +512,8 @@ export async function replaceOAuthRemoteServer(
     };
   }
 
+  await drainOAuthCleanup(scope, scopeId);
+
   const nextSecretKey = `mcp_oauth:${shortId()}`;
   const nextCredentials = {
     ...credentials,
@@ -397,26 +546,29 @@ export async function replaceOAuthRemoteServer(
       return next;
     });
   } catch (err: any) {
-    await revokeMcpOAuthCredentials({
+    const cleanup = await cleanupOAuthGrant(scope, scopeId, {
       key: nextSecretKey,
-      scope,
-      scopeId,
       serverUrl: nextCredentials.serverUrl,
-    }).catch(() => undefined);
+    });
+    const cleanupError = cleanup.ok ? "" : `; ${cleanup.error}`;
     return {
       ok: false,
-      error: `Failed to replace MCP OAuth credentials: ${err?.message ?? err}`,
+      error: `Failed to replace MCP OAuth credentials: ${err?.message ?? err}${cleanupError}`,
     };
   }
 
   // The settings row now points at the replacement grant. Old-grant cleanup
   // is best effort and must not roll back or invalidate the committed row.
-  await revokeMcpOAuthCredentials({
+  const cleanup = await cleanupOAuthGrant(scope, scopeId, {
     key: current.oauthSecretKey,
-    scope,
-    scopeId,
     serverUrl: current.url,
-  }).catch(() => undefined);
+  });
+  if (!cleanup.ok) {
+    return {
+      ok: false,
+      error: `MCP OAuth replacement committed, but old-grant cleanup failed: ${cleanup.error}`,
+    };
+  }
   const server = updated.find((candidate) => candidate.id === serverId);
   return server
     ? { ok: true, server }

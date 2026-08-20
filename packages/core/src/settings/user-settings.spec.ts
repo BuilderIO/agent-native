@@ -2,17 +2,20 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // Mock the store module
 const mockGetSetting = vi.fn();
+const mockMutateSetting = vi.fn();
 const mockPutSetting = vi.fn();
 const mockDeleteSetting = vi.fn();
 
 vi.mock("./store.js", () => ({
   getSetting: (...args: any[]) => mockGetSetting(...args),
+  mutateSetting: (...args: any[]) => mockMutateSetting(...args),
   putSetting: (...args: any[]) => mockPutSetting(...args),
   deleteSetting: (...args: any[]) => mockDeleteSetting(...args),
 }));
 
 import {
   getUserSetting,
+  mutateUserSetting,
   putUserSetting,
   deleteUserSetting,
 } from "./user-settings.js";
@@ -20,6 +23,14 @@ import {
 describe("user-settings", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockMutateSetting.mockImplementation(
+      async (
+        _key: string,
+        updater: (
+          current: Record<string, unknown> | null,
+        ) => Record<string, unknown> | Promise<Record<string, unknown>>,
+      ) => updater(null),
+    );
   });
 
   describe("getUserSetting", () => {
@@ -76,6 +87,29 @@ describe("user-settings", () => {
         "u:alice@test.com:pref",
         { v: 1 },
         { requestSource: "tab-1" },
+      );
+    });
+  });
+
+  describe("mutateUserSetting", () => {
+    it("uses the legacy mixed-case row when the normalized row is absent", async () => {
+      mockGetSetting.mockResolvedValueOnce({ servers: [{ id: "legacy" }] });
+
+      await expect(
+        mutateUserSetting(
+          "Alice@Test.com",
+          "mcp-servers-remote",
+          (current) => current ?? {},
+        ),
+      ).resolves.toEqual({ servers: [{ id: "legacy" }] });
+
+      expect(mockMutateSetting).toHaveBeenCalledWith(
+        "u:alice@test.com:mcp-servers-remote",
+        expect.any(Function),
+        undefined,
+      );
+      expect(mockGetSetting).toHaveBeenCalledWith(
+        "u:Alice@Test.com:mcp-servers-remote",
       );
     });
   });

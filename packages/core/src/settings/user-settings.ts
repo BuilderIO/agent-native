@@ -59,7 +59,16 @@ export async function mutateUserSetting(
   ) => Record<string, unknown> | Promise<Record<string, unknown>>,
   options?: StoreWriteOptions,
 ): Promise<Record<string, unknown>> {
-  return mutateSetting(userKey(email, key), updater, options);
+  const normalized = userKey(email, key);
+  const legacy = legacyUserKey(email, key);
+  return mutateSetting(
+    normalized,
+    async (current) =>
+      updater(
+        current ?? (legacy === normalized ? null : await getSetting(legacy)),
+      ),
+    options,
+  );
 }
 
 /** Delete a user-scoped setting. */

@@ -210,6 +210,45 @@ describe("OAuth remote MCP metadata", () => {
     );
   });
 
+  it("queues old-grant cleanup when a concurrent refresh replaces its revision", async () => {
+    getUserSettingMock.mockResolvedValue({
+      servers: [
+        {
+          id: "mcps_oauth",
+          name: "sigma",
+          url: "https://mcp.example.com/",
+          oauthSecretKey: "mcp_oauth:old",
+          createdAt: 1,
+        },
+      ],
+    });
+    oauthMocks.revoke.mockResolvedValueOnce({
+      remote: "succeeded",
+      local: "replaced",
+    });
+
+    await expect(
+      replaceOAuthRemoteServer("user", "user@example.com", "mcps_oauth", {
+        serverUrl: "https://mcp.example.com",
+        clientInformation: { client_id: "example-client" },
+        tokens: { access_token: "<NEW_ACCESS_TOKEN>", token_type: "bearer" },
+      }),
+    ).resolves.toMatchObject({ ok: true });
+
+    expect(putUserSettingMock).toHaveBeenCalledWith(
+      "user@example.com",
+      "mcp-oauth-pending-cleanups",
+      {
+        cleanups: [
+          {
+            key: "mcp_oauth:old",
+            serverUrl: "https://mcp.example.com/",
+          },
+        ],
+      },
+    );
+  });
+
   it("revokes a replacement grant when the server changes before the CAS", async () => {
     getUserSettingMock.mockResolvedValueOnce({
       servers: [
@@ -259,6 +298,67 @@ describe("OAuth remote MCP metadata", () => {
     );
     expect(oauthMocks.revoke).not.toHaveBeenCalledWith(
       expect.objectContaining({ key: "mcp_oauth:old" }),
+    );
+  });
+
+  it("queues replacement cleanup when CAS conflict cleanup fails", async () => {
+    getUserSettingMock.mockResolvedValueOnce({
+      servers: [
+        {
+          id: "mcps_oauth",
+          name: "sigma",
+          url: "https://mcp.example.com/",
+          oauthSecretKey: "mcp_oauth:old",
+          createdAt: 1,
+        },
+      ],
+    });
+    mutateUserSettingMock.mockImplementationOnce(
+      async (
+        _email: string,
+        _key: string,
+        updater: (
+          current: Record<string, unknown> | null,
+        ) => Record<string, unknown> | Promise<Record<string, unknown>>,
+      ) =>
+        updater({
+          servers: [
+            {
+              id: "mcps_oauth",
+              name: "sigma",
+              url: "https://mcp.example.com/",
+              oauthSecretKey: "mcp_oauth:newer",
+              createdAt: 1,
+            },
+          ],
+        }),
+    );
+    oauthMocks.revoke.mockRejectedValueOnce(
+      new Error("credential store unavailable"),
+    );
+
+    await expect(
+      replaceOAuthRemoteServer("user", "user@example.com", "mcps_oauth", {
+        serverUrl: "https://mcp.example.com",
+        clientInformation: { client_id: "example-client" },
+        tokens: { access_token: "<NEW_ACCESS_TOKEN>", token_type: "bearer" },
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: expect.stringContaining("MCP server changed while reconnecting"),
+    });
+
+    expect(putUserSettingMock).toHaveBeenCalledWith(
+      "user@example.com",
+      "mcp-oauth-pending-cleanups",
+      {
+        cleanups: [
+          expect.objectContaining({
+            key: expect.stringMatching(/^mcp_oauth:/),
+            serverUrl: "https://mcp.example.com/",
+          }),
+        ],
+      },
     );
   });
 
