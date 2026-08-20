@@ -28,6 +28,7 @@ import {
   addRemoteServer,
   isFirstPartyRemoteEndpointTrusted,
   removeRemoteServer,
+  replaceOAuthRemoteServer,
   toHttpServerConfig,
   toHttpServerConfigAsync,
   validateRemoteUrl,
@@ -107,6 +108,61 @@ describe("OAuth remote MCP metadata", () => {
       expect.any(String),
       expect.objectContaining({
         servers: [expect.objectContaining({ url: "https://mcp.example.com/" })],
+      }),
+    );
+  });
+
+  it("replaces an OAuth grant in place while preserving the server id", async () => {
+    getUserSettingMock.mockResolvedValueOnce({
+      servers: [
+        {
+          id: "mcps_oauth",
+          name: "sigma",
+          url: "https://mcp.example.com/",
+          oauthSecretKey: "mcp_oauth:old",
+          createdAt: 1,
+        },
+      ],
+    });
+
+    await expect(
+      replaceOAuthRemoteServer("user", "user@example.com", "mcps_oauth", {
+        serverUrl: "https://mcp.example.com",
+        clientInformation: {
+          client_id: "example-client",
+          redirect_uris: ["https://app.example.com/callback"],
+        },
+        tokens: {
+          access_token: "<NEW_ACCESS_TOKEN>",
+          token_type: "bearer",
+        },
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      server: {
+        id: "mcps_oauth",
+        name: "sigma",
+        oauthSecretKey: expect.stringMatching(/^mcp_oauth:/),
+      },
+    });
+
+    expect(putUserSettingMock).toHaveBeenCalledWith(
+      "user@example.com",
+      expect.any(String),
+      expect.objectContaining({
+        servers: [
+          expect.objectContaining({
+            id: "mcps_oauth",
+            name: "sigma",
+            oauthSecretKey: expect.stringMatching(/^mcp_oauth:/),
+          }),
+        ],
+      }),
+    );
+    expect(oauthMocks.revoke).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: "mcp_oauth:old",
+        serverUrl: "https://mcp.example.com/",
       }),
     );
   });
