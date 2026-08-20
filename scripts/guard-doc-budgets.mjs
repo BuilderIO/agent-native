@@ -37,14 +37,20 @@ for (const [path, ceiling] of Object.entries(BUDGETS)) {
     // was renamed without updating BUDGETS, or the checkout is broken. Both are
     // a failure to inspect, not a clean result.
     console.error(`guard:doc-budgets: cannot read ${path} — ${error.message}`);
-    console.error("Renamed or deleted? Update BUDGETS in this file in the same change.");
+    console.error(
+      "Renamed or deleted? Update BUDGETS in this file in the same change.",
+    );
     process.exit(2);
   }
   const words = text.split(/\s+/).filter(Boolean).length;
   const over = words > ceiling;
-  rows.push(`${over ? "OVER" : "ok  "}  ${String(words).padStart(5)} / ${String(ceiling).padEnd(5)}  ${path}`);
+  rows.push(
+    `${over ? "OVER" : "ok  "}  ${String(words).padStart(5)} / ${String(ceiling).padEnd(5)}  ${path}`,
+  );
   if (over) {
-    failures.push(`${path}: ${words} words exceeds its ${ceiling}-word ceiling by ${words - ceiling}`);
+    failures.push(
+      `${path}: ${words} words exceeds its ${ceiling}-word ceiling by ${words - ceiling}`,
+    );
   }
 }
 
@@ -56,9 +62,13 @@ if (listOnly) {
 if (failures.length > 0) {
   console.error("guard:doc-budgets failed:\n");
   for (const failure of failures) console.error(`  ${failure}`);
-  console.error("\nRelocate the fact to its one home, or condense. Raising a ceiling");
+  console.error(
+    "\nRelocate the fact to its one home, or condense. Raising a ceiling",
+  );
   console.error("requires the justification visible in the same diff.");
   process.exit(1);
 }
 
-console.log(`guard:doc-budgets: ${Object.keys(BUDGETS).length} standing docs within ceiling.`);
+console.log(
+  `guard:doc-budgets: ${Object.keys(BUDGETS).length} standing docs within ceiling.`,
+);
