@@ -1230,17 +1230,17 @@ const koKR = {
     body: "모든 agent-native 앱을 하나의 데스크톱 셸에서 사용하세요. 프로덕션 앱이 내장되어 있고 로컬 개발용 dev 모드 토글이 있습니다.",
     openDesktop: "Agent Native 열기",
     downloadInstaller: "설치 프로그램 다운로드",
-    viewInstallers: "설치 프로그램 보기",
-    viewInstallersOnGithub: "GitHub에서 설치 프로그램 보기",
-    latestRelease: "Latest desktop release: {{version}}",
-    loadError:
-      "최신 데스크톱 릴리스를 불러올 수 없습니다. releases 페이지에 모든 설치 프로그램이 있습니다.",
+    loadError: "최신 데스크톱 설치 프로그램을 불러올 수 없습니다.",
     checkingRelease: "최신 데스크톱 릴리스를 확인하는 중...",
-    nightlyBuilds: "Nightly 빌드를 찾고 계신가요?",
+    retry: "다시 시도",
+    unavailable: "이 플랫폼에서는 설치 프로그램을 사용할 수 없습니다",
+    stable: "안정",
+    nightly: "Nightly",
+    switchToNightly: "Nightly 빌드로 전환",
+    switchToStable: "안정 빌드로 전환",
     runFromSource: "또는 소스에서 실행",
     runFromSourceBody:
       "아직 해당 플랫폼용 설치 프로그램이 없거나 CLI를 선호하시나요? npm으로 새 앱을 스캐폴드하고 로컬에서 실행하세요. macOS, Windows, Linux에서 작동합니다.",
-    viewAllReleases: "GitHub에서 모든 releases 보기",
     platforms: {
       mac: {
         primary: "Apple Silicon용 다운로드",
@@ -1546,6 +1546,8 @@ const koKR = {
     fileUploads: "파일 업로드",
     deployment: "배포",
     deploymentOverview: "개요",
+    deploymentProviders: "프로바이더",
+    deploymentProduction: "프로덕션 및 고급",
     deployAnApp: "앱 배포",
     workspaceDeployment: "워크스페이스 배포",
     deploymentNodeDocker: "Node.js",

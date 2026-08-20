@@ -1234,17 +1234,17 @@ const esES = {
     body: "Todas tus apps agent-native en una sola shell de escritorio. Apps de producción integradas, con un modo de desarrollo para trabajo local.",
     openDesktop: "Abrir Agent Native",
     downloadInstaller: "Descargar instalador",
-    viewInstallers: "Ver instaladores",
-    viewInstallersOnGithub: "Ver instaladores en GitHub",
-    latestRelease: "Latest desktop release: {{version}}",
-    loadError:
-      "No se pudo cargar la última versión de escritorio. La página de releases incluye todos los instaladores.",
+    loadError: "No se pudo cargar el instalador de escritorio más reciente.",
     checkingRelease: "Buscando la versión de escritorio más reciente...",
-    nightlyBuilds: "¿Buscas la versión Nightly?",
+    retry: "Reintentar",
+    unavailable: "Instalador no disponible para esta plataforma",
+    stable: "Estable",
+    nightly: "Nightly",
+    switchToNightly: "Cambiar a las compilaciones Nightly",
+    switchToStable: "Cambiar a las compilaciones estables",
     runFromSource: "O ejecutar desde el código fuente",
     runFromSourceBody:
       "¿Aún no hay instalador para tu plataforma o prefieres la CLI? Crea una app nueva con npm y ejecútala localmente; funciona en macOS, Windows y Linux.",
-    viewAllReleases: "Ver todas las releases en GitHub",
     platforms: {
       mac: {
         primary: "Descargar para Apple Silicon",
@@ -1553,6 +1553,8 @@ const esES = {
     fileUploads: "Subidas de archivos",
     deployment: "Despliegue",
     deploymentOverview: "Resumen",
+    deploymentProviders: "Proveedores",
+    deploymentProduction: "Producción y avanzado",
     deployAnApp: "Desplegar una aplicación",
     workspaceDeployment: "Despliegue del Workspace",
     deploymentNodeDocker: "Node.js",

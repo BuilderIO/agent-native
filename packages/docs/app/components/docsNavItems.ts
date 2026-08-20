@@ -47,24 +47,35 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
       },
       { id: "key-concepts", labelKey: "keyConcepts", slug: "key-concepts" },
       {
-        id: "deployment-section",
-        labelKey: "deployment",
+        id: "faq",
+        labelKey: "faq",
+        slug: "faq",
+      },
+    ],
+  },
+  {
+    id: "deployment",
+    titleKey: "deployment",
+    items: [
+      {
+        id: "deployment",
+        labelKey: "deploymentOverview",
+        slug: "deployment",
+      },
+      {
+        id: "deploy-an-app",
+        labelKey: "deployAnApp",
+        slug: "deploy-an-app",
+      },
+      {
+        id: "workspace-deployment",
+        labelKey: "workspaceDeployment",
+        slug: "workspace-deployment",
+      },
+      {
+        id: "deployment-providers",
+        labelKey: "deploymentProviders",
         children: [
-          {
-            id: "deployment",
-            labelKey: "deploymentOverview",
-            slug: "deployment",
-          },
-          {
-            id: "deploy-an-app",
-            labelKey: "deployAnApp",
-            slug: "deploy-an-app",
-          },
-          {
-            id: "workspace-deployment",
-            labelKey: "workspaceDeployment",
-            slug: "workspace-deployment",
-          },
           {
             id: "node-js",
             labelKey: "deploymentNodeDocker",
@@ -115,6 +126,12 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             labelKey: "deploymentRender",
             slug: "render",
           },
+        ],
+      },
+      {
+        id: "deployment-production",
+        labelKey: "deploymentProduction",
+        children: [
           { id: "ssr-caching", labelKey: "ssrCaching", slug: "ssr-caching" },
           {
             id: "deployment-environment-variables",
@@ -128,7 +145,6 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
           },
         ],
       },
-      { id: "faq", labelKey: "faq", slug: "faq" },
     ],
   },
   {
