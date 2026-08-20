@@ -14,3 +14,8 @@ NPM_CONFIG_PRODUCTION = "false"
 AGENT_NATIVE_HOSTED_HARNESS = "true"
 AGENT_NATIVE_ENABLE_KEEP_WARM = "1"
 AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND = "1"
+# Macros owns its schema at release time (`migrate:production` above), so
+# production request functions must not probe the database for migrations.
+# Preview functions still run request-path migrations because previews do not
+# run the production release migration step.
+AGENT_NATIVE_RELEASE_MIGRATIONS = "1"

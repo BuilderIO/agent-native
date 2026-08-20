@@ -34,6 +34,9 @@ export const FRAMEWORK_TOOL_GROUPS = [
   "workspaceApps",
   "chat",
   "email",
+  "emailCatalog",
+  "workspaceUserGroups",
+  "orgServiceTokens",
 ] as const;
 
 export type FrameworkToolGroup = (typeof FRAMEWORK_TOOL_GROUPS)[number];
@@ -95,6 +98,21 @@ export interface FrameworkToolsOption {
   chat?: boolean;
   /** `core-send-email`. */
   email?: boolean;
+  /** The read-only transactional-email catalog (`list-transactional-emails`,
+   *  `list-email-log`, `list-email-activity`, …). Separate from `email`, which
+   *  owns the SEND capability: Dispatch asks any app what it sends without that
+   *  app opting into sending from the agent, so these default to on. */
+  emailCatalog?: boolean;
+  /** Reusable workspace member lists (`list-workspace-user-groups`,
+   *  `upsert-workspace-user-group`, `bulk-update-workspace-user-groups`,
+   *  `delete-workspace-user-group`). Their UI is the Team page and the share
+   *  dialog; an app with neither has no use for them. */
+  workspaceUserGroups?: boolean;
+  /** `create-org-service-token`, `list-org-service-tokens`,
+   *  `revoke-org-service-token`. Minting a credential is a real capability:
+   *  `mcp.enabled` decides whether the ROUTES exist, this decides whether the
+   *  model can call them. */
+  orgServiceTokens?: boolean;
   /** `"minimal"` turns every group above off, for voice-first and
    *  single-purpose apps that want the template's own actions and nothing else.
    *  Any explicit group key wins over the preset, so
@@ -281,6 +299,21 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   "get-resource-version": "history",
   "restore-resource-version": "history",
   "list-resource-history": "history",
+
+  "list-transactional-emails": "emailCatalog",
+  "render-transactional-email-preview": "emailCatalog",
+  "list-email-log": "emailCatalog",
+  "list-email-activity": "emailCatalog",
+  "list-email-engagement": "emailCatalog",
+
+  "list-workspace-user-groups": "workspaceUserGroups",
+  "upsert-workspace-user-group": "workspaceUserGroups",
+  "bulk-update-workspace-user-groups": "workspaceUserGroups",
+  "delete-workspace-user-group": "workspaceUserGroups",
+
+  "create-org-service-token": "orgServiceTokens",
+  "list-org-service-tokens": "orgServiceTokens",
+  "revoke-org-service-token": "orgServiceTokens",
 
   "list-review-comments": "review",
   "create-review-comment": "review",

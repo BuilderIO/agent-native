@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 
-import { stripUnsupportedSchemaKeywords } from "../action.js";
+import { defineAction, stripUnsupportedSchemaKeywords } from "../action.js";
 
 // `extension-data-set` shipped this exact shape: a hand-written tool schema
 // whose `data` property carried a description and no `type`. OpenAI answers
@@ -102,5 +103,89 @@ describe("provider-rejected format and constraint keywords", () => {
     }
     // The real shape survives.
     expect(safe.properties.a).toEqual({ type: "string" });
+  });
+});
+
+// Zod 4's `z.string().email()` compiles to `^(?!\.)(?!.*\.\.)…` -- two negative
+// lookaheads. Anthropic answers lookaround in a `pattern` with "regex
+// lookaround is not supported" and 400s the whole request; a scout run dies at
+// the first API call with nothing on screen to say so.
+describe("regex lookaround in a pattern", () => {
+  const ZOD_EMAIL =
+    "^(?!\\.)(?!.*\\.\\.)([A-Za-z0-9_'+\\-\\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$";
+
+  it("drops a lookaround pattern and keeps a plain one", () => {
+    const schema = {
+      type: "object" as const,
+      properties: {
+        memberEmails: {
+          type: "array",
+          items: { type: "string", format: "email", pattern: ZOD_EMAIL },
+        },
+        slug: { type: "string", pattern: "^[a-z0-9-]+$" },
+      },
+    };
+    const safe = stripUnsupportedSchemaKeywords(
+      JSON.parse(JSON.stringify(schema)),
+    ) as any;
+    expect(safe.properties.memberEmails.items.pattern).toBeUndefined();
+    // Only the unsupported keyword goes: the type and the accepted format stay.
+    expect(safe.properties.memberEmails.items.type).toBe("string");
+    expect(safe.properties.memberEmails.items.format).toBe("email");
+    expect(safe.properties.slug.pattern).toBe("^[a-z0-9-]+$");
+  });
+
+  it.each([
+    ["lookahead", "^(?=.*a)b$"],
+    ["negative lookahead", "^(?!x)y$"],
+    ["lookbehind", "(?<=a)b"],
+    ["negative lookbehind", "(?<!a)b"],
+  ])("drops a %s", (_label, pattern) => {
+    const safe = stripUnsupportedSchemaKeywords({
+      type: "string",
+      pattern,
+    }) as any;
+    expect(safe.pattern).toBeUndefined();
+  });
+
+  it("keeps a non-capturing group, which the validator accepts", () => {
+    // What `z.email({ pattern: z.regexes.html5Email })` emits: `(?:` only.
+    const html5 =
+      "^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$";
+    const safe = stripUnsupportedSchemaKeywords({
+      type: "string",
+      pattern: html5,
+    }) as any;
+    expect(safe.pattern).toBe(html5);
+  });
+
+  it("reaches a pattern nested in a union branch", () => {
+    const safe = stripUnsupportedSchemaKeywords({
+      type: "object",
+      properties: {
+        who: {
+          anyOf: [{ type: "string", pattern: ZOD_EMAIL }, { type: "null" }],
+        },
+      },
+    }) as any;
+    expect(safe.properties.who.anyOf[0].pattern).toBeUndefined();
+  });
+});
+
+// The seam above is only worth anything if the real path reaches it: this is
+// what `.email()` in an action schema actually ships to the provider.
+describe("defineAction with .email() in its schema", () => {
+  it("advertises no lookaround to the provider", () => {
+    const action = defineAction({
+      description: "Change a group's member list.",
+      schema: z.object({
+        memberEmails: z.array(z.string().email()).min(1),
+      }),
+      run: async () => ({ ok: true }),
+    });
+    const advertised = JSON.stringify(action.tool.parameters);
+    expect(advertised).not.toMatch(/\(\?<?[=!]/);
+    // Still a real email field, and zod still validates it on the way in.
+    expect(advertised).toContain('"format":"email"');
   });
 });
