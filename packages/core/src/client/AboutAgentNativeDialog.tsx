@@ -1,5 +1,5 @@
 import { Button } from "@agent-native/toolkit/ui/button";
-import { IconCheck, IconCode, IconCopy } from "@tabler/icons-react";
+import { IconCheck, IconCode, IconCopy, IconX } from "@tabler/icons-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -7,6 +7,7 @@ import {
   getAgentNativeDiagnostics,
   getAgentNativePackageVersions,
 } from "./agent-native-version.js";
+import { writeClipboardText } from "./clipboard.js";
 import { Dialog, DialogContent, DialogTitle } from "./components/ui/dialog.js";
 import { useT } from "./i18n.js";
 
@@ -20,7 +21,9 @@ export function AboutAgentNativeDialog({
   onOpenChange,
 }: AboutAgentNativeDialogProps) {
   const t = useT();
-  const [copied, setCopied] = useState(false);
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">(
+    "idle",
+  );
   const copyResetTimer = useRef<number | null>(null);
   const packageVersions = getAgentNativePackageVersions();
   const diagnostics = useMemo(() => formatAgentNativeDiagnostics(), []);
@@ -28,7 +31,7 @@ export function AboutAgentNativeDialog({
 
   useEffect(() => {
     if (!open) {
-      setCopied(false);
+      setCopyState("idle");
     }
   }, [open]);
 
@@ -42,23 +45,15 @@ export function AboutAgentNativeDialog({
   );
 
   const handleCopy = async () => {
-    if (!navigator.clipboard?.writeText) {
-      return;
+    const didCopy = await writeClipboardText(diagnostics);
+    setCopyState(didCopy ? "copied" : "failed");
+    if (copyResetTimer.current !== null) {
+      window.clearTimeout(copyResetTimer.current);
     }
-
-    try {
-      await navigator.clipboard.writeText(diagnostics);
-      setCopied(true);
-      if (copyResetTimer.current !== null) {
-        window.clearTimeout(copyResetTimer.current);
-      }
-      copyResetTimer.current = window.setTimeout(() => {
-        setCopied(false);
-        copyResetTimer.current = null;
-      }, 1600);
-    } catch {
-      // Clipboard access is optional; the dialog remains useful without it.
-    }
+    copyResetTimer.current = window.setTimeout(() => {
+      setCopyState("idle");
+      copyResetTimer.current = null;
+    }, 1600);
   };
 
   return (
@@ -125,12 +120,22 @@ export function AboutAgentNativeDialog({
           type="button"
           variant="outline"
         >
-          {copied ? <IconCheck /> : <IconCopy />}
-          {copied
+          {copyState === "copied" ? (
+            <IconCheck />
+          ) : copyState === "failed" ? (
+            <IconX />
+          ) : (
+            <IconCopy />
+          )}
+          {copyState === "copied"
             ? t("agentChat.common.copied", { defaultValue: "Copied" })
-            : t("agentChat.aboutAgentNative.copyDiagnostics", {
-                defaultValue: "Copy diagnostics",
-              })}
+            : copyState === "failed"
+              ? t("agentChat.recovery.copyFailed", {
+                  defaultValue: "Copy failed",
+                })
+              : t("agentChat.aboutAgentNative.copyDiagnostics", {
+                  defaultValue: "Copy diagnostics",
+                })}
         </Button>
       </DialogContent>
     </Dialog>

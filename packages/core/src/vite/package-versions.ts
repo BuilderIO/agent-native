@@ -23,6 +23,7 @@ function readPackageManifest(manifestPath: string): PackageManifest | null {
       ? (manifest as PackageManifest)
       : null;
   } catch {
+    // coercion-ok: missing or malformed manifests are typed absence from the optional version inventory.
     return null;
   }
 }
