@@ -4,6 +4,11 @@ import { z } from "zod";
 
 import { getDb } from "../server/db/index.js";
 import { triageConfig, triageItems } from "../server/db/schema.js";
+import {
+  factoryConfigRowId,
+  factoryIdSchema,
+  readTriageConfigRow,
+} from "../server/lib/factory-scope.js";
 import { requireFactoryAutomation } from "../server/lib/require-factory-automation.js";
 import {
   requireWorkspaceMember,
@@ -21,9 +26,12 @@ import { createSentryClient } from "../server/triage/sentry-client.js";
 export default defineAction({
   description:
     "Poll bounded unresolved Sentry issues for the configured organization and record them in the Factory queue. This does not change Sentry.",
-  schema: z.object({ limit: z.number().int().min(1).max(50).default(25) }),
+  schema: z.object({
+    factoryId: factoryIdSchema,
+    limit: z.number().int().min(1).max(50).default(25),
+  }),
   http: false,
-  run: async ({ limit }, context) => {
+  run: async ({ factoryId, limit }, context) => {
     const { userEmail, orgId } = await requireWorkspaceMember(
       workspaceMemberIdentityFromContext(context),
     );
@@ -31,14 +39,10 @@ export default defineAction({
       context,
       { userEmail, orgId },
       "sourcePolling",
+      factoryId,
     );
-    const config = (
-      await getDb()
-        .select()
-        .from(triageConfig)
-        .where(and(eq(triageConfig.id, orgId), eq(triageConfig.orgId, orgId)))
-        .limit(1)
-    )[0];
+    const db = getDb();
+    const config = await readTriageConfigRow(db, orgId, factoryId);
     if (config?.sentryPollingEnabled !== 1) {
       throw new Error("Enable Sentry polling before polling Sentry.");
     }
@@ -74,14 +78,15 @@ export default defineAction({
         );
     }
     const observedIssues = issues;
-    const db = getDb();
     const now = new Date().toISOString();
+    const configRowId = factoryConfigRowId(orgId, factoryId);
 
     await db.transaction(async (tx) => {
       for (const issue of observedIssues) {
         const id = itemDedupeKey(
           { source: "sentry", externalId: issue.id },
           orgId,
+          factoryId,
         );
         const existing = (
           await tx
@@ -140,6 +145,7 @@ export default defineAction({
             updatedAt,
             ownerEmail: existing?.ownerEmail ?? userEmail,
             orgId,
+            factoryId,
           })
           .onConflictDoUpdate({
             target: triageItems.id,
@@ -151,6 +157,7 @@ export default defineAction({
               metadataJson: metadata,
               lastSeenAt,
               updatedAt,
+              factoryId,
             },
           });
       }
@@ -167,7 +174,9 @@ export default defineAction({
             }, config.lastSentrySeenAt) ?? config.lastSentrySeenAt,
           updatedAt: now,
         })
-        .where(and(eq(triageConfig.id, orgId), eq(triageConfig.orgId, orgId)));
+        .where(
+          and(eq(triageConfig.id, configRowId), eq(triageConfig.orgId, orgId)),
+        );
     });
 
     if (observedIssues.length === 0) {
@@ -181,6 +190,7 @@ export default defineAction({
           summary: "No unresolved Sentry errors were observed.",
           details: { sentryOrgSlug: config.sentryOrgSlug },
         },
+        factoryId,
       );
     } else {
       for (const issue of observedIssues) {
@@ -193,6 +203,7 @@ export default defineAction({
             itemId: itemDedupeKey(
               { source: "sentry", externalId: issue.id },
               orgId,
+              factoryId,
             ),
             source: "sentry",
             sourceUrl: issue.permalink,
@@ -204,12 +215,14 @@ export default defineAction({
               projectSlug: issue.projectSlug,
             },
           },
+          factoryId,
         );
       }
     }
 
     return {
       ok: true,
+      factoryId,
       observed: observedIssues.length,
       fetched: issues.length,
       sentryOrgSlug: config.sentryOrgSlug,

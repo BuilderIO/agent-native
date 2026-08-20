@@ -91,6 +91,30 @@ export function normalizeFactoryGraph(value: unknown): FactoryGraph {
   };
 }
 
+export function minimalFactoryGraph(
+  name: string,
+  description = "",
+): FactoryGraph {
+  return {
+    version: 1,
+    name,
+    description,
+    executionMode: "blueprint",
+    nodes: [
+      {
+        id: "start",
+        label: "Start",
+        description:
+          "Add sources and rules to route work through this factory.",
+        kind: "decision",
+        provider: "factory",
+        position: { x: 240, y: 220 },
+      },
+    ],
+    edges: [],
+  };
+}
+
 export function defaultFactoryGraph(): FactoryGraph {
   return {
     version: 1,

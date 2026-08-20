@@ -9,6 +9,14 @@ import {
   triageItems,
   triageRuns,
 } from "../server/db/schema.js";
+import { DEFAULT_FACTORY_ID } from "../server/factory-graph/store.js";
+import {
+  factoryIdSchema,
+  orgFactoryDecisionFilter,
+  orgFactoryFeedbackFilter,
+  orgFactoryItemFilter,
+  orgFactoryRunFilter,
+} from "../server/lib/factory-scope.js";
 import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
@@ -18,10 +26,13 @@ import { recordFactoryAudit } from "../server/triage/audit.js";
 export default defineAction({
   description:
     "Inspect one Factory item, including its append-only shadow decisions, feedback, and run reconciliation state.",
-  schema: z.object({ itemId: z.string().min(1) }),
+  schema: z.object({
+    factoryId: factoryIdSchema.default(DEFAULT_FACTORY_ID),
+    itemId: z.string().min(1),
+  }),
   http: { method: "GET" },
   readOnly: true,
-  run: async ({ itemId }, context) => {
+  run: async ({ factoryId, itemId }, context) => {
     const { userEmail, orgId } = await requireWorkspaceMember(
       workspaceMemberIdentityFromContext(context),
     );
@@ -30,7 +41,12 @@ export default defineAction({
       await db
         .select()
         .from(triageItems)
-        .where(and(eq(triageItems.id, itemId), eq(triageItems.orgId, orgId)))
+        .where(
+          and(
+            eq(triageItems.id, itemId),
+            orgFactoryItemFilter(orgId, factoryId),
+          ),
+        )
         .limit(1)
     )[0];
     if (!item) throw new Error("Triage item not found");
@@ -41,19 +57,24 @@ export default defineAction({
       .where(
         and(
           eq(triageDecisions.itemId, itemId),
-          eq(triageDecisions.orgId, orgId),
+          orgFactoryDecisionFilter(orgId, factoryId),
         ),
       )
       .orderBy(asc(triageDecisions.createdAt));
     const feedback = await db
       .select()
       .from(triageFeedback)
-      .where(eq(triageFeedback.orgId, orgId))
+      .where(orgFactoryFeedbackFilter(orgId, factoryId))
       .orderBy(asc(triageFeedback.createdAt));
     const runs = await db
       .select()
       .from(triageRuns)
-      .where(and(eq(triageRuns.itemId, itemId), eq(triageRuns.orgId, orgId)))
+      .where(
+        and(
+          eq(triageRuns.itemId, itemId),
+          orgFactoryRunFilter(orgId, factoryId),
+        ),
+      )
       .orderBy(asc(triageRuns.startedAt));
 
     const matchingFeedback = feedback.filter((entry) =>

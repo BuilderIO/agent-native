@@ -3,7 +3,11 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb } from "../server/db/index.js";
-import { triageConfig, triageItems } from "../server/db/schema.js";
+import { triageItems } from "../server/db/schema.js";
+import {
+  factoryIdSchema,
+  readTriageConfigRow,
+} from "../server/lib/factory-scope.js";
 import { requireFactoryAutomation } from "../server/lib/require-factory-automation.js";
 import {
   requireWorkspaceMember,
@@ -30,11 +34,12 @@ export default defineAction({
   description:
     "Poll the configured GitHub repository for bounded open issues and pull requests and record them in the Factory queue. This does not write to GitHub.",
   schema: z.object({
+    factoryId: factoryIdSchema,
     includeIssues: z.boolean().default(true),
     includePullRequests: z.boolean().default(true),
   }),
   http: false,
-  run: async ({ includeIssues, includePullRequests }, context) => {
+  run: async ({ factoryId, includeIssues, includePullRequests }, context) => {
     const { userEmail, orgId } = await requireWorkspaceMember(
       workspaceMemberIdentityFromContext(context),
     );
@@ -42,14 +47,10 @@ export default defineAction({
       context,
       { userEmail, orgId },
       "sourcePolling",
+      factoryId,
     );
-    const config = (
-      await getDb()
-        .select()
-        .from(triageConfig)
-        .where(and(eq(triageConfig.id, orgId), eq(triageConfig.orgId, orgId)))
-        .limit(1)
-    )[0];
+    const db = getDb();
+    const config = await readTriageConfigRow(db, orgId, factoryId);
     if (config?.githubPollingEnabled !== 1) {
       throw new Error("Enable GitHub polling before polling GitHub sources.");
     }
@@ -68,7 +69,6 @@ export default defineAction({
         ? client.listOpenPullRequests(repository, 50)
         : Promise.resolve([]),
     ]);
-    const db = getDb();
     const now = new Date().toISOString();
     let issueCount = 0;
     let pullRequestCount = 0;
@@ -81,6 +81,7 @@ export default defineAction({
             externalId: `${repositoryName}#${issue.number}`,
           },
           orgId,
+          factoryId,
         );
         const existing = (
           await tx
@@ -133,6 +134,7 @@ export default defineAction({
             updatedAt,
             ownerEmail: existing?.ownerEmail ?? userEmail,
             orgId,
+            factoryId,
           })
           .onConflictDoUpdate({
             target: triageItems.id,
@@ -144,6 +146,7 @@ export default defineAction({
               metadataJson: metadata,
               lastSeenAt,
               updatedAt,
+              factoryId,
             },
           });
         issueCount += 1;
@@ -158,6 +161,7 @@ export default defineAction({
             pullRequestNumber: pullRequest.number,
           },
           orgId,
+          factoryId,
         );
         const existing = (
           await tx
@@ -213,6 +217,7 @@ export default defineAction({
             updatedAt,
             ownerEmail: existing?.ownerEmail ?? userEmail,
             orgId,
+            factoryId,
           })
           .onConflictDoUpdate({
             target: triageItems.id,
@@ -227,6 +232,7 @@ export default defineAction({
               metadataJson: metadata,
               lastSeenAt,
               updatedAt,
+              factoryId,
             },
           });
         pullRequestCount += 1;
@@ -244,6 +250,7 @@ export default defineAction({
           summary: "No open GitHub issues or pull requests were observed.",
           details: { repository: repositoryName },
         },
+        factoryId,
       );
     } else {
       for (const issue of issues) {
@@ -259,12 +266,14 @@ export default defineAction({
                 externalId: `${repositoryName}#${issue.number}`,
               },
               orgId,
+              factoryId,
             ),
             source: "github_issue",
             sourceUrl: issue.htmlUrl,
             summary: issue.title,
             details: { repository: repositoryName, number: issue.number },
           },
+          factoryId,
         );
       }
       for (const pullRequest of pullRequests) {
@@ -282,18 +291,21 @@ export default defineAction({
                 pullRequestNumber: pullRequest.number,
               },
               orgId,
+              factoryId,
             ),
             source: "github",
             sourceUrl: pullRequest.htmlUrl,
             summary: pullRequest.title,
             details: { repository: repositoryName, number: pullRequest.number },
           },
+          factoryId,
         );
       }
     }
 
     return {
       ok: true,
+      factoryId,
       repository: repositoryName,
       issues: issueCount,
       pullRequests: pullRequestCount,

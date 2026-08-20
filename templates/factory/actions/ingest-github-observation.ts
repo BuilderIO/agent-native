@@ -3,6 +3,8 @@ import { z } from "zod";
 
 import { getDb } from "../server/db/index.js";
 import { triageItems } from "../server/db/schema.js";
+import { DEFAULT_FACTORY_ID } from "../server/factory-graph/store.js";
+import { factoryIdSchema } from "../server/lib/factory-scope.js";
 import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
@@ -31,6 +33,7 @@ export default defineAction({
   description:
     "Ingest one read-only GitHub pull-request observation from the existing ai-services boundary into Factory. This action records evidence only and never writes to GitHub.",
   schema: z.object({
+    factoryId: factoryIdSchema.default(DEFAULT_FACTORY_ID),
     repo: z.string().trim().min(1).max(256),
     pullRequestNumber: z.number().int().positive(),
     headSha: z.string().trim().min(1).max(128),
@@ -50,8 +53,9 @@ export default defineAction({
     const { userEmail, orgId } = await requireWorkspaceMember(
       workspaceMemberIdentityFromContext(context),
     );
-    const envelope = pullRequestSnapshotToEnvelope(input);
-    const id = itemDedupeKey(envelope, orgId);
+    const { factoryId, ...observation } = input;
+    const envelope = pullRequestSnapshotToEnvelope(observation);
+    const id = itemDedupeKey(envelope, orgId, factoryId);
     const now = new Date().toISOString();
     const db = getDb();
 
@@ -77,6 +81,7 @@ export default defineAction({
         updatedAt: now,
         ownerEmail: userEmail,
         orgId,
+        factoryId,
       })
       .onConflictDoUpdate({
         target: triageItems.id,
@@ -105,10 +110,11 @@ export default defineAction({
           repository: envelope.repository,
           pullRequestNumber: envelope.pullRequestNumber,
           coverage: envelope.coverage,
-          reviewCount: input.reviews.length,
-          checkCount: input.checks.length,
+          reviewCount: observation.reviews.length,
+          checkCount: observation.checks.length,
         },
       },
+      factoryId,
     );
 
     return {

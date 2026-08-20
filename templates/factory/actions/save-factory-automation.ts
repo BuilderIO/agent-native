@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
+import { resourceGetByPath, resourcePut } from "@agent-native/core/resources";
 import {
   listAutomationDefinitions,
   updateAutomation,
@@ -6,18 +7,25 @@ import {
 import { z } from "zod";
 
 import {
+  factoryIdSchema,
+  readAutomationFactoryId,
+  resolveAutomationDisplayName,
+  setAutomationFrontmatterField,
+} from "../server/lib/factory-scope.js";
+import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
 
 export default defineAction({
   description:
-    "Edit a Factory automation's prompt, model, schedule, or enabled state in its organization-owned markdown resource.",
+    "Edit a Factory automation's display name, prompt, model, schedule, or enabled state in its organization-owned markdown resource.",
   agentTool: false,
   schema: z.object({
-    factoryId: z.string().trim().min(1).optional(),
+    factoryId: factoryIdSchema,
     automationId: z.string().trim().min(1),
     name: z.string().trim().min(1).max(120),
+    displayName: z.string().trim().max(120).optional(),
     prompt: z.string().trim().min(1).max(20_000),
     model: z.string().trim().max(200).optional(),
     schedule: z.string().trim().min(1).max(100),
@@ -25,7 +33,16 @@ export default defineAction({
   }),
   http: { method: "POST" },
   run: async (
-    { automationId, name, prompt, model, schedule, enabled },
+    {
+      factoryId,
+      automationId,
+      name,
+      displayName,
+      prompt,
+      model,
+      schedule,
+      enabled,
+    },
     context,
   ) => {
     const { userEmail, orgId } = await requireWorkspaceMember(
@@ -40,6 +57,12 @@ export default defineAction({
         entry.meta.domain === "factory" && entry.resource.id === automationId,
     );
     if (!definition) throw new Error("Factory automation not found.");
+    if (
+      readAutomationFactoryId(definition.meta, definition.resource.content) !==
+      factoryId
+    ) {
+      throw new Error("Factory automation not found.");
+    }
     if (definition.name !== name) {
       throw new Error(
         "Factory automation id and name do not refer to the same automation.",
@@ -56,10 +79,46 @@ export default defineAction({
         enabled,
       },
     );
+    const resource = await resourceGetByPath(
+      definition.resource.owner,
+      definition.resource.path,
+    );
+    if (resource) {
+      let stampedContent = setAutomationFrontmatterField(
+        resource.content,
+        "factoryId",
+        factoryId,
+      );
+      stampedContent = setAutomationFrontmatterField(
+        stampedContent,
+        "displayName",
+        displayName ?? "",
+      );
+      if (stampedContent !== resource.content) {
+        await resourcePut(
+          definition.resource.owner,
+          definition.resource.path,
+          stampedContent,
+          "text/markdown",
+        );
+      }
+    }
+    const content = resource
+      ? setAutomationFrontmatterField(
+          setAutomationFrontmatterField(
+            resource.content,
+            "factoryId",
+            factoryId,
+          ),
+          "displayName",
+          displayName ?? "",
+        )
+      : definition.resource.content;
     return {
       ok: true,
       id: definition.resource.id,
       name: updated.name,
+      displayName: resolveAutomationDisplayName(updated.name, content),
       prompt: updated.body,
       model: updated.meta.model ?? null,
       schedule: updated.meta.schedule || null,

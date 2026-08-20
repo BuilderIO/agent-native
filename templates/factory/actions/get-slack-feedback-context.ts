@@ -3,7 +3,9 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb } from "../server/db/index.js";
-import { triageConfig, triageItems } from "../server/db/schema.js";
+import { triageItems } from "../server/db/schema.js";
+import { DEFAULT_FACTORY_ID } from "../server/factory-graph/store.js";
+import { readTriageConfigRow } from "../server/lib/factory-scope.js";
 import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
@@ -33,13 +35,11 @@ export default defineAction({
       throw new Error("Factory item is not a readable Slack feedback item.");
     }
 
-    const config = (
-      await getDb()
-        .select({ slackWorkspace: triageConfig.slackWorkspace })
-        .from(triageConfig)
-        .where(and(eq(triageConfig.id, orgId), eq(triageConfig.orgId, orgId)))
-        .limit(1)
-    )[0];
+    const config = await readTriageConfigRow(
+      getDb(),
+      orgId,
+      item.factoryId ?? DEFAULT_FACTORY_ID,
+    );
     const workspace =
       config?.slackWorkspace === "secondary" ? "secondary" : "primary";
     const slack = createSlackReader({ ownerEmail: userEmail, orgId });
@@ -65,7 +65,9 @@ export default defineAction({
           coverage: hasMore ? "partial" : "complete",
           messageCount: messages.length,
         },
+        factoryId: item.factoryId ?? DEFAULT_FACTORY_ID,
       },
+      item.factoryId ?? DEFAULT_FACTORY_ID,
     );
 
     return {

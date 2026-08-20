@@ -46,16 +46,18 @@ decisions, feedback, agent runs, and provider audit records.
 
 ## Application state
 
-- `navigation.view` is `factory`, `agents`, or `factory-settings`.
-  Observation settings are workspace-scoped at `/factory-settings`.
-  `factoryId`, `factoryTab`, `factoryAuditRunId`, `factoryNodeId`, and
+- `navigation.view` is `factory` or `agents`. Runtime data (inbox, rules,
+  settings, automations, activity) is scoped by `factoryId`. Observation settings
+  live on the factory detail Settings tab (`factoryTab=settings`). Reusable agents
+  stay workspace-wide. `factoryTab`, `factoryAuditRunId`, `factoryNodeId`, and
   `factoryEdgeId` hold Factory context. Read `view-screen` first.
 
 ## Action contract
 
 | Action | Purpose |
 | --- | --- |
-| `list-triage-items` / `get-triage-item` | Inspect bounded queue evidence; scheduled reviewers pass `needsReview: true`, `source`, and `limit`. |
+| `list-triage-items` / `get-triage-item` | Inspect bounded queue evidence for one factory; pass `factoryId`. Scheduled reviewers pass `needsReview: true`, `source`, and `limit`. |
+| `get-triage-config` / `save-triage-config` | Read or save observation settings for one factory (`factoryId` required). |
 | `poll-slack-channel` | Observe Slack history; never writes to Slack. |
 | `get-slack-feedback-context` | Read the bounded full Slack thread before classification. |
 | `poll-github-sources` / `poll-sentry-errors` | Observe bounded source queues. |
@@ -67,11 +69,12 @@ decisions, feedback, agent runs, and provider audit records.
 | `start-builder-for-item` | Govern clear-bug dispatch through Slack or Builder API, or record a skip reason. |
 | `govern-agent-native-pull-request` | Apply PR evidence and ownership gates. |
 | `list-factory-automations` / `save-factory-automation` / `run-factory-automation` | Inspect or edit org-owned automations. |
-| `list-factory-audit` | Inspect automation runs, evidence, decisions, and provider actions. |
+| `list-factory-audit` | Inspect automation runs, evidence, decisions, and provider actions for one factory (`factoryId`). |
 | `get-factory-automation-health` | Inspect scheduler heartbeat and last error. |
 | `suggest-factory-rules` | Mine feedback into proposals. |
 | `reconcile-triage-run` | Persist callback/provider reconciliation. |
 | `list-factories` / `get-factory-graph` | Inspect definitions, versions, and metrics. |
+| `create-factory` | Create a factory from `/new-factory` with optional source routing and automation enablement. |
 | `save-factory-graph` | Create/version a graph with inspected `expectedGraphVersion`; never starts provider work. |
 | graph history actions | Factory graph version history. |
 | `list-factory-comments` / `add-factory-comment` | Read or attach comments to a canvas, node, or edge. |

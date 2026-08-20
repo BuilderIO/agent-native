@@ -4,6 +4,11 @@ import { z } from "zod";
 
 import { getDb } from "../server/db/index.js";
 import { triageConfig, triageItems } from "../server/db/schema.js";
+import {
+  factoryConfigRowId,
+  factoryIdSchema,
+  readTriageConfigRow,
+} from "../server/lib/factory-scope.js";
 import { requireFactoryAutomation } from "../server/lib/require-factory-automation.js";
 import {
   requireWorkspaceMember,
@@ -21,10 +26,11 @@ export default defineAction({
   description:
     "Poll the configured Slack channel and append new messages to the Factory queue. This action only observes and never posts, replies, starts work, or changes a provider.",
   schema: z.object({
+    factoryId: factoryIdSchema,
     channelId: z.string().trim().min(1).max(128).optional(),
   }),
   http: false,
-  run: async ({ channelId: requestedChannelId }, context) => {
+  run: async ({ factoryId, channelId: requestedChannelId }, context) => {
     const { userEmail, orgId } = await requireWorkspaceMember(
       workspaceMemberIdentityFromContext(context),
     );
@@ -32,15 +38,10 @@ export default defineAction({
       context,
       { userEmail, orgId },
       "sourcePolling",
+      factoryId,
     );
     const db = getDb();
-    const config = (
-      await db
-        .select()
-        .from(triageConfig)
-        .where(and(eq(triageConfig.id, orgId), eq(triageConfig.orgId, orgId)))
-        .limit(1)
-    )[0];
+    const config = await readTriageConfigRow(db, orgId, factoryId);
     if (config?.pollingEnabled !== 1) {
       throw new Error("Enable Slack polling before polling Slack.");
     }
@@ -59,10 +60,11 @@ export default defineAction({
       orgId,
     });
     const now = new Date().toISOString();
+    const configRowId = factoryConfigRowId(orgId, factoryId);
 
     await db.transaction(async (tx) => {
       for (const envelope of result.envelopes) {
-        const id = itemDedupeKey(envelope, orgId);
+        const id = itemDedupeKey(envelope, orgId, factoryId);
         const existing = (
           await tx
             .select()
@@ -117,6 +119,7 @@ export default defineAction({
             updatedAt,
             ownerEmail: userEmail,
             orgId,
+            factoryId,
           })
           .onConflictDoUpdate({
             target: triageItems.id,
@@ -131,6 +134,7 @@ export default defineAction({
               status,
               lastSeenAt,
               updatedAt,
+              factoryId,
             },
           });
       }
@@ -144,7 +148,10 @@ export default defineAction({
             updatedAt: now,
           })
           .where(
-            and(eq(triageConfig.id, orgId), eq(triageConfig.orgId, orgId)),
+            and(
+              eq(triageConfig.id, configRowId),
+              eq(triageConfig.orgId, orgId),
+            ),
           );
       }
     });
@@ -163,6 +170,7 @@ export default defineAction({
             coverage: result.hasMore ? "partial" : "complete",
           },
         },
+        factoryId,
       );
     } else {
       for (const envelope of result.envelopes) {
@@ -172,7 +180,7 @@ export default defineAction({
           {
             action: "poll-slack-channel",
             kind: "observed",
-            itemId: itemDedupeKey(envelope, orgId),
+            itemId: itemDedupeKey(envelope, orgId, factoryId),
             source: envelope.source,
             sourceUrl: envelope.sourceUrl ?? null,
             summary: envelope.summary ?? envelope.title,
@@ -182,6 +190,7 @@ export default defineAction({
               coverage: envelope.coverage,
             },
           },
+          factoryId,
         );
       }
     }
@@ -189,6 +198,7 @@ export default defineAction({
     return {
       ok: true,
       source: "slack",
+      factoryId,
       channelId,
       observed: result.envelopes.length,
       hasMore: result.hasMore,

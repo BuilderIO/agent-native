@@ -4,6 +4,8 @@ import { z } from "zod";
 
 import { getDb } from "../server/db/index.js";
 import { triageItems, triageRuns } from "../server/db/schema.js";
+import { DEFAULT_FACTORY_ID } from "../server/factory-graph/store.js";
+import { factoryIdSchema } from "../server/lib/factory-scope.js";
 import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
@@ -48,6 +50,7 @@ export default defineAction({
     "Reconcile an observe-only pull-request monitoring run from ai-services callback and provider observations. Missing callbacks or provider reads remain typed failure states; no executor or GitHub write occurs.",
   schema: z.object({
     itemId: z.string().min(1),
+    factoryId: factoryIdSchema.optional(),
     runId: z.string().min(1),
     source: triageSourceSchema.default("github"),
     callback: z
@@ -70,6 +73,7 @@ export default defineAction({
   run: async (
     {
       itemId,
+      factoryId: factoryIdInput,
       runId,
       source,
       callback,
@@ -82,6 +86,17 @@ export default defineAction({
     const { userEmail, orgId } = await requireWorkspaceMember(
       workspaceMemberIdentityFromContext(context),
     );
+    const db = getDb();
+    const item = (
+      await db
+        .select({ factoryId: triageItems.factoryId })
+        .from(triageItems)
+        .where(and(eq(triageItems.id, itemId), eq(triageItems.orgId, orgId)))
+        .limit(1)
+    )[0];
+    if (!item)
+      throw new Error("Factory item not found for run reconciliation.");
+    const factoryId = factoryIdInput ?? item.factoryId ?? DEFAULT_FACTORY_ID;
     const now = new Date().toISOString();
     const databaseRunId = stableId("run", orgId, runId);
     const result = reconcilePullRequestRun({
@@ -93,7 +108,6 @@ export default defineAction({
       now,
       timeoutMs,
     });
-    const db = getDb();
     const existingRun = (
       await db
         .select({ progressLogJson: triageRuns.progressLogJson })
@@ -131,6 +145,7 @@ export default defineAction({
               : null,
           ownerEmail: userEmail,
           orgId,
+          factoryId,
         })
         .onConflictDoUpdate({
           target: triageRuns.id,

@@ -31,14 +31,24 @@ export const triageItems = table(
     updatedAt: text("updated_at").notNull().default(now()),
     ownerEmail: text("owner_email").notNull(),
     orgId: text("org_id"),
+    factoryId: text("factory_id"),
   },
   (item) => ({
     orgDedupeUnique: uniqueIndex("factory_items_org_dedupe_idx").on(
       item.orgId,
       item.dedupeKey,
     ),
+    orgFactoryDedupeUnique: uniqueIndex(
+      "factory_items_org_factory_dedupe_idx",
+    ).on(item.orgId, item.factoryId, item.dedupeKey),
     orgStatusIdx: index("factory_items_org_status_idx").on(
       item.orgId,
+      item.status,
+      item.updatedAt,
+    ),
+    orgFactoryStatusIdx: index("factory_items_org_factory_status_idx").on(
+      item.orgId,
+      item.factoryId,
       item.status,
       item.updatedAt,
     ),
@@ -58,6 +68,7 @@ export const triageRules = table("factory_rules", {
   updatedAt: text("updated_at").notNull().default(now()),
   ownerEmail: text("owner_email").notNull(),
   orgId: text("org_id"),
+  factoryId: text("factory_id"),
 });
 
 export const triageDecisions = table("factory_decisions", {
@@ -73,6 +84,7 @@ export const triageDecisions = table("factory_decisions", {
   createdAt: text("created_at").notNull().default(now()),
   ownerEmail: text("owner_email").notNull(),
   orgId: text("org_id"),
+  factoryId: text("factory_id"),
 });
 
 export const triageRuns = table("factory_runs", {
@@ -93,6 +105,7 @@ export const triageRuns = table("factory_runs", {
   error: text("error"),
   ownerEmail: text("owner_email").notNull(),
   orgId: text("org_id"),
+  factoryId: text("factory_id"),
 });
 
 export const triageFeedback = table("factory_feedback", {
@@ -103,6 +116,7 @@ export const triageFeedback = table("factory_feedback", {
   createdAt: text("created_at").notNull().default(now()),
   ownerEmail: text("owner_email").notNull(),
   orgId: text("org_id"),
+  factoryId: text("factory_id"),
 });
 
 export const triageConfig = table("factory_config", {
@@ -131,6 +145,7 @@ export const triageConfig = table("factory_config", {
   updatedAt: text("updated_at").notNull().default(now()),
   ownerEmail: text("owner_email").notNull(),
   orgId: text("org_id"),
+  factoryId: text("factory_id"),
 });
 
 export const factoryAuditEvents = table(
@@ -151,12 +166,16 @@ export const factoryAuditEvents = table(
     createdAt: text("created_at").notNull().default(now()),
     ownerEmail: text("owner_email").notNull(),
     orgId: text("org_id"),
+    factoryId: text("factory_id"),
   },
   (event) => ({
     orgCreatedIdx: index("factory_audit_events_org_created_idx").on(
       event.orgId,
       event.createdAt,
     ),
+    orgFactoryCreatedIdx: index(
+      "factory_audit_events_org_factory_created_idx",
+    ).on(event.orgId, event.factoryId, event.createdAt),
     runCreatedIdx: index("factory_audit_events_run_created_idx").on(
       event.orgId,
       event.automationRunId,

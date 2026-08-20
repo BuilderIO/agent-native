@@ -294,6 +294,70 @@ const migrations = [
       ALTER TABLE factory_config ADD COLUMN builder_slack_user_id TEXT;
     `,
   },
+  {
+    version: 20,
+    name: "factory-runtime-factory-id-columns",
+    sql: `
+      ALTER TABLE factory_config ADD COLUMN factory_id TEXT;
+      ALTER TABLE factory_items ADD COLUMN factory_id TEXT;
+      ALTER TABLE factory_rules ADD COLUMN factory_id TEXT;
+      ALTER TABLE factory_decisions ADD COLUMN factory_id TEXT;
+      ALTER TABLE factory_runs ADD COLUMN factory_id TEXT;
+      ALTER TABLE factory_feedback ADD COLUMN factory_id TEXT;
+      ALTER TABLE factory_audit_events ADD COLUMN factory_id TEXT;
+    `,
+  },
+  {
+    version: 21,
+    name: "factory-runtime-factory-id-backfill",
+    sql: {},
+    run: async () => {
+      const { getDbExec } = await import("@agent-native/core/db");
+      const exec = getDbExec();
+      const defaultFactoryId = "product-feedback";
+      const tables = [
+        "factory_config",
+        "factory_items",
+        "factory_rules",
+        "factory_decisions",
+        "factory_runs",
+        "factory_feedback",
+        "factory_audit_events",
+      ] as const;
+      for (const table of tables) {
+        await exec.execute({
+          sql: `UPDATE ${table} SET factory_id = ? WHERE factory_id IS NULL OR factory_id = ''`,
+          args: [defaultFactoryId],
+        });
+      }
+      const configRows = await exec.execute({
+        sql: `SELECT id, org_id FROM factory_config WHERE factory_id = ?`,
+        args: [defaultFactoryId],
+      });
+      for (const row of configRows.rows ?? []) {
+        const orgId = String(row.org_id ?? "");
+        const id = String(row.id ?? "");
+        if (!orgId || id.includes(":")) continue;
+        const nextId = `${orgId}:${defaultFactoryId}`;
+        await exec.execute({
+          sql: `UPDATE factory_config SET id = ? WHERE id = ? AND org_id = ?`,
+          args: [nextId, id, orgId],
+        });
+      }
+    },
+  },
+  {
+    version: 22,
+    name: "factory-items-org-factory-dedupe-index",
+    sql: `
+      CREATE UNIQUE INDEX IF NOT EXISTS factory_items_org_factory_dedupe_idx
+        ON factory_items (org_id, factory_id, dedupe_key);
+      CREATE INDEX IF NOT EXISTS factory_items_org_factory_status_idx
+        ON factory_items (org_id, factory_id, status, updated_at);
+      CREATE INDEX IF NOT EXISTS factory_audit_events_org_factory_created_idx
+        ON factory_audit_events (org_id, factory_id, created_at);
+    `,
+  },
 ];
 
 export const runFactoryMigrations = runMigrations(migrations, {

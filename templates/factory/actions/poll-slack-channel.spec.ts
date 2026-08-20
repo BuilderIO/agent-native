@@ -89,7 +89,7 @@ describe("poll-slack-channel action", () => {
 
     await expect(
       action.run(
-        {},
+        { factoryId: "product-feedback" },
         {
           caller: "automation",
           userEmail: "Owner@Example.com",
@@ -112,6 +112,7 @@ describe("poll-slack-channel action", () => {
       },
       { userEmail: "owner@example.com", orgId: "org-1" },
       "sourcePolling",
+      "product-feedback",
     );
     expect(pollSlackChannelMock).toHaveBeenCalledWith({
       workspace: "primary",

@@ -1,9 +1,15 @@
 import { defineAction } from "@agent-native/core/action";
-import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb } from "../server/db/index.js";
 import { triageConfig } from "../server/db/schema.js";
+import { DEFAULT_FACTORY_ID } from "../server/factory-graph/store.js";
+import {
+  assertUniqueSlackChannelForFactory,
+  factoryConfigRowId,
+  factoryIdSchema,
+  readTriageConfigRow,
+} from "../server/lib/factory-scope.js";
 import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
@@ -13,8 +19,9 @@ const workspaceSchema = z.enum(["primary", "secondary"]);
 
 export default defineAction({
   description:
-    "Save Factory observation and automation alert settings. Provider credentials live in shared workspace integrations; source routing metadata including the Builder Slack member id is stored on Factory config.",
+    "Save Factory observation and automation alert settings for the selected factory. Provider credentials live in shared workspace integrations; source routing metadata including the Builder Slack member id is stored on Factory config.",
   schema: z.object({
+    factoryId: factoryIdSchema.default(DEFAULT_FACTORY_ID),
     slackWorkspace: workspaceSchema.optional(),
     slackChannelId: z.string().trim().max(128).optional(),
     slackChannelName: z.string().trim().max(200).optional(),
@@ -41,6 +48,7 @@ export default defineAction({
   http: { method: "POST" },
   run: async (
     {
+      factoryId,
       slackWorkspace,
       slackChannelId,
       slackChannelName,
@@ -62,13 +70,7 @@ export default defineAction({
     );
     const now = new Date().toISOString();
     const db = getDb();
-    const existing = (
-      await db
-        .select()
-        .from(triageConfig)
-        .where(and(eq(triageConfig.id, orgId), eq(triageConfig.orgId, orgId)))
-        .limit(1)
-    )[0];
+    const existing = await readTriageConfigRow(db, orgId, factoryId);
     const persistText = (
       next: string | undefined,
       previous: string | null | undefined,
@@ -78,6 +80,12 @@ export default defineAction({
     const persistedSlackChannelId = persistText(
       slackChannelId,
       existing?.slackChannelId,
+    );
+    await assertUniqueSlackChannelForFactory(
+      db,
+      orgId,
+      factoryId,
+      persistedSlackChannelId,
     );
     const persistedSlackChannelName = persistText(
       slackChannelName,
@@ -130,10 +138,12 @@ export default defineAction({
       automationFailureAlertEmail,
       existing?.automationFailureAlertEmail,
     );
+    const configId = factoryConfigRowId(orgId, factoryId);
     await db
       .insert(triageConfig)
       .values({
-        id: orgId,
+        id: configId,
+        factoryId,
         slackWorkspace: persistedSlackWorkspace,
         slackChannelId: persistedSlackChannelId,
         slackChannelName: persistedSlackChannelName,
@@ -155,6 +165,7 @@ export default defineAction({
       .onConflictDoUpdate({
         target: triageConfig.id,
         set: {
+          factoryId,
           slackWorkspace: persistedSlackWorkspace,
           slackChannelId: persistedSlackChannelId,
           slackChannelName: persistedSlackChannelName,
@@ -175,6 +186,7 @@ export default defineAction({
       });
     return {
       ok: true,
+      factoryId,
       pollingEnabled: persistedPollingEnabled === 1,
       githubPollingEnabled: persistedGithubPollingEnabled === 1,
       sentryPollingEnabled: persistedSentryPollingEnabled === 1,

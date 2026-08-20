@@ -6,10 +6,14 @@ import { resolveConnectorSecret } from "../server/connectors/credentials.js";
 import { getDb } from "../server/db/index.js";
 import {
   triageDecisions,
-  triageConfig,
   triageItems,
   triageRuns,
 } from "../server/db/schema.js";
+import { DEFAULT_FACTORY_ID } from "../server/factory-graph/store.js";
+import {
+  factoryIdSchema,
+  readTriageConfigRow,
+} from "../server/lib/factory-scope.js";
 import { requireFactoryAutomation } from "../server/lib/require-factory-automation.js";
 import {
   requireWorkspaceMember,
@@ -108,6 +112,7 @@ export default defineAction({
   description:
     "Govern one agent-native pull request after fetching bounded GitHub and ai-services evidence. Auto-approve only under the current review-prs membership, owner, evidence, and ultra-scary gates. Never auto-merge. Clips, Design, and Content feedback remains owner-managed while their verified PR-owner exceptions still apply.",
   schema: z.object({
+    factoryId: factoryIdSchema.default(DEFAULT_FACTORY_ID),
     repo: z.string().trim().min(1).max(256),
     pullRequestNumber: z.number().int().positive(),
     itemId: z.string().min(1).optional(),
@@ -118,6 +123,7 @@ export default defineAction({
   http: false,
   run: async (
     {
+      factoryId,
       repo,
       pullRequestNumber,
       itemId,
@@ -130,15 +136,16 @@ export default defineAction({
     const { userEmail, orgId } = await requireWorkspaceMember(
       workspaceMemberIdentityFromContext(context),
     );
-    await requireFactoryAutomation(context, { userEmail, orgId }, "governance");
+    await requireFactoryAutomation(
+      context,
+      { userEmail, orgId },
+      "governance",
+      factoryId,
+    );
     const repository = repositoryRef(repo);
     const configuredRepository = (
-      await getDb()
-        .select({ repository: triageConfig.repository })
-        .from(triageConfig)
-        .where(and(eq(triageConfig.id, orgId), eq(triageConfig.orgId, orgId)))
-        .limit(1)
-    )[0]?.repository;
+      await readTriageConfigRow(getDb(), orgId, factoryId)
+    )?.repository;
     if (!configuredRepository || configuredRepository.trim() !== repo.trim()) {
       throw new Error(
         "PR governance is restricted to the configured Factory repository.",
@@ -348,6 +355,7 @@ export default defineAction({
           createdAt: new Date().toISOString(),
           ownerEmail: userEmail,
           orgId,
+          factoryId,
         })
         .onConflictDoNothing();
     }

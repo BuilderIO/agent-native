@@ -6,6 +6,11 @@ import {
 import { z } from "zod";
 
 import {
+  factoryIdSchema,
+  readAutomationFactoryId,
+  resolveAutomationDisplayName,
+} from "../server/lib/factory-scope.js";
+import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
@@ -14,10 +19,10 @@ export default defineAction({
   description:
     "List the organization-scoped Factory automations with their trigger, editable prompt, model, schedule, enabled state, and recent runs.",
   agentTool: false,
-  schema: z.object({ factoryId: z.string().trim().min(1).optional() }),
+  schema: z.object({ factoryId: factoryIdSchema }),
   http: { method: "GET" },
   readOnly: true,
-  run: async (_, context) => {
+  run: async ({ factoryId }, context) => {
     const { userEmail, orgId } = await requireWorkspaceMember(
       workspaceMemberIdentityFromContext(context),
     );
@@ -27,10 +32,15 @@ export default defineAction({
     );
     return Promise.all(
       definitions
-        .filter(({ meta }) => meta.domain === "factory")
+        .filter(
+          ({ meta, resource }) =>
+            meta.domain === "factory" &&
+            readAutomationFactoryId(meta, resource.content) === factoryId,
+        )
         .map(async ({ resource, name, meta, body, canUpdate }) => ({
           id: resource.id,
           name,
+          displayName: resolveAutomationDisplayName(name, resource.content),
           prompt: body,
           body,
           model: meta.model ?? null,

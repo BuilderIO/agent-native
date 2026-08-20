@@ -4,6 +4,11 @@ import { z } from "zod";
 
 import { getDb } from "../server/db/index.js";
 import { triageRules } from "../server/db/schema.js";
+import { DEFAULT_FACTORY_ID } from "../server/factory-graph/store.js";
+import {
+  factoryIdSchema,
+  orgFactoryRuleFilter,
+} from "../server/lib/factory-scope.js";
 import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
@@ -20,6 +25,7 @@ export default defineAction({
   description:
     "Create or update a Factory rule. Disabled and shadow modes are accepted; execution still requires an explicit approval action.",
   schema: z.object({
+    factoryId: factoryIdSchema.default(DEFAULT_FACTORY_ID),
     id: z.string().min(1).optional(),
     name: z.string().trim().min(1).max(120),
     description: z.string().trim().max(500).default(""),
@@ -30,7 +36,7 @@ export default defineAction({
   }),
   http: { method: "POST" },
   run: async (
-    { id, name, description, promptText, mode, enabled, guards },
+    { factoryId, id, name, description, promptText, mode, enabled, guards },
     context,
   ) => {
     const { userEmail, orgId } = await requireWorkspaceMember(
@@ -42,7 +48,12 @@ export default defineAction({
       await getDb()
         .select({ promptVersion: triageRules.promptVersion })
         .from(triageRules)
-        .where(and(eq(triageRules.id, ruleId), eq(triageRules.orgId, orgId)))
+        .where(
+          and(
+            eq(triageRules.id, ruleId),
+            orgFactoryRuleFilter(orgId, factoryId),
+          ),
+        )
         .limit(1)
     )[0];
     if (id && !existing) {
@@ -68,6 +79,7 @@ export default defineAction({
         updatedAt: now,
         ownerEmail: userEmail,
         orgId,
+        factoryId,
       })
       .onConflictDoUpdate({
         target: triageRules.id,
@@ -81,6 +93,7 @@ export default defineAction({
           promptVersion: nextPromptVersion,
           updatedAt: now,
           ownerEmail: userEmail,
+          factoryId,
         },
       });
 
