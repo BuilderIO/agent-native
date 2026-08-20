@@ -25,8 +25,18 @@ export function publishClipboardContentMutation(args: {
   nextContent: string;
   nextContentHash: string;
   origin: ClipboardContentMutationOrigin;
+  /**
+   * "document" means the base was read from the live document. Ordinary edits
+   * never advance the lineage, so a lineage disagreeing with such a base is
+   * behind it and is superseded, not a competing generation to reject.
+   */
+  baseSource?: "lineage" | "document";
 }): ClipboardContentLineage | null {
-  if (args.current && args.current.contentHash !== args.baseContentHash) {
+  if (
+    args.current &&
+    args.current.contentHash !== args.baseContentHash &&
+    args.baseSource !== "document"
+  ) {
     return null;
   }
   return {

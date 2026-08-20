@@ -12,6 +12,16 @@ const SPACE_SEPARATED_IDREF_ATTRIBUTES = [
 const SINGLE_IDREF_ATTRIBUTES = ["for", "form", "list"] as const;
 const FRAGMENT_REFERENCE_ATTRIBUTES = ["href", "xlink:href"] as const;
 
+// Lookups test every stable id attribute, so re-stamping
+// `data-agent-native-node-id` does not shadow an inherited one.
+// `data-source-file`/`-line`/`-column` are provenance, not identity — keep them.
+const INHERITED_SOURCE_IDENTITY_ATTRIBUTES = [
+  "data-code-layer-id",
+  "data-layer-id",
+  "data-builder-id",
+  "data-loc",
+] as const;
+
 function allElements(root: Element): Element[] {
   return [root, ...Array.from(root.querySelectorAll("*"))];
 }
@@ -110,4 +120,25 @@ export function reassignClonedAuthoredIds(
   }
 
   return idMap;
+}
+
+/**
+ * Replace a cloned subtree's inherited source identity with fresh node ids, so
+ * edits and deletes addressed to the clone cannot resolve to the original.
+ */
+export function reassignClonedSourceIdentity(
+  root: Element,
+  createNodeId: () => string,
+): void {
+  for (const element of allElements(root)) {
+    let inheritedIdentity = false;
+    for (const attribute of INHERITED_SOURCE_IDENTITY_ATTRIBUTES) {
+      if (!element.hasAttribute(attribute)) continue;
+      element.removeAttribute(attribute);
+      inheritedIdentity = true;
+    }
+    if (!inheritedIdentity) continue;
+    if (element.hasAttribute("data-agent-native-node-id")) continue;
+    element.setAttribute("data-agent-native-node-id", createNodeId());
+  }
 }

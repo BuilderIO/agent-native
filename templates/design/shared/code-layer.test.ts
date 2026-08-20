@@ -1392,6 +1392,61 @@ describe("autoLayout", () => {
     expect(patch.content).toContain("gap: 8px");
   });
 
+  it("pins children where they render when disabling, so they can be moved freely", () => {
+    // Figma parity: turning auto layout OFF must leave a freeform container.
+    // display:block alone re-stacks the children and they cannot be dragged.
+    const html =
+      `<div data-agent-native-node-id="container" style="display: flex; flex-direction: column; gap: 8px">` +
+      `<div data-agent-native-node-id="a">A</div>` +
+      `<div data-agent-native-node-id="b">B</div>` +
+      `</div>`;
+    const patch = applyVisualEdit(html, {
+      kind: "autoLayout",
+      targetId: "container",
+      enabled: false,
+      childRects: {
+        a: { x: 0, y: 0, width: 120, height: 40 },
+        b: { x: 0, y: 48, width: 200, height: 60 },
+      },
+    });
+
+    expect(patch.result.status).toBe("applied");
+    const container =
+      /data-agent-native-node-id="container"[^>]*style="([^"]*)"/.exec(
+        patch.content,
+      )?.[1] ?? "";
+    expect(container).toContain("display: block");
+    // Absolute children need a positioned ancestor or they escape to the page.
+    expect(container).toContain("position: relative");
+
+    const childStyle = (id: string) =>
+      /style="([^"]*)"/.exec(
+        new RegExp(`data-agent-native-node-id="${id}"[^>]*`).exec(
+          patch.content,
+        )?.[0] ?? "",
+      )?.[1] ?? "";
+    expect(childStyle("a")).toContain("position: absolute");
+    expect(childStyle("a")).toContain("left: 0px");
+    expect(childStyle("a")).toContain("top: 0px");
+    expect(childStyle("b")).toContain("top: 48px");
+    expect(childStyle("b")).toContain("width: 200px");
+  });
+
+  it("leaves children alone when disabling without measured rects", () => {
+    const html =
+      `<div data-agent-native-node-id="container" style="display: flex">` +
+      `<div data-agent-native-node-id="a">A</div></div>`;
+    const patch = applyVisualEdit(html, {
+      kind: "autoLayout",
+      targetId: "container",
+      enabled: false,
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain("display: block");
+    expect(patch.content).not.toContain("position: absolute");
+  });
+
   it("strips absolute positioning from direct children when enabling", () => {
     const html = `<div data-agent-native-node-id="container"><div data-agent-native-node-id="child" style="position: absolute; left: 0; top: 0; right: 0; bottom: 0">Child</div></div>`;
     const patch = applyVisualEdit(html, {

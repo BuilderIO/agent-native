@@ -506,11 +506,39 @@ export function camelCaseCssProperty(property: string): string {
   );
 }
 
+// The inspector reads font longhands, and a class-less element's computed
+// styles are discarded by refreshedComputedStyles — so an authored `font`
+// shorthand is the only place a family/size/weight can come from.
+function fontShorthandLonghands(value: string): Record<string, string> {
+  const match =
+    /^\s*(.*?)\s*(-?[\d.]+(?:px|r?em|%|pt)|x{1,2}-(?:small|large)|small|medium|large)\s*(?:\/\s*([^\s]+)\s*)?(\S.*)$/.exec(
+      value,
+    );
+  if (!match) return {};
+  const [, leading, size, lineHeight, family] = match;
+  const longhands: Record<string, string> = {
+    fontSize: size,
+    fontFamily: family.trim(),
+  };
+  if (lineHeight) longhands.lineHeight = lineHeight;
+  for (const token of leading.split(/\s+/).filter(Boolean)) {
+    if (/^(?:normal|italic|oblique)$/.test(token)) longhands.fontStyle = token;
+    else if (/^(?:\d{3}|bold|bolder|lighter)$/.test(token)) {
+      longhands.fontWeight = token;
+    } else if (/^small-caps$/.test(token)) longhands.fontVariant = token;
+  }
+  return longhands;
+}
+
 export function cssStyleAliases(
   styles: Record<string, string>,
 ): Record<string, string> {
   const result: Record<string, string> = {};
   for (const [property, value] of Object.entries(styles)) {
+    // Expanded in source order so a later explicit longhand still wins.
+    if (property === "font") {
+      Object.assign(result, fontShorthandLonghands(value));
+    }
     result[property] = value;
     if (property.includes("-")) {
       result[camelCaseCssProperty(property)] = value;

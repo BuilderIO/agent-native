@@ -282,7 +282,7 @@ export function runAddAutoLayout({
         }
       }
     }
-    applyLocalContentUpdate(nextContent, { skipPreview: true });
+    applyLocalContentUpdate(nextContent, { forcePreviewFullDocument: true });
     if (wrapperId) {
       const taggedProjection = buildCodeLayerProjection(nextContent);
       const wrapperNode = taggedProjection.nodes.find(
@@ -338,7 +338,7 @@ export function runAddAutoLayout({
         if (styled.result.status === "applied") nextContent = styled.content;
       }
     }
-    applyLocalContentUpdate(nextContent, { skipPreview: true });
+    applyLocalContentUpdate(nextContent, { forcePreviewFullDocument: true });
     if (wrapperId) {
       const projectionAfter = buildCodeLayerProjection(nextContent);
       const wrapperNode = projectionAfter.nodes.find(
@@ -412,5 +412,5 @@ export function runAddAutoLayout({
       nextContent = paddingPatch.content;
     }
   }
-  applyLocalContentUpdate(nextContent, { skipPreview: true });
+  applyLocalContentUpdate(nextContent, { forcePreviewFullDocument: true });
 }

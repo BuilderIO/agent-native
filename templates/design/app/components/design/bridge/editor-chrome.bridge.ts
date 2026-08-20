@@ -3291,7 +3291,13 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       lastSourceHeadHtml = nextHeadHtml;
     }
     var currentHeadHtml = lastSourceHeadHtml;
-    if (nextHeadHtml === currentHeadHtml && activeCandidates.length > 0) {
+    // The subtree path rewrites one selector's match. A forced replacement can
+    // have changed any number of nodes, so taking it leaves the rest stale.
+    if (
+      !forceFullDocument &&
+      nextHeadHtml === currentHeadHtml &&
+      activeCandidates.length > 0
+    ) {
       var currentMatch = null;
       var nextMatch = null;
       var matchedSelector = "";

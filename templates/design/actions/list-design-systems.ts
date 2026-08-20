@@ -44,6 +44,16 @@ export default defineAction({
     await Promise.all(
       rows.map(async (row) => {
         const access = await resolveAccess("design-system", row.id);
+        if (!access) {
+          // accessFilter admitted this row but resolveAccess cannot name a
+          // role, so create-design's assertAccess will reject the same id the
+          // picker just offered.
+          console.warn(
+            `[design] list-design-systems: no resolvable access for ` +
+              `design-system ${row.id} ("${row.title}") that accessFilter ` +
+              `admitted; create-design will reject it.`,
+          );
+        }
         const role = access?.role ?? "viewer";
         accessById.set(row.id, { role, canManage: canManageRole(role) });
       }),

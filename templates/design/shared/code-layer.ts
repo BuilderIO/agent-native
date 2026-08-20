@@ -498,6 +498,15 @@ export interface AutoLayoutEditIntent {
   enabled: boolean;
   direction?: "row" | "column";
   gap?: string;
+  /**
+   * Measured child geometry, container-relative, keyed by stable node id.
+   * Supplied when disabling so children keep their rendered positions and
+   * become freely draggable; without it they re-stack in block flow.
+   */
+  childRects?: Record<
+    string,
+    { x: number; y: number; width: number; height: number }
+  >;
 }
 
 /**
@@ -3907,21 +3916,81 @@ function applyAutoLayout(
   if (!element) return "conflict";
 
   if (!enabled) {
-    // Turn off auto-layout: set display:block.
+    const childRects = intent.childRects;
+    const hasRects = !!childRects && Object.keys(childRects).length > 0;
     const currentStyle = attributeValue(element, "style");
-    let declarations = parseStyleDeclarations(currentStyle);
-    const displayDecl = declarations.find((d) => d.property === "display");
-    if (displayDecl) {
-      displayDecl.value = "block";
-    } else {
-      declarations.push({ property: "display", value: "block" });
+    const declarations = parseStyleDeclarations(currentStyle);
+    const setOnContainer = (property: string, value: string) => {
+      const existing = declarations.find((d) => d.property === property);
+      if (existing) existing.value = value;
+      else declarations.push({ property, value });
+    };
+    setOnContainer("display", "block");
+    if (hasRects) {
+      // Absolute children resolve against the nearest positioned ancestor, so
+      // a static container would let them escape to the page.
+      const position = declarations.find((d) => d.property === "position");
+      if (!position || position.value === "static") {
+        setOnContainer("position", "relative");
+      }
     }
-    const nextStyle = serializeStyleDeclarations(declarations);
+    let result = replaceOrInsertAttribute(
+      html,
+      element,
+      "style",
+      serializeStyleDeclarations(declarations),
+    );
+    if (!hasRects) {
+      return {
+        content: result,
+        capability: { kind: "style", properties: ["display"], confidence: 0.9 },
+      };
+    }
+
+    const updatedElements = parseHtmlElements(result);
+    const targetAttr = attributeValue(element, "data-agent-native-node-id");
+    const updatedTarget =
+      (targetAttr
+        ? updatedElements.find(
+            (fe) =>
+              attributeValue(fe, "data-agent-native-node-id") === targetAttr,
+          )
+        : undefined) ??
+      updatedElements.find((fe) => fe.start === element.start);
+    if (updatedTarget) {
+      // Reverse order keeps earlier offsets valid as each write shifts the rest.
+      for (const childIndex of [...updatedTarget.childIndexes].reverse()) {
+        const child = updatedElements[childIndex];
+        if (!child) continue;
+        const childId = attributeValue(child, "data-agent-native-node-id");
+        const rect = childId ? childRects[childId] : undefined;
+        if (!rect) continue;
+        const childDecls = parseStyleDeclarations(
+          attributeValue(child, "style"),
+        );
+        const setOnChild = (property: string, value: string) => {
+          const existing = childDecls.find((d) => d.property === property);
+          if (existing) existing.value = value;
+          else childDecls.push({ property, value });
+        };
+        setOnChild("position", "absolute");
+        setOnChild("left", `${Math.round(rect.x)}px`);
+        setOnChild("top", `${Math.round(rect.y)}px`);
+        setOnChild("width", `${Math.round(rect.width)}px`);
+        setOnChild("height", `${Math.round(rect.height)}px`);
+        result = replaceOrInsertAttribute(
+          result,
+          child,
+          "style",
+          serializeStyleDeclarations(childDecls),
+        );
+      }
+    }
     return {
-      content: replaceOrInsertAttribute(html, element, "style", nextStyle),
+      content: result,
       capability: {
         kind: "style",
-        properties: ["display"],
+        properties: ["display", "position", "left", "top", "width", "height"],
         confidence: 0.9,
       },
     };

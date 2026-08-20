@@ -2576,7 +2576,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         lastSourceHeadHtml = nextHeadHtml;
       }
       var currentHeadHtml = lastSourceHeadHtml;
-      if (nextHeadHtml === currentHeadHtml && activeCandidates.length > 0) {
+      if (!forceFullDocument && nextHeadHtml === currentHeadHtml && activeCandidates.length > 0) {
         var currentMatch = null;
         var nextMatch = null;
         var matchedSelector = "";

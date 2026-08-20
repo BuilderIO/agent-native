@@ -213,10 +213,12 @@ function FlexContainerControls({
   element,
   onStyleChange,
   onStylesChange,
+  onDisableAutoLayout,
 }: {
   element: ElementInfo;
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
+  onDisableAutoLayout?: (nodeId: string) => void;
 }) {
   const t = useT();
   const styles = element.computedStyles;
@@ -372,6 +374,13 @@ function FlexContainerControls({
       <AutoLayoutMatrix
         value={autoLayoutValue}
         onFlowChange={(flow) => {
+          const nodeId = element.sourceId ?? element.pendingNodeId;
+          // A raw display:block leaves the children in flow, so they re-stack
+          // and stop being draggable. The command measures and pins them.
+          if (flow === "normal" && onDisableAutoLayout && nodeId) {
+            onDisableAutoLayout(nodeId);
+            return;
+          }
           const patch = autoLayoutStylesForFlow(flow, {
             ...styles,
             ...element.inlineStyles,
@@ -641,12 +650,14 @@ export function LayoutContextProperties({
   element,
   onStyleChange,
   onStylesChange,
+  onDisableAutoLayout,
   motionKeyframeContext,
   breakpointOverrideContext,
 }: {
   element: ElementInfo;
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
+  onDisableAutoLayout?: (nodeId: string) => void;
   motionKeyframeContext?: MotionKeyframeFieldContext;
   breakpointOverrideContext?: BreakpointOverrideFieldContext;
 }) {
@@ -875,6 +886,7 @@ export function LayoutContextProperties({
         element={element}
         onStyleChange={onStyleChange}
         onStylesChange={onStylesChange}
+        onDisableAutoLayout={onDisableAutoLayout}
       />
       {childControls}
     </PanelSection>

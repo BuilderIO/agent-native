@@ -200,7 +200,7 @@ export function runChangeSelectedZIndex(
     zIndexFallback();
     return;
   }
-  applyLocalContentUpdate(patch.content, { skipPreview: true });
+  applyLocalContentUpdate(patch.content, { forcePreviewFullDocument: true });
   const movedNode = patch.projection.nodes.find(
     (n) =>
       n.dataAttributes["data-agent-native-node-id"] === targetId ||

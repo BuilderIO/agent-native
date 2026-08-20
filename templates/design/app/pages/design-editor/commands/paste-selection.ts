@@ -2,6 +2,8 @@ import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
 import * as Y from "yjs";
 
+import { trace } from "@/components/design/design-trace";
+import { findCanvasIframeForScreen } from "@/components/design/multi-screen/iframe-targeting";
 import type {
   ElementInfo,
   RuntimeStructureInsertRequest,
@@ -21,7 +23,10 @@ import type { CanvasLayerClipboardEntry } from "@/pages/design-editor/command-ty
 import { isStandaloneHttpUrl } from "@/pages/design-editor/editor-state";
 import type { ContentHistoryChange } from "@/pages/design-editor/history";
 import { MAX_DESIGN_UNDO_STACK } from "@/pages/design-editor/history";
-import { resolvePastePlacementForSelection } from "@/pages/design-editor/paste-placement";
+import {
+  resolvePastePlacementForSelection,
+  resolvePasteSourceAnchor,
+} from "@/pages/design-editor/paste-placement";
 import type { DesignFile } from "@/pages/design-editor/types";
 
 export interface PasteSelectionArgs {
@@ -83,6 +88,7 @@ export interface PasteSelectionArgs {
     baseContent: string;
     nextContent: string;
     origin: ClipboardContentMutationOrigin;
+    baseSource?: "lineage" | "document";
   }) => ClipboardContentMutationPublication | null;
   refreshClipboardFromSystemClipboard: () => Promise<void>;
   remapMotionTracksForClone: (
@@ -153,10 +159,6 @@ export async function runPasteSelection(
   undoManagerRef.current?.stopCapturing();
   await refreshClipboardFromSystemClipboard();
   const entries = getCanvasClipboardEntries();
-  const targetFileId =
-    viewModeRef.current === "overview" && position && boardFileId
-      ? boardFileId
-      : activeFile?.id;
   if (entries.length === 0) {
     // No layer-level clipboard content — fall back to whole-screen paste
     // (U6) when the clipboard instead carries copied screen snapshots.
@@ -166,7 +168,35 @@ export async function runPasteSelection(
     }
     return;
   }
+  const sourceAnchor = position
+    ? null
+    : resolvePasteSourceAnchor({ entries, getContent: getScreenContent });
+  const activeSurfaceFileId =
+    viewModeRef.current === "overview" && position && boardFileId
+      ? boardFileId
+      : activeFile?.id;
+  // The board is an infinite canvas layer behind every screen, so a screen
+  // layer dropped on it renders under a frame at coordinates no camera or
+  // selection outline resolves. A keyboard paste goes back to its source.
+  const returnToSourceFileId =
+    sourceAnchor &&
+    activeSurfaceFileId === boardFileId &&
+    sourceAnchor.fileId !== boardFileId
+      ? sourceAnchor.fileId
+      : null;
+  const targetFileId = returnToSourceFileId ?? activeSurfaceFileId;
   if (!targetFileId || !canEditDesign) return;
+  if (!position && targetFileId === boardFileId && !sourceAnchor) {
+    trace("structure", "paste-refused", {
+      reason: "clipboard has no readable source file to return the copy to",
+      targetFileId,
+      entries: entries.length,
+    });
+    toast.error(t("designEditor.toasts.primitiveInsertFailed"), {
+      duration: 4000,
+    });
+    return;
+  }
   // The pending-local map is the synchronous write-through source for
   // same-task/repeated operations. React query/collab mirrors can lag one
   // render behind a just-completed paste even after its save is already
@@ -174,13 +204,39 @@ export async function runPasteSelection(
   // mirror makes its history `before` skip the first clone, so one undo
   // removes both. Prefer the pending snapshot exactly like primitive and
   // cross-screen structure writes do elsewhere in this editor.
+  const pendingBase =
+    pendingLocalFileContentsRef.current.get(targetFileId)?.content;
+  const lineageBase =
+    latestClipboardMutationContentRef.current.get(targetFileId)?.content;
+  // The lineage is NOT a content source: it advances only on a clipboard
+  // mutation, so after a delete it still describes the pre-delete document
+  // and rebasing there resurrects what was removed.
   const baseContent =
-    latestClipboardMutationContentRef.current.get(targetFileId)?.content ??
-    pendingLocalFileContentsRef.current.get(targetFileId)?.content ??
+    pendingBase ??
     (targetFileId === activeFile?.id
       ? getFreshActiveContent()
       : (getScreenContent(targetFileId) ?? ""));
-  if (!baseContent && targetFileId !== boardFileId) return;
+  trace("structure", "paste-base", {
+    targetFileId,
+    rebasedOn: pendingBase
+      ? "pending-local"
+      : targetFileId === activeFile?.id
+        ? "fresh-active"
+        : "screen-content",
+    bytes: baseContent.length,
+    lineageBytes: lineageBase?.length ?? null,
+    entries: entries.length,
+  });
+  if (!baseContent && targetFileId !== boardFileId) {
+    trace("structure", "paste-refused", {
+      reason: "destination file has no readable content",
+      targetFileId,
+    });
+    toast.error(t("designEditor.toasts.primitiveInsertFailed"), {
+      duration: 4000,
+    });
+    return;
+  }
   const layerHtmls = entries.map((entry) => entry.html);
   const styleSnapshots = entries.map((entry) => entry.portableStyleSnapshot);
   const managedStyleSnapshots = entries.map(
@@ -292,8 +348,18 @@ export async function runPasteSelection(
       baseContent,
       nextContent,
       origin: "clipboard-paste",
+      baseSource: "document",
     });
-    if (!clipboardMutation) return false;
+    if (!clipboardMutation) {
+      trace("structure", "paste-refused", {
+        reason: "clipboard lineage refused the publication",
+        targetFileId,
+      });
+      toast.error(t("designEditor.toasts.primitiveInsertFailed"), {
+        duration: 4000,
+      });
+      return false;
+    }
     if (nextContent !== baseContent) {
       // Capture the exact immutable pre-paste document here, before the
       // optimistic cache/collab mirrors can advance independently. The
@@ -335,7 +401,12 @@ export async function runPasteSelection(
   // Inside a frame, after an object — but always into normal flow: a
   // container is not a free canvas, so carrying the source's left/top
   // across drops the clone on top of the target's content.
-  if (!position && targetFileId !== boardFileId && selectedElement?.selector) {
+  if (
+    !position &&
+    !returnToSourceFileId &&
+    targetFileId !== boardFileId &&
+    selectedElement?.selector
+  ) {
     const selector = selectedCanvasSelector ?? selectedElement.selector;
     const decision = resolvePastePlacementForSelection({
       content: baseContent,
@@ -385,23 +456,46 @@ export async function runPasteSelection(
     (entry) => entry.sourceFileId === targetFileId,
   );
   const viewportCenter = (() => {
+    const container = canvasContainerRef.current;
+    const factor = zoom / 100;
+    if (factor <= 0) return { x: 120, y: 120 };
     if (viewModeRef.current === "single") {
-      const iframe = canvasContainerRef.current?.querySelector<HTMLElement>(
+      const iframe = container?.querySelector<HTMLElement>(
         "[data-design-preview-iframe]",
       );
       if (iframe) {
         const iframeRect = iframe.getBoundingClientRect();
-        const factor = zoom / 100;
         return {
           x: Math.max(0, iframeRect.width / 2 / factor),
           y: Math.max(0, iframeRect.height / 2 / factor),
         };
       }
     }
-    const rect = canvasContainerRef.current?.getBoundingClientRect();
-    return rect
-      ? { x: Math.max(0, rect.width / 2), y: Math.max(0, rect.height / 2) }
-      : { x: 120, y: 120 };
+    // The container's rect is screen pixels; left/top are document pixels.
+    // Only the destination frame's own rect converts between them — the
+    // board's cannot, because its iframe is a render window, not its origin.
+    const frameRect =
+      targetFileId !== boardFileId
+        ? findCanvasIframeForScreen(
+            container,
+            targetFileId,
+          )?.getBoundingClientRect()
+        : null;
+    const containerRect = container?.getBoundingClientRect();
+    if (!frameRect || !containerRect) return { x: 120, y: 120 };
+    const clamp = (value: number, extent: number) =>
+      Math.max(0, Math.min(value, extent / factor));
+    return {
+      x: clamp(
+        (containerRect.left + containerRect.width / 2 - frameRect.left) /
+          factor,
+        frameRect.width,
+      ),
+      y: clamp(
+        (containerRect.top + containerRect.height / 2 - frameRect.top) / factor,
+        frameRect.height,
+      ),
+    };
   })();
   const positions = entries.map((_, index) => {
     const source = sourcePositions[index];
@@ -423,12 +517,27 @@ export async function runPasteSelection(
           y: viewportCenter.y + cascadeOffset + index * 16,
         };
   });
+  const sourceParentSelectors =
+    sourceAnchor?.fileId === targetFileId ? sourceAnchor.parentSelectors : [];
   const result = insertClonedHtmlLayers(baseContent, layerHtmls, {
     positions,
     styleSnapshots,
     managedStyleSnapshots,
+    ...(sourceParentSelectors.length > 0
+      ? { targetSelectors: sourceParentSelectors, placement: "inside" as const }
+      : {}),
   });
-  if (!result) return;
+  if (!result) {
+    trace("structure", "paste-refused", {
+      reason: "destination document refused the clone",
+      targetFileId,
+      anchors: sourceParentSelectors.length,
+    });
+    toast.error(t("designEditor.toasts.primitiveInsertFailed"), {
+      duration: 4000,
+    });
+    return;
+  }
   if (!position) pasteCascadeRef.current += 1;
   if (!applyPasteContentUpdate(result.content)) return;
   remapMotionTracksForClone(result.nodeIdMap, targetFileId);

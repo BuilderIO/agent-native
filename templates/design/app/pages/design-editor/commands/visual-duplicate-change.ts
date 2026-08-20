@@ -87,6 +87,7 @@ export function runVisualDuplicateChange(
         ? [details.anchorSelector]
         : undefined,
     placement: details?.placement ?? "after",
+    preserveIncomingNodeIds: true,
   });
   if (!nextContent) {
     toast.error(t("designEditor.toasts.layerMoveFailed"), {

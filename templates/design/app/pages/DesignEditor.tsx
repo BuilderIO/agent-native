@@ -971,6 +971,7 @@ import {
   INTERACT_CUSTOM_DEVICE_NAME,
   resolveInteractDeviceForScreen,
 } from "./design-editor/responsive-interact";
+import { measureChildRects } from "./design-editor/measure-child-rects";
 import {
   classifyDesignSaveFailure,
   designSaveErrorMessage,
@@ -7560,6 +7561,7 @@ function DesignEditor() {
       baseContent: string;
       nextContent: string;
       origin: ClipboardContentMutationOrigin;
+      baseSource?: "lineage" | "document";
     }): ClipboardContentMutationPublication | null => {
       const current = latestClipboardMutationContentRef.current.get(
         args.fileId,
@@ -7570,6 +7572,7 @@ function DesignEditor() {
         nextContent: args.nextContent,
         nextContentHash: sourceContentHash(args.nextContent),
         origin: args.origin,
+        baseSource: args.baseSource,
       });
       if (!nextLineage) return null;
       latestClipboardMutationContentRef.current.set(args.fileId, nextLineage);
@@ -11501,10 +11504,43 @@ function DesignEditor() {
         appliedAny = true;
       }
       if (!appliedAny) return false;
-      applyLocalContentUpdate(content, { skipPreview: true });
+      applyLocalContentUpdate(content, { forcePreviewFullDocument: true });
       return true;
     },
     [applyLocalContentUpdate],
+  );
+
+  // Figma parity: turning auto layout off must leave a freeform container.
+  // display:block alone re-stacks the children and they stop being draggable.
+  const handleDisableAutoLayout = useCallback(
+    (nodeId: string) => {
+      if (!canEditDesign) return;
+      const baseContent = getFreshActiveContent();
+      if (!baseContent) {
+        trace("structure", "freeform-abandoned", {
+          reason: "no active content",
+          nodeId,
+        });
+        return;
+      }
+      const childRects = measureChildRects(nodeId);
+      const patch = applyVisualEdit(baseContent, {
+        kind: "autoLayout",
+        targetId: nodeId,
+        enabled: false,
+        childRects,
+      });
+      trace("structure", "freeform", {
+        nodeId,
+        measuredChildren: Object.keys(childRects).length,
+        status: patch.result.status,
+      });
+      if (patch.result.status !== "applied") return;
+      applyLocalContentUpdate(patch.content, {
+        forcePreviewFullDocument: true,
+      });
+    },
+    [applyLocalContentUpdate, canEditDesign, getFreshActiveContent],
   );
 
   // Item 3: Figma's Alignment row — moves the selection itself. Wired to
@@ -11830,7 +11866,9 @@ function DesignEditor() {
     }
     // One persistence call = one content-history entry, even though the pure
     // proposal compiler performed ordering + layout + sizing internally.
-    applyLocalContentUpdate(result.content, { skipPreview: true });
+    applyLocalContentUpdate(result.content, {
+      forcePreviewFullDocument: true,
+    });
     setAutoLayoutSuggestionPreview(null);
   }, [
     applyLocalContentUpdate,
@@ -19235,6 +19273,7 @@ function DesignEditor() {
     reviewCommentsPanelProps,
     reviewCommentsCount: reviewOpenCount,
     onAlignSelection: canEditDesign ? handleAlignSelection : undefined,
+    onDisableAutoLayout: canEditDesign ? handleDisableAutoLayout : undefined,
     onInteractionStateChange: handleInteractionStateChange,
     onEditCode: handleShaderEditCode,
   };

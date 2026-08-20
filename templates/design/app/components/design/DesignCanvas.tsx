@@ -4076,8 +4076,17 @@ export function DesignCanvas({
         preserveTextEditingSession?: boolean;
       },
     ) => {
+      // Raw content here drops the injected offset/background styles, moving a
+      // frame authored at a negative offset off screen. Both channels push the
+      // same shape.
       const replaced = replacePreviewContent(
-        nextContent,
+        getEmbeddedFrameDocumentContent({
+          content: withLocalRuntimes(nextContent),
+          embeddedFrameBackground,
+          transparentBackground,
+          contentOffsetX: embeddedFrame?.contentOffsetX ?? 0,
+          contentOffsetY: embeddedFrame?.contentOffsetY ?? 0,
+        }),
         selector,
         candidates,
         options,
@@ -4091,7 +4100,13 @@ export function DesignCanvas({
       }
       return replaced;
     },
-    [replacePreviewContent],
+    [
+      embeddedFrame?.contentOffsetX,
+      embeddedFrame?.contentOffsetY,
+      embeddedFrameBackground,
+      replacePreviewContent,
+      transparentBackground,
+    ],
   );
 
   const replaceRuntimeContentInPlace = useCallback(

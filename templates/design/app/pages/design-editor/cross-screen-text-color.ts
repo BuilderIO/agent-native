@@ -110,12 +110,12 @@ export function shouldAdaptAutoTextColorForCrossScreenMove(params: {
  * treated as transparent so the walk keeps climbing instead of trusting a
  * near-invisible tint. A dark-class hint only counts when no color signal
  * was present on that element (a real color always wins over a guessed
- * class). No signal anywhere in the chain conservatively reports "light" so
- * the default-white heuristic can still fire and prevent invisible text.
+ * class). No signal anywhere in the chain yields null — distinct from a
+ * measured light surface, so each caller picks its own fallback.
  */
-export function resolveDestinationBackgroundLightness(
+export function resolveDestinationBackgroundLightnessOrNull(
   chain: ReadonlyArray<{ color: string | null } | { darkClassHint: boolean }>,
-): boolean {
+): boolean | null {
   for (const entry of chain) {
     if ("color" in entry && entry.color) {
       const rgba = parseCssColorExtended(entry.color);
@@ -130,7 +130,14 @@ export function resolveDestinationBackgroundLightness(
       return false;
     }
   }
-  return true;
+  return null;
+}
+
+/** Unreadable counts as light, so the default-white heuristic can still fire. */
+export function resolveDestinationBackgroundLightness(
+  chain: ReadonlyArray<{ color: string | null } | { darkClassHint: boolean }>,
+): boolean {
+  return resolveDestinationBackgroundLightnessOrNull(chain) ?? true;
 }
 
 // Cheap, best-effort utility-class signal for "this element's classes look
@@ -209,10 +216,11 @@ function collectDestinationBackgroundSignals(
  * dark-class-hint chain when no live document is available (e.g. the
  * destination screen isn't currently mounted).
  */
-export function destinationBackgroundIsLightForNode(
+/** null means "no readable signal", so callers can pick their own fallback. */
+export function destinationBackgroundLightness(
   element: Element,
   liveDoc?: Document | null,
-): boolean {
+): boolean | null {
   try {
     const liveElement =
       liveDoc && element.hasAttribute("data-agent-native-node-id")
@@ -223,10 +231,18 @@ export function destinationBackgroundIsLightForNode(
           )
         : null;
     const chain = collectDestinationBackgroundSignals(element, liveElement);
-    return resolveDestinationBackgroundLightness(chain);
+    return resolveDestinationBackgroundLightnessOrNull(chain);
   } catch {
-    return true;
+    // coercion-ok: null is the typed "unreadable" value callers branch on
+    return null;
   }
+}
+
+export function destinationBackgroundIsLightForNode(
+  element: Element,
+  liveDoc?: Document | null,
+): boolean {
+  return destinationBackgroundLightness(element, liveDoc) ?? true;
 }
 
 /**

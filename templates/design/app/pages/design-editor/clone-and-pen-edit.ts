@@ -12,7 +12,10 @@ import {
 } from "@/lib/design-clipboard-managed-styles";
 
 import { uniqueLayerId } from "./canvas-primitive-insert";
-import { reassignClonedAuthoredIds } from "./clone-idrefs";
+import {
+  reassignClonedAuthoredIds,
+  reassignClonedSourceIdentity,
+} from "./clone-idrefs";
 import { queryUniqueSelector } from "./dom-utils";
 import { isStandaloneHttpUrl } from "./editor-state";
 import {
@@ -184,10 +187,27 @@ function setRootLayerPosition(
   host.style.bottom = "";
 }
 
+/**
+ * Keep an incoming node id the destination does not already use, so a clone
+ * the caller already rendered stays addressable by the id it carries.
+ */
+function claimClonedNodeId(
+  previousId: string | null,
+  fallbackPrefix: string,
+  reservedNodeIds: Set<string> | null,
+): string {
+  if (!reservedNodeIds || !previousId || reservedNodeIds.has(previousId)) {
+    return uniqueLayerId(fallbackPrefix);
+  }
+  reservedNodeIds.add(previousId);
+  return previousId;
+}
+
 function prepareClonedHtmlLayer(
   doc: Document,
   layerHtml: string,
   styleSnapshot?: PortableStyleSnapshot,
+  reservedNodeIds: Set<string> | null = null,
 ): {
   element: Element;
   rootNodeId: string;
@@ -215,13 +235,21 @@ function prepareClonedHtmlLayer(
   }
   const nodeIdMap = new Map<string, string>();
   const previousRootNodeId = clone.getAttribute("data-agent-native-node-id");
-  const rootNodeId = uniqueLayerId("copy");
+  const rootNodeId = claimClonedNodeId(
+    previousRootNodeId,
+    "copy",
+    reservedNodeIds,
+  );
   clone.setAttribute("data-agent-native-node-id", rootNodeId);
   if (previousRootNodeId) nodeIdMap.set(previousRootNodeId, rootNodeId);
   Array.from(clone.querySelectorAll("[data-agent-native-node-id]")).forEach(
     (node) => {
       const previousChildId = node.getAttribute("data-agent-native-node-id");
-      const nextChildId = uniqueLayerId("copy-child");
+      const nextChildId = claimClonedNodeId(
+        previousChildId,
+        "copy-child",
+        reservedNodeIds,
+      );
       node.setAttribute("data-agent-native-node-id", nextChildId);
       if (previousChildId) nodeIdMap.set(previousChildId, nextChildId);
     },
@@ -234,6 +262,7 @@ function prepareClonedHtmlLayer(
   // happens to match first (typically the ORIGINAL, not the new copy),
   // silently misapplying edits meant for the duplicate.
   reassignClonedAuthoredIds(clone, () => uniqueLayerId("copy-id"));
+  reassignClonedSourceIdentity(clone, () => uniqueLayerId("copy-child"));
   return { element: clone, rootNodeId, nodeIdMap };
 }
 
@@ -345,6 +374,13 @@ export function insertClonedHtmlLayers(
     managedStyleSnapshots?: Array<
       DesignClipboardManagedStyleSnapshot | null | undefined
     >;
+    /**
+     * The layer html describes an element the caller has ALREADY rendered
+     * under these ids. Re-minting them strands that element: every later
+     * message addresses an id the document lacks, and the fuzzy resolver
+     * behind it lands on the node the clone was copied from.
+     */
+    preserveIncomingNodeIds?: boolean;
   } = {},
 ): {
   content: string;
@@ -365,11 +401,19 @@ export function insertClonedHtmlLayers(
     const fragment = doc.createDocumentFragment();
     const rootNodeIds: string[] = [];
     const nodeIdMap = new Map<string, string>();
+    const reservedNodeIds = options.preserveIncomingNodeIds
+      ? new Set(
+          Array.from(doc.querySelectorAll("[data-agent-native-node-id]"))
+            .map((node) => node.getAttribute("data-agent-native-node-id"))
+            .filter((value): value is string => Boolean(value)),
+        )
+      : null;
     layerHtmls.forEach((layerHtml, index) => {
       const prepared = prepareClonedHtmlLayer(
         doc,
         layerHtml,
         options.styleSnapshots?.[index] ?? undefined,
+        reservedNodeIds,
       );
       if (!prepared) return;
       const position = options.positions?.[index];
@@ -447,6 +491,7 @@ export function insertClonedHtmlLayer(
     targetSelectors: string[];
     anchorSelectors?: string[];
     placement?: "before" | "after" | "inside";
+    preserveIncomingNodeIds?: boolean;
   },
 ): string | null {
   return (
@@ -454,6 +499,7 @@ export function insertClonedHtmlLayer(
       targetSelectors: options.targetSelectors,
       anchorSelectors: options.anchorSelectors,
       placement: options.placement,
+      preserveIncomingNodeIds: options.preserveIncomingNodeIds,
     })?.content ?? null
   );
 }

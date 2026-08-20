@@ -9,11 +9,12 @@ import type { CanvasPrimitiveInsert } from "@/components/design/multi-screen/typ
 
 import {
   CANVAS_TEXT_DEFAULT_FONT_FAMILY,
+  defaultCanvasFrameFill,
   defaultCanvasTextColor,
 } from "./canvas-primitives";
 import {
   BOARD_TEXT_AUTO_COLOR_MARKER,
-  destinationBackgroundIsLightForNode,
+  destinationBackgroundLightness,
 } from "./cross-screen-text-color";
 import { escapeHtmlAttributeValue, escapeHtmlText } from "./dom-utils";
 import { isStandaloneHttpUrl } from "./editor-state";
@@ -234,8 +235,6 @@ function deepestFrameContaining(
   root: Element,
   x: number,
   y: number,
-  w: number,
-  h: number,
 ): { element: Element; x: number; y: number } | null {
   const contained = Array.from(
     root.querySelectorAll('[data-an-primitive="frame"]'),
@@ -248,11 +247,14 @@ function deepestFrameContaining(
         element: Element;
         rect: { x: number; y: number; w: number; h: number };
       } =>
+        // Nest on the origin, as Figma does. Requiring the whole box to fit
+        // drops a click-created text (default width) out to the root, where
+        // it overlaps the frame it looks like it belongs to.
         candidate.rect !== null &&
         x >= candidate.rect.x &&
         y >= candidate.rect.y &&
-        x + w <= candidate.rect.x + candidate.rect.w &&
-        y + h <= candidate.rect.y + candidate.rect.h,
+        x <= candidate.rect.x + candidate.rect.w &&
+        y <= candidate.rect.y + candidate.rect.h,
     )
     .sort((a, b) => a.rect.w * a.rect.h - b.rect.w * b.rect.h);
   const best = contained[0];
@@ -288,8 +290,12 @@ export function appendCanvasPrimitiveToHtml(
     const layerName = primitiveLayerName(primitive);
     // Resolved once so every primitive kind nests identically, and so text can
     // pick a fill that is legible against its actual container.
-    const host = deepestFrameContaining(doc.body, left, top, width, height);
+    const host = deepestFrameContaining(doc.body, left, top);
     const hostOrBody: Element = host?.element ?? doc.body;
+    // The div branch subtracts the host origin below; an svg appended to the
+    // same host must use the same space or it lands outside and is clipped.
+    const hostLeft = host ? left - host.x : left;
+    const hostTop = host ? top - host.y : top;
 
     if (
       primitive.kind === "path" ||
@@ -398,8 +404,8 @@ export function appendCanvasPrimitiveToHtml(
         "style",
         [
           "position:absolute",
-          `left:${left}px`,
-          `top:${top}px`,
+          `left:${hostLeft}px`,
+          `top:${hostTop}px`,
           `width:${width}px`,
           `height:${height}px`,
           "overflow:visible",
@@ -441,8 +447,8 @@ export function appendCanvasPrimitiveToHtml(
         "style",
         [
           "position:absolute",
-          `left:${left}px`,
-          `top:${top}px`,
+          `left:${hostLeft}px`,
+          `top:${hostTop}px`,
           `width:${width}px`,
           `height:${height}px`,
           "overflow:visible",
@@ -482,19 +488,12 @@ export function appendCanvasPrimitiveToHtml(
       primitive.kind === "rectangle" ? "rect" : primitive.kind,
     );
     if (primitive.kind === "frame") {
-      // A committed frame is a BARE container <div> — no default fill,
-      // border, or radius — so the markup this code-first editor emits stays
-      // clean (a Figma frame reads as unstyled structure, and a dashed
-      // border/tint baked into the design's real HTML would be styling
-      // pollution). This deliberately diverges from the draft PREVIEW's
-      // faint-tint/dashed look (canvas-primitive-style.ts), which is editor
-      // affordance chrome during the drag; on commit the new frame is
-      // immediately selected, so its bounds stay visible via selection
-      // chrome instead. Explicit user-chosen fill/stroke still applies.
+      // A committed frame carries a real surface, not the draft preview's
+      // dashed tint (editor chrome, canvas-primitive-style.ts): selection
+      // chrome only covers the frame while it stays selected, and a bare
+      // container is invisible the moment it is not.
       // overflow:hidden matches Figma frames clipping their content.
-      if (primitive.fill) {
-        element.style.background = primitive.fill;
-      }
+      element.style.background = primitive.fill ?? defaultCanvasFrameFill();
       if (
         primitive.stroke !== undefined ||
         primitive.strokeWidth !== undefined
@@ -516,9 +515,13 @@ export function appendCanvasPrimitiveToHtml(
       // "currentColor" so text still inherits their theme.
       // Measure the frame the text actually lands in: a dark frame on a light
       // page would otherwise keep currentColor and render invisible.
+      // isBoardTarget only says which surface is behind the text, and the
+      // board is not always dark — a measured background always wins.
+      const measuredLightness = destinationBackgroundLightness(hostOrBody);
       const autoTextNeedsLightFill =
-        options?.isBoardTarget === true ||
-        !destinationBackgroundIsLightForNode(hostOrBody);
+        measuredLightness === null
+          ? options?.isBoardTarget === true
+          : !measuredLightness;
       const resolvedTextColor =
         primitive.fill ?? defaultCanvasTextColor(autoTextNeedsLightFill);
       element.style.color = resolvedTextColor;

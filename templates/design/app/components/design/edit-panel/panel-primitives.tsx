@@ -4,7 +4,7 @@ import {
   withColorOpacity,
 } from "@shared/color-utils";
 import { IconChevronDown, IconChevronRight } from "@tabler/icons-react";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Children, useEffect, useRef, useState, type ReactNode } from "react";
 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -654,8 +654,9 @@ export function PropSlider({
 
 /**
  * design-editor inspector section: divider above, title left, actions right.
- * Without the leading chevron a collapsed section is indistinguishable from a
- * section with nothing to show, so the panel reads as fixed, not expandable.
+ * The chevron appears only when there is content, so a collapsed section is
+ * never mistaken for an empty one — and an empty section offers no control
+ * that does nothing.
  */
 export function PanelSection({
   title,
@@ -669,41 +670,51 @@ export function PanelSection({
   defaultCollapsed?: boolean;
 }) {
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
+  const hasContent = Children.toArray(children).length > 0;
+  const heading = (
+    <h3 className="min-w-0 flex-1 truncate !text-[11px] font-semibold text-foreground">
+      {title}
+    </h3>
+  );
 
   return (
     <section className="shrink-0 border-t border-[var(--design-editor-control-border)] first:border-t-0">
       <div className="flex min-h-9 items-center gap-2 px-3">
-        <button
-          type="button"
-          className="flex min-w-0 flex-1 cursor-pointer items-center gap-1 bg-transparent text-left"
-          onClick={() => setCollapsed((c) => !c)}
-          aria-expanded={!collapsed}
-        >
-          {collapsed ? (
-            <IconChevronRight className="size-3 shrink-0 text-muted-foreground/50 rtl:-scale-x-100" />
-          ) : (
-            <IconChevronDown className="size-3 shrink-0 text-muted-foreground/50" />
-          )}
-          <h3 className="min-w-0 flex-1 truncate !text-[11px] font-semibold text-foreground">
-            {title}
-          </h3>
-        </button>
+        {hasContent ? (
+          <button
+            type="button"
+            className="flex min-w-0 flex-1 cursor-pointer items-center gap-1 bg-transparent text-left"
+            onClick={() => setCollapsed((c) => !c)}
+            aria-expanded={!collapsed}
+          >
+            {collapsed ? (
+              <IconChevronRight className="size-3 shrink-0 text-muted-foreground/50 rtl:-scale-x-100" />
+            ) : (
+              <IconChevronDown className="size-3 shrink-0 text-muted-foreground/50" />
+            )}
+            {heading}
+          </button>
+        ) : (
+          <div className="flex min-w-0 flex-1 items-center gap-1 pl-4">
+            {heading}
+          </div>
+        )}
         {actions ? (
           <div className="flex shrink-0 items-center gap-0.5">{actions}</div>
         ) : null}
       </div>
-      <div
-        className="grid transition-[grid-template-rows] duration-200 ease-[cubic-bezier(0.2,0,0,1)] motion-reduce:transition-none"
-        style={{ gridTemplateRows: collapsed ? "0fr" : "1fr" }}
-      >
-        <div className="overflow-hidden">
-          {children ? (
+      {hasContent ? (
+        <div
+          className="grid transition-[grid-template-rows] duration-200 ease-[cubic-bezier(0.2,0,0,1)] motion-reduce:transition-none"
+          style={{ gridTemplateRows: collapsed ? "0fr" : "1fr" }}
+        >
+          <div className="overflow-hidden">
             <div className="space-y-1.5 px-3 pb-3 pt-0.5 !text-[11px]">
               {children}
             </div>
-          ) : null}
+          </div>
         </div>
-      </div>
+      ) : null}
     </section>
   );
 }

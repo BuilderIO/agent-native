@@ -131,3 +131,53 @@ export function resolvePastePlacementForSelection(args: {
   if (!node) return null;
   return resolvePastePlacement(pasteTargetFromCodeLayerNode(node));
 }
+
+export interface PasteSourceAnchor {
+  fileId: string;
+  parentSelectors: string[];
+}
+
+/**
+ * A copied layer's left/top are parent-relative, so a paste that lands
+ * anywhere else reads them in the wrong coordinate space. Null means the
+ * source is unknown — never "the document root".
+ */
+export function resolvePasteSourceAnchor(args: {
+  entries: ReadonlyArray<{ rootNodeId?: string; sourceFileId: string }>;
+  getContent: (fileId: string) => string | undefined;
+}): PasteSourceAnchor | null {
+  const first = args.entries[0];
+  if (!first) return null;
+  if (args.entries.some((entry) => entry.sourceFileId !== first.sourceFileId)) {
+    return null;
+  }
+  const content = args.getContent(first.sourceFileId);
+  if (!content) return null;
+  const projection = buildCodeLayerProjection(content);
+  const node = first.rootNodeId
+    ? projection.nodes.find(
+        (candidate) =>
+          candidate.dataAttributes["data-agent-native-node-id"] ===
+            first.rootNodeId || candidate.id === first.rootNodeId,
+      )
+    : undefined;
+  const parent = node?.parentId
+    ? projection.nodes.find((candidate) => candidate.id === node.parentId)
+    : undefined;
+  const parentNodeId = parent?.dataAttributes["data-agent-native-node-id"];
+  return {
+    fileId: first.sourceFileId,
+    parentSelectors: parent
+      ? [
+          // A node-id selector is unique by construction; the projection's
+          // class/path aliases can match several siblings, and
+          // insertClonedHtmlLayers fails closed on that ambiguity.
+          parentNodeId
+            ? `[data-agent-native-node-id="${parentNodeId.replace(/["\\]/g, "\\$&")}"]`
+            : null,
+          parent.selector,
+          ...parent.selectors,
+        ].filter((selector): selector is string => Boolean(selector))
+      : [],
+  };
+}

@@ -21,6 +21,7 @@ export { isStandaloneHttpUrl };
 export type PreviewContentReplaceResult =
   | "applied"
   | "skipped-live-route"
+  | "skipped-caller-owns-preview"
   | "unavailable";
 
 export function previewContentReplaceNeedsRenderFallback(
