@@ -119,6 +119,32 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(String(purge.run), /if \(!response\.ok\)/);
   });
 
+  it("keeps Clips prebuilt assembly independent of masked runtime secrets", () => {
+    const workflow = readFileSync(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+      "utf8",
+    );
+    const clipsNetlify = readFileSync("templates/clips/netlify.toml", "utf8");
+    const buildStart = workflow.indexOf(
+      "name: Build with the Netlify project configuration",
+    );
+    const buildEnd = workflow.indexOf(
+      "name: Verify deploy directories",
+      buildStart,
+    );
+    const build = workflow.slice(buildStart, buildEnd);
+    assert.match(build, /\[\[ \"\$SOURCE_TEMPLATE\" == \"clips\" \]\]/);
+    assert.match(build, /agentNativePrebuiltBuild=true/);
+    assert.match(build, /agentNativePrebuiltDatabaseUrl=/);
+    assert.match(build, /agentNativePrebuiltAuthSecret=/);
+    assert.match(clipsNetlify, /agentNativePrebuiltDatabaseUrl/);
+    assert.match(clipsNetlify, /agentNativePrebuiltAuthSecret/);
+    assert.match(
+      clipsNetlify,
+      /agentNativePrebuiltBuild:-\}.*migrate:production/,
+    );
+  });
+
   it("rejects a purge step that is no longer production-only and success-gated", () => {
     const workflow = readWorkflow(
       ".github/workflows/deploy-netlify-prebuilt.yml",
@@ -141,7 +167,7 @@ describe("production Netlify site concurrency guard", () => {
     }
   });
 
-  it("ignores stale ready deploys after a locked cutover", () => {
+  it("allows Netlify-observed ready deploys but blocks newly observed ready deploys", () => {
     const unlock = nodeHeredocs[1];
     const pendingStart = unlock.indexOf("function pendingProductionDeploys");
     const drainStart = unlock.indexOf(
@@ -154,7 +180,7 @@ describe("production Netlify site concurrency guard", () => {
     )() as (
       deploys: Array<Record<string, unknown>>,
       publishedId: string,
-      readyIsBlocking: boolean,
+      preexistingDeployIds: Set<unknown>,
     ) => Array<Record<string, unknown>>;
     const deploys = [
       {
@@ -163,22 +189,70 @@ describe("production Netlify site concurrency guard", () => {
         published_at: "now",
         state: "ready",
       },
-      { id: "stale-ready", context: "production", state: "ready" },
+      {
+        id: "stale-ready",
+        context: "production",
+        state: "ready",
+        created_at: "2026-08-20T01:59:59Z",
+      },
+      {
+        id: "preexisting-unreadable-ready",
+        context: "production",
+        state: "ready",
+        created_at: "not-a-date",
+      },
+      {
+        id: "new-ready",
+        context: "production",
+        state: "ready",
+        created_at: "2026-08-20T02:00:01Z",
+      },
+      {
+        id: "new-unreadable-ready",
+        context: "production",
+        state: "ready",
+        created_at: "not-a-date",
+      },
       { id: "queued", context: "production", state: "enqueued" },
       { id: "failed", context: "production", state: "error" },
     ];
 
     assert.deepEqual(
-      pendingProductionDeploys(deploys, "published", false).map(
-        (deploy) => deploy.id,
-      ),
-      ["queued"],
+      pendingProductionDeploys(
+        deploys,
+        "published",
+        new Set(["published", "stale-ready", "preexisting-unreadable-ready"]),
+      ).map((deploy) => deploy.id),
+      ["new-ready", "new-unreadable-ready", "queued"],
     );
-    assert.deepEqual(
-      pendingProductionDeploys(deploys, "published", true).map(
-        (deploy) => deploy.id,
-      ),
-      ["stale-ready", "queued"],
+  });
+
+  it("captures the Netlify deploy baseline before draining production deploys", () => {
+    const unlock = nodeHeredocs[1];
+    assert.doesNotMatch(unlock, /readyIsBlocking/);
+    const baselineIndex = unlock.indexOf(
+      "const preexistingDeployIds = new Set",
+    );
+    const siteLookupIndex = unlock.indexOf("const site = await readJson(");
+    assert(baselineIndex >= 0 && siteLookupIndex > baselineIndex);
+    assert.match(
+      unlock,
+      /const preexistingDeployIds = new Set\([\s\S]*?Netlify pre-existing production ready deploy lookup[\s\S]*?Date\.now\(\) - DEPLOY_LOOKBACK_MS[\s\S]*?production: "true"[\s\S]*?state: "ready"[\s\S]*?\);\s*const site = await readJson\(/,
+    );
+  });
+
+  it("rechecks the production queue immediately before unlocking", () => {
+    const unlock = nodeHeredocs[1];
+    const finalDrain = unlock.lastIndexOf(
+      "await drainPendingDeploys(deployId, preexistingDeployIds);",
+    );
+    const unlockRequest = unlock.lastIndexOf(
+      "await request(`${api}/deploys/${deployId}/unlock`",
+    );
+    assert(finalDrain >= 0 && unlockRequest > finalDrain);
+    assert.match(
+      unlock.slice(finalDrain, unlockRequest),
+      /finalBeforeUnlock[\s\S]*published_deploy\?\.id !== deployId/,
     );
   });
 
@@ -216,7 +290,8 @@ describe("production Netlify site concurrency guard", () => {
       "site-id",
     ) as (
       label: string,
-      cutoff: number,
+      cutoff: number | null,
+      filters?: Record<string, string>,
     ) => Promise<Array<Record<string, unknown>>>;
     const requests: string[] = [];
     const pages = new Map([
@@ -241,6 +316,29 @@ describe("production Netlify site concurrency guard", () => {
           next: null,
         },
       ],
+      [
+        "https://netlify.test/api/sites/site-id/deploys?per_page=100&production=true&state=ready",
+        {
+          deploys: [{ id: "ready-recent", created_at: "2026-08-20T05:00:00Z" }],
+          next: "https://netlify.test/ready-page-2",
+        },
+      ],
+      [
+        "https://netlify.test/ready-page-2",
+        {
+          deploys: [{ id: "old-ready", created_at: "2026-08-20T01:00:00Z" }],
+          next: "https://netlify.test/ready-page-3",
+        },
+      ],
+      [
+        "https://netlify.test/ready-page-3",
+        {
+          deploys: [
+            { id: "too-old-ready", created_at: "2020-01-01T00:00:00Z" },
+          ],
+          next: null,
+        },
+      ],
     ]);
 
     const deploys = await listDeploys(
@@ -255,6 +353,20 @@ describe("production Netlify site concurrency guard", () => {
       "https://netlify.test/api/sites/site-id/deploys?per_page=100",
       "https://netlify.test/page-2",
       "https://netlify.test/page-3",
+    ]);
+
+    const readyBaseline = await listDeploys(
+      "pre-existing ready deploy lookup",
+      Date.parse("2026-08-20T02:00:00Z"),
+      { production: "true", state: "ready" },
+    );
+    assert.deepEqual(
+      readyBaseline.map((deploy) => deploy.id),
+      ["ready-recent", "old-ready"],
+    );
+    assert.deepEqual(requests.slice(-2), [
+      "https://netlify.test/api/sites/site-id/deploys?per_page=100&production=true&state=ready",
+      "https://netlify.test/ready-page-2",
     ]);
   });
 

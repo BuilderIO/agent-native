@@ -229,6 +229,15 @@ jobs:
         run: |
           set -euo pipefail
           : "${NETLIFY_AUTH_TOKEN:?NETLIFY_AUTH_TOKEN secret is required}"
+          if [[ "$SOURCE_TEMPLATE" == "clips" ]]; then
+            # Netlify's local CLI receives masked site secrets. Clips only needs
+            # valid build-time shapes here; the uploaded Functions read the real
+            # site-scoped values at runtime.
+            export agentNativePrebuiltBuild=true
+            export agentNativePrebuiltDatabaseUrl="postgresql://build-only.invalid/agent_native"
+            agentNativePrebuiltAuthSecret="$(node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("hex"))')"
+            export agentNativePrebuiltAuthSecret
+          fi
           netlify build --context "$BUILD_CONTEXT" --filter "$SOURCE_TEMPLATE"
 
       - name: Verify deploy directories
@@ -363,9 +372,10 @@ jobs:
             return null;
           }
 
-          async function listDeploys(label, cutoff) {
+          async function listDeploys(label, cutoff, filters = {}) {
             const deploys = [];
-            let url = `${api}/sites/${siteId}/deploys?per_page=100`;
+            const params = new URLSearchParams({ per_page: "100", ...filters });
+            let url = `${api}/sites/${siteId}/deploys?${params}`;
             while (url) {
               const response = await request(url);
               const page = await readJson(response, label);
@@ -374,31 +384,37 @@ jobs:
               const oldestCreatedAt = page[page.length - 1]?.created_at;
               // Netlify returns deploys newest-first; historical pages cannot
               // contain a pending cutover deploy and make the drain time out.
-              if (oldestCreatedAt && Date.parse(oldestCreatedAt) < cutoff) break;
+              if (cutoff !== null && oldestCreatedAt && Date.parse(oldestCreatedAt) < cutoff) break;
               url = nextPageUrl(response.headers.get("link"));
             }
             return deploys;
           }
 
-          function pendingProductionDeploys(deploys, publishedId, readyIsBlocking) {
+          function pendingProductionDeploys(deploys, publishedId, preexistingDeployIds) {
             return deploys.filter(
-              (candidate) =>
-                candidate.id !== publishedId &&
-                candidate.context === "production" &&
-                !candidate.published_at &&
-                !["error", "canceled"].includes(candidate.state) &&
-                (candidate.state !== "ready" || readyIsBlocking),
+              (candidate) => {
+                if (
+                  candidate.id === publishedId ||
+                  candidate.context !== "production" ||
+                  candidate.published_at ||
+                  ["error", "canceled"].includes(candidate.state)
+                ) {
+                  return false;
+                }
+                if (candidate.state !== "ready") return true;
+                return !preexistingDeployIds.has(candidate.id);
+              },
             );
           }
 
-          async function drainPendingDeploys(publishedId, readyIsBlocking) {
+          async function drainPendingDeploys(publishedId, preexistingDeployIds) {
             const deadline = Date.now() + 5 * 60 * 1000;
             const cutoff = Date.now() - DEPLOY_LOOKBACK_MS;
             while (Date.now() < deadline) {
               let pending = pendingProductionDeploys(
                 await listDeploys("Netlify pending production deploy lookup", cutoff),
                 publishedId,
-                readyIsBlocking,
+                preexistingDeployIds,
               );
               const cancelable = pending.filter((candidate) =>
                 ["new", "enqueued"].includes(candidate.state),
@@ -416,7 +432,7 @@ jobs:
               pending = pendingProductionDeploys(
                 await listDeploys("Netlify production deploy drain verification", cutoff),
                 publishedId,
-                readyIsBlocking,
+                preexistingDeployIds,
               );
               const ready = pending.filter((candidate) => candidate.state === "ready");
               if (ready.length) {
@@ -436,6 +452,18 @@ jobs:
             );
           }
 
+          // Snapshot every ready production ID before reading site/deploy state.
+          // The bounded drain lookup must not classify an older ready backlog as new.
+          const preexistingDeployIds = new Set(
+            (
+              await listDeploys(
+                "Netlify pre-existing production ready deploy lookup",
+                Date.now() - DEPLOY_LOOKBACK_MS,
+                { production: "true", state: "ready" },
+              )
+            ).map((candidate) => candidate.id),
+          );
+
           const site = await readJson(
             await request(`${api}/sites/${siteId}`),
             "Netlify published deploy lookup",
@@ -449,8 +477,7 @@ jobs:
             await request(`${api}/deploys/${deployId}`),
             `Netlify deploy ${deployId} lock lookup before drain`,
           );
-          const readyIsBlocking = published.locked !== true;
-          await drainPendingDeploys(deployId, readyIsBlocking);
+          await drainPendingDeploys(deployId, preexistingDeployIds);
 
           const beforeUnlock = await readJson(
             await request(`${api}/sites/${siteId}`),
@@ -473,6 +500,19 @@ jobs:
           if (deploy.locked !== true) {
             console.log(`Published deploy ${deployId} is already unlocked.`);
           } else {
+            // Queue inspection and unlock are separate Netlify calls. Recheck
+            // immediately before the unlock so a ready deploy created during
+            // the final site/deploy lookups still fails closed.
+            await drainPendingDeploys(deployId, preexistingDeployIds);
+            const finalBeforeUnlock = await readJson(
+              await request(`${api}/sites/${siteId}`),
+              "Netlify final published deploy verification before unlock",
+            );
+            if (finalBeforeUnlock.published_deploy?.id !== deployId) {
+              throw new Error(
+                `Netlify published deploy changed from ${deployId} immediately before unlock; refusing to upload an unrelated production artifact.`,
+              );
+            }
             await readJson(
               await request(`${api}/deploys/${deployId}/unlock`, {
                 method: "POST",

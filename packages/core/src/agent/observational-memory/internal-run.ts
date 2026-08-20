@@ -72,6 +72,11 @@ export async function runInternalAgentCall(
       tools: [],
       abortSignal: signal,
       maxOutputTokens: options.maxOutputTokens ?? 4_000,
+      // Thinking shares the small output budget above, and the engine defaults
+      // effort to High: at High a compaction pass can spend the whole budget
+      // reasoning and return no text, which the Observer reads as "nothing to
+      // observe". Compression does not need the ladder.
+      reasoningEffort: "low",
       temperature: 0,
     });
     for await (const event of stream) {
