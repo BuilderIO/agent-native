@@ -277,9 +277,11 @@ describe("mergePendingChangelog", () => {
 
 - Existing note.
 
+\`\`\`\`md
 \`\`\`md
 ### Not a category
 \`\`\`
+\`\`\`\`
 `;
     const next = mergePendingChangelog(existing, [
       { type: "improved", text: "New note.", date: "2026-08-20" },
@@ -287,6 +289,24 @@ describe("mergePendingChangelog", () => {
 
     expect(next.match(/^### Improved$/gm)).toHaveLength(1);
     expect(next).toContain("### Not a category");
+  });
+
+  it("normalizes category headings with closing markers", () => {
+    const existing = `# Changelog
+
+## 2026-08-20
+
+### Improved ###
+
+- Existing note.
+`;
+    const next = mergePendingChangelog(existing, [
+      { type: "improved", text: "New note.", date: "2026-08-20" },
+    ]);
+
+    expect(next.match(/^### Improved$/gm)).toHaveLength(1);
+    expect(next).toContain("- Existing note.");
+    expect(next).toContain("- New note.");
   });
 
   it("deduplicates multiline folder entries after release rendering", () => {
