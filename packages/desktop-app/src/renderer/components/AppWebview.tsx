@@ -105,6 +105,132 @@ export function resolveAppWebviewAuthState(
   }
 }
 
+export function buildGuestAuthStateProbeScript(): string {
+  return `(() => {
+    const frameworkPath = "/_agent-native/auth/session";
+    const config = window.__AGENT_NATIVE_CONFIG__;
+    const normalizeBasePath = (value) => {
+      if (typeof value !== "string" || !value || value === "/") return "";
+      return "/" + value.replace(/^\\/+|\\/+$/g, "");
+    };
+    const pathname = window.location.pathname || "/";
+    const markerIndex = pathname.indexOf("/_agent-native");
+    let basePath = markerIndex > 0 ? pathname.slice(0, markerIndex) : "";
+    if (!basePath && typeof config?.appUrl === "string") {
+      try {
+        const configuredPath = normalizeBasePath(
+          new URL(config.appUrl, window.location.origin).pathname,
+        );
+        if (
+          configuredPath &&
+          (pathname === configuredPath || pathname.startsWith(configuredPath + "/"))
+        ) {
+          basePath = configuredPath;
+        }
+      } catch {
+        basePath = "";
+      }
+    }
+    if (!basePath && config?.workspaceRuntime === true) {
+      const firstSegment = pathname.split("/").find(Boolean);
+      if (
+        firstSegment &&
+        !["_agent-native", "api", "sign-in", "login", "signup"].includes(
+          firstSegment,
+        )
+      ) {
+        basePath = "/" + firstSegment;
+      }
+    }
+    const guestPath =
+      typeof window.__anPath === "function"
+        ? window.__anPath(frameworkPath)
+        : basePath + frameworkPath;
+    const sessionUrl = new URL(guestPath, window.location.origin);
+    return fetch(sessionUrl.toString(), {
+      credentials: "include",
+      cache: "no-store",
+      headers: { Accept: "application/json" },
+    }).then(async (response) => {
+      const bodyText = await response.text();
+      let body = null;
+      try {
+        body = JSON.parse(bodyText);
+      } catch {
+        return {
+          authenticated: null,
+          invalidJson: true,
+          status: response.status,
+          url: response.url,
+        };
+      }
+      const record = body && typeof body === "object" ? body : null;
+      const hasSession = Boolean(
+        record &&
+          !Object.prototype.hasOwnProperty.call(record, "error") &&
+          (record.email || record.user || record.session),
+      );
+      return {
+        authenticated: hasSession,
+        status: response.status,
+        url: response.url,
+      };
+    });
+  })()`;
+}
+
+export function resolveAppWebviewAuthStateFromProbe(
+  result: unknown,
+  fallbackState: AppWebviewAuthState,
+): AppWebviewAuthState {
+  if (!result || typeof result !== "object") return fallbackState;
+  const probe = result as {
+    authenticated?: unknown;
+    invalidJson?: unknown;
+    status?: unknown;
+    url?: unknown;
+  };
+  if (probe.status === 401 || probe.status === 403) {
+    return "unauthenticated";
+  }
+  if (probe.status === 404) return fallbackState;
+  if (
+    typeof probe.status === "number" &&
+    (probe.status < 200 || probe.status >= 300)
+  ) {
+    return "unknown";
+  }
+  if (probe.invalidJson === true) return "unknown";
+  if (probe.authenticated === true) return "authenticated";
+  if (probe.authenticated === false) return "unauthenticated";
+  const responseUrl =
+    typeof probe.url === "string"
+      ? resolveAppWebviewAuthState(probe.url)
+      : "unknown";
+  return responseUrl === "unknown" ? "unknown" : responseUrl;
+}
+
+async function readAppWebviewAuthState(
+  webview: ElectronWebviewElement,
+): Promise<AppWebviewAuthState> {
+  let currentUrl = "";
+  try {
+    currentUrl = webview.getURL() || webview.src || "";
+  } catch {
+    currentUrl = webview.src || "";
+  }
+  const fallbackState = resolveAppWebviewAuthState(currentUrl || undefined);
+  try {
+    const result = await webview.executeJavaScript(
+      buildGuestAuthStateProbeScript(),
+      false,
+    );
+    return resolveAppWebviewAuthStateFromProbe(result, fallbackState);
+  } catch {
+    return "unknown";
+  }
+}
+
 export function isDesktopIdentityGateEligible(
   app: Pick<AppDefinition, "id">,
   appConfig?: Pick<AppConfig, "isBuiltIn" | "mode" | "url" | "workspaceSso">,
@@ -176,7 +302,9 @@ export function resolveDesktopIdentityStatusForChat(
   status: DesktopIdentityStatus | "checking",
   sessionReady: boolean,
 ): DesktopIdentityStatus | "checking" {
-  return status === "signed-in" && !sessionReady ? "checking" : status;
+  return (status === "signed-in" || status === "idle") && !sessionReady
+    ? "checking"
+    : status;
 }
 
 export function resolveDesktopIdentityLazySyncStatus(
@@ -265,6 +393,8 @@ interface AppWebviewProps {
   onDesktopIdentityStatusChange?: (
     status: DesktopIdentityStatus | "checking",
   ) => void;
+  /** Emits the guest webContents id for tab-scoped main-process actions. */
+  onWebContentsIdChange?: (webContentsId: number | undefined) => void;
   onAppsChanged?: (apps: AppConfig[]) => void;
 }
 
@@ -495,6 +625,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       onTitleChange,
       onAuthStateChange,
       onDesktopIdentityStatusChange,
+      onWebContentsIdChange,
       onAppsChanged,
     }: AppWebviewProps,
     ref,
@@ -571,7 +702,9 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     const onDesktopIdentityStatusChangeRef = useRef(
       onDesktopIdentityStatusChange,
     );
+    const onWebContentsIdChangeRef = useRef(onWebContentsIdChange);
     const perAppChatOpenRef = useRef(false);
+    const authProbeSequenceRef = useRef(0);
     const lastGuestChatSidebarSyncRef = useRef<string | null>(null);
     const guestScriptInFlightRef = useRef(new Map<string, Promise<unknown>>());
 
@@ -654,6 +787,12 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     useEffect(() => {
       onDesktopIdentityStatusChangeRef.current = onDesktopIdentityStatusChange;
     }, [onDesktopIdentityStatusChange]);
+
+    useEffect(() => {
+      onWebContentsIdChangeRef.current = onWebContentsIdChange;
+    }, [onWebContentsIdChange]);
+
+    useEffect(() => () => onWebContentsIdChangeRef.current?.(undefined), []);
 
     useEffect(() => {
       onDesktopIdentityStatusChangeRef.current?.(
@@ -920,7 +1059,6 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     }, [app.placeholder, executeGuestScript, isActive]);
 
     function reportActiveWebview() {
-      if (!isActive || !window.electronAPI?.setActiveWebview) return;
       const wv = webviewRef.current;
       if (!wv) return;
 
@@ -930,6 +1068,8 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       } catch {
         webContentsId = undefined;
       }
+      onWebContentsIdChangeRef.current?.(webContentsId);
+      if (!isActive || !window.electronAPI?.setActiveWebview) return;
 
       window.electronAPI.setActiveWebview({
         appId: app.id,
@@ -993,15 +1133,12 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       };
       const emitAuthState = () => {
         if (disposed) return;
-        let currentUrl: string | undefined;
-        try {
-          currentUrl = wv.getURL() || wv.src;
-        } catch {
-          currentUrl = wv.src;
-        }
-        onAuthStateChangeRef.current?.(
-          resolveAppWebviewAuthState(currentUrl || undefined),
-        );
+        const sequence = ++authProbeSequenceRef.current;
+        onAuthStateChangeRef.current?.("unknown");
+        void readAppWebviewAuthState(wv).then((state) => {
+          if (disposed || sequence !== authProbeSequenceRef.current) return;
+          onAuthStateChangeRef.current?.(state);
+        });
       };
 
       onAuthStateChangeRef.current?.("unknown");
@@ -1150,16 +1287,34 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       if (!isActive || app.placeholder) return;
       const wv = webviewRef.current;
       if (!wv) return;
-      let currentUrl: string | undefined;
+      let currentUrl = "";
       try {
-        currentUrl = wv.getURL() || wv.src;
+        currentUrl = wv.getURL() || "";
       } catch {
-        currentUrl = wv.src;
+        currentUrl = "";
       }
-      onAuthStateChangeRef.current?.(
-        resolveAppWebviewAuthState(currentUrl || undefined),
-      );
-    }, [app.placeholder, isActive, url]);
+      onAuthStateChangeRef.current?.("unknown");
+      const sequence = ++authProbeSequenceRef.current;
+      let active = true;
+      if (!currentUrl) {
+        return () => {
+          active = false;
+        };
+      }
+      void readAppWebviewAuthState(wv).then((state) => {
+        if (!active || sequence !== authProbeSequenceRef.current) return;
+        onAuthStateChangeRef.current?.(state);
+      });
+      return () => {
+        active = false;
+      };
+    }, [
+      app.placeholder,
+      desktopIdentitySessionReady,
+      desktopIdentityStatus,
+      isActive,
+      url,
+    ]);
 
     // Cmd+R — reload the active webview when refreshKey increments
     const prevRefreshKey = useRef(refreshKey);

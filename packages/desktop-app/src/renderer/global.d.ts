@@ -1117,6 +1117,7 @@ interface ElectronAPI {
       id: string;
       scope: import("@agent-native/core/client/resources").McpServerScope;
     }): Promise<import("@agent-native/core/client/resources").TestMcpUrlResult>;
+    startOAuth(url: string, webContentsId?: number): Promise<void>;
     importPlugin(): Promise<
       import("../../shared/chat-first-mcp").ChatFirstMcpPluginImportResult
     >;

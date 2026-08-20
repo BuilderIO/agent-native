@@ -118,6 +118,69 @@ describe("CommandMenu docs group", () => {
     );
   });
 
+  it("offers the shared About Agent Native surface and matches version searches", () => {
+    act(() => {
+      root.render(
+        <CommandMenu
+          open
+          onOpenChange={() => undefined}
+          showAbout
+          showAgentFallback={false}
+        >
+          <CommandMenu.Group heading="Actions">
+            <CommandMenu.Item onSelect={() => undefined}>
+              Create a project
+            </CommandMenu.Item>
+          </CommandMenu.Group>
+        </CommandMenu>,
+      );
+    });
+
+    expect(document.body.textContent).toContain("About Agent Native");
+    search("version");
+    expect(document.body.textContent).toContain("About Agent Native");
+    expect(document.body.textContent).not.toContain("Create a project");
+  });
+
+  it("opens About Agent Native after closing the command menu", () => {
+    vi.useFakeTimers();
+    try {
+      const onOpenChange = vi.fn();
+      act(() => {
+        root.render(
+          <CommandMenu
+            open
+            onOpenChange={onOpenChange}
+            showAbout
+            showAgentFallback={false}
+          >
+            <CommandMenu.Group heading="Actions">
+              <CommandMenu.Item onSelect={() => undefined}>
+                Create a project
+              </CommandMenu.Item>
+            </CommandMenu.Group>
+          </CommandMenu>,
+        );
+      });
+
+      const aboutItem = [
+        ...document.querySelectorAll<HTMLElement>("[cmdk-item]"),
+      ].find((item) => item.textContent?.includes("About Agent Native"));
+      expect(aboutItem).toBeTruthy();
+
+      act(() => aboutItem?.click());
+      expect(onOpenChange).toHaveBeenCalledWith(false);
+
+      act(() => {
+        vi.advanceTimersByTime(50);
+      });
+      expect(document.body.textContent).toContain("Environment");
+      expect(document.body.textContent).toContain("Copy diagnostics");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("renders dynamic results from the shared search field", () => {
     act(() => {
       root.render(

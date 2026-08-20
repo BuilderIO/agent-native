@@ -12,6 +12,7 @@ export const CHAT_FIRST_MCP_IPC = {
   RECONNECT: "chat-first:mcp:reconnect",
   TEST: "chat-first:mcp:test",
   TEST_EXISTING: "chat-first:mcp:test-existing",
+  START_OAUTH: "chat-first:mcp:start-oauth",
   IMPORT_PLUGIN: "chat-first:mcp:import-plugin",
 } as const;
 
@@ -31,6 +32,11 @@ export function desktopRemoteMcpUnavailable(): {
 export type ChatFirstMcpServer = McpServer;
 export type ChatFirstMcpServersList = McpServersList;
 export type ChatFirstMcpTestResult = TestMcpUrlResult;
+
+export interface ChatFirstMcpOAuthRequest {
+  url: string;
+  webContentsId: number;
+}
 
 export interface ChatFirstMcpPluginImportResult {
   ok: boolean;

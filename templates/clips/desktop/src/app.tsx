@@ -102,6 +102,7 @@ import {
   startBubbleWebrtc,
   type BubbleWebrtcHandle,
 } from "./lib/bubble-webrtc";
+import { openBoundOAuthWindow } from "./lib/desktop-oauth-window";
 import {
   getCameraStreamWithFallback,
   isMediaConstraintFailure,
@@ -2312,15 +2313,17 @@ export function App({
     void tick();
   }
 
-  // Google verification stays in the bound Tauri WebView so the callback sees
-  // the same browser-binding cookie. Magic-link verification still completes
-  // in the system browser through its own exchange flow.
+  // Google verification stays in a child of the bound Tauri WebView so the
+  // callback sees the same browser-binding cookie. Magic-link verification
+  // still completes in the system browser through its own exchange flow.
   async function signInExternal() {
     if (signInInflightRef.current) return;
     signInInflightRef.current = true;
+    let oauthWindow: ReturnType<typeof openBoundOAuthWindow> | null = null;
 
     try {
       setSignInError(null);
+      oauthWindow = openBoundOAuthWindow();
       const flowId = crypto.randomUUID?.() ?? null;
       const verifier = (() => {
         const randomUuid = crypto.randomUUID;
@@ -2349,7 +2352,6 @@ export function App({
       const authParams = new URLSearchParams({
         desktop: "1",
         flow_id: flowId,
-        webview: "1",
       });
       const authResponse = await fetch(
         `${base}/_agent-native/google/auth-url?${authParams.toString()}`,
@@ -2380,13 +2382,12 @@ export function App({
               : "Could not start Google sign-in.";
         throw new Error(message);
       }
+      oauthWindow.location.href = authPayload.url;
       setSignInPending("google");
-      // Stay in this exact WebView: the auth bootstrap set the HttpOnly
-      // browser-binding cookie here, and the callback returns this page with
-      // the staged session cookie after Google completes.
-      window.location.href = authPayload.url;
+      startDesktopAuthExchange(flowId, "google", verifier);
     } catch (err) {
       console.error("[clips-tray] signInExternal failed:", err);
+      oauthWindow?.close();
       signInInflightRef.current = false;
       setSignInPending(null);
       setSignInError(
@@ -4181,8 +4182,8 @@ export function App({
   // (not a separate Tauri window). This avoids Tauri 2's separate-WebKit-
   // data-store-per-WebviewWindow cookie-jar issue — the cookie is set in
   // the same webview that reads it on the next /auth/session poll.
-  // Google verification uses the bound WebView, while magic-link verification
-  // uses the system browser and password stays inline here.
+  // Google verification uses a popup in the bound WebView, while magic-link
+  // verification uses the system browser and password stays inline here.
   if (authStatus === "anon") {
     return (
       <div className="app" ref={appRef}>

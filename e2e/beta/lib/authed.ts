@@ -66,7 +66,7 @@ export async function assertSignedInOnBeta(
   try {
     await page.goto(`${origin}/`, {
       waitUntil: "domcontentloaded",
-      timeout: 90_000,
+      timeout: 45_000,
     });
     const session = await page.evaluate(async () => {
       const response = await fetch("/_agent-native/auth/session", {

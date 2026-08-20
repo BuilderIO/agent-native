@@ -57,7 +57,7 @@ test.describe("slides -> analytics delegation", () => {
 
       await page.goto(`${origin}/?agentSidebar=open`, {
         waitUntil: "domcontentloaded",
-        timeout: 90_000,
+        timeout: 45_000,
       });
       await expect(page.locator(COMPOSER.input).first()).toBeVisible({
         timeout: 60_000,
@@ -113,7 +113,7 @@ test.describe("A2A reachability between deployed peers", () => {
       const page = await context.newPage();
       await page.goto(`${originFor(slides)}/`, {
         waitUntil: "domcontentloaded",
-        timeout: 90_000,
+        timeout: 45_000,
       });
 
       const peers = await page.evaluate(async () => {
