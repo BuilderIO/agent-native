@@ -116,7 +116,12 @@ jobs:
         continue-on-error: true
         env:
           BETA_E2E_AUTHED: "0"
-        run: pnpm e2e:beta --project=advisory
+        run: |
+          if [ -n "$BETA_E2E_GREP" ]; then
+            pnpm e2e:beta --project=advisory --grep "$BETA_E2E_GREP"
+          else
+            pnpm e2e:beta --project=advisory
+          fi
 
       - name: Upload report
         if: ${{ always() }}

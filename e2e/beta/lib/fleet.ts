@@ -76,6 +76,13 @@ export function selectedSites(): BetaSite[] {
     .split(",")
     .map((value) => value.trim().toLowerCase())
     .filter(Boolean);
+  // A value like "," or " , " normalizes to nothing. Returning an empty fleet
+  // would let a promotion run finish green having probed no host at all.
+  if (wanted.length === 0) {
+    throw new Error(
+      `BETA_E2E_APPS=${JSON.stringify(raw)} names no app. Use "all" or a comma-separated list of app ids.`,
+    );
+  }
   const known = new Map(ALL_SITES.map((site) => [site.id, site]));
   const unknown = wanted.filter((id) => !known.has(id));
   if (unknown.length > 0) {

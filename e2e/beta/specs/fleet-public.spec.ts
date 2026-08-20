@@ -132,11 +132,12 @@ for (const site of sites) {
     });
 
     test("reaches its database", async () => {
-      // Bounded explicitly: up to eight samples (four beta, four production)
-      // each with their own retries would otherwise be able to outrun the
-      // project timeout, turning a deterministic verdict into a generic
-      // Playwright timeout.
-      test.setTimeout(180_000);
+      // Set above the true worst case, not above the typical one. Eight
+      // samples (four beta, four production) at up to two 15s attempts plus
+      // backoff is ~256s against an unreachable host; a timeout below that
+      // would replace the verdict this test exists to produce with a generic
+      // Playwright timeout in exactly the situation it matters.
+      test.setTimeout(420_000);
 
       const sample = async (host: string): Promise<HealthSample> =>
         parseJson<HealthSample>(
@@ -178,10 +179,10 @@ for (const site of sites) {
         });
       }
 
-      // A host that answers most of the time is still a host people can use.
-      // Below half, sign-in and first load fail often enough that it is an
-      // outage, not a wobble.
-      if (healthy * 2 >= SAMPLE_COUNT) return;
+      // A strict majority. At exactly half, one in two sign-ins or first loads
+      // fails — that is the intermittent outage this gate exists to catch, not
+      // a wobble to annotate and wave through.
+      if (healthy * 2 > SAMPLE_COUNT) return;
 
       // Under the threshold. Before blocking a promotion, check whether the
       // same database is failing for production too — several beta hosts share
@@ -217,8 +218,8 @@ for (const site of sites) {
 
       expect(
         healthy * 2,
-        `${site.host} reached its database in only ${healthy}/${SAMPLE_COUNT} samples while ${production} managed ${prodHealthy}/${SAMPLE_COUNT}${sameDatabase ? " on the same database" : " on a different database"}. Promoting would ship a build whose database this host mostly cannot use. ${detail}`,
-      ).toBeGreaterThanOrEqual(SAMPLE_COUNT);
+        `${site.host} reached its database in only ${healthy}/${SAMPLE_COUNT} samples while ${production} managed ${prodHealthy}/${SAMPLE_COUNT}${sameDatabase ? " on the same database" : " on a different database"}. Promoting would ship a build whose database this host cannot reliably use. ${detail}`,
+      ).toBeGreaterThan(SAMPLE_COUNT);
     });
 
     test("publishes an A2A agent card bound to its own origin", async () => {

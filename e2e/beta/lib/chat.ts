@@ -125,9 +125,11 @@ export function watchChatRequests(page: Page): {
     }
     try {
       const body = JSON.parse(raw) as { model?: unknown; engine?: unknown };
-      if (typeof body.engine === "string" && body.engine.trim()) {
-        log.engines.push(body.engine);
-      }
+      log.engines.push(
+        typeof body.engine === "string" && body.engine.trim()
+          ? body.engine
+          : MISSING_ENGINE,
+      );
       if (typeof body.model === "string" && body.model.trim()) {
         log.models.push(body.model);
       } else {
@@ -151,7 +153,8 @@ export function watchChatRequests(page: Page): {
       );
       // The model name alone does not decide the bill: the same id routed
       // through a different engine reaches a different provider, and not the
-      // separately-budgeted key this suite installs.
+      // separately-budgeted key this suite installs. An absent engine is not a
+      // pass either — it proves nothing about which route was billed.
       const wrongEngine = log.engines.filter(
         (engine) => engine !== expected.engine,
       );
@@ -167,7 +170,7 @@ export function watchChatRequests(page: Page): {
               ? `${log.modelless} request(s) carried no model field, so the app fell back to its own default`
               : "",
             wrongEngine.length > 0
-              ? `routed through engine(s) ${[...new Set(wrongEngine)].join(", ")} instead of ${expected.engine}, so the turn did not bill the dedicated key`
+              ? `routed through engine(s) ${[...new Set(wrongEngine)].join(", ")} instead of ${expected.engine}, so the turn did not provably bill the dedicated key`
               : "",
             "The seeded selection is dropped when the app's model picker does not offer it — usually because the org is connected to a different engine, so the requested engine's catalog is not exposed. Check BETA_E2E_ENGINE/BETA_E2E_MODEL against what the app actually lists.",
           ]
@@ -178,6 +181,9 @@ export function watchChatRequests(page: Page): {
     },
   };
 }
+
+/** Stand-in for a request that named no engine at all. */
+const MISSING_ENGINE = "(none)";
 
 /** Composer slots, as rendered by packages/toolkit/src/composer. */
 export const COMPOSER = {
