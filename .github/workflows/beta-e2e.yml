@@ -28,8 +28,20 @@ on:
       lane:
         description: "Which lanes to run"
         required: false
-        default: "public"
+        default: "public+authed"
         type: string
+      grep:
+        description: "Only run tests whose title matches this (optional)"
+        required: false
+        default: ""
+        type: string
+    secrets:
+      BETA_E2E_EMAIL:
+        required: false
+      BETA_E2E_SESSION_TOKENS:
+        required: false
+      BETA_E2E_OPENAI_API_KEY:
+        required: false
   workflow_dispatch:
     inputs:
       apps:
@@ -60,30 +72,6 @@ on:
         description: "Only run tests whose title matches this (optional)"
         required: false
         default: ""
-  workflow_call:
-    inputs:
-      apps:
-        description: 'Beta apps to test ("all", or e.g. "slides,analytics,chat")'
-        required: false
-        default: "all"
-        type: string
-      lane:
-        description: "Which lanes to run"
-        required: false
-        default: "public+authed"
-        type: string
-      grep:
-        description: "Only run tests whose title matches this (optional)"
-        required: false
-        default: ""
-        type: string
-    secrets:
-      BETA_E2E_EMAIL:
-        required: false
-      BETA_E2E_SESSION_TOKENS:
-        required: false
-      BETA_E2E_OPENAI_API_KEY:
-        required: false
 
 concurrency:
   # One promotion check at a time. Two concurrent runs would sign in as the
