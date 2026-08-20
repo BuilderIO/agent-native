@@ -13755,8 +13755,12 @@ app.whenReady().then(async () => {
         void broker.ensureAppSession(appId).catch(() => undefined);
       }
     };
+    const resetHiddenIdentitySsoForNavigation = () => {
+      hiddenIdentitySsoUrl = null;
+      syncLoadedApp();
+    };
     wc.on("dom-ready", syncLoadedApp);
-    wc.on("did-navigate", syncLoadedApp);
+    wc.on("did-navigate", resetHiddenIdentitySsoForNavigation);
     wc.on("did-navigate-in-page", syncLoadedApp);
     wc.on("did-finish-load", syncLoadedApp);
 
