@@ -9,7 +9,9 @@ import { describe, it } from "node:test";
 import { parse } from "yaml";
 
 import {
+  PRODUCTION_PURGE_CONDITION,
   PRODUCTION_SITE_GROUP,
+  validateProductionPurgeCondition,
   validateReusableWorkflowConcurrency,
   validateProductionSiteConcurrency,
 } from "./guard-netlify-prebuilt-workflow.ts";
@@ -59,7 +61,7 @@ describe("production Netlify site concurrency guard", () => {
   });
 
   it("executes every reusable workflow heredoc under the pinned Node loader", () => {
-    assert.equal(nodeHeredocs.length, 6);
+    assert.equal(nodeHeredocs.length, 7);
     const directory = mkdtempSync(
       join(tmpdir(), "agent-native-netlify-heredocs-"),
     );
@@ -78,6 +80,64 @@ describe("production Netlify site concurrency guard", () => {
       }
     } finally {
       rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("purges the production cache after smoke and before relocking the deploy", () => {
+    const workflow = readWorkflow(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+    );
+    const jobs = workflow.jobs as Record<string, Workflow>;
+    const steps = (jobs.deploy.steps as Array<Workflow>).filter(Boolean);
+    const smokeIndex = steps.findIndex(
+      (step) => step.name === "Smoke-test the uploaded deploy",
+    );
+    const purgeIndex = steps.findIndex(
+      (step) => step.name === "Purge the production Netlify cache",
+    );
+    const lockIndex = steps.findIndex(
+      (step) => step.name === "Lock the published production deploy",
+    );
+    assert(
+      smokeIndex >= 0 && smokeIndex < purgeIndex && purgeIndex < lockIndex,
+    );
+
+    const purge = steps[purgeIndex];
+    assert.match(String(purge.if), /inputs.target == 'production'/);
+    assert.match(String(purge.if), /inputs.deploy_mode == 'production'/);
+    assert.match(String(purge.if), /success\(\)/);
+    assert.match(
+      String(purge.run),
+      /const api = "https:\/\/api\.netlify\.com\/api\/v1"/,
+    );
+    assert.match(String(purge.run), /fetch\(`\$\{api\}\/purge`/);
+    assert.match(String(purge.run), /method: "POST"/);
+    assert.match(
+      String(purge.run),
+      /JSON\.stringify\(\{ site_id: process\.env\.NETLIFY_SITE_ID \}\)/,
+    );
+    assert.match(String(purge.run), /if \(!response\.ok\)/);
+  });
+
+  it("rejects a purge step that is no longer production-only and success-gated", () => {
+    const workflow = readWorkflow(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+    );
+    const jobs = workflow.jobs as Record<string, Workflow>;
+    const steps = (jobs.deploy.steps as Array<Workflow>).filter(Boolean);
+    const purge = steps.find(
+      (step) => step.name === "Purge the production Netlify cache",
+    );
+
+    assert(purge);
+    assert.equal(String(purge.if), PRODUCTION_PURGE_CONDITION);
+    for (const mutatedIf of [
+      "inputs.target == 'production' && inputs.deploy_mode == 'production' && success()",
+      "inputs.target == 'production' && !inputs.deploy && inputs.deploy_mode == 'production' && success()",
+      "inputs.target == 'production' && inputs.deploy && inputs.deploy_mode == 'production' && !success()",
+      "inputs.target == 'production' && inputs.deploy && inputs.deploy_mode == 'production' || success()",
+    ]) {
+      assert.notDeepEqual(validateProductionPurgeCondition(mutatedIf), []);
     }
   });
 
@@ -122,6 +182,82 @@ describe("production Netlify site concurrency guard", () => {
     );
   });
 
+  it("bounds deploy pagination at the recent deploy window", async () => {
+    const unlock = nodeHeredocs[1];
+    const listStart = unlock.indexOf("async function listDeploys");
+    const pendingStart = unlock.indexOf(
+      "function pendingProductionDeploys",
+      listStart,
+    );
+    assert(listStart >= 0 && pendingStart > listStart);
+    const listDeploys = new Function(
+      "request",
+      "readJson",
+      "nextPageUrl",
+      "api",
+      "siteId",
+      `${unlock.slice(listStart, pendingStart)}; return listDeploys;`,
+    )(
+      async (url: string) => {
+        requests.push(url);
+        const page = pages.get(url);
+        assert(page, `unexpected deploy page ${url}`);
+        return {
+          headers: {
+            get: () => page.next,
+          },
+          page: page.deploys,
+        };
+      },
+      async (response: { page: Array<Record<string, unknown>> }) =>
+        response.page,
+      (link: string | null) => link,
+      "https://netlify.test/api",
+      "site-id",
+    ) as (
+      label: string,
+      cutoff: number,
+    ) => Promise<Array<Record<string, unknown>>>;
+    const requests: string[] = [];
+    const pages = new Map([
+      [
+        "https://netlify.test/api/sites/site-id/deploys?per_page=100",
+        {
+          deploys: [{ id: "recent-1", created_at: "2026-08-20T05:00:00Z" }],
+          next: "https://netlify.test/page-2",
+        },
+      ],
+      [
+        "https://netlify.test/page-2",
+        {
+          deploys: [{ id: "recent-2", created_at: "2026-08-20T04:00:00Z" }],
+          next: "https://netlify.test/page-3",
+        },
+      ],
+      [
+        "https://netlify.test/page-3",
+        {
+          deploys: [{ id: "historical", created_at: "2026-08-19T00:00:00Z" }],
+          next: null,
+        },
+      ],
+    ]);
+
+    const deploys = await listDeploys(
+      "test deploy lookup",
+      Date.parse("2026-08-20T02:00:00Z"),
+    );
+    assert.deepEqual(
+      deploys.map((deploy) => deploy.id),
+      ["recent-1", "recent-2", "historical"],
+    );
+    assert.deepEqual(requests, [
+      "https://netlify.test/api/sites/site-id/deploys?per_page=100",
+      "https://netlify.test/page-2",
+      "https://netlify.test/page-3",
+    ]);
+  });
+
   it("restores cutover state before failure lock cleanup", () => {
     const workflow = readWorkflow(
       ".github/workflows/deploy-netlify-prebuilt.yml",
@@ -140,7 +276,22 @@ describe("production Netlify site concurrency guard", () => {
     );
     assert.equal(typeof resume?.if, "string");
     assert.match(resume?.if as string, /always\(\)/);
-    assert.match(String(resume?.run), /!process\.env\.cutoverWasStopped/);
+    assert.match(
+      String(resume?.run),
+      /process\.env\.cutoverWasPaused !== "true"/,
+    );
+    assert.match(
+      String(resume?.run),
+      /process\.env\.cutoverWasStopped === "true"/,
+    );
+    assert.equal(
+      (resume?.env as Record<string, unknown>).cutoverWasStopped,
+      "${{ steps.pause.outputs.was_stopped }}",
+    );
+    assert.equal(
+      (resume?.env as Record<string, unknown>).cutoverWasPaused,
+      "${{ steps.pause.outputs.cutover_acquired }}",
+    );
     assert.equal(typeof cleanup?.if, "string");
     assert.match(cleanup?.if as string, /failure\(\)/);
     assert.equal(
@@ -148,10 +299,38 @@ describe("production Netlify site concurrency guard", () => {
       "${{ steps.unlock.outputs.published_deploy_id }}",
     );
     assert.equal(
+      (cleanup?.env as Record<string, unknown>).cutoverNewDeployId,
+      "${{ steps.deploy.outputs.deploy_id }}",
+    );
+    assert.equal(
       (cleanup?.env as Record<string, unknown>).cutoverWasLocked,
       "${{ steps.unlock.outputs.was_locked }}",
     );
+    assert.equal(
+      (cleanup?.env as Record<string, unknown>).cutoverWasPaused,
+      "${{ steps.pause.outputs.cutover_acquired }}",
+    );
     assert.doesNotMatch(String(cleanup?.run), /stop_builds/);
+    assert.match(
+      String(cleanup?.run),
+      /process\.env\.cutoverWasPaused !== "true"/,
+    );
+    assert.match(
+      String(cleanup?.run),
+      /!process\.env\.cutoverPublishedDeployId/,
+    );
+    assert.match(String(cleanup?.run), /currentDeployId === newDeployId/);
+    assert.match(String(cleanup?.run), /newly published deploy/);
+  });
+
+  it("records cutover acquisition before pause verification", () => {
+    const pause = nodeHeredocs[0];
+    const acquiredIndex = pause.indexOf(
+      'fs.appendFileSync(process.env.GITHUB_OUTPUT, "cutover_acquired=true\\n")',
+    );
+    const verificationIndex = pause.indexOf("const paused =");
+    assert(acquiredIndex >= 0);
+    assert(verificationIndex > acquiredIndex);
   });
 
   it("requires the exact shared queue on deploy, manage, and promote jobs", () => {
