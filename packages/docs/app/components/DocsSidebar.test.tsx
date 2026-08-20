@@ -83,10 +83,10 @@ describe("DocsSidebar", () => {
     expect(html).not.toContain('aria-controls="docs-sidebar-section-0"');
   });
 
-  it("keeps Deployment last in Overview before FAQ", () => {
+  it("keeps Deployment in its own top-level section with grouped links", () => {
     const sections = getDocsNavSections("en-US");
     const overview = sections.find((section) => section.id === "overview");
-    const buildApps = sections.find((section) => section.id === "build-apps");
+    const deployment = sections.find((section) => section.id === "deployment");
     const coreArchitecture = sections.find(
       (section) => section.id === "core-architecture",
     );
@@ -96,19 +96,41 @@ describe("DocsSidebar", () => {
       "getting-started",
       "what-is-agent-native",
       "key-concepts",
-      "deployment-section",
       "faq",
     ]);
-    const deploymentSection = overview?.items.find(
-      (item) => item.id === "deployment-section",
+    expect(deployment?.items.map((item) => item.id)).toEqual([
+      "deployment",
+      "deploy-an-app",
+      "workspace-deployment",
+      "deployment-providers",
+      "deployment-production",
+    ]);
+    const providerGroup = deployment?.items.find(
+      (item) => item.id === "deployment-providers",
     );
-    expect(deploymentSection).toBeDefined();
-    expect(
-      deploymentSection?.children?.some((item) => item.id === "deployment"),
-    ).toBe(true);
-    expect(
-      buildApps?.items.some((item) => item.id === "deployment-section"),
-    ).toBe(false);
+    expect(providerGroup?.children?.map((item) => item.id)).toEqual([
+      "node-js",
+      "docker",
+      "vercel",
+      "netlify",
+      "cloudflare",
+      "aws-lambda",
+      "deno-deploy",
+      "azure-static-web-apps",
+      "koyeb",
+      "render",
+    ]);
+    const productionGroup = deployment?.items.find(
+      (item) => item.id === "deployment-production",
+    );
+    expect(productionGroup?.children?.map((item) => item.id)).toEqual([
+      "ssr-caching",
+      "deployment-environment-variables",
+      "updating-ui-in-production",
+    ]);
+    expect(sectionIds.indexOf("overview")).toBeLessThan(
+      sectionIds.indexOf("deployment"),
+    );
     const coreItemIds = coreArchitecture?.items.map((item) => item.id) ?? [];
     expect(coreItemIds).toContain("agent-surfaces");
     expect(coreItemIds.indexOf("actions-section")).toBeLessThan(

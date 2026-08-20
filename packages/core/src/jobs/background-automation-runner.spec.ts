@@ -417,6 +417,86 @@ describe("runBackgroundAutomation — thread transcript", () => {
     );
   });
 
+  it("reports a cut-off automation to the error-capture system", async () => {
+    // The scheduler and the trigger dispatcher both swallow this into the
+    // automation's own metadata plus a console.error, so the capture seam is
+    // the only thing that puts it in front of anyone.
+    const { registerErrorCaptureProvider } =
+      await import("../server/capture-error.js");
+    const captured: Array<{ error: unknown; context: Record<string, any> }> =
+      [];
+    const unregister = registerErrorCaptureProvider(
+      "background-automation-spec",
+      (error, context) => {
+        captured.push({ error, context: context as Record<string, any> });
+        return undefined;
+      },
+    );
+
+    const { runAgentLoopDirectWithSoftTimeout } =
+      await import("../agent/run-loop-with-resume.js");
+    vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
+      async (opts) => {
+        opts.send?.({ type: "text", text: "Started polling." });
+        opts.send?.({ type: "auto_continue", reason: "no_progress" });
+        return {
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "test-model",
+        };
+      },
+    );
+
+    try {
+      await expect(
+        runBackgroundAutomation(
+          {
+            automation: {
+              name: "cut-off-digest",
+              meta: {
+                schedule: "* * * * *",
+                enabled: true,
+                model: "test-model",
+              },
+              body: "Summarize the inbox.",
+              resource: {
+                owner: "alice@agent-native.test",
+                path: "jobs/cut-off-digest.md",
+              } as any,
+            },
+            ownerEmail: "alice@agent-native.test",
+            prompt: "Summarize the inbox.",
+            threadTitle: "Job: cut-off-digest — Aug 17, 2026",
+            runIdPrefix: "job-cut-off-digest",
+            usageLabel: "recurring-job:cut-off-digest",
+          },
+          {
+            getActions: () => ({}),
+            getSystemPrompt: async () => "system",
+            engine: testEngine,
+          },
+        ),
+      ).rejects.toThrow(/cut off before finishing \(no_progress\)/);
+    } finally {
+      unregister();
+    }
+
+    expect(captured).toHaveLength(1);
+    expect(String((captured[0].error as Error).message)).toMatch(
+      /cut off before finishing \(no_progress\)/,
+    );
+    expect(captured[0].context.tags).toMatchObject({
+      area: "background-automation",
+      automation: "cut-off-digest",
+      scope: "personal",
+    });
+    // Joins the issue to its LLM trace; without it the report lands somewhere
+    // no backend can correlate with the run that produced it.
+    expect(captured[0].context.aiTraceId).toMatch(/^job-cut-off-digest-/);
+  });
+
   it("persists a partial turn when the hard timeout fires", async () => {
     const { runAgentLoopDirectWithSoftTimeout } =
       await import("../agent/run-loop-with-resume.js");

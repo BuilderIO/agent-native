@@ -303,28 +303,32 @@ if (unlockStart < 0 || (uploadStart >= 0 && unlockStart >= uploadStart)) {
   if (
     !unlock.includes("/unlock") ||
     !unlock.includes("locked !== false") ||
-    !unlock.includes("/deploys?${params}") ||
+    !unlock.includes("/deploys?per_page=100&production=true&state=") ||
     !unlock.includes("nextPageUrl") ||
-    !unlock.includes("DEPLOY_LOOKBACK_MS") ||
-    !unlock.includes("oldestCreatedAt") ||
-    !unlock.includes("Date.parse(oldestCreatedAt) < cutoff") ||
+    !unlock.includes("ACTIVE_PRODUCTION_DEPLOY_STATES") ||
+    !unlock.includes('"pending"') ||
+    !unlock.includes('"uploaded"') ||
+    !unlock.includes('"prepared"') ||
+    !unlock.includes('"processed"') ||
+    !unlock.includes('"pending_review"') ||
+    !unlock.includes('"accepted"') ||
+    !unlock.includes('"retrying"') ||
+    !unlock.includes("encodeURIComponent(state)") ||
+    !unlock.includes("production=true") ||
+    !unlock.includes("Promise.all(states.map") ||
     !unlock.includes(
-      'const params = new URLSearchParams({ per_page: "100", ...filters })',
+      '["error", "canceled", "rejected"].includes(candidate.state)',
     ) ||
-    !unlock.includes('production: "true"') ||
-    !unlock.includes('state: "ready"') ||
-    unlock.includes("readyIsBlocking") ||
     !unlock.includes("const preexistingDeployIds = new Set") ||
     !unlock.includes("preexistingDeployIds.has(candidate.id)") ||
+    !unlock.includes('candidate.state !== "ready"') ||
     (
       unlock.match(/drainPendingDeploys\(deployId, preexistingDeployIds\)/g) ??
       []
     ).length < 2 ||
     !unlock.includes("candidate.published_at") ||
     !unlock.includes("Netlify pre-existing production ready deploy lookup") ||
-    !/Netlify pre-existing production ready deploy lookup[\s\S]*?Date\.now\(\) - DEPLOY_LOOKBACK_MS/.test(
-      unlock,
-    ) ||
+    !unlock.includes('["ready"]') ||
     !unlock.includes("finalBeforeUnlock") ||
     (
       unlock.match(

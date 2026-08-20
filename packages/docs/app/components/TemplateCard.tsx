@@ -1,5 +1,6 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { useLocale, useT } from "@agent-native/core/client/i18n";
+import { IconExternalLink } from "@tabler/icons-react";
 import { useState } from "react";
 import { Link } from "react-router";
 
@@ -20,7 +21,7 @@ export const templates = [
     demoUrl: "https://clips.agent-native.com",
     color: "#0EA5E9",
     screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F189ebd9b2f2b4f0ead3b33138d4e4c10?format=webp&width=800",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fab7beeb1f62548fab6e2a710d880a20c?format=webp&width=800",
   },
   {
     name: "Plans",
@@ -29,7 +30,7 @@ export const templates = [
     demoUrl: "https://plan.agent-native.com",
     color: "#2F6FED",
     screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fefc6a3ac908149fa92e2b9392c0bb372?format=webp&width=800",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fc56ca318901149dbb0cdadea94946c11",
   },
   {
     name: "Design",
@@ -39,7 +40,7 @@ export const templates = [
     demoUrl: "https://design.agent-native.com",
     color: "#F472B6",
     screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe2c86908c2fa4f119ee4aa90b4823944?format=webp&width=800",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F75026532fe204acbab72d41dbeb34305?format=webp&width=800&height=1200",
   },
   {
     name: "Content",
@@ -49,7 +50,7 @@ export const templates = [
     demoUrl: "https://content.agent-native.com",
     color: "#7928ca",
     screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F89bcfc6106304bfbaf8ec8a7ccd721eb?format=webp&width=800",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa70f7bcdb3744d8291eb607bfda36ab0",
   },
   {
     name: "Slides",
@@ -59,7 +60,7 @@ export const templates = [
     demoUrl: "https://slides.agent-native.com",
     color: "#f59e0b",
     screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2c09b451d40c4a74a89a38d69170c2d8?format=webp&width=800",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F4b196d8d24c44914a021d1577f10879b",
   },
   {
     name: "Analytics",
@@ -69,7 +70,7 @@ export const templates = [
     demoUrl: "https://analytics.agent-native.com",
     color: "var(--docs-accent)",
     screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F4933a80cc3134d7e874631f688be828a?format=webp&width=800",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fcf9102c2aa3b4de982a50ab88d07b6df",
   },
   {
     name: "Mail",
@@ -79,7 +80,7 @@ export const templates = [
     demoUrl: "https://mail.agent-native.com",
     color: "#0ea5e9",
     screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6f49a81c404d4242b33317491eac7575?format=webp&width=800",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F84818cf9e2fa448b84fb9f91b6f1f80b",
   },
   {
     name: "Forms",
@@ -89,17 +90,7 @@ export const templates = [
     demoUrl: "https://forms.agent-native.com",
     color: "#06B6D4",
     screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190c3fabd51f4c1bba5aa4e091ad4e9b?format=webp&width=800",
-  },
-  {
-    name: "Brain",
-    slug: "brain",
-    cliCommand:
-      "npx @agent-native/core@latest create my-brain-app --template brain",
-    demoUrl: "https://brain.agent-native.com",
-    color: "#8B5CF6",
-    screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9c9fe3b5b9494e33803cd3f494cba356?format=webp&width=800",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fdae3c94347a248e385ab9981ec7921ac",
   },
   {
     name: "Assets",
@@ -109,7 +100,7 @@ export const templates = [
     demoUrl: "https://assets.agent-native.com",
     color: "#0F766E",
     screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F769092170a14474f998cbca47384f891?format=webp&width=800",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9fdd5469051f421db5f1fdcc749de66b?format=webp&width=800&height=1200",
   },
   {
     name: "Calendar",
@@ -119,7 +110,7 @@ export const templates = [
     demoUrl: "https://calendar.agent-native.com",
     color: "#10b981",
     screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ffb6c3b483ca24ab3b6c3a758aeceef4c?format=webp&width=800",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd43810da66d44bfc96b21255b93d4ccb",
   },
   {
     name: "Dispatch",
@@ -129,7 +120,7 @@ export const templates = [
     demoUrl: "https://dispatch.agent-native.com",
     color: "#14B8A6",
     screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F104b3ad8d1dc461aa33ab9bff37a4482?format=webp&width=800",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fea3f73fdf23240009ef0be82f7edc0fb",
   },
   {
     name: "Chat",
@@ -139,7 +130,7 @@ export const templates = [
     demoUrl: "https://chat.agent-native.com",
     color: "#18181B",
     screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6b36dc596fca4799815fa34c31e1c406",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F65323b4e4425484ab680ae3c158fd63d",
   },
   // ── DO NOT add new templates here directly. ──
   // The public-facing template list is the strict allow-list defined in
@@ -153,7 +144,20 @@ export const templates = [
 
 export type Template = (typeof templates)[number];
 
-export const featuredTemplates = templates;
+export const featuredTemplates = [
+  "clips",
+  "design",
+  "slides",
+  "analytics",
+  "calendar",
+  "mail",
+  "assets",
+  "content",
+  "chat",
+  "dispatch",
+  "forms",
+  "plan",
+].map((slug) => templates.find((template) => template.slug === slug)!);
 
 function CliPopoverContent({ template }: { template: Template }) {
   const [copied, setCopied] = useState(false);
@@ -263,7 +267,7 @@ function TemplateLaunchButton({ template }: { template: Template }) {
 
   return (
     <div className="mt-auto flex flex-col gap-2 pt-3">
-      {hasDemoUrl && (
+      {hasDemoUrl ? (
         <a
           href={template.demoUrl}
           target="_blank"
@@ -275,31 +279,18 @@ function TemplateLaunchButton({ template }: { template: Template }) {
               location: "card",
             });
           }}
-          className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-black px-4 py-2 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
+          className="primary-button template-card-primary-button w-full"
         >
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-            <polyline points="15 3 21 3 21 9" />
-            <line x1="10" y1="14" x2="21" y2="3" />
-          </svg>
+          <IconExternalLink className="size-4" aria-hidden="true" />
           {t("common.tryIt")}
         </a>
-      )}
+      ) : null}
       <div className="flex gap-2">
         <Popover open={showCustomize} onOpenChange={handleCustomizeOpenChange}>
           <PopoverTrigger asChild>
             <button
               type="button"
-              className="inline-flex flex-1 items-center justify-center rounded-lg border border-[var(--docs-border)] px-4 py-2 text-sm font-medium text-[var(--fg)] transition hover:border-[var(--fg-secondary)]"
+              className="secondary-button flex-1 whitespace-nowrap"
             >
               {t("common.customizeIt")}
             </button>
@@ -348,7 +339,7 @@ function TemplateLaunchButton({ template }: { template: Template }) {
         <TemplateDocsLink
           template={template}
           location="card"
-          className="inline-flex flex-1 items-center justify-center rounded-lg border border-[var(--docs-border)] px-4 py-2 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
+          className="secondary-button flex-1 whitespace-nowrap"
         />
       </div>
     </div>
@@ -359,8 +350,25 @@ export function TemplateCard({ template }: { template: Template }) {
   const { locale } = useLocale();
   const t = useT();
   const templatePath = sitePathForLocale(`/apps/${template.slug}`, locale);
-  const replaces = t(`templates.${template.slug}.replaces`);
-  const description = t(`templates.${template.slug}.description`);
+  const heroCopy =
+    template.slug === "clips"
+      ? {
+          replaces: t("templateLanding.clips.s007"),
+          description: t("templateLanding.clips.s008"),
+        }
+      : template.slug === "slides"
+        ? {
+            replaces: [
+              t("templateLanding.slides.s006Primary"),
+              t("templateLanding.slides.s006Secondary"),
+            ].join(" "),
+            description: t("templateLanding.slides.s007"),
+          }
+        : null;
+  const replaces =
+    heroCopy?.replaces ?? t(`templates.${template.slug}.replaces`);
+  const description =
+    heroCopy?.description ?? t(`templates.${template.slug}.description`);
 
   return (
     <div className="feature-card flex flex-col gap-3 overflow-hidden">
@@ -377,7 +385,12 @@ export function TemplateCard({ template }: { template: Template }) {
       >
         {template.screenshot ? (
           <img
-            src={template.screenshot}
+            src={
+              template.slug === "clips"
+                ? "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Febc2a7d837664382853cbfb481592b31?format=webp&width=800&height=1200"
+                : template.screenshot
+            }
+            crossOrigin="anonymous"
             alt={t("templateCard.screenshotAlt", { name: template.name })}
             loading="lazy"
             decoding="async"

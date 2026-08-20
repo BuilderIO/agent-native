@@ -361,7 +361,21 @@ jobs:
               signal: AbortSignal.timeout(30_000),
             });
           const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-          const DEPLOY_LOOKBACK_MS = 2 * 60 * 60 * 1000;
+          const ACTIVE_PRODUCTION_DEPLOY_STATES = [
+            "new",
+            "pending",
+            "enqueued",
+            "building",
+            "uploading",
+            "uploaded",
+            "preparing",
+            "prepared",
+            "processing",
+            "processed",
+            "retrying",
+            "pending_review",
+            "accepted",
+          ];
 
           function nextPageUrl(linkHeader) {
             if (!linkHeader) return null;
@@ -372,22 +386,20 @@ jobs:
             return null;
           }
 
-          async function listDeploys(label, cutoff, filters = {}) {
-            const deploys = [];
-            const params = new URLSearchParams({ per_page: "100", ...filters });
-            let url = `${api}/sites/${siteId}/deploys?${params}`;
-            while (url) {
-              const response = await request(url);
-              const page = await readJson(response, label);
-              if (!Array.isArray(page)) throw new Error(`${label} returned a non-array response.`);
-              deploys.push(...page);
-              const oldestCreatedAt = page[page.length - 1]?.created_at;
-              // Netlify returns deploys newest-first; historical pages cannot
-              // contain a pending cutover deploy and make the drain time out.
-              if (cutoff !== null && oldestCreatedAt && Date.parse(oldestCreatedAt) < cutoff) break;
-              url = nextPageUrl(response.headers.get("link"));
-            }
-            return deploys;
+          async function listDeploys(label, states) {
+            const deploysByState = await Promise.all(states.map(async (state) => {
+              const deploys = [];
+              let url = `${api}/sites/${siteId}/deploys?per_page=100&production=true&state=${encodeURIComponent(state)}`;
+              while (url) {
+                const response = await request(url);
+                const page = await readJson(response, `${label} (${state})`);
+                if (!Array.isArray(page)) throw new Error(`${label} returned a non-array response.`);
+                deploys.push(...page);
+                url = nextPageUrl(response.headers.get("link"));
+              }
+              return deploys;
+            }));
+            return deploysByState.flat();
           }
 
           function pendingProductionDeploys(deploys, publishedId, preexistingDeployIds) {
@@ -397,7 +409,7 @@ jobs:
                   candidate.id === publishedId ||
                   candidate.context !== "production" ||
                   candidate.published_at ||
-                  ["error", "canceled"].includes(candidate.state)
+                  ["error", "canceled", "rejected"].includes(candidate.state)
                 ) {
                   return false;
                 }
@@ -409,10 +421,10 @@ jobs:
 
           async function drainPendingDeploys(publishedId, preexistingDeployIds) {
             const deadline = Date.now() + 5 * 60 * 1000;
-            const cutoff = Date.now() - DEPLOY_LOOKBACK_MS;
+            const states = [...ACTIVE_PRODUCTION_DEPLOY_STATES, "ready"];
             while (Date.now() < deadline) {
               let pending = pendingProductionDeploys(
-                await listDeploys("Netlify pending production deploy lookup", cutoff),
+                await listDeploys("Netlify pending production deploy lookup", states),
                 publishedId,
                 preexistingDeployIds,
               );
@@ -430,7 +442,7 @@ jobs:
               }
 
               pending = pendingProductionDeploys(
-                await listDeploys("Netlify production deploy drain verification", cutoff),
+                await listDeploys("Netlify production deploy drain verification", states),
                 publishedId,
                 preexistingDeployIds,
               );
@@ -453,13 +465,12 @@ jobs:
           }
 
           // Snapshot every ready production ID before reading site/deploy state.
-          // The bounded drain lookup must not classify an older ready backlog as new.
+          // A ready backlog predating this cutover is not a new blocker.
           const preexistingDeployIds = new Set(
             (
               await listDeploys(
                 "Netlify pre-existing production ready deploy lookup",
-                Date.now() - DEPLOY_LOOKBACK_MS,
-                { production: "true", state: "ready" },
+                ["ready"],
               )
             ).map((candidate) => candidate.id),
           );

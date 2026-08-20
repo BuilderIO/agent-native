@@ -1,5 +1,11 @@
 # @agent-native/toolkit
 
+## 0.16.8
+
+### Patch Changes
+
+- 60b7e74: Pin Tiptap bubble-menu and floating-menu to 3.30.1 so npm no longer warns on optional peer mismatches when installing the CLI.
+
 ## 0.16.7
 
 ### Patch Changes

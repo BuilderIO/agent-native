@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/toolkit",
-  "version": "0.16.7",
+  "version": "0.16.8",
   "description": "Reusable app-building UI and helpers for Agent-Native apps.",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -318,9 +318,11 @@
     "@radix-ui/react-tooltip": "catalog:",
     "@tabler/icons-react": "^3.41.1",
     "@tiptap/core": "catalog:",
+    "@tiptap/extension-bubble-menu": "catalog:",
     "@tiptap/extension-code-block-lowlight": "catalog:",
     "@tiptap/extension-collaboration": "catalog:",
     "@tiptap/extension-collaboration-caret": "catalog:",
+    "@tiptap/extension-floating-menu": "catalog:",
     "@tiptap/extension-image": "catalog:",
     "@tiptap/extension-link": "catalog:",
     "@tiptap/extension-placeholder": "catalog:",

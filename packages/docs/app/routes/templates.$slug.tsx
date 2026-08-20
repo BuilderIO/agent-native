@@ -1,17 +1,16 @@
 import { useLocale, useT } from "@agent-native/core/client/i18n";
-import {
-  IconArrowLeft,
-  IconBrandGithub,
-  IconCopy,
-  IconExternalLink,
-  IconTerminal2,
-} from "@tabler/icons-react";
-import { useState } from "react";
+import { IconArrowLeft } from "@tabler/icons-react";
 import { Link, useParams, type LoaderFunctionArgs } from "react-router";
 
 import { sitePathForLocale } from "../components/docs-locale";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
-import { TemplateDocsLink } from "../components/template-docs";
+import { SectionDivider } from "../components/SectionDivider";
+import {
+  TemplateFinalCta,
+  TemplateHero,
+  TemplateLandingFaq,
+  TemplateLandingShell,
+} from "../components/template-landing";
 import {
   templates,
   trackEvent,
@@ -19,6 +18,17 @@ import {
 } from "../components/TemplateCard";
 import enUS from "../i18n/en-US";
 import { withDefaultSocialImage, withTemplateSocialImage } from "../seo";
+
+const genericFaqCounts: Partial<Record<Template["slug"], number>> = {
+  assets: 4,
+  chat: 3,
+};
+
+const genericHeroScreenshots: Partial<Record<Template["slug"], string>> = {
+  assets:
+    "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa4ec9bd5a9ba4d98bf00bde9b7425f17",
+  chat: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F70073f5fc11b406aaaddb148abb08bd6",
+};
 
 function findTemplate(slug: string | undefined) {
   return templates.find((t) => t.slug === slug);
@@ -54,21 +64,25 @@ export const meta = ({ params }: { params: { slug?: string } }) => {
 
 function TemplateFallbackArt({ template }: { template: Template }) {
   const t = useT();
-  if (template.screenshot) {
+  const screenshot =
+    genericHeroScreenshots[template.slug] ?? template.screenshot;
+
+  if (screenshot) {
     return (
       <img
-        src={template.screenshot}
+        src={screenshot}
+        crossOrigin="anonymous"
         alt={t("templateCard.screenshotAlt", { name: template.name })}
         loading="lazy"
         decoding="async"
-        className="h-full w-full object-cover object-top"
+        className="h-auto max-h-[640px] w-full object-cover object-top"
       />
     );
   }
 
   return (
     <div
-      className="flex h-full min-h-[320px] items-center justify-center"
+      className="flex min-h-[320px] w-full items-center justify-center"
       style={{
         background: `linear-gradient(135deg, ${template.color}, ${template.color}22)`,
       }}
@@ -77,47 +91,6 @@ function TemplateFallbackArt({ template }: { template: Template }) {
         {template.name}
       </span>
     </div>
-  );
-}
-
-function CliCopy({ template }: { template: Template }) {
-  const [copied, setCopied] = useState(false);
-  const t = useT();
-
-  function handleCopy() {
-    navigator.clipboard.writeText(template.cliCommand);
-    setCopied(true);
-    trackEvent("copy cli command", {
-      template: template.slug,
-      location: "generic_template_page",
-    });
-    setTimeout(() => setCopied(false), 2000);
-  }
-
-  return (
-    <button
-      onClick={handleCopy}
-      data-template-cli-copy
-      className="flex w-full min-w-0 max-w-full items-center gap-3 rounded-md border border-[var(--code-border)] bg-[var(--code-bg)] px-4 py-3 font-mono text-sm transition hover:border-[var(--fg-secondary)] sm:w-auto sm:max-w-[min(100%,36rem)] sm:px-5"
-    >
-      <IconTerminal2
-        size={16}
-        className="shrink-0 text-[var(--fg-secondary)]"
-      />
-      <span
-        data-template-cli-copy-text
-        className="min-w-0 truncate text-[var(--fg)]"
-      >
-        {template.cliCommand}
-      </span>
-      <IconCopy
-        size={16}
-        className="ml-auto shrink-0 text-[var(--fg-secondary)]"
-      />
-      <span className="sr-only">
-        {copied ? t("common.copied") : t("common.copyCommand")}
-      </span>
-    </button>
   );
 }
 
@@ -149,75 +122,84 @@ export default function GenericTemplatePage() {
   }
 
   const hasDemoUrl = "demoUrl" in template && template.demoUrl;
-  const sourceSlug = template.slug;
-  const replaces = t(`templates.${template.slug}.replaces`);
   const description = t(`templates.${template.slug}.description`);
+  const faqCount = genericFaqCounts[template.slug];
+  const faqItems = Array.from({ length: faqCount ?? 0 }, (_, index) => {
+    const itemNumber = index + 1;
+    return {
+      id: `${template.slug}-question-${itemNumber}`,
+      question: t(`templateLanding.${template.slug}.faq.question${itemNumber}`),
+      answer: (
+        <p className="m-0">
+          {t(`templateLanding.${template.slug}.faq.answer${itemNumber}`)}
+        </p>
+      ),
+    };
+  });
 
   return (
-    <main className="template-detail-page mx-auto w-full max-w-[1200px] overflow-x-clip px-4 sm:px-6">
-      <section className="py-12 sm:py-16 lg:py-20">
-        <div className="grid min-w-0 gap-10 lg:grid-cols-2 lg:items-start lg:gap-12">
-          <div>
-            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] bg-[var(--bg-secondary)] px-3 py-1 text-xs text-[var(--fg-secondary)]">
-              <span
-                className="inline-block h-2 w-2 rounded-full"
-                style={{ background: template.color }}
-              />
-              {t("templateDetail.badge", { name: template.name })}
-            </div>
+    <TemplateLandingShell>
+      <TemplateHero
+        eyebrow={
+          <span style={{ color: template.color }}>
+            {t("templateDetail.badge", { name: template.name })}
+          </span>
+        }
+        title={t("templateDetail.title", { name: template.name })}
+        description={<p className="m-0">{description}</p>}
+        headingAction={
+          hasDemoUrl ? (
+            <a
+              href={template.demoUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="primary-button"
+              onClick={(event) => {
+                applyFirstTouchAttributionToLink(event.currentTarget);
+                trackEvent("try live demo", {
+                  template: template.slug,
+                  location: "generic_template_page_hero",
+                });
+              }}
+            >
+              {t("common.tryIt")}
+            </a>
+          ) : undefined
+        }
+        media={<TemplateFallbackArt template={template} />}
+      />
 
-            <h1 className="mb-4 text-[2rem] font-bold leading-[1.08] tracking-tight sm:text-4xl md:text-5xl">
-              {t("templateDetail.title", { name: template.name })}
-            </h1>
-            <p className="mb-3 text-sm font-medium text-[var(--docs-accent)]">
-              {replaces}
-            </p>
-            <p className="mb-8 text-base leading-7 text-[var(--fg-secondary)] sm:text-lg sm:leading-relaxed">
-              {description}
-            </p>
+      <SectionDivider showOnSmallScreens={false} />
 
-            <div className="template-detail-actions mb-8 grid grid-cols-2 items-stretch gap-3 sm:flex sm:flex-wrap sm:items-center">
-              {hasDemoUrl && (
-                <a
-                  href={template.demoUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 rounded-xl bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
-                  onClick={(event) => {
-                    applyFirstTouchAttributionToLink(event.currentTarget);
-                    trackEvent("try live demo", {
-                      template: template.slug,
-                      location: "generic_template_page",
-                    });
-                  }}
-                >
-                  {t("common.tryIt")}
-                  <IconExternalLink size={16} />
-                </a>
-              )}
-              <TemplateDocsLink
-                template={template}
-                location="generic_template_page"
-              />
-              <a
-                href={`https://github.com/BuilderIO/agent-native/tree/main/templates/${sourceSlug}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 rounded-xl border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
-              >
-                {t("common.source")}
-                <IconBrandGithub size={16} />
-              </a>
-            </div>
+      {!["assets", "chat"].includes(template.slug) ? (
+        <TemplateFinalCta
+          title={t("templateDetail.allTemplates")}
+          actions={
+            <Link
+              data-an-prefetch="viewport"
+              to={sitePathForLocale("/apps", locale)}
+              className="secondary-button"
+            >
+              {t("templateDetail.allTemplates")}
+            </Link>
+          }
+        />
+      ) : null}
 
-            <CliCopy template={template} />
-          </div>
-
-          <div className="overflow-hidden rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)]">
-            <TemplateFallbackArt template={template} />
-          </div>
-        </div>
-      </section>
-    </main>
+      {faqItems.length > 0 ? (
+        <>
+          <TemplateLandingFaq
+            idPrefix={`${template.slug}-faq`}
+            eyebrow={
+              <span style={{ color: template.color }}>
+                {t("templateLanding.faq.eyebrow")}
+              </span>
+            }
+            title={t("templateLanding.faq.title")}
+            items={faqItems}
+          />
+        </>
+      ) : null}
+    </TemplateLandingShell>
   );
 }
