@@ -101,8 +101,21 @@ jobs:
             return body;
           }
 
-          const sleep = (milliseconds) =>
-            new Promise((resolve) => setTimeout(resolve, milliseconds));
+          async function waitForBuildSetting(siteId, expected, label) {
+            let actual;
+            for (let attempt = 1; attempt <= 15; attempt += 1) {
+              const site = await readJson(
+                await fetch(`${api}/sites/${siteId}`, { headers, signal: AbortSignal.timeout(30_000) }),
+                `${label} verification attempt ${attempt}`,
+              );
+              actual = site.build_settings?.stop_builds;
+              if (actual === expected) return;
+              if (attempt < 15) {
+                await new Promise((resolve) => setTimeout(resolve, 2_000));
+              }
+            }
+            throw new Error(`${label} expected stop_builds=${expected}, got ${actual}.`);
+          }
 
           (async () => {
             const siteUrl = `${api}/sites/${siteId}`;
@@ -139,21 +152,11 @@ jobs:
               changedStopBuilds = true;
             }
 
-            let observed;
             let verificationError;
             try {
-              for (let attempt = 0; attempt < 6; attempt += 1) {
-                if (attempt > 0) await sleep(2 ** (attempt - 1) * 1000);
-                const paused = await readJson(
-                  await fetch(siteUrl, { headers, signal: AbortSignal.timeout(30_000) }),
-                  'Netlify docs build pause verification',
-                );
-                observed = paused.build_settings?.stop_builds;
-                if (observed === true) {
-                  console.log('Docs site is now owned by the GitHub Actions prebuilt publisher.');
-                  return;
-                }
-              }
+              await waitForBuildSetting(siteId, true, 'Netlify docs build pause');
+              console.log('Docs site is now owned by the GitHub Actions prebuilt publisher.');
+              return;
             } catch (error) {
               verificationError = error;
             }
@@ -170,7 +173,7 @@ jobs:
                 );
               } catch (rollbackError) {
                 throw new Error(
-                  `Netlify docs Git-connected builds were not disabled${verificationError instanceof Error ? `: ${verificationError.message}` : ` (last observed stop_builds=${String(observed)})`}; rollback also failed: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
+                  `Netlify docs Git-connected builds were not disabled: ${verificationError instanceof Error ? verificationError.message : String(verificationError)}; rollback also failed: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
                 );
               }
             }
@@ -180,9 +183,6 @@ jobs:
                 { cause: verificationError },
               );
             }
-            throw new Error(
-              `Netlify docs Git-connected builds were not disabled (last observed stop_builds=${String(observed)}).`,
-            );
           })().catch((error) => {
             console.error(error instanceof Error ? error.message : error);
             process.exitCode = 1;

@@ -506,7 +506,7 @@ describe("production Netlify site concurrency guard", () => {
     const acquiredIndex = pause.indexOf(
       'fs.appendFileSync(process.env.GITHUB_OUTPUT, "cutover_acquired=true\\n")',
     );
-    const verificationIndex = pause.indexOf("let observed");
+    const verificationIndex = pause.indexOf("await waitForBuildSetting");
     assert(acquiredIndex >= 0);
     assert(verificationIndex > acquiredIndex);
   });
@@ -531,8 +531,8 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(run, /current\.git_provider/);
     assert.match(run, /current\.repo\?\.repo_path/);
     assert.match(run, /stop_builds: true/);
-    assert.match(run, /for \(let attempt = 0; attempt < 6; attempt \+= 1\)/);
-    assert.match(run, /stop_builds=\$\{String\(observed\)\}/);
+    assert.match(run, /for \(let attempt = 1; attempt <= 15; attempt \+= 1\)/);
+    assert.match(run, /stop_builds=\$\{expected\}/);
     assert.match(run, /changedStopBuilds/);
     assert.match(run, /verificationError/);
     assert.match(run, /Netlify docs build pause rollback/);

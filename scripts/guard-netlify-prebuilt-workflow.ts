@@ -403,7 +403,7 @@ if (
 }
 const pause = reusable.slice(pauseStart, unlockStart);
 const cutoverAcquiredIndex = pause.indexOf("cutover_acquired=true");
-const pauseVerificationIndex = pause.indexOf("let observed");
+const pauseVerificationIndex = pause.indexOf("await waitForBuildSetting");
 if (
   !pause.includes("stop_builds") ||
   !pause.includes('method: "PATCH"') ||
