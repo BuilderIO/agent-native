@@ -763,6 +763,7 @@ const messages = {
     chooseReferences: "Referenzen auswählen",
     addDesignSystem: "+ Designsystem",
     importFrom: "Importieren von",
+    attachedFiles: "Angehängt",
     imported: "Importiert",
     importedReferenceDeck: "Importiertes Referenz-Deck",
     referenceImportSuccess: "Erfolgreich importiert",
