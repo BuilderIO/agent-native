@@ -1,6 +1,9 @@
 import { defineAction } from "@agent-native/core/action";
 import { isValidCron, nextOccurrence } from "@agent-native/core/jobs";
-import { resourceGetByPath, resourcePut } from "@agent-native/core/resources";
+import {
+  resourceGetByPath,
+  resourcePutIfCurrent,
+} from "@agent-native/core/resources";
 import { listAutomationDefinitions } from "@agent-native/core/triggers";
 import { z } from "zod";
 
@@ -99,12 +102,20 @@ export default defineAction({
       ).toISOString();
       content = setAutomationFrontmatterField(content, "nextRun", nextRun);
     }
-    await resourcePut(
-      definition.resource.owner,
-      definition.resource.path,
+    const updated = await resourcePutIfCurrent({
+      owner: definition.resource.owner,
+      path: definition.resource.path,
       content,
-      "text/markdown",
-    );
+      mimeType: "text/markdown",
+      expectedId: resource.id,
+      expectedUpdatedAt: resource.updatedAt,
+      expectedContent: resource.content,
+    });
+    if (!updated) {
+      throw new Error(
+        "Factory automation changed concurrently. Refresh and try again.",
+      );
+    }
     return {
       ok: true,
       id: definition.resource.id,

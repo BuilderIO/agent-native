@@ -47,10 +47,16 @@ export default defineAction({
     if (config?.pollingEnabled !== 1) {
       throw new Error("Enable Slack polling before polling Slack.");
     }
-    const channelId = requestedChannelId ?? config?.slackChannelId;
-    if (!channelId) {
+    const configuredChannelId = config?.slackChannelId;
+    if (!configuredChannelId) {
       throw new Error("Configure a Slack channel before polling.");
     }
+    if (requestedChannelId && requestedChannelId !== configuredChannelId) {
+      throw new Error(
+        "Poll only the Slack channel configured for this factory.",
+      );
+    }
+    const channelId = configuredChannelId;
 
     const result = await pollSlackChannel({
       workspace:

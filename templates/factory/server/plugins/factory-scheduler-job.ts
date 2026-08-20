@@ -445,6 +445,25 @@ function frontmatterField(content: string, key: string): string | undefined {
   return value.replace(/^(\"|')|((\"|')$)/g, "");
 }
 
+function automationFactoryScopeInstruction(factoryId: string): string {
+  return `This automation runs for factory \`${factoryId}\`. Pass \`factoryId: "${factoryId}"\` on every Factory triage, poll, and config action in this run.`;
+}
+
+function repairAutomationFactoryScopeInstruction(
+  content: string,
+  factoryId: string,
+): string {
+  if (content.includes(`Pass \`factoryId: "${factoryId}"\``)) {
+    return content;
+  }
+  const end = content.indexOf("\n---", 4);
+  if (end === -1) {
+    return `${automationFactoryScopeInstruction(factoryId)}\n\n${content.trim()}\n`;
+  }
+  const insertAt = end + 4;
+  return `${content.slice(0, insertAt)}\n\n${automationFactoryScopeInstruction(factoryId)}\n${content.slice(insertAt)}`;
+}
+
 function automationContent(
   ownerEmail: string,
   orgId: string,
@@ -470,7 +489,7 @@ model: ${seed.model}
 maxIterations: ${seed.maxIterations}
 maxRunInputTokens: ${seed.maxRunInputTokens}
 ---
-This automation runs for factory \`${factoryId}\`. Pass \`factoryId: "${factoryId}"\` on every Factory triage, poll, and config action in this run.
+${automationFactoryScopeInstruction(factoryId)}
 
 ${body.trim()}
 `;
@@ -569,6 +588,7 @@ export async function ensureFactoryAutomations(
       if (seed.name === "factory-slack-feedback") {
         repaired = repairSlackFeedbackPrompt(repaired);
       }
+      repaired = repairAutomationFactoryScopeInstruction(repaired, factoryId);
       if (repaired === existing.content) return;
 
       const updated = await resourcePutIfCurrent({

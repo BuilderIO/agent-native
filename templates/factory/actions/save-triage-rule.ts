@@ -43,7 +43,7 @@ export default defineAction({
       workspaceMemberIdentityFromContext(context),
     );
     const now = new Date().toISOString();
-    const ruleId = id ?? stableId("rule", orgId, name);
+    const ruleId = id ?? stableId("rule", orgId, factoryId, name);
     const existing = (
       await getDb()
         .select({ promptVersion: triageRules.promptVersion })
