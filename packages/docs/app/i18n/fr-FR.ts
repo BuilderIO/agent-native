@@ -426,6 +426,7 @@ const frFR = {
     viewDocs: "Voir les docs",
     source: "Code source",
     readDocs: "Lire la documentation",
+    signIn: "Se connecter",
   },
   templatesPage: {
     title: "Applications open source natives pour agents que vous possédez",

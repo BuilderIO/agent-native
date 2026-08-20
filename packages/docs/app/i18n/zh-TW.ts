@@ -416,6 +416,7 @@ const messages = {
     viewDocs: "檢視檔案",
     source: "來源",
     readDocs: "閱讀檔案",
+    signIn: "登入",
   },
   templatesPage: {
     title: "您擁有的開放原始碼、Agent-Native 應用程式",
