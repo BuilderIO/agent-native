@@ -2,6 +2,32 @@
 command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter @agent-native/docs build && if [ \"${CONTEXT:-}\" = \"production\" ]; then pnpm --filter @agent-native/docs migrate:production; fi"
 publish = "packages/docs/dist"
 
+# React Router prerendered pages are served from Netlify's static backing
+# store, so they bypass the framework SSR handler that normally emits these
+# headers. Keep the public shell fast in browsers and aggressively cached at
+# the CDN while still allowing deploy invalidation to publish new content.
+[[headers]]
+for = "/*"
+  [headers.values]
+  Cache-Control = "public, max-age=600, stale-while-revalidate=604800, stale-if-error=3600"
+  CDN-Cache-Control = "public, max-age=600, stale-while-revalidate=604800, stale-if-error=3600"
+  Netlify-CDN-Cache-Control = "public, s-maxage=31536000, stale-while-revalidate=604800, stale-if-error=3600"
+
+# Vite's production assets are content-addressed and can stay cached for a
+# year. This also preserves the static-site equivalent of core's asset rule.
+[[headers]]
+for = "/assets/*"
+  [headers.values]
+  Cache-Control = "public, max-age=31536000, immutable"
+  CDN-Cache-Control = "public, max-age=31536000, immutable"
+  Netlify-CDN-Cache-Control = "public, max-age=31536000, immutable"
+
+# Keep any static internal framework artifacts out of browser caches.
+[[headers]]
+for = "/_agent-native/*"
+  [headers.values]
+  Cache-Control = "no-cache, no-store"
+
 # Netlify's static asset handling sends extensionless Dockerfile requests to
 # the SSR fallback. Rewrite the documented endpoint to the served text asset
 # while keeping the browser/download filename compatible with Compose.
@@ -85,9 +111,3 @@ VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE = "public"
 # The docs app owns the framework schema at release time, so production
 # request functions do not spend their cold-start budget on migration probes.
 AGENT_NATIVE_RELEASE_MIGRATIONS = "1"
-
-# Cache headers intentionally live in @agent-native/core instead of this
-# Netlify config. The framework emits SSR HTML/.data SWR headers from the
-# shared server handler and immutable hashed asset headers during build, so
-# docs and templates do not need provider-specific [[headers]] blocks to stay
-# fast or protect private client-side routes.
