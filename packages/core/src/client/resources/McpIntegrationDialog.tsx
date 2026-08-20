@@ -200,7 +200,19 @@ export function McpIntegrationDialog({
       : null;
     const initialDefaults =
       createMcpIntegrationFormDefaults(initialIntegration);
-    setMode(initialIntegration || !showCatalog ? "form" : "catalog");
+    const initialNeedsScopeChoice = Boolean(
+      initialIntegration &&
+      hasOrg &&
+      requiresMcpIntegrationSetup(initialIntegration) &&
+      supportsMcpIntegrationOrganizationScope(initialIntegration),
+    );
+    setMode(
+      initialNeedsScopeChoice
+        ? "choice"
+        : initialIntegration || !showCatalog
+          ? "form"
+          : "catalog",
+    );
     setQuery("");
     setSelected(initialIntegration ?? null);
     setScope(

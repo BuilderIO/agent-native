@@ -295,6 +295,51 @@ describe("McpIntegrationDialog", () => {
     expect(onCreateMcpServer).not.toHaveBeenCalled();
   });
 
+  it("routes an initial workspace-capable setup through the scope choice", () => {
+    const gong = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "gong",
+    )!;
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <McpIntegrationDialog
+            open
+            onOpenChange={() => {}}
+            initialIntegrationId="gong"
+            defaultScope="user"
+            canCreateOrgMcp
+            hasOrg
+            onCreateMcpServer={vi.fn()}
+            integrations={[gong]}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(document.body.textContent).toContain("Who should use this?");
+    expect(document.body.textContent).not.toContain("Provider setup required");
+
+    const workspace = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent === "Set up for workspace",
+    );
+    expect(workspace).toBeTruthy();
+    act(() => workspace?.click());
+
+    expect(document.body.textContent).toContain("Provider setup required");
+    const continueButton = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent === "I've completed setup",
+    );
+    expect(continueButton).toBeTruthy();
+
+    act(() => continueButton?.click());
+
+    const url = mocks.navigateToMcpOAuthStart.mock.calls[0]?.[0];
+    expect(
+      new URL(url, "https://analytics.example.com").searchParams.get("scope"),
+    ).toBe("org");
+  });
+
   it("shows a disabled workspace option to a member", () => {
     const context7 = DEFAULT_MCP_INTEGRATIONS.find(
       (integration) => integration.id === "context7",
