@@ -8,6 +8,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 ### Improved
 
 - Recording preparation now uses a centered full-screen overlay that transitions smoothly into the 3-2-1 countdown.
+- Clip viewers now make Share the primary action and keep the overflow control compact and vertical.
 - Recording controls now follow you across browser tabs and page navigations.
 
 ### Fixed
