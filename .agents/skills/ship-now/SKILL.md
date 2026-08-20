@@ -4,8 +4,8 @@ description: >-
   Fast-path the current branch through local `pnpm prep:urgent`, targeted recovery,
   feedback resolution, whole-branch push, immediate admin merge, and
   fresh-branch rotation. Use when the user explicitly wants to merge
-  immediately after local prep recovery, then monitor the merged PR and
-  release workflows.
+  immediately after local prep recovery, then monitor beta and release
+  workflows. Main auto-deploys beta; production promotion is manual.
 ---
 
 # Ship Now
@@ -14,8 +14,21 @@ Use this only after the user explicitly requests the fast admin-merge path.
 It is an intentional exception to `/ship`'s remote-CI wait and ten-minute
 merge soak: local `pnpm prep:urgent`, or targeted recovery of its failed lanes, is the
 pre-merge validation gate. The user has authorized `--admin` merging once
-feedback is handled. Remote CI, release, and deploy results are monitored
+feedback is handled. Remote CI, release, and beta deploy results are monitored
 after merge, not waited on before the admin merge.
+
+## Deployment split
+
+Merges to `main` auto-deploy only beta sites at `beta.*.agent-native.com`.
+Production promotion is manual. `/ship-now` monitors beta and any release tail
+after the fast merge; it does not imply that production was promoted. If a
+critical fix needs production, explicitly run the manual promotion and monitor
+that result separately.
+
+Use `.github/workflows/deploy-production-sites-prebuilt.yml` or the targeted
+`promote-netlify-deploy.yml` workflow to promote a critical fix and let it
+manage Netlify lock transitions. Do not manually remove or clear a Netlify lock
+as a deployment step; clearing one is not the production promotion.
 
 ## Fast-path contract
 
@@ -26,7 +39,7 @@ after merge, not waited on before the admin merge.
 The fast gate is local `pnpm prep:urgent`, or the narrowest successful recovery check
 for each failed prep lane. Once that gate and review resolution pass, admin
 merge immediately. Do not wait for a full prep rerun, remote CI, release or
-deploy checks, or the normal `/ship` soak; monitor those after the merge.
+beta deploy checks, or the normal `/ship` soak; monitor those after the merge.
 
 A worktree is a valid publishing checkout. When `/ship-now` is authorized from
 a worktree, keep validation, commit, push, PR lookup, and admin merge in that
@@ -121,12 +134,17 @@ checkout, and update the existing PR rather than creating a second one.
    and post-flight stash report exactly.
 
 7. Monitor the merged PR and release tail after rotation. Check the merged PR's
-   merge commit, all workflows attached to that commit, deployment status, and
-   package publication when applicable. Keep configured, source-tested,
+   merge commit, all workflows attached to that commit, beta deployment status,
+   and package publication when applicable. Keep configured, source-tested,
    built-runtime, deployed, and observed-live claims separate. A merge is not
-   proof that release or production is healthy.
+   proof that beta is healthy, and beta is not proof that production was
+   manually promoted. Include production only when that manual promotion was
+   explicitly started. Re-read the merged PR for new review or bot feedback;
+   fix actionable post-merge feedback on the fresh branch and invoke `/ship`
+   for the follow-up.
 
-8. If a post-merge CI, deploy, package-publish, or release issue appears:
+8. If a post-merge CI, beta deploy, package-publish, release, or explicitly
+   promoted production issue appears:
 
    - reproduce or read the failing artifact;
    - fix it on the fresh branch, never on the merged branch;
@@ -145,6 +163,8 @@ checkout, and update the existing PR rather than creating a second one.
 - Publish all nonignored local paths through `corepack pnpm ship:push`.
 - Never silently skip a review comment, CI failure, package release failure,
   or production deploy failure.
+- Never treat a Netlify lock as the production promotion mechanism or remove it
+  manually to force a promotion.
 - Never create a fresh branch before verifying that `origin/main` contains the
   merge commit.
 - Never claim the fast path is complete from a successful merge command alone;
@@ -153,6 +173,8 @@ checkout, and update the existing PR rather than creating a second one.
 ## Related skills
 
 - `/ship` for the normal guarded ship flow and follow-up fixes.
+- `/ship-and-monitor` for the normal guarded ship flow plus this post-merge
+  monitoring behavior without the fast admin-merge exception.
 - `/babysit-pr` for review/comment/CI coverage before a merge when the user did
   not explicitly choose this fast path.
 - `/new-branch` for the only permitted branch-rotation procedure.

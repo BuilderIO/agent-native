@@ -3,7 +3,8 @@ name: ship
 description: >-
   Commit and push the complete current-branch snapshot, open a ready PR,
   babysit it, merge when clean, then create a fresh branch. Use when the user
-  asks to ship, publish, or hand off local changes.
+  asks to ship, publish, or hand off local changes. Main auto-deploys beta;
+  production promotion is manual.
 user-invocable: true
 scope: dev
 metadata:
@@ -54,12 +55,19 @@ changes", or "push up my local changes". Push the first coherent branch
 snapshot before long validation so CI and review can start, then publish later
 snapshots as local work arrives.
 
-If the branch updates templates or publishable packages, shipping does not stop
-at merge. Treat the work as shipped only after the affected templates are live in
-production and affected packages have successfully published/released. If a
-production template deploy or package publish fails, retrigger the failed job
-when the existing code already contains the fix; otherwise make the necessary
-code/config fix and ship that follow-up until production is live.
+## Deployment split
+
+Merges to `main` auto-deploy only beta sites at `beta.*.agent-native.com`.
+Production promotion is a separate manual operation. For the normal `/ship`
+flow, a healthy beta deploy is the expected deployment proof when applicable;
+do not wait for or imply an automatic production deploy. Critical fixes that
+must reach production need an explicit manual promotion, followed by
+`/ship-and-monitor` when the promotion and release tail need verification.
+
+Use `.github/workflows/deploy-production-sites-prebuilt.yml` or the targeted
+`promote-netlify-deploy.yml` workflow to promote a critical fix and let it
+manage Netlify lock transitions. Do not manually remove or clear a Netlify lock
+as a deployment step; clearing one is not the production promotion.
 
 ## Latest-feedback handoff
 
@@ -135,9 +143,9 @@ GitHub review comments, or Sentry findings arrive. Treat an unavailable
 connector as unavailable - never as “nothing matched” - and preserve that gap
 in the recap.
 
-The ship report and PR description must keep source-tested, built, published or
-deployed, and observed-live claims separate. A green test or PR does not prove
-that a feedback fix is live; verify the affected production surface after merge.
+The ship report and PR description must keep source-tested, built, and merged
+claims separate. A green test or PR does not prove that beta or production is
+live; deployment monitoring belongs to `/ship-now` or `/ship-and-monitor`.
 Before merging, `/babysit-pr` must re-check that every actionable feedback or
 review item has a fix or a concise reply and that no new evidence has been left
 without a disposition. Items routed to Sid or Alice remain outside this
@@ -236,27 +244,14 @@ branch, stay on it.
    clean working tree, no unpushed commits, GitHub Actions green, all review
    comments addressed/replied, and mergeable.
 
-8. **Verify production is live when needed**: if the branch changed
-   `templates/*`, docs/sites that publish templates, or any deployment config
-   that affects templates, verify the affected template production deploys finish
-   successfully and the live site is serving the new build. If a deploy fails
-   because of a transient infra/build pickup issue, retrigger it; if it fails
-   because of code, config, dependency, or generated-file problems, fix the
-   issue and ship the follow-up. If the branch changed publishable packages such
-   as `packages/core`, `packages/dispatch`, `packages/scheduling`,
-   `packages/pinpoint`, or `packages/skills`, verify the release/publish
-   workflow completes and the package version is available from the registry or
-   package host. Retrigger transient publish failures; fix and ship code/config
-   failures.
-
-9. **Create the next branch after merge**: after the PR is merged and `origin/main`
+8. **Create the next branch after merge**: after the PR is merged and `origin/main`
    contains the merge commit, run `/new-branch`. Follow that skill’s preflight,
    stash gate, branch naming, and stash-reporting rules. This is the only branch
    movement in the ship flow.
 
-10. **Report**: summarize the PR URL, merge result, new branch name, validation,
-    production deploy/publish verification when applicable, and any feedback/CI
-    fixes handled.
+9. **Report**: summarize the PR URL, merge result, new branch name, validation,
+   and any feedback/CI fixes handled. Do not claim post-merge beta or production
+   monitoring unless you ran `/ship-now` or `/ship-and-monitor`.
 
 ## Important
 
@@ -270,8 +265,8 @@ branch, stay on it.
 - Treat `/babysit-pr` as the source of truth for CI/review monitoring cadence,
   comment handling, local-file push discipline, and merge gates. Update
   `babysit-pr` first if the watcher behavior changes.
-- Treat production deploy/publish verification as part of `/ship` whenever
-  templates or publishable packages changed. A green PR is not enough if the
-  affected template build or package publish later fails.
+- Treat `/ship` as complete after its merge and branch-rotation steps. Use
+  `/ship-now` or `/ship-and-monitor` for post-merge beta/release monitoring and
+  explicit manual production-promotion verification.
 - Treat `/new-branch` as mandatory after a successful merge so the workspace is
   ready for the next task on fresh `main`.

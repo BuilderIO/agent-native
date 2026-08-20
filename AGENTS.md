@@ -29,6 +29,11 @@ A few are entry points rather than area guides:
   moment you are tempted to stop and ask. Chasing status is the single most
   frequent correction in this repo.
 - `concurrent-agents` — read before working in a shared checkout.
+- `ship` — normal guarded ship through merge and branch rotation; beta deploys
+  are automatic and production promotion is manual.
+- `ship-and-monitor` — read when the normal ship flow also needs post-merge
+  beta/release monitoring or explicit production-promotion verification.
+- `ship-now` — fast admin-merge path with post-merge monitoring.
 
 Spawning a read-only investigator? Use `/sidecar <task>` instead of retyping the
 contract.
@@ -44,6 +49,14 @@ contract.
 - Never add `Co-Authored-By` or other agent attribution to commits.
 - PRs use the current branch unless the user explicitly requests a new branch.
   PRs are ready for review by default, not drafts, unless requested.
+- Deployment split: merges to `main` auto-deploy only beta sites at
+  `beta.*.agent-native.com`. Production promotion is manual; a healthy beta
+  deploy is the normal ship proof, and critical fixes must be explicitly
+  promoted to production through the manual
+  `.github/workflows/deploy-production-sites-prebuilt.yml` or targeted
+  `promote-netlify-deploy.yml` workflows. Let the workflow manage Netlify lock
+  transitions; do not manually remove a lock or imply that clearing one makes
+  production live.
 - Worktrees are valid PR sources. When the user authorizes shipping or opening
   or updating a PR from a worktree, use that worktree's current branch and cwd
   for the commit, push, and PR operation; do not copy changes into the shared

@@ -138,6 +138,16 @@ const PATTERNS = [
     fixedBy: "pnpm ship:push (scripts/ship-push.mjs, 2026-08-12)",
     re: /\b(push (up|it up|them up|all|everything|shit up)|not pushed|never pushed|unpushed|files to push|tons of (local|files)|push the local)\b/i,
   },
+  // Added 2026-08-20 after repeated confusion between automatic beta deploys
+  // and the separate manual production promotion path. Watch whether the
+  // shipping-skill split makes this correction disappear.
+  {
+    key: "beta-production-split",
+    label: "Had to clarify beta auto-deploy vs manual production",
+    fixedBy:
+      ".agents/skills/ship + .agents/skills/ship-and-monitor (2026-08-20)",
+    re: /\b(?:netlify\s+lock|(?:remove|clear|unlock).*\b(?:netlify|production)\s+lock|\b(?:main|merge|merged)\b[^.!?]{0,70}\b(?:auto[- ]?deploy|deploys?|go(?:es)? live)\b[^.!?]{0,50}\bproduction\b|\bproduction\b[^.!?]{0,70}\b(?:manual|not auto|doesn['’]t auto|isn['’]t auto)|\bbeta\b[^.!?]{0,70}\bproduction\b[^.!?]{0,40}\b(?:split|manual|not automatic)\b)/i,
+  },
   {
     key: "no-progress",
     label: "Had to chase status on a long-running run",
