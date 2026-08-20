@@ -17,8 +17,34 @@ import type { BrowserContext } from "@playwright/test";
 
 const KEY_ROUTE = "/_agent-native/agent-engine/api-key";
 
-export function dedicatedOpenAiKey(): string | undefined {
-  return process.env.BETA_E2E_OPENAI_API_KEY?.trim() || undefined;
+export type KeySource = "dedicated" | "shared";
+
+export interface ResolvedOpenAiKey {
+  key: string;
+  source: KeySource;
+}
+
+/**
+ * Which OpenAI credential this run will bill.
+ *
+ * `BETA_E2E_OPENAI_API_KEY` is the intended one: created for this suite, with
+ * its own spend limit, so agent-turn cost is separately attributable. The
+ * repository's shared `OPENAI_API_KEY` also works, but pools this suite's spend
+ * with everything else that uses it — which is the thing a dedicated key
+ * exists to avoid. It is therefore never picked up implicitly: a run must ask
+ * for it, and every caller reports which source it got.
+ */
+export function resolveOpenAiKey(): ResolvedOpenAiKey | undefined {
+  const dedicated = process.env.BETA_E2E_OPENAI_API_KEY?.trim();
+  if (dedicated) return { key: dedicated, source: "dedicated" };
+
+  const allowShared = /^(1|true)$/i.test(
+    process.env.BETA_E2E_ALLOW_SHARED_KEY?.trim() ?? "",
+  );
+  const shared = process.env.BETA_E2E_SHARED_OPENAI_API_KEY?.trim();
+  if (allowShared && shared) return { key: shared, source: "shared" };
+
+  return undefined;
 }
 
 export interface KeyInstallResult {
