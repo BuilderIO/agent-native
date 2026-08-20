@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.165.4
+
+### Patch Changes
+
+- 841f072: Expand changelog history windows to 100 releases while preserving folder-backed history.
+
 ## 0.165.3
 
 ### Patch Changes
