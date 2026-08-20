@@ -1865,6 +1865,96 @@ describe("DesktopIdentityBroker", () => {
     expect(mailCookies.set).toHaveBeenCalledTimes(cookieSetCount);
   });
 
+  it("keeps the Google exchange alive when its hosted callback closes the window", async () => {
+    const authority = authorityFixture();
+    const identityCookies = cookieStore();
+    const authorityCookies = cookieStore();
+    const identityFetch = vi.fn(async (input: string) => {
+      const path = new URL(input).pathname;
+      if (path === "/_agent-native/google/auth-url") {
+        return new Response(
+          JSON.stringify({
+            url: "https://accounts.google.com/o/oauth2/v2/auth?state=oauth-state",
+          }),
+          { status: 200 },
+        );
+      }
+      if (path === "/_agent-native/auth/desktop-exchange") {
+        const exchangeCalls = identityFetch.mock.calls.filter(
+          ([request]) =>
+            new URL(String(request)).pathname ===
+            "/_agent-native/auth/desktop-exchange",
+        ).length;
+        return exchangeCalls === 1
+          ? new Response(JSON.stringify({ pending: true }), { status: 200 })
+          : new Response(
+              JSON.stringify({
+                token: "desktop-session",
+                email: "owner@example.com",
+              }),
+              { status: 200 },
+            );
+      }
+      if (path === "/_agent-native/auth/session") {
+        return sessionResponse("owner@example.com");
+      }
+      return new Response(null, { status: 404 });
+    });
+    authority.session = {
+      cookies: authorityCookies,
+      fetch: vi.fn(async (input: string) =>
+        new URL(input).pathname === "/_agent-native/auth/session"
+          ? sessionResponse("owner@example.com")
+          : new Response(null, { status: 404 }),
+      ),
+    } as unknown as Electron.Session;
+    let closedListener: (() => void) | undefined;
+    const identityWindow = {
+      webContents: {
+        on: vi.fn(),
+        setWindowOpenHandler: vi.fn(),
+      },
+      loadURL: vi.fn(async () => {}),
+      isDestroyed: vi.fn(() => false),
+      close: vi.fn(),
+      on: vi.fn((event: string, listener: () => void) => {
+        if (event === "closed") closedListener = listener;
+      }),
+    };
+    const reloadApp = vi.fn();
+    const broker = new DesktopIdentityBroker({
+      identitySession: {
+        cookies: identityCookies,
+        fetch: identityFetch,
+        clearStorageData: vi.fn(async () => {}),
+      } as unknown as Electron.Session,
+      resolveApp: (id) => (id === authority.id ? authority : null),
+      listApps: () => [authority],
+      openExternal: vi.fn(async () => {}),
+      createWindow: () => identityWindow as never,
+      reloadApp,
+      clearLocalBroker: vi.fn(),
+      timeoutMs: 3_000,
+    });
+
+    const signIn = broker.signIn(authority.id);
+    await vi.waitFor(() => expect(identityWindow.loadURL).toHaveBeenCalled());
+    await vi.waitFor(() =>
+      expect(
+        identityFetch.mock.calls.some(
+          ([request]) =>
+            new URL(String(request)).pathname ===
+            "/_agent-native/auth/desktop-exchange",
+        ),
+      ).toBe(true),
+    );
+    closedListener?.();
+
+    await expect(signIn).resolves.toBe(true);
+    expect(reloadApp).toHaveBeenCalledWith(authority);
+    expect(broker.getStatus()).toBe("signed-in");
+  });
+
   it("retries an unauthorized embed request through the main-process transport", async () => {
     const authority = authorityFixture();
     const mail = appFixture();
