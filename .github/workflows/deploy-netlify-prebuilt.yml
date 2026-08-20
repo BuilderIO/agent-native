@@ -775,6 +775,7 @@ jobs:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
           cutoverPublishedDeployId: ${{ steps.unlock.outputs.published_deploy_id }}
+          cutoverNewDeployId: ${{ steps.deploy.outputs.deploy_id }}
           cutoverWasLocked: ${{ steps.unlock.outputs.was_locked }}
           cutoverWasPaused: ${{ steps.pause.outputs.cutover_acquired }}
         run: |
@@ -804,8 +805,9 @@ jobs:
             console.log("No production cutover state was acquired; cleanup is not needed.");
             process.exit(0);
           }
-          const deployId = process.env.cutoverPublishedDeployId;
-          if (!deployId) {
+          const originalDeployId = process.env.cutoverPublishedDeployId;
+          const newDeployId = process.env.cutoverNewDeployId;
+          if (!originalDeployId) {
             throw new Error("Cannot restore the production lock: unlock did not record the original published deploy.");
           }
           const site = await readJson(
@@ -816,37 +818,53 @@ jobs:
           if (!currentDeployId) {
             throw new Error("Cannot restore the production lock: site has no published deploy.");
           }
-          if (currentDeployId !== deployId) {
+          if (newDeployId && currentDeployId === newDeployId) {
+            const deployUrl = `${api}/deploys/${newDeployId}`;
+            const deploy = await readJson(await request(deployUrl), "Netlify newly published deploy lock lookup");
+            if (deploy.locked !== true) {
+              await readJson(
+                await request(`${deployUrl}/lock`, { method: "POST" }),
+                `Netlify newly published deploy ${newDeployId} failure lock`,
+              );
+            }
+            const locked = await readJson(await request(deployUrl), "Netlify newly published failure lock verification");
+            if (locked.locked !== true) {
+              throw new Error(`Netlify newly published deploy ${newDeployId} was not locked during failure cleanup.`);
+            }
+            console.log(`Locked newly published production deploy ${newDeployId} after cutover failure.`);
+            process.exit(0);
+          }
+          if (currentDeployId !== originalDeployId) {
             throw new Error(
-              `Refusing failure cleanup to modify published deploy ${currentDeployId}; cutover started from ${deployId}.`,
+              `Refusing failure cleanup to modify published deploy ${currentDeployId}; cutover started from ${originalDeployId}.`,
             );
           }
-          const deployUrl = `${api}/deploys/${deployId}`;
+          const deployUrl = `${api}/deploys/${originalDeployId}`;
           const deploy = await readJson(await request(deployUrl), "Netlify published deploy lock lookup");
           if (process.env.cutoverWasLocked === "true") {
             if (deploy.locked !== true) {
               await readJson(
                 await request(`${deployUrl}/lock`, { method: "POST" }),
-                `Netlify published deploy ${deployId} failure lock`,
+                `Netlify published deploy ${originalDeployId} failure lock`,
               );
             }
             const locked = await readJson(await request(deployUrl), "Netlify failure lock verification");
             if (locked.locked !== true) {
-              throw new Error(`Netlify published deploy ${deployId} was not locked during failure cleanup.`);
+              throw new Error(`Netlify published deploy ${originalDeployId} was not locked during failure cleanup.`);
             }
-            console.log(`Restored production lock on deploy ${deployId}.`);
+            console.log(`Restored production lock on deploy ${originalDeployId}.`);
           } else {
             if (deploy.locked === true) {
               await readJson(
                 await request(`${deployUrl}/unlock`, { method: "POST" }),
-                `Netlify published deploy ${deployId} failure unlock`,
+                `Netlify published deploy ${originalDeployId} failure unlock`,
               );
             }
             const unlocked = await readJson(await request(deployUrl), "Netlify failure unlock verification");
             if (unlocked.locked !== false) {
-              throw new Error(`Netlify published deploy ${deployId} was not unlocked during failure cleanup.`);
+              throw new Error(`Netlify published deploy ${originalDeployId} was not unlocked during failure cleanup.`);
             }
-            console.log(`Restored production unlock state on deploy ${deployId}.`);
+            console.log(`Restored production unlock state on deploy ${originalDeployId}.`);
           }
           NODE
 

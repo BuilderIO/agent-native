@@ -275,6 +275,10 @@ describe("production Netlify site concurrency guard", () => {
       "${{ steps.unlock.outputs.published_deploy_id }}",
     );
     assert.equal(
+      (cleanup?.env as Record<string, unknown>).cutoverNewDeployId,
+      "${{ steps.deploy.outputs.deploy_id }}",
+    );
+    assert.equal(
       (cleanup?.env as Record<string, unknown>).cutoverWasLocked,
       "${{ steps.unlock.outputs.was_locked }}",
     );
@@ -287,6 +291,8 @@ describe("production Netlify site concurrency guard", () => {
       String(cleanup?.run),
       /process\.env\.cutoverWasPaused !== "true"/,
     );
+    assert.match(String(cleanup?.run), /currentDeployId === newDeployId/);
+    assert.match(String(cleanup?.run), /newly published deploy/);
   });
 
   it("records cutover acquisition before pause verification", () => {

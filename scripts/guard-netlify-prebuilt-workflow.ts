@@ -310,8 +310,11 @@ if (
   !reusable.slice(lockStart, cleanupStart).includes("published_deploy") ||
   !reusable.slice(cleanupStart).includes("failure()") ||
   !reusable.slice(cleanupStart).includes("cutoverPublishedDeployId") ||
+  !reusable.slice(cleanupStart).includes("cutoverNewDeployId") ||
   !reusable.slice(cleanupStart).includes("cutoverWasLocked") ||
-  !reusable.slice(cleanupStart).includes("/lock")
+  !reusable.slice(cleanupStart).includes("/lock") ||
+  !reusable.slice(cleanupStart).includes("currentDeployId === newDeployId") ||
+  !reusable.slice(cleanupStart).includes("newly published deploy")
 ) {
   issues.push(
     `${reusablePath} must pause automatic builds before cutover, lock the new published deploy, and fail-safe the production lock after cutover errors`,
