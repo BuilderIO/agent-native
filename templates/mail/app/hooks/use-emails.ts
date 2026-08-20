@@ -1453,10 +1453,16 @@ export function useContacts() {
 
 // ─── Labels ──────────────────────────────────────────────────────────────────
 
+export const EMPTY_LABELS: Label[] = [];
+
 export function useLabels() {
   return useQuery<Label[]>({
     queryKey: ["labels"],
     queryFn: () => apiFetch("/api/labels"),
+    // A failed background refresh must not erase the last complete label map.
+    // The layout still surfaces isError so an initial failure has an explicit
+    // retry path instead of looking like an empty mailbox.
+    placeholderData: (previousData) => previousData,
     staleTime: 60_000,
   });
 }

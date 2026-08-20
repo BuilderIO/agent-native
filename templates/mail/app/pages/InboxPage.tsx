@@ -23,6 +23,7 @@ import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import {
+  OTHER_INBOX_TAB_PARAM,
   resolvePinnedLabels,
   pinnedTriageLabels,
   augmentSelfSentLabels,
@@ -306,7 +307,9 @@ export function InboxPage() {
     mailLabelsInclude(triageLabels, activeLabel);
   const clientSliceTab = isPinnedTab && !searchQuery;
   const isOtherTab =
-    view === "inbox" && activeInboxTab === "other" && !searchQuery;
+    view === "inbox" &&
+    activeInboxTab === OTHER_INBOX_TAB_PARAM &&
+    !searchQuery;
   const effectiveLabel = clientSliceTab
     ? undefined
     : (activeLabel ?? undefined);
@@ -432,10 +435,19 @@ export function InboxPage() {
       focusedEmailId: focusedId ?? undefined,
       search: searchQ,
       label: activeLabel ?? undefined,
+      activeInboxTab: activeInboxTab ?? undefined,
       selectedThreadIds:
         selectedThreadIds.length > 0 ? selectedThreadIds : undefined,
     });
-  }, [view, threadId, focusedId, searchQ, activeLabel, selectedThreadIds]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [
+    view,
+    threadId,
+    focusedId,
+    searchQ,
+    activeLabel,
+    activeInboxTab,
+    selectedThreadIds,
+  ]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // One-shot agent navigation: agent writes navigate.json, UI reads it, navigates, deletes it
   const { data: navCommand } = navState.command;

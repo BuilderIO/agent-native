@@ -34,6 +34,7 @@ import {
   IconMailForward,
   IconStar,
   IconTrash,
+  IconAlertCircle,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
@@ -68,6 +69,7 @@ import {
   useBlockSender,
   useMuteThread,
   markExternalEmailRefresh,
+  EMPTY_LABELS,
 } from "@/hooks/use-emails";
 import {
   useGoogleAuthStatus,
@@ -81,6 +83,8 @@ import {
 import { useIsMobile } from "@/hooks/use-mobile";
 import { runUndo } from "@/hooks/use-undo";
 import {
+  OTHER_INBOX_TAB_ID,
+  OTHER_INBOX_TAB_PARAM,
   qualifiesForInboxTab,
   pinnedTriageLabels,
   augmentSelfSentLabels,
@@ -310,7 +314,15 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     }
     prevSearchQueryRef.current = activeSearchQuery;
   }, [activeSearchQuery]);
-  const { data: labels = [], isLoading: labelsLoading } = useLabels();
+  const {
+    data: labelsData,
+    isLoading: labelsLoading,
+    isError: labelsError,
+    error: labelsQueryError,
+    isFetching: labelsFetching,
+    refetch: refetchLabels,
+  } = useLabels();
+  const labels = labelsData ?? EMPTY_LABELS;
   const { data: settings, isLoading: settingsLoading } = useSettings();
   const updateSettings = useUpdateSettings();
   const googleStatus = useGoogleAuthStatus();
@@ -570,7 +582,9 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         label: t("mail.views.inbox"),
         href: "/inbox",
         isActive:
-          view === "inbox" && !activeLabel && activeInboxTab !== "other",
+          view === "inbox" &&
+          !activeLabel &&
+          activeInboxTab !== OTHER_INBOX_TAB_PARAM,
         type: "system",
       });
     }
@@ -626,11 +640,13 @@ function AppLayoutInner({ children }: AppLayoutProps) {
 
     if (hasPinnedFilters) {
       tabs.push({
-        id: "other",
+        id: OTHER_INBOX_TAB_ID,
         label: t("mail.views.other"),
-        href: "/inbox?tab=other",
+        href: `/inbox?tab=${OTHER_INBOX_TAB_PARAM}`,
         isActive:
-          view === "inbox" && !activeLabel && activeInboxTab === "other",
+          view === "inbox" &&
+          !activeLabel &&
+          activeInboxTab === OTHER_INBOX_TAB_PARAM,
         type: "system",
       });
     }
@@ -1034,7 +1050,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
 
   // Gmail totals overlap across labels, while these tabs are an exclusive
   // partition of the loaded inbox. Keep their badges tied to that partition.
-  const inboxPartitionTabIds = new Set<string>(["other"]);
+  const inboxPartitionTabIds = new Set<string>([OTHER_INBOX_TAB_ID]);
   for (const pinnedId of pinnedTriageLabels(pinnedLabels)) {
     inboxPartitionTabIds.add(pinnedId);
     const label = resolveLabelForCount(pinnedId);
@@ -1073,7 +1089,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   };
 
   const getTabCount = (viewId: string, kind: CountKind) => {
-    if (viewId === "other") return getOtherCount(kind);
+    if (viewId === OTHER_INBOX_TAB_ID) return getOtherCount(kind);
     if (viewId === "inbox") return getInboxCount(kind);
     const label = resolveLabelForCount(viewId);
     const countField = countFieldForKind(kind);
@@ -1857,6 +1873,31 @@ function AppLayoutInner({ children }: AppLayoutProps) {
           )}
         >
           <InvitationBanner />
+
+          {labelsError && (
+            <div
+              role="alert"
+              className="flex shrink-0 items-center gap-2 border-b border-destructive/20 bg-destructive/5 px-4 py-2 text-xs text-muted-foreground"
+            >
+              <IconAlertCircle className="h-3.5 w-3.5 shrink-0 text-destructive" />
+              <span className="min-w-0 flex-1 truncate">
+                {labelsQueryError instanceof Error && labelsQueryError.message
+                  ? labelsQueryError.message
+                  : t("mail.error.loadTitle")}
+              </span>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                disabled={labelsFetching}
+                onClick={() => void refetchLabels()}
+              >
+                {labelsFetching
+                  ? t("mail.error.retrying")
+                  : t("mail.error.tryAgain")}
+              </Button>
+            </div>
+          )}
 
           {/* Show full-page takeover when no accounts connected (except on settings page) */}
           {!googleStatus.isLoading &&

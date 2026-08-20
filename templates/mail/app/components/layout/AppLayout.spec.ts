@@ -34,7 +34,8 @@ describe("AppLayout inbox rail count", () => {
   it("keeps the explicit Other inbox tab and search restoration path", () => {
     const source = appLayoutSource();
 
-    expect(source).toContain('href: "/inbox?tab=other"');
+    expect(source).toContain("href: `/inbox?tab=${OTHER_INBOX_TAB_PARAM}`");
+    expect(source).toContain("id: OTHER_INBOX_TAB_ID");
     expect(source).toContain('params.set("tab", tab)');
   });
 
@@ -42,13 +43,22 @@ describe("AppLayout inbox rail count", () => {
     const source = appLayoutSource();
 
     expect(source).toContain(
-      'const inboxPartitionTabIds = new Set<string>(["other"]);',
+      "const inboxPartitionTabIds = new Set<string>([OTHER_INBOX_TAB_ID]);",
     );
     expect(source).toContain(
       "if (inboxPartitionTabIds.has(viewId)) return localCount;",
     );
     expect(source).toContain("const mobileInboxTabs = visibleTabs.filter(");
     expect(source).toContain("{mobileInboxTabs.map((tab) => {");
+  });
+
+  it("preserves labels and exposes a retry when Gmail label reads fail", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain("data: labelsData");
+    expect(source).toContain("isError: labelsError");
+    expect(source).toContain("refetch: refetchLabels");
+    expect(source).toContain('role="alert"');
   });
 });
 

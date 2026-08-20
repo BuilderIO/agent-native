@@ -279,6 +279,7 @@ export default defineAction({
       screen.emailList = {
         view: nav.view,
         label: nav.label ?? null,
+        activeInboxTab: nav.activeInboxTab ?? null,
         search: nav.search ?? null,
         selectedThreadIds: Array.from(selectedThreadIds),
         count: compact.length,

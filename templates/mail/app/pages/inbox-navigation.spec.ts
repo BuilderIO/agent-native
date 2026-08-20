@@ -13,6 +13,20 @@ function emailListSource(): string {
   );
 }
 
+function navigationHookSource(): string {
+  return readFileSync(
+    new URL("../hooks/use-navigation-state.ts", import.meta.url),
+    "utf8",
+  );
+}
+
+function viewScreenSource(): string {
+  return readFileSync(
+    new URL("../../actions/view-screen.ts", import.meta.url),
+    "utf8",
+  );
+}
+
 describe("Inbox navigation commands", () => {
   it("focuses compose drafts opened by MCP deep links", () => {
     const source = inboxSource();
@@ -25,6 +39,16 @@ describe("Inbox navigation commands", () => {
     const source = inboxSource();
 
     expect(source).toContain("[view, activeLabel, activeInboxTab]");
+  });
+
+  it("syncs the active inbox partition into agent navigation state", () => {
+    expect(navigationHookSource()).toContain("activeInboxTab?: string;");
+    expect(inboxSource()).toContain(
+      "activeInboxTab: activeInboxTab ?? undefined",
+    );
+    expect(viewScreenSource()).toContain(
+      "activeInboxTab: nav.activeInboxTab ?? null",
+    );
   });
 });
 
