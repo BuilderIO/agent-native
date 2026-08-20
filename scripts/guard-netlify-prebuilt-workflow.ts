@@ -278,12 +278,20 @@ if (unlockStart < 0 || (uploadStart >= 0 && unlockStart >= uploadStart)) {
     !unlock.includes("DEPLOY_LOOKBACK_MS") ||
     !unlock.includes("oldestCreatedAt") ||
     !unlock.includes("Date.parse(oldestCreatedAt) < cutoff") ||
-    !unlock.includes("readyIsBlocking") ||
-    !unlock.includes('candidate.state !== "ready" || readyIsBlocking') ||
-    !unlock.includes("candidate.published_at")
+    unlock.includes("readyIsBlocking") ||
+    !unlock.includes("const runStart = Date.now()") ||
+    !unlock.includes("drainPendingDeploys(deployId, runStart)") ||
+    !unlock.includes("candidate.published_at") ||
+    !unlock.includes("Date.parse(candidate.created_at)") ||
+    !unlock.includes("createdAt > runStart") ||
+    (
+      unlock.match(
+        /pendingProductionDeploys\([\s\S]*?publishedId,\s*runStart/g,
+      ) ?? []
+    ).length < 2
   ) {
     issues.push(
-      `${reusablePath} production unlock must handle ready deploys according to the published lock and verify locked=false`,
+      `${reusablePath} production unlock must ignore pre-existing ready deploys and block ready deploys created during this run`,
     );
   }
 }

@@ -141,7 +141,7 @@ describe("production Netlify site concurrency guard", () => {
     }
   });
 
-  it("ignores stale ready deploys after a locked cutover", () => {
+  it("allows pre-existing ready deploys but blocks ready deploys created during the run", () => {
     const unlock = nodeHeredocs[1];
     const pendingStart = unlock.indexOf("function pendingProductionDeploys");
     const drainStart = unlock.indexOf(
@@ -154,8 +154,9 @@ describe("production Netlify site concurrency guard", () => {
     )() as (
       deploys: Array<Record<string, unknown>>,
       publishedId: string,
-      readyIsBlocking: boolean,
+      runStart: number,
     ) => Array<Record<string, unknown>>;
+    const runStart = Date.parse("2026-08-20T02:00:00Z");
     const deploys = [
       {
         id: "published",
@@ -163,22 +164,42 @@ describe("production Netlify site concurrency guard", () => {
         published_at: "now",
         state: "ready",
       },
-      { id: "stale-ready", context: "production", state: "ready" },
+      {
+        id: "stale-ready",
+        context: "production",
+        state: "ready",
+        created_at: "2026-08-20T01:59:59Z",
+      },
+      {
+        id: "new-ready",
+        context: "production",
+        state: "ready",
+        created_at: "2026-08-20T02:00:01Z",
+      },
+      {
+        id: "unreadable-ready",
+        context: "production",
+        state: "ready",
+        created_at: "not-a-date",
+      },
       { id: "queued", context: "production", state: "enqueued" },
       { id: "failed", context: "production", state: "error" },
     ];
 
     assert.deepEqual(
-      pendingProductionDeploys(deploys, "published", false).map(
+      pendingProductionDeploys(deploys, "published", runStart).map(
         (deploy) => deploy.id,
       ),
-      ["queued"],
+      ["new-ready", "queued"],
     );
-    assert.deepEqual(
-      pendingProductionDeploys(deploys, "published", true).map(
-        (deploy) => deploy.id,
-      ),
-      ["stale-ready", "queued"],
+  });
+
+  it("captures the cutover start before draining production deploys", () => {
+    const unlock = nodeHeredocs[1];
+    assert.doesNotMatch(unlock, /readyIsBlocking/);
+    assert.match(
+      unlock,
+      /const runStart = Date\.now\(\);\s*await drainPendingDeploys\(deployId, runStart\);/,
     );
   });
 

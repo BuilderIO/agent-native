@@ -380,25 +380,36 @@ jobs:
             return deploys;
           }
 
-          function pendingProductionDeploys(deploys, publishedId, readyIsBlocking) {
+          function pendingProductionDeploys(deploys, publishedId, runStart) {
             return deploys.filter(
-              (candidate) =>
-                candidate.id !== publishedId &&
-                candidate.context === "production" &&
-                !candidate.published_at &&
-                !["error", "canceled"].includes(candidate.state) &&
-                (candidate.state !== "ready" || readyIsBlocking),
+              (candidate) => {
+                if (
+                  candidate.id === publishedId ||
+                  candidate.context !== "production" ||
+                  candidate.published_at ||
+                  ["error", "canceled"].includes(candidate.state)
+                ) {
+                  return false;
+                }
+                if (candidate.state !== "ready") return true;
+
+                const createdAt =
+                  typeof candidate.created_at === "string"
+                    ? Date.parse(candidate.created_at)
+                    : Number.NaN;
+                return Number.isFinite(createdAt) && createdAt > runStart;
+              },
             );
           }
 
-          async function drainPendingDeploys(publishedId, readyIsBlocking) {
+          async function drainPendingDeploys(publishedId, runStart) {
             const deadline = Date.now() + 5 * 60 * 1000;
             const cutoff = Date.now() - DEPLOY_LOOKBACK_MS;
             while (Date.now() < deadline) {
               let pending = pendingProductionDeploys(
                 await listDeploys("Netlify pending production deploy lookup", cutoff),
                 publishedId,
-                readyIsBlocking,
+                runStart,
               );
               const cancelable = pending.filter((candidate) =>
                 ["new", "enqueued"].includes(candidate.state),
@@ -416,7 +427,7 @@ jobs:
               pending = pendingProductionDeploys(
                 await listDeploys("Netlify production deploy drain verification", cutoff),
                 publishedId,
-                readyIsBlocking,
+                runStart,
               );
               const ready = pending.filter((candidate) => candidate.state === "ready");
               if (ready.length) {
@@ -449,8 +460,8 @@ jobs:
             await request(`${api}/deploys/${deployId}`),
             `Netlify deploy ${deployId} lock lookup before drain`,
           );
-          const readyIsBlocking = published.locked !== true;
-          await drainPendingDeploys(deployId, readyIsBlocking);
+          const runStart = Date.now();
+          await drainPendingDeploys(deployId, runStart);
 
           const beforeUnlock = await readJson(
             await request(`${api}/sites/${siteId}`),
