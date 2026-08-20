@@ -8,6 +8,7 @@ const FRAMEWORK_PREFIX = "/_agent-native/";
 // last shell to mount steer another shell's agent turns and action calls into
 // its own app server, under that app's session.
 const relayBaseByAppId = new Map<string, string>();
+const activeRelayAppIds = new Set<string>();
 
 let originalFetch: typeof window.fetch | null = null;
 
@@ -26,7 +27,22 @@ export function setDesktopChatRelayBase(
 ): void {
   const base = resolveDesktopChatRelayBase(apiUrl);
   if (base) relayBaseByAppId.set(appId, base);
-  else relayBaseByAppId.delete(appId);
+  else {
+    relayBaseByAppId.delete(appId);
+    activeRelayAppIds.delete(appId);
+  }
+}
+
+export function setDesktopChatRelayActive(
+  appId: string,
+  active: boolean,
+): void {
+  if (!relayBaseByAppId.has(appId)) {
+    activeRelayAppIds.delete(appId);
+    return;
+  }
+  if (active) activeRelayAppIds.add(appId);
+  else activeRelayAppIds.delete(appId);
 }
 
 function resolveRequestUrl(input: RequestInfo | URL): URL | null {
@@ -108,6 +124,12 @@ export function installDesktopChatFetchRelay(): void {
 
     const bases = [...relayBaseByAppId.entries()];
     if (bases.length > 1) {
+      const activeBases = bases.filter(([appId]) =>
+        activeRelayAppIds.has(appId),
+      );
+      if (activeBases.length === 1) {
+        return relayRequest(activeBases[0]![1], requestUrl, input, init);
+      }
       throw new Error(
         `Unattributed ${requestUrl.pathname} request with ${bases.length} desktop app chat shells mounted (${bases
           .map(([appId]) => appId)

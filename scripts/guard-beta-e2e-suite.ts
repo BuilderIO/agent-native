@@ -18,6 +18,7 @@ import { parse } from "yaml";
  */
 
 const workflowPath = ".github/workflows/beta-e2e.yml";
+const scheduledWorkflowPath = ".github/workflows/beta-e2e-scheduled.yml";
 const fleetPath = "e2e/beta/lib/fleet.ts";
 const chatPath = "e2e/beta/lib/chat.ts";
 const sitesPath = "scripts/netlify-beta-sites.json";
@@ -38,6 +39,7 @@ function read(path: string): string {
 }
 
 const workflow = read(workflowPath);
+const scheduledWorkflow = read(scheduledWorkflowPath);
 const fleet = read(fleetPath);
 const chat = read(chatPath);
 const config = read(configPath);
@@ -90,7 +92,21 @@ if (chat) {
   }
 }
 
-// 5. Missing credentials must fail, never skip.
+// 5. The shared OpenAI key stays opt-in.
+if (workflow && !workflow.includes("inputs.key_source == 'shared'")) {
+  issues.push(
+    `${workflowPath} no longer gates BETA_E2E_ALLOW_SHARED_KEY on an explicit dispatch choice. Billing the repository's shared OPENAI_API_KEY implicitly is precisely what a dedicated, separately-limited key exists to prevent.`,
+  );
+}
+const providerKeyPath = "e2e/beta/lib/provider-key.ts";
+const providerKey = read(providerKeyPath);
+if (providerKey && !providerKey.includes("BETA_E2E_ALLOW_SHARED_KEY")) {
+  issues.push(
+    `${providerKeyPath} no longer requires an explicit opt-in before using the shared OpenAI key.`,
+  );
+}
+
+// 6. Missing credentials must fail, never skip.
 if (globalSetup && !/throw new Error/.test(globalSetup)) {
   issues.push(
     `${globalSetupPath} no longer throws. An authenticated run that degrades to an anonymous one reports green while testing nothing.`,
@@ -102,14 +118,16 @@ function stripComments(source: string): string {
   return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 }
 
-// 6. Certificate errors stay observable.
+// 7. Certificate errors stay observable.
 if (config && /ignoreHTTPSErrors/.test(stripComments(config))) {
   issues.push(
     `${configPath} sets ignoreHTTPSErrors. "The connection isn't private" was a real beta report; only a browser that still validates certificates can catch it.`,
   );
 }
 
-// 7. The workflow stays a manual gate and keeps the lanes separated.
+// 8. The promotion workflow stays a manual gate and keeps the lanes
+// separated. workflow_call is the narrow reusable entrypoint used by the
+// scheduled wrapper; it is not a push or pull-request trigger.
 if (workflow) {
   try {
     const parsed = parse(workflow) as Record<string, unknown>;
@@ -119,8 +137,10 @@ if (workflow) {
         `${workflowPath} must offer workflow_dispatch — it is the manual promotion gate.`,
       );
     }
+    // `workflow_call` is allowed: a caller still has to be started by a
+    // person. What must never appear is a trigger that fires on its own.
     const automaticTriggers = Object.keys(on ?? {}).filter(
-      (key) => key !== "workflow_dispatch",
+      (key) => key !== "workflow_dispatch" && key !== "workflow_call",
     );
     if (automaticTriggers.length > 0) {
       issues.push(
@@ -146,6 +166,95 @@ if (workflow) {
   if (!workflow.includes("pnpm typecheck:e2e")) {
     issues.push(
       `${workflowPath} dropped the typecheck step. e2e/ is outside the workspace typecheck sweep, so a type error would only surface after tokens were spent.`,
+    );
+  }
+}
+
+// 8. The scheduled wrapper runs the same reusable job every six hours and
+// deduplicates failures into one open issue.
+if (scheduledWorkflow) {
+  try {
+    const parsed = parse(scheduledWorkflow) as Record<string, unknown>;
+    const on = parsed.on as Record<string, unknown> | undefined;
+    const schedules = on?.schedule;
+    const hasSixHourSchedule =
+      Array.isArray(schedules) &&
+      schedules.some(
+        (entry) =>
+          typeof entry === "object" &&
+          entry !== null &&
+          (entry as { cron?: unknown }).cron === "0 */6 * * *",
+      );
+    if (!hasSixHourSchedule) {
+      issues.push(
+        `${scheduledWorkflowPath} must run the beta E2E check on the 0 */6 * * * schedule.`,
+      );
+    }
+  } catch (error) {
+    issues.push(
+      `${scheduledWorkflowPath} is not valid YAML: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  const requiredFragments = [
+    "uses: ./.github/workflows/beta-e2e.yml",
+    "lane: public+authed",
+    "issues: write",
+    "[beta-e2e] Scheduled beta health check failing",
+    "gh issue list",
+    "--state open",
+    "gh issue comment",
+    "gh issue create",
+    "gh issue close",
+  ];
+  for (const fragment of requiredFragments) {
+    if (!scheduledWorkflow.includes(fragment)) {
+      issues.push(
+        `${scheduledWorkflowPath} is missing ${JSON.stringify(fragment)}. The scheduled check must reuse the full authenticated suite and deduplicate its GitHub issue lifecycle.`,
+      );
+    }
+  }
+}
+
+// 9. An unrequested pre-flight must never hold up a deploy.
+const prodDeployPath = ".github/workflows/deploy-production-sites-prebuilt.yml";
+const prodDeploy = read(prodDeployPath);
+if (prodDeploy && prodDeploy.includes("beta-e2e")) {
+  type ProdDeploy = {
+    on?: {
+      workflow_dispatch?: {
+        inputs?: Record<string, { default?: unknown }>;
+      };
+    };
+    jobs?: Record<string, { needs?: unknown; if?: unknown }>;
+  };
+
+  let parsedDeploy: ProdDeploy | null = null;
+  try {
+    parsedDeploy = parse(prodDeploy) as ProdDeploy;
+  } catch (error) {
+    // Not skipped quietly: a workflow this guard cannot read is one it cannot
+    // vouch for, and "unreadable" must not look like "fine".
+    issues.push(
+      `${prodDeployPath} is not valid YAML, so the deploy gate could not be checked: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  const gateInput = parsedDeploy?.on?.workflow_dispatch?.inputs?.beta_e2e;
+  if (!gateInput) {
+    issues.push(
+      `${prodDeployPath} wires the beta E2E gate but exposes no beta_e2e input, so it cannot be opted into.`,
+    );
+  } else if (gateInput.default !== false) {
+    issues.push(
+      `${prodDeployPath} defaults beta_e2e to ${JSON.stringify(gateInput.default)}. It must default to false — a deploy should never be gated on this suite unless someone asked for it.`,
+    );
+  }
+
+  const deployIf = String(parsedDeploy?.jobs?.deploy?.if ?? "");
+  if (!deployIf.includes("needs.beta-e2e.result != 'failure'")) {
+    issues.push(
+      `${prodDeployPath}'s deploy job must proceed when the beta E2E pre-flight was SKIPPED, which is its state whenever the deploy did not ask for it. Depend on \`needs.beta-e2e.result != 'failure'\`; requiring 'success' would block every deploy that opted out.`,
     );
   }
 }

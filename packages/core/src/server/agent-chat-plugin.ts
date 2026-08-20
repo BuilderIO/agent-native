@@ -355,6 +355,8 @@ import {
 } from "./agent-chat/prompt-resources.js";
 import {
   isNetlifyRecurringJobsRuntime,
+  resolveRecurringJobsBuildMarker,
+  scheduledTriggerAvailability,
   shouldDisableRecurringJobsRuntime,
 } from "./agent-chat/recurring-jobs-runtime.js";
 import {
@@ -413,6 +415,8 @@ export {
 export { shouldBlockInProductCodeEditingSurface };
 export { loadRunCodeToolEntries };
 export { isNetlifyRecurringJobsRuntime };
+export { resolveRecurringJobsBuildMarker };
+export { scheduledTriggerAvailability };
 export { shouldDisableRecurringJobsRuntime };
 export { finalizeClaimedAgentChatProcessRunFailure };
 

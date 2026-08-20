@@ -1,5 +1,46 @@
 # @agent-native/mobile-app
 
+## 0.1.76
+
+### Patch Changes
+
+- Updated dependencies [95d9d70]
+- Updated dependencies [7f22204]
+  - @agent-native/core@0.167.2
+
+## 0.1.75
+
+### Patch Changes
+
+- Updated dependencies [ca9ee7e]
+  - @agent-native/core@0.167.1
+
+## Unreleased
+
+### Added
+
+- A native companion Home for dictation, background meeting audio, camera video
+  and imports, plus remote agent sessions.
+- Restart-safe recovery for finalized captures with resumable Clips uploads,
+  automatic foreground retry, and completion notifications.
+- iOS and Android quick actions for dictation, audio, and video capture, plus
+  Siri/App Intents on iOS and a dictation Quick Settings tile on Android.
+- Native iOS Clips browsing, calendar readiness, Live Activities, widgets,
+  ReplayKit broadcast capture, Apple Watch actions, and configurable dictation.
+
+### Changed
+
+- Upgraded the mobile runtime to Expo SDK 57 and React Native 0.86.
+- Improved native capture lifecycle tracking and session-token storage so
+  uploads and companion actions recover cleanly across app restarts.
+
+## 0.1.74
+
+### Patch Changes
+
+- Updated dependencies [3a7a8f0]
+  - @agent-native/core@0.167.0
+
 ## 0.1.73
 
 ### Patch Changes
@@ -27,25 +68,6 @@
 
 - Updated dependencies [841f072]
   - @agent-native/core@0.165.4
-
-## Unreleased
-
-### Added
-
-- A native companion Home for dictation, background meeting audio, camera video
-  and imports, plus remote agent sessions.
-- Restart-safe recovery for finalized captures with resumable Clips uploads,
-  automatic foreground retry, and completion notifications.
-- iOS and Android quick actions for dictation, audio, and video capture, plus
-  Siri/App Intents on iOS and a dictation Quick Settings tile on Android.
-- Native iOS Clips browsing, calendar readiness, Live Activities, widgets,
-  ReplayKit broadcast capture, Apple Watch actions, and configurable dictation.
-
-### Changed
-
-- Upgraded the mobile runtime to Expo SDK 57 and React Native 0.86.
-- Improved native capture lifecycle tracking and session-token storage so
-  uploads and companion actions recover cleanly across app restarts.
 
 ## 0.1.69
 

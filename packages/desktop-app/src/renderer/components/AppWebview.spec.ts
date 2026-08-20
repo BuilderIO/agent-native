@@ -28,6 +28,7 @@ import {
   shouldSuppressDesktopSignInPrompt,
   resolveGuestChatCommand,
   resolveDesktopIdentityLazySyncStatus,
+  shouldDeferDesktopAppWebviewLoad,
   resolveDesktopIdentityStatusForChat,
   rememberDesktopIdentityStatus,
   invalidateRememberedDesktopIdentityStatus,
@@ -59,6 +60,41 @@ beforeAll(() => {
 });
 
 describe("Desktop identity lazy child synchronization", () => {
+  it("defers eligible webviews until identity and child session sync are ready", () => {
+    expect(
+      shouldDeferDesktopAppWebviewLoad({
+        eligible: true,
+        enabled: null,
+        sessionReady: false,
+        status: "checking",
+      }),
+    ).toBe(true);
+    expect(
+      shouldDeferDesktopAppWebviewLoad({
+        eligible: true,
+        enabled: true,
+        sessionReady: false,
+        status: "signed-in",
+      }),
+    ).toBe(true);
+    expect(
+      shouldDeferDesktopAppWebviewLoad({
+        eligible: true,
+        enabled: true,
+        sessionReady: true,
+        status: "signed-in",
+      }),
+    ).toBe(false);
+    expect(
+      shouldDeferDesktopAppWebviewLoad({
+        eligible: true,
+        enabled: false,
+        sessionReady: false,
+        status: "idle",
+      }),
+    ).toBe(false);
+  });
+
   it("keeps the chat handoff pending until child synchronization completes", () => {
     expect(resolveDesktopIdentityStatusForChat("signed-in", false)).toBe(
       "checking",

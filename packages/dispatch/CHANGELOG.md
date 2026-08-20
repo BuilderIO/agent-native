@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.31.5
+
+### Patch Changes
+
+- d30d701: Move workspace-app sharing into each app's settings menu so cards keep their primary open action focused.
+
 ## 0.31.4
 
 ### Patch Changes
@@ -940,15 +946,5 @@
 - 2254362: Make Dispatch messaging setup and destination workflows progressively disclose advanced details.
 - Updated dependencies [2254362]
   - @agent-native/toolkit@0.10.2
-
-## 0.15.13
-
-### Patch Changes
-
-- c15d20f: Pin Slack delivery to the app that received the event and reject legacy bot tokens from a different Slack app.
-- Updated dependencies [c15d20f]
-- Updated dependencies [c15d20f]
-- Updated dependencies [c15d20f]
-  - @agent-native/toolkit@0.10.1
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

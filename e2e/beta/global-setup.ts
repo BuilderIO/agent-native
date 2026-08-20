@@ -7,7 +7,7 @@ import {
   selectedSites,
 } from "./lib/fleet";
 import { warm } from "./lib/http";
-import { dedicatedOpenAiKey, installOpenAiKey } from "./lib/provider-key";
+import { installOpenAiKey, resolveOpenAiKey } from "./lib/provider-key";
 import {
   authStatePath,
   bootstrapAppSession,
@@ -71,15 +71,25 @@ async function globalSetup(): Promise<void> {
   if (!hasSessionCredentials()) throw new Error(missingCredentialsMessage());
 
   const email = expectedEmail();
-  const apiKey = dedicatedOpenAiKey();
-  if (!apiKey) {
+  const resolvedKey = resolveOpenAiKey();
+  if (!resolvedKey) {
     throw new Error(
       [
-        "The authenticated lane was requested but BETA_E2E_OPENAI_API_KEY is not set.",
-        "Agent turns would then bill whatever credential the e2e account happens to inherit, which defeats the point of a separate, separately-limited key.",
-        "Set the BETA_E2E_OPENAI_API_KEY repository secret, or pass BETA_E2E_AUTHED=0 to run the public sweep only.",
+        "The authenticated lane was requested but no OpenAI credential was supplied.",
+        "Agent turns would then bill whatever credential the e2e account happens to inherit, which is exactly what a dedicated key exists to prevent.",
+        "Either set the BETA_E2E_OPENAI_API_KEY repository secret (a key created for this suite, with its own spend limit),",
+        "or re-run the workflow with key_source=shared to bill the repository's shared OPENAI_API_KEY instead,",
+        "or pass BETA_E2E_AUTHED=0 to run the public sweep only.",
       ].join("\n"),
     );
+  }
+  const apiKey = resolvedKey.key;
+  if (resolvedKey.source === "shared") {
+    console.warn(
+      "[beta-e2e] billing the SHARED OPENAI_API_KEY. This run's agent-turn spend is pooled with every other consumer of that key and cannot be attributed to the suite. Create BETA_E2E_OPENAI_API_KEY to separate it.",
+    );
+  } else {
+    console.log("[beta-e2e] billing the dedicated BETA_E2E_OPENAI_API_KEY.");
   }
 
   const targets = authenticatableSites();
