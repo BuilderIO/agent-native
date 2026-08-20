@@ -55,7 +55,10 @@ jobs:
   disable-netlify-builds:
     name: Keep docs site on GitHub Actions
     needs: deploy
-    if: needs.deploy.result == 'success'
+    # The reusable production deploy restores the prior Netlify build setting
+    # in its failure cleanup. Reassert ownership after failures too, so a
+    # failed docs publish cannot leave a stale Git-connected build enabled.
+    if: always()
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1

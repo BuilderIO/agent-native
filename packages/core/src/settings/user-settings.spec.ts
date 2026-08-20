@@ -172,56 +172,110 @@ describe("user-settings", () => {
         undefined,
       );
     });
+
+    it("keeps a committed migration when canonical cleanup loses a race", async () => {
+      const legacyValue = { servers: [{ id: "mcps_raced" }] };
+      mockGetSetting
+        .mockResolvedValueOnce(legacyValue)
+        .mockResolvedValueOnce(null);
+      mockDeleteSettingIfValue
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(false);
+      mockMutateSetting.mockImplementation(
+        async (_key: string, callback: (value: unknown) => unknown) =>
+          callback(null),
+      );
+
+      await expect(
+        mutateUserSetting(
+          "Alice@Test.com",
+          "mcp-servers-remote",
+          () => legacyValue,
+        ),
+      ).resolves.toEqual(legacyValue);
+    });
   });
 
   describe("deleteUserSetting", () => {
     it("prefixes key with u:<email>:", async () => {
-      mockDeleteSetting.mockResolvedValue(true);
+      const current = { value: 1 };
+      mockGetSetting.mockResolvedValue(current);
+      mockDeleteSettingIfValue.mockResolvedValue(true);
 
       const result = await deleteUserSetting("alice@test.com", "old");
 
-      expect(mockDeleteSetting).toHaveBeenCalledWith(
+      expect(mockGetSetting).toHaveBeenCalledWith("u:alice@test.com:old", {
+        bypassCache: true,
+      });
+      expect(mockDeleteSettingIfValue).toHaveBeenCalledWith(
         "u:alice@test.com:old",
+        current,
         undefined,
       );
       expect(result).toBe(true);
     });
 
     it("deletes both canonical and legacy keys", async () => {
-      mockDeleteSetting.mockResolvedValueOnce(true).mockResolvedValueOnce(true);
+      const legacyValue = { value: "legacy" };
+      const normalizedValue = { value: "normalized" };
+      mockGetSetting
+        .mockResolvedValueOnce(normalizedValue)
+        .mockResolvedValueOnce(legacyValue);
+      mockDeleteSettingIfValue.mockResolvedValue(true);
 
       const result = await deleteUserSetting("Alice@Test.com", "old");
 
-      expect(mockDeleteSetting).toHaveBeenNthCalledWith(
+      expect(mockDeleteSettingIfValue).toHaveBeenNthCalledWith(
         1,
         "u:Alice@Test.com:old",
+        legacyValue,
         undefined,
       );
-      expect(mockDeleteSetting).toHaveBeenNthCalledWith(
+      expect(mockDeleteSettingIfValue).toHaveBeenNthCalledWith(
         2,
         "u:alice@test.com:old",
+        normalizedValue,
         undefined,
       );
       expect(result).toBe(true);
     });
 
     it("returns false when nothing was deleted", async () => {
-      mockDeleteSetting.mockResolvedValue(false);
+      mockGetSetting.mockResolvedValue(null);
 
       const result = await deleteUserSetting("alice@test.com", "nonexist");
       expect(result).toBe(false);
     });
 
     it("passes options through", async () => {
-      mockDeleteSetting.mockResolvedValue(true);
+      const current = { value: 1 };
+      mockGetSetting.mockResolvedValue(current);
+      mockDeleteSettingIfValue.mockResolvedValue(true);
 
       await deleteUserSetting("alice@test.com", "key", {
         requestSource: "src",
       });
 
-      expect(mockDeleteSetting).toHaveBeenCalledWith("u:alice@test.com:key", {
-        requestSource: "src",
-      });
+      expect(mockDeleteSettingIfValue).toHaveBeenCalledWith(
+        "u:alice@test.com:key",
+        current,
+        { requestSource: "src" },
+      );
+    });
+
+    it("does not delete a newer canonical value after it was read", async () => {
+      const current = { value: "old" };
+      mockGetSetting.mockResolvedValue(current);
+      mockDeleteSettingIfValue.mockResolvedValue(false);
+
+      const result = await deleteUserSetting("alice@test.com", "key");
+
+      expect(mockDeleteSettingIfValue).toHaveBeenCalledWith(
+        "u:alice@test.com:key",
+        current,
+        undefined,
+      );
+      expect(result).toBe(false);
     });
   });
 

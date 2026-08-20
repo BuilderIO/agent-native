@@ -12,7 +12,6 @@ import {
   getSetting,
   mutateSetting,
   putSetting,
-  deleteSetting,
   deleteSettingIfValue,
   type StoreWriteOptions,
 } from "./store.js";
@@ -92,7 +91,11 @@ export async function mutateUserSetting(
     if (await getSetting(legacy, { bypassCache: true })) return result;
     const removed = await deleteSettingIfValue(normalized, result, options);
     if (!removed) {
-      throw new Error("User setting changed while migrating its legacy key");
+      // The canonical write committed successfully. A concurrent canonical
+      // writer may have replaced it after the legacy row disappeared; keep
+      // the committed value visible instead of making callers revoke side
+      // effects for a write that is already persisted.
+      return result;
     }
     throw new Error("User setting was deleted while migrating its legacy key");
   }
@@ -107,12 +110,27 @@ export async function deleteUserSetting(
 ): Promise<boolean> {
   const normalized = userKey(email, key);
   const legacy = legacyUserKey(email, key);
-  if (legacy === normalized) return deleteSetting(normalized, options);
+  const normalizedCurrent = await getSetting(normalized, {
+    bypassCache: true,
+  });
+  if (legacy === normalized) {
+    return normalizedCurrent === null
+      ? false
+      : deleteSettingIfValue(normalized, normalizedCurrent, options);
+  }
+
+  const legacyCurrent = await getSetting(legacy, { bypassCache: true });
 
   // Retire the fallback row first. If the canonical delete fails, the
   // remaining canonical value still wins reads instead of resurrecting legacy
   // data after a partial delete; a retry can safely finish the operation.
-  const deletedLegacy = await deleteSetting(legacy, options);
-  const deletedNormalized = await deleteSetting(normalized, options);
+  const deletedLegacy =
+    legacyCurrent === null
+      ? false
+      : await deleteSettingIfValue(legacy, legacyCurrent, options);
+  const deletedNormalized =
+    normalizedCurrent === null
+      ? false
+      : await deleteSettingIfValue(normalized, normalizedCurrent, options);
   return deletedNormalized || deletedLegacy;
 }
