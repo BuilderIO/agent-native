@@ -48,11 +48,10 @@ const upload =
   uploadStart >= 0 && uploadEnd > uploadStart
     ? reusable.slice(uploadStart, uploadEnd)
     : "";
-if (!upload.includes("BUILD_CONTEXT: ${{ inputs.build_context }}")) {
-  issues.push("prebuilt uploads must receive the selected Netlify context");
-}
-if (!upload.includes('--context "$BUILD_CONTEXT"')) {
-  issues.push("prebuilt uploads must pass the selected Netlify context");
+if (upload.includes('--context "$BUILD_CONTEXT"')) {
+  issues.push(
+    "prebuilt uploads must not pass --context with --no-build; the Netlify CLI rejects that combination",
+  );
 }
 
 for (const [path, expected] of [
