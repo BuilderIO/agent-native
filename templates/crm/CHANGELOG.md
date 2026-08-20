@@ -1,25 +1,37 @@
 # CRM changelog
 
-## 2026-07-26
+Older updates live in [the changelog folder](./changelog/) and are included in the in-app "What's new" view.
 
-### Added
-
-- CRM connects to HubSpot for scoped account intelligence, saved views, follow-up tasks, evidence, and approval-gated write proposals.
-- CRM can prepare a record-scoped, default-off Clips review recipe while keeping media and transcripts in Clips.
-- CRM can now find and review evidence-grounded call signals without storing transcripts or media.
-- Approved sales automations can now update routine local CRM fields while provider changes remain reviewable proposals.
-- CRM can now run as a standalone Native SQL system for accounts, people, opportunities, views, tasks, and cadence without an external provider.
-- Pipeline now gives each CRM user a live, permission-aware view of opportunity value by stage.
-- CRM can now connect to Salesforce alongside HubSpot for scoped account intelligence and follow-up work.
+## 2026-08-11
 
 ### Improved
 
-- CRM can now manage keyword and smart call-signal trackers from Intelligence settings.
+- Full-page chat composers stay at a focused 750px width.
 
 ### Fixed
 
-- Pipeline dashboards now install correctly from the CRM action CLI.
-- CRM field validation now explains which fields cannot be edited instead of showing a generic error.
-- Fixed HubSpot contact syncs missing records updated after the sync cursor.
-- Fixed Pipeline dashboard panels so their opportunity data loads reliably.
-- Full-page chat keeps the active conversation when moving to and from the sidebar.
+- Chrome no longer offers to install CRM as a desktop app.
+
+## 2026-08-10
+
+### Improved
+
+- Full-page chat now uses the available width up to 1000px for more comfortable prompts and responses.
+
+## 2026-08-07
+
+### Improved
+
+- CRM settings show stable skeleton placeholders while lists, fields, connections, and intelligence trackers load.
+
+## 2026-08-06
+
+### Improved
+
+- CRM starts faster after a deploy or idle period — one-time data backfills now run once as tracked migrations instead of on every cold start.
+
+## 2026-07-29
+
+### Improved
+
+- Sidebar footers now keep Feedback, Search, and Collapse together, with language preferences available in Settings.

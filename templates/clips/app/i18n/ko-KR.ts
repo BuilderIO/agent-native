@@ -688,15 +688,6 @@ const messages = {
     viewAllUpdates: "모든 업데이트 보기",
     expand: "펼치기",
     collapse: "접기",
-    changelogMarkdown: `# 변경 로그
-
-Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명령 메뉴(Cmd+K -> "새 소식") 또는 설정에서 언제든지 열 수 있습니다.
-
-## 2026-06-23
-
-### 추가됨
-
-- 이제 Clips 안에서 바로 새 소식을 볼 수 있습니다. 변경 로그는 명령 메뉴(Cmd+K)와 설정에 있습니다.`,
     playback: "재생",
     defaultPlaybackSpeed: "기본 재생 속도",
     playbackDescription: "녹화를 열 때 자동으로 적용됩니다.",
