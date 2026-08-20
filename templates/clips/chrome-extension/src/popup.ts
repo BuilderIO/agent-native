@@ -574,26 +574,6 @@ function isUnsupportedPage(url: string | undefined | null): boolean {
   );
 }
 
-function targetCopy(tab: chrome.tabs.Tab | null): {
-  title: string;
-  subtitle: string;
-} {
-  const title = tab?.title?.trim() || "Current tab";
-  const host = hostnameLabel(tab?.url);
-  if (!host) return { title, subtitle: "Ready to record" };
-  const titleKey = comparableLabel(title);
-  const hostKey = comparableLabel(host);
-  return {
-    title,
-    subtitle:
-      titleKey &&
-      hostKey &&
-      (titleKey === hostKey || hostKey.includes(titleKey))
-        ? ""
-        : host,
-  };
-}
-
 function isSignInError(message: string | undefined): boolean {
   return Boolean(
     message && /sign in to clips|unauthorized|unauthenticated/i.test(message),

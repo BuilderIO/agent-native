@@ -557,38 +557,6 @@ function maskSqlLiterals(sql: string): string {
   return chars.join("");
 }
 
-function rewriteOutsideSqlLiterals(
-  sql: string,
-  rewrite: (code: string) => string,
-): string {
-  let result = "";
-  let cursor = 0;
-  while (cursor < sql.length) {
-    const literalStart = sql.indexOf("'", cursor);
-    if (literalStart === -1) {
-      result += rewrite(sql.slice(cursor));
-      break;
-    }
-    result += rewrite(sql.slice(cursor, literalStart));
-    let literalEnd = literalStart + 1;
-    while (literalEnd < sql.length) {
-      if (sql[literalEnd] !== "'") {
-        literalEnd++;
-        continue;
-      }
-      if (sql[literalEnd + 1] === "'") {
-        literalEnd += 2;
-        continue;
-      }
-      literalEnd++;
-      break;
-    }
-    result += sql.slice(literalStart, literalEnd);
-    cursor = literalEnd;
-  }
-  return result;
-}
-
 const SQL_LITERAL_PLACEHOLDER_PREFIX = "_fpa_lit_";
 
 /**

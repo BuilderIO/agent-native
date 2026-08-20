@@ -13,7 +13,6 @@ type OpenResult = {
 };
 
 let currentPanel: vscode.WebviewPanel | undefined;
-let currentUrl: string | undefined;
 let lastOpenedUrl: string | undefined;
 const DESIGN_APP_URL = "https://design.agent-native.com";
 
@@ -172,7 +171,6 @@ class AgentNativeController {
 
   private openWebview(url: string): OpenResult {
     const title = titleForUrl(url);
-    currentUrl = url;
     lastOpenedUrl = url;
 
     if (!currentPanel) {
@@ -188,7 +186,6 @@ class AgentNativeController {
       currentPanel.onDidDispose(
         () => {
           currentPanel = undefined;
-          currentUrl = undefined;
         },
         null,
         this.context.subscriptions,

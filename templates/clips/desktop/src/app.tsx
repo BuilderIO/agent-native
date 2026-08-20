@@ -345,17 +345,6 @@ const DEFAULT_SCREEN_MEMORY_CONFIG = {
   excludePrivateWindows: false,
 };
 
-function parseExcludedBundleIds(value: string): string[] {
-  return [
-    ...new Set(
-      value
-        .split(/[\n,]/)
-        .map((id) => id.trim())
-        .filter(Boolean),
-    ),
-  ];
-}
-
 function isStorageSetupFailureMessage(message: string | null | undefined) {
   return STORAGE_SETUP_FAILURE_RE.test(message ?? "");
 }

@@ -361,16 +361,3 @@ describe("/api/public-meeting route", () => {
     expect(mockGetDb).not.toHaveBeenCalled();
   });
 });
-
-function selectBuilder(rows: unknown[]) {
-  const builder = {
-    from: vi.fn(() => builder),
-    where: vi.fn(() => builder),
-    limit: vi.fn(async () => rows),
-    then: (
-      resolve: (value: unknown[]) => unknown,
-      reject?: (reason: unknown) => unknown,
-    ) => Promise.resolve(rows).then(resolve, reject),
-  };
-  return builder;
-}

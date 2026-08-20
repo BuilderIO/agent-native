@@ -48,7 +48,6 @@ export function usePlaybackPosition({
     let restoreApplied = false;
     let saveInFlight = false;
     let pendingSave: { positionMs: number; keepalive: boolean } | null = null;
-    let lastSavedPositionMs = -1;
     let lastSavedAt = -SAVE_INTERVAL_MS;
     let removePendingRestoreListeners: (() => void) | null = null;
 
@@ -80,7 +79,6 @@ export function usePlaybackPosition({
       }
 
       saveInFlight = true;
-      lastSavedPositionMs = positionMs;
       lastSavedAt = now;
       void savePlaybackPosition(recordingId, positionMs, { keepalive })
         .catch((error) => {

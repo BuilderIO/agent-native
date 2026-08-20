@@ -2937,7 +2937,6 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
   } | null = null;
   var suppressNextShieldClick = false;
   var suppressNextShieldClickTimer: ReturnType<typeof setTimeout> | null = null;
-  var selectedSpacingHovered = false;
   var hoveredSpacingHandleKey = "";
   var spacingHoverClearTimer: ReturnType<typeof setTimeout> | null = null;
   var lastSpacingPointerPoint: { x: number; y: number } | null = null;
@@ -2971,7 +2970,6 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     clearHoverGate();
     setPassiveSelectionElements([]);
     clearSpacingHoverTimer();
-    selectedSpacingHovered = false;
     hoveredSpacingHandleKey = "";
     lastSpacingPointerPoint = null;
     spacingDrag = null;
@@ -4244,7 +4242,6 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
   function activateSpacingHandle(spacingKey: string): void {
     if (!spacingKey) return;
     clearSpacingHoverTimer();
-    selectedSpacingHovered = true;
     setHoverToSelectedElementFromSpacingSurface();
     if (
       hoveredSpacingHandleKey !== spacingKey ||
@@ -4336,7 +4333,6 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       hit &&
       (hit === selectedEl || (selectedEl.contains && selectedEl.contains(hit)))
     ) {
-      selectedSpacingHovered = true;
       return true;
     }
     return false;
@@ -4355,7 +4351,6 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         updateSpacingOverlay(selectedEl);
         return;
       }
-      selectedSpacingHovered = false;
       hoveredSpacingHandleKey = "";
       updateSpacingOverlay(selectedEl);
     }, 80);
@@ -5532,7 +5527,6 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       (window.parent as Window).postMessage({ type: "clear-selection" }, "*");
       return;
     }
-    selectedSpacingHovered = false;
     hoveredSpacingHandleKey = "";
     var previousSelectedEl = selectedEl;
     selectedEl = selectionTargetForHit(target);
@@ -5844,7 +5838,6 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     var target = candidateElements[0] || null;
     var info = null;
     if (target) {
-      selectedSpacingHovered = false;
       hoveredSpacingHandleKey = "";
       selectedEl = selectionTargetForHit(target);
       if (selectedEl && !isLayerInteractionBlocked(selectedEl)) {
@@ -6825,7 +6818,6 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     var startY = e.clientY;
     lastSpacingPointerPoint = { x: startX, y: startY };
     hoveredSpacingHandleKey = key;
-    selectedSpacingHovered = true;
     spacingDrag = {
       handle: handle,
       currentValue: originValue,
@@ -9292,10 +9284,6 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         ctrl: Boolean(e.ctrlKey),
         target: dndTarget(currentTarget),
       });
-      // Cross-screen drag state: true when the pointer is outside this iframe's
-      // viewport bounds.  The host frame renders the ghost + highlight and owns
-      // the drop when this is true; the bridge suppresses its in-iframe reorder.
-      var pointerOutsideIframe = false;
       var reorderSelector = getSelector(reorderEl);
       var reorderSourceId = getSourceId(reorderEl);
       var reorderStyleSnapshot = collectPortableStyleSnapshot(reorderEl);
@@ -9655,7 +9643,6 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         var dx = cx - reorderPointerStart.clientX;
         var dy = cy - reorderPointerStart.clientY;
         var outside = cx < 0 || cy < 0 || cx > vw || cy > vh;
-        pointerOutsideIframe = outside;
         // Always notify the host frame so it can track the cursor position,
         // render the ghost, and highlight the target screen. Group drags stay
         // in-iframe (the host's cross-screen drop moves a single element and
@@ -9806,8 +9793,8 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         // avoid a ghost element left in screen A's DOM. For group drags an
         // outside release is simply a no-op (nothing moved during a flow
         // reorder drag, so there is nothing to restore).
-        // Use outsideOnDrop only — pointerOutsideIframe is stale when the user
-        // briefly exits the iframe and re-enters before releasing.  The host
+        // Use outsideOnDrop only — a live pointer-outside flag is stale when the
+        // user briefly exits the iframe and re-enters before releasing.  The host
         // already clears cross-screen state on re-entry so checking the
         // momentary excursion flag here would wrongly drop the element nowhere.
         if (outsideOnDrop) return;
@@ -12023,7 +12010,6 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         );
         if (hoveringSelectedSpacingSurface) {
           clearSpacingHoverTimer();
-          selectedSpacingHovered = true;
           lastSpacingPointerPoint = { x: e.clientX, y: e.clientY };
           updateSpacingOverlay(selectedEl);
           // Reliable padding/gap hover: hit-test the handle geometry
@@ -12580,7 +12566,6 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       // replay must be a no-op for hover state.
       var selectionChangedByHost = target !== selectedEl;
       if (selectionChangedByHost) {
-        selectedSpacingHovered = false;
         hoveredSpacingHandleKey = "";
       }
       selectedEl = target;

@@ -1516,18 +1516,6 @@ ${MANAGED_INSTRUCTIONS_END}`;
   return files;
 }
 
-async function maybeUpdateInstructions(
-  skillNames: string[],
-  baseDir: string,
-  options: InstallSkillsOptions,
-): Promise<string[]> {
-  const blocks = managedInstructionBlocksForSkills(skillNames);
-  const clients = options.clients?.length ? options.clients : CLIENTS;
-  const scope = options.scope ?? "user";
-  if (!(await shouldUpdateManagedInstructions(blocks, options))) return [];
-  return writeManagedInstructions(blocks, baseDir, clients, scope, options);
-}
-
 function resolveInstructionFiles(
   baseDir: string,
   explicit: string[] | undefined,

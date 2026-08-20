@@ -4294,7 +4294,6 @@ async function loadSourceSnapshot(
     allDocumentIds,
     rowDocuments,
     propertyValueRows,
-    consistencyAttempts,
   } = await loadSourceSnapshotRowsOptimistically({
     source,
     database,

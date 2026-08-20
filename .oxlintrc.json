@@ -11,7 +11,10 @@
     "react-hooks/rules-of-hooks": "error",
     "react-hooks/exhaustive-deps": "warn",
     "eslint/eqeqeq": "warn",
-    "eslint/no-unused-vars": "warn"
+    "eslint/no-unused-vars": [
+      "error",
+      { "args": "none", "caughtErrors": "none", "ignoreRestSiblings": true }
+    ]
   },
   "ignorePatterns": [
     "**/dist/**",

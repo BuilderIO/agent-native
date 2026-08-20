@@ -385,13 +385,6 @@ async function getSessionCookieHeader(
   return header || undefined;
 }
 
-function cookieHeaderNames(cookieHeader: string | undefined): string[] {
-  return (cookieHeader ?? "")
-    .split(";")
-    .map((part) => part.split("=", 1)[0]?.trim() ?? "")
-    .filter(Boolean);
-}
-
 async function readDesktopIdentityAuthResponse(
   response: Response,
 ): Promise<{ email?: string; error?: string }> {

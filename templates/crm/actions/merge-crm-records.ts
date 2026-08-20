@@ -46,10 +46,6 @@ class CrmMergeError extends CrmAttributeValueError {
   }
 }
 
-type CrmTransaction = Parameters<
-  Parameters<ReturnType<typeof getDb>["transaction"]>[0]
->[0];
-
 interface StoredValue {
   stringValue: string | null;
   numberValue: number | null;

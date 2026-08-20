@@ -57,19 +57,6 @@ type PopupStartMessage = {
   settings?: Partial<ExtensionSettings>;
 };
 
-type PopupMessage =
-  | PopupStartMessage
-  | { type: "CLIPS_POPUP_STATUS" }
-  | { type: "CLIPS_POPUP_STOP" }
-  | { type: "CLIPS_POPUP_CANCEL" }
-  | { type: "CLIPS_POPUP_OPEN" }
-  | { type: "CLIPS_POPUP_SIGN_IN"; settings?: Partial<ExtensionSettings> }
-  | {
-      type: "CLIPS_POPUP_PREPARE_PERMISSION_START";
-      settings?: Partial<ExtensionSettings>;
-      targetTabId?: number;
-    };
-
 type ExternalMessage =
   | {
       type: "CLIPS_CAPTURE_START";

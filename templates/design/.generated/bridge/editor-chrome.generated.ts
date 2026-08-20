@@ -2337,7 +2337,6 @@ export const editorChromeBridgeScript: string = `"use strict";
     var pendingShieldDrag = null;
     var suppressNextShieldClick = false;
     var suppressNextShieldClickTimer = null;
-    var selectedSpacingHovered = false;
     var hoveredSpacingHandleKey = "";
     var spacingHoverClearTimer = null;
     var lastSpacingPointerPoint = null;
@@ -2358,7 +2357,6 @@ export const editorChromeBridgeScript: string = `"use strict";
       clearHoverGate();
       setPassiveSelectionElements([]);
       clearSpacingHoverTimer();
-      selectedSpacingHovered = false;
       hoveredSpacingHandleKey = "";
       lastSpacingPointerPoint = null;
       spacingDrag = null;
@@ -3229,7 +3227,6 @@ export const editorChromeBridgeScript: string = `"use strict";
     function activateSpacingHandle(spacingKey) {
       if (!spacingKey) return;
       clearSpacingHoverTimer();
-      selectedSpacingHovered = true;
       setHoverToSelectedElementFromSpacingSurface();
       if (hoveredSpacingHandleKey !== spacingKey || spacingOverlay.style.display !== "block") {
         hoveredSpacingHandleKey = spacingKey;
@@ -3287,7 +3284,6 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       var hit = elementFromEditorPoint(clientX, clientY);
       if (hit && (hit === selectedEl || selectedEl.contains && selectedEl.contains(hit))) {
-        selectedSpacingHovered = true;
         return true;
       }
       return false;
@@ -3305,7 +3301,6 @@ export const editorChromeBridgeScript: string = `"use strict";
           updateSpacingOverlay(selectedEl);
           return;
         }
-        selectedSpacingHovered = false;
         hoveredSpacingHandleKey = "";
         updateSpacingOverlay(selectedEl);
       }, 80);
@@ -4135,7 +4130,6 @@ export const editorChromeBridgeScript: string = `"use strict";
         window.parent.postMessage({ type: "clear-selection" }, "*");
         return;
       }
-      selectedSpacingHovered = false;
       hoveredSpacingHandleKey = "";
       var previousSelectedEl = selectedEl;
       selectedEl = selectionTargetForHit(target);
@@ -4363,7 +4357,6 @@ export const editorChromeBridgeScript: string = `"use strict";
       var target = candidateElements[0] || null;
       var info = null;
       if (target) {
-        selectedSpacingHovered = false;
         hoveredSpacingHandleKey = "";
         selectedEl = selectionTargetForHit(target);
         if (selectedEl && !isLayerInteractionBlocked(selectedEl)) {
@@ -5064,7 +5057,6 @@ export const editorChromeBridgeScript: string = `"use strict";
       var startY = e.clientY;
       lastSpacingPointerPoint = { x: startX, y: startY };
       hoveredSpacingHandleKey = key;
-      selectedSpacingHovered = true;
       spacingDrag = {
         handle,
         currentValue: originValue,
@@ -6763,7 +6755,6 @@ export const editorChromeBridgeScript: string = `"use strict";
           var dx = cx - reorderPointerStart.clientX;
           var dy = cy - reorderPointerStart.clientY;
           var outside = cx < 0 || cy < 0 || cx > vw || cy > vh;
-          pointerOutsideIframe = outside;
           if (!isGroupDrag) {
             window.parent.postMessage(
               {
@@ -6986,7 +6977,6 @@ export const editorChromeBridgeScript: string = `"use strict";
           ctrl: Boolean(e.ctrlKey),
           target: dndTarget(currentTarget)
         });
-        var pointerOutsideIframe = false;
         var reorderSelector = getSelector(reorderEl);
         var reorderSourceId = getSourceId(reorderEl);
         var reorderStyleSnapshot = collectPortableStyleSnapshot(reorderEl);
@@ -7033,7 +7023,6 @@ export const editorChromeBridgeScript: string = `"use strict";
         return snapshot;
       });
       var gestureState = memberStates[groupEls.indexOf(gestureEl)] || memberStates[0];
-      var originalInlineOpacity = gestureState.originalOpacity;
       var originLeft = gestureState.originLeft;
       var originTop = gestureState.originTop;
       function setMembersOpacity(value) {
@@ -8507,7 +8496,6 @@ export const editorChromeBridgeScript: string = `"use strict";
           );
           if (hoveringSelectedSpacingSurface) {
             clearSpacingHoverTimer();
-            selectedSpacingHovered = true;
             lastSpacingPointerPoint = { x: e.clientX, y: e.clientY };
             updateSpacingOverlay(selectedEl);
             var pointSpacingKey = spacingHandleKeyAtPoint(e.clientX, e.clientY);
@@ -8904,7 +8892,6 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (!target) return;
         var selectionChangedByHost = target !== selectedEl;
         if (selectionChangedByHost) {
-          selectedSpacingHovered = false;
           hoveredSpacingHandleKey = "";
         }
         selectedEl = target;

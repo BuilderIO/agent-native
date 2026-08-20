@@ -50,7 +50,6 @@ import {
   type DocumentPropertyOptionColor,
   countWords,
   documentPropertyDateKey,
-  documentPropertyDatePart,
   evaluateNormalizationFormula,
   formatWordCount,
   formulaValueText,
@@ -16561,28 +16560,6 @@ export function applyDatabaseView(
   });
 }
 
-function nestedDatabaseFilterGroups(filters: DatabaseFilter[]) {
-  const groups = new Map<string, DatabaseFilter[]>();
-  for (const filter of filters) {
-    if (!filter.parentFilterGroupId || !filter.filterGroupId) continue;
-    groups.set(filter.filterGroupId, [
-      ...(groups.get(filter.filterGroupId) ?? []),
-      filter,
-    ]);
-  }
-  return [...groups.values()].filter((group) => group.length > 0);
-}
-
-function combineDatabaseFilterMatches(
-  matches: boolean[],
-  filterMode: DatabaseFilterMode,
-) {
-  if (matches.length === 0) return true;
-  return filterMode === "or"
-    ? matches.some((matched) => matched)
-    : matches.every((matched) => matched);
-}
-
 function defaultDatabaseSort(): DatabaseSort {
   return {
     key: "name",
@@ -16922,144 +16899,6 @@ function databasePropertyOptionIdForFilterValue(
   )?.id;
 }
 
-function databaseItemMatchesFilter(
-  item: ContentDatabaseItem,
-  properties: DocumentProperty[],
-  filter: DatabaseFilter,
-) {
-  const value = databaseItemFilterValue(item, properties, filter.key);
-  const property = databaseItemFilterProperty(item, properties, filter.key);
-
-  if (filter.operator === "is_empty") return !value.trim();
-  if (filter.operator === "is_not_empty") return !!value.trim();
-
-  if (filter.operator === "is_checked") return property?.value === true;
-  if (filter.operator === "is_unchecked") return property?.value !== true;
-
-  if (filter.operator === "greater_than" || filter.operator === "less_than") {
-    const current = propertyNumberValue(property);
-    const target = Number(filter.value.trim());
-    if (!Number.isFinite(current) || !Number.isFinite(target)) return false;
-    return filter.operator === "greater_than"
-      ? current > target
-      : current < target;
-  }
-
-  if (
-    filter.operator === "before" ||
-    filter.operator === "after" ||
-    filter.operator === "between"
-  ) {
-    const current = propertyDateValue(property);
-    if (!Number.isFinite(current)) return false;
-    if (filter.operator === "between") {
-      const range = databaseFilterDateRangeValue(filter.value);
-      if (!range) return false;
-      return current >= range[0] && current <= range[1];
-    }
-    const target = new Date(filter.value.trim()).getTime();
-    if (!Number.isFinite(target)) return false;
-    return filter.operator === "before" ? current < target : current > target;
-  }
-
-  const candidateValues = databaseItemFilterCandidateValues(
-    item,
-    properties,
-    filter.key,
-  ).map((candidate) => candidate.trim().toLowerCase());
-  const selectedFilterValues = databaseFilterSelectedValues(filter.value).map(
-    (candidate) => candidate.trim().toLowerCase(),
-  );
-  const normalizedValue = value.trim().toLowerCase();
-  const normalizedFilter = selectedFilterValues[0] ?? "";
-  const usesDiscreteValues =
-    property?.definition.type === "select" ||
-    property?.definition.type === "status" ||
-    property?.definition.type === "multi_select" ||
-    property?.definition.type === "person";
-
-  if (
-    usesDiscreteValues &&
-    (filter.operator === "equals" || filter.operator === "contains")
-  ) {
-    return selectedFilterValues.some((filterValue) =>
-      candidateValues.includes(filterValue),
-    );
-  }
-  if (usesDiscreteValues && filter.operator === "does_not_equal") {
-    return selectedFilterValues.every(
-      (filterValue) => !candidateValues.includes(filterValue),
-    );
-  }
-
-  if (filter.operator === "equals") {
-    return candidateValues.includes(normalizedFilter);
-  }
-  if (filter.operator === "does_not_equal") {
-    return !candidateValues.includes(normalizedFilter);
-  }
-  return normalizedValue.includes(normalizedFilter);
-}
-
-function databaseItemFilterValue(
-  item: ContentDatabaseItem,
-  properties: DocumentProperty[],
-  key: string,
-) {
-  if (key === "name") return item.document.title || "";
-  return propertyValueText(databaseItemFilterProperty(item, properties, key));
-}
-
-function databaseItemFilterProperty(
-  item: ContentDatabaseItem,
-  properties: DocumentProperty[],
-  key: string,
-) {
-  if (key === "name") return null;
-  const property = properties.find(
-    (candidate) => candidate.definition.id === key,
-  );
-  const itemProperty = item.properties.find(
-    (candidate) => candidate.definition.id === key,
-  );
-  return itemProperty ?? property ?? null;
-}
-
-function databaseItemFilterCandidateValues(
-  item: ContentDatabaseItem,
-  properties: DocumentProperty[],
-  key: string,
-) {
-  if (key === "name") return [item.document.title || ""];
-  const property = databaseItemFilterProperty(item, properties, key);
-  if (!property) return [""];
-  const value = property.value;
-
-  if (value === null || value === undefined || value === "") return [""];
-
-  if (Array.isArray(value)) {
-    return value.flatMap((id) => {
-      const optionName =
-        property.definition.options.options?.find((option) => option.id === id)
-          ?.name ?? id;
-      return [id, optionName];
-    });
-  }
-
-  if (
-    property.definition.type === "select" ||
-    property.definition.type === "status"
-  ) {
-    const id = String(value);
-    const optionName =
-      property.definition.options.options?.find((option) => option.id === id)
-        ?.name ?? id;
-    return [id, optionName];
-  }
-
-  return [propertyValueText(property)];
-}
-
 function propertyValueText(property: DocumentProperty | null | undefined) {
   if (!property) return "";
   const value = property.value;
@@ -17106,14 +16945,6 @@ function propertyNumberValue(property: DocumentProperty | null | undefined) {
     typeof property.value === "number"
       ? property.value
       : Number(String(property.value).trim());
-  return Number.isFinite(value) ? value : Number.NaN;
-}
-
-function propertyDateValue(property: DocumentProperty | null | undefined) {
-  if (!property || !property.value) return Number.NaN;
-  const value = new Date(
-    documentPropertyDatePart(property.value, "start") || String(property.value),
-  ).getTime();
   return Number.isFinite(value) ? value : Number.NaN;
 }
 
@@ -17997,14 +17828,6 @@ function databaseFilterEncodeDateRangeValues(start: string, end: string) {
   const normalizedEnd = end.trim();
   if (!normalizedStart && !normalizedEnd) return "";
   return JSON.stringify([normalizedStart, normalizedEnd]);
-}
-
-function databaseFilterDateRangeValue(value: string): [number, number] | null {
-  const [startValue, endValue] = databaseFilterDateRangeValues(value);
-  const start = new Date(startValue).getTime();
-  const end = new Date(endValue).getTime();
-  if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
-  return start <= end ? [start, end] : [end, start];
 }
 
 function databaseFilterEncodeSelectedValues(values: string[]) {

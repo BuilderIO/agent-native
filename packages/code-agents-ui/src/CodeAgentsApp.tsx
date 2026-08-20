@@ -2014,13 +2014,6 @@ export default function CodeAgentsApp({
     setWorkbenchOpen(false);
   }
 
-  function openMobilePanel() {
-    onChatFirstMainKindChange?.("code");
-    setSearchPanelOpen(false);
-    setMobilePanelOpen(true);
-    setWorkbenchOpen(false);
-  }
-
   async function pairRemoteConnector(relayUrl: string) {
     if (!host.pairRemoteConnector) {
       toast("Mobile pairing is not available here", {
@@ -3403,30 +3396,6 @@ function computerAccessReadiness(metadata: CodeAgentHostMetadata | null) {
     chromeReady,
     allReady: accessibilityReady && screenRecordingReady && chromeReady,
   };
-}
-
-function ComputerAccessRailItem({
-  metadata,
-  onOpen,
-}: {
-  metadata: CodeAgentHostMetadata;
-  onOpen: () => void;
-}) {
-  const { allReady } = computerAccessReadiness(metadata);
-  return (
-    <button type="button" className="code-agents-nav-link" onClick={onOpen}>
-      <IconDeviceDesktop size={15} strokeWidth={1.8} />
-      <span>Computer access</span>
-      <span
-        className={`code-agents-mobile-indicator ${
-          allReady
-            ? "code-agents-mobile-indicator--connected"
-            : "code-agents-mobile-indicator--attention"
-        }`}
-        aria-label={allReady ? "Ready" : "Setup needed"}
-      />
-    </button>
-  );
 }
 
 function ComputerAccessDialog({
@@ -4977,34 +4946,6 @@ function SearchChatsPanel({
   );
 }
 
-function MobileRailItem({
-  status,
-  error,
-  active,
-  onOpen,
-}: {
-  status: CodeAgentRemoteConnectorStatus | null;
-  error: string | null;
-  active: boolean;
-  onOpen: () => void;
-}) {
-  const copy = mobileConnectorCopy(status, error);
-  return (
-    <button
-      type="button"
-      className={`code-agents-nav-link code-agents-mobile-link${
-        active ? " code-agents-nav-link--active" : ""
-      }`}
-      onClick={onOpen}
-      aria-pressed={active}
-      title={copy.description}
-    >
-      <IconDeviceMobile size={15} strokeWidth={1.8} />
-      <span>Mobile</span>
-    </button>
-  );
-}
-
 function mobileConnectorCopy(
   status: CodeAgentRemoteConnectorStatus | null,
   error: string | null,
@@ -6019,12 +5960,6 @@ function getRunTerminalRequest(
   return sourceRoot || outputRoot || cwd
     ? { sourceRoot, outputRoot, cwd }
     : undefined;
-}
-
-function getRunSourceDetail(run: CodeAgentRun): CodeAgentRunDetail | null {
-  const label = getRunSourceLabel(run);
-  if (!label) return null;
-  return { label: "Source", value: label };
 }
 
 function getRunSourceLabel(run: CodeAgentRun): string | null {

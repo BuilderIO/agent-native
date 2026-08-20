@@ -96,7 +96,6 @@ import {
   useCreateDocument,
   useDeleteDocument,
   usePermanentlyDeleteDocument,
-  useMoveDocument,
   useRestoreDocument,
   useTrashedDocuments,
   useUpdateDocument,
@@ -1147,7 +1146,6 @@ export function DocumentSidebar({
   // Track user-expanded nodes only; active ancestors are derived below so they
   // do not stay open after navigation unless the user explicitly expanded them.
   const expandedIdsRef = useRef(new Set<string>());
-  const [] = useState(0);
   const [isResizing, setIsResizing] = useState(false);
   const [storedCollapsedSections, setStoredCollapsedSections] = useLocalStorage<
     Partial<Record<SidebarSectionId, boolean>>

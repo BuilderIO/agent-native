@@ -728,7 +728,7 @@ describe("Content Files membership reconciliation", () => {
   });
 
   it("migrates the legacy Kind default while preserving saved filters", async () => {
-    const { ensureFilesSystemPropertyDefinitions, filesParentPropertyId } =
+    const { ensureFilesSystemPropertyDefinitions } =
       await import("./_files-system-properties.js");
     const { defaultDatabaseViewConfig, serializeDatabaseViewConfig } =
       await import("./_property-utils.js");

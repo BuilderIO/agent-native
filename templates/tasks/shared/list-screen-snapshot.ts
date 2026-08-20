@@ -1,4 +1,4 @@
-export type AgentListSnapshot<TSummary> = {
+export type AgentListSnapshot = {
   totalCount: number;
   truncated: boolean;
 };
@@ -9,7 +9,7 @@ export function buildAgentListSnapshot<TItem, TSummary>(
   toSummary: (item: TItem) => TSummary,
 ): {
   snapshot: TItem[];
-  list: AgentListSnapshot<TSummary> & { items: TSummary[] };
+  list: AgentListSnapshot & { items: TSummary[] };
 } {
   const snapshot = items.slice(0, cap);
   return {
