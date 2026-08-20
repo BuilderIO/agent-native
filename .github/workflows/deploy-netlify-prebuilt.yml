@@ -356,9 +356,15 @@ jobs:
             "enqueued",
             "building",
             "uploading",
+            "uploaded",
             "preparing",
+            "prepared",
             "processing",
+            "processed",
             "retrying",
+            "pending_review",
+            "accepted",
+            "rejected",
           ];
 
           function nextPageUrl(linkHeader) {
@@ -371,8 +377,8 @@ jobs:
           }
 
           async function listDeploys(label, states) {
-            const deploys = [];
-            for (const state of states) {
+            const deploysByState = await Promise.all(states.map(async (state) => {
+              const deploys = [];
               let url = `${api}/sites/${siteId}/deploys?per_page=100&production=true&state=${encodeURIComponent(state)}`;
               while (url) {
                 const response = await request(url);
@@ -381,8 +387,9 @@ jobs:
                 deploys.push(...page);
                 url = nextPageUrl(response.headers.get("link"));
               }
-            }
-            return deploys;
+              return deploys;
+            }));
+            return deploysByState.flat();
           }
 
           function pendingProductionDeploys(deploys, publishedId, readyIsBlocking) {

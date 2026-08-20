@@ -252,10 +252,17 @@ if (unlockStart < 0 || (uploadStart >= 0 && unlockStart >= uploadStart)) {
     !unlock.includes("/deploys?per_page=100&production=true&state=") ||
     !unlock.includes("nextPageUrl") ||
     !unlock.includes("ACTIVE_PRODUCTION_DEPLOY_STATES") ||
+    !unlock.includes('"uploaded"') ||
+    !unlock.includes('"prepared"') ||
+    !unlock.includes('"processed"') ||
+    !unlock.includes('"pending_review"') ||
+    !unlock.includes('"accepted"') ||
+    !unlock.includes('"rejected"') ||
     !unlock.includes('"retrying"') ||
     !unlock.includes('"ready"') ||
     !unlock.includes("encodeURIComponent(state)") ||
     !unlock.includes("production=true") ||
+    !unlock.includes("Promise.all(states.map") ||
     !unlock.includes("readyIsBlocking") ||
     !unlock.includes('candidate.state !== "ready" || readyIsBlocking') ||
     !unlock.includes("candidate.published_at")
