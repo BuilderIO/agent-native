@@ -143,6 +143,7 @@ jobs:
       BETA_E2E_AUTHED: "0"
       BETA_E2E_REPORT_SLOT: public-${{ matrix.app }}
     steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: ./.github/actions/beta-e2e-setup
         # A composite action rather than repeated steps: the same seven-step
         # preamble now runs in four places.
@@ -172,6 +173,7 @@ jobs:
       BETA_E2E_AUTHED: "0"
       BETA_E2E_REPORT_SLOT: fleet
     steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: ./.github/actions/beta-e2e-setup
       - name: Cross-host checks
         run: pnpm e2e:beta --project=fleet
@@ -201,6 +203,7 @@ jobs:
       BETA_E2E_SHARED_OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       BETA_E2E_ALLOW_SHARED_KEY: ${{ inputs.key_source == 'shared' }}
     steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: ./.github/actions/beta-e2e-setup
       - name: Authenticated journeys
         # Global setup fails loudly if a credential is missing rather than
@@ -237,6 +240,7 @@ jobs:
       BETA_E2E_AUTHED: "0"
       BETA_E2E_REPORT_SLOT: advisory
     steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: ./.github/actions/beta-e2e-setup
       - name: Advisory findings
         # Always runs: it costs no credentials and no tokens, and findings that

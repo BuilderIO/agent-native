@@ -1,14 +1,16 @@
 name: Beta E2E setup
 description: >-
-  Checkout, toolchain, dependencies, and Chromium for a beta E2E lane. Shared
-  because the public lane is sharded one host per runner, so this preamble runs
-  in every shard plus the fleet, authenticated, and advisory lanes.
+  Toolchain, dependencies, and Chromium for a beta E2E lane. Shared because the
+  public lane is sharded one host per runner, so this preamble runs in every
+  shard plus the fleet, authenticated, and advisory lanes.
+
+  Callers must run actions/checkout first: a local composite action cannot
+  check out the repository that contains it, because it is not on disk until
+  checkout has run.
 
 runs:
   using: composite
   steps:
-    - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-
     - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
 
     - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
