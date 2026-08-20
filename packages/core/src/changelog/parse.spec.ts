@@ -291,6 +291,24 @@ describe("mergePendingChangelog", () => {
     expect(next).toContain("### Not a category");
   });
 
+  it("merges indented category headings", () => {
+    const existing = `# Changelog
+
+## 2026-08-20
+
+  ### Improved
+
+- Existing note.
+`;
+    const next = mergePendingChangelog(existing, [
+      { type: "improved", text: "New note.", date: "2026-08-20" },
+    ]);
+
+    expect(next.match(/^### Improved$/gm)).toHaveLength(1);
+    expect(next).toContain("- Existing note.");
+    expect(next).toContain("- New note.");
+  });
+
   it("normalizes category headings with closing markers", () => {
     const existing = `# Changelog
 

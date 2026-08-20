@@ -314,18 +314,20 @@ function splitChangelogBodyGroups(body: string): {
   let fenceMarker: { character: string; length: number } | undefined;
   for (const line of body.split(/\r?\n/)) {
     const lineEnd = offset + line.length;
-    const fence = /^\s*(`{3,}|~{3,})/.exec(line)?.[1];
+    const fence = /^\s*(`{3,}|~{3,})(.*)$/.exec(line)?.[1];
+    const closingFence = /^\s*(`{3,}|~{3,})\s*$/.exec(line)?.[1];
     if (fence) {
       if (!fenceMarker) {
         fenceMarker = { character: fence[0], length: fence.length };
       } else if (
+        closingFence &&
         fenceMarker.character === fence[0] &&
-        fence.length >= fenceMarker.length
+        closingFence.length >= fenceMarker.length
       ) {
         fenceMarker = undefined;
       }
     } else if (!fenceMarker) {
-      const heading = /^###\s+(.+?)(?:\s+#+)?\s*$/.exec(line);
+      const heading = /^ {0,3}###\s+(.+?)(?:\s+#+)?\s*$/.exec(line);
       if (heading) {
         matches.push({
           title: heading[1].trim(),
