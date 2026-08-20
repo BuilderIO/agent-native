@@ -112,7 +112,7 @@ jobs:
                 await fetch(`${api}/sites/${siteId}`, { headers, signal: AbortSignal.timeout(30_000) }),
                 `${label} verification attempt ${attempt}`,
               );
-              actual = site.build_settings?.stop_builds;
+              actual = site.build_settings?.stop_builds ?? site.repo?.stop_builds;
               if (actual === expected) return;
               if (attempt < 15) {
                 await new Promise((resolve) => setTimeout(resolve, 2_000));
@@ -127,7 +127,7 @@ jobs:
               await fetch(siteUrl, { headers, signal: AbortSignal.timeout(30_000) }),
               'Netlify docs site lookup',
             );
-            if (current.build_settings?.stop_builds !== true) {
+            if ((current.build_settings?.stop_builds ?? current.repo?.stop_builds) !== true) {
               await readJson(
                 await fetch(siteUrl, {
                   method: 'PATCH',
