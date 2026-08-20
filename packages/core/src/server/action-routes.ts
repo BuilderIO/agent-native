@@ -6,7 +6,6 @@ import {
   getMethod,
   getQuery,
   getHeader,
-  getRequestURL,
 } from "h3";
 
 import { verifyA2ATokenWithClaims } from "../a2a-claims.js";
@@ -39,6 +38,7 @@ import {
   resolveEmbedSessionFromRequest,
   resolvedEmbedCapabilityScope,
 } from "./embed-session.js";
+import { getOrigin } from "./google-oauth.js";
 import { getHttpRequestTelemetryId } from "./http-response-telemetry.js";
 import { consumeOneTimeJti } from "./identity-sso-store.js";
 
@@ -588,7 +588,7 @@ export function mountActionRoutes(
             timezone,
             browserSessionId,
             clientPlatform,
-            requestOrigin: getRequestURL(event).origin,
+            requestOrigin: getOrigin(event),
             // Captured here because this is the last layer that still holds
             // the h3 event; everything below reads it off the request store.
             isLoopbackRequest: isLoopbackRequest(event),

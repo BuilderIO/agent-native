@@ -565,6 +565,45 @@ describe("mountActionRoutes", () => {
     });
   });
 
+  it("uses the forwarded gateway origin for request context behind a dev proxy", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { getRequestContext } = await import("./request-context.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const actions: Record<string, ActionEntry> = {
+      ping: {
+        run: vi.fn(async () => ({
+          requestOrigin: getRequestContext()?.requestOrigin,
+        })),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions, {
+      getOwnerFromEvent: async () => "alice@example.com",
+    });
+
+    const proxied = {
+      _method: "POST",
+      _headers: {
+        host: "127.0.0.1:8092",
+        "x-forwarded-host": "127.0.0.1:8080",
+        "x-forwarded-proto": "http",
+      },
+      req: {
+        url: "http://127.0.0.1:8092/dispatch/_agent-native/actions/ping",
+        json: async () => ({}),
+      },
+    };
+
+    expect(await mounted[0].handler(proxied)).toEqual({
+      requestOrigin: "http://127.0.0.1:8080",
+    });
+  });
+
   it("runs optional-auth actions with an anonymous request context when auth resolution returns 401", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
     const { getRequestUserEmail } = await import("./request-context.js");
