@@ -1130,10 +1130,4 @@
 - fa0f828: Resolve hosted workspace app sign-in from the authenticated live registry so custom mounted apps can receive Dispatch embed sessions without a copied app list. Keep the registry action scoped to its verified A2A caller and refresh the desktop canary identity state before automatic sign-in.
 - fa0f828: Keep framework-managed bearer routes reachable when authentication and action modules are loaded from separate server bundle instances.
 
-## 0.157.14
-
-### Patch Changes
-
-- 4d8c36c: Keep framework-managed bearer routes reachable when authentication and action modules are loaded from separate server bundle instances.
-
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

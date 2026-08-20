@@ -878,11 +878,4 @@
 - Updated dependencies [fa0f828]
   - @agent-native/core@0.157.15
 
-## 0.2.564
-
-### Patch Changes
-
-- Updated dependencies [4d8c36c]
-  - @agent-native/core@0.157.14
-
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
