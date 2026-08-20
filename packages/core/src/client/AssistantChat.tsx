@@ -212,9 +212,10 @@ import {
   settleInterruptedToolCalls,
 } from "./sse-event-processor.js";
 import { useAgentEngineConfigured } from "./use-agent-engine-configured.js";
-import type {
-  ChatThreadScope,
-  ChatThreadSnapshot,
+import {
+  appendChatThreadScopeParams,
+  type ChatThreadScope,
+  type ChatThreadSnapshot,
 } from "./use-chat-threads.js";
 import { useDevMode } from "./use-dev-mode.js";
 import { useRunStuckDetection } from "./use-run-stuck-detection.js";
@@ -1922,6 +1923,8 @@ export interface AssistantChatProps {
   threadId?: string;
   /** Resource scope to include with chat requests for server-side context. */
   contextScope?: ChatThreadScope | null;
+  /** Restrict server-side thread restores to the supplied app scope. */
+  isolateHistoryByScope?: boolean;
   /** Namespace used to hide ambient composer context from other host surfaces. */
   contextNamespace?: string;
   /** Whether this chat owns the active visible composer context snapshot. */
@@ -2404,6 +2407,7 @@ const AssistantChatInner = forwardRef<
     browserTabId,
     threadId,
     contextScope,
+    isolateHistoryByScope = false,
     contextNamespace,
     isActiveComposer = true,
     onMessageCountChange,
@@ -2494,6 +2498,13 @@ const AssistantChatInner = forwardRef<
     () => assistantUiMessageListStructureKey(messages),
     [messages],
   );
+  const threadScopeQuery = useMemo(() => {
+    if (!isolateHistoryByScope || !contextScope) return "";
+    const params = new URLSearchParams();
+    appendChatThreadScopeParams(params, contextScope);
+    const query = params.toString();
+    return query ? `?${query}` : "";
+  }, [contextScope?.id, contextScope?.type, isolateHistoryByScope]);
 
   // Chat-wide drag-and-drop: users expect to drop a file anywhere on the agent
   // sidebar (thread, header, composer) and have it attach — same as ChatGPT,
@@ -3181,7 +3192,7 @@ const AssistantChatInner = forwardRef<
         : null;
       try {
         const refreshRes = await fetch(
-          `${apiUrl}/threads/${encodeURIComponent(threadId)}`,
+          `${apiUrl}/threads/${encodeURIComponent(threadId)}${threadScopeQuery}`,
           { signal: signal ?? ownAbort?.signal },
         );
         if (!refreshRes.ok) return null;
@@ -3196,7 +3207,13 @@ const AssistantChatInner = forwardRef<
         if (ownAbortTimer) clearTimeout(ownAbortTimer);
       }
     },
-    [apiUrl, importThreadData, loadHistoryRepository, threadId],
+    [
+      apiUrl,
+      importThreadData,
+      loadHistoryRepository,
+      threadId,
+      threadScopeQuery,
+    ],
   );
 
   const exportCleanThreadRepo = useCallback(
@@ -3969,7 +3986,7 @@ const AssistantChatInner = forwardRef<
         let canReconnect = false;
         try {
           const res = await fetch(
-            `${apiUrl}/threads/${encodeURIComponent(threadId)}`,
+            `${apiUrl}/threads/${encodeURIComponent(threadId)}${threadScopeQuery}`,
           );
           if (!res.ok) {
             if (!cancelled) {
@@ -4085,6 +4102,7 @@ const AssistantChatInner = forwardRef<
     isThreadStateLoading,
     desktopIdentityUnauthenticated,
     restoreAttempt,
+    threadScopeQuery,
   ]);
 
   useEffect(() => {

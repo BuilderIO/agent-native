@@ -82,6 +82,12 @@ export interface UseChatThreadsOptions {
   routeThreadId?: string | null;
   /** Include connected and other-app chats in list/search results. */
   includeExternal?: boolean;
+  /**
+   * Restrict history to the supplied scope. App-owned chat rails use this to
+   * keep one app's conversations out of another app's history; ordinary
+   * resource scopes intentionally continue to show general chats.
+   */
+  isolateHistoryByScope?: boolean;
 }
 
 const ACTIVE_THREAD_KEY = "agent-chat-active-thread";
@@ -92,10 +98,12 @@ async function fetchThreadListPage(
   apiUrl: string,
   offset: number,
   includeExternal: boolean,
+  scope?: ChatThreadScope | null,
 ): Promise<ChatThreadSummary[] | undefined> {
   const params = new URLSearchParams();
   if (offset > 0) params.set("offset", String(offset));
   if (includeExternal) params.set("includeExternal", "1");
+  appendChatThreadScopeParams(params, scope);
   const query = params.toString();
   return fetch(`${apiUrl}/threads${query ? `?${query}` : ""}`).then(
     async (res) => {
@@ -114,15 +122,30 @@ async function fetchThreadListPage(
 async function fetchThreadById(
   apiUrl: string,
   id: string,
+  scope?: ChatThreadScope | null,
 ): Promise<ChatThreadSummary | null | undefined> {
   try {
-    const res = await fetch(`${apiUrl}/threads/${encodeURIComponent(id)}`);
+    const params = new URLSearchParams();
+    appendChatThreadScopeParams(params, scope);
+    const query = params.toString();
+    const res = await fetch(
+      `${apiUrl}/threads/${encodeURIComponent(id)}${query ? `?${query}` : ""}`,
+    );
     if (res.status === 404) return null;
     if (!res.ok) return undefined;
     return (await res.json()) as ChatThreadSummary;
   } catch {
     return undefined;
   }
+}
+
+export function appendChatThreadScopeParams(
+  params: URLSearchParams,
+  scope?: ChatThreadScope | null,
+): void {
+  if (!scope) return;
+  params.set("scopeType", scope.type);
+  params.set("scopeId", scope.id);
 }
 
 function emitThreadsUpdated() {
@@ -193,6 +216,17 @@ function threadCanStayVisibleInScope(
   return scopesMatch(threadScope, currentScope);
 }
 
+function threadCanStayVisibleInHistory(
+  threadScope: ChatThreadScope | null,
+  currentScope?: ChatThreadScope | null,
+  isolateHistoryByScope = false,
+): boolean {
+  if (!isolateHistoryByScope) {
+    return threadCanStayVisibleInScope(threadScope, currentScope);
+  }
+  return scopesMatch(threadScope, currentScope);
+}
+
 function nextThreadTitle(
   currentTitle: string | undefined,
   incomingTitle: string,
@@ -219,6 +253,15 @@ export function useChatThreads(
   const autoCreate = options?.autoCreate !== false;
   const restoreActiveThread = options?.restoreActiveThread !== false;
   const includeExternal = options?.includeExternal === true;
+  const isolateHistoryByScope = options?.isolateHistoryByScope === true;
+  const isolateHistory = isolateHistoryByScope && Boolean(scope);
+  const historyScope = useMemo(
+    () => (isolateHistory && scope ? { type: scope.type, id: scope.id } : null),
+    [isolateHistory, scope?.id, scope?.type],
+  );
+  const historyScopeKey = historyScope
+    ? `${historyScope.type}:${historyScope.id}`
+    : null;
   const routeControlsActiveThread = options?.routeThreadId !== undefined;
   const routeThreadId = normalizeThreadId(options?.routeThreadId);
   // Each (storageKey, scope) pair gets its own active-thread localStorage key
@@ -440,7 +483,13 @@ export function useChatThreads(
         if (currentThreadScope === undefined) {
           return;
         }
-        if (threadCanStayVisibleInScope(currentThreadScope, scopeRef.current)) {
+        if (
+          threadCanStayVisibleInHistory(
+            currentThreadScope,
+            scopeRef.current,
+            isolateHistory,
+          )
+        ) {
           persistedKeyRef.current = activeThreadKey;
           return;
         }
@@ -458,7 +507,11 @@ export function useChatThreads(
         const savedScope = readKnownThreadScope(nextActiveThreadId);
         if (
           savedScope !== undefined &&
-          !threadCanStayVisibleInScope(savedScope, scopeRef.current)
+          !threadCanStayVisibleInHistory(
+            savedScope,
+            scopeRef.current,
+            isolateHistory,
+          )
         ) {
           nextActiveThreadId = null;
         }
@@ -511,6 +564,7 @@ export function useChatThreads(
           apiUrl,
           offset,
           includeExternal,
+          historyScope,
         );
         if (requestId !== latestFetchRequestRef.current) return undefined;
         if (!loaded) {
@@ -526,8 +580,17 @@ export function useChatThreads(
           nextThreadsOffsetRef.current += loaded.length;
         }
         setHasMoreThreads(loaded.length >= THREADS_PAGE_SIZE);
+        const visibleLoaded = isolateHistory
+          ? loaded.filter((thread) =>
+              threadCanStayVisibleInHistory(
+                thread.scope,
+                historyScope,
+                isolateHistory,
+              ),
+            )
+          : loaded;
         setThreads((prev) => {
-          const loadedIds = new Set(loaded.map((t) => t.id));
+          const loadedIds = new Set(visibleLoaded.map((t) => t.id));
           // Preserve any optimistic threads we've created this session that
           // haven't shown up in the server list yet — the server only learns
           // about a thread when the user actually sends a message and the
@@ -542,14 +605,20 @@ export function useChatThreads(
             (t) =>
               newlyCreatedRef.current.has(t.id) &&
               !loadedIds.has(t.id) &&
-              !t.archivedAt,
+              !t.archivedAt &&
+              (!isolateHistory ||
+                threadCanStayVisibleInHistory(
+                  t.scope,
+                  historyScope,
+                  isolateHistory,
+                )),
           );
           // Reconcile each server thread against our local copy. If the local
           // copy has a newer updatedAt or higher messageCount, keep those
           // fields — the server probably hasn't observed the user's latest
           // send yet, and naively replacing makes the recent-chats list
           // visibly jump back to older timestamps right after a send.
-          const merged = loaded.map((server) => {
+          const merged = visibleLoaded.map((server) => {
             const local = prev.find((t) => t.id === server.id);
             if (!local) return server;
             const next = { ...server };
@@ -591,7 +660,7 @@ export function useChatThreads(
           }
           return [...optimisticOnly, ...merged];
         });
-        return loaded;
+        return visibleLoaded;
       } catch {
         if (requestId !== latestFetchRequestRef.current) return undefined;
         if (!options?.append) {
@@ -600,8 +669,38 @@ export function useChatThreads(
         return undefined;
       }
     },
-    [apiUrl, includeExternal],
+    [apiUrl, historyScope, includeExternal, isolateHistory],
   );
+
+  const loadedHistoryScopeKeyRef = useRef(historyScopeKey);
+  useEffect(() => {
+    if (loadedHistoryScopeKeyRef.current === historyScopeKey) return;
+    loadedHistoryScopeKeyRef.current = historyScopeKey;
+    if (!isolateHistoryByScope) return;
+
+    nextThreadsOffsetRef.current = 0;
+    setHasMoreThreads(false);
+    setThreadsLoadError(null);
+    setThreads((prev) =>
+      prev.filter(
+        (thread) =>
+          !isolateHistory ||
+          threadCanStayVisibleInHistory(
+            thread.scope,
+            historyScope,
+            isolateHistory,
+          ),
+      ),
+    );
+    setIsLoading(true);
+    void fetchThreads().finally(() => setIsLoading(false));
+  }, [
+    fetchThreads,
+    historyScope,
+    historyScopeKey,
+    isolateHistory,
+    isolateHistoryByScope,
+  ]);
 
   const loadMoreThreads = useCallback(async (): Promise<void> => {
     if (isLoadingMoreThreads || !hasMoreThreads) return;
@@ -667,7 +766,7 @@ export function useChatThreads(
       // separates an older real thread from an unavailable saved id below.
       const restoredThread =
         lookupRestored && !restoredOnPage
-          ? await fetchThreadById(apiUrl, restoredId!)
+          ? await fetchThreadById(apiUrl, restoredId!, historyScope)
           : restoredOnPage;
       if (restoredThread === undefined && lookupRestored && !restoredOnPage) {
         // Lookup unreachable. Reclassifying now would stamp this thread with the
@@ -679,9 +778,10 @@ export function useChatThreads(
         restoredThread === null && lookupRestored && !restoredOnPage;
       const restoredBelongsElsewhere = Boolean(
         restoredThread &&
-        !threadCanStayVisibleInScope(
+        !threadCanStayVisibleInHistory(
           restoredThread.scope ?? null,
           scopeRef.current,
+          isolateHistory,
         ),
       );
       // A missing saved id is stale local UI state on a normal home surface,
@@ -754,6 +854,8 @@ export function useChatThreads(
     fetchThreads,
     addOptimisticThread,
     autoCreate,
+    historyScope,
+    isolateHistory,
     routeControlsActiveThread,
     routeThreadId,
   ]);
@@ -1297,15 +1399,24 @@ export function useChatThreads(
       try {
         const params = new URLSearchParams({ q: query });
         if (includeExternal) params.set("includeExternal", "1");
+        appendChatThreadScopeParams(params, historyScope);
         const res = await fetch(`${apiUrl}/threads?${params.toString()}`);
         if (!res.ok) return [];
         const data = await res.json();
-        return data.threads ?? [];
+        return (data.threads ?? []).filter(
+          (thread: ChatThreadSummary) =>
+            !isolateHistory ||
+            threadCanStayVisibleInHistory(
+              thread.scope,
+              historyScope,
+              isolateHistory,
+            ),
+        );
       } catch {
         return [];
       }
     },
-    [apiUrl, includeExternal],
+    [apiUrl, historyScope, includeExternal, isolateHistory],
   );
 
   const getThreadShareState = useCallback(

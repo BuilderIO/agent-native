@@ -5683,13 +5683,19 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           // ── Specific thread: GET/PUT/DELETE /threads/:id ──
           if (threadId) {
             if (method === "GET") {
+              const requestedScope = parseScopeFromQuery(getQuery(event));
               const thread = await resolveThreadAccess(
                 owner,
                 threadId,
                 "viewer",
                 { orgId },
               );
-              if (!thread) {
+              if (
+                !thread ||
+                (requestedScope &&
+                  (thread.scope?.type !== requestedScope.type ||
+                    thread.scope?.id !== requestedScope.id))
+              ) {
                 setResponseStatus(event, 404);
                 return { error: "Thread not found" };
               }
