@@ -78,7 +78,7 @@ jobs:
           while IFS= read -r file; do
             [ -z "$file" ] && continue
             case "$file" in
-              .changeset/*.md|package.json|pnpm-lock.yaml|*/package.json|*/CHANGELOG.md)
+              .changeset/*.md|package.json|pnpm-lock.yaml|*/package.json|*/CHANGELOG.md|*/changelog/*)
                 ;;
               *)
                 echo "::error::Refusing admin-merge for unexpected release PR path: $file" >&2

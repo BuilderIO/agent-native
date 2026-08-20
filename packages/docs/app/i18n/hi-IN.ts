@@ -424,6 +424,7 @@ const hiIN = {
     viewDocs: "डॉक्स देखें",
     source: "स्रोत",
     readDocs: "दस्तावेज़ पढ़ें",
+    signIn: "साइन इन करें",
   },
   templatesPage: {
     title: "ओपन-सोर्स, एजेंट-नेटिव ऐप्स आपके स्वामित्व में हैं",

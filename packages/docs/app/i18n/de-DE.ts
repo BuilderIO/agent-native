@@ -426,6 +426,7 @@ const deDE = {
     viewDocs: "Docs ansehen",
     source: "Quelle",
     readDocs: "Lesen Sie die Dokumente",
+    signIn: "Anmelden",
   },
   templatesPage: {
     title: "Open-Source-Agent-native Apps, die Sie besitzen",

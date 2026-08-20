@@ -425,6 +425,7 @@ const koKR = {
     viewDocs: "문서 보기",
     source: "소스",
     readDocs: "문서 읽기",
+    signIn: "로그인",
   },
   templatesPage: {
     title: "귀하가 소유한 오픈 소스 에이전트 기반 앱",
