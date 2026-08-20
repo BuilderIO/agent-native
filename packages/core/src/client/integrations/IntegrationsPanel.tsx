@@ -675,8 +675,7 @@ function appRelativeMcpOAuthReturnUrl(): string {
   const basePath = appBasePath();
   const pathname = window.location.pathname;
   const path =
-    basePath &&
-    (pathname === basePath || pathname.startsWith(`${basePath}/`))
+    basePath && (pathname === basePath || pathname.startsWith(`${basePath}/`))
       ? pathname.slice(basePath.length) || "/"
       : pathname;
   return `${path}${window.location.search}${window.location.hash}`;
