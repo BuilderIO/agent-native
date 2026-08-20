@@ -441,7 +441,7 @@ const frFR = {
       "Des applications indépendantes maintenues par leurs auteurs. Installez-les depuis un dépôt GitHub public ou essayez une version hébergée lorsqu’elle existe.",
     submitCommunityTemplate: "Proposer votre modèle",
     communityEmpty:
-      "Les soumissions communautaires sont ouvertes. Publiez une application Agent Native ciblée dans un dépôt public et proposez-la au catalogue.",
+      "Les soumissions communautaires sont ouvertes. Publiez une application Agent-Native ciblée dans un dépôt public et proposez-la au catalogue.",
     publishGuide: "Lire le guide de publication",
     communityTrust:
       "Les modèles communautaires sont du code tiers. Vérifiez le dépôt, la licence, les dépendances et les scripts d’installation avant de l’exécuter.",

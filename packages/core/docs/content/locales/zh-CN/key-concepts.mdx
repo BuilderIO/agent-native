@@ -5,11 +5,11 @@ description: "代理本机应用如何在三层架构中运作：Core 框架、�
 
 # 关键概念
 
-代理本机应用在幕后如何运作：原则与架构。此页是契约：一个应用要被视为代理本机应用，必须遵循的固定规则。关于这种构建方式背后的愿景与理由，请参阅 [什么是 Agent-Native？](/docs/what-is-agent-native)。
+Agent-Native 应用在幕后如何运作：原则与架构。此页是契约：一个应用要被视为 Agent-Native，必须遵循的固定规则。关于这种构建方式背后的愿景与理由，请参阅[什么是 Agent-Native？](/docs/what-is-agent-native)。
 
 ## 三个层次 {#three-layers}
 
-Agent Native 是一个具有三层架构的框架：
+Agent-Native 是一个具有三层架构的框架：
 
 | 层级                                    | 内容                                                                                                                                    |
 | --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
@@ -150,13 +150,13 @@ Skills 和 actions 一起工作。一个 skill 教会代理如何完成一类
 
 只有 UI 的功能对代理来说是不可见的。一个完整 UI 功能如果只有 actions，对用户来说是不可见的。没有 app-state 的功能意味着代理对用户正在做的事情视而不见。一个自动化优先的操作完全可以合理地从 action + 指令开始，等到人类需要浏览、批准、配置或分享它时，再添加聊天、UI 或 app-state。
 
-## Agent Native 包含哪些内容 {#what-you-get-for-free}
+## Agent-Native 包含哪些内容 {#what-you-get-for-free}
 
 采用这个框架之所以有价值，主要在于你不再需要自己构建的那些东西。只要你的应用遵循上述五条规则，你就会继承：
 
 | 功能                      | 你获得了什么                                                                                                                                                                                                                                                                                                                         |
 | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 一个 action = 每个表面    | 使用 `defineAction()` 定义的每个 action 同时是一个代理工具、一个类型安全的前端 hook（`useActionQuery` / `useActionMutation`）、一个框架自有的 HTTP 传输、一个 CLI 命令、一个供外部客户端使用的 MCP 工具，以及一个供其他代理本机应用使用的 A2A 工具。可选的 `link` 和 `mcpApp` 元数据无需第二次实现，即可添加深层链接和 MCP Apps UI。 |
+| 一个 action = 每个表面    | 使用 `defineAction()` 定义的每个 action 同时是一个代理工具、一个类型安全的前端 hook（`useActionQuery` / `useActionMutation`）、一个框架自有的 HTTP 传输、一个 CLI 命令、一个供外部客户端使用的 MCP 工具，以及一个供其他 Agent-Native 应用使用的 A2A 工具。可选的 `link` 和 `mcpApp` 元数据无需第二次实现，即可添加深层链接和 MCP Apps UI。 |
 | 每个用户的完整代理资源    | Skills、共享的 `LEARNINGS.md`、个人的 `memory/MEMORY.md`、`AGENTS.md`、自定义子代理、计划任务，以及已连接的 MCP 服务器。全部由 SQL 支撑，无需开发机。参见 [Agent Resources](/docs/agent-resources)。                                                                                                                                 |
 | 开箱即用的 React 组件     | `<AgentPanel />` 和 `<AgentSidebar />` 可以在你应用的任意位置渲染聊天 + 资源。参见 [Drop-in Agent](/docs/drop-in-agent)。                                                                                                                                                                                                            |
 | BYO 代理聊天运行时        | 同一个聊天 UI 可以架在 OpenAI Agents、OpenAI Responses、Claude Agent SDK、Vercel AI SDK、AG-UI，或者你自己的规范化 HTTP 流之上。参见 [原生聊天 UI](/docs/native-chat-ui#byo-agent-runtimes)。                                                                                                                                        |
@@ -426,7 +426,7 @@ useDbSync({ queryClient });
 
 _frame_ 是在你的应用旁边托管代理的环境。在本地，它是嵌入式面板；在云端，它是 Builder.io 的托管表面。参见 [Frames](/docs/frames)。
 
-Agent-native 应用都包含一个嵌入式代理面板，在应用 UI 旁边提供 AI 代理。这正是这一架构得以运作的原因：代理需要一台计算机（数据库、浏览器、代码执行），而应用需要代理来完成 AI 工作。
+Agent-Native 应用都包含一个嵌入式代理面板，在应用 UI 旁边提供 AI 代理。这正是这一架构得以运作的原因：代理需要一台计算机（数据库、浏览器、代码执行），而应用需要代理来完成 AI 工作。
 
 - **嵌入式代理面板：** 内置于每个应用中的聊天和可选 CLI 终端。支持 Claude Code、Codex、Gemini、OpenCode 和 Builder.io。在本地运行，免费且开源。
 - **云：** 部署到任意云端，具备实时协作、可视化编辑、角色和权限管理。最适合团队使用。
