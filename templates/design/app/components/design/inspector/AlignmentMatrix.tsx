@@ -1,5 +1,3 @@
-import type { ComponentType } from "react";
-
 import {
   Tooltip,
   TooltipContent,
@@ -40,8 +38,6 @@ export interface AlignmentMatrixProps {
   /** Auto-layout flow direction — controls bar orientation in active cell */
   direction?: FlowDirection;
 }
-
-type MatrixIcon = ComponentType<{ className?: string }>;
 
 const DEFAULT_LABELS: AlignmentMatrixLabels = {
   title: "Align", // i18n-ignore fallback component label

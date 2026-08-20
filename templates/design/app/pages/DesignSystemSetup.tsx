@@ -21,7 +21,6 @@ import {
   IconPhoto,
   IconComponents,
   IconCheck,
-  IconChevronDown,
   IconExternalLink,
 } from "@tabler/icons-react";
 import { useState, useCallback, useRef, useMemo, useEffect } from "react";
@@ -38,7 +37,6 @@ import {
   pollDecodeJobStatus,
   type DecodeJobStatus,
 } from "@/lib/builder-design-system-upload";
-import { cn } from "@/lib/utils";
 
 interface GitHubLink {
   id: string;

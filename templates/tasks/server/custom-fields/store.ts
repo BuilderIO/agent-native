@@ -20,12 +20,7 @@ import {
   parseField,
   parseFieldValueShape,
 } from "./parse.js";
-import type {
-  FieldConfigInput,
-  FieldDefinition,
-  FieldType,
-  FieldValue,
-} from "./types.js";
+import type { FieldDefinition, FieldType, FieldValue } from "./types.js";
 import { validateFieldConfig, validateFieldTitle } from "./validate.js";
 import {
   deleteCustomFieldValues,

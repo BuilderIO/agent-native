@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.166.0
+
+### Minor Changes
+
+- c50b009: Allow request action resolvers to preserve the default tool-loading surface.
+
 ## 0.165.5
 
 ### Patch Changes

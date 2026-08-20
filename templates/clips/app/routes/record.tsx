@@ -31,7 +31,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
-import { Link, useLocation, useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 
 import { Skeleton } from "@/components/ui/skeleton";
 import { useDesktopPromo } from "@/hooks/use-desktop-promo";

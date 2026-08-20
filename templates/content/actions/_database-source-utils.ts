@@ -8,7 +8,6 @@ import type {
   ContentDatabase,
   ContentDatabaseBodyHydrationSummary,
   ContentDatabaseItem,
-  ContentDatabaseResponse,
   ContentDatabaseSource,
   ContentDatabaseSourceBodyChange,
   ContentDatabaseSourceCapabilities,
@@ -46,7 +45,6 @@ import {
   builderMdxBodyToBuilderBlocks,
 } from "../shared/builder-mdx.js";
 import {
-  normalizePropertyValue,
   normalizePropertyValueWithOptions,
   parsePropertyOptions,
   serializePropertyOptions,
@@ -4296,7 +4294,6 @@ async function loadSourceSnapshot(
     allDocumentIds,
     rowDocuments,
     propertyValueRows,
-    consistencyAttempts,
   } = await loadSourceSnapshotRowsOptimistically({
     source,
     database,
