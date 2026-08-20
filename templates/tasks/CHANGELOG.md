@@ -2,8 +2,6 @@
 
 All notable user-facing changes to this app are documented here.
 
-Older updates live in [the changelog folder](./changelog/) and are included in the in-app "What's new" view.
-
 ## 2026-08-11
 
 ### Fixed
@@ -33,3 +31,35 @@ Older updates live in [the changelog folder](./changelog/) and are included in t
 ### Improved
 
 - Secondary controls and dashboard surfaces now use quieter borderless styling.
+
+## 2026-07-23
+
+### Added
+
+- Task detail panels can now host installed extension widgets.
+
+## 2026-07-22
+
+### Improved
+
+- The sidebar footer now keeps Feedback and the collapse control on one compact row.
+
+## 2026-07-20
+
+### Added
+
+- Tasks is now available in 10 additional languages
+
+## 2026-07-18
+
+### Added
+
+- Task lists can now appear as interactive widgets inline in chat without leaving the current page.
+
+## 2026-07-17
+
+### Fixed
+
+- The agent chat sidebar stays closed until you open it.
+
+For the full list of updates, see the [changelog folder](./changelog/).

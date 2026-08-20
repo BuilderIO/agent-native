@@ -44,9 +44,12 @@ export type ChangelogChangeType =
   | "removed"
   | "security";
 
-export const DEFAULT_CHANGELOG_RELEASE_LIMIT = 5;
+export const DEFAULT_CHANGELOG_RELEASE_LIMIT = 100;
 
 export const CHANGELOG_ARCHIVE_NOTE =
+  "For the full list of updates, see the [changelog folder](./changelog/).";
+
+const LEGACY_CHANGELOG_ARCHIVE_NOTE =
   'Older updates live in [the changelog folder](./changelog/) and are included in the in-app "What\'s new" view.';
 
 /**
@@ -72,6 +75,10 @@ const GROUP_LABELS: Record<ChangelogChangeType, string> = {
 };
 
 const ISO_DATE = /(\d{4}-\d{2}-\d{2})/;
+
+function cleanChangelogBody(value: string): string {
+  return value.replace(/[ \t]+$/gm, "").trim();
+}
 
 /** Lowercase, hyphenate, and strip to a URL/id-safe slug. */
 export function changelogSlug(value: string): string {
@@ -198,7 +205,7 @@ export function parsePendingEntry(
 export function renderReleaseBody(entries: PendingChangelogEntry[]): string {
   const groups = new Map<ChangelogChangeType, string[]>();
   for (const entry of entries) {
-    const text = entry.text.trim();
+    const text = cleanChangelogBody(entry.text);
     if (!text) continue;
     const bullet = text.includes("\n")
       ? // Preserve multi-line bodies, indenting continuation lines.
@@ -263,6 +270,14 @@ function changelogHeader(markdown: string): string {
   return header;
 }
 
+function stripChangelogArchiveNotes(markdown: string): string {
+  return markdown
+    .replace(CHANGELOG_ARCHIVE_NOTE, "")
+    .replace(LEGACY_CHANGELOG_ARCHIVE_NOTE, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/\s+$/, "");
+}
+
 function pendingSectionTitle(entry: PendingChangelogEntry): string {
   return entry.date?.match(ISO_DATE)?.[1] ?? "Unreleased";
 }
@@ -293,7 +308,8 @@ export function mergePendingChangelog(
   existing: string,
   pending: PendingChangelogEntry[],
 ): string {
-  const existingEntries = parseChangelog(existing);
+  const cleanExisting = stripChangelogArchiveNotes(existing);
+  const existingEntries = parseChangelog(cleanExisting);
   const pendingWithText = pending.filter((entry) => {
     const text = entry.text.trim();
     if (!text) return false;
@@ -310,7 +326,12 @@ export function mergePendingChangelog(
       );
     });
   });
-  if (pendingWithText.length === 0) return existing || CHANGELOG_HEADER;
+  if (pendingWithText.length === 0) {
+    const sections = existingEntries
+      .map((entry) => `## ${entry.title}\n\n${cleanChangelogBody(entry.body)}`)
+      .join("\n\n");
+    return `${changelogHeader(cleanExisting)}${sections ? `\n\n${sections}` : ""}\n\n${CHANGELOG_ARCHIVE_NOTE}\n`;
+  }
 
   const pendingByTitle = new Map<string, PendingChangelogEntry[]>();
 
@@ -322,7 +343,7 @@ export function mergePendingChangelog(
   const sections = existingEntries.map((entry) => ({
     title: entry.title,
     date: entry.date,
-    body: entry.body,
+    body: cleanChangelogBody(entry.body),
   }));
   for (const title of [...pendingByTitle.keys()].sort(pendingSectionSort)) {
     const body = renderReleaseBody(pendingByTitle.get(title) ?? []);
@@ -333,7 +354,10 @@ export function mergePendingChangelog(
     });
 
     if (existingIndex !== -1) {
-      sections[existingIndex].body = [body, sections[existingIndex].body]
+      sections[existingIndex].body = [
+        body,
+        cleanChangelogBody(sections[existingIndex].body),
+      ]
         .filter(Boolean)
         .join("\n\n");
       continue;
@@ -352,13 +376,13 @@ export function mergePendingChangelog(
     );
   }
 
-  return `${changelogHeader(existing)}\n\n${sections
-    .map((entry) => `## ${entry.title}\n\n${entry.body}`)
-    .join("\n\n")}\n`;
+  return `${changelogHeader(cleanExisting)}\n\n${sections
+    .map((entry) => `## ${entry.title}\n\n${cleanChangelogBody(entry.body)}`)
+    .join("\n\n")}\n\n${CHANGELOG_ARCHIVE_NOTE}\n`;
 }
 
 /**
- * Keep a short, human-readable release window in `CHANGELOG.md` while the
+ * Keep a bounded, human-readable release window in `CHANGELOG.md` while the
  * dated `changelog/*.md` files remain the complete source for app history.
  * The Vite raw-import path can still expand the full folder-backed history.
  */
@@ -368,9 +392,12 @@ export function compactChangelog(
   releaseLimit = DEFAULT_CHANGELOG_RELEASE_LIMIT,
 ): string {
   const merged = mergePendingChangelog(existing, folderEntries);
-  const entries = parseChangelog(merged).slice(0, Math.max(1, releaseLimit));
-  const header = changelogHeader(merged)
-    .replace(CHANGELOG_ARCHIVE_NOTE, "")
+  const cleanMerged = stripChangelogArchiveNotes(merged);
+  const entries = parseChangelog(cleanMerged).slice(
+    0,
+    Math.max(1, releaseLimit),
+  );
+  const header = changelogHeader(cleanMerged)
     .replace(/\n{3,}/g, "\n\n")
     .trim();
   const sections = entries.map((entry) => `## ${entry.title}\n\n${entry.body}`);
@@ -379,7 +406,7 @@ export function compactChangelog(
     return `${header || CHANGELOG_HEADER.trim()}\n\n${CHANGELOG_ARCHIVE_NOTE}\n`;
   }
 
-  return `${header || CHANGELOG_HEADER.trim()}\n\n${CHANGELOG_ARCHIVE_NOTE}\n\n${sections.join("\n\n")}\n`;
+  return `${header || CHANGELOG_HEADER.trim()}\n\n${sections.join("\n\n")}\n\n${CHANGELOG_ARCHIVE_NOTE}\n`;
 }
 
 export { CHANGELOG_HEADER, GROUP_LABELS };
