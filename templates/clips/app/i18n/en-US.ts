@@ -615,12 +615,16 @@ const messages = {
     alsoFor: "Also available for {{platform}}",
     backToLibrary: "Back to library",
     clipsDesktop: "Clips Desktop",
+    stable: "Stable",
+    nightly: "Nightly",
+    switchToNightly: "Switch to Nightly builds",
+    switchToStable: "Switch to stable builds",
+    retry: "Try again",
     heroDescription:
       "A menu-bar recorder for screen, camera, and screen + camera. One-click start, draggable camera bubble, instant-share link when you stop.",
     versionReleased: "Version {{version}} — released {{date}}",
     version: "Version {{version}}",
-    manifestError:
-      "Could not load release manifest — pick an installer from the releases page.",
+    manifestError: "Could not load release manifest. Try again.",
     loadingRelease: "Loading latest release…",
     chromeTitle: "Chrome extension for browser logs",
     chromeDescription:
@@ -683,15 +687,6 @@ const messages = {
     viewAllUpdates: "View all updates",
     expand: "Expand",
     collapse: "Collapse",
-    changelogMarkdown: `# Changelog
-
-All notable user-facing changes to Clips are documented here. Open it any time from the command menu (Cmd K -> "What's new") or from Settings.
-
-## 2026-06-23
-
-### Added
-
-- See what's new right inside Clips. A changelog now lives in the command menu (Cmd K) and in Settings.`,
     playback: "Playback",
     defaultPlaybackSpeed: "Default playback speed",
     playbackDescription: "Applied automatically when you open a recording.",

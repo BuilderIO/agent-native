@@ -671,6 +671,18 @@ function compareMcpUrl(value: string): string {
   }
 }
 
+function startMcpOAuthReconnect(server: McpServer): void {
+  const returnUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  const params = new URLSearchParams({
+    serverId: server.id,
+    scope: server.scope,
+    return: returnUrl,
+  });
+  window.location.assign(
+    agentNativePath(`/_agent-native/mcp/servers/oauth/start?${params}`),
+  );
+}
+
 function McpServerStatus({
   server,
   onReconnect,
@@ -940,7 +952,10 @@ function McpIntegrationsSection({ query }: { query: string }) {
                         server={server}
                         onReconnect={
                           server.status.state === "error"
-                            ? () => void reconnect(server)
+                            ? () =>
+                                server.authMode === "oauth"
+                                  ? startMcpOAuthReconnect(server)
+                                  : void reconnect(server)
                             : undefined
                         }
                         reconnecting={reconnectingKey === key}

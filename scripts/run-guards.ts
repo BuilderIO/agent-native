@@ -21,6 +21,7 @@ const guards = [
   "guard:template-list",
   "guard:netlify-private-env",
   "guard:netlify-prebuilt-workflow",
+  "guard:beta-e2e-suite",
   "guard:trusted-acceptance",
   "guard:content-product-conformance",
   "guard:content-product-docs",
@@ -38,6 +39,7 @@ const guards = [
   "guard:extension-no-public",
   "guard:no-one-off-mcp-app-html",
   "guard:i18n-catalogs",
+  "guard:i18n-changed-copy",
   "guard:plan-skills",
   "guard:plan-marketplace",
   "guard:no-error-string-returns",
@@ -61,6 +63,7 @@ const guards = [
   "guard:no-heavy-dashboard-list-reads",
   "guard:dead-settings-keys",
   "guard:serverless-function-payload",
+  "guard:doc-budgets",
 ] as const;
 
 type GuardName = (typeof guards)[number];

@@ -96,6 +96,7 @@
     "guard:extension-no-public": "node scripts/guard-extension-no-public.mjs",
     "guard:no-one-off-mcp-app-html": "node scripts/guard-no-one-off-mcp-app-html.mjs",
     "guard:i18n-catalogs": "tsx scripts/guard-i18n-catalogs.ts",
+    "guard:i18n-changed-copy": "tsx scripts/guard-i18n-changed-copy.ts",
     "guard:plan-marketplace": "tsx scripts/sync-plan-marketplace.ts --check",
     "guard:plan-skills": "tsx scripts/sync-plan-skills.ts --check",
     "guard:no-error-string-returns": "node scripts/guard-no-error-string-returns.mjs",
@@ -116,6 +117,7 @@
     "guard:no-boot-data-work": "node scripts/guard-no-boot-data-work.mjs",
     "guard:dead-settings-keys": "node scripts/guard-dead-settings-keys.mjs",
     "guard:serverless-function-payload": "node scripts/guard-serverless-function-payload.mjs",
+    "guard:doc-budgets": "node scripts/guard-doc-budgets.mjs",
     "guards": "tsx scripts/run-guards.ts",
     "ship:push": "node scripts/ship-push.mjs",
     "chat-health": "node scripts/chat-health.mjs",
@@ -130,6 +132,8 @@
     "changeset:add": "changeset add",
     "changeset:status": "changeset status --since=origin/main",
     "changeset:version": "changeset version",
+    "changelog:compact": "tsx scripts/compact-changelogs.ts --write",
+    "guard:changelog": "tsx scripts/compact-changelogs.ts --check",
     "changeset:publish": "pnpm -r build && changeset publish",
     "prep": "pnpm fmt && concurrently -n types,test,guard -c cyan,green,yellow \"pnpm typecheck\" \"pnpm test:fast\" \"pnpm guards\"",
     "prep:urgent": "pnpm fmt && TEST_WORKSPACE_CONCURRENCY=6 TYPECHECK_WORKSPACE_CONCURRENCY=10 GUARD_CONCURRENCY=6 VITEST_CONCURRENCY=25% concurrently --kill-others-on-fail -n types,test,guard -c cyan,green,yellow \"pnpm typecheck\" \"pnpm test:fast\" \"pnpm guards\"",
@@ -145,7 +149,11 @@
     "content:seed-demo": "pnpm --dir templates/content seed:demo",
     "dev:electron": "node scripts/dev-electron.ts",
     "dev:electron:lazy": "node scripts/dev-lazy.ts --electron",
-    "dev:electron:apps": "node scripts/dev-electron.ts --apps"
+    "dev:electron:apps": "node scripts/dev-electron.ts --apps",
+    "e2e:beta": "playwright test --config e2e/beta/playwright.config.ts",
+    "e2e:beta:capture": "tsx e2e/beta/capture-session.ts",
+    "typecheck:e2e": "tsc --noEmit -p e2e/beta/tsconfig.json",
+    "guard:beta-e2e-suite": "tsx scripts/guard-beta-e2e-suite.ts"
   },
   "devDependencies": {
     "@changesets/cli": "2.31.0",

@@ -1,5 +1,62 @@
 # @agent-native/mobile-app
 
+## 0.1.71
+
+### Patch Changes
+
+- Updated dependencies [8d56ed2]
+  - @agent-native/core@0.165.5
+
+## 0.1.70
+
+### Patch Changes
+
+- Updated dependencies [841f072]
+  - @agent-native/core@0.165.4
+
+## Unreleased
+
+### Added
+
+- A native companion Home for dictation, background meeting audio, camera video
+  and imports, plus remote agent sessions.
+- Restart-safe recovery for finalized captures with resumable Clips uploads,
+  automatic foreground retry, and completion notifications.
+- iOS and Android quick actions for dictation, audio, and video capture, plus
+  Siri/App Intents on iOS and a dictation Quick Settings tile on Android.
+- Native iOS Clips browsing, calendar readiness, Live Activities, widgets,
+  ReplayKit broadcast capture, Apple Watch actions, and configurable dictation.
+
+### Changed
+
+- Upgraded the mobile runtime to Expo SDK 57 and React Native 0.86.
+- Improved native capture lifecycle tracking and session-token storage so
+  uploads and companion actions recover cleanly across app restarts.
+
+## 0.1.69
+
+### Patch Changes
+
+- Updated dependencies [b6ca1a7]
+- Updated dependencies [b6ca1a7]
+- Updated dependencies [b6ca1a7]
+  - @agent-native/core@0.165.3
+
+## 0.1.68
+
+### Patch Changes
+
+- Updated dependencies [b130f4e]
+- Updated dependencies [ac3acfa]
+  - @agent-native/core@0.165.2
+
+## 0.1.67
+
+### Patch Changes
+
+- Updated dependencies [43ef3a8]
+  - @agent-native/core@0.165.1
+
 ## 0.1.66
 
 ### Patch Changes
@@ -571,25 +628,6 @@
 - Updated dependencies [436340b]
 - Updated dependencies [436340b]
   - @agent-native/core@0.159.4
-
-## Unreleased
-
-### Added
-
-- A native companion Home for dictation, background meeting audio, camera video
-  and imports, plus remote agent sessions.
-- Restart-safe recovery for finalized captures with resumable Clips uploads,
-  automatic foreground retry, and completion notifications.
-- iOS and Android quick actions for dictation, audio, and video capture, plus
-  Siri/App Intents on iOS and a dictation Quick Settings tile on Android.
-- Native iOS Clips browsing, calendar readiness, Live Activities, widgets,
-  ReplayKit broadcast capture, Apple Watch actions, and configurable dictation.
-
-### Changed
-
-- Upgraded the mobile runtime to Expo SDK 57 and React Native 0.86.
-- Improved native capture lifecycle tracking and session-token storage so
-  uploads and companion actions recover cleanly across app restarts.
 
 ## 0.1.2
 

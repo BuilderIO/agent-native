@@ -341,6 +341,19 @@ export function withDesktopEnvironmentOptOut(rawUrl: string): string {
   }
 }
 
+function useStableDesktopEnvironmentOptOut(rawUrl: string): string {
+  const cachedUrlRef = useRef<{ rawUrl: string; resolvedUrl: string } | null>(
+    null,
+  );
+  if (!cachedUrlRef.current || cachedUrlRef.current.rawUrl !== rawUrl) {
+    cachedUrlRef.current = {
+      rawUrl,
+      resolvedUrl: withDesktopEnvironmentOptOut(rawUrl),
+    };
+  }
+  return cachedUrlRef.current.resolvedUrl;
+}
+
 function withUrlParams(
   rawUrl: string,
   params?: Record<string, string | null | undefined>,
@@ -479,19 +492,18 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     const [slowLoad, setSlowLoad] = useState(false);
     const [isFullscreen, setIsFullscreen] = useState(false);
     const loadFailureRef = useRef(false);
-    const url = withDesktopEnvironmentOptOut(
-      sourceUrl?.trim()
-        ? withUrlParams(sourceUrl.trim(), urlParams)
-        : withUrlParams(
-            withUrlPath(resolveAppWebviewUrl(app, appConfig), urlPath),
-            {
-              ...(appConfig?.mode === "dev" && appConfig.localPath
-                ? { _agentNativeDesktopCode: "1" }
-                : {}),
-              ...urlParams,
-            },
-          ),
-    );
+    const rawUrl = sourceUrl?.trim()
+      ? withUrlParams(sourceUrl.trim(), urlParams)
+      : withUrlParams(
+          withUrlPath(resolveAppWebviewUrl(app, appConfig), urlPath),
+          {
+            ...(appConfig?.mode === "dev" && appConfig.localPath
+              ? { _agentNativeDesktopCode: "1" }
+              : {}),
+            ...urlParams,
+          },
+        );
+    const url = useStableDesktopEnvironmentOptOut(rawUrl);
     const isDevMode = !sourceUrl && appConfig?.mode === "dev";
     const desktopIdentityGateEligible = isDesktopIdentityGateEligible(
       app,

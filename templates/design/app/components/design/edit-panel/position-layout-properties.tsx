@@ -39,10 +39,7 @@ import {
   type ScrubInputChangeMeta,
 } from "../inspector";
 import type { ElementInfo } from "../types";
-import {
-  AppearanceScrubField,
-  CornerRadiusControl,
-} from "./appearance-properties";
+import { AppearanceScrubField } from "./appearance-properties";
 import {
   commitStylePatch,
   FieldTrailer,

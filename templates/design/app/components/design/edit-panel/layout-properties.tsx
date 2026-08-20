@@ -17,7 +17,6 @@ import { cn } from "@/lib/utils";
 
 import {
   AutoLayoutMatrix,
-  ScrubInput,
   SizingField,
   type AutoLayoutFlow,
   type AutoLayoutGridTrackSizing,
@@ -45,7 +44,7 @@ import {
   elementStableKey,
   useAspectRatioLock,
 } from "./element-identity";
-import { FieldTrailer, ScrubStyleInput } from "./field-primitives";
+import { FieldTrailer } from "./field-primitives";
 import { joinCssLayers, splitCssLayers } from "./fill-gradient-helpers";
 import { SectionIconButton } from "./inspector-controls";
 import {
@@ -218,7 +217,6 @@ function FlexContainerControls({
   onStyleChange: StyleChangeHandler;
   onStylesChange?: StylesChangeHandler;
 }) {
-  const t = useT();
   const styles = element.computedStyles;
   // The element's CURRENT layout flow as authored in code, read from its own
   // computed `display`: block/flow-root/grid/etc. = "normal flow",

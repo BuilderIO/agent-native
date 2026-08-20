@@ -638,12 +638,17 @@ const messages = {
     alsoFor: "Auch verfügbar für {{platform}}",
     backToLibrary: "Zurück zur Bibliothek",
     clipsDesktop: "Clips Desktop",
+    stable: "Stabil",
+    nightly: "Nightly",
+    switchToNightly: "Zu Nightly-Builds wechseln",
+    switchToStable: "Zu stabilen Builds wechseln",
+    retry: "Erneut versuchen",
     heroDescription:
       "Ein Menüleisten-Recorder für Bildschirm, Kamera und Bildschirm + Kamera. Ein-Klick-Start, verschiebbare Kamerablase, Link zum sofortigen Teilen, wenn Sie anhalten.",
     versionReleased: "Version {{version}} – veröffentlicht {{date}}",
     version: "Übersetzt: Version {{version}}",
     manifestError:
-      "Das Release-Manifest konnte nicht geladen werden. Wählen Sie auf der Release-Seite ein Installationsprogramm aus.",
+      "Das Release-Manifest konnte nicht geladen werden. Versuchen Sie es erneut.",
     loadingRelease: "Neueste Version wird geladen…",
     chromeTitle: "Chrome-Erweiterung für Browserprotokolle",
     chromeDescription:
@@ -710,15 +715,6 @@ const messages = {
     viewAllUpdates: "Alle Updates anzeigen",
     expand: "Erweitern",
     collapse: "Einklappen",
-    changelogMarkdown: `# Änderungsprotokoll
-
-Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kannst es jederzeit über das Befehlsmenü (Cmd+K -> "Neuigkeiten") oder über die Einstellungen öffnen.
-
-## 2026-06-23
-
-### Hinzugefügt
-
-- Du kannst Neuigkeiten jetzt direkt in Clips ansehen. Das Änderungsprotokoll ist im Befehlsmenü (Cmd+K) und in den Einstellungen verfügbar.`,
     playback: "Wiedergabe",
     defaultPlaybackSpeed: "Standard-Wiedergabegeschwindigkeit",
     playbackDescription:

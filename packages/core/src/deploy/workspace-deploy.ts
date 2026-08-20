@@ -61,6 +61,8 @@ import {
 export type WorkspaceDeployPreset = "cloudflare_pages" | "netlify" | "vercel";
 
 const NETLIFY_WORKSPACE_STATIC_DIR = "_workspace_static";
+const DEFAULT_HOSTED_FEEDBACK_URL =
+  "https://forms.agent-native.com/f/agent-native-feedback/_16ewV";
 const NETLIFY_PUBLIC_ASSET_EXTENSIONS = new Set([
   "avif",
   "css",
@@ -264,6 +266,13 @@ function buildOneApp(
     AGENT_NATIVE_WORKSPACE_APP_ID: app,
     VITE_AGENT_NATIVE_WORKSPACE: "1",
     VITE_AGENT_NATIVE_WORKSPACE_APP_ID: app,
+    ...(preset === "netlify"
+      ? {
+          VITE_AGENT_NATIVE_FEEDBACK_URL:
+            process.env.VITE_AGENT_NATIVE_FEEDBACK_URL ??
+            DEFAULT_HOSTED_FEEDBACK_URL,
+        }
+      : {}),
     APP_BASE_PATH: `/${app}`,
     VITE_APP_BASE_PATH: `/${app}`,
     AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: workspaceAppAudience,

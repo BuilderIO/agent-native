@@ -51,12 +51,8 @@ import {
   type ReviewThread,
 } from "@agent-native/core/client/review";
 import { ShareButton } from "@agent-native/core/client/sharing";
-import { buildSignInReturnHref } from "@agent-native/core/client/ui";
 import type { ReviewComment } from "@agent-native/core/review";
-import {
-  normalizeDocumentTitle,
-  withBuilderUtmTrackingParams,
-} from "@agent-native/core/shared";
+import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import {
   CreativeContextShareTab,
   parseCreativeContexts,
@@ -70,10 +66,8 @@ import {
   RecentEditHighlights,
 } from "@agent-native/toolkit/collab-ui";
 import {
-  computeReparentedChildPosition,
   isBoardFile,
   normalizePoisonedBoardNestedCoords,
-  stripBoardSurfaceOffsetFromCoord,
 } from "@shared/board-file";
 import {
   getBreakpointOverrideState,
@@ -84,7 +78,6 @@ import {
   isBuilderPreviewUrl,
 } from "@shared/builder-preview-url";
 import {
-  parseCanvasFrameGeometryById,
   type CanvasFrameGeometry,
   type CanvasFrameGeometryById,
 } from "@shared/canvas-frames";
@@ -95,12 +88,10 @@ import {
   buildCodeLayerProjection,
   buildCodeLayerTree,
   ensureCodeLayerNodeIdsInHtml,
-  moveNodeBetweenDocuments,
   removeCodeLayerNodeFromHtml,
   type CodeLayerNode,
   type CodeLayerProjection,
   type CodeLayerTreeNode,
-  type MoveNodeEditIntent,
 } from "@shared/code-layer";
 import { isComponentInstance } from "@shared/component-model";
 import type { A11yFinding } from "@shared/design-review";
@@ -109,22 +100,13 @@ import {
   hasCapability,
 } from "@shared/design-source-capabilities";
 import { FULL_APP_BUILDING, readFusionApp } from "@shared/full-app";
-import { shouldUseLiveFileContent } from "@shared/html-content";
 import { assertDesignHtmlEditIntegrity } from "@shared/html-integrity";
 import type { InteractionState } from "@shared/interaction-states";
 import { countLockedLayersAcrossFiles } from "@shared/locked-layers";
-import {
-  compile as compileMotionTimeline,
-  injectManagedMotionCss,
-} from "@shared/motion-compiler";
 import type { MotionAnimationClip, MotionEase } from "@shared/motion-timeline";
 import {
   copyLayerAnimation,
-  createMotionTrackFromPreset,
-  MOTION_PROPERTY_PRESETS,
   pasteLayerAnimation,
-  sortMotionKeyframes,
-  upsertMotionKeyframeAtTime,
 } from "@shared/motion-timeline";
 import {
   designRepromptPendingStateKey,
@@ -168,7 +150,6 @@ import {
   IconDeviceFloppy,
   IconRocket,
   IconExternalLink,
-  IconCircleCheck,
   IconTerminal2,
   IconLink,
   IconKeyboard,
@@ -211,7 +192,6 @@ import {
 import { type CodeWorkbenchActiveFile } from "@/components/design/code-workbench/CodeWorkbench";
 import { CodeWorkbenchLoader } from "@/components/design/code-workbench/CodeWorkbenchLoader";
 import type { CreatePrimitiveSpec } from "@/components/design/design-canvas/creation";
-import { sanitizeLocalhostSourceSnapshotHtml } from "@/components/design/design-canvas/external-preview";
 import type {
   IframeContextMenuPayload,
   IframeHotkeyPayload,
@@ -227,7 +207,6 @@ import {
   type DesignExtensionSlotContext,
 } from "@/components/design/DesignExtensionsPanel";
 import { DesignImportPanel } from "@/components/design/DesignImportPanel";
-import { dndHostLog } from "@/components/design/dnd-debug";
 import { inspectCodeDataForElement } from "@/components/design/edit-panel/inspect-code-source";
 import {
   mergeRotationValue,
@@ -264,10 +243,6 @@ import {
   hasEyeDropperSupport,
   type ExportSettingsValue,
 } from "@/components/design/inspector";
-import {
-  isShaderWriteInFlight,
-  waitForShaderWriteToSettle,
-} from "@/components/design/inspector/GlslShaderPanel";
 import { KeyboardShortcutsPanel } from "@/components/design/KeyboardShortcutsPanel";
 import {
   LayersPanel,
@@ -285,19 +260,13 @@ import {
   type MotionDockTrack,
 } from "@/components/design/MotionDock";
 import { getBoardSurfaceContentBounds } from "@/components/design/multi-screen/board-surface-html";
-import { validateCrossScreenSourceHtmlSnapshot } from "@/components/design/multi-screen/cross-screen-drop";
 import {
   getCanonicalScreenStack,
   getInitialFrameGeometry,
   getResponsiveScreenCullGeometry,
-  getScreenPreviewViewport,
   reorderCanonicalScreenStack,
 } from "@/components/design/multi-screen/frame-geometry";
-import {
-  findCanvasIframeForScreen,
-  getBreakpointIframeId,
-  getPrimaryIframeId,
-} from "@/components/design/multi-screen/iframe-targeting";
+import { getBreakpointIframeId } from "@/components/design/multi-screen/iframe-targeting";
 import type {
   CanvasLayerMarqueeSelection,
   CanvasPrimitiveInsert,
@@ -331,25 +300,7 @@ import {
 } from "@/components/editor/FigmaLinkComposerBubble";
 import PromptPopover from "@/components/editor/PromptDialog";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -399,7 +350,6 @@ import { useDesignSystems } from "@/hooks/use-design-systems";
 import { useEditorPreferences } from "@/hooks/use-editor-preferences";
 import {
   designEditorCommandKey,
-  designSelectionStateKeysForTab,
   type DesignEditorCommand,
 } from "@/hooks/use-navigation-state";
 import { useQuestionFlow } from "@/hooks/use-question-flow";
@@ -412,9 +362,7 @@ import {
 } from "@/hooks/useDesignHotkeys";
 import {
   DESIGN_CHAT_STORAGE_KEY,
-  sendDesignSourceHandoffAndConfirm,
   sendToDesignAgentChat,
-  sendToDesignAgentChatAndConfirm,
 } from "@/lib/agent-chat";
 import {
   builderSelectionChip,
@@ -431,24 +379,10 @@ import {
   type ClipboardContentMutationOrigin,
   type ClipboardContentMutationPublication,
 } from "@/lib/clipboard-content-lineage";
-import {
-  plainTextFromDesignHtml,
-  getDesignClipboardTrustToken,
-  readDesignClipboardPayloadFromDataTransfer,
-  readDesignClipboardPayloadFromSystem,
-  writeDesignClipboard,
-} from "@/lib/design-clipboard";
-import {
-  extractDesignClipboardManagedStyles,
-  type DesignClipboardManagedStyleSnapshot,
-} from "@/lib/design-clipboard-managed-styles";
+import { readDesignClipboardPayloadFromSystem } from "@/lib/design-clipboard";
 import {
   type DesignClipboardPayload,
   type DesignClipboardScreenEntry,
-  getFigmaClipboardContent,
-  importResultSummary,
-  type ImportResult,
-  serializeDesignClipboardPayload,
 } from "@/lib/design-import";
 import {
   acknowledgeDesignSaveOutboxEntry,
@@ -461,16 +395,11 @@ import {
 } from "@/lib/design-save-outbox";
 import { DESIGN_UI_TOGGLE_EVENT } from "@/lib/design-ui-events";
 import { isEmbedChromeRequested } from "@/lib/embed-chrome";
-import { resolveFigmaPasteImportCall } from "@/lib/figma-clipboard";
 import {
-  canCopyFigmaSvgToClipboard,
-  copyDesignAsFigmaSvg,
   exportDesignAsFigmaSvg,
-  FigmaSvgCopyError,
   type LiveFigmaSvgSnapshot,
   type LiveFigmaSvgSource,
 } from "@/lib/figma-svg-copy";
-import { nodeRepromptSubtreeExcerpt } from "@/lib/node-reprompt";
 import {
   clearPendingGeneration,
   hasPendingGenerationOutput,
@@ -498,37 +427,18 @@ import {
   fullPreviewHtml,
 } from "@/pages/design-editor/preview-html";
 
-import { actionErrorDetail } from "./design-editor/action-error";
 import {
   applyAutoLayoutSuggestion,
-  hasMeaningfulCssTransform,
-  inferAutoLayoutSuggestion,
   isExistingFlowLayout,
   type AutoLayoutSuggestion,
 } from "./design-editor/auto-layout-suggestion";
 import {
-  appendCanvasPrimitiveToHtml,
-  blankScreenHtml,
-  extractCanvasPrimitiveHtml,
-  nextBlankScreenFilename,
-  nextDuplicatedFilename,
   normalizedDesignFileType,
-  reassignDuplicatedNodeIds,
   uniqueLayerId,
 } from "./design-editor/canvas-primitive-insert";
+import { createPrimitiveInsertFromSpec } from "./design-editor/canvas-primitives";
 import {
-  createPrimitiveInsertFromSpec,
-  parsePenPathFromSerializedD,
-} from "./design-editor/canvas-primitives";
-import { resolveClipboardLayerSourceHtml } from "./design-editor/clipboard-layer-source";
-import {
-  cloneHtmlLayerAtPosition,
-  extractLayerPosition,
   getElementOuterHtml,
-  insertClonedHtmlLayer,
-  prepareClonedHtmlLayersForLiveInsert,
-  preserveClipboardLayerName,
-  setPenNodesAttributeOnElement,
   writeBackVectorEditedPenPath,
 } from "./design-editor/clone-and-pen-edit";
 import {
@@ -537,43 +447,19 @@ import {
   canonicalizeElementInfoFromProjection,
   codeLayerNodeLooksLikeComponent,
   codeLayerNodeMatchesBridgeTarget,
-  codeLayerPatchMessage,
   codeLayerSelectorAliases,
-  codeLayerSelectorMatches,
   codeLayerTreeToPanelNodes,
   collectCodeLayerAncestors,
-  collectCodeLayerSubtreeDataNodeIds,
   collectEffectiveCodeLayerState,
-  resolveCodeLayerTargetFromBridge,
-  resolveCodeLayerTargetFromElementInfo,
   type EffectiveCodeLayerState,
   elementInfoFromCodeLayerNode,
-  elementInfoIsRuntimeOnly,
-  ensureGoogleFontLinkInHtml,
   findCodeLayerSiblingOrder,
-  findMovedCodeLayerNodeInProjection,
-  isClientRenderedMountShell,
   isCodeLayerNodeRuntimeOnly,
-  liveDeleteSelectorGroups,
-  liveNudgeReorderHandoff,
-  nudgeBaseContentForScreen,
-  preferredCodeLayerSelector,
-  refreshElementInfoFromContent,
-  refreshSelectedLayerIdsFromContent,
-  removeEmptyGeneratedGroupWrappers,
-  renameFilenamePreservingExtension,
   resolveCodeLayerNodeFromBridge,
   resolveCodeLayerNodeFromElementInfo,
   resolveSelectedCodeLayerNode,
-  runtimeLayerStateHandoffMode,
   type SelectedLayerTarget,
-  shouldDeleteThroughLiveScreen,
 } from "./design-editor/code-layer-state";
-import {
-  resolveScreenCollabSyncTarget,
-  shouldApplyRemotePreviewContent,
-  shouldRebaseCollabDocFromStoredContent,
-} from "./design-editor/collab-sync";
 import type {
   ResponsiveEditScope,
   RetryablePrompt,
@@ -582,13 +468,10 @@ import type {
   DesignCanvasEmbeddedFrame,
   LiveScreenSnapshot,
   PatchProofState,
-  PatchProofStatus,
   PendingStructureVerificationSession,
-  PendingStructureVerificationSource,
   PendingStructureVerificationStatus,
   PostAuthDesignIntent,
   RuntimeLayerSnapshot,
-  SelectedCanvasLayerSnapshot,
   ShareExportFormat,
 } from "./design-editor/command-types";
 import { runAddAutoLayout } from "./design-editor/commands/add-auto-layout";
@@ -685,10 +568,6 @@ import {
   loadCreativeContextPrecedent,
 } from "./design-editor/creative-context-precedent";
 import {
-  adaptAutoTextColorForCrossScreenNode,
-  clearAutoTextColorMarkerOnExplicitColorCommit,
-} from "./design-editor/cross-screen-text-color";
-import {
   applyDesignDataOperations,
   buildFrameGeometryDataOperations,
   clearAcknowledgedDesignDataOperationsThroughRevision,
@@ -710,37 +589,25 @@ import {
   isDesignData,
   nextLocalhostScreenPosition,
   parseDesignDataJson,
-  staleGeometryFrameIds,
-  viewportChangedFrameIds,
 } from "./design-editor/design-data-geometry-utils";
 import { isRadixOverlayOpen } from "./design-editor/dom-guards";
-import { escapeHtmlAttributeValue } from "./design-editor/dom-utils";
 import { useTweaks } from "./design-editor/domains/use-tweaks";
 import {
   AUTO_RETRY_DELAY_MS,
   BOARD_SURFACE_SIZE,
   DESIGN_EDITOR_DEBUG_LOGS,
-  DESIGN_SELECTION_ZOOM_SAVE_DELAY_MS,
   EMPTY_TEXT_CLEANUP_RETRY_MS,
   HOST_CHAT_SLOT_MESSAGE,
   LOCALHOST_COMPILED_SOURCE_EXTENSIONS,
   LOCALHOST_WRITE_EXTENSIONS,
   MAX_GENERATION_ATTEMPTS,
   MIN_FRAME_SIZE_PX,
-  MOTION_AUTOSAVE_DELAY_MS,
   MOTION_DOCK_EXIT_FALLBACK_MS,
   MOTION_DOCK_EXIT_SETTLE_MS,
-  MOTION_DOCK_TRANSITION_MS,
   NO_LOCALHOST_CONNECTION_MESSAGE,
   NO_LOCALHOST_WRITE_CONTENT_MESSAGE,
-  NO_LOCALHOST_WRITE_PATH_MESSAGE,
   OVERVIEW_ZOOM_THRESHOLD,
-  PENDING_STRUCTURE_RUNTIME_POLL_MS,
-  PENDING_STRUCTURE_RUNTIME_TIMEOUT_MS,
-  PENDING_STRUCTURE_SOURCE_POLL_MS,
-  PENDING_STRUCTURE_VERIFICATION_TIMEOUT_MS,
   STORED_RUN_LIVENESS_GRACE_MS,
-  TWEAK_CONTROLS_EDIT_ACCESS_MESSAGE,
 } from "./design-editor/editor-constants";
 import {
   buildSignInHrefForComment,
@@ -749,18 +616,14 @@ import {
   designSelectionStateKeys,
   isSupersededSelectionEcho,
   reloadRunningAppPreviewFrames,
-  runtimeMultiplicityForElementProvenance,
   withMeasuredGeometry,
 } from "./design-editor/editor-helpers";
 import {
   createEditorSaveOperationSource,
   LOCAL_EDIT_ORIGIN,
-  shouldAdoptExternalReconcileContent,
-  shouldCheckpointAgentContent,
   TAB_ID,
 } from "./design-editor/editor-session";
 import {
-  applyRelativeDeltaToStyleValue,
   type FileContentSaveRequest,
   flushFileContentSavesOnBackground,
   flushPendingFileContentSavesOnCleanup,
@@ -768,8 +631,6 @@ import {
   getDesignEditorStateUrlSearch,
   getFreshActiveFileContent,
   getFreshScreenContent,
-  getLayerMoveIterationOrder,
-  getLayerMoveSourceContent,
   getLocalhostRouteSourceFile,
   getPersistedContentHostSyncOptions,
   isStandaloneHttpUrl,
@@ -778,11 +639,8 @@ import {
   resolveLocalhostSourceWriteContent,
   resolveOptimisticTextDecorationLine,
   resolveServerFiles,
-  shouldClearLatestUnloadSave,
-  shouldReplacePreviewAfterVisualStyleCommit,
   shouldRetirePendingLocalFileContent,
   shouldSendKeepalive,
-  shouldSkipVisualStyleCommitForPreview,
   type OptimisticTextDecorationLineEntry,
   type PreviewContentReplaceResult,
   type UndoRedoOrderKind,
@@ -795,101 +653,57 @@ import { runPublishAgentSelectionContext } from "./design-editor/effects/publish
 import { runResumePendingGeneration } from "./design-editor/effects/resume-pending-generation";
 import { runSeedCollabContent } from "./design-editor/effects/seed-collab-content";
 import {
-  buildStaticForeignObjectSvg,
-  createMultiPageRasterPdf,
-  createSinglePageRasterPdf,
-  getExportCompositeBounds,
-  PDF_MIN_PRINT_RASTER_SCALE,
-  type RasterPdfPage,
-  resolveRasterExportScale,
-  stripNonStaticXmlAttributes,
-  waitForExportReady,
-} from "./design-editor/export-capture";
-import {
   designGenerationDirectives,
   designIntakeQuestionDirectives,
-  designTemplateRefinementDirectives,
   designVariantGenerationDirectives,
-  formatTweakDefinitionsContext,
   formatUploadedFileContext,
   imageAttachmentsFromUploadedFiles,
   loadDesignSystemGenerationContext,
   promptRequestsVariantExploration,
 } from "./design-editor/generation-prompt-directives";
+import { sanitizeCanvasFrameGeometryForPersist } from "./design-editor/geometry-persistence";
 import {
-  geometrySnapshotsEqual,
-  sanitizeCanvasFrameGeometryForPersist,
-} from "./design-editor/geometry-persistence";
-import {
-  applyGeometryHistoryDiff,
   type ContentHistoryChange,
   type ContentHistoryEntry,
   type FileCreationHistoryEntry,
   type FileDeletionHistoryEntry,
-  filterFileDeletionHistoryEntry,
   finalizeTextCreationHistory,
   findLastContentHistoryChangeIndex,
   contentHistoryScopeForViewMode,
-  getAvailableContentHistoryChanges,
   getContentHistoryChanges,
   type GeometryHistoryEntry,
   type GeometryHistorySelection,
   type PendingTextCreationHistory,
   MAX_DESIGN_UNDO_STACK,
   mergeLocalContentHistoryFallback,
-  pruneFileCreationHistoryStack,
-  pruneGeometryHistoryEntryForDeletedFiles,
-  remapFileDeletionHistoryEntryIds,
   removeRecentUndoRedoOrderKinds,
 } from "./design-editor/history";
 import {
-  getAbsolutePositioningForNodeInHtml,
   getBodyInlineStyles,
   isAbsoluteCodeLayerNode,
-  removeAbsolutePositioningFromNodeInHtml,
-  setAbsolutePositioningForNodeInHtml,
-  setCodeLayerAttributeInHtml,
-  setFlowPositioningOverrideForNodeInHtml,
   warnIfPoisonedBoardCoordsNormalized,
 } from "./design-editor/html-layer-positioning";
 import { createLatestWriteQueue } from "./design-editor/latest-write-queue";
 import {
-  hasScopedLayerState,
   layerStateIdsForScreen,
   scopedLayerStateId,
 } from "./design-editor/layer-state-scope";
 import {
   type AlignableRect,
-  computeAlignedPositions,
-  computeDistributedPositions,
   computeOverlapReflowGeometry,
-  computeTidyPositions,
-  inferAutoLayoutFromChildren,
   mergeAuthoredAndLiveRect,
   type ReflowCandidate,
 } from "./design-editor/layout-operations";
-import { prepareLiveScreenLayerDrop } from "./design-editor/live-screen-layer-drop";
 import {
   applyMotionAutoKeyframesForStyles,
-  computedMotionStyleValue,
   hydrateMotionDockTracks,
-  MOTION_KEYFRAME_TIME_EPSILON,
   type MotionTimelineQueryResult,
   motionTimelineFingerprint,
 } from "./design-editor/motion-state";
 import {
-  resolveElementNudgeIntent,
-  resolveNudgeIntent,
-} from "./design-editor/nudge-intent";
-import {
-  collectOverviewAnnotationViewportMap,
-  formatOverviewAnnotationMessage,
-} from "./design-editor/overview-annotation-context";
-import {
   clampOverviewDisplayZoom,
   clampZoom,
   computeIframeLocalCanvasPoint,
-  findScreenFrameAtCanvasPoint,
   getAllScreenFrameEntries,
   getDefaultOverviewCanvasZoom,
   getNextZoomStepDown,
@@ -899,88 +713,51 @@ import {
   getOverviewZoomScale,
   getScreenFrameOriginCanvas,
   resolveOverviewZoomBasisScreenId,
-  resolveScreenEntryZoom,
   resolveZoomUpdate,
   readOverviewZoomPercentFromTransform,
   resolveScreenDropPoint,
-  shouldDeferOverviewZoomCommand,
   shouldPopToOverviewOnZoomChange,
   shouldResetExplicitOverviewZoomOnBasisChange,
 } from "./design-editor/overview-camera";
-import { resolvePastePlacementForSelection } from "./design-editor/paste-placement";
 import {
   applyInteractionStateStyleCommit,
-  applyScopedVisualStyleEdit,
   buildPendingVisualStyleRevertPatches,
   deriveStatePreviewTarget,
   formatPendingVisualStylePrompt,
   getPendingVisualEditCount,
-  mergePendingLiveNonStyleEdits,
-  mergePendingVisualStyleEdits,
-  originalStylesForPendingVisualEdit,
   type PendingLiveLayerStateEdit,
-  pendingLiveStructureEditsMatch,
-  pendingLiveLayerStateUndoRevertValue,
-  projectRelativeSourcePath,
-  reactSourceAnchorForPendingEdit,
-  reactSourceAnchorUnavailableReason,
   type PendingLiveNonStyleEdit,
   type PendingLiveNonStyleUndoEntry,
   type PendingLiveStructureEdit,
   type PendingLiveStructureUndoEntry,
   type PendingLiveTextEdit,
-  pendingLiveTextUndoRevertValue,
-  pendingStructureEditSourcePaths,
-  pendingStructureRedoCommand,
   type PendingVisualStyleEdit,
   replayPendingVisualStyleRuntimePatch,
   type PendingVisualStyleUndoEntry,
-  pendingVisualStyleUndoRevertStyles,
   resolveOverviewScreenSourceType,
   shouldPreferRuntimeLayerProjection,
   shouldUseRuntimeLayerProjection,
-  resolveVisualStyleCommitContent,
   shouldBlockPendingVisualStyleNavigation,
-  shouldRedoPendingLiveNonStyleBeforeStyle,
   shouldShowPendingVisualStyleApply,
 } from "./design-editor/pending-edits";
 import { usePendingLiveEditUnloadGuard } from "./design-editor/pending-live-edit-unload-guard";
-import { verifyPendingStructuresRuntime } from "./design-editor/pending-structure-verification";
 import { usePerformanceBufferGuard } from "./design-editor/performance-buffer-guard";
 import {
   blurActiveDesignEditableTarget,
-  cropCanvasToRect,
   PngCaptureError,
-  removeEditorChromeOverlays,
-  renderExportDocumentCanvas,
-  resolveExportCropRect,
-  sanitizeSerializedXmlForSvg,
   type PngCaptureScope,
 } from "./design-editor/png-export-render";
-import { applyPortableStyleSnapshotToHtml } from "./design-editor/portable-style";
-import {
-  buildReactSemanticHandoff,
-  buildRuntimeReactLayerStateHandoff,
-  buildRuntimeReactStructureMoveHandoff,
-  resolveRuntimeStructureMoveExecutionMode,
-} from "./design-editor/react-semantic-handoff";
 import {
   computeInteractZoomToFit,
   DEFAULT_INTERACT_DEVICE_PRESET,
   findInteractDevicePreset,
   INTERACT_CUSTOM_DEVICE_NAME,
-  resolveInteractDeviceForScreen,
 } from "./design-editor/responsive-interact";
 import {
   classifyDesignSaveFailure,
   designSaveErrorMessage,
 } from "./design-editor/save-failure";
 import {
-  enableInlineScreenAutoLayout,
-  getRuntimeScreenAutoLayoutSubjectIds,
-} from "./design-editor/screen-auto-layout";
-import {
-  applyInlineStylesToHtml,
   DEFAULT_STATES_PANEL_BREAKPOINTS,
   designEditorCommandFromSearchParams,
   designStatePreviewHtml,
@@ -990,46 +767,24 @@ import {
 import {
   buildActiveFileNodeIdSet,
   computeOverviewScreenPickSelectionIds,
-  dedupeStringIds,
-  getOverviewEnterTarget,
-  getOverviewScreenIdsFromLayerSelection,
   getOverviewScreenContentKey,
   getOverviewScreenRuntimeReplacementKey,
   getSelectedScreenGeometryForInspector,
   getSelectedScreenIdsForEditorState,
-  getSidebarCodeLayerSelectionState,
   hasSelectableCodeLayerParent,
   isScreenRootElementInfo,
   overviewSelectionTargetsElement,
-  pendingEditTargetsSelectedElement,
   resolveAvailableActiveFileId,
-  resolveEscapePopSelectionAction,
   sameStringIds,
-  shouldClearBridgeSelectionOnEmptyMarquee,
   shouldClearSelectionForReviewThreadTarget,
-  shouldEscapeToOverview,
   shouldIgnoreOverviewLayerCreationEcho,
   shouldLimitEditorChromeUntilContentReady,
-  shouldMirrorSelectedElementToAgentChat,
-  shouldIncludeScreenRenameContentOverride,
   shouldUseOverviewRuntimeReplacement,
 } from "./design-editor/selection-state";
+import { postShaderFillPreviewClearToPreviewIframes } from "./design-editor/text-edit-utils";
 import {
-  isTextEditSessionOutcome,
-  postShaderFillPreviewClearToPreviewIframes,
-  removeElementFromHtml,
-  scheduleBeginTextEditForScreen,
-  updateElementContentInHtml,
-} from "./design-editor/text-edit-utils";
-import {
-  getDesignToolActivationState,
   getDesignBottomToolbarMode,
   getSingleScreenCreationTool,
-  isSingleScreenAnnotationTool,
-  normalizeDesignLeftPanel,
-  normalizeDesignMode,
-  normalizeDesignTool,
-  resolveModeChangeView,
   shouldAutoEnableDrawOverlay,
 } from "./design-editor/tool-state";
 import {
@@ -1237,7 +992,7 @@ function DesignEditor() {
   const [explicitOverviewCanvasZoom, setExplicitOverviewCanvasZoom] = useState<
     number | null
   >(null);
-  const [deviceFrame, setDeviceFrame] = useState<DeviceFrameType>("none");
+  const [deviceFrame] = useState<DeviceFrameType>("none");
   // Responsive Interact device box. Kept separate from `zoom` (the canvas
   // camera) because this scales a literal device viewport, not the canvas.
   const [interactDeviceName, setInteractDeviceName] = useState(

@@ -394,17 +394,6 @@ const DEFAULT_SCREEN_MEMORY_CONFIG = {
   excludePrivateWindows: false,
 };
 
-function parseExcludedBundleIds(value: string): string[] {
-  return [
-    ...new Set(
-      value
-        .split(/[\n,]/)
-        .map((id) => id.trim())
-        .filter(Boolean),
-    ),
-  ];
-}
-
 function isStorageSetupFailureMessage(message: string | null | undefined) {
   return STORAGE_SETUP_FAILURE_RE.test(message ?? "");
 }
@@ -1209,7 +1198,7 @@ export function App({
   // popover auto-hide during the macOS screen-picker focus dance.
   const [recordingFlowActive, setRecordingFlowActive] = useState(false);
   const [recordingStopFinalizing, setRecordingStopFinalizing] = useState(false);
-  const [lastRecordingId, setLastRecordingId] = useState<string | null>(null);
+  const [, setLastRecordingId] = useState<string | null>(null);
   const [authStatus, setAuthStatus] = useState<"unknown" | "authed" | "anon">(
     "unknown",
   );
@@ -1249,7 +1238,6 @@ export function App({
   const {
     cameraId,
     setCameraId,
-    micId,
     setMicId,
     cameraLabel,
     setCameraLabel,
@@ -4644,7 +4632,7 @@ function PendingUploadBanner({
 
   const retrying = retryingUploadId === latest.recordingId;
   const storageSetupFailure = isStorageSetupFailureMessage(latest.lastError);
-  const exporting = exportingUploadId === latest.recordingId;
+
   const canOpenFolder = latest.kind === "native" && !!latest.folderPath;
   const canExport = latest.kind === "browser";
   const actionsDisabled =

@@ -37,6 +37,8 @@ import { useSecretStatus } from "@/hooks/use-secret-status";
 import { useVideoStorageStatus } from "@/hooks/use-video-storage-status";
 import enMessages from "@/i18n/en-US";
 
+import changelog from "../../CHANGELOG.md?raw";
+
 export function meta() {
   return [{ title: enMessages.settings.pageTitle }];
 }
@@ -204,8 +206,6 @@ export default function SettingsIndexRoute() {
       setSaving(false);
     }
   }
-
-  const localizedChangelog = t("settings.changelogMarkdown");
 
   // Hashes match the row ids below, so a search hit still scrolls to the
   // individual setting now that the one-control cards are rows in a group.
@@ -456,7 +456,7 @@ export default function SettingsIndexRoute() {
         whatsNew={
           <div className="mx-auto w-full max-w-3xl">
             <ChangelogSettingsCard
-              markdown={localizedChangelog}
+              markdown={changelog}
               title={t("settings.whatsNew")}
               closeLabel={t("common.cancel")}
               emptyText={t("settings.changelogEmpty")}

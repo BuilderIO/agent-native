@@ -6,7 +6,9 @@ import {
   renderReleaseBody,
   rollupChangelog,
   mergePendingChangelog,
+  compactChangelog,
   changelogSlug,
+  CHANGELOG_ARCHIVE_NOTE,
 } from "./parse.js";
 
 const SAMPLE = `# Changelog
@@ -202,6 +204,109 @@ describe("mergePendingChangelog", () => {
 
     expect(next).toContain("# Changelog");
     expect(parseChangelog(next)[0].body).toContain("First visible entry.");
+  });
+
+  it("does not duplicate folder entries already present in the recent window", () => {
+    const next = mergePendingChangelog(SAMPLE, [
+      {
+        type: "added",
+        text: "Recordings can be trimmed before sharing.",
+        date: "2026-06-23",
+      },
+      {
+        type: "fixed",
+        text: "A folder-only fix.",
+        date: "2026-06-23",
+      },
+    ]);
+
+    expect(
+      next.match(/Recordings can be trimmed before sharing\./g),
+    ).toHaveLength(1);
+    expect(next).toContain("A folder-only fix.");
+  });
+
+  it("deduplicates multiline folder entries after release rendering", () => {
+    const next = mergePendingChangelog(SAMPLE, [
+      {
+        type: "fixed",
+        text: "A multiline fix that explains the important detail.\nIt stays readable.",
+        date: "2026-06-23",
+      },
+    ]);
+    const twice = mergePendingChangelog(next, [
+      {
+        type: "fixed",
+        text: "A multiline fix that explains the important detail.\nIt stays readable.",
+        date: "2026-06-23",
+      },
+    ]);
+
+    expect(
+      twice.match(/A multiline fix that explains the important detail\./g),
+    ).toHaveLength(1);
+  });
+
+  it("inserts older folder entries after newer released sections", () => {
+    const next = mergePendingChangelog(SAMPLE, [
+      { type: "fixed", text: "An older folder fix.", date: "2026-04-01" },
+    ]);
+
+    expect(parseChangelog(next).map((entry) => entry.title)).toEqual([
+      "2026-06-23",
+      "2026-05-01",
+      "2026-04-01",
+    ]);
+  });
+});
+
+describe("compactChangelog", () => {
+  it("keeps the recent release window and points to folder history", () => {
+    const compacted = compactChangelog(
+      SAMPLE,
+      [
+        { type: "added", text: "Newer feature.", date: "2026-07-01" },
+        { type: "fixed", text: "Older folder fix.", date: "2026-04-01" },
+      ],
+      2,
+    );
+
+    expect(compacted).toContain(CHANGELOG_ARCHIVE_NOTE);
+    expect(compacted.trim().endsWith(CHANGELOG_ARCHIVE_NOTE)).toBe(true);
+    expect(compacted).toContain("Newer feature.");
+    expect(compacted).toContain(
+      "Recordings can now be trimmed before sharing.",
+    );
+    expect(compacted).not.toContain("Faster transcript search.");
+    expect(compacted).not.toContain("Older folder fix.");
+    expect(parseChangelog(compacted).map((entry) => entry.title)).toEqual([
+      "2026-07-01",
+      "2026-06-23",
+    ]);
+  });
+
+  it("replaces the legacy note and keeps the footer stable on reruns", () => {
+    const legacy = `${SAMPLE}\n\nOlder updates live in [the changelog folder](./changelog/) and are included in the in-app "What's new" view.\n`;
+    const compacted = compactChangelog(legacy, [], 2);
+    const rerun = compactChangelog(compacted, [], 2);
+
+    expect(compacted).toBe(rerun);
+    expect(compacted.match(/For the full list of updates/g)).toHaveLength(1);
+    expect(compacted.match(/Older updates live in/g)).toBeNull();
+    expect(compacted.trim().endsWith(CHANGELOG_ARCHIVE_NOTE)).toBe(true);
+  });
+
+  it("defaults to a 100-release window", () => {
+    const existing = `# Changelog\n\n${Array.from(
+      { length: 101 },
+      (_, index) => `## Release ${101 - index}\n\n- Update ${101 - index}`,
+    ).join("\n\n")}\n`;
+    const compacted = compactChangelog(existing, []);
+
+    expect(compacted.match(/^## /gm)).toHaveLength(100);
+    expect(compacted).toContain("## Release 101");
+    expect(compacted).not.toContain("## Release 1\n");
+    expect(compacted.trim().endsWith(CHANGELOG_ARCHIVE_NOTE)).toBe(true);
   });
 });
 

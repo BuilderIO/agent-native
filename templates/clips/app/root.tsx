@@ -56,6 +56,7 @@ import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { SEARCH_FOCUS_PATH } from "@/lib/search-focus";
 
+import changelog from "../CHANGELOG.md?raw";
 import { i18nCatalog, loadI18nMessages } from "./i18n";
 
 import stylesheet from "./global.css?url";
@@ -366,7 +367,7 @@ function AppContent() {
         <CommandMenu
           open={cmdkOpen}
           onOpenChange={setCmdkOpen}
-          changelog={t("settings.changelogMarkdown")}
+          changelog={changelog}
           changelogLabel={t("settings.whatsNew")}
           changelogKey="clips"
         >

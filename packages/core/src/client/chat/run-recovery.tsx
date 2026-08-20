@@ -511,11 +511,16 @@ export function RunErrorRecoveryCard({
     info.errorCode,
   );
   // Blocked on something the reader goes and fixes elsewhere, then comes back
-  // to. Without a retry the card is a dead end and its own copy ("then retry")
-  // points at a button that isn't there.
+  // to. Recoverable runs and email verification keep a retry path; rejected
+  // provider credentials use the setup flow below so the same bad key is not
+  // replayed.
   const isUnblockableExternally =
     info.errorCode === "email_verification_required";
-  const canRetry = canRecover || isProviderAuthError || isUnblockableExternally;
+  // Rejected provider keys already have a recovery path: update/connect the
+  // credential, then let the setup callback re-run the turn. Exposing a
+  // separate retry button here just replays the same rejected credential and
+  // turns a permanent auth failure into a loop.
+  const canRetry = canRecover || isUnblockableExternally;
   const builderReconnectResolved =
     shouldShowBuilderReconnect &&
     builderReconnect.hasFetchedStatus &&

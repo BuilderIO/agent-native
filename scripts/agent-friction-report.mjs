@@ -119,6 +119,12 @@ const PATTERNS = [
     re: /\b(any other (apps?|providers?|templates?|places?)|other (apps?|templates?) (that )?do(es)? this|same (bug|issue|thing) (in|across)|sweep of other|fix that too)\b/i,
   },
   {
+    key: "missed-localization",
+    label: "Had to ask whether changed copy was translated",
+    fixedBy: "guard:i18n-changed-copy + AGENTS.md review rule (2026-08-20)",
+    re: /\b(?:forgot|missed|missing|stale|not updated|didn['’]?t update|update(?:d)?|add)\b[^.!?]{0,100}\b(?:translation|translations|locali[sz]ation|locale|i18n)\b|\b(?:translation|translations|locali[sz]ation|locale|i18n)\b[^.!?]{0,100}\b(?:forgot|missed|missing|stale|not updated|didn['’]?t update)\b/i,
+  },
+  {
     key: "unanswered-feedback-followup",
     label: "Had to ask whether unanswered feedback was rechecked",
     fixedBy: ".agents/skills/review-latest-feedback (2026-08-19)",
@@ -137,6 +143,16 @@ const PATTERNS = [
     label: "Had to demand local work be pushed",
     fixedBy: "pnpm ship:push (scripts/ship-push.mjs, 2026-08-12)",
     re: /\b(push (up|it up|them up|all|everything|shit up)|not pushed|never pushed|unpushed|files to push|tons of (local|files)|push the local)\b/i,
+  },
+  // Added 2026-08-20 after repeated confusion between automatic beta deploys
+  // and the separate manual production promotion path. Watch whether the
+  // shipping-skill split makes this correction disappear.
+  {
+    key: "beta-production-split",
+    label: "Had to clarify beta auto-deploy vs manual production",
+    fixedBy:
+      ".agents/skills/ship + .agents/skills/ship-and-monitor (2026-08-20)",
+    re: /\b(?:netlify\s+lock|(?:remove|clear|unlock).*\b(?:netlify|production)\s+lock|\b(?:main|merge|merged)\b[^.!?]{0,70}\b(?:auto[- ]?deploy|deploys?|go(?:es)? live)\b[^.!?]{0,50}\bproduction\b|\bproduction\b[^.!?]{0,70}\b(?:manual|not auto|doesn['’]t auto|isn['’]t auto)|\bbeta\b[^.!?]{0,70}\bproduction\b[^.!?]{0,40}\b(?:split|manual|not automatic)\b)/i,
   },
   {
     key: "no-progress",

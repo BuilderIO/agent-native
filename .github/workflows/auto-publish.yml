@@ -246,7 +246,10 @@ jobs:
           # serializes the actual npm publishes.
           publish: node scripts/changeset-publish-sequential.ts
           # When pending changesets exist, opens this PR with the version
-          # bumps + changelog updates. Merging it triggers the publish run.
+          # bumps + changelog updates. The custom version script also keeps
+          # package CHANGELOG.md files short and archives older sections under
+          # changelog/archive/. Merging it triggers the publish run.
+          version-script: pnpm changeset version && pnpm changelog:compact
           title: "chore: version packages [skip netlify]"
           commit: "chore: version packages [skip netlify]"
         env:

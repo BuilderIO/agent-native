@@ -1,8 +1,5 @@
 import { useGuidedQuestionFlow } from "@agent-native/core/client/agent-chat";
-import {
-  agentNativePath,
-  appBasePath,
-} from "@agent-native/core/client/api-path";
+import { appBasePath } from "@agent-native/core/client/api-path";
 import {
   useCollaborativeDoc,
   emailToColor,
@@ -61,7 +58,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Button } from "@/components/ui/button";
 import {
   clearSlideEditingActive,
   deckIdFromPathname,
@@ -1374,7 +1370,6 @@ export default function DeckEditor() {
     agentActive: deckAgentActive,
     agentSlideId,
     recentEdits: deckRecentEdits,
-    awareness: deckPresenceAwareness,
   } = useDeckPresence({
     deckId: deck ? (id ?? null) : null,
     activeSlideId: activeSlideId,

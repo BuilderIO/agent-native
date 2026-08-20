@@ -72,7 +72,6 @@ import {
   type CodeAgentRestoreWorktreeResult,
   type CodeAgentRerunResult,
   type CodeAgentRun,
-  type CodeAgentRunListResult,
   type CodeAgentScheduleListResult,
   type CodeAgentScheduleResult,
   type CodeAgentQueueMetadata,
@@ -102,8 +101,6 @@ import {
   type DesktopPrepareLocalCodeChangeResult,
   type DesktopShortcutActivationRequest,
   type DesktopShortcutSettings,
-  type DesktopShortcutUpdateResult,
-  type DesktopShortcutUpsertRequest,
   type DesktopWorkspaceAppListResult,
   type LocalAppFolderInfo,
   type LocalAppFolderSelectResult,
@@ -205,7 +202,6 @@ import {
 import { boundedCodeAgentTranscriptEvents } from "./code-agent-transcript-window.js";
 import {
   CODE_AGENT_EPHEMERAL_WORKTREE_RETENTION_MS,
-  attachCodeAgentWorktree,
   claimCodeAgentWorktreeRun,
   cleanupDueCodeAgentWorktrees,
   createOrAttachCodeAgentWorktree,
@@ -221,7 +217,6 @@ import {
   codeAgentWorktreeHasChanges,
   codeAgentWorktreeHasCommitsAfterBase,
   cleanupCodeAgentWorktree,
-  createCodeAgentWorktree,
 } from "./code-agent-worktrees.js";
 import {
   getCodexLoginLaunchSpec,
@@ -232,8 +227,6 @@ import {
   DesktopComputerMcpBridge,
   EphemeralScreenObserver,
   getComputerPermissionStatus,
-  requestAccessibilityPermission,
-  runComputerSetupAction,
   SwiftDesktopHelperClient,
 } from "./computer-control";
 import { contentFilesWebviewDenialReason } from "./content-files-webview-access.js";
@@ -1475,6 +1468,7 @@ function ensureDesktopIdentityBroker(): DesktopIdentityBroker | null {
 
   desktopIdentityBroker = new DesktopIdentityBroker({
     identitySession: session.fromPartition(DESKTOP_IDENTITY_PARTITION),
+    userAgent: app.userAgentFallback,
     isAvailable: isDesktopIdentityAvailable,
     // Parent Google verification runs in the isolated identity window so its
     // browser-bound OAuth state remains in the same cookie partition. Magic
