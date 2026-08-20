@@ -142,14 +142,33 @@ jobs:
               'User-Agent': 'agent-native-production-site-manager',
             };
             const requestTimeoutMs = 30_000;
-            const pollIntervalMs = 10_000;
+            const pollIntervalMs = 30_000;
+            const maxRateLimitRetries = 6;
             const operation = process.env.OPERATION;
 
-            function request(url, options = {}) {
-              return fetch(url, {
-                ...options,
-                signal: AbortSignal.timeout(requestTimeoutMs),
-              });
+            async function request(url, options = {}) {
+              for (let attempt = 0; attempt < maxRateLimitRetries; attempt += 1) {
+                const response = await fetch(url, {
+                  ...options,
+                  signal: AbortSignal.timeout(requestTimeoutMs),
+                });
+                if (response.status !== 429) return response;
+
+                const retryAfter = Number(response.headers.get('retry-after'));
+                await response.arrayBuffer();
+                const delayMs = Number.isFinite(retryAfter) && retryAfter >= 0
+                  ? retryAfter * 1000
+                  : Math.min(120_000, 30_000 * 2 ** attempt);
+                core.warning(
+                  `Netlify API rate limited ${url}; retrying in ${Math.ceil(delayMs / 1000)}s.`,
+                );
+                if (attempt === maxRateLimitRetries - 1) {
+                  throw new Error(`Netlify API remained rate limited after ${maxRateLimitRetries} attempts.`);
+                }
+                await sleep(delayMs);
+              }
+
+              throw new Error('Netlify API request exhausted its rate-limit retries.');
             }
 
             function sleep(ms) {
