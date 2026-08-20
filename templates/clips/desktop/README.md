@@ -47,6 +47,80 @@ localStorage.setItem("clips:dev-synthetic-capture", "1");
 
 Remove that key to return to real capture.
 
+### The tray needs a Clips server running
+
+`pnpm tauri dev` starts only the tray and its own Vite server (port 1420). The
+tray is a client of the **Clips web app**, which is a separate process. Dev
+builds point at `http://localhost:8094` (`devPort` for clips in
+`packages/shared-app-config/templates.ts`), but a standalone `pnpm dev` in the
+template does **not** read that value — it lands on Vite's default 8080. Pass
+the port explicitly so the two agree:
+
+```bash
+cd templates/clips
+pnpm dev -- --port 8094
+```
+
+Without a server every request fails, sign-in included, and the popover shows
+"Can't reach localhost:8094" with a link to the setting. To skip running it at
+all, point the tray at the hosted instance from **Settings -> Advanced -> Clips
+server URL**.
+
+### Signing in during development
+
+**Use "Continue as the dev account".** The framework exposes
+`/_agent-native/auth/local-dev`, which creates or reuses an auto-managed dev
+account and returns a session token. The tray offers this button only when the
+server answers `GET /_agent-native/auth/local-dev` with `available: true` —
+which it does only when `NODE_ENV=development` and no other user rows exist. The
+server decides, so the button cannot appear against a hosted instance.
+
+Under the hood, dev auth rides the **bearer token**, not cookies. `tauri dev`
+serves the webview from `http://localhost:1420`, and the framework deliberately
+withholds credentialed CORS from localhost origins — see
+`shouldAllowMcpEmbedCredentials`, "only the configured browser allowlist and the
+framework's exact native app origins may receive cookies". Since the fetch
+interceptor always adds `X-Request-Source`, every request is preflighted, so
+asking for cookies there fails the whole request. The interceptor therefore
+omits credentials on an http origin and relies on the token the server returns
+in the login body (`http://localhost:1420` is on its token allowlist).
+
+**Email + password needs an existing account.** `/_agent-native/auth/login`
+calls `signInEmail` only — it never registers — and the tray has no sign-up
+form. Create the account once in the web app at http://localhost:8094, then sign
+in from the tray. Password signup does work locally: with
+`NODE_ENV !== "production"` and no email provider configured,
+`resolveEmailPasswordAuthPolicy` leaves both `requireEmailVerification` and
+`disableSignUp` off, so there is no email round-trip.
+
+**Google sign-in cannot work locally without credentials.** The provider is
+registered only when `GOOGLE_SIGN_IN_CLIENT_ID`/`GOOGLE_SIGN_IN_CLIENT_SECRET`
+(or the legacy `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`) are set for the Clips
+server, and that OAuth client must whitelist the local redirect URI. With no
+`.env` the auth-url endpoint returns 422 — by design, not a bug. Magic links are
+no help either: dev logs a token *digest*, never a usable URL.
+
+Sessions reset on every server restart unless `BETTER_AUTH_SECRET` is set; the
+server warns about this on boot.
+
+### Previewing a surface in a browser tab
+
+Layout and copy can be reviewed without a Rust build. `pnpm vite:dev` serves the
+same bundle at http://localhost:1420, where `src/dev/browser-preview.ts` (dev
+builds only) stubs just enough of Tauri's IPC to keep React mounted. Add a route
+hash to land on a surface directly:
+
+```
+http://localhost:1420/#settings
+http://localhost:1420/#settings/advanced
+```
+
+The route is read once at boot, so changing only the hash does nothing — reload
+after editing it. Every Tauri command rejects there, and rows say so rather than
+showing invented values — so treat it as a layout preview. Anything depending on real device
+state (permission grants, the Whisper catalog, Rewind) has to be checked in the
+actual app.
+
 ### Linux capabilities
 
 Linux uses the WebKitGTK recorder for screen, window, camera, and microphone
@@ -67,7 +141,11 @@ Remove that key to return full-screen mode to one-click native recording.
 
 ## First-run configuration
 
-On first launch the popover asks for the URL of your Clips server. This is stored in `localStorage` (default: `http://localhost:8080`). You can change it at any time from the popover's "Server" link.
+The popover talks to a Clips server, whose URL is stored in `localStorage`. Dev
+builds default to `http://localhost:8094`; release builds default to
+`https://clips.agent-native.com`. Change it any time from **Settings ->
+Advanced -> Clips server URL**. When nothing answers at that URL the sign-in
+screen says so and links straight to that setting.
 
 Clips registers itself to open at login by default, then runs quietly in the menu bar / system tray. Users can turn this off from Settings -> Open at login.
 

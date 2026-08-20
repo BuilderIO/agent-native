@@ -1,0 +1,276 @@
+/**
+ * Tailwind + shadcn/ui for the Clips tray app.
+ *
+ * Deliberately imports `theme` and `utilities` but NOT `preflight`. The tray
+ * predates this layer: `styles.css` hand-styles every overlay (pill, bubble,
+ * toolbar, countdown, onboarding) against unreset browser defaults, so
+ * preflight's reset would silently break all of them. Surfaces move onto
+ * Tailwind one at a time; when the last hand-written rule is gone, swap these
+ * two imports for plain `@import "tailwindcss"` and delete this comment.
+ */
+/* Layer order decides who wins, and it has to be declared before the imports.
+   `styles.css` is unlayered CSS, and unlayered always beats a layer — including
+   bare element rules like `button { font-size: inherit }`, which would quietly
+   defeat every `text-sm` on a shadcn Button. Pulling it into `legacy` puts it
+   below `utilities` so Tailwind can do its job, while keeping the tray's own
+   cascade intact for the surfaces still using it. */
+@layer legacy, theme, utilities;
+
+@import "./styles.css" layer(legacy);
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+@import "tw-animate-css";
+
+@source "./**/*.{ts,tsx}";
+
+/**
+ * The parts of preflight a Tailwind-era surface cannot live without, scoped to
+ * subtrees marked `data-tw-surface` so the hand-written tray surfaces keep the
+ * UA defaults their CSS was written against.
+ *
+ * Every rule here exists because a shadcn component assumes preflight already
+ * ran. Skipping it cost us, in order: phantom UA margins under headings, the
+ * native grey `ButtonFace` box behind `ghost` variants, `currentColor` borders
+ * painting black instead of a hairline, and icons riding ~2px high because an
+ * un-reset `svg` is an inline box on a text baseline. If a shadcn primitive
+ * looks subtly wrong here, suspect this list before editing the primitive.
+ *
+ * In `theme` so every utility still wins. Portaled shadcn content (popover and
+ * select) carries the attribute itself, since it renders outside the subtree.
+ */
+@layer theme {
+  [data-tw-surface] :is(h1, h2, h3, h4, h5, h6, p, figure, blockquote) {
+    margin: 0;
+  }
+
+  /* Icons are laid out as boxes, not as glyphs on a baseline. Without this an
+     `svg` stays `display: inline` and sits ~2px above the centre of whatever
+     flex row is meant to be centring it — visible on every checkmark, chevron,
+     and button icon. */
+  [data-tw-surface] :is(img, svg, video, canvas, audio, iframe, embed, object) {
+    display: block;
+    vertical-align: middle;
+  }
+
+  /* Tailwind's `border` utility sets width only — preflight is what gives every
+     element a default border COLOR. Without it a bare `border` (shadcn's
+     popover and select content, among others) falls back to `currentColor` and
+     paints a hard near-black rule instead of a hairline. */
+  [data-tw-surface],
+  [data-tw-surface] *,
+  [data-tw-surface] *::before,
+  [data-tw-surface] *::after {
+    border-color: hsl(var(--border));
+  }
+
+  [data-tw-surface] :is(button, input, optgroup, select, textarea) {
+    appearance: none;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background-color: transparent;
+    color: inherit;
+    font: inherit;
+    letter-spacing: inherit;
+  }
+
+  [data-tw-surface] :is(button, [role="button"]) {
+    cursor: pointer;
+  }
+
+  [data-tw-surface] :is(button, input, select, textarea):disabled {
+    cursor: not-allowed;
+  }
+
+  [data-tw-surface] :is(input, textarea)::placeholder {
+    color: hsl(var(--muted-foreground));
+    opacity: 1;
+  }
+
+  /* The remainder of preflight, ported in one pass rather than discovered one
+     bug at a time. Headings keep UA size/weight without this, lists keep their
+     markers and indent, links keep browser blue — each of which would read as
+     a broken shadcn component rather than a missing reset. */
+  [data-tw-surface] :is(h1, h2, h3, h4, h5, h6) {
+    font-size: inherit;
+    font-weight: inherit;
+  }
+
+  [data-tw-surface] :is(dl, dd, hr, pre, fieldset, legend) {
+    margin: 0;
+    padding: 0;
+  }
+
+  [data-tw-surface] :is(ol, ul, menu) {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  [data-tw-surface] a {
+    color: inherit;
+    text-decoration: inherit;
+  }
+
+  [data-tw-surface] :is(code, kbd, samp, pre) {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 1em;
+  }
+
+  [data-tw-surface] hr {
+    height: 0;
+    color: inherit;
+    border-top-width: 1px;
+  }
+
+  [data-tw-surface] table {
+    text-indent: 0;
+    border-color: inherit;
+    border-collapse: collapse;
+  }
+
+  [data-tw-surface] :is(img, video) {
+    max-width: 100%;
+    height: auto;
+  }
+
+  [data-tw-surface] textarea {
+    resize: vertical;
+  }
+
+  [data-tw-surface] summary {
+    display: list-item;
+  }
+
+  [data-tw-surface] [hidden]:not([hidden="until-found"]) {
+    display: none !important;
+  }
+}
+
+/* The tray follows the OS, so dark mode is a media query rather than the web
+   app's `.dark` class. Both resolve the same token names. */
+@custom-variant dark (@media (prefers-color-scheme: dark));
+
+/**
+ * shadcn/ui semantic tokens, expressed as HSL triplets exactly as in the web
+ * app's `app/global.css` so a primitive copied between the two renders the
+ * same. The values are the tray's own palette — a menu-bar window sits on the
+ * desktop, not on a page, so it stays slightly darker and flatter than web.
+ */
+:root {
+  --background: 0 0% 100%;
+  --foreground: 0 0% 9%;
+  --card: 0 0% 100%;
+  --card-foreground: 0 0% 9%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 0 0% 9%;
+  --primary: 0 0% 10%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 0 0% 97%;
+  --secondary-foreground: 0 0% 10%;
+  --muted: 0 0% 96%;
+  --muted-foreground: 0 0% 45%;
+  --accent: 0 0% 94%;
+  --accent-foreground: 0 0% 10%;
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 0 0% 90%;
+  --input: 0 0% 87%;
+  --ring: 0 0% 40%;
+  /* macOS convention for an engaged switch, and the one accent the tray uses. */
+  --success: 142 71% 45%;
+  /* Reserved for "there is something new here" — the Settings dot, nothing else. */
+  --info: 217 91% 55%;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: 0 0% 13%;
+    --foreground: 0 0% 96%;
+    --card: 0 0% 15%;
+    --card-foreground: 0 0% 96%;
+    --popover: 0 0% 15%;
+    --popover-foreground: 0 0% 96%;
+    --primary: 0 0% 96%;
+    --primary-foreground: 0 0% 10%;
+    --secondary: 0 0% 18%;
+    --secondary-foreground: 0 0% 96%;
+    --muted: 0 0% 16%;
+    --muted-foreground: 0 0% 64%;
+    --accent: 0 0% 20%;
+    --accent-foreground: 0 0% 96%;
+    --destructive: 0 72% 58%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 0 0% 24%;
+    --input: 0 0% 32%;
+    --ring: 0 0% 60%;
+    --success: 142 60% 52%;
+    --info: 217 91% 65%;
+  }
+}
+
+@theme inline {
+  /**
+   * Absolute, not rem. The tray sets `:root { font-size: 13px }`, so every
+   * rem-based Tailwind scale silently computed ~19% small against it —
+   * `text-xs` landed at 9.75px and `h-8` at 26px, which is what made control
+   * typography look off next to the px-based rest of the app. Pinning these to
+   * px makes the utility scale mean the same thing here as in the web app.
+   */
+  --spacing: 4px;
+  /* Softer than shadcn's 8px default: a 32px-tall control wants ~10px to read
+     as the rounded pill the rest of this product uses. */
+  --radius: 10px;
+
+  /* One scale, anchored on the tray's 13px baseline. `text-base` is body copy,
+     `text-sm` is every in-row control, `text-xs` is the grounding line. */
+  --text-2xs: 10px;
+  --text-2xs--line-height: 1.4;
+  --text-xs: 11px;
+  --text-xs--line-height: 1.45;
+  --text-sm: 12px;
+  --text-sm--line-height: 1.4;
+  --text-base: 13px;
+  --text-base--line-height: 1.45;
+  --text-lg: 15px;
+  --text-lg--line-height: 1.35;
+  --text-xl: 17px;
+  --text-xl--line-height: 1.3;
+  --text-2xl: 20px;
+  --text-2xl--line-height: 1.2;
+
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+
+  --color-success: hsl(var(--success));
+  --color-info: hsl(var(--info));
+
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+}

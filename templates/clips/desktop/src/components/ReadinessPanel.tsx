@@ -5,28 +5,18 @@ import {
   IconCircleOff,
   IconRefresh,
 } from "@tabler/icons-react";
-import { invoke } from "@tauri-apps/api/core";
 import { useState, useCallback, useEffect } from "react";
 
+import {
+  permissionStatusForPane,
+  readPermissionStatuses,
+  requestOrOpenPermission,
+  type MacosPrivacyPane,
+  type PermissionStatuses,
+} from "../lib/permission-status";
 import { isMacPlatform, isWindowsPlatform } from "../lib/platform";
 
 type CaptureMode = "screen" | "screen-camera" | "camera";
-type MacosPrivacyPane =
-  | "camera"
-  | "microphone"
-  | "screen"
-  | "speech"
-  | "accessibility"
-  | "input-monitoring";
-
-type PermissionStatuses = {
-  screen: boolean;
-  camera: boolean;
-  microphone: boolean;
-  speech: boolean;
-  accessibility: boolean;
-  inputMonitoring: boolean;
-};
 
 type ReadinessItem = {
   label: string;
@@ -95,22 +85,6 @@ function readinessItems({
   return items.filter((item) => item.active && (!item.macosOnly || mac));
 }
 
-function statusForPane(
-  pane: MacosPrivacyPane,
-  statuses: PermissionStatuses | null,
-): boolean | null {
-  if (!statuses) return null;
-  const map: Record<MacosPrivacyPane, boolean> = {
-    screen: statuses.screen,
-    camera: statuses.camera,
-    microphone: statuses.microphone,
-    speech: statuses.speech,
-    accessibility: statuses.accessibility,
-    "input-monitoring": statuses.inputMonitoring,
-  };
-  return map[pane];
-}
-
 export function ReadinessPanel({
   mode,
   cameraOn,
@@ -146,35 +120,19 @@ export function ReadinessPanel({
   const checkStatuses = useCallback(async () => {
     setChecking(true);
     try {
-      const result = await invoke<PermissionStatuses>(
-        "check_permission_statuses",
-      );
-      setStatuses(result);
-    } catch {
-      // Non-macOS or command not available — leave statuses null
+      setStatuses(await readPermissionStatuses());
     } finally {
       setChecking(false);
     }
   }, []);
 
-  const requestOrOpenPermission = useCallback(
-    async (pane: MacosPrivacyPane) => {
-      if (mac && pane === "screen") {
-        try {
-          const granted = await invoke<boolean>(
-            "system_audio_request_permission",
-          );
-          await checkStatuses();
-          if (granted) return;
-        } catch {
-          // Fall through to the dedicated privacy pane. The request API may
-          // be unavailable on an older macOS build or the user may already
-          // have denied the prompt once.
-        }
-      }
-      onOpenPermission(pane);
-    },
-    [checkStatuses, mac, onOpenPermission],
+  const grantPermission = useCallback(
+    (pane: MacosPrivacyPane) =>
+      requestOrOpenPermission(pane, {
+        onOpenSettings: onOpenPermission,
+        onRecheck: () => void checkStatuses(),
+      }),
+    [checkStatuses, onOpenPermission],
   );
 
   useEffect(() => {
@@ -203,7 +161,7 @@ export function ReadinessPanel({
         <div className="readiness-list">
           {items.length ? (
             items.map((item) => {
-              const granted = statusForPane(item.pane, statuses);
+              const granted = permissionStatusForPane(item.pane, statuses);
               return (
                 <div className="readiness-item" key={item.pane}>
                   <div className="readiness-item-copy">
@@ -239,7 +197,7 @@ export function ReadinessPanel({
                       <button
                         type="button"
                         className="readiness-open-button"
-                        onClick={() => void requestOrOpenPermission(item.pane)}
+                        onClick={() => void grantPermission(item.pane)}
                       >
                         Open
                       </button>

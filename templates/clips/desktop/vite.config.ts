@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
@@ -77,7 +78,12 @@ function resolveSentryEnvironment(): string {
 //   still picks up `.rs` / `tauri.conf.json` / `capabilities/*.json`
 //   changes and rebuilds the app.
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
+  resolve: {
+    alias: {
+      "@": resolve(root, "src"),
+    },
+  },
   clearScreen: false,
   define: {
     __CLIPS_DESKTOP_SENTRY_DSN__: JSON.stringify(resolveSentryDsn()),

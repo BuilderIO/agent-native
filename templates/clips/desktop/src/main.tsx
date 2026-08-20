@@ -2,8 +2,10 @@ import { invoke } from "@tauri-apps/api/core";
 import React from "react";
 import ReactDOM from "react-dom/client";
 
-import { App } from "./app";
+import { App, installAuthFetchInterceptor } from "./app";
+import { installBrowserPreview } from "./dev/browser-preview";
 import { initDesktopSentry } from "./lib/sentry";
+import { asDesktopSettingsTab } from "./lib/settings-navigation";
 import { Bubble } from "./overlays/bubble";
 import { Countdown } from "./overlays/countdown";
 import { Finalizing } from "./overlays/finalizing";
@@ -17,7 +19,8 @@ import { RegionGuideEditor, RegionGuides } from "./overlays/region-guides";
 import { RegionRecordBorder } from "./overlays/region-record-border";
 import { Toolbar } from "./overlays/toolbar";
 
-import "./styles.css";
+// Imports styles.css itself, into a lower cascade layer — see tailwind.css.
+import "./tailwind.css";
 
 /**
  * One bundle, one HTML, many views. We pick which component to mount based
@@ -26,7 +29,14 @@ import "./styles.css";
  */
 function currentRoute(): string {
   const hash = window.location.hash.replace(/^#/, "").toLowerCase();
-  return hash || "popover";
+  // `#settings/advanced` names a surface plus where to open it; the route is
+  // the part before the slash.
+  return hash.split("/")[0] || "popover";
+}
+
+/** `#settings/advanced` → "advanced". */
+function currentRouteDetail(): string | undefined {
+  return window.location.hash.replace(/^#/, "").toLowerCase().split("/")[1];
 }
 
 function installRouteAttributes(route: string): void {
@@ -64,6 +74,16 @@ function pickRoute(route: string): React.ReactElement {
       return <RegionRecordBorder />;
     case "monitor-picker":
       return <MonitorPicker />;
+    // Opens the popover straight onto Settings. Rust never spawns this route —
+    // it exists so `#settings` / `#settings/advanced` reaches the surface
+    // directly in a browser tab or a dev window.
+    case "settings":
+      return (
+        <App
+          initialView="settings"
+          initialSettingsTab={asDesktopSettingsTab(currentRouteDetail())}
+        />
+      );
     default:
       return <App />;
   }
@@ -214,7 +234,14 @@ function installConsoleCapture(route: string): void {
 const rootEl = document.getElementById("root");
 if (rootEl) {
   const route = currentRoute();
-  installRouteAttributes(route);
+  // Before anything reads Tauri internals: outside the app shell this keeps the
+  // surfaces mountable in a browser tab. No-ops inside Tauri, absent in prod.
+  if (import.meta.env.DEV) installBrowserPreview();
+  // Before React renders: covers fetches made during the first commit.
+  installAuthFetchInterceptor();
+  // `settings` is the popover window showing one of its views, so it takes the
+  // popover's shell styling rather than a full-viewport overlay's.
+  installRouteAttributes(route === "settings" ? "popover" : route);
   initDesktopSentry(route);
   installConsoleCapture(route);
   installBeforeUnloadCleanup();
