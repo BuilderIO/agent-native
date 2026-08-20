@@ -345,7 +345,11 @@ export function mergePendingChangelog(
           (entry) => entry.date && entry.date < newSection.date!,
         )
       : 0;
-    sections.splice(insertAt === -1 ? sections.length : insertAt, 0, newSection);
+    sections.splice(
+      insertAt === -1 ? sections.length : insertAt,
+      0,
+      newSection,
+    );
   }
 
   return `${changelogHeader(existing)}\n\n${sections
@@ -369,9 +373,7 @@ export function compactChangelog(
     .replace(CHANGELOG_ARCHIVE_NOTE, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
-  const sections = entries.map(
-    (entry) => `## ${entry.title}\n\n${entry.body}`,
-  );
+  const sections = entries.map((entry) => `## ${entry.title}\n\n${entry.body}`);
 
   if (sections.length === 0) {
     return `${header || CHANGELOG_HEADER.trim()}\n\n${CHANGELOG_ARCHIVE_NOTE}\n`;

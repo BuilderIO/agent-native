@@ -219,9 +219,9 @@ describe("mergePendingChangelog", () => {
       },
     ]);
 
-    expect(next.match(/Recordings can be trimmed before sharing\./g)).toHaveLength(
-      1,
-    );
+    expect(
+      next.match(/Recordings can be trimmed before sharing\./g),
+    ).toHaveLength(1);
     expect(next).toContain("A folder-only fix.");
   });
 
@@ -241,7 +241,9 @@ describe("mergePendingChangelog", () => {
       },
     ]);
 
-    expect(twice.match(/A multiline fix that explains the important detail\./g)).toHaveLength(1);
+    expect(
+      twice.match(/A multiline fix that explains the important detail\./g),
+    ).toHaveLength(1);
   });
 
   it("inserts older folder entries after newer released sections", () => {
@@ -270,7 +272,9 @@ describe("compactChangelog", () => {
 
     expect(compacted).toContain("Older updates live in [the changelog folder]");
     expect(compacted).toContain("Newer feature.");
-    expect(compacted).toContain("Recordings can be trimmed before sharing.");
+    expect(compacted).toContain(
+      "Recordings can now be trimmed before sharing.",
+    );
     expect(compacted).not.toContain("Faster transcript search.");
     expect(compacted).not.toContain("Older folder fix.");
     expect(parseChangelog(compacted).map((entry) => entry.title)).toEqual([

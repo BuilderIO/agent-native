@@ -19,8 +19,6 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import changelog from "../../CHANGELOG.md?raw";
-
 import { PageHeader } from "@/components/library/page-header";
 import { AiSetupSection } from "@/components/settings/ai-setup-section";
 import { SlackSection } from "@/components/settings/slack-section";
@@ -38,6 +36,8 @@ import { OrganizationIdentityCard } from "@/components/workspace/organization-id
 import { useSecretStatus } from "@/hooks/use-secret-status";
 import { useVideoStorageStatus } from "@/hooks/use-video-storage-status";
 import enMessages from "@/i18n/en-US";
+
+import changelog from "../../CHANGELOG.md?raw";
 
 export function meta() {
   return [{ title: enMessages.settings.pageTitle }];

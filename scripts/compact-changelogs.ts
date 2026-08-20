@@ -1,4 +1,10 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import path from "node:path";
 
 import {
@@ -19,7 +25,9 @@ type Mode = "check" | "write";
 function readFolderEntries(folder: string) {
   if (!existsSync(folder)) return [];
   return readdirSync(folder)
-    .filter((file) => file.endsWith(".md") && file.toLowerCase() !== "readme.md")
+    .filter(
+      (file) => file.endsWith(".md") && file.toLowerCase() !== "readme.md",
+    )
     .sort()
     .map((file) => {
       const filenameDate = file.match(/^(\d{4}-\d{2}-\d{2})(?:-|\.md$)/)?.[1];
@@ -139,7 +147,9 @@ const changed = run(mode);
 
 if (changed.length > 0) {
   const verb = mode === "write" ? "Updated" : "Would update";
-  console.log(`${verb} changelogs:\n${changed.map((item) => `- ${item}`).join("\n")}`);
+  console.log(
+    `${verb} changelogs:\n${changed.map((item) => `- ${item}`).join("\n")}`,
+  );
 }
 
 if (mode === "check" && changed.length > 0) {
