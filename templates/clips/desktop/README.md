@@ -98,7 +98,7 @@ registered only when `GOOGLE_SIGN_IN_CLIENT_ID`/`GOOGLE_SIGN_IN_CLIENT_SECRET`
 (or the legacy `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`) are set for the Clips
 server, and that OAuth client must whitelist the local redirect URI. With no
 `.env` the auth-url endpoint returns 422 — by design, not a bug. Magic links are
-no help either: dev logs a token *digest*, never a usable URL.
+no help either: dev logs a token _digest_, never a usable URL.
 
 Sessions reset on every server restart unless `BETTER_AUTH_SECRET` is set; the
 server warns about this on boot.
