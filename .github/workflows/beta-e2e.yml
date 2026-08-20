@@ -98,6 +98,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
+      apps: ${{ steps.matrix.outputs.apps }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -143,7 +144,7 @@ jobs:
           const matrix = { app: apps };
           fs.appendFileSync(
             process.env.GITHUB_OUTPUT,
-            `matrix=${JSON.stringify(matrix)}\n`,
+            `matrix=${JSON.stringify(matrix)}\napps=${apps.join(",")}\n`,
           );
           console.log(`Sharding ${apps.length} host(s): ${apps.join(", ")}`);
           NODE
@@ -169,7 +170,7 @@ jobs:
       - name: Public sweep
         run: |
           if [ -n "$BETA_E2E_GREP" ]; then
-            pnpm e2e:beta --project=public --grep "$BETA_E2E_GREP"
+            pnpm e2e:beta --project=public --grep "$BETA_E2E_GREP" --pass-with-no-tests
           else
             pnpm e2e:beta --project=public
           fi
@@ -185,10 +186,11 @@ jobs:
 
   fleet:
     name: Fleet-wide checks
+    needs: discover
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      BETA_E2E_APPS: ${{ inputs.apps }}
+      BETA_E2E_APPS: ${{ needs.discover.outputs.apps }}
       BETA_E2E_GREP: ${{ inputs.grep || '' }}
       BETA_E2E_AUTHED: "0"
       BETA_E2E_REPORT_SLOT: fleet
@@ -198,7 +200,7 @@ jobs:
       - name: Cross-host checks
         run: |
           if [ -n "$BETA_E2E_GREP" ]; then
-            pnpm e2e:beta --project=fleet --grep "$BETA_E2E_GREP"
+            pnpm e2e:beta --project=fleet --grep "$BETA_E2E_GREP" --pass-with-no-tests
           else
             pnpm e2e:beta --project=fleet
           fi
@@ -212,11 +214,12 @@ jobs:
 
   authed:
     name: Authenticated journeys
+    needs: discover
     if: ${{ inputs.lane != 'public' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      BETA_E2E_APPS: ${{ inputs.apps }}
+      BETA_E2E_APPS: ${{ needs.discover.outputs.apps }}
       BETA_E2E_GREP: ${{ inputs.grep || '' }}
       BETA_E2E_AUTHED: "1"
       BETA_E2E_REPORT_SLOT: authed
@@ -236,7 +239,7 @@ jobs:
         # anything. Not sharded: it establishes one session per app up front.
         run: |
           if [ -n "$BETA_E2E_GREP" ]; then
-            pnpm e2e:beta --project=authed --project=journeys --grep "$BETA_E2E_GREP"
+            pnpm e2e:beta --project=authed --project=journeys --grep "$BETA_E2E_GREP" --pass-with-no-tests
           else
             pnpm e2e:beta --project=authed --project=journeys
           fi
@@ -256,12 +259,13 @@ jobs:
 
   advisory:
     name: Advisory findings (non-gating)
-    if: ${{ always() }}
+    if: ${{ always() && needs.discover.result == 'success' }}
+    needs: discover
     continue-on-error: true
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      BETA_E2E_APPS: ${{ inputs.apps }}
+      BETA_E2E_APPS: ${{ needs.discover.outputs.apps }}
       BETA_E2E_GREP: ${{ inputs.grep || '' }}
       BETA_E2E_AUTHED: "0"
       BETA_E2E_REPORT_SLOT: advisory
@@ -274,7 +278,7 @@ jobs:
         # here from meaning "do not promote".
         run: |
           if [ -n "$BETA_E2E_GREP" ]; then
-            pnpm e2e:beta --project=advisory --grep "$BETA_E2E_GREP"
+            pnpm e2e:beta --project=advisory --grep "$BETA_E2E_GREP" --pass-with-no-tests
           else
             pnpm e2e:beta --project=advisory
           fi

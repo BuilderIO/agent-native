@@ -178,10 +178,12 @@ if (workflow) {
     );
   }
   if (
-    !workflow.includes('pnpm e2e:beta --project=fleet --grep "$BETA_E2E_GREP"')
+    !workflow.includes(
+      'pnpm e2e:beta --project=fleet --grep "$BETA_E2E_GREP" --pass-with-no-tests',
+    )
   ) {
     issues.push(
-      `${workflowPath} no longer passes BETA_E2E_GREP through the fleet lane. Filtered dispatches must not run the full cross-host suite.`,
+      `${workflowPath} no longer passes BETA_E2E_GREP through the fleet lane without failing when no fleet test matches.`,
     );
   }
   if (!workflow.includes("--project=advisory")) {
@@ -191,11 +193,11 @@ if (workflow) {
   }
   if (
     !workflow.includes(
-      'pnpm e2e:beta --project=advisory --grep "$BETA_E2E_GREP"',
+      'pnpm e2e:beta --project=advisory --grep "$BETA_E2E_GREP" --pass-with-no-tests',
     )
   ) {
     issues.push(
-      `${workflowPath} no longer passes BETA_E2E_GREP through the advisory lane. Filtered dispatches must not run the full advisory suite.`,
+      `${workflowPath} no longer passes BETA_E2E_GREP through the advisory lane without failing when no advisory test matches.`,
     );
   }
   if (!/continue-on-error:\s*true/.test(workflow)) {
@@ -229,6 +231,16 @@ if (workflow) {
   ) {
     issues.push(
       `${workflowPath} no longer deduplicates app IDs before emitting the shard matrix. Duplicate IDs would launch jobs with colliding artifact names.`,
+    );
+  }
+  if (!workflow.includes('apps=${apps.join(",")}')) {
+    issues.push(
+      `${workflowPath} no longer publishes the canonical app selection from discover for downstream non-sharded lanes.`,
+    );
+  }
+  if (!workflow.includes("BETA_E2E_APPS: ${{ needs.discover.outputs.apps }}")) {
+    issues.push(
+      `${workflowPath} passes raw inputs.apps to a non-sharded lane instead of discover's canonical app selection.`,
     );
   }
 }
