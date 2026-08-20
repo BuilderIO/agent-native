@@ -15,6 +15,7 @@ import {
   resolveMcpOAuthScope,
   resolveManagedMcpOAuthClient,
   setMcpOAuthFlowCookie,
+  stripMcpOAuthAppBasePath,
   type McpOAuthFlow,
 } from "./oauth-routes.js";
 
@@ -197,6 +198,18 @@ describe("MCP OAuth callback flow validation", () => {
 });
 
 describe("managed MCP OAuth clients", () => {
+  it("strips the mounted app path before getAppUrl prefixes it", () => {
+    expect(
+      stripMcpOAuthAppBasePath(
+        "/workspace/settings/integrations?connected=mcp-linear",
+        "/workspace",
+      ),
+    ).toBe("/settings/integrations?connected=mcp-linear");
+    expect(
+      stripMcpOAuthAppBasePath("/settings/integrations", "/workspace"),
+    ).toBe("/settings/integrations");
+  });
+
   it("rejects organization scope for managed MCP OAuth servers", () => {
     expect(
       resolveMcpOAuthScope(new URL("https://mcp.hubspot.com"), "org"),
