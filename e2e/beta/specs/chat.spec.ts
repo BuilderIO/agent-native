@@ -53,7 +53,7 @@ for (const site of sites) {
   const origin = originFor(site);
 
   test.describe(`${site.id} agent chat`, () => {
-    test("completes a turn on luna without an error state", async ({
+    test("completes and restores a turn on luna without an error state", async ({
       browser,
     }) => {
       const context = await signedInContext(browser, site);
@@ -94,6 +94,40 @@ for (const site of sites) {
           echoes,
           `${site.host} shows ${echoes} occurrence(s) of ${NONCE}. One is the user's own message; a second is the only evidence the assistant actually replied.`,
         ).toBeGreaterThanOrEqual(2);
+
+        // Reported repeatedly: the turn completes, but returning to the app
+        // loses the active thread or leaves the transcript blank. Reload the
+        // real page so localStorage restoration and the server read path both
+        // have to recover the thread that just completed.
+        await page.reload({
+          waitUntil: "domcontentloaded",
+          timeout: 90_000,
+        });
+        await expect(
+          page.locator(COMPOSER.input).first(),
+          `${site.host} did not restore the composer after reloading a completed chat`,
+        ).toBeVisible({ timeout: 60_000 });
+        await expect
+          .poll(
+            async () => {
+              const restoredTranscript = await page.locator("body").innerText();
+              return restoredTranscript.split(NONCE).length - 1;
+            },
+            {
+              timeout: 60_000,
+              message: `${site.host} did not restore both the user prompt and assistant response after reload`,
+            },
+          )
+          .toBeGreaterThanOrEqual(2);
+        await assertNoChatFailure(page, `${site.host} (restored chat turn)`);
+        await expect(
+          page.locator(MISSING_FINAL_RESPONSE),
+          `${site.host} restored a completed thread with a missing-final marker`,
+        ).toHaveCount(0);
+        await expect(
+          page.locator(COMPOSER.stop),
+          `${site.host} restored a completed thread in the stuck "Thinking" state`,
+        ).toBeHidden();
       } finally {
         await context.close();
       }
