@@ -14,6 +14,7 @@
 import type { EventHandler, H3Event } from "h3";
 import { setResponseHeader, setResponseStatus } from "h3";
 
+import { AppConfigurationError } from "../app-config/index.js";
 import { getMissingDefaultPlugins } from "../deploy/route-discovery.js";
 import { MCP_PUBLIC_ROUTE_PREFIX } from "../mcp/route-paths.js";
 import {
@@ -191,7 +192,11 @@ export function getH3App(nitroApp: any): H3AppShim {
 
   if (!BOOTSTRAPPED.has(nitroApp)) {
     BOOTSTRAPPED.add(nitroApp);
-    nitroApp[BOOTSTRAP_PROMISE_KEY] = bootstrapDefaultPlugins(nitroApp).catch(
+    // Read before the catch below: an unknown slot name in `plugins.disabled`
+    // is an invalid deployment, not a plugin that failed to start, and the
+    // catch would turn it into an app with every default route missing.
+    const disabledPlugins = getDisabledDefaultPlugins();
+    const bootstrap = bootstrapDefaultPlugins(nitroApp, disabledPlugins).catch(
       (err) => {
         console.warn(
           "[agent-native] Failed to auto-mount default plugins:",
@@ -201,8 +206,14 @@ export function getH3App(nitroApp: any): H3AppShim {
           route: "default-plugin-bootstrap",
           tags: { phase: "default-plugin-bootstrap" },
         });
+        if (err instanceof AppConfigurationError) throw err;
       },
     );
+    // The readiness gate is what observes this rejection, and it only runs on
+    // a request. Without a handler attached now, Node exits on the unhandled
+    // rejection before anything can report the configuration error.
+    bootstrap.catch(() => {});
+    nitroApp[BOOTSTRAP_PROMISE_KEY] = bootstrap;
 
     // Readiness gate: Nitro v3 doesn't await async plugins, so routes
     // registered inside an async plugin may not exist when the first
@@ -834,7 +845,10 @@ function registerMiddleware(
  * there instead of from @agent-native/core — this is the middle layer of the
  * three-layer inheritance model (app local > workspace core > framework).
  */
-async function bootstrapDefaultPlugins(nitroApp: any): Promise<void> {
+async function bootstrapDefaultPlugins(
+  nitroApp: any,
+  disabled: readonly string[],
+): Promise<void> {
   IN_BOOTSTRAP.add(nitroApp);
   try {
     const cwd = process.cwd();
@@ -845,7 +859,6 @@ async function bootstrapDefaultPlugins(nitroApp: any): Promise<void> {
     const undiscovered = provided
       ? discoveredMissing.filter((stem) => !provided.has(stem))
       : discoveredMissing;
-    const disabled: readonly string[] = getDisabledDefaultPlugins();
     const missing = undiscovered.filter((stem) => !disabled.includes(stem));
     const refused = undiscovered.filter((stem) => disabled.includes(stem));
     if (missing.length === 0) return;
@@ -954,6 +967,10 @@ async function bootstrapDefaultPlugins(nitroApp: any): Promise<void> {
             route: "default-plugin-bootstrap",
             tags: { phase: "default-plugin-bootstrap", plugin: stem },
           });
+          // A plugin that cannot start is optional; a plugin the deployment
+          // configured wrongly is not. Skipping it leaves the operator with
+          // routes that 404 and a deployment that reported success.
+          if (e instanceof AppConfigurationError) throw e;
         }
       }
     }

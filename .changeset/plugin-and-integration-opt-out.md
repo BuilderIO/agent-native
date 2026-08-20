@@ -26,3 +26,9 @@ allow-list now also gates the routes mounted under a platform's literal name —
 previously stayed mounted whatever the adapter set was. They are gated only
 when `integrations.platforms` is declared, so a deployment that does not set it
 keeps today's behavior.
+
+A misconfigured value in either switch is reported, not absorbed. An unknown
+slot name in `plugins.disabled` fails at `getH3App()` rather than inside the
+best-effort auto-mount catch, and the allow-list mismatch throws a typed
+`AppConfigurationError` that the auto-mount catch rethrows — otherwise a typo
+left the deployment reporting success with whole route trees missing.

@@ -374,6 +374,13 @@ describe("framework request handler", () => {
     ).resolves.toEqual({ fellThrough: true });
   });
 
+  it("surfaces an unknown plugins.disabled slot instead of dropping every default plugin", () => {
+    process.env.AGENT_NATIVE_DISABLED_PLUGINS = "agent-chatt";
+    resetAppConfigForTests();
+
+    expect(() => getH3App(createNitroApp())).toThrow(/"disabled"/);
+  });
+
   it("does not block unrelated framework routes on route-scoped plugin init", async () => {
     const nitroApp = createNitroApp();
     let release!: () => void;

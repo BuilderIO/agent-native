@@ -16,7 +16,7 @@ import {
   isInBackgroundFunctionRuntime,
 } from "../agent/durable-background.js";
 import { abortRun } from "../agent/run-manager.js";
-import { getAppConfig } from "../app-config/index.js";
+import { AppConfigurationError, getAppConfig } from "../app-config/index.js";
 import { isServerlessRuntime } from "../db/client.js";
 import { getOrgContext, resolveOrgIdForEmail } from "../org/context.js";
 import { loadResourcesForPrompt } from "../server/agent-chat-plugin.js";
@@ -443,7 +443,7 @@ export function applyConfiguredPlatformAllowList(
   const available = new Set(adapters.map((adapter) => adapter.platform));
   const unknown = allowed.filter((platform) => !available.has(platform));
   if (unknown.length > 0) {
-    throw new Error(
+    throw new AppConfigurationError(
       `[agent-native] integrations.platforms names ${unknown.join(", ")}, which no mounted adapter provides. ` +
         `Available: ${[...available].join(", ") || "(none)"}.`,
     );
