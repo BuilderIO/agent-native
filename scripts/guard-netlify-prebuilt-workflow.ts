@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { parse } from "yaml";
 
 const reusablePath = ".github/workflows/deploy-netlify-prebuilt.yml";
+const clipsNetlifyPath = "templates/clips/netlify.toml";
 const productionPath = ".github/workflows/deploy-production-sites-prebuilt.yml";
 const betaPath = ".github/workflows/deploy-beta-sites-prebuilt.yml";
 const manageProductionPath = ".github/workflows/manage-production-sites.yml";
@@ -16,6 +17,7 @@ export const PRODUCTION_PURGE_CONDITION =
   "inputs.target == 'production' && inputs.deploy && inputs.deploy_mode == 'production' && success()";
 
 const reusable = readFileSync(reusablePath, "utf8");
+const clipsNetlify = readFileSync(clipsNetlifyPath, "utf8");
 const production = readFileSync(productionPath, "utf8");
 const beta = readFileSync(betaPath, "utf8");
 const manageProduction = readFileSync(manageProductionPath, "utf8");
@@ -127,6 +129,34 @@ if (
 ) {
   issues.push(
     `${productionPath} must keep fleet runs in a dedicated production queue`,
+  );
+}
+
+const buildStepStart = reusable.indexOf(
+  "name: Build with the Netlify project configuration",
+);
+const buildStepEnd = reusable.indexOf(
+  "name: Verify deploy directories",
+  buildStepStart,
+);
+const clipsBuild =
+  buildStepStart >= 0 && buildStepEnd > buildStepStart
+    ? reusable.slice(buildStepStart, buildStepEnd)
+    : "";
+if (
+  !clipsBuild.includes('[[ "$SOURCE_TEMPLATE" == "clips" ]]') ||
+  !clipsBuild.includes("agentNativePrebuiltBuild=true") ||
+  !clipsBuild.includes("agentNativePrebuiltDatabaseUrl=") ||
+  !clipsBuild.includes("agentNativePrebuiltAuthSecret=") ||
+  !clipsNetlify.includes("agentNativePrebuiltBuild") ||
+  !clipsNetlify.includes("agentNativePrebuiltDatabaseUrl") ||
+  !clipsNetlify.includes("agentNativePrebuiltAuthSecret") ||
+  !/agentNativePrebuiltBuild:-\}.*!= \\"true\\".*migrate:production/.test(
+    clipsNetlify,
+  )
+) {
+  issues.push(
+    `${reusablePath} must provide Clips build-only env overrides without running production migrations`,
   );
 }
 const manageConcurrency = asRecord(
@@ -273,17 +303,48 @@ if (unlockStart < 0 || (uploadStart >= 0 && unlockStart >= uploadStart)) {
   if (
     !unlock.includes("/unlock") ||
     !unlock.includes("locked !== false") ||
-    !unlock.includes("/deploys?per_page=100") ||
+    !unlock.includes("/deploys?${params}") ||
     !unlock.includes("nextPageUrl") ||
     !unlock.includes("DEPLOY_LOOKBACK_MS") ||
     !unlock.includes("oldestCreatedAt") ||
     !unlock.includes("Date.parse(oldestCreatedAt) < cutoff") ||
-    !unlock.includes("readyIsBlocking") ||
-    !unlock.includes('candidate.state !== "ready" || readyIsBlocking') ||
-    !unlock.includes("candidate.published_at")
+    !unlock.includes(
+      'const params = new URLSearchParams({ per_page: "100", ...filters })',
+    ) ||
+    !unlock.includes('production: "true"') ||
+    !unlock.includes('state: "ready"') ||
+    unlock.includes("readyIsBlocking") ||
+    !unlock.includes("const preexistingDeployIds = new Set") ||
+    !unlock.includes("preexistingDeployIds.has(candidate.id)") ||
+    (
+      unlock.match(/drainPendingDeploys\(deployId, preexistingDeployIds\)/g) ??
+      []
+    ).length < 2 ||
+    !unlock.includes("candidate.published_at") ||
+    !unlock.includes("Netlify pre-existing production ready deploy lookup") ||
+    !/Netlify pre-existing production ready deploy lookup[\s\S]*?Date\.now\(\) - DEPLOY_LOOKBACK_MS/.test(
+      unlock,
+    ) ||
+    !unlock.includes("finalBeforeUnlock") ||
+    (
+      unlock.match(
+        /pendingProductionDeploys\([\s\S]*?publishedId,\s*preexistingDeployIds/g,
+      ) ?? []
+    ).length < 2
   ) {
     issues.push(
-      `${reusablePath} production unlock must handle ready deploys according to the published lock and verify locked=false`,
+      `${reusablePath} production unlock must ignore pre-existing ready deploys and block ready deploys created during this run`,
+    );
+  }
+  const baselineIndex = unlock.indexOf("const preexistingDeployIds = new Set");
+  const siteLookupIndex = unlock.indexOf("const site = await readJson(");
+  if (
+    baselineIndex < 0 ||
+    siteLookupIndex < 0 ||
+    baselineIndex > siteLookupIndex
+  ) {
+    issues.push(
+      `${reusablePath} must capture the ready production baseline before reading site/deploy state`,
     );
   }
 }
