@@ -673,6 +673,7 @@ function parseWorkspaceAppsManifest(parsed: any): WorkspaceAppSummary[] | null {
         publicPaths: normalizeWorkspaceAppPathList(entry.publicPaths),
         protectedPaths: normalizeWorkspaceAppPathList(entry.protectedPaths),
         status: "ready",
+        ...(entry.workspaceSso === true ? { workspaceSso: true } : {}),
         ...metadata,
       } satisfies WorkspaceAppSummary;
     })

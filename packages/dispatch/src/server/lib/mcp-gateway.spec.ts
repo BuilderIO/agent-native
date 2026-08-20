@@ -1482,6 +1482,44 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
     ).rejects.toThrow(/not registered/);
   });
 
+  it("allows a mounted app carrying the server-derived SSO projection", async () => {
+    mocks.discoverAgents.mockResolvedValue([]);
+    mocks.listWorkspaceApps.mockResolvedValue([
+      {
+        id: "workspace-reports",
+        name: "Workspace Reports",
+        description: "Custom workspace app",
+        path: "/workspace-reports",
+        url: "https://reports.example.com/workspace-reports",
+        isDispatch: false,
+        audience: "internal",
+        publicPaths: [],
+        protectedPaths: [],
+        workspaceSso: true,
+      },
+    ]);
+    mocks.managerCallTool.mockResolvedValueOnce({
+      structuredContent: {
+        startUrl:
+          "https://reports.example.com/workspace-reports/_agent-native/embed/start?ticket=remote",
+      },
+    });
+
+    const result = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "https://dispatch.agent-native.com",
+      },
+      () =>
+        createWorkspaceSsoEmbedSession({
+          app: "workspace-reports",
+          path: "/home",
+        }),
+    );
+
+    expect(result).toMatchObject({ app: "workspace-reports" });
+  });
+
   it("rejects traversal into Dispatch-owned embed routes on sibling apps", async () => {
     await expect(
       runWithRequestContext(

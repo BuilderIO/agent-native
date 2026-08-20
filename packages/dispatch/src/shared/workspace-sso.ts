@@ -145,11 +145,16 @@ function isLoopbackOrigin(origin: string): boolean {
  * caller so this shared module never reads process or browser environment.
  */
 export function isWorkspaceSsoAppUrl(
-  app: { id: string; url?: unknown },
+  app: { id: string; url?: unknown; workspaceSso?: boolean },
   options: { nodeEnv?: string; registryRaw?: unknown } = {},
 ): boolean {
   const origin = appOrigin(app.url);
   if (!origin) return false;
+
+  // Workspace inventory already returns this as a server-validated projection
+  // for mounted apps. Keep the URL parse above as the boundary check while
+  // preserving that decision across the Dispatch app-listing seams.
+  if (app.workspaceSso === true) return true;
 
   const appId = app.id.trim().toLowerCase();
   const canonicalOrigin =

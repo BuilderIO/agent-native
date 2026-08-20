@@ -72,6 +72,8 @@ export interface DispatchMcpAccessibleApp {
   name: string;
   description: string;
   url: string;
+  /** Server-validated workspace inventory projection for mounted apps. */
+  workspaceSso?: boolean;
   /** Canonical browser entry point when `url` is a deep A2A/agent link. */
   homeUrl?: string;
   color: string;
@@ -718,6 +720,7 @@ async function listWorkspaceSsoApps(): Promise<DispatchMcpAccessibleApp[]> {
       name: app.name,
       description: app.description,
       url: app.url,
+      ...(app.workspaceSso === true ? { workspaceSso: true } : {}),
       color: DISPATCH_COLOR,
       granted: true,
     });

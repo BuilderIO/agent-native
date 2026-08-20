@@ -546,6 +546,28 @@ describe("listWorkspaceApps", () => {
     });
   });
 
+  it("preserves the workspace inventory SSO projection", async () => {
+    stubNoPendingContext();
+    stubManifest([
+      {
+        id: "workspace-reports",
+        name: "Workspace Reports",
+        path: "/workspace-reports",
+        url: "https://reports.example.com/workspace-reports",
+        workspaceSso: true,
+      },
+    ]);
+
+    const apps = await runWithRequestContext(
+      { userEmail: "dev@example.test" },
+      () => listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    expect(apps.find((app) => app.id === "workspace-reports")).toMatchObject({
+      workspaceSso: true,
+    });
+  });
+
   it("filters workspace apps by audience", async () => {
     stubNoPendingContext();
     vi.stubEnv(
