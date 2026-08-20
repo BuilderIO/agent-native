@@ -135,8 +135,7 @@ async function handleMcpOAuthStart(
 
   const query = getQuery(event);
   const reconnectServerId = text(query.serverId);
-  const reconnectScope: RemoteMcpScope =
-    query.scope === "org" ? "org" : "user";
+  const reconnectScope: RemoteMcpScope = query.scope === "org" ? "org" : "user";
   const reconnectOrg =
     reconnectScope === "org"
       ? await getOrgContext(event).catch(() => null)
@@ -158,10 +157,9 @@ async function handleMcpOAuthStart(
           : "Join an organization before reconnecting an org MCP server.",
       };
     }
-    reconnectServer = (await listRemoteServers(
-      reconnectScope,
-      reconnectScopeId,
-    )).find((server) => server.id === reconnectServerId);
+    reconnectServer = (
+      await listRemoteServers(reconnectScope, reconnectScopeId)
+    ).find((server) => server.id === reconnectServerId);
     if (!reconnectServer) {
       setResponseStatus(event, 404);
       return { error: "MCP server was not found." };
