@@ -396,6 +396,32 @@ describe("mergePendingChangelog", () => {
     expect(next).toContain("- New fix.");
   });
 
+  it("tracks inline-code spans across lines", () => {
+    const existing = `# Changelog
+
+## 2026-08-20
+
+### Improved
+
+- Docs: \`<!-- literal marker
+### Not a category
+still code\`
+
+### Fixed
+
+- Existing fix.
+`;
+    const next = mergePendingChangelog(existing, [
+      { type: "fixed", text: "New fix.", date: "2026-08-20" },
+    ]);
+
+    expect(next.match(/^### Fixed$/gm)).toHaveLength(1);
+    expect(next).toContain("### Not a category");
+    expect(next).toContain("still code`");
+    expect(next).toContain("- Existing fix.");
+    expect(next).toContain("- New fix.");
+  });
+
   it("merges indented category headings", () => {
     const existing = `# Changelog
 

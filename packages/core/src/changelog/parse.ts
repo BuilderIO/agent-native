@@ -308,16 +308,27 @@ type ChangelogBodyGroup = {
 function stripHtmlComments(
   line: string,
   inComment: boolean,
-): { line: string; inComment: boolean; comments: string[] } {
+  initialInlineCodeMarker?: string,
+): {
+  line: string;
+  inComment: boolean;
+  inlineCodeMarker?: string;
+  comments: string[];
+} {
   let cursor = 0;
   let visibleLine = "";
   const comments: string[] = [];
-  let inlineCodeMarker: string | undefined;
+  let inlineCodeMarker = initialInlineCodeMarker;
   while (cursor < line.length) {
     if (inComment) {
       const commentEnd = line.indexOf("-->", cursor);
       if (commentEnd === -1) {
-        return { line: visibleLine, inComment: true, comments };
+        return {
+          line: visibleLine,
+          inComment: true,
+          inlineCodeMarker,
+          comments,
+        };
       }
       cursor = commentEnd + 3;
       inComment = false;
@@ -363,7 +374,7 @@ function stripHtmlComments(
     cursor = commentStart + 4;
     inComment = true;
   }
-  return { line: visibleLine, inComment, comments };
+  return { line: visibleLine, inComment, inlineCodeMarker, comments };
 }
 
 function splitChangelogBodyGroups(body: string): {
@@ -379,6 +390,7 @@ function splitChangelogBodyGroups(body: string): {
   let offset = 0;
   let fenceMarker: { character: string; length: number } | undefined;
   let htmlComment = false;
+  let inlineCodeMarker: string | undefined;
   for (const line of body.split(/\r?\n/)) {
     const lineEnd = offset + line.length;
     if (fenceMarker) {
@@ -395,19 +407,29 @@ function splitChangelogBodyGroups(body: string): {
     } else {
       let visibleLine: string | undefined;
       let headingComments: string[] = [];
-      if (!htmlComment) {
+      if (!htmlComment && !inlineCodeMarker) {
         const fence = /^\s*(`{3,}|~{3,})(.*)$/.exec(line)?.[1];
         if (fence) {
           fenceMarker = { character: fence[0], length: fence.length };
         } else {
-          const commentResult = stripHtmlComments(line, false);
+          const commentResult = stripHtmlComments(
+            line,
+            false,
+            inlineCodeMarker,
+          );
           htmlComment = commentResult.inComment;
+          inlineCodeMarker = commentResult.inlineCodeMarker;
           visibleLine = commentResult.line;
           headingComments = commentResult.comments;
         }
       } else {
-        const commentResult = stripHtmlComments(line, true);
+        const commentResult = stripHtmlComments(
+          line,
+          htmlComment,
+          inlineCodeMarker,
+        );
         htmlComment = commentResult.inComment;
+        inlineCodeMarker = commentResult.inlineCodeMarker;
         visibleLine = commentResult.line;
         headingComments = commentResult.comments;
       }
