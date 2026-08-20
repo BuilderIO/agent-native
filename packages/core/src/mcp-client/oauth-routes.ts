@@ -18,7 +18,11 @@ import { decryptSecretValue, encryptSecretValue } from "../secrets/crypto.js";
 import { getSession, safeReturnPath } from "../server/auth.js";
 import { resolveSecret } from "../server/credential-provider.js";
 import { getH3App } from "../server/framework-request-handler.js";
-import { getAppUrl, resolveOAuthRedirectUri } from "../server/google-oauth.js";
+import {
+  getAppBasePath,
+  getAppUrl,
+  resolveOAuthRedirectUri,
+} from "../server/google-oauth.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import {
   finishMcpOAuthAuthorization,
@@ -298,6 +302,18 @@ export function resolveMcpOAuthScope(
   return requestedScope === "org" ? "org" : "user";
 }
 
+export function stripMcpOAuthAppBasePath(
+  path: string,
+  basePath: string,
+): string {
+  const normalizedBase = `/${basePath.replace(/^\/+|\/+$/g, "")}`;
+  if (normalizedBase === "/") return path;
+  if (path === normalizedBase) return "/";
+  return path.startsWith(`${normalizedBase}/`)
+    ? path.slice(normalizedBase.length)
+    : path;
+}
+
 export async function resolveManagedMcpOAuthClient(
   serverUrl: URL,
 ): Promise<StoredOAuthClientInformation | undefined> {
@@ -400,7 +416,10 @@ async function handleMcpOAuthCallback(
     const returnPath =
       flow.returnUrl ??
       `/settings/integrations?connected=mcp-${encodeURIComponent(flow.name)}`;
-    return redirectWithStagedCookies(event, getAppUrl(event, returnPath));
+    return redirectWithStagedCookies(
+      event,
+      getAppUrl(event, stripMcpOAuthAppBasePath(returnPath, getAppBasePath())),
+    );
   } catch {
     setResponseStatus(event, 400);
     return { error: "MCP OAuth authorization could not be completed." };
