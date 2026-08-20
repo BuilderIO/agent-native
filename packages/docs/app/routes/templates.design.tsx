@@ -2,6 +2,7 @@ import { useLocale, useT } from "@agent-native/core/client/i18n";
 import { IconCheck } from "@tabler/icons-react";
 import { Link } from "react-router";
 
+import { BuilderImage } from "../components/builder-image";
 import { sitePathForLocale } from "../components/docs-locale";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { SectionDivider } from "../components/SectionDivider";
@@ -120,8 +121,9 @@ export default function DesignTemplate() {
           </a>
         }
         media={
-          <img
+          <BuilderImage
             src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fac64659497d24eacad0777227843535f"
+            sizes="(max-width: 900px) 100vw, 800px"
             crossOrigin="anonymous"
             alt={t("templateLanding.design.s001")}
             loading="lazy"

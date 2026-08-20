@@ -238,6 +238,8 @@ interface DesktopIdentityWindow {
 
 export interface DesktopIdentityBrokerOptions {
   identitySession: Session;
+  /** Keeps the hosted callback on the native desktop handoff path. */
+  userAgent?: string;
   /** Opens provider verification in the user's system browser. */
   openExternal?: (url: string) => void | Promise<void>;
   isAvailable?: (
@@ -491,6 +493,18 @@ export class DesktopIdentityBroker {
 
   constructor(private readonly options: DesktopIdentityBrokerOptions) {
     this.availability = options.isAvailable ? "unknown" : "available";
+  }
+
+  private identityWindowPreferences(): NonNullable<
+    BrowserWindowConstructorOptions["webPreferences"]
+  > {
+    return {
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: true,
+      session: this.options.identitySession,
+      ...(this.options.userAgent ? { userAgent: this.options.userAgent } : {}),
+    };
   }
 
   getStatus(): DesktopIdentityStatus {
@@ -1047,12 +1061,7 @@ export class DesktopIdentityBroker {
         show: true,
         backgroundColor: "#111111", // guard:allow-raw-color - native auth window stays neutral before app theme loads.
         parent: this.options.parentWindow?.() ?? undefined,
-        webPreferences: {
-          nodeIntegration: false,
-          contextIsolation: true,
-          sandbox: true,
-          session: this.options.identitySession,
-        },
+        webPreferences: this.identityWindowPreferences(),
       });
       this.activeWindow = identityWindow;
 
@@ -2955,12 +2964,7 @@ export class DesktopIdentityBroker {
       show: options.interactive !== false,
       backgroundColor: "#111111",
       parent: this.options.parentWindow?.() ?? undefined,
-      webPreferences: {
-        nodeIntegration: false,
-        contextIsolation: true,
-        sandbox: true,
-        session: this.options.identitySession,
-      },
+      webPreferences: this.identityWindowPreferences(),
     });
     this.activeWindow = identityWindow;
 

@@ -1475,6 +1475,7 @@ function ensureDesktopIdentityBroker(): DesktopIdentityBroker | null {
 
   desktopIdentityBroker = new DesktopIdentityBroker({
     identitySession: session.fromPartition(DESKTOP_IDENTITY_PARTITION),
+    userAgent: app.userAgentFallback,
     isAvailable: isDesktopIdentityAvailable,
     // Parent Google verification runs in the isolated identity window so its
     // browser-bound OAuth state remains in the same cookie partition. Magic
