@@ -68,6 +68,23 @@ import { AppResourceEffectiveStack } from "./workspace-resource-effective-stack"
 const APP_CARD_ACTION_CLASS =
   "size-7 rounded-md p-0 text-muted-foreground transition-[background-color,color] hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-accent data-[state=open]:text-foreground";
 
+function deferWorkspaceAppOverlayOpen(
+  event: { preventDefault: () => void },
+  closeMenu: () => void,
+  openOverlay: () => void,
+): void {
+  event.preventDefault();
+  closeMenu();
+  if (
+    typeof window !== "undefined" &&
+    typeof window.requestAnimationFrame === "function"
+  ) {
+    window.requestAnimationFrame(() => openOverlay());
+  } else {
+    setTimeout(openOverlay, 0);
+  }
+}
+
 export function WorkspaceAppCard({
   app,
   className,
@@ -394,10 +411,11 @@ function WorkspaceAppSettings({
   labels: WorkspaceAppMetadataLabels;
 }) {
   const [shareOpen, setShareOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   return (
     <>
-      <DropdownMenu>
+      <DropdownMenu open={settingsOpen} onOpenChange={setSettingsOpen}>
         <Tooltip>
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>
@@ -423,7 +441,15 @@ function WorkspaceAppSettings({
             Edit details
           </DropdownMenuItem>
           {!isPending ? (
-            <DropdownMenuItem onSelect={() => setShareOpen(true)}>
+            <DropdownMenuItem
+              onSelect={(event) =>
+                deferWorkspaceAppOverlayOpen(
+                  event,
+                  () => setSettingsOpen(false),
+                  () => setShareOpen(true),
+                )
+              }
+            >
               <IconShare3 size={14} aria-hidden="true" />
               {labels.share}
             </DropdownMenuItem>

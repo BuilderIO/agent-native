@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router";
@@ -7,23 +8,29 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "./ui/tooltip";
 import { WorkspaceAppCard } from "./workspace-app-card";
 
-vi.mock("@agent-native/core/client/sharing", () => ({
-  ShareButton: ({
-    resourceTitle,
-    defaultOpen,
-  }: {
-    resourceTitle?: string;
-    defaultOpen?: boolean;
-  }) =>
-    React.createElement(
-      "button",
-      {
-        type: "button",
-        "aria-label": `Share ${resourceTitle ?? "app"}`,
-        "data-default-open": defaultOpen ? "true" : undefined,
-      },
-      "Share",
-    ),
+vi.mock("../../../core/dist/client/use-action.js", () => ({
+  useActionMutation: () => ({
+    mutate: vi.fn(),
+    isPending: false,
+  }),
+  useActionQuery: () => ({
+    data: {
+      ownerEmail: "owner@example.com",
+      orgId: null,
+      visibility: "private",
+      role: "owner",
+      shares: [],
+    },
+    isLoading: false,
+    isError: false,
+    error: null,
+    refetch: vi.fn(async () => undefined),
+  }),
+}));
+
+vi.mock("../../../core/dist/client/i18n.js", () => ({
+  useT: () => (key: string, values?: Record<string, unknown>) =>
+    String(values?.defaultValue ?? key),
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
@@ -54,6 +61,7 @@ vi.mock("@agent-native/core/client/host", () => ({
 describe("WorkspaceAppCard", () => {
   let container: HTMLDivElement;
   let root: Root;
+  let queryClient: QueryClient;
 
   beforeEach(() => {
     frameState.inBuilderFrame = false;
@@ -61,10 +69,17 @@ describe("WorkspaceAppCard", () => {
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
+    queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
   });
 
   afterEach(() => {
     act(() => root.unmount());
+    queryClient.clear();
     container.remove();
     vi.unstubAllGlobals();
   });
@@ -204,26 +219,32 @@ describe("WorkspaceAppCard", () => {
   });
 
   it("opens Share from the app settings menu instead of the card actions", async () => {
+    const animationFrameCallbacks: FrameRequestCallback[] = [];
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      animationFrameCallbacks.push(callback);
+      return animationFrameCallbacks.length;
+    });
+
     await act(async () => {
       root.render(
-        <MemoryRouter>
-          <TooltipProvider>
-            <WorkspaceAppCard
-              app={{
-                id: "analytics",
-                name: "Analytics",
-                path: "/analytics",
-                status: "ready",
-              }}
-            />
-          </TooltipProvider>
-        </MemoryRouter>,
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter>
+            <TooltipProvider>
+              <WorkspaceAppCard
+                app={{
+                  id: "analytics",
+                  name: "Analytics",
+                  path: "/analytics",
+                  status: "ready",
+                }}
+              />
+            </TooltipProvider>
+          </MemoryRouter>
+        </QueryClientProvider>,
       );
     });
 
-    expect(
-      container.querySelector('button[aria-label="Share Analytics"]'),
-    ).toBeNull();
+    expect(container.querySelector('button[aria-label="Share"]')).toBeNull();
 
     const settingsButton = container.querySelector<HTMLButtonElement>(
       'button[aria-label="Settings for Analytics"]',
@@ -243,14 +264,18 @@ describe("WorkspaceAppCard", () => {
 
     await act(async () => shareItem?.click());
 
+    expect(container.querySelector('button[aria-label="Share"]')).toBeNull();
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+    expect(animationFrameCallbacks).toHaveLength(1);
+
+    await act(async () => animationFrameCallbacks.shift()?.(0));
+
     expect(
-      container.querySelector('button[aria-label="Share Analytics"]'),
+      container.querySelector('button[aria-label="Share"]'),
     ).not.toBeNull();
     expect(
-      container
-        .querySelector('button[aria-label="Share Analytics"]')
-        ?.getAttribute("data-default-open"),
-    ).toBe("true");
+      document.body.querySelector("[data-agent-native-share-overlay]"),
+    ).not.toBeNull();
   });
 
   it("keeps pinning in the app open menu", async () => {
