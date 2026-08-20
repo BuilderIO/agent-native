@@ -34,7 +34,6 @@ describe("MCP OAuth navigation outcomes", () => {
   const navigation = {
     origin: "https://dispatch.example.com",
     returnPath: "/integrations",
-    callbackPath: "/_agent-native/mcp/servers/oauth/callback",
   };
 
   it("completes after the hosted callback redirects to the return path", () => {
@@ -54,6 +53,24 @@ describe("MCP OAuth navigation outcomes", () => {
         candidateUrl:
           "https://dispatch.example.com/_agent-native/mcp/servers/oauth/callback?error=invalid_state",
         httpResponseCode: 400,
+      }),
+    ).toBe("error");
+  });
+
+  it("rejects an HTTP error from the MCP start or provider navigation", () => {
+    expect(
+      classifyMcpOAuthNavigation({
+        ...navigation,
+        candidateUrl:
+          "https://dispatch.example.com/_agent-native/mcp/servers/oauth/start?name=Notion",
+        httpResponseCode: 400,
+      }),
+    ).toBe("error");
+    expect(
+      classifyMcpOAuthNavigation({
+        ...navigation,
+        candidateUrl: "https://mcp.example.com/oauth/authorize?state=valid",
+        httpResponseCode: 502,
       }),
     ).toBe("error");
   });

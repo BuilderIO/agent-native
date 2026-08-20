@@ -13,7 +13,6 @@ export function classifyMcpOAuthNavigation(input: {
   candidateUrl: string;
   origin: string;
   returnPath: string;
-  callbackPath: string;
   httpResponseCode?: number;
 }): McpOAuthNavigationOutcome {
   let candidate: URL;
@@ -22,16 +21,14 @@ export function classifyMcpOAuthNavigation(input: {
   } catch {
     return "pending";
   }
+  if (input.httpResponseCode !== undefined && input.httpResponseCode >= 400) {
+    return "error";
+  }
   if (candidate.origin !== input.origin) return "pending";
 
   const candidatePath = normalizedPath(candidate.pathname);
-  const isErrorResponse =
-    input.httpResponseCode !== undefined && input.httpResponseCode >= 400;
   if (candidatePath === normalizedPath(input.returnPath)) {
-    return isErrorResponse ? "error" : "success";
-  }
-  if (candidatePath === normalizedPath(input.callbackPath) && isErrorResponse) {
-    return "error";
+    return "success";
   }
   return "pending";
 }

@@ -12972,12 +12972,6 @@ async function navigateMcpOAuthInDispatchWebview(
   if (!normalizedReturnPath) {
     throw new Error("MCP OAuth return path is invalid.");
   }
-  const startPath = new URL(url).pathname;
-  const callbackPath = startPath.replace(
-    /\/_agent-native\/mcp\/servers\/oauth\/start$/,
-    "/_agent-native/mcp/servers/oauth/callback",
-  );
-
   await new Promise<void>((resolve, reject) => {
     // MCP OAuth must follow the provider and hosted callback inside this
     // partition. The normal handler externalizes cross-origin redirects,
@@ -13014,7 +13008,6 @@ async function navigateMcpOAuthInDispatchWebview(
         candidateUrl: navigationUrl || target.getURL(),
         origin,
         returnPath: normalizedReturnPath,
-        callbackPath,
         httpResponseCode,
       });
       if (outcome === "success") finish();
