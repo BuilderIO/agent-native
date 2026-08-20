@@ -36,6 +36,7 @@ const DEFAULT_STATUS_TIMEOUT_MS = 10_000;
 const SESSION_COOKIE_POLL_INTERVAL_MS = 25;
 const DESKTOP_EXCHANGE_POLL_INTERVAL_MS = 500;
 const DESKTOP_EXCHANGE_PATH = "/_agent-native/auth/desktop-exchange";
+const GOOGLE_IDENTITY_WINDOW_CLOSE_GRACE_MS = 5_000;
 const DISPATCH_WORKSPACE_EMBED_ACTION =
   "/_agent-native/actions/create-workspace-app-embed-session";
 const DESKTOP_IDENTITY_APP_ID_PATTERN = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
@@ -1026,6 +1027,7 @@ export class DesktopIdentityBroker {
     const abortController = new AbortController();
     let identityWindow: DesktopIdentityWindow | null = null;
     let closedByBroker = false;
+    let windowCloseTimer: ReturnType<typeof setTimeout> | undefined;
     try {
       const response = await this.options.identitySession.fetch(
         authUrl.toString(),
@@ -1069,7 +1071,15 @@ export class DesktopIdentityBroker {
       const windowClosed = new Promise<boolean>((resolve) => {
         resolveWindowClosed = resolve;
         identityWindow!.on("closed", () => {
-          if (!closedByBroker) resolve(false);
+          if (closedByBroker) return;
+          // The hosted Google callback closes its OAuth window after it has
+          // stored the exchange record. Give the native poll a short grace
+          // period to redeem that record before treating a closed window as
+          // an abandoned sign-in.
+          windowCloseTimer = setTimeout(
+            () => resolveWindowClosed(false),
+            GOOGLE_IDENTITY_WINDOW_CLOSE_GRACE_MS,
+          );
         });
       });
 
@@ -1105,6 +1115,7 @@ export class DesktopIdentityBroker {
       if (identityWindow && this.activeWindow === identityWindow) {
         this.activeWindow = null;
       }
+      if (windowCloseTimer) clearTimeout(windowCloseTimer);
       if (identityWindow && !identityWindow.isDestroyed()) {
         closedByBroker = true;
         identityWindow.close();
