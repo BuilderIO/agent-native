@@ -133,6 +133,7 @@ import {
   signupAttributionFromCookieHeader,
 } from "./attribution.js";
 import { getAuthLoginMode } from "./auth-login-mode.js";
+import { injectBetaOptOutPersistence } from "./beta-opt-out-html.js";
 import {
   createBetterAuthSessionForEmail,
   ensureGoogleAuthIdentity,
@@ -646,7 +647,9 @@ export function getConfiguredLoginHtml(event: H3Event): string | null {
   const rawPath = queryStart >= 0 ? url.slice(0, queryStart) : url;
   const loginHtml =
     config.getLoginHtml?.(event, rawPath) ?? config.loginHtml ?? null;
-  return loginHtml ? injectLoginSocialImageMeta(loginHtml, event) : null;
+  return loginHtml
+    ? injectLoginSocialImageMeta(injectBetaOptOutPersistence(loginHtml), event)
+    : null;
 }
 
 /**
@@ -710,6 +713,7 @@ async function readDesktopSsoSafely(
   event: H3Event,
 ): Promise<Awaited<ReturnType<typeof readDesktopSso>>> {
   if (process.env.NODE_ENV === "production") return null;
+  if (getAppConfig().auth.disableDesktopSsoFallbackInDevelopment) return null;
   if (!isElectronRequest(event)) return null;
   if (!isLoopbackRequest(event)) return null;
   return await readDesktopSso();
@@ -1662,8 +1666,8 @@ const DESKTOP_AUTH_TOKEN_BODY_ORIGINS = new Set([
   "http://localhost:1420",
 ]);
 
-// 5-minute TTL for exchange entries (short — single-use tokens).
-const DESKTOP_EXCHANGE_TTL_MS = 5 * 60 * 1000;
+// 10-minute TTL for exchange entries (short — single-use tokens).
+const DESKTOP_EXCHANGE_TTL_MS = 10 * 60 * 1000;
 
 function normalizeDesktopFlowId(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -1820,7 +1824,7 @@ export function prepareDesktopOAuthBrowserBinding(event: H3Event): string {
   if (!binding || !/^[A-Za-z0-9_-]{43}$/.test(binding)) {
     binding = crypto.randomBytes(32).toString("base64url");
     setCookie(event, DESKTOP_OAUTH_BROWSER_BINDING_COOKIE, binding, {
-      ...crossSiteCookieAttrs(event),
+      ...desktopOAuthBrowserBindingCookieAttrs(event),
       httpOnly: true,
       path: "/",
       maxAge: Math.floor(DESKTOP_EXCHANGE_TTL_MS / 1_000),
@@ -2720,7 +2724,9 @@ function injectLoginSocialImageMeta(loginHtml: string, event: H3Event): string {
 
 function loginHtmlResponse(loginHtml: string, event: H3Event): Response {
   return new Response(
-    injectAnalyticsIntoHtml(injectLoginSocialImageMeta(loginHtml, event)),
+    injectAnalyticsIntoHtml(
+      injectLoginSocialImageMeta(injectBetaOptOutPersistence(loginHtml), event),
+    ),
     {
       status: 200,
       headers: {
@@ -3737,6 +3743,22 @@ function crossSiteCookieAttrs(event: H3Event): {
 } {
   return isHttpsRequest(event)
     ? { sameSite: "none", secure: true, partitioned: true }
+    : { sameSite: "lax", secure: false };
+}
+
+/**
+ * The binding cookie is set before navigating to Google and read after the
+ * provider redirects back. A partitioned cookie uses the top-level site from
+ * the bootstrap request, so it is unavailable when the callback starts from
+ * Google's top-level site. Keep this host-scoped cookie unpartitioned while
+ * retaining the cross-site and transport protections required by the flow.
+ */
+function desktopOAuthBrowserBindingCookieAttrs(event: H3Event): {
+  sameSite: "lax" | "none";
+  secure: boolean;
+} {
+  return isHttpsRequest(event)
+    ? { sameSite: "none", secure: true }
     : { sameSite: "lax", secure: false };
 }
 

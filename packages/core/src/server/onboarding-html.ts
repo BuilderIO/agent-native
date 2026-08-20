@@ -22,6 +22,7 @@ import { docsUrl } from "../shared/docs-url.js";
 import {
   BETA_OPT_OUT_DURATION_MS,
   BETA_OPT_OUT_QUERY_PARAM,
+  BETA_OPT_OUT_STORAGE_KEY,
   ENVIRONMENT_BETA_HOSTS,
 } from "../shared/environment-lanes.js";
 import {
@@ -1669,6 +1670,34 @@ ${marketing!.description ? `      <p class="app-desc" data-marketing-field="desc
     var productionLink = document.getElementById('environment-production-link');
     if (!switcher || !button || !popover || !productionLink) return;
     if (window.parent !== window) return;
+
+    // Persist the beta opt-out before authentication replaces this cached shell.
+    try {
+      var optOutUrl = new URL(window.location.href);
+      var optOutValue = optOutUrl.searchParams.get(${JSON.stringify(BETA_OPT_OUT_QUERY_PARAM)});
+      if (optOutValue !== null) {
+        var optOutExpiry = Number(optOutValue);
+        var optOutIsActive = Number.isFinite(optOutExpiry) && optOutExpiry > Date.now();
+        var optOutStorageReady = false;
+        try {
+          if (optOutIsActive) {
+            window.localStorage.setItem(
+              ${JSON.stringify(BETA_OPT_OUT_STORAGE_KEY)},
+              String(optOutExpiry),
+            );
+          }
+          optOutStorageReady = true;
+        } catch (error) {
+          void error;
+        }
+        if (optOutStorageReady) {
+          optOutUrl.searchParams.delete(${JSON.stringify(BETA_OPT_OUT_QUERY_PARAM)});
+          window.history.replaceState(null, '', optOutUrl.toString());
+        }
+      }
+    } catch (error) {
+      void error;
+    }
 
     var betaHosts = ${JSON.stringify(ENVIRONMENT_BETA_HOSTS)};
     var hostname = (window.location.hostname || '').toLowerCase().replace(/\\.$/, '');

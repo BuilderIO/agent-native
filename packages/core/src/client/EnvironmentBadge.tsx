@@ -12,6 +12,7 @@ import type {
 } from "../config.js";
 import {
   BETA_OPT_OUT_QUERY_PARAM,
+  BETA_OPT_OUT_STORAGE_KEY,
   buildEnvironmentOptOutUrl,
   buildEnvironmentUrl,
   resolveEnvironmentTargets,
@@ -21,11 +22,10 @@ import { trackEvent } from "./analytics.js";
 import { injectedAgentNativeConfig } from "./app-config.js";
 import { useSession } from "./use-session.js";
 
-export const BETA_OPT_OUT_STORAGE_KEY = "agent-native:beta-opt-out-until";
-
 export {
   BETA_OPT_OUT_DURATION_MS,
   BETA_OPT_OUT_QUERY_PARAM,
+  BETA_OPT_OUT_STORAGE_KEY,
   buildEnvironmentOptOutUrl,
   buildEnvironmentUrl,
   resolveEnvironmentTargets,
@@ -34,6 +34,12 @@ export {
 
 export function isBuilderIoEmployee(email: string | null | undefined): boolean {
   return email?.trim().toLowerCase().endsWith("@builder.io") ?? false;
+}
+
+export function isAgentNativeDesktopUserAgent(
+  userAgent: string | undefined,
+): boolean {
+  return /AgentNativeDesktop/i.test(userAgent ?? "");
 }
 
 export function resolveEnvironmentChannel(
@@ -199,6 +205,10 @@ function ProductionEnvironmentBadge({
     if (!isEligible || didAutoRedirect.current) {
       return;
     }
+
+    // Desktop child sessions are minted against their configured production
+    // origin. Do not move that WebView to beta after the session is created.
+    if (isAgentNativeDesktopUserAgent(window.navigator.userAgent)) return;
 
     if (readBetaOptOutUntil() !== null) return;
     if (consumeBetaOptOutQueryParam(window.location.href)) return;

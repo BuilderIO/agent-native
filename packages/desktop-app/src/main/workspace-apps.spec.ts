@@ -128,6 +128,59 @@ describe("loadDesktopWorkspaceApps", () => {
     );
   });
 
+  it("falls back to main-process fetch when the Electron session rejects a valid cookie", async () => {
+    const sessionFetch = vi
+      .fn()
+      .mockResolvedValue(response({ error: "Not authenticated" }, 401));
+    const fallbackFetch = vi
+      .fn()
+      .mockResolvedValueOnce(response({ [WORKSPACE_APP_LIST_FLAG_KEY]: true }))
+      .mockResolvedValueOnce(
+        response({
+          apps: [{ id: "alpha", path: "/alpha", status: "ready" }],
+        }),
+      );
+    vi.stubGlobal("fetch", fallbackFetch);
+    try {
+      const cookies = vi.fn().mockResolvedValue([
+        {
+          domain: "dispatch.example.com",
+          hostOnly: true,
+          name: "an_session_dispatch",
+          value: "parent-session",
+        },
+      ]);
+
+      await expect(
+        loadDesktopWorkspaceApps({
+          identitySession: sessionFor(sessionFetch, cookies),
+          dispatchOrigin: "https://dispatch.example.com",
+        }),
+      ).resolves.toEqual({
+        enabled: true,
+        apps: [
+          expect.objectContaining({
+            id: "alpha",
+            url: "https://dispatch.example.com/alpha",
+          }),
+        ],
+      });
+      expect(sessionFetch).toHaveBeenCalledTimes(2);
+      expect(fallbackFetch).toHaveBeenCalledTimes(2);
+      expect(fallbackFetch).toHaveBeenNthCalledWith(
+        1,
+        expect.stringContaining("/_agent-native/actions/get-feature-flags"),
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            Cookie: "an_session_dispatch=parent-session",
+          }),
+        }),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("does not expose a failed or malformed response as a normal inventory", async () => {
     const fetch = vi
       .fn()

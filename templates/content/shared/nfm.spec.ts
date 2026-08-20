@@ -755,6 +755,85 @@ describe("bug fixes — reliability sweep", () => {
     });
   });
 
+  describe("dual inline colors", () => {
+    it("serializes inline code without losing its color", () => {
+      const doc = {
+        type: "doc",
+        content: [
+          {
+            type: "paragraph",
+            content: [
+              {
+                type: "text",
+                text: "inline",
+                marks: [
+                  { type: "code" },
+                  {
+                    type: "notionSpan",
+                    attrs: { color: "red", bgColor: null },
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      } as any;
+
+      expect(docToNfm(doc)).toBe('<span color="red">`inline`</span>');
+    });
+
+    it("keeps established single-color spellings stable", () => {
+      expect(canonicalizeNfm('<span color="red">text</span>')).toBe(
+        '<span color="red">text</span>',
+      );
+      expect(canonicalizeNfm('<span color="yellow_bg">text</span>')).toBe(
+        '<span color="yellow_bg">text</span>',
+      );
+    });
+
+    it("round-trips foreground and background without losing either", () => {
+      const nfm = '<span color="red" bg_color="yellow_bg">text</span>';
+      const doc = nfmToDoc(nfm);
+      const mark = doc.content[0].content?.[0]?.marks?.find(
+        (candidate) => candidate.type === "notionSpan",
+      );
+
+      expect(mark?.attrs).toMatchObject({
+        color: "red",
+        bgColor: "yellow_bg",
+      });
+      expect(docToNfm(doc)).toBe(nfm);
+    });
+
+    it("does not serialize unsupported color values", () => {
+      const doc = {
+        type: "doc",
+        content: [
+          {
+            type: "paragraph",
+            content: [
+              {
+                type: "text",
+                text: "safe",
+                marks: [
+                  {
+                    type: "notionSpan",
+                    attrs: {
+                      color: "var(--arbitrary)",
+                      bgColor: "chartreuse",
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      } as any;
+
+      expect(docToNfm(doc)).toBe("safe");
+    });
+  });
+
   // n17: link/image parsing must balance parens and respect escapes so URLs
   // with literal parens and alts with escaped brackets survive.
   describe("n17: paren- and escape-aware link/image parsing", () => {

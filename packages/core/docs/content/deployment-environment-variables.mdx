@@ -31,6 +31,22 @@ hosting behavior.
 
 Database connection variables (`DATABASE_URL`, `DATABASE_AUTH_TOKEN`, per-app `<APP_NAME>_DATABASE_URL`) live in [Database](/docs/server-database#production).
 
+## Schema setup and cold starts {#skip-ensure-tables}
+
+On the first database touch, each data store checks whether its tables, columns,
+and indexes exist, then creates only what is missing. Managed serverless
+deployments skip this boot-time check in production. Other deployments can make
+the same tradeoff explicit with `AGENT_NATIVE_SKIP_ENSURE_TABLES=1` after the
+schema has been migrated.
+
+Use the flag only when your deployment owns schema migrations. If a required
+table is missing, the first real query fails loudly instead of repairing the
+schema at runtime.
+
+The check is batched into one introspection pass per database. This keeps the
+default safe for long-lived Node servers while limiting cold-start work on
+platforms that do not skip it automatically.
+
 ## Production-sensitive configuration {#env-required-prod}
 
 These settings cover production-sensitive behavior. A standalone app using the

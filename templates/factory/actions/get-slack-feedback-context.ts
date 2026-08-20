@@ -2,7 +2,6 @@ import { defineAction } from "@agent-native/core/action";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
-import type { SlackMessage } from "../server/connectors/slack.js";
 import { getDb } from "../server/db/index.js";
 import { triageConfig, triageItems } from "../server/db/schema.js";
 import {
@@ -11,8 +10,6 @@ import {
 } from "../server/lib/require-workspace-member.js";
 import { recordFactoryAudit } from "../server/triage/audit.js";
 import { createSlackReader } from "../server/triage/slack-client.js";
-
-const MAX_THREAD_PAGES = 5;
 
 export default defineAction({
   description:
@@ -46,31 +43,11 @@ export default defineAction({
     const workspace =
       config?.slackWorkspace === "secondary" ? "secondary" : "primary";
     const slack = createSlackReader({ ownerEmail: userEmail, orgId });
-    const messages: SlackMessage[] = [];
-    let cursor: string | undefined;
-    let hasMore = false;
-    for (let page = 0; page < MAX_THREAD_PAGES; page += 1) {
-      const result = await slack.getThread(
-        workspace,
-        item.channelId,
-        item.threadTs,
-        100,
-        cursor,
-      );
-      messages.push(...result.messages);
-      if (result.has_more && !result.next_cursor) {
-        throw new Error(
-          "Slack thread pagination is incomplete because the provider omitted its next cursor.",
-        );
-      }
-      if (!result.has_more) {
-        hasMore = false;
-        break;
-      }
-      hasMore = page === MAX_THREAD_PAGES - 1;
-      if (hasMore) break;
-      cursor = result.next_cursor;
-    }
+    const { messages, hasMore } = await slack.getCompleteThread(
+      workspace,
+      item.channelId,
+      item.threadTs,
+    );
 
     await recordFactoryAudit(
       context,
@@ -100,10 +77,13 @@ export default defineAction({
       coverage: hasMore ? "partial" : "complete",
       messages: messages.map((message) => ({
         user: message.user ?? message.username ?? message.bot_id ?? null,
+        username: message.username ?? null,
+        botId: message.bot_id ?? null,
         text: message.text,
         ts: message.ts,
         threadTs: message.thread_ts ?? item.threadTs,
         replyCount: message.reply_count ?? 0,
+        reactions: message.reactions ?? [],
       })),
     };
   },

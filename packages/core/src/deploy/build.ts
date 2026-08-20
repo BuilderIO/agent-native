@@ -21,6 +21,8 @@ import { createRequire } from "module";
 import path from "path";
 import { fileURLToPath } from "url";
 
+import { loadEnv } from "vite";
+
 import {
   AGENT_BACKGROUND_FUNCTION_NAME,
   AGENT_BACKGROUND_FUNCTION_URL_PATH,
@@ -43,6 +45,7 @@ import {
   RECURRING_JOBS_SWEEP_PATH,
   RECURRING_JOBS_SWEEP_TOKEN_SUBJECT,
 } from "../jobs/scheduler-dispatch.js";
+import { findWorkspaceRoot as findAgentNativeWorkspaceRoot } from "../scripts/utils.js";
 import {
   RECURRING_JOBS_BUILD_MARKER_ENV_VAR,
   resolveRecurringJobsBuildMarker,
@@ -3687,6 +3690,59 @@ function walkServerJavaScriptFiles(
 }
 
 /**
+ * A host-side prebuilt Netlify output can accidentally carry the native
+ * better-sqlite3 binary from the developer's machine. Netlify functions run
+ * on Linux, so fail before publication unless every copied binary is an ELF
+ * object produced by the Linux build.
+ */
+export function findNonLinuxBetterSqlite3Binaries(serverDir: string): string[] {
+  const failures: string[] = [];
+
+  const walk = (dir: string) => {
+    if (!fs.existsSync(dir)) return;
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const entryPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(entryPath);
+        continue;
+      }
+      if (entry.name !== "better_sqlite3.node") continue;
+      const normalizedPath = entryPath.split(path.sep).join("/");
+      if (
+        !normalizedPath.includes(
+          "/node_modules/better-sqlite3/build/Release/better_sqlite3.node",
+        )
+      ) {
+        continue;
+      }
+      const header = fs.readFileSync(entryPath).subarray(0, 20);
+      const isLittleEndian = header[5] === 1;
+      const machine =
+        header.length >= 20 && header[5] === 1
+          ? header.readUInt16LE(18)
+          : header.length >= 20 && header[5] === 2
+            ? header.readUInt16BE(18)
+            : null;
+      if (
+        header.length < 20 ||
+        header[0] !== 0x7f ||
+        header[1] !== 0x45 ||
+        header[2] !== 0x4c ||
+        header[3] !== 0x46 ||
+        header[4] !== 2 ||
+        !isLittleEndian ||
+        machine !== 62
+      ) {
+        failures.push(entryPath);
+      }
+    }
+  };
+
+  walk(serverDir);
+  return failures;
+}
+
+/**
  * Nitro receives the React Router SSR build as prebuilt chunks, so its normal
  * dependency resolver cannot reliably fold the preserved bare `yjs` imports
  * into the same module instance used by core's server collaboration code.
@@ -4034,6 +4090,18 @@ export function assertSingleTemplateNetlifyBuildOutput(
   if (privateYjsImports.length > 0) {
     failures.push(
       `Netlify server bundle imports Nitro's internal tree-shaken _libs/yjs.mjs: ${privateYjsImports.join(", ")}`,
+    );
+  }
+
+  const nonLinuxBetterSqlite3Binaries =
+    findNonLinuxBetterSqlite3Binaries(serverDir);
+  if (nonLinuxBetterSqlite3Binaries.length > 0) {
+    failures.push(
+      `Netlify server bundle contains non-Linux better-sqlite3 native binaries: ${nonLinuxBetterSqlite3Binaries
+        .map((filePath) => path.relative(projectCwd, filePath))
+        .join(
+          ", ",
+        )}; build in Netlify's Linux environment instead of uploading a host-native prebuilt output`,
     );
   }
 
@@ -4857,12 +4925,20 @@ async function buildWithNitro() {
   // own virtual module registration. Both paths reuse `readAgentsBundleFromFs`
   // from `server/agents-bundle.ts` to guarantee identical content.
   const { readAgentsBundleFromFs } = await import("../server/agents-bundle.js");
+  const nitroMode =
+    process.env.NODE_ENV === "development" ? "development" : "production";
+  const agentNativeWorkspaceRoot = findAgentNativeWorkspaceRoot(cwd);
+  const nitroEnvironment = {
+    ...(agentNativeWorkspaceRoot && agentNativeWorkspaceRoot !== cwd
+      ? loadEnv(nitroMode, agentNativeWorkspaceRoot, "")
+      : {}),
+    ...loadEnv(nitroMode, cwd, ""),
+    ...process.env,
+  };
   const nitroAgentConfig = await loadResolvedAgentNativeConfig(
     cwd,
-    createAgentNativeConfigContext(
-      "build",
-      process.env.NODE_ENV === "development" ? "development" : "production",
-    ),
+    createAgentNativeConfigContext("build", nitroMode),
+    { environment: nitroEnvironment },
   );
   // Resolve the workspace core (if present) up front so the bundle embeds
   // enterprise-wide AGENTS.md + skills alongside the template's.

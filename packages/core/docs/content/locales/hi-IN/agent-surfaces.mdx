@@ -177,6 +177,12 @@ createAgentChatPlugin({
 });
 ```
 
+यदि वही resolver बिना प्रतिबंध वाले default chat को भी संभालता है, तो
+`{ mode: "default" }` लौटाएँ। इससे पहली model request में सभी उपलब्ध schemas
+लोड करने के बजाय सामान्य `initialToolNames` filtering और `tool-search`
+discovery बनी रहती है। यह स्पष्ट mode durable continuations में भी सुरक्षित
+रहता है।
+
 खाली सूची कोई native action उपलब्ध नहीं कराती। अज्ञात नाम access बढ़ाने के
 बजाय request को fail करते हैं। सभी अनुमत actions पहली model request पर सीधे
 लोड होते हैं; पहले से अधिकृत catalog में खोज चाहिए तभी `tool-search` को साफ़

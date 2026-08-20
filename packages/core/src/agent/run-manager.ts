@@ -158,10 +158,21 @@ export const DEFAULT_BACKGROUND_RUN_SOFT_TIMEOUT_MS =
  * with the client watching keepalives. This backstop covers every segment by
  * construction: if no REAL progress event (see `shouldBumpProgressForEvent`;
  * keepalives and zero-byte prep activity don't count) lands for this long —
- * and no tool call is in flight (tool execution legitimately emits nothing
- * for minutes and has its own 12-min timeout) — the run manager emits
+ * and no unit of work is in flight (see `inFlightWorkDelta`: tool calls,
+ * cross-app calls, and the model stream all legitimately emit nothing for
+ * minutes and each carry a bound of their own) — the run manager emits
  * `auto_continue { reason: "no_progress" }` and aborts the chunk, exactly
  * like the soft timeout, so the normal continuation machinery recovers it.
+ *
+ * Being numerically larger than the in-loop watchdogs is NOT what keeps this
+ * from killing a healthy run, and treating it that way is what made it do so:
+ * this clock and the loop's `lastModelStreamProgressAt` measure DIFFERENT
+ * events. An extended-thinking phase bumps the inner clock on every engine
+ * frame while forwarding nothing, so the inner watchdog correctly stayed quiet
+ * and this one saw pure silence — runs whose worst gap crossed 150s died while
+ * still streaming, some by a single second. Ordering between two clocks only
+ * means something when they watch the same events; suspending on in-flight
+ * work is what actually makes the two agree.
  *
  * This is now only the CEILING, not the value: `resolveRunNoProgressTimeoutMs`
  * clamps the foreground backstop to a fraction of the chunk's soft timeout
@@ -255,6 +266,37 @@ export function resolveRunNoProgressTimeoutMs(params: {
   );
   if (override === undefined) return ceiling;
   return override === 0 ? 0 : Math.min(override, ceiling);
+}
+
+/**
+ * Work-tracking transition for one event: `1` opens a unit of in-flight work,
+ * `-1` closes one, `0` is not a work-tracking event.
+ *
+ * Every pair listed here suspends the no-progress backstop for as long as it is
+ * open, so each one MUST be bounded by a watchdog of its own — tool calls by
+ * the per-tool timeout, cross-app calls by the A2A poll timeout, the model
+ * stream by `MODEL_STREAM_NO_PROGRESS_TIMEOUT_MS`, which the agent loop races
+ * against every wait for the next engine frame. A pair added here without such
+ * a bound turns the backstop off for the rest of the run, which is strictly
+ * worse than the stall it was meant to catch.
+ *
+ * Note what that leaves: the model-stream bound covers waiting for the engine,
+ * not a hang while the loop processes a frame it already has. Nothing here
+ * covers that segment, so a suspension is only ever as tight as the chunk's own
+ * soft timeout. Keep the pairs narrow around genuinely blocking work.
+ */
+function inFlightWorkDelta(event: AgentChatEvent): -1 | 0 | 1 {
+  switch (event.type) {
+    case "tool_start":
+      return 1;
+    case "tool_done":
+      return -1;
+    case "agent_call":
+    case "model_stream":
+      return event.status === "start" ? 1 : -1;
+    default:
+      return 0;
+  }
 }
 
 /**
@@ -1145,9 +1187,10 @@ export function startRun(
   // ── No-progress backstop (see RUN_NO_PROGRESS_HARD_TIMEOUT_MS) ──────────
   // Timer-driven and independent of the agent loop, so it fires even when the
   // stall is in a segment the in-loop watchdogs never see (engine-call
-  // establishment, setup, a wedged transport emitting keepalives). Tool calls
-  // and sub-agent calls in flight suspend it — tool execution legitimately
-  // emits nothing for minutes and carries its own 12-min timeout.
+  // establishment, setup, a wedged transport emitting keepalives). Tool calls,
+  // sub-agent calls, and the model stream in flight suspend it — each
+  // legitimately emits nothing for minutes and each carries a bound of its own
+  // (see `inFlightWorkDelta`).
   let lastRealProgressAt = Date.now();
   let inFlightWorkCount = 0;
   let inFlightMarkerSince: number | null = null;
@@ -1175,20 +1218,10 @@ export function startRun(
       });
   };
   const trackInFlightWork = (event: AgentChatEvent) => {
+    const delta = inFlightWorkDelta(event);
+    if (delta === 0) return; // Not a work-tracking event — no transition.
     const wasIdle = inFlightWorkCount === 0;
-    if (event.type === "tool_start") {
-      inFlightWorkCount += 1;
-    } else if (event.type === "tool_done") {
-      inFlightWorkCount = Math.max(0, inFlightWorkCount - 1);
-    } else if (event.type === "agent_call") {
-      if (event.status === "start") {
-        inFlightWorkCount += 1;
-      } else {
-        inFlightWorkCount = Math.max(0, inFlightWorkCount - 1);
-      }
-    } else {
-      return; // Not a work-tracking event — no transition possible.
-    }
+    inFlightWorkCount = Math.max(0, inFlightWorkCount + delta);
     // Mirror the 0<->N transition into SQL so a stale reaper running in a
     // DIFFERENT isolate (a client's SQL-subscription poll, a sibling
     // isolate's opportunistic cleanup, a fresh boot's startup sweep) can
@@ -1199,6 +1232,14 @@ export function startRun(
     // keep failures observable and preserve transition order. See
     // `setRunInFlightMarker` / `IN_FLIGHT_RUN_STALE_GRACE_MS` in run-store.ts
     // for the full reasoning and bounded-grace derivation.
+    //
+    // A model stream in flight mirrors the marker too, deliberately: a long
+    // thinking phase is exactly when another isolate's reaper would call this
+    // run stale, and the stream is as demonstrably alive as a tool call. It
+    // cannot latch a corpse — the grace clause additionally requires the
+    // liveness basis to be fresh within `IN_FLIGHT_GRACE_MAX_LIVENESS_GAP_MS`,
+    // so a marker left set by a dead producer buys nothing. The cost is one
+    // extra set/clear pair per model call on the way to each tool call.
     if (wasIdle && inFlightWorkCount > 0) {
       mirrorInFlightMarker(true);
     } else if (!wasIdle && inFlightWorkCount === 0) {
@@ -1241,7 +1282,8 @@ export function startRun(
     if (inFlightWorkCount > 0) return;
     if (Date.now() - lastRealProgressAt < noProgressTimeoutMs) return;
     console.error(
-      `[run-manager] no real progress for ${noProgressTimeoutMs}ms with no tool in flight — ` +
+      `[run-manager] no real progress for ${noProgressTimeoutMs}ms with no tool ` +
+        `or model stream in flight — ` +
         `checkpointing run for continuation`,
       runId,
     );

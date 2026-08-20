@@ -783,6 +783,18 @@ export interface AgentActionSurface {
   allowedActionNames: readonly string[];
 }
 
+export interface DefaultAgentActionSurface {
+  mode: "default";
+}
+
+export type AgentActionSurfaceResolution =
+  | AgentActionSurface
+  | DefaultAgentActionSurface;
+
+type NormalizedAgentActionSurface =
+  | DefaultAgentActionSurface
+  | { mode: "allowlist"; allowedActionNames: string[] };
+
 export interface AgentActionSurfaceDetails {
   event: any;
   ownerEmail: string | null;
@@ -820,10 +832,40 @@ export function readPersistedAllowedActionNames(
   return [...new Set(names)];
 }
 
-export interface PersistedActionSurface {
-  orgId: string | null;
-  allowedActionNames: string[];
+export function normalizeAgentActionSurfaceResolution(
+  value: unknown,
+): NormalizedAgentActionSurface {
+  if (hasOwn(value, "mode")) {
+    if (value.mode === "default" && !hasOwn(value, "allowedActionNames")) {
+      return { mode: "default" };
+    }
+    throw new Error("resolveActionSurface returned an invalid default surface");
+  }
+  if (!hasOwn(value, "allowedActionNames")) {
+    throw new Error("resolveActionSurface returned an invalid action surface");
+  }
+  const allowedActionNames = value.allowedActionNames;
+  if (
+    !Array.isArray(allowedActionNames) ||
+    !allowedActionNames.every((name) => typeof name === "string")
+  ) {
+    throw new Error("resolveActionSurface returned an invalid action surface");
+  }
+  return {
+    mode: "allowlist",
+    allowedActionNames: [...new Set(allowedActionNames)],
+  };
 }
+
+export type PersistedActionSurface =
+  | {
+      orgId: string | null;
+      allowedActionNames: string[];
+    }
+  | {
+      orgId: string | null;
+      mode: "default";
+    };
 
 /** Read a nested persisted action surface. An absent envelope is legacy;
  * a present but invalid envelope is an explicit org-less, empty surface. */
@@ -833,7 +875,6 @@ export function readPersistedActionSurface(
 ): PersistedActionSurface | undefined {
   if (!hasOwn(value, propertyName)) return undefined;
   const surface = value[propertyName];
-  const allowedActionNames = readPersistedAllowedActionNames(surface) ?? [];
   if (!hasOwn(surface, "orgId")) {
     return { orgId: null, allowedActionNames: [] };
   }
@@ -844,6 +885,13 @@ export function readPersistedActionSurface(
   ) {
     return { orgId: null, allowedActionNames: [] };
   }
+  if (hasOwn(surface, "mode")) {
+    if (surface.mode === "default" && !hasOwn(surface, "allowedActionNames")) {
+      return { orgId, mode: "default" };
+    }
+    return { orgId: null, allowedActionNames: [] };
+  }
+  const allowedActionNames = readPersistedAllowedActionNames(surface) ?? [];
   return { orgId, allowedActionNames };
 }
 
@@ -1225,13 +1273,14 @@ export interface ProductionAgentOptions {
       }>;
   /**
    * Resolve the exact action registry exposed to one interactive agent-chat
-   * request. Returned names are a hard allowlist: omitted actions are absent
-   * from both the provider schemas and the searchable registry. When set, all
-   * allowed actions are loaded directly on the first model request.
+   * request. Return an allowlist to remove omitted actions from both provider
+   * schemas and the searchable registry, or `{ mode: "default" }` to preserve
+   * the normal initial-tool and discovery behavior for that request. Every
+   * allowlisted action is loaded directly on the first model request.
    */
   resolveActionSurface?: (
     details: AgentActionSurfaceDetails,
-  ) => AgentActionSurface | Promise<AgentActionSurface>;
+  ) => AgentActionSurfaceResolution | Promise<AgentActionSurfaceResolution>;
   /** Optional per-app agent run chunk budget in milliseconds. Defaults to
    *  AGENT_RUN_SOFT_TIMEOUT_MS when set, otherwise no framework-imposed
    *  timeout. When reached, the client receives an internal auto-continuation
@@ -1406,6 +1455,14 @@ const VISIBLE_RETRY_THRESHOLD_MS = 10_000;
  * < HOSTED_SOFT_TIMEOUT_CEILING_MS           (40s, run-manager.ts)
  * < MODEL_STREAM_NO_PROGRESS_TIMEOUT_MS      (90s, above)
  * < RUN_NO_PROGRESS_HARD_TIMEOUT_MS          (150s, run-manager.ts)
+ *
+ * Ordering alone is NOT sufficient between the last two, because they do not
+ * measure the same events: the bounds above watch engine-stream frames, while
+ * the run-manager backstop watches events this loop FORWARDS. Extended
+ * thinking produces the first without the second, so the 150s bound sat inside
+ * the working distribution and killed live runs. What keeps them consistent is
+ * the `model_stream` start/end bracket around the engine call, which suspends
+ * the outer backstop while these inner bounds are the ones on duty.
  *
  * Background-function runs (proven 15-min budget, no ~40s wall) are likewise
  * unaffected — they keep the full 90s window for every event, first or not.
@@ -4930,6 +4987,25 @@ export async function runAgentLoop(opts: {
         const activeToolInputs = new Map<string, ActiveToolInputPreparation>();
         let zeroByteToolInputRestart: ZeroByteToolInputRestart | undefined;
         let endedForNoProgress = false;
+        // Bracket the engine call for the run manager's no-progress backstop
+        // (`inFlightWorkDelta` in run-manager.ts). That backstop measures the
+        // events this loop FORWARDS; extended thinking forwards none for
+        // minutes while the frames arriving here prove the stream is alive, so
+        // without the bracket a healthy generation reads as a wedged run and is
+        // killed mid-stream. Closing is idempotent and MUST happen in a
+        // `finally`: a leaked open suspends the backstop for the rest of the
+        // run, which is worse than the stall it exists to catch.
+        let modelStreamBracketOpen = false;
+        const openModelStreamBracket = () => {
+          if (modelStreamBracketOpen) return;
+          modelStreamBracketOpen = true;
+          send({ type: "model_stream", status: "start" });
+        };
+        const closeModelStreamBracket = () => {
+          if (!modelStreamBracketOpen) return;
+          modelStreamBracketOpen = false;
+          send({ type: "model_stream", status: "end" });
+        };
         let lastModelStreamProgressAt = Date.now();
         // FIX 2: true once a real (non-heartbeat) engine-stream event has been
         // retrieved for THIS model call — gates
@@ -5028,6 +5104,10 @@ export async function runAgentLoop(opts: {
         const hasNoProgressStalled = () => Date.now() >= noProgressDeadlineAt();
         const checkpointNoProgress = () => {
           if (endedForNoProgress) return;
+          // The stream is over as far as this loop is concerned, so end the
+          // bracket before the boundary event rather than after it in the
+          // `finally` — the checkpoint stays the last event of the chunk.
+          closeModelStreamBracket();
           send({
             type: "auto_continue",
             reason: "no_progress",
@@ -5129,6 +5209,7 @@ export async function runAgentLoop(opts: {
         };
         const eventIterator = eventStream[Symbol.asyncIterator]();
         let eventIteratorDone = false;
+        openModelStreamBracket();
         try {
           while (true) {
             const nextEvent =
@@ -5190,11 +5271,7 @@ export async function runAgentLoop(opts: {
               });
               sendToolInputActivity(event.name, key, undefined, true);
               if (noteZeroByteToolInputStart(event.name)) {
-                send({
-                  type: "auto_continue",
-                  reason: "no_progress",
-                });
-                endedForNoProgress = true;
+                checkpointNoProgress();
                 break;
               }
             } else if (event.type === "tool-input-delta") {
@@ -5236,11 +5313,7 @@ export async function runAgentLoop(opts: {
                 toolName &&
                 noteZeroByteToolInputStart(toolName)
               ) {
-                send({
-                  type: "auto_continue",
-                  reason: "no_progress",
-                });
-                endedForNoProgress = true;
+                checkpointNoProgress();
                 break;
               }
             } else if (event.type === "gateway-heartbeat") {
@@ -5298,6 +5371,7 @@ export async function runAgentLoop(opts: {
             }
           }
         } finally {
+          closeModelStreamBracket();
           if (!eventIteratorDone) {
             await requestEventIteratorReturn(
               eventIterator,
@@ -8691,6 +8765,7 @@ export function createProductionAgentHandler(
       );
     }
     let surfacedRequestActions = availableRequestActions;
+    let useDefaultRequestActionSurface = !options.resolveActionSurface;
     if (options.resolveActionSurface) {
       const persistedSurface = isBackgroundWorker
         ? readPersistedActionSurface(body, "__resolvedActionSurface")
@@ -8707,24 +8782,36 @@ export function createProductionAgentHandler(
               internalContinuation: Boolean(internalContinuation),
               availableActionNames: Object.keys(availableRequestActions),
             });
-      surfacedRequestActions = filterActionsByAllowedNames(
-        availableRequestActions,
-        surface.allowedActionNames,
-      );
-      if (requestedHostedHarness) {
-        surfacedRequestActions = filterActionsByAllowedNames(
-          surfacedRequestActions,
-          filterHostedHarnessToolNames(Object.keys(surfacedRequestActions)),
-        );
-      }
-      const allowedNames = Object.keys(surfacedRequestActions);
+      const normalizedSurface = normalizeAgentActionSurfaceResolution(surface);
       const runCtx = ensureRequestRunContext();
-      if (runCtx) runCtx.allowedActionNames = allowedNames;
-      if (!isBackgroundWorker) {
-        body.__resolvedActionSurface = {
-          orgId: getRequestOrgId() ?? null,
-          allowedActionNames: allowedNames,
-        };
+      if (normalizedSurface.mode === "default") {
+        useDefaultRequestActionSurface = true;
+        if (runCtx) delete runCtx.allowedActionNames;
+        if (!isBackgroundWorker) {
+          body.__resolvedActionSurface = {
+            orgId: getRequestOrgId() ?? null,
+            mode: "default",
+          };
+        }
+      } else {
+        surfacedRequestActions = filterActionsByAllowedNames(
+          availableRequestActions,
+          normalizedSurface.allowedActionNames,
+        );
+        if (requestedHostedHarness) {
+          surfacedRequestActions = filterActionsByAllowedNames(
+            surfacedRequestActions,
+            filterHostedHarnessToolNames(Object.keys(surfacedRequestActions)),
+          );
+        }
+        const allowedNames = Object.keys(surfacedRequestActions);
+        if (runCtx) runCtx.allowedActionNames = allowedNames;
+        if (!isBackgroundWorker) {
+          body.__resolvedActionSurface = {
+            orgId: getRequestOrgId() ?? null,
+            allowedActionNames: allowedNames,
+          };
+        }
       }
     }
     // DIAGNOSTIC-ONLY: owner/request context prep (resolveAgentOwnerEmail +
@@ -9330,12 +9417,12 @@ export function createProductionAgentHandler(
         ? createPlanModeActionRegistry(surfacedRequestActions)
         : surfacedRequestActions;
     const availableRequestTools = getEngineTools(requestActions);
-    const initialRequestTools = options.resolveActionSurface
-      ? availableRequestTools
-      : filterInitialEngineTools(
+    const initialRequestTools = useDefaultRequestActionSurface
+      ? filterInitialEngineTools(
           availableRequestTools,
           options.initialToolNames,
-        );
+        )
+      : availableRequestTools;
     const requestTools =
       requestMode === "plan"
         ? preloadPlanModeEngineTools({

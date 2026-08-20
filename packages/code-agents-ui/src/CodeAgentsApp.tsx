@@ -1669,9 +1669,7 @@ export default function CodeAgentsApp({
     () => getProviderGate(hostMetadata),
     [hostMetadata],
   );
-  const computerControlMetadata = hostMetadata?.computerControl
-    ? hostMetadata!
-    : null;
+
   const [providerGateBouncePulse, setProviderGateBouncePulse] = useState(0);
   const bounceProviderGate = useCallback(() => {
     setProviderGateBouncePulse((pulse) => pulse + 1);
@@ -2013,13 +2011,6 @@ export default function CodeAgentsApp({
     selectRun(run.id);
     setSearchPanelOpen(false);
     setMobilePanelOpen(false);
-    setWorkbenchOpen(false);
-  }
-
-  function openMobilePanel() {
-    onChatFirstMainKindChange?.("code");
-    setSearchPanelOpen(false);
-    setMobilePanelOpen(true);
     setWorkbenchOpen(false);
   }
 
@@ -3407,30 +3398,6 @@ function computerAccessReadiness(metadata: CodeAgentHostMetadata | null) {
   };
 }
 
-function ComputerAccessRailItem({
-  metadata,
-  onOpen,
-}: {
-  metadata: CodeAgentHostMetadata;
-  onOpen: () => void;
-}) {
-  const { allReady } = computerAccessReadiness(metadata);
-  return (
-    <button type="button" className="code-agents-nav-link" onClick={onOpen}>
-      <IconDeviceDesktop size={15} strokeWidth={1.8} />
-      <span>Computer access</span>
-      <span
-        className={`code-agents-mobile-indicator ${
-          allReady
-            ? "code-agents-mobile-indicator--connected"
-            : "code-agents-mobile-indicator--attention"
-        }`}
-        aria-label={allReady ? "Ready" : "Setup needed"}
-      />
-    </button>
-  );
-}
-
 function ComputerAccessDialog({
   open,
   onOpenChange,
@@ -4159,6 +4126,19 @@ function getProviderGate(metadata: CodeAgentHostMetadata | null): {
   };
 }
 
+export function shouldShowCodeAgentCredentialCallout({
+  providerBlocked,
+  hasCredentialHistory,
+  phase,
+}: {
+  providerBlocked: boolean;
+  hasCredentialHistory: boolean;
+  phase?: string;
+}): boolean {
+  if (!hasCredentialHistory) return false;
+  return providerBlocked || phase === "missing-credentials";
+}
+
 function ProviderGateNotice({
   description,
   connecting,
@@ -4184,7 +4164,7 @@ function ProviderGateNotice({
   return (
     <CodeProviderNotice
       className="code-agents-provider-gate"
-      title="Connect a provider to chat"
+      title="Connect AI"
       description={message ?? description}
       primaryActionLabel={connecting ? "Waiting..." : "Connect Builder.io"}
       primaryDisabled={connecting}
@@ -4979,34 +4959,6 @@ function SearchChatsPanel({
   );
 }
 
-function MobileRailItem({
-  status,
-  error,
-  active,
-  onOpen,
-}: {
-  status: CodeAgentRemoteConnectorStatus | null;
-  error: string | null;
-  active: boolean;
-  onOpen: () => void;
-}) {
-  const copy = mobileConnectorCopy(status, error);
-  return (
-    <button
-      type="button"
-      className={`code-agents-nav-link code-agents-mobile-link${
-        active ? " code-agents-nav-link--active" : ""
-      }`}
-      onClick={onOpen}
-      aria-pressed={active}
-      title={copy.description}
-    >
-      <IconDeviceMobile size={15} strokeWidth={1.8} />
-      <span>Mobile</span>
-    </button>
-  );
-}
-
 function mobileConnectorCopy(
   status: CodeAgentRemoteConnectorStatus | null,
   error: string | null,
@@ -5374,7 +5326,11 @@ function RunDetailCard({
     run,
     transcriptEvents,
   );
-  const hasCredentialGap = providerBlocked && hasCredentialHistory;
+  const hasCredentialGap = shouldShowCodeAgentCredentialCallout({
+    providerBlocked,
+    hasCredentialHistory,
+    phase: run.phase,
+  });
   const pendingApproval = hasCredentialGap ? null : getPendingApproval(run);
   // The inline per-tool-call approval affordance (rendered by AssistantChat /
   // ToolCallDisplay via the tool-call's `approval` field) already covers this
@@ -5403,7 +5359,7 @@ function RunDetailCard({
       {hasCredentialGap && (
         <CodeProviderNotice
           className="code-agents-credential-callout"
-          title="Provider needed"
+          title="Connect AI"
           description={
             builderConnectMessage ??
             "Connect Builder.io or add custom keys to continue coding."
@@ -6021,12 +5977,6 @@ function getRunTerminalRequest(
   return sourceRoot || outputRoot || cwd
     ? { sourceRoot, outputRoot, cwd }
     : undefined;
-}
-
-function getRunSourceDetail(run: CodeAgentRun): CodeAgentRunDetail | null {
-  const label = getRunSourceLabel(run);
-  if (!label) return null;
-  return { label: "Source", value: label };
 }
 
 function getRunSourceLabel(run: CodeAgentRun): string | null {

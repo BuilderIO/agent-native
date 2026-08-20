@@ -34,6 +34,7 @@ import {
 import { getRequestUserEmail } from "../../server/request-context.js";
 import { applyBuilderUtmTrackingParams } from "../../shared/builder-link-tracking.js";
 import {
+  allowsSamplingParams,
   isGPTReasoningModel,
   normalizeReasoningEffortForModel,
   type ReasoningEffort,
@@ -331,6 +332,17 @@ class BuilderEngine implements AgentEngine {
       }
     }
 
+    // The gateway turns `reasoning_effort` into Anthropic thinking on the
+    // Claude lane, and Anthropic rejects any temperature but 1 once thinking is
+    // on — the Opus 4.7+ / Sonnet 5 families reject the sampling parameters
+    // outright. Effort defaults to High for every reasoning-capable Claude
+    // model, so a caller that only asked for `temperature: 0` was building a
+    // request that always 400s. GPT and Gemini lanes keep their temperature.
+    const samplingAllowed = allowsSamplingParams({
+      model,
+      thinkingEnabled: Boolean(reasoningEffort) && /claude/i.test(model),
+    });
+
     const gptToolsRequireExplicitNoReasoning =
       cachedTools.length > 0 && isGPTReasoningModel(model);
     const body: Record<string, unknown> = {
@@ -343,7 +355,7 @@ class BuilderEngine implements AgentEngine {
         opts.maxOutputTokens,
         model,
       ),
-      ...(typeof opts.temperature === "number"
+      ...(samplingAllowed && typeof opts.temperature === "number"
         ? { temperature: opts.temperature }
         : {}),
       // OpenAI rejects `reasoning_effort` alongside function tools on Chat

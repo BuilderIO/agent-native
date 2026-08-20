@@ -144,6 +144,7 @@ import {
   type MultiFrontierSecondaryActionInput,
 } from "./MultiFrontierWorkspace.js";
 import { UpdateIndicator } from "./UpdateIndicator.js";
+import UpdatePrompt from "./UpdatePrompt.js";
 
 const agentNativeIconUrl = new URL(
   "../assets/agent-native-icon-dark.svg",
@@ -731,7 +732,7 @@ export default function CodeAgentsHub({
     }
     return undefined;
   }, [activeChatFirstSurfaceTab, chatFirstAppSelected, scheduledTasksOpen]);
-  const [chatFirstBrowserSelection, setChatFirstBrowserSelection] = useState<{
+  const [, setChatFirstBrowserSelection] = useState<{
     url: string;
     title?: string;
   } | null>(null);
@@ -2663,6 +2664,7 @@ export default function CodeAgentsHub({
           }
           railFooterSlot={
             <>
+              <UpdatePrompt />
               <UpdateIndicator />
               <div className="desktop-chat-first-rail-footer-actions">
                 {onOpenSettings ? (

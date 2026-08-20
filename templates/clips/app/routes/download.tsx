@@ -4,12 +4,20 @@ import {
   IconBrandChrome,
   IconBrandApple,
   IconBrandWindows,
+  IconChevronDown,
   IconDeviceDesktop,
   IconExternalLink,
 } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import enMessages from "@/i18n/en-US";
 import {
@@ -17,6 +25,10 @@ import {
   markDesktopAppDownloaded,
   useClipsChromeExtensionEnabled,
 } from "@/lib/capture-install-options";
+import {
+  getDefaultDownloadChannel,
+  type DownloadReleaseChannel,
+} from "@/lib/download-release-channel";
 
 export function meta() {
   return [
@@ -47,9 +59,6 @@ interface PlatformVariant {
 }
 
 const LATEST_JSON_URL = `${appBasePath()}/api/clips-latest.json`;
-
-const RELEASE_PAGE_URL =
-  "https://github.com/BuilderIO/agent-native/releases?q=clips-v";
 
 const VARIANTS: PlatformVariant[] = [
   {
@@ -114,12 +123,18 @@ function primaryDownloadButton(
   manifest: Manifest | null,
   manifestError: boolean,
   downloadLabel: string,
+  retryLabel: string,
+  onRetry: () => void,
 ) {
   const asset = pickAsset(manifest, variant);
   const Icon = variant.icon;
   if (asset) {
     return (
-      <Button asChild size="lg" className="h-12 gap-2 px-6 text-base">
+      <Button
+        asChild
+        size="lg"
+        className="h-12 min-w-[252px] gap-2 px-6 text-base"
+      >
         <a href={asset.url} download onClick={markDesktopAppDownloaded}>
           <Icon className="h-5 w-5" />
           {downloadLabel}
@@ -130,17 +145,28 @@ function primaryDownloadButton(
   if (manifest === null && !manifestError) {
     return <Skeleton className="h-12 w-[252px] rounded-md" />;
   }
+  if (manifestError) {
+    return (
+      <Button
+        size="lg"
+        variant="outline"
+        className="h-12 min-w-[252px] gap-2 px-6 text-base"
+        onClick={onRetry}
+      >
+        <Icon className="h-5 w-5" />
+        {retryLabel}
+      </Button>
+    );
+  }
   return (
     <Button
-      asChild
       size="lg"
       variant="outline"
-      className="h-12 gap-2 px-6 text-base"
+      className="h-12 min-w-[252px] gap-2 px-6 text-base"
+      disabled
     >
-      <a href={RELEASE_PAGE_URL} rel="noreferrer">
-        <Icon className="h-5 w-5" />
-        {downloadLabel}
-      </a>
+      <Icon className="h-5 w-5" />
+      {downloadLabel}
     </Button>
   );
 }
@@ -150,6 +176,8 @@ function secondaryDownloadButton(
   manifest: Manifest | null,
   manifestError: boolean,
   downloadLabel: string,
+  retryLabel: string,
+  onRetry: () => void,
 ) {
   const asset = pickAsset(manifest, variant);
   const Icon = variant.icon;
@@ -168,12 +196,18 @@ function secondaryDownloadButton(
   if (manifest === null && !manifestError) {
     return <Skeleton className="h-7 w-[208px] rounded-md" />;
   }
-  return (
-    <Button asChild variant="ghost" className={className}>
-      <a href={RELEASE_PAGE_URL} rel="noreferrer">
+  if (manifestError) {
+    return (
+      <Button variant="ghost" className={className} onClick={onRetry}>
         <Icon className="h-4 w-4" />
-        {downloadLabel}
-      </a>
+        {retryLabel}
+      </Button>
+    );
+  }
+  return (
+    <Button variant="ghost" className={className} disabled>
+      <Icon className="h-4 w-4" />
+      {downloadLabel}
     </Button>
   );
 }
@@ -181,17 +215,33 @@ function secondaryDownloadButton(
 export default function DownloadPage() {
   const chromeExtensionEnabled = useClipsChromeExtensionEnabled();
   const t = useT();
+  const [channel, setChannel] = useState<DownloadReleaseChannel>("production");
+  const [hostResolved, setHostResolved] = useState(false);
   const [manifest, setManifest] = useState<Manifest | null>(null);
   const [manifestError, setManifestError] = useState(false);
   const [detected, setDetected] = useState<PlatformId | null>(null);
+  const [manifestRequest, setManifestRequest] = useState(0);
 
   useEffect(() => {
     setDetected(detectPlatform());
   }, []);
 
   useEffect(() => {
+    setChannel(getDefaultDownloadChannel(window.location.hostname));
+    setHostResolved(true);
+  }, []);
+
+  useEffect(() => {
+    if (!hostResolved) return;
+
     let cancelled = false;
-    fetch(LATEST_JSON_URL)
+    setManifest(null);
+    setManifestError(false);
+    const manifestUrl =
+      channel === "nightly"
+        ? `${LATEST_JSON_URL}?channel=nightly`
+        : LATEST_JSON_URL;
+    fetch(manifestUrl)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`${r.status}`))))
       .then((json) => {
         if (!cancelled) setManifest(json as Manifest);
@@ -202,7 +252,19 @@ export default function DownloadPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [channel, hostResolved, manifestRequest]);
+
+  const retryManifest = () => {
+    setManifestRequest((request) => request + 1);
+  };
+
+  const handleChannelChange = (nextChannel: DownloadReleaseChannel) => {
+    if (nextChannel === channel) return;
+
+    setManifest(null);
+    setManifestError(false);
+    setChannel(nextChannel);
+  };
 
   const primary = VARIANTS.find((v) => v.id === detected) ?? VARIANTS[0];
   const secondary = VARIANTS.filter((v) => v.id !== primary.id);
@@ -242,6 +304,14 @@ export default function DownloadPage() {
         <div className="flex flex-col items-center text-center">
           <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl">
             {t("downloadRoute.clipsDesktop")}
+            {channel === "nightly" && (
+              <>
+                {" "}
+                <span className="text-highlight">
+                  {t("downloadRoute.nightly")}
+                </span>
+              </>
+            )}
           </h1>
           <p className="mt-4 max-w-xl text-base text-muted-foreground">
             {t("downloadRoute.heroDescription")}
@@ -253,6 +323,8 @@ export default function DownloadPage() {
               manifest,
               manifestError,
               t("downloadRoute.downloadFor", { platform: primary.label }),
+              t("downloadRoute.retry"),
+              retryManifest,
             )}
             {secondary.map((variant) => (
               <div key={variant.id}>
@@ -261,6 +333,8 @@ export default function DownloadPage() {
                   manifest,
                   manifestError,
                   t("downloadRoute.alsoFor", { platform: variant.label }),
+                  t("downloadRoute.retry"),
+                  retryManifest,
                 )}
               </div>
             ))}
@@ -281,6 +355,49 @@ export default function DownloadPage() {
               ) : (
                 <>{t("downloadRoute.loadingRelease")}</>
               )}
+            </div>
+            <div className="mt-2 flex items-center justify-center text-xs text-muted-foreground">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 gap-1.5 px-2 font-normal text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                    data-release-channel={channel}
+                  >
+                    <span
+                      className={
+                        channel === "nightly"
+                          ? "font-medium text-foreground"
+                          : undefined
+                      }
+                    >
+                      {channel === "nightly"
+                        ? t("downloadRoute.nightly")
+                        : t("downloadRoute.stable")}
+                    </span>
+                    <IconChevronDown className="size-3.5" aria-hidden="true" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="center" className="w-44">
+                  <DropdownMenuRadioGroup
+                    value={channel}
+                    onValueChange={(value) => {
+                      if (value === "production" || value === "nightly") {
+                        handleChannelChange(value);
+                      }
+                    }}
+                  >
+                    <DropdownMenuRadioItem value="production">
+                      {t("downloadRoute.stable")}
+                    </DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="nightly">
+                      {t("downloadRoute.nightly")}
+                    </DropdownMenuRadioItem>
+                  </DropdownMenuRadioGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </div>
 

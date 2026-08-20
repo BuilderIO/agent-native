@@ -183,9 +183,11 @@ import {
 import { createEmbedStartRouteHandler } from "./embed-route.js";
 import { shouldReportError } from "./error-noise-filter.js";
 import {
+  FRAMEWORK_AUTH_EARLY_PATHS,
   getH3App,
   awaitBootstrap,
   markDefaultPluginProvided,
+  markFrameworkRoutesReadyBeforeBootstrap,
   trackPluginInit,
 } from "./framework-request-handler.js";
 import { createGatewayAccessCheckHandler } from "./gateway-access-check.js";
@@ -1485,9 +1487,21 @@ export function createCoreRoutesPlugin(
     });
     trackPluginInit(nitroApp, initPromise, {
       paths: [FRAMEWORK_ROUTE_PREFIX, "/mcp", "/.well-known"],
+      // Liveness and BYOA auth routes are mounted before the DB-dependent
+      // bootstrap below. The broad core entry must not hold those routes while
+      // an unrelated migration or connection pool is unavailable.
+      excludedPaths: [
+        `${FRAMEWORK_ROUTE_PREFIX}/ping`,
+        `${FRAMEWORK_ROUTE_PREFIX}/health`,
+        ...FRAMEWORK_AUTH_EARLY_PATHS,
+      ],
     });
     try {
       const P = FRAMEWORK_ROUTE_PREFIX;
+      markFrameworkRoutesReadyBeforeBootstrap(nitroApp, [
+        ...(!options.disablePing ? [`${P}/ping`] : []),
+        ...(!options.disableHealth ? [`${P}/health`] : []),
+      ]);
 
       // Keep the framework-owned S3-compatible provider available even when an
       // app does not mount the optional onboarding plugin. The settings CTA and
@@ -1519,6 +1533,63 @@ export function createCoreRoutesPlugin(
           return EMPTY_SPECULATION_RULES;
         }),
       );
+
+      // Keep liveness independent from the rest of framework bootstrap. A
+      // cold-start database failure must report a useful ping/health result,
+      // not prevent these handlers from being registered at all.
+      if (!options.disablePing) {
+        getH3App(nitroApp).use(
+          `${P}/ping`,
+          defineEventHandler((event) => {
+            const message = getAppConfig().app.pingMessage;
+            const configuration =
+              event.url?.searchParams.get("configuration") === "1" ||
+              event.url?.searchParams.get("configuration") === "true";
+            if (!configuration) return { message };
+
+            const requirements = {
+              ...(event.url?.searchParams.get("auth") === "0"
+                ? { authEnabled: false }
+                : {}),
+              ...(event.url?.searchParams.get("database") === "0"
+                ? { databaseRequired: false }
+                : {}),
+            };
+            return {
+              message,
+              configuration: getRuntimeConfigReport(process.env, requirements, {
+                phase: "runtime",
+                appName: getAppConfig().app.name,
+              }),
+            };
+          }),
+        );
+      }
+
+      if (!options.disableHealth) {
+        getH3App(nitroApp).use(
+          `${P}/health`,
+          defineEventHandler(async (event) => {
+            setResponseHeader(event, "cache-control", "no-store");
+            const schema =
+              event.url?.searchParams.get("schema") === "1" ||
+              event.url?.searchParams.get("schema") === "true";
+            const strict =
+              event.url?.searchParams.get("strict") === "1" ||
+              event.url?.searchParams.get("strict") === "true" ||
+              getAppConfig().app.healthStrictSchema;
+            const pressure =
+              event.url?.searchParams.get("pressure") === "1" ||
+              event.url?.searchParams.get("pressure") === "true";
+            const result = await runDbHealthProbe(getDbExec, {
+              schema,
+              pressure,
+            });
+            if (strict && !result.ready) setResponseStatus(event, 503);
+            return result;
+          }),
+        );
+      }
 
       await awaitBootstrap(nitroApp);
 
@@ -1904,38 +1975,6 @@ export function createCoreRoutesPlugin(
         }
       }
 
-      // Ping
-      if (!options.disablePing) {
-        getH3App(nitroApp).use(
-          `${P}/ping`,
-          defineEventHandler((event) => {
-            const message = process.env.PING_MESSAGE ?? "pong";
-            const configuration =
-              event.url?.searchParams.get("configuration") === "1" ||
-              event.url?.searchParams.get("configuration") === "true";
-            if (!configuration) return { message };
-
-            // Custom required keys must come from server-side app configuration;
-            // never let an anonymous caller turn this into an env-name oracle.
-            const requirements = {
-              ...(event.url?.searchParams.get("auth") === "0"
-                ? { authEnabled: false }
-                : {}),
-              ...(event.url?.searchParams.get("database") === "0"
-                ? { databaseRequired: false }
-                : {}),
-            };
-            return {
-              message,
-              configuration: getRuntimeConfigReport(process.env, requirements, {
-                phase: "runtime",
-                appName: process.env.APP_NAME,
-              }),
-            };
-          }),
-        );
-      }
-
       // ─── Durable sandbox execution processor ─────────────────────────
       // Self-fired by run-code's background queue (see
       // coding-tools/sandbox/background.ts): the enqueueing request POSTs here
@@ -2033,43 +2072,6 @@ export function createCoreRoutesPlugin(
           }, 30_000); // Check every 30s but only sweep once per 2min
         }, 25_000); // Start 25s after init (after the agent sweeps)
       })();
-
-      // Health + DB warmup — liveness probe that touches the database so
-      // uptime monitors and the keep-warm cron prevent a scale-to-zero
-      // serverless DB (e.g. Neon) from cold-starting on the next real
-      // request. Public, side-effect free, and never cached. Add ?schema=1
-      // for metadata-only schema checks, and ?strict=1 to turn a not-ready
-      // DB/schema probe into a failing HTTP status for monitors.
-      if (!options.disableHealth) {
-        getH3App(nitroApp).use(
-          `${P}/health`,
-          defineEventHandler(async (event) => {
-            setResponseHeader(event, "cache-control", "no-store");
-            const schema =
-              event.url?.searchParams.get("schema") === "1" ||
-              event.url?.searchParams.get("schema") === "true";
-            const strict =
-              event.url?.searchParams.get("strict") === "1" ||
-              event.url?.searchParams.get("strict") === "true" ||
-              process.env.AGENT_NATIVE_HEALTH_STRICT_SCHEMA === "true";
-            // Off by default: the one-minute warm cron does not need it, and
-            // an extra `pg_stat_activity` read every minute per app is waste.
-            // Pressure deliberately does NOT change `ready` or the status
-            // code — a pressured database is still serving, and an uptime
-            // monitor that pages on it would learn to ignore this route. The
-            // fleet audit reads the counters and decides.
-            const pressure =
-              event.url?.searchParams.get("pressure") === "1" ||
-              event.url?.searchParams.get("pressure") === "true";
-            const result = await runDbHealthProbe(getDbExec, {
-              schema,
-              pressure,
-            });
-            if (strict && !result.ready) setResponseStatus(event, 503);
-            return result;
-          }),
-        );
-      }
 
       getH3App(nitroApp).use(
         `${P}/debug/runtime`,

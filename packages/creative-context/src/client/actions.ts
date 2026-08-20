@@ -4,7 +4,6 @@ import {
 } from "@agent-native/core/client/hooks";
 
 import type {
-  BrandDnaPayload,
   BrandDnaVersion,
   BrandProfile,
   ContextImportMode,

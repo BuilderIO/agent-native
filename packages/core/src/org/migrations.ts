@@ -165,4 +165,20 @@ export const ORG_MIGRATIONS = [
     sql: `CREATE INDEX IF NOT EXISTS workspace_apps_org_visibility_idx
           ON workspace_apps (org_id, visibility)`,
   },
+  {
+    // Legacy manifest discovery has no trusted creator and no explicit share
+    // provenance. Restore organization visibility only for that population;
+    // owned or explicitly shared private apps remain private.
+    version: 1018,
+    name: "workspace-apps-restore-ownerless-legacy-visibility",
+    sql: `UPDATE workspace_apps
+          SET visibility = 'org'
+          WHERE visibility = 'private'
+            AND TRIM(owner_email) = ''
+            AND NOT EXISTS (
+              SELECT 1
+              FROM workspace_app_shares
+              WHERE workspace_app_shares.resource_id = workspace_apps.id
+            )`,
+  },
 ];

@@ -26,6 +26,7 @@ import { getViteDevRecoveryScript } from "../client/vite-dev-recovery-script.js"
 import {
   inferAgentNativeDeploymentEnvironment,
   mergeAgentNativeConfigs,
+  readAgentNativeConfigEnv,
   resolveAgentNativeConfig,
   type AgentNativeConfig,
   type AgentNativeConfigContext,
@@ -2603,6 +2604,8 @@ function ssrStubPlugin(packages: string[]): Plugin | null {
     "init",
     "isChangeOrigin",
     "isNodeEmpty",
+    "markInputRule",
+    "markPasteRule",
     "mergeAttributes",
     "renderToString",
     "applyUpdate",
@@ -3541,9 +3544,26 @@ function createAgentNativeConfig(
   const cwd = process.cwd();
   const configContext = createAgentNativeConfigContext(command, mode);
   const projectConfigInput = projectConfig ?? options.agentNativeConfig;
+
+  // Workspace env fallback. If this app is inside a workspace, tell Vite to
+  // also look for .env files at the workspace root. Per-app .env still wins
+  // (Vite's loadEnv merges in precedence order — app dir is loaded after).
+  const workspaceRoot = findWorkspaceRoot(cwd);
+  const envDir = workspaceRoot && workspaceRoot !== cwd ? workspaceRoot : cwd;
+
+  const runtimeEnv = {
+    ...(workspaceRoot && workspaceRoot !== cwd
+      ? loadEnv(mode, workspaceRoot, "")
+      : {}),
+    ...loadEnv(mode, cwd, ""),
+    ...process.env,
+  };
   const appConfig = resolveAgentNativeConfig(
     mergeAgentNativeConfigs(
-      readAgentNativeJsonConfig(cwd),
+      mergeAgentNativeConfigs(
+        readAgentNativeJsonConfig(cwd),
+        readAgentNativeConfigEnv(runtimeEnv),
+      ),
       projectConfigInput
         ? resolveAgentNativeConfig(projectConfigInput, configContext)
         : {},
@@ -3569,12 +3589,6 @@ function createAgentNativeConfig(
     process.env.AGENT_NATIVE_BUILD_SHA?.trim() ||
     "development";
 
-  // Workspace env fallback. If this app is inside a workspace, tell Vite to
-  // also look for .env files at the workspace root. Per-app .env still wins
-  // (Vite's loadEnv merges in precedence order — app dir is loaded after).
-  const workspaceRoot = findWorkspaceRoot(cwd);
-  const envDir = workspaceRoot && workspaceRoot !== cwd ? workspaceRoot : cwd;
-
   // Preload workspace-root .env into process.env so Nitro server code sees
   // shared keys during dev (Nitro reads process.env, not vite's envDir).
   if (workspaceRoot && workspaceRoot !== cwd) {
@@ -3591,13 +3605,6 @@ function createAgentNativeConfig(
     } catch {}
   }
 
-  const runtimeEnv = {
-    ...(workspaceRoot && workspaceRoot !== cwd
-      ? loadEnv(mode, workspaceRoot, "")
-      : {}),
-    ...loadEnv(mode, cwd, ""),
-    ...process.env,
-  };
   reportRuntimeConfigDiagnostics(appConfig, configContext, mode, runtimeEnv);
 
   const { base } = getConfiguredAppBasePath();

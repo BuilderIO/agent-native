@@ -1531,8 +1531,14 @@ async function executeCodexCliRun(options: {
     process.env.AGENT_NATIVE_CODE_AGENT_STRUCTURED_STDOUT !== "1";
   const additionalSkillsRoot =
     process.env.AGENT_NATIVE_CODE_AGENT_SKILLS_ROOT?.trim();
+  // Desktop has already resolved and capability-scoped its MCP catalog before
+  // spawning the packaged runner. Reading persisted settings again here would
+  // both widen that boundary and require the app's native database binding in
+  // the standalone runner process.
+  const mcpConfig =
+    process.env.MCP_SERVERS === undefined ? await buildMergedConfig() : null;
   const args = [
-    ...codexMcpConfigArgs(),
+    ...codexMcpConfigArgs(mcpConfig),
     "--ask-for-approval",
     "never",
     "--sandbox",

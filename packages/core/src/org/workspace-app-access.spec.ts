@@ -64,6 +64,27 @@ describe("isWorkspaceAppAccessAllowed", () => {
     ).resolves.toBe(true);
   });
 
+  it("allows a non-owner member to access a migrated ownerless legacy app", async () => {
+    mocks.execute
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            owner_email: "",
+            org_id: "org-1",
+            visibility: "org",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ rows: [{ role: "member" }] });
+
+    await expect(
+      isWorkspaceAppAccessAllowed("legacy-app", {
+        email: "member@example.com",
+        orgId: "org-1",
+      }),
+    ).resolves.toBe(true);
+  });
+
   it("honors a group share for a private app", async () => {
     mocks.execute
       .mockResolvedValueOnce({

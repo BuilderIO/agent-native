@@ -272,6 +272,8 @@ export function useChatThreads(
   const [hasMoreThreads, setHasMoreThreads] = useState(false);
   const [isLoadingMoreThreads, setIsLoadingMoreThreads] = useState(false);
   const [threadsLoadError, setThreadsLoadError] = useState<string | null>(null);
+  const [restoredThreadIdOnListFailure, setRestoredThreadIdOnListFailure] =
+    useState<string | null>(null);
   const nextThreadsOffsetRef = useRef(0);
   const latestFetchRequestRef = useRef(0);
   const threadsRef = useRef<ChatThreadSummary[]>(threads);
@@ -635,12 +637,22 @@ export function useChatThreads(
       const loadedThreads = await fetchThreads();
       const restoredId = activeThreadIdRef.current;
       if (loadedThreads === undefined) {
-        // Thread-list fetch failed. Do not reclassify a saved id as a new
-        // optimistic tab; AssistantChat should still get a chance to restore
-        // the specific saved thread via /threads/:id.
+        // Keep the saved id intact for retry/history, but tell the owning
+        // surface to replace the visible tab. A failed list request cannot
+        // prove that the saved thread is gone; it only proves that this mount
+        // cannot safely restore it.
+        if (
+          restoredId &&
+          autoCreate &&
+          !routeControlsActiveThread &&
+          !newlyCreatedRef.current.has(restoredId)
+        ) {
+          setRestoredThreadIdOnListFailure(restoredId);
+        }
         setIsLoading(false);
         return;
       }
+      setRestoredThreadIdOnListFailure(null);
       // Exempts route-owned threads (the URL names what the user asked for) and
       // ids this client generated, which have never reached the server.
       const lookupRestored = Boolean(
@@ -1374,6 +1386,7 @@ export function useChatThreads(
     hasMoreThreads,
     isLoadingMoreThreads,
     threadsLoadError,
+    restoredThreadIdOnListFailure,
     isNewThread,
   };
 }

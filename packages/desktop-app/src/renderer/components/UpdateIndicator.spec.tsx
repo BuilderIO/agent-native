@@ -10,10 +10,15 @@ describe("UpdateIndicator", () => {
   let container: HTMLDivElement;
   let root: Root;
   let install: ReturnType<typeof vi.fn>;
+  let check: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     install = vi.fn();
+    check = vi.fn().mockResolvedValue({
+      state: "not-available",
+      currentVersion: "1.1.0",
+    });
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -25,6 +30,7 @@ describe("UpdateIndicator", () => {
             state: "downloaded",
             version: "1.1.0",
           }),
+          check,
           install,
           onStatusChange: vi.fn(() => vi.fn()),
         },
@@ -55,5 +61,78 @@ describe("UpdateIndicator", () => {
 
     act(() => button?.click());
     expect(install).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a check action in the expanded and collapsed rail states", async () => {
+    Object.defineProperty(window, "electronAPI", {
+      configurable: true,
+      value: {
+        updater: {
+          getStatus: vi.fn().mockResolvedValue({
+            state: "not-available",
+            currentVersion: "1.1.0",
+          }),
+          check,
+          install,
+          onStatusChange: vi.fn(() => vi.fn()),
+        },
+      },
+    });
+
+    await act(async () => {
+      root.render(<UpdateIndicator />);
+      await Promise.resolve();
+    });
+
+    const button = container.querySelector<HTMLButtonElement>(
+      "[data-update-indicator]",
+    );
+    expect(button).not.toBeNull();
+    expect(button?.textContent).toContain("Check for updates");
+    expect(button?.querySelector("svg")).not.toBeNull();
+
+    act(() => button?.click());
+    expect(check).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not let the initial status read overwrite a newer live update", async () => {
+    let resolveStatus!: (status: UpdateStatus) => void;
+    let onStatusChange!: (status: UpdateStatus) => void;
+    const getStatus = vi.fn(
+      () =>
+        new Promise<UpdateStatus>((resolve) => {
+          resolveStatus = resolve;
+        }),
+    );
+
+    Object.defineProperty(window, "electronAPI", {
+      configurable: true,
+      value: {
+        updater: {
+          getStatus,
+          check,
+          install,
+          onStatusChange: vi.fn((listener: (status: UpdateStatus) => void) => {
+            onStatusChange = listener;
+            return vi.fn();
+          }),
+        },
+      },
+    });
+
+    await act(async () => {
+      root.render(<UpdateIndicator />);
+      await Promise.resolve();
+    });
+
+    act(() => {
+      onStatusChange({ state: "downloaded", version: "1.2.0" });
+      resolveStatus({ state: "idle" });
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("Restart to update");
   });
 });

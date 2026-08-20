@@ -8,8 +8,8 @@ order: 12
 roadmap_status: "partially_implemented"
 summary: "Open a folder or repository through the same Source model while keeping device authority and browser limitations honest."
 example_workflow: "A developer opens a local documentation folder in Content Desktop, edits the files through Content, sees external file changes synchronize back, and later reads the last synchronized representation from Safari without exposing the folder path."
-works_today: "Local File Mode, manifest-declared workspaces, connected-folder Sources, source-backed Pages, conflict records, and a trusted local bridge already establish substantial foundations."
-remains: "Opening a folder must become effortless, Desktop needs dependable background sync and caching, browser clients need graceful read and queued-write behavior, and the portable vault workflow needs full product polish."
+works_today: "Local File Mode, connected-folder Sources, source-backed Pages, Desktop folder grants, watched reconciliation, revision-guarded writes, and named local working-copy identity establish the first end-to-end local Markdown path behind its release flag."
+remains: "The packaged Desktop story still needs independent H1-H10 acceptance before release; broader file families, queued remote writes, and provider-bound GitHub review remain later increments."
 required_capabilities:
   [
     "content.source.local-bridge",
@@ -22,7 +22,7 @@ enhancing_capabilities:
 increments: []
 feature_proof: null
 publicness: "public"
-last_reviewed: "2026-07-29"
+last_reviewed: "2026-08-17"
 ---
 
 # Feature 12: Bring your local work

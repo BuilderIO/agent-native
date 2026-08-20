@@ -591,25 +591,20 @@ export { CORE_ACTION_GROUPS };
  * Core actions with no `frameworkTools` switch, and why:
  *
  * - `upload-image` is load-bearing for ordinary work.
- * - The email catalog is mounted everywhere on purpose so Dispatch can ask any
- *   app what it sends without that app opting in (see its comment below). It is
- *   a read surface, not the `email` group's send capability.
- * - MCP tools and org service tokens are already governed by `mcp.enabled`.
+ * - MCP tools and the hosted-harness routes never enter the model's action
+ *   surface at all (`agentTool: false`), so a switch would gate nothing.
+ *
+ * Membership is expensive in a way that is easy to miss: an untagged action is
+ * also in every app's DEFAULT first-request tool list (see
+ * `resolveInitialToolNames`), so each entry here is a schema every app pays for
+ * on turn one whether or not it has the surface. The email catalog, the
+ * workspace user groups, and the org service tokens each sat here for that
+ * reason alone and now answer to `emailCatalog`, `workspaceUserGroups`, and
+ * `orgServiceTokens` — all defaulting to on, so availability is unchanged, but
+ * reachable through `tool-search` instead of riding along in every request.
  */
 export const ALWAYS_ON_CORE_ACTIONS: ReadonlySet<string> = new Set([
   "upload-image",
-  "list-workspace-user-groups",
-  "upsert-workspace-user-group",
-  "bulk-update-workspace-user-groups",
-  "delete-workspace-user-group",
-  "list-transactional-emails",
-  "render-transactional-email-preview",
-  "list-email-log",
-  "list-email-activity",
-  "list-email-engagement",
-  "create-org-service-token",
-  "list-org-service-tokens",
-  "revoke-org-service-token",
   "list-mcp-tools",
   "call-mcp-tool",
   // Hosted harness capability/policy routes are UI-facing and deliberately

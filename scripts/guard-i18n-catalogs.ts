@@ -294,7 +294,7 @@ async function checkCatalogEnglishValueDebt(catalogDirs: string[]) {
   return { errors, issueIds: [...issueIds].sort() };
 }
 
-function findCatalogDirs(): string[] {
+export function findCatalogDirs(): string[] {
   const candidates = [
     path.join(rootDir, "app", "i18n"),
     path.join(

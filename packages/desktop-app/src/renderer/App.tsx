@@ -20,7 +20,6 @@ import type {
 import AppSettings, { AddAppDialog } from "./components/AppSettings.js";
 import { rememberDesktopIdentityStatus } from "./components/AppWebview.js";
 import CodeAgentsHub from "./components/CodeAgentsHub.js";
-import UpdatePrompt from "./components/UpdatePrompt.js";
 import WindowControls, {
   CollapsedMacWindowControls,
 } from "./components/WindowControls.js";
@@ -424,7 +423,6 @@ export default function App() {
         />
       ) : null}
 
-      <UpdatePrompt />
       <Toaster
         theme="system"
         position="bottom-center"

@@ -1,6 +1,24 @@
 import { describe, expect, it } from "vitest";
 
-import { isAllowedEnvironmentNavigation } from "./environment-navigation";
+import {
+  isAllowedEnvironmentNavigation,
+  resolveEnvironmentLaneOrigins,
+} from "./environment-navigation";
+
+describe("resolveEnvironmentLaneOrigins", () => {
+  it("pairs first-party production and beta origins", () => {
+    expect(
+      resolveEnvironmentLaneOrigins("https://mail.agent-native.com"),
+    ).toEqual(["https://beta.mail.agent-native.com"]);
+    expect(
+      resolveEnvironmentLaneOrigins("https://beta.mail.agent-native.com"),
+    ).toEqual(["https://mail.agent-native.com"]);
+  });
+
+  it("does not infer lanes for custom workspace origins", () => {
+    expect(resolveEnvironmentLaneOrigins("https://custom.example")).toEqual([]);
+  });
+});
 
 describe("isAllowedEnvironmentNavigation", () => {
   it("keeps an Agent Native beta/prod switch in the webview", () => {

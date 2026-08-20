@@ -1,7 +1,6 @@
 import type { BlocksFieldIdentity } from "./blocks-field-identity";
 import type {
   DocumentPropertyOptions,
-  DocumentPropertyOption,
   DocumentPropertyType,
   DocumentPropertyValue,
   DocumentPropertyVisibility,
@@ -612,6 +611,28 @@ export interface ContentDatabaseSourceCapabilities {
   canUseLocalComponents?: boolean;
 }
 
+export interface ContentRepositoryIdentity {
+  localId: string;
+  providerBinding?: { provider: "github"; repositoryId: string };
+}
+
+export interface ContentWorkingCopyIdentity {
+  id: string;
+  repositoryId?: string;
+  kind: "persistent" | "temporary";
+  name: string;
+  branch?: string;
+  commit?: string;
+  deviceId: string;
+  localOnly: boolean;
+  shareable: boolean;
+}
+
+export interface ContentLocalSourceIdentity {
+  repository?: ContentRepositoryIdentity;
+  workingCopy: ContentWorkingCopyIdentity;
+}
+
 export interface ContentDatabaseSourceFieldMapping {
   id: string;
   propertyId: string | null;
@@ -782,6 +803,9 @@ export interface ContentDatabaseSource {
     connectionId?: string | null;
     connectionLabel?: string | null;
     truthPolicy?: ContentDatabaseSourceTruthPolicy;
+    syncPolicy?: "manual" | "keep_in_sync";
+    liveBridgeEnabled?: boolean;
+    localIdentity?: ContentLocalSourceIdentity;
     liveReadConfigured?: boolean;
     lastReadEntryCount?: number;
     lastReadMatchedRowCount?: number;

@@ -73,12 +73,16 @@ export const IPC = {
   /** Hosted Content app local-file sync (Content webview ↔ main) */
   CONTENT_FILES_GET_FOLDER: "content-files:get-folder",
   CONTENT_FILES_CHOOSE_FOLDER: "content-files:choose-folder",
+  CONTENT_FILES_ASSOCIATE_SOURCE: "content-files:associate-source",
   CONTENT_FILES_WRITE: "content-files:write",
   CONTENT_FILES_WRITE_FILE: "content-files:write-file",
   CONTENT_FILES_DELETE_FILE: "content-files:delete-file",
   CONTENT_FILES_READ: "content-files:read",
   CONTENT_FILES_REVEAL_FILE: "content-files:reveal-file",
   CONTENT_FILES_CLEAR_FOLDER: "content-files:clear-folder",
+  CONTENT_FILES_SUBSCRIBE_CHANGES: "content-files:subscribe-changes",
+  CONTENT_FILES_UNSUBSCRIBE_CHANGES: "content-files:unsubscribe-changes",
+  CONTENT_FILES_CHANGED: "content-files:changed",
 
   /** Active webview tracking (renderer → main) */
   SET_ACTIVE_APP: "webview:set-active-app",
@@ -384,20 +388,40 @@ export type DesktopPlanFilesResult =
 export interface DesktopContentFilesFolder {
   id?: string;
   name: string;
+  /** Persistent folders are human-selected; temporary copies are agent-opened. */
+  kind?: "persistent" | "temporary";
+  /** Derived local Git labels; no repository path is sent to the webview. */
+  repository?: DesktopContentFilesRepository;
+  /** Opaque Content IDs needed to resume reconciliation after Desktop restarts. */
+  contentSource?: {
+    sourceId: string;
+    databaseId?: string;
+  };
   path?: string;
   sourcePrefix?: string;
   updatedAt?: string;
 }
 
+export interface DesktopContentFilesRepository {
+  localId: string;
+  branch?: string;
+  commit?: string;
+  detached?: boolean;
+}
+
 export interface DesktopContentFilesWriteRequest {
   folderId?: string;
   files: Record<string, string>;
+  /** Complete disk snapshot observed before export; null means the path was absent. */
+  expectedRevisions: Record<string, string | null>;
 }
 
 export interface DesktopContentFileWriteRequest {
   folderId?: string;
   path: string;
   content: string;
+  /** SHA-256 revision observed by the caller; null means the path was absent. */
+  expectedRevision?: string | null;
 }
 
 export interface DesktopContentFileRevealRequest {
@@ -408,14 +432,34 @@ export interface DesktopContentFileRevealRequest {
 export interface DesktopContentFileDeleteRequest {
   folderId?: string;
   path: string;
+  /** SHA-256 revision observed by the caller. */
+  expectedRevision: string;
 }
 
 export interface DesktopContentFilesFolderRequest {
   folderId?: string;
 }
 
+export interface DesktopContentFilesAssociateSourceRequest {
+  folderId: string;
+  sourceId: string;
+  databaseId?: string;
+}
+
 export interface DesktopContentFilesClearFolderRequest {
   folderId?: string;
+}
+
+export interface DesktopContentFilesChangesRequest {
+  folderId?: string;
+}
+
+export interface DesktopContentFilesChange {
+  folderId: string;
+  revision: string;
+  changedAt: string;
+  missing?: boolean;
+  reason?: "attached" | "changed" | "missing";
 }
 
 export type DesktopContentFilesResult =
@@ -425,14 +469,23 @@ export type DesktopContentFilesResult =
       folders?: DesktopContentFilesFolder[];
       files?: string[];
       sources?: Record<string, string>;
+      revisions?: Record<string, string>;
+      /** Opaque bridge identity that remains stable when a file is renamed. */
+      identities?: Record<string, string>;
       controlResources?: Record<string, string>;
     }
   | {
       ok: false;
       error: string;
+      code?: "conflict" | "unavailable" | "invalid-request";
       canceled?: boolean;
       folder?: DesktopContentFilesFolder;
       folders?: DesktopContentFilesFolder[];
+      conflict?: {
+        path: string;
+        expectedRevision?: string | null;
+        actualRevision?: string;
+      };
     };
 
 export type CodeAgentRunStatus =

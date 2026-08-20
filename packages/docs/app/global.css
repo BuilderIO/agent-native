@@ -72,6 +72,7 @@
   --font-mono:
     "Geist Mono Variable", ui-monospace, SFMono-Regular, "SF Mono", Menlo,
     Consolas, "Liberation Mono", monospace;
+  --font-poppins: var(--font-sans);
 }
 
 :root {
@@ -100,7 +101,7 @@
 :root[data-theme="dark"] {
   --fg: #ededed;
   --fg-secondary: #a0a0a0;
-  --bg: #000;
+  --bg: #0a0a0a;
   --bg-secondary: #0a0a0a;
   --docs-border: #1f1f1f;
   --docs-accent: #52a8ff;
@@ -121,7 +122,7 @@
   :root:not([data-theme="light"]) {
     --fg: #ededed;
     --fg-secondary: #a0a0a0;
-    --bg: #000;
+    --bg: #0a0a0a;
     --bg-secondary: #0a0a0a;
     --docs-border: #1f1f1f;
     --docs-accent: #52a8ff;
@@ -155,6 +156,18 @@ html {
 
 body {
   overflow-x: clip;
+}
+
+.agent-sidebar-shell:has(
+  > .agent-sidebar-main-surface[data-agent-sidebar-main-state="closed"]
+) {
+  height: auto !important;
+  min-height: 100vh;
+  overflow: visible !important;
+}
+
+.agent-sidebar-main-surface[data-agent-sidebar-main-state="closed"] {
+  overflow: visible !important;
 }
 
 body {
@@ -1552,7 +1565,8 @@ h4 {
 
 /* Header nav */
 .header-link {
-  font-size: 14px;
+  font-size: 15px;
+  font-weight: 500;
   color: var(--fg-secondary);
   text-decoration: none;
   transition: color 120ms;
@@ -1565,7 +1579,6 @@ h4 {
 
 .header-link.is-active {
   color: var(--fg);
-  font-weight: 500;
 }
 
 /* Mobile menu Cloud link */
@@ -1778,7 +1791,7 @@ html.dark .shiki span {
 
 .feature-card {
   border: 1px solid var(--docs-border);
-  border-radius: 12px;
+  border-radius: 6px;
   padding: 24px;
   transition:
     border-color 200ms ease,
@@ -2113,22 +2126,62 @@ html.dark .shiki span {
   }
 }
 
-/* Primary button — high contrast, flips with theme */
-.primary-button {
+.primary-button,
+.secondary-button {
   display: inline-flex;
+  min-height: 40px;
   align-items: center;
-  gap: 8px;
-  border-radius: 12px;
-  padding: 12px 24px;
-  font-size: 14px;
-  font-weight: 500;
+  justify-content: center;
+  border-radius: 6px;
+  padding: 0 20px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0.28px;
   text-decoration: none;
+  text-transform: none;
+  transition:
+    background-color 150ms,
+    border-color 150ms,
+    color 150ms;
+}
+
+.primary-button {
+  flex-shrink: 0;
+  gap: 8px;
+  border: 1px solid var(--fg);
   background-color: var(--fg);
   color: var(--bg);
 }
 
 .primary-button:hover {
-  opacity: 0.85;
+  background-color: var(--fg-secondary);
+  text-decoration: none;
+}
+
+.secondary-button {
+  min-height: 32px;
+  border: 1px solid var(--docs-border);
+  background-color: transparent;
+  padding: 0 12px;
+  color: var(--fg-secondary);
+  font-weight: 500;
+}
+
+.secondary-button:hover {
+  border-color: var(--fg-secondary);
+  color: var(--fg);
+  text-decoration: none;
+}
+
+.template-card-primary-button {
+  min-height: 32px;
+  padding: 0 12px;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 400;
+  letter-spacing: normal;
 }
 
 /* Mobile docs nav dropdown */

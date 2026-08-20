@@ -99,4 +99,18 @@ describe("ORG_MIGRATIONS", () => {
     expect(shares?.sql).toMatch(/created_at TEXT NOT NULL/i);
     expect(indexes?.sql).toMatch(/workspace_apps_org_visibility_idx/i);
   });
+
+  it("backfills only ownerless, unshared legacy private apps", () => {
+    const migration = ORG_MIGRATIONS.find((m) => m.version === 1018);
+    const sql = typeof migration?.sql === "string" ? migration.sql : "";
+
+    expect(migration?.name).toBe(
+      "workspace-apps-restore-ownerless-legacy-visibility",
+    );
+    expect(sql).toMatch(/visibility = 'private'/i);
+    expect(sql).toMatch(/TRIM\(owner_email\) = ''/i);
+    expect(sql).toMatch(/NOT EXISTS/i);
+    expect(sql).toMatch(/workspace_app_shares/i);
+    expect(sql).toMatch(/visibility = 'org'/i);
+  });
 });

@@ -103,6 +103,8 @@ const messages = {
     slackChannelPlaceholder: "Por ejemplo: C0123456789",
     slackChannelName: "Nombre del canal",
     slackChannelNamePlaceholder: "Por ejemplo: product-agent-native-feedback",
+    builderSlackUserId: "ID de miembro de Slack de @Builder.io",
+    builderSlackUserIdPlaceholder: "Por ejemplo: U096KN3EL2Y",
     repository: "Repositorio",
     repositoryPlaceholder: "Por ejemplo: BuilderIO/agent-native",
     enablePolling: "Activar el sondeo de observaciones cada minuto",
@@ -173,6 +175,7 @@ const messages = {
     rulesTab: "Reglas",
     automationsTab: "Automatizaciones",
     agentsTab: "Agentes",
+    factorySettings: "Ajustes de Factory",
     agenticAppsTitle: "Aplicaciones agenticas",
     agenticAppsEmpty:
       "Aún no hay aplicaciones agenticas en este espacio de trabajo.",

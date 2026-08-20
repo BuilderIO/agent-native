@@ -14,6 +14,14 @@ export interface SlackMessage {
   thread_ts?: string;
   reply_count?: number;
   permalink?: string;
+  reactions?: Array<{ name: string; count?: number; users?: string[] }>;
+}
+
+export interface SlackAuthTestResult {
+  userId: string;
+  userName: string;
+  teamId: string;
+  teamName: string;
 }
 
 export interface SlackTeamInfo {
@@ -43,6 +51,10 @@ export interface ThreadRepliesResult {
 export interface SlackReactionResult {
   added: boolean;
   already_present: boolean;
+}
+
+export interface SlackReactionState {
+  eyesPresent: boolean;
 }
 
 export interface SlackPostMessageResult {
@@ -216,6 +228,56 @@ export async function getThread(
     messages: data.messages,
     has_more: Boolean(data.has_more),
     next_cursor: data.response_metadata?.next_cursor || undefined,
+  };
+}
+
+export async function authTest(
+  workspace: Workspace,
+  tokenResolver?: SlackTokenResolver,
+): Promise<SlackAuthTestResult> {
+  const data = await slackApi<{
+    user_id?: string;
+    user?: string;
+    team_id?: string;
+    team?: string;
+  }>(workspace, "auth.test", undefined, tokenResolver);
+  if (
+    typeof data.user_id !== "string" ||
+    typeof data.user !== "string" ||
+    typeof data.team_id !== "string" ||
+    typeof data.team !== "string"
+  ) {
+    throw new Error("Slack auth.test response is missing bot identity.");
+  }
+  return {
+    userId: data.user_id,
+    userName: data.user,
+    teamId: data.team_id,
+    teamName: data.team,
+  };
+}
+
+export async function getEyesReaction(
+  workspace: Workspace,
+  channelId: string,
+  timestamp: string,
+  tokenResolver?: SlackTokenResolver,
+): Promise<SlackReactionState> {
+  const data = await slackApi<{
+    message?: { reactions?: Array<{ name?: string; count?: number }> };
+  }>(
+    workspace,
+    "reactions.get",
+    { channel: channelId, timestamp },
+    tokenResolver,
+  );
+  if (!data.message) {
+    throw new Error("Slack reaction response is missing the message.");
+  }
+  return {
+    eyesPresent: (data.message.reactions ?? []).some(
+      (reaction) => reaction.name === "eyes" && (reaction.count ?? 0) > 0,
+    ),
   };
 }
 

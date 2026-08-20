@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { act } from "react";
+import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -23,6 +23,142 @@ vi.mock("../agent-engine-key.js", () => ({
   saveAgentEngineProviderSettings:
     agentEngineKeyMock.saveAgentEngineProviderSettings,
   setAgentEngineProvider: agentEngineKeyMock.setAgentEngineProvider,
+}));
+
+const i18nMock = vi.hoisted(() => ({
+  locale: "en-US",
+}));
+
+vi.mock("../i18n.js", () => ({
+  AgentNativeI18nProvider: ({
+    children,
+    initialLocale,
+  }: {
+    children: React.ReactNode;
+    initialLocale?: string;
+  }) => {
+    i18nMock.locale = initialLocale ?? "en-US";
+    return React.createElement(React.Fragment, null, children);
+  },
+  useFormatters: () => ({
+    formatNumber: (value: number) =>
+      new Intl.NumberFormat(i18nMock.locale).format(value),
+  }),
+  useT: () => (key: string, options?: Record<string, unknown>) => {
+    const translations: Record<string, Record<string, string>> = {
+      "en-US": {
+        "agentChat.setup.connectBuilder": "Connect Builder.io",
+        "agentPanel.connectAi": "Connect AI",
+        "agentPanel.builderOrOwnKeys": "Choose Builder.io or custom keys.",
+        "agentPanel.addOwnKeys": "Custom keys",
+        "agentChat.common.waiting": "Waiting",
+        "agentChat.common.connect": "Connect",
+        "agentChat.common.retry": "Retry",
+        "agentChat.common.details": "Details",
+        "agentChat.common.dismiss": "Dismiss",
+        "agentChat.common.copied": "Copied",
+        "agentChat.recovery.copyDebug": "Copy debug info",
+        "agentChat.recovery.copyFailed": "Copy failed",
+        "agentChat.recovery.credentialRejected":
+          "The saved provider key was rejected. Connect Builder.io for managed AI, or update your provider key, then retry.",
+        "agentChat.recovery.newChatHint":
+          "This run can be continued in a new chat.",
+        "agentChat.recovery.reconnectBuilder": "Reconnect Builder.io",
+        "agentChat.recovery.connectingBuilder": "Connecting Builder.io",
+        "agentChat.error.stopped": "The agent stopped before finishing",
+        "agentChat.error.failed": "The agent hit an error",
+        "agentChat.limit.reached": "Step limit reached",
+        "agentChat.limit.descriptionWithCount":
+          "{{formattedCount}} steps remain for {{scope}}.",
+        "agentChat.limit.descriptionAll": "More steps remain for {{scope}}.",
+        "agentChat.limit.namedOrganization": "{{organization}}",
+        "agentChat.limit.organization": "your organization",
+        "agentChat.limit.account": "your account",
+        "agentChat.limit.maxSteps": "Max steps",
+        "agentChat.limit.saveAndContinue": "Save and continue",
+        "agentChat.limit.keepGoing": "Keep going",
+        "agentChat.limit.ownerOnly": "Only the owner can change this.",
+        "agentChat.common.save": "Save",
+        "agentChat.common.settings": "Settings",
+        "agentChat.tabs.newChat": "New chat",
+        "agentChat.message.forkChat": "Fork chat",
+        "agentChat.recovery.forkDescription": "Fork this chat",
+        "agentChat.recovery.forkFailed": "Fork failed",
+        "agentChat.recovery.forking": "Forking",
+      },
+      "de-DE": {
+        "agentChat.error.stopped": "The agent stopped before finishing",
+        "agentChat.error.failed": "The agent hit an error",
+        "agentChat.recovery.copyDebug": "Debug-Informationen kopieren",
+        "agentChat.recovery.copyFailed": "Kopieren fehlgeschlagen",
+        "agentChat.common.copied": "Kopiert",
+        "agentChat.common.details": "Details",
+        "agentChat.common.dismiss": "Schließen",
+        "agentChat.common.retry": "Retry",
+        "agentChat.errorMessages.providerAuthentication":
+          "Der Modellanbieter hat den gespeicherten API-Schlüssel abgelehnt.",
+        "agentChat.limit.descriptionWithCount":
+          "{{formattedCount}} Schritte bleiben für {{scope}}.",
+      },
+    };
+    const table =
+      translations[i18nMock.locale as keyof typeof translations] ??
+      translations["en-US"];
+    const template =
+      table[key] ?? (options?.defaultValue as string | undefined) ?? key;
+    return template.replace(/\{\{\s*(\w+)\s*\}\}/g, (_, name: string) =>
+      String(options?.[name] ?? ""),
+    );
+  },
+}));
+
+vi.mock("../settings/ProviderSetupForm.js", () => ({
+  AgentProviderSetupForm: ({ onConnected }: { onConnected?: () => void }) => {
+    const [providerOpen, setProviderOpen] = React.useState(false);
+    const [apiKey, setApiKey] = React.useState("");
+    return (
+      <div>
+        <button
+          type="button"
+          aria-label="Choose a provider"
+          onClick={() => setProviderOpen((open) => !open)}
+        >
+          Choose a provider
+        </button>
+        {providerOpen ? (
+          <div>
+            <button type="button">OpenRouter</button>
+            <button type="button">Ollama</button>
+          </div>
+        ) : null}
+        <div>
+          <input
+            type="password"
+            value={apiKey}
+            onChange={(event) => setApiKey(event.target.value)}
+          />
+          <button
+            type="button"
+            onClick={() => {
+              void agentEngineKeyMock.saveAgentEngineProviderSettings({
+                provider: "anthropic",
+                key: "ANTHROPIC_API_KEY",
+                apiKey,
+                scope: "user",
+              });
+              void agentEngineKeyMock.setAgentEngineProvider({
+                provider: "anthropic",
+                model: "mock-model",
+              });
+              onConnected?.();
+            }}
+          >
+            Save
+          </button>
+        </div>
+      </div>
+    );
+  },
 }));
 
 vi.mock("../settings/useBuilderStatus.js", () => ({
@@ -201,7 +337,7 @@ describe("run recovery surfaces", () => {
     });
   });
 
-  it("shows the AI setup flow and retry for a rejected provider key", async () => {
+  it("shows the AI setup flow without a direct retry button for a rejected provider key", async () => {
     await act(async () => {
       root.render(
         <AgentNativeI18nProvider
@@ -211,9 +347,8 @@ describe("run recovery surfaces", () => {
         >
           <RunErrorRecoveryCard
             info={{
-              message:
-                "The saved provider key was rejected. Connect Builder.io for managed AI, or update your provider key, then retry.",
-              errorCode: "authentication_error",
+              message: "Missing Authentication header",
+              errorCode: "http_401",
               details: '401 {"error":{"type":"authentication_error"}}',
             }}
             onContinue={vi.fn()}
@@ -226,7 +361,10 @@ describe("run recovery surfaces", () => {
 
     expect(container.textContent).toContain("Connect Builder.io");
     expect(container.textContent).toContain("Custom keys");
-    expect(container.textContent).toContain("Retry");
+    const buttonLabels = Array.from(container.querySelectorAll("button")).map(
+      (button) => button.textContent?.trim() ?? "",
+    );
+    expect(buttonLabels).not.toContain("Retry");
   });
 
   it("renders missing-provider errors as inline setup and retries on click", async () => {

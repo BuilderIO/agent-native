@@ -214,7 +214,7 @@ const workspaceSkillExcludes = [
   "multi-frontier-desktop",
   "new-branch",
   "ship",
-  "ship-desktop",
+  "ship-and-monitor",
   "verifying-changes",
   "content-product-development",
   "design-exploration",

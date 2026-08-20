@@ -403,7 +403,7 @@ describe("Builder model fallback", () => {
   const options = {
     audioBytes: new Uint8Array([1, 2, 3]),
     mimeType: "audio/webm",
-    diarize: false,
+    diarize: true,
   };
 
   beforeEach(() => {
@@ -697,6 +697,7 @@ describe("requestTranscript regeneration", () => {
           startMs: 0,
           endMs: 1200,
           text: "Recovered from the spoken recording.",
+          speakerLabel: "Speaker 1",
         },
       ],
     });
@@ -742,7 +743,18 @@ describe("requestTranscript regeneration", () => {
         status: "ready",
         fullText: "Recovered from the spoken recording.",
         failureReason: null,
+        segmentsJson: JSON.stringify([
+          {
+            startMs: 0,
+            endMs: 1200,
+            text: "Recovered from the spoken recording.",
+            speaker: "Speaker 1",
+          },
+        ]),
       }),
+    );
+    expect(mockTranscribeWithBuilder).toHaveBeenCalledWith(
+      expect.objectContaining({ diarize: true }),
     );
   });
 

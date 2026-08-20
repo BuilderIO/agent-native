@@ -192,6 +192,12 @@ createAgentChatPlugin({
 });
 ```
 
+Cuando el mismo resolver también gestione el chat predeterminado sin
+restricciones, devuelve `{ mode: "default" }`. Así se conservan el filtrado
+normal mediante `initialToolNames` y el descubrimiento con `tool-search`, en
+lugar de cargar todos los esquemas disponibles en la primera solicitud al
+modelo. El modo explícito se conserva en las continuaciones duraderas.
+
 Una lista vacía no expone acciones nativas. Los nombres desconocidos hacen
 fallar la solicitud en vez de ampliar el acceso. Todas las acciones permitidas
 se cargan directamente en la primera solicitud al modelo; incluye

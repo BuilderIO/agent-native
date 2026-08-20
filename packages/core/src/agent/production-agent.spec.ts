@@ -34,6 +34,7 @@ import {
   createPlanModeActionRegistry,
   createProductionAgentHandler,
   preloadPlanModeEngineTools,
+  normalizeAgentActionSurfaceResolution,
   readPersistedActionSurface,
   readPersistedAllowedActionNames,
   isPlanModeToolCallAllowed,
@@ -92,6 +93,16 @@ describe("runCompletionCallbackWithDatabaseRetry", () => {
     expect(sleep).toHaveBeenCalledWith(250);
   });
 });
+
+/**
+ * Chat events minus the `model_stream` bracket. The bracket exists for the run
+ * manager's no-progress backstop, renders nothing, and would otherwise have to
+ * be re-spelled inside every exact-sequence assertion below; the bracket's own
+ * pairing and placement are asserted directly in its dedicated tests.
+ */
+function visibleEvents(events: AgentChatEvent[]): AgentChatEvent[] {
+  return events.filter((event) => event.type !== "model_stream");
+}
 
 function actionEntry(opts: {
   description?: string;
@@ -1591,7 +1602,63 @@ describe("createProductionAgentHandler", () => {
     expect(getRequestRunContext()).toBeUndefined();
   });
 
-  it("keeps concurrent request action surfaces isolated by thread", async () => {
+  it("uses the normal initial tool surface when the resolver selects the default", async () => {
+    const seenTools: string[][] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        seenTools.push(opts.tools.map((tool) => tool.name));
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {
+        common: actionEntry({}),
+        rare: actionEntry({}),
+        "tool-search": actionEntry({}),
+      },
+      initialToolNames: ["common"],
+      resolveActionSurface: async () => ({ mode: "default" }),
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message: "Use the default agent" }),
+      }),
+    );
+
+    const response = await runWithRequestContext(
+      { userEmail: "owner@example.com", run: {} },
+      () => handler(event),
+    );
+    if (response instanceof ReadableStream) {
+      const reader = response.getReader();
+      while (!(await reader.read()).done) {}
+    }
+
+    await vi.waitFor(() => {
+      expect(seenTools).toEqual([["common", "tool-search"]]);
+    });
+  });
+
+  it("keeps concurrent default and allowlisted action surfaces isolated by thread", async () => {
     const seenTools: string[][] = [];
     const seenContinuations: Array<[string | undefined, boolean]> = [];
     const engine: AgentEngine = {
@@ -1623,11 +1690,12 @@ describe("createProductionAgentHandler", () => {
         beta: actionEntry({}),
         "tool-search": actionEntry({}),
       },
+      initialToolNames: ["alpha"],
       resolveActionSurface: async ({ threadId, internalContinuation }) => {
         seenContinuations.push([threadId, internalContinuation]);
         if (threadId === "thread-alpha") {
           await new Promise((resolve) => setTimeout(resolve, 10));
-          return { allowedActionNames: ["alpha"] };
+          return { mode: "default" };
         }
         return { allowedActionNames: ["beta"] };
       },
@@ -1661,7 +1729,7 @@ describe("createProductionAgentHandler", () => {
     ]);
 
     expect(seenTools).toHaveLength(2);
-    expect(seenTools).toContainEqual(["alpha"]);
+    expect(seenTools).toContainEqual(["alpha", "tool-search"]);
     expect(seenTools).toContainEqual(["beta"]);
     expect(seenContinuations).toContainEqual(["thread-alpha", false]);
     expect(seenContinuations).toContainEqual(["thread-beta", true]);
@@ -1830,6 +1898,42 @@ describe("createProductionAgentHandler", () => {
 });
 
 describe("filterActionsByAllowedNames", () => {
+  it("normalizes only explicit default or valid allowlisted surfaces", () => {
+    expect(normalizeAgentActionSurfaceResolution({ mode: "default" })).toEqual({
+      mode: "default",
+    });
+    expect(
+      normalizeAgentActionSurfaceResolution({
+        allowedActionNames: ["allowed", "allowed"],
+      }),
+    ).toEqual({ mode: "allowlist", allowedActionNames: ["allowed"] });
+    expect(() =>
+      normalizeAgentActionSurfaceResolution({
+        mode: "default",
+        allowedActionNames: [],
+      }),
+    ).toThrow("resolveActionSurface returned an invalid default surface");
+    expect(() =>
+      normalizeAgentActionSurfaceResolution({ mode: "unknown" }),
+    ).toThrow("resolveActionSurface returned an invalid default surface");
+    expect(() => normalizeAgentActionSurfaceResolution({})).toThrow(
+      "resolveActionSurface returned an invalid action surface",
+    );
+    expect(() =>
+      normalizeAgentActionSurfaceResolution({ allowedActionNames: null }),
+    ).toThrow("resolveActionSurface returned an invalid action surface");
+    expect(() =>
+      normalizeAgentActionSurfaceResolution({
+        allowedActionNames: ["allowed", null],
+      }),
+    ).toThrow("resolveActionSurface returned an invalid action surface");
+    expect(() =>
+      normalizeAgentActionSurfaceResolution({
+        allowedActionNames: "allowed",
+      }),
+    ).toThrow("resolveActionSurface returned an invalid action surface");
+  });
+
   it("treats an explicit empty allowlist as no actions", () => {
     expect(
       filterActionsByAllowedNames(
@@ -1915,6 +2019,40 @@ describe("filterActionsByAllowedNames", () => {
         "__resolvedActionSurface",
       ),
     ).toEqual({ orgId: null, allowedActionNames: ["allowed"] });
+    expect(
+      readPersistedActionSurface(
+        {
+          __resolvedActionSurface: {
+            orgId: "org-123",
+            mode: "default",
+          },
+        },
+        "__resolvedActionSurface",
+      ),
+    ).toEqual({ orgId: "org-123", mode: "default" });
+    expect(
+      readPersistedActionSurface(
+        {
+          __resolvedActionSurface: {
+            orgId: "org-123",
+            mode: "unknown",
+          },
+        },
+        "__resolvedActionSurface",
+      ),
+    ).toEqual({ orgId: null, allowedActionNames: [] });
+    expect(
+      readPersistedActionSurface(
+        {
+          __resolvedActionSurface: {
+            orgId: "org-123",
+            mode: "default",
+            allowedActionNames: ["allowed"],
+          },
+        },
+        "__resolvedActionSurface",
+      ),
+    ).toEqual({ orgId: null, allowedActionNames: [] });
   });
 
   it("keeps tool-search scoped to the filtered request registry", async () => {
@@ -2962,6 +3100,101 @@ describe("runAgentLoop", () => {
     },
   });
 
+  const modelStreamBracket = (events: AgentChatEvent[]) =>
+    events.filter((event) => event.type === "model_stream");
+
+  // The bracket the run manager's no-progress backstop reads
+  // (`inFlightWorkDelta` in run-manager.ts). It must be balanced on every exit
+  // path: a leaked `start` suspends that backstop for the rest of the run,
+  // which is worse than the stall it exists to catch.
+  it("brackets each engine call with a model_stream start/end pair", async () => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        yield { type: "text-delta", text: "answer" };
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {},
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(streamCalls).toBe(1);
+    // Opened before anything the stream produces, closed before the turn ends.
+    expect(events[0]).toEqual({ type: "model_stream", status: "start" });
+    expect(modelStreamBracket(events)).toEqual([
+      { type: "model_stream", status: "start" },
+      { type: "model_stream", status: "end" },
+    ]);
+    expect(events.at(-1)).toEqual({ type: "done" });
+  });
+
+  it("closes the model-stream bracket when the engine throws mid-stream", async () => {
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield { type: "text-delta", text: "partial" };
+        throw new EngineError("Connection error.", {
+          errorCode: "provider_network_error",
+        });
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    vi.stubEnv("AGENT_RUN_SOFT_TIMEOUT_MS", "1000");
+    try {
+      await expect(
+        runAgentLoop({
+          engine,
+          model: "test-model",
+          systemPrompt: "system",
+          tools: [],
+          messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+          actions: {},
+          send: (event) => events.push(event),
+          signal: new AbortController().signal,
+        }),
+      ).rejects.toThrow("Connection error.");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+
+    expect(modelStreamBracket(events)).toEqual([
+      { type: "model_stream", status: "start" },
+      { type: "model_stream", status: "end" },
+    ]);
+  });
+
   it("FIX 2: a hung FIRST model event triggers auto_continue at 25s on the HOSTED foreground runtime", async () => {
     const restoreEnv = snapshotAndClearRuntimePredicateEnv();
     // Hosted (non-background Lambda name, e.g. the regular `server` function)
@@ -3022,7 +3255,7 @@ describe("runAgentLoop", () => {
 
       // Past the 25s cap — a non-hosted runtime must be unaffected by it.
       await vi.advanceTimersByTimeAsync(26_000);
-      expect(events).toHaveLength(0);
+      expect(events).toEqual([{ type: "model_stream", status: "start" }]);
 
       // The normal 90s in-loop watchdog still applies and eventually fires.
       await vi.advanceTimersByTimeAsync(90_000 - 26_000);
@@ -3061,7 +3294,7 @@ describe("runAgentLoop", () => {
       // Past the 25s foreground cap — a proven background-function worker
       // must be unaffected by it.
       await vi.advanceTimersByTimeAsync(26_000);
-      expect(events).toHaveLength(0);
+      expect(events).toEqual([{ type: "model_stream", status: "start" }]);
 
       // The normal 90s watchdog still applies and eventually fires.
       await vi.advanceTimersByTimeAsync(90_000 - 26_000);
@@ -8367,7 +8600,7 @@ describe("runAgentLoop", () => {
     });
 
     expect(streamCalls).toBe(1);
-    expect(events).toEqual([
+    expect(visibleEvents(events)).toEqual([
       {
         type: "tool_start",
         id: "query-1",
@@ -8948,7 +9181,7 @@ describe("runAgentLoop", () => {
       "act",
       "act",
     ]);
-    expect(events.slice(0, 2)).toEqual([
+    expect(visibleEvents(events).slice(0, 2)).toEqual([
       {
         type: "text",
         text: "Looks up and to the right.",
@@ -9121,7 +9354,7 @@ describe("runAgentLoop", () => {
       "unclear",
       "grounded",
     ]);
-    expect(events).toEqual([
+    expect(visibleEvents(events)).toEqual([
       { type: "text", text: "unclear" },
       { type: "clear" },
       { type: "text", text: "grounded" },
@@ -9169,7 +9402,7 @@ describe("runAgentLoop", () => {
       }),
     ).rejects.toThrow("guard unavailable");
 
-    expect(events.slice(0, 2)).toEqual([
+    expect(visibleEvents(events).slice(0, 2)).toEqual([
       { type: "text", text: "Unverified answer." },
       { type: "clear" },
     ]);
@@ -9218,7 +9451,7 @@ describe("runAgentLoop", () => {
     });
 
     expect(streamCalls).toBe(2);
-    expect(events).toEqual([
+    expect(visibleEvents(events)).toEqual([
       { type: "text", text: "fake answer" },
       { type: "clear" },
       { type: "text", text: "still fake" },
@@ -9357,7 +9590,7 @@ describe("runAgentLoop", () => {
       requestText: "go",
       text: "Recovered answer.",
     });
-    expect(events.map((event) => event.type)).toEqual([
+    expect(visibleEvents(events).map((event) => event.type)).toEqual([
       "thinking",
       "clear",
       "text",
@@ -9516,7 +9749,9 @@ describe("runAgentLoop", () => {
       signal: new AbortController().signal,
     });
 
-    expect(events).toEqual([{ type: "auto_continue", reason: "stream_ended" }]);
+    expect(visibleEvents(events)).toEqual([
+      { type: "auto_continue", reason: "stream_ended" },
+    ]);
   });
 
   it("recovers repeated Luna reasoning-only turns before an app guard classifies the continuation", async () => {
@@ -9629,7 +9864,7 @@ describe("runAgentLoop", () => {
     expect(textEvents).toHaveLength(1);
     expect(textEvents[0].text).toMatch(/empty response/i);
     expect(textEvents[0].text).toMatch(/different model/i);
-    expect(events.map((event) => event.type)).toEqual([
+    expect(visibleEvents(events).map((event) => event.type)).toEqual([
       "thinking",
       "clear",
       "thinking",

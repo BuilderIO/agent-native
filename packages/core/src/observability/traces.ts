@@ -39,6 +39,18 @@ function costUsdFromCenticents(value: number): number {
 }
 
 const MAX_TRACKED_GENERATION_TOOL_CALLS = 50;
+
+/**
+ * `auto_continue` reasons the server PLANNED, which must not read as failures.
+ *
+ * A hosted foreground chunk ends at `run_timeout` roughly every 40s by design —
+ * counting those as errors would bury the boundaries that mean something under
+ * the ones that mean "working as intended". Every other reason is a boundary
+ * something forced on the run: recoverable, but not normal, and it stays
+ * visible as an error carrying its reason as the terminal code. Moving a reason
+ * across this line changes what the error rate means, so move it deliberately.
+ */
+const EXPECTED_CONTINUATION_REASONS = new Set(["run_timeout", "auto_continue"]);
 const MAX_TOOL_ERROR_MESSAGE_LENGTH = 500;
 const STANDALONE_API_KEY_PATTERN =
   /\b(?:sk-(?:proj-|ant-)?[A-Za-z0-9_-]{8,}|(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{8,}|AIza[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{16,})\b/g;
@@ -551,6 +563,11 @@ export async function instrumentAgentLoop(opts: {
   let errorMessage: string | null = null;
   let runMetadata: Record<string, unknown> | null = opts.metadata ?? null;
   let terminalOutcome: AgentLoopOutcome | undefined;
+  // The `auto_continue` boundary this run ended at, if any. A cut-off never
+  // reaches the loop's outcome classification (`runAgentLoop` returns early at
+  // the checkpoint), so without this the run reports no terminal state at all
+  // and the reason is recoverable only from `agent_run_events` in Postgres.
+  let cutOffReason: string | null = null;
 
   const instrumentedOutcome = (outcome: AgentLoopOutcome): void => {
     terminalOutcome = outcome;
@@ -597,6 +614,14 @@ export async function instrumentAgentLoop(opts: {
       if (event.type === "clear" || event.type === "done") {
         runStatus = "success";
         errorMessage = null;
+        cutOffReason = null;
+      } else if (event.type === "auto_continue") {
+        const reason = event.reason || "auto_continue";
+        cutOffReason = reason;
+        if (!EXPECTED_CONTINUATION_REASONS.has(reason)) {
+          runStatus = "error";
+          errorMessage = `Agent run was cut off before finishing (${reason}).`;
+        }
       } else if (event.type === "error") {
         runStatus = "error";
         errorMessage = event.error;
@@ -877,6 +902,22 @@ export async function instrumentAgentLoop(opts: {
       }
     } catch {}
 
+    // A cut-off run never reaches the loop's outcome classification, so stand in
+    // for it here rather than reporting no terminal state at all. `failed` +
+    // `retryable` is the honest encoding available in `AgentLoopOutcome`: the
+    // turn did not finish, and the continuation machinery is expected to
+    // recover it. A real reported outcome always wins.
+    const effectiveTerminalOutcome: AgentLoopOutcome | undefined =
+      terminalOutcome ??
+      (cutOffReason && !EXPECTED_CONTINUATION_REASONS.has(cutOffReason)
+        ? {
+            state: "failed",
+            code: cutOffReason,
+            retryable: true,
+            message: `Agent run was cut off before finishing (${cutOffReason}).`,
+          }
+        : undefined);
+
     let llmCallCount = 0;
     if (usage || runStatus === "error") {
       llmCallCount =
@@ -961,7 +1002,7 @@ export async function instrumentAgentLoop(opts: {
           .map(([, detail]) => detail),
         toolsTruncated:
           toolInvocationCounter > MAX_TRACKED_GENERATION_TOOL_CALLS,
-        terminalOutcome,
+        terminalOutcome: effectiveTerminalOutcome,
         delegation: opts.delegation,
         createdAt: runStart,
         experimentAssignments: opts.experimentAssignments,
@@ -1000,15 +1041,15 @@ export async function instrumentAgentLoop(opts: {
       const aiError =
         runStatus === "error"
           ? toAiErrorDetail(errorMessage, {
-              state: terminalOutcome?.state,
+              state: effectiveTerminalOutcome?.state,
               code:
-                terminalOutcome?.state === "failed" ||
-                terminalOutcome?.state === "input_required"
-                  ? terminalOutcome.code
+                effectiveTerminalOutcome?.state === "failed" ||
+                effectiveTerminalOutcome?.state === "input_required"
+                  ? effectiveTerminalOutcome.code
                   : undefined,
               retryable:
-                terminalOutcome?.state === "failed"
-                  ? terminalOutcome.retryable
+                effectiveTerminalOutcome?.state === "failed"
+                  ? effectiveTerminalOutcome.retryable
                   : undefined,
             })
           : undefined;
@@ -1047,6 +1088,10 @@ export async function instrumentAgentLoop(opts: {
           source: "agent_observability",
           run_id: runId,
           thread_id: threadId,
+          // Present for planned boundaries too, which are not errors: the ratio
+          // of run_timeout to no_progress is the signal, and it is unreadable
+          // if only one side of it is recorded.
+          ...(cutOffReason ? { terminal_reason: cutOffReason } : {}),
           // A truncated run must not read as a complete one.
           ...(droppedToolSpans > 0
             ? {
@@ -1159,11 +1204,11 @@ export async function instrumentAgentLoop(opts: {
           "agent.input_tokens": usage?.inputTokens ?? 0,
           "agent.output_tokens": usage?.outputTokens ?? 0,
           "agent.cost_cents_x100": costCentsX100,
-          "agent.terminal_state": terminalOutcome?.state,
+          "agent.terminal_state": effectiveTerminalOutcome?.state,
           "agent.terminal_code":
-            terminalOutcome?.state === "failed" ||
-            terminalOutcome?.state === "input_required"
-              ? terminalOutcome.code
+            effectiveTerminalOutcome?.state === "failed" ||
+            effectiveTerminalOutcome?.state === "input_required"
+              ? effectiveTerminalOutcome.code
               : undefined,
         },
       });

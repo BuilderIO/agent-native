@@ -56,7 +56,7 @@
     "host": "calendar.agent-native.com"
   },
   "analytics": {
-    "siteId": "ba983662-dac4-478f-a481-5079e67e4d33",
+    "siteId": "ba983662-dac4-478d-a481-5079e67e4d33",
     "host": "analytics.agent-native.com"
   },
   "factory": {
@@ -69,6 +69,7 @@
   },
   "workspace": {
     "siteId": "ac1cc021-51b0-4a66-a93c-7072f2ab2171",
-    "host": "agent-workspace.builder.io"
+    "host": "agent-workspace.builder.io",
+    "sourceRepo": "BuilderIO/builder-agent-native-workspace"
   }
 }

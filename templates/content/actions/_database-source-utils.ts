@@ -8,7 +8,6 @@ import type {
   ContentDatabase,
   ContentDatabaseBodyHydrationSummary,
   ContentDatabaseItem,
-  ContentDatabaseResponse,
   ContentDatabaseSource,
   ContentDatabaseSourceBodyChange,
   ContentDatabaseSourceCapabilities,
@@ -46,7 +45,6 @@ import {
   builderMdxBodyToBuilderBlocks,
 } from "../shared/builder-mdx.js";
 import {
-  normalizePropertyValue,
   normalizePropertyValueWithOptions,
   parsePropertyOptions,
   serializePropertyOptions,
@@ -60,6 +58,10 @@ import {
   chunks,
   processWithConcurrency,
 } from "./_batch-utils.js";
+import {
+  LOCAL_FOLDER_SOURCE_TYPE,
+  localFolderSourceIdentityFromMetadata,
+} from "./_local-folder-source.js";
 export { bulkChunkSizeForColumnCount } from "./_batch-utils.js";
 import {
   readBuilderCmsContentEntry,
@@ -176,6 +178,9 @@ type SourceMetadataRecord = {
   connectionId?: string | null;
   connectionLabel?: string | null;
   truthPolicy?: ContentDatabaseSource["metadata"]["truthPolicy"];
+  syncPolicy?: "manual" | "keep_in_sync";
+  liveBridgeEnabled?: boolean;
+  localIdentity?: unknown;
   liveReadConfigured?: boolean;
   lastReadEntryCount?: number;
   lastReadMatchedRowCount?: number;
@@ -4289,7 +4294,6 @@ async function loadSourceSnapshot(
     allDocumentIds,
     rowDocuments,
     propertyValueRows,
-    consistencyAttempts,
   } = await loadSourceSnapshotRowsOptimistically({
     source,
     database,
@@ -4572,14 +4576,19 @@ async function loadSourceSnapshot(
       ? metadata.writeMode
       : undefined;
   const capabilities = normalizeCapabilities(source.capabilitiesJson);
-  if (normalizedWriteMode) {
+  const sourceType = normalizeSourceType(source.sourceType);
+  if (sourceType === LOCAL_FOLDER_SOURCE_TYPE) {
+    capabilities.liveWritesEnabled =
+      metadata.liveBridgeEnabled === true &&
+      metadata.syncPolicy === "keep_in_sync";
+  } else if (normalizedWriteMode) {
     capabilities.liveWritesEnabled = normalizedWriteMode !== "read_only";
   }
 
   // A local-table source shows the target database's *live* title, so renaming
   // the underlying table is reflected here instead of the name frozen at attach.
   let displaySourceName = source.sourceName;
-  if (normalizeSourceType(source.sourceType) === "local-table") {
+  if (sourceType === "local-table") {
     const [target] = await db
       .select({ title: schema.contentDatabases.title })
       .from(schema.contentDatabases)
@@ -4626,6 +4635,17 @@ async function loadSourceSnapshot(
         metadata.truthPolicy === "reviewed_bidirectional"
           ? metadata.truthPolicy
           : undefined,
+      syncPolicy:
+        metadata.syncPolicy === "manual" ||
+        metadata.syncPolicy === "keep_in_sync"
+          ? metadata.syncPolicy
+          : undefined,
+      liveBridgeEnabled:
+        metadata.liveBridgeEnabled === true &&
+        metadata.syncPolicy === "keep_in_sync",
+      localIdentity: localFolderSourceIdentityFromMetadata(
+        metadata.localIdentity,
+      ),
       liveReadConfigured: metadata.liveReadConfigured === true,
       lastReadEntryCount:
         typeof metadata.lastReadEntryCount === "number"

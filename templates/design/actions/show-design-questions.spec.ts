@@ -2,11 +2,13 @@ import { describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   writeAppState: vi.fn(),
+  writeAppStateForCurrentTab: vi.fn(),
   assertAccess: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: mocks.writeAppState,
+  writeAppStateForCurrentTab: mocks.writeAppStateForCurrentTab,
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
@@ -83,7 +85,7 @@ describe("show-design-questions", () => {
         ],
       },
     );
-    expect(mocks.writeAppState).toHaveBeenNthCalledWith(2, "navigate", {
+    expect(mocks.writeAppStateForCurrentTab).toHaveBeenCalledWith("navigate", {
       view: "editor",
       designId: "design_123",
       editorView: "overview",

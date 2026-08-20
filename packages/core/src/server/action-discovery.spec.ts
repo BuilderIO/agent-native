@@ -4,6 +4,7 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import { resolveFrameworkTools } from "../framework-tools.js";
 import {
   ALWAYS_ON_CORE_ACTIONS,
   autoDiscoverActions,
@@ -495,5 +496,51 @@ describe("action discovery", () => {
     // Always-on: no group, so no `frameworkTools` switch can remove it.
     expect(registry["upload-image"].frameworkGroup).toBeUndefined();
     expect(registry["call-mcp-tool"].frameworkGroup).toBeUndefined();
+  });
+
+  // These three kits were always-on for years, which also put twelve schemas in
+  // every app's first request — an app with no Team page still paid for
+  // `delete-workspace-user-group` on turn one, and could not turn it off.
+  it("gives the formerly always-on kits a switch without changing the default", async () => {
+    const registry: Record<string, any> = {};
+    await mergeCoreSharingActions(registry);
+
+    const owned: Record<string, string[]> = {
+      workspaceUserGroups: [
+        "list-workspace-user-groups",
+        "upsert-workspace-user-group",
+        "bulk-update-workspace-user-groups",
+        "delete-workspace-user-group",
+      ],
+      emailCatalog: [
+        "list-transactional-emails",
+        "render-transactional-email-preview",
+        "list-email-log",
+        "list-email-activity",
+        "list-email-engagement",
+      ],
+      orgServiceTokens: [
+        "create-org-service-token",
+        "list-org-service-tokens",
+        "revoke-org-service-token",
+      ],
+    };
+
+    for (const [group, names] of Object.entries(owned)) {
+      for (const name of names) {
+        expect(registry[name]?.frameworkGroup, name).toBe(group);
+        expect(ALWAYS_ON_CORE_ACTIONS.has(name), name).toBe(false);
+      }
+      // Default is on: an app that says nothing keeps today's surface.
+      expect(resolveFrameworkTools({}).isEnabled(group as any), group).toBe(
+        true,
+      );
+      expect(
+        resolveFrameworkTools({
+          frameworkTools: { [group]: false },
+        }).isEnabled(group as any),
+        group,
+      ).toBe(false);
+    }
   });
 });

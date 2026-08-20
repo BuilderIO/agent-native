@@ -69,6 +69,21 @@ export interface DesktopComputerMcpBridgeOptions {
   browserExtensionPath?: () => string | undefined;
   token?: () => string;
   leaseTtlMs?: number;
+  openContentWorkingCopy?: (input: {
+    runId: string;
+    folder: string;
+    name: string;
+  }) => {
+    id: string;
+    name: string;
+    kind: "temporary";
+    repository?: {
+      localId: string;
+      branch?: string;
+      commit?: string;
+      detached?: boolean;
+    };
+  };
 }
 
 /**
@@ -280,6 +295,39 @@ export class DesktopComputerMcpBridge {
   }
 
   private registerTools(mcp: McpServer): void {
+    if (this.options.openContentWorkingCopy) {
+      mcp.registerTool(
+        "content_open_local_working_copy",
+        {
+          description:
+            "Open the exact local folder as a named temporary Content working copy. The folder remains device-local and is never checked out or changed by this tool.",
+          inputSchema: {
+            folder: z.string().min(1),
+            name: z.string().trim().min(1),
+          },
+          annotations: {
+            readOnlyHint: false,
+            destructiveHint: false,
+            idempotentHint: true,
+            openWorldHint: false,
+          },
+        },
+        async ({ folder, name }) => {
+          if (this.context().connector) {
+            throw new Error(
+              "Opening local Content working copies is unavailable to remote connectors.",
+            );
+          }
+          return this.textResult(
+            this.options.openContentWorkingCopy!({
+              runId: this.context().runId,
+              folder,
+              name,
+            }),
+          );
+        },
+      );
+    }
     mcp.registerTool(
       "computer_status",
       {

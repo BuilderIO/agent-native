@@ -42,7 +42,7 @@
  */
 
 import { matchInlineMathAt } from "./inline-math.js";
-import { isRegistryBlockTag, registryBlockSpecByTag } from "./nfm-registry.js";
+import { registryBlockSpecByTag } from "./nfm-registry.js";
 
 // ── Shared PM JSON types ────────────────────────────────────────────
 export interface PMMark {
@@ -363,8 +363,13 @@ function serializeInlineNode(node: PMNode): string {
     const a = span?.attrs || {};
     const underlined =
       a.underline === "true" || a.underline === true || plainUnderline;
+    const foregroundColor =
+      isColor(a.color) && !a.color.endsWith("_bg") ? a.color : null;
+    const backgroundColor =
+      isColor(a.bgColor) && a.bgColor.endsWith("_bg") ? a.bgColor : null;
     const attrStr = serializeAttrs([
-      ["color", a.color || a.bgColor || null],
+      ["color", foregroundColor || backgroundColor],
+      ["bg_color", foregroundColor ? backgroundColor : null],
       ["underline", underlined ? "true" : null],
     ]);
     if (attrStr) out = `<span${attrStr}>${out}</span>`;
@@ -397,9 +402,15 @@ function addMark(nodes: PMNode[], mark: PMMark): void {
 function mergeSpanMark(nodes: PMNode[], attrs: Record<string, string>): void {
   const color = attrs.color;
   const isBg = color ? color.endsWith("_bg") : false;
+  const explicitBackground = attrs.bg_color;
   const spanAttrs: Record<string, any> = {
-    color: color && !isBg ? color : null,
-    bgColor: color && isBg ? color : null,
+    color: isColor(color) && !isBg ? color : null,
+    bgColor:
+      isColor(explicitBackground) && explicitBackground.endsWith("_bg")
+        ? explicitBackground
+        : isColor(color) && isBg
+          ? color
+          : null,
     underline: attrs.underline === "true" ? "true" : null,
     href: attrs.href || null,
     attrsJson: "{}",
@@ -932,11 +943,6 @@ function serializeBlock(node: PMNode, indent: number): string[] {
       return inline ? [indentStr(ind) + inline] : [];
     }
   }
-}
-
-function serializeChildrenAfterFirst(node: PMNode, indent: number): string[] {
-  const children = (node.content || []).slice(1);
-  return serializeBlocks(children, indent);
 }
 
 function serializeQuote(node: PMNode, ind: number): string[] {
@@ -1987,7 +1993,6 @@ function parseContainer(
     return { nodes: [withIndentAttr(node)], end: start + 1 };
   }
   const closeIdx = i;
-  const innerEnd = closeIdx;
 
   // <details> with a <summary> on the next line.
   if (tagKey === "<details") {

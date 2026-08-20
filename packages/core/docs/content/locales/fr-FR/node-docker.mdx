@@ -1,94 +1,27 @@
 ---
-title: "Node.js & Docker"
-description: "Déployez une application agent-native avec le préréglage Nitro Node.js par défaut, en autonome ou conteneurisée avec Docker."
+title: "Node.js and Docker"
+description: "Compatibility page for the former combined Node.js and Docker deployment guide."
 ---
 
-# Node.js & Docker
+<!-- i18n-docs-ignore -->
 
-Node.js est le préréglage Nitro par défaut. Cette page couvre son exécution directe et sa conteneurisation avec Docker. Voir [Déploiement](/docs/deployment) pour choisir d'abord une base de données, et [Déploiement de workspace](/docs/workspace-deployment#workspace-docker-compose) pour auto-héberger un workspace multi-application avec Docker Compose.
+# Node.js and Docker
 
-## Démarrage rapide : héberger une application Chat en local {#self-host-quickstart}
+This URL is kept for older links. Node.js and Docker are separate deployment
+choices, so use the individual guides:
 
-Deux points de départ sont possibles :
+- [**Node.js**](/docs/node-js) - run the default Nitro server preset
+- [**Docker**](/docs/docker) - package the server in a container
+- [**Workspace Deployment**](/docs/workspace-deployment#workspace-docker-compose) - run several apps with Docker Compose
 
-- **Vous construisez une application ?** Commencez par [Getting Started](/docs/getting-started), puis revenez ici lorsque vous voudrez la déployer durablement.
-- **Vous exploitez une application ?** Commencez par le parcours Docker local. Il reproduit la même combinaison de Node.js, Postgres, authentification et variables d'environnement que sur un petit serveur.
+<a id="self-host-quickstart"></a>
 
-La pile locale utilise volontairement un secret d'authentification d'exemple et un volume Postgres local. Elle est destinée à `localhost`, pas à une exposition sur Internet. Consultez le [démarrage rapide complet](/docs/node-docker#self-host-quickstart) pour le fichier Compose complet et les étapes à copier. Ce démarrage rapide utilise la disposition de volume de PostgreSQL 18. Ne réutilisez pas un volume créé par PostgreSQL 17 ou une version antérieure. Sauvegardez et migrez les données existantes avant de modifier l'image ou le chemin de montage.
+The former local quickstart now lives in the [Docker guide](/docs/docker#self-host-quickstart).
 
-### 1. Créer l'application
+<a id="nodejs"></a>
 
-```bash
-npx @agent-native/core@latest create my-app --standalone --template chat
-cd my-app
-pnpm install
-```
+The former Node.js section now lives in the [Node.js guide](/docs/node-js).
 
-### 2. Démarrer la pile locale
+<a id="docker"></a>
 
-```bash
-docker compose up --build
-```
-
-Ouvrez [http://localhost:3000](http://localhost:3000). Ajoutez `ANTHROPIC_API_KEY` à un fichier `.env` local si vous souhaitez utiliser l'agent intégré.
-
-## Node.js (par défaut) {#nodejs}
-
-Le préréglage par défaut. Construisez et exécutez :
-
-```bash
-npx @agent-native/core@latest build
-node .output/server/index.mjs
-```
-
-Définissez `PORT` pour configurer le port d'écoute (par défaut : `3000`).
-
-Utilisez la ligne LTS actuelle de Node.js pour les déploiements en production. En date
-de mai 2026, il s'agit de Node.js 24. Node.js 20 a atteint sa fin de vie le 30 avril
-2026 et ne reçoit plus de mises à jour de sécurité en amont.
-
-## Docker {#docker}
-
-This Dockerfile works for the standalone app created above. Run `pnpm install` before building so `pnpm-lock.yaml` exists in the build context. Keep the dependency manifest and lockfile in sync when you update the app.
-
-```dockerfile filename="Dockerfile"
-FROM node:24-slim AS build
-WORKDIR /app
-COPY package.json pnpm-lock.yaml ./
-RUN corepack enable && pnpm install --frozen-lockfile
-COPY . .
-RUN pnpm build
-
-FROM node:24-slim
-WORKDIR /app
-COPY --from=build /app/.output .output
-# data/ is a runtime-created SQLite directory. Do not copy a dev DB into prod.
-# For production, set DATABASE_URL to a hosted Postgres or Turso instance.
-RUN mkdir -p /app/data
-ENV NODE_ENV=production
-ENV PORT=3000
-EXPOSE 3000
-CMD ["node", ".output/server/index.mjs"]
-```
-
-Create `.dockerignore` alongside the Dockerfile:
-
-```text filename=".dockerignore"
-node_modules
-.output
-data
-.env
-.env.*
-!.env.example
-.git
-```
-
-Auto-héberger un workspace multi-application avec Docker Compose, en s'appuyant
-sur ce même Dockerfile autonome, est couvert dans
-[Déploiement de workspace](/docs/workspace-deployment#workspace-docker-compose).
-
-## Et ensuite
-
-- [**Déploiement**](/docs/deployment) — choisissez une base de données persistante et un préréglage avant votre premier déploiement en production
-- [**Déploiement de workspace**](/docs/workspace-deployment) — auto-hébergez un workspace multi-application avec Docker Compose
-- [**Vercel**](/docs/vercel), [**Netlify**](/docs/netlify), [**Cloudflare**](/docs/cloudflare), et [**Autres plateformes**](/docs/other-platforms) — les autres préréglages Nitro
+The former Docker section now lives in the [Docker guide](/docs/docker).

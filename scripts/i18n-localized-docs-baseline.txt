@@ -7,8 +7,6 @@ packages/core/docs/content/locales/ar-SA/dispatch.mdx|"summarize last week's sig
 packages/core/docs/content/locales/ar-SA/file-uploads.mdx|No provider
 packages/core/docs/content/locales/ar-SA/frames.mdx|type: \"code\"
 packages/core/docs/content/locales/ar-SA/messaging.mdx|Microsoft Teams
-packages/core/docs/content/locales/ar-SA/node-docker.mdx|For production, set DATABASE_URL to a hosted Postgres or Turso instance.
-packages/core/docs/content/locales/ar-SA/node-docker.mdx|data/ is a runtime-created SQLite directory. Do not copy a dev DB into prod.
 packages/core/docs/content/locales/ar-SA/progress.mdx|Ingest 1M rows
 packages/core/docs/content/locales/ar-SA/progress.mdx|Triage 128 unread emails
 packages/core/docs/content/locales/ar-SA/progress.mdx|Writing to target DB
@@ -39,8 +37,6 @@ packages/core/docs/content/locales/de-DE/dispatch.mdx|"summarize last week's sig
 packages/core/docs/content/locales/de-DE/file-uploads.mdx|No provider
 packages/core/docs/content/locales/de-DE/frames.mdx|type: \"code\"
 packages/core/docs/content/locales/de-DE/messaging.mdx|Microsoft Teams
-packages/core/docs/content/locales/de-DE/node-docker.mdx|For production, set DATABASE_URL to a hosted Postgres or Turso instance.
-packages/core/docs/content/locales/de-DE/node-docker.mdx|data/ is a runtime-created SQLite directory. Do not copy a dev DB into prod.
 packages/core/docs/content/locales/de-DE/progress.mdx|Ingest 1M rows
 packages/core/docs/content/locales/de-DE/progress.mdx|Triage 128 unread emails
 packages/core/docs/content/locales/de-DE/progress.mdx|Writing to target DB
@@ -67,8 +63,6 @@ packages/core/docs/content/locales/es-ES/dispatch.mdx|"summarize last week's sig
 packages/core/docs/content/locales/es-ES/file-uploads.mdx|No provider
 packages/core/docs/content/locales/es-ES/frames.mdx|type: \"code\"
 packages/core/docs/content/locales/es-ES/messaging.mdx|Microsoft Teams
-packages/core/docs/content/locales/es-ES/node-docker.mdx|For production, set DATABASE_URL to a hosted Postgres or Turso instance.
-packages/core/docs/content/locales/es-ES/node-docker.mdx|data/ is a runtime-created SQLite directory. Do not copy a dev DB into prod.
 packages/core/docs/content/locales/es-ES/progress.mdx|Ingest 1M rows
 packages/core/docs/content/locales/es-ES/progress.mdx|Triage 128 unread emails
 packages/core/docs/content/locales/es-ES/progress.mdx|Writing to target DB
@@ -96,8 +90,6 @@ packages/core/docs/content/locales/fr-FR/dispatch.mdx|"summarize last week's sig
 packages/core/docs/content/locales/fr-FR/file-uploads.mdx|No provider
 packages/core/docs/content/locales/fr-FR/frames.mdx|type: \"code\"
 packages/core/docs/content/locales/fr-FR/messaging.mdx|Microsoft Teams
-packages/core/docs/content/locales/fr-FR/node-docker.mdx|For production, set DATABASE_URL to a hosted Postgres or Turso instance.
-packages/core/docs/content/locales/fr-FR/node-docker.mdx|data/ is a runtime-created SQLite directory. Do not copy a dev DB into prod.
 packages/core/docs/content/locales/fr-FR/progress.mdx|Ingest 1M rows
 packages/core/docs/content/locales/fr-FR/progress.mdx|Triage 128 unread emails
 packages/core/docs/content/locales/fr-FR/progress.mdx|Writing to target DB
@@ -142,8 +134,6 @@ packages/core/docs/content/locales/hi-IN/dispatch.mdx|"summarize last week's sig
 packages/core/docs/content/locales/hi-IN/file-uploads.mdx|No provider
 packages/core/docs/content/locales/hi-IN/frames.mdx|type: \"code\"
 packages/core/docs/content/locales/hi-IN/messaging.mdx|Microsoft Teams
-packages/core/docs/content/locales/hi-IN/node-docker.mdx|For production, set DATABASE_URL to a hosted Postgres or Turso instance.
-packages/core/docs/content/locales/hi-IN/node-docker.mdx|data/ is a runtime-created SQLite directory. Do not copy a dev DB into prod.
 packages/core/docs/content/locales/hi-IN/progress.mdx|Ingest 1M rows
 packages/core/docs/content/locales/hi-IN/progress.mdx|Triage 128 unread emails
 packages/core/docs/content/locales/hi-IN/progress.mdx|Writing to target DB
@@ -174,8 +164,6 @@ packages/core/docs/content/locales/ja-JP/dispatch.mdx|"summarize last week's sig
 packages/core/docs/content/locales/ja-JP/file-uploads.mdx|No provider
 packages/core/docs/content/locales/ja-JP/frames.mdx|type: \"code\"
 packages/core/docs/content/locales/ja-JP/messaging.mdx|Microsoft Teams
-packages/core/docs/content/locales/ja-JP/node-docker.mdx|For production, set DATABASE_URL to a hosted Postgres or Turso instance.
-packages/core/docs/content/locales/ja-JP/node-docker.mdx|data/ is a runtime-created SQLite directory. Do not copy a dev DB into prod.
 packages/core/docs/content/locales/ja-JP/progress.mdx|Ingest 1M rows
 packages/core/docs/content/locales/ja-JP/progress.mdx|Triage 128 unread emails
 packages/core/docs/content/locales/ja-JP/progress.mdx|Writing to target DB
@@ -203,8 +191,6 @@ packages/core/docs/content/locales/ko-KR/dispatch.mdx|"summarize last week's sig
 packages/core/docs/content/locales/ko-KR/file-uploads.mdx|No provider
 packages/core/docs/content/locales/ko-KR/frames.mdx|type: \"code\"
 packages/core/docs/content/locales/ko-KR/messaging.mdx|Microsoft Teams
-packages/core/docs/content/locales/ko-KR/node-docker.mdx|For production, set DATABASE_URL to a hosted Postgres or Turso instance.
-packages/core/docs/content/locales/ko-KR/node-docker.mdx|data/ is a runtime-created SQLite directory. Do not copy a dev DB into prod.
 packages/core/docs/content/locales/ko-KR/onboarding.mdx|Hide setup
 packages/core/docs/content/locales/ko-KR/progress.mdx|Ingest 1M rows
 packages/core/docs/content/locales/ko-KR/progress.mdx|Triage 128 unread emails
@@ -235,8 +221,6 @@ packages/core/docs/content/locales/pt-BR/dispatch.mdx|"summarize last week's sig
 packages/core/docs/content/locales/pt-BR/file-uploads.mdx|No provider
 packages/core/docs/content/locales/pt-BR/frames.mdx|type: \"code\"
 packages/core/docs/content/locales/pt-BR/messaging.mdx|Microsoft Teams
-packages/core/docs/content/locales/pt-BR/node-docker.mdx|For production, set DATABASE_URL to a hosted Postgres or Turso instance.
-packages/core/docs/content/locales/pt-BR/node-docker.mdx|data/ is a runtime-created SQLite directory. Do not copy a dev DB into prod.
 packages/core/docs/content/locales/pt-BR/progress.mdx|Ingest 1M rows
 packages/core/docs/content/locales/pt-BR/progress.mdx|Triage 128 unread emails
 packages/core/docs/content/locales/pt-BR/progress.mdx|Writing to target DB
@@ -268,8 +252,6 @@ packages/core/docs/content/locales/zh-CN/dispatch.mdx|"summarize last week's sig
 packages/core/docs/content/locales/zh-CN/file-uploads.mdx|No provider
 packages/core/docs/content/locales/zh-CN/frames.mdx|type: \"code\"
 packages/core/docs/content/locales/zh-CN/messaging.mdx|Microsoft Teams
-packages/core/docs/content/locales/zh-CN/node-docker.mdx|For production, set DATABASE_URL to a hosted Postgres or Turso instance.
-packages/core/docs/content/locales/zh-CN/node-docker.mdx|data/ is a runtime-created SQLite directory. Do not copy a dev DB into prod.
 packages/core/docs/content/locales/zh-CN/progress.mdx|Ingest 1M rows
 packages/core/docs/content/locales/zh-CN/progress.mdx|Triage 128 unread emails
 packages/core/docs/content/locales/zh-CN/progress.mdx|Writing to target DB
@@ -301,8 +283,6 @@ packages/core/docs/content/locales/zh-TW/dispatch.mdx|"summarize last week's sig
 packages/core/docs/content/locales/zh-TW/file-uploads.mdx|No provider
 packages/core/docs/content/locales/zh-TW/frames.mdx|type: \"code\"
 packages/core/docs/content/locales/zh-TW/messaging.mdx|Microsoft Teams
-packages/core/docs/content/locales/zh-TW/node-docker.mdx|For production, set DATABASE_URL to a hosted Postgres or Turso instance.
-packages/core/docs/content/locales/zh-TW/node-docker.mdx|data/ is a runtime-created SQLite directory. Do not copy a dev DB into prod.
 packages/core/docs/content/locales/zh-TW/progress.mdx|Ingest 1M rows
 packages/core/docs/content/locales/zh-TW/progress.mdx|Triage 128 unread emails
 packages/core/docs/content/locales/zh-TW/progress.mdx|Writing to target DB

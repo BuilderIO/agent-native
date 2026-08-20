@@ -20,7 +20,13 @@ import {
 
 const reviewSchema = z.object({
   author: z.string(),
-  state: z.enum(["approved", "changes_requested", "commented", "pending"]),
+  state: z.enum([
+    "approved",
+    "changes_requested",
+    "commented",
+    "pending",
+    "dismissed",
+  ]),
   observedAt: z.string().datetime(),
 });
 const checkSchema = z.object({

@@ -124,6 +124,7 @@ function HtmlDiagram({
         {scopedCss && <style>{scopedCss}</style>}
         <div
           className="plan-diagram-frame-content"
+          data-theme={isDark ? "dark" : "light"}
           dangerouslySetInnerHTML={{ __html: safeHtml }}
         />
       </div>

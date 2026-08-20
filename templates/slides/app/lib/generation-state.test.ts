@@ -4,6 +4,7 @@ import {
   shouldClearNewDeckGeneratingState,
   shouldShowNewDeckGeneratingOverlay,
   shouldShowNewDeckGeneratingProgress,
+  slideBeingFilledInPlace,
 } from "./generation-state";
 
 describe("new deck generation state", () => {
@@ -68,6 +69,68 @@ describe("new deck generation state", () => {
         generationStarted: true,
       }),
     ).toBe(false);
+  });
+
+  it("names the placeholder the agent fills instead of adding a generating row", () => {
+    const BLANK = "<blank>";
+    const slides = [
+      { id: "slide-1", content: "real content" },
+      { id: "slide-2", content: BLANK },
+      { id: "slide-3", content: "real content" },
+    ];
+
+    expect(
+      slideBeingFilledInPlace({
+        addSlideGenerating: true,
+        addSlideTargetId: "slide-2",
+        slides,
+        blankContent: BLANK,
+      }),
+    ).toBe("slide-2");
+
+    expect(
+      slideBeingFilledInPlace({
+        addSlideGenerating: false,
+        addSlideTargetId: "slide-2",
+        slides,
+        blankContent: BLANK,
+      }),
+    ).toBeNull();
+
+    // Agent appends a net-new slide: no placeholder to light up.
+    expect(
+      slideBeingFilledInPlace({
+        addSlideGenerating: true,
+        addSlideTargetId: null,
+        slides,
+        blankContent: BLANK,
+      }),
+    ).toBeNull();
+
+    // Placeholder deleted mid-run.
+    expect(
+      slideBeingFilledInPlace({
+        addSlideGenerating: true,
+        addSlideTargetId: "slide-2",
+        slides: [
+          { id: "slide-1", content: "real content" },
+          { id: "slide-3", content: "real content" },
+        ],
+        blankContent: BLANK,
+      }),
+    ).toBeNull();
+
+    // The agent has already written real content: the fill is done, so a
+    // follow-up `add-slide` for the rest of a multi-slide request gets the
+    // trailing generating row again instead of staying suppressed.
+    expect(
+      slideBeingFilledInPlace({
+        addSlideGenerating: true,
+        addSlideTargetId: "slide-1",
+        slides,
+        blankContent: BLANK,
+      }),
+    ).toBeNull();
   });
 
   it("clears new-deck generating state only when observed work finishes", () => {

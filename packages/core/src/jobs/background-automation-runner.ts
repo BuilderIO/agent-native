@@ -44,6 +44,7 @@ import {
   organizationResourceOwner,
   type Resource,
 } from "../resources/store.js";
+import { captureError } from "../server/capture-error.js";
 import {
   runWithRequestContext,
   type RequestContext,
@@ -304,10 +305,36 @@ export async function runBackgroundAutomation(
   }
 
   let result: BackgroundAutomationRunResult;
+  // Populated as soon as the run id exists, so a failure that never returns a
+  // result can still be joined to its LLM trace (`aiTraceId` -> $ai_trace_id).
+  const runIdRef: { current: string | null } = { current: null };
   try {
-    result = await executeBackgroundAutomation(options, deps, historyId);
+    result = await executeBackgroundAutomation(
+      options,
+      deps,
+      historyId,
+      runIdRef,
+    );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    // Both callers (recurring-jobs scheduler, trigger dispatcher) record this
+    // onto the automation's own metadata and console.error it, and neither
+    // reports it. A failure visible only in a resource field and stdout is not
+    // a failure anyone sees: the run-level no-progress cutoff killed
+    // automations across two releases without ever raising an issue.
+    captureError(err, {
+      tags: {
+        area: "background-automation",
+        automation: automation.name,
+        scope: options.orgId ? "organization" : "personal",
+      },
+      extra: {
+        automationPath: automation.resource.path,
+        appId: deps.appId,
+        historyId,
+      },
+      ...(runIdRef.current ? { aiTraceId: runIdRef.current } : {}),
+    });
     await recordRunOutcome(
       historyId,
       "error",
@@ -463,6 +490,7 @@ async function executeBackgroundAutomation(
   options: BackgroundAutomationRunOptions,
   deps: BackgroundAutomationDeps,
   historyId: string | null,
+  runIdRef?: { current: string | null },
 ): Promise<BackgroundAutomationRunResult> {
   const { automation, ownerEmail, orgId, prompt, threadTitle, usageLabel } =
     options;
@@ -517,6 +545,7 @@ async function executeBackgroundAutomation(
         orgId: orgId ?? null,
       });
       const runId = createRunId(options.runIdPrefix);
+      if (runIdRef) runIdRef.current = runId;
       await recordRunThread(historyId, thread.id, runId);
 
       // Scheduled work is background work: it has no synchronous serverless

@@ -993,6 +993,57 @@ describe("route warmup config", () => {
 });
 
 describe("agent-native app config", () => {
+  it("loads JSON config fragments from environment paths before typed overrides", () => {
+    const previousRuntime = process.env.AGENT_NATIVE_CONFIG_RUNTIME;
+    const previousAuth = process.env.AGENT_NATIVE_CONFIG_RUNTIME_AUTH_ENABLED;
+    const previousLocales =
+      process.env.AGENT_NATIVE_CONFIG_TRANSLATIONS_LOCALES;
+    process.env.AGENT_NATIVE_CONFIG_RUNTIME = JSON.stringify({
+      auth: { enabled: false },
+      database: { required: false },
+    });
+    process.env.AGENT_NATIVE_CONFIG_RUNTIME_AUTH_ENABLED = "false";
+    process.env.AGENT_NATIVE_CONFIG_TRANSLATIONS_LOCALES = JSON.stringify([
+      "en-US",
+      "es-ES",
+    ]);
+
+    try {
+      const config = defineConfig({
+        agentNativeConfig: {
+          runtime: { auth: { enabled: true } },
+          translations: { locales: ["fr-FR"] },
+        },
+      });
+
+      expect(
+        JSON.parse(String(config.define?.__AGENT_NATIVE_APP_CONFIG__)),
+      ).toMatchObject({
+        runtime: {
+          auth: { enabled: true },
+          database: { required: false },
+        },
+        translations: { locales: ["fr-FR"] },
+      });
+    } finally {
+      if (previousRuntime === undefined) {
+        delete process.env.AGENT_NATIVE_CONFIG_RUNTIME;
+      } else {
+        process.env.AGENT_NATIVE_CONFIG_RUNTIME = previousRuntime;
+      }
+      if (previousAuth === undefined) {
+        delete process.env.AGENT_NATIVE_CONFIG_RUNTIME_AUTH_ENABLED;
+      } else {
+        process.env.AGENT_NATIVE_CONFIG_RUNTIME_AUTH_ENABLED = previousAuth;
+      }
+      if (previousLocales === undefined) {
+        delete process.env.AGENT_NATIVE_CONFIG_TRANSLATIONS_LOCALES;
+      } else {
+        process.env.AGENT_NATIVE_CONFIG_TRANSLATIONS_LOCALES = previousLocales;
+      }
+    }
+  });
+
   it("serializes the resolved onboarding mode into the client config", () => {
     const config = defineConfig({
       agentNativeConfig: {
@@ -1220,7 +1271,7 @@ describe("agent-native app config", () => {
     );
     fs.writeFileSync(
       path.join(tmpDir, ".env.production"),
-      "NOTION_API_KEY=local-test\n",
+      'NOTION_API_KEY=local-test\nAGENT_NATIVE_CONFIG_TRANSLATIONS_LOCALES=["en-US","es-ES"]\n',
     );
 
     try {
@@ -1228,9 +1279,17 @@ describe("agent-native app config", () => {
       const configPlugin = flatPlugins(agentNative()).find(
         (plugin) => plugin?.name === "agent-native-config",
       );
-      await configPlugin.config({}, { command: "build", mode: "production" });
+      const config = (await configPlugin.config(
+        {},
+        { command: "build", mode: "production" },
+      )) as any;
 
       expect(warn).not.toHaveBeenCalled();
+      expect(
+        JSON.parse(String(config.define.__AGENT_NATIVE_APP_CONFIG__)),
+      ).toMatchObject({
+        translations: { locales: ["en-US", "es-ES"] },
+      });
     } finally {
       warn.mockRestore();
       process.chdir(previousCwd);
@@ -1551,7 +1610,7 @@ describe("agentNative Vite plugin preset", () => {
 });
 
 describe("app changelog raw imports", () => {
-  it("merges pending app changelog entries into CHANGELOG.md?raw", async () => {
+  it("merges folder-backed app changelog entries into CHANGELOG.md?raw", async () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-changelog-raw-"));
     const appDir = path.join(tmpDir, "app");
     const pendingDir = path.join(tmpDir, "changelog");
@@ -1568,6 +1627,10 @@ describe("app changelog raw imports", () => {
     fs.writeFileSync(
       path.join(pendingDir, "2026-06-23-same-day.md"),
       "---\ntype: fixed\ndate: 2026-06-23\n---\n\nSame-day fix.\n",
+    );
+    fs.writeFileSync(
+      path.join(pendingDir, "2026-06-23-seed-again.md"),
+      "---\ntype: added\n---\n\nSeed entry.\n",
     );
 
     try {
@@ -1589,7 +1652,7 @@ describe("app changelog raw imports", () => {
       const entries = parseChangelog(markdown);
 
       expect(watched).toContain(path.join(tmpDir, "CHANGELOG.md"));
-      // Watch the individual pending files, never the directory itself: Vite's
+      // Watch the individual folder files, never the directory itself: Vite's
       // import-analysis would try to resolve a watched directory as a module
       // and fail ("Failed to resolve import .../changelog"), breaking
       // hydration. New/removed files are still caught by the root dev watcher.
@@ -1598,6 +1661,9 @@ describe("app changelog raw imports", () => {
       );
       expect(watched).toContain(
         path.join(pendingDir, "2026-06-23-same-day.md"),
+      );
+      expect(watched).toContain(
+        path.join(pendingDir, "2026-06-23-seed-again.md"),
       );
       expect(watched).not.toContain(pendingDir);
       expect(entries.map((entry) => entry.title)).toEqual([
@@ -1608,6 +1674,7 @@ describe("app changelog raw imports", () => {
       expect(entries[0].body).toContain("New visible thing.");
       expect(entries[1].body).toContain("Same-day fix.");
       expect(entries[1].body).toContain("Seed entry.");
+      expect(entries[1].body.match(/Seed entry\./g)).toHaveLength(1);
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
@@ -2299,6 +2366,8 @@ describe("Vite SSR stubs", () => {
     expect(code).toContain("export const format = stub;");
     expect(code).toContain("export const InputRule = stub;");
     expect(code).toContain("export const isNodeEmpty = stub;");
+    expect(code).toContain("export const markInputRule = stub;");
+    expect(code).toContain("export const markPasteRule = stub;");
     expect(code).toContain("export const useAuiState = stub;");
     expect(code).toContain("export const useMessagePartReasoning = stub;");
     expect(code).toContain("export const useMessagePartRuntime = stub;");
