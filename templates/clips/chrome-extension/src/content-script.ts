@@ -16,6 +16,12 @@
   const ALL_PARTS: OverlayPart[] = ["bubble", "countdown", "toolbar", "saving"];
   const flags = window as unknown as { __clipsOverlayHostReady?: boolean };
 
+  // Declarative and recovery injection can target the same document. Return
+  // before any side effects so global listeners remain one-per-page.
+  if (flags.__clipsOverlayHostReady) return;
+  flags.__clipsOverlayHostReady = true;
+  let recordingActive = false;
+
   function errorPayload(error: unknown): {
     name: string;
     message: string;
@@ -38,6 +44,7 @@
     error: unknown,
     context: Record<string, unknown> = {},
   ): void {
+    if (!recordingActive) return;
     try {
       chrome.runtime.sendMessage(
         {
@@ -70,6 +77,15 @@
       mechanism: "unhandled-rejection",
     });
   });
+
+  try {
+    chrome.storage.onChanged.addListener((changes, areaName) => {
+      if (areaName !== "local" || !changes.clipsRecordingActive) return;
+      recordingActive = changes.clipsRecordingActive.newValue === true;
+    });
+  } catch {
+    /* storage unavailable */
+  }
 
   // ----- Draggable, resizable camera bubble ---------------------------------
   // Size + position persist in storage so the bubble stays where the user put it
@@ -337,7 +353,8 @@
     try {
       chrome.storage.local.get("clipsRecordingActive", (value) => {
         if (chrome.runtime.lastError) return;
-        if (value && value.clipsRecordingActive) requestState();
+        recordingActive = value?.clipsRecordingActive === true;
+        if (recordingActive) requestState();
       });
     } catch {
       /* ignore */
@@ -590,13 +607,6 @@
     if (gateCountdown) showConnecting(container);
     lastWantedParts = wanted;
   }
-
-  // Guard against rare double-injection (SPA soft-reloads re-running the script).
-  if (flags.__clipsOverlayHostReady) {
-    syncIfRecording();
-    return;
-  }
-  flags.__clipsOverlayHostReady = true;
 
   chrome.runtime.onMessage.addListener((message) => {
     if (!message || typeof message !== "object") return;

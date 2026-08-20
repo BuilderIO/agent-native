@@ -291,15 +291,13 @@ type ProviderRequestActionArgs = StagingRequestArgs & {
   fetchAllPages?: ProviderApiRequestArgs["fetchAllPages"];
 };
 
-const STAGED_DATASET_BYTE_CAP_ERROR = /Staged dataset byte cap exceeded/i;
+const STAGED_DATASET_CAP_ERROR = /Staged dataset (?:byte )?cap exceeded/i;
 
 function rethrowStagingError(error: unknown): never {
-  if (
-    error instanceof Error &&
-    STAGED_DATASET_BYTE_CAP_ERROR.test(error.message)
-  ) {
+  if (error instanceof Error && STAGED_DATASET_CAP_ERROR.test(error.message)) {
     throw new Error(
       `${error.message} Recover by deleting older staged datasets with list-staged-datasets/delete-staged-dataset, or switch this request to saveToFile / a smaller staged result before trying again.`,
+      { cause: error },
     );
   }
   throw error;
