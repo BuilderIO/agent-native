@@ -256,7 +256,7 @@ describe("request-scoped action surface", () => {
       /const localDevActionNames = new Set\(Object\.keys\(devScriptRegistry\)\);/,
     );
     expect(source).toMatch(
-      /availableActionNames: appActionNames,[\s\S]*?allowedActionNames: \[[\s\S]*?\.\.\.surface\.allowedActionNames,[\s\S]*?\.\.\.localActionNames,/s,
+      /availableActionNames: appActionNames,[\s\S]*?normalizeAgentActionSurfaceResolution\([\s\S]*?if \(normalizedSurface\.mode === "default"\) return surface;[\s\S]*?allowedActionNames: \[[\s\S]*?\.\.\.normalizedSurface\.allowedActionNames,[\s\S]*?\.\.\.localActionNames,/s,
     );
     expect(devSource).toMatch(
       /unauthorizedActionFromBash\([\s\S]*?getRequestRunContext\(\)\?\.allowedActionNames/s,

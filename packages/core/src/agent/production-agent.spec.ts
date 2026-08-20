@@ -34,6 +34,7 @@ import {
   createPlanModeActionRegistry,
   createProductionAgentHandler,
   preloadPlanModeEngineTools,
+  normalizeAgentActionSurfaceResolution,
   readPersistedActionSurface,
   readPersistedAllowedActionNames,
   isPlanModeToolCallAllowed,
@@ -1591,7 +1592,63 @@ describe("createProductionAgentHandler", () => {
     expect(getRequestRunContext()).toBeUndefined();
   });
 
-  it("keeps concurrent request action surfaces isolated by thread", async () => {
+  it("uses the normal initial tool surface when the resolver selects the default", async () => {
+    const seenTools: string[][] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        seenTools.push(opts.tools.map((tool) => tool.name));
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {
+        common: actionEntry({}),
+        rare: actionEntry({}),
+        "tool-search": actionEntry({}),
+      },
+      initialToolNames: ["common"],
+      resolveActionSurface: async () => ({ mode: "default" }),
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message: "Use the default agent" }),
+      }),
+    );
+
+    const response = await runWithRequestContext(
+      { userEmail: "owner@example.com", run: {} },
+      () => handler(event),
+    );
+    if (response instanceof ReadableStream) {
+      const reader = response.getReader();
+      while (!(await reader.read()).done) {}
+    }
+
+    await vi.waitFor(() => {
+      expect(seenTools).toEqual([["common", "tool-search"]]);
+    });
+  });
+
+  it("keeps concurrent default and allowlisted action surfaces isolated by thread", async () => {
     const seenTools: string[][] = [];
     const seenContinuations: Array<[string | undefined, boolean]> = [];
     const engine: AgentEngine = {
@@ -1623,11 +1680,12 @@ describe("createProductionAgentHandler", () => {
         beta: actionEntry({}),
         "tool-search": actionEntry({}),
       },
+      initialToolNames: ["alpha"],
       resolveActionSurface: async ({ threadId, internalContinuation }) => {
         seenContinuations.push([threadId, internalContinuation]);
         if (threadId === "thread-alpha") {
           await new Promise((resolve) => setTimeout(resolve, 10));
-          return { allowedActionNames: ["alpha"] };
+          return { mode: "default" };
         }
         return { allowedActionNames: ["beta"] };
       },
@@ -1661,7 +1719,7 @@ describe("createProductionAgentHandler", () => {
     ]);
 
     expect(seenTools).toHaveLength(2);
-    expect(seenTools).toContainEqual(["alpha"]);
+    expect(seenTools).toContainEqual(["alpha", "tool-search"]);
     expect(seenTools).toContainEqual(["beta"]);
     expect(seenContinuations).toContainEqual(["thread-alpha", false]);
     expect(seenContinuations).toContainEqual(["thread-beta", true]);
@@ -1830,6 +1888,29 @@ describe("createProductionAgentHandler", () => {
 });
 
 describe("filterActionsByAllowedNames", () => {
+  it("normalizes only explicit default or valid allowlisted surfaces", () => {
+    expect(normalizeAgentActionSurfaceResolution({ mode: "default" })).toEqual({
+      mode: "default",
+    });
+    expect(
+      normalizeAgentActionSurfaceResolution({
+        allowedActionNames: ["allowed", "allowed"],
+      }),
+    ).toEqual({ mode: "allowlist", allowedActionNames: ["allowed"] });
+    expect(() =>
+      normalizeAgentActionSurfaceResolution({
+        mode: "default",
+        allowedActionNames: [],
+      }),
+    ).toThrow("resolveActionSurface returned an invalid default surface");
+    expect(() =>
+      normalizeAgentActionSurfaceResolution({ mode: "unknown" }),
+    ).toThrow("resolveActionSurface returned an invalid default surface");
+    expect(() => normalizeAgentActionSurfaceResolution({})).toThrow(
+      "resolveActionSurface returned an invalid action surface",
+    );
+  });
+
   it("treats an explicit empty allowlist as no actions", () => {
     expect(
       filterActionsByAllowedNames(
@@ -1915,6 +1996,40 @@ describe("filterActionsByAllowedNames", () => {
         "__resolvedActionSurface",
       ),
     ).toEqual({ orgId: null, allowedActionNames: ["allowed"] });
+    expect(
+      readPersistedActionSurface(
+        {
+          __resolvedActionSurface: {
+            orgId: "org-123",
+            mode: "default",
+          },
+        },
+        "__resolvedActionSurface",
+      ),
+    ).toEqual({ orgId: "org-123", mode: "default" });
+    expect(
+      readPersistedActionSurface(
+        {
+          __resolvedActionSurface: {
+            orgId: "org-123",
+            mode: "unknown",
+          },
+        },
+        "__resolvedActionSurface",
+      ),
+    ).toEqual({ orgId: null, allowedActionNames: [] });
+    expect(
+      readPersistedActionSurface(
+        {
+          __resolvedActionSurface: {
+            orgId: "org-123",
+            mode: "default",
+            allowedActionNames: ["allowed"],
+          },
+        },
+        "__resolvedActionSurface",
+      ),
+    ).toEqual({ orgId: null, allowedActionNames: [] });
   });
 
   it("keeps tool-search scoped to the filtered request registry", async () => {

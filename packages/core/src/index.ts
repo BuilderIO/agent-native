@@ -10,6 +10,8 @@ export {
   type ScriptEntry,
   type ProductionAgentOptions,
   type AgentActionSurface,
+  type DefaultAgentActionSurface,
+  type AgentActionSurfaceResolution,
   type AgentActionSurfaceDetails,
   type ActionTool,
   type ScriptTool,

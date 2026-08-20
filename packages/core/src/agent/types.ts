@@ -228,10 +228,15 @@ export interface AgentChatRequest {
    * background dispatches. Normal client requests must not trust this field;
    * the foreground handler deletes and replaces it before persistence.
    */
-  __resolvedActionSurface?: {
-    orgId: string | null;
-    allowedActionNames: string[];
-  };
+  __resolvedActionSurface?:
+    | {
+        orgId: string | null;
+        allowedActionNames: string[];
+      }
+    | {
+        orgId: string | null;
+        mode: "default";
+      };
   /**
    * Stable identity for the logical assistant turn this request belongs to.
    * The client sends the SAME turnId for the initial POST and every

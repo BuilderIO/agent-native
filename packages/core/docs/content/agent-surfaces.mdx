@@ -188,6 +188,12 @@ createAgentChatPlugin({
 });
 ```
 
+When the same resolver also handles unrestricted chat, return
+`{ mode: "default" }`. This preserves the normal `initialToolNames` filtering
+and `tool-search` discovery instead of loading every available schema on the
+first model request. The explicit mode is preserved across durable
+continuations.
+
 An empty list exposes no native actions. Unknown names fail the request instead
 of widening access. Every allowed action is loaded directly on the first model
 request; include `tool-search` explicitly only when discovery inside the

@@ -181,6 +181,12 @@ createAgentChatPlugin({
 });
 ```
 
+Quando o mesmo resolver também tratar o chat padrão sem restrições, retorne
+`{ mode: "default" }`. Isso preserva a filtragem normal por `initialToolNames`
+e a descoberta com `tool-search`, em vez de carregar todos os schemas
+disponíveis na primeira solicitação ao modelo. O modo explícito é preservado
+nas continuações duráveis.
+
 Uma lista vazia não expõe ações nativas. Nomes desconhecidos fazem a
 solicitação falhar em vez de ampliar o acesso. Todas as ações permitidas são
 carregadas diretamente na primeira solicitação ao modelo; inclua

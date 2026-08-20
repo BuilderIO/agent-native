@@ -783,6 +783,18 @@ export interface AgentActionSurface {
   allowedActionNames: readonly string[];
 }
 
+export interface DefaultAgentActionSurface {
+  mode: "default";
+}
+
+export type AgentActionSurfaceResolution =
+  | AgentActionSurface
+  | DefaultAgentActionSurface;
+
+type NormalizedAgentActionSurface =
+  | DefaultAgentActionSurface
+  | { mode: "allowlist"; allowedActionNames: string[] };
+
 export interface AgentActionSurfaceDetails {
   event: any;
   ownerEmail: string | null;
@@ -820,10 +832,31 @@ export function readPersistedAllowedActionNames(
   return [...new Set(names)];
 }
 
-export interface PersistedActionSurface {
-  orgId: string | null;
-  allowedActionNames: string[];
+export function normalizeAgentActionSurfaceResolution(
+  value: unknown,
+): NormalizedAgentActionSurface {
+  if (hasOwn(value, "mode")) {
+    if (value.mode === "default" && !hasOwn(value, "allowedActionNames")) {
+      return { mode: "default" };
+    }
+    throw new Error("resolveActionSurface returned an invalid default surface");
+  }
+  const allowedActionNames = readPersistedAllowedActionNames(value);
+  if (allowedActionNames === undefined) {
+    throw new Error("resolveActionSurface returned an invalid action surface");
+  }
+  return { mode: "allowlist", allowedActionNames };
 }
+
+export type PersistedActionSurface =
+  | {
+      orgId: string | null;
+      allowedActionNames: string[];
+    }
+  | {
+      orgId: string | null;
+      mode: "default";
+    };
 
 /** Read a nested persisted action surface. An absent envelope is legacy;
  * a present but invalid envelope is an explicit org-less, empty surface. */
@@ -833,7 +866,6 @@ export function readPersistedActionSurface(
 ): PersistedActionSurface | undefined {
   if (!hasOwn(value, propertyName)) return undefined;
   const surface = value[propertyName];
-  const allowedActionNames = readPersistedAllowedActionNames(surface) ?? [];
   if (!hasOwn(surface, "orgId")) {
     return { orgId: null, allowedActionNames: [] };
   }
@@ -844,6 +876,13 @@ export function readPersistedActionSurface(
   ) {
     return { orgId: null, allowedActionNames: [] };
   }
+  if (hasOwn(surface, "mode")) {
+    if (surface.mode === "default" && !hasOwn(surface, "allowedActionNames")) {
+      return { orgId, mode: "default" };
+    }
+    return { orgId: null, allowedActionNames: [] };
+  }
+  const allowedActionNames = readPersistedAllowedActionNames(surface) ?? [];
   return { orgId, allowedActionNames };
 }
 
@@ -1225,13 +1264,14 @@ export interface ProductionAgentOptions {
       }>;
   /**
    * Resolve the exact action registry exposed to one interactive agent-chat
-   * request. Returned names are a hard allowlist: omitted actions are absent
-   * from both the provider schemas and the searchable registry. When set, all
-   * allowed actions are loaded directly on the first model request.
+   * request. Return an allowlist to remove omitted actions from both provider
+   * schemas and the searchable registry, or `{ mode: "default" }` to preserve
+   * the normal initial-tool and discovery behavior for that request. Every
+   * allowlisted action is loaded directly on the first model request.
    */
   resolveActionSurface?: (
     details: AgentActionSurfaceDetails,
-  ) => AgentActionSurface | Promise<AgentActionSurface>;
+  ) => AgentActionSurfaceResolution | Promise<AgentActionSurfaceResolution>;
   /** Optional per-app agent run chunk budget in milliseconds. Defaults to
    *  AGENT_RUN_SOFT_TIMEOUT_MS when set, otherwise no framework-imposed
    *  timeout. When reached, the client receives an internal auto-continuation
@@ -8691,6 +8731,7 @@ export function createProductionAgentHandler(
       );
     }
     let surfacedRequestActions = availableRequestActions;
+    let useDefaultRequestActionSurface = !options.resolveActionSurface;
     if (options.resolveActionSurface) {
       const persistedSurface = isBackgroundWorker
         ? readPersistedActionSurface(body, "__resolvedActionSurface")
@@ -8707,24 +8748,36 @@ export function createProductionAgentHandler(
               internalContinuation: Boolean(internalContinuation),
               availableActionNames: Object.keys(availableRequestActions),
             });
-      surfacedRequestActions = filterActionsByAllowedNames(
-        availableRequestActions,
-        surface.allowedActionNames,
-      );
-      if (requestedHostedHarness) {
-        surfacedRequestActions = filterActionsByAllowedNames(
-          surfacedRequestActions,
-          filterHostedHarnessToolNames(Object.keys(surfacedRequestActions)),
-        );
-      }
-      const allowedNames = Object.keys(surfacedRequestActions);
+      const normalizedSurface = normalizeAgentActionSurfaceResolution(surface);
       const runCtx = ensureRequestRunContext();
-      if (runCtx) runCtx.allowedActionNames = allowedNames;
-      if (!isBackgroundWorker) {
-        body.__resolvedActionSurface = {
-          orgId: getRequestOrgId() ?? null,
-          allowedActionNames: allowedNames,
-        };
+      if (normalizedSurface.mode === "default") {
+        useDefaultRequestActionSurface = true;
+        if (runCtx) delete runCtx.allowedActionNames;
+        if (!isBackgroundWorker) {
+          body.__resolvedActionSurface = {
+            orgId: getRequestOrgId() ?? null,
+            mode: "default",
+          };
+        }
+      } else {
+        surfacedRequestActions = filterActionsByAllowedNames(
+          availableRequestActions,
+          normalizedSurface.allowedActionNames,
+        );
+        if (requestedHostedHarness) {
+          surfacedRequestActions = filterActionsByAllowedNames(
+            surfacedRequestActions,
+            filterHostedHarnessToolNames(Object.keys(surfacedRequestActions)),
+          );
+        }
+        const allowedNames = Object.keys(surfacedRequestActions);
+        if (runCtx) runCtx.allowedActionNames = allowedNames;
+        if (!isBackgroundWorker) {
+          body.__resolvedActionSurface = {
+            orgId: getRequestOrgId() ?? null,
+            allowedActionNames: allowedNames,
+          };
+        }
       }
     }
     // DIAGNOSTIC-ONLY: owner/request context prep (resolveAgentOwnerEmail +
@@ -9330,12 +9383,12 @@ export function createProductionAgentHandler(
         ? createPlanModeActionRegistry(surfacedRequestActions)
         : surfacedRequestActions;
     const availableRequestTools = getEngineTools(requestActions);
-    const initialRequestTools = options.resolveActionSurface
-      ? availableRequestTools
-      : filterInitialEngineTools(
+    const initialRequestTools = useDefaultRequestActionSurface
+      ? filterInitialEngineTools(
           availableRequestTools,
           options.initialToolNames,
-        );
+        )
+      : availableRequestTools;
     const requestTools =
       requestMode === "plan"
         ? preloadPlanModeEngineTools({

@@ -177,6 +177,11 @@ createAgentChatPlugin({
 });
 ```
 
+같은 resolver가 제한 없는 기본 채팅도 처리한다면 `{ mode: "default" }`를
+반환하세요. 그러면 첫 모델 요청에 사용 가능한 모든 스키마를 로드하는 대신
+일반 `initialToolNames` 필터링과 `tool-search` 검색이 유지됩니다. 이 명시적
+모드는 durable continuation에도 보존됩니다.
+
 빈 목록은 네이티브 액션을 노출하지 않습니다. 알 수 없는 이름은 접근을
 넓히지 않고 요청을 실패시킵니다. 허용된 모든 액션은 첫 모델 요청에 직접
 로드됩니다. 이미 승인된 카탈로그 안에서 검색할 때만 `tool-search`를

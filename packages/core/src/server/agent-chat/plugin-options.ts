@@ -200,8 +200,9 @@ export interface AgentChatPluginOptions {
       }>;
   /**
    * Resolve the exact native action surface for each interactive chat request.
-   * Omitted names are not sent to the model and are not discoverable through
-   * tool-search. When configured, every allowed action is loaded directly.
+   * Omitted allowlist names are not sent to the model or discoverable through
+   * tool-search. Return `{ mode: "default" }` to keep the normal initial-tool
+   * and discovery behavior for a request instead.
    */
   resolveActionSurface?: ProductionAgentOptions["resolveActionSurface"];
   /**
