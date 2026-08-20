@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { measureChildRects } from "./measure-child-rects";
+import { measureFreeformGeometry } from "./measure-child-rects";
 
 function stubRect(element: Element, left: number, top: number) {
   element.getBoundingClientRect = () =>
@@ -23,16 +23,22 @@ function mountPreview(containerStyle: string) {
   return { container, child };
 }
 
-describe("measureChildRects", () => {
+describe("measureFreeformGeometry", () => {
   it("measures a child against an unbordered container's origin", () => {
     mountPreview("position:relative");
-    expect(measureChildRects("box").kid).toMatchObject({ x: 10, y: 20 });
+    expect(measureFreeformGeometry("box").children.kid).toMatchObject({
+      x: 10,
+      y: 20,
+    });
   });
 
   it("measures from the padding box, which is where absolute offsets resolve", () => {
     mountPreview(
       "position:relative;border-left-width:4px;border-top-width:6px;border-style:solid",
     );
-    expect(measureChildRects("box").kid).toMatchObject({ x: 6, y: 14 });
+    expect(measureFreeformGeometry("box").children.kid).toMatchObject({
+      x: 6,
+      y: 14,
+    });
   });
 });

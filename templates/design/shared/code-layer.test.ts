@@ -1392,6 +1392,28 @@ describe("autoLayout", () => {
     expect(patch.content).toContain("gap: 8px");
   });
 
+  it("keeps the container's extent when every child leaves flow", () => {
+    // A hug-sized flex container has no width/height of its own. Once every
+    // child is absolute the content box is empty, so the container collapses
+    // and overflow:hidden makes the pinned children invisible.
+    const html =
+      `<div data-agent-native-node-id="container" style="display: flex; flex-direction: column; gap: 8px; overflow: hidden">` +
+      `<div data-agent-native-node-id="a">A</div>` +
+      `</div>`;
+    const patch = applyVisualEdit(html, {
+      kind: "autoLayout",
+      targetId: "container",
+      enabled: false,
+      childRects: { a: { x: 0, y: 0, width: 120, height: 40 } },
+      containerRect: { width: 120, height: 40 },
+    });
+    expect(patch.result.status).toBe("applied");
+    const container = /data-agent-native-node-id="container" style="([^"]*)"/.exec(
+      patch.content,
+    )?.[1];
+    expect(container).toMatch(/(?:min-)?height:\s*\d/);
+  });
+
   it("pins children where they render when disabling, so they can be moved freely", () => {
     // Figma parity: turning auto layout OFF must leave a freeform container.
     // display:block alone re-stacks the children and they cannot be dragged.

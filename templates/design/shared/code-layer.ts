@@ -507,6 +507,8 @@ export interface AutoLayoutEditIntent {
     string,
     { x: number; y: number; width: number; height: number }
   >;
+  /** Rendered size of the container, so it cannot collapse once flow empties. */
+  containerRect?: { width: number; height: number };
 }
 
 /**
@@ -3933,6 +3935,18 @@ function applyAutoLayout(
       if (!position || position.value === "static") {
         setOnContainer("position", "relative");
       }
+      // With every child absolute the content box is empty, so a hug-sized
+      // container collapses and overflow:hidden then hides what we just pinned.
+      const rect = intent.containerRect;
+      if (rect) {
+        for (const [property, value] of [
+          ["min-width", rect.width],
+          ["min-height", rect.height],
+        ] as const) {
+          if (declarations.some((d) => d.property === property)) continue;
+          declarations.push({ property, value: `${Math.round(value)}px` });
+        }
+      }
     }
     let result = replaceOrInsertAttribute(
       html,
@@ -3990,7 +4004,16 @@ function applyAutoLayout(
       content: result,
       capability: {
         kind: "style",
-        properties: ["display", "position", "left", "top", "width", "height"],
+        properties: [
+          "display",
+          "position",
+          "min-width",
+          "min-height",
+          "left",
+          "top",
+          "width",
+          "height",
+        ],
         confidence: 0.9,
       },
     };

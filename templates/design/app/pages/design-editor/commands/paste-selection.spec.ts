@@ -190,6 +190,53 @@ describe("pasting copied layers with no explicit drop point", () => {
     expect(top).toBeLessThan(844);
   });
 
+  it("puts the copy somewhere visible when its source parent is gone", async () => {
+    // Stored left/top belong to the deleted parent, so reusing them at the
+    // screen root can place the copy off screen.
+    const { args, writes } = harness();
+    const deleted = HOME_HTML.replace(RECT_HTML, "");
+    args.getScreenContent = () => deleted;
+    args.getFreshActiveContent = () => deleted;
+
+    await runPasteSelection(args);
+
+    const copies = pastedCopies(writes[0]?.content ?? "");
+    expect(copies).toHaveLength(1);
+    expect(pixels(copies[0]!.style.left)).toBe(24);
+    expect(pixels(copies[0]!.style.top)).toBe(24);
+  });
+
+  it("refuses to guess a parent when the copies came from different ones", async () => {
+    const SECOND_FRAME = `<div data-agent-native-node-id="frame-2" data-an-primitive="frame" style="position:absolute;left:400px;top:0px;width:390px;height:844px"><div data-agent-native-node-id="rect-2" data-an-primitive="rectangle" style="position:absolute;left:10px;top:10px;width:50px;height:50px"></div></div>`;
+    const twoFrames = HOME_HTML.replace("</body>", `${SECOND_FRAME}</body>`);
+    const { args, writes } = harness({
+      files: [
+        designFile("home", "index.html", twoFrames),
+        designFile("board", "__board__.html", BOARD_HTML),
+      ],
+      entries: [
+        { html: RECT_HTML, rootNodeId: "rect-1", sourceFileId: "home" },
+        {
+          html: `<div data-agent-native-node-id="rect-2" data-an-primitive="rectangle" style="position:absolute;left:10px;top:10px;width:50px;height:50px"></div>`,
+          rootNodeId: "rect-2",
+          sourceFileId: "home",
+        },
+      ],
+    });
+
+    await runPasteSelection(args);
+
+    const copies = pastedCopies(writes[0]?.content ?? "");
+    expect(copies).toHaveLength(2);
+    // frame-1 owns only rect-1, so adopting both would move rect-2's copy.
+    for (const copy of copies) {
+      expect(
+        copy.parentElement?.getAttribute("data-agent-native-node-id"),
+      ).not.toBe("frame-1");
+      expect(pixels(copy.style.left)).toBeGreaterThanOrEqual(24);
+    }
+  });
+
   it("rebases on the latest edit, not the last clipboard mutation", async () => {
     const { args, writes } = harness();
     // The clipboard cache still describes the pre-delete document; a delete

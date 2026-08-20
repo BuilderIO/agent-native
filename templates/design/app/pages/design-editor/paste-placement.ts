@@ -134,7 +134,12 @@ export function resolvePastePlacementForSelection(args: {
 
 export interface PasteSourceAnchor {
   fileId: string;
-  parentSelectors: string[];
+  /**
+   * null when the entries do not share one resolvable parent. Never an empty
+   * array — a caller must not read "unresolved" as "insert at the root here",
+   * because the stored left/top are relative to a parent that is not there.
+   */
+  parentSelectors: string[] | null;
 }
 
 /**
@@ -154,30 +159,41 @@ export function resolvePasteSourceAnchor(args: {
   const content = args.getContent(first.sourceFileId);
   if (!content) return null;
   const projection = buildCodeLayerProjection(content);
-  const node = first.rootNodeId
-    ? projection.nodes.find(
-        (candidate) =>
-          candidate.dataAttributes["data-agent-native-node-id"] ===
-            first.rootNodeId || candidate.id === first.rootNodeId,
-      )
-    : undefined;
-  const parent = node?.parentId
-    ? projection.nodes.find((candidate) => candidate.id === node.parentId)
-    : undefined;
-  const parentNodeId = parent?.dataAttributes["data-agent-native-node-id"];
-  return {
+  const unresolved: PasteSourceAnchor = {
     fileId: first.sourceFileId,
-    parentSelectors: parent
-      ? [
-          // A node-id selector is unique by construction; the projection's
-          // class/path aliases can match several siblings, and
-          // insertClonedHtmlLayers fails closed on that ambiguity.
-          parentNodeId
-            ? `[data-agent-native-node-id="${parentNodeId.replace(/["\\]/g, "\\$&")}"]`
-            : null,
-          parent.selector,
-          ...parent.selectors,
-        ].filter((selector): selector is string => Boolean(selector))
-      : [],
+    parentSelectors: null,
   };
+  const parentIds = args.entries.map((entry) => {
+    const node = entry.rootNodeId
+      ? projection.nodes.find(
+          (candidate) =>
+            candidate.dataAttributes["data-agent-native-node-id"] ===
+              entry.rootNodeId || candidate.id === entry.rootNodeId,
+        )
+      : undefined;
+    return node?.parentId ?? null;
+  });
+  const [sharedParentId] = parentIds;
+  // Layers copied out of different parents have no common coordinate space, so
+  // forcing them into the first one's parent moves the rest.
+  if (!sharedParentId || parentIds.some((id) => id !== sharedParentId)) {
+    return unresolved;
+  }
+  const parent = projection.nodes.find(
+    (candidate) => candidate.id === sharedParentId,
+  );
+  if (!parent) return unresolved;
+  const parentNodeId = parent.dataAttributes["data-agent-native-node-id"];
+  const parentSelectors = [
+    // A node-id selector is unique by construction; the projection's
+    // class/path aliases can match several siblings, and
+    // insertClonedHtmlLayers fails closed on that ambiguity.
+    parentNodeId
+      ? `[data-agent-native-node-id="${parentNodeId.replace(/["\\]/g, "\\$&")}"]`
+      : null,
+    parent.selector,
+    ...parent.selectors,
+  ].filter((selector): selector is string => Boolean(selector));
+  if (parentSelectors.length === 0) return unresolved;
+  return { fileId: first.sourceFileId, parentSelectors };
 }

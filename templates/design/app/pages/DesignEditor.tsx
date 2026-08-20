@@ -869,7 +869,7 @@ import {
   type ReflowCandidate,
 } from "./design-editor/layout-operations";
 import { prepareLiveScreenLayerDrop } from "./design-editor/live-screen-layer-drop";
-import { measureChildRects } from "./design-editor/measure-child-rects";
+import { measureFreeformGeometry } from "./design-editor/measure-child-rects";
 import {
   applyMotionAutoKeyframesForStyles,
   computedMotionStyleValue,
@@ -11523,16 +11523,18 @@ function DesignEditor() {
         });
         return;
       }
-      const childRects = measureChildRects(nodeId);
+      const geometry = measureFreeformGeometry(nodeId);
       const patch = applyVisualEdit(baseContent, {
         kind: "autoLayout",
         targetId: nodeId,
         enabled: false,
-        childRects,
+        childRects: geometry.children,
+        ...(geometry.container ? { containerRect: geometry.container } : {}),
       });
       trace("structure", "freeform", {
         nodeId,
-        measuredChildren: Object.keys(childRects).length,
+        measuredChildren: Object.keys(geometry.children).length,
+        measuredContainer: geometry.container !== null,
         status: patch.result.status,
       });
       if (patch.result.status !== "applied") return;

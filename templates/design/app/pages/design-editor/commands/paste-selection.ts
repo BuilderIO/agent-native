@@ -29,6 +29,9 @@ import {
 } from "@/pages/design-editor/paste-placement";
 import type { DesignFile } from "@/pages/design-editor/types";
 
+/** Inset for a copy whose original parent is gone, so it lands on screen. */
+const ORPHANED_PASTE_INSET = 24;
+
 export interface PasteSelectionArgs {
   activeFile: DesignFile;
   applyFileContentUpdate: (
@@ -455,6 +458,15 @@ export async function runPasteSelection(
   const pastingIntoSourceScreen = entries.every(
     (entry) => entry.sourceFileId === targetFileId,
   );
+  const sourceParentSelectors =
+    sourceAnchor?.fileId === targetFileId ? sourceAnchor.parentSelectors : null;
+  // The copy is going to the screen root because its parent is gone. Its
+  // stored left/top belong to that parent, so reusing them can place it off
+  // the screen entirely; a fixed inset is always somewhere the user can see.
+  const rootFallbackPlacement =
+    sourceAnchor !== null &&
+    sourceAnchor.fileId === targetFileId &&
+    sourceParentSelectors === null;
   const viewportCenter = (() => {
     const container = canvasContainerRef.current;
     const factor = zoom / 100;
@@ -507,6 +519,12 @@ export async function runPasteSelection(
           }
         : { x: position.x + index * 16, y: position.y + index * 16 };
     }
+    if (rootFallbackPlacement) {
+      return {
+        x: ORPHANED_PASTE_INSET + cascadeOffset + index * 16,
+        y: ORPHANED_PASTE_INSET + cascadeOffset + index * 16,
+      };
+    }
     return source && pastingIntoSourceScreen
       ? {
           x: source.x + 10 + cascadeOffset,
@@ -517,13 +535,11 @@ export async function runPasteSelection(
           y: viewportCenter.y + cascadeOffset + index * 16,
         };
   });
-  const sourceParentSelectors =
-    sourceAnchor?.fileId === targetFileId ? sourceAnchor.parentSelectors : [];
   const result = insertClonedHtmlLayers(baseContent, layerHtmls, {
     positions,
     styleSnapshots,
     managedStyleSnapshots,
-    ...(sourceParentSelectors.length > 0
+    ...(sourceParentSelectors
       ? { targetSelectors: sourceParentSelectors, placement: "inside" as const }
       : {}),
   });
@@ -531,7 +547,7 @@ export async function runPasteSelection(
     trace("structure", "paste-refused", {
       reason: "destination document refused the clone",
       targetFileId,
-      anchors: sourceParentSelectors.length,
+      anchors: sourceParentSelectors?.length ?? 0,
     });
     toast.error(t("designEditor.toasts.primitiveInsertFailed"), {
       duration: 4000,
