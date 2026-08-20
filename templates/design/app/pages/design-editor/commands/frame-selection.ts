@@ -111,7 +111,7 @@ export function runFrameSelection({
           patch.result.wrapperNodeId,
       ) ?? wrapperNode;
   }
-  applyLocalContentUpdate(nextContent, { skipPreview: true });
+  applyLocalContentUpdate(nextContent, { forcePreviewFullDocument: true });
   if (wrapperNode) {
     setSelectedLayerIdsState([wrapperNode.id]);
     setSelectedElement(elementInfoFromCodeLayerNode(wrapperNode));

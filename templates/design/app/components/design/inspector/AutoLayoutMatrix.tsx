@@ -379,6 +379,13 @@ export function AutoLayoutMatrix({
   );
 
   const activeFlow = getFlowOption(value);
+  const activeFlowLabel = {
+    normal: "Normal flow" /* i18n-ignore design inspector label */,
+    vertical: copy.vertical,
+    horizontal: copy.horizontal,
+    grid: "Grid" /* i18n-ignore design inspector label */,
+    mixed: "Mixed" /* i18n-ignore design mixed value */,
+  }[activeFlow];
   const isBlock = activeFlow === "normal";
 
   /** Apply a flow choice, coordinating display + direction + wrap. */
@@ -414,11 +421,13 @@ export function AutoLayoutMatrix({
               <ControlLabel>
                 {"Flow" /* i18n-ignore design inspector label */}
               </ControlLabel>
-              {value.flowMixed ? (
-                <span className="!text-[11px] text-muted-foreground">
-                  {"Mixed" /* i18n-ignore design mixed value */}
-                </span>
-              ) : null}
+              {/* The icon highlight alone does not say which flow is active,
+                  so a Tailwind-named layer reads as "flex" and nothing else. */}
+              <span className="!text-[11px] text-muted-foreground">
+                {value.flowMixed
+                  ? "Mixed" /* i18n-ignore design mixed value */
+                  : activeFlowLabel}
+              </span>
             </div>
             <div className="flex items-center gap-1.5">
               {/* 4-segment flow bar: normal / vertical / horizontal / grid */}
