@@ -330,6 +330,72 @@ describe("mergePendingChangelog", () => {
     expect(next.match(/^### /gm)).toHaveLength(1);
   });
 
+  it("preserves inline comments on category headings", () => {
+    const existing = `# Changelog
+
+## 2026-08-20
+
+### Improved <!-- release note -->
+
+- Existing note.
+`;
+    const next = mergePendingChangelog(existing, [
+      { type: "improved", text: "New note.", date: "2026-08-20" },
+    ]);
+
+    expect(next).toContain("### Improved <!-- release note -->");
+    expect(next).toContain("- Existing note.");
+    expect(next).toContain("- New note.");
+  });
+
+  it("does not enter HTML-comment state from fenced code", () => {
+    const existing = `# Changelog
+
+## 2026-08-20
+
+### Improved
+
+\`\`\`\`html <!-- literal example
+### Not a category
+\`\`\`\`
+
+### Fixed
+
+- Existing fix.
+`;
+    const next = mergePendingChangelog(existing, [
+      { type: "fixed", text: "New fix.", date: "2026-08-20" },
+    ]);
+
+    expect(next.match(/^### Fixed$/gm)).toHaveLength(1);
+    expect(next).toContain("### Not a category");
+    expect(next).toContain("- Existing fix.");
+    expect(next).toContain("- New fix.");
+  });
+
+  it("ignores HTML markers inside inline code", () => {
+    const existing = `# Changelog
+
+## 2026-08-20
+
+### Improved
+
+- Docs: \`<!-- literal marker\`
+
+### Fixed
+
+- Existing fix.
+`;
+    const next = mergePendingChangelog(existing, [
+      { type: "fixed", text: "New fix.", date: "2026-08-20" },
+    ]);
+
+    expect(next.match(/^### Fixed$/gm)).toHaveLength(1);
+    expect(next).toContain("- Docs: `<!-- literal marker`");
+    expect(next).toContain("- Existing fix.");
+    expect(next).toContain("- New fix.");
+  });
+
   it("merges indented category headings", () => {
     const existing = `# Changelog
 

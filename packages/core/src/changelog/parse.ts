@@ -301,43 +301,81 @@ function normalizedChangelogText(value: string): string {
 type ChangelogBodyGroup = {
   title: string;
   body: string;
+  headingComments: string[];
   index: number;
 };
 
 function stripHtmlComments(
   line: string,
   inComment: boolean,
-): { line: string; inComment: boolean } {
+): { line: string; inComment: boolean; comments: string[] } {
   let cursor = 0;
   let visibleLine = "";
+  const comments: string[] = [];
+  let inlineCodeMarker: string | undefined;
   while (cursor < line.length) {
     if (inComment) {
       const commentEnd = line.indexOf("-->", cursor);
-      if (commentEnd === -1) return { line: visibleLine, inComment: true };
+      if (commentEnd === -1) {
+        return { line: visibleLine, inComment: true, comments };
+      }
       cursor = commentEnd + 3;
       inComment = false;
       continue;
     }
 
+    if (inlineCodeMarker) {
+      const codeEnd = line.indexOf(inlineCodeMarker, cursor);
+      if (codeEnd === -1) {
+        visibleLine += line.slice(cursor);
+        break;
+      }
+      visibleLine += line.slice(cursor, codeEnd + inlineCodeMarker.length);
+      cursor = codeEnd + inlineCodeMarker.length;
+      inlineCodeMarker = undefined;
+      continue;
+    }
+
     const commentStart = line.indexOf("<!--", cursor);
+    const codeStartIndex = line.indexOf("`", cursor);
+    if (
+      codeStartIndex !== -1 &&
+      (commentStart === -1 || codeStartIndex < commentStart)
+    ) {
+      visibleLine += line.slice(cursor, codeStartIndex);
+      const codeStart = /^`+/.exec(line.slice(codeStartIndex))?.[0] ?? "`";
+      visibleLine += codeStart;
+      cursor = codeStartIndex + codeStart.length;
+      inlineCodeMarker = codeStart;
+      continue;
+    }
+
     if (commentStart === -1) {
       visibleLine += line.slice(cursor);
       break;
     }
 
     visibleLine += line.slice(cursor, commentStart);
+    const commentEnd = line.indexOf("-->", commentStart + 4);
+    if (commentEnd !== -1) {
+      comments.push(line.slice(commentStart, commentEnd + 3));
+    }
     cursor = commentStart + 4;
     inComment = true;
   }
-  return { line: visibleLine, inComment };
+  return { line: visibleLine, inComment, comments };
 }
 
 function splitChangelogBodyGroups(body: string): {
   prefix: string;
   groups: ChangelogBodyGroup[];
 } {
-  const matches: Array<{ title: string; start: number; headingEnd: number }> =
-    [];
+  const matches: Array<{
+    title: string;
+    headingComments: string[];
+    start: number;
+    headingEnd: number;
+  }> = [];
   let offset = 0;
   let fenceMarker: { character: string; length: number } | undefined;
   let htmlComment = false;
@@ -355,11 +393,27 @@ function splitChangelogBodyGroups(body: string): {
         fenceMarker = undefined;
       }
     } else {
-      const commentResult = stripHtmlComments(line, htmlComment);
-      htmlComment = commentResult.inComment;
-      const visibleLine = commentResult.line;
-      const fence = /^\s*(`{3,}|~{3,})(.*)$/.exec(visibleLine)?.[1];
-      if (!fenceMarker) {
+      let visibleLine: string | undefined;
+      let headingComments: string[] = [];
+      if (!htmlComment) {
+        const fence = /^\s*(`{3,}|~{3,})(.*)$/.exec(line)?.[1];
+        if (fence) {
+          fenceMarker = { character: fence[0], length: fence.length };
+        } else {
+          const commentResult = stripHtmlComments(line, false);
+          htmlComment = commentResult.inComment;
+          visibleLine = commentResult.line;
+          headingComments = commentResult.comments;
+        }
+      } else {
+        const commentResult = stripHtmlComments(line, true);
+        htmlComment = commentResult.inComment;
+        visibleLine = commentResult.line;
+        headingComments = commentResult.comments;
+      }
+
+      if (visibleLine !== undefined && !fenceMarker) {
+        const fence = /^\s*(`{3,}|~{3,})(.*)$/.exec(visibleLine)?.[1];
         if (fence) {
           fenceMarker = { character: fence[0], length: fence.length };
         } else {
@@ -374,6 +428,7 @@ function splitChangelogBodyGroups(body: string): {
           ) {
             matches.push({
               title: heading[1].trim(),
+              headingComments,
               start: offset,
               headingEnd: lineEnd,
             });
@@ -395,6 +450,7 @@ function splitChangelogBodyGroups(body: string): {
     const end = matches[index + 1]?.start ?? body.length;
     return {
       title: match.title,
+      headingComments: match.headingComments,
       body: body.slice(match.headingEnd, end).trim(),
       index,
     };
@@ -418,8 +474,17 @@ function normalizeChangelogBody(body: string): string {
   for (const group of groups) {
     const key = group.title.toLowerCase();
     const current = uniqueGroups.get(key);
+    const headingComments = current
+      ? [
+          ...current.headingComments,
+          ...group.headingComments.filter(
+            (comment) => !current.headingComments.includes(comment),
+          ),
+        ]
+      : group.headingComments;
     uniqueGroups.set(key, {
       title: current?.title ?? group.title,
+      headingComments,
       body: [current?.body, group.body].filter(Boolean).join("\n"),
       index: current?.index ?? group.index,
     });
@@ -431,7 +496,10 @@ function normalizeChangelogBody(body: string): string {
         changelogBodyGroupOrder(a.title) - changelogBodyGroupOrder(b.title) ||
         a.index - b.index,
     )
-    .map((group) => `### ${group.title}\n\n${group.body}`);
+    .map(
+      (group) =>
+        `### ${group.title}${group.headingComments.length ? ` ${group.headingComments.join(" ")}` : ""}\n\n${group.body}`,
+    );
   return [prefix, ...renderedGroups].filter(Boolean).join("\n\n");
 }
 
@@ -455,8 +523,17 @@ function mergeChangelogBodies(
   for (const group of [...pending.groups, ...existing.groups]) {
     const key = group.title.toLowerCase();
     const current = groups.get(key);
+    const headingComments = current
+      ? [
+          ...current.headingComments,
+          ...group.headingComments.filter(
+            (comment) => !current.headingComments.includes(comment),
+          ),
+        ]
+      : group.headingComments;
     groups.set(key, {
       title: current?.title ?? group.title,
+      headingComments,
       body: [current?.body, group.body].filter(Boolean).join("\n"),
       index: current?.index ?? group.index,
     });
@@ -467,7 +544,8 @@ function mergeChangelogBodies(
     [
       prefix,
       ...[...groups.values()].map(
-        (group) => `### ${group.title}\n\n${group.body}`,
+        (group) =>
+          `### ${group.title}${group.headingComments.length ? ` ${group.headingComments.join(" ")}` : ""}\n\n${group.body}`,
       ),
     ]
       .filter(Boolean)
