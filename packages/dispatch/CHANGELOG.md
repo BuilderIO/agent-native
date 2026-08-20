@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.31.5
+
+### Patch Changes
+
+- d30d701: Move workspace-app sharing into each app's settings menu so cards keep their primary open action focused.
+
 ## 0.31.4
 
 ### Patch Changes
