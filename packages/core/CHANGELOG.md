@@ -1127,11 +1127,4 @@
 
 - 4d8c36c: Keep framework-managed bearer routes reachable when authentication and action modules are loaded from separate server bundle instances.
 
-## 0.157.13
-
-### Patch Changes
-
-- 7dc2c91: Allow framework-managed feature-flag bearer routes to reach their own verifier before the cookie auth guard.
-- 7dc2c91: Create the Portal remote-device table during release migrations before serverless requests run.
-
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

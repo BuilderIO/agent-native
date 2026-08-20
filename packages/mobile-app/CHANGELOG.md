@@ -1,12 +1,5 @@
 # @agent-native/mobile-app
 
-## 0.1.72
-
-### Patch Changes
-
-- Updated dependencies [c50b009]
-  - @agent-native/core@0.166.0
-
 ## Unreleased
 
 ### Added
@@ -25,6 +18,13 @@
 - Upgraded the mobile runtime to Expo SDK 57 and React Native 0.86.
 - Improved native capture lifecycle tracking and session-token storage so
   uploads and companion actions recover cleanly across app restarts.
+
+## 0.1.72
+
+### Patch Changes
+
+- Updated dependencies [c50b009]
+  - @agent-native/core@0.166.0
 
 ## 0.1.71
 
