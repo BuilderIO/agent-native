@@ -258,7 +258,7 @@ export default function DownloadPage() {
     setManifestRequest((request) => request + 1);
   };
 
-  const handleChannelChange = (nextChannel: ReleaseChannel) => {
+  const handleChannelChange = (nextChannel: DownloadReleaseChannel) => {
     setManifest(null);
     setManifestError(false);
     setChannel(nextChannel);
