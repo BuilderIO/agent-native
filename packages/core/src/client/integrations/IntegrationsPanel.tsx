@@ -19,7 +19,7 @@ import {
 } from "@tabler/icons-react";
 import React, { useState, useCallback, useEffect, useMemo } from "react";
 
-import { agentNativePath, appBasePath } from "../api-path.js";
+import { agentNativePath } from "../api-path.js";
 import {
   Tooltip,
   TooltipContent,
@@ -671,18 +671,8 @@ function compareMcpUrl(value: string): string {
   }
 }
 
-function appRelativeMcpOAuthReturnUrl(): string {
-  const basePath = appBasePath();
-  const pathname = window.location.pathname;
-  const path =
-    basePath && (pathname === basePath || pathname.startsWith(`${basePath}/`))
-      ? pathname.slice(basePath.length) || "/"
-      : pathname;
-  return `${path}${window.location.search}${window.location.hash}`;
-}
-
 function startMcpOAuthReconnect(server: McpServer): void {
-  const returnUrl = appRelativeMcpOAuthReturnUrl();
+  const returnUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
   const params = new URLSearchParams({
     serverId: server.id,
     scope: server.scope,

@@ -28,17 +28,10 @@ import {
   readAppSecret,
   deleteAppSecret,
 } from "../secrets/storage.js";
-import {
-  getOrgSetting,
-  mutateOrgSetting,
-  putOrgSetting,
-  deleteOrgSetting,
-} from "../settings/org-settings.js";
+import { getOrgSetting, mutateOrgSetting } from "../settings/org-settings.js";
 import {
   getUserSetting,
   mutateUserSetting,
-  putUserSetting,
-  deleteUserSetting,
 } from "../settings/user-settings.js";
 import type { McpHttpServerConfig } from "./config.js";
 import {
@@ -212,18 +205,6 @@ async function mutateServerList(
     servers: await updater(parseServerList(raw)),
   }));
   return parseServerList(next);
-}
-
-async function writeList(
-  scope: RemoteMcpScope,
-  scopeId: string,
-  servers: StoredRemoteMcpServer[],
-): Promise<void> {
-  if (scope === "user") {
-    await putUserSetting(scopeId, SETTINGS_KEY, { servers });
-  } else {
-    await putOrgSetting(scopeId, SETTINGS_KEY, { servers });
-  }
 }
 
 export async function listRemoteServers(
@@ -515,7 +496,23 @@ async function addRemoteServerInternal(
     description: input.description?.trim() || undefined,
     createdAt: Date.now(),
   };
-  await writeList(scope, scopeId, [...existing, server]);
+  try {
+    await mutateServerList(scope, scopeId, (servers) => {
+      if (servers.some((candidate) => candidate.name === name)) {
+        throw new Error(`A server named "${name}" already exists`);
+      }
+      return [...servers, server];
+    });
+  } catch (err: any) {
+    if (headerSecretKey) {
+      await deleteAppSecret({
+        key: headerSecretKey,
+        scope: toSecretScope(scope),
+        scopeId,
+      }).catch(() => undefined);
+    }
+    return { ok: false, error: err?.message ?? String(err) };
+  }
   return { ok: true, server };
 }
 
@@ -602,9 +599,32 @@ export async function removeRemoteServer(
   id: string,
 ): Promise<boolean> {
   const existing = await readList(scope, scopeId);
-  const removed = existing.find((s) => s.id === id);
-  const next = existing.filter((s) => s.id !== id);
-  if (next.length === existing.length) return false;
+  const expected = existing.find((s) => s.id === id);
+  if (!expected) return false;
+  let removed: StoredRemoteMcpServer | undefined;
+  try {
+    await mutateServerList(scope, scopeId, (servers) => {
+      const latest = servers.find((server) => server.id === id);
+      if (!latest) return servers;
+      if (
+        expected.oauthSecretKey &&
+        latest.oauthSecretKey !== expected.oauthSecretKey
+      ) {
+        throw new Error(
+          `MCP OAuth credentials changed while removing ${expected.name}`,
+        );
+      }
+      removed = latest;
+      return servers.filter((server) => server.id !== id);
+    });
+  } catch (err: any) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[mcp-client] Failed to remove MCP server ${expected.name}: ${err?.message ?? err}`,
+    );
+    return false;
+  }
+  if (!removed) return false;
   if (removed?.oauthSecretKey) {
     try {
       const result = await revokeMcpOAuthCredentials({
@@ -615,9 +635,8 @@ export async function removeRemoteServer(
       });
       if (result.local === "replaced") {
         console.warn(
-          `[mcp-client] MCP OAuth credentials changed while removing ${removed.name}; the server was kept so the newer connection remains manageable.`,
+          `[mcp-client] MCP OAuth credentials changed while removing ${removed.name}; the server row was already removed.`,
         );
-        return false;
       }
       if (result.remote === "failed") {
         console.warn(
@@ -630,15 +649,6 @@ export async function removeRemoteServer(
         `[mcp-client] Failed to delete MCP OAuth credentials ${removed.oauthSecretKey}: ${err?.message ?? err}`,
       );
     }
-  }
-  if (next.length === 0) {
-    if (scope === "user") {
-      await deleteUserSetting(scopeId, SETTINGS_KEY);
-    } else {
-      await deleteOrgSetting(scopeId, SETTINGS_KEY);
-    }
-  } else {
-    await writeList(scope, scopeId, next);
   }
   // Best-effort: drop the encrypted-headers secret too. Errors are logged
   // but don't fail the deletion — the settings row is already gone, so a

@@ -85,21 +85,25 @@ describe("user-settings", () => {
 
   describe("mutateUserSetting", () => {
     it("mutates a legacy mixed-case key when normalized storage is absent", async () => {
-      mockGetSetting.mockResolvedValueOnce(null).mockResolvedValueOnce({
-        servers: [{ id: "mcps_legacy" }],
-      });
-      mockMutateSetting.mockResolvedValue({
+      mockGetSetting.mockResolvedValueOnce({
         servers: [{ id: "mcps_legacy" }],
       });
       const updater = vi.fn();
+      mockMutateSetting.mockImplementation(
+        async (_key: string, callback: (value: unknown) => unknown) =>
+          callback(null),
+      );
 
       await mutateUserSetting("Alice@Test.com", "mcp-servers-remote", updater);
 
       expect(mockMutateSetting).toHaveBeenCalledWith(
-        "u:Alice@Test.com:mcp-servers-remote",
-        updater,
+        "u:alice@test.com:mcp-servers-remote",
+        expect.any(Function),
         undefined,
       );
+      expect(updater).toHaveBeenCalledWith({
+        servers: [{ id: "mcps_legacy" }],
+      });
     });
   });
 

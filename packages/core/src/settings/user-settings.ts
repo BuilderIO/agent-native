@@ -61,13 +61,16 @@ export async function mutateUserSetting(
 ): Promise<Record<string, unknown>> {
   const normalized = userKey(email, key);
   const legacy = legacyUserKey(email, key);
-  if (await getSetting(normalized)) {
-    return mutateSetting(normalized, updater, options);
-  }
-  if (legacy !== normalized && (await getSetting(legacy))) {
-    return mutateSetting(legacy, updater, options);
-  }
-  return mutateSetting(normalized, updater, options);
+  return mutateSetting(
+    normalized,
+    async (current) => {
+      if (current !== null) return updater(current);
+      const legacyCurrent =
+        legacy === normalized ? null : await getSetting(legacy);
+      return updater(legacyCurrent);
+    },
+    options,
+  );
 }
 
 /** Delete a user-scoped setting. */

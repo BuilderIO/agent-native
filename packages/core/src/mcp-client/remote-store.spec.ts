@@ -123,12 +123,10 @@ describe("OAuth remote MCP metadata", () => {
       ok: true,
       server: { url: "https://mcp.example.com/" },
     });
-    expect(putUserSettingMock).toHaveBeenCalledWith(
+    expect(mutateUserSettingMock).toHaveBeenCalledWith(
       "user@example.com",
       expect.any(String),
-      expect.objectContaining({
-        servers: [expect.objectContaining({ url: "https://mcp.example.com/" })],
-      }),
+      expect.any(Function),
     );
   });
 
@@ -345,7 +343,9 @@ describe("OAuth remote MCP metadata", () => {
   });
 
   it("revokes credentials when registration throws after the grant is saved", async () => {
-    putUserSettingMock.mockRejectedValueOnce(new Error("settings unavailable"));
+    mutateUserSettingMock.mockRejectedValueOnce(
+      new Error("settings unavailable"),
+    );
 
     await expect(
       addOAuthRemoteServer("user", "user@example.com", {
