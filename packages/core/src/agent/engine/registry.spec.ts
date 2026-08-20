@@ -2,10 +2,15 @@ import { createHash } from "node:crypto";
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
+const builderOAuthState = vi.hoisted(() => ({
+  hasSession: vi.fn(async () => false),
+  resolveAccess: vi.fn(async () => null),
+}));
+
 vi.mock("../../server/builder-oauth.js", () => ({
   BUILDER_OAUTH_SCOPE: "builder:ai:invoke",
-  hasBuilderOAuthSession: vi.fn(async () => false),
-  resolveBuilderOAuthRequestAccess: vi.fn(async () => null),
+  hasBuilderOAuthSession: builderOAuthState.hasSession,
+  resolveBuilderOAuthRequestAccess: builderOAuthState.resolveAccess,
 }));
 
 function providerFailureFingerprint(key: string, value: string): string {
@@ -42,6 +47,8 @@ describe("AgentEngine registry", () => {
     vi.doUnmock("../../secrets/storage.js");
     vi.doUnmock("../../db/client.js");
     vi.doUnmock("../../org/context.js");
+    builderOAuthState.hasSession.mockReset().mockResolvedValue(false);
+    builderOAuthState.resolveAccess.mockReset().mockResolvedValue(null);
     vi.unstubAllEnvs();
     // Clear env vars that influence resolveEngine
     delete process.env.AGENT_ENGINE;
@@ -354,6 +361,98 @@ describe("AgentEngine registry", () => {
         credentialIdentity: identity,
       }),
     ).resolves.toBe(true);
+  });
+
+  it("treats per-user Builder OAuth as a runnable engine without legacy keys", async () => {
+    const identity = { userEmail: "person@example.com", orgId: "org-builder" };
+    builderOAuthState.hasSession.mockImplementation(
+      async (email: string) => email === identity.userEmail,
+    );
+    builderOAuthState.resolveAccess.mockResolvedValue({
+      accessToken: "oauth-access-token",
+      scopes: ["builder:ai:invoke"],
+      ownerEmail: identity.userEmail,
+    });
+    const resolveBuilderGatewayCredentialsDetailed = vi.fn(async () => ({
+      privateKey: null,
+      publicKey: null,
+      lookupFailed: false,
+      lane: null,
+    }));
+    vi.doMock(
+      "../../server/credential-provider.js",
+      async (importOriginal) => ({
+        ...(await importOriginal()),
+        resolveBuilderGatewayCredentialsDetailed,
+      }),
+    );
+
+    const {
+      registerAgentEngine,
+      detectEngineFromUserSecrets,
+      isResolvedEngineUsableForRequest,
+    } = await import("./registry.js");
+    const builderEngine = { name: "builder", stream: vi.fn() } as any;
+    registerAgentEngine({
+      name: "builder",
+      label: "Builder",
+      description: "",
+      capabilities: {} as any,
+      defaultModel: "builder-model",
+      supportedModels: ["builder-model"],
+      requiredEnvVars: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
+      create: vi.fn().mockReturnValue(builderEngine),
+    });
+
+    await expect(detectEngineFromUserSecrets(identity)).resolves.toMatchObject({
+      name: "builder",
+    });
+    await expect(
+      isResolvedEngineUsableForRequest(builderEngine, {
+        credentialIdentity: identity,
+      }),
+    ).resolves.toBe(true);
+    expect(resolveBuilderGatewayCredentialsDetailed).not.toHaveBeenCalled();
+  });
+
+  it("does not fall through to gateway keys when Builder OAuth custody is unusable", async () => {
+    const identity = { userEmail: "person@example.com", orgId: "org-builder" };
+    builderOAuthState.hasSession.mockResolvedValue(true);
+    builderOAuthState.resolveAccess.mockResolvedValue(null);
+    const resolveBuilderGatewayCredentialsDetailed = vi.fn(async () => ({
+      privateKey: "btk-site-token",
+      publicKey: "space-abc",
+      lookupFailed: false,
+      lane: "gateway-deploy" as const,
+    }));
+    vi.doMock(
+      "../../server/credential-provider.js",
+      async (importOriginal) => ({
+        ...(await importOriginal()),
+        resolveBuilderGatewayCredentialsDetailed,
+      }),
+    );
+
+    const { registerAgentEngine, isResolvedEngineUsableForRequest } =
+      await import("./registry.js");
+    const builderEngine = { name: "builder", stream: vi.fn() } as any;
+    registerAgentEngine({
+      name: "builder",
+      label: "Builder",
+      description: "",
+      capabilities: {} as any,
+      defaultModel: "builder-model",
+      supportedModels: ["builder-model"],
+      requiredEnvVars: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
+      create: vi.fn().mockReturnValue(builderEngine),
+    });
+
+    await expect(
+      isResolvedEngineUsableForRequest(builderEngine, {
+        credentialIdentity: identity,
+      }),
+    ).resolves.toBe(false);
+    expect(resolveBuilderGatewayCredentialsDetailed).not.toHaveBeenCalled();
   });
 
   describe("getStoredModelForEngine", () => {
