@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.164.23
+
+### Patch Changes
+
+- b811566: Preserve the beta environment opt-out when custom authentication pages are served.
+
 ## 0.164.22
 
 ### Patch Changes
