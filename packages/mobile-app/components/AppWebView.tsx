@@ -267,7 +267,7 @@ function AppWebView(
     useMobileThemeColors();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
-  const [sessionToken, setSessionToken] = useState<string | null>(null);
+  const [, setSessionToken] = useState<string | null>(null);
   const [parentSessionToken, setParentSessionToken] = useState<string | null>(
     null,
   );

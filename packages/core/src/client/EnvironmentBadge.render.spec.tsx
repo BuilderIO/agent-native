@@ -19,12 +19,14 @@ describe("EnvironmentBadge render", () => {
   let container: HTMLDivElement;
   let root: Root;
   let originalLocation: Location;
+  let originalUserAgent: string;
 
   beforeEach(() => {
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
     originalLocation = window.location;
+    originalUserAgent = window.navigator.userAgent;
     Object.defineProperty(window, "location", {
       configurable: true,
       value: {
@@ -42,6 +44,10 @@ describe("EnvironmentBadge render", () => {
     Object.defineProperty(window, "location", {
       configurable: true,
       value: originalLocation,
+    });
+    Object.defineProperty(window.navigator, "userAgent", {
+      configurable: true,
+      value: originalUserAgent,
     });
     vi.clearAllMocks();
   });
@@ -139,6 +145,31 @@ describe("EnvironmentBadge render", () => {
     expect(replace).toHaveBeenCalledWith(
       "https://beta.plan.agent-native.com/inbox?tab=all#runs",
     );
+  });
+
+  it("keeps an Electron employee on production after sign-in", () => {
+    const replace = vi.fn();
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: {
+        hostname: "plan.agent-native.com",
+        href: "https://plan.agent-native.com/inbox?tab=all#runs",
+        replace,
+      },
+    });
+    Object.defineProperty(window.navigator, "userAgent", {
+      configurable: true,
+      value:
+        "Mozilla/5.0 AgentNative/0.1.150-nightly.253 Electron/43.4.0 AgentNativeDesktop/0.1.150-nightly.253",
+    });
+    useSessionMock.mockReturnValue({
+      session: { email: "employee@builder.io" },
+      status: "authenticated",
+    });
+
+    act(() => root.render(<EnvironmentBadge />));
+
+    expect(replace).not.toHaveBeenCalled();
   });
 
   it("does not redirect when production carries a valid opt-out", () => {

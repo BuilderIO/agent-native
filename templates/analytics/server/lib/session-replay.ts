@@ -8,11 +8,7 @@ import {
   readPrivateBlob,
   type PrivateBlobHandle,
 } from "@agent-native/core/private-blob";
-import {
-  getRequestUserEmail,
-  recordChange,
-  runWithRequestContext,
-} from "@agent-native/core/server";
+import { recordChange, runWithRequestContext } from "@agent-native/core/server";
 import {
   accessFilter,
   resolveAccess,

@@ -17,7 +17,6 @@ import { contextImportProgressReporter } from "./progress.js";
 import type {
   ContextImportCheckpoint,
   ContextImportJobPersistence,
-  ContextImportProgressReporter,
   RunContextImportJobOptions,
   RunContextImportJobResult,
 } from "./types.js";

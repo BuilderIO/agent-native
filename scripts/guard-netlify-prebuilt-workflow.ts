@@ -403,7 +403,7 @@ if (
 }
 const pause = reusable.slice(pauseStart, unlockStart);
 const cutoverAcquiredIndex = pause.indexOf("cutover_acquired=true");
-const pauseVerificationIndex = pause.indexOf("const paused =");
+const pauseVerificationIndex = pause.indexOf("await waitForBuildSetting");
 if (
   !pause.includes("stop_builds") ||
   !pause.includes('method: "PATCH"') ||
@@ -419,6 +419,11 @@ const cleanup = reusable.slice(cleanupStart);
 if (!cleanup.includes("cutoverWasPaused") || cleanup.includes("stop_builds")) {
   issues.push(
     `${reusablePath} production cleanup must restore the prior automatic-build setting`,
+  );
+}
+if (!cleanup.includes("!process.env.cutoverPublishedDeployId")) {
+  issues.push(
+    `${reusablePath} production cleanup must leave lock state unchanged without a recorded unlock state`,
   );
 }
 const resumeStart = reusable.indexOf(

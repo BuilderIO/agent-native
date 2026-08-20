@@ -49,7 +49,6 @@ import {
   IconTerminal2,
   IconTrash,
   IconWorld,
-  IconX,
 } from "@tabler/icons-react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import {
