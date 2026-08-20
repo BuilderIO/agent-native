@@ -8,6 +8,11 @@ const betaPath = ".github/workflows/deploy-beta-sites-prebuilt.yml";
 const manageProductionPath = ".github/workflows/manage-production-sites.yml";
 const promotePath = ".github/workflows/promote-netlify-deploy.yml";
 
+// promote /restore locks the site, and prebuilt unlock/upload is not atomic;
+// all three production lanes must therefore share one per-site queue.
+export const PRODUCTION_SITE_GROUP =
+  "agent-native-production-site-${{ matrix.site }}";
+
 const reusable = readFileSync(reusablePath, "utf8");
 const production = readFileSync(productionPath, "utf8");
 const beta = readFileSync(betaPath, "utf8");
@@ -21,6 +26,32 @@ const asRecord = (value: unknown): Record<string, unknown> | null =>
   value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
+
+export function validateProductionSiteConcurrency(workflows: {
+  production: Record<string, unknown>;
+  manage: Record<string, unknown>;
+  promote: Record<string, unknown>;
+}): string[] {
+  const issues: string[] = [];
+  const jobs = (workflow: Record<string, unknown>) => asRecord(workflow.jobs);
+  const jobConcurrency = (workflow: Record<string, unknown>, jobName: string) =>
+    asRecord(asRecord(jobs(workflow)?.[jobName])?.concurrency);
+
+  for (const [path, workflow, jobName] of [
+    [productionPath, workflows.production, "deploy"],
+    [manageProductionPath, workflows.manage, "manage"],
+    [promotePath, workflows.promote, "promote"],
+  ] as const) {
+    const group = jobConcurrency(workflow, jobName)?.group;
+    if (group !== PRODUCTION_SITE_GROUP) {
+      issues.push(
+        `${path} ${jobName} job concurrency.group must equal ${PRODUCTION_SITE_GROUP}`,
+      );
+    }
+  }
+
+  return issues;
+}
 
 try {
   for (const [path, source] of [
@@ -89,18 +120,13 @@ if (
 ) {
   issues.push(`${promotePath} must use a promotion-specific production queue`);
 }
-const promoteJob = asRecord(
-  asRecord(parsedWorkflows.get(promotePath)?.jobs)?.promote,
+issues.push(
+  ...validateProductionSiteConcurrency({
+    production: parsedWorkflows.get(productionPath) ?? {},
+    manage: parsedWorkflows.get(manageProductionPath) ?? {},
+    promote: parsedWorkflows.get(promotePath) ?? {},
+  }),
 );
-const promoteJobConcurrency = asRecord(promoteJob?.concurrency);
-if (
-  typeof promoteJobConcurrency?.group !== "string" ||
-  !promoteJobConcurrency.group.includes("matrix.site")
-) {
-  issues.push(
-    `${promotePath} promotion jobs must coordinate each selected site independently`,
-  );
-}
 
 const reusableOn = asRecord(reusableDocument?.on);
 const workflowCall = asRecord(reusableOn?.workflow_call);
@@ -221,17 +247,6 @@ for (const [path, target, buildContext] of [
   }
   if (deployWith?.build_context !== buildContext) {
     issues.push(`${path} deploy job must pass build_context=${buildContext}`);
-  }
-  if (path === productionPath) {
-    const deployConcurrency = asRecord(deployJob?.concurrency);
-    if (
-      typeof deployConcurrency?.group !== "string" ||
-      !deployConcurrency.group.includes("matrix.site")
-    ) {
-      issues.push(
-        `${path} production deploy jobs must coordinate each matrix site independently`,
-      );
-    }
   }
 }
 
