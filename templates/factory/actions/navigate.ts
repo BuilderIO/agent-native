@@ -14,7 +14,7 @@
  */
 
 import { defineAction } from "@agent-native/core/action";
-import { writeAppState } from "@agent-native/core/application-state";
+import { writeAppStateForCurrentTab } from "@agent-native/core/application-state";
 import { z } from "zod";
 
 export default defineAction({
@@ -35,7 +35,7 @@ export default defineAction({
     if (args.path) nav.path = args.path;
     if (args.threadId) nav.threadId = args.threadId;
     nav._writeId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    await writeAppState("navigate", nav);
+    await writeAppStateForCurrentTab("navigate", nav);
     return `Navigating to ${args.view || args.path}`;
   },
 });

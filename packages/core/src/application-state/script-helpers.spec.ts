@@ -190,6 +190,45 @@ describe("application-state script-helpers", () => {
     });
   });
 
+  describe("writeAppStateForCurrentTab", () => {
+    it("keeps a one-shot command out of every other tab's key", async () => {
+      process.env.AGENT_USER_EMAIL = "alice@test.com";
+      const { writeAppStateForCurrentTab } =
+        await import("./script-helpers.js");
+      const { runWithRequestContext } =
+        await import("../server/request-context.js");
+      mockAppStatePut.mockResolvedValue(undefined);
+
+      await runWithRequestContext(
+        { userEmail: "alice@test.com", run: { browserTabId: "tab-a" } },
+        () => writeAppStateForCurrentTab("navigate", { view: "editor" }),
+      );
+
+      expect(mockAppStatePut).toHaveBeenCalledWith(
+        "alice@test.com",
+        "navigate:tab-a",
+        { view: "editor" },
+        { requestSource: "agent" },
+      );
+    });
+
+    it("writes the global key for callers with no browser tab", async () => {
+      process.env.AGENT_USER_EMAIL = "alice@test.com";
+      const { writeAppStateForCurrentTab } =
+        await import("./script-helpers.js");
+      mockAppStatePut.mockResolvedValue(undefined);
+
+      await writeAppStateForCurrentTab("navigate", { view: "editor" });
+
+      expect(mockAppStatePut).toHaveBeenCalledWith(
+        "alice@test.com",
+        "navigate",
+        { view: "editor" },
+        { requestSource: "agent" },
+      );
+    });
+  });
+
   describe("deleteAppStateByPrefix", () => {
     it("delegates to appStateDeleteByPrefix", async () => {
       process.env.AGENT_USER_EMAIL = "alice@test.com";

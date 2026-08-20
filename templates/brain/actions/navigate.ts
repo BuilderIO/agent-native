@@ -1,5 +1,5 @@
 import { defineAction } from "@agent-native/core";
-import { writeAppState } from "@agent-native/core/application-state";
+import { writeAppStateForCurrentTab } from "@agent-native/core/application-state";
 import { z } from "zod";
 
 export default defineAction({
@@ -37,7 +37,7 @@ export default defineAction({
   }),
   http: false,
   run: async (args) => {
-    await writeAppState("navigate", { ...args, ts: Date.now() });
+    await writeAppStateForCurrentTab("navigate", { ...args, ts: Date.now() });
     return { navigate: args };
   },
 });

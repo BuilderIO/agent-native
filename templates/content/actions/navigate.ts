@@ -1,5 +1,5 @@
 import { defineAction } from "@agent-native/core";
-import { writeAppState } from "@agent-native/core/application-state";
+import { writeAppStateForCurrentTab } from "@agent-native/core/application-state";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -57,7 +57,7 @@ export default defineAction({
   run: async (args) => {
     const path = await resolveNavigatePath(args);
 
-    await writeAppState("navigate", { path, ts: Date.now() });
+    await writeAppStateForCurrentTab("navigate", { path, ts: Date.now() });
     return `Navigating to ${path}`;
   },
 });

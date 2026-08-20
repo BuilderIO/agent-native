@@ -1,5 +1,8 @@
 import { defineAction, embedApp } from "@agent-native/core";
-import { writeAppState } from "@agent-native/core/application-state";
+import {
+  writeAppState,
+  writeAppStateForCurrentTab,
+} from "@agent-native/core/application-state";
 import { buildDeepLink } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
@@ -131,7 +134,7 @@ export default defineAction({
       submitLabel: submitLabel ?? "Continue",
       questions: normalizedQuestions,
     });
-    await writeAppState("navigate", {
+    await writeAppStateForCurrentTab("navigate", {
       view: "editor",
       designId,
       editorView: "overview",

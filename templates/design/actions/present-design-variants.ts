@@ -1,7 +1,6 @@
 import { defineAction, embedApp } from "@agent-native/core";
 import {
   deleteAppState,
-  writeAppState,
   writeAppStateForCurrentTab,
 } from "@agent-native/core/application-state";
 import { seedFromText } from "@agent-native/core/collab";
@@ -1169,7 +1168,7 @@ export default defineAction({
       },
     });
 
-    await writeAppState("navigate", {
+    await writeAppStateForCurrentTab("navigate", {
       view: "editor",
       designId,
       editorView: "overview",

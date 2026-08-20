@@ -1,5 +1,5 @@
 import { defineAction } from "@agent-native/core";
-import { writeAppState } from "@agent-native/core/application-state";
+import { writeAppStateForCurrentTab } from "@agent-native/core/application-state";
 import { z } from "zod";
 
 export default defineAction({
@@ -43,7 +43,7 @@ export default defineAction({
     if (!args.view && !args.path) {
       throw new Error("view or path is required.");
     }
-    await writeAppState("navigate", args);
+    await writeAppStateForCurrentTab("navigate", args);
     return { navigating: true, ...args };
   },
 });

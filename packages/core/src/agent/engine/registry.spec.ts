@@ -34,8 +34,17 @@ function readAppSecretsFromSingles(
 // Registry uses a module-level Map — reset between tests by re-importing
 // with a fresh module via vi.resetModules().
 describe("AgentEngine registry", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.resetModules();
+    // The builder-oauth factory result is cached for the whole file, so a test
+    // that grants OAuth custody keeps granting it to every later test.
+    const builderOAuth = await import("../../server/builder-oauth.js");
+    vi.mocked(builderOAuth.hasBuilderOAuthSession).mockReset();
+    vi.mocked(builderOAuth.hasBuilderOAuthSession).mockResolvedValue(false);
+    vi.mocked(builderOAuth.resolveBuilderOAuthRequestAccess).mockReset();
+    vi.mocked(builderOAuth.resolveBuilderOAuthRequestAccess).mockResolvedValue(
+      null,
+    );
     vi.doUnmock("../../settings/store.js");
     vi.doUnmock("../../server/credential-provider.js");
     vi.doUnmock("../../server/request-context.js");
@@ -1342,6 +1351,54 @@ describe("AgentEngine registry", () => {
       await expect(
         isStoredEngineUsableForRequest({ engine: "builder" }, entry),
       ).resolves.toBe(true);
+    });
+
+    it("runs the builder engine on OAuth custody with no key pair stored", async () => {
+      const { hasBuilderOAuthSession, resolveBuilderOAuthRequestAccess } =
+        await import("../../server/builder-oauth.js");
+      vi.mocked(hasBuilderOAuthSession).mockResolvedValue(true);
+      vi.mocked(resolveBuilderOAuthRequestAccess).mockResolvedValue({
+        accessToken: "bat-oauth-token",
+        scopes: ["builder:ai:invoke"],
+        ownerEmail: "visitor@example.com",
+      } as any);
+
+      const {
+        registerAgentEngine,
+        getAgentEngineEntry,
+        isResolvedEngineUsableForRequest,
+        isStoredEngineUsableForRequest,
+      } = await import("./registry.js");
+      const { builderEngine } =
+        registerBuilderAndAnthropic(registerAgentEngine);
+      const entry = getAgentEngineEntry("builder")!;
+
+      await expect(
+        isResolvedEngineUsableForRequest(builderEngine),
+      ).resolves.toBe(true);
+      await expect(isStoredEngineUsableForRequest(null, entry)).resolves.toBe(
+        true,
+      );
+    });
+
+    it("refuses the builder engine when OAuth custody cannot be resolved", async () => {
+      process.env.BUILDER_PRIVATE_KEY = "bpk-legacy"; // guard:allow-env-credential — fixture: proves unusable custody does not fall back to this pair
+      process.env.BUILDER_PUBLIC_KEY = "space-legacy"; // guard:allow-env-credential — fixture: proves unusable custody does not fall back to this pair
+      const { hasBuilderOAuthSession, resolveBuilderOAuthRequestAccess } =
+        await import("../../server/builder-oauth.js");
+      vi.mocked(hasBuilderOAuthSession).mockResolvedValue(true);
+      vi.mocked(resolveBuilderOAuthRequestAccess).mockRejectedValue(
+        new Error("Builder OAuth connection does not grant builder:ai:invoke"),
+      );
+
+      const { registerAgentEngine, isResolvedEngineUsableForRequest } =
+        await import("./registry.js");
+      const { builderEngine } =
+        registerBuilderAndAnthropic(registerAgentEngine);
+
+      await expect(
+        isResolvedEngineUsableForRequest(builderEngine),
+      ).resolves.toBe(false);
     });
 
     // The SYNCHRONOUS twin is what the engine-status endpoint calls, and the

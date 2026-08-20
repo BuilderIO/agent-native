@@ -153,6 +153,14 @@ vi.mock("../server/lib/design-data-mutation.js", () => ({
 import { DESIGN_HTML_INTEGRITY_ERROR_CODE } from "../shared/html-integrity.js";
 import action from "./present-design-variants.js";
 
+function guidedQuestionsPayload<T>(): T {
+  const call = mocks.writeAppStateForCurrentTab.mock.calls.find(
+    ([key]: [string]) => key === "guided-questions",
+  );
+  if (!call) throw new Error("guided-questions was never written");
+  return call[1] as T;
+}
+
 describe("present-design-variants", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -249,7 +257,7 @@ describe("present-design-variants", () => {
       expect.stringContaining("One"),
     );
 
-    expect(mocks.writeAppState).toHaveBeenCalledWith("navigate", {
+    expect(mocks.writeAppStateForCurrentTab).toHaveBeenCalledWith("navigate", {
       view: "editor",
       designId: "design_123",
       editorView: "overview",
@@ -278,20 +286,15 @@ describe("present-design-variants", () => {
     // pick's continuation turn inherits nothing, so the prompt has to ride
     // along or the kept placeholder is expanded blind.
     expect(
-      (
-        mocks.writeAppStateForCurrentTab.mock.calls[0]?.[1] as {
-          submitContext?: string;
-        }
-      ).submitContext,
+      guidedQuestionsPayload<{ submitContext?: string }>().submitContext,
     ).toContain("Pick a calmer mobile direction");
 
-    const guidedQuestions = mocks.writeAppStateForCurrentTab.mock
-      .calls[0]?.[1] as {
+    const guidedQuestions = guidedQuestionsPayload<{
       submitMessage: string;
       questions: Array<{
         options: Array<{ label: string; value: string }>;
       }>;
-    };
+    }>();
     expect(guidedQuestions.submitMessage).toContain("selected screen");
     expect(guidedQuestions.submitMessage).toContain("same screen");
     expect(guidedQuestions.submitMessage).toContain(
@@ -418,8 +421,9 @@ describe("present-design-variants", () => {
       ],
     });
 
-    const { submitContext } = mocks.writeAppStateForCurrentTab.mock
-      .calls[0]?.[1] as { submitContext?: string };
+    const { submitContext } = guidedQuestionsPayload<{
+      submitContext?: string;
+    }>();
     expect(submitContext).toContain("ds_flo");
     expect(submitContext).toContain("get-design-system");
     expect(submitContext).toContain("A dense ops console");

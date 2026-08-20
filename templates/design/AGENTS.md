@@ -85,7 +85,8 @@ Read the relevant skill before deeper work in that area.
 ## Application State
 
 - `navigation` — current view, design id, file id, and related UI state.
-- `navigate` — moves the UI; auto-deleted after the client consumes it.
+- `navigate` — moves the UI in the tab that asked; auto-deleted after the
+  client consumes it.
 - `design-selection` — active screen, selected element, overview mode,
   inspector tab, zoom, and screen list for the current tab.
 - `design-generation-session:<designId>`, `show-questions`, `guided-questions` —

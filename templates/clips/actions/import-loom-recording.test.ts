@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   inArray: vi.fn(),
   defineAction: vi.fn((options: unknown) => options),
   writeAppState: vi.fn(),
+  writeAppStateForCurrentTab: vi.fn(),
   uploadFile: vi.fn(),
   getDb: vi.fn(),
   getCurrentOwnerEmail: vi.fn(),
@@ -36,6 +37,8 @@ vi.mock("@agent-native/core", () => ({
 
 vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: (...args: unknown[]) => mocks.writeAppState(...args),
+  writeAppStateForCurrentTab: (...args: unknown[]) =>
+    mocks.writeAppStateForCurrentTab(...args),
 }));
 
 vi.mock("@agent-native/core/extensions/url-safety", () => ({
@@ -308,7 +311,7 @@ describe("first imported recording transactional email", () => {
     expect(mocks.writeAppState).toHaveBeenCalledWith("refresh-signal", {
       ts: expect.any(Number),
     });
-    expect(mocks.writeAppState).toHaveBeenCalledWith("navigate", {
+    expect(mocks.writeAppStateForCurrentTab).toHaveBeenCalledWith("navigate", {
       view: "recording",
       recordingId: "recording-imported",
     });

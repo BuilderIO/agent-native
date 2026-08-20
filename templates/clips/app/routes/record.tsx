@@ -3,7 +3,7 @@ import {
   agentNativePath,
   appBasePath,
 } from "@agent-native/core/client/api-path";
-import { callAction } from "@agent-native/core/client/hooks";
+import { callAction, getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useLiveTranscription } from "@agent-native/core/client/transcription/use-live-transcription";
 import type { BrowserDiagnosticsData } from "@shared/browser-diagnostics";
@@ -1783,7 +1783,7 @@ export default function RecordRoute() {
         }
         if (reportContext && createdId) {
           const path = bugReportDonePath(createdId, reportContext);
-          await writeAppState("navigate", {
+          await writeAppState(`navigate:${getBrowserTabId()}`, {
             view: "bug-report-done",
             recordingId: createdId,
             path,
@@ -1792,7 +1792,7 @@ export default function RecordRoute() {
             navigate(path);
           }, 50);
         } else {
-          await writeAppState("navigate", {
+          await writeAppState(`navigate:${getBrowserTabId()}`, {
             view: "recording",
             recordingId: createdId,
           });
@@ -1980,7 +1980,7 @@ export default function RecordRoute() {
 
       if (reportContext) {
         const path = bugReportDonePath(recordingId, reportContext);
-        await writeAppState("navigate", {
+        await writeAppState(`navigate:${getBrowserTabId()}`, {
           view: "bug-report-done",
           recordingId,
           path,
@@ -1991,7 +1991,7 @@ export default function RecordRoute() {
         return;
       }
 
-      await writeAppState("navigate", {
+      await writeAppState(`navigate:${getBrowserTabId()}`, {
         view: "recording",
         recordingId,
       }).catch(() => {});

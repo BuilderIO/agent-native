@@ -1,5 +1,8 @@
 import { defineAction } from "@agent-native/core";
-import { writeAppState } from "@agent-native/core/application-state";
+import {
+  writeAppState,
+  writeAppStateForCurrentTab,
+} from "@agent-native/core/application-state";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { uploadFile } from "@agent-native/core/file-upload";
 import { buildDeepLink } from "@agent-native/core/server";
@@ -315,7 +318,10 @@ export default defineAction({
         updatedAt: now,
       });
       await writeAppState("refresh-signal", { ts: Date.now() });
-      await writeAppState("navigate", { view: "recording", recordingId: id });
+      await writeAppStateForCurrentTab("navigate", {
+        view: "recording",
+        recordingId: id,
+      });
 
       return {
         recordingId: id,
@@ -386,7 +392,10 @@ export default defineAction({
         updatedAt: now,
       });
       await writeAppState("refresh-signal", { ts: Date.now() });
-      await writeAppState("navigate", { view: "recording", recordingId: id });
+      await writeAppStateForCurrentTab("navigate", {
+        view: "recording",
+        recordingId: id,
+      });
 
       try {
         console.log("[import-loom-recording] dispatching loom-import job", {
@@ -540,7 +549,10 @@ export default defineAction({
       updatedAt: now,
     });
     await writeAppState("refresh-signal", { ts: Date.now() });
-    await writeAppState("navigate", { view: "recording", recordingId: id });
+    await writeAppStateForCurrentTab("navigate", {
+      view: "recording",
+      recordingId: id,
+    });
 
     return {
       recordingId: id,
