@@ -85,9 +85,7 @@ function harness(
     { html: RECT_HTML, rootNodeId: "rect-1", sourceFileId: "home" },
   ];
 
-  const lineageRef = ref(
-    new Map<string, ClipboardContentLineage>(),
-  );
+  const lineageRef = ref(new Map<string, ClipboardContentLineage>());
 
   const args: PasteSelectionArgs = {
     activeFile,

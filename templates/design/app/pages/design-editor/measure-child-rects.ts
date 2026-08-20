@@ -26,9 +26,8 @@ export function measureChildRects(
     const origin = container.getBoundingClientRect();
     // Absolute offsets resolve against the padding box, but a client rect is
     // the border box, so a bordered container shifts every child it pins.
-    const borders = container.ownerDocument.defaultView?.getComputedStyle(
-      container,
-    );
+    const borders =
+      container.ownerDocument.defaultView?.getComputedStyle(container);
     const originLeft = origin.left + edgeWidth(borders?.borderLeftWidth);
     const originTop = origin.top + edgeWidth(borders?.borderTopWidth);
     const rects: Record<

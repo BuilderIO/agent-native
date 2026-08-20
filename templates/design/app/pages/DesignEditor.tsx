@@ -869,6 +869,7 @@ import {
   type ReflowCandidate,
 } from "./design-editor/layout-operations";
 import { prepareLiveScreenLayerDrop } from "./design-editor/live-screen-layer-drop";
+import { measureChildRects } from "./design-editor/measure-child-rects";
 import {
   applyMotionAutoKeyframesForStyles,
   computedMotionStyleValue,
@@ -971,7 +972,6 @@ import {
   INTERACT_CUSTOM_DEVICE_NAME,
   resolveInteractDeviceForScreen,
 } from "./design-editor/responsive-interact";
-import { measureChildRects } from "./design-editor/measure-child-rects";
 import {
   classifyDesignSaveFailure,
   designSaveErrorMessage,
