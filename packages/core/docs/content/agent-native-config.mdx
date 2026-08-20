@@ -115,23 +115,23 @@ Every supported public config path has an environment alias under the
 `AGENT_NATIVE_CONFIG` namespace. Convert each lower-camel-case path segment to
 upper snake case and join segments with underscores:
 
-| Config path            | Environment alias                          |
-| ---------------------- | ------------------------------------------ |
-| the whole config                    | `AGENT_NATIVE_CONFIG`                              |
-| `onboarding.firstRun`               | `AGENT_NATIVE_CONFIG_ONBOARDING_FIRST_RUN`         |
-| `runtime`                           | `AGENT_NATIVE_CONFIG_RUNTIME`                      |
-| `runtime.auth`                      | `AGENT_NATIVE_CONFIG_RUNTIME_AUTH`                 |
-| `runtime.auth.enabled`              | `AGENT_NATIVE_CONFIG_RUNTIME_AUTH_ENABLED`         |
-| `runtime.database.required`         | `AGENT_NATIVE_CONFIG_RUNTIME_DATABASE_REQUIRED`    |
-| `runtime.environment.required`      | `AGENT_NATIVE_CONFIG_RUNTIME_ENVIRONMENT_REQUIRED` |
-| `deployment.environment`            | `AGENT_NATIVE_CONFIG_DEPLOYMENT_ENVIRONMENT`       |
-| `diagnostics.failOnBuild`           | `AGENT_NATIVE_CONFIG_DIAGNOSTICS_FAIL_ON_BUILD`    |
-| `instructions.runtime`              | `AGENT_NATIVE_CONFIG_INSTRUCTIONS_RUNTIME`         |
-| `instructions.development`           | `AGENT_NATIVE_CONFIG_INSTRUCTIONS_DEVELOPMENT`     |
-| `translations.locales`              | `AGENT_NATIVE_CONFIG_TRANSLATIONS_LOCALES`         |
-| `changelog.enabled`                 | `AGENT_NATIVE_CONFIG_CHANGELOG_ENABLED`            |
-| `harness`                           | `AGENT_NATIVE_CONFIG_HARNESS`                     |
-| `harness.runtimes`                  | `AGENT_NATIVE_CONFIG_HARNESS_RUNTIMES`             |
+| Config path                    | Environment alias                                  |
+| ------------------------------ | -------------------------------------------------- |
+| the whole config               | `AGENT_NATIVE_CONFIG`                              |
+| `onboarding.firstRun`          | `AGENT_NATIVE_CONFIG_ONBOARDING_FIRST_RUN`         |
+| `runtime`                      | `AGENT_NATIVE_CONFIG_RUNTIME`                      |
+| `runtime.auth`                 | `AGENT_NATIVE_CONFIG_RUNTIME_AUTH`                 |
+| `runtime.auth.enabled`         | `AGENT_NATIVE_CONFIG_RUNTIME_AUTH_ENABLED`         |
+| `runtime.database.required`    | `AGENT_NATIVE_CONFIG_RUNTIME_DATABASE_REQUIRED`    |
+| `runtime.environment.required` | `AGENT_NATIVE_CONFIG_RUNTIME_ENVIRONMENT_REQUIRED` |
+| `deployment.environment`       | `AGENT_NATIVE_CONFIG_DEPLOYMENT_ENVIRONMENT`       |
+| `diagnostics.failOnBuild`      | `AGENT_NATIVE_CONFIG_DIAGNOSTICS_FAIL_ON_BUILD`    |
+| `instructions.runtime`         | `AGENT_NATIVE_CONFIG_INSTRUCTIONS_RUNTIME`         |
+| `instructions.development`     | `AGENT_NATIVE_CONFIG_INSTRUCTIONS_DEVELOPMENT`     |
+| `translations.locales`         | `AGENT_NATIVE_CONFIG_TRANSLATIONS_LOCALES`         |
+| `changelog.enabled`            | `AGENT_NATIVE_CONFIG_CHANGELOG_ENABLED`            |
+| `harness`                      | `AGENT_NATIVE_CONFIG_HARNESS`                      |
+| `harness.runtimes`             | `AGENT_NATIVE_CONFIG_HARNESS_RUNTIMES`             |
 
 The whole config, an object section, or a deeply nested object can be supplied
 as one JSON string. Arrays also use JSON strings. More-specific aliases are
@@ -171,9 +171,9 @@ connection:
 
 | Put it in                                                             | Examples                                                                                                           | Notes                                                                                                                                               |
 | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `agent-native.config.ts` or the shared section of `agent-native.json` | onboarding mode, required runtime contracts, release lane, shipped locales, changelog, hosted harness capabilities | Committed public app policy. It is resolved during the Vite config phase and can use `command`, `mode`, `isDev`, and `isBuild`.                    |
-| `AGENT_NATIVE_CONFIG_<PATH>`                                          | A deployment-specific public override of one config path                                                  | Final override for the typed/JSON public config. Its value is bundled for the browser, so it is never a secret.                                   |
-| Server-only `defineAppConfig()`                                       | credential scoping, webhook trust, agent runtime controls, workspace wiring                               | Not serialized into the browser. Its declared aliases are the deliberate exception for server behavior.                                         |
+| `agent-native.config.ts` or the shared section of `agent-native.json` | onboarding mode, required runtime contracts, release lane, shipped locales, changelog, hosted harness capabilities | Committed public app policy. It is resolved during the Vite config phase and can use `command`, `mode`, `isDev`, and `isBuild`.                     |
+| `AGENT_NATIVE_CONFIG_<PATH>`                                          | A deployment-specific public override of one config path                                                           | Final override for the typed/JSON public config. Its value is bundled for the browser, so it is never a secret.                                     |
+| Server-only `defineAppConfig()`                                       | credential scoping, webhook trust, agent runtime controls, workspace wiring                                        | Not serialized into the browser. Its declared aliases are the deliberate exception for server behavior.                                             |
 | Deployment environment variables                                      | `DATABASE_URL`, `BETTER_AUTH_SECRET`, `APP_URL`, `NITRO_PRESET`, provider keys, host-specific toggles              | Set by the deployment platform or local `.env`. Keep secret values out of source control. See [Environment Variables](/docs/environment-variables). |
 | `runtime.environment.required`                                        | `"PUBLIC_API_ORIGIN"`, `"STRIPE_PUBLISHABLE_KEY"`                                                                  | A declaration of names the production readiness check must find. It does not set, expose, or replace the values.                                    |
 
