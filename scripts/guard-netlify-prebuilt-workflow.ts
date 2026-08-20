@@ -253,6 +253,7 @@ if (unlockStart < 0 || (uploadStart >= 0 && unlockStart >= uploadStart)) {
     !unlock.includes("nextPageUrl") ||
     !unlock.includes("ACTIVE_PRODUCTION_DEPLOY_STATES") ||
     !unlock.includes('"uploaded"') ||
+    !unlock.includes('"pending"') ||
     !unlock.includes('"prepared"') ||
     !unlock.includes('"processed"') ||
     !unlock.includes('"pending_review"') ||

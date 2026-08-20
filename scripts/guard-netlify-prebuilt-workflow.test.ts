@@ -131,6 +131,7 @@ describe("production Netlify site concurrency guard", () => {
     const statesEnd = unlock.indexOf("];", statesStart);
     assert(statesStart >= 0 && statesEnd > statesStart);
     assert.doesNotMatch(unlock.slice(statesStart, statesEnd), /"rejected"/);
+    assert.match(unlock.slice(statesStart, statesEnd), /"pending"/);
     assert.match(
       unlock,
       /!\["error", "canceled", "rejected"\]\.includes\(candidate\.state\)/,

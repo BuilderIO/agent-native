@@ -353,6 +353,7 @@ jobs:
           const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
           const ACTIVE_PRODUCTION_DEPLOY_STATES = [
             "new",
+            "pending",
             "enqueued",
             "building",
             "uploading",
