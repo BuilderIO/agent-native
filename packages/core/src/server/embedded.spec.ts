@@ -86,6 +86,50 @@ describe("embedded Agent-Native helpers", () => {
     expect(events).toEqual(["auth", "core-routes", "bootstrap"]);
   });
 
+  it("does not await default auth before mounting embedded liveness", async () => {
+    const events: string[] = [];
+    let releaseAuth!: () => void;
+    mocks.createAuthPlugin.mockImplementation(
+      () => () =>
+        new Promise<void>((resolve) => {
+          releaseAuth = resolve;
+        }),
+    );
+    mocks.createCoreRoutesPlugin.mockImplementation(
+      () => () => events.push("core-routes"),
+    );
+    mocks.awaitBootstrap.mockImplementation(() => {
+      events.push("bootstrap");
+    });
+
+    const mounting = mountAgentNativeEmbedded(
+      {},
+      {
+        resources: false,
+        sentry: false,
+        org: false,
+        coreRoutes: {},
+        onboarding: false,
+        integrations: false,
+        terminal: false,
+        agentChat: false,
+      },
+    );
+
+    await expect(
+      Promise.race([
+        mounting.then(() => true),
+        new Promise<boolean>((resolve) =>
+          setTimeout(() => resolve(false), 100),
+        ),
+      ]),
+    ).resolves.toBe(true);
+    expect(events).toEqual(["core-routes", "bootstrap"]);
+
+    releaseAuth();
+    await mounting;
+  });
+
   it("normalizes host-auth sessions into framework auth sessions", () => {
     expect(
       normalizeAgentNativeEmbeddedSession({

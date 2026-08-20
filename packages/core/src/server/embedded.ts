@@ -186,7 +186,11 @@ export async function mountAgentNativeEmbedded(
   configureAgentNativeEmbeddedEnvironment(options);
   markEmbeddedPluginStems(nitroApp);
 
-  await createAuthPlugin(createAgentNativeEmbeddedAuthOptions(options.auth))(
+  // The auth plugin tracks its async initialization itself. Do not await the
+  // factory call here: with default Better Auth, its DB bootstrap can be the
+  // thing that is unavailable while public liveness routes still need to
+  // mount below.
+  createAuthPlugin(createAgentNativeEmbeddedAuthOptions(options.auth))(
     nitroApp,
   );
 
