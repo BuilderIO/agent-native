@@ -114,7 +114,7 @@ jobs:
                 await fetch(`${api}/sites/${siteId}`, { headers, signal: AbortSignal.timeout(30_000) }),
                 `${label} verification attempt ${attempt}`,
               );
-              actual = site.build_settings?.stop_builds;
+              actual = site.build_settings?.stop_builds ?? site.repo?.stop_builds;
               if (actual === expected) return;
               if (attempt < 15) {
                 await new Promise((resolve) => setTimeout(resolve, 2_000));
@@ -143,7 +143,8 @@ jobs:
               console.log('Netlify docs site has no Git-connected build; no auto-build race exists.');
               return;
             }
-            const wasStopped = current.build_settings?.stop_builds === true;
+            const wasStopped =
+              (current.build_settings?.stop_builds ?? current.repo?.stop_builds) === true;
             let changedStopBuilds = false;
             if (!wasStopped) {
               await readJson(

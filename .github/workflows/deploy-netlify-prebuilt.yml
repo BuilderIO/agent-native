@@ -292,7 +292,7 @@ jobs:
                 await request(`${api}/sites/${siteId}`),
                 `${label} verification attempt ${attempt}`,
               );
-              actual = site.build_settings?.stop_builds;
+              actual = site.build_settings?.stop_builds ?? site.repo?.stop_builds;
               if (actual === expected) return true;
               if (attempt < 15) {
                 await new Promise((resolve) => setTimeout(resolve, 2_000));
@@ -307,7 +307,8 @@ jobs:
             await request(siteUrl),
             "Netlify build setting lookup",
           );
-          const wasStopped = site.build_settings?.stop_builds === true;
+          const wasStopped =
+            (site.build_settings?.stop_builds ?? site.repo?.stop_builds) === true;
           const hasGitConnectedBuild = Boolean(
             site.build_settings?.repo_url ||
               site.build_settings?.repo_path ||
@@ -856,7 +857,7 @@ jobs:
                 await request(`${api}/sites/${siteId}`),
                 `${label} verification attempt ${attempt}`,
               );
-              actual = site.build_settings?.stop_builds;
+              actual = site.build_settings?.stop_builds ?? site.repo?.stop_builds;
               if (actual === expected) return;
               if (attempt < 15) {
                 await new Promise((resolve) => setTimeout(resolve, 2_000));

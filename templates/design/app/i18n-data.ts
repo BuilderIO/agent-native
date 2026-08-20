@@ -1478,6 +1478,9 @@ const enUS = {
     continue: "Continue to generation",
     starting: "Starting...",
     githubIndexStarted: "GitHub indexing started",
+    designMdIndexStarted: "design.md indexing started",
+    designMdUpload: "Upload design.md",
+    designMdHelp: "Import design.md guidance into Builder DSI",
     title: "Set up your design system",
     description:
       "Connect Figma, code, and optional design.md guidance through Builder DSI. More context gives the agent a more accurate system.",
@@ -1542,6 +1545,11 @@ const enUS = {
         "Use a full GitHub repository URL, like https://github.com/org/repo.",
       githubIndex:
         "Could not start GitHub indexing. Check your Builder connection and repository access.",
+      chooseDesignMd: "Please choose a design.md or design.mdx file.",
+      readDesignMd: "Could not read the design.md file.",
+      designMdTooLarge: "design.md must be 2 MB or smaller.",
+      designMdIndex:
+        "Could not start design.md indexing. Check your Builder connection.",
       noSources: "Add at least one source before generating a design system.",
     },
     sections: {
@@ -1558,6 +1566,10 @@ const enUS = {
         title: "Connect Code",
         description:
           "GitHub repos, local source files, and optional design.md guidance for Builder DSI",
+      },
+      designMd: {
+        title: "Import design.md",
+        description: "Use a design.md file as the design system source",
       },
       designFiles: {
         title: "Reference files",
@@ -1960,6 +1972,9 @@ const designLocaleOverrides = {
       continue: "继续生成",
       starting: "正在启动…",
       githubIndexStarted: "GitHub 索引已开始",
+      designMdIndexStarted: "design.md 索引已开始",
+      designMdUpload: "上传 design.md",
+      designMdHelp: "将 design.md 指引导入 Builder DSI",
       title: "设置您的设计系统",
       description:
         "通过 Builder DSI 连接 Figma、代码和可选的 design.md 指引。上下文越多，代理得到的系统越准确。",
@@ -2016,6 +2031,10 @@ const designLocaleOverrides = {
           "使用完整的 GitHub 存储库 URL，例如 https://github.com/org/repo。",
         githubIndex:
           "无法启动 GitHub 索引。请检查 Builder 连接和仓库访问权限。",
+        chooseDesignMd: "请选择 design.md 或 design.mdx 文件。",
+        readDesignMd: "无法读取 design.md 文件。",
+        designMdTooLarge: "design.md 必须不超过 2 MB。",
+        designMdIndex: "无法启动 design.md 索引。请检查 Builder 连接。",
         noSources: "在生成设计系统之前至少添加一个源。",
       },
       sections: {
@@ -2032,6 +2051,10 @@ const designLocaleOverrides = {
           title: "连接代码",
           description:
             "GitHub 存储库、本地代码文件或 design.md 会交给 Builder DSI 索引。",
+        },
+        designMd: {
+          title: "导入 design.md",
+          description: "使用 design.md 文件作为设计系统来源",
         },
         designFiles: {
           title: "参考文件",
@@ -2376,6 +2399,9 @@ const designLocaleOverrides = {
       continue: "continuar con la generación",
       starting: "Iniciando…",
       githubIndexStarted: "La indexación de GitHub ha comenzado",
+      designMdIndexStarted: "La indexación de design.md ha comenzado",
+      designMdUpload: "Importar design.md",
+      designMdHelp: "Importa las directrices de design.md a Builder DSI",
       title: "Configure su sistema de diseño",
       description:
         "Conecta Figma, código y guía opcional de design.md mediante Builder DSI. Más contexto le da al agente un sistema más preciso.",
@@ -2442,6 +2468,11 @@ const designLocaleOverrides = {
           "Utilice un repositorio GitHub completo URL, como https://github.com/org/repo.",
         githubIndex:
           "No se pudo iniciar la indexación de GitHub. Comprueba la conexión de Builder y el acceso al repositorio.",
+        chooseDesignMd: "Elija un archivo design.md o design.mdx.",
+        readDesignMd: "No se pudo leer el archivo design.md.",
+        designMdTooLarge: "design.md debe tener un tamaño máximo de 2 MB.",
+        designMdIndex:
+          "No se pudo iniciar la indexación de design.md. Comprueba la conexión de Builder.",
         noSources:
           "Agregue al menos una fuente antes de generar un sistema de diseño.",
       },
@@ -2459,6 +2490,11 @@ const designLocaleOverrides = {
           title: "Conectar código",
           description:
             "Repositorios de GitHub, archivos de código locales o design.md se indexan con Builder DSI.",
+        },
+        designMd: {
+          title: "Importar design.md",
+          description:
+            "Usa un archivo design.md como fuente del sistema de diseño",
         },
         designFiles: {
           title: "Archivos de referencia",
@@ -2814,6 +2850,9 @@ const designLocaleOverrides = {
       continue: "Continuer jusqu'à la génération",
       starting: "Démarrage…",
       githubIndexStarted: "L’indexation GitHub a démarré",
+      designMdIndexStarted: "L’indexation de design.md a démarré",
+      designMdUpload: "Importer design.md",
+      designMdHelp: "Importez les consignes design.md dans Builder DSI",
       title: "Configurez votre système de conception",
       description:
         "Connectez Figma, le code et les consignes design.md facultatives via Builder DSI. Plus le contexte est riche, plus le système de l’agent est précis.",
@@ -2881,6 +2920,11 @@ const designLocaleOverrides = {
           "Utilisez un référentiel GitHub complet URL, comme https://github.com/org/repo.",
         githubIndex:
           "Impossible de démarrer l’indexation GitHub. Vérifiez la connexion à Builder et l’accès au dépôt.",
+        chooseDesignMd: "Veuillez choisir un fichier design.md ou design.mdx.",
+        readDesignMd: "Impossible de lire le fichier design.md.",
+        designMdTooLarge: "design.md doit faire 2 Mo ou moins.",
+        designMdIndex:
+          "Impossible de démarrer l’indexation de design.md. Vérifiez la connexion à Builder.",
         noSources:
           "Ajoutez au moins une source avant de générer un système de conception.",
       },
@@ -2898,6 +2942,11 @@ const designLocaleOverrides = {
           title: "Connecter le code",
           description:
             "Les dépôts GitHub, fichiers de code locaux ou design.md sont indexés par Builder DSI.",
+        },
+        designMd: {
+          title: "Importer design.md",
+          description:
+            "Utilisez un fichier design.md comme source du système de conception",
         },
         designFiles: {
           title: "Fichiers de référence",
@@ -3253,6 +3302,9 @@ const designLocaleOverrides = {
       continue: "Weiter zur Generation",
       starting: "Wird gestartet…",
       githubIndexStarted: "GitHub-Indizierung gestartet",
+      designMdIndexStarted: "design.md-Indizierung gestartet",
+      designMdUpload: "design.md importieren",
+      designMdHelp: "design.md-Anweisungen in Builder DSI importieren",
       title: "Richten Sie Ihr Designsystem ein",
       description:
         "Verbinde Figma, Code und optionale design.md-Anweisungen über Builder DSI. Mehr Kontext gibt dem Agenten ein genaueres System.",
@@ -3321,6 +3373,11 @@ const designLocaleOverrides = {
           "Verwenden Sie ein vollständiges GitHub-Repository URL, wie https://github.com/org/repo.",
         githubIndex:
           "GitHub-Indizierung konnte nicht gestartet werden. Prüfe die Builder-Verbindung und den Repository-Zugriff.",
+        chooseDesignMd: "Wählen Sie eine design.md- oder design.mdx-Datei aus.",
+        readDesignMd: "Die design.md-Datei konnte nicht gelesen werden.",
+        designMdTooLarge: "design.md darf höchstens 2 MB groß sein.",
+        designMdIndex:
+          "Die design.md-Indizierung konnte nicht gestartet werden. Prüfen Sie die Builder-Verbindung.",
         noSources:
           "Fügen Sie mindestens eine Quelle hinzu, bevor Sie ein Designsystem erstellen.",
       },
@@ -3338,6 +3395,11 @@ const designLocaleOverrides = {
           title: "Code verbinden",
           description:
             "GitHub-Repositories, lokale Code-Dateien oder design.md werden mit Builder DSI indexiert.",
+        },
+        designMd: {
+          title: "design.md importieren",
+          description:
+            "Eine design.md-Datei als Quelle für das Designsystem verwenden",
         },
         designFiles: {
           title: "Referenzdateien",
@@ -3691,6 +3753,9 @@ const designLocaleOverrides = {
       continue: "世代を継続する",
       starting: "開始中…",
       githubIndexStarted: "GitHub のインデックス作成を開始しました",
+      designMdIndexStarted: "design.md のインデックス作成を開始しました",
+      designMdUpload: "design.md をインポート",
+      designMdHelp: "design.md ガイドを Builder DSI にインポートします",
       title: "デザインシステムをセットアップする",
       description:
         "Figma、コード、任意の design.md ガイドを Builder DSI で接続します。コンテキストが多いほど、エージェントのシステムは正確になります。",
@@ -3757,6 +3822,12 @@ const designLocaleOverrides = {
           "https://github.com/org/repo など、完全な GitHub リポジトリ URL を使用します。",
         githubIndex:
           "GitHub のインデックス作成を開始できませんでした。Builder の接続とリポジトリへのアクセスを確認してください。",
+        chooseDesignMd:
+          "design.md または design.mdx ファイルを選択してください。",
+        readDesignMd: "design.md ファイルを読み込めませんでした。",
+        designMdTooLarge: "design.md は 2 MB 以下にしてください。",
+        designMdIndex:
+          "design.md のインデックス作成を開始できませんでした。Builder の接続を確認してください。",
         noSources:
           "デザイン システムを生成する前に、少なくとも 1 つのソースを追加します。",
       },
@@ -3774,6 +3845,10 @@ const designLocaleOverrides = {
           title: "コードを接続",
           description:
             "GitHub リポジトリ、ローカルコードファイル、design.md は Builder DSI でインデックス化されます。",
+        },
+        designMd: {
+          title: "design.md をインポート",
+          description: "design.md ファイルをデザインシステムのソースとして使用",
         },
         designFiles: {
           title: "参照ファイル",
@@ -4124,6 +4199,9 @@ const designLocaleOverrides = {
       continue: "세대를 이어가다",
       starting: "시작 중…",
       githubIndexStarted: "GitHub 인덱싱이 시작되었습니다",
+      designMdIndexStarted: "design.md 인덱싱이 시작되었습니다",
+      designMdUpload: "design.md 가져오기",
+      designMdHelp: "design.md 지침을 Builder DSI로 가져오기",
       title: "디자인 시스템 설정",
       description:
         "Figma, 코드, 선택적 design.md 지침을 Builder DSI로 연결하세요. 맥락이 많을수록 에이전트의 시스템이 더 정확해집니다.",
@@ -4186,6 +4264,11 @@ const designLocaleOverrides = {
           "https://github.com/org/repo와 같은 전체 GitHub 저장소 URL를 사용하세요.",
         githubIndex:
           "GitHub 인덱싱을 시작할 수 없습니다. Builder 연결과 저장소 접근 권한을 확인하세요.",
+        chooseDesignMd: "design.md 또는 design.mdx 파일을 선택하세요.",
+        readDesignMd: "design.md 파일을 읽을 수 없습니다.",
+        designMdTooLarge: "design.md 파일은 2MB 이하여야 합니다.",
+        designMdIndex:
+          "design.md 인덱싱을 시작할 수 없습니다. Builder 연결을 확인하세요.",
         noSources: "디자인 시스템을 생성하기 전에 소스를 하나 이상 추가하세요.",
       },
       sections: {
@@ -4202,6 +4285,10 @@ const designLocaleOverrides = {
           title: "코드 연결",
           description:
             "GitHub 저장소, 로컬 코드 파일 또는 design.md가 Builder DSI로 색인화됩니다.",
+        },
+        designMd: {
+          title: "design.md 가져오기",
+          description: "design.md 파일을 디자인 시스템 소스로 사용",
         },
         designFiles: {
           title: "참조 파일",
@@ -4551,6 +4638,9 @@ const designLocaleOverrides = {
       continue: "Continuar para a geração",
       starting: "Iniciando…",
       githubIndexStarted: "Indexação do GitHub iniciada",
+      designMdIndexStarted: "Indexação do design.md iniciada",
+      designMdUpload: "Importar design.md",
+      designMdHelp: "Importe as orientações de design.md para o Builder DSI",
       title: "Configure seu sistema de design",
       description:
         "Conecte Figma, código e orientações opcionais de design.md pelo Builder DSI. Mais contexto dá ao agente um sistema mais preciso.",
@@ -4616,6 +4706,11 @@ const designLocaleOverrides = {
           "Use um repositório GitHub completo URL, como https://github.com/org/repo.",
         githubIndex:
           "Não foi possível iniciar a indexação do GitHub. Verifique a conexão do Builder e o acesso ao repositório.",
+        chooseDesignMd: "Escolha um arquivo design.md ou design.mdx.",
+        readDesignMd: "Não foi possível ler o arquivo design.md.",
+        designMdTooLarge: "design.md deve ter no máximo 2 MB.",
+        designMdIndex:
+          "Não foi possível iniciar a indexação do design.md. Verifique a conexão do Builder.",
         noSources:
           "Adicione pelo menos uma fonte antes de gerar um sistema de design.",
       },
@@ -4633,6 +4728,11 @@ const designLocaleOverrides = {
           title: "Conectar código",
           description:
             "Repositórios GitHub, arquivos de código locais ou design.md são indexados com Builder DSI.",
+        },
+        designMd: {
+          title: "Importar design.md",
+          description:
+            "Usar um arquivo design.md como fonte do sistema de design",
         },
         designFiles: {
           title: "Arquivos de referência",
@@ -4984,6 +5084,9 @@ const designLocaleOverrides = {
       continue: "पीढ़ी तक जारी रखें",
       starting: "शुरू हो रहा है…",
       githubIndexStarted: "GitHub इंडेक्सिंग शुरू हो गई",
+      designMdIndexStarted: "design.md इंडेक्सिंग शुरू हो गई",
+      designMdUpload: "design.md आयात करें",
+      designMdHelp: "design.md मार्गदर्शन को Builder DSI में आयात करें",
       title: "अपना डिज़ाइन सिस्टम सेट करें",
       description:
         "Figma, कोड और वैकल्पिक design.md मार्गदर्शन को Builder DSI से कनेक्ट करें. अधिक संदर्भ एजेंट को अधिक सटीक सिस्टम देता है.",
@@ -5044,6 +5147,10 @@ const designLocaleOverrides = {
           "https://github.com/org/repo जैसे पूर्ण GitHub रिपॉजिटरी URL का उपयोग करें।",
         githubIndex:
           "GitHub इंडेक्सिंग शुरू नहीं हो सकी। Builder कनेक्शन और रिपॉजिटरी एक्सेस जाँचें।",
+        chooseDesignMd: "कृपया design.md या design.mdx फ़ाइल चुनें।",
+        readDesignMd: "design.md फ़ाइल पढ़ी नहीं जा सकी।",
+        designMdTooLarge: "design.md 2 MB या उससे छोटा होना चाहिए।",
+        designMdIndex: "design.md इंडेक्सिंग शुरू नहीं हो सकी। Builder कनेक्शन जाँचें।",
         noSources: "डिज़ाइन सिस्टम तैयार करने से पहले कम से कम एक स्रोत जोड़ें।",
       },
       sections: {
@@ -5060,6 +5167,10 @@ const designLocaleOverrides = {
           title: "कोड कनेक्ट करें",
           description:
             "GitHub रिपॉज़िटरी, स्थानीय कोड फ़ाइलें या design.md Builder DSI से index होते हैं.",
+        },
+        designMd: {
+          title: "design.md आयात करें",
+          description: "डिज़ाइन सिस्टम के स्रोत के रूप में design.md फ़ाइल का उपयोग करें",
         },
         designFiles: {
           title: "संदर्भ फ़ाइलें",
@@ -5407,6 +5518,9 @@ const designLocaleOverrides = {
       continue: "الاستمرار في الجيل",
       starting: "جارٍ البدء…",
       githubIndexStarted: "بدأت فهرسة GitHub",
+      designMdIndexStarted: "بدأت فهرسة design.md",
+      designMdUpload: "استيراد design.md",
+      designMdHelp: "استيراد إرشادات design.md إلى Builder DSI",
       title: "قم بإعداد نظام التصميم الخاص بك",
       description:
         "اربط Figma والكود وإرشادات design.md الاختيارية عبر Builder DSI. كلما زاد السياق، حصل الوكيل على نظام أدق.",
@@ -5469,6 +5583,10 @@ const designLocaleOverrides = {
           "استخدم مستودع GitHub الكامل URL، مثل https://github.com/org/repo.",
         githubIndex:
           "تعذر بدء فهرسة GitHub. تحقق من اتصال Builder ومن صلاحية الوصول إلى المستودع.",
+        chooseDesignMd: "يرجى اختيار ملف design.md أو design.mdx.",
+        readDesignMd: "تعذر قراءة ملف design.md.",
+        designMdTooLarge: "يجب ألا يتجاوز حجم design.md ‏2 ميغابايت.",
+        designMdIndex: "تعذر بدء فهرسة design.md. تحقق من اتصال Builder.",
         noSources: "أضف مصدرًا واحدًا على الأقل قبل إنشاء نظام التصميم.",
       },
       sections: {
@@ -5485,6 +5603,10 @@ const designLocaleOverrides = {
           title: "ربط الكود",
           description:
             "تتم فهرسة مستودعات GitHub أو ملفات الكود المحلية أو design.md عبر Builder DSI.",
+        },
+        designMd: {
+          title: "استيراد design.md",
+          description: "استخدم ملف design.md كمصدر لنظام التصميم",
         },
         designFiles: {
           title: "ملفات مرجعية",

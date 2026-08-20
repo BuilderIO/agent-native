@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mockWriteAppState = vi.fn();
+const mockWriteAppStateForCurrentTab = vi.fn();
 
 vi.mock("@agent-native/core/application-state", () => ({
-  writeAppState: (...args: unknown[]) => mockWriteAppState(...args),
+  writeAppStateForCurrentTab: (...args: unknown[]) =>
+    mockWriteAppStateForCurrentTab(...args),
 }));
 
 import action from "./navigate";
@@ -22,7 +23,7 @@ describe("design navigate action", () => {
       tool: "comment",
     });
 
-    expect(mockWriteAppState).toHaveBeenCalledWith("navigate", {
+    expect(mockWriteAppStateForCurrentTab).toHaveBeenCalledWith("navigate", {
       view: "editor",
       designId: "design-123",
       editorView: "single",
@@ -37,6 +38,6 @@ describe("design navigate action", () => {
       "At least --view or --path is required.",
     );
 
-    expect(mockWriteAppState).not.toHaveBeenCalled();
+    expect(mockWriteAppStateForCurrentTab).not.toHaveBeenCalled();
   });
 });
