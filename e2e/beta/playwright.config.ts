@@ -102,6 +102,13 @@ export default defineConfig({
       name: "public",
       testMatch: /specs\/(fleet-public|auth-surface)\.spec\.ts$/,
     },
+    // Cross-host comparisons. Separate from `public` because that lane is
+    // sharded one host per runner, where a fleet-wide check would compare a
+    // set of one and pass having checked nothing.
+    {
+      name: "fleet",
+      testMatch: /specs\/fleet-wide\.spec\.ts$/,
+    },
     {
       name: "authed",
       testMatch: /specs\/(registry|chat|a2a)\.spec\.ts$/,

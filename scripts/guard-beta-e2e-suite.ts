@@ -98,11 +98,30 @@ if (workflow && !workflow.includes("inputs.key_source == 'shared'")) {
     `${workflowPath} no longer gates BETA_E2E_ALLOW_SHARED_KEY on an explicit dispatch choice. Billing the repository's shared OPENAI_API_KEY implicitly is precisely what a dedicated, separately-limited key exists to prevent.`,
   );
 }
+if (
+  workflow &&
+  !workflow.includes(
+    "BETA_E2E_SHARED_OPENAI_API_KEY: ${{ inputs.key_source == 'shared' && secrets.OPENAI_API_KEY || '' }}",
+  )
+) {
+  issues.push(
+    `${workflowPath} exposes the shared OpenAI secret outside an explicit key_source=shared dispatch. Dedicated runs must not receive that credential.`,
+  );
+}
 const providerKeyPath = "e2e/beta/lib/provider-key.ts";
 const providerKey = read(providerKeyPath);
 if (providerKey && !providerKey.includes("BETA_E2E_ALLOW_SHARED_KEY")) {
   issues.push(
     `${providerKeyPath} no longer requires an explicit opt-in before using the shared OpenAI key.`,
+  );
+}
+if (
+  providerKey &&
+  providerKey.indexOf("const dedicated =") <
+    providerKey.indexOf("if (allowShared)")
+) {
+  issues.push(
+    `${providerKeyPath} resolves the dedicated key before the explicitly selected shared key. The selected source must win or a run can bill the wrong credential.`,
   );
 }
 
@@ -153,9 +172,23 @@ if (workflow) {
     );
   }
 
+  if (!workflow.includes("--project=fleet")) {
+    issues.push(
+      `${workflowPath} no longer runs the fleet lane. The public lane is sharded one host per runner, so cross-host checks only mean something in a run that sees every host.`,
+    );
+  }
   if (!workflow.includes("--project=advisory")) {
     issues.push(
       `${workflowPath} no longer runs the advisory lane. Non-blocking findings that stop being reported stop being fixed.`,
+    );
+  }
+  if (
+    !workflow.includes(
+      'pnpm e2e:beta --project=advisory --grep "$BETA_E2E_GREP"',
+    )
+  ) {
+    issues.push(
+      `${workflowPath} no longer passes BETA_E2E_GREP through the advisory lane. Filtered dispatches must not run the full advisory suite.`,
     );
   }
   if (!/continue-on-error:\s*true/.test(workflow)) {
@@ -163,9 +196,67 @@ if (workflow) {
       `${workflowPath} no longer marks the advisory lane non-gating. Gating on advisory findings trains people to ignore a red run.`,
     );
   }
-  if (!workflow.includes("pnpm typecheck:e2e")) {
+  // The preamble lives in a composite action shared by every lane, so look
+  // there as well as in the workflow itself.
+  const setupPath = ".github/actions/beta-e2e-setup/action.yml";
+  const setup = read(setupPath);
+  if (
+    !workflow.includes("pnpm typecheck:e2e") &&
+    !setup.includes("pnpm typecheck:e2e")
+  ) {
     issues.push(
-      `${workflowPath} dropped the typecheck step. e2e/ is outside the workspace typecheck sweep, so a type error would only surface after tokens were spent.`,
+      `Neither ${workflowPath} nor ${setupPath} runs typecheck:e2e. e2e/ is outside the workspace typecheck sweep, so a type error would only surface after tokens were spent.`,
+    );
+  }
+
+  // Sharding is what makes this gate usable; losing it silently returns the
+  // sweep to ~28 minutes on one runner.
+  if (!workflow.includes("fromJSON(needs.discover.outputs.matrix)")) {
+    issues.push(
+      `${workflowPath} no longer shards the public lane across runners. A page load against a beta host costs 20-40s from a GitHub runner, so one runner for the whole fleet is a ~28 minute gate nobody waits for.`,
+    );
+  }
+}
+
+// 9. An unrequested pre-flight must never hold up a deploy.
+const prodDeployPath = ".github/workflows/deploy-production-sites-prebuilt.yml";
+const prodDeploy = read(prodDeployPath);
+if (prodDeploy && prodDeploy.includes("beta-e2e")) {
+  type ProdDeploy = {
+    on?: {
+      workflow_dispatch?: {
+        inputs?: Record<string, { default?: unknown }>;
+      };
+    };
+    jobs?: Record<string, { needs?: unknown; if?: unknown }>;
+  };
+
+  let parsedDeploy: ProdDeploy | null = null;
+  try {
+    parsedDeploy = parse(prodDeploy) as ProdDeploy;
+  } catch (error) {
+    // Not skipped quietly: a workflow this guard cannot read is one it cannot
+    // vouch for, and "unreadable" must not look like "fine".
+    issues.push(
+      `${prodDeployPath} is not valid YAML, so the deploy gate could not be checked: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  const gateInput = parsedDeploy?.on?.workflow_dispatch?.inputs?.beta_e2e;
+  if (!gateInput) {
+    issues.push(
+      `${prodDeployPath} wires the beta E2E gate but exposes no beta_e2e input, so it cannot be opted into.`,
+    );
+  } else if (gateInput.default !== false) {
+    issues.push(
+      `${prodDeployPath} defaults beta_e2e to ${JSON.stringify(gateInput.default)}. It must default to false — a deploy should never be gated on this suite unless someone asked for it.`,
+    );
+  }
+
+  const deployIf = String(parsedDeploy?.jobs?.deploy?.if ?? "");
+  if (!deployIf.includes("needs.beta-e2e.result != 'failure'")) {
+    issues.push(
+      `${prodDeployPath}'s deploy job must proceed when the beta E2E pre-flight was SKIPPED, which is its state whenever the deploy did not ask for it. Depend on \`needs.beta-e2e.result != 'failure'\`; requiring 'success' would block every deploy that opted out.`,
     );
   }
 }
@@ -213,49 +304,6 @@ if (scheduledWorkflow) {
         `${scheduledWorkflowPath} is missing ${JSON.stringify(fragment)}. The scheduled check must reuse the full authenticated suite and deduplicate its GitHub issue lifecycle.`,
       );
     }
-  }
-}
-
-// 9. An unrequested pre-flight must never hold up a deploy.
-const prodDeployPath = ".github/workflows/deploy-production-sites-prebuilt.yml";
-const prodDeploy = read(prodDeployPath);
-if (prodDeploy && prodDeploy.includes("beta-e2e")) {
-  type ProdDeploy = {
-    on?: {
-      workflow_dispatch?: {
-        inputs?: Record<string, { default?: unknown }>;
-      };
-    };
-    jobs?: Record<string, { needs?: unknown; if?: unknown }>;
-  };
-
-  let parsedDeploy: ProdDeploy | null = null;
-  try {
-    parsedDeploy = parse(prodDeploy) as ProdDeploy;
-  } catch (error) {
-    // Not skipped quietly: a workflow this guard cannot read is one it cannot
-    // vouch for, and "unreadable" must not look like "fine".
-    issues.push(
-      `${prodDeployPath} is not valid YAML, so the deploy gate could not be checked: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
-
-  const gateInput = parsedDeploy?.on?.workflow_dispatch?.inputs?.beta_e2e;
-  if (!gateInput) {
-    issues.push(
-      `${prodDeployPath} wires the beta E2E gate but exposes no beta_e2e input, so it cannot be opted into.`,
-    );
-  } else if (gateInput.default !== false) {
-    issues.push(
-      `${prodDeployPath} defaults beta_e2e to ${JSON.stringify(gateInput.default)}. It must default to false — a deploy should never be gated on this suite unless someone asked for it.`,
-    );
-  }
-
-  const deployIf = String(parsedDeploy?.jobs?.deploy?.if ?? "");
-  if (!deployIf.includes("needs.beta-e2e.result != 'failure'")) {
-    issues.push(
-      `${prodDeployPath}'s deploy job must proceed when the beta E2E pre-flight was SKIPPED, which is its state whenever the deploy did not ask for it. Depend on \`needs.beta-e2e.result != 'failure'\`; requiring 'success' would block every deploy that opted out.`,
-    );
   }
 }
 

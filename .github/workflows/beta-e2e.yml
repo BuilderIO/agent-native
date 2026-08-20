@@ -3,6 +3,14 @@ name: Beta E2E (browser)
 # Manual gate for "is beta safe to promote to production?" and reusable job
 # for the scheduled beta health check.
 #
+# The public lane is sharded one host per runner. Measured: a page load against
+# a beta host costs 1-2s from a laptop and 20-40s from a GitHub runner, because
+# the fleet sits behind one CDN that throttles bursty datacenter traffic. On a
+# single runner the sweep took ~28 minutes with scheduling already 83%
+# efficient, so the time was raw network wait rather than queueing. Sharding
+# makes the fleet cost the slowest single host and spreads the requests over
+# sixteen source addresses: measured 1704s -> 437s.
+#
 # Drives the deployed beta fleet with a real browser. Two gating lanes decide
 # the answer; a third advisory lane reports real-but-not-blocking findings so a
 # red run always means "do not promote".
@@ -14,7 +22,7 @@ name: Beta E2E (browser)
 # workflow on a six-hour cadence and reports failures to one deduplicated issue.
 
 on:
-  # Callable from another workflow — used by the production deploy's opt-in
+  # Callable from another workflow - used by the production deploy's opt-in
   # pre-flight gate and the six-hour scheduled wrapper. Still never fires on
   # its own: there is no push, schedule, or pull_request trigger here.
   workflow_call:
@@ -84,109 +92,186 @@ permissions:
   contents: read
 
 jobs:
-  beta-e2e:
-    name: Beta fleet E2E
+  discover:
+    name: Resolve host shards
     runs-on: ubuntu-latest
-    timeout-minutes: 60
-    env:
-      # Dispatch inputs reach the shell through the environment, never through
-      # expression interpolation into a `run:` line: an expression is expanded
-      # into the script text before bash parses it, so a crafted input would run
-      # as a command in a step that has both secrets in scope.
-      BETA_E2E_APPS: ${{ inputs.apps }}
-      BETA_E2E_GREP: ${{ inputs.grep || '' }}
-      BETA_E2E_EMAIL: ${{ secrets.BETA_E2E_EMAIL }}
-      BETA_E2E_SESSION_TOKENS: ${{ secrets.BETA_E2E_SESSION_TOKENS }}
-      BETA_E2E_OPENAI_API_KEY: ${{ secrets.BETA_E2E_OPENAI_API_KEY }}
-      # Never read implicitly — only when the dispatch explicitly asks for it,
-      # because billing the shared key is the thing a dedicated key prevents.
-      BETA_E2E_SHARED_OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-      BETA_E2E_ALLOW_SHARED_KEY: ${{ inputs.key_source == 'shared' }}
-      # Called runs have no key_source input, so shared billing stays disabled;
-      # the scheduled wrapper therefore uses the dedicated key.
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
-
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: "22"
-          cache: "pnpm"
+          fetch-depth: 1
+          sparse-checkout: scripts/netlify-beta-sites.json
+          sparse-checkout-cone-mode: false
 
-      - run: pnpm install --frozen-lockfile
-
-      - name: Restore Playwright browser cache
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: playwright-${{ runner.os }}-
-
-      - name: Typecheck the suite
-        # Fail before the browser starts and before any token is spent: `e2e/`
-        # is not a workspace package, so the repo-wide typecheck never sees it.
-        run: pnpm typecheck:e2e
-
-      - name: Install Playwright Chromium
-        run: pnpm exec playwright install --only-shell chromium
-
-      - name: Public sweep
-        # No credentials, no model spend, every host. If this is red, promoting
-        # would ship a fleet users cannot sign into or load.
+      - name: Build the host matrix
+        id: matrix
         env:
-          BETA_E2E_AUTHED: "0"
-          BETA_E2E_REPORT_SLOT: public
+          REQUESTED_APPS: ${{ inputs.apps }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require("node:fs");
+          const sites = JSON.parse(
+            fs.readFileSync("scripts/netlify-beta-sites.json", "utf8"),
+          );
+          const known = sites.map((site) => site.id);
+          const raw = (process.env.REQUESTED_APPS || "all").trim();
+          let apps;
+          if (!raw || raw === "all") {
+            apps = known;
+          } else {
+            apps = raw
+              .split(",")
+              .map((value) => value.trim().toLowerCase())
+              .filter(Boolean);
+            const unknown = apps.filter((id) => !known.includes(id));
+            if (unknown.length > 0) {
+              throw new Error(
+                `Unknown app(s): ${unknown.join(", ")}. Known: ${known.join(", ")}`,
+              );
+            }
+          }
+          if (apps.length === 0) {
+            throw new Error("The app selection resolved to nothing to test.");
+          }
+          const matrix = { app: apps };
+          fs.appendFileSync(
+            process.env.GITHUB_OUTPUT,
+            `matrix=${JSON.stringify(matrix)}\n`,
+          );
+          console.log(`Sharding ${apps.length} host(s): ${apps.join(", ")}`);
+          NODE
+
+  public:
+    name: ${{ matrix.app }} public sweep
+    needs: discover
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
+    env:
+      BETA_E2E_APPS: ${{ matrix.app }}
+      BETA_E2E_GREP: ${{ inputs.grep || '' }}
+      BETA_E2E_AUTHED: "0"
+      BETA_E2E_REPORT_SLOT: public-${{ matrix.app }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: ./.github/actions/beta-e2e-setup
+        # A composite action rather than repeated steps: the same seven-step
+        # preamble now runs in four places.
+      - name: Public sweep
         run: |
           if [ -n "$BETA_E2E_GREP" ]; then
             pnpm e2e:beta --project=public --grep "$BETA_E2E_GREP"
           else
             pnpm e2e:beta --project=public
           fi
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0 # v7.0.1
+        if: ${{ always() }}
+        with:
+          name: beta-e2e-public-${{ matrix.app }}-${{ github.run_id }}
+          path: |
+            e2e/beta/playwright-report/
+            e2e/beta/test-results/
+          if-no-files-found: warn
+          retention-days: 7
 
+  fleet:
+    name: Fleet-wide checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      BETA_E2E_APPS: ${{ inputs.apps }}
+      BETA_E2E_AUTHED: "0"
+      BETA_E2E_REPORT_SLOT: fleet
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: ./.github/actions/beta-e2e-setup
+      - name: Cross-host checks
+        run: pnpm e2e:beta --project=fleet
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0 # v7.0.1
+        if: ${{ always() }}
+        with:
+          name: beta-e2e-fleet-${{ github.run_id }}
+          path: e2e/beta/playwright-report/
+          if-no-files-found: warn
+          retention-days: 7
+
+  authed:
+    name: Authenticated journeys
+    if: ${{ inputs.lane != 'public' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      BETA_E2E_APPS: ${{ inputs.apps }}
+      BETA_E2E_GREP: ${{ inputs.grep || '' }}
+      BETA_E2E_AUTHED: "1"
+      BETA_E2E_REPORT_SLOT: authed
+      BETA_E2E_EMAIL: ${{ secrets.BETA_E2E_EMAIL }}
+      BETA_E2E_SESSION_TOKENS: ${{ secrets.BETA_E2E_SESSION_TOKENS }}
+      BETA_E2E_OPENAI_API_KEY: ${{ secrets.BETA_E2E_OPENAI_API_KEY }}
+      # The repository-wide key is available only for an explicit shared-key
+      # dispatch. Dedicated runs must not expose it to setup or test code.
+      BETA_E2E_SHARED_OPENAI_API_KEY: ${{ inputs.key_source == 'shared' && secrets.OPENAI_API_KEY || '' }}
+      BETA_E2E_ALLOW_SHARED_KEY: ${{ inputs.key_source == 'shared' }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: ./.github/actions/beta-e2e-setup
       - name: Authenticated journeys
-        if: ${{ inputs.lane != 'public' }}
-        # Requires BETA_E2E_SESSION_TOKENS + BETA_E2E_OPENAI_API_KEY. Global
-        # setup fails loudly if either is missing rather than degrading to an
-        # anonymous run that would pass without testing anything.
-        env:
-          BETA_E2E_AUTHED: "1"
-          BETA_E2E_REPORT_SLOT: authed
+        # Global setup fails loudly if a credential is missing rather than
+        # degrading to an anonymous run that would pass without testing
+        # anything. Not sharded: it establishes one session per app up front.
         run: |
           if [ -n "$BETA_E2E_GREP" ]; then
             pnpm e2e:beta --project=authed --project=journeys --grep "$BETA_E2E_GREP"
           else
             pnpm e2e:beta --project=authed --project=journeys
           fi
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0 # v7.0.1
+        if: ${{ always() }}
+        # The authenticated lanes record no trace and no video (see the
+        # playwright config): a trace captures real request headers and would
+        # publish the e2e account's live session cookie to anyone with repo
+        # read access. e2e/beta/.auth is deliberately not in this list.
+        with:
+          name: beta-e2e-authed-${{ github.run_id }}
+          path: |
+            e2e/beta/playwright-report/
+            e2e/beta/test-results/
+          if-no-files-found: warn
+          retention-days: 7
 
-      - name: Advisory findings (non-gating)
+  advisory:
+    name: Advisory findings (non-gating)
+    if: ${{ always() }}
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      BETA_E2E_APPS: ${{ inputs.apps }}
+      BETA_E2E_GREP: ${{ inputs.grep || '' }}
+      BETA_E2E_AUTHED: "0"
+      BETA_E2E_REPORT_SLOT: advisory
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: ./.github/actions/beta-e2e-setup
+      - name: Advisory findings
         # Always runs: it costs no credentials and no tokens, and findings that
         # stop being reported stop being fixed. continue-on-error keeps a red
         # here from meaning "do not promote".
-        if: ${{ always() }}
-        continue-on-error: true
-        env:
-          BETA_E2E_AUTHED: "0"
-          BETA_E2E_REPORT_SLOT: advisory
         run: |
           if [ -n "$BETA_E2E_GREP" ]; then
             pnpm e2e:beta --project=advisory --grep "$BETA_E2E_GREP"
           else
             pnpm e2e:beta --project=advisory
           fi
-
-      - name: Upload report
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0 # v7.0.1
         if: ${{ always() }}
-        # The authenticated lanes record no trace and no video (see the
-        # playwright config): a trace captures real request headers and would
-        # publish the e2e account's live session cookie to anyone with repo
-        # read access. What lands here is the public lane's traces plus
-        # screenshots. e2e/beta/.auth is deliberately not in this list.
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: beta-e2e-${{ github.run_id }}
-          path: |
-            e2e/beta/playwright-report/
-            e2e/beta/test-results/
+          name: beta-e2e-advisory-${{ github.run_id }}
+          path: e2e/beta/playwright-report/
           if-no-files-found: warn
           retention-days: 7

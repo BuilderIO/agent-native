@@ -53,7 +53,7 @@ for (const site of sites) {
         const page = await context.newPage();
         await page.goto(`${origin}/`, {
           waitUntil: "domcontentloaded",
-          timeout: 90_000,
+          timeout: 45_000,
         });
         const results = await page.evaluate(async () => {
           const paths = [
@@ -93,7 +93,7 @@ for (const site of sites) {
         const page = await context.newPage();
         await page.goto(`${origin}/`, {
           waitUntil: "domcontentloaded",
-          timeout: 90_000,
+          timeout: 45_000,
         });
         const discovery = await page.evaluate(async (appId) => {
           const response = await fetch(

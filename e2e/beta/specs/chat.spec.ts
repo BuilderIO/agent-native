@@ -67,7 +67,7 @@ for (const site of sites) {
         // it explicitly is what guarantees a composer to type into.
         await page.goto(`${origin}/?agentSidebar=open`, {
           waitUntil: "domcontentloaded",
-          timeout: 90_000,
+          timeout: 45_000,
         });
 
         await expect(
@@ -101,7 +101,7 @@ for (const site of sites) {
         // have to recover the thread that just completed.
         await page.reload({
           waitUntil: "domcontentloaded",
-          timeout: 90_000,
+          timeout: 45_000,
         });
         await expect(
           page.locator(COMPOSER.input).first(),
@@ -143,7 +143,7 @@ for (const site of sites) {
         const chat = watchChatRequests(page);
         await page.goto(`${origin}/?agentSidebar=open`, {
           waitUntil: "domcontentloaded",
-          timeout: 90_000,
+          timeout: 45_000,
         });
         await expect(page.locator(COMPOSER.input).first()).toBeVisible({
           timeout: 60_000,
@@ -180,7 +180,7 @@ for (const site of sites) {
         const page = await context.newPage();
         await page.goto(`${origin}/?agentSidebar=open`, {
           waitUntil: "domcontentloaded",
-          timeout: 90_000,
+          timeout: 45_000,
         });
         const send = page.locator(COMPOSER.send).first();
         await expect(send).toBeVisible({ timeout: 60_000 });
