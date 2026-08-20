@@ -6949,7 +6949,10 @@ function Setup({
                   }
                   void setScreenMemoryConfig({ enabled: false });
                 }}
-                disabled={screenMemoryConfigBusy}
+                /* Rust rejects Rewind capture changes mid-Clip
+                   (config.rs `set_feature_config` guard); disabling here
+                   turns that hard error into a visible lock. */
+                disabled={screenMemoryConfigBusy || captureControlsLocked}
                 label="Rewind"
               />
             }
@@ -6984,7 +6987,7 @@ function Setup({
                         captureMode: value as RewindCaptureMode,
                       });
                     }}
-                    disabled={screenMemoryConfigBusy}
+                    disabled={screenMemoryConfigBusy || captureControlsLocked}
                     options={[
                       { value: "visuals", label: "Screen only" },
                       { value: "visuals-audio", label: "Screen + audio" },
