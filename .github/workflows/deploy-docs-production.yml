@@ -1,0 +1,135 @@
+name: Deploy Agent Native docs site from GitHub
+
+# Temporary production-only exception: there is no beta docs Netlify site or
+# beta docs hostname yet. Keep the public docs site on the same prebuilt
+# publisher as the other sites until a docs beta site is provisioned.
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".nvmrc"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "packages/core/**"
+      - "packages/docs/**"
+      - "scripts/netlify-prebuilt-target.ts"
+      - "scripts/netlify-production-sites.json"
+      - ".github/workflows/deploy-docs-production.yml"
+      - ".github/workflows/deploy-netlify-prebuilt.yml"
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Optional exact commit SHA; blank uses the selected ref
+        required: false
+        type: string
+        default: ""
+      smoke:
+        description: Probe www.agent-native.com after publishing
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-native-docs-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: docs production prebuilt deploy
+    uses: ./.github/workflows/deploy-netlify-prebuilt.yml
+    with:
+      target: production
+      site: fw
+      caller: docs
+      source_ref: ${{ inputs.source_ref || github.sha }}
+      build_context: production
+      deploy: true
+      deploy_mode: production
+      smoke: ${{ github.event_name == 'push' || inputs.smoke }}
+    secrets: inherit
+
+  disable-netlify-builds:
+    name: Keep docs site on GitHub Actions
+    needs: deploy
+    if: needs.deploy.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ inputs.source_ref || github.sha }}
+          fetch-depth: 1
+          sparse-checkout: scripts/netlify-production-sites.json
+          sparse-checkout-cone-mode: false
+
+      - name: Disable the docs site's Git-connected Netlify builds
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+        run: |
+          set -euo pipefail
+          : "${NETLIFY_AUTH_TOKEN:?NETLIFY_AUTH_TOKEN secret is required}"
+          node <<'NODE'
+          const fs = require('node:fs');
+
+          const sites = JSON.parse(
+            fs.readFileSync('scripts/netlify-production-sites.json', 'utf8'),
+          );
+          const siteId = sites.fw?.siteId;
+          if (!siteId) throw new Error('The fw production docs site is not configured.');
+
+          const api = 'https://api.netlify.com/api/v1';
+          const headers = {
+            Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}`,
+            'Content-Type': 'application/json',
+          };
+
+          async function readJson(response, label) {
+            const text = await response.text();
+            let body = null;
+            try {
+              body = text ? JSON.parse(text) : null;
+            } catch {
+              body = text;
+            }
+            if (!response.ok) {
+              throw new Error(
+                `${label} failed with HTTP ${response.status}: ${typeof body === 'string' ? body : JSON.stringify(body)}`,
+              );
+            }
+            return body;
+          }
+
+          (async () => {
+            const siteUrl = `${api}/sites/${siteId}`;
+            const current = await readJson(
+              await fetch(siteUrl, { headers, signal: AbortSignal.timeout(30_000) }),
+              'Netlify docs site lookup',
+            );
+            if (current.build_settings?.stop_builds !== true) {
+              await readJson(
+                await fetch(siteUrl, {
+                  method: 'PATCH',
+                  headers,
+                  body: JSON.stringify({ build_settings: { stop_builds: true } }),
+                  signal: AbortSignal.timeout(30_000),
+                }),
+                'Netlify docs build pause',
+              );
+            }
+
+            const paused = await readJson(
+              await fetch(siteUrl, { headers, signal: AbortSignal.timeout(30_000) }),
+              'Netlify docs build pause verification',
+            );
+            if (paused.build_settings?.stop_builds !== true) {
+              throw new Error('Netlify docs Git-connected builds were not disabled.');
+            }
+            console.log('Docs site is now owned by the GitHub Actions prebuilt publisher.');
+          })().catch((error) => {
+            console.error(error instanceof Error ? error.message : error);
+            process.exitCode = 1;
+          });
+          NODE

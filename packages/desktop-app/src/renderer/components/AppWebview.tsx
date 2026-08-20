@@ -492,18 +492,17 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     const [slowLoad, setSlowLoad] = useState(false);
     const [isFullscreen, setIsFullscreen] = useState(false);
     const loadFailureRef = useRef(false);
-    const rawUrl =
-      sourceUrl?.trim()
-        ? withUrlParams(sourceUrl.trim(), urlParams)
-        : withUrlParams(
-            withUrlPath(resolveAppWebviewUrl(app, appConfig), urlPath),
-            {
-              ...(appConfig?.mode === "dev" && appConfig.localPath
-                ? { _agentNativeDesktopCode: "1" }
-                : {}),
-              ...urlParams,
-            },
-          );
+    const rawUrl = sourceUrl?.trim()
+      ? withUrlParams(sourceUrl.trim(), urlParams)
+      : withUrlParams(
+          withUrlPath(resolveAppWebviewUrl(app, appConfig), urlPath),
+          {
+            ...(appConfig?.mode === "dev" && appConfig.localPath
+              ? { _agentNativeDesktopCode: "1" }
+              : {}),
+            ...urlParams,
+          },
+        );
     const url = useStableDesktopEnvironmentOptOut(rawUrl);
     const isDevMode = !sourceUrl && appConfig?.mode === "dev";
     const desktopIdentityGateEligible = isDesktopIdentityGateEligible(

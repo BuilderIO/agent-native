@@ -4,7 +4,8 @@ description: >-
   Commit and push the complete current-branch snapshot, open a ready PR,
   babysit it, merge when clean, then create a fresh branch. Use when the user
   asks to ship, publish, or hand off local changes. GitHub Actions auto-deploys
-  beta through the prebuilt publisher; production promotion is manual.
+  beta and the docs site through the prebuilt publisher; other production
+  promotion is manual.
 user-invocable: true
 scope: dev
 metadata:
@@ -62,11 +63,16 @@ which builds in GitHub Actions and uploads prebuilt artifacts to the independent
 Netlify beta sites at `beta.*.agent-native.com`. Netlify Git-connected
 auto-builds are disabled, so do not wait for Netlify build queues or
 deploy-preview checks; verify the Actions run and its per-site smoke checks.
-Production promotion is a separate manual operation. The normal `/ship` flow
-does not wait for or verify post-merge beta deployment; use
-`/ship-and-monitor` to verify beta and the release tail. It also must not imply
-an automatic production deploy. Critical fixes that must reach production need
-an explicit manual promotion, followed by
+Production promotion is a separate manual operation for other production
+sites. The normal `/ship` flow does not wait for or verify post-merge beta
+deployment; use `/ship-and-monitor` to verify beta, the docs production lane,
+and the release tail. The public docs site is the temporary exception:
+matching `main` changes trigger `.github/workflows/deploy-docs-production.yml`,
+which publishes `www.agent-native.com` from the exact commit and disables that
+site's Git-connected Netlify builds. There is no beta docs site today. The
+normal `/ship` flow must not imply an automatic production deploy for other
+sites. Critical fixes that must reach other production sites need an explicit
+manual promotion, followed by
 `/ship-and-monitor` when the promotion and release tail need verification.
 
 Use `.github/workflows/deploy-production-sites-prebuilt.yml` or the targeted
