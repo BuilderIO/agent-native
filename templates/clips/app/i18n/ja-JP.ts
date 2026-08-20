@@ -629,12 +629,17 @@ const messages = {
     alsoFor: "{{platform}}でもご利用いただけます",
     backToLibrary: "ライブラリに戻る",
     clipsDesktop: "Clips Desktop",
+    stable: "安定版",
+    nightly: "Nightly",
+    switchToNightly: "Nightly ビルドに切り替え",
+    switchToStable: "安定版ビルドに切り替え",
+    retry: "再試行",
     heroDescription:
       "画面、カメラ、画面+カメラのメニューバーレコーダー。ワンクリックで開始、ドラッグ可能なカメラバブル、停止時のインスタント共有リンク。",
     versionReleased: "バージョン {{version}} — リリースされた {{date}}",
     version: "バージョン{{version}}",
     manifestError:
-      "リリース マニフェストを読み込めませんでした。リリース ページからインストーラーを選択してください。",
+      "リリース マニフェストを読み込めませんでした。もう一度お試しください。",
     loadingRelease: "最新リリースを読み込んでいます…",
     chromeTitle: "ブラウザログ用のChrome拡張子",
     chromeDescription:

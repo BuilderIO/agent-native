@@ -591,11 +591,16 @@ const messages = {
     alsoFor: "也可用於 {{platform}}",
     backToLibrary: "返回媒體庫",
     clipsDesktop: "Clips 桌面版",
+    stable: "穩定版",
+    nightly: "Nightly",
+    switchToNightly: "切換至 Nightly 建置",
+    switchToStable: "切換至穩定版建置",
+    retry: "重試",
     heroDescription:
       "用於螢幕、相機和螢幕+相機的選單欄紀錄器。一鍵啟動，可拖動相機氣泡，停止時即時分享連結。",
     versionReleased: "版本 {{version}} — 發布 {{date}}",
     version: "版本 {{version}}",
-    manifestError: "無法載入版本清單，請從版本頁面選取安裝程式。",
+    manifestError: "無法載入版本清單，請重試。",
     loadingRelease: "正在載入最新版本...",
     chromeTitle: "Chrome 瀏覽器記錄擴充功能",
     chromeDescription:

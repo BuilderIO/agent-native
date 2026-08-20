@@ -619,12 +619,16 @@ const messages = {
     alsoFor: "{{platform}}에도 사용 가능",
     backToLibrary: "라이브러리로 돌아가기",
     clipsDesktop: "Clips Desktop",
+    stable: "안정 버전",
+    nightly: "Nightly",
+    switchToNightly: "Nightly 빌드로 전환",
+    switchToStable: "안정 버전 빌드로 전환",
+    retry: "다시 시도",
     heroDescription:
       "화면, 카메라, 화면 + 카메라용 메뉴 막대 레코더입니다. 원클릭 시작, 드래그 가능한 카메라 버블, 중지 시 즉시 공유 링크.",
     versionReleased: "버전 {{version}} — {{date}} 출시",
     version: "버전 {{version}}",
-    manifestError:
-      "릴리스 매니페스트를 로드할 수 없습니다. 릴리스 페이지에서 설치 프로그램을 선택하세요.",
+    manifestError: "릴리스 매니페스트를 로드할 수 없습니다. 다시 시도하세요.",
     loadingRelease: "최신 릴리스 로드 중…",
     chromeTitle: "브라우저 로그용 Chrome 확장자",
     chromeDescription:
