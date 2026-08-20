@@ -365,6 +365,15 @@ const migrations = [
       DROP INDEX IF EXISTS factory_items_org_dedupe_idx;
     `,
   },
+  {
+    version: 24,
+    name: "factory-config-org-slack-channel-unique",
+    sql: `
+      CREATE UNIQUE INDEX IF NOT EXISTS factory_config_org_slack_channel_idx
+        ON factory_config (org_id, slack_channel_id)
+        WHERE slack_channel_id IS NOT NULL AND slack_channel_id != '';
+    `,
+  },
 ];
 
 export const runFactoryMigrations = runMigrations(migrations, {

@@ -5,6 +5,10 @@ import { getDb } from "../server/db/index.js";
 import { triageConfig } from "../server/db/schema.js";
 import { DEFAULT_FACTORY_ID } from "../server/factory-graph/store.js";
 import {
+  isFactorySlackChannelConflict,
+  resolveEnabledAutomationsFromSavedConfig,
+} from "../server/lib/factory-automation-plan.js";
+import {
   assertUniqueSlackChannelForFactory,
   factoryConfigRowId,
   factoryIdSchema,
@@ -14,6 +18,10 @@ import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
+import {
+  ensureFactoryAutomations,
+  syncFactoryAutomationEnabledStates,
+} from "../server/plugins/factory-scheduler-job.js";
 
 const workspaceSchema = z.enum(["primary", "secondary"]);
 
@@ -139,32 +147,11 @@ export default defineAction({
       existing?.automationFailureAlertEmail,
     );
     const configId = factoryConfigRowId(orgId, factoryId);
-    await db
-      .insert(triageConfig)
-      .values({
-        id: configId,
-        factoryId,
-        slackWorkspace: persistedSlackWorkspace,
-        slackChannelId: persistedSlackChannelId,
-        slackChannelName: persistedSlackChannelName,
-        builderSlackUserId: persistedBuilderSlackUserId,
-        pollingEnabled: persistedPollingEnabled,
-        githubPollingEnabled: persistedGithubPollingEnabled,
-        sentryPollingEnabled: persistedSentryPollingEnabled,
-        sentryOrgSlug: persistedSentryOrgSlug,
-        sentryProjectSlug: persistedSentryProjectSlug,
-        sentryEnvironment: persistedSentryEnvironment,
-        repository: persistedRepository,
-        automationFailureAlertsEnabled: persistedAutomationFailureAlertsEnabled,
-        automationFailureAlertEmail: persistedAutomationFailureAlertEmail,
-        createdAt: now,
-        updatedAt: now,
-        ownerEmail: userEmail,
-        orgId,
-      })
-      .onConflictDoUpdate({
-        target: triageConfig.id,
-        set: {
+    try {
+      await db
+        .insert(triageConfig)
+        .values({
+          id: configId,
           factoryId,
           slackWorkspace: persistedSlackWorkspace,
           slackChannelId: persistedSlackChannelId,
@@ -180,10 +167,58 @@ export default defineAction({
           automationFailureAlertsEnabled:
             persistedAutomationFailureAlertsEnabled,
           automationFailureAlertEmail: persistedAutomationFailureAlertEmail,
+          createdAt: now,
           updatedAt: now,
           ownerEmail: userEmail,
-        },
-      });
+          orgId,
+        })
+        .onConflictDoUpdate({
+          target: triageConfig.id,
+          set: {
+            factoryId,
+            slackWorkspace: persistedSlackWorkspace,
+            slackChannelId: persistedSlackChannelId,
+            slackChannelName: persistedSlackChannelName,
+            builderSlackUserId: persistedBuilderSlackUserId,
+            pollingEnabled: persistedPollingEnabled,
+            githubPollingEnabled: persistedGithubPollingEnabled,
+            sentryPollingEnabled: persistedSentryPollingEnabled,
+            sentryOrgSlug: persistedSentryOrgSlug,
+            sentryProjectSlug: persistedSentryProjectSlug,
+            sentryEnvironment: persistedSentryEnvironment,
+            repository: persistedRepository,
+            automationFailureAlertsEnabled:
+              persistedAutomationFailureAlertsEnabled,
+            automationFailureAlertEmail: persistedAutomationFailureAlertEmail,
+            updatedAt: now,
+            ownerEmail: userEmail,
+          },
+        });
+    } catch (error) {
+      if (isFactorySlackChannelConflict(error)) {
+        throw new Error(
+          "That Slack channel is already used by another Factory in this workspace.",
+        );
+      }
+      throw error;
+    }
+
+    const enabledNames = resolveEnabledAutomationsFromSavedConfig({
+      pollingEnabled: persistedPollingEnabled,
+      githubPollingEnabled: persistedGithubPollingEnabled,
+      sentryPollingEnabled: persistedSentryPollingEnabled,
+      slackChannelId: persistedSlackChannelId,
+      repository: persistedRepository,
+      sentryOrgSlug: persistedSentryOrgSlug,
+      sentryProjectSlug: persistedSentryProjectSlug,
+    });
+    await ensureFactoryAutomations(userEmail, orgId, factoryId, {
+      enabledNames,
+    });
+    await syncFactoryAutomationEnabledStates(userEmail, orgId, factoryId, [
+      ...enabledNames,
+    ]);
+
     return {
       ok: true,
       factoryId,

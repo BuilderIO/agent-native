@@ -17,6 +17,7 @@ import { and, eq, isNull, lt, ne, or } from "drizzle-orm";
 
 import { getDb } from "../db/index.js";
 import { triageConfig } from "../db/schema.js";
+import { resolveEnabledAutomationsFromSavedConfig } from "../lib/factory-automation-plan.js";
 import {
   DEFAULT_FACTORY_ID,
   factoryAutomationJobPath,
@@ -639,6 +640,8 @@ async function ensureDefaultTriageConfig(
   const repository = defaultRepository();
   if (existing) return;
   const now = new Date().toISOString();
+  const pollingEnabled = 1;
+  const githubPollingEnabled = defaultGithubPollingEnabled() ? 1 : 0;
   await db.insert(triageConfig).values({
     id: factoryConfigRowId(orgId, factoryId),
     factoryId,
@@ -646,8 +649,8 @@ async function ensureDefaultTriageConfig(
     slackChannelId: DEFAULT_SLACK_CHANNEL_ID,
     slackChannelName: DEFAULT_SLACK_CHANNEL_NAME,
     builderSlackUserId: null,
-    pollingEnabled: 1,
-    githubPollingEnabled: defaultGithubPollingEnabled(),
+    pollingEnabled,
+    githubPollingEnabled,
     sentryPollingEnabled: 0,
     lastSlackTs: null,
     slackHistoryCursor: null,
@@ -660,6 +663,16 @@ async function ensureDefaultTriageConfig(
     updatedAt: now,
     ownerEmail,
     orgId,
+  });
+  const enabledNames = resolveEnabledAutomationsFromSavedConfig({
+    pollingEnabled,
+    githubPollingEnabled,
+    sentryPollingEnabled: 0,
+    slackChannelId: DEFAULT_SLACK_CHANNEL_ID,
+    repository,
+  });
+  await ensureFactoryAutomations(ownerEmail, orgId, factoryId, {
+    enabledNames,
   });
 }
 

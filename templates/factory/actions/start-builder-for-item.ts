@@ -405,6 +405,7 @@ export default defineAction({
       {
         action: "start-builder-for-item",
         kind: "decision",
+        factoryId,
         itemId,
         source: item.source,
         sourceUrl: item.sourceUrl,
@@ -661,6 +662,7 @@ export default defineAction({
           {
             action: "start-builder-for-item",
             kind: "external_action",
+            factoryId,
             itemId,
             source: item.source,
             sourceUrl: item.sourceUrl,
@@ -733,6 +735,7 @@ export default defineAction({
         {
           action: "start-builder-for-item",
           kind: "external_action",
+          factoryId,
           itemId,
           source: item.source,
           sourceUrl: item.sourceUrl,

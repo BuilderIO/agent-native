@@ -27,6 +27,8 @@ export function factoryConfigRowId(orgId: string, factoryId: string): string {
   return `${orgId}:${factoryId}`;
 }
 
+const MAX_FACTORY_ID_LENGTH = 120;
+
 export function slugifyFactoryId(name: string): string {
   const normalized = name
     .toLowerCase()
@@ -39,7 +41,16 @@ export function slugifyFactoryId(name: string): string {
     normalized && /^[a-z0-9]/.test(normalized)
       ? normalized
       : `factory-${normalized || "untitled"}`;
-  return base.slice(0, 120);
+  return base.slice(0, MAX_FACTORY_ID_LENGTH);
+}
+
+export function factoryIdCandidateWithSuffix(
+  base: string,
+  suffix: number,
+): string {
+  const suffixText = `-${suffix}`;
+  const maxBaseLength = MAX_FACTORY_ID_LENGTH - suffixText.length;
+  return `${base.slice(0, maxBaseLength)}${suffixText}`;
 }
 
 export async function resolveUniqueFactoryId(
@@ -50,14 +61,14 @@ export async function resolveUniqueFactoryId(
   const base = slugifyFactoryId(name);
   let candidate = base;
   let suffix = 2;
-  while (true) {
-    if (!(await factoryIdExistsInOrg(db, orgId, candidate))) return candidate;
-    candidate = `${base}-${suffix}`.slice(0, 120);
+  while (await factoryIdTaken(db, orgId, candidate)) {
+    candidate = factoryIdCandidateWithSuffix(base, suffix);
     suffix += 1;
   }
+  return candidate;
 }
 
-async function factoryIdExistsInOrg(
+async function factoryIdTaken(
   db: Db,
   orgId: string,
   factoryId: string,
@@ -66,12 +77,7 @@ async function factoryIdExistsInOrg(
     await db
       .select({ id: factoryDefinitions.id })
       .from(factoryDefinitions)
-      .where(
-        and(
-          eq(factoryDefinitions.id, factoryId),
-          eq(factoryDefinitions.orgId, orgId),
-        ),
-      )
+      .where(eq(factoryDefinitions.id, factoryId))
       .limit(1)
   )[0];
   if (definition) return true;

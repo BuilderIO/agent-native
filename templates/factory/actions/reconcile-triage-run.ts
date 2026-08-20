@@ -5,7 +5,10 @@ import { z } from "zod";
 import { getDb } from "../server/db/index.js";
 import { triageItems, triageRuns } from "../server/db/schema.js";
 import { DEFAULT_FACTORY_ID } from "../server/factory-graph/store.js";
-import { factoryIdSchema } from "../server/lib/factory-scope.js";
+import {
+  factoryIdSchema,
+  orgFactoryScopedItemWhere,
+} from "../server/lib/factory-scope.js";
 import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
@@ -96,7 +99,11 @@ export default defineAction({
     )[0];
     if (!item)
       throw new Error("Factory item not found for run reconciliation.");
-    const factoryId = factoryIdInput ?? item.factoryId ?? DEFAULT_FACTORY_ID;
+    const itemFactoryId = item.factoryId ?? DEFAULT_FACTORY_ID;
+    if (factoryIdInput && factoryIdInput !== itemFactoryId) {
+      throw new Error("Factory item does not belong to this factory.");
+    }
+    const factoryId = itemFactoryId;
     const now = new Date().toISOString();
     const databaseRunId = stableId("run", orgId, runId);
     const result = reconcilePullRequestRun({
@@ -169,12 +176,12 @@ export default defineAction({
         await tx
           .update(triageItems)
           .set(result.triageItemPatch)
-          .where(and(eq(triageItems.id, itemId), eq(triageItems.orgId, orgId)));
+          .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId));
       } else if (result.state === "reconciliation_required") {
         await tx
           .update(triageItems)
           .set({ status: "reconciliation_required", updatedAt: now })
-          .where(and(eq(triageItems.id, itemId), eq(triageItems.orgId, orgId)));
+          .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId));
       }
     });
 
