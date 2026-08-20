@@ -64,7 +64,10 @@ jobs:
           // Three 30-second attempts plus retry delays take at most 93 seconds
           // per host; twelve workers finish the 36-host manifest in three waves.
           const hostConcurrency = 12;
-          const assetConcurrency = 4;
+          // Static assets only need status headers. HEAD avoids transferring
+          // each bundle, while the shared limiter prevents twelve host probes
+          // from multiplying their batches into a runner-wide request burst.
+          const assetConcurrency = 8;
 
           async function mapWithConcurrency(items, concurrency, mapper) {
             const results = new Array(items.length);
@@ -81,6 +84,25 @@ jobs:
             );
             return results;
           }
+
+          function createLimiter(concurrency) {
+            let active = 0;
+            const waiters = [];
+            return async function run(task) {
+              if (active >= concurrency) {
+                await new Promise((resolve) => waiters.push(resolve));
+              }
+              active += 1;
+              try {
+                return await task();
+              } finally {
+                active -= 1;
+                waiters.shift()?.();
+              }
+            };
+          }
+
+          const runAssetRequest = createLimiter(assetConcurrency);
 
           async function fetchOnVerifiedOrigin(url, origin, options) {
             let currentUrl = url;
@@ -191,28 +213,44 @@ jobs:
                       assetFailures.push("asset probe deadline exceeded");
                       break;
                     }
-                    await Promise.all(assetUrls.slice(i, i + assetConcurrency).map(async (assetUrl) => {
-                      try {
-                        const { response: assetResponse } = await fetchOnVerifiedOrigin(
-                          assetUrl,
-                          documentOrigin,
-                          {
+                    await Promise.all(assetUrls.slice(i, i + assetConcurrency).map((assetUrl) =>
+                      runAssetRequest(async () => {
+                        try {
+                          if (Date.now() >= deadline) {
+                            assetFailures.push("asset probe deadline exceeded");
+                            return;
+                          }
+                          const assetRequest = (method) => ({
                             headers: { "user-agent": "agent-native-site-monitor" },
+                            method,
                             signal: AbortSignal.timeout(
                               Math.min(timeoutMs, Math.max(1, deadline - Date.now())),
                             ),
-                          },
-                        );
-                        await assetResponse.body?.cancel();
-                        if (assetResponse.status < 200 || assetResponse.status >= 300) {
-                          assetFailures.push(`${new URL(assetUrl).pathname} HTTP ${assetResponse.status}`);
+                          });
+                          let { response: assetResponse } = await fetchOnVerifiedOrigin(
+                            assetUrl,
+                            documentOrigin,
+                            assetRequest("HEAD"),
+                          );
+                          if (assetResponse.status === 405 || assetResponse.status === 501) {
+                            await assetResponse.body?.cancel();
+                            ({ response: assetResponse } = await fetchOnVerifiedOrigin(
+                              assetUrl,
+                              documentOrigin,
+                              assetRequest("GET"),
+                            ));
+                          }
+                          await assetResponse.body?.cancel();
+                          if (assetResponse.status < 200 || assetResponse.status >= 300) {
+                            assetFailures.push(`${new URL(assetUrl).pathname} HTTP ${assetResponse.status}`);
+                          }
+                        } catch (error) {
+                          assetFailures.push(
+                            `${new URL(assetUrl).pathname} ${String(error?.message ?? error)}`,
+                          );
                         }
-                      } catch (error) {
-                        assetFailures.push(
-                          `${new URL(assetUrl).pathname} ${String(error?.message ?? error)}`,
-                        );
-                      }
-                    }));
+                      }),
+                    ));
                   }
 
                   if (assetFailures.length > 0) {

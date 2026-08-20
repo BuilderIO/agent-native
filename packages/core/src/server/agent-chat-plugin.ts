@@ -139,6 +139,9 @@ import {
   deleteThread,
   setThreadQueuedMessages,
   setThreadSourceIfMissing,
+  isAppOwnedChatScope,
+  threadScopeMismatch,
+  type ChatThread,
   type ChatThreadScope,
   type ForkThreadSourceSnapshot,
 } from "../chat-threads/store.js";
@@ -2987,15 +2990,21 @@ export function createAgentChatPlugin(
               thread = await getThread(threadId);
             }
           }
-          if (options?.appId) {
-            await setThreadSourceIfMissing(threadId, {
-              appId: options.appId,
-            });
-          }
           if (!thread) {
             throw createError({
               statusCode: 404,
               statusMessage: "Thread not found",
+            });
+          }
+          if (threadScopeMismatch(thread.scope, runScope)) {
+            throw createError({
+              statusCode: 404,
+              statusMessage: "Thread not found",
+            });
+          }
+          if (options?.appId) {
+            await setThreadSourceIfMissing(threadId, {
+              appId: options.appId,
             });
           }
           const access = await resolveThreadAccess(
@@ -3633,6 +3642,17 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           if (details.threadId && details.ownerEmail) {
             const existingThread = await getThread(details.threadId);
             if (existingThread) {
+              if (
+                threadScopeMismatch(
+                  existingThread.scope,
+                  getRequestRunContext()?.chatScope,
+                )
+              ) {
+                throw createError({
+                  statusCode: 404,
+                  statusMessage: "Thread not found",
+                });
+              }
               const access = await resolveThreadAccess(
                 details.ownerEmail,
                 details.threadId,
@@ -3974,6 +3994,17 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             if (details.threadId && details.ownerEmail) {
               const existingThread = await getThread(details.threadId);
               if (existingThread) {
+                if (
+                  threadScopeMismatch(
+                    existingThread.scope,
+                    getRequestRunContext()?.chatScope,
+                  )
+                ) {
+                  throw createError({
+                    statusCode: 404,
+                    statusMessage: "Thread not found",
+                  });
+                }
                 const access = await resolveThreadAccess(
                   details.ownerEmail,
                   details.threadId,
@@ -5687,6 +5718,23 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           const { threadId, tail: threadTail } = parseThreadRoute(event);
           const isThreadSubroute = (subroute: string) =>
             threadTail[0] === subroute;
+          const requestedScope = parseScopeFromQuery(getQuery(event));
+          const scopesMatch = (
+            left?: ChatThreadScope | null,
+            right?: ChatThreadScope | null,
+          ) =>
+            Boolean(
+              left && right && left.type === right.type && left.id === right.id,
+            );
+          const threadMatchesRequestedScope = (
+            thread: {
+              scope?: ChatThreadScope | null;
+            },
+            incomingScope?: ChatThreadScope | null,
+          ) =>
+            !requestedScope ||
+            scopesMatch(thread.scope, requestedScope) ||
+            (!thread.scope && scopesMatch(incomingScope, requestedScope));
 
           // ── Specific thread: GET/PUT/DELETE /threads/:id ──
           if (threadId) {
@@ -5697,7 +5745,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 "viewer",
                 { orgId },
               );
-              if (!thread) {
+              if (!thread || !threadMatchesRequestedScope(thread)) {
                 setResponseStatus(event, 404);
                 return { error: "Thread not found" };
               }
@@ -5712,17 +5760,44 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               // run could clobber the assistant message the server just
               // appended (and vice versa).
               return await withThreadDataLock(threadId, async () => {
+                const body = await readBody(event);
+                const bodyIncludesScope = Boolean(
+                  body &&
+                  typeof body === "object" &&
+                  Object.prototype.hasOwnProperty.call(body, "scope"),
+                );
+                const incomingScope = bodyIncludesScope
+                  ? parseScopeFromBody(body.scope)
+                  : undefined;
                 const thread = await resolveThreadAccess(
                   owner,
                   threadId,
                   "editor",
                   { orgId },
                 );
-                if (!thread) {
+                if (
+                  !thread ||
+                  !threadMatchesRequestedScope(thread, incomingScope)
+                ) {
                   setResponseStatus(event, 404);
                   return { error: "Thread not found" };
                 }
-                const body = await readBody(event);
+                const bodyScopeMatchesRequestedScope =
+                  !requestedScope ||
+                  !incomingScope ||
+                  scopesMatch(incomingScope, requestedScope);
+                const unauthorizedScopeChange =
+                  bodyIncludesScope &&
+                  ((incomingScope !== null &&
+                    (threadScopeMismatch(thread.scope, incomingScope) ||
+                      !bodyScopeMatchesRequestedScope)) ||
+                    (incomingScope === null &&
+                      isAppOwnedChatScope(thread.scope) &&
+                      !requestedScope));
+                if (unauthorizedScopeChange) {
+                  setResponseStatus(event, 404);
+                  return { error: "Thread not found" };
+                }
                 let newThreadData = body.threadData || thread.threadData;
                 let newMessageCount = body.messageCount ?? thread.messageCount;
                 let nextTitle =
@@ -5779,9 +5854,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   { ignoreConflicts: true },
                 );
                 // Scope updates piggyback on the PUT — the client uses this
-                // path for both "detach" (scope: null) and "retag" flows.
-                // Send the field as `scope: undefined` (or omit it) when
-                // you don't want to touch the existing scope.
+                // path for detach and for claiming a legacy unscoped thread.
+                // A scoped thread cannot be retagged across resources here.
                 if (Object.prototype.hasOwnProperty.call(body, "scope")) {
                   const incomingScope = parseScopeFromBody(body.scope);
                   await setThreadScope(threadId, incomingScope);
@@ -5801,7 +5875,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 "editor",
                 { orgId },
               );
-              if (!thread) {
+              if (!thread || !threadMatchesRequestedScope(thread)) {
                 setResponseStatus(event, 404);
                 return { error: "Thread not found" };
               }
@@ -5824,7 +5898,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 "editor",
                 { orgId },
               );
-              if (!thread) {
+              if (!thread || !threadMatchesRequestedScope(thread)) {
                 setResponseStatus(event, 404);
                 return { error: "Thread not found" };
               }
@@ -5852,7 +5926,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 "editor",
                 { orgId },
               );
-              if (!thread) {
+              if (!thread || !threadMatchesRequestedScope(thread)) {
                 setResponseStatus(event, 404);
                 return { error: "Thread not found" };
               }
@@ -5876,7 +5950,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 "editor",
                 { orgId },
               );
-              if (!thread) {
+              if (!thread || !threadMatchesRequestedScope(thread)) {
                 setResponseStatus(event, 404);
                 return { error: "Thread not found" };
               }
@@ -5901,7 +5975,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 "viewer",
                 { orgId },
               );
-              if (!thread) {
+              if (!thread || !threadMatchesRequestedScope(thread)) {
                 setResponseStatus(event, 404);
                 return { error: "Thread not found" };
               }
@@ -5925,7 +5999,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 "admin",
                 { orgId },
               );
-              if (!thread) {
+              if (!thread || !threadMatchesRequestedScope(thread)) {
                 setResponseStatus(event, 404);
                 return { error: "Thread not found" };
               }
@@ -5962,7 +6036,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
 
             if (method === "DELETE") {
               const thread = await getThread(threadId);
-              if (!thread || thread.ownerEmail !== owner) {
+              if (
+                !thread ||
+                thread.ownerEmail !== owner ||
+                !threadMatchesRequestedScope(thread)
+              ) {
                 setResponseStatus(event, 404);
                 return { error: "Thread not found" };
               }
@@ -6009,6 +6087,56 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
 
           if (method === "POST") {
             const body = await readBody(event);
+            const requestedScope = parseScopeFromQuery(getQuery(event));
+            const bodyIncludesScope = Boolean(
+              body &&
+              typeof body === "object" &&
+              Object.prototype.hasOwnProperty.call(body, "scope"),
+            );
+            const bodyScope = bodyIncludesScope
+              ? parseScopeFromBody(body.scope)
+              : undefined;
+            const bodyScopeMatchesRequestedScope =
+              !requestedScope ||
+              !bodyIncludesScope ||
+              (bodyScope !== null && scopesMatch(bodyScope, requestedScope));
+            if (!bodyScopeMatchesRequestedScope) {
+              setResponseStatus(event, 404);
+              return { error: "Thread not found" };
+            }
+            const resolveExistingOwnedThread = async (
+              existing: ChatThread,
+            ): Promise<ChatThread | null> => {
+              if (
+                (requestedScope &&
+                  threadScopeMismatch(existing.scope, requestedScope)) ||
+                (bodyIncludesScope &&
+                  threadScopeMismatch(existing.scope, bodyScope))
+              ) {
+                setResponseStatus(event, 404);
+                return null;
+              }
+              const scopeToAdopt = bodyIncludesScope
+                ? bodyScope
+                : requestedScope;
+              if (!existing.scope && scopeToAdopt) {
+                const adoptedScope = await adoptThreadScopeIfUnscoped(
+                  existing.id,
+                  scopeToAdopt,
+                );
+                if (!scopesMatch(adoptedScope, scopeToAdopt)) {
+                  setResponseStatus(event, 404);
+                  return null;
+                }
+                const adopted = await getThread(existing.id);
+                if (!adopted) {
+                  setResponseStatus(event, 404);
+                  return null;
+                }
+                return adopted;
+              }
+              return existing;
+            };
             // Idempotent: when the caller supplies an id and a thread with
             // that id already exists for this owner, return it instead of
             // 500'ing on the UNIQUE constraint. The client can race with
@@ -6019,7 +6147,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             if (body?.id) {
               const existing = await getThread(body.id);
               if (existing) {
-                if (existing.ownerEmail === owner) return existing;
+                if (existing.ownerEmail === owner) {
+                  const resolved = await resolveExistingOwnedThread(existing);
+                  return resolved ?? { error: "Thread not found" };
+                }
                 setResponseStatus(event, 409);
                 return { error: "Thread id already in use" };
               }
@@ -6028,7 +6159,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               const thread = await createThread(owner, {
                 id: body?.id,
                 title: body?.title ?? "",
-                scope: parseScopeFromBody(body?.scope),
+                scope: bodyIncludesScope ? bodyScope : requestedScope,
                 source: options?.appId ? { appId: options.appId } : null,
               });
               return thread;
@@ -6038,7 +6169,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               // return the row that actually landed.
               if (body?.id) {
                 const existing = await getThread(body.id);
-                if (existing && existing.ownerEmail === owner) return existing;
+                if (existing && existing.ownerEmail === owner) {
+                  const resolved = await resolveExistingOwnedThread(existing);
+                  return resolved ?? { error: "Thread not found" };
+                }
               }
               throw err;
             }
