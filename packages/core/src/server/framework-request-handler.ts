@@ -16,6 +16,10 @@ import { setResponseHeader, setResponseStatus } from "h3";
 
 import { getMissingDefaultPlugins } from "../deploy/route-discovery.js";
 import { MCP_PUBLIC_ROUTE_PREFIX } from "../mcp/route-paths.js";
+import {
+  SIGN_IN_ENTRY_PATH,
+  SIGN_IN_LEGACY_ENTRY_PATH,
+} from "../shared/sign-in-journey.js";
 import { getConfiguredAppBasePath } from "./app-base-path.js";
 import { captureError } from "./capture-error.js";
 import { createCsrfMiddleware } from "./csrf.js";
@@ -44,11 +48,20 @@ const MIDDLEWARE_DISPATCHER_PATCHED_KEY =
   "_agentNativeMiddlewareDispatcherPatched";
 const REQUEST_CONTEXT_BOUNDARY_KEY = "_agentNativeRequestContextBoundary";
 
+const CANONICAL_AUTH_EARLY_PATHS = [
+  SIGN_IN_ENTRY_PATH,
+  "/login",
+  "/signup",
+] as const;
+
 export const FRAMEWORK_AUTH_EARLY_PATHS = [
   `${FRAMEWORK_PREFIX}/auth`,
-  `${FRAMEWORK_PREFIX}/sign-in`,
+  SIGN_IN_ENTRY_PATH,
+  SIGN_IN_LEGACY_ENTRY_PATH,
   `${FRAMEWORK_PREFIX}/login`,
   `${FRAMEWORK_PREFIX}/signup`,
+  "/login",
+  "/signup",
 ] as const;
 
 interface PluginReadyEntry {
@@ -69,7 +82,10 @@ function supportsAppBasePathMount(path: string): boolean {
   return (
     pathMatchesPrefix(path, FRAMEWORK_PREFIX) ||
     pathMatchesPrefix(path, WELL_KNOWN_PREFIX) ||
-    pathMatchesPrefix(path, MCP_PUBLIC_ROUTE_PREFIX)
+    pathMatchesPrefix(path, MCP_PUBLIC_ROUTE_PREFIX) ||
+    CANONICAL_AUTH_EARLY_PATHS.some((authPath) =>
+      pathMatchesPrefix(path, authPath),
+    )
   );
 }
 
@@ -209,6 +225,9 @@ export function getH3App(nitroApp: any): H3AppShim {
     registerMiddleware(nitroApp, MCP_PUBLIC_ROUTE_PREFIX, readinessGate, {
       prepend: true,
     });
+    for (const path of CANONICAL_AUTH_EARLY_PATHS) {
+      registerMiddleware(nitroApp, path, readinessGate, { prepend: true });
+    }
 
     // CSRF (see csrf.ts): registered here — synchronously, on the very
     // first `getH3App()` call for this nitroApp — rather than inside
@@ -246,7 +265,10 @@ export function getH3App(nitroApp: any): H3AppShim {
       if (
         resolveMountMatch(reqPath, FRAMEWORK_PREFIX) ||
         resolveMountMatch(reqPath, WELL_KNOWN_PREFIX) ||
-        resolveMountMatch(reqPath, MCP_PUBLIC_ROUTE_PREFIX)
+        resolveMountMatch(reqPath, MCP_PUBLIC_ROUTE_PREFIX) ||
+        FRAMEWORK_AUTH_EARLY_PATHS.some((path) =>
+          resolveMountMatch(reqPath, path),
+        )
       ) {
         const startedAt = Date.now();
         try {

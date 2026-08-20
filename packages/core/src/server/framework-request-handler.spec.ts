@@ -422,6 +422,25 @@ describe("framework request handler", () => {
     release();
   });
 
+  it.each(["/sign-in", "/login", "/signup"])(
+    "does not wait for unscoped plugin initialization on canonical auth route %s",
+    async (path) => {
+      const nitroApp = createNitroApp();
+      let release!: () => void;
+      const ready = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+
+      markFrameworkRoutesReadyBeforeBootstrap(nitroApp, [path]);
+      getH3App(nitroApp).use(path, () => ({ ok: true }));
+      trackPluginInit(nitroApp, ready);
+
+      await expect(dispatch(nitroApp, path)).resolves.toEqual({ ok: true });
+
+      release();
+    },
+  );
+
   it("does not wait for an excluded route in a broad plugin readiness entry", async () => {
     const nitroApp = createNitroApp();
     let release!: () => void;
