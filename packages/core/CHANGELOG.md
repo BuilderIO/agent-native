@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.165.1
+
+### Patch Changes
+
+- 43ef3a8: Fix reconnecting existing OAuth-backed MCP servers in place.
+
 ## 0.165.0
 
 ### Minor Changes
