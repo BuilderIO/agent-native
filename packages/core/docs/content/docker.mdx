@@ -1,0 +1,63 @@
+---
+title: "Docker"
+description: "Package an Agent-Native Node.js server in a Docker image or local Compose stack."
+search: "Docker container deployment Node.js Postgres Compose Nitro"
+---
+
+# Docker
+
+Docker is an optional packaging and self-hosting choice. It runs the
+framework's Node.js server. You do not need Docker when deploying directly to
+Node.js, Vercel, Netlify, Cloudflare, or another Nitro target.
+
+## Local quickstart {#self-host-quickstart}
+
+Create an app, install dependencies, and build the image:
+
+```bash
+npx @agent-native/core@latest create my-app --standalone --template chat
+cd my-app
+pnpm install
+docker build -t my-agent-native-app .
+docker run --rm -p 3000:3000 my-agent-native-app
+```
+
+For a local Postgres-backed stack, use Docker Compose. The [self-hosted Chat
+fixture](https://www.agent-native.com/examples/self-hosted-chat/docker-compose.yml)
+includes the app and database services. It is for local development, not an
+internet-facing production deployment.
+
+## Production image
+
+Use a persistent external database. Do not copy the local `data/` directory
+into the image.
+
+```dockerfile filename="Dockerfile"
+FROM node:24-slim AS build
+WORKDIR /app
+COPY package.json pnpm-lock.yaml ./
+RUN corepack enable && pnpm install --frozen-lockfile
+COPY . .
+RUN pnpm build
+
+FROM node:24-slim
+WORKDIR /app
+COPY --from=build /app/.output .output
+ENV NODE_ENV=production
+ENV PORT=3000
+EXPOSE 3000
+CMD ["node", ".output/server/index.mjs"]
+```
+
+Set `DATABASE_URL`, `BETTER_AUTH_SECRET`, and any provider keys in the
+container or host secret store. Configure HTTPS and OAuth callback URLs for
+the public origin.
+
+Self-hosting multiple apps with Docker Compose is covered in
+[Workspace Deployment](/docs/workspace-deployment#workspace-docker-compose).
+
+## What's next
+
+- [**Node.js**](/docs/node-js) - the runtime behind this image
+- [**Deploy an app**](/docs/deploy-an-app) - the complete app path
+- [**Deployment**](/docs/deployment) - compare deployment targets

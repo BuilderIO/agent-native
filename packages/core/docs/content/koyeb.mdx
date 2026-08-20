@@ -1,0 +1,36 @@
+---
+title: "Koyeb"
+description: "Deploy an Agent-Native app to Koyeb with Nitro's koyeb preset."
+search: "Koyeb deployment Nitro preset Node.js"
+---
+
+# Koyeb
+
+Use Nitro's `koyeb` preset to build an output for Koyeb's managed application
+runtime.
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "koyeb" } })],
+});
+```
+
+Build the app and deploy the generated server with Koyeb's git or container
+workflow:
+
+```bash
+npx @agent-native/core@latest build
+node .output/server/index.mjs
+```
+
+Set `DATABASE_URL`, `BETTER_AUTH_SECRET`, and any app secrets as Koyeb
+environment variables. Use a persistent SQL database instead of local files.
+
+See [Nitro's Koyeb provider guide](https://nitro.build/deploy/providers/koyeb)
+for the current provider workflow.
+
+## What's next
+
+- [**Deploy an app**](/docs/deploy-an-app) - the complete app path
+- [**Node.js**](/docs/node-js) - the default runtime
+- [**Render**](/docs/render) - another managed Node.js target
