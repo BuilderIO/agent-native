@@ -12,9 +12,9 @@ import {
   DialogTitle,
 } from "../components/ui/dialog.js";
 import { useT } from "../i18n.js";
+import type { ScheduledTriggerState } from "./scheduled-trigger-state.js";
 import { ScheduledTriggerNotice } from "./ScheduledTriggerNotice.js";
 import { TimezoneSelect, browserTimezone } from "./TimezoneSelect.js";
-import type { ScheduledTriggerState } from "./scheduled-trigger-state.js";
 
 const PRESETS: { label: string; cron: string }[] = [
   { label: "Every hour", cron: "0 * * * *" },
