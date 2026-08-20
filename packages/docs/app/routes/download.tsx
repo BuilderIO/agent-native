@@ -108,6 +108,7 @@ interface Manifest {
 interface ConfirmedDownload {
   asset: Manifest["assets"][number];
   label: string;
+  platform: Platform;
 }
 
 function isManifestAsset(value: unknown): value is Manifest["assets"][number] {
@@ -316,9 +317,17 @@ export default function DownloadPage() {
     setManifestRequest((request) => request + 1);
   }
 
-  function handleDownload(asset: Manifest["assets"][number], label: string) {
-    setConfirmedDownload({ asset, label });
-    trackEvent("desktop download", { channel, platform, label });
+  function handleDownload(
+    asset: Manifest["assets"][number],
+    label: string,
+    downloadPlatform: Platform,
+  ) {
+    setConfirmedDownload({ asset, label, platform: downloadPlatform });
+    trackEvent("desktop download", {
+      channel,
+      platform: downloadPlatform,
+      label,
+    });
   }
 
   function handleOpenDesktop() {
@@ -368,6 +377,7 @@ export default function DownloadPage() {
                   primaryDownload?.option.labelKey
                     ? t(primaryDownload.option.labelKey)
                     : t(info.primary.labelKey),
+                  primaryDownload?.platform ?? platform,
                 )
               }
               className={downloadButtonClass}
@@ -400,7 +410,11 @@ export default function DownloadPage() {
               href={confirmedDownload.asset.url}
               download
               onClick={() =>
-                handleDownload(confirmedDownload.asset, confirmedDownload.label)
+                handleDownload(
+                  confirmedDownload.asset,
+                  confirmedDownload.label,
+                  confirmedDownload.platform,
+                )
               }
               className={`text-[var(--fg-secondary)] underline underline-offset-2 transition hover:text-[var(--fg)] ${downloadFocusClass}`}
             >
@@ -419,7 +433,13 @@ export default function DownloadPage() {
                     key={option.labelKey}
                     href={asset!.url}
                     download
-                    onClick={() => handleDownload(asset!, t(option.labelKey))}
+                    onClick={() =>
+                      handleDownload(
+                        asset!,
+                        t(option.labelKey),
+                        downloadPlatform,
+                      )
+                    }
                     className={`inline-flex items-center gap-1.5 text-sm text-[var(--fg-secondary)] no-underline transition hover:text-[var(--fg)] hover:underline ${downloadFocusClass}`}
                   >
                     <Icon size={16} aria-hidden="true" />

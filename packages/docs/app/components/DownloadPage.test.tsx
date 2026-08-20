@@ -145,6 +145,13 @@ describe("DownloadPage", () => {
       ).toBe("");
     });
 
+    fireEvent.click(screen.getByRole("link", { name: "Download for Windows" }));
+    expect(trackEvent).toHaveBeenCalledWith("desktop download", {
+      channel: "production",
+      label: "Download for Windows",
+      platform: "windows",
+    });
+
     expect(
       screen.getByRole("heading", { name: "Download Agent Native" }),
     ).toBeTruthy();
