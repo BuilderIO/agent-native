@@ -1,27 +1,23 @@
 ---
-title: "Andere Plattformen"
-description: "Stellen Sie eine agentennative App mit der passenden Nitro-Voreinstellung auf AWS Lambda oder Deno Deploy bereit."
+title: "Other Nitro Platforms"
+description: "Compatibility page for deployment targets that were formerly grouped under Other Platforms."
 ---
 
-# Andere Plattformen
+<!-- i18n-docs-ignore -->
 
-## AWS Lambda {#aws-lambda}
+# Other Nitro Platforms
 
-```ts filename="vite.config.ts"
-export default defineConfig({
-  plugins: [agentNative({ nitro: { preset: "aws_lambda" } })],
-});
-```
+These targets now have individual pages. This URL is kept for older links.
 
-## Deno Deploy {#deno-deploy}
+<a id="aws-lambda"></a>
 
-```ts filename="vite.config.ts"
-export default defineConfig({
-  plugins: [agentNative({ nitro: { preset: "deno_deploy" } })],
-});
-```
+- [**AWS Lambda**](/docs/aws-lambda)
 
-## Was kommt als nächstes?
+<a id="deno-deploy"></a>
 
-- [**Bereitstellung**](/docs/deployment) — wählen Sie eine persistente Datenbank und eine Voreinstellung vor Ihrer ersten Produktionsbereitstellung
-- [**Node.js & Docker**](/docs/node-docker), [**Vercel**](/docs/vercel), [**Netlify**](/docs/netlify) und [**Cloudflare**](/docs/cloudflare) — die anderen Nitro-Voreinstellungen
+- [**Deno Deploy**](/docs/deno-deploy)
+
+- [**Azure Static Web Apps**](/docs/azure-static-web-apps)
+- [**Koyeb**](/docs/koyeb)
+- [**Render**](/docs/render)
+- [Nitro's provider list](https://nitro.build/deploy/providers)

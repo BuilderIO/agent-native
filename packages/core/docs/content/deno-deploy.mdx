@@ -1,0 +1,36 @@
+---
+title: "Deno Deploy"
+description: "Deploy an Agent-Native app to Deno Deploy with Nitro's deno-deploy preset."
+search: "Deno Deploy deployment Nitro preset serverless"
+---
+
+# Deno Deploy
+
+Use Nitro's `deno-deploy` preset to generate a Deno-compatible server output.
+Keep application data in a persistent SQL provider because a deployment
+filesystem is not durable application storage.
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "deno-deploy" } })],
+});
+```
+
+Build the deployment output:
+
+```bash
+npx @agent-native/core@latest build
+```
+
+Publish the generated output with Deno Deploy's current CLI or dashboard.
+Configure `DATABASE_URL`, `BETTER_AUTH_SECRET`, and any app secrets in the
+deployment environment.
+
+See [Nitro's Deno Deploy provider guide](https://nitro.build/deploy/providers/deno-deploy)
+for the current provider workflow.
+
+## What's next
+
+- [**Deploy an app**](/docs/deploy-an-app) - the complete app path
+- [**Deployment environment variables**](/docs/deployment-environment-variables) - production configuration
+- [**AWS Lambda**](/docs/aws-lambda) - another serverless runtime

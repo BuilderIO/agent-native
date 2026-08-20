@@ -47,9 +47,86 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
       },
       { id: "key-concepts", labelKey: "keyConcepts", slug: "key-concepts" },
       {
-        id: "agent-surfaces",
-        labelKey: "agentSurfaces",
-        slug: "agent-surfaces",
+        id: "deployment-section",
+        labelKey: "deployment",
+        children: [
+          {
+            id: "deployment",
+            labelKey: "deploymentOverview",
+            slug: "deployment",
+          },
+          {
+            id: "deploy-an-app",
+            labelKey: "deployAnApp",
+            slug: "deploy-an-app",
+          },
+          {
+            id: "workspace-deployment",
+            labelKey: "workspaceDeployment",
+            slug: "workspace-deployment",
+          },
+          {
+            id: "node-js",
+            labelKey: "deploymentNodeDocker",
+            slug: "node-js",
+          },
+          {
+            id: "docker",
+            labelKey: "deploymentDocker",
+            slug: "docker",
+          },
+          {
+            id: "vercel",
+            labelKey: "deploymentVercel",
+            slug: "vercel",
+          },
+          {
+            id: "netlify",
+            labelKey: "deploymentNetlify",
+            slug: "netlify",
+          },
+          {
+            id: "cloudflare",
+            labelKey: "deploymentCloudflare",
+            slug: "cloudflare",
+          },
+          {
+            id: "aws-lambda",
+            labelKey: "deploymentAwsLambda",
+            slug: "aws-lambda",
+          },
+          {
+            id: "deno-deploy",
+            labelKey: "deploymentDenoDeploy",
+            slug: "deno-deploy",
+          },
+          {
+            id: "azure-static-web-apps",
+            labelKey: "deploymentAzureStaticWebApps",
+            slug: "azure-static-web-apps",
+          },
+          {
+            id: "koyeb",
+            labelKey: "deploymentKoyeb",
+            slug: "koyeb",
+          },
+          {
+            id: "render",
+            labelKey: "deploymentRender",
+            slug: "render",
+          },
+          { id: "ssr-caching", labelKey: "ssrCaching", slug: "ssr-caching" },
+          {
+            id: "deployment-environment-variables",
+            labelKey: "deploymentEnvironmentVariables",
+            slug: "deployment-environment-variables",
+          },
+          {
+            id: "updating-ui-in-production",
+            labelKey: "updatingUiInProduction",
+            slug: "updating-ui-in-production",
+          },
+        ],
       },
       { id: "faq", labelKey: "faq", slug: "faq" },
     ],
@@ -594,6 +671,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         ],
       },
       {
+        id: "agent-surfaces",
+        labelKey: "agentSurfaces",
+        slug: "agent-surfaces",
+      },
+      {
         id: "internationalization",
         labelKey: "internationalization",
         slug: "internationalization",
@@ -603,6 +685,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         id: "environment-variables",
         labelKey: "environmentVariables",
         slug: "environment-variables",
+      },
+      {
+        id: "agent-native-config",
+        labelKey: "agentNativeConfig",
+        slug: "agent-native-config",
       },
     ],
   },
@@ -812,63 +899,6 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
       },
       { id: "embedding-sdk", labelKey: "embeddingSdk", slug: "embedding-sdk" },
       { id: "frames", labelKey: "frames", slug: "frames" },
-      {
-        id: "deployment-section",
-        labelKey: "deployment",
-        children: [
-          {
-            id: "deployment",
-            labelKey: "deploymentOverview",
-            slug: "deployment",
-          },
-          {
-            id: "deploy-an-app",
-            labelKey: "deployAnApp",
-            slug: "deploy-an-app",
-          },
-          {
-            id: "workspace-deployment",
-            labelKey: "workspaceDeployment",
-            slug: "workspace-deployment",
-          },
-          {
-            id: "node-docker",
-            labelKey: "deploymentNodeDocker",
-            slug: "node-docker",
-          },
-          {
-            id: "vercel",
-            labelKey: "deploymentVercel",
-            slug: "vercel",
-          },
-          {
-            id: "netlify",
-            labelKey: "deploymentNetlify",
-            slug: "netlify",
-          },
-          {
-            id: "cloudflare",
-            labelKey: "deploymentCloudflare",
-            slug: "cloudflare",
-          },
-          {
-            id: "other-platforms",
-            labelKey: "deploymentOtherPlatforms",
-            slug: "other-platforms",
-          },
-          { id: "ssr-caching", labelKey: "ssrCaching", slug: "ssr-caching" },
-          {
-            id: "deployment-environment-variables",
-            labelKey: "deploymentEnvironmentVariables",
-            slug: "deployment-environment-variables",
-          },
-          {
-            id: "updating-ui-in-production",
-            labelKey: "updatingUiInProduction",
-            slug: "updating-ui-in-production",
-          },
-        ],
-      },
     ],
   },
   {
@@ -1044,6 +1074,23 @@ function navLabel(t: Translate, key: keyof typeof enUS.nav): string {
 
 const SHOW_DRAFTS = import.meta.env.VITE_SHOW_DRAFTS === "true";
 
+// Keep the public template catalog after the framework/toolkit guidance so
+// readers encounter architecture and reusable primitives before app examples.
+const NAV_SECTION_CONFIG_IN_DISPLAY_ORDER = (() => {
+  const appsSection = NAV_SECTION_CONFIG.find(
+    (section) => section.id === "apps",
+  );
+  if (!appsSection) return NAV_SECTION_CONFIG;
+
+  return NAV_SECTION_CONFIG.flatMap((section) =>
+    section.id === "apps"
+      ? []
+      : section.id === "toolkits"
+        ? [section, appsSection]
+        : [section],
+  );
+})();
+
 function toNavItem(
   config: NavItemConfig,
   locale: DocsLocale,
@@ -1067,7 +1114,7 @@ export function getDocsNavSections(
   locale: DocsLocale = DEFAULT_DOCS_LOCALE,
   t: Translate = enMessage,
 ): NavSection[] {
-  return NAV_SECTION_CONFIG.map((section) => ({
+  return NAV_SECTION_CONFIG_IN_DISPLAY_ORDER.map((section) => ({
     id: section.id,
     title: navLabel(t, section.titleKey),
     items: section.items

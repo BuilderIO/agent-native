@@ -1,7 +1,7 @@
 ---
 title: "Deployment"
 description: "Deploy an Agent-Native app or workspace to a Nitro-compatible platform with a persistent SQL database."
-search: "deployment deploy app workspace hosting database Nitro Vercel Netlify Cloudflare Node.js"
+search: "deployment deploy app workspace hosting database Nitro Node.js Docker Vercel Netlify Cloudflare AWS Lambda Deno Deploy Azure Static Web Apps Koyeb Render"
 ---
 
 # Deployment
@@ -65,13 +65,17 @@ In a workspace, every app inherits the root `DATABASE_URL` by default. Set
 Set a Nitro preset for the target you choose. The app code and database
 contract stay the same.
 
-<Diagram id="doc-block-deployment-targets" title="Supported deployment targets" summary="Agent-Native apps can deploy to Node.js, Vercel, Netlify, Cloudflare, AWS Lambda, and Deno Deploy. Provider logos are shown for the hosted targets with first-party deployment pages.">
+<Diagram id="doc-block-deployment-targets" title="Supported deployment targets" summary="Agent-Native apps can deploy to Node.js, Docker, Vercel, Netlify, Cloudflare Pages, Cloudflare Workers, AWS Lambda, Deno Deploy, Azure Static Web Apps, Koyeb, and Render.">
 
 ```html
 <div class="deployment-target-grid">
-  <a class="deployment-target" href="/docs/node-docker">
+  <a class="deployment-target" href="/docs/node-js">
     <span class="deployment-target-mark text-mark">N</span>
     <strong>Node.js</strong>
+  </a>
+  <a class="deployment-target" href="/docs/docker">
+    <span class="deployment-target-mark text-mark">D</span>
+    <strong>Docker</strong>
   </a>
   <a class="deployment-target" href="/docs/vercel">
     <span class="deployment-target-mark">
@@ -85,19 +89,37 @@ contract stay the same.
     </span>
     <strong>Netlify</strong>
   </a>
-  <a class="deployment-target" href="/docs/cloudflare">
+  <a class="deployment-target" href="/docs/cloudflare#cloudflare-pages">
     <span class="deployment-target-mark">
       <img src="/integration-logos/cloudflare.svg" alt="" />
     </span>
-    <strong>Cloudflare</strong>
+    <strong>Cloudflare Pages</strong>
   </a>
-  <a class="deployment-target" href="/docs/other-platforms#aws-lambda">
+  <a class="deployment-target" href="/docs/cloudflare#cloudflare-workers">
+    <span class="deployment-target-mark">
+      <img src="/integration-logos/cloudflare.svg" alt="" />
+    </span>
+    <strong>Cloudflare Workers</strong>
+  </a>
+  <a class="deployment-target" href="/docs/aws-lambda">
     <span class="deployment-target-mark text-mark">AWS</span>
     <strong>AWS Lambda</strong>
   </a>
-  <a class="deployment-target" href="/docs/other-platforms#deno-deploy">
+  <a class="deployment-target" href="/docs/deno-deploy">
     <span class="deployment-target-mark text-mark">D</span>
     <strong>Deno Deploy</strong>
+  </a>
+  <a class="deployment-target" href="/docs/azure-static-web-apps">
+    <span class="deployment-target-mark text-mark">A</span>
+    <strong>Azure Static Web Apps</strong>
+  </a>
+  <a class="deployment-target" href="/docs/koyeb">
+    <span class="deployment-target-mark text-mark">K</span>
+    <strong>Koyeb</strong>
+  </a>
+  <a class="deployment-target" href="/docs/render">
+    <span class="deployment-target-mark text-mark">R</span>
+    <strong>Render</strong>
   </a>
 </div>
 ```
@@ -154,9 +176,12 @@ contract stay the same.
 Start with the path above. Use these pages when you need provider-specific
 settings or production controls:
 
-- [**Node.js & Docker**](/docs/node-docker) - run the default preset directly or in a container
-- [**Vercel**](/docs/vercel), [**Netlify**](/docs/netlify), and [**Cloudflare**](/docs/cloudflare) - configure the main hosted targets
-- [**Other Platforms**](/docs/other-platforms) - deploy to AWS Lambda or Deno Deploy
+- [**Node.js**](/docs/node-js) - run the default Nitro server preset
+- [**Docker**](/docs/docker) - package the Node.js server in a container
+- [**Vercel**](/docs/vercel), [**Netlify**](/docs/netlify), [**Cloudflare Pages**](/docs/cloudflare#cloudflare-pages), and [**Cloudflare Workers**](/docs/cloudflare#cloudflare-workers) - configure hosted targets
+- [**AWS Lambda**](/docs/aws-lambda) and [**Deno Deploy**](/docs/deno-deploy) - deploy to function and Deno runtimes
+- [**Azure Static Web Apps**](/docs/azure-static-web-apps), [**Koyeb**](/docs/koyeb), and [**Render**](/docs/render) - use additional Nitro providers
+- [Nitro's provider list](https://nitro.build/deploy/providers) - see the broader set of presets Nitro supports
 - [**SSR Caching**](/docs/ssr-caching) - configure the public shell cache
 - [**Deployment Environment Variables**](/docs/deployment-environment-variables) - production secrets, runtime flags, and workspace inheritance
 - [**Production Agent Access**](/docs/actions-agent-tools) - control framework tools and code execution
@@ -166,7 +191,7 @@ settings or production controls:
 <a id="skip-ensure-tables"></a>
 
 For compatibility with older links, the local Docker quickstart now lives on
-[Node.js & Docker](/docs/node-docker#self-host-quickstart). Schema setup and
+[Docker](/docs/docker#self-host-quickstart). Schema setup and
 cold-start guidance live in the [deployment environment reference](/docs/deployment-environment-variables#skip-ensure-tables).
 
 ## What's next
