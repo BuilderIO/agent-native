@@ -66,7 +66,7 @@ describe("getRewindStatusPresentation", () => {
       name: "idle",
       input: status({ state: "idle", activeSegment: null }),
       kind: "idle",
-      title: "Rewind is enabled but not currently capturing",
+      title: "Rewind is on but not capturing",
     },
     {
       name: "unavailable",
@@ -91,9 +91,7 @@ describe("getRewindStatusPresentation", () => {
       config,
     });
 
-    expect(presentation.detail).toBe(
-      "No new local coverage is being retained right now.",
-    );
+    expect(presentation.detail).toBe("Nothing new is being saved right now.");
     expect(presentation.detail.toLowerCase()).not.toContain("permission");
   });
 

@@ -220,7 +220,7 @@ export function SettingsActionButton({
   className,
   emphasis = "soft",
   ...props
-}: { emphasis?: "soft" | "primary" | "quiet" } & Omit<
+}: { emphasis?: "soft" | "primary" | "quiet" | "destructive" } & Omit<
   React.ComponentProps<typeof Button>,
   "variant" | "size"
 >) {
@@ -233,6 +233,10 @@ export function SettingsActionButton({
         emphasis === "primary" && "h-8 rounded-lg px-3 text-sm font-medium",
         emphasis === "quiet" &&
           "h-8 rounded-lg px-2 text-sm font-medium text-muted-foreground hover:bg-accent",
+        // Quiet-red, not a filled slab: red text that gains a red-tinted wash
+        // on hover. For actions that permanently delete data — nothing else.
+        emphasis === "destructive" &&
+          "h-8 rounded-lg px-2 text-sm font-medium text-destructive hover:bg-destructive/10 hover:text-destructive",
         className,
       )}
       {...props}

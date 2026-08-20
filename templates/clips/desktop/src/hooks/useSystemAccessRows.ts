@@ -53,19 +53,36 @@ export function useSystemAccessRows({
     return () => window.removeEventListener("focus", recheck);
   }, [recheck]);
 
+  // One row per OS grant, worded exactly like the recorder's readiness panel —
+  // the same grant must read as the same thing on both surfaces, and each
+  // Grant button must open exactly the pane its row names. The earlier
+  // combined capture row walked three panes one click at a time, which read
+  // as one grant that mysteriously kept not taking.
   const definitions: SystemAccessDefinition[] = [
     {
-      key: "capture",
-      label: "Screen recording, microphone, camera",
-      description: "Clips cannot capture anything without these",
-      panes: ["screen", "microphone", "camera"],
+      key: "screen",
+      label: "Screen Recording",
+      description: "Allows Clips to record your screen",
+      panes: ["screen"],
+    },
+    {
+      key: "microphone",
+      label: "Microphone",
+      description: "Allows Clips to access your microphone",
+      panes: ["microphone"],
+    },
+    {
+      key: "camera",
+      label: "Camera",
+      description: "Allows Clips to access your camera",
+      panes: ["camera"],
     },
   ];
   if (mac) {
     definitions.push({
       key: "speech",
-      label: "Speech recognition",
-      description: "On-device transcripts — no audio leaves your Mac",
+      label: "Speech Recognition",
+      description: "Allows Clips to use speech recognition",
       panes: ["speech"],
     });
   }
@@ -73,7 +90,7 @@ export function useSystemAccessRows({
     definitions.push({
       key: "accessibility",
       label: "Accessibility",
-      description: "Lets dictated text land in the app you were typing in",
+      description: "Allows Clips to control this device to paste dictated text",
       panes: ["accessibility"],
     });
   }
@@ -81,7 +98,7 @@ export function useSystemAccessRows({
     definitions.push({
       key: "input-monitoring",
       label: "Input Monitoring",
-      description: "Only the Fn shortcut needs this",
+      description: "Allows Clips to detect the Fn key",
       panes: ["input-monitoring"],
     });
   }

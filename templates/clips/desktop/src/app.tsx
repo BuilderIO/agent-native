@@ -2232,12 +2232,12 @@ export function App({
     const POLL_ABORT_MS = Math.max(10_000, 1500 * 4);
     const timeoutMessage =
       kind === "magic-link"
-        ? "The sign-in link timed out. Please request a new one."
-        : "Google sign-in timed out. Please try again.";
+        ? "That sign-in link expired. Request a new one."
+        : "Google sign-in timed out. Try again.";
     const exchangeErrorMessage =
       kind === "magic-link"
-        ? "We couldn't complete sign-in with that link. Please request a new one."
-        : "Google sign-in failed. Please try again.";
+        ? "That link didn't sign you in. Request a new one."
+        : "Google sign-in didn't go through. Try again.";
 
     const tick = async () => {
       if (document.hidden || tickInFlight) return;
@@ -2294,8 +2294,8 @@ export function App({
           if (!ok) {
             setSignInError(
               kind === "magic-link"
-                ? "Sign-in completed, but Clips could not save the session. Please try again."
-                : "Google sign-in completed, but Clips could not save the session. Please try again.",
+                ? "Signed in, but Clips couldn't keep the session. Try again."
+                : "Signed in with Google, but Clips couldn't keep the session. Try again.",
             );
           }
         } else if (Date.now() - start > TIMEOUT_MS) {
@@ -2401,7 +2401,7 @@ export function App({
       setSignInError(
         err instanceof Error
           ? err.message
-          : "Could not open Google sign-in. Please try again.",
+          : "Couldn't open Google sign-in. Try again.",
       );
     }
   }
@@ -2428,13 +2428,12 @@ export function App({
       } | null;
       if (!res.ok) {
         throw new Error(
-          json?.error || `Could not send sign-in link (${res.status})`,
+          json?.error ||
+            "Couldn't send the link. Check the email address and try again.",
         );
       }
       if (!json?.flowId || !json.verifier) {
-        throw new Error(
-          "The sign-in flow was not initialized. Please request a new link.",
-        );
+        throw new Error("That link is no longer active. Request a new one.");
       }
       setMagicLinkEmail(email.trim());
       setSignInPending("magic-link");
@@ -3895,7 +3894,7 @@ export function App({
                   ? "Making a private Clip"
                   : agentHandoff.status === "ready"
                     ? "Clip sent to your agent"
-                    : "Clip handoff needs attention"}
+                    : "Couldn't send this Clip"}
             </h2>
           </div>
           <div className="rewind-agent-guide">
@@ -3914,11 +3913,11 @@ export function App({
           <div className="rewind-local-promise">
             <IconShieldLock size={17} stroke={1.8} />
             <p>
-              <strong>Only this interval becomes a private Clip.</strong> The
-              rolling Rewind archive and its local paths stay on this Mac.
+              <strong>Only this range becomes a private Clip.</strong> The
+              rolling Rewind archive stays on this device.
               {agentHandoff.agentClipRetention === "forever"
                 ? " This Clip will be kept in your Library."
-                : ` It uses your ${agentHandoff.agentClipRetention.replace("-", " ")} agent-Clip retention setting.`}
+                : ` It follows your ${agentHandoff.agentClipRetention.replace("-", " ")} retention setting.`}
             </p>
           </div>
           {agentHandoff.status === "pending" ? (
@@ -3935,13 +3934,13 @@ export function App({
                   />
                 </div>
                 <div className="setup-mini-field">
-                  <span>Mac audio</span>
+                  <span>System audio</span>
                   <Switch
                     on={agentHandoff.includeSystemAudio}
                     onChange={(includeSystemAudio) =>
                       setAgentHandoff({ ...agentHandoff, includeSystemAudio })
                     }
-                    label="Include Mac audio"
+                    label="Include system audio"
                   />
                 </div>
               </div>
@@ -3965,7 +3964,7 @@ export function App({
                 className="primary rewind-consent-primary"
                 onClick={() => void processAgentHandoff(agentHandoff)}
               >
-                Send selected range to agent
+                Send to agent
               </button>
               <button
                 type="button"
@@ -3980,15 +3979,14 @@ export function App({
             </>
           ) : agentHandoff.status === "processing" ? (
             <p className="setup-hint" role="status">
-              Materializing the bounded range, uploading it privately, and
-              preparing transcript and frame access for your agent…
+              Making a private Clip of this range and preparing transcript and
+              frame access for your agent…
             </p>
           ) : agentHandoff.status === "ready" ? (
             <>
               <p className="setup-hint" role="status">
-                The agent received a temporary access link. The private Clip
-                itself remains in your Library according to your retention
-                setting.
+                Your agent received a temporary link. The private Clip stays in
+                your Library under your retention setting.
               </p>
               <button
                 type="button"
@@ -4013,7 +4011,7 @@ export function App({
           ) : (
             <>
               <p className="setup-error" role="alert">
-                {agentHandoff.error || "The bounded Clip could not be sent."}
+                {agentHandoff.error || "This Clip couldn't be sent. Try again."}
               </p>
               <button
                 type="button"
@@ -4228,7 +4226,7 @@ export function App({
                 <EmptyTitle>Sign in from your browser</EmptyTitle>
                 <EmptyDescription>
                   We opened a tab for {serverHostForSignIn}. Approve access
-                  there — Clips picks it up from here.
+                  there and Clips picks it up from here.
                 </EmptyDescription>
               </EmptyHeader>
               <EmptyContent>
@@ -5146,7 +5144,7 @@ function SignInForm({
         throw new Error(
           json?.error ||
             raw.slice(0, 200) ||
-            `Dev sign-in failed (${res.status})`,
+            `Dev sign-in didn't work (${res.status})`,
         );
       }
       // A missing token is legitimate: the server only puts it in the body for
@@ -5189,7 +5187,9 @@ function SignInForm({
         token?: string;
       } | null;
       if (!res.ok) {
-        throw new Error(json?.error || `Sign in failed (${res.status})`);
+        throw new Error(
+          json?.error || "Couldn't sign you in. Check your email and password.",
+        );
       }
       if (json?.token) saveDesktopAuthToken(serverUrl, json.token);
       await onSignedIn();
@@ -5205,7 +5205,7 @@ function SignInForm({
       <div className="signin signin-success" aria-live="polite">
         <div className="signin-title">Check your email</div>
         <p className="signin-success-copy">
-          {"We sent a secure sign-in link to "}
+          {"We sent a sign-in link to "}
           <strong>{magicLinkSentEmail}</strong>
           {"."}
         </p>
@@ -5223,15 +5223,15 @@ function SignInForm({
   return (
     <form className="signin" onSubmit={onSubmit}>
       <PillLogo className="signin-mark" />
-      <div className="signin-title">Welcome to Agent-Native Clips</div>
+      <div className="signin-title">Welcome to Clips</div>
       <div className="signin-subtitle">
-        Capture screen, camera, and mic — share a link the moment you stop
+        Record your screen, camera, and mic. Share a link the moment you stop.
       </div>
       <button
         type="button"
         className="signin-google"
         onClick={onUseBrowser}
-        title="Returns to Clips to complete Google sign-in"
+        title="Comes back to Clips to finish sign-in"
       >
         <GoogleIcon />
         Sign in with Google
@@ -6029,7 +6029,7 @@ function Setup({
       }
       setScreenMemoryMessage({
         kind: "error",
-        text: (err as Error)?.message ?? "Could not update Rewind.",
+        text: (err as Error)?.message ?? "Couldn't update Rewind. Try again.",
       });
     } finally {
       screenMemoryMutationRef.current = Math.max(
@@ -6052,7 +6052,7 @@ function Setup({
       );
       setAgentConnectionMessage({
         kind: "ok",
-        text: `${client === "codex" ? "Codex" : "Claude Code"} is connected to this Rewind store. Restart the agent app once to load it.`,
+        text: `${client === "codex" ? "Codex" : "Claude Code"} is connected. Restart it once to load Rewind.`,
       });
       console.info(
         `[clips-tray] configured ${status.client} Screen Memory MCP at ${status.configPath}`,
@@ -6091,7 +6091,8 @@ function Setup({
       setRewindLocalResult(result);
     } catch (err) {
       setRewindLocalError(
-        (err as Error)?.message ?? "Could not search local Rewind evidence.",
+        (err as Error)?.message ??
+          "Couldn't search this device's memory. Try again.",
       );
     } finally {
       setRewindLocalBusy(false);
@@ -6110,7 +6111,8 @@ function Setup({
       });
     } catch (err) {
       setRewindLocalError(
-        (err as Error)?.message ?? "Could not replay this local moment.",
+        (err as Error)?.message ??
+          "Couldn't replay this moment. Try another result.",
       );
     } finally {
       setRewindReplayId(null);
@@ -6132,7 +6134,9 @@ function Setup({
     } catch (err) {
       setScreenMemoryMessage({
         kind: "error",
-        text: (err as Error)?.message ?? "Could not save the last 5 minutes.",
+        text:
+          (err as Error)?.message ??
+          "Couldn't save the last 5 minutes. Try again.",
       });
     } finally {
       setScreenMemoryBusy(false);
@@ -6147,7 +6151,8 @@ function Setup({
         setScreenMemoryMessage({
           kind: "error",
           text:
-            (err as Error)?.message ?? "Could not read the Rewind access log.",
+            (err as Error)?.message ??
+            "Couldn't read the access log. Try again.",
         });
       });
   }
@@ -6161,11 +6166,11 @@ function Setup({
       );
       screenMemoryStatusRefreshVersionRef.current += 1;
       setScreenMemoryStatus(status);
-      setScreenMemoryMessage({ kind: "ok", text: "Rewind cleared." });
+      setScreenMemoryMessage({ kind: "ok", text: "Rewind cleared" });
     } catch (err) {
       setScreenMemoryMessage({
         kind: "error",
-        text: (err as Error)?.message ?? "Could not clear Rewind.",
+        text: (err as Error)?.message ?? "Couldn't clear Rewind. Try again.",
       });
     } finally {
       setScreenMemoryBusy(false);
@@ -6176,7 +6181,7 @@ function Setup({
     invoke("screen_memory_open_folder").catch((err) => {
       setScreenMemoryMessage({
         kind: "error",
-        text: (err as Error)?.message ?? "Could not open Rewind folder.",
+        text: (err as Error)?.message ?? "Couldn't open the Rewind folder.",
       });
     });
   }
@@ -6199,7 +6204,8 @@ function Setup({
     } catch (err) {
       setScreenMemoryMessage({
         kind: "error",
-        text: (err as Error)?.message ?? "Could not choose applications.",
+        text:
+          (err as Error)?.message ?? "Couldn't open the app picker. Try again.",
       });
     } finally {
       setExcludedAppsBusy(false);
@@ -6219,7 +6225,7 @@ function Setup({
     setClipDraftsError(null);
     invoke("native_fullscreen_open_drafts_folder").catch((err) => {
       setClipDraftsError(
-        (err as Error)?.message ?? "Could not open Clip Drafts.",
+        (err as Error)?.message ?? "Couldn't open the drafts folder.",
       );
     });
   }
@@ -6478,7 +6484,9 @@ function Setup({
         const body = (await res.json().catch(() => null)) as {
           error?: string;
         } | null;
-        throw new Error(body?.error || `Save failed (${res.status})`);
+        throw new Error(
+          body?.error || `Couldn't save the key (${res.status}). Try again.`,
+        );
       }
 
       setProviderStatus((prev) =>
@@ -6495,12 +6503,12 @@ function Setup({
       setApiKeyValue("");
       setApiKeyMessage({
         kind: "ok",
-        text: `${labelForByokProvider(byokProvider)} key saved.`,
+        text: `${labelForByokProvider(byokProvider)} key saved`,
       });
     } catch (err) {
       setApiKeyMessage({
         kind: "error",
-        text: (err as Error)?.message ?? "Could not save key.",
+        text: (err as Error)?.message ?? "Couldn't save the key. Try again.",
       });
     } finally {
       setApiKeySaving(false);
@@ -6512,7 +6520,7 @@ function Setup({
     openExternal(`${base}/_agent-native/builder/connect`).catch((err) => {
       setApiKeyMessage({
         kind: "error",
-        text: (err as Error)?.message ?? "Could not open Builder.io connect.",
+        text: (err as Error)?.message ?? "Couldn't open Builder.io. Try again.",
       });
     });
   }
@@ -6525,10 +6533,10 @@ function Setup({
     if (selectedMode === "builder") {
       return providerStatus.builder
         ? null
-        : "Builder.io is not connected — cleanup will fail until connected.";
+        : "Cleanup is off until Builder.io is connected.";
     }
     if (providerStatus[byokProvider]) return null;
-    return `${keyForByokProvider(byokProvider)} is not set — cleanup will fail until configured.`;
+    return `Cleanup is off until you add ${keyForByokProvider(byokProvider)}.`;
   })();
   const updateChecksSupported = canCheckForUpdates();
   const updateBusy =
@@ -6547,15 +6555,18 @@ function Setup({
           : updateStatus.state === "checking"
             ? "Checking for updates"
             : updateStatus.state === "error"
-              ? "Update check failed"
+              ? "Couldn't check for updates"
               : `Version ${__CLIPS_DESKTOP_VERSION__ || "0.0.0"}`;
+  // Dev/unsigned builds get the bare version — no subtitle, no control. The
+  // updater states below are unreachable there, and real users never see this
+  // branch.
   const updateRowDescription = !updateChecksSupported
-    ? "Signed release builds update themselves — this one does not"
+    ? undefined
     : updateStatus.state === "downloaded"
-      ? "Restart when you like — nothing in progress is lost"
+      ? "Restart when you like. Nothing in progress is lost."
       : updateStatus.state === "downloading" ||
           updateStatus.state === "available"
-        ? "Downloading in the background — keep recording"
+        ? "Downloading in the background, so keep recording"
         : updateStatus.state === "error"
           ? "Clips retries after launch and every hour"
           : "Checks after launch, every hour, and when you come back";
@@ -6578,13 +6589,13 @@ function Setup({
           >
             <IconArrowLeft size={18} stroke={1.75} />
           </button>
-          <h2>Manual search</h2>
+          <h2>Search memory</h2>
         </div>
         {screenMemory.enabled ? (
           <>
             <p className="rewind-surface-lede">
-              This local fallback helps you verify what Rewind remembers. For
-              everyday retrieval, ask Codex or your connected agent instead.
+              Search what Rewind remembers on this device. For everyday recall,
+              ask your connected agent.
             </p>
             <form
               className="rewind-search-row"
@@ -6691,8 +6702,8 @@ function Setup({
                 <IconSearch size={19} stroke={1.7} />
                 <strong>Find the source moment</strong>
                 <p>
-                  Results stay grounded in retained local evidence and always
-                  lead back to Replay.
+                  Every result comes from what's stored on this device and links
+                  back to a replay.
                 </p>
               </div>
             )}
@@ -6701,10 +6712,7 @@ function Setup({
           <div className="popover-empty-card rewind-memory-empty">
             <IconHistory size={20} stroke={1.7} />
             <strong>Rewind is off</strong>
-            <p>
-              Turn on a private rolling memory before there is anything to
-              search.
-            </p>
+            <p>Turn on Rewind to start keeping moments you can search.</p>
             {/* The consent dialog renders only on the settings surface, so
                 the switch (and its consent) live there — this button walks
                 the user to it rather than toggling a dialog that cannot
@@ -6724,7 +6732,7 @@ function Setup({
         <SettingsGroup label="App">
           <SettingsRow
             label="Open at login"
-            description="Starts with your Mac and waits in the menu bar"
+            description="Open Clips automatically on login"
             control={
               <SettingsSwitch
                 checked={launchAtLoginEnabled}
@@ -6735,7 +6743,7 @@ function Setup({
           />
           <SettingsRow
             label="Hide when inactive"
-            description="Closes this window when you click another app"
+            description="Close the Clips window when switching to another application"
             control={
               <SettingsSwitch
                 checked={autoHidePopoverEnabled}
@@ -6793,11 +6801,7 @@ function Setup({
 
   function renderUpdateControl() {
     if (!updateChecksSupported) {
-      return (
-        <span className="text-sm text-muted-foreground">
-          Release builds only
-        </span>
-      );
+      return null;
     }
     if (updateReady) {
       return (
@@ -6836,7 +6840,7 @@ function Setup({
         <SettingsGroup>
           <SettingsRow
             label="Voice cleanup"
-            description="Strips steady hum and fan noise from your mic track"
+            description="Reduces background noise and echo from your microphone"
             control={
               <SettingsSwitch
                 checked={voiceCleanupEnabled}
@@ -6859,7 +6863,7 @@ function Setup({
           />
           <SettingsRow
             label="Save to"
-            description="Cloud Clips get a share link — local files never leave this Mac"
+            description="Uploads recordings to your cloud library, or saves locally on device"
             control={
               <SettingsSelect
                 ariaLabel="Save recordings to"
@@ -6869,8 +6873,8 @@ function Setup({
                 }
                 options={[
                   { value: "off", label: "Cloud Clips" },
-                  { value: "composed", label: "This Mac, one video" },
-                  { value: "separate", label: "This Mac, screen + camera" },
+                  { value: "composed", label: "This device, one video" },
+                  { value: "separate", label: "This device, screen + camera" },
                 ]}
               />
             }
@@ -6909,13 +6913,13 @@ function Setup({
             open={rewindConsentOpen}
             onOpenChange={setRewindConsentOpen}
           >
-            <UiAlertDialogContent className="max-w-xs gap-3 rounded-xl p-5">
+            <UiAlertDialogContent className="max-w-md">
               <UiAlertDialogHeader>
                 <UiAlertDialogTitle>Turn on Rewind?</UiAlertDialogTitle>
                 <UiAlertDialogDescription>
-                  Clips records your screen continuously and keeps it on this
-                  Mac. Agents get text excerpts of what was on screen — video
-                  leaves only when you approve it.
+                  Clips will continuously record your screen and keep it on this
+                  device. Agents get text excerpts, and video is shared only
+                  when you approve it.
                 </UiAlertDialogDescription>
               </UiAlertDialogHeader>
               <UiAlertDialogFooter>
@@ -6943,7 +6947,7 @@ function Setup({
           </UiAlertDialog>
           <SettingsRow
             label="Rewind"
-            description="Keeps a rolling record of your recent screen on this Mac"
+            description="Keeps a rolling record of your recent screen on this device"
             control={
               <SettingsSwitch
                 checked={rewindOn}
@@ -6982,7 +6986,7 @@ function Setup({
             <>
               <SettingsRow
                 label="Remember"
-                description="Screen only, or screen plus your mic and system audio"
+                description="Choose what Rewind captures"
                 control={
                   <SettingsSelect
                     ariaLabel="What Rewind remembers"
@@ -7001,11 +7005,11 @@ function Setup({
                 }
               />
               <SettingsRow
-                label="Keep for"
-                description="Anything older is dropped"
+                label="Time limit"
+                description="Choose how long Rewind keeps your screen history"
                 control={
                   <SettingsSelect
-                    ariaLabel="How long Rewind keeps moments"
+                    ariaLabel="Rewind time limit"
                     placeholder={`${screenMemory.retentionHours} hours`}
                     value={String(screenMemory.retentionHours)}
                     onValueChange={(value) => {
@@ -7022,11 +7026,11 @@ function Setup({
                 }
               />
               <SettingsRow
-                label="Disk limit"
-                description="Oldest moments go first once this fills up"
+                label="Storage limit"
+                description="Choose how much space Rewind can use on this device"
                 control={
                   <SettingsSelect
-                    ariaLabel="Rewind disk limit"
+                    ariaLabel="Rewind storage limit"
                     placeholder={formatStorageBytes(screenMemory.maxBytes)}
                     value={String(screenMemory.maxBytes)}
                     onValueChange={(value) => {
@@ -7056,11 +7060,7 @@ function Setup({
             <SettingsGroup label="Privacy">
               <SettingsRow
                 label="Excluded apps"
-                description={
-                  excludedAppGroups.length === 0
-                    ? "Add anything sensitive — Rewind captures nothing while one is in front"
-                    : `${excludedAppGroups.length} excluded — Rewind captures nothing while one is in front`
-                }
+                description={"Apps Rewind never captures"}
                 control={
                   <SettingsActionButton
                     onClick={() => void chooseExcludedApplications()}
@@ -7109,7 +7109,7 @@ function Setup({
               />
               <SettingsRow
                 label="Preview before sending"
-                description="Open the range locally so you see exactly what leaves"
+                description="Open the range locally so you see exactly what is sent"
                 control={
                   <SettingsSwitch
                     checked={screenMemory.autoPreviewBeforeSending === true}
@@ -7125,7 +7125,7 @@ function Setup({
               />
               <SettingsRow
                 label="Keep agent Clips"
-                description="How long a Clip made for an agent survives before it deletes itself"
+                description="Choose how long Clips made for agents stay in your library"
                 control={
                   <SettingsSelect
                     ariaLabel="How long agent-created Clips are kept"
@@ -7148,7 +7148,7 @@ function Setup({
               />
               <SettingsRow
                 label="Agent activity"
-                description="Every time an agent searched this store, newest first"
+                description="Each time an agent searched this device's memory, newest first"
               >
                 {rewindEgressEvents.length === 0 ? (
                   <p>No agent has searched it yet.</p>
@@ -7176,7 +7176,7 @@ function Setup({
             <SettingsGroup label="Agents">
               <SettingsRow
                 label="Setup prompt"
-                description="Paste it into an agent once — it installs Rewind's instructions"
+                description="Paste it into an agent once to install Rewind's instructions"
                 control={
                   <>
                     <SettingsActionButton
@@ -7193,7 +7193,7 @@ function Setup({
               />
               <SettingsRow
                 label="Connect an agent"
-                description="Points a local agent at this Rewind store"
+                description="Gives a local agent access to this device's Rewind memory"
                 control={
                   <>
                     <SettingsActionButton
@@ -7230,7 +7230,7 @@ function Setup({
             <SettingsGroup label="Storage">
               <SettingsRow
                 label="Search memory"
-                description="Find and replay a recent moment yourself — no agent involved"
+                description="Find and replay a recent moment yourself"
                 control={
                   <SettingsActionButton onClick={onOpenMemory}>
                     Search
@@ -7239,7 +7239,7 @@ function Setup({
               />
               <SettingsRow
                 label="Save last 5 minutes"
-                description="Exports recent memory as video files on this Mac — nothing is uploaded"
+                description="Exports recent memory as video files on this device. Nothing is uploaded."
                 control={
                   <SettingsActionButton
                     onClick={() => void exportScreenMemoryRecent()}
@@ -7250,7 +7250,7 @@ function Setup({
                 }
               />
               <SettingsRow
-                label="On this Mac"
+                label="On this device"
                 description={`${screenMemorySegments.length} ${screenMemorySegments.length === 1 ? "segment" : "segments"} · ${formatStorageBytes(screenMemoryTotalBytes)}`}
                 control={
                   <>
@@ -7258,7 +7258,7 @@ function Setup({
                       Open folder
                     </SettingsActionButton>
                     <SettingsActionButton
-                      emphasis="quiet"
+                      emphasis="destructive"
                       onClick={() => void clearScreenMemory()}
                       disabled={screenMemoryBusy}
                     >
@@ -7280,7 +7280,7 @@ function Setup({
         <SettingsGroup label="Connection">
           <SettingsRow
             label="Clips server URL"
-            description="Where this recorder signs in and uploads"
+            description="The server Clips signs in and uploads to"
             control={
               <SettingsPopover
                 title="Clips server URL"
@@ -7312,7 +7312,7 @@ function Setup({
         <SettingsGroup label="Transcription">
           <SettingsRow
             label="Transcription engine"
-            description="Turns speech into text for dictation and meetings"
+            description="Choose what transcribes dictation and meetings"
             control={
               <SettingsSelect
                 ariaLabel="Transcription engine"
@@ -7356,7 +7356,7 @@ function Setup({
             <>
               <SettingsRow
                 label="Key provider"
-                description="Whose model cleans up dictated text"
+                description="Choose whose model cleans up dictated text"
                 control={
                   <SettingsSelect
                     ariaLabel="Key provider"
@@ -7375,10 +7375,10 @@ function Setup({
               <SettingsRow
                 label={
                   providerStatus?.[byokProvider]
-                    ? `${labelForByokProvider(byokProvider)} key — set`
+                    ? `${labelForByokProvider(byokProvider)} key (set)`
                     : `${labelForByokProvider(byokProvider)} key`
                 }
-                description="Saved to your Clips account, not this Mac"
+                description="Saved to your Clips account"
                 stacked
                 control={
                   <div className="flex w-full items-center gap-2">
@@ -7405,7 +7405,7 @@ function Setup({
                       disabled={!apiKeyValue.trim() || apiKeySaving}
                     >
                       {apiKeySaving
-                        ? "Saving..."
+                        ? "Saving…"
                         : providerStatus?.[byokProvider]
                           ? "Rotate"
                           : "Save"}
@@ -7450,7 +7450,7 @@ function Setup({
 
           <SettingsRow
             label="Local Whisper model"
-            description="Transcribes everyone else in a meeting, offline on this Mac"
+            description="Transcribes everyone else in a meeting, offline on this device"
             control={
               <SettingsSwitch
                 checked={whisperModelEnabled}
@@ -7470,7 +7470,7 @@ function Setup({
           {whisperModelEnabled ? (
             <SettingsRow
               label="Model"
-              description="Bigger models handle accents and crosstalk better — and run slower"
+              description="Choose the model used for offline transcription"
               control={
                 <SettingsSelect
                   ariaLabel="Whisper model"
@@ -7492,7 +7492,12 @@ function Setup({
                 />
               }
             >
-              {whisperStatus || deletableModels.length > 0 ? (
+              {/* `ready` renders nothing (the picker already says which model),
+                  so gating on `whisperStatus` alone left an empty children row
+                  adding phantom space under the select. Gate on what will
+                  actually render. */}
+              {(whisperStatus && whisperStatus.state !== "ready") ||
+              deletableModels.length > 0 ? (
                 <>
                   <WhisperModelStatusRow
                     status={whisperStatus}
@@ -7530,9 +7535,7 @@ function Setup({
           <SettingsRow
             label="Screen region guides"
             description={
-              regionGuideCount === 0
-                ? "Outlines to frame a shot — they never appear in the Clip"
-                : `${regionGuideCount} ${regionGuideCount === 1 ? "outline" : "outlines"} saved — none appear in the Clip`
+              "Outlines to frame a shot that never appear in the Clip"
             }
             control={
               <>
@@ -7551,7 +7554,7 @@ function Setup({
             {regionGuides.enabled ? (
               <div className="flex flex-wrap items-center gap-2.5">
                 <span className="flex-1">
-                  Keep guides visible when you are not recording.
+                  Keep guides visible when not recording
                 </span>
                 <SettingsSwitch
                   checked={regionGuidesAlwaysVisible}
@@ -7574,7 +7577,7 @@ function Setup({
         <SettingsGroup label="Window">
           <SettingsRow
             label="Show Clips in screen captures"
-            description="Off by default so recordings stay clean of this window"
+            description="The Clips window will appear in your recordings"
             control={
               <SettingsSwitch
                 checked={showInScreenCapture}
@@ -7585,11 +7588,18 @@ function Setup({
           />
           <SettingsRow
             label="Open Clips shortcut"
-            description="An extra way in — Cmd Shift L always works"
+            description="Shortcut to open Clips from any app"
             control={
               <ShortcutRecorder
                 value={popoverCustomShortcut}
-                placeholder="Set"
+                /* The built-in Cmd/Ctrl+Shift+L binding is always registered
+                   (shortcuts.rs), so an empty custom slot shows the shortcut
+                   that actually works instead of a blank "Set". Recording a
+                   custom chord adds a second binding; clearing it returns to
+                   showing the built-in one. */
+                placeholder={compactShortcutLabel(
+                  isMacPlatform() ? "Cmd+Shift+L" : "Ctrl+Shift+L",
+                )}
                 onChange={onPopoverCustomShortcutChange}
               />
             }
@@ -7605,7 +7615,7 @@ function Setup({
         <SettingsGroup label="Troubleshooting">
           <SettingsRow
             label="Clip drafts"
-            description="Local copies kept when an upload fails"
+            description="Local copies kept when an upload doesn't finish"
             control={
               <SettingsActionButton onClick={openClipDraftsFolder}>
                 Open folder
@@ -7637,7 +7647,7 @@ function Setup({
           <SettingsGroup label="Account">
             <SettingsRow
               label={`Signed in as ${signedInAs}`}
-              description="Recordings from this Mac land in this library"
+              description="Recordings from this device land in this library"
               control={
                 <SettingsActionButton onClick={onSignOut}>
                   Sign out
@@ -7656,7 +7666,7 @@ function Setup({
         <SettingsGroup>
           <SettingsRow
             label="Meeting notes"
-            description="Notes and a live transcript for events on your calendar"
+            description="Transcribes and summarizes meetings from your calendar"
             control={
               <SettingsSwitch
                 checked={meetingsEnabled}
@@ -7669,7 +7679,7 @@ function Setup({
             <>
               <SettingsRow
                 label="When a meeting starts"
-                description="Ask first, start on its own, or wait for you"
+                description="Choose how note taking begins"
                 control={
                   <SettingsSelect
                     ariaLabel="When a meeting starts"
@@ -7688,13 +7698,13 @@ function Setup({
                 }
               />
               <SettingsRow
-                label="Meeting widget"
-                description="The small on-screen nub that appears near calendar start times"
+                label="Meeting notifications"
+                description="Show a notification before scheduled meetings and when a call is detected"
                 control={
                   <SettingsSwitch
                     checked={showMeetingWidgetEnabled}
                     onCheckedChange={setShowMeetingWidgetEnabled}
-                    label="Meeting widget"
+                    label="Meeting notifications"
                   />
                 }
               />
@@ -7711,7 +7721,7 @@ function Setup({
         <SettingsGroup>
           <SettingsRow
             label="Voice dictation"
-            description="Speak anywhere on your Mac — the cleaned-up text lands in whatever app you’re in"
+            description="Turns speech into polished text in any app"
             control={
               <SettingsSwitch
                 checked={voiceEnabled}
@@ -7724,7 +7734,7 @@ function Setup({
             <>
               <SettingsRow
                 label="Shortcut"
-                description="Works anywhere on your Mac, not just in Clips"
+                description="Shortcut to start dictation"
                 control={
                   <SettingsChoicePopover
                     title="Dictation shortcut"
@@ -7755,7 +7765,7 @@ function Setup({
                         className="w-full"
                         onClick={() => openPrivacySettings("input-monitoring")}
                       >
-                        Allow Input Monitoring
+                        Grant Input Monitoring
                       </SettingsActionButton>
                     ) : null}
                     {shortcutRegistrationError ? (
@@ -7768,7 +7778,7 @@ function Setup({
               />
               <SettingsRow
                 label="Mode"
-                description="Hold to talk, or press once and go hands-free"
+                description="Choose how the shortcut starts and stops dictation"
                 control={
                   <SettingsSelect
                     ariaLabel="Dictation mode"
@@ -7961,10 +7971,7 @@ function WhisperModelStatusRow({
           stroke={1.9}
           aria-hidden="true"
         />
-        <span>
-          Without it, only your mic is transcribed — nobody else in the meeting
-          is.
-        </span>
+        <span>Without it, only your mic is transcribed</span>
       </p>
     );
   }
@@ -8010,7 +8017,7 @@ function WhisperModelStatusRow({
           stroke={1.9}
           aria-hidden="true"
         />
-        Model not downloaded.
+        Not downloaded yet
       </span>
       <SettingsActionButton onClick={onDownload}>
         Download now
@@ -8117,7 +8124,7 @@ function ShortcutRecorder({
           if (!next) {
             setError(
               event.key === " " && !hasShortcutModifier(event)
-                ? "Space needs Cmd, Ctrl, Option, or Shift so it does not hijack typing."
+                ? "Space needs Cmd, Ctrl, Option, or Shift so it doesn't hijack typing."
                 : "Use at least one modifier plus a key.",
             );
             return;
