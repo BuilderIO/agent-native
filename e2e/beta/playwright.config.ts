@@ -23,6 +23,16 @@ import { defineConfig, devices } from "@playwright/test";
 const isCi = Boolean(process.env.CI);
 
 /**
+ * Names this invocation's report directory.
+ *
+ * Set by the workflow per lane; falls back to a generic slot for a local run.
+ */
+const REPORT_SLOT = (process.env.BETA_E2E_REPORT_SLOT || "local").replace(
+  /[^a-z0-9._-]/gi,
+  "-",
+);
+
+/**
  * Artifact settings for the lanes that run signed in.
  *
  * A Playwright trace records real request headers, so a trace of an
@@ -47,20 +57,32 @@ export default defineConfig({
   // distinguishes a slow host from a broken one. It cannot mask a broken one:
   // every assertion here is deterministic given a responsive host.
   retries: isCi ? 2 : 1,
-  // Enough concurrency to sweep 16 hosts quickly, low enough that the sweep is
-  // not itself the reason a host looks slow.
-  workers: isCi ? 6 : 4,
+  // GitHub's ubuntu-latest has 4 vCPUs. Six concurrent Chromium instances
+  // oversubscribe it, and every navigation slows down together — measured at
+  // 5-15s per page load in CI against 1-2s locally. Matching the core count
+  // trades a little theoretical parallelism for pages that actually load.
+  workers: isCi ? 4 : 4,
   timeout: 240_000,
   expect: { timeout: 30_000 },
+  // Per-lane report paths. The workflow invokes this config once per lane, and
+  // a shared output path meant each run overwrote the last — the uploaded
+  // artifact then contained only the final lane's results while looking like a
+  // complete report, which is worse than having no report at all.
   reporter: isCi
     ? [
         ["github"],
         ["list"],
-        ["html", { open: "never", outputFolder: "playwright-report" }],
-        ["json", { outputFile: "playwright-report/results.json" }],
+        [
+          "html",
+          { open: "never", outputFolder: `playwright-report/${REPORT_SLOT}` },
+        ],
+        [
+          "json",
+          { outputFile: `playwright-report/${REPORT_SLOT}/results.json` },
+        ],
       ]
     : [["list"]],
-  outputDir: "test-results",
+  outputDir: `test-results/${REPORT_SLOT}`,
   use: {
     ...devices["Desktop Chrome"],
     trace: "retain-on-failure",

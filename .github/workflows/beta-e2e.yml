@@ -121,6 +121,7 @@ jobs:
         # would ship a fleet users cannot sign into or load.
         env:
           BETA_E2E_AUTHED: "0"
+          BETA_E2E_REPORT_SLOT: public
         run: |
           if [ -n "$BETA_E2E_GREP" ]; then
             pnpm e2e:beta --project=public --grep "$BETA_E2E_GREP"
@@ -135,6 +136,7 @@ jobs:
         # anonymous run that would pass without testing anything.
         env:
           BETA_E2E_AUTHED: "1"
+          BETA_E2E_REPORT_SLOT: authed
         run: |
           if [ -n "$BETA_E2E_GREP" ]; then
             pnpm e2e:beta --project=authed --project=journeys --grep "$BETA_E2E_GREP"
@@ -150,6 +152,7 @@ jobs:
         continue-on-error: true
         env:
           BETA_E2E_AUTHED: "0"
+          BETA_E2E_REPORT_SLOT: advisory
         run: |
           if [ -n "$BETA_E2E_GREP" ]; then
             pnpm e2e:beta --project=advisory --grep "$BETA_E2E_GREP"
