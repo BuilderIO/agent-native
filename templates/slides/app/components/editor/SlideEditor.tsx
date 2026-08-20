@@ -1280,7 +1280,7 @@ export default function SlideEditor({
     });
   }, [overflowContentHash, overflowWarningStateKey]);
   const dims = getAspectRatioDims(aspectRatio);
-  const [fitCanvasZoom, setFitCanvasZoom] = useState(100);
+  const [, setFitCanvasZoom] = useState(100);
   const userSetCanvasZoomRef = useRef(false);
   const canvasWidth = Math.round(dims.width * (canvasZoom / 100));
   const canvasTrackRef = useRef<HTMLDivElement>(null);

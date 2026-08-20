@@ -28,7 +28,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { NavLink, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 
-import { CaptureInstallButton } from "@/components/capture-install-options";
 import { PageHeader } from "@/components/library/page-header";
 import {
   AttendeeStack,
@@ -69,7 +68,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useDesktopPromo } from "@/hooks/use-desktop-promo";
 import enMessages from "@/i18n/en-US";
 import { cn } from "@/lib/utils";
 
@@ -499,7 +497,7 @@ export default function MeetingDetailRoute() {
   const stopMeetingRecording = useActionMutation<any, any>(
     "stop-meeting-recording",
   );
-  const { isDesktopApp } = useDesktopPromo();
+
   const [notesJustArrived, setNotesJustArrived] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [endMeetingOpen, setEndMeetingOpen] = useState(false);

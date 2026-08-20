@@ -7,6 +7,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Improved
 
+- Clip viewers now make Share the primary action and keep the overflow control compact and vertical.
 - Recording controls now follow you across browser tabs and page navigations.
 
 ### Fixed

@@ -399,17 +399,6 @@ function buildClassifierSystemPrompt(settings: BrainSettings) {
     .join("\n");
 }
 
-function buildSanitizerUserPrompt(input: CaptureSanitizationInput) {
-  return [
-    `Source provider: ${input.source.provider}`,
-    `Capture title: ${sanitizeSensitiveText(input.title)}`,
-    "Raw capture text to filter:",
-    "```text",
-    input.content,
-    "```",
-  ].join("\n");
-}
-
 function modelInputLimit(input: CaptureSanitizationInput) {
   return (
     numberSetting(input.sourceConfig?.captureSanitizationMaxChars) ??

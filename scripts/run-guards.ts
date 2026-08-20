@@ -21,6 +21,7 @@ const guards = [
   "guard:template-list",
   "guard:netlify-private-env",
   "guard:netlify-prebuilt-workflow",
+  "guard:beta-e2e-suite",
   "guard:trusted-acceptance",
   "guard:content-product-conformance",
   "guard:content-product-docs",
@@ -62,6 +63,7 @@ const guards = [
   "guard:no-heavy-dashboard-list-reads",
   "guard:dead-settings-keys",
   "guard:serverless-function-payload",
+  "guard:doc-budgets",
 ] as const;
 
 type GuardName = (typeof guards)[number];

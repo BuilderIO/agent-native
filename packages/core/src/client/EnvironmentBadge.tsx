@@ -36,6 +36,12 @@ export function isBuilderIoEmployee(email: string | null | undefined): boolean {
   return email?.trim().toLowerCase().endsWith("@builder.io") ?? false;
 }
 
+export function isAgentNativeDesktopUserAgent(
+  userAgent: string | undefined,
+): boolean {
+  return /AgentNativeDesktop/i.test(userAgent ?? "");
+}
+
 export function resolveEnvironmentChannel(
   config: AgentNativeConfig,
   hostname: string | undefined,
@@ -199,6 +205,10 @@ function ProductionEnvironmentBadge({
     if (!isEligible || didAutoRedirect.current) {
       return;
     }
+
+    // Desktop child sessions are minted against their configured production
+    // origin. Do not move that WebView to beta after the session is created.
+    if (isAgentNativeDesktopUserAgent(window.navigator.userAgent)) return;
 
     if (readBetaOptOutUntil() !== null) return;
     if (consumeBetaOptOutQueryParam(window.location.href)) return;
