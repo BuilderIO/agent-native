@@ -114,17 +114,41 @@ export function validateNetlifyHeadersArtifact(
       message:
         "generated public shell header block is missing; static HTML/.data would use the platform default",
     });
-  } else if (
-    !shell.includes("public") ||
-    !shell.includes("stale-while-revalidate") ||
-    shell.includes("max-age=0") ||
-    shell.includes("must-revalidate")
-  ) {
-    findings.push({
-      file,
-      message:
-        "generated public shell headers must be public stale-while-revalidate and must not use max-age=0/must-revalidate",
-    });
+  } else {
+    const shellCacheControls = [
+      "Cache-Control",
+      "CDN-Cache-Control",
+      "Netlify-CDN-Cache-Control",
+    ].map((name) =>
+      shell.match(new RegExp(`^\\s+${name}:\\s*(.+)$`, "m"))?.[1]?.trim(),
+    );
+    const allNoStore = shellCacheControls.every(
+      (value) => value === "no-store",
+    );
+    const anyNoStore = shellCacheControls.some((value) => value === "no-store");
+
+    if (allNoStore) {
+      // This is the explicit AGENT_NATIVE_SSR_CACHE=off deployment policy.
+      // It is intentionally different from the normal public SWR contract,
+      // but every provider must still agree so one cache cannot serve stale
+      // HTML after another provider has disabled caching.
+    } else if (
+      anyNoStore ||
+      shellCacheControls.some(
+        (value) =>
+          !value ||
+          !value.includes("public") ||
+          !value.includes("stale-while-revalidate"),
+      ) ||
+      shell.includes("max-age=0") ||
+      shell.includes("must-revalidate")
+    ) {
+      findings.push({
+        file,
+        message:
+          "generated public shell headers must consistently use either public stale-while-revalidate or the explicit all-provider no-store override",
+      });
+    }
   }
 
   if (

@@ -41,9 +41,25 @@ describe("SSR static cache artifact guard", () => {
         "public, max-age=0, must-revalidate",
       ),
     );
-    assert.ok(
-      findings.some((finding) => finding.message.includes("max-age=0")),
-    );
+    assert.ok(findings.length > 0);
+  });
+
+  it("accepts the explicit all-provider no-store override", () => {
+    const disabledHeaders = validHeaders
+      .replaceAll(
+        "Cache-Control: public, max-age=600, stale-while-revalidate=604800, stale-if-error=3600",
+        "Cache-Control: no-store",
+      )
+      .replaceAll(
+        "CDN-Cache-Control: public, max-age=600, stale-while-revalidate=604800, stale-if-error=3600",
+        "CDN-Cache-Control: no-store",
+      )
+      .replaceAll(
+        "Netlify-CDN-Cache-Control: public, durable, s-maxage=31536000, stale-while-revalidate=604800, stale-if-error=3600",
+        "Netlify-CDN-Cache-Control: no-store",
+      );
+
+    assert.deepEqual(validateNetlifyHeadersArtifact(disabledHeaders), []);
   });
 
   it("passes the checked-in source contract", () => {
