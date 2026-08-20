@@ -5,10 +5,17 @@ import {
   type McpServersApi,
 } from "@agent-native/core/client/resources";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 export default function DesktopIntegrationsPage() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
+  const startOAuth = useCallback(async (url: string) => {
+    const handler = window.electronAPI?.mcpServers?.startOAuth;
+    if (!handler) {
+      throw new Error("Desktop OAuth is unavailable in this session.");
+    }
+    await handler(url);
+  }, []);
   const desktopMcpApi = useMemo<McpServersApi | null>(() => {
     const api = window.electronAPI?.mcpServers;
     if (!api) return null;
@@ -28,7 +35,7 @@ export default function DesktopIntegrationsPage() {
         {desktopMcpApi ? (
           <QueryClientProvider client={queryClient}>
             <McpServersApiProvider api={desktopMcpApi}>
-              <ConnectionsTab />
+              <ConnectionsTab onOAuthStart={startOAuth} />
             </McpServersApiProvider>
           </QueryClientProvider>
         ) : (

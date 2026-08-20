@@ -12241,6 +12241,7 @@ registerDesktopChatIpc();
 
 registerChatFirstMcpIpc({
   resolveMcpHost: resolveDesktopMcpHost,
+  navigateMcpOAuth: navigateMcpOAuthInDispatchWebview,
   codeAgentWorkspaceRoot: () => resolveCodeAgentsTerminalCwd({}),
 });
 
@@ -12925,6 +12926,30 @@ function openOAuthFromWebviewNavigation(
   } catch {
     return false;
   }
+}
+
+async function navigateMcpOAuthInDispatchWebview(
+  url: string,
+  host: { baseUrl: string; session: Electron.Session },
+): Promise<void> {
+  const origin = new URL(host.baseUrl).origin;
+  const target = webContents.getAllWebContents().find((contents) => {
+    if (contents.getType() !== "webview" || contents.session !== host.session) {
+      return false;
+    }
+    try {
+      return new URL(contents.getURL()).origin === origin;
+    } catch {
+      // coercion-ok: a webview without a parseable URL is not an OAuth target.
+      return false;
+    }
+  });
+  if (!target) {
+    throw new Error(
+      "Open the signed-in Dispatch integrations tab before connecting OAuth.",
+    );
+  }
+  await target.loadURL(url);
 }
 
 function normalizedNavigationHost(hostname: string): string {

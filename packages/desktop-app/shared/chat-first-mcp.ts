@@ -12,6 +12,7 @@ export const CHAT_FIRST_MCP_IPC = {
   RECONNECT: "chat-first:mcp:reconnect",
   TEST: "chat-first:mcp:test",
   TEST_EXISTING: "chat-first:mcp:test-existing",
+  START_OAUTH: "chat-first:mcp:start-oauth",
   IMPORT_PLUGIN: "chat-first:mcp:import-plugin",
 } as const;
 

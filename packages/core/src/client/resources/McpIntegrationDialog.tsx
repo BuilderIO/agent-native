@@ -55,6 +55,7 @@ export interface McpIntegrationDialogProps {
   canCreateOrgMcp: boolean;
   hasOrg: boolean;
   onCreateMcpServer: (args: CreateMcpServerArgs) => Promise<unknown>;
+  onOAuthStart?: (url: string) => void | Promise<void>;
   onCreated?: () => void;
   integrations?: DefaultMcpIntegration[];
 }
@@ -126,6 +127,7 @@ export function McpIntegrationDialog({
   canCreateOrgMcp,
   hasOrg,
   onCreateMcpServer,
+  onOAuthStart,
   onCreated,
   integrations,
 }: McpIntegrationDialogProps) {
@@ -287,17 +289,26 @@ export function McpIntegrationDialog({
         : window.location.pathname +
           window.location.search +
           window.location.hash;
-    navigateToMcpOAuthStart(
-      agentNativePath(
-        buildMcpOAuthStartUrl({
-          name: args.name,
-          url: args.url,
-          description: args.description,
-          scope: options?.scope ?? scope,
-          returnUrl,
-        }),
-      ),
+    const oauthUrl = agentNativePath(
+      buildMcpOAuthStartUrl({
+        name: args.name,
+        url: args.url,
+        description: args.description,
+        scope: options?.scope ?? scope,
+        returnUrl,
+      }),
     );
+    if (!onOAuthStart) {
+      navigateToMcpOAuthStart(oauthUrl);
+      return;
+    }
+    void Promise.resolve()
+      .then(() => onOAuthStart(oauthUrl))
+      .then(() => onOpenChange(false))
+      .catch((cause: unknown) => {
+        setBusy(false);
+        setError(formatMcpServerError(cause));
+      });
   };
 
   const connectWithOAuth = (

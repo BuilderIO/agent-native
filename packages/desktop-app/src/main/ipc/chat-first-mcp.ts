@@ -25,6 +25,7 @@ export interface McpHost {
 
 export interface ChatFirstMcpIpcDeps {
   resolveMcpHost: () => Promise<McpHost | null>;
+  navigateMcpOAuth: (url: string, host: McpHost) => void | Promise<void>;
   codeAgentWorkspaceRoot: () => string;
 }
 
@@ -72,6 +73,24 @@ function errorFromBody(
   return typeof body.error === "string" && body.error.trim()
     ? body.error.trim()
     : fallback;
+}
+
+export function resolveMcpOAuthUrl(rawUrl: string, baseUrl: string): string {
+  let base: URL;
+  let target: URL;
+  try {
+    base = new URL(baseUrl);
+    target = new URL(rawUrl, base);
+  } catch {
+    throw new Error("MCP OAuth URL is invalid.");
+  }
+  if (
+    target.origin !== base.origin ||
+    !target.pathname.endsWith("/_agent-native/mcp/servers/oauth/start")
+  ) {
+    throw new Error("MCP OAuth must start inside the signed-in workspace app.");
+  }
+  return target.toString();
 }
 
 function abortError(): DOMException {
@@ -253,6 +272,25 @@ export function registerChatFirstMcpIpc(deps: ChatFirstMcpIpcDeps): void {
         { method: "POST" },
       );
       return body as unknown as TestMcpUrlResult;
+    },
+  );
+
+  ipcMain.handle(
+    CHAT_FIRST_MCP_IPC.START_OAUTH,
+    async (_event: IpcMainInvokeEvent, rawUrl: unknown): Promise<void> => {
+      const host = await deps.resolveMcpHost();
+      if (!host) {
+        throw new Error(
+          "Open a signed-in workspace app before connecting an OAuth integration.",
+        );
+      }
+      if (typeof rawUrl !== "string") {
+        throw new Error("MCP OAuth URL is invalid.");
+      }
+      await deps.navigateMcpOAuth(
+        resolveMcpOAuthUrl(rawUrl, host.baseUrl),
+        host,
+      );
     },
   );
 

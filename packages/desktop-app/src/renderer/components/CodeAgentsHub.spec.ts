@@ -20,6 +20,7 @@ import {
   mergeDesktopAppLists,
   isDispatchControlPlanePath,
   isNativeDesktopIntegrationsPath,
+  shouldShowNativeDesktopIntegrations,
   isChatFirstSurfaceTabActive,
   updateAppAuthStateByTab,
   updateDesktopIdentityStatusByTab,
@@ -521,6 +522,39 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(isNativeDesktopIntegrationsPath("/integrations")).toBe(true);
     expect(isNativeDesktopIntegrationsPath("/admin/integrations")).toBe(true);
     expect(isNativeDesktopIntegrationsPath("/integrations/slack")).toBe(false);
+  });
+
+  it("only exposes native integrations after both app and desktop auth are ready", () => {
+    expect(
+      shouldShowNativeDesktopIntegrations({
+        appId: "dispatch",
+        path: "/integrations",
+        appAuthState: "authenticated",
+        desktopIdentityStatus: "signed-in",
+      }),
+    ).toBe(true);
+    for (const desktopIdentityStatus of [
+      undefined,
+      "idle",
+      "checking",
+    ] as const) {
+      expect(
+        shouldShowNativeDesktopIntegrations({
+          appId: "dispatch",
+          path: "/integrations",
+          appAuthState: "authenticated",
+          desktopIdentityStatus,
+        }),
+      ).toBe(false);
+    }
+    expect(
+      shouldShowNativeDesktopIntegrations({
+        appId: "dispatch",
+        path: "/integrations",
+        appAuthState: "unauthenticated",
+        desktopIdentityStatus: "signed-in",
+      }),
+    ).toBe(false);
   });
 
   it("keeps Dispatch internal while excluding it from Electron app discovery", () => {

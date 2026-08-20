@@ -1185,7 +1185,13 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       return () => {
         active = false;
       };
-    }, [app.placeholder, isActive, url]);
+    }, [
+      app.placeholder,
+      desktopIdentitySessionReady,
+      desktopIdentityStatus,
+      isActive,
+      url,
+    ]);
 
     // Cmd+R — reload the active webview when refreshKey increments
     const prevRefreshKey = useRef(refreshKey);

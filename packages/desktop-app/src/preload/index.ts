@@ -323,6 +323,8 @@ const electronAPI = {
       scope: McpServerScope;
     }): Promise<TestMcpUrlResult> =>
       ipcRenderer.invoke(CHAT_FIRST_MCP_IPC.TEST_EXISTING, args),
+    startOAuth: (url: string): Promise<void> =>
+      ipcRenderer.invoke(CHAT_FIRST_MCP_IPC.START_OAUTH, url),
     importPlugin: (): Promise<ChatFirstMcpPluginImportResult> =>
       ipcRenderer.invoke(CHAT_FIRST_MCP_IPC.IMPORT_PLUGIN),
   },

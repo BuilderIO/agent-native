@@ -315,6 +315,20 @@ export function isNativeDesktopIntegrationsPath(path?: string): boolean {
   }
 }
 
+export function shouldShowNativeDesktopIntegrations(input: {
+  appId: string;
+  path?: string;
+  appAuthState?: AppWebviewAuthState;
+  desktopIdentityStatus?: DesktopIdentityStatus | "checking";
+}): boolean {
+  return (
+    input.appId === "dispatch" &&
+    isNativeDesktopIntegrationsPath(input.path) &&
+    input.appAuthState === "authenticated" &&
+    input.desktopIdentityStatus === "signed-in"
+  );
+}
+
 function isVisibleChatFirstSurfaceTab(
   tab: ChatFirstSurfaceTab,
   apps: AppConfig[],
@@ -2508,13 +2522,12 @@ export default function CodeAgentsHub({
         });
         const appAuthState = appAuthStateByTab[tab.id];
         const desktopIdentityStatus = desktopIdentityStatusByTab[tab.id];
-        const showNativeIntegrations =
-          surfaceApp.id === "dispatch" &&
-          isNativeDesktopIntegrationsPath(tab.path) &&
-          appAuthState === "authenticated" &&
-          (desktopIdentityStatus === undefined ||
-            desktopIdentityStatus === "idle" ||
-            desktopIdentityStatus === "signed-in");
+        const showNativeIntegrations = shouldShowNativeDesktopIntegrations({
+          appId: surfaceApp.id,
+          path: tab.path,
+          appAuthState,
+          desktopIdentityStatus,
+        });
         return (
           <ChatFirstAppPane
             app={surfaceApp}
