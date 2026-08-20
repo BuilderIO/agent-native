@@ -3992,7 +3992,7 @@ body[data-clips-route="recording-pill"] #root {
   font-weight: 600;
 }
 
-.signin input {
+.signin input:not([data-tw-surface] *) {
   width: 100%;
   padding: 10px 12px;
   border: 1px solid var(--border-strong);
@@ -4003,7 +4003,7 @@ body[data-clips-route="recording-pill"] #root {
   outline: none;
 }
 
-.signin input:focus {
+.signin input:not([data-tw-surface] *):focus {
   border-color: var(--brand);
   box-shadow: 0 0 0 3px var(--brand-ring);
 }

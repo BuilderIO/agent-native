@@ -5061,6 +5061,11 @@ function SignInForm({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const emailRef = useRef<HTMLInputElement | null>(null);
+  const passwordRef = useRef<HTMLInputElement | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<{
+    email?: string;
+    password?: string;
+  }>({});
   useEffect(() => {
     if (!magicLinkSentEmail) emailRef.current?.focus();
   }, [magicLinkSentEmail]);
@@ -5153,6 +5158,22 @@ function SignInForm({
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (submitting) return;
+    // Native constraint validation is off (noValidate): the UA bubble is
+    // unstyleable and vanishes on blur. Field errors render inline instead,
+    // in the "Enter a [noun]" shape.
+    const trimmedEmail = email.trim();
+    const nextFieldErrors: { email?: string; password?: string } = {};
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      nextFieldErrors.email = "Enter an email like you@example.com";
+    }
+    if (authMode === "password" && !password) {
+      nextFieldErrors.password = "Enter a password";
+    }
+    setFieldErrors(nextFieldErrors);
+    if (nextFieldErrors.email || nextFieldErrors.password) {
+      (nextFieldErrors.email ? emailRef : passwordRef).current?.focus();
+      return;
+    }
     setError(null);
     setSubmitting(true);
     try {
@@ -5212,7 +5233,7 @@ function SignInForm({
   }
 
   return (
-    <form className="signin" onSubmit={onSubmit}>
+    <form className="signin" onSubmit={onSubmit} noValidate>
       <PillLogo className="signin-mark" />
       <div className="signin-title">Welcome to Clips</div>
       <div className="signin-subtitle">
@@ -5230,31 +5251,49 @@ function SignInForm({
       <div className="signin-divider">
         <span>or</span>
       </div>
-      <input
-        ref={emailRef}
-        type="email"
-        autoComplete="email"
-        placeholder="you@example.com"
-        value={email}
-        onChange={(e) => {
-          setEmail(e.target.value);
-          setError(null);
-        }}
-        required
-      />
-      {authMode === "password" ? (
-        <input
-          type="password"
-          autoComplete="current-password"
-          placeholder="Password"
-          value={password}
+      <div data-tw-surface className="grid w-full gap-2">
+        <Input
+          ref={emailRef}
+          type="email"
+          autoComplete="email"
+          placeholder="you@example.com"
+          className="h-9 text-sm"
+          value={email}
+          aria-invalid={fieldErrors.email ? true : undefined}
           onChange={(e) => {
-            setPassword(e.target.value);
+            setEmail(e.target.value);
             setError(null);
+            setFieldErrors((current) => ({ ...current, email: undefined }));
           }}
-          required
         />
-      ) : null}
+        {fieldErrors.email ? (
+          <p className="text-xs text-destructive">{fieldErrors.email}</p>
+        ) : null}
+        {authMode === "password" ? (
+          <>
+            <Input
+              ref={passwordRef}
+              type="password"
+              autoComplete="current-password"
+              placeholder="Password"
+              className="h-9 text-sm"
+              value={password}
+              aria-invalid={fieldErrors.password ? true : undefined}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                setError(null);
+                setFieldErrors((current) => ({
+                  ...current,
+                  password: undefined,
+                }));
+              }}
+            />
+            {fieldErrors.password ? (
+              <p className="text-xs text-destructive">{fieldErrors.password}</p>
+            ) : null}
+          </>
+        ) : null}
+      </div>
       {error ? <div className="error-banner">{error}</div> : null}
       <button
         type="submit"
