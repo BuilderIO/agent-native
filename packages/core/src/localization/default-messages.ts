@@ -1126,6 +1126,8 @@ const messages = {
     workspaceAdminRequired: "Workspace owner or admin required.",
     personalOnlyDescription:
       "Only personal connections are supported for this integration.",
+    retry: "Retry",
+    retrying: "Retrying…",
     personalDescription: "Only you can use this connection.",
     sharedWithWorkspace: "Shared with workspace",
     organizationDescription:

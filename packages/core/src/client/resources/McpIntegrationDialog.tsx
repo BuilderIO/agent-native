@@ -37,6 +37,7 @@ import {
 import { McpIntegrationLogo } from "./McpIntegrationLogo.js";
 import {
   formatMcpServerError,
+  formatMcpServersLoadError,
   getMcpUrlValidationError,
   useMcpServersApi,
   useMcpServers,
@@ -439,6 +440,7 @@ export function McpIntegrationDialog({
     ) {
       return;
     }
+    if (mcpServersQuery.isError) return;
     if (!mcpServersQuery.isSuccess) return;
     const integration = defaultIntegrations.find(
       (candidate) => candidate.id === quickConnectIntegrationId,
@@ -449,6 +451,7 @@ export function McpIntegrationDialog({
   }, [
     defaultIntegrations,
     hasOrg,
+    mcpServersQuery.isError,
     mcpServersQuery.isSuccess,
     open,
     quickConnectIntegrationId,
@@ -456,6 +459,7 @@ export function McpIntegrationDialog({
 
   useEffect(() => {
     if (!open || !connectIntegrationId) return;
+    if (mcpServersQuery.isError) return;
     if (!mcpServersQuery.isSuccess) return;
     const integration = defaultIntegrations.find(
       (candidate) => candidate.id === connectIntegrationId,
@@ -479,6 +483,7 @@ export function McpIntegrationDialog({
     connectIntegrationId,
     defaultIntegrations,
     hasOrg,
+    mcpServersQuery.isError,
     mcpServersQuery.isSuccess,
     open,
   ]);
@@ -631,6 +636,24 @@ export function McpIntegrationDialog({
         aria-describedby={undefined}
         className="inset-0 flex h-[100dvh] max-h-none w-full max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none p-0"
       >
+        {mcpServersQuery.isError ? (
+          <div
+            role="alert"
+            className="mx-7 mt-4 shrink-0 rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs text-destructive sm:mx-10"
+          >
+            <p>{formatMcpServersLoadError(mcpServersQuery.error)}</p>
+            <button
+              type="button"
+              onClick={() => void mcpServersQuery.refetch()}
+              disabled={mcpServersQuery.isFetching}
+              className="mt-2 font-medium underline underline-offset-2 hover:text-foreground disabled:cursor-wait disabled:opacity-60"
+            >
+              {mcpServersQuery.isFetching
+                ? t("mcpIntegrations.retrying")
+                : t("mcpIntegrations.retry")}
+            </button>
+          </div>
+        ) : null}
         {mode === "choice" && selected ? (
           <>
             <DialogHeader className="sr-only">

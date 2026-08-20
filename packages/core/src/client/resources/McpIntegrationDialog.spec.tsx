@@ -18,6 +18,10 @@ const mocks = vi.hoisted(() => ({
       role: "owner",
     },
     isSuccess: true,
+    isError: false,
+    error: null as Error | null,
+    isFetching: false,
+    refetch: vi.fn().mockResolvedValue(undefined),
   },
 }));
 
@@ -39,6 +43,10 @@ describe("McpIntegrationDialog", () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     mocks.navigateToMcpOAuthStart.mockReset();
     mocks.mcpServersQuery.isSuccess = true;
+    mocks.mcpServersQuery.isError = false;
+    mocks.mcpServersQuery.error = null;
+    mocks.mcpServersQuery.isFetching = false;
+    mocks.mcpServersQuery.refetch.mockReset().mockResolvedValue(undefined);
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -261,6 +269,84 @@ describe("McpIntegrationDialog", () => {
     expect(document.body.textContent).toContain("Who should use this?");
     expect(mocks.navigateToMcpOAuthStart).not.toHaveBeenCalled();
     expect(onCreateMcpServer).not.toHaveBeenCalled();
+  });
+
+  it("surfaces a retry when scope metadata fails before direct connecting", () => {
+    const context7 = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "context7",
+    )!;
+    mocks.mcpServersQuery.isSuccess = false;
+    mocks.mcpServersQuery.isError = true;
+    mocks.mcpServersQuery.error = new Error("Scope metadata unavailable");
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <McpIntegrationDialog
+            open
+            onOpenChange={() => {}}
+            connectIntegrationId="context7"
+            defaultScope="user"
+            canCreateOrgMcp={false}
+            hasOrg={false}
+            onCreateMcpServer={vi.fn()}
+            integrations={[context7]}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(
+      document.body.querySelector('[role="alert"]')?.textContent,
+    ).toContain("Scope metadata unavailable");
+    const retry = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent === "Retry",
+    );
+    expect(retry).toBeTruthy();
+
+    act(() => retry?.click());
+
+    expect(mocks.mcpServersQuery.refetch).toHaveBeenCalledOnce();
+    expect(mocks.navigateToMcpOAuthStart).not.toHaveBeenCalled();
+  });
+
+  it("surfaces a retry when scope metadata fails before quick connecting", () => {
+    const context7 = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "context7",
+    )!;
+    mocks.mcpServersQuery.isSuccess = false;
+    mocks.mcpServersQuery.isError = true;
+    mocks.mcpServersQuery.error = new Error("Scope metadata unavailable");
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <McpIntegrationDialog
+            open
+            onOpenChange={() => {}}
+            quickConnectIntegrationId="context7"
+            defaultScope="user"
+            canCreateOrgMcp={false}
+            hasOrg={true}
+            onCreateMcpServer={vi.fn()}
+            integrations={[context7]}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(
+      document.body.querySelector('[role="alert"]')?.textContent,
+    ).toContain("Scope metadata unavailable");
+    const retry = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent === "Retry",
+    );
+    expect(retry).toBeTruthy();
+
+    act(() => retry?.click());
+
+    expect(mocks.mcpServersQuery.refetch).toHaveBeenCalledOnce();
+    expect(document.body.textContent).not.toContain("Who should use this?");
   });
 
   it("routes catalog connections through the scope choice in an organization", () => {
