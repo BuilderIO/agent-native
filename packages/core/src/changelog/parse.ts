@@ -298,6 +298,105 @@ function normalizedChangelogText(value: string): string {
     .trim();
 }
 
+type ChangelogBodyGroup = {
+  title: string;
+  body: string;
+  index: number;
+};
+
+function splitChangelogBodyGroups(body: string): {
+  prefix: string;
+  groups: ChangelogBodyGroup[];
+} {
+  const matches = [...body.matchAll(/^###\s+(.+?)\s*$/gm)];
+  if (matches.length === 0) return { prefix: body.trim(), groups: [] };
+
+  const prefix = body.slice(0, matches[0].index).trim();
+  const groups = matches.map((match, index) => {
+    const start = (match.index ?? 0) + match[0].length;
+    const end = matches[index + 1]?.index ?? body.length;
+    return {
+      title: match[1].trim(),
+      body: body.slice(start, end).trim(),
+      index,
+    };
+  });
+  return { prefix, groups };
+}
+
+function changelogBodyGroupOrder(title: string): number {
+  const normalizedTitle = title.toLowerCase();
+  const index = CHANGELOG_GROUP_ORDER.findIndex(
+    (type) => GROUP_LABELS[type].toLowerCase() === normalizedTitle,
+  );
+  return index === -1 ? CHANGELOG_GROUP_ORDER.length : index;
+}
+
+function normalizeChangelogBody(body: string): string {
+  const { prefix, groups } = splitChangelogBodyGroups(body);
+  if (groups.length < 2) return body.trim();
+
+  const uniqueGroups = new Map<string, ChangelogBodyGroup>();
+  for (const group of groups) {
+    const key = group.title.toLowerCase();
+    const current = uniqueGroups.get(key);
+    uniqueGroups.set(key, {
+      title: current?.title ?? group.title,
+      body: [current?.body, group.body].filter(Boolean).join("\n"),
+      index: current?.index ?? group.index,
+    });
+  }
+
+  const renderedGroups = [...uniqueGroups.values()]
+    .sort(
+      (a, b) =>
+        changelogBodyGroupOrder(a.title) - changelogBodyGroupOrder(b.title) ||
+        a.index - b.index,
+    )
+    .map((group) => `### ${group.title}\n\n${group.body}`);
+  return [prefix, ...renderedGroups].filter(Boolean).join("\n\n");
+}
+
+function mergeChangelogBodies(
+  pendingBody: string,
+  existingBody: string,
+): string {
+  const pending = splitChangelogBodyGroups(pendingBody);
+  const existing = splitChangelogBodyGroups(existingBody);
+  if (pending.groups.length === 0) {
+    return normalizeChangelogBody(existingBody);
+  }
+  if (existing.groups.length === 0) {
+    return [pendingBody, existingBody]
+      .map((body) => body.trim())
+      .filter(Boolean)
+      .join("\n\n");
+  }
+
+  const groups = new Map<string, ChangelogBodyGroup>();
+  for (const group of [...pending.groups, ...existing.groups]) {
+    const key = group.title.toLowerCase();
+    const current = groups.get(key);
+    groups.set(key, {
+      title: current?.title ?? group.title,
+      body: [current?.body, group.body].filter(Boolean).join("\n"),
+      index: current?.index ?? group.index,
+    });
+  }
+
+  const prefix = [pending.prefix, existing.prefix].filter(Boolean).join("\n\n");
+  return normalizeChangelogBody(
+    [
+      prefix,
+      ...[...groups.values()].map(
+        (group) => `### ${group.title}\n\n${group.body}`,
+      ),
+    ]
+      .filter(Boolean)
+      .join("\n\n"),
+  );
+}
+
 /**
  * Render an app-facing changelog that includes both released CHANGELOG.md
  * sections and adjacent folder-backed `changelog/*.md` entries. This is pure
@@ -328,7 +427,10 @@ export function mergePendingChangelog(
   });
   if (pendingWithText.length === 0) {
     const sections = existingEntries
-      .map((entry) => `## ${entry.title}\n\n${cleanChangelogBody(entry.body)}`)
+      .map(
+        (entry) =>
+          `## ${entry.title}\n\n${normalizeChangelogBody(cleanChangelogBody(entry.body))}`,
+      )
       .join("\n\n");
     return `${changelogHeader(cleanExisting)}${sections ? `\n\n${sections}` : ""}\n\n${CHANGELOG_ARCHIVE_NOTE}\n`;
   }
@@ -343,7 +445,7 @@ export function mergePendingChangelog(
   const sections = existingEntries.map((entry) => ({
     title: entry.title,
     date: entry.date,
-    body: cleanChangelogBody(entry.body),
+    body: normalizeChangelogBody(cleanChangelogBody(entry.body)),
   }));
   for (const title of [...pendingByTitle.keys()].sort(pendingSectionSort)) {
     const body = renderReleaseBody(pendingByTitle.get(title) ?? []);
@@ -354,12 +456,10 @@ export function mergePendingChangelog(
     });
 
     if (existingIndex !== -1) {
-      sections[existingIndex].body = [
+      sections[existingIndex].body = mergeChangelogBodies(
         body,
         cleanChangelogBody(sections[existingIndex].body),
-      ]
-        .filter(Boolean)
-        .join("\n\n");
+      );
       continue;
     }
 

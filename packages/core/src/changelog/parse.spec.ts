@@ -226,6 +226,39 @@ describe("mergePendingChangelog", () => {
     expect(next).toContain("A folder-only fix.");
   });
 
+  it("merges pending entries into existing release categories", () => {
+    const existing = `# Changelog
+
+## 2026-08-20
+
+### Improved
+
+- Existing overlay note.
+
+### Fixed
+
+- Existing recovery note.
+`;
+    const next = mergePendingChangelog(existing, [
+      { type: "improved", text: "New overlay note.", date: "2026-08-20" },
+      { type: "fixed", text: "New recovery note.", date: "2026-08-20" },
+    ]);
+
+    expect(next.match(/^### Improved$/gm)).toHaveLength(1);
+    expect(next.match(/^### Fixed$/gm)).toHaveLength(1);
+    expect(next).toContain("- New overlay note.");
+    expect(next).toContain("- Existing overlay note.");
+    expect(next).toContain("- New recovery note.");
+    expect(next).toContain("- Existing recovery note.");
+
+    const rerun = mergePendingChangelog(next, [
+      { type: "improved", text: "New overlay note.", date: "2026-08-20" },
+      { type: "fixed", text: "New recovery note.", date: "2026-08-20" },
+    ]);
+    expect(rerun.match(/^### Improved$/gm)).toHaveLength(1);
+    expect(rerun.match(/^### Fixed$/gm)).toHaveLength(1);
+  });
+
   it("deduplicates multiline folder entries after release rendering", () => {
     const next = mergePendingChangelog(SAMPLE, [
       {
