@@ -21,9 +21,11 @@ const koKR = {
     copyLogoSvg: "로고 SVG 복사",
     copyWordmark: "워드마크 복사",
     brandAssets: "브랜드 자료",
+    tryNow: "지금 사용해보기",
   },
   footer: {
     download: "다운로드",
+    pricing: "요금",
     brand: "브랜드",
     privacy: "개인정보",
     terms: "약관",
@@ -423,6 +425,7 @@ const koKR = {
     viewDocs: "문서 보기",
     source: "소스",
     readDocs: "문서 읽기",
+    signIn: "로그인",
   },
   templatesPage: {
     title: "귀하가 소유한 오픈 소스 에이전트 기반 앱",
@@ -517,12 +520,6 @@ const koKR = {
       description:
         "에이전트 기반 양식 작성기. 프롬프트에서 양식을 생성하고, 필드를 시각적으로 또는 대화식으로 편집하고, 제출물을 Slack, Discord, Google Sheets 또는 웹훅으로 보냅니다.",
     },
-    brain: {
-      replaces:
-        "팀 위키, Glean 스타일 회상 및 제도적 기억 도구를 대체하거나 강화합니다.",
-      description:
-        "검토 게이트, 평가 및 공유 연결 준비 기능이 내장되어 승인된 Slack, Clips, Granola, GitHub 및 성적표 소스의 인용 메모리에 대한 전체 페이지 회사 채팅입니다.",
-    },
     assets: {
       replaces:
         "DAMs, 브랜드 자산 라이브러리 및 AI 미디어 생성기를 대체하거나 강화합니다.",
@@ -546,6 +543,10 @@ const koKR = {
     },
   },
   templateLanding: {
+    faq: {
+      eyebrow: "자주 묻는 질문",
+      title: "자주 묻는 질문에 답해드립니다",
+    },
     analytics: {
       s001: "Analytics 템플릿 스크린샷",
       s002: "데이터 커넥터",
@@ -553,7 +554,8 @@ const koKR = {
       s004: "쿼리 탐색기",
       s005: "자연어",
       s006: "모든 템플릿",
-      s007: "Amplitude 및 FullStory에 대한 오픈 소스 대안",
+      s007Primary: "Amplitude 및 FullStory에 대한",
+      s007Secondary: "오픈 소스 대안",
       s008: "모든 데이터 소스를 연결하고, 차트에 대한 메시지를 표시하고, 재사용 가능한 대시보드를 구축하세요. AI 에이전트는 SQL을 작성합니다.",
       s009: "사용해 보기",
       s010: "당신이 할 수 있는 일",
@@ -611,6 +613,23 @@ const koKR = {
       s062: "템플릿에서 시작하고, 데이터를 연결하고, 대시보드 구축을 시작하세요.",
       s063: "문서 읽기",
       s064: "모든 템플릿 보기",
+      faq: {
+        question1: "분석에 관한 질문을 자연어로 물어볼 수 있나요?",
+        answer1:
+          "네. 질문하면 에이전트가 SQL을 작성해 BigQuery에서 실행하고 차트를 만듭니다. 쿼리에는 기록, 행 수, 공유 가능한 URL이 보관됩니다.",
+        question2: "Analytics는 Amplitude나 Mixpanel과 어떻게 다른가요?",
+        answer2:
+          "Amplitude와 Mixpanel은 좌석과 이벤트 단위로 요금을 부과하며 UI도 각 서비스의 방식으로 고정됩니다. Analytics는 무료 오픈 소스이며, 에이전트가 요청에 따라 새 차트와 커넥터를 앱 자체에 추가할 수 있습니다.",
+        question3: "어떤 데이터 소스를 연결할 수 있나요?",
+        answer3:
+          "HubSpot, Stripe, GitHub, Jira, Sentry, Slack, Gong, Notion, Google Cloud 등 10개 이상의 커넥터가 내장되어 있습니다. 필요한 커넥터가 없다면 에이전트가 만들 수 있습니다.",
+        question4: "SQL을 알아야 하나요?",
+        answer4:
+          "아니요. 자연어가 인터페이스입니다. 다만 필요할 때는 SQL 탐색기에서 BigQuery에 직접 접근하고 전체 쿼리 기록을 확인할 수 있습니다.",
+        question5: "Analytics는 무료인가요?",
+        answer5:
+          "네. 무료 오픈 소스이며 이벤트 단위 요금이 없습니다. 데이터는 자체 데이터 웨어하우스에 그대로 보관됩니다.",
+      },
     },
     calendar: {
       s001: "Calendar 템플릿 스크린샷",
@@ -618,7 +637,8 @@ const koKR = {
       s003: "에이전트 작업",
       s004: "예약 링크 유형",
       s005: "모든 템플릿",
-      s006: "오픈 소스 Google Calendar 및 Calendly 대안",
+      s006Primary: "오픈 소스",
+      s006Secondary: "Google Calendar 및 Calendly 대안",
       s007: "다중 계정 Google Calendar 동기화, 구성 가능한 가용성 및 사용자 정의 가능한 Calendly 스타일 예약 링크 — 귀하를 대신하여 예약하는 AI 에이전트.",
       s008: "사용해 보기",
       s009: "로그인하면 기본 Google ID만 사용되지만 Calendar 동기화를 연결하면 캘린더 액세스가 필요합니다. 일부 Workspace 관리자는 호스팅된 데모에 대한 승인이 필요할 수 있습니다. 자신의 Google OAuth 클라이언트를 사용하려면 로컬에서 실행하세요.",
@@ -671,6 +691,35 @@ const koKR = {
       s056: "모든 템플릿 보기",
       s057: "호스팅 데모 참고",
       s058: "양방향 동기화",
+      faq: {
+        question1: "AI가 회의 일정을 잡아줄 수 있나요?",
+        answer1:
+          "네. 에이전트에게 시간 찾기, 일정 만들기, 가용 시간 확인, 일정 변경을 요청할 수 있습니다. 실제 캘린더 안에서 작동하며 기존 일정도 고려합니다.",
+        question2: "Calendar는 Calendly 같은 예약 링크를 제공하나요?",
+        answer2:
+          "네. 예약 유형별 가용 시간, 방문자 정보 수집, 확인 알림, 사용자 지정 도메인을 지원하는 예약 페이지를 만들 수 있습니다.",
+        question3: "Google Calendar와 동기화되나요?",
+        answer3:
+          "네. OAuth로 동기화하며 여러 계정과 자동 토큰 갱신을 지원합니다. Google에서 일정을 직접 만들고, 수정하고, 삭제할 수 있습니다.",
+        question4: "Calendar는 무료인가요?",
+        answer4: "네. 예약 페이지까지 포함해 무료 오픈 소스입니다.",
+      },
+    },
+    assets: {
+      faq: {
+        question1: "AI가 브랜드에 맞는 이미지를 생성할 수 있나요?",
+        answer1:
+          "네. 일반 모델의 취향이 아니라 업로드한 브랜드 라이브러리와 참고 자료를 기반으로 생성합니다. 에이전트가 실제로 읽은 규칙에 따라 브랜드에 맞는 이미지와 동영상을 만듭니다.",
+        question2: "Assets는 DAM과 어떻게 다른가요?",
+        answer2:
+          "DAM은 승인된 파일을 저장해 사람이 검색할 수 있게 합니다. Assets는 여기에 더해 브랜드를 기계가 읽을 수 있게 하므로, 에이전트가 기본적으로 브랜드에 맞는 미디어를 생성하고 선택할 수 있습니다.",
+        question3: "다른 앱에서도 사용할 수 있나요?",
+        answer3:
+          "네. 모든 Agent-Native 앱이 A2A로 Assets를 호출하거나 선택 도구로 삽입할 수 있습니다. Slides와 Design 같은 앱도 동일한 승인 라이브러리를 사용합니다.",
+        question4: "Assets는 무료인가요?",
+        answer4:
+          "네. 무료 오픈 소스입니다. `npx @agent-native/core@latest create my-assets-app --template assets`를 실행하면 내 앱으로 사용할 수 있습니다.",
+      },
     },
     clips: {
       s001: "Clips 템플릿 스크린샷",
@@ -724,17 +773,32 @@ const koKR = {
       s049: "데이터 소유권",
       s050: "공급업체의 스토리지",
       s051: "공급업체의 클라우드",
-      s052: "당신은 코드를 소유하고 있습니다",
+      s052: "데이터뿐만 아니라 앱 코드 자체도 직접 소유합니다.",
       s053: "가격",
       s054: "사용자당 월 $15-30",
       s055: "무료 + 유료 등급",
       s056: "사용자당 월 $18-25",
       s057: "사용자당 월 $12-15",
       s058: "무료 및 오픈 소스",
-      s059: "몇 분 안에 시작하세요",
-      s060: "템플릿에서 시작하고 스토리지를 연결한 후 팀이 실제로 소유한 클립 녹화를 시작하세요.",
-      s061: "문서 읽기",
+      s059: "지금 시작하기",
+      s060: "캡처할 항목을 선택한 다음 Clips에서 녹화를 시작하세요.",
+      s061: "더 많은 앱 보기",
       s062: "모든 템플릿 보기",
+      quickStart: {
+        recordingMode: "녹화 모드",
+        modeScreenCamera: "화면 + 카메라",
+        modeScreenOnly: "화면만",
+        modeCameraOnly: "카메라만",
+        captureSource: "캡처 소스",
+        surfaceWindow: "창",
+        surfaceBrowser: "브라우저 탭",
+        surfaceScreen: "화면",
+        audioSource: "오디오 소스",
+        defaultMicrophone: "기본 마이크",
+        startRecording: "녹화 시작",
+        uploadVideo: "동영상 업로드",
+        importLoom: "Loom에서 가져오기",
+      },
     },
     content: {
       s001: "Content 템플릿 스크린샷",
@@ -799,6 +863,24 @@ const koKR = {
       s060: "MDX 문서를 가져와 대화형 블록을 생성하고 AI로 글쓰기를 시작하세요.",
       s061: "문서 읽기",
       s062: "모든 템플릿 보기",
+      faq: {
+        question1:
+          "내보내기나 API 없이도 AI 에이전트가 문서를 편집할 수 있나요?",
+        answer1:
+          "네. Content는 저장소에 있는 것과 동일한 로컬 Markdown/MDX 파일을 다룹니다. 에이전트가 이미 디스크의 파일에 접근할 수 있으므로 API, 동기화, 내보내기 단계가 필요 없습니다.",
+        question2: "Content는 Notion이나 Obsidian과 어떻게 다른가요?",
+        answer2:
+          "Notion은 문서를 자체 데이터베이스에 보관하고 API 뒤에 둡니다. Content는 Obsidian 같은 로컬 파일에 리치 편집기와 사용자의 문체로 초안 작성, 재작성, 게시를 수행하는 에이전트를 더했습니다.",
+        question3: "AI가 제 문체로 글을 쓸 수 있나요?",
+        answer3:
+          "네. 에이전트가 사용자의 표현 방식, 스타일 가이드, 어조를 학습하므로 초안도 사용자답게 들립니다. 어떤 선택 영역이든 재작성, 확장, 요약하거나 어조를 바꿀 수 있습니다.",
+        question4: "내 CMS에 게시할 수 있나요?",
+        answer4:
+          "네. 스크립트로 모든 헤드리스 CMS에 연결할 수 있습니다. WordPress, Contentful, Builder를 지원하고 Notion은 양방향으로 동기화되며, 에이전트가 게시 스크립트를 자율적으로 실행합니다.",
+        question5: "Content는 무료인가요?",
+        answer5:
+          "네. 무료 오픈 소스입니다. 문서는 일반 로컬 파일이므로 나중에 사용을 중단해도 따로 내보낼 것이 없습니다.",
+      },
     },
     design: {
       s001: "Design 템플릿 스크린샷",
@@ -808,7 +890,7 @@ const koKR = {
       s005: "모든 템플릿",
       s006: "오픈 소스 AI HTML 프로토타이핑 스튜디오",
       s007: "프롬프트에서 대화형 Alpine/Tailwind 프로토타입을 생성하고, 변형을 비교하고, 조정 컨트롤을 사용하여 개선하고, 소유한 실제 파일을 내보냅니다.",
-      s008: "사용해 보기",
+      s008: "무언가 디자인하기",
       s009: "작동 원리",
       s010: "필요한 모든 것",
       s011: "소스를 작성하고 다듬는 에이전트가 있는 프로토타입 스튜디오입니다.",
@@ -861,6 +943,23 @@ const koKR = {
       s058: "템플릿에서 시작하고 소스를 편집하는 에이전트를 사용하여 대화형 프로토타입 생성을 시작합니다.",
       s059: "문서 읽기",
       s060: "모든 템플릿 보기",
+      faq: {
+        question1: "AI가 모형이 아니라 실제 코드로 디자인을 생성할 수 있나요?",
+        answer1:
+          "네. Design은 Tailwind 스타일과 Alpine 상호작용을 갖춘 완전한 독립형 HTML을 출력합니다. 프로토타입 자체가 구현이므로 인계 후 다시 만들 필요가 없습니다.",
+        question2: "Design은 Figma와 어떻게 다른가요?",
+        answer2:
+          "Figma는 픽셀 수준에서 작업하는 디자인 팀을 위한 도구이며, 결과 화면은 누군가 다시 구현해야 합니다. Design은 프롬프트로 시작해 바로 출시하거나 계속 개선할 수 있는 HTML/CSS/JS로 끝납니다.",
+        question3: "우리 디자인 시스템을 따를 수 있나요?",
+        answer3:
+          "네. 재사용 가능한 디자인 시스템 기본 설정을 저장하고 일반 변수를 시각적으로 조정할 수 있습니다. 구조와 문구 변경은 에이전트에게 '더 따뜻한 팔레트로', '제목을 더 굵게'처럼 요청하면 됩니다.",
+        question4: "내보내면 무엇을 받나요?",
+        answer4:
+          "실제 결과물을 받습니다. 완전한 HTML/CSS/JS를 파일, ZIP, PDF로 내보낼 수 있습니다. 독립형이며 독점 형식이 아니므로 어디에나 출시할 수 있습니다.",
+        question5: "Design은 무료인가요?",
+        answer5:
+          "네. 무료 오픈 소스입니다. 좌석별 월 요금이나 크레딧 사용량을 부과하는 디자인 도구와 다릅니다.",
+      },
     },
     dispatch: {
       s001: "Dispatch 템플릿 스크린샷",
@@ -917,6 +1016,27 @@ const koKR = {
       s052: "템플릿에서 시작하고 Slack 또는 Telegram을 연결하고 에이전트를 모든 대화에 참여시키세요.",
       s053: "문서 읽기",
       s054: "모든 템플릿 보기",
+      faq: {
+        question1:
+          "여러 AI 에이전트를 일일이 지켜보지 않고 실행하려면 어떻게 하나요?",
+        answer1:
+          "Dispatch가 본부 역할을 합니다. Slack이나 Telegram에서 메시지를 보내면 A2A로 Mail, Slides, Design 같은 다른 에이전트에 작업을 전달하고 승인과 일정도 한곳에서 관리합니다.",
+        question2: "Slack에서 에이전트와 대화할 수 있나요?",
+        answer2:
+          "네. Slack과 Telegram에서 스레드 맥락과 인라인 승인을 포함한 양방향 메시지를 지원합니다. 에이전트의 결과는 같은 대화로 돌아옵니다.",
+        question3: "에이전트가 일정에 따라 작업할 수 있나요?",
+        answer3:
+          "네. 일일 스탠드업, 주간 요약, 매시간 확인 같은 cron 기반 작업을 실행할 수 있습니다. 결과는 따로 기억해서 열어야 하는 대시보드가 아니라 메신저로 전달됩니다.",
+        question4: "이전 대화를 기억하나요?",
+        answer4:
+          "네. 모든 대화에서 학습 내용을 자동으로 수집하고 사용자별, 조직별, 전역 범위로 설정할 수 있습니다. 메모리는 블랙박스가 아니라 확인하고 편집할 수 있습니다.",
+        question5: "에이전트가 혼자 행동하지 않게 하려면 어떻게 하나요?",
+        answer5:
+          "승인 워크플로가 내장되어 있습니다. 이메일 보내기, 업데이트 게시, 자동화 실행 같은 민감한 작업은 Slack의 원탭 승인을 기다립니다. 어떤 작업에 승인이 필요한지 직접 설정할 수 있습니다.",
+        question6: "Dispatch는 무료인가요?",
+        answer6:
+          "네. 무료 오픈 소스입니다. 좌석별로 월 요금을 부과하는 에이전트 플랫폼과 다릅니다.",
+      },
     },
     forms: {
       s001: "Forms 템플릿 스크린샷",
@@ -924,7 +1044,8 @@ const koKR = {
       s003: "생성",
       s004: "경로",
       s005: "모든 템플릿",
-      s006: "Typeform 및 Google Forms에 대한 오픈 소스 AI 대안",
+      s006Primary: "Typeform 및 Google Forms에 대한",
+      s006Secondary: "오픈 소스 AI 대안",
       s007: "프롬프트에서 전체 양식을 생성하고, 필드를 대화식으로 구체화하고, 제출물을 Slack, Discord, Google Sheets 또는 웹훅으로 라우팅하세요. 데이터와 워크플로를 소유하세요. 응답당 비용이 없습니다.",
       s008: "사용해 보기",
       s009: "작동 원리",
@@ -978,6 +1099,23 @@ const koKR = {
       s057: "템플릿에서 시작하고 완전히 소유한 제출물 수집을 시작하세요.",
       s058: "문서 읽기",
       s059: "모든 템플릿 보기",
+      faq: {
+        question1: "AI가 양식을 만들어줄 수 있나요?",
+        answer1:
+          "네. 필요한 내용을 설명하면 전체 양식이 만들어집니다. '필수 경험 수준 드롭다운 추가'처럼 대화로 다듬거나, 실시간 미리보기와 실행 취소 기능이 있는 시각적 편집기에서 필드를 옮길 수 있습니다.",
+        question2: "누군가 양식을 제출하면 어떻게 되나요?",
+        answer2:
+          "제출 내용은 구조화된 형태로 자체 SQL 데이터베이스에 저장되고, 도착 즉시 Slack, Discord, Google Sheets 또는 Webhook으로 전달됩니다. 아무도 열지 않는 내보내기 파일이 아니라 에이전트가 조치할 수 있는 곳에 도착합니다.",
+        question3: "Forms는 Typeform과 어떻게 다른가요?",
+        answer3:
+          "Typeform은 양식을 작성하는 경험을 다듬는 데 집중합니다. Forms는 제출 이후에 집중합니다. 응답은 자체 데이터베이스에 저장되어 도구로 전달되고, 응답별 요금이 없으며, 양식 자체도 프롬프트로 계속 개선할 수 있습니다.",
+        question4: "Forms는 무료인가요? 응답 수 제한이 있나요?",
+        answer4:
+          "무료 오픈 소스이며 응답별 요금이나 한도가 없습니다. 데이터가 자체 데이터베이스에 있으므로 한도는 해당 데이터베이스에 따라 결정됩니다.",
+        question5: "내 웹사이트에 양식을 넣을 수 있나요?",
+        answer5:
+          "네. 어떤 웹사이트에도 삽입하거나 사용자 지정 도메인에서 호스팅할 수 있습니다. 각 양식에는 SEO에 적합한 공개 URL도 제공됩니다.",
+      },
     },
     mail: {
       s001: "Mail 템플릿 스크린샷",
@@ -986,7 +1124,8 @@ const koKR = {
       s004: "조회수",
       s005: "맞춤형",
       s006: "모든 템플릿",
-      s007: "Superhuman 및 Gmail에 대한 오픈 소스 대안",
+      s007Primary: "Superhuman 및 Gmail에 대한",
+      s007Secondary: "오픈 소스 대안",
       s008: "사용해 보기",
       s009: "호스팅된 데모는 Gmail 액세스를 위해 Agent-Native의 공유 Google 앱을 사용하므로 Google은 계속하기 전에 확인을 요청할 수 있습니다. 자신의 Google OAuth 클라이언트를 사용하려면 로컬에서 실행하세요.",
       s010: "당신이 할 수 있는 일",
@@ -1040,6 +1179,21 @@ const koKR = {
       s058: "문서 읽기",
       s059: "모든 템플릿 보기",
       s060: "호스팅 데모 참고",
+      faq: {
+        question1: "AI가 받은편지함을 정리해줄 수 있나요?",
+        answer1:
+          "네. 에이전트가 받은편지함을 읽고 우선순위를 보여주며, 라벨 지정과 분류, 답장 초안 작성, 자동 보관 규칙 설정을 수행합니다. 읽지 않은 메일을 요약하고 할 일도 추려냅니다.",
+        question2: "Mail은 Superhuman과 어떻게 다른가요?",
+        answer2:
+          "키보드 중심의 속도는 기본입니다. 작성, 보관, 답장을 모두 단축키로 처리할 수 있습니다. 차이는 받은편지함을 실제로 처리하는 에이전트, 구독료가 없다는 점, 그리고 사용자가 소유하는 코드입니다.",
+        question3: "Mail은 Gmail과 연동되나요?",
+        answer3: "네. Gmail과 연동되며 여러 계정을 지원합니다.",
+        question4: "이메일은 안전하게 보호되나요?",
+        answer4:
+          "Mail은 오픈 소스이며 로컬에서 실행되므로 이메일이 자체 인프라에 남습니다. 이메일을 처리하는 모든 코드도 직접 확인할 수 있습니다.",
+        question5: "Mail은 무료인가요?",
+        answer5: "네. 무료 오픈 소스이며 구독료도, 공급업체 종속도 없습니다.",
+      },
     },
     plan: {
       s001: "계획 템플릿 스크린샷",
@@ -1056,7 +1210,8 @@ const koKR = {
       s012: "에이전트 반복",
       s013: "The agent reads your comments and updates the plan in-place. 차이점은 변경된 내용과 이유를 정확하게 보여줍니다.",
       s014: "모든 템플릿",
-      s015: "Codex, Claude Code 및 코딩 에이전트에 대한 시각적 계획",
+      s015Primary: "Codex,",
+      s015Secondary: "Claude Code 및 코딩 에이전트에 대한 시각적 계획",
       s016: "Install in one command. 에이전트는 터미널에 마크다운 벽을 버리는 대신 와이어프레임, 다이어그램, 주석이 달린 코드 및 공유 가능한 검토 링크가 포함된 구조화된 계획을 엽니다.",
       s017: "사용해 보기",
       s018: "상담원이 할 수 있는 일",
@@ -1116,6 +1271,27 @@ const koKR = {
       s072: "// 예시 계획 블록",
       s073: "ChatGPT Canvas 및 Notion",
       s074: "해당 없음",
+      faq: {
+        question1:
+          "AI 코딩 에이전트가 코드를 작성하기 전에 계획을 검토할 수 있나요?",
+        answer1:
+          "네. Plans는 에이전트의 의도를 와이어프레임, 다이어그램, 주석이 달린 코드로 바꾸고 공유 가능한 URL을 만듭니다. 팀이 의견을 남기고 에이전트가 수정한 뒤에 코드를 작성합니다. 검토는 코드가 생긴 후가 아니라 생기기 전에 이루어집니다.",
+        question2: "Plans는 Claude Code, Codex, Cursor와 연동되나요?",
+        answer2:
+          "네. GitHub Copilot, OpenCode 등 다른 코딩 에이전트도 지원합니다. `npx @agent-native/core@latest skills add visual-plan` 명령 하나로 스킬을 추가할 수 있으며 별도 앱을 배포할 필요가 없습니다.",
+        question3: "저뿐 아니라 팀 전체가 계획을 검토할 수 있나요?",
+        answer3:
+          "모든 계획에 댓글 기능이 포함된 공개 URL이 제공됩니다. 팀원은 터미널 없이 와이어프레임과 주석이 달린 차이를 비동기로 검토할 수 있고, 에이전트가 피드백을 읽어 계획을 수정합니다.",
+        question4: "Claude Code의 plan mode와는 어떻게 다른가요?",
+        answer4:
+          "plan mode는 터미널의 텍스트로, 한 사람만 볼 수 있고 승인하면 사라집니다. Plans는 와이어프레임, 다이어그램, 주석이 달린 차이를 포함한 시각적 계획입니다. 공유하고 계속 보관할 수 있으며, 에이전트가 기능의 전체 수명 주기 동안 만들고 읽고 업데이트할 수 있습니다.",
+        question5: "코드 옆에서 계획을 볼 수 있나요?",
+        answer5:
+          "네. VS Code 확장 프로그램이 계획을 사이드 패널에서 열고, Agent Native Desktop은 호스팅된 계획을 로컬 MDX 파일로 미러링합니다.",
+        question6: "Plans는 무료인가요?",
+        answer6:
+          "네. 무료 오픈 소스이며 MIT 라이선스입니다. Plans는 호스팅된 공유 링크를 제공하고, 모든 내용을 로컬 파일로 미러링할 수도 있습니다.",
+      },
     },
     slides: {
       s001: "Slides 템플릿 스크린샷",
@@ -1123,18 +1299,19 @@ const koKR = {
       s003: "생성",
       s004: "구체화",
       s005: "모든 템플릿",
-      s006: "PowerPoint 및 Canva를 대체하는 오픈 소스 AI",
-      s007: "프롬프트에서 전체 데크를 생성한 다음 대화식으로 다듬거나 시각적으로 편집하세요.",
+      s006Primary: "사람과 에이전트를 위한",
+      s006Secondary: "슬라이드 프레젠테이션",
+      s007: "AI 에이전트로 브랜드에 맞는 슬라이드 덱을 생성하고, 언제든 직접 수정한 뒤 어디로든 내보내세요.",
       s008: "사용해 보기",
       s009: "작동 원리",
       s010: "필요한 모든 것",
       s011: "AI이 내장된 완전한 프레젠테이션 스튜디오입니다.",
-      s012: "8개의 슬라이드 레이아웃",
-      s013: "제목, 섹션, 내용, 2열, 이미지, 설명, 풀 블리드, 공백.",
+      s012: "미리 제작된 슬라이드 레이아웃",
+      s013: "기본 제공되는 슬라이드 템플릿을 사용하세요. 직접 슬라이드 템플릿을 만들어 나중에 다시 사용할 수도 있습니다.",
       s014: "비주얼 + 코드 편집",
       s015: "스타일을 편집하려면 클릭하고, 텍스트를 보려면 두 번 클릭하세요. 모든 권한을 얻으려면 원시 HTML로 전환하세요.",
-      s016: "AI 이미지 생성",
-      s017: "Gemini로 이미지를 생성하세요. 브랜드 일관성을 위한 스타일 참조. 선택할 수 있는 3가지 변형.",
+      s016: "매딠없는 이미지 생성",
+      s017: "스타일과 브랜드 가이드라인을 참조하세요. Gemini AI가 생성한 옵션 중에서 골라보세요.",
       s018: "로고 및 이미지 검색",
       s019: "Logo.dev 또는 Brandfetch를 통해 회사 로고를 검색하세요. Google 스톡 사진용 이미지.",
       s020: "드래그 앤 드롭 재정렬",
@@ -1172,10 +1349,114 @@ const koKR = {
       s052: "무료 / 좌석별",
       s053: "구독",
       s054: "무료 및 오픈 소스",
-      s055: "몇 분 안에 시작하세요",
-      s056: "템플릿에서 시작하고 AI을 사용하여 프레젠테이션 만들기를 시작하세요.",
+      s055: "지금 슬라이드 덱 만들기",
+      s056: "디자인 취향과 프롬프트를 선택해 시작하세요. 언제나 무료입니다.",
       s057: "문서 읽기",
       s058: "모든 템플릿 보기",
+      faq: {
+        question1: "Claude나 ChatGPT에서 프레젠테이션을 만들 수 있나요?",
+        answer1:
+          "네. Claude나 ChatGPT에 덱을 요청하면 브랜드에 맞고 편집과 내보내기가 가능한 상태로 Slides에 들어옵니다. 별도의 덱 제작 사이트에서 처음부터 다시 만들 필요가 없습니다.",
+        question2: "AI가 잘못 만든 부분을 고칠 수 있나요?",
+        answer2:
+          "세 가지 방법이 있습니다. 프롬프트로 수정하거나, 직접 수정하거나(요소는 클릭, 텍스트는 더블클릭), 코드에서 수정할 수 있습니다. 다시 생성한 뒤 운에 맡기는 상황에 갇히지 않습니다.",
+        question3: "덱은 어떻게 브랜드를 일관되게 유지하나요?",
+        answer3:
+          "마음에 드는 덱에 별표를 표시하세요. 모든 새 덱이 레이아웃, 제목, 시각적 스타일, 브랜드 토큰을 이어받습니다. 일회성 생성기는 덱 하나를 만들지만, 여기서는 지속해서 재사용할 수 있는 덱 제작 체계를 만듭니다.",
+        question4: "Slides는 Gamma와 어떻게 다른가요?",
+        answer4:
+          "Gamma는 괜찮은 덱을 한 번에 빠르게 만들지만, 그 뒤에는 해당 캔버스와 구독 안에서 85%만 맞는 결과를 계속 다시 생성하게 됩니다. Slides는 무료 오픈 소스이고 브랜드를 이어받으며 무엇이든 편집할 수 있습니다.",
+        question5: "Slides는 무료인가요?",
+        answer5:
+          "네. 무료 오픈 소스이며 구독료, 크레딧 사용량, 덱별 요금이 없습니다.",
+      },
+      howItWorksDescribe:
+        "주제, 대상, 어조를 설명하세요. 참고용 슬라이드 덱을 첨부하세요. UI 또는 자체 AI 워크플로에서 시작하세요.",
+      signInIntegration:
+        "로그인하면 웹훅, MCP 또는 A2A 통합을 통해 Slides에 액세스할 수 있습니다.",
+      signIn: "로그인",
+      tryNow: {
+        step: "{{total}}단계 중 {{current}}단계",
+        q1: "어떤 종류의 슬라이드 덱이 필요하세요?",
+        q1Pitch: "투자자 피치 덱",
+        q1Sales: "고객 영업 프레젠테이션",
+        q1Talk: "강연 또는 수업용 자료",
+        q1Other: "기타",
+        q1OtherPlaceholder: "어떤 종류의 덱인지 설명해 주세요",
+        q2Pitch: "어떤 회사이고 얼마를 유치하나요?",
+        q2Sales: "무엇을 누구에게 판매하나요?",
+        q2Talk: "강연 주제와 청중은 누구인가요?",
+        q2Other: "덱에 어떤 내용을 담아야 하나요?",
+        q2Detail: "메모를 입력하거나 웹사이트 URL만 알려주세요",
+        q2Placeholder: "메모 또는 https://example.com",
+        q3: "참고할 스타일을 알려주세요",
+        q3Detail: "맞추고 싶은 웹사이트를 붙여넣거나 분위기를 선택하세요",
+        q3Placeholder: "https://example.com",
+        q3VibeToggle: "웹사이트가 없나요? 분위기를 선택하세요",
+        q3VibeMinimal: "미니멀하고 에디토리얼한",
+        q3VibeBold: "과감하고 고대비의",
+        q3VibeWarm: "따뜻하고 인간적인",
+        q3VibeTechnical: "기술적이고 데이터 중심의",
+        answerAction: "프롬프트에 추가",
+        composerLabel: "내 프롬프트",
+        composerPlaceholder: "원하는 덱을 설명하거나 위의 질문에 답해 주세요.",
+        submit: "덱 생성하기",
+        readyHint: "프롬프트가 준비되었습니다. 에이전트에게 보내세요.",
+        promptDeck: "{{deck}}을(를) 만들어 주세요.",
+        promptSubject: "다음 내용을 다뤄야 합니다: {{subject}}",
+        promptStyleSite: "{{style}}의 룩 앤 필을 맞춰 주세요.",
+        promptStyleVibe: "스타일: {{style}}.",
+        promptClose:
+          "발표자 노트를 포함해 전체 덱을 작성한 다음 개요를 설명해 주세요.",
+        deckPitch: "투자자 피치 덱",
+        deckSales: "고객 영업 프레젠테이션",
+        deckTalk: "강연용 보조 덱",
+        designReference: "디자인 참고 자료",
+        websiteUrl: "웹사이트 URL",
+        websiteUrlPlaceholder: "https://example.com",
+        crawlWebsite: "웹사이트 살펴보기",
+        crawlError:
+          "이 사이트를 살펴볼 수 없습니다. 자동 접근을 차단하고 있을 수 있습니다. 다른 URL을 사용하거나 디자인 참고 자료를 업로드해 주세요.",
+        or: "또는",
+        uploadDesignReference: "디자인 참고 자료 업로드",
+        importDesignSystem: "디자인 시스템 가져오기",
+        loginDesignSystems: "로그인하여 디자인 시스템을 관리하세요.",
+        promptCreatePrefix: "다음 유형의",
+        deckTypeLabel: "덱 유형",
+        deckCapitalRaise: "자금 조달",
+        deckOfferingMemorandum: "오퍼링 메모랜덤",
+        deckB2bSales: "B2B 영업 피치",
+        deckTeamMeeting: "팀 회의 안건",
+        deckLiveTalk: "라이브 강연 보조",
+        promptDeckFor: "덱을 만들어 주세요. 주제:",
+        promptTextShouldBe: "텍스트는",
+        textAmountLabel: "텍스트 분량",
+        textMinimal: "최소한으로",
+        textBrief: "간결하게",
+        textThorough: "상세하게",
+        findingTitle: "제목",
+        findingDescription: "설명",
+        findingColors: "색상",
+        findingFonts: "글꼴",
+        findingPrimaryColor: "기본 색상",
+        findingAccentColor: "강조 색상",
+        findingHeadingFont: "제목 글꼴",
+        findingBodyFont: "본문 글꼴",
+        styleGuidePrefix: "다음 사이트를 위한 스타일 가이드:",
+      },
+    },
+    chat: {
+      faq: {
+        question1: "Chat 템플릿이란 무엇인가요?",
+        answer1:
+          "자체 에이전트를 위한 최소한의 ChatGPT 스타일 기반입니다. 지속되는 스레드, 인증, actions, 실시간 동기화, 표준 사이드바를 제공하며 화면을 추가하거나 자체 백엔드를 연결하기 좋은 구조입니다.",
+        question2: "ChatGPT와는 어떻게 다른가요?",
+        answer2:
+          "ChatGPT는 OpenAI가 자사 모델을 중심으로 만든 앱입니다. 이 템플릿은 사용자의 것입니다. 자체 에이전트 백엔드, 데이터, 화면을 사용하며, 빌려 쓰는 제품이 아니라 직접 확장하는 출발점입니다.",
+        question3: "바로 프로덕션에 사용할 수 있나요?",
+        answer3:
+          "의도적으로 최소화한 기반으로, 완제품이 아니라 채팅 앱의 현실적인 출발점입니다. 완성된 제품이 필요하다면 다른 앱 중 하나에서 시작하세요.",
+      },
     },
   },
   skillsPage: {
@@ -1230,17 +1511,19 @@ const koKR = {
     body: "모든 agent-native 앱을 하나의 데스크톱 셸에서 사용하세요. 프로덕션 앱이 내장되어 있고 로컬 개발용 dev 모드 토글이 있습니다.",
     openDesktop: "Agent Native 열기",
     downloadInstaller: "설치 프로그램 다운로드",
-    viewInstallers: "설치 프로그램 보기",
-    viewInstallersOnGithub: "GitHub에서 설치 프로그램 보기",
-    latestRelease: "Latest desktop release: {{version}}",
-    loadError:
-      "최신 데스크톱 릴리스를 불러올 수 없습니다. releases 페이지에 모든 설치 프로그램이 있습니다.",
+    downloadStarted: "다운로드가 시작되었습니다",
+    downloadAgain: "작동하지 않았나요? 다시 다운로드해 보세요",
+    loadError: "최신 데스크톱 설치 프로그램을 불러올 수 없습니다.",
     checkingRelease: "최신 데스크톱 릴리스를 확인하는 중...",
-    nightlyBuilds: "Nightly 빌드를 찾고 계신가요?",
+    retry: "다시 시도",
+    unavailable: "이 플랫폼에서는 설치 프로그램을 사용할 수 없습니다",
+    stable: "안정",
+    nightly: "Nightly",
+    switchToNightly: "Nightly 빌드로 전환",
+    switchToStable: "안정 빌드로 전환",
     runFromSource: "또는 소스에서 실행",
     runFromSourceBody:
       "아직 해당 플랫폼용 설치 프로그램이 없거나 CLI를 선호하시나요? npm으로 새 앱을 스캐폴드하고 로컬에서 실행하세요. macOS, Windows, Linux에서 작동합니다.",
-    viewAllReleases: "GitHub에서 모든 releases 보기",
     platforms: {
       mac: {
         primary: "Apple Silicon용 다운로드",
@@ -1546,6 +1829,8 @@ const koKR = {
     fileUploads: "파일 업로드",
     deployment: "배포",
     deploymentOverview: "개요",
+    deploymentProviders: "프로바이더",
+    deploymentProduction: "프로덕션 및 고급",
     deployAnApp: "앱 배포",
     workspaceDeployment: "워크스페이스 배포",
     deploymentNodeDocker: "Node.js",
@@ -1671,12 +1956,6 @@ const koKR = {
     clipsAiAndEditing: "AI 및 편집",
     clipsSharingAndTeams: "공유 및 팀",
     clipsDevelopers: "개발자 가이드",
-    brain: "Brain",
-    brainOverview: "개요",
-    brainSources: "소스 연결",
-    brainKnowledge: "질문 및 인용",
-    brainAgent: "Agent와 대화",
-    brainDevelopers: "개발자 가이드",
     assets: "자산",
     assetsOverview: "개요",
     assetsGeneration: "생성 및 정제",

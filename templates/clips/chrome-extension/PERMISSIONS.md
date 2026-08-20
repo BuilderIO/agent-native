@@ -1,41 +1,45 @@
 # Permissions model
 
-This extension ships **activeTab-only for recording overlays**: it deliberately
-does **not** request the broad `<all_urls>` host permission for recording UI.
+This extension ships **cross-tab follow for recording overlays**: it declares
+the broad `<all_urls>` host permission and a matching declarative content script
+so the camera bubble and controls can survive tab switches and navigations.
 
 ## Why
 
 A declarative content script on `<all_urls>` (and the matching `<all_urls>` host
 permission) triggers Chrome Web Store's **broad host permission in-depth review**,
-which significantly delays publishing and updates. We avoid that.
+which significantly delays publishing and updates. We take that review path only
+for the release that re-enables cross-tab follow.
 
-The only declarative content script is scoped to `https://github.com/*`. It
-looks for Clips links in GitHub issue/PR markdown and replaces them with a
-playable preview iframe owned by the extension. That adds a narrow GitHub host
-disclosure, but does not grant broad access to every page.
+The declarative content scripts are scoped to:
+
+- `https://github.com/*` for Clips link previews in GitHub issue/PR markdown.
+- `<all_urls>` for the recording overlay host that keeps the face bubble and
+  controls mounted across pages while a recording is active.
+
+The GitHub preview script adds a narrow host disclosure, while the overlay host
+is the broad review boundary.
 
 ## How the overlay gets on the page
 
 When the user clicks the extension and starts a recording, the background service
-worker injects the content script into the **launch tab** with
-`chrome.scripting.executeScript({ target: { tabId }, files: ["assets/content-script.js"] })`.
-That call is authorized by the **`activeTab`** permission, which Chrome grants for
-the tab that was active when the user invoked the extension — no broad host access
-needed. The content script then mounts the overlay iframes (countdown, camera
-bubble, controls). `web_accessible_resources` stays `<all_urls>` — that is **not**
-a host permission and does not trigger the review.
+worker mounts the overlay on the active tab and keeps rebroadcasting it as the
+active tab changes. The content script then mounts the overlay iframes
+(countdown, camera bubble, controls). `web_accessible_resources` stays
+`<all_urls>` — that is **not** a host permission and does not trigger the review.
 
 Declared permissions: `activeTab`, `debugger`, `offscreen`, `scripting`,
-`storage`. Host permissions: only the configured Clips app + `forms.agent-native.com`
+`storage`. Host permissions: the configured Clips app + `forms.agent-native.com`
 
 - `localhost`/`127.0.0.1`.
-- `https://github.com/*` is content-script scoped for link previews only.
+- `https://github.com/*` is content-script scoped for link previews.
+- `<all_urls>` is the overlay host required for cross-tab follow.
 
 ## What this costs
 
-- The overlay (countdown, camera bubble, recording controls) lives **only on the
-  tab the recording was launched from**. It does **not** follow the user to other
-  tabs during a full-screen or multi-tab recording.
+- The overlay (countdown, camera bubble, recording controls) follows the user
+  across tabs while a recording is active. Navigating to a new page or tab keeps
+  the face bubble and controls mounted once the page loads.
 - **Recording itself is unaffected.** Capture runs in the offscreen document via
   `getDisplayMedia`, independent of any tab's content script — full-screen,
   window, and other-tab content are all still captured normally. Only the on-page
@@ -43,36 +47,15 @@ Declared permissions: `activeTab`, `debugger`, `offscreen`, `scripting`,
 
 ## Re-enabling cross-tab follow
 
-The full cross-tab behavior is gated behind a single flag in
-`src/background.ts`:
+The full cross-tab behavior is gated behind a single flag in `src/background.ts`:
 
 ```ts
-const CROSS_TAB_FOLLOW = false; // flip to true
+const CROSS_TAB_FOLLOW = true;
 ```
 
-Flipping it to `true` restores the all-tabs broadcast in `broadcastMount()` /
-`broadcastUnmount()` and the `chrome.tabs.onActivated` follow listener. To make
-that actually work you must **also** restore broad host access so the worker can
-inject into arbitrary tabs. Two options:
-
-1. **Static (simplest, but in-depth review):** re-add to `public/manifest.json`:
-   - `"<all_urls>"` in `host_permissions`, and
-   - the `content_scripts` block:
-     ```json
-     "content_scripts": [
-       {
-         "matches": ["<all_urls>"],
-         "js": ["assets/content-script.js"],
-         "run_at": "document_idle",
-         "all_frames": false
-       }
-     ],
-     ```
-
-2. **Optional (preferred — keeps the default install lean):** declare
-   `"optional_host_permissions": ["<all_urls>"]` in the manifest and call
-   `chrome.permissions.request({ origins: ["<all_urls>"] })` at runtime (e.g. from
-   a settings toggle) before enabling follow. The user grants the broad access
-   explicitly, only if they want cross-tab overlays.
+That keeps the all-tabs broadcast in `broadcastMount()` / `broadcastUnmount()`
+and the `chrome.tabs.onActivated` follow listener live. The manifest must keep
+the broad host permission and the `<all_urls>` declarative content script in
+place so the worker can inject into arbitrary tabs.
 
 After any change: `pnpm build`, then re-zip `dist/`.

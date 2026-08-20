@@ -289,6 +289,28 @@ export type AgentChatEvent =
   /** Incremental action-input text, kept separate from the finalized input. */
   | { type: "tool_input_delta"; tool?: string; id?: string; text: string }
   | { type: "stream_keepalive" }
+  | {
+      /**
+       * Lifecycle bracket around ONE engine (model) call, emitted by the agent
+       * loop when the stream is established and again — from a `finally` — when
+       * it ends, returns, or throws.
+       *
+       * Exists so the run manager's no-progress backstop can tell "the model is
+       * generating" from "nothing is happening". An extended-thinking phase
+       * emits frames that keep the loop's own 90s model-stream watchdog fresh
+       * without producing any forwarded event, so the backstop's clock saw pure
+       * silence and killed demonstrably-alive runs at 150s. `trackInFlightWork`
+       * counts this pair exactly like `tool_start`/`tool_done`: an engine call
+       * in flight suspends the backstop, bounded by the in-loop watchdog the
+       * same way a tool call is bounded by its own timeout.
+       *
+       * Deliberately NOT a keepalive: a keepalive proves the transport is up,
+       * this proves the loop is inside a model call it will be held accountable
+       * for by `MODEL_STREAM_NO_PROGRESS_TIMEOUT_MS`.
+       */
+      type: "model_stream";
+      status: "start" | "end";
+    }
   | { type: "tool_start"; tool: string; id?: string; input: AgentToolInput }
   | {
       type: "tool_done";

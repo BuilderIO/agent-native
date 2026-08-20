@@ -634,12 +634,17 @@ const messages = {
     alsoFor: "También disponible para {{platform}}",
     backToLibrary: "Volver a la biblioteca",
     clipsDesktop: "Clips Desktop",
+    stable: "Estable",
+    nightly: "Nightly",
+    switchToNightly: "Cambiar a compilaciones Nightly",
+    switchToStable: "Cambiar a compilaciones estables",
+    retry: "Intentar de nuevo",
     heroDescription:
       "Una grabadora de barra de menú para pantalla, cámara y pantalla + cámara. Inicio con un clic, burbuja de cámara que se puede arrastrar, enlace para compartir instantáneamente cuando se detiene.",
     versionReleased: "Versión {{version}} - lanzada {{date}}",
     version: "Versión {{version}}",
     manifestError:
-      "No se pudo cargar el manifiesto de lanzamiento: elija un instalador de la página de lanzamientos.",
+      "No se pudo cargar el manifiesto de lanzamiento. Inténtalo de nuevo.",
     loadingRelease: "Cargando la última versión...",
     chromeTitle: "Extensión Chrome para registros del navegador",
     chromeDescription:
@@ -703,15 +708,6 @@ const messages = {
     viewAllUpdates: "Ver todas las actualizaciones",
     expand: "Expandir",
     collapse: "Contraer",
-    changelogMarkdown: `# Registro de cambios
-
-Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puedes abrirlo en cualquier momento desde el menú de comandos (Cmd+K -> "Novedades") o desde Ajustes.
-
-## 2026-06-23
-
-### Añadido
-
-- Ahora puedes ver las novedades directamente dentro de Clips. El registro de cambios vive en el menú de comandos (Cmd+K) y en Ajustes.`,
     playback: "Reproducción",
     defaultPlaybackSpeed: "Velocidad de reproducción predeterminada",
     playbackDescription:

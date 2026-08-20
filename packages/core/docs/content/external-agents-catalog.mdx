@@ -201,6 +201,8 @@ export default createAgentChatPlugin({
 
 The builtin cross-app tools (`list_apps`, `open_app`, `ask_app`, `create_embed_session`, `create_workspace_app`, `list_templates`) are always included regardless of the declared list.
 
+`mcp.catalog: "app"` is the opposite choice: it serves this app's entire action registry flat, with no compact or connector trimming. The two are mutually exclusive — declaring both throws at plugin init rather than silently ignoring the allow-list, since an allow-list exists to keep something off the external surface.
+
 ## Tool exposure once connected {#tool-exposure}
 
 Once an agent is connected, it sees the [compact catalog](#catalog-tiers) by default: template-declared app actions plus the builtin cross-app verbs (`list_apps`, `open_app`, `ask_app`, and the app-only embed helper). Use `ask_app` to route a natural-language task through an app agent (the same cross-app entry point [A2A](/docs/a2a-protocol) uses).

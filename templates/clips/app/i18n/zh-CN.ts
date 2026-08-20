@@ -591,11 +591,16 @@ const messages = {
     alsoFor: "也可用于 {{platform}}",
     backToLibrary: "返回资料库",
     clipsDesktop: "Clips 桌面版",
+    stable: "稳定版",
+    nightly: "Nightly",
+    switchToNightly: "切换到 Nightly 构建",
+    switchToStable: "切换到稳定版构建",
+    retry: "重试",
     heroDescription:
       "用于屏幕、相机和屏幕+相机的菜单栏记录器。一键启动，可拖动相机气泡，停止时即时分享链接。",
     versionReleased: "版本 {{version}} — 发布 {{date}}",
     version: "版本{{version}}",
-    manifestError: "无法加载版本清单 - 从版本页面选择安装程序。",
+    manifestError: "无法加载版本清单，请重试。",
     loadingRelease: "正在加载最新版本...",
     chromeTitle: "Chrome 浏览器日志扩展",
     chromeDescription:
@@ -655,15 +660,6 @@ const messages = {
     viewAllUpdates: "查看所有更新",
     expand: "展开",
     collapse: "收起",
-    changelogMarkdown: `# 更新日志
-
-Clips 中所有面向用户的重要更改都会记录在这里。你可以随时从命令菜单（Cmd+K -> “最新变化”）或设置中打开。
-
-## 2026-06-23
-
-### 新增
-
-- 现在可以直接在 Clips 中查看最新变化。更新日志已加入命令菜单（Cmd+K）和设置。`,
     playback: "播放",
     defaultPlaybackSpeed: "默认播放速度",
     playbackDescription: "打开录制时会自动应用。",

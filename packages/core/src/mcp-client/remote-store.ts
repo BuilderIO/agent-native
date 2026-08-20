@@ -306,6 +306,85 @@ export async function addOAuthRemoteServer(
   }
 }
 
+/**
+ * Replace the OAuth grant for an existing server without changing its id or
+ * display name. Reconnect must update the saved grant in place; registering a
+ * second row makes the original connection impossible to repair.
+ */
+export async function replaceOAuthRemoteServer(
+  scope: RemoteMcpScope,
+  scopeId: string,
+  serverId: string,
+  credentials: McpOAuthCredentialBundle,
+): Promise<
+  { ok: true; server: StoredRemoteMcpServer } | { ok: false; error: string }
+> {
+  const credentialResource = validateRemoteUrl(credentials.serverUrl);
+  if (!credentialResource.ok || !credentialResource.url) {
+    return {
+      ok: false,
+      error: "MCP server URL must match the OAuth credential resource URL",
+    };
+  }
+  const existing = await readList(scope, scopeId);
+  const index = existing.findIndex((server) => server.id === serverId);
+  const current = index >= 0 ? existing[index] : undefined;
+  if (!current) return { ok: false, error: "MCP server was not found" };
+  if (!current.oauthSecretKey) {
+    return {
+      ok: false,
+      error: "This MCP server does not use OAuth credentials",
+    };
+  }
+  if (current.url !== credentialResource.url.toString()) {
+    return {
+      ok: false,
+      error: "MCP server URL must match the saved OAuth connection",
+    };
+  }
+
+  const nextSecretKey = `mcp_oauth:${shortId()}`;
+  const nextCredentials = {
+    ...credentials,
+    serverUrl: credentialResource.url.toString(),
+  };
+  try {
+    await saveMcpOAuthCredentials({
+      key: nextSecretKey,
+      scope,
+      scopeId,
+      credentials: nextCredentials,
+    });
+    const server: StoredRemoteMcpServer = {
+      ...current,
+      url: nextCredentials.serverUrl,
+      oauthSecretKey: nextSecretKey,
+    };
+    const next = [...existing];
+    next[index] = server;
+    await writeList(scope, scopeId, next);
+
+    await revokeMcpOAuthCredentials({
+      key: current.oauthSecretKey,
+      scope,
+      scopeId,
+      serverUrl: current.url,
+    }).catch(() => undefined);
+    return { ok: true, server };
+  } catch (err: any) {
+    await revokeMcpOAuthCredentials({
+      key: nextSecretKey,
+      scope,
+      scopeId,
+      serverUrl: nextCredentials.serverUrl,
+    }).catch(() => undefined);
+    return {
+      ok: false,
+      error: `Failed to replace MCP OAuth credentials: ${err?.message ?? err}`,
+    };
+  }
+}
+
 export async function addFirstPartyRemoteServer(
   orgId: string,
   input: {

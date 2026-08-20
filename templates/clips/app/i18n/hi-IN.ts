@@ -611,12 +611,16 @@ const messages = {
     alsoFor: "{{platform}} के लिए भी उपलब्ध है",
     backToLibrary: "लाइब्रेरी पर वापस जाएँ",
     clipsDesktop: "Clips Desktop",
+    stable: "स्थिर",
+    nightly: "Nightly",
+    switchToNightly: "Nightly बिल्ड पर जाएँ",
+    switchToStable: "स्थिर बिल्ड पर जाएँ",
+    retry: "फिर कोशिश करें",
     heroDescription:
       "स्क्रीन, कैमरा और स्क्रीन + कैमरा के लिए एक मेनू-बार रिकॉर्डर। एक-क्लिक प्रारंभ, खींचने योग्य कैमरा बबल, रुकने पर तत्काल-शेयर लिंक।",
     versionReleased: "संस्करण {{version}} - {{date}} जारी किया गया",
     version: "संस्करण {{version}}",
-    manifestError:
-      "रिलीज़ मेनिफ़ेस्ट लोड नहीं किया जा सका - रिलीज़ पृष्ठ से एक इंस्टॉलर चुनें।",
+    manifestError: "रिलीज़ मेनिफ़ेस्ट लोड नहीं किया जा सका। फिर कोशिश करें।",
     loadingRelease: "नवीनतम रिलीज़ लोड हो रहा है...",
     chromeTitle: "ब्राउज़र लॉग के लिए Chrome एक्सटेंशन",
     chromeDescription:
@@ -679,15 +683,6 @@ const messages = {
     viewAllUpdates: "सभी अपडेट देखें",
     expand: "फैलाएं",
     collapse: "समेटें",
-    changelogMarkdown: `# बदलाव लॉग
-
-Clips में उपयोगकर्ताओं को दिखने वाले सभी महत्वपूर्ण बदलाव यहां दर्ज किए जाते हैं। आप इसे कमांड मेनू (Cmd+K -> "नया क्या है") या सेटिंग्स से कभी भी खोल सकते हैं।
-
-## 2026-06-23
-
-### जोड़ा गया
-
-- अब आप Clips के अंदर ही नया क्या है देख सकते हैं। बदलाव लॉग अब कमांड मेनू (Cmd+K) और सेटिंग्स में उपलब्ध है।`,
     playback: "प्लेबैक",
     defaultPlaybackSpeed: "डिफ़ॉल्ट प्लेबैक गति",
     playbackDescription: "रिकॉर्डिंग खोलने पर अपने आप लागू होती है।",

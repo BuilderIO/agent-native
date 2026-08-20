@@ -632,12 +632,16 @@ const messages = {
     alsoFor: "Également disponible pour {{platform}}",
     backToLibrary: "Retour à la bibliothèque",
     clipsDesktop: "Clips Desktop",
+    stable: "Stable",
+    nightly: "Nightly",
+    switchToNightly: "Passer aux versions Nightly",
+    switchToStable: "Passer aux versions stables",
+    retry: "Réessayer",
     heroDescription:
       "Un enregistreur de barre de menus pour l’écran, la caméra et écran + caméra. Démarrage en un clic, bulle caméra déplaçable et lien de partage instantané à l’arrêt.",
     versionReleased: "Version {{version}} — publiée {{date}}",
     version: "Traduit: Version {{version}}",
-    manifestError:
-      "Impossible de charger le manifeste de version : choisissez un programme d'installation sur la page des versions.",
+    manifestError: "Impossible de charger le manifeste de version. Réessayez.",
     loadingRelease: "Chargement de la dernière version…",
     chromeTitle: "Extension Chrome pour les journaux du navigateur",
     chromeDescription:
@@ -701,15 +705,6 @@ const messages = {
     viewAllUpdates: "Voir toutes les mises à jour",
     expand: "Développer",
     collapse: "Replier",
-    changelogMarkdown: `# Journal des modifications
-
-Tous les changements visibles par les utilisateurs de Clips sont documentés ici. Vous pouvez l’ouvrir à tout moment depuis le menu de commandes (Cmd+K -> "Nouveautés") ou depuis les paramètres.
-
-## 2026-06-23
-
-### Ajouté
-
-- Vous pouvez maintenant voir les nouveautés directement dans Clips. Le journal des modifications est disponible dans le menu de commandes (Cmd+K) et dans les paramètres.`,
     playback: "Lecture",
     defaultPlaybackSpeed: "Vitesse de lecture par défaut",
     playbackDescription:

@@ -28,7 +28,9 @@ import {
 } from "./oauth-client.js";
 import {
   addOAuthRemoteServer,
+  listRemoteServers,
   normalizeServerName,
+  replaceOAuthRemoteServer,
   validateRemoteUrl,
   type RemoteMcpScope,
 } from "./remote-store.js";
@@ -69,6 +71,7 @@ export interface McpOAuthFlow {
   clientInformation: StoredOAuthClientInformation;
   discoveryState?: McpOAuthDiscoveryState;
   returnUrl?: string;
+  replaceServerId?: string;
   expiresAt: number;
 }
 
@@ -131,8 +134,42 @@ async function handleMcpOAuthStart(
   if (!session?.email) return unauthorized(event);
 
   const query = getQuery(event);
-  const rawUrl = text(query.url);
-  const rawName = text(query.name);
+  const reconnectServerId = text(query.serverId);
+  const reconnectScope: RemoteMcpScope = query.scope === "org" ? "org" : "user";
+  const reconnectOrg =
+    reconnectScope === "org" ? await getOrgContext(event) : null;
+  const reconnectScopeId =
+    reconnectScope === "user" ? session.email : (reconnectOrg?.orgId ?? "");
+  let reconnectServer:
+    | Awaited<ReturnType<typeof listRemoteServers>>[number]
+    | undefined;
+  if (reconnectServerId) {
+    if (
+      reconnectScope === "org" &&
+      (!reconnectScopeId || !isOrgAdmin(reconnectOrg?.role))
+    ) {
+      setResponseStatus(event, reconnectScopeId ? 403 : 400);
+      return {
+        error: reconnectScopeId
+          ? "Only organization owners and admins can reconnect an org MCP server."
+          : "Join an organization before reconnecting an org MCP server.",
+      };
+    }
+    reconnectServer = (
+      await listRemoteServers(reconnectScope, reconnectScopeId)
+    ).find((server) => server.id === reconnectServerId);
+    if (!reconnectServer) {
+      setResponseStatus(event, 404);
+      return { error: "MCP server was not found." };
+    }
+    if (!reconnectServer.oauthSecretKey) {
+      setResponseStatus(event, 400);
+      return { error: "This MCP server does not use OAuth credentials." };
+    }
+  }
+
+  const rawUrl = reconnectServer?.url ?? text(query.url);
+  const rawName = reconnectServer?.name ?? text(query.name);
   const returnUrl = text(query.return);
   if (!rawUrl || !rawName) {
     setResponseStatus(event, 400);
@@ -231,6 +268,7 @@ async function handleMcpOAuthStart(
         ? { discoveryState: started.discoveryState }
         : {}),
       ...(safeReturnUrl ? { returnUrl: safeReturnUrl } : {}),
+      ...(reconnectServerId ? { replaceServerId: reconnectServerId } : {}),
       expiresAt: Date.now() + FLOW_TTL_SECONDS * 1_000,
     };
     setMcpOAuthFlowCookie(event, flow, redirectUri.startsWith("https://"));
@@ -341,12 +379,19 @@ async function handleMcpOAuthCallback(
           iss,
         }),
     );
-    const result = await addOAuthRemoteServer(flow.scope, flow.scopeId, {
-      name: flow.name,
-      url: flow.url,
-      description: flow.description,
-      credentials: finished.credentials,
-    });
+    const result = flow.replaceServerId
+      ? await replaceOAuthRemoteServer(
+          flow.scope,
+          flow.scopeId,
+          flow.replaceServerId,
+          finished.credentials,
+        )
+      : await addOAuthRemoteServer(flow.scope, flow.scopeId, {
+          name: flow.name,
+          url: flow.url,
+          description: flow.description,
+          credentials: finished.credentials,
+        });
     if (!result.ok) {
       setResponseStatus(event, 400);
       return { error: result.error };
