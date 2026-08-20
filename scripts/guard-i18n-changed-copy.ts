@@ -339,7 +339,12 @@ function collectChangedFiles(cwd: string): Set<string> | null {
         .filter(Boolean)
         .map((file) => path.resolve(cwd, file)),
     );
-  } catch {
+  } catch (error) {
+    console.error(
+      `guard:i18n-changed-copy: git diff failed: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
     return null;
   }
 }
