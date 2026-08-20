@@ -1,5 +1,8 @@
 import { getDb } from "../db/index.js";
-import { ensureFactoryAutomations } from "../plugins/factory-scheduler-job.js";
+import {
+  ensureFactoryAutomations,
+  syncFactoryAutomationEnabledStates,
+} from "../plugins/factory-scheduler-job.js";
 import { resolveEnabledAutomationsFromSavedConfig } from "./factory-automation-plan.js";
 import { readTriageConfigRow } from "./factory-scope.js";
 
@@ -22,4 +25,7 @@ export async function repairFactoryAutomationsFromConfig(
   await ensureFactoryAutomations(ownerEmail, orgId, factoryId, {
     enabledNames,
   });
+  await syncFactoryAutomationEnabledStates(ownerEmail, orgId, factoryId, [
+    ...enabledNames,
+  ]);
 }

@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { getDb } from "../server/db/index.js";
 import { triageItems } from "../server/db/schema.js";
+import { repairFactoryAutomationsFromConfig } from "../server/lib/factory-automation-repair.js";
 import {
   factoryIdSchema,
   readTriageConfigRow,
@@ -13,7 +14,6 @@ import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
-import { repairFactoryAutomationsFromConfig } from "../server/lib/factory-automation-repair.js";
 import { recordFactoryAudit } from "../server/triage/audit.js";
 import { createGitHubClient } from "../server/triage/github-client.js";
 import { itemDedupeKey } from "../server/triage/ids.js";

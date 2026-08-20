@@ -3,6 +3,7 @@ import { notify } from "@agent-native/core/notifications";
 import { resolveOrgIdForEmail } from "@agent-native/core/org";
 import {
   organizationResourceOwner,
+  resourceDeleteByPath,
   resourceGetByPath,
   resourcePut,
   resourcePutIfCurrent,
@@ -17,7 +18,7 @@ import { and, eq, isNull, lt, ne, or } from "drizzle-orm";
 
 import { getDb } from "../db/index.js";
 import { triageConfig } from "../db/schema.js";
-import { resolveEnabledAutomationsFromSavedConfig } from "../lib/factory-automation-plan.js";
+import { repairFactoryAutomationsFromConfig } from "../lib/factory-automation-repair.js";
 import {
   DEFAULT_FACTORY_ID,
   factoryAutomationJobPath,
@@ -620,13 +621,36 @@ export async function syncFactoryAutomationEnabledStates(
         const enabled = enabledSet.has(leafName);
         const content = patchAutomationResource(resource.content, { enabled });
         if (content === resource.content) return;
-        await resourcePut(
-          definition.resource.owner,
-          definition.resource.path,
+        const updated = await resourcePutIfCurrent({
+          owner: definition.resource.owner,
+          path: definition.resource.path,
           content,
-          "text/markdown",
-        );
+          mimeType: "text/markdown",
+          expectedId: resource.id,
+          expectedUpdatedAt: resource.updatedAt,
+          expectedContent: resource.content,
+        });
+        if (!updated) {
+          console.warn(
+            `[factory-scheduler-job] skipped enabled-state sync for ${definition.resource.path}: the resource changed concurrently`,
+          );
+        }
       }),
+  );
+}
+
+export async function removeFactoryAutomationResources(
+  orgId: string,
+  factoryId: string,
+): Promise<void> {
+  const owner = organizationResourceOwner(orgId);
+  await Promise.all(
+    AUTOMATION_SEEDS.map(async (seed) => {
+      await resourceDeleteByPath(
+        owner,
+        factoryAutomationJobPath(factoryId, seed.name),
+      );
+    }),
   );
 }
 
@@ -637,9 +661,12 @@ async function ensureDefaultTriageConfig(
   const db = getDb();
   const factoryId = DEFAULT_FACTORY_ID;
   const existing = await readTriageConfigRow(db, orgId, factoryId);
-  const repository = defaultRepository();
-  if (existing) return;
+  if (existing) {
+    await repairFactoryAutomationsFromConfig(ownerEmail, orgId, factoryId);
+    return;
+  }
   const now = new Date().toISOString();
+  const repository = defaultRepository();
   const pollingEnabled = 1;
   const githubPollingEnabled = defaultGithubPollingEnabled() ? 1 : 0;
   await db.insert(triageConfig).values({
@@ -664,23 +691,7 @@ async function ensureDefaultTriageConfig(
     ownerEmail,
     orgId,
   });
-  const enabledNames = resolveEnabledAutomationsFromSavedConfig({
-    pollingEnabled,
-    githubPollingEnabled,
-    sentryPollingEnabled: 0,
-    slackChannelId: DEFAULT_SLACK_CHANNEL_ID,
-    repository,
-    sentryOrgSlug: null,
-    sentryProjectSlug: null,
-  });
-  await ensureFactoryAutomations(ownerEmail, orgId, factoryId, {
-    enabledNames,
-  });
-  if (enabledNames.size > 0) {
-    await syncFactoryAutomationEnabledStates(ownerEmail, orgId, factoryId, [
-      ...enabledNames,
-    ]);
-  }
+  await repairFactoryAutomationsFromConfig(ownerEmail, orgId, factoryId);
 }
 
 async function ensureSchedulerJobs(): Promise<void> {

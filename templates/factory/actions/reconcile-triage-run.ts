@@ -105,7 +105,9 @@ export default defineAction({
     }
     const factoryId = itemFactoryId;
     const now = new Date().toISOString();
-    const databaseRunId = stableId("run", orgId, factoryId, runId);
+    const scopedRunId = stableId("run", orgId, factoryId, runId);
+    const legacyRunId =
+      factoryId === DEFAULT_FACTORY_ID ? stableId("run", orgId, runId) : null;
     const result = reconcilePullRequestRun({
       triageItemId: itemId,
       runId,
@@ -118,22 +120,39 @@ export default defineAction({
     const existingRun = (
       await db
         .select({
+          id: triageRuns.id,
           progressLogJson: triageRuns.progressLogJson,
           factoryId: triageRuns.factoryId,
         })
         .from(triageRuns)
-        .where(
-          and(eq(triageRuns.id, databaseRunId), eq(triageRuns.orgId, orgId)),
-        )
+        .where(and(eq(triageRuns.id, scopedRunId), eq(triageRuns.orgId, orgId)))
         .limit(1)
     )[0];
-    if (
-      existingRun &&
-      (existingRun.factoryId ?? DEFAULT_FACTORY_ID) !== factoryId
-    ) {
+    let databaseRunId = scopedRunId;
+    let existing = existingRun;
+    if (!existing && legacyRunId) {
+      const legacyRun = (
+        await db
+          .select({
+            id: triageRuns.id,
+            progressLogJson: triageRuns.progressLogJson,
+            factoryId: triageRuns.factoryId,
+          })
+          .from(triageRuns)
+          .where(
+            and(eq(triageRuns.id, legacyRunId), eq(triageRuns.orgId, orgId)),
+          )
+          .limit(1)
+      )[0];
+      if (legacyRun) {
+        existing = legacyRun;
+        databaseRunId = legacyRunId;
+      }
+    }
+    if (existing && (existing.factoryId ?? DEFAULT_FACTORY_ID) !== factoryId) {
       throw new Error("Run id is already used by another factory.");
     }
-    const progressLog = appendProgressLog(existingRun?.progressLogJson, {
+    const progressLog = appendProgressLog(existing?.progressLogJson, {
       at: now,
       state: result.state,
       reason: result.reason,

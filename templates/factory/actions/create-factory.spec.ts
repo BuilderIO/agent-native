@@ -13,6 +13,7 @@ const resolveUniqueFactoryIdMock = vi.hoisted(() => vi.fn());
 const assertUniqueSlackChannelForFactoryMock = vi.hoisted(() => vi.fn());
 const ensureFactoryAutomationsMock = vi.hoisted(() => vi.fn());
 const syncFactoryAutomationEnabledStatesMock = vi.hoisted(() => vi.fn());
+const removeFactoryAutomationResourcesMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (definition: unknown) => definition,
@@ -39,6 +40,7 @@ vi.mock("../server/lib/factory-scope.js", async (importOriginal) => {
 vi.mock("../server/plugins/factory-scheduler-job.js", () => ({
   ensureFactoryAutomations: ensureFactoryAutomationsMock,
   syncFactoryAutomationEnabledStates: syncFactoryAutomationEnabledStatesMock,
+  removeFactoryAutomationResources: removeFactoryAutomationResourcesMock,
 }));
 
 vi.mock("../server/lib/require-workspace-member.js", () => ({
@@ -52,6 +54,7 @@ beforeEach(() => {
   assertUniqueSlackChannelForFactoryMock.mockResolvedValue(undefined);
   ensureFactoryAutomationsMock.mockResolvedValue(undefined);
   syncFactoryAutomationEnabledStatesMock.mockResolvedValue(undefined);
+  removeFactoryAutomationResourcesMock.mockResolvedValue(undefined);
   requireWorkspaceMemberMock.mockResolvedValue({
     userEmail: "owner@example.com",
     orgId: "org-1",

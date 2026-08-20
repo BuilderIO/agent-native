@@ -29,6 +29,7 @@ import {
 } from "../server/lib/require-workspace-member.js";
 import {
   ensureFactoryAutomations,
+  removeFactoryAutomationResources,
   syncFactoryAutomationEnabledStates,
 } from "../server/plugins/factory-scheduler-job.js";
 import { stableId } from "../server/triage/ids.js";
@@ -171,6 +172,7 @@ export default defineAction({
         ]);
       }
     } catch (error) {
+      await removeFactoryAutomationResources(orgId, factoryId);
       await db
         .delete(triageConfig)
         .where(
