@@ -22,7 +22,7 @@ import {
   IconUsersGroup,
   IconWorld,
 } from "@tabler/icons-react";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
@@ -412,6 +412,22 @@ function WorkspaceAppSettings({
 }) {
   const [shareOpen, setShareOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsTriggerRef = useRef<HTMLButtonElement>(null);
+
+  const handleShareOpenChange = (open: boolean) => {
+    setShareOpen(open);
+    if (open) return;
+
+    const restoreSettingsFocus = () => settingsTriggerRef.current?.focus();
+    if (
+      typeof window !== "undefined" &&
+      typeof window.requestAnimationFrame === "function"
+    ) {
+      window.requestAnimationFrame(restoreSettingsFocus);
+    } else {
+      setTimeout(restoreSettingsFocus, 0);
+    }
+  };
 
   return (
     <>
@@ -423,6 +439,7 @@ function WorkspaceAppSettings({
                 type="button"
                 variant="ghost"
                 size="sm"
+                ref={settingsTriggerRef}
                 aria-label={`Settings for ${app.name}`}
                 className={APP_CARD_ACTION_CLASS}
               >
@@ -494,7 +511,7 @@ function WorkspaceAppSettings({
           resourceId={app.id}
           resourceTitle={app.name}
           defaultOpen
-          onOpenChange={setShareOpen}
+          onOpenChange={handleShareOpenChange}
           triggerClassName="sr-only"
         />
       ) : null}

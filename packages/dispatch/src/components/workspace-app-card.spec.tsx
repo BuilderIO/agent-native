@@ -276,6 +276,17 @@ describe("WorkspaceAppCard", () => {
     expect(
       document.body.querySelector("[data-agent-native-share-overlay]"),
     ).not.toBeNull();
+
+    const shareButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Share"]',
+    );
+    expect(shareButton).not.toBeNull();
+
+    await act(async () => shareButton?.click());
+    expect(animationFrameCallbacks).toHaveLength(1);
+
+    await act(async () => animationFrameCallbacks.shift()?.(0));
+    expect(document.activeElement).toBe(settingsButton);
   });
 
   it("keeps pinning in the app open menu", async () => {
