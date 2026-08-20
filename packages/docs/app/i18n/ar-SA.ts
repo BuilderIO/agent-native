@@ -1226,17 +1226,16 @@ const arSA = {
     body: "كل تطبيقاتك agent-native في واجهة سطح مكتب واحدة. تطبيقات الإنتاج مدمجة، مع تبديل وضع التطوير للتطوير المحلي.",
     openDesktop: "افتح Agent Native",
     downloadInstaller: "تنزيل المثبّت",
-    viewInstallers: "عرض المثبّتات",
-    viewInstallersOnGithub: "عرض المثبّتات على GitHub",
-    latestRelease: "Latest desktop release: {{version}}",
-    loadError:
-      "تعذر تحميل أحدث إصدار لسطح المكتب. تحتوي صفحة releases على كل المثبّتات.",
+    loadError: "تعذر تحميل أحدث مثبّت لسطح المكتب.",
     checkingRelease: "جارٍ التحقق من أحدث إصدار لسطح المكتب...",
-    nightlyBuilds: "هل تبحث عن إصدار Nightly؟",
+    unavailable: "المثبّت غير متاح لهذه المنصة",
+    stable: "مستقر",
+    nightly: "Nightly",
+    switchToNightly: "التبديل إلى إصدارات Nightly",
+    switchToStable: "التبديل إلى الإصدارات المستقرة",
     runFromSource: "أو شغّله من المصدر",
     runFromSourceBody:
       "لا يوجد مثبّت لمنصتك بعد، أو تفضّل CLI؟ أنشئ تطبيقًا جديدًا باستخدام npm وشغّله محليًا — يعمل على macOS وWindows وLinux.",
-    viewAllReleases: "عرض كل releases على GitHub",
     platforms: {
       mac: {
         primary: "تنزيل لإصدار Apple Silicon",

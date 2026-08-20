@@ -1227,17 +1227,16 @@ const hiIN = {
     body: "आपके सभी agent-native ऐप एक ही desktop shell में। Production apps built-in हैं, और local development के लिए dev mode toggle है।",
     openDesktop: "Agent Native खोलें",
     downloadInstaller: "Installer डाउनलोड करें",
-    viewInstallers: "Installers देखें",
-    viewInstallersOnGithub: "GitHub पर installers देखें",
-    latestRelease: "Latest desktop release: {{version}}",
-    loadError:
-      "नवीनतम desktop release लोड नहीं हो सका। releases page में सभी installers हैं।",
+    loadError: "नवीनतम desktop installer लोड नहीं हो सका।",
     checkingRelease: "नवीनतम desktop release जांच रहे हैं...",
-    nightlyBuilds: "Nightly बिल्ड चाहिए?",
+    unavailable: "इस platform के लिए installer उपलब्ध नहीं है",
+    stable: "स्थिर",
+    nightly: "Nightly",
+    switchToNightly: "Nightly builds पर जाएं",
+    switchToStable: "स्थिर builds पर जाएं",
     runFromSource: "या source से चलाएं",
     runFromSourceBody:
       "आपके platform के लिए अभी installer नहीं है, या CLI पसंद है? npm से नया app scaffold करें और local चलाएं — macOS, Windows और Linux पर काम करता है।",
-    viewAllReleases: "GitHub पर सभी releases देखें",
     platforms: {
       mac: {
         primary: "Apple Silicon के लिए डाउनलोड करें",

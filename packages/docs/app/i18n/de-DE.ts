@@ -1234,17 +1234,16 @@ const deDE = {
     body: "Alle agent-native Apps in einer Desktop-Shell. Produktions-Apps sind integriert, mit Dev-Modus für lokale Entwicklung.",
     openDesktop: "Agent Native öffnen",
     downloadInstaller: "Installer herunterladen",
-    viewInstallers: "Installer ansehen",
-    viewInstallersOnGithub: "Installer auf GitHub ansehen",
-    latestRelease: "Latest desktop release: {{version}}",
-    loadError:
-      "Die neueste Desktop-Version konnte nicht geladen werden. Die Releases-Seite enthält alle Installer.",
+    loadError: "Der neueste Desktop-Installer konnte nicht geladen werden.",
     checkingRelease: "Neueste Desktop-Version wird geprüft...",
-    nightlyBuilds: "Suchst du die Nightly-Version?",
+    unavailable: "Installer für diese Plattform nicht verfügbar",
+    stable: "Stabil",
+    nightly: "Nightly",
+    switchToNightly: "Zu Nightly-Builds wechseln",
+    switchToStable: "Zu stabilen Builds wechseln",
     runFromSource: "Oder aus dem Quellcode starten",
     runFromSourceBody:
       "Noch kein Installer für Ihre Plattform, oder lieber die CLI? Erstellen Sie mit npm eine neue App und führen Sie sie lokal aus; funktioniert auf macOS, Windows und Linux.",
-    viewAllReleases: "Alle Releases auf GitHub ansehen",
     platforms: {
       mac: {
         primary: "Für Apple Silicon herunterladen",

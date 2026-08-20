@@ -1230,17 +1230,16 @@ const ptBR = {
     body: "Todos os seus apps agent-native em uma única shell de desktop. Apps de produção integrados, com alternância de modo dev para desenvolvimento local.",
     openDesktop: "Abrir Agent Native",
     downloadInstaller: "Baixar instalador",
-    viewInstallers: "Ver instaladores",
-    viewInstallersOnGithub: "Ver instaladores no GitHub",
-    latestRelease: "Latest desktop release: {{version}}",
-    loadError:
-      "Não foi possível carregar a versão desktop mais recente. A página de releases tem todos os instaladores.",
+    loadError: "Não foi possível carregar o instalador desktop mais recente.",
     checkingRelease: "Verificando a versão desktop mais recente...",
-    nightlyBuilds: "Procurando a versão Nightly?",
+    unavailable: "Instalador indisponível para esta plataforma",
+    stable: "Estável",
+    nightly: "Nightly",
+    switchToNightly: "Mudar para builds Nightly",
+    switchToStable: "Mudar para builds estáveis",
     runFromSource: "Ou executar a partir do código-fonte",
     runFromSourceBody:
       "Ainda não há instalador para sua plataforma, ou prefere a CLI? Crie um novo app com npm e rode localmente; funciona em macOS, Windows e Linux.",
-    viewAllReleases: "Ver todas as releases no GitHub",
     platforms: {
       mac: {
         primary: "Baixar para Apple Silicon",
