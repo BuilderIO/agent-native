@@ -14,7 +14,7 @@ const jobMocks = vi.hoisted(() => ({
   useManageAutomation: vi.fn(),
   useManageRecurringJob: vi.fn(),
   useRecurringJobs: vi.fn(),
-  useScheduledTriggerStatus: vi.fn(),
+  useScheduledTriggerState: vi.fn(),
 }));
 
 vi.mock("./use-jobs.js", () => ({
@@ -23,7 +23,7 @@ vi.mock("./use-jobs.js", () => ({
   useManageRecurringJob: jobMocks.useManageRecurringJob,
   useRecurringJobs: jobMocks.useRecurringJobs,
   useRunAutomationNow: jobMocks.useRunAutomationNow,
-  useScheduledTriggerStatus: jobMocks.useScheduledTriggerStatus,
+  useScheduledTriggerState: jobMocks.useScheduledTriggerState,
 }));
 
 vi.mock("../AgentAskPopover.js", () => ({
@@ -148,9 +148,10 @@ describe("AgentJobsTab organization automations", () => {
     jobMocks.useManageAutomation.mockImplementation((scope: "user" | "org") =>
       mutationResult(jobMocks.manageAutomation[scope]),
     );
-    jobMocks.useScheduledTriggerStatus.mockReturnValue(
-      queryResult({ available: true, driver: "netlify-scheduled-function" }),
-    );
+    jobMocks.useScheduledTriggerState.mockReturnValue({
+      kind: "resolved",
+      status: { available: true, driver: "netlify-scheduled-function" },
+    });
   });
 
   afterEach(() => {
@@ -186,9 +187,10 @@ describe("AgentJobsTab organization automations", () => {
   });
 
   it("warns that schedules never fire when the build disabled recurring jobs", () => {
-    jobMocks.useScheduledTriggerStatus.mockReturnValue(
-      queryResult({ available: false, reason: "disabled-by-env" }),
-    );
+    jobMocks.useScheduledTriggerState.mockReturnValue({
+      kind: "resolved",
+      status: { available: false, reason: "disabled-by-env" },
+    });
 
     act(() => {
       root.render(<AgentJobsTab canManageOrg />);
@@ -206,9 +208,10 @@ describe("AgentJobsTab organization automations", () => {
   });
 
   it("names the local opt-in flag instead of blaming the deploy on a dev machine", () => {
-    jobMocks.useScheduledTriggerStatus.mockReturnValue(
-      queryResult({ available: false, reason: "local-development" }),
-    );
+    jobMocks.useScheduledTriggerState.mockReturnValue({
+      kind: "resolved",
+      status: { available: false, reason: "local-development" },
+    });
 
     act(() => {
       root.render(<AgentJobsTab canManageOrg />);
@@ -227,11 +230,7 @@ describe("AgentJobsTab organization automations", () => {
 
   // A pending status must not accuse a working deploy of being broken.
   it("shows no warning while the scheduler status is still loading", () => {
-    jobMocks.useScheduledTriggerStatus.mockReturnValue({
-      data: undefined,
-      error: null,
-      isLoading: true,
-    });
+    jobMocks.useScheduledTriggerState.mockReturnValue({ kind: "loading" });
 
     act(() => {
       root.render(<AgentJobsTab canManageOrg />);
@@ -240,6 +239,28 @@ describe("AgentJobsTab organization automations", () => {
     expect(
       container.querySelector('[data-testid="scheduled-trigger-notice"]'),
     ).toBeNull();
+  });
+
+  // A loading check and a FAILED check used to be the same thing to this page:
+  // both left `data` undefined, and `data?.available !== false` read both as
+  // healthy. A failure never resolves, so that silence was permanent.
+  it("says the check failed rather than silently vouching for the deploy", () => {
+    jobMocks.useScheduledTriggerState.mockReturnValue({
+      kind: "unknown",
+      error: new Error("403 Forbidden"),
+    });
+
+    act(() => {
+      root.render(<AgentJobsTab canManageOrg />);
+    });
+
+    const notice = container.querySelector(
+      '[data-testid="scheduled-trigger-notice"]',
+    );
+    expect(notice?.getAttribute("data-reason")).toBe("check-failed");
+    expect(notice?.textContent).toContain(
+      "Couldn't check whether schedules run here",
+    );
   });
 
   it("routes organization event updates through the organization mutation", () => {

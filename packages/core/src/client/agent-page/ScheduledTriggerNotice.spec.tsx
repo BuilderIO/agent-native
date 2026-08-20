@@ -11,8 +11,11 @@ vi.mock("../i18n.js", () => ({
       String(options?.defaultValue ?? key),
 }));
 
+import type {
+  ScheduledTriggerState,
+  ScheduledTriggerStatus,
+} from "./scheduled-trigger-state.js";
 import { ScheduledTriggerNotice } from "./ScheduledTriggerNotice.js";
-import type { ScheduledTriggerStatus } from "./use-jobs.js";
 
 describe("ScheduledTriggerNotice", () => {
   let container: HTMLDivElement;
@@ -31,15 +34,47 @@ describe("ScheduledTriggerNotice", () => {
     vi.unstubAllGlobals();
   });
 
-  function render(status: ScheduledTriggerStatus | undefined) {
+  function render(status: ScheduledTriggerStatus) {
+    return renderState({ kind: "resolved", status });
+  }
+
+  function renderState(state: ScheduledTriggerState) {
     act(() => {
-      root.render(<ScheduledTriggerNotice status={status} />);
+      root.render(<ScheduledTriggerNotice state={state} />);
     });
     return container.querySelector('[data-testid="scheduled-trigger-notice"]');
   }
 
   it("renders nothing before the status resolves", () => {
-    expect(render(undefined)).toBeNull();
+    expect(renderState({ kind: "loading" })).toBeNull();
+  });
+
+  // The bug this guards: a failed status query used to be indistinguishable
+  // from a healthy one, so an unreachable/403/404 check silently vouched for
+  // every "Next run" date on the page.
+  it("says the check failed instead of vouching for the deploy", () => {
+    const notice = renderState({ kind: "unknown", error: new Error("403") });
+
+    expect(notice).not.toBeNull();
+    expect(notice?.getAttribute("data-reason")).toBe("check-failed");
+    expect(notice?.textContent).toContain(
+      "Couldn't check whether schedules run here",
+    );
+    expect(notice?.textContent).toContain("unconfirmed");
+  });
+
+  // A weaker claim must not look like the strong one, or readers learn to
+  // discount the banner that actually means schedules are dead.
+  it("keeps the failed check visually distinct from a known-dead scheduler", () => {
+    const unknown = renderState({ kind: "unknown", error: null });
+    const unknownClass = unknown?.className ?? "";
+    const unknownHasDisclosure = Boolean(unknown?.querySelector("details"));
+    const dead = render({ available: false, reason: "disabled-by-env" });
+
+    expect(unknownClass).not.toContain("amber");
+    expect(dead?.className).toContain("amber");
+    // Nothing to toggle: the check failing is not a setting anyone can flip.
+    expect(unknownHasDisclosure).toBe(false);
   });
 
   it("renders nothing when a driver will fire schedules", () => {

@@ -114,6 +114,23 @@ describe("resolveNitroBuildReplacements", () => {
     );
   });
 
+  // The deployed function never sees the build env, so a kill switch set only
+  // for the build is invisible at runtime. Without this marker,
+  // `scheduledTriggerAvailability` fell back to runtime-only Netlify markers and
+  // reported a working scheduler for a build that emitted no trigger.
+  it("embeds the build's recurring-jobs decision into the Nitro server bundle", () => {
+    expect(
+      resolveNitroBuildReplacements({})[
+        "process.env.AGENT_NATIVE_BUILD_RECURRING_JOBS"
+      ],
+    ).toBe(JSON.stringify("enabled"));
+    expect(
+      resolveNitroBuildReplacements({
+        AGENT_NATIVE_DISABLE_RECURRING_JOBS: "true",
+      })["process.env.AGENT_NATIVE_BUILD_RECURRING_JOBS"],
+    ).toBe(JSON.stringify("disabled"));
+  });
+
   it("embeds the configured deployment lane into the Nitro server bundle", () => {
     const replacements = resolveNitroBuildReplacements({}, " beta ");
 

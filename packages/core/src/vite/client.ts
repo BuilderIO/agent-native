@@ -33,6 +33,10 @@ import {
 } from "../config.js";
 import { writeAgentNativeNitroPresetMarker } from "../deploy/nitro-preset.js";
 import { findWorkspaceRoot } from "../scripts/utils.js";
+import {
+  RECURRING_JOBS_BUILD_MARKER_ENV_VAR,
+  resolveRecurringJobsBuildMarker,
+} from "../server/agent-chat/recurring-jobs-runtime.js";
 import { verifyEmbedSessionToken } from "../server/embed-session.js";
 import {
   EMBED_SESSION_COOKIE,
@@ -3234,6 +3238,12 @@ function createNitroDevPlugin(
       "process.env.AGENT_NATIVE_RELEASE_MIGRATIONS": JSON.stringify(
         process.env.AGENT_NATIVE_RELEASE_MIGRATIONS?.trim() || "",
       ),
+      // Same reason as the release owner above: the recurring-jobs decision
+      // belongs to the build env, and Nitro is a separate server build with its
+      // own replacement map.
+      [`process.env.${RECURRING_JOBS_BUILD_MARKER_ENV_VAR}`]: JSON.stringify(
+        resolveRecurringJobsBuildMarker(process.env),
+      ),
     },
     // Never auto-load test files as server handlers/plugins/middleware.
     // Nitro scans server/{plugins,middleware,routes,api}/*; a co-located
@@ -3671,6 +3681,13 @@ function createAgentNativeConfig(
       // into deployed Functions, so embed the decision in the server bundle.
       "process.env.AGENT_NATIVE_RELEASE_MIGRATIONS": JSON.stringify(
         process.env.AGENT_NATIVE_RELEASE_MIGRATIONS?.trim() || "",
+      ),
+      // Recurring jobs are turned off (and their platform scheduled trigger
+      // omitted) by the BUILD environment, which a deployed serverless runtime
+      // never sees. Embed the decision so the Automations page reports what
+      // will actually fire instead of inferring it from runtime-only markers.
+      [`process.env.${RECURRING_JOBS_BUILD_MARKER_ENV_VAR}`]: JSON.stringify(
+        resolveRecurringJobsBuildMarker(process.env),
       ),
       ...(resolvedAppConfig.deployment?.environment
         ? {

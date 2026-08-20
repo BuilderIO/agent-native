@@ -7,6 +7,7 @@ import {
   finalizeClaimedAgentChatProcessRunFailure,
   handleSharedThreadRequest,
   isNetlifyRecurringJobsRuntime,
+  resolveRecurringJobsBuildMarker,
   scheduledTriggerAvailability,
   shouldDisableRecurringJobsRuntime,
 } from "./agent-chat-plugin.js";
@@ -263,6 +264,101 @@ describe("scheduled trigger availability", () => {
         APP_URL: "https://design.agent-native.com",
       }),
     ).toEqual({ available: true, driver: "in-process" });
+  });
+
+  // The regression: a pipeline that sets AGENT_NATIVE_DISABLE_RECURRING_JOBS for
+  // the BUILD only leaves no trace of it in the deployed env. Netlify's runtime
+  // markers still say "Netlify", so inferring the driver from them reported a
+  // working scheduler for a build that emitted no scheduled function at all —
+  // hiding the warning and showing future run dates for automations that can
+  // never fire.
+  it("trusts the build marker over runtime-only Netlify markers", () => {
+    expect(
+      scheduledTriggerAvailability({
+        NODE_ENV: "production",
+        NETLIFY: "true",
+        SITE_ID: "site-1",
+        // Set at build time, absent from the deployed runtime env.
+        AGENT_NATIVE_BUILD_RECURRING_JOBS: "disabled",
+      }),
+    ).toEqual({ available: false, reason: "disabled-by-env" });
+  });
+
+  it("confirms the emitted Netlify trigger from the build marker", () => {
+    expect(
+      scheduledTriggerAvailability({
+        NODE_ENV: "production",
+        NETLIFY: "true",
+        SITE_ID: "site-1",
+        AGENT_NATIVE_BUILD_RECURRING_JOBS: "enabled",
+      }),
+    ).toEqual({ available: true, driver: "netlify-scheduled-function" });
+  });
+
+  // The mirror image, and the reason the Netlify branch reads the build scope
+  // ALONE: the emitted scheduled function fires on the platform's clock and
+  // never consults the deployed env, so a runtime-only kill switch does not stop
+  // it. Reporting "won't run" there would be a false alarm about work that runs.
+  it("does not let a runtime-only switch deny a trigger the build emitted", () => {
+    expect(
+      scheduledTriggerAvailability({
+        NODE_ENV: "production",
+        NETLIFY: "true",
+        SITE_ID: "site-1",
+        AGENT_NATIVE_BUILD_RECURRING_JOBS: "enabled",
+        AGENT_NATIVE_DISABLE_RECURRING_JOBS: "true",
+      }),
+    ).toEqual({ available: true, driver: "netlify-scheduled-function" });
+  });
+
+  // In-process drivers are the opposite: `shouldDisableRecurringJobsRuntime`
+  // reads the runtime env before starting the timer, so a build marker cannot
+  // speak for this branch.
+  it("keeps the runtime env authoritative for the in-process driver", () => {
+    expect(
+      scheduledTriggerAvailability({
+        NODE_ENV: "production",
+        APP_URL: "https://design.agent-native.com",
+        AGENT_NATIVE_BUILD_RECURRING_JOBS: "disabled",
+      }),
+    ).toEqual({ available: true, driver: "in-process" });
+    expect(
+      scheduledTriggerAvailability({
+        NODE_ENV: "production",
+        APP_URL: "https://design.agent-native.com",
+        AGENT_NATIVE_BUILD_RECURRING_JOBS: "enabled",
+        AGENT_NATIVE_DISABLE_RECURRING_JOBS: "true",
+      }),
+    ).toEqual({ available: false, reason: "disabled-by-env" });
+  });
+
+  it("ignores a marker value it does not recognize", () => {
+    expect(
+      scheduledTriggerAvailability({
+        NODE_ENV: "production",
+        NETLIFY: "true",
+        SITE_ID: "site-1",
+        AGENT_NATIVE_BUILD_RECURRING_JOBS: "",
+      }),
+    ).toEqual({ available: true, driver: "netlify-scheduled-function" });
+  });
+});
+
+describe("recurring jobs build marker", () => {
+  it("mirrors the build kill switch the emit gate reads", () => {
+    expect(resolveRecurringJobsBuildMarker({})).toBe("enabled");
+    expect(
+      resolveRecurringJobsBuildMarker({
+        AGENT_NATIVE_DISABLE_RECURRING_JOBS: "false",
+      }),
+    ).toBe("enabled");
+    for (const value of ["1", "true", "TRUE", "yes", "on", " true "]) {
+      expect(
+        resolveRecurringJobsBuildMarker({
+          AGENT_NATIVE_DISABLE_RECURRING_JOBS: value,
+        }),
+      ).toBe("disabled");
+    }
   });
 });
 

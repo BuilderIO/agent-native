@@ -43,6 +43,10 @@ import {
   RECURRING_JOBS_SWEEP_PATH,
   RECURRING_JOBS_SWEEP_TOKEN_SUBJECT,
 } from "../jobs/scheduler-dispatch.js";
+import {
+  RECURRING_JOBS_BUILD_MARKER_ENV_VAR,
+  resolveRecurringJobsBuildMarker,
+} from "../server/agent-chat/recurring-jobs-runtime.js";
 import { normalizeAppBasePath } from "../server/app-base-path.js";
 import {
   DEFAULT_SPECULATION_RULES_PATH,
@@ -2998,8 +3002,13 @@ function isDisabledByEnv(name: string): boolean {
   return isTruthyEnv(name);
 }
 
+/**
+ * Routed through the same resolver that produces the runtime marker, so the gate
+ * that emits the scheduled function and the value the deployed app reports
+ * cannot drift: a build that skips the emit always ships `"disabled"`.
+ */
 export function isRecurringJobsDeployEnabled(): boolean {
-  return !isDisabledByEnv("AGENT_NATIVE_DISABLE_RECURRING_JOBS");
+  return resolveRecurringJobsBuildMarker(process.env) === "enabled";
 }
 
 /**
@@ -4790,6 +4799,13 @@ export function resolveNitroBuildReplacements(
     ),
     "process.env.AGENT_NATIVE_BUILD_DEPLOY_CONTEXT": JSON.stringify(
       env.CONTEXT?.trim() || env.NETLIFY_CONTEXT?.trim() || "",
+    ),
+    // Whether the recurring-jobs scheduled function exists is decided HERE, by
+    // the build env. `scheduledTriggerAvailability` cannot re-derive it later —
+    // a pipeline that sets the kill switch only for the build leaves no runtime
+    // trace of it — so hand the decision to the runtime explicitly.
+    [`process.env.${RECURRING_JOBS_BUILD_MARKER_ENV_VAR}`]: JSON.stringify(
+      resolveRecurringJobsBuildMarker(env),
     ),
     ...(configuredDeploymentEnvironment
       ? {

@@ -747,6 +747,12 @@ const messages = {
       "Manage scheduled and event-triggered agent tasks together from the Automations page.",
     openAutomations: "Open Automations",
     nextRunNeverScheduler: "Never — no scheduler in this deploy",
+    nextRunSchedulerUnknown:
+      "{{date}} — unconfirmed, the scheduler check failed",
+    nextRunSchedulerUnknownNoDate: "Unknown — the scheduler check failed",
+    scheduleUnknownTitle: "Couldn't check whether schedules run here",
+    scheduleUnknownDetail:
+      "The scheduler status check failed, so the next run times below are unconfirmed. Reload to check again.",
     scheduleUnavailableTitle: "Schedules won't run in this deploy",
     scheduleUnavailableLocalTitle: "Schedules don't run in local development",
     scheduleUnavailableDisabled:

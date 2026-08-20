@@ -5,6 +5,7 @@
 // ---------------------------------------------------------------------------
 
 type RecurringJobsRuntimeEnvKey =
+  | "AGENT_NATIVE_BUILD_RECURRING_JOBS"
   | "AGENT_NATIVE_DISABLE_RECURRING_JOBS"
   | "AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS"
   | "APP_URL"
@@ -124,6 +125,52 @@ export function isNetlifyRecurringJobsRuntime(
   return Boolean((env.NETLIFY && env.NETLIFY !== "false") || env.SITE_ID);
 }
 
+/** What the BUILD decided about recurring jobs, as carried into the runtime. */
+export type RecurringJobsBuildMarker = "enabled" | "disabled";
+
+/**
+ * Env name the build embeds its recurring-jobs decision under.
+ *
+ * Netlify's scheduled function is emitted — or omitted — while the build runs,
+ * and a deployed serverless runtime never sees the build environment. So the
+ * build has to hand the decision over explicitly; nothing observable at runtime
+ * can reconstruct it. Consumed below as a LITERAL `process.env.<name>` member
+ * expression because that is the only form Vite's `define` and Nitro's
+ * `replace` inline at build time.
+ */
+export const RECURRING_JOBS_BUILD_MARKER_ENV_VAR =
+  "AGENT_NATIVE_BUILD_RECURRING_JOBS";
+
+/**
+ * Build-side resolver: what the build environment decided. Shared with
+ * `isRecurringJobsDeployEnabled` in the deploy build so the gate that emits the
+ * scheduled function and the marker that reports it cannot disagree.
+ */
+export function resolveRecurringJobsBuildMarker(
+  env: RecurringJobsRuntimeEnv = process.env,
+): RecurringJobsBuildMarker {
+  return isTruthyEnv(env.AGENT_NATIVE_DISABLE_RECURRING_JOBS)
+    ? "disabled"
+    : "enabled";
+}
+
+function readRecurringJobsBuildMarker(
+  env: RecurringJobsRuntimeEnv,
+): RecurringJobsBuildMarker | undefined {
+  const raw =
+    env.AGENT_NATIVE_BUILD_RECURRING_JOBS ??
+    // config-ok: this value is INLINED at build time by Vite's `define` /
+    // Nitro's `replace`, which rewrite the literal `process.env.<NAME>` member
+    // expression and nothing else. A declared app-config field is read at
+    // runtime from the deployed environment, which is precisely the scope that
+    // cannot see the build's decision — the bug this marker exists to fix.
+    // Reading through the aliased `env` parameter would also survive the build
+    // unreplaced, so the literal form is load-bearing.
+    process.env.AGENT_NATIVE_BUILD_RECURRING_JOBS;
+  const value = raw?.trim();
+  return value === "enabled" || value === "disabled" ? value : undefined;
+}
+
 export type ScheduledTriggerAvailability =
   | { available: true; driver: "netlify-scheduled-function" | "in-process" }
   | {
@@ -139,25 +186,42 @@ export type ScheduledTriggerAvailability =
  * scheduled function — reporting that value to a user would call the one
  * working production runtime broken.
  *
- * CAVEAT — this reads the RUNTIME env, so it can only see
- * `AGENT_NATIVE_DISABLE_RECURRING_JOBS` if the deploy pipeline propagated the
- * same value it used at build time into the deployed runtime env. Builder's
- * hosting pipeline does (`applyHostedProdEnvDefaults` layers the identical
- * default into the Netlify site env). A pipeline that sets it only for the build
- * makes this report optimistically — available when nothing will fire — so
- * propagating both scopes is a requirement of this signal, not redundancy.
+ * Each branch reads the scope that actually decides its driver. The Netlify
+ * driver is a BUILD artifact, so it is answered by the build marker; every other
+ * driver is an in-process timer started from the RUNTIME env, so it is answered
+ * by the runtime flag. Reading runtime-only platform markers for the Netlify
+ * branch would report `available` off a build that emitted no trigger at all.
  */
 export function scheduledTriggerAvailability(
   env: RecurringJobsRuntimeEnv = process.env,
 ): ScheduledTriggerAvailability {
-  // The build kill switch removes the emitted scheduled function AND keeps the
-  // in-process timer off, so no driver of any kind survives it.
-  if (isTruthyEnv(env.AGENT_NATIVE_DISABLE_RECURRING_JOBS)) {
-    return { available: false, reason: "disabled-by-env" };
+  const buildMarker = readRecurringJobsBuildMarker(env);
+
+  // Netlify: the driver IS the emitted scheduled function. It fires on the
+  // platform's clock without consulting the deployed env, and no runtime value
+  // can conjure it back once the build omitted it — so the build marker is the
+  // only honest input here, in both directions.
+  if (isNetlifyRecurringJobsRuntime(env)) {
+    if (buildMarker === "disabled") {
+      return { available: false, reason: "disabled-by-env" };
+    }
+    if (buildMarker === "enabled") {
+      return { available: true, driver: "netlify-scheduled-function" };
+    }
+    // No marker: a build predating it, or a caller passing a synthetic env.
+    // Fall back to the runtime flag, which only agrees with the build when the
+    // pipeline sets the same value in both scopes.
+    return isTruthyEnv(env.AGENT_NATIVE_DISABLE_RECURRING_JOBS)
+      ? { available: false, reason: "disabled-by-env" }
+      : { available: true, driver: "netlify-scheduled-function" };
   }
 
-  if (isNetlifyRecurringJobsRuntime(env)) {
-    return { available: true, driver: "netlify-scheduled-function" };
+  // Everything below is driven by an in-process timer, and the runtime flag is
+  // what `shouldDisableRecurringJobsRuntime` reads before starting it. A build
+  // marker cannot speak for this branch: a build with recurring jobs turned off
+  // still starts the timer if the deployed env does not repeat the switch.
+  if (isTruthyEnv(env.AGENT_NATIVE_DISABLE_RECURRING_JOBS)) {
+    return { available: false, reason: "disabled-by-env" };
   }
 
   // Every other serverless host: the build emits a scheduled trigger only for

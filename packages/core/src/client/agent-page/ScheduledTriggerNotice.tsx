@@ -1,10 +1,14 @@
-import { IconAlertTriangle, IconChevronRight } from "@tabler/icons-react";
+import {
+  IconAlertCircle,
+  IconAlertTriangle,
+  IconChevronRight,
+} from "@tabler/icons-react";
 
 import { useT } from "../i18n.js";
-import type { ScheduledTriggerStatus } from "./use-jobs.js";
+import type { ScheduledTriggerState } from "./scheduled-trigger-state.js";
 
 export interface ScheduledTriggerNoticeProps {
-  status: ScheduledTriggerStatus | undefined;
+  state: ScheduledTriggerState;
   /** `banner` heads the page; `inline` sits inside the schedule dialog. */
   variant?: "banner" | "inline";
 }
@@ -18,13 +22,58 @@ export interface ScheduledTriggerNoticeProps {
  * automation reports "Enabled" with a plausible "Next run" and silently never
  * runs. Shown on the Automations page and again inside the schedule editor,
  * which is the one place a user is actively choosing a cadence.
+ *
+ * Takes the whole query state, not just a resolved status, because a status
+ * check that FAILED has to look different from one that came back healthy: the
+ * failure is why the next-run dates alongside it are unverified, and silently
+ * rendering nothing would present them as confirmed.
  */
 export function ScheduledTriggerNotice({
-  status,
+  state,
   variant = "banner",
 }: ScheduledTriggerNoticeProps) {
   const t = useT();
-  if (!status || status.available) return null;
+  // Still in flight: resolves in milliseconds, so say nothing rather than
+  // flash a caveat at every reader on a perfectly healthy deploy.
+  if (state.kind === "loading") return null;
+
+  const shell =
+    variant === "banner"
+      ? "flex items-start gap-2.5 rounded-xl border px-4 py-3"
+      : "flex items-start gap-2 rounded-lg border px-3 py-2";
+
+  // Muted rather than amber: "we could not check" is a weaker claim than "this
+  // will not run", and dressing it identically would teach readers to discount
+  // the one that means something.
+  if (state.kind === "unknown") {
+    return (
+      <div
+        role="status"
+        data-testid="scheduled-trigger-notice"
+        data-reason="check-failed"
+        className={`${shell} border-border/70 bg-muted/50`}
+      >
+        <IconAlertCircle className="mt-px size-4 shrink-0 text-muted-foreground" />
+        <div className="min-w-0">
+          <p className="text-xs font-medium text-foreground">
+            {t("jobs.scheduleUnknownTitle", {
+              defaultValue: "Couldn't check whether schedules run here",
+            })}
+          </p>
+          <p className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
+            {t("jobs.scheduleUnknownDetail", {
+              defaultValue:
+                "The scheduler status check failed, so the next run times below " +
+                "are unconfirmed. Reload to check again.",
+            })}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const status = state.status;
+  if (status.available) return null;
 
   const headline =
     status.reason === "local-development"
@@ -79,11 +128,7 @@ export function ScheduledTriggerNotice({
       role="status"
       data-testid="scheduled-trigger-notice"
       data-reason={status.reason}
-      className={
-        variant === "banner"
-          ? "flex items-start gap-2.5 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3"
-          : "flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2"
-      }
+      className={`${shell} border-amber-500/40 bg-amber-500/10`}
     >
       <IconAlertTriangle className="mt-px size-4 shrink-0 text-amber-600 dark:text-amber-400" />
       <div className="min-w-0">
