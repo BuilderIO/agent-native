@@ -16,6 +16,7 @@ vi.mock("./emitter.js", () => ({
 
 import {
   adoptThreadScopeIfUnscoped,
+  appOwnedThreadScopeMismatch,
   createThreadShareLink,
   forkThread,
   getThreadByShareToken,
@@ -1079,6 +1080,29 @@ describe("resolveRunThreadScope", () => {
 
   it("leaves a general chat general when the run is also unscoped", () => {
     expect(resolveRunThreadScope(null, null)).toBeNull();
+  });
+});
+
+describe("appOwnedThreadScopeMismatch", () => {
+  const appA = { type: "workspace-app", id: "app-a" };
+  const appB = { type: "workspace-app", id: "app-b" };
+  const designA = { type: "design", id: "design-a" };
+
+  it("allows an app to claim a legacy unscoped thread", () => {
+    expect(appOwnedThreadScopeMismatch(null, appA)).toBe(false);
+  });
+
+  it("rejects cross-app and unscoped writes to app-owned threads", () => {
+    expect(appOwnedThreadScopeMismatch(appA, appA)).toBe(false);
+    expect(appOwnedThreadScopeMismatch(appA, appB)).toBe(true);
+    expect(appOwnedThreadScopeMismatch(appA, null)).toBe(true);
+  });
+
+  it("does not change ordinary resource scope behavior", () => {
+    expect(appOwnedThreadScopeMismatch(designA, { ...designA })).toBe(false);
+    expect(
+      appOwnedThreadScopeMismatch(designA, { type: "design", id: "design-b" }),
+    ).toBe(false);
   });
 });
 

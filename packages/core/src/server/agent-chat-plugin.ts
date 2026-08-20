@@ -139,6 +139,7 @@ import {
   deleteThread,
   setThreadQueuedMessages,
   setThreadSourceIfMissing,
+  appOwnedThreadScopeMismatch,
   type ChatThreadScope,
   type ForkThreadSourceSnapshot,
 } from "../chat-threads/store.js";
@@ -2983,15 +2984,21 @@ export function createAgentChatPlugin(
               thread = await getThread(threadId);
             }
           }
-          if (options?.appId) {
-            await setThreadSourceIfMissing(threadId, {
-              appId: options.appId,
-            });
-          }
           if (!thread) {
             throw createError({
               statusCode: 404,
               statusMessage: "Thread not found",
+            });
+          }
+          if (appOwnedThreadScopeMismatch(thread.scope, runScope)) {
+            throw createError({
+              statusCode: 404,
+              statusMessage: "Thread not found",
+            });
+          }
+          if (options?.appId) {
+            await setThreadSourceIfMissing(threadId, {
+              appId: options.appId,
             });
           }
           const access = await resolveThreadAccess(
@@ -3629,6 +3636,17 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           if (details.threadId && details.ownerEmail) {
             const existingThread = await getThread(details.threadId);
             if (existingThread) {
+              if (
+                appOwnedThreadScopeMismatch(
+                  existingThread.scope,
+                  getRequestRunContext()?.chatScope,
+                )
+              ) {
+                throw createError({
+                  statusCode: 404,
+                  statusMessage: "Thread not found",
+                });
+              }
               const access = await resolveThreadAccess(
                 details.ownerEmail,
                 details.threadId,
@@ -3970,6 +3988,17 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             if (details.threadId && details.ownerEmail) {
               const existingThread = await getThread(details.threadId);
               if (existingThread) {
+                if (
+                  appOwnedThreadScopeMismatch(
+                    existingThread.scope,
+                    getRequestRunContext()?.chatScope,
+                  )
+                ) {
+                  throw createError({
+                    statusCode: 404,
+                    statusMessage: "Thread not found",
+                  });
+                }
                 const access = await resolveThreadAccess(
                   details.ownerEmail,
                   details.threadId,
@@ -5683,23 +5712,24 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           const { threadId, tail: threadTail } = parseThreadRoute(event);
           const isThreadSubroute = (subroute: string) =>
             threadTail[0] === subroute;
+          const requestedScope = parseScopeFromQuery(getQuery(event));
+          const threadMatchesRequestedScope = (thread: {
+            scope?: ChatThreadScope | null;
+          }) =>
+            !requestedScope ||
+            (thread.scope?.type === requestedScope.type &&
+              thread.scope?.id === requestedScope.id);
 
           // ── Specific thread: GET/PUT/DELETE /threads/:id ──
           if (threadId) {
             if (method === "GET") {
-              const requestedScope = parseScopeFromQuery(getQuery(event));
               const thread = await resolveThreadAccess(
                 owner,
                 threadId,
                 "viewer",
                 { orgId },
               );
-              if (
-                !thread ||
-                (requestedScope &&
-                  (thread.scope?.type !== requestedScope.type ||
-                    thread.scope?.id !== requestedScope.id))
-              ) {
+              if (!thread || !threadMatchesRequestedScope(thread)) {
                 setResponseStatus(event, 404);
                 return { error: "Thread not found" };
               }
@@ -5720,7 +5750,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   "editor",
                   { orgId },
                 );
-                if (!thread) {
+                if (!thread || !threadMatchesRequestedScope(thread)) {
                   setResponseStatus(event, 404);
                   return { error: "Thread not found" };
                 }
@@ -5803,7 +5833,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 "editor",
                 { orgId },
               );
-              if (!thread) {
+              if (!thread || !threadMatchesRequestedScope(thread)) {
                 setResponseStatus(event, 404);
                 return { error: "Thread not found" };
               }
@@ -5826,7 +5856,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 "editor",
                 { orgId },
               );
-              if (!thread) {
+              if (!thread || !threadMatchesRequestedScope(thread)) {
                 setResponseStatus(event, 404);
                 return { error: "Thread not found" };
               }
@@ -5854,7 +5884,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 "editor",
                 { orgId },
               );
-              if (!thread) {
+              if (!thread || !threadMatchesRequestedScope(thread)) {
                 setResponseStatus(event, 404);
                 return { error: "Thread not found" };
               }
@@ -5878,7 +5908,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 "editor",
                 { orgId },
               );
-              if (!thread) {
+              if (!thread || !threadMatchesRequestedScope(thread)) {
                 setResponseStatus(event, 404);
                 return { error: "Thread not found" };
               }
@@ -5903,7 +5933,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 "viewer",
                 { orgId },
               );
-              if (!thread) {
+              if (!thread || !threadMatchesRequestedScope(thread)) {
                 setResponseStatus(event, 404);
                 return { error: "Thread not found" };
               }
@@ -5927,7 +5957,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 "admin",
                 { orgId },
               );
-              if (!thread) {
+              if (!thread || !threadMatchesRequestedScope(thread)) {
                 setResponseStatus(event, 404);
                 return { error: "Thread not found" };
               }
@@ -5964,7 +5994,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
 
             if (method === "DELETE") {
               const thread = await getThread(threadId);
-              if (!thread || thread.ownerEmail !== owner) {
+              if (
+                !thread ||
+                thread.ownerEmail !== owner ||
+                !threadMatchesRequestedScope(thread)
+              ) {
                 setResponseStatus(event, 404);
                 return { error: "Thread not found" };
               }
@@ -6011,6 +6045,14 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
 
           if (method === "POST") {
             const body = await readBody(event);
+            const requestedScope = parseScopeFromQuery(getQuery(event));
+            const bodyIncludesScope =
+              body &&
+              typeof body === "object" &&
+              Object.prototype.hasOwnProperty.call(body, "scope");
+            const bodyScope = bodyIncludesScope
+              ? parseScopeFromBody(body.scope)
+              : undefined;
             // Idempotent: when the caller supplies an id and a thread with
             // that id already exists for this owner, return it instead of
             // 500'ing on the UNIQUE constraint. The client can race with
@@ -6021,7 +6063,21 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             if (body?.id) {
               const existing = await getThread(body.id);
               if (existing) {
-                if (existing.ownerEmail === owner) return existing;
+                if (existing.ownerEmail === owner) {
+                  if (
+                    (requestedScope &&
+                      appOwnedThreadScopeMismatch(
+                        existing.scope,
+                        requestedScope,
+                      )) ||
+                    (bodyIncludesScope &&
+                      appOwnedThreadScopeMismatch(existing.scope, bodyScope))
+                  ) {
+                    setResponseStatus(event, 404);
+                    return { error: "Thread not found" };
+                  }
+                  return existing;
+                }
                 setResponseStatus(event, 409);
                 return { error: "Thread id already in use" };
               }

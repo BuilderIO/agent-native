@@ -296,6 +296,15 @@ describe("useChatThreads", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
+    window.localStorage.setItem(
+      "agent-chat-active-thread:workspace-app-chat:scope:workspace-app:app-one",
+      "app-one-thread",
+    );
+    window.localStorage.setItem(
+      "agent-chat-active-thread:workspace-app-chat:scope:workspace-app:app-two",
+      "app-two-thread",
+    );
+
     let hook: ReturnType<typeof useChatThreads> | null = null;
     function Harness({ appId }: { appId: string }) {
       hook = useChatThreads(
@@ -316,6 +325,7 @@ describe("useChatThreads", () => {
     expect(hook!.threads.map((thread) => thread.id)).toEqual([
       "app-one-thread",
     ]);
+    expect(hook!.activeThreadId).toBe("app-one-thread");
 
     await act(async () => {
       root.render(<Harness appId="app-two" />);
@@ -326,6 +336,7 @@ describe("useChatThreads", () => {
     expect(hook!.threads.map((thread) => thread.id)).toEqual([
       "app-two-thread",
     ]);
+    expect(hook!.activeThreadId).toBe("app-two-thread");
     await expect(hook!.searchThreads("chat")).resolves.toEqual([appTwoThread]);
   });
 

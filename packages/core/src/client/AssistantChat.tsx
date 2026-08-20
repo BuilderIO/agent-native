@@ -4287,7 +4287,7 @@ const AssistantChatInner = forwardRef<
       (async () => {
         try {
           const res = await fetch(
-            `${apiUrl}/threads/${encodeURIComponent(threadId)}/queued`,
+            `${apiUrl}/threads/${encodeURIComponent(threadId)}/queued${threadScopeQuery}`,
             {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -4306,7 +4306,7 @@ const AssistantChatInner = forwardRef<
       })();
     }, 300);
     return () => clearTimeout(timer);
-  }, [queuedMessages, threadId, apiUrl]);
+  }, [queuedMessages, threadId, apiUrl, threadScopeQuery]);
 
   // Nudge the shared hook to re-check after a Builder connect.
   const handleBuilderConnected = useCallback(() => {

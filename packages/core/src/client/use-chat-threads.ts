@@ -148,6 +148,17 @@ export function appendChatThreadScopeParams(
   params.set("scopeId", scope.id);
 }
 
+function withChatThreadScope(
+  url: string,
+  scope?: ChatThreadScope | null,
+): string {
+  const params = new URLSearchParams();
+  appendChatThreadScopeParams(params, scope);
+  const query = params.toString();
+  if (!query) return url;
+  return `${url}${url.includes("?") ? "&" : "?"}${query}`;
+}
+
 function emitThreadsUpdated() {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new CustomEvent(THREADS_UPDATED_EVENT));
@@ -334,6 +345,9 @@ export function useChatThreads(
   const optimisticThreadScopesRef = useRef<Map<string, ChatThreadScope | null>>(
     new Map(),
   );
+  const knownThreadScopesRef = useRef<Map<string, ChatThreadScope | null>>(
+    new Map(),
+  );
   const pendingPinnedAtRef = useRef<Map<string, number | null>>(new Map());
   const pendingArchivedAtRef = useRef<Map<string, number | null>>(new Map());
   const userRenamedThreadIdsRef = useRef<Set<string>>(new Set());
@@ -384,6 +398,9 @@ export function useChatThreads(
       if (thread) return thread.scope ?? null;
       if (optimisticThreadScopesRef.current.has(id)) {
         return optimisticThreadScopesRef.current.get(id) ?? null;
+      }
+      if (knownThreadScopesRef.current.has(id)) {
+        return knownThreadScopesRef.current.get(id) ?? null;
       }
       return undefined;
     },
@@ -572,6 +589,9 @@ export function useChatThreads(
             setThreadsLoadError("Could not load chat history.");
           }
           return;
+        }
+        for (const thread of loaded) {
+          knownThreadScopesRef.current.set(thread.id, thread.scope ?? null);
         }
         setThreadsLoadError(null);
         if (!options?.append) {
@@ -768,6 +788,12 @@ export function useChatThreads(
         lookupRestored && !restoredOnPage
           ? await fetchThreadById(apiUrl, restoredId!, historyScope)
           : restoredOnPage;
+      if (restoredThread) {
+        knownThreadScopesRef.current.set(
+          restoredThread.id,
+          restoredThread.scope ?? null,
+        );
+      }
       if (restoredThread === undefined && lookupRestored && !restoredOnPage) {
         // Lookup unreachable. Reclassifying now would stamp this thread with the
         // current scope on a guess; leave it untouched for the next mount.
@@ -919,7 +945,10 @@ export function useChatThreads(
     async (threadId: string): Promise<void> => {
       try {
         const res = await fetch(
-          `${apiUrl}/threads/${encodeURIComponent(threadId)}`,
+          withChatThreadScope(
+            `${apiUrl}/threads/${encodeURIComponent(threadId)}`,
+            historyScope,
+          ),
           {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
@@ -941,7 +970,7 @@ export function useChatThreads(
         await fetchThreads().catch(() => {});
       }
     },
-    [apiUrl, fetchThreads],
+    [apiUrl, fetchThreads, historyScope],
   );
 
   const pinThread = useCallback(
@@ -973,7 +1002,10 @@ export function useChatThreads(
       );
       try {
         const res = await fetch(
-          `${apiUrl}/threads/${encodeURIComponent(threadId)}/pin`,
+          withChatThreadScope(
+            `${apiUrl}/threads/${encodeURIComponent(threadId)}/pin`,
+            historyScope,
+          ),
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -996,7 +1028,7 @@ export function useChatThreads(
         return false;
       }
     },
-    [apiUrl, fetchThreads],
+    [apiUrl, fetchThreads, historyScope],
   );
 
   const archiveThread = useCallback(
@@ -1034,7 +1066,10 @@ export function useChatThreads(
       );
       try {
         const res = await fetch(
-          `${apiUrl}/threads/${encodeURIComponent(threadId)}/archive`,
+          withChatThreadScope(
+            `${apiUrl}/threads/${encodeURIComponent(threadId)}/archive`,
+            historyScope,
+          ),
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -1060,7 +1095,7 @@ export function useChatThreads(
         return false;
       }
     },
-    [apiUrl, fetchThreads],
+    [apiUrl, fetchThreads, historyScope],
   );
 
   const renameThread = useCallback(
@@ -1092,7 +1127,10 @@ export function useChatThreads(
 
       try {
         const res = await fetch(
-          `${apiUrl}/threads/${encodeURIComponent(threadId)}/rename`,
+          withChatThreadScope(
+            `${apiUrl}/threads/${encodeURIComponent(threadId)}/rename`,
+            historyScope,
+          ),
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -1112,7 +1150,13 @@ export function useChatThreads(
         return false;
       }
     },
-    [apiUrl, clearUserRenamedThread, fetchThreads, markUserRenamedThread],
+    [
+      apiUrl,
+      clearUserRenamedThread,
+      fetchThreads,
+      historyScope,
+      markUserRenamedThread,
+    ],
   );
 
   const isNewThread = useCallback(
@@ -1131,9 +1175,15 @@ export function useChatThreads(
   const removeThread = useCallback(
     async (id: string) => {
       try {
-        await fetch(`${apiUrl}/threads/${encodeURIComponent(id)}`, {
-          method: "DELETE",
-        });
+        await fetch(
+          withChatThreadScope(
+            `${apiUrl}/threads/${encodeURIComponent(id)}`,
+            historyScope,
+          ),
+          {
+            method: "DELETE",
+          },
+        );
         emitThreadsUpdated();
       } catch {}
       clearUserRenamedThread(id);
@@ -1152,7 +1202,7 @@ export function useChatThreads(
         }
       }
     },
-    [apiUrl, clearUserRenamedThread, createThread],
+    [apiUrl, clearUserRenamedThread, createThread, historyScope],
   );
 
   // Reads scope through refs so this callback survives every setThreads. Scope
@@ -1183,7 +1233,10 @@ export function useChatThreads(
         );
         const payload = { ...threadDataPayload, title };
         let response = await fetch(
-          `${apiUrl}/threads/${encodeURIComponent(id)}`,
+          withChatThreadScope(
+            `${apiUrl}/threads/${encodeURIComponent(id)}`,
+            historyScope,
+          ),
           {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
@@ -1194,18 +1247,24 @@ export function useChatThreads(
         // client-created thread, so no agent run has created its SQL row yet.
         // Materialize that row idempotently and retry the same full save.
         if (response.status === 404) {
-          const created = await fetch(`${apiUrl}/threads`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              id,
-              title,
-              ...(knownScope ? { scope: knownScope } : {}),
-            }),
-          });
+          const created = await fetch(
+            withChatThreadScope(`${apiUrl}/threads`, historyScope),
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                id,
+                title,
+                ...(knownScope ? { scope: knownScope } : {}),
+              }),
+            },
+          );
           if (!created.ok) return;
           response = await fetch(
-            `${apiUrl}/threads/${encodeURIComponent(id)}`,
+            withChatThreadScope(
+              `${apiUrl}/threads/${encodeURIComponent(id)}`,
+              historyScope,
+            ),
             {
               method: "PUT",
               headers: { "Content-Type": "application/json" },
@@ -1263,7 +1322,7 @@ export function useChatThreads(
         });
       } catch {}
     },
-    [apiUrl, readKnownThreadScope],
+    [apiUrl, historyScope, readKnownThreadScope],
   );
 
   const generateTitle = useCallback(
@@ -1302,19 +1361,25 @@ export function useChatThreads(
       ): Promise<ChatThreadSummary | null> => {
         const title = source.title ? `${source.title} (fork)` : "";
         const createdAt = Date.now();
-        const createRes = await fetch(`${apiUrl}/threads`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            id,
-            title,
-            ...(source.scope ? { scope: source.scope } : {}),
-          }),
-        });
+        const createRes = await fetch(
+          withChatThreadScope(`${apiUrl}/threads`, historyScope),
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              id,
+              title,
+              ...(source.scope ? { scope: source.scope } : {}),
+            }),
+          },
+        );
         if (!createRes.ok) return null;
 
         const saveRes = await fetch(
-          `${apiUrl}/threads/${encodeURIComponent(id)}`,
+          withChatThreadScope(
+            `${apiUrl}/threads/${encodeURIComponent(id)}`,
+            historyScope,
+          ),
           {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
@@ -1348,7 +1413,10 @@ export function useChatThreads(
             ? { ...sourceSnapshot, scope: localScope }
             : undefined;
         const res = await fetch(
-          `${apiUrl}/threads/${encodeURIComponent(sourceId)}/fork`,
+          withChatThreadScope(
+            `${apiUrl}/threads/${encodeURIComponent(sourceId)}/fork`,
+            historyScope,
+          ),
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -1391,7 +1459,7 @@ export function useChatThreads(
         return null;
       }
     },
-    [apiUrl],
+    [apiUrl, historyScope],
   );
 
   const searchThreads = useCallback(
@@ -1423,7 +1491,10 @@ export function useChatThreads(
     async (threadId: string): Promise<ChatThreadShareState | null> => {
       try {
         const res = await fetch(
-          `${apiUrl}/threads/${encodeURIComponent(threadId)}/share`,
+          withChatThreadScope(
+            `${apiUrl}/threads/${encodeURIComponent(threadId)}/share`,
+            historyScope,
+          ),
         );
         if (!res.ok) return null;
         const data = await res.json();
@@ -1432,14 +1503,17 @@ export function useChatThreads(
         return null;
       }
     },
-    [apiUrl],
+    [apiUrl, historyScope],
   );
 
   const createThreadShareLink = useCallback(
     async (threadId: string): Promise<ChatThreadShareLink | null> => {
       try {
         const res = await fetch(
-          `${apiUrl}/threads/${encodeURIComponent(threadId)}/share`,
+          withChatThreadScope(
+            `${apiUrl}/threads/${encodeURIComponent(threadId)}/share`,
+            historyScope,
+          ),
           { method: "POST" },
         );
         if (!res.ok) return null;
@@ -1450,14 +1524,17 @@ export function useChatThreads(
         return null;
       }
     },
-    [apiUrl],
+    [apiUrl, historyScope],
   );
 
   const revokeThreadShareLink = useCallback(
     async (threadId: string): Promise<ChatThreadShareState | null> => {
       try {
         const res = await fetch(
-          `${apiUrl}/threads/${encodeURIComponent(threadId)}/share`,
+          withChatThreadScope(
+            `${apiUrl}/threads/${encodeURIComponent(threadId)}/share`,
+            historyScope,
+          ),
           { method: "DELETE" },
         );
         if (!res.ok) return null;
@@ -1467,7 +1544,7 @@ export function useChatThreads(
         return null;
       }
     },
-    [apiUrl],
+    [apiUrl, historyScope],
   );
 
   const refreshThreads = useCallback(() => {

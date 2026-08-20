@@ -303,6 +303,27 @@ export interface ChatThreadScope {
   label?: string;
 }
 
+export function isAppOwnedChatScope(scope?: ChatThreadScope | null): boolean {
+  return scope?.type === "workspace-app" || scope?.type === "desktop-app";
+}
+
+/**
+ * App rails may claim a legacy unscoped thread on its first write, but an
+ * existing app-owned thread must never accept a run from another app.
+ */
+export function appOwnedThreadScopeMismatch(
+  existing?: ChatThreadScope | null,
+  incoming?: ChatThreadScope | null,
+): boolean {
+  if (!isAppOwnedChatScope(existing) && !isAppOwnedChatScope(incoming)) {
+    return false;
+  }
+  if (!existing) return false;
+  return (
+    !incoming || existing.type !== incoming.type || existing.id !== incoming.id
+  );
+}
+
 export interface ChatThreadSource {
   platform?: string | null;
   appId?: string | null;
