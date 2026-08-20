@@ -304,6 +304,34 @@ type ChangelogBodyGroup = {
   index: number;
 };
 
+function stripHtmlComments(
+  line: string,
+  inComment: boolean,
+): { line: string; inComment: boolean } {
+  let cursor = 0;
+  let visibleLine = "";
+  while (cursor < line.length) {
+    if (inComment) {
+      const commentEnd = line.indexOf("-->", cursor);
+      if (commentEnd === -1) return { line: visibleLine, inComment: true };
+      cursor = commentEnd + 3;
+      inComment = false;
+      continue;
+    }
+
+    const commentStart = line.indexOf("<!--", cursor);
+    if (commentStart === -1) {
+      visibleLine += line.slice(cursor);
+      break;
+    }
+
+    visibleLine += line.slice(cursor, commentStart);
+    cursor = commentStart + 4;
+    inComment = true;
+  }
+  return { line: visibleLine, inComment };
+}
+
 function splitChangelogBodyGroups(body: string): {
   prefix: string;
   groups: ChangelogBodyGroup[];
@@ -312,28 +340,38 @@ function splitChangelogBodyGroups(body: string): {
     [];
   let offset = 0;
   let fenceMarker: { character: string; length: number } | undefined;
+  let htmlComment = false;
   for (const line of body.split(/\r?\n/)) {
     const lineEnd = offset + line.length;
-    const fence = /^\s*(`{3,}|~{3,})(.*)$/.exec(line)?.[1];
-    const closingFence = /^\s*(`{3,}|~{3,})\s*$/.exec(line)?.[1];
-    if (fence) {
-      if (!fenceMarker) {
-        fenceMarker = { character: fence[0], length: fence.length };
-      } else if (
+    if (fenceMarker) {
+      const fence = /^\s*(`{3,}|~{3,})(.*)$/.exec(line)?.[1];
+      const closingFence = /^\s*(`{3,}|~{3,})\s*$/.exec(line)?.[1];
+      if (
+        fence &&
         closingFence &&
         fenceMarker.character === fence[0] &&
         closingFence.length >= fenceMarker.length
       ) {
         fenceMarker = undefined;
       }
-    } else if (!fenceMarker) {
-      const heading = /^ {0,3}###\s+(.+?)(?:\s+#+)?\s*$/.exec(line);
-      if (heading) {
-        matches.push({
-          title: heading[1].trim(),
-          start: offset,
-          headingEnd: lineEnd,
-        });
+    } else {
+      const commentResult = stripHtmlComments(line, htmlComment);
+      htmlComment = commentResult.inComment;
+      const visibleLine = commentResult.line;
+      const fence = /^\s*(`{3,}|~{3,})(.*)$/.exec(visibleLine)?.[1];
+      if (!fenceMarker) {
+        if (fence) {
+          fenceMarker = { character: fence[0], length: fence.length };
+        } else {
+          const heading = /^ {0,3}###\s+(.+?)(?:\s+#+)?\s*$/.exec(visibleLine);
+          if (heading) {
+            matches.push({
+              title: heading[1].trim(),
+              start: offset,
+              headingEnd: lineEnd,
+            });
+          }
+        }
       }
     }
     const newlineLength = body.startsWith("\r\n", lineEnd)

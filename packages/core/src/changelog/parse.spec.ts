@@ -291,6 +291,30 @@ describe("mergePendingChangelog", () => {
     expect(next).toContain("### Not a category");
   });
 
+  it("does not treat HTML-comment headings as changelog categories", () => {
+    const existing = `# Changelog
+
+## 2026-08-20
+
+### Improved
+
+<!--
+### Improved
+- Hidden note.
+-->
+
+- Existing note.
+`;
+    const next = mergePendingChangelog(existing, [
+      { type: "improved", text: "New note.", date: "2026-08-20" },
+    ]);
+
+    expect(next.match(/^### Improved$/gm)).toHaveLength(2);
+    expect(next).toContain("<!--\n### Improved\n- Hidden note.\n-->");
+    expect(next.indexOf("New note.")).toBeLessThan(next.indexOf("<!--"));
+    expect(next.indexOf("Existing note.")).toBeGreaterThan(next.indexOf("-->"));
+  });
+
   it("merges indented category headings", () => {
     const existing = `# Changelog
 
