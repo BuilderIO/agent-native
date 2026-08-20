@@ -26,6 +26,7 @@ import {
   revokeThreadShareLink,
   searchThreads,
   setThreadArchived,
+  threadScopeMismatch,
   setThreadPinned,
   setThreadQueuedMessages,
   updateThreadData,
@@ -1079,6 +1080,30 @@ describe("resolveRunThreadScope", () => {
 
   it("leaves a general chat general when the run is also unscoped", () => {
     expect(resolveRunThreadScope(null, null)).toBeNull();
+  });
+});
+
+describe("threadScopeMismatch", () => {
+  const appA = { type: "workspace-app", id: "app-a" };
+  const appB = { type: "workspace-app", id: "app-b" };
+  const designA = { type: "design", id: "design-a" };
+  const designB = { type: "design", id: "design-b" };
+
+  it("allows an app to claim a legacy unscoped thread", () => {
+    expect(threadScopeMismatch(null, appA)).toBe(false);
+  });
+
+  it("rejects unequal scoped writes and unscoped app writes", () => {
+    expect(threadScopeMismatch(appA, appA)).toBe(false);
+    expect(threadScopeMismatch(appA, appB)).toBe(true);
+    expect(threadScopeMismatch(appA, null)).toBe(true);
+    expect(threadScopeMismatch(designA, designB)).toBe(true);
+    expect(threadScopeMismatch(designA, appA)).toBe(true);
+  });
+
+  it("allows ordinary resources to become unscoped", () => {
+    expect(threadScopeMismatch(designA, { ...designA })).toBe(false);
+    expect(threadScopeMismatch(designA, null)).toBe(false);
   });
 });
 

@@ -497,6 +497,7 @@ export default function DesktopAppChatShell({
                   label: appName,
                   contextKey: `desktop-app:${appId}`,
                 }}
+                isolateHistoryByScope
                 apiUrl={apiUrl}
                 agentChatSurface="desktop"
                 desktopIdentityUnauthenticated={desktopIdentityUnauthenticated}
