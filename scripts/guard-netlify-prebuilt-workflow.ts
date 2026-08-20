@@ -416,10 +416,7 @@ if (
   );
 }
 const cleanup = reusable.slice(cleanupStart);
-if (
-  !cleanup.includes("cutoverWasPaused") ||
-  cleanup.includes("stop_builds")
-) {
+if (!cleanup.includes("cutoverWasPaused") || cleanup.includes("stop_builds")) {
   issues.push(
     `${reusablePath} production cleanup must restore the prior automatic-build setting`,
   );
