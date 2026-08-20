@@ -9,6 +9,7 @@ Older updates live in [the changelog folder](./changelog/) and are included in t
 
 ### Improved
 
+- Clip viewers now make Share the primary action and keep the overflow control compact and vertical.
 - Recording controls now follow you across browser tabs and page navigations.
 
 ### Fixed

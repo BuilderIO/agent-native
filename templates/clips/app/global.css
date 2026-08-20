@@ -73,6 +73,10 @@
   --highlight-foreground: 0 0% 10%;
 }
 
+.dark .clips-share-trigger {
+  --primary: 0 0% 100%;
+}
+
 @theme inline {
   --color-highlight: hsl(var(--highlight));
   --color-highlight-foreground: hsl(var(--highlight-foreground));
