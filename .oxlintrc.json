@@ -13,7 +13,12 @@
     "eslint/eqeqeq": "warn",
     "eslint/no-unused-vars": [
       "error",
-      { "args": "none", "caughtErrors": "none", "ignoreRestSiblings": true }
+      {
+        "args": "none",
+        "caughtErrors": "none",
+        "ignoreRestSiblings": true,
+        "varsIgnorePattern": "^_"
+      }
     ]
   },
   "ignorePatterns": [

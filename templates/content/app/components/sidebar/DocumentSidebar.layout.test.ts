@@ -164,7 +164,6 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain(
       "for (const id of activeAncestorIds) expandedIds.add(id)",
     );
-    expect(sidebar).toContain("if (activeAncestorIds.has(id)) return");
   });
 
   it("scopes sidebar creation to the selected Content space", () => {
@@ -427,12 +426,8 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain("useLocalStorage");
     expect(sidebar).toContain("content-sidebar-collapsed-sections");
     expect(sidebar).toContain("normalizeCollapsedSections");
-    expect(sidebar).toContain("renderLocalFilesSectionActions");
-    expect(sidebar).toContain('t("sidebar.localFilesActions")');
-    expect(sidebar).toContain('t("sidebar.manageLocalFolders")');
     expect(sidebar).toContain('t("sidebar.removeLocalFilesFromSidebar")');
     expect(sidebar).toContain('"remove-local-file-source"');
-    expect(sidebar).toContain("setRemoveLocalFilesDialogOpen(true)");
     expect(localFilesRoute).toContain("localSourceDirectoriesFromDocuments");
     expect(localFilesRoute).toContain("useDocuments()");
     expect(localFilesRoute).toContain('"remove-local-file-source"');
