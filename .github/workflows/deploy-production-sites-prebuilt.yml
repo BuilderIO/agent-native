@@ -151,6 +151,7 @@ jobs:
     with:
       target: production
       site: ${{ matrix.site }}
+      caller: fleet
       source_ref: ${{ needs.resolve-source.outputs.source_ref }}
       build_context: production
       deploy: true

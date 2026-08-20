@@ -27,6 +27,26 @@ const asRecord = (value: unknown): Record<string, unknown> | null =>
     ? (value as Record<string, unknown>)
     : null;
 
+export function validateReusableWorkflowConcurrency(
+  workflow: Record<string, unknown>,
+): string[] {
+  const group = asRecord(workflow.concurrency)?.group;
+  if (
+    typeof group !== "string" ||
+    !group.includes("inputs.caller") ||
+    !group.includes("netlify-prebuilt-child") ||
+    !group.includes("inputs.target") ||
+    !group.includes("inputs.site") ||
+    !group.includes("agent-native-production-site") ||
+    group.includes("github.event_name")
+  ) {
+    return [
+      "reusable Netlify workflow must select a distinct child queue through inputs.caller",
+    ];
+  }
+  return [];
+}
+
 export function validateProductionSiteConcurrency(workflows: {
   production: Record<string, unknown>;
   manage: Record<string, unknown>;
@@ -83,19 +103,7 @@ try {
 }
 
 const reusableDocument = parsedWorkflows.get(reusablePath);
-const reusableConcurrency = asRecord(reusableDocument?.concurrency);
-const reusableGroup = reusableConcurrency?.group;
-if (
-  typeof reusableGroup !== "string" ||
-  !reusableGroup.includes("inputs.target") ||
-  !reusableGroup.includes("inputs.site") ||
-  !reusableGroup.includes("workflow_call") ||
-  !reusableGroup.includes("agent-native-production-site")
-) {
-  issues.push(
-    `${reusablePath} must serialize each target/site child without a dropping fleet-wide matrix queue`,
-  );
-}
+issues.push(...validateReusableWorkflowConcurrency(reusableDocument ?? {}));
 
 const productionConcurrency = asRecord(
   parsedWorkflows.get(productionPath)?.concurrency,
@@ -146,6 +154,7 @@ for (const input of [
   "deploy",
   "deploy_mode",
   "smoke",
+  "caller",
 ]) {
   if (!asRecord(workflowCallInputs?.[input])) {
     issues.push(`${reusablePath} workflow_call must define the ${input} input`);
@@ -224,11 +233,12 @@ if (unlockStart < 0 || (uploadStart >= 0 && unlockStart >= uploadStart)) {
     !unlock.includes("locked !== false") ||
     !unlock.includes("/deploys?per_page=100") ||
     !unlock.includes("nextPageUrl") ||
-    !unlock.includes('candidate.state === "ready"') ||
+    !unlock.includes("readyIsBlocking") ||
+    !unlock.includes('candidate.state !== "ready" || readyIsBlocking') ||
     !unlock.includes("candidate.published_at")
   ) {
     issues.push(
-      `${reusablePath} production unlock must reject pending ready deploys and verify locked=false`,
+      `${reusablePath} production unlock must handle ready deploys according to the published lock and verify locked=false`,
     );
   }
 }
@@ -308,6 +318,11 @@ for (const [path, target, buildContext] of [
   }
   if (deployWith?.build_context !== buildContext) {
     issues.push(`${path} deploy job must pass build_context=${buildContext}`);
+  }
+  if (deployWith?.caller !== "fleet") {
+    issues.push(
+      `${path} deploy job must explicitly select the reusable workflow child queue`,
+    );
   }
 }
 

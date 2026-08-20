@@ -89,6 +89,10 @@ on:
         required: false
         type: boolean
         default: true
+      caller:
+        required: false
+        type: string
+        default: direct
     secrets:
       NETLIFY_AUTH_TOKEN:
         required: true
@@ -101,7 +105,7 @@ concurrency:
   # manager, and promotion jobs. A called workflow gets a distinct child queue
   # because the fleet caller already owns the shared per-site lock.
   group: >-
-    ${{ github.event_name == 'workflow_call'
+    ${{ inputs.caller == 'fleet'
         && format('netlify-prebuilt-child-{0}-{1}', inputs.target, inputs.site)
         || inputs.target == 'production'
         && format('agent-native-production-site-{0}', inputs.site)
@@ -250,6 +254,7 @@ jobs:
         run: |
           set -euo pipefail
           node <<'NODE'
+          (async () => {
           const fs = require("node:fs");
           const api = "https://api.netlify.com/api/v1";
           const headers = {
@@ -297,6 +302,10 @@ jobs:
             throw new Error("Netlify automatic builds were not paused before production cutover.");
           }
           console.log(`Automatic Netlify builds paused for production cutover (previously stopped: ${wasStopped}).`);
+          })().catch((error) => {
+            console.error(error instanceof Error ? error.message : error);
+            process.exitCode = 1;
+          });
           NODE
 
       - name: Unlock the published production deploy
@@ -308,6 +317,7 @@ jobs:
         run: |
           set -euo pipefail
           node <<'NODE'
+          (async () => {
           const api = "https://api.netlify.com/api/v1";
           const headers = {
             Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}`,
@@ -364,22 +374,24 @@ jobs:
             return deploys;
           }
 
-          function pendingProductionDeploys(deploys, publishedId) {
+          function pendingProductionDeploys(deploys, publishedId, readyIsBlocking) {
             return deploys.filter(
               (candidate) =>
                 candidate.id !== publishedId &&
                 candidate.context === "production" &&
                 !candidate.published_at &&
-                !["error", "canceled"].includes(candidate.state),
+                !["error", "canceled"].includes(candidate.state) &&
+                (candidate.state !== "ready" || readyIsBlocking),
             );
           }
 
-          async function drainPendingDeploys(publishedId) {
+          async function drainPendingDeploys(publishedId, readyIsBlocking) {
             const deadline = Date.now() + 5 * 60 * 1000;
             while (Date.now() < deadline) {
               let pending = pendingProductionDeploys(
                 await listDeploys("Netlify pending production deploy lookup"),
                 publishedId,
+                readyIsBlocking,
               );
               const cancelable = pending.filter((candidate) =>
                 ["new", "enqueued"].includes(candidate.state),
@@ -397,6 +409,7 @@ jobs:
               pending = pendingProductionDeploys(
                 await listDeploys("Netlify production deploy drain verification"),
                 publishedId,
+                readyIsBlocking,
               );
               const ready = pending.filter((candidate) => candidate.state === "ready");
               if (ready.length) {
@@ -425,7 +438,12 @@ jobs:
             throw new Error("Netlify site has no published deploy to unlock.");
           }
 
-          await drainPendingDeploys(deployId);
+          const published = await readJson(
+            await request(`${api}/deploys/${deployId}`),
+            `Netlify deploy ${deployId} lock lookup before drain`,
+          );
+          const readyIsBlocking = published.locked !== true;
+          await drainPendingDeploys(deployId, readyIsBlocking);
 
           const beforeUnlock = await readJson(
             await request(`${api}/sites/${siteId}`),
@@ -466,6 +484,10 @@ jobs:
             }
             console.log(`Unlocked published production deploy ${deployId}.`);
           }
+          })().catch((error) => {
+            console.error(error instanceof Error ? error.message : error);
+            process.exitCode = 1;
+          });
           NODE
 
       - name: Upload the prebuilt deploy
