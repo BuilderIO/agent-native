@@ -49,16 +49,8 @@ jobs:
         with:
           node-version: "22"
 
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
-
-      - name: Install test dependencies
-        run: pnpm install --frozen-lockfile --ignore-scripts
-
       - name: Test change scope classifier
         run: node --experimental-strip-types --test scripts/ci-change-scope.test.ts
-
-      - name: Test production deploy concurrency guard
-        run: node --experimental-strip-types --test scripts/guard-netlify-prebuilt-workflow.test.ts
 
       - name: Classify changed paths
         id: scope
@@ -921,6 +913,9 @@ jobs:
       # Guard scripts only need dependencies and should not depend on package
       # lifecycle builds; skipping scripts avoids native optional builds here.
       - run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Test production deploy concurrency guard
+        run: pnpm test:netlify-prebuilt-workflow
 
       # Source-backed guards import published-style package entrypoints, so
       # build the workspace packages they inspect before loading locale data.
