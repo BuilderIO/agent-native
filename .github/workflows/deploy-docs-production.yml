@@ -55,9 +55,9 @@ jobs:
   disable-netlify-builds:
     name: Keep docs site on GitHub Actions
     needs: deploy
-    # The reusable production deploy restores the prior Netlify build setting
-    # in its failure cleanup. Reassert ownership after failures too, so a
-    # failed docs publish cannot leave a stale Git-connected build enabled.
+    # The reusable production deploy must not own this persistent site setting.
+    # Reassert ownership after failures too, so a failed docs publish cannot
+    # leave a stale Git-connected build enabled.
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -105,6 +105,9 @@ jobs:
             return body;
           }
 
+          const sleep = (milliseconds) =>
+            new Promise((resolve) => setTimeout(resolve, milliseconds));
+
           (async () => {
             const siteUrl = `${api}/sites/${siteId}`;
             const current = await readJson(
@@ -123,14 +126,22 @@ jobs:
               );
             }
 
-            const paused = await readJson(
-              await fetch(siteUrl, { headers, signal: AbortSignal.timeout(30_000) }),
-              'Netlify docs build pause verification',
-            );
-            if (paused.build_settings?.stop_builds !== true) {
-              throw new Error('Netlify docs Git-connected builds were not disabled.');
+            let observed;
+            for (let attempt = 0; attempt < 6; attempt += 1) {
+              if (attempt > 0) await sleep(2 ** (attempt - 1) * 1000);
+              const paused = await readJson(
+                await fetch(siteUrl, { headers, signal: AbortSignal.timeout(30_000) }),
+                'Netlify docs build pause verification',
+              );
+              observed = paused.build_settings?.stop_builds;
+              if (observed === true) {
+                console.log('Docs site is now owned by the GitHub Actions prebuilt publisher.');
+                return;
+              }
             }
-            console.log('Docs site is now owned by the GitHub Actions prebuilt publisher.');
+            throw new Error(
+              `Netlify docs Git-connected builds were not disabled (last observed stop_builds=${String(observed)}).`,
+            );
           })().catch((error) => {
             console.error(error instanceof Error ? error.message : error);
             process.exitCode = 1;

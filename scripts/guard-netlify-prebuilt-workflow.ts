@@ -255,18 +255,6 @@ if (
     `${reusablePath} must restrict the production unlock step to production uploads`,
   );
 }
-const parsedResumeIf = reusableSteps[parsedResumeIndex]?.if;
-if (
-  typeof parsedResumeIf !== "string" ||
-  !parsedResumeIf.includes("inputs.target == 'production'") ||
-  !parsedResumeIf.includes("inputs.deploy") ||
-  !parsedResumeIf.includes("inputs.deploy_mode == 'production'") ||
-  !parsedResumeIf.includes("always()")
-) {
-  issues.push(
-    `${reusablePath} must always attempt automatic-build restoration after a production cutover`,
-  );
-}
 issues.push(
   ...validateProductionPurgeCondition(reusableSteps[parsedPurgeIndex]?.if),
 );
