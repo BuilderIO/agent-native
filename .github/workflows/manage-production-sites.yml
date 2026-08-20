@@ -266,6 +266,21 @@ jobs:
               return deploys;
             }
 
+            function isReadyMainDeploy(deploy, site, sourceSha) {
+              if (site.sourceRepo) {
+                return (
+                  deploy.context === 'production' &&
+                  deploy.state === 'ready' &&
+                  deploy.branch === 'main'
+                );
+              }
+              return (
+                deploy.context === 'production' &&
+                deploy.state === 'ready' &&
+                deploy.commit_ref === sourceSha
+              );
+            }
+
             async function publishExistingMainDeploy(name, site, sourceSha) {
               const currentSite = await readJson(
                 await request(`${API}/sites/${site.siteId}`, { headers }),
@@ -278,11 +293,14 @@ jobs:
 
               const deploys = await listDeploys(name, site.siteId, 'production deploy history');
               const match = deploys
-                .filter((deploy) => deploy.context === 'production' && deploy.state === 'ready' && deploy.commit_ref === sourceSha)
+                .filter((deploy) => isReadyMainDeploy(deploy, site, sourceSha))
                 .sort((left, right) => String(right.created_at || '').localeCompare(String(left.created_at || '')))[0];
               if (!match) {
+                const sourceDescription = site.sourceRepo
+                  ? `the main branch of ${site.sourceRepo}`
+                  : `main ${sourceSha}`;
                 throw new Error(
-                  `[${name}] build reported no content change, but production serves ${currentSite.published_deploy?.commit_ref || 'an unknown commit'} and no ready production deploy for main ${sourceSha} exists to publish.`,
+                  `[${name}] build reported no content change, but production serves ${currentSite.published_deploy?.commit_ref || 'an unknown commit'} and no ready production deploy for ${sourceDescription} exists to publish.`,
                 );
               }
 
@@ -294,7 +312,9 @@ jobs:
                 `[${name}] publish existing deploy ${match.id}`,
               );
               await waitForPublished(name, site.siteId, match.id);
-              core.info(`[${name}] production now serves ${match.id} (${sourceSha}).`);
+              core.info(
+                `[${name}] production now serves ${match.id} (${site.sourceRepo || sourceSha}).`,
+              );
             }
 
             async function deployMain(name, site, sourceSha) {
@@ -307,7 +327,9 @@ jobs:
                 `[${name}] build trigger`,
               );
               if (!build?.id) throw new Error(`[${name}] Netlify did not return a build id.`);
-              core.info(`[${name}] queued build ${build.id} for main ${sourceSha}.`);
+              core.info(
+                `[${name}] queued build ${build.id} for main ${site.sourceRepo ? `from ${site.sourceRepo}` : sourceSha}.`,
+              );
 
               const completed = await waitForBuild(name, build.id);
               if (!completed) {
@@ -315,7 +337,12 @@ jobs:
                 return;
               }
               const deploy = await waitForReadyDeploy(name, completed.deploy_id);
-              if (deploy.commit_ref && deploy.commit_ref !== sourceSha) {
+              if (site.sourceRepo && deploy.branch && deploy.branch !== 'main') {
+                throw new Error(
+                  `[${name}] ready deploy ${deploy.id} points at branch ${deploy.branch}, expected main from ${site.sourceRepo}.`,
+                );
+              }
+              if (!site.sourceRepo && deploy.commit_ref && deploy.commit_ref !== sourceSha) {
                 throw new Error(
                   `[${name}] ready deploy ${deploy.id} points at ${deploy.commit_ref}, expected main ${sourceSha}.`,
                 );
@@ -328,7 +355,9 @@ jobs:
                 `[${name}] publish deploy ${deploy.id}`,
               );
               await waitForPublished(name, site.siteId, deploy.id);
-              core.info(`[${name}] production now serves ${deploy.id} (${sourceSha}).`);
+              core.info(
+                `[${name}] production now serves ${deploy.id} (${site.sourceRepo || sourceSha}).`,
+              );
             }
 
             async function rollback(name, site) {
@@ -409,7 +438,13 @@ jobs:
               if (operation === 'deploy-main' && !/^[0-9a-f]{40}$/i.test(sourceSha || '')) {
                 throw new Error('Resolved production source SHA is missing or invalid.');
               }
-              if (sourceSha) core.info(`[${name}] deploying the latest main commit ${sourceSha}.`);
+              if (sourceSha) {
+                core.info(
+                  site.sourceRepo
+                    ? `[${name}] deploying the latest main commit from ${site.sourceRepo}.`
+                    : `[${name}] deploying the latest main commit ${sourceSha}.`,
+                );
+              }
               if (operation === 'deploy-main') {
                 await deployMain(name, site, sourceSha);
               } else if (operation === 'rollback') {

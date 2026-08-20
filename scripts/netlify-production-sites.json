@@ -69,6 +69,7 @@
   },
   "workspace": {
     "siteId": "ac1cc021-51b0-4a66-a93c-7072f2ab2171",
-    "host": "agent-workspace.builder.io"
+    "host": "agent-workspace.builder.io",
+    "sourceRepo": "BuilderIO/builder-agent-native-workspace"
   }
 }
