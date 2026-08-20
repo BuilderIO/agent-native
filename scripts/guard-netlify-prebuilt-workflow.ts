@@ -210,9 +210,6 @@ const reusableSteps = Array.isArray(reusableDeployJob?.steps)
   : [];
 const parsedStepIndex = (name: string) =>
   reusableSteps.findIndex((step) => step?.name === name);
-const parsedPauseIndex = parsedStepIndex(
-  "Pause automatic Netlify builds for production cutover",
-);
 const parsedUnlockIndex = parsedStepIndex(
   "Unlock the published production deploy",
 );
@@ -222,36 +219,29 @@ const parsedPublishWaitIndex = parsedStepIndex(
 );
 const parsedPurgeIndex = parsedStepIndex("Purge the production Netlify cache");
 const parsedLockIndex = parsedStepIndex("Lock the published production deploy");
-const parsedResumeIndex = parsedStepIndex(
-  "Resume automatic Netlify builds after production cutover",
-);
 const parsedCleanupIndex = parsedStepIndex(
   "Restore the production deploy lock after a failed cutover",
 );
 if (
-  parsedPauseIndex < 0 ||
   parsedUnlockIndex < 0 ||
   parsedUploadIndex < 0 ||
   parsedPublishWaitIndex < 0 ||
   parsedPurgeIndex < 0 ||
   parsedLockIndex < 0 ||
-  parsedResumeIndex < 0 ||
   parsedCleanupIndex < 0
 ) {
   issues.push(
-    `${reusablePath} must define pause, unlock, upload, publish-wait, lock, resume, and failure-cleanup steps in parsed YAML`,
+    `${reusablePath} must define unlock, upload, publish-wait, lock, and failure-cleanup steps in parsed YAML`,
   );
 } else if (
-  parsedPauseIndex >= parsedUnlockIndex ||
   parsedUnlockIndex >= parsedUploadIndex ||
   parsedUploadIndex >= parsedPublishWaitIndex ||
   parsedPublishWaitIndex >= parsedPurgeIndex ||
   parsedPurgeIndex >= parsedLockIndex ||
-  parsedLockIndex >= parsedResumeIndex ||
-  parsedResumeIndex >= parsedCleanupIndex
+  parsedLockIndex >= parsedCleanupIndex
 ) {
   issues.push(
-    `${reusablePath} parsed YAML steps must order unlock before upload before publish-wait before purge before lock before resume before cleanup`,
+    `${reusablePath} parsed YAML steps must order unlock before upload before publish-wait before purge before lock before cleanup`,
   );
 }
 const parsedUnlockIf = reusableSteps[parsedUnlockIndex]?.if;
@@ -375,17 +365,12 @@ if (purgeStart < 0 || purgeEnd <= purgeStart) {
 const lockStart = reusable.indexOf(
   "name: Lock the published production deploy",
 );
-const pauseStart = reusable.indexOf(
-  "name: Pause automatic Netlify builds for production cutover",
-);
 const cleanupStart = reusable.indexOf(
   "name: Restore the production deploy lock after a failed cutover",
 );
 if (
-  pauseStart < 0 ||
   lockStart < 0 ||
   cleanupStart < 0 ||
-  pauseStart >= unlockStart ||
   lockStart >= cleanupStart ||
   !reusable.slice(lockStart, cleanupStart).includes("/lock") ||
   !reusable.slice(lockStart, cleanupStart).includes("published_deploy") ||
@@ -398,45 +383,29 @@ if (
   !reusable.slice(cleanupStart).includes("newly published deploy")
 ) {
   issues.push(
-    `${reusablePath} must pause automatic builds before cutover, lock the new published deploy, and fail-safe the production lock after cutover errors`,
+    `${reusablePath} must lock the new published deploy and fail-safe the production lock after cutover errors`,
   );
 }
-const pause = reusable.slice(pauseStart, unlockStart);
-const cutoverAcquiredIndex = pause.indexOf("cutover_acquired=true");
-const pauseVerificationIndex = pause.indexOf("const paused =");
 if (
-  !pause.includes("stop_builds") ||
-  !pause.includes('method: "PATCH"') ||
-  !pause.includes("was_stopped") ||
-  cutoverAcquiredIndex < 0 ||
-  pauseVerificationIndex <= cutoverAcquiredIndex
+  reusable.includes("stop_builds") ||
+  reusable.includes("cutoverWasPaused") ||
+  reusable.includes("cutoverWasStopped")
 ) {
   issues.push(
-    `${reusablePath} production cutovers must record acquisition before fallible pause verification and preserve the prior stop_builds setting`,
+    `${reusablePath} production cutovers must not toggle Netlify automatic builds`,
   );
 }
 const cleanup = reusable.slice(cleanupStart);
-if (!cleanup.includes("cutoverWasPaused") || cleanup.includes("stop_builds")) {
-  issues.push(
-    `${reusablePath} production cleanup must restore the prior automatic-build setting`,
-  );
-}
-const resumeStart = reusable.indexOf(
-  "name: Resume automatic Netlify builds after production cutover",
-);
-const noCutoverStateCheck = 'process.env.cutoverWasPaused !== "true"';
 if (
-  resumeStart < 0 ||
-  !reusable.slice(resumeStart, cleanupStart).includes(noCutoverStateCheck)
+  cleanup.includes("cutoverWasPaused") ||
+  cleanup.includes("cutoverWasStopped") ||
+  cleanup.includes("stop_builds")
 ) {
   issues.push(
-    `${reusablePath} production resume must leave automatic builds unchanged when pause state was not acquired`,
+    `${reusablePath} production cleanup must not restore a Netlify automatic-build setting`,
   );
 }
-if (
-  !cleanup.includes(noCutoverStateCheck) ||
-  !cleanup.includes("!process.env.cutoverPublishedDeployId")
-) {
+if (!cleanup.includes("!process.env.cutoverPublishedDeployId")) {
   issues.push(
     `${reusablePath} production cleanup must leave lock state unchanged without a recorded unlock state`,
   );

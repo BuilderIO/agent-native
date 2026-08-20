@@ -254,70 +254,6 @@ jobs:
           done
           du -sh "$PUBLISH_DIRECTORY" "$FUNCTIONS_DIRECTORY"
 
-      - name: Pause automatic Netlify builds for production cutover
-        id: pause
-        if: inputs.target == 'production' && inputs.deploy && inputs.deploy_mode == 'production'
-        env:
-          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
-          NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
-        run: |
-          set -euo pipefail
-          node <<'NODE'
-          (async () => {
-          const fs = require("node:fs");
-          const api = "https://api.netlify.com/api/v1";
-          const headers = {
-            Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}`,
-            "User-Agent": "agent-native-prebuilt-production-build-pause",
-          };
-          const request = (url, options = {}) => fetch(url, {
-            ...options,
-            headers: { ...headers, ...(options.headers || {}) },
-            signal: AbortSignal.timeout(30_000),
-          });
-
-          async function readJson(response, label) {
-            const text = await response.text();
-            const body = text ? JSON.parse(text) : null;
-            if (!response.ok) {
-              throw new Error(`${label} failed with HTTP ${response.status}: ${JSON.stringify(body)}`);
-            }
-            return body;
-          }
-
-          const siteId = process.env.NETLIFY_SITE_ID;
-          if (!siteId) throw new Error("Netlify site id is required to pause automatic builds.");
-          const site = await readJson(
-            await request(`${api}/sites/${siteId}`),
-            "Netlify build setting lookup",
-          );
-          const wasStopped = site.build_settings?.stop_builds === true;
-          fs.appendFileSync(process.env.GITHUB_OUTPUT, `was_stopped=${wasStopped}\n`);
-          if (!wasStopped) {
-            await readJson(
-              await request(`${api}/sites/${siteId}`, {
-                method: "PATCH",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ build_settings: { stop_builds: true } }),
-              }),
-              "Netlify automatic build pause",
-            );
-          }
-          fs.appendFileSync(process.env.GITHUB_OUTPUT, "cutover_acquired=true\n");
-          const paused = await readJson(
-            await request(`${api}/sites/${siteId}`),
-            "Netlify automatic build pause verification",
-          );
-          if (paused.build_settings?.stop_builds !== true) {
-            throw new Error("Netlify automatic builds were not paused before production cutover.");
-          }
-          console.log(`Automatic Netlify builds paused for production cutover (previously stopped: ${wasStopped}).`);
-          })().catch((error) => {
-            console.error(error instanceof Error ? error.message : error);
-            process.exitCode = 1;
-          });
-          NODE
-
       - name: Unlock the published production deploy
         id: unlock
         if: inputs.target == 'production' && inputs.deploy && inputs.deploy_mode == 'production'
@@ -763,63 +699,6 @@ jobs:
           console.log(`Locked published production deploy ${process.env.DEPLOY_ID}.`);
           NODE
 
-      - name: Resume automatic Netlify builds after production cutover
-        if: inputs.target == 'production' && inputs.deploy && inputs.deploy_mode == 'production' && always()
-        env:
-          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
-          NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
-          cutoverWasStopped: ${{ steps.pause.outputs.was_stopped }}
-          cutoverWasPaused: ${{ steps.pause.outputs.cutover_acquired }}
-        run: |
-          set -euo pipefail
-          node <<'NODE'
-          const api = "https://api.netlify.com/api/v1";
-          const headers = {
-            Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}`,
-            "User-Agent": "agent-native-prebuilt-production-build-resume",
-          };
-          const request = (url, options = {}) => fetch(url, {
-            ...options,
-            headers: { ...headers, ...(options.headers || {}) },
-            signal: AbortSignal.timeout(30_000),
-          });
-
-          async function readJson(response, label) {
-            const text = await response.text();
-            const body = text ? JSON.parse(text) : null;
-            if (!response.ok) {
-              throw new Error(`${label} failed with HTTP ${response.status}: ${JSON.stringify(body)}`);
-            }
-            return body;
-          }
-
-          if (process.env.cutoverWasPaused !== "true") {
-            console.log("No production cutover state was acquired; automatic builds are unchanged.");
-            process.exit(0);
-          }
-          if (process.env.cutoverWasStopped === "true") {
-            console.log("Automatic Netlify builds were already stopped; preserving that setting.");
-            process.exit(0);
-          }
-          const siteId = process.env.NETLIFY_SITE_ID;
-          await readJson(
-            await request(`${api}/sites/${siteId}`, {
-              method: "PATCH",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ build_settings: { stop_builds: false } }),
-            }),
-            "Netlify automatic build resume",
-          );
-          const resumed = await readJson(
-            await request(`${api}/sites/${siteId}`),
-            "Netlify automatic build resume verification",
-          );
-          if (resumed.build_settings?.stop_builds !== false) {
-            throw new Error("Netlify automatic builds were not resumed after production cutover.");
-          }
-          console.log("Automatic Netlify builds resumed after production cutover.");
-          NODE
-
       - name: Restore the production deploy lock after a failed cutover
         if: inputs.target == 'production' && inputs.deploy && inputs.deploy_mode == 'production' && failure()
         env:
@@ -828,7 +707,6 @@ jobs:
           cutoverPublishedDeployId: ${{ steps.unlock.outputs.published_deploy_id }}
           cutoverNewDeployId: ${{ steps.deploy.outputs.deploy_id }}
           cutoverWasLocked: ${{ steps.unlock.outputs.was_locked }}
-          cutoverWasPaused: ${{ steps.pause.outputs.cutover_acquired }}
         run: |
           set -euo pipefail
           node <<'NODE'
@@ -852,10 +730,7 @@ jobs:
             return body;
           }
 
-          if (
-            process.env.cutoverWasPaused !== "true" ||
-            !process.env.cutoverPublishedDeployId
-          ) {
+          if (!process.env.cutoverPublishedDeployId) {
             console.log(
               "No production deploy lock state was recorded; lock cleanup is not needed.",
             );
