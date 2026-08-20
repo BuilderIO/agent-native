@@ -6,6 +6,10 @@ import {
   shouldReconcilePersistedRecording,
   type OffscreenRecordingState,
 } from "./native-recording-state";
+import {
+  sendWithInjectionFallback,
+  shouldFollowOverlay,
+} from "./overlay-follow";
 import { captureExtensionError, initExtensionSentry } from "./sentry";
 
 initExtensionSentry("background");
@@ -433,20 +437,19 @@ async function restoreRuntimeState(): Promise<void> {
 function sendTabMessage(
   tabId: number,
   message: Record<string, unknown>,
-): Promise<void> {
+): Promise<boolean> {
   return new Promise((resolve) => {
     try {
       chrome.tabs.sendMessage(tabId, message, () => {
-        void chrome.runtime.lastError;
-        resolve();
+        resolve(!chrome.runtime.lastError);
       });
     } catch {
-      resolve();
+      resolve(false);
     }
   });
 }
 
-async function ensureContentScript(tabId: number): Promise<void> {
+async function injectContentScript(tabId: number): Promise<boolean> {
   const scripting = (
     chrome as typeof chrome & {
       scripting?: {
@@ -457,18 +460,32 @@ async function ensureContentScript(tabId: number): Promise<void> {
       };
     }
   ).scripting;
-  if (!scripting) return;
-  await scripting
-    .executeScript({ target: { tabId }, files: ["assets/content-script.js"] })
-    .catch(() => undefined);
+  if (!scripting) return false;
+  try {
+    await scripting.executeScript({
+      target: { tabId },
+      files: ["assets/content-script.js"],
+    });
+    return true;
+  } catch {
+    // Unsupported pages (chrome://, the Chrome Web Store, and similar) reject
+    // injection. They still need to record without an in-page overlay.
+    return false;
+  }
 }
 
-async function mountOverlayOnTab(tabId: number): Promise<void> {
-  await ensureContentScript(tabId);
-  await sendTabMessage(tabId, {
-    type: "CLIPS_OVERLAY_MOUNT",
-    parts: desiredParts(),
-  });
+async function mountOverlayOnTab(
+  tabId: number,
+  parts: OverlayPart[] = desiredParts(),
+): Promise<boolean> {
+  return sendWithInjectionFallback(
+    () =>
+      sendTabMessage(tabId, {
+        type: "CLIPS_OVERLAY_MOUNT",
+        parts,
+      }),
+    () => injectContentScript(tabId),
+  );
 }
 
 function allTabs(): Promise<chrome.tabs.Tab[]> {
@@ -542,12 +559,9 @@ async function startPreview(wantsCamera: boolean): Promise<void> {
   if (!tab || typeof tab.id !== "number") return;
   if (previewTabId !== null && previewTabId !== tab.id) await stopPreview();
   previewTabId = tab.id;
-  await ensureContentScript(tab.id);
-  // Injection / send fail silently on unsupported pages (chrome://, etc.).
-  await sendTabMessage(tab.id, {
-    type: "CLIPS_OVERLAY_MOUNT",
-    parts: ["bubble"],
-  });
+  // Message delivery reuses the declarative script; fallback injection fails
+  // silently on unsupported pages (chrome://, the Web Store, and similar).
+  await mountOverlayOnTab(tab.id, ["bubble"]);
 }
 
 async function stopPreview(): Promise<void> {
@@ -2554,14 +2568,21 @@ async function dispatchRuntimeMessage(message: unknown): Promise<unknown> {
   }
 }
 
-// While a recording is active, keep the overlay following the user as they
-// switch tabs (programmatic injection covers tabs opened before the extension
-// loaded; declared content scripts cover navigations).
+// While a recording is active or arming, keep the overlay following the user as
+// they switch tabs. The message-first path reuses declarative scripts and only
+// injects for tabs that predate the extension or otherwise have no receiver.
 chrome.tabs.onActivated.addListener((info) => {
   if (!CROSS_TAB_FOLLOW) return;
   void (async () => {
     await ensureRestored();
-    if (overlayPhase === "idle" || !activeNativeRecording) return;
+    if (
+      !shouldFollowOverlay(
+        overlayPhase,
+        Boolean(activeNativeRecording),
+        Boolean(armingNativeRecordingSessionId),
+      )
+    )
+      return;
     await mountOverlayOnTab(info.tabId);
   })();
 });
@@ -2573,7 +2594,14 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.status !== "complete") return;
   void (async () => {
     await ensureRestored();
-    if (overlayPhase === "idle" || !activeNativeRecording) return;
+    if (
+      !shouldFollowOverlay(
+        overlayPhase,
+        Boolean(activeNativeRecording),
+        Boolean(armingNativeRecordingSessionId),
+      )
+    )
+      return;
     if (tabId !== overlayTabId) return;
     await mountOverlayOnTab(tabId);
     broadcastOverlayState();

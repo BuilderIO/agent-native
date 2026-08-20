@@ -56,5 +56,8 @@ describe("Clips overlay follow permissions", () => {
         all_frames: false,
       }),
     );
+
+    expect(backgroundSource).toContain("sendWithInjectionFallback");
+    expect(backgroundSource).toContain("shouldFollowOverlay");
   });
 });
