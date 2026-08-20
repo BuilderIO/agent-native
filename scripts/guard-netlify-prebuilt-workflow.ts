@@ -11,6 +11,12 @@ const production = readFileSync(productionPath, "utf8");
 const beta = readFileSync(betaPath, "utf8");
 
 const issues: string[] = [];
+const parsedWorkflows = new Map<string, Record<string, unknown>>();
+
+const asRecord = (value: unknown): Record<string, unknown> | null =>
+  value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
 
 try {
   for (const [path, source] of [
@@ -18,7 +24,11 @@ try {
     [productionPath, production],
     [betaPath, beta],
   ] as const) {
-    parse(source);
+    const document = asRecord(parse(source));
+    if (!document) {
+      throw new Error(`${path} must contain a YAML mapping at the root`);
+    }
+    parsedWorkflows.set(path, document);
   }
   if (!reusable.includes("workflow_call:")) {
     issues.push(`${reusablePath} must remain a reusable workflow`);
@@ -36,6 +46,53 @@ if (
 ) {
   issues.push(
     "production prebuilt deploys must share the fleet-wide production publish lock",
+  );
+}
+
+const reusableDocument = parsedWorkflows.get(reusablePath);
+const reusableOn = asRecord(reusableDocument?.on);
+const workflowCall = asRecord(reusableOn?.workflow_call);
+const workflowCallInputs = asRecord(workflowCall?.inputs);
+for (const input of [
+  "target",
+  "site",
+  "build_context",
+  "deploy",
+  "deploy_mode",
+  "smoke",
+]) {
+  if (!asRecord(workflowCallInputs?.[input])) {
+    issues.push(`${reusablePath} workflow_call must define the ${input} input`);
+  }
+}
+
+const reusableDeployJob = asRecord(asRecord(reusableDocument?.jobs)?.deploy);
+const reusableSteps = Array.isArray(reusableDeployJob?.steps)
+  ? reusableDeployJob.steps.map(asRecord)
+  : [];
+const parsedStepIndex = (name: string) =>
+  reusableSteps.findIndex((step) => step?.name === name);
+const parsedUnlockIndex = parsedStepIndex(
+  "Unlock the published production deploy",
+);
+const parsedUploadIndex = parsedStepIndex("Upload the prebuilt deploy");
+const parsedPublishWaitIndex = parsedStepIndex(
+  "Wait for the Netlify deploy to publish",
+);
+if (
+  parsedUnlockIndex < 0 ||
+  parsedUploadIndex < 0 ||
+  parsedPublishWaitIndex < 0
+) {
+  issues.push(
+    `${reusablePath} must define unlock, upload, and publish-wait steps in parsed YAML`,
+  );
+} else if (
+  parsedUnlockIndex >= parsedUploadIndex ||
+  parsedUploadIndex >= parsedPublishWaitIndex
+) {
+  issues.push(
+    `${reusablePath} parsed YAML steps must order unlock before upload before publish-wait`,
   );
 }
 
@@ -80,14 +137,21 @@ if (uploadStart < 0 || uploadEnd <= uploadStart) {
   }
 }
 
-for (const [path, expected] of [
-  [productionPath, ["target: production", "build_context: production"]],
-  [betaPath, ["target: beta", "build_context: branch-deploy"]],
+for (const [path, target, buildContext] of [
+  [productionPath, "production", "production"],
+  [betaPath, "beta", "branch-deploy"],
 ] as const) {
-  for (const value of expected) {
-    if (!readFileSync(path, "utf8").includes(value)) {
-      issues.push(`${path} must retain ${value}`);
-    }
+  const document = parsedWorkflows.get(path);
+  const deployJob = asRecord(asRecord(document?.jobs)?.deploy);
+  const deployWith = asRecord(deployJob?.with);
+  if (deployJob?.uses !== "./.github/workflows/deploy-netlify-prebuilt.yml") {
+    issues.push(`${path} deploy job must call the reusable Netlify workflow`);
+  }
+  if (deployWith?.target !== target) {
+    issues.push(`${path} deploy job must pass target=${target}`);
+  }
+  if (deployWith?.build_context !== buildContext) {
+    issues.push(`${path} deploy job must pass build_context=${buildContext}`);
   }
 }
 
