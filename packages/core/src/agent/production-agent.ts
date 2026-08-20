@@ -841,11 +841,20 @@ export function normalizeAgentActionSurfaceResolution(
     }
     throw new Error("resolveActionSurface returned an invalid default surface");
   }
-  const allowedActionNames = readPersistedAllowedActionNames(value);
-  if (allowedActionNames === undefined) {
+  if (!hasOwn(value, "allowedActionNames")) {
     throw new Error("resolveActionSurface returned an invalid action surface");
   }
-  return { mode: "allowlist", allowedActionNames };
+  const allowedActionNames = value.allowedActionNames;
+  if (
+    !Array.isArray(allowedActionNames) ||
+    !allowedActionNames.every((name) => typeof name === "string")
+  ) {
+    throw new Error("resolveActionSurface returned an invalid action surface");
+  }
+  return {
+    mode: "allowlist",
+    allowedActionNames: [...new Set(allowedActionNames)],
+  };
 }
 
 export type PersistedActionSurface =

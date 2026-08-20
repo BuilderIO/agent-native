@@ -1909,6 +1909,19 @@ describe("filterActionsByAllowedNames", () => {
     expect(() => normalizeAgentActionSurfaceResolution({})).toThrow(
       "resolveActionSurface returned an invalid action surface",
     );
+    expect(() =>
+      normalizeAgentActionSurfaceResolution({ allowedActionNames: null }),
+    ).toThrow("resolveActionSurface returned an invalid action surface");
+    expect(() =>
+      normalizeAgentActionSurfaceResolution({
+        allowedActionNames: ["allowed", null],
+      }),
+    ).toThrow("resolveActionSurface returned an invalid action surface");
+    expect(() =>
+      normalizeAgentActionSurfaceResolution({
+        allowedActionNames: "allowed",
+      }),
+    ).toThrow("resolveActionSurface returned an invalid action surface");
   });
 
   it("treats an explicit empty allowlist as no actions", () => {
