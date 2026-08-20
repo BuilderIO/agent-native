@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.165.2
+
+### Patch Changes
+
+- b130f4e: Keep app changelogs compact while preserving folder-backed history in the in-app What's new surface.
+- ac3acfa: Improve provider failure recovery and remove the retired Videos template from Dispatch app creation.
+
 Older releases are archived in [changelog/archive/CHANGELOG.md](./changelog/archive/CHANGELOG.md).
 
 ## 0.165.1

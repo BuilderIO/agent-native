@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.31.3
+
+### Patch Changes
+
+- ac3acfa: Improve provider failure recovery and remove the retired Videos template from Dispatch app creation.
+
 Older releases are archived in [changelog/archive/CHANGELOG.md](./changelog/archive/CHANGELOG.md).
 
 ## 0.31.2
