@@ -69,7 +69,7 @@ function setSsrCacheHeaders(event: H3Event) {
   // Keep docs-only public text/markdown assets on the same framework SSR cache
   // policy as HTML and React Router .data. Core owns the headers for function
   // responses; prerendered HTML is served statically and is covered by the
-  // matching public SWR rules in netlify.toml.
+  // matching public SWR rules generated into the Netlify publish directory.
   for (const [name, value] of Object.entries(resolveSsrCacheHeaders())) {
     setHeader(event, name, value);
   }

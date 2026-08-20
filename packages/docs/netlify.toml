@@ -1,32 +1,11 @@
 [build]
-command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter @agent-native/docs build && if [ \"${CONTEXT:-}\" = \"production\" ]; then pnpm --filter @agent-native/docs migrate:production; fi"
+command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter @agent-native/docs build && pnpm --filter @agent-native/docs generate-netlify-headers && if [ \"${CONTEXT:-}\" = \"production\" ]; then pnpm --filter @agent-native/docs migrate:production; fi"
 publish = "packages/docs/dist"
 
-# React Router prerendered pages are served from Netlify's static backing
-# store, so they bypass the framework SSR handler that normally emits these
-# headers. Keep the public shell fast in browsers and aggressively cached at
-# the CDN while still allowing deploy invalidation to publish new content.
-[[headers]]
-for = "/*"
-  [headers.values]
-  Cache-Control = "public, max-age=600, stale-while-revalidate=604800, stale-if-error=3600"
-  CDN-Cache-Control = "public, max-age=600, stale-while-revalidate=604800, stale-if-error=3600"
-  Netlify-CDN-Cache-Control = "public, s-maxage=31536000, stale-while-revalidate=604800, stale-if-error=3600"
-
-# Vite's production assets are content-addressed and can stay cached for a
-# year. This also preserves the static-site equivalent of core's asset rule.
-[[headers]]
-for = "/assets/*"
-  [headers.values]
-  Cache-Control = "public, max-age=31536000, immutable"
-  CDN-Cache-Control = "public, max-age=31536000, immutable"
-  Netlify-CDN-Cache-Control = "public, max-age=31536000, immutable"
-
-# Keep any static internal framework artifacts out of browser caches.
-[[headers]]
-for = "/_agent-native/*"
-  [headers.values]
-  Cache-Control = "no-cache, no-store"
+# React Router prerendered pages bypass the framework SSR handler because
+# Netlify serves them from its static backing store. The docs build writes the
+# matching `_headers` artifact from core's resolver so the deployment-wide
+# AGENT_NATIVE_SSR_CACHE setting stays consistent for static and SSR responses.
 
 # Netlify's static asset handling sends extensionless Dockerfile requests to
 # the SSR fallback. Rewrite the documented endpoint to the served text asset
