@@ -664,7 +664,7 @@ export default defineAction({
                 <Link
                   data-an-prefetch="viewport"
                   to={localizedPath("/docs")}
-                  className="inline-flex items-center gap-2 rounded-xl border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
+                  className="secondary-button"
                   onClick={() =>
                     trackEvent("click cta", {
                       label: "read_the_docs",
