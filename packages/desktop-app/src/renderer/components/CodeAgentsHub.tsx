@@ -2535,28 +2535,44 @@ export default function CodeAgentsHub({
                 isActive={isTabActive}
                 onLocalCodeChangeStarted={onLocalCodeChangeStarted}
               >
-                {showNativeIntegrations ? (
-                  <DesktopIntegrationsPage />
-                ) : (
-                  <AppWebview
-                    app={toAppDefinition(surfaceApp)}
-                    appConfig={surfaceApp}
-                    isActive={isTabActive}
-                    theme={theme}
-                    urlPath={tab.path}
-                    urlParams={
-                      dispatchControlPlane
-                        ? dispatchControlPlaneUrlParams(tab.path)
-                        : { embedded: "1", chatFirst: "1" }
+                <div
+                  className={
+                    showNativeIntegrations
+                      ? "relative h-full min-h-0"
+                      : "h-full"
+                  }
+                >
+                  <div
+                    className={
+                      showNativeIntegrations ? "invisible h-full" : "h-full"
                     }
-                    onAuthStateChange={(state) =>
-                      handleAppAuthStateChange(tab.id, state)
-                    }
-                    onDesktopIdentityStatusChange={(status) =>
-                      handleDesktopIdentityStatusChange(tab.id, status)
-                    }
-                  />
-                )}
+                    aria-hidden={showNativeIntegrations}
+                  >
+                    <AppWebview
+                      app={toAppDefinition(surfaceApp)}
+                      appConfig={surfaceApp}
+                      isActive={isTabActive}
+                      theme={theme}
+                      urlPath={tab.path}
+                      urlParams={
+                        dispatchControlPlane
+                          ? dispatchControlPlaneUrlParams(tab.path)
+                          : { embedded: "1", chatFirst: "1" }
+                      }
+                      onAuthStateChange={(state) =>
+                        handleAppAuthStateChange(tab.id, state)
+                      }
+                      onDesktopIdentityStatusChange={(status) =>
+                        handleDesktopIdentityStatusChange(tab.id, status)
+                      }
+                    />
+                  </div>
+                  {showNativeIntegrations && (
+                    <div className="absolute inset-0 z-10">
+                      <DesktopIntegrationsPage />
+                    </div>
+                  )}
+                </div>
               </DesktopAppChatShell>
             )}
             copy={defaultChatFirstCopy}

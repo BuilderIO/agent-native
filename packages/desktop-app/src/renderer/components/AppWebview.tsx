@@ -639,6 +639,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       onDesktopIdentityStatusChange,
     );
     const perAppChatOpenRef = useRef(false);
+    const authProbeSequenceRef = useRef(0);
 
     const applyGuestTheme = useCallback(() => {
       const wv = webviewRef.current;
@@ -995,7 +996,6 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       };
       const titleTimers = new Set<ReturnType<typeof setTimeout>>();
       let disposed = false;
-      let authProbeSequence = 0;
       const emitTitle = (candidate?: unknown) => {
         const title = String(candidate ?? "").trim();
         if (title) onTitleChangeRef.current?.(title);
@@ -1021,10 +1021,10 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       };
       const emitAuthState = () => {
         if (disposed) return;
-        const sequence = ++authProbeSequence;
+        const sequence = ++authProbeSequenceRef.current;
         onAuthStateChangeRef.current?.("unknown");
         void readAppWebviewAuthState(wv).then((state) => {
-          if (disposed || sequence !== authProbeSequence) return;
+          if (disposed || sequence !== authProbeSequenceRef.current) return;
           onAuthStateChangeRef.current?.(state);
         });
       };
@@ -1171,10 +1171,20 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         currentUrl = "";
       }
       onAuthStateChangeRef.current?.("unknown");
-      if (!currentUrl) return;
+      const sequence = ++authProbeSequenceRef.current;
+      let active = true;
+      if (!currentUrl) {
+        return () => {
+          active = false;
+        };
+      }
       void readAppWebviewAuthState(wv).then((state) => {
+        if (!active || sequence !== authProbeSequenceRef.current) return;
         onAuthStateChangeRef.current?.(state);
       });
+      return () => {
+        active = false;
+      };
     }, [app.placeholder, isActive, url]);
 
     // Cmd+R — reload the active webview when refreshKey increments

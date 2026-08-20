@@ -5,11 +5,10 @@ import {
   type McpServersApi,
 } from "@agent-native/core/client/resources";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { useMemo } from "react";
-
-const desktopIntegrationsQueryClient = createAgentNativeQueryClient();
+import { useMemo, useState } from "react";
 
 export default function DesktopIntegrationsPage() {
+  const [queryClient] = useState(() => createAgentNativeQueryClient());
   const desktopMcpApi = useMemo<McpServersApi | null>(() => {
     const api = window.electronAPI?.mcpServers;
     if (!api) return null;
@@ -27,7 +26,7 @@ export default function DesktopIntegrationsPage() {
     <div className="flex h-full min-h-0 flex-1 overflow-auto bg-background">
       <div className="mx-auto w-full max-w-4xl p-6 sm:p-8">
         {desktopMcpApi ? (
-          <QueryClientProvider client={desktopIntegrationsQueryClient}>
+          <QueryClientProvider client={queryClient}>
             <McpServersApiProvider api={desktopMcpApi}>
               <ConnectionsTab />
             </McpServersApiProvider>
