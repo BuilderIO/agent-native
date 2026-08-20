@@ -364,7 +364,14 @@ function splitChangelogBodyGroups(body: string): {
           fenceMarker = { character: fence[0], length: fence.length };
         } else {
           const heading = /^ {0,3}###\s+(.+?)(?:\s+#+)?\s*$/.exec(visibleLine);
-          if (heading) {
+          if (
+            heading &&
+            CHANGELOG_GROUP_ORDER.some(
+              (type) =>
+                GROUP_LABELS[type].toLowerCase() ===
+                heading[1].trim().toLowerCase(),
+            )
+          ) {
             matches.push({
               title: heading[1].trim(),
               start: offset,

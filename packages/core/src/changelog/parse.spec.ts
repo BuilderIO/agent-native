@@ -315,6 +315,21 @@ describe("mergePendingChangelog", () => {
     expect(next.indexOf("Existing note.")).toBeGreaterThan(next.indexOf("-->"));
   });
 
+  it("preserves unsupported H3 lines in multiline entries", () => {
+    const next = mergePendingChangelog("", [
+      {
+        type: "improved",
+        text: "A note\n### Important detail\nStill part of the note.",
+        date: "2026-08-20",
+      },
+    ]);
+
+    expect(next).toContain(
+      "- A note\n  ### Important detail\n  Still part of the note.",
+    );
+    expect(next.match(/^### /gm)).toHaveLength(1);
+  });
+
   it("merges indented category headings", () => {
     const existing = `# Changelog
 
