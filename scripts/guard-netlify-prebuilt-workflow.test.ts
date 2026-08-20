@@ -122,7 +122,7 @@ describe("production Netlify site concurrency guard", () => {
     );
   });
 
-  it("bounds deploy pagination at the recent deploy window", async () => {
+  it("finds old active production deploys through filtered state requests", async () => {
     const unlock = nodeHeredocs[1];
     const listStart = unlock.indexOf("async function listDeploys");
     const pendingStart = unlock.indexOf(
@@ -156,46 +156,37 @@ describe("production Netlify site concurrency guard", () => {
       "site-id",
     ) as (
       label: string,
-      cutoff: number,
+      states: string[],
     ) => Promise<Array<Record<string, unknown>>>;
     const requests: string[] = [];
     const pages = new Map([
       [
-        "https://netlify.test/api/sites/site-id/deploys?per_page=100",
+        "https://netlify.test/api/sites/site-id/deploys?per_page=100&production=true&state=processing",
         {
-          deploys: [{ id: "recent-1", created_at: "2026-08-20T05:00:00Z" }],
-          next: "https://netlify.test/page-2",
-        },
-      ],
-      [
-        "https://netlify.test/page-2",
-        {
-          deploys: [{ id: "recent-2", created_at: "2026-08-20T04:00:00Z" }],
-          next: "https://netlify.test/page-3",
-        },
-      ],
-      [
-        "https://netlify.test/page-3",
-        {
-          deploys: [{ id: "historical", created_at: "2026-08-19T00:00:00Z" }],
+          deploys: [
+            {
+              id: "old-active",
+              context: "production",
+              state: "processing",
+              created_at: "2026-08-19T00:00:00Z",
+            },
+          ],
           next: null,
         },
       ],
     ]);
 
-    const deploys = await listDeploys(
-      "test deploy lookup",
-      Date.parse("2026-08-20T02:00:00Z"),
-    );
+    const deploys = await listDeploys("test deploy lookup", ["processing"]);
     assert.deepEqual(
       deploys.map((deploy) => deploy.id),
-      ["recent-1", "recent-2", "historical"],
+      ["old-active"],
     );
     assert.deepEqual(requests, [
-      "https://netlify.test/api/sites/site-id/deploys?per_page=100",
-      "https://netlify.test/page-2",
-      "https://netlify.test/page-3",
+      "https://netlify.test/api/sites/site-id/deploys?per_page=100&production=true&state=processing",
     ]);
+    assert(
+      requests.every((url) => url.includes("production=true&state=processing")),
+    );
   });
 
   it("restores cutover state before failure lock cleanup", () => {
