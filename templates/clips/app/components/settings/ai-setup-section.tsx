@@ -15,7 +15,6 @@ import {
   IconBolt,
   IconCheck,
   IconExternalLink,
-  IconKey,
   IconLoader2,
 } from "@tabler/icons-react";
 import { useState } from "react";

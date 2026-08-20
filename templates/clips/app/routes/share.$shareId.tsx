@@ -1110,7 +1110,7 @@ export default function ShareRoute() {
   return (
     <div className="flex min-h-screen max-w-full flex-col overflow-x-hidden bg-background text-foreground lg:h-screen lg:flex-row lg:overflow-hidden">
       {agentDiscovery}
-      <div className="flex w-full min-w-0 flex-col lg:flex-1">
+      <div className="clips-share-content flex w-full min-w-0 flex-col lg:flex-1">
         <header className="flex min-w-0 shrink-0 flex-wrap items-center gap-2 border-b border-border px-3 py-2 sm:px-4 sm:py-3 lg:flex-nowrap">
           {session ? (
             <Button
@@ -1358,15 +1358,15 @@ export default function ShareRoute() {
               : null}
           </div>
 
-          <div className="flex shrink-0 flex-col gap-3 px-4 pb-4 sm:flex-row sm:items-start sm:px-0 sm:pb-0">
-            <div className="min-w-0 flex-1">
+          <div className="clips-share-metadata flex shrink-0 flex-col gap-3 px-4 pb-4 sm:px-0 sm:pb-0">
+            <div className="clips-share-metadata-description min-w-0 flex-1">
               {recording.description ? (
                 <p className="whitespace-pre-wrap break-words text-sm text-muted-foreground">
                   {recording.description}
                 </p>
               ) : null}
             </div>
-            <div className="flex max-w-full flex-col items-stretch gap-2 sm:items-end">
+            <div className="clips-share-metadata-actions flex max-w-full flex-col items-stretch gap-2 sm:items-end">
               <div className="flex flex-wrap items-center gap-2 sm:justify-end">
                 {recording.enableComments ? (
                   <TimestampedCommentButton

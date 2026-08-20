@@ -63,7 +63,6 @@ export async function readFactoryDefinition(orgId: string, factoryId: string) {
 export async function readFactoryMetrics(
   orgId: string,
 ): Promise<FactoryMetricSummary> {
-  const db = getDb();
   const [
     totalItems,
     slackItems,

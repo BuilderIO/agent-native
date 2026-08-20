@@ -732,7 +732,7 @@ export default function CodeAgentsHub({
     }
     return undefined;
   }, [activeChatFirstSurfaceTab, chatFirstAppSelected, scheduledTasksOpen]);
-  const [chatFirstBrowserSelection, setChatFirstBrowserSelection] = useState<{
+  const [, setChatFirstBrowserSelection] = useState<{
     url: string;
     title?: string;
   } | null>(null);

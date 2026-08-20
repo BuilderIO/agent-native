@@ -2258,7 +2258,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         sourceScreenId !== boardFileId &&
         boardFileId &&
         boardFrameGeometry &&
-        geometryContainsPoint(boardFrameGeometry, boardPoint)
+        boardSurfaceRenderGeometry &&
+        // boardFrameGeometry is a 131,072px square centred on the origin, so
+        // testing against it makes every pointer a board hit and silently
+        // relocates the layer into an invisible file.
+        geometryContainsPoint(boardSurfaceRenderGeometry, boardPoint)
       ) {
         const nextTarget = { id: boardFileId, geometry: boardFrameGeometry };
         if (crossScreenTargetRef.current?.id !== boardFileId) {
@@ -2323,14 +2327,27 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           ? "discarded — pointer never left the source screen"
           : candidate
             ? "moving into candidate"
-            : "no candidate; falling back to the board",
+            : "no candidate — refused unless over the board surface",
       });
+      const boardSurfaceHit =
+        !!boardFileId &&
+        sourceScreenId !== boardFileId &&
+        !!boardFrameGeometry &&
+        !!boardSurfaceRenderGeometry &&
+        geometryContainsPoint(boardSurfaceRenderGeometry, lastBoardPoint);
       const targetCandidate =
         candidate ??
-        (boardFileId && sourceScreenId !== boardFileId && boardFrameGeometry
+        (boardSurfaceHit && boardFileId && boardFrameGeometry
           ? { id: boardFileId, geometry: boardFrameGeometry }
           : null);
-      if (!targetCandidate) return;
+      if (!targetCandidate) {
+        trace("drop", "refused", {
+          reason: "no screen under the pointer and not over the board surface",
+          sourceScreen: sourceScreenId,
+          lastBoardPoint,
+        });
+        return;
+      }
 
       if (targetCandidate.id === boardFileId) {
         void runHitTest(targetCandidate, lastBoardPoint).then(

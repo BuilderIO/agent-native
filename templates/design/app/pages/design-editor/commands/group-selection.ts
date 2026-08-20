@@ -111,7 +111,7 @@ export function runGroupSelection({
     );
     return;
   }
-  applyLocalContentUpdate(patch.content, { skipPreview: true });
+  applyLocalContentUpdate(patch.content, { forcePreviewFullDocument: true });
   // Select the new wrapper node if the substrate reported its id.
   const wrapperId = patch.result.wrapperNodeId;
   if (wrapperId) {
