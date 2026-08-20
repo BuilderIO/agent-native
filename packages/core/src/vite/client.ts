@@ -72,6 +72,7 @@ import {
   readAgentNativeJsonConfig,
 } from "./agent-native-config-loader.js";
 import { agentsBundlePlugin } from "./agents-bundle-plugin.js";
+import { resolveAgentNativePackageVersions } from "./package-versions.js";
 
 const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -3595,6 +3596,7 @@ function createAgentNativeConfig(
     process.env.CF_PAGES_COMMIT_SHA?.trim() ||
     process.env.AGENT_NATIVE_BUILD_SHA?.trim() ||
     "development";
+  const packageVersions = resolveAgentNativePackageVersions(cwd);
 
   // Preload workspace-root .env into process.env so Nitro server code sees
   // shared keys during dev (Nitro reads process.env, not vite's envDir).
@@ -3680,6 +3682,7 @@ function createAgentNativeConfig(
       ...(userConfig.define ?? {}),
       ...(options.define ?? {}),
       __AGENT_NATIVE_BUILD_ID__: JSON.stringify(buildId),
+      __AGENT_NATIVE_PACKAGE_VERSIONS__: JSON.stringify(packageVersions),
       __AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__: JSON.stringify(
         options.clientCompatibilityVersion?.trim() || "",
       ),

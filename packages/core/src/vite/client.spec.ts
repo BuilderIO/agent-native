@@ -865,6 +865,15 @@ describe("route warmup config", () => {
       expect(config.define?.__AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__).toBe(
         JSON.stringify("content-spaces-v1"),
       );
+      const packageVersions = JSON.parse(
+        String(config.define?.__AGENT_NATIVE_PACKAGE_VERSIONS__),
+      );
+      expect(packageVersions).toEqual(
+        expect.objectContaining({
+          "@agent-native/core": expect.any(String),
+          "@agent-native/toolkit": expect.any(String),
+        }),
+      );
     } finally {
       if (previousDeployId === undefined) delete process.env.DEPLOY_ID;
       else process.env.DEPLOY_ID = previousDeployId;
