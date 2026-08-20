@@ -139,7 +139,8 @@ import {
   deleteThread,
   setThreadQueuedMessages,
   setThreadSourceIfMissing,
-  appOwnedThreadScopeMismatch,
+  isAppOwnedChatScope,
+  threadScopeMismatch,
   type ChatThreadScope,
   type ForkThreadSourceSnapshot,
 } from "../chat-threads/store.js";
@@ -2990,7 +2991,7 @@ export function createAgentChatPlugin(
               statusMessage: "Thread not found",
             });
           }
-          if (appOwnedThreadScopeMismatch(thread.scope, runScope)) {
+          if (threadScopeMismatch(thread.scope, runScope)) {
             throw createError({
               statusCode: 404,
               statusMessage: "Thread not found",
@@ -3637,7 +3638,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             const existingThread = await getThread(details.threadId);
             if (existingThread) {
               if (
-                appOwnedThreadScopeMismatch(
+                threadScopeMismatch(
                   existingThread.scope,
                   getRequestRunContext()?.chatScope,
                 )
@@ -3989,7 +3990,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               const existingThread = await getThread(details.threadId);
               if (existingThread) {
                 if (
-                  appOwnedThreadScopeMismatch(
+                  threadScopeMismatch(
                     existingThread.scope,
                     getRequestRunContext()?.chatScope,
                   )
@@ -5755,6 +5756,30 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   return { error: "Thread not found" };
                 }
                 const body = await readBody(event);
+                const bodyIncludesScope =
+                  body &&
+                  typeof body === "object" &&
+                  Object.prototype.hasOwnProperty.call(body, "scope");
+                const incomingScope = bodyIncludesScope
+                  ? parseScopeFromBody(body.scope)
+                  : undefined;
+                const bodyScopeMatchesRequestedScope =
+                  !requestedScope ||
+                  !incomingScope ||
+                  (incomingScope.type === requestedScope.type &&
+                    incomingScope.id === requestedScope.id);
+                const unauthorizedScopeChange =
+                  bodyIncludesScope &&
+                  ((incomingScope !== null &&
+                    (threadScopeMismatch(thread.scope, incomingScope) ||
+                      !bodyScopeMatchesRequestedScope)) ||
+                    (incomingScope === null &&
+                      isAppOwnedChatScope(thread.scope) &&
+                      !requestedScope));
+                if (unauthorizedScopeChange) {
+                  setResponseStatus(event, 404);
+                  return { error: "Thread not found" };
+                }
                 let newThreadData = body.threadData || thread.threadData;
                 let newMessageCount = body.messageCount ?? thread.messageCount;
                 let nextTitle =
@@ -5811,9 +5836,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   { ignoreConflicts: true },
                 );
                 // Scope updates piggyback on the PUT — the client uses this
-                // path for both "detach" (scope: null) and "retag" flows.
-                // Send the field as `scope: undefined` (or omit it) when
-                // you don't want to touch the existing scope.
+                // path for detach and for claiming a legacy unscoped thread.
+                // A scoped thread cannot be retagged across resources here.
                 if (Object.prototype.hasOwnProperty.call(body, "scope")) {
                   const incomingScope = parseScopeFromBody(body.scope);
                   await setThreadScope(threadId, incomingScope);
@@ -6066,12 +6090,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 if (existing.ownerEmail === owner) {
                   if (
                     (requestedScope &&
-                      appOwnedThreadScopeMismatch(
-                        existing.scope,
-                        requestedScope,
-                      )) ||
+                      threadScopeMismatch(existing.scope, requestedScope)) ||
                     (bodyIncludesScope &&
-                      appOwnedThreadScopeMismatch(existing.scope, bodyScope))
+                      threadScopeMismatch(existing.scope, bodyScope))
                   ) {
                     setResponseStatus(event, 404);
                     return { error: "Thread not found" };

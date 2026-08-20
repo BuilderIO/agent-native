@@ -308,20 +308,17 @@ export function isAppOwnedChatScope(scope?: ChatThreadScope | null): boolean {
 }
 
 /**
- * App rails may claim a legacy unscoped thread on its first write, but an
- * existing app-owned thread must never accept a run from another app.
+ * A scoped rail may claim a legacy unscoped thread on its first write, but
+ * once a thread has a scope, a non-null incoming scope must match it. App-
+ * owned threads additionally require a scope on every subsequent write.
  */
-export function appOwnedThreadScopeMismatch(
+export function threadScopeMismatch(
   existing?: ChatThreadScope | null,
   incoming?: ChatThreadScope | null,
 ): boolean {
-  if (!isAppOwnedChatScope(existing) && !isAppOwnedChatScope(incoming)) {
-    return false;
-  }
   if (!existing) return false;
-  return (
-    !incoming || existing.type !== incoming.type || existing.id !== incoming.id
-  );
+  if (!incoming) return isAppOwnedChatScope(existing);
+  return existing.type !== incoming.type || existing.id !== incoming.id;
 }
 
 export interface ChatThreadSource {

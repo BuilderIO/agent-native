@@ -16,7 +16,6 @@ vi.mock("./emitter.js", () => ({
 
 import {
   adoptThreadScopeIfUnscoped,
-  appOwnedThreadScopeMismatch,
   createThreadShareLink,
   forkThread,
   getThreadByShareToken,
@@ -27,6 +26,7 @@ import {
   revokeThreadShareLink,
   searchThreads,
   setThreadArchived,
+  threadScopeMismatch,
   setThreadPinned,
   setThreadQueuedMessages,
   updateThreadData,
@@ -1083,26 +1083,27 @@ describe("resolveRunThreadScope", () => {
   });
 });
 
-describe("appOwnedThreadScopeMismatch", () => {
+describe("threadScopeMismatch", () => {
   const appA = { type: "workspace-app", id: "app-a" };
   const appB = { type: "workspace-app", id: "app-b" };
   const designA = { type: "design", id: "design-a" };
+  const designB = { type: "design", id: "design-b" };
 
   it("allows an app to claim a legacy unscoped thread", () => {
-    expect(appOwnedThreadScopeMismatch(null, appA)).toBe(false);
+    expect(threadScopeMismatch(null, appA)).toBe(false);
   });
 
-  it("rejects cross-app and unscoped writes to app-owned threads", () => {
-    expect(appOwnedThreadScopeMismatch(appA, appA)).toBe(false);
-    expect(appOwnedThreadScopeMismatch(appA, appB)).toBe(true);
-    expect(appOwnedThreadScopeMismatch(appA, null)).toBe(true);
+  it("rejects unequal scoped writes and unscoped app writes", () => {
+    expect(threadScopeMismatch(appA, appA)).toBe(false);
+    expect(threadScopeMismatch(appA, appB)).toBe(true);
+    expect(threadScopeMismatch(appA, null)).toBe(true);
+    expect(threadScopeMismatch(designA, designB)).toBe(true);
+    expect(threadScopeMismatch(designA, appA)).toBe(true);
   });
 
-  it("does not change ordinary resource scope behavior", () => {
-    expect(appOwnedThreadScopeMismatch(designA, { ...designA })).toBe(false);
-    expect(
-      appOwnedThreadScopeMismatch(designA, { type: "design", id: "design-b" }),
-    ).toBe(false);
+  it("allows ordinary resources to become unscoped", () => {
+    expect(threadScopeMismatch(designA, { ...designA })).toBe(false);
+    expect(threadScopeMismatch(designA, null)).toBe(false);
   });
 });
 
