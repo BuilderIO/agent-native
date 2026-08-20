@@ -1,4 +1,4 @@
-import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
+import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { IconAlertTriangle, IconArrowLeft } from "@tabler/icons-react";
 import { useQueries, useQuery } from "@tanstack/react-query";
@@ -10,7 +10,6 @@ import {
   callAppAction,
   fetchAppEmailCatalog,
   type AppEmailCatalog,
-  type AppTransactionalEmail,
   type LocalTransactionalEmailCatalog,
 } from "../../client/transactional-emails";
 import { ActionQueryError } from "../../components/action-query-error";

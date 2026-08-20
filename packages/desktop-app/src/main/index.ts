@@ -72,7 +72,6 @@ import {
   type CodeAgentRestoreWorktreeResult,
   type CodeAgentRerunResult,
   type CodeAgentRun,
-  type CodeAgentRunListResult,
   type CodeAgentScheduleListResult,
   type CodeAgentScheduleResult,
   type CodeAgentQueueMetadata,
@@ -102,8 +101,6 @@ import {
   type DesktopPrepareLocalCodeChangeResult,
   type DesktopShortcutActivationRequest,
   type DesktopShortcutSettings,
-  type DesktopShortcutUpdateResult,
-  type DesktopShortcutUpsertRequest,
   type DesktopWorkspaceAppListResult,
   type LocalAppFolderInfo,
   type LocalAppFolderSelectResult,
@@ -205,7 +202,6 @@ import {
 import { boundedCodeAgentTranscriptEvents } from "./code-agent-transcript-window.js";
 import {
   CODE_AGENT_EPHEMERAL_WORKTREE_RETENTION_MS,
-  attachCodeAgentWorktree,
   claimCodeAgentWorktreeRun,
   cleanupDueCodeAgentWorktrees,
   createOrAttachCodeAgentWorktree,
@@ -221,7 +217,6 @@ import {
   codeAgentWorktreeHasChanges,
   codeAgentWorktreeHasCommitsAfterBase,
   cleanupCodeAgentWorktree,
-  createCodeAgentWorktree,
 } from "./code-agent-worktrees.js";
 import {
   getCodexLoginLaunchSpec,
@@ -232,8 +227,6 @@ import {
   DesktopComputerMcpBridge,
   EphemeralScreenObserver,
   getComputerPermissionStatus,
-  requestAccessibilityPermission,
-  runComputerSetupAction,
   SwiftDesktopHelperClient,
 } from "./computer-control";
 import { contentFilesWebviewDenialReason } from "./content-files-webview-access.js";
@@ -260,7 +253,10 @@ import {
   resolveDesktopSsoBrokerStatePath,
   runDesktopStartupStep,
 } from "./desktop-startup.js";
-import { HIDE_EMBEDDED_IDENTITY_SSO_SCRIPT } from "./embedded-auth-ui";
+import {
+  HIDE_EMBEDDED_IDENTITY_SSO_SCRIPT,
+  isEmbeddedIdentitySsoHiddenForLoad,
+} from "./embedded-auth-ui";
 import {
   isAllowedEnvironmentNavigation,
   resolveEnvironmentLaneOrigins,
@@ -13717,6 +13713,15 @@ app.whenReady().then(async () => {
     configureWebviewSession(wc.session, id);
     if (id) desktopWebviewAppIds.set(wc, id);
     let identitySyncAttemptedForApp: string | null = null;
+    let hiddenIdentitySsoState: {
+      url: string;
+      loadGeneration: number;
+    } | null = null;
+    let identitySsoLoadGeneration = 0;
+    let hideIdentitySsoInFlight: {
+      loadGeneration: number;
+      promise: Promise<void>;
+    } | null = null;
 
     const syncLoadedApp = () => {
       id = resolveDesktopWebviewAppId(wc);
@@ -13725,9 +13730,55 @@ app.whenReady().then(async () => {
       configureWebviewSession(wc.session, appId);
       desktopWebviewAppIds.set(wc, appId);
       if (isDesktopSsoEnabled() && resolveDesktopIdentityApp(appId)) {
-        void wc
-          .executeJavaScript(HIDE_EMBEDDED_IDENTITY_SSO_SCRIPT, false)
-          .catch(() => {});
+        const currentUrl = wc.getURL();
+        const currentLoadGeneration = identitySsoLoadGeneration;
+        if (
+          !isEmbeddedIdentitySsoHiddenForLoad(
+            hiddenIdentitySsoState,
+            currentUrl,
+            currentLoadGeneration,
+          ) &&
+          hideIdentitySsoInFlight?.loadGeneration !== currentLoadGeneration
+        ) {
+          const previousHide =
+            hideIdentitySsoInFlight?.promise ?? Promise.resolve();
+          const hidePromise = previousHide
+            .catch(() => undefined)
+            .then(async () => {
+              if (identitySsoLoadGeneration !== currentLoadGeneration) return;
+              await wc.executeJavaScript(
+                HIDE_EMBEDDED_IDENTITY_SSO_SCRIPT,
+                false,
+              );
+              if (
+                identitySsoLoadGeneration === currentLoadGeneration &&
+                wc.getURL() === currentUrl
+              ) {
+                hiddenIdentitySsoState = {
+                  url: currentUrl,
+                  loadGeneration: currentLoadGeneration,
+                };
+              }
+            })
+            .catch((error) => {
+              console.debug(
+                "[main] unable to hide embedded identity SSO:",
+                error instanceof Error ? error.message : error,
+              );
+            })
+            .then(() => {
+              if (
+                hideIdentitySsoInFlight?.loadGeneration ===
+                currentLoadGeneration
+              ) {
+                hideIdentitySsoInFlight = null;
+              }
+            });
+          hideIdentitySsoInFlight = {
+            loadGeneration: currentLoadGeneration,
+            promise: hidePromise,
+          };
+        }
       }
       // Ordinary navigation only synchronizes an app after the identity
       // authority is already signed in. Adoption is reserved for an explicit
@@ -13743,10 +13794,15 @@ app.whenReady().then(async () => {
         void broker.ensureAppSession(appId).catch(() => undefined);
       }
     };
+    const beginIdentitySsoLoad = () => {
+      identitySsoLoadGeneration += 1;
+      hiddenIdentitySsoState = null;
+    };
+    const syncIdentitySsoAfterNavigation = () => syncLoadedApp();
     wc.on("dom-ready", syncLoadedApp);
-    wc.on("did-navigate", syncLoadedApp);
+    wc.on("did-start-loading", beginIdentitySsoLoad);
+    wc.on("did-navigate", syncIdentitySsoAfterNavigation);
     wc.on("did-navigate-in-page", syncLoadedApp);
-    wc.on("did-stop-loading", syncLoadedApp);
     wc.on("did-finish-load", syncLoadedApp);
 
     // Capture renderer console messages to the log file so they survive

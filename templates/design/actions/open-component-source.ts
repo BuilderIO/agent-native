@@ -17,15 +17,15 @@
  * gate is checked and the response includes the external file path for the IDE
  * to open.
  *
- * Navigation is written via `writeAppState("navigate", ...)` — the same
- * mechanism used by the `navigate` action. Because this writes transient
+ * Navigation is written via `writeAppStateForCurrentTab("navigate", ...)` —
+ * the same mechanism as the `navigate` action. Because this writes transient
  * application state, the action uses the default POST mutation transport.
  *
  * See DESIGN-STUDIO-PLAN.md §6.1 (jump-to-source) and §7 (action surface).
  */
 
 import { defineAction } from "@agent-native/core";
-import { writeAppState } from "@agent-native/core/application-state";
+import { writeAppStateForCurrentTab } from "@agent-native/core/application-state";
 import { getText, hasCollabState } from "@agent-native/core/collab";
 import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
@@ -190,7 +190,7 @@ export default defineAction({
     // ── Emit navigation command ──────────────────────────────────────────────
     // Use the same application state key as the `navigate` action so the UI
     // client picks it up and selects the element in the editor.
-    await writeAppState("navigate", {
+    await writeAppStateForCurrentTab("navigate", {
       view: "editor",
       designId,
       editorView: "single",

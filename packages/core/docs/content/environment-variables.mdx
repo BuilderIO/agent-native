@@ -19,8 +19,11 @@ use environment variables for deploy-level configuration.
 
 For committed, non-secret app defaults such as first-run onboarding, use the
 [Agent-Native app configuration guide](/docs/agent-native-config) instead of
-adding another browser-exposed environment setting. Keep credentials and
-deployment-specific values in the environment or scoped secret store.
+adding another standalone environment setting. If a public config value must
+vary by deployment, use its deterministic `AGENT_NATIVE_CONFIG_<PATH>` alias,
+which also becomes part of the public browser bundle. Keep credentials and
+user-, organization-, or workspace-scoped values in the appropriate secret or
+connection store.
 
 ## Common application and deployment variables
 

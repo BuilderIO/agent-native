@@ -54,4 +54,76 @@ describe("agent-native config loading", () => {
       changelog: { enabled: false },
     });
   });
+
+  it("merges environment fragments before an explicit project config", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-native-config-"));
+    temporaryRoots.push(root);
+    const previousRuntime = process.env.AGENT_NATIVE_CONFIG_RUNTIME;
+    process.env.AGENT_NATIVE_CONFIG_RUNTIME = JSON.stringify({
+      auth: { enabled: false },
+      database: { required: false },
+    });
+
+    try {
+      await expect(
+        loadResolvedAgentNativeConfig(
+          root,
+          createAgentNativeConfigContext("serve", "test"),
+          {
+            projectConfig: { runtime: { auth: { enabled: true } } },
+          },
+        ),
+      ).resolves.toEqual({
+        runtime: {
+          auth: { enabled: true },
+          database: { required: false },
+        },
+      });
+    } finally {
+      if (previousRuntime === undefined) {
+        delete process.env.AGENT_NATIVE_CONFIG_RUNTIME;
+      } else {
+        process.env.AGENT_NATIVE_CONFIG_RUNTIME = previousRuntime;
+      }
+    }
+  });
+
+  it("accepts Vite-loaded environment values for secondary config consumers", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-native-config-"));
+    temporaryRoots.push(root);
+
+    await expect(
+      loadResolvedAgentNativeConfig(
+        root,
+        createAgentNativeConfigContext("build", "production"),
+        {
+          environment: {
+            AGENT_NATIVE_CONFIG_TRANSLATIONS_LOCALES: JSON.stringify([
+              "en-US",
+              "es-ES",
+            ]),
+          },
+        },
+      ),
+    ).resolves.toEqual({
+      translations: { locales: ["en-US", "es-ES"] },
+    });
+  });
+
+  it("does not let the legacy deployment variable override explicit JSON config", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-native-config-"));
+    temporaryRoots.push(root);
+    fs.writeFileSync(
+      path.join(root, "agent-native.json"),
+      JSON.stringify({ deployment: { environment: "production" } }),
+    );
+
+    await expect(
+      loadResolvedAgentNativeConfig(
+        root,
+        createAgentNativeConfigContext("build", "production"),
+        { environment: { AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT: "beta" } },
+      ),
+    ).resolves.toEqual({ deployment: { environment: "production" } });
+  });
 });

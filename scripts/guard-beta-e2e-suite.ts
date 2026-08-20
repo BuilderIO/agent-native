@@ -18,6 +18,7 @@ import { parse } from "yaml";
  */
 
 const workflowPath = ".github/workflows/beta-e2e.yml";
+const scheduledWorkflowPath = ".github/workflows/beta-e2e-scheduled.yml";
 const fleetPath = "e2e/beta/lib/fleet.ts";
 const chatPath = "e2e/beta/lib/chat.ts";
 const sitesPath = "scripts/netlify-beta-sites.json";
@@ -38,6 +39,7 @@ function read(path: string): string {
 }
 
 const workflow = read(workflowPath);
+const scheduledWorkflow = read(scheduledWorkflowPath);
 const fleet = read(fleetPath);
 const chat = read(chatPath);
 const config = read(configPath);
@@ -123,7 +125,9 @@ if (config && /ignoreHTTPSErrors/.test(stripComments(config))) {
   );
 }
 
-// 8. The workflow stays a manual gate and keeps the lanes separated.
+// 8. The promotion workflow stays a manual gate and keeps the lanes
+// separated. workflow_call is the narrow reusable entrypoint used by the
+// scheduled wrapper; it is not a push or pull-request trigger.
 if (workflow) {
   try {
     const parsed = parse(workflow) as Record<string, unknown>;
@@ -226,6 +230,52 @@ if (prodDeploy && prodDeploy.includes("beta-e2e")) {
     issues.push(
       `${prodDeployPath}'s deploy job must proceed when the beta E2E pre-flight was SKIPPED, which is its state whenever the deploy did not ask for it. Depend on \`needs.beta-e2e.result != 'failure'\`; requiring 'success' would block every deploy that opted out.`,
     );
+  }
+}
+
+// 8. The scheduled wrapper runs the same reusable job every six hours and
+// deduplicates failures into one open issue.
+if (scheduledWorkflow) {
+  try {
+    const parsed = parse(scheduledWorkflow) as Record<string, unknown>;
+    const on = parsed.on as Record<string, unknown> | undefined;
+    const schedules = on?.schedule;
+    const hasSixHourSchedule =
+      Array.isArray(schedules) &&
+      schedules.some(
+        (entry) =>
+          typeof entry === "object" &&
+          entry !== null &&
+          (entry as { cron?: unknown }).cron === "0 */6 * * *",
+      );
+    if (!hasSixHourSchedule) {
+      issues.push(
+        `${scheduledWorkflowPath} must run the beta E2E check on the 0 */6 * * * schedule.`,
+      );
+    }
+  } catch (error) {
+    issues.push(
+      `${scheduledWorkflowPath} is not valid YAML: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  const requiredFragments = [
+    "uses: ./.github/workflows/beta-e2e.yml",
+    "lane: public+authed",
+    "issues: write",
+    "[beta-e2e] Scheduled beta health check failing",
+    "gh issue list",
+    "--state open",
+    "gh issue comment",
+    "gh issue create",
+    "gh issue close",
+  ];
+  for (const fragment of requiredFragments) {
+    if (!scheduledWorkflow.includes(fragment)) {
+      issues.push(
+        `${scheduledWorkflowPath} is missing ${JSON.stringify(fragment)}. The scheduled check must reuse the full authenticated suite and deduplicate its GitHub issue lifecycle.`,
+      );
+    }
   }
 }
 

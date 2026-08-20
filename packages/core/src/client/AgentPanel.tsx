@@ -704,6 +704,8 @@ export interface AgentPanelProps extends Omit<
   restoreActiveThread?: boolean;
   /** Ambient resource context rendered as a composer chip. */
   scope?: import("./use-chat-threads.js").ChatThreadScope | null;
+  /** Keep app-owned chat history isolated to the supplied scope. */
+  isolateHistoryByScope?: boolean;
   /** @deprecated Scope context now appears inside the composer. */
   showScopeBadge?: MultiTabAssistantChatProps["showScopeBadge"];
   /** Stable browser tab id used for tab-scoped app-state context. */
@@ -873,6 +875,7 @@ function AgentPanelInner({
   storageKey,
   restoreActiveThread = true,
   scope,
+  isolateHistoryByScope = false,
   showScopeBadge,
   browserTabId,
   threadUrlSync,
@@ -1891,7 +1894,7 @@ function AgentPanelInner({
                           setActiveTabId(tab.id),
                         )}
                         className={cn(
-                          "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer max-w-[150px]",
+                          "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer min-w-[56px] max-w-[150px]",
                           isActive
                             ? "bg-accent text-foreground"
                             : "text-muted-foreground hover:bg-accent hover:text-foreground",
@@ -1987,7 +1990,7 @@ function AgentPanelInner({
                                     setActiveTabId(tab.id),
                                   )}
                                   className={cn(
-                                    "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer max-w-[150px]",
+                                    "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer min-w-[56px] max-w-[150px]",
                                     isActive
                                       ? "bg-accent text-foreground"
                                       : "text-muted-foreground hover:bg-accent hover:text-foreground",
@@ -2039,7 +2042,7 @@ function AgentPanelInner({
                                   setActiveCliTab(id),
                                 )}
                                 className={cn(
-                                  "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer",
+                                  "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer min-w-[56px]",
                                   id === activeCliTab
                                     ? "bg-accent text-foreground"
                                     : "text-muted-foreground hover:bg-accent hover:text-foreground",
@@ -2113,7 +2116,7 @@ function AgentPanelInner({
                               setActiveTabId(tab.id),
                             )}
                             className={cn(
-                              "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium cursor-pointer max-w-[140px]",
+                              "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium cursor-pointer min-w-[48px] max-w-[140px]",
                               tab.id === activeTabId
                                 ? "bg-accent text-foreground"
                                 : "text-muted-foreground hover:bg-accent hover:text-foreground",
@@ -2289,6 +2292,7 @@ function AgentPanelInner({
               storageKey={storageKey}
               restoreActiveThread={restoreActiveThread}
               scope={scope}
+              isolateHistoryByScope={isolateHistoryByScope}
               showScopeBadge={showScopeBadge}
               browserTabId={browserTabId}
               threadUrlSync={threadUrlSync}
@@ -3098,6 +3102,8 @@ export interface AgentSidebarProps {
   onFullscreenRequest?: () => void;
   /** Ambient resource context rendered as a composer chip. */
   scope?: import("./use-chat-threads.js").ChatThreadScope | null;
+  /** Keep app-owned chat history isolated to the supplied scope. */
+  isolateHistoryByScope?: boolean;
   /** @deprecated Scope context now appears inside the composer. */
   showScopeBadge?: MultiTabAssistantChatProps["showScopeBadge"];
   /** Stable browser tab id used for tab-scoped app-state context. */
@@ -3157,6 +3163,7 @@ export function AgentSidebar({
   openOnChatRunning = false,
   onFullscreenRequest,
   scope,
+  isolateHistoryByScope = false,
   showScopeBadge,
   browserTabId,
   threadUrlSync,
@@ -3970,6 +3977,7 @@ export function AgentSidebar({
             onFullViewRequest={onFullscreenRequest}
             storageKey={storageKey}
             scope={scope}
+            isolateHistoryByScope={isolateHistoryByScope}
             showScopeBadge={showScopeBadge}
             browserTabId={browserTabId}
             threadUrlSync={threadUrlSync}

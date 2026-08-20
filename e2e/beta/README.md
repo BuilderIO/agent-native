@@ -23,6 +23,23 @@ gh workflow run beta-e2e.yml --ref main -f apps=all -f lane=public
 
 The `public` lane needs no secrets, so it works today with no setup.
 
+It is sharded one host per runner. A page load against a beta host costs 1-2s
+from a laptop and 20-40s from a GitHub runner, because the fleet sits behind one
+CDN that throttles bursty datacenter traffic — on a single runner the sweep took
+~28 minutes. Sharding makes the fleet cost the slowest single host and spreads
+the requests over sixteen source addresses: measured 1704s to 437s. Cross-host
+comparisons live in a separate `fleet` lane, because inside a shard they would
+compare a set of one host and pass having checked nothing.
+
+The same suite also runs automatically from **Beta E2E (scheduled)** every six
+hours (`0 */6 * * *`) with the public, authenticated, journey, and advisory
+lanes. A failed or cancelled run creates the exact-title issue
+`[beta-e2e] Scheduled beta health check failing`, or comments on the existing
+open issue instead of creating a duplicate. The first successful run comments
+with its recovery link and closes that issue. The scheduled workflow also has
+a manual dispatch entrypoint for checking the reporter without waiting for the
+next cadence.
+
 The assertions come from what people actually reported breaking in
 `#product-agent-native-feedback`: Google sign-in failures, sign-in loops, apps
 that will not load, agent turns that end in `ERROR ID:`, a composer stuck on
@@ -193,4 +210,5 @@ someone makes.
 
 `pnpm guard:beta-e2e-suite` enforces the parts the suite cannot check itself:
 the fleet stays derived rather than duplicated, non-beta hosts stay refused,
-the budget model stays luna, and the workflow stays manual.
+the budget model stays luna, the promotion workflow stays manually invokable,
+and the scheduled wrapper keeps its six-hour issue lifecycle.

@@ -46,6 +46,24 @@ grep.
 | A secret value | the vault, via `resolveCredential` — see the `secrets` skill |
 | Something a user changes at runtime in the UI | the settings store, not config |
 
+For a new non-secret value that describes public app behavior or exposed
+capabilities, extend `AgentNativeConfig` and put the default in
+`agent-native.config.ts`. Its supported paths have deterministic deployment
+aliases such as `runtime.auth.enabled` →
+`AGENT_NATIVE_CONFIG_RUNTIME_AUTH_ENABLED`. Whole-config, section, and deeply
+nested object values use the same namespace and accept JSON strings. Use these
+aliases for public values that need to vary by deployment. Do not create a new
+standalone `VITE_*` or `AGENT_NATIVE_*` variable for a value that belongs in
+this config surface.
+Unknown keys inside fixed-shape JSON fragments must fail loudly; the
+per-mode `onboarding.firstRun` map is the intentional dynamic-key exception.
+
+Those aliases are still public. The resolved config is serialized into the
+browser bundle, so credentials, provider keys, database URLs, and other secret
+or user-scoped values never belong there. Keep server-only behavior in
+`defineAppConfig()` and use its declared `.meta({ env })` aliases when a
+deployment override is needed.
+
 `agent-native.config.ts` is serialized into the bundle and hard-cached in a
 public SSR shell. Moving a value there to avoid threading it publishes a
 deployment fact to every visitor. It also cannot carry a closure.
@@ -67,6 +85,12 @@ export const emailConfig = z.object({
 ```
 
 Then read it: `getAppConfig().email.brandColor`.
+
+When adding a public `AgentNativeConfig` field, add its deterministic env-path
+descriptor and focused parser coverage in `packages/core/src/config.ts` and
+`packages/core/src/config.spec.ts`. The descriptor is the runtime contract
+that keeps JSON fragments, scalar parsing, and unknown-path errors aligned with
+the typed public surface.
 
 Four things worth knowing before you write one:
 

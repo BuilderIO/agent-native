@@ -582,9 +582,6 @@ function CredentialForm({
       });
 
       if (!response.ok) {
-        const data = (await response.json().catch(() => ({}))) as {
-          error?: string;
-        };
         throw new Error(`${t("settings.saveFailed")}: ${response.status}`);
       }
 

@@ -40,10 +40,7 @@ import {
   writeSourceFederation,
 } from "./_database-source-utils.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
-import {
-  readLocalTableEntries,
-  resolveReadableLocalTableSource,
-} from "./_local-table-source.js";
+import { resolveReadableLocalTableSource } from "./_local-table-source.js";
 import { listPropertiesForDatabase } from "./_property-utils.js";
 
 const sourceTypeSchema = z

@@ -1,5 +1,65 @@
 # @agent-native/skills
 
+## 0.2.668
+
+### Patch Changes
+
+- Updated dependencies [1aafc1d]
+- Updated dependencies [40baf42]
+- Updated dependencies [1aafc1d]
+  - @agent-native/core@0.167.3
+
+## 0.2.667
+
+### Patch Changes
+
+- Updated dependencies [95d9d70]
+- Updated dependencies [7f22204]
+  - @agent-native/core@0.167.2
+
+## 0.2.666
+
+### Patch Changes
+
+- Updated dependencies [ca9ee7e]
+  - @agent-native/core@0.167.1
+
+## 0.2.665
+
+### Patch Changes
+
+- Updated dependencies [3a7a8f0]
+  - @agent-native/core@0.167.0
+
+## 0.2.664
+
+### Patch Changes
+
+- 10de7b9: Remove unused imports and unreachable declarations. Dispatch drops unused
+  imports from its layout, transactional email pages, and MCP gateway;
+  creative-context drops unused type imports and an unread `headingStyle`;
+  recap-cli drops the `node:os` import and two unread locals; skills drops the
+  unreferenced `maybeUpdateInstructions` helper; toolkit drops unused imports and
+  an unread `REALTIME_VOICE_REQUEST_SOURCE`. No runtime behavior changes.
+  `eslint/no-unused-vars` is now an oxlint error instead of a warning, so CI
+  blocks new ones.
+- Updated dependencies [8fd035c]
+  - @agent-native/core@0.166.1
+
+## 0.2.663
+
+### Patch Changes
+
+- Updated dependencies [c50b009]
+  - @agent-native/core@0.166.0
+
+## 0.2.662
+
+### Patch Changes
+
+- Updated dependencies [8d56ed2]
+  - @agent-native/core@0.165.5
+
 ## 0.2.661
 
 ### Patch Changes
@@ -840,42 +900,5 @@
 - Updated dependencies [1b7d8c2]
 - Updated dependencies [1b7d8c2]
   - @agent-native/core@0.157.16
-
-## 0.2.565
-
-### Patch Changes
-
-- Updated dependencies [fa0f828]
-- Updated dependencies [fa0f828]
-  - @agent-native/core@0.157.15
-
-## 0.2.564
-
-### Patch Changes
-
-- Updated dependencies [4d8c36c]
-  - @agent-native/core@0.157.14
-
-## 0.2.563
-
-### Patch Changes
-
-- Updated dependencies [7dc2c91]
-- Updated dependencies [7dc2c91]
-  - @agent-native/core@0.157.13
-
-## 0.2.562
-
-### Patch Changes
-
-- Updated dependencies [bdbe6a1]
-  - @agent-native/core@0.157.12
-
-## 0.2.561
-
-### Patch Changes
-
-- Updated dependencies [5e19db2]
-  - @agent-native/core@0.157.11
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

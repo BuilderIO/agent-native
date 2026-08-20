@@ -20,7 +20,7 @@ import {
   type MultiTabAssistantChatHeaderProps,
 } from "./MultiTabAssistantChat.js";
 import { CHAT_MODEL_SELECTION_CHANGED_EVENT } from "./use-chat-models.js";
-import type { ChatThreadSummary } from "./use-chat-threads.js";
+import type { ChatThreadScope, ChatThreadSummary } from "./use-chat-threads.js";
 
 afterEach(() => {
   invalidateClientStatusRequests();
@@ -222,6 +222,7 @@ vi.mock("./AssistantChat.js", async () => {
         selectedEngine?: string;
         selectedEffort?: string;
         availableModels?: Array<{ engine: string; configured: boolean }>;
+        contextScope?: ChatThreadScope | null;
         contextNamespace?: string;
       };
       React.useImperativeHandle(ref, () => ({
@@ -245,6 +246,11 @@ vi.mock("./AssistantChat.js", async () => {
           data-model-catalog={props.availableModels
             ?.map((group) => `${group.engine}:${group.configured}`)
             .join(",")}
+          data-context-scope={
+            props.contextScope
+              ? `${props.contextScope.type}:${props.contextScope.id}`
+              : undefined
+          }
           data-context-namespace={props.contextNamespace}
         >
           {props.emptyStateAddon}
@@ -1066,6 +1072,11 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
         .querySelector("[data-testid='assistant-chat']")
         ?.getAttribute("data-context-namespace"),
     ).toBe("desktop-app:calendar");
+    expect(
+      container
+        .querySelector("[data-testid='assistant-chat']")
+        ?.getAttribute("data-context-scope"),
+    ).toBe("desktop-app:calendar");
     expect(listAgentChatContext()).toEqual([
       expect.objectContaining({
         key: "desktop-app:calendar",
@@ -1872,6 +1883,31 @@ describe("MultiTabAssistantChat tab close/open lifecycle", () => {
       "thread-1",
       "thread-2",
     ]);
+  });
+
+  it("gives short chat titles enough room before the close target", async () => {
+    threadMocks.activeThreadId = "short-title-thread";
+    threadMocks.threads = [
+      {
+        ...makeThread("short-title-thread"),
+        title: "hi",
+        messageCount: 1,
+      },
+    ];
+    window.localStorage.setItem(
+      "agent-chat-open-tabs:short-title-test",
+      JSON.stringify(["short-title-thread"]),
+    );
+
+    await act(async () => {
+      root.render(<MultiTabAssistantChat storageKey="short-title-test" />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.querySelector(".agent-tab")?.className).toContain(
+      "min-w-[56px]",
+    );
   });
 
   it("closes a duplicated active tab instead of the effect re-adding it", async () => {

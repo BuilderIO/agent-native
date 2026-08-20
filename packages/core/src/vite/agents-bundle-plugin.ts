@@ -15,10 +15,11 @@ import fs from "fs";
  */
 import path from "path";
 
-import type { Plugin } from "vite";
+import { loadEnv, type Plugin } from "vite";
 
 import type { AgentNativeConfigInput } from "../config.js";
 import { getWorkspaceCoreExports } from "../deploy/workspace-core.js";
+import { findWorkspaceRoot } from "../scripts/utils.js";
 import {
   readAgentsBundleFromFs,
   resolveAgentInstructionPaths,
@@ -99,10 +100,20 @@ export function agentsBundlePlugin(
 
     async configResolved(config) {
       projectRoot = config.root;
+      const mode = config.mode ?? "development";
+      const workspaceRoot = findWorkspaceRoot(projectRoot);
+      const environment = {
+        ...(workspaceRoot && workspaceRoot !== projectRoot
+          ? loadEnv(mode, workspaceRoot, "")
+          : {}),
+        ...loadEnv(mode, projectRoot, ""),
+        ...process.env,
+      };
       agentConfigPromise = loadResolvedAgentNativeConfig(
         projectRoot,
-        createAgentNativeConfigContext(config.command, config.mode),
+        createAgentNativeConfigContext(config.command, mode),
         {
+          environment,
           loadProjectConfig: options.agentNativeConfig === undefined,
           projectConfig: options.agentNativeConfig,
         },

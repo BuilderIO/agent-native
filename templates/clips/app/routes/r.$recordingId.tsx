@@ -1,5 +1,5 @@
 import { AgentPanel } from "@agent-native/core/client/agent-chat";
-import { appPath, agentNativePath } from "@agent-native/core/client/api-path";
+import { agentNativePath } from "@agent-native/core/client/api-path";
 import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import {
   useActionMutation,

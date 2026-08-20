@@ -1,29 +1,30 @@
 name: Beta E2E (browser)
 
-# Manual gate for "is beta safe to promote to production?".
-#
-# Drives the deployed beta fleet with a real browser. Gating lanes decide the
-# answer; an advisory lane reports real-but-not-blocking findings so a red run
-# always means "do not promote".
+# Manual gate for "is beta safe to promote to production?" and reusable job
+# for the scheduled beta health check.
 #
 # The public lane is sharded one host per runner. Measured: a page load against
 # a beta host costs 1-2s from a laptop and 20-40s from a GitHub runner, because
 # the fleet sits behind one CDN that throttles bursty datacenter traffic. On a
-# single runner that made the sweep ~28 minutes with parallelism already at 83%
-# efficiency — the time was raw network wait, not scheduling. Sharding turns
-# the fleet's cost into the slowest single host, and spreads the requests over
-# sixteen source addresses instead of one.
+# single runner the sweep took ~28 minutes with scheduling already 83%
+# efficient, so the time was raw network wait rather than queueing. Sharding
+# makes the fleet cost the slowest single host and spreads the requests over
+# sixteen source addresses: measured 1704s -> 437s.
 #
-# Deliberately workflow_dispatch only: the authenticated lane spends model
-# tokens against a dedicated OpenAI key, and most beta apps share a database
-# with production, so this is a decision someone makes, not a thing that fires
-# on every push.
+# Drives the deployed beta fleet with a real browser. Two gating lanes decide
+# the answer; a third advisory lane reports real-but-not-blocking findings so a
+# red run always means "do not promote".
+#
+# The workflow itself has no push or schedule trigger. The authenticated lane
+# spends model tokens against a dedicated OpenAI key, and most beta apps share
+# a database with production, so the explicit manual entrypoint remains a
+# deliberate promotion decision. The separate scheduled wrapper calls this
+# workflow on a six-hour cadence and reports failures to one deduplicated issue.
 
 on:
   # Callable from another workflow — used by the production deploy's opt-in
-  # pre-flight gate. Still never fires on its own: there is no push, schedule,
-  # or pull_request trigger here, so nothing runs this suite unless a person
-  # asks for it.
+  # pre-flight gate and the six-hour scheduled wrapper. Still never fires on
+  # its own: there is no push, schedule, or pull_request trigger here.
   workflow_call:
     inputs:
       apps:
@@ -34,8 +35,22 @@ on:
       lane:
         description: "Which lanes to run"
         required: false
-        default: "public"
+        default: "public+authed"
         type: string
+      grep:
+        description: "Only run tests whose title matches this (optional)"
+        required: false
+        default: ""
+        type: string
+    secrets:
+      BETA_E2E_EMAIL:
+        required: false
+      BETA_E2E_SESSION_TOKENS:
+        required: false
+      BETA_E2E_OPENAI_API_KEY:
+        required: false
+      OPENAI_API_KEY:
+        required: false
   workflow_dispatch:
     inputs:
       apps:

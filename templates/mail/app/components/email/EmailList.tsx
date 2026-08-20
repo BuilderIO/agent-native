@@ -50,7 +50,6 @@ import {
   useLabels,
   useMoveEmail,
   unsuppressThread,
-  type BulkEmailTarget,
 } from "@/hooks/use-emails";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import {

@@ -36,12 +36,33 @@ const DEFAULT_STATUS_TIMEOUT_MS = 10_000;
 const SESSION_COOKIE_POLL_INTERVAL_MS = 25;
 const DESKTOP_EXCHANGE_POLL_INTERVAL_MS = 500;
 const DESKTOP_EXCHANGE_PATH = "/_agent-native/auth/desktop-exchange";
+const GOOGLE_IDENTITY_WINDOW_CLOSE_GRACE_MS = 5_000;
 const DISPATCH_WORKSPACE_EMBED_ACTION =
   "/_agent-native/actions/create-workspace-app-embed-session";
 const DESKTOP_IDENTITY_APP_ID_PATTERN = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
 
 function normalizeIdentityEmail(email: string): string {
   return email.trim().toLowerCase();
+}
+
+function safeResponseOrigin(rawUrl: string | undefined): string | null {
+  if (!rawUrl) return null;
+  try {
+    return new URL(rawUrl).origin;
+  } catch {
+    // coercion-ok: a malformed response URL is diagnostic absence, not a session value.
+    return null;
+  }
+}
+
+function safeResponsePath(rawUrl: string | undefined): string | null {
+  if (!rawUrl) return null;
+  try {
+    return new URL(rawUrl).pathname;
+  } catch {
+    // coercion-ok: a malformed response URL is diagnostic absence, not a session value.
+    return null;
+  }
 }
 
 function cookieMatchesOrigin(
@@ -385,13 +406,6 @@ async function getSessionCookieHeader(
     .map((cookie) => `${cookie.name}=${cookie.value}`)
     .join("; ");
   return header || undefined;
-}
-
-function cookieHeaderNames(cookieHeader: string | undefined): string[] {
-  return (cookieHeader ?? "")
-    .split(";")
-    .map((part) => part.split("=", 1)[0]?.trim() ?? "")
-    .filter(Boolean);
 }
 
 async function readDesktopIdentityAuthResponse(
@@ -1026,6 +1040,7 @@ export class DesktopIdentityBroker {
     const abortController = new AbortController();
     let identityWindow: DesktopIdentityWindow | null = null;
     let closedByBroker = false;
+    let windowCloseTimer: ReturnType<typeof setTimeout> | undefined;
     try {
       const response = await this.options.identitySession.fetch(
         authUrl.toString(),
@@ -1069,7 +1084,15 @@ export class DesktopIdentityBroker {
       const windowClosed = new Promise<boolean>((resolve) => {
         resolveWindowClosed = resolve;
         identityWindow!.on("closed", () => {
-          if (!closedByBroker) resolve(false);
+          if (closedByBroker) return;
+          // The hosted Google callback closes its OAuth window after it has
+          // stored the exchange record. Give the native poll a short grace
+          // period to redeem that record before treating a closed window as
+          // an abandoned sign-in.
+          windowCloseTimer = setTimeout(
+            () => resolveWindowClosed(false),
+            GOOGLE_IDENTITY_WINDOW_CLOSE_GRACE_MS,
+          );
         });
       });
 
@@ -1080,18 +1103,22 @@ export class DesktopIdentityBroker {
         verifier,
         generation,
         abortController.signal,
-      ).then(async () => {
-        const succeeded = await this.runSignInFanout(appId, generation, {
-          interactive: false,
-        });
-        if (succeeded) {
-          closedByBroker = true;
-          resolveWindowClosed(true);
-        }
-        return succeeded;
-      });
+      ).then(() => true);
 
-      return await Promise.race([exchange, windowClosed]);
+      const exchangeSucceeded = await Promise.race([exchange, windowClosed]);
+      if (!exchangeSucceeded) return false;
+
+      // The close grace only protects exchange redemption. Once the one-time
+      // credential is stored, finish the app fan-out before returning so a
+      // slow child session cannot outlive a failed sign-in result.
+      const succeeded = await this.runSignInFanout(appId, generation, {
+        interactive: false,
+      });
+      if (succeeded) {
+        closedByBroker = true;
+        resolveWindowClosed(true);
+      }
+      return succeeded;
     } catch (error) {
       if (this.isCeremonyCurrent(generation) && !this.signOutOperation) {
         this.setStatus("failed");
@@ -1105,6 +1132,7 @@ export class DesktopIdentityBroker {
       if (identityWindow && this.activeWindow === identityWindow) {
         this.activeWindow = null;
       }
+      if (windowCloseTimer) clearTimeout(windowCloseTimer);
       if (identityWindow && !identityWindow.isDestroyed()) {
         closedByBroker = true;
         identityWindow.close();
@@ -1586,12 +1614,38 @@ export class DesktopIdentityBroker {
       if (!response.ok) {
         throw new Error(`Embed session returned ${response.status}`);
       }
+      const targetCookies = await app.session.cookies.get({});
+      const sessionCookieNames = targetCookies
+        .filter(
+          (cookie) =>
+            cookieMatchesOrigin(cookie, app.origin) &&
+            app.cookieNames.includes(cookie.name),
+        )
+        .map((cookie) => cookie.name);
+      console.info("[desktop identity] workspace app session response", {
+        appId: app.id,
+        responseOrigin: safeResponseOrigin(response.url),
+        responsePath: safeResponsePath(response.url),
+        sessionCookieNames,
+      });
       const appEmail = await this.verifyIdentitySession(app, app.session);
       if (
         !appEmail ||
         normalizeIdentityEmail(appEmail) !==
           normalizeIdentityEmail(identityEmail)
       ) {
+        console.warn(
+          "[desktop identity] workspace app session verification failed",
+          {
+            appId: app.id,
+            hasAppEmail: Boolean(appEmail),
+            identityMatched:
+              appEmail !== null &&
+              appEmail !== undefined &&
+              normalizeIdentityEmail(appEmail) ===
+                normalizeIdentityEmail(identityEmail),
+          },
+        );
         await this.clearAppSessionCookies(app);
         return false;
       }
@@ -1680,6 +1734,13 @@ export class DesktopIdentityBroker {
     }
 
     const startUrl = new URL(payload.startUrl);
+    console.info("[desktop identity] workspace embed start URL", {
+      appId: target.id,
+      status: response.status,
+      origin: startUrl.origin,
+      path: startUrl.pathname,
+      hasTicket: startUrl.searchParams.has("ticket"),
+    });
     if (
       (startUrl.protocol !== "https:" && startUrl.protocol !== "http:") ||
       startUrl.origin !== target.origin ||
@@ -2212,6 +2273,7 @@ export class DesktopIdentityBroker {
           signal: controller.signal,
           headers: {
             Accept: "application/json",
+            "X-Agent-Native-Session-Check": "cookie-only",
             ...(cookieHeader ? { Cookie: cookieHeader } : {}),
           },
         }),

@@ -40,6 +40,7 @@ concurrency:
 jobs:
   deploy:
     name: docs production prebuilt deploy
+    needs: pause-netlify-builds
     uses: ./.github/workflows/deploy-netlify-prebuilt.yml
     with:
       target: production
@@ -52,13 +53,8 @@ jobs:
       smoke: ${{ github.event_name == 'push' || inputs.smoke }}
     secrets: inherit
 
-  disable-netlify-builds:
-    name: Keep docs site on GitHub Actions
-    needs: deploy
-    # The reusable production deploy restores the prior Netlify build setting
-    # in its failure cleanup. Reassert ownership after failures too, so a
-    # failed docs publish cannot leave a stale Git-connected build enabled.
-    if: always()
+  pause-netlify-builds:
+    name: Pause docs site's Git-connected Netlify builds
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -95,12 +91,18 @@ jobs:
             try {
               body = text ? JSON.parse(text) : null;
             } catch {
-              body = text;
+              if (!response.ok) {
+                throw new Error(`${label} failed with HTTP ${response.status}: ${text}`);
+              }
+              throw new Error(`${label} returned an invalid JSON response.`);
             }
             if (!response.ok) {
               throw new Error(
                 `${label} failed with HTTP ${response.status}: ${typeof body === 'string' ? body : JSON.stringify(body)}`,
               );
+            }
+            if (!body || typeof body !== 'object' || Array.isArray(body)) {
+              throw new Error(`${label} returned an invalid JSON object.`);
             }
             return body;
           }
@@ -112,7 +114,7 @@ jobs:
                 await fetch(`${api}/sites/${siteId}`, { headers, signal: AbortSignal.timeout(30_000) }),
                 `${label} verification attempt ${attempt}`,
               );
-              actual = site.build_settings?.stop_builds;
+              actual = site.build_settings?.stop_builds ?? site.repo?.stop_builds;
               if (actual === expected) return;
               if (attempt < 15) {
                 await new Promise((resolve) => setTimeout(resolve, 2_000));
@@ -127,7 +129,24 @@ jobs:
               await fetch(siteUrl, { headers, signal: AbortSignal.timeout(30_000) }),
               'Netlify docs site lookup',
             );
-            if (current.build_settings?.stop_builds !== true) {
+            const hasGitConnectedBuild = Boolean(
+              current.build_settings?.repo_url ||
+                current.build_settings?.repo_path ||
+                current.build_settings?.provider ||
+                current.repo?.repo_url ||
+                current.repo?.repo_path ||
+                current.git_provider ||
+                current.repo?.provider ||
+                current.repo?.repo,
+            );
+            if (!hasGitConnectedBuild) {
+              console.log('Netlify docs site has no Git-connected build; no auto-build race exists.');
+              return;
+            }
+            const wasStopped =
+              (current.build_settings?.stop_builds ?? current.repo?.stop_builds) === true;
+            let changedStopBuilds = false;
+            if (!wasStopped) {
               await readJson(
                 await fetch(siteUrl, {
                   method: 'PATCH',
@@ -137,10 +156,40 @@ jobs:
                 }),
                 'Netlify docs build pause',
               );
+              changedStopBuilds = true;
             }
 
-            await waitForBuildSetting(siteId, true, 'Netlify docs build pause');
-            console.log('Docs site is now owned by the GitHub Actions prebuilt publisher.');
+            let verificationError;
+            try {
+              await waitForBuildSetting(siteId, true, 'Netlify docs build pause');
+              console.log('Docs site is now owned by the GitHub Actions prebuilt publisher.');
+              return;
+            } catch (error) {
+              verificationError = error;
+            }
+            if (changedStopBuilds) {
+              try {
+                await readJson(
+                  await fetch(siteUrl, {
+                    method: 'PATCH',
+                    headers,
+                    body: JSON.stringify({ build_settings: { stop_builds: false } }),
+                    signal: AbortSignal.timeout(30_000),
+                  }),
+                  'Netlify docs build pause rollback',
+                );
+              } catch (rollbackError) {
+                throw new Error(
+                  `Netlify docs Git-connected builds were not disabled: ${verificationError instanceof Error ? verificationError.message : String(verificationError)}; rollback also failed: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
+                );
+              }
+            }
+            if (verificationError instanceof Error) {
+              throw new Error(
+                `Netlify docs Git-connected build pause verification failed: ${verificationError.message}`,
+                { cause: verificationError },
+              );
+            }
           })().catch((error) => {
             console.error(error instanceof Error ? error.message : error);
             process.exitCode = 1;
