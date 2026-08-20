@@ -1,11 +1,15 @@
 # Base — Agent Guide
 
-Un-opinionated chat-first agent-native starter. `/` is the agent chat; grow
+Un-opinionated blank agent-native starter. `/` starts as an empty screen; grow
 this into a to-do list, an SEO app, or anything else. Actions carry the
 capabilities. Do not leave "Base", "Chat", "Starter", or "Blank app" traces
 in the finished product — use the app's real name.
 
 ## Skills
+
+Read the matching skill before implementation. Before building common workspace or
+agent UI, read `agent-native-toolkit` and `customizing-agent-native` for the
+configure → compose → eject ladder.
 
 The default skill surface is small. Promotion, learning, provider, and release
 workflows are optional; enable the matching skill only when this app uses that
@@ -49,31 +53,47 @@ The `docs-search` action reads the version-matched framework docs bundled with
 - Use `view-screen` or application state when the user's visible context
   matters.
 
-## Application State
+## Lightweight defaults
 
-- `navigation` describes the current view and selected entity ids. The default
-  chat view is `chat` at `/`.
-- `navigate` moves the UI when the app supports it.
-- `view-screen` is the first tool to call when the user's visible context
-  matters.
+This template does not ship locale catalogs or changelog files. Add them only
+when the user asks.
 
-## Data & actions (read these first)
+## Application state
 
-When adding SQL-backed features, do **not** start with `find` / `cat` over
-`node_modules`. Read these two files first:
+Use the existing `application_state` helpers for navigation and selection. Keep
+the shape small and explicit; include the current route/view and the selected
+object id when the UI has one.
 
-1. `server/db/schema.ts` — table definitions, migrate commands, path map
-2. `drizzle/crud-action-example.ts` — copy-paste list/create/update/delete
+## Actions
 
-Then use `getDb` / `schema` from `server/db/index.ts`. After a batch of related
-schema/action edits: one smoke test, one `pnpm typecheck` (see
-`self-modifying-code`).
+Actions in `actions/` are callable from the agent, UI hooks, HTTP, MCP, A2A,
+and CLI where enabled. Validate inputs with Zod, return structured data, and
+scope reads and writes to the signed-in user or organization. Prefer
+`useActionQuery` and `useActionMutation` in browser code.
 
-## Source Changes
+## Authentication and access
 
-Before building common workspace or agent UI, read `agent-native-toolkit`; read
-`customizing-agent-native` before adapting shared UI.
+Auth is real Better Auth in development and production. Use `getSession()` or
+the shared request context and fail closed when there is no session. Never use a
+sentinel identity such as `local@localhost`. Tables with ownable columns need
+scoped reads and writes through the framework access helpers.
 
-- Guarded verification: run `pnpm agent-native:doctor`; fix findings before done.
-- For ordinary source edits, follow `self-modifying-code`: verify once per batch,
-  not after every file; smoke-test new CRUD once, don't CLI-test every action.
+## UI and sync
+
+Use the shared toolkit and shadcn primitives for standard controls. Keep UI
+optimistic where safe, roll back failed mutations, and use `useDbSync()` or
+action query invalidation to reflect agent writes without a manual refresh.
+
+## Documentation lookup
+
+Version-matched docs and source examples ship with `@agent-native/core`. Use
+`pnpm action docs-search --query "<topic>"` and
+`pnpm action source-search --query "<pattern>"`; read the relevant local skill
+before relying on a framework API. Do not edit `node_modules` or deep-import
+private package internals.
+
+## Verification
+
+Match checks to the change: run the existing focused tests, typecheck, and
+formatter. Add a changelog entry only when the user asks and `changelog.enabled`
+is true in the app's `agent-native.config.ts`.

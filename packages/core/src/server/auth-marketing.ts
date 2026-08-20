@@ -147,10 +147,10 @@ export const BUILT_IN_AUTH_MARKETING: Record<string, AuthMarketingContent> = {
   base: {
     appName: "Agent-Native Base",
     tagline:
-      "Start from a chat-first app and add actions, screens, and workflows as your agent grows.",
+      "Start from a blank app shell and add screens, actions, and workflows as you grow.",
     features: [
-      "Full-page chat with durable threads and tool call history",
-      "Actions work from chat, UI, HTTP, MCP, A2A, and CLI",
+      "Empty home screen with standard auth, settings, and live sync",
+      "Actions work from UI, HTTP, MCP, A2A, and CLI",
       "Use the built-in app-agent loop or plug in your own agent backend",
     ],
   },

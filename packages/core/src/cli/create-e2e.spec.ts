@@ -161,15 +161,8 @@ describe("standalone scaffold — base template", { timeout: 180_000 }, () => {
       path.join(tmpDir, "test-app", "app", "lib", "app-config.ts"),
       "utf-8",
     );
-    const sidebar = fs.readFileSync(
-      path.join(
-        tmpDir,
-        "test-app",
-        "app",
-        "components",
-        "layout",
-        "Sidebar.tsx",
-      ),
+    const indexRoute = fs.readFileSync(
+      path.join(tmpDir, "test-app", "app", "routes", "_index.tsx"),
       "utf-8",
     );
     const manifest = JSON.parse(
@@ -182,7 +175,8 @@ describe("standalone scaffold — base template", { timeout: 180_000 }, () => {
 
     expect(appConfig).toContain('rawAppName = "test-app"');
     expect(appConfig).toContain('rawAppTitle = "Test App"');
-    expect(sidebar).not.toContain("New App");
+    expect(indexRoute).not.toContain("AgentChatSurface");
+    expect(indexRoute).toContain("min-h-screen bg-background");
     expect(
       fs.existsSync(
         path.join(tmpDir, "test-app", "app", "routes", "new-app.tsx"),

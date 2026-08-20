@@ -18,7 +18,6 @@ const ROOT = workspaceRoot();
 
 const PAGE_CHAT_TEMPLATES = [
   "chat",
-  "base",
   "assets",
   "analytics",
   "brain",
@@ -32,7 +31,6 @@ const REQUIRE_ACTIVE_HANDOFF: Record<
   boolean
 > = {
   chat: true,
-  base: true,
   assets: true,
   analytics: true,
   brain: true,
@@ -70,8 +68,8 @@ describe("page-chat handoff defaults", () => {
     },
   );
 
-  it("lets Chat, Base, and Assets restore the shared active thread at chat home", () => {
-    for (const template of ["chat", "base", "assets"] as const) {
+  it("lets Chat and Assets restore the shared active thread at chat home", () => {
+    for (const template of ["chat", "assets"] as const) {
       const route = readTemplateFile(template, "app/routes/_index.tsx");
       expect(route).toContain("const threadUrlSync = threadId");
       expect(route).toContain("threadUrlSync={threadUrlSync}");

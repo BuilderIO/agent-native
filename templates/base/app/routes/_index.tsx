@@ -1,92 +1,9 @@
-import {
-  AgentChatSurface,
-  markAgentChatHomeHandoff,
-} from "@agent-native/core/client/agent-chat";
-import { useEffect } from "react";
-import { useNavigate, useParams } from "react-router";
-
 import { APP_TITLE } from "@/lib/app-config";
-import { TAB_ID } from "@/lib/tab-id";
-
-const SEO_TITLE = `${APP_TITLE} - Open Source AI app starter with actions`;
-const SEO_DESCRIPTION =
-  "Open Source starter for agent-native apps with durable chat, shared actions, UI state, tools, and a backend your agent can extend.";
 
 export function meta() {
-  return [
-    { title: SEO_TITLE },
-    {
-      name: "description",
-      content: SEO_DESCRIPTION,
-    },
-    { property: "og:title", content: SEO_TITLE },
-    { property: "og:description", content: SEO_DESCRIPTION },
-    { name: "twitter:card", content: "summary" },
-    { name: "twitter:title", content: SEO_TITLE },
-    { name: "twitter:description", content: SEO_DESCRIPTION },
-  ];
+  return [{ title: APP_TITLE }];
 }
 
-function chatThreadPath(threadId: string | null) {
-  return threadId ? `/chat/${encodeURIComponent(threadId)}` : "/";
-}
-
-export default function ChatRoute() {
-  const { threadId } = useParams();
-  const navigate = useNavigate();
-  const threadUrlSync = threadId
-    ? {
-        routeThreadId: threadId,
-        getPath: chatThreadPath,
-        navigate,
-      }
-    : undefined;
-
-  useEffect(() => {
-    function handleChatRunning(event: Event) {
-      const detail = (event as CustomEvent).detail;
-      if (detail?.isRunning === true) markAgentChatHomeHandoff("base");
-    }
-
-    window.addEventListener("agentNative.chatRunning", handleChatRunning);
-    return () =>
-      window.removeEventListener("agentNative.chatRunning", handleChatRunning);
-  }, []);
-
-  return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
-      <AgentChatSurface
-        mode="page"
-        chatViewTransition
-        className="h-full"
-        defaultMode="chat"
-        storageKey="base"
-        threadUrlSync={threadUrlSync}
-        browserTabId={TAB_ID}
-        showHeader={false}
-        showTabBar={false}
-        dynamicSuggestions={false}
-        suggestions={[
-          "What can this app do?",
-          "Help me customize this app",
-          "Show me the available actions",
-        ]}
-        emptyStateText="Ask me anything"
-        emptyStateDisplay="hidden"
-        centerComposerWhenEmpty
-        composerLayoutVariant="hero"
-        composerPlaceholder="Ask the agent..."
-        composerSlot={
-          <div className="mx-auto mb-5 max-w-xl px-4 text-center">
-            <h1 className="text-2xl font-semibold tracking-normal text-foreground sm:text-3xl">
-              How can I help?
-            </h1>
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              Ask the agent to inspect, explain, or change this app.
-            </p>
-          </div>
-        }
-      />
-    </div>
-  );
+export default function IndexPage() {
+  return <main className="min-h-screen bg-background" />;
 }

@@ -2,7 +2,7 @@
   "name": "base",
   "displayName": "Base",
   "private": true,
-  "description": "Minimal chat-first Base app template.",
+  "description": "Minimal blank Base app template.",
   "type": "module",
   "scripts": {
     "migrate:production": "tsx scripts/migrate-production.ts",

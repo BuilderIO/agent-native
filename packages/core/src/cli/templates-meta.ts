@@ -154,7 +154,7 @@ export const TEMPLATES: TemplateMeta[] = [
   {
     name: "base",
     label: "Base",
-    hint: "Minimal chat-first app — English-only, no changelog, ready to customize",
+    hint: "Minimal blank app — English-only, no changelog, ready to customize",
     icon: "MessageCircle",
     color: "#18181B",
     colorRgb: "24 24 27",

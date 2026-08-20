@@ -30,9 +30,9 @@ cd my-app
 pnpm install
 ```
 
-The template includes a browser app, authentication, durable conversations,
-live sync, application context, and an `actions/` directory. It also includes a
-small `hello` action that you'll use throughout this guide.
+The template includes a browser app, authentication, live sync, application
+context, and an `actions/` directory. It also includes a small `hello` action
+that you'll use throughout this guide.
 
 ## Start the development server
 
@@ -56,18 +56,19 @@ Next, connect an LLM. Select **Connect Builder.io** to use free credits, or
 select **Custom keys**, choose a provider, and enter the requested connection
 details.
 
-## Run the action from the agent
+## Run the action from the CLI
 
 An action is a typed function that your React UI can call from code and agents
 can use as a tool. The blank app includes a simple `hello` action so you
 can try the pattern before writing one yourself.
 
-In the app, ask:
+From the app directory, run:
 
-> Call the hello action for Alex.
+```bash
+pnpm action hello --name Alex
+```
 
-The agent finds `hello` from its description and input schema, passes `Alex` as
-the `name` input, and responds:
+You should see:
 
 ```text
 Hello, Alex!

@@ -5,32 +5,15 @@ import {
   AppProviders,
   createAgentNativeQueryClient,
 } from "@agent-native/core/client/hooks";
-import {
-  CommandMenu,
-  useCommandMenuShortcut,
-} from "@agent-native/core/client/navigation";
 import { getThemeInitScript } from "@agent-native/core/client/ui";
-import { IconHierarchy2, IconSun, IconMoon } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useTheme } from "next-themes";
-import { useCallback, useState } from "react";
-import {
-  Links,
-  Meta,
-  Outlet,
-  Scripts,
-  ScrollRestoration,
-  useNavigate,
-} from "react-router";
-import type { LinksFunction } from "react-router";
+import { useState } from "react";
+import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
 
-import { Layout as AppLayout } from "@/components/layout/Layout";
-import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
-import { useNavigationState } from "@/hooks/use-navigation-state";
-import { APP_TITLE } from "@/lib/app-config";
-import { TAB_ID } from "@/lib/tab-id";
-
-import stylesheet from "./global.css?url";
+import { AppToolkitProvider } from "./components/ui/toolkit-provider";
+import { useNavigationState } from "./hooks/use-navigation-state";
+import { APP_TITLE } from "./lib/app-config";
+import { TAB_ID } from "./lib/tab-id";
 
 configureTracking({
   getDefaultProps: (_name, properties) => ({
@@ -38,10 +21,7 @@ configureTracking({
     app: "base",
   }),
 });
-
-export const links: LinksFunction = () => [
-  { rel: "stylesheet", href: stylesheet },
-];
+import "./global.css";
 
 const THEME_INIT_SCRIPT = getThemeInitScript();
 
@@ -58,15 +38,15 @@ export function Layout({ children }: { children: React.ReactNode }) {
           suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }}
         />
+        <link rel="icon" type="image/svg+xml" href={appPath("/favicon.svg")} />
         {/* guard:allow-raw-color - theme-color metadata requires a concrete browser-chrome color. */}
-        <meta name="theme-color" content="#18181B" />
+        <meta name="theme-color" content="#111111" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta
           name="apple-mobile-web-app-status-bar-style"
           content="black-translucent"
         />
         <meta name="apple-mobile-web-app-title" content={APP_TITLE} />
-        <link rel="icon" type="image/svg+xml" href={appPath("/favicon.svg")} />
         <link rel="apple-touch-icon" href={appPath("/icon-180.svg")} />
         <Meta />
         <Links />
@@ -83,71 +63,19 @@ export function Layout({ children }: { children: React.ReactNode }) {
 function DbSyncSetup() {
   const qc = useQueryClient();
   useNavigationState();
-  useDbSync({
-    queryClient: qc,
-    ignoreSource: TAB_ID,
-  });
+  useDbSync({ queryClient: qc, ignoreSource: TAB_ID });
   return null;
-}
-
-function ThemeToggleItem() {
-  const { resolvedTheme, setTheme } = useTheme();
-  const isDark = resolvedTheme === "dark";
-  return (
-    <CommandMenu.Item
-      onSelect={() => setTheme(isDark ? "light" : "dark")}
-      keywords={["theme", "dark", "light", "mode"]}
-    >
-      {isDark ? <IconSun size={16} /> : <IconMoon size={16} />}
-      Toggle theme
-    </CommandMenu.Item>
-  );
-}
-
-function AppContent() {
-  const [cmdkOpen, setCmdkOpen] = useState(false);
-  const navigate = useNavigate();
-  useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
-  return (
-    <>
-      <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
-        <CommandMenu.Group heading="Actions">
-          <CommandMenu.Item onSelect={() => {}}>Search</CommandMenu.Item>
-          <CommandMenu.Item
-            onSelect={() => navigate("/settings/agent")}
-            keywords={[
-              "agent",
-              "context",
-              "files",
-              "connections",
-              "jobs",
-              "access",
-            ]}
-          >
-            <IconHierarchy2 size={16} />
-            Manage agent
-          </CommandMenu.Item>
-        </CommandMenu.Group>
-        <CommandMenu.Group heading="Appearance">
-          <ThemeToggleItem />
-        </CommandMenu.Group>
-      </CommandMenu>
-      <AppLayout>
-        <Outlet />
-      </AppLayout>
-    </>
-  );
 }
 
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
   return (
-    <AppToolkitProvider>
-      <AppProviders queryClient={queryClient}>
+    <AppProviders queryClient={queryClient}>
+      <AppToolkitProvider>
         <DbSyncSetup />
-        <AppContent />
-      </AppProviders>
-    </AppToolkitProvider>
+        <Outlet />
+      </AppToolkitProvider>
+    </AppProviders>
   );
 }
 

@@ -287,7 +287,7 @@ export async function createApp(
  * choice made here implies the project structure, so we deliberately avoid a
  * separate "workspace or standalone?" question:
  *   - "template" → full app(s) in a workspace (the multi-select picker)
- *   - "base"     → a minimal chat-first app in a workspace with Dispatch
+ *   - "base"     → a minimal blank app in a workspace with Dispatch
  *   - "community" → a single standalone app from a public GitHub repository
  *   - "headless" → a single standalone action-first app with no UI shell
  * Headless cannot be a workspace member. Use `--standalone --template base`
@@ -312,7 +312,7 @@ function startShapePromptOptions() {
       {
         value: "base",
         label: "Blank app",
-        hint: "A minimal chat-first app in a workspace — start here and grow it into anything",
+        hint: "A minimal blank app in a workspace — start here and grow it into anything",
       },
       {
         value: "template",

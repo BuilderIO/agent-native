@@ -1,10 +1,9 @@
-import { TeamPage } from "@agent-native/core/client/org";
 import {
   AccountSettingsCard,
   SettingsTabsPage,
   useAgentSettingsTabs,
 } from "@agent-native/core/client/settings";
-import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
+import { Link } from "react-router";
 
 import { APP_TITLE } from "@/lib/app-config";
 
@@ -12,24 +11,24 @@ export function meta() {
   return [{ title: `Settings - ${APP_TITLE}` }];
 }
 
-export default function SettingsRoute() {
+export default function SettingsPage() {
   const agentSettingsTabs = useAgentSettingsTabs();
-  useSetPageTitle("Settings");
 
   return (
-    <SettingsTabsPage
-      account={<AccountSettingsCard />}
-      teamLabel="Team"
-      extraTabs={agentSettingsTabs}
-      general={<div className="mx-auto w-full max-w-2xl" />}
-      team={
-        <div className="mx-auto w-full max-w-3xl">
-          <TeamPage
-            showTitle={false}
-            createOrgDescription="Create an organization to invite teammates and share this app."
-          />
-        </div>
-      }
-    />
+    <main className="min-h-screen bg-background px-6 py-10">
+      <div className="mx-auto w-full max-w-5xl space-y-6">
+        <Link
+          to="/"
+          className="text-[13px] text-muted-foreground hover:text-foreground"
+        >
+          Back home
+        </Link>
+        <SettingsTabsPage
+          account={<AccountSettingsCard />}
+          extraTabs={agentSettingsTabs}
+          general={<div className="mx-auto w-full max-w-2xl" />}
+        />
+      </div>
+    </main>
   );
 }

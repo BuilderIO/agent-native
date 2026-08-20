@@ -13,7 +13,7 @@ import { z } from "zod";
 
 export default defineAction({
   description:
-    "See what the user is currently looking at on screen. Returns the current navigation state for the chat-first app. Always call this first before taking any action.",
+    "See what the user is currently looking at on screen. Returns the current navigation state for the app. Always call this first before taking any action.",
   schema: z.object({}),
   http: false,
   readOnly: true,

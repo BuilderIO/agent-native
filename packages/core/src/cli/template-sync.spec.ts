@@ -638,9 +638,12 @@ describe("template materialize command", () => {
     expect(pkg.name).toBe("base");
     expect(fs.existsSync(path.join(dest, "app", "i18n"))).toBe(false);
     expect(fs.existsSync(path.join(dest, "CHANGELOG.md"))).toBe(false);
+    expect(fs.existsSync(path.join(dest, "server/plugins/agent-chat.ts"))).toBe(
+      false,
+    );
     expect(
-      fs.readFileSync(path.join(dest, "server/plugins/agent-chat.ts"), "utf-8"),
-    ).toContain('appId: "base"');
+      fs.readFileSync(path.join(dest, "app", "routes", "_index.tsx"), "utf-8"),
+    ).not.toContain("AgentChatSurface");
     expect(fs.existsSync(path.join(dest, "server/db/schema.ts"))).toBe(true);
   }, 120_000);
 
