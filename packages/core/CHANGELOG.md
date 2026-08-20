@@ -1128,10 +1128,4 @@
 - 7dc2c91: Allow framework-managed feature-flag bearer routes to reach their own verifier before the cookie auth guard.
 - 7dc2c91: Create the Portal remote-device table during release migrations before serverless requests run.
 
-## 0.157.12
-
-### Patch Changes
-
-- bdbe6a1: Keep Portal device authentication working when a proxy supplies or strips the Authorization header.
-
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
