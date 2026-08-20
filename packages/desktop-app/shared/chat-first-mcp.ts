@@ -33,6 +33,11 @@ export type ChatFirstMcpServer = McpServer;
 export type ChatFirstMcpServersList = McpServersList;
 export type ChatFirstMcpTestResult = TestMcpUrlResult;
 
+export interface ChatFirstMcpOAuthRequest {
+  url: string;
+  webContentsId: number;
+}
+
 export interface ChatFirstMcpPluginImportResult {
   ok: boolean;
   plugin?: {

@@ -10,6 +10,7 @@ vi.mock("electron", () => ({
 import {
   requestMcpHost,
   resolveMcpOAuthUrl,
+  resolveMcpOAuthReturnPath,
   type McpHost,
 } from "./chat-first-mcp.js";
 
@@ -92,6 +93,20 @@ describe("resolveMcpOAuthUrl", () => {
     ).toBe(
       "https://dispatch.example.com/_agent-native/mcp/servers/oauth/start?name=Notion",
     );
+    expect(
+      resolveMcpOAuthUrl(
+        "/_agent-native/mcp/servers/oauth/start?name=Notion&return=%2Fintegrations",
+        "https://workspace.example.com/dispatch",
+      ),
+    ).toBe(
+      "https://workspace.example.com/dispatch/_agent-native/mcp/servers/oauth/start?name=Notion&return=%2Fintegrations",
+    );
+    expect(
+      resolveMcpOAuthReturnPath(
+        "https://workspace.example.com/dispatch/_agent-native/mcp/servers/oauth/start?return=%2Fintegrations",
+        "https://workspace.example.com/dispatch",
+      ),
+    ).toBe("/dispatch/integrations");
     expect(() =>
       resolveMcpOAuthUrl(
         "https://other.example.com/_agent-native/mcp/servers/oauth/start",

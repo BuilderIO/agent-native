@@ -266,7 +266,10 @@ import {
   resolveEnvironmentLaneOrigins,
 } from "./environment-navigation";
 import { registerAppsIpc } from "./ipc/apps";
-import { registerChatFirstMcpIpc } from "./ipc/chat-first-mcp.js";
+import {
+  registerChatFirstMcpIpc,
+  resolveMcpOAuthReturnPath,
+} from "./ipc/chat-first-mcp.js";
 import { registerCodeAgentsIpc } from "./ipc/code-agents";
 import { registerContentFilesIpc } from "./ipc/content-files";
 import { registerDesktopChatIpc } from "./ipc/desktop-chat";
@@ -12931,25 +12934,86 @@ function openOAuthFromWebviewNavigation(
 async function navigateMcpOAuthInDispatchWebview(
   url: string,
   host: { baseUrl: string; session: Electron.Session },
+  webContentsId: number,
 ): Promise<void> {
   const origin = new URL(host.baseUrl).origin;
-  const target = webContents.getAllWebContents().find((contents) => {
-    if (contents.getType() !== "webview" || contents.session !== host.session) {
-      return false;
-    }
-    try {
-      return new URL(contents.getURL()).origin === origin;
-    } catch {
-      // coercion-ok: a webview without a parseable URL is not an OAuth target.
-      return false;
-    }
-  });
-  if (!target) {
+  const target = webContents.fromId(webContentsId);
+  if (
+    !target ||
+    target.isDestroyed() ||
+    target.getType() !== "webview" ||
+    target.session !== host.session
+  ) {
     throw new Error(
-      "Open the signed-in Dispatch integrations tab before connecting OAuth.",
+      "The signed-in Dispatch integrations tab is no longer available.",
     );
   }
-  await target.loadURL(url);
+  try {
+    if (new URL(target.getURL()).origin !== origin) {
+      throw new Error(
+        "The signed-in Dispatch integrations tab is no longer available.",
+      );
+    }
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("no longer")) {
+      throw error;
+    }
+    throw new Error(
+      "The signed-in Dispatch integrations tab is no longer available.",
+    );
+  }
+
+  const normalizedReturnPath = resolveMcpOAuthReturnPath(url, host.baseUrl);
+  if (!normalizedReturnPath) {
+    throw new Error("MCP OAuth return path is invalid.");
+  }
+  const matchesReturnPath = (candidate: string): boolean => {
+    try {
+      const parsed = new URL(candidate);
+      return (
+        parsed.origin === origin &&
+        parsed.pathname.replace(/\/+$/, "") ===
+          normalizedReturnPath.replace(/\/+$/, "")
+      );
+    } catch {
+      // coercion-ok: a navigation event without a parseable URL cannot match the OAuth return path.
+      return false;
+    }
+  };
+
+  await new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const timeout = setTimeout(
+      () => {
+        finish(new Error("MCP OAuth did not return to the integrations page."));
+      },
+      5 * 60 * 1000,
+    );
+    const cleanup = () => {
+      clearTimeout(timeout);
+      target.removeListener("did-navigate", onNavigate);
+      target.removeListener("did-navigate-in-page", onNavigate);
+    };
+    const finish = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (error) reject(error);
+      else resolve();
+    };
+    const onNavigate = (_event: Electron.Event, navigationUrl?: string) => {
+      const candidate = navigationUrl || target.getURL();
+      if (matchesReturnPath(candidate)) finish();
+    };
+
+    target.on("did-navigate", onNavigate);
+    target.on("did-navigate-in-page", onNavigate);
+    void target
+      .loadURL(url)
+      .catch((error: unknown) =>
+        finish(error instanceof Error ? error : new Error(String(error))),
+      );
+  });
 }
 
 function normalizedNavigationHost(hostname: string): string {

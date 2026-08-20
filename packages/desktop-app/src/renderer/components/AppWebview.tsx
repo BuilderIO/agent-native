@@ -107,7 +107,46 @@ export function resolveAppWebviewAuthState(
 
 export function buildGuestAuthStateProbeScript(): string {
   return `(() => {
-    const sessionUrl = new URL("/_agent-native/auth/session", window.location.origin);
+    const frameworkPath = "/_agent-native/auth/session";
+    const config = window.__AGENT_NATIVE_CONFIG__;
+    const normalizeBasePath = (value) => {
+      if (typeof value !== "string" || !value || value === "/") return "";
+      return "/" + value.replace(/^\\/+|\\/+$/g, "");
+    };
+    const pathname = window.location.pathname || "/";
+    const markerIndex = pathname.indexOf("/_agent-native");
+    let basePath = markerIndex > 0 ? pathname.slice(0, markerIndex) : "";
+    if (!basePath && typeof config?.appUrl === "string") {
+      try {
+        const configuredPath = normalizeBasePath(
+          new URL(config.appUrl, window.location.origin).pathname,
+        );
+        if (
+          configuredPath &&
+          (pathname === configuredPath || pathname.startsWith(configuredPath + "/"))
+        ) {
+          basePath = configuredPath;
+        }
+      } catch {
+        basePath = "";
+      }
+    }
+    if (!basePath && config?.workspaceRuntime === true) {
+      const firstSegment = pathname.split("/").find(Boolean);
+      if (
+        firstSegment &&
+        !["_agent-native", "api", "sign-in", "login", "signup"].includes(
+          firstSegment,
+        )
+      ) {
+        basePath = "/" + firstSegment;
+      }
+    }
+    const guestPath =
+      typeof window.__anPath === "function"
+        ? window.__anPath(frameworkPath)
+        : basePath + frameworkPath;
+    const sessionUrl = new URL(guestPath, window.location.origin);
     return fetch(sessionUrl.toString(), {
       credentials: "include",
       cache: "no-store",
@@ -263,7 +302,9 @@ export function resolveDesktopIdentityStatusForChat(
   status: DesktopIdentityStatus | "checking",
   sessionReady: boolean,
 ): DesktopIdentityStatus | "checking" {
-  return status === "signed-in" && !sessionReady ? "checking" : status;
+  return (status === "signed-in" || status === "idle") && !sessionReady
+    ? "checking"
+    : status;
 }
 
 export function resolveDesktopIdentityLazySyncStatus(
@@ -339,6 +380,8 @@ interface AppWebviewProps {
   onDesktopIdentityStatusChange?: (
     status: DesktopIdentityStatus | "checking",
   ) => void;
+  /** Emits the guest webContents id for tab-scoped main-process actions. */
+  onWebContentsIdChange?: (webContentsId: number | undefined) => void;
   onAppsChanged?: (apps: AppConfig[]) => void;
 }
 
@@ -569,6 +612,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       onTitleChange,
       onAuthStateChange,
       onDesktopIdentityStatusChange,
+      onWebContentsIdChange,
       onAppsChanged,
     }: AppWebviewProps,
     ref,
@@ -638,6 +682,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     const onDesktopIdentityStatusChangeRef = useRef(
       onDesktopIdentityStatusChange,
     );
+    const onWebContentsIdChangeRef = useRef(onWebContentsIdChange);
     const perAppChatOpenRef = useRef(false);
     const authProbeSequenceRef = useRef(0);
 
@@ -681,6 +726,12 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     useEffect(() => {
       onDesktopIdentityStatusChangeRef.current = onDesktopIdentityStatusChange;
     }, [onDesktopIdentityStatusChange]);
+
+    useEffect(() => {
+      onWebContentsIdChangeRef.current = onWebContentsIdChange;
+    }, [onWebContentsIdChange]);
+
+    useEffect(() => () => onWebContentsIdChangeRef.current?.(undefined), []);
 
     useEffect(() => {
       onDesktopIdentityStatusChangeRef.current?.(
@@ -948,7 +999,6 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     }, [app.placeholder, isActive]);
 
     function reportActiveWebview() {
-      if (!isActive || !window.electronAPI?.setActiveWebview) return;
       const wv = webviewRef.current;
       if (!wv) return;
 
@@ -958,6 +1008,8 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       } catch {
         webContentsId = undefined;
       }
+      onWebContentsIdChangeRef.current?.(webContentsId);
+      if (!isActive || !window.electronAPI?.setActiveWebview) return;
 
       window.electronAPI.setActiveWebview({
         appId: app.id,

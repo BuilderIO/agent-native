@@ -8,6 +8,7 @@ import type {
 import type { AppConfig } from "@shared/app-registry";
 import {
   CHAT_FIRST_MCP_IPC,
+  type ChatFirstMcpOAuthRequest,
   type ChatFirstMcpPluginImportResult,
 } from "@shared/chat-first-mcp";
 import type { CodeAgentPermissionMode } from "@shared/code-agents";
@@ -323,8 +324,11 @@ const electronAPI = {
       scope: McpServerScope;
     }): Promise<TestMcpUrlResult> =>
       ipcRenderer.invoke(CHAT_FIRST_MCP_IPC.TEST_EXISTING, args),
-    startOAuth: (url: string): Promise<void> =>
-      ipcRenderer.invoke(CHAT_FIRST_MCP_IPC.START_OAUTH, url),
+    startOAuth: (url: string, webContentsId?: number): Promise<void> =>
+      ipcRenderer.invoke(CHAT_FIRST_MCP_IPC.START_OAUTH, {
+        url,
+        webContentsId,
+      } satisfies Partial<ChatFirstMcpOAuthRequest>),
     importPlugin: (): Promise<ChatFirstMcpPluginImportResult> =>
       ipcRenderer.invoke(CHAT_FIRST_MCP_IPC.IMPORT_PLUGIN),
   },

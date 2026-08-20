@@ -56,6 +56,7 @@ export interface McpIntegrationDialogProps {
   hasOrg: boolean;
   onCreateMcpServer: (args: CreateMcpServerArgs) => Promise<unknown>;
   onOAuthStart?: (url: string) => void | Promise<void>;
+  oauthReturnPath?: string;
   onCreated?: () => void;
   integrations?: DefaultMcpIntegration[];
 }
@@ -128,6 +129,7 @@ export function McpIntegrationDialog({
   hasOrg,
   onCreateMcpServer,
   onOAuthStart,
+  oauthReturnPath,
   onCreated,
   integrations,
 }: McpIntegrationDialogProps) {
@@ -283,8 +285,9 @@ export function McpIntegrationDialog({
       return;
     }
     setBusy(true);
-    const returnUrl =
-      typeof window === "undefined"
+    const returnUrl = oauthReturnPath?.startsWith("/")
+      ? oauthReturnPath
+      : typeof window === "undefined"
         ? "/"
         : window.location.pathname +
           window.location.search +

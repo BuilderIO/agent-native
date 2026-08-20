@@ -68,6 +68,8 @@ describe("Desktop identity lazy child synchronization", () => {
     expect(resolveDesktopIdentityStatusForChat("signed-in", true)).toBe(
       "signed-in",
     );
+    expect(resolveDesktopIdentityStatusForChat("idle", false)).toBe("checking");
+    expect(resolveDesktopIdentityStatusForChat("idle", true)).toBe("idle");
     expect(resolveDesktopIdentityStatusForChat("sign-in-required", false)).toBe(
       "sign-in-required",
     );
@@ -597,6 +599,7 @@ describe("AppWebview auth state", () => {
     expect(buildGuestAuthStateProbeScript()).toContain(
       "/_agent-native/auth/session",
     );
+    expect(buildGuestAuthStateProbeScript()).toContain("workspaceRuntime");
     expect(
       resolveAppWebviewAuthStateFromProbe(
         { authenticated: false, status: 200 },

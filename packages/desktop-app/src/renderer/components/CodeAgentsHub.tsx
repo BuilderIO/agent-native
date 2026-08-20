@@ -587,6 +587,22 @@ export function updateAppAuthStateByTab(
   return current[tabId] === state ? current : { ...current, [tabId]: state };
 }
 
+export function updateWebContentsIdByTab(
+  current: Readonly<Record<string, number>>,
+  tabId: string,
+  webContentsId: number | undefined,
+): Record<string, number> {
+  if (webContentsId === undefined) {
+    if (!(tabId in current)) return current;
+    const next = { ...current };
+    delete next[tabId];
+    return next;
+  }
+  return current[tabId] === webContentsId
+    ? current
+    : { ...current, [tabId]: webContentsId };
+}
+
 interface CodeAgentsHubProps {
   apps: AppConfig[];
   workspaceAppList?: DesktopWorkspaceAppListResult;
@@ -668,6 +684,9 @@ export default function CodeAgentsHub({
   const [appAuthStateByTab, setAppAuthStateByTab] = useState<
     Record<string, AppWebviewAuthState>
   >({});
+  const [webContentsIdByTab, setWebContentsIdByTab] = useState<
+    Record<string, number>
+  >({});
   const handleDesktopIdentityStatusChange = useCallback(
     (tabId: string, status: DesktopIdentityStatus | "checking") => {
       setDesktopIdentityStatusByTab((current) =>
@@ -684,6 +703,14 @@ export default function CodeAgentsHub({
     },
     [],
   );
+  const handleWebContentsIdChange = useCallback(
+    (tabId: string, webContentsId: number | undefined) => {
+      setWebContentsIdByTab((current) =>
+        updateWebContentsIdByTab(current, tabId, webContentsId),
+      );
+    },
+    [],
+  );
   useEffect(() => {
     const openTabIds = new Set(chatFirstSurfaceTabs.tabs.map((tab) => tab.id));
     setDesktopIdentityStatusByTab((current) => {
@@ -696,6 +723,15 @@ export default function CodeAgentsHub({
       return next;
     });
     setAppAuthStateByTab((current) => {
+      const staleTabIds = Object.keys(current).filter(
+        (tabId) => !openTabIds.has(tabId),
+      );
+      if (staleTabIds.length === 0) return current;
+      const next = { ...current };
+      for (const tabId of staleTabIds) delete next[tabId];
+      return next;
+    });
+    setWebContentsIdByTab((current) => {
       const staleTabIds = Object.keys(current).filter(
         (tabId) => !openTabIds.has(tabId),
       );
@@ -2578,11 +2614,16 @@ export default function CodeAgentsHub({
                       onDesktopIdentityStatusChange={(status) =>
                         handleDesktopIdentityStatusChange(tab.id, status)
                       }
+                      onWebContentsIdChange={(webContentsId) =>
+                        handleWebContentsIdChange(tab.id, webContentsId)
+                      }
                     />
                   </div>
                   {showNativeIntegrations && (
                     <div className="absolute inset-0 z-10">
-                      <DesktopIntegrationsPage />
+                      <DesktopIntegrationsPage
+                        targetWebContentsId={webContentsIdByTab[tab.id]}
+                      />
                     </div>
                   )}
                 </div>
@@ -2618,6 +2659,7 @@ export default function CodeAgentsHub({
       desktopIdentityStatusByTab,
       handleDesktopIdentityStatusChange,
       handleAppAuthStateChange,
+      handleWebContentsIdChange,
       host,
       isActive,
       onLocalCodeChangeStarted,
@@ -2625,6 +2667,7 @@ export default function CodeAgentsHub({
       surfaceApps,
       terminalPreferences.agent,
       theme,
+      webContentsIdByTab,
       watchChatFirstAgent,
     ],
   );

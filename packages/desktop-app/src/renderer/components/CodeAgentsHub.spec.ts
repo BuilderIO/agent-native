@@ -23,6 +23,7 @@ import {
   shouldShowNativeDesktopIntegrations,
   isChatFirstSurfaceTabActive,
   updateAppAuthStateByTab,
+  updateWebContentsIdByTab,
   updateDesktopIdentityStatusByTab,
   orderDesktopApps,
   MultiFrontierModeControl,
@@ -555,6 +556,17 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
         desktopIdentityStatus: "signed-in",
       }),
     ).toBe(false);
+  });
+
+  it("keeps OAuth scoped to the current guest webview id", () => {
+    const current = updateWebContentsIdByTab({}, "dispatch-tab", 42);
+    expect(current).toEqual({ "dispatch-tab": 42 });
+    expect(updateWebContentsIdByTab(current, "dispatch-tab", 43)).toEqual({
+      "dispatch-tab": 43,
+    });
+    expect(
+      updateWebContentsIdByTab(current, "dispatch-tab", undefined),
+    ).toEqual({});
   });
 
   it("keeps Dispatch internal while excluding it from Electron app discovery", () => {
