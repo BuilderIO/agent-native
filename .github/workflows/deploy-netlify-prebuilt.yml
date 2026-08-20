@@ -351,6 +351,7 @@ jobs:
               signal: AbortSignal.timeout(30_000),
             });
           const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+          const DEPLOY_LOOKBACK_MS = 2 * 60 * 60 * 1000;
 
           function nextPageUrl(linkHeader) {
             if (!linkHeader) return null;
@@ -361,7 +362,7 @@ jobs:
             return null;
           }
 
-          async function listDeploys(label) {
+          async function listDeploys(label, cutoff) {
             const deploys = [];
             let url = `${api}/sites/${siteId}/deploys?per_page=100`;
             while (url) {
@@ -369,6 +370,10 @@ jobs:
               const page = await readJson(response, label);
               if (!Array.isArray(page)) throw new Error(`${label} returned a non-array response.`);
               deploys.push(...page);
+              const oldestCreatedAt = page[page.length - 1]?.created_at;
+              // Netlify returns deploys newest-first; historical pages cannot
+              // contain a pending cutover deploy and make the drain time out.
+              if (oldestCreatedAt && Date.parse(oldestCreatedAt) < cutoff) break;
               url = nextPageUrl(response.headers.get("link"));
             }
             return deploys;
@@ -387,9 +392,10 @@ jobs:
 
           async function drainPendingDeploys(publishedId, readyIsBlocking) {
             const deadline = Date.now() + 5 * 60 * 1000;
+            const cutoff = Date.now() - DEPLOY_LOOKBACK_MS;
             while (Date.now() < deadline) {
               let pending = pendingProductionDeploys(
-                await listDeploys("Netlify pending production deploy lookup"),
+                await listDeploys("Netlify pending production deploy lookup", cutoff),
                 publishedId,
                 readyIsBlocking,
               );
@@ -407,7 +413,7 @@ jobs:
               }
 
               pending = pendingProductionDeploys(
-                await listDeploys("Netlify production deploy drain verification"),
+                await listDeploys("Netlify production deploy drain verification", cutoff),
                 publishedId,
                 readyIsBlocking,
               );

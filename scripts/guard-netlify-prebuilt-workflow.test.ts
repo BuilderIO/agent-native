@@ -122,6 +122,82 @@ describe("production Netlify site concurrency guard", () => {
     );
   });
 
+  it("bounds deploy pagination at the recent deploy window", async () => {
+    const unlock = nodeHeredocs[1];
+    const listStart = unlock.indexOf("async function listDeploys");
+    const pendingStart = unlock.indexOf(
+      "function pendingProductionDeploys",
+      listStart,
+    );
+    assert(listStart >= 0 && pendingStart > listStart);
+    const listDeploys = new Function(
+      "request",
+      "readJson",
+      "nextPageUrl",
+      "api",
+      "siteId",
+      `${unlock.slice(listStart, pendingStart)}; return listDeploys;`,
+    )(
+      async (url: string) => {
+        requests.push(url);
+        const page = pages.get(url);
+        assert(page, `unexpected deploy page ${url}`);
+        return {
+          headers: {
+            get: () => page.next,
+          },
+          page: page.deploys,
+        };
+      },
+      async (response: { page: Array<Record<string, unknown>> }) =>
+        response.page,
+      (link: string | null) => link,
+      "https://netlify.test/api",
+      "site-id",
+    ) as (
+      label: string,
+      cutoff: number,
+    ) => Promise<Array<Record<string, unknown>>>;
+    const requests: string[] = [];
+    const pages = new Map([
+      [
+        "https://netlify.test/api/sites/site-id/deploys?per_page=100",
+        {
+          deploys: [{ id: "recent-1", created_at: "2026-08-20T05:00:00Z" }],
+          next: "https://netlify.test/page-2",
+        },
+      ],
+      [
+        "https://netlify.test/page-2",
+        {
+          deploys: [{ id: "recent-2", created_at: "2026-08-20T04:00:00Z" }],
+          next: "https://netlify.test/page-3",
+        },
+      ],
+      [
+        "https://netlify.test/page-3",
+        {
+          deploys: [{ id: "historical", created_at: "2026-08-19T00:00:00Z" }],
+          next: null,
+        },
+      ],
+    ]);
+
+    const deploys = await listDeploys(
+      "test deploy lookup",
+      Date.parse("2026-08-20T02:00:00Z"),
+    );
+    assert.deepEqual(
+      deploys.map((deploy) => deploy.id),
+      ["recent-1", "recent-2", "historical"],
+    );
+    assert.deepEqual(requests, [
+      "https://netlify.test/api/sites/site-id/deploys?per_page=100",
+      "https://netlify.test/page-2",
+      "https://netlify.test/page-3",
+    ]);
+  });
+
   it("restores cutover state before failure lock cleanup", () => {
     const workflow = readWorkflow(
       ".github/workflows/deploy-netlify-prebuilt.yml",
