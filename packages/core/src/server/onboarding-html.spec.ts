@@ -35,6 +35,9 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain("Switch to production");
     expect(html).toContain("__anInitEnvironmentBadge");
     expect(html).toContain("agentNativeBetaOptOut");
+    expect(html).toContain("agent-native:beta-opt-out-until");
+    expect(html).toContain("window.localStorage.setItem");
+    expect(html).toContain("window.history.replaceState");
     expect(html).toContain('id="environment-badge" aria-expanded="false"');
   });
 

@@ -1,7 +1,7 @@
 ---
 title: "Deploy an app"
 description: "Build and deploy one Agent-Native app to Node.js, Vercel, Netlify, Cloudflare, AWS, or Deno."
-search: "deploy app standalone build Nitro preset Node.js Vercel Netlify Cloudflare AWS Deno"
+search: "deploy app standalone build Nitro preset Node.js Docker Vercel Netlify Cloudflare AWS Lambda Deno Deploy Azure Koyeb Render"
 ---
 
 # Deploy an app
@@ -38,11 +38,17 @@ export default defineConfig({
 
 See the target page for the provider command and runtime details:
 
-- [**Node.js & Docker**](/docs/node-docker)
+- [**Node.js**](/docs/node-js)
+- [**Docker**](/docs/docker)
 - [**Vercel**](/docs/vercel)
 - [**Netlify**](/docs/netlify)
-- [**Cloudflare**](/docs/cloudflare)
-- [**AWS Lambda and Deno Deploy**](/docs/other-platforms)
+- [**Cloudflare Pages**](/docs/cloudflare#cloudflare-pages)
+- [**Cloudflare Workers**](/docs/cloudflare#cloudflare-workers)
+- [**AWS Lambda**](/docs/aws-lambda)
+- [**Deno Deploy**](/docs/deno-deploy)
+- [**Azure Static Web Apps**](/docs/azure-static-web-apps)
+- [**Koyeb**](/docs/koyeb)
+- [**Render**](/docs/render)
 
 ### Build the app
 
@@ -59,7 +65,7 @@ node .output/server/index.mjs
 ```
 
 For a local production-shaped check with Postgres and Docker, follow the
-[Node.js & Docker quickstart](/docs/node-docker#self-host-quickstart).
+[Docker quickstart](/docs/docker#self-host-quickstart).
 
 ### Configure the deployment
 

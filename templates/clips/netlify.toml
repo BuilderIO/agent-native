@@ -1,6 +1,6 @@
 [build]
 ignore = "node ./scripts/netlify-ignore-build.mjs clips"
-command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter clips build && pnpm exec tsx templates/clips/jobs/emit-netlify-brain-export-cron.ts && if [ \"${CONTEXT:-}\" = \"production\" ]; then pnpm --filter clips migrate:production; fi"
+command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && if [ \"${agentNativePrebuiltBuild:-}\" = \"true\" ]; then export DATABASE_URL=\"${agentNativePrebuiltDatabaseUrl:?}\" BETTER_AUTH_SECRET=\"${agentNativePrebuiltAuthSecret:?}\"; fi && pnpm install && NITRO_PRESET=netlify pnpm --filter clips build && pnpm exec tsx templates/clips/jobs/emit-netlify-brain-export-cron.ts && if [ \"${CONTEXT:-}\" = \"production\" ] && [ \"${agentNativePrebuiltBuild:-}\" != \"true\" ]; then pnpm --filter clips migrate:production; fi"
 publish = "templates/clips/dist"
 functions = "templates/clips/.netlify/functions-internal"
 

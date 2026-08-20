@@ -76,6 +76,7 @@ import {
   LocalMdxComponentNode,
 } from "./extensions/LocalMdxComponentNode";
 import {
+  CompatibleCode,
   createNotionEditorExtensions,
   focusMostRecentEmptyToggleSummary,
   type NotionPageLink,
@@ -1645,6 +1646,7 @@ export function createVisualEditorExtensions({
     },
     starterKit: {
       blockquote: false,
+      code: false,
       paragraph: false,
       heading: { levels: [1, 2, 3, 4, 5, 6] },
       horizontalRule: {},
@@ -1653,6 +1655,7 @@ export function createVisualEditorExtensions({
     collab:
       ydoc || localAwareness ? { ydoc, awareness: localAwareness, user } : null,
     extraExtensions: [
+      CompatibleCode,
       EmptyLineParagraph,
       NotionBlockquote,
       CodeBlock,

@@ -97,6 +97,8 @@ const messages = {
     slackChannelPlaceholder: "例：C0123456789",
     slackChannelName: "チャンネル名",
     slackChannelNamePlaceholder: "例：product-agent-native-feedback",
+    builderSlackUserId: "@Builder.io の Slack メンバー ID",
+    builderSlackUserIdPlaceholder: "例：U096KN3EL2Y",
     repository: "リポジトリ",
     repositoryPlaceholder: "例：BuilderIO/agent-native",
     enablePolling: "毎分の観測ポーリングを有効にする",
@@ -164,6 +166,7 @@ const messages = {
     rulesTab: "ルール",
     automationsTab: "自動化",
     agentsTab: "エージェント",
+    factorySettings: "Factory 設定",
     agenticAppsTitle: "エージェントアプリ",
     agenticAppsEmpty:
       "このワークスペースにはまだエージェントアプリがありません。",

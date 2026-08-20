@@ -18,6 +18,7 @@ import {
   recordProviderCredentialAuthFailure,
 } from "../../server/credential-provider.js";
 import {
+  allowsSamplingParams,
   anthropicManualThinkingBudget,
   normalizeReasoningEffortForModel,
   supportsClaudeAdaptiveThinking,
@@ -448,6 +449,21 @@ class AISDKEngine implements AgentEngine {
       }
     }
 
+    // Thinking and temperature cannot travel together on Anthropic: any value
+    // but 1 is rejected once thinking is on, and the Opus 4.7+ / Sonnet 5
+    // families removed the sampling parameters outright. Effort defaults to
+    // High on every reasoning-capable Claude model, so a caller that only asked
+    // for `temperature: 0` was building a request the API always 400s.
+    const samplingAllowed = allowsSamplingParams({
+      model: opts.model,
+      thinkingEnabled:
+        this.provider === "anthropic" &&
+        Boolean(
+          (providerOpts.anthropic as { thinking?: unknown } | undefined)
+            ?.thinking,
+        ),
+    });
+
     let assistantContent: EngineContentPart[] = [];
     const firstEventAbort = createFirstEventAbortController(opts.abortSignal);
     const toolInputs = createStreamedToolInputState();
@@ -463,7 +479,7 @@ class AISDKEngine implements AgentEngine {
         // backoff. Leaving the SDK on its default (2) multiplies the two retry
         // layers into ~12 HTTP requests per failed run.
         maxRetries: 1,
-        ...(opts.temperature !== undefined
+        ...(samplingAllowed && opts.temperature !== undefined
           ? { temperature: opts.temperature }
           : {}),
         abortSignal: firstEventAbort.signal,

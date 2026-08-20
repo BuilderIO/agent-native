@@ -1,0 +1,36 @@
+---
+title: "Azure Static Web Apps"
+description: "Deploy an Agent-Native app to Azure Static Web Apps with Nitro's azure-swa preset."
+search: "Azure Static Web Apps deployment Nitro preset"
+---
+
+# Azure Static Web Apps
+
+Nitro provides the `azure-swa` preset for Azure Static Web Apps. It packages
+the public assets and server routes for the provider's static and API hosting
+model.
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "azure-swa" } })],
+});
+```
+
+Build the provider output:
+
+```bash
+npx @agent-native/core@latest build
+```
+
+Deploy the generated output with the Azure Static Web Apps CLI or your CI
+workflow. Use a persistent external SQL database and configure
+`DATABASE_URL`, `BETTER_AUTH_SECRET`, and app secrets in the Azure environment.
+
+See [Nitro's Azure provider guide](https://nitro.build/deploy/providers/azure)
+for the current provider workflow.
+
+## What's next
+
+- [**Deploy an app**](/docs/deploy-an-app) - the complete app path
+- [**Deployment environment variables**](/docs/deployment-environment-variables) - production configuration
+- [**Koyeb**](/docs/koyeb) - a managed Node.js target

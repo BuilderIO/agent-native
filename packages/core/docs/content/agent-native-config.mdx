@@ -16,6 +16,12 @@ The resolved configuration is serialized into the browser bundle. Treat every
 value in these files as public. Put credentials and deployment-specific values
 in the environment or the scoped secret store instead.
 
+This file is the home for public, app-owned configuration - the values that
+describe how an app should behave or what capabilities it exposes. It is not a
+second environment-variable file. Environment variables still own secrets,
+provider credentials, database URLs, host-specific values, and other values
+that must change between deployments.
+
 ## File location and loading
 
 Put one configuration file at the app root, alongside `package.json` and the
@@ -77,7 +83,7 @@ recommended form.
 
 ## Supported options
 
-These are the only shared options read from the typed config and the shared
+These are the shared options read from the typed config and the shared
 configuration portion of `agent-native.json`:
 
 | Option                         | Type                                                              | Effect                                                                                                                                                                                    |
@@ -87,9 +93,47 @@ configuration portion of `agent-native.json`:
 | `runtime.auth.enabled`         | `boolean`                                                         | Declares whether the app expects the framework or a custom authentication layer.                                                                                                          |
 | `runtime.database.required`    | `boolean`                                                         | Declares whether production needs a persistent remote SQL database.                                                                                                                       |
 | `runtime.environment.required` | `string[]`                                                        | Declares additional required environment variable names. Names must match `[A-Za-z_][A-Za-z0-9_]*`; values do not belong in the config.                                                   |
+| `deployment.environment`       | `"local"`, `"beta"`, `"production"`, or `"preview"`               | Records the release lane that produced the current client bundle.                                                                                                                         |
 | `diagnostics.failOnBuild`      | `boolean`                                                         | When `true`, a production Vite build throws on runtime configuration issues. When absent or `false`, it reports them without failing the build.                                           |
 | `instructions.runtime`         | `string`                                                          | Optional relative Markdown path for the in-app runtime agent. Defaults to `AGENTS.md`.                                                                                                    |
 | `instructions.development`     | `string`                                                          | Optional relative Markdown path for development/coding agents. Defaults to `AGENTS.md`.                                                                                                   |
+| `translations.locales`         | `string[]`                                                        | Lists the locales the app intentionally ships. `en-US` remains the source locale.                                                                                                         |
+| `changelog.enabled`            | `boolean`                                                         | Enables the app changelog workflow and lets agents create user-facing entries.                                                                                                            |
+| `harness`                      | `boolean` or `{ runtimes: string[] }`                             | Enables the hosted tools-only harness, optionally narrowed to `claude-code`, `codex`, `pi`, or `opencode`. See [Harness Agents](/docs/harness-agents).                                    |
+
+## Configuration vs environment variables
+
+Use the config file or JSON manifest for stable, non-secret application
+defaults. Use environment variables or the scoped secret store for values that
+belong to a deployment or a user or organization connection:
+
+| Put it in                                                             | Examples                                                                                                           | Notes                                                                                                                                               |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `agent-native.config.ts` or the shared section of `agent-native.json` | onboarding mode, required runtime contracts, release lane, shipped locales, changelog, hosted harness capabilities | Committed app policy. It is resolved during the Vite config phase and can use `command`, `mode`, `isDev`, and `isBuild`.                            |
+| Deployment environment variables                                      | `DATABASE_URL`, `BETTER_AUTH_SECRET`, `APP_URL`, `NITRO_PRESET`, provider keys, host-specific toggles              | Set by the deployment platform or local `.env`. Keep secret values out of source control. See [Environment Variables](/docs/environment-variables). |
+| `runtime.environment.required`                                        | `"PUBLIC_API_ORIGIN"`, `"STRIPE_PUBLISHABLE_KEY"`                                                                  | A declaration of names the production readiness check must find. It does not set, expose, or replace the values.                                    |
+
+For example, keep the app's public policy in the config file and inject the
+actual deployment values separately:
+
+```ts filename="agent-native.config.ts"
+import { defineAgentNativeConfig } from "@agent-native/core/config";
+
+export default defineAgentNativeConfig({
+  deployment: { environment: "production" },
+  translations: { locales: ["en-US", "es-ES"] },
+  changelog: { enabled: true },
+  harness: { runtimes: ["codex"] },
+  runtime: {
+    database: { required: true },
+    environment: { required: ["PUBLIC_API_ORIGIN"] },
+  },
+});
+```
+
+Set `DATABASE_URL`, `BETTER_AUTH_SECRET`, and `PUBLIC_API_ORIGIN` in the
+hosting provider or scoped secret store. The config file declares the policy;
+the deployment supplies the values.
 
 ### Separate runtime and development instructions
 

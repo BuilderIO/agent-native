@@ -238,7 +238,6 @@ body {
   --sidebar-accent: 0 0% 95%;
   --sidebar-accent-foreground: 0 0% 15%;
   --sidebar-border: 0 0% 90%;
-  --desktop-chat-composer-background: 0 0% 98%;
   --agent-native-lower-surface: hsl(var(--sidebar-background));
   position: relative;
   display: grid;
@@ -249,14 +248,14 @@ body {
   background: var(--shell-bg);
 }
 
-/* The light desktop chat shell needs more contrast between the composer and
-   its surrounding surface; leave the shared card treatment unchanged. */
+/* Keep the chat composer aligned with the desktop rail, not the darker app
+   sidebar surface that contains it. */
 .light
   .desktop-chat-first-hub
   [data-chat-first-app-pane]
   .agent-sidebar-panel
   .agent-composer-root {
-  background: hsl(var(--desktop-chat-composer-background));
+  background: hsl(var(--sidebar-background));
 }
 
 @supports (background: color-mix(in srgb, white, black)) {
@@ -3160,7 +3159,8 @@ body {
 
 /* ─── Update indicator (chat-first rail action) ───────────────── */
 .desktop-chat-first-hub .update-indicator--pending,
-.desktop-chat-first-hub .update-indicator--downloading {
+.desktop-chat-first-hub .update-indicator--downloading,
+.desktop-chat-first-hub .update-indicator--checking {
   color: #60a5fa;
 }
 
@@ -3169,6 +3169,15 @@ body {
   background: transparent;
   color: #60a5fa;
   font-weight: 600;
+}
+
+.desktop-chat-first-hub .update-indicator--check,
+.desktop-chat-first-hub .update-indicator--error {
+  color: hsl(var(--muted-foreground));
+}
+
+.desktop-chat-first-hub .update-indicator--error {
+  color: hsl(var(--destructive));
 }
 
 @keyframes update-spin {
@@ -3184,27 +3193,31 @@ body {
   animation: update-spin 1s linear infinite;
 }
 
-/* ─── Update prompt (toast) ───────────────────────────────────── */
+/* ─── Update prompt in the updater rail ───────────────────────── */
 .update-prompt {
-  position: fixed;
-  bottom: 20px;
-  right: 20px;
-  z-index: 200;
-  width: 320px;
+  position: relative;
+  z-index: 1;
+  grid-column: 1 / -1;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   gap: 14px;
-  padding: 16px 18px 14px;
+  margin-bottom: 6px;
+  padding: 12px 13px 11px;
   background: hsl(var(--card));
   border: 1px solid hsl(var(--border));
-  border-radius: 12px;
-  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.5);
+  border-radius: 9px;
+  box-shadow: 0 10px 24px hsl(var(--background) / 0.28);
   -webkit-app-region: no-drag;
-  /* Promote to its own compositor layer + stacking context so it paints
-     reliably above Electron <webview> guest surfaces on macOS. Without this
-     the popover loses the composite race and gets covered by the webview. */
-  transform: translateZ(0);
-  isolation: isolate;
+}
+
+.desktop-chat-first-hub
+  .code-agents-rail--collapsed
+  .code-agents-rail-footer
+  > .update-prompt {
+  display: none;
 }
 
 .dark .desktop-chat-first-hub {
@@ -3247,6 +3260,7 @@ body {
 }
 
 .update-prompt-subtitle {
+  padding-right: 12px;
   font-size: 12px;
   line-height: 1.5;
   color: hsl(var(--muted-foreground));

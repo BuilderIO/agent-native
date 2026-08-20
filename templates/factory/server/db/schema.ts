@@ -110,6 +110,7 @@ export const triageConfig = table("factory_config", {
   slackWorkspace: text("slack_workspace").notNull().default("primary"),
   slackChannelId: text("slack_channel_id"),
   slackChannelName: text("slack_channel_name"),
+  builderSlackUserId: text("builder_slack_user_id"),
   pollingEnabled: integer("polling_enabled").notNull().default(0),
   lastSlackTs: text("last_slack_ts"),
   slackHistoryCursor: text("slack_history_cursor"),

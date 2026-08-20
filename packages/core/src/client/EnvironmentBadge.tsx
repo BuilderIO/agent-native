@@ -12,6 +12,7 @@ import type {
 } from "../config.js";
 import {
   BETA_OPT_OUT_QUERY_PARAM,
+  BETA_OPT_OUT_STORAGE_KEY,
   buildEnvironmentOptOutUrl,
   buildEnvironmentUrl,
   resolveEnvironmentTargets,
@@ -21,11 +22,10 @@ import { trackEvent } from "./analytics.js";
 import { injectedAgentNativeConfig } from "./app-config.js";
 import { useSession } from "./use-session.js";
 
-export const BETA_OPT_OUT_STORAGE_KEY = "agent-native:beta-opt-out-until";
-
 export {
   BETA_OPT_OUT_DURATION_MS,
   BETA_OPT_OUT_QUERY_PARAM,
+  BETA_OPT_OUT_STORAGE_KEY,
   buildEnvironmentOptOutUrl,
   buildEnvironmentUrl,
   resolveEnvironmentTargets,
