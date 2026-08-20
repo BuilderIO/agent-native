@@ -223,6 +223,7 @@ if (unlockStart < 0 || (uploadStart >= 0 && unlockStart >= uploadStart)) {
     !unlock.includes("/unlock") ||
     !unlock.includes("locked !== false") ||
     !unlock.includes("/deploys?per_page=100") ||
+    !unlock.includes("nextPageUrl") ||
     !unlock.includes('candidate.state === "ready"') ||
     !unlock.includes("candidate.published_at")
   ) {
@@ -266,7 +267,7 @@ if (
   );
 }
 const cleanup = reusable.slice(cleanupStart);
-if (!cleanup.includes("WAS_STOPPED")) {
+if (!cleanup.includes("cutoverWasStopped")) {
   issues.push(
     `${reusablePath} production cleanup must restore the prior automatic-build setting`,
   );

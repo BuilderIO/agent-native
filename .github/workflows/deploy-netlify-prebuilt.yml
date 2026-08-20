@@ -180,6 +180,7 @@ jobs:
           BUILD_CONTEXT: ${{ inputs.build_context }}
           DEPLOY: ${{ inputs.deploy }}
           DEPLOY_MODE: ${{ inputs.deploy_mode }}
+          SITE: ${{ inputs.site }}
           TARGET: ${{ inputs.target }}
         run: |
           set -euo pipefail
@@ -196,6 +197,11 @@ jobs:
 
           if [[ "$TARGET" == "production" && "$BUILD_CONTEXT" != "production" ]]; then
             echo "::error::Production sites must use the production Netlify build context."
+            exit 1
+          fi
+
+          if [[ "$TARGET" == "production" && ( "$SITE" == "chat" || "$SITE" == "www" ) ]]; then
+            echo "::error::Production prebuilt dispatches must use canonical site ids (starter or fw), not aliases."
             exit 1
           fi
 
@@ -336,11 +342,26 @@ jobs:
             });
           const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+          function nextPageUrl(linkHeader) {
+            if (!linkHeader) return null;
+            const links = /(?:^|,)\s*<([^>]+)>\s*;\s*rel="([^"]+)"/g;
+            for (const match of linkHeader.matchAll(links)) {
+              if (match[2].split(/\s+/).includes("next")) return match[1];
+            }
+            return null;
+          }
+
           async function listDeploys(label) {
-            return readJson(
-              await request(`${api}/sites/${siteId}/deploys?per_page=100`),
-              label,
-            );
+            const deploys = [];
+            let url = `${api}/sites/${siteId}/deploys?per_page=100`;
+            while (url) {
+              const response = await request(url);
+              const page = await readJson(response, label);
+              if (!Array.isArray(page)) throw new Error(`${label} returned a non-array response.`);
+              deploys.push(...page);
+              url = nextPageUrl(response.headers.get("link"));
+            }
+            return deploys;
           }
 
           function pendingProductionDeploys(deploys, publishedId) {
@@ -630,7 +651,7 @@ jobs:
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
-          WAS_STOPPED: ${{ steps.pause.outputs.was_stopped }}
+          cutoverWasStopped: ${{ steps.pause.outputs.was_stopped }}
         run: |
           set -euo pipefail
           node <<'NODE'
@@ -654,7 +675,7 @@ jobs:
             return body;
           }
 
-          if (process.env.WAS_STOPPED === "true") {
+          if (process.env.cutoverWasStopped === "true") {
             console.log("Automatic Netlify builds were already stopped; preserving that setting.");
             process.exit(0);
           }
@@ -682,7 +703,7 @@ jobs:
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
-          WAS_STOPPED: ${{ steps.pause.outputs.was_stopped }}
+          cutoverWasStopped: ${{ steps.pause.outputs.was_stopped }}
         run: |
           set -euo pipefail
           node <<'NODE'
@@ -706,7 +727,7 @@ jobs:
             return body;
           }
 
-          if (!process.env.WAS_STOPPED) {
+          if (!process.env.cutoverWasStopped) {
             console.log("No production cutover state was acquired; cleanup is not needed.");
             process.exit(0);
           }
@@ -728,7 +749,7 @@ jobs:
           if (locked.locked !== true) {
             throw new Error(`Netlify published deploy ${deployId} was not locked during failure cleanup.`);
           }
-          if (process.env.WAS_STOPPED === "false") {
+          if (process.env.cutoverWasStopped === "false") {
             await readJson(
               await request(`${api}/sites/${process.env.NETLIFY_SITE_ID}`, {
                 method: "PATCH",
