@@ -35,6 +35,15 @@ describe("app config store", () => {
     expect(getAppConfig().privateBlob.publicUploadFallback).toBe(false);
   });
 
+  it("reads early liveness configuration from declared aliases", () => {
+    process.env.PING_MESSAGE = "ready";
+    process.env.AGENT_NATIVE_HEALTH_STRICT_SCHEMA = "1";
+
+    const app = getAppConfig().app;
+    expect(app.pingMessage).toBe("ready");
+    expect(app.healthStrictSchema).toBe(true);
+  });
+
   it("declares the development Desktop SSO fallback control", () => {
     expect(getAppConfig().auth.disableDesktopSsoFallbackInDevelopment).toBe(
       false,

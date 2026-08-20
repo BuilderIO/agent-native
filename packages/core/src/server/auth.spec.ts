@@ -2516,6 +2516,9 @@ describe("server/auth", () => {
       const html = await (result as Response).text();
       expect(html).toContain("Persist the beta opt-out before authentication");
       expect(html).toContain("agent-native:beta-opt-out-until");
+      expect(html).toContain('id="environment-switcher"');
+      expect(html).toContain('id="environment-production-link"');
+      expect(html).toContain("__anInitEnvironmentBadge");
       expect(html.indexOf("data-agent-native-beta-opt-out")).toBeLessThan(
         html.indexOf("</body>"),
       );

@@ -39,13 +39,22 @@ const PLUGIN_READY_KEY = "_agentNativePluginReadyPromise";
 const PLUGIN_READY_PLACEHOLDERS_KEY = "_agentNativePluginReadyPlaceholders";
 const PLUGIN_FAILED_KEY = "_agentNativePluginInitFailures";
 const PROVIDED_PLUGIN_STEMS_KEY = "_agentNativeProvidedPluginStems";
+const EARLY_FRAMEWORK_PATHS_KEY = "_agentNativeEarlyFrameworkPaths";
 const MIDDLEWARE_DISPATCHER_PATCHED_KEY =
   "_agentNativeMiddlewareDispatcherPatched";
 const REQUEST_CONTEXT_BOUNDARY_KEY = "_agentNativeRequestContextBoundary";
 
+export const FRAMEWORK_AUTH_EARLY_PATHS = [
+  `${FRAMEWORK_PREFIX}/auth`,
+  `${FRAMEWORK_PREFIX}/sign-in`,
+  `${FRAMEWORK_PREFIX}/login`,
+  `${FRAMEWORK_PREFIX}/signup`,
+] as const;
+
 interface PluginReadyEntry {
   promise: Promise<void>;
   paths?: string[];
+  excludedPaths?: string[];
 }
 
 function getAppBasePath(): string {
@@ -110,6 +119,26 @@ export function markDefaultPluginProvided(nitroApp: any, stem: string): void {
   const provided = existing ?? new Set<string>();
   provided.add(stem);
   nitroApp[PROVIDED_PLUGIN_STEMS_KEY] = provided;
+}
+
+/**
+ * Mark routes that are mounted without waiting for unrelated default-plugin
+ * bootstrap. BYOA auth uses this for its cacheable login document: waiting
+ * for Better Auth or another DB-backed plugin turns an available login form
+ * into a serverless 502 during a cold-start database outage.
+ */
+export function markFrameworkRoutesReadyBeforeBootstrap(
+  nitroApp: any,
+  paths: readonly string[],
+): void {
+  if (!nitroApp) return;
+  const existing =
+    (nitroApp[EARLY_FRAMEWORK_PATHS_KEY] as Set<string> | undefined) ??
+    new Set<string>();
+  for (const path of paths) {
+    if (path) existing.add(path);
+  }
+  nitroApp[EARLY_FRAMEWORK_PATHS_KEY] = existing;
 }
 
 /**
@@ -350,7 +379,18 @@ async function awaitFrameworkRoutesReadyForRequest(
     return await Promise.race([
       (async () => {
         const bootstrapPromise = nitroApp[BOOTSTRAP_PROMISE_KEY];
-        if (bootstrapPromise) await bootstrapPromise;
+        const earlyPaths = nitroApp[EARLY_FRAMEWORK_PATHS_KEY] as
+          | Set<string>
+          | undefined;
+        const canDispatchBeforeBootstrap = Boolean(
+          earlyPaths?.size &&
+          Array.from(earlyPaths).some((path) =>
+            resolveMountMatch(reqPath, path),
+          ),
+        );
+        if (bootstrapPromise && !canDispatchBeforeBootstrap) {
+          await bootstrapPromise;
+        }
         await awaitPluginsReady(nitroApp, reqPath);
         return true;
       })(),
@@ -390,7 +430,7 @@ function frameworkReadyDeadlineMs(): number {
 export function trackPluginInit(
   nitroApp: any,
   promise: Promise<void>,
-  options: { paths?: string[] } = {},
+  options: { paths?: string[]; excludedPaths?: string[] } = {},
 ): void {
   if (!nitroApp) return;
   // Ensure the readiness gate exists even when the tracked plugin is the first
@@ -422,6 +462,7 @@ export function trackPluginInit(
   const entry: PluginReadyEntry = {
     promise: safe,
     paths: options.paths?.filter(Boolean),
+    excludedPaths: options.excludedPaths?.filter(Boolean),
   };
   const existing = nitroApp[PLUGIN_READY_KEY] as PluginReadyEntry[] | undefined;
   if (existing) {
@@ -429,12 +470,13 @@ export function trackPluginInit(
   } else {
     nitroApp[PLUGIN_READY_KEY] = [entry];
   }
-  installPluginReadyPlaceholders(nitroApp, entry.paths);
+  installPluginReadyPlaceholders(nitroApp, entry.paths, entry.excludedPaths);
 }
 
 function installPluginReadyPlaceholders(
   nitroApp: any,
   paths: string[] | undefined,
+  excludedPaths: string[] | undefined,
 ): void {
   if (!paths?.length) return;
   const existing = nitroApp[PLUGIN_READY_PLACEHOLDERS_KEY] as
@@ -453,6 +495,13 @@ function installPluginReadyPlaceholders(
         const eventAny = event as any;
         const reqPath =
           eventAny.context?._mountedPathname ?? event.url?.pathname ?? path;
+        if (
+          excludedPaths?.some((excludedPath) =>
+            resolveMountMatch(reqPath, excludedPath),
+          )
+        ) {
+          return undefined;
+        }
         const ready = await awaitFrameworkRoutesReadyForRequest(
           nitroApp,
           reqPath,
@@ -545,10 +594,14 @@ export async function awaitPluginsReady(
   if (!entries?.length) return;
 
   const relevant = reqPath
-    ? entries.filter((entry) =>
-        entry.paths?.length
-          ? entry.paths.some((path) => resolveMountMatch(reqPath, path))
-          : true,
+    ? entries.filter(
+        (entry) =>
+          !entry.excludedPaths?.some((path) =>
+            resolveMountMatch(reqPath, path),
+          ) &&
+          (entry.paths?.length
+            ? entry.paths.some((path) => resolveMountMatch(reqPath, path))
+            : true),
       )
     : entries;
 

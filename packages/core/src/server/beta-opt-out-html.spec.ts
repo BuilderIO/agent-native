@@ -16,6 +16,14 @@ describe("injectBetaOptOutPersistence", () => {
     expect(html).toContain("agent-native:beta-opt-out-until");
     expect(html).toContain("window.localStorage.setItem");
     expect(html).toContain("window.history.replaceState");
+    expect(html).toContain('id="environment-switcher"');
+    expect(html).toContain('id="environment-production-link"');
+    expect(html).toContain("__anInitEnvironmentBadge");
+    expect(html).toContain("betaHosts");
+    expect(html).toContain("agent-native-environment-switcher-style");
+    expect(html).toContain(
+      "if (!productionHost || betaHosts[productionHost] !== hostname) return;",
+    );
     expect(html.indexOf("data-agent-native-beta-opt-out")).toBeLessThan(
       html.indexOf("</body>"),
     );
@@ -29,5 +37,13 @@ describe("injectBetaOptOutPersistence", () => {
 
     expect(reinjected).toBe(html);
     expect(reinjected.match(/data-agent-native-beta-opt-out/g)).toHaveLength(1);
+    expect(
+      reinjected.match(/data-agent-native-environment-switcher/g),
+    ).toHaveLength(3);
+    expect(reinjected.match(/id="environment-switcher"/g)).toHaveLength(1);
+    expect(reinjected.match(/id="environment-production-link"/g)).toHaveLength(
+      1,
+    );
+    expect(reinjected.match(/__anInitEnvironmentBadge/g)).toHaveLength(1);
   });
 });
