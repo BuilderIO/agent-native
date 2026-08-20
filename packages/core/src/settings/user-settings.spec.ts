@@ -2,17 +2,20 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // Mock the store module
 const mockGetSetting = vi.fn();
+const mockMutateSetting = vi.fn();
 const mockPutSetting = vi.fn();
 const mockDeleteSetting = vi.fn();
 
 vi.mock("./store.js", () => ({
   getSetting: (...args: any[]) => mockGetSetting(...args),
+  mutateSetting: (...args: any[]) => mockMutateSetting(...args),
   putSetting: (...args: any[]) => mockPutSetting(...args),
   deleteSetting: (...args: any[]) => mockDeleteSetting(...args),
 }));
 
 import {
   getUserSetting,
+  mutateUserSetting,
   putUserSetting,
   deleteUserSetting,
 } from "./user-settings.js";
@@ -76,6 +79,26 @@ describe("user-settings", () => {
         "u:alice@test.com:pref",
         { v: 1 },
         { requestSource: "tab-1" },
+      );
+    });
+  });
+
+  describe("mutateUserSetting", () => {
+    it("mutates a legacy mixed-case key when normalized storage is absent", async () => {
+      mockGetSetting.mockResolvedValueOnce(null).mockResolvedValueOnce({
+        servers: [{ id: "mcps_legacy" }],
+      });
+      mockMutateSetting.mockResolvedValue({
+        servers: [{ id: "mcps_legacy" }],
+      });
+      const updater = vi.fn();
+
+      await mutateUserSetting("Alice@Test.com", "mcp-servers-remote", updater);
+
+      expect(mockMutateSetting).toHaveBeenCalledWith(
+        "u:Alice@Test.com:mcp-servers-remote",
+        updater,
+        undefined,
       );
     });
   });
