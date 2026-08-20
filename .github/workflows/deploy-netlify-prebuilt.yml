@@ -703,7 +703,7 @@ jobs:
             return body;
           }
 
-          if (!process.env.cutoverWasStopped) {
+          if (process.env.cutoverWasStopped !== "true") {
             console.log("No production cutover state was acquired; automatic builds are unchanged.");
             process.exit(0);
           }
@@ -761,7 +761,7 @@ jobs:
             return body;
           }
 
-          if (!process.env.cutoverWasStopped) {
+          if (process.env.cutoverWasStopped !== "true") {
             console.log("No production cutover state was acquired; cleanup is not needed.");
             process.exit(0);
           }

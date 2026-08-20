@@ -216,7 +216,10 @@ describe("production Netlify site concurrency guard", () => {
     );
     assert.equal(typeof resume?.if, "string");
     assert.match(resume?.if as string, /always\(\)/);
-    assert.match(String(resume?.run), /!process\.env\.cutoverWasStopped/);
+    assert.match(
+      String(resume?.run),
+      /process\.env\.cutoverWasStopped !== "true"/,
+    );
     assert.equal(typeof cleanup?.if, "string");
     assert.match(cleanup?.if as string, /failure\(\)/);
     assert.equal(
@@ -228,6 +231,10 @@ describe("production Netlify site concurrency guard", () => {
       "${{ steps.unlock.outputs.was_locked }}",
     );
     assert.doesNotMatch(String(cleanup?.run), /stop_builds/);
+    assert.match(
+      String(cleanup?.run),
+      /process\.env\.cutoverWasStopped !== "true"/,
+    );
   });
 
   it("requires the exact shared queue on deploy, manage, and promote jobs", () => {
