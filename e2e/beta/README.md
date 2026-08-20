@@ -6,6 +6,15 @@ right now be able to sign in, load the app, and get a working agent turn?**
 Run it from the Actions tab — **Beta E2E (browser)** → _Run workflow_. Green
 means promote; red means look before you promote.
 
+The same suite also runs automatically from **Beta E2E (scheduled)** every six
+hours (`0 */6 * * *`) with the public, authenticated, journey, and advisory
+lanes. A failed or cancelled run creates the exact-title issue
+`[beta-e2e] Scheduled beta health check failing`, or comments on the existing
+open issue instead of creating a duplicate. The first successful run comments
+with its recovery link and closes that issue. The scheduled workflow also has
+a manual dispatch entrypoint for checking the reporter without waiting for the
+next cadence.
+
 The assertions come from what people actually reported breaking in
 `#product-agent-native-feedback`: Google sign-in failures, sign-in loops, apps
 that will not load, agent turns that end in `ERROR ID:`, a composer stuck on

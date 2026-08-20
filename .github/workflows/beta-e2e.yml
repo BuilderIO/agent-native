@@ -1,15 +1,17 @@
 name: Beta E2E (browser)
 
-# Manual gate for "is beta safe to promote to production?".
+# Manual gate for "is beta safe to promote to production?" and reusable job
+# for the scheduled beta health check.
 #
 # Drives the deployed beta fleet with a real browser. Two gating lanes decide
 # the answer; a third advisory lane reports real-but-not-blocking findings so a
 # red run always means "do not promote".
 #
-# Deliberately workflow_dispatch only: the authenticated lane spends model
-# tokens against a dedicated OpenAI key, and most beta apps share a database
-# with production, so this is a decision someone makes, not a thing that fires
-# on every push.
+# The workflow itself has no push or schedule trigger. The authenticated lane
+# spends model tokens against a dedicated OpenAI key, and most beta apps share
+# a database with production, so the explicit manual entrypoint remains a
+# deliberate promotion decision. The separate scheduled wrapper calls this
+# workflow on a six-hour cadence and reports failures to one deduplicated issue.
 
 on:
   workflow_dispatch:
@@ -30,6 +32,30 @@ on:
         description: "Only run tests whose title matches this (optional)"
         required: false
         default: ""
+  workflow_call:
+    inputs:
+      apps:
+        description: 'Beta apps to test ("all", or e.g. "slides,analytics,chat")'
+        required: false
+        default: "all"
+        type: string
+      lane:
+        description: "Which lanes to run"
+        required: false
+        default: "public+authed"
+        type: string
+      grep:
+        description: "Only run tests whose title matches this (optional)"
+        required: false
+        default: ""
+        type: string
+    secrets:
+      BETA_E2E_EMAIL:
+        required: false
+      BETA_E2E_SESSION_TOKENS:
+        required: false
+      BETA_E2E_OPENAI_API_KEY:
+        required: false
 
 concurrency:
   # One promotion check at a time. Two concurrent runs would sign in as the
