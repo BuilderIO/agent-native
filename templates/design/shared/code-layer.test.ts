@@ -1408,9 +1408,10 @@ describe("autoLayout", () => {
       containerRect: { width: 120, height: 40 },
     });
     expect(patch.result.status).toBe("applied");
-    const container = /data-agent-native-node-id="container" style="([^"]*)"/.exec(
-      patch.content,
-    )?.[1];
+    const container =
+      /data-agent-native-node-id="container" style="([^"]*)"/.exec(
+        patch.content,
+      )?.[1];
     expect(container).toMatch(/(?:min-)?height:\s*\d/);
   });
 
