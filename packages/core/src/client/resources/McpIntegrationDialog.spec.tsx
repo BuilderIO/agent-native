@@ -101,7 +101,7 @@ describe("McpIntegrationDialog", () => {
           <McpIntegrationDialog
             open
             onOpenChange={() => {}}
-            initialIntegrationId="context7"
+            connectIntegrationId="context7"
             defaultScope="user"
             canCreateOrgMcp
             hasOrg
@@ -112,34 +112,20 @@ describe("McpIntegrationDialog", () => {
       );
     });
 
-    expect(document.body.textContent).toContain(
-      "Who should be able to use this connection?",
-    );
-    expect(document.body.textContent).toContain(
-      "Only you can use this connection.",
-    );
+    expect(document.body.textContent).toContain("Who should use this?");
 
     const shared = [...document.body.querySelectorAll("button")].find(
-      (button) => button.textContent === "Shared with workspace",
+      (button) => button.textContent === "Set up for workspace",
     );
     expect(shared).toBeTruthy();
     act(() => shared?.click());
-    expect(document.body.textContent).toContain(
-      "Permitted workspace members can use this connection. Provider permissions still apply.",
-    );
-
-    const connectButton = [...document.body.querySelectorAll("button")].find(
-      (button) => button.textContent === "Connect",
-    );
-    expect(connectButton).toBeTruthy();
-    act(() => connectButton?.click());
 
     expect(onCreateMcpServer).toHaveBeenCalledWith(
       expect.objectContaining({ scope: "org" }),
     );
   });
 
-  it("quick-connects catalog integrations personally by default", () => {
+  it("asks for scope before quick connecting in an organization", () => {
     const context7 = DEFAULT_MCP_INTEGRATIONS.find(
       (integration) => integration.id === "context7",
     )!;
@@ -162,15 +148,95 @@ describe("McpIntegrationDialog", () => {
       );
     });
 
-    expect(document.body.textContent).not.toContain(
-      "Who should be able to use this connection?",
+    expect(document.body.textContent).toContain("Who should use this?");
+    expect(onCreateMcpServer).not.toHaveBeenCalled();
+
+    const personal = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent === "Connect for me",
     );
+    expect(personal).toBeTruthy();
+    act(() => personal?.click());
+
     expect(onCreateMcpServer).toHaveBeenCalledWith(
       expect.objectContaining({ scope: "user" }),
     );
   });
 
-  it("does not show organization scope to a member", () => {
+  it("routes catalog connections through the scope choice in an organization", () => {
+    const context7 = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "context7",
+    )!;
+    const onCreateMcpServer = vi.fn().mockResolvedValue(undefined);
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <McpIntegrationDialog
+            open
+            onOpenChange={() => {}}
+            defaultScope="user"
+            canCreateOrgMcp
+            hasOrg
+            onCreateMcpServer={onCreateMcpServer}
+            integrations={[context7]}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      document.body
+        .querySelector('button[aria-label="Connect Context7"]')
+        ?.click();
+    });
+
+    expect(document.body.textContent).toContain("Who should use this?");
+    expect(onCreateMcpServer).not.toHaveBeenCalled();
+  });
+
+  it("shows a disabled workspace option to a member", () => {
+    const context7 = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "context7",
+    )!;
+    const onCreateMcpServer = vi.fn().mockResolvedValue(undefined);
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <McpIntegrationDialog
+            open
+            onOpenChange={() => {}}
+            connectIntegrationId="context7"
+            defaultScope="org"
+            canCreateOrgMcp={false}
+            hasOrg
+            onCreateMcpServer={onCreateMcpServer}
+            integrations={[context7]}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(document.body.textContent).toContain("Who should use this?");
+    expect(document.body.textContent).toContain(
+      "Workspace owner or admin required.",
+    );
+    const workspace = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent?.includes("Set up for workspace") ?? false,
+    );
+    expect(workspace).toBeTruthy();
+    expect(workspace).toHaveProperty("disabled", true);
+
+    const personal = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent === "Connect for me",
+    );
+    act(() => personal?.click());
+    expect(onCreateMcpServer).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: "user" }),
+    );
+  });
+
+  it("explains personal-only integrations before connecting in an organization", () => {
     const linear = DEFAULT_MCP_INTEGRATIONS.find(
       (integration) => integration.id === "linear",
     )!;
@@ -181,9 +247,9 @@ describe("McpIntegrationDialog", () => {
           <McpIntegrationDialog
             open
             onOpenChange={() => {}}
-            initialIntegrationId="linear"
+            connectIntegrationId="linear"
             defaultScope="org"
-            canCreateOrgMcp={false}
+            canCreateOrgMcp
             hasOrg
             onCreateMcpServer={vi.fn()}
             integrations={[linear]}
@@ -192,8 +258,11 @@ describe("McpIntegrationDialog", () => {
       );
     });
 
-    expect(document.body.textContent).not.toContain("Organization");
-    expect(document.body.textContent).not.toContain("owners and admins");
+    expect(document.body.textContent).toContain("Who should use this?");
+    expect(document.body.textContent).toContain(
+      "Only personal connections are supported for this integration.",
+    );
+    expect(document.body.textContent).not.toContain("Set up for workspace");
   });
 
   it("does not offer an unauthenticated test for setup-gated integrations", () => {
@@ -268,6 +337,12 @@ describe("McpIntegrationDialog", () => {
     expect(viewSetupButton).toBeTruthy();
 
     act(() => viewSetupButton?.click());
+    expect(document.body.textContent).toContain("Who should use this?");
+    const personal = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent === "Connect for me",
+    );
+    expect(personal).toBeTruthy();
+    act(() => personal?.click());
     expect(document.body.textContent).toContain("Provider setup required");
   });
 

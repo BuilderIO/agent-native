@@ -31,6 +31,7 @@ import {
   resolveMcpIntegrationScope,
   shouldOfferMcpIntegrationOrganizationScope,
   shouldOfferMcpOrganizationScope,
+  supportsMcpIntegrationOrganizationScope,
   type DefaultMcpIntegration,
 } from "./mcp-integration-catalog.js";
 import { McpIntegrationLogo } from "./McpIntegrationLogo.js";
@@ -368,6 +369,11 @@ export function McpIntegrationDialog({
   };
 
   const quickConnect = (integration: DefaultMcpIntegration) => {
+    if (hasOrg) {
+      setSelected(integration);
+      setMode("choice");
+      return;
+    }
     if (requiresMcpIntegrationSetup(integration)) {
       openForm(integration);
       return;
@@ -391,6 +397,11 @@ export function McpIntegrationDialog({
   };
 
   const selectCatalogConnection = (integration: DefaultMcpIntegration) => {
+    if (hasOrg) {
+      setSelected(integration);
+      setMode("choice");
+      return;
+    }
     if (requiresMcpIntegrationSetup(integration)) {
       const apiFallback = getMcpIntegrationApiFallback(integration);
       if (apiFallback) {
@@ -398,17 +409,6 @@ export function McpIntegrationDialog({
       } else {
         openForm(integration);
       }
-      return;
-    }
-    if (
-      shouldOfferMcpIntegrationOrganizationScope(
-        integration,
-        hasOrg,
-        canCreateOrgMcp,
-      )
-    ) {
-      setSelected(integration);
-      setMode("choice");
       return;
     }
     quickConnect(integration);
@@ -433,7 +433,7 @@ export function McpIntegrationDialog({
     if (!integration) return;
     quickConnectAttemptedRef.current = quickConnectIntegrationId;
     quickConnectRef.current?.(integration);
-  }, [defaultIntegrations, open, quickConnectIntegrationId]);
+  }, [defaultIntegrations, hasOrg, open, quickConnectIntegrationId]);
 
   useEffect(() => {
     if (!open || !connectIntegrationId) return;
@@ -444,20 +444,16 @@ export function McpIntegrationDialog({
     const attemptKey = `connect:${connectIntegrationId}`;
     if (quickConnectAttemptedRef.current === attemptKey) return;
     quickConnectAttemptedRef.current = attemptKey;
+    if (hasOrg) {
+      setSelected(integration);
+      setMode("choice");
+      return;
+    }
     if (requiresMcpIntegrationSetup(integration)) {
       openForm(integration);
       return;
     }
-    const showWorkspaceChoice = shouldOfferMcpIntegrationOrganizationScope(
-      integration,
-      hasOrg,
-      canCreateOrgMcp,
-    );
-    if (!showWorkspaceChoice) {
-      quickConnectRef.current?.(integration);
-    } else {
-      setMode("choice");
-    }
+    quickConnectRef.current?.(integration);
   }, [
     canCreateOrgMcp,
     connectIntegrationId,
@@ -467,6 +463,15 @@ export function McpIntegrationDialog({
   ]);
 
   const connectPersonal = (integration: DefaultMcpIntegration) => {
+    if (requiresMcpIntegrationSetup(integration)) {
+      const apiFallback = getMcpIntegrationApiFallback(integration);
+      if (apiFallback) {
+        openAgentSettings(`secrets:${apiFallback.secretKey}`);
+      } else {
+        openForm(integration, { scope: "user" });
+      }
+      return;
+    }
     if (integration.authMode === "oauth") {
       connectWithOAuth(integration, { scope: "user" });
       return;
@@ -487,6 +492,11 @@ export function McpIntegrationDialog({
   };
 
   const connectWorkspace = (integration: DefaultMcpIntegration) => {
+    if (!canCreateOrgMcp) return;
+    if (requiresMcpIntegrationSetup(integration)) {
+      openForm(integration, { scope: "org" });
+      return;
+    }
     if (integration.authMode === "oauth") {
       connectWithOAuth(integration, { scope: "org" });
       return;
@@ -603,7 +613,9 @@ export function McpIntegrationDialog({
         {mode === "choice" && selected ? (
           <>
             <DialogHeader className="sr-only">
-              <DialogTitle>Connect {selected.name}</DialogTitle>
+              <DialogTitle>
+                {t("mcpIntegrations.connect")} {selected.name}
+              </DialogTitle>
             </DialogHeader>
             <IntegrationConnectionChoice
               name={selected.name}
@@ -616,11 +628,20 @@ export function McpIntegrationDialog({
                   imageClassName="size-full p-1"
                 />
               }
-              showWorkspaceOption={shouldOfferMcpIntegrationOrganizationScope(
+              showWorkspaceOption={supportsMcpIntegrationOrganizationScope(
                 selected,
-                hasOrg,
-                canCreateOrgMcp,
               )}
+              workspaceOptionDisabled={!canCreateOrgMcp}
+              workspaceOptionDisabledReason={
+                !canCreateOrgMcp
+                  ? t("mcpIntegrations.workspaceAdminRequired")
+                  : undefined
+              }
+              personalOnlyReason={
+                !supportsMcpIntegrationOrganizationScope(selected)
+                  ? t("mcpIntegrations.personalOnlyDescription")
+                  : undefined
+              }
               busy={busy}
               onPersonal={() => connectPersonal(selected)}
               onWorkspace={() => connectWorkspace(selected)}

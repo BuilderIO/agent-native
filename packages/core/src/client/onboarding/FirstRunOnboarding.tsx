@@ -28,7 +28,6 @@ import {
   filterMcpIntegrations,
   getDefaultMcpIntegrations,
   navigateToMcpOAuthStart,
-  shouldOfferMcpIntegrationOrganizationScope,
   type DefaultMcpIntegration,
 } from "../resources/mcp-integration-catalog.js";
 import { McpIntegrationDialog } from "../resources/McpIntegrationDialog.js";
@@ -224,13 +223,7 @@ export function FirstRunOnboarding({
       return;
     }
 
-    if (
-      shouldOfferMcpIntegrationOrganizationScope(
-        integration,
-        hasOrg,
-        canCreateOrgMcp,
-      )
-    ) {
+    if (hasOrg) {
       setIntegrationDialogId(integration.id);
       return;
     }

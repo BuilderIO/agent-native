@@ -336,9 +336,68 @@ describe("FirstRunOnboarding", () => {
         ?.click();
     });
 
+    expect(document.body.textContent).toContain("Who should use this?");
+    expect(mocks.createMcpServerMutation).not.toHaveBeenCalled();
+  });
+
+  it("shows the workspace permission requirement to a non-admin", () => {
+    mocks.useMcpServers.mockReturnValue({
+      data: { user: [], org: [], orgId: "org-builder", role: "member" },
+      isSuccess: true,
+    });
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue")
+        ?.click();
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-use-own-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue to tools")
+        ?.click();
+    });
+
+    const search = document.body.querySelector(
+      'input[aria-label="Search integrations"]',
+    ) as HTMLInputElement | null;
+    expect(search).toBeTruthy();
+
+    act(() => {
+      if (!search) return;
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      setter?.call(search, "Context7");
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    act(() => {
+      document.body
+        .querySelector('button[aria-label="Connect Context7"]')
+        ?.click();
+    });
+
+    expect(document.body.textContent).toContain("Who should use this?");
     expect(document.body.textContent).toContain(
-      "Who should be able to use this connection?",
+      "Workspace owner or admin required.",
     );
+    const workspace = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent?.includes("Set up for workspace") ?? false,
+    );
+    expect(workspace).toHaveProperty("disabled", true);
     expect(mocks.createMcpServerMutation).not.toHaveBeenCalled();
   });
 

@@ -1119,6 +1119,13 @@ const messages = {
     personal: "Personal",
     organization: "Organization",
     scopeQuestion: "Who should be able to use this connection?",
+    scopeChoiceTitle: "Who should use this?",
+    scopeChoiceDescription: "Choose where this connection is available.",
+    connectForMe: "Connect for me",
+    setUpForWorkspace: "Set up for workspace",
+    workspaceAdminRequired: "Workspace owner or admin required.",
+    personalOnlyDescription:
+      "Only personal connections are supported for this integration.",
     personalDescription: "Only you can use this connection.",
     sharedWithWorkspace: "Shared with workspace",
     organizationDescription:
