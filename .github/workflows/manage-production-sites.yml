@@ -105,6 +105,16 @@ jobs:
           sparse-checkout: scripts/netlify-production-sites.json
           sparse-checkout-cone-mode: false
 
+      - name: Generate Builder downstream app token
+        id: builder-downstream-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.BUILDER_BOT_FOR_LINT_APP_ID }}
+          private-key: ${{ secrets.BUILDER_BOT_FOR_LINT_PRIVATE_KEY }}
+          owner: BuilderIO
+          repositories: |
+            builder-agent-native-workspace
+
       - uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         env:
           NETLIFY_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
@@ -113,6 +123,7 @@ jobs:
           SITE_ID: ${{ matrix.site_id }}
           SOURCE_SHA: ${{ needs.resolve-sites.outputs.source_sha }}
         with:
+          github-token: ${{ steps.builder-downstream-token.outputs.token }}
           script: |
             const fs = require('node:fs');
 
@@ -266,12 +277,70 @@ jobs:
               return deploys;
             }
 
+            function normalizeRepoSlug(value) {
+              if (typeof value !== 'string' || !value.trim()) return null;
+              const raw = value.trim();
+              const candidate = raw.includes('://')
+                ? new URL(raw).pathname
+                : raw;
+              const normalized = candidate
+                .replace(/^\/+|\/+$/g, '')
+                .replace(/\.git$/i, '')
+                .toLowerCase();
+              return /^[^/]+\/[^/]+$/.test(normalized) ? normalized : null;
+            }
+
+            function connectedRepoSlug(siteDetails) {
+              const candidates = [
+                siteDetails?.repo?.repo_path,
+                siteDetails?.repo?.repo_url,
+                siteDetails?.build_settings?.repo_path,
+                siteDetails?.build_settings?.repo_url,
+              ];
+              for (const candidate of candidates) {
+                const slug = normalizeRepoSlug(candidate);
+                if (slug) return slug;
+              }
+              return null;
+            }
+
+            function assertConnectedSourceRepo(name, site, siteDetails) {
+              if (!site.sourceRepo) return;
+              const expected = normalizeRepoSlug(site.sourceRepo);
+              const actual = connectedRepoSlug(siteDetails);
+              if (!expected || !actual || actual !== expected) {
+                throw new Error(
+                  `[${name}] Netlify site is connected to ${actual || 'an unknown repository'}, expected ${site.sourceRepo}.`,
+                );
+              }
+            }
+
+            async function resolveSourceSha(name, site) {
+              if (!site.sourceRepo) return process.env.SOURCE_SHA;
+              const [owner, repo] = site.sourceRepo.split('/');
+              if (!owner || !repo || site.sourceRepo.split('/').length !== 2) {
+                throw new Error(`[${name}] sourceRepo must be an owner/repository slug.`);
+              }
+              const branch = await github.rest.repos.getBranch({
+                owner,
+                repo,
+                branch: 'main',
+              });
+              const sha = branch.data?.commit?.sha;
+              if (!/^[0-9a-f]{40}$/i.test(sha || '')) {
+                throw new Error(`[${name}] GitHub returned no valid main SHA for ${site.sourceRepo}.`);
+              }
+              core.info(`[${name}] resolved ${site.sourceRepo}@main to ${sha}.`);
+              return sha;
+            }
+
             function isReadyMainDeploy(deploy, site, sourceSha) {
               if (site.sourceRepo) {
                 return (
                   deploy.context === 'production' &&
                   deploy.state === 'ready' &&
-                  deploy.branch === 'main'
+                  deploy.branch === 'main' &&
+                  deploy.commit_ref === sourceSha
                 );
               }
               return (
@@ -286,6 +355,7 @@ jobs:
                 await request(`${API}/sites/${site.siteId}`, { headers }),
                 `[${name}] published deploy lookup`,
               );
+              assertConnectedSourceRepo(name, site, currentSite);
               if (currentSite.published_deploy?.commit_ref === sourceSha) {
                 core.info(`[${name}] production already serves main ${sourceSha}.`);
                 return;
@@ -318,6 +388,11 @@ jobs:
             }
 
             async function deployMain(name, site, sourceSha) {
+              const currentSite = await readJson(
+                await request(`${API}/sites/${site.siteId}`, { headers }),
+                `[${name}] source repository lookup`,
+              );
+              assertConnectedSourceRepo(name, site, currentSite);
               const query = new URLSearchParams({ branch: 'main', clear_cache: 'true' });
               const build = await readJson(
                 await request(`${API}/sites/${site.siteId}/builds?${query}`, {
@@ -337,14 +412,14 @@ jobs:
                 return;
               }
               const deploy = await waitForReadyDeploy(name, completed.deploy_id);
-              if (site.sourceRepo && deploy.branch && deploy.branch !== 'main') {
+              if (deploy.branch !== 'main') {
                 throw new Error(
-                  `[${name}] ready deploy ${deploy.id} points at branch ${deploy.branch}, expected main from ${site.sourceRepo}.`,
+                  `[${name}] ready deploy ${deploy.id} points at branch ${deploy.branch || 'unknown'}, expected main.`,
                 );
               }
-              if (!site.sourceRepo && deploy.commit_ref && deploy.commit_ref !== sourceSha) {
+              if (deploy.commit_ref !== sourceSha) {
                 throw new Error(
-                  `[${name}] ready deploy ${deploy.id} points at ${deploy.commit_ref}, expected main ${sourceSha}.`,
+                  `[${name}] ready deploy ${deploy.id} points at ${deploy.commit_ref || 'unknown'}, expected ${sourceSha}.`,
                 );
               }
               await readJson(
@@ -434,7 +509,9 @@ jobs:
                 throw new Error(`Resolved production site ${name || 'unknown'} does not match the selected site id.`);
               }
 
-              const sourceSha = operation === 'deploy-main' ? process.env.SOURCE_SHA : null;
+              const sourceSha = operation === 'deploy-main'
+                ? await resolveSourceSha(name, site)
+                : null;
               if (operation === 'deploy-main' && !/^[0-9a-f]{40}$/i.test(sourceSha || '')) {
                 throw new Error('Resolved production source SHA is missing or invalid.');
               }
