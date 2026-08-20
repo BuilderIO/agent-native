@@ -33,6 +33,8 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       "downloadPage.runFromSourceBody": "Run locally.",
       "downloadPage.platforms.mac.primary": "Download for Apple Silicon",
       "downloadPage.platforms.mac.alternative": "Intel Mac",
+      "downloadPage.platforms.windows.primary": "Download for Windows",
+      "downloadPage.platforms.linux.primary": "Download Linux archive",
     };
     return messages[key] ?? key;
   },
@@ -53,6 +55,18 @@ const productionManifest = {
       url: "https://downloads.example.com/production.dmg",
       size: 123,
       kind: "mac-arm64",
+    },
+    {
+      name: "Agent-Native-x64.exe",
+      url: "https://downloads.example.com/production.exe",
+      size: 123,
+      kind: "windows-x64",
+    },
+    {
+      name: "Agent-Native-x64.tar.xz",
+      url: "https://downloads.example.com/production.tar.xz",
+      size: 123,
+      kind: "linux-tar-x64",
     },
   ],
 };
@@ -75,6 +89,14 @@ describe("DownloadPage", () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      value: {
+        clear: vi.fn(),
+        getItem: vi.fn(() => null),
+        setItem: vi.fn(),
+      },
+    });
     window.localStorage.clear();
     Object.defineProperty(window.navigator, "userAgent", {
       configurable: true,
@@ -106,6 +128,21 @@ describe("DownloadPage", () => {
           .getByRole("link", { name: "Download for Apple Silicon" })
           .getAttribute("href"),
       ).toBe(productionManifest.assets[0].url);
+      expect(
+        screen
+          .getByRole("link", { name: "Download for Windows" })
+          .getAttribute("href"),
+      ).toBe(productionManifest.assets[1].url);
+      expect(
+        screen
+          .getByRole("link", { name: "Download Linux archive" })
+          .getAttribute("href"),
+      ).toBe(productionManifest.assets[2].url);
+      expect(
+        screen
+          .getByRole("link", { name: "Download for Windows" })
+          .getAttribute("download"),
+      ).toBe("");
     });
 
     expect(
@@ -164,7 +201,7 @@ describe("DownloadPage", () => {
     const download = await screen.findByRole("link", {
       name: "Download for Apple Silicon",
     });
-    expect(download.getAttribute("target")).toBe("_blank");
+    expect(download.getAttribute("download")).toBe("");
 
     fireEvent.click(download);
 
@@ -201,7 +238,7 @@ describe("DownloadPage", () => {
     });
     expect((loadingButton as HTMLButtonElement).disabled).toBe(true);
     expect(loadingButton.getAttribute("aria-busy")).toBe("true");
-    expect(loadingButton.className).toContain("max-w-[18rem]");
+    expect(loadingButton.className).toContain("min-w-[252px]");
     expect(loadingButton.textContent).not.toContain(
       "Checking the latest desktop release...",
     );

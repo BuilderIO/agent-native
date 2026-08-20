@@ -5,7 +5,6 @@ import {
   IconBrandApple,
   IconBrandWindows,
   IconCheck,
-  IconDownload,
   IconTerminal2,
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
@@ -230,17 +229,28 @@ export default function DownloadPage() {
 
   const isNightly = channel === "nightly";
   const info = PLATFORMS[platform];
-  const downloads = useMemo(() => {
-    const options = [info.primary, ...(info.alternatives ?? [])];
-    return options.map((option) => ({
-      option,
-      asset: pickAsset(manifest, option),
-    }));
-  }, [manifest, info]);
+  const allDownloads = useMemo(
+    () =>
+      (Object.keys(PLATFORMS) as Platform[]).flatMap((platformId) => {
+        const platformInfo = PLATFORMS[platformId];
+        return [platformInfo.primary, ...(platformInfo.alternatives ?? [])].map(
+          (option) => ({
+            platform: platformId,
+            option,
+            asset: pickAsset(manifest, option),
+          }),
+        );
+      }),
+    [manifest],
+  );
+  const detectedPlatformDownloads = allDownloads.filter(
+    (download) => download.platform === platform,
+  );
   const primaryDownload =
-    downloads.find((download) => download.asset) ?? downloads[0];
+    detectedPlatformDownloads.find((download) => download.asset) ??
+    detectedPlatformDownloads[0];
   const primaryAsset = primaryDownload?.asset ?? null;
-  const alternativeDownloads = downloads.filter(
+  const alternativeDownloads = allDownloads.filter(
     (download) =>
       download.option !== primaryDownload?.option && Boolean(download.asset),
   );
@@ -259,6 +269,10 @@ export default function DownloadPage() {
   const desktopDownloadLabel = primaryAsset
     ? t("downloadPage.downloadInstaller")
     : primaryLabel;
+  const PrimaryPlatformIcon =
+    PLATFORMS[primaryDownload?.platform ?? platform].icon;
+  const downloadFocusClass =
+    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--docs-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg)]";
   const hasPrimaryDownloadStarted =
     confirmedDownload?.asset.url === primaryAsset?.url;
   const downloadButtonLabel = hasPrimaryDownloadStarted
@@ -268,8 +282,8 @@ export default function DownloadPage() {
       : primaryLabel;
   const isManifestLoading = !manifest && !manifestError;
   const downloadButtonClass = isDesktopApp
-    ? "inline-flex w-full max-w-[18rem] items-center justify-center gap-2.5 whitespace-nowrap rounded-lg border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline hover:bg-[var(--sidebar-hover)] hover:no-underline"
-    : "inline-flex w-full max-w-[18rem] items-center justify-center gap-2.5 whitespace-nowrap rounded-lg bg-[var(--fg)] px-8 py-3.5 text-base font-medium text-[var(--bg)] no-underline hover:opacity-85 hover:no-underline";
+    ? `inline-flex h-12 min-w-[252px] items-center justify-center gap-2.5 whitespace-nowrap rounded-lg border border-[var(--docs-border)] px-6 text-base font-medium text-[var(--fg)] no-underline transition hover:bg-[var(--sidebar-hover)] hover:no-underline ${downloadFocusClass}`
+    : `inline-flex h-12 min-w-[252px] items-center justify-center gap-2.5 whitespace-nowrap rounded-lg bg-[var(--fg)] px-6 text-base font-medium text-[var(--bg)] no-underline transition hover:opacity-85 hover:no-underline ${downloadFocusClass}`;
   const downloadButtonContent = isManifestLoading ? (
     <span
       aria-hidden="true"
@@ -282,7 +296,7 @@ export default function DownloadPage() {
     </>
   ) : (
     <>
-      <IconDownload size={18} aria-hidden="true" />
+      <PrimaryPlatformIcon size={18} aria-hidden="true" />
       <span className="truncate">{downloadButtonLabel}</span>
     </>
   );
@@ -293,12 +307,6 @@ export default function DownloadPage() {
     setManifestError(false);
     setConfirmedDownload(null);
     setChannel(nextChannel);
-  }
-
-  function handlePlatformChange(nextPlatform: Platform) {
-    if (nextPlatform === platform) return;
-    setPlatform(nextPlatform);
-    setConfirmedDownload(null);
   }
 
   function handleRetry() {
@@ -318,9 +326,9 @@ export default function DownloadPage() {
   }
 
   return (
-    <main className="mx-auto max-w-[960px] px-6 py-20">
-      <div className="mb-14 text-center">
-        <h1 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
+    <main className="mx-auto max-w-5xl px-6 py-16">
+      <div className="text-center">
+        <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl">
           {t("downloadPage.title")}
           {isNightly && (
             <>
@@ -331,45 +339,21 @@ export default function DownloadPage() {
             </>
           )}
         </h1>
-        <p className="mx-auto max-w-xl text-base leading-relaxed text-[var(--fg-secondary)]">
+        <p className="mx-auto mt-4 max-w-xl text-base leading-relaxed text-[var(--fg-secondary)]">
           {t("downloadPage.body")}
         </p>
       </div>
 
-      {/* Platform selector */}
-      <div className="mb-2 flex justify-center gap-2">
-        {(Object.keys(PLATFORMS) as Platform[]).map((p) => {
-          const plt = PLATFORMS[p];
-          const Icon = plt.icon;
-          const active = platform === p;
-          return (
-            <button
-              key={p}
-              onClick={() => handlePlatformChange(p)}
-              aria-label={plt.name}
-              className={`group flex items-center justify-center rounded-lg p-4 ${
-                active
-                  ? "text-[var(--fg)]"
-                  : "text-[var(--fg-secondary)] opacity-40 hover:opacity-65"
-              }`}
-            >
-              <Icon size={24} />
-              <span className="sr-only">{plt.name}</span>
-            </button>
-          );
-        })}
-      </div>
-
       {/* Download section */}
-      <div className="mx-auto mt-8 max-w-2xl text-center">
+      <div className="mx-auto mt-10 max-w-2xl text-center">
         <div className="flex flex-col items-center justify-center gap-3 sm:flex-row">
           {isDesktopApp && (
             <a
               href={OPEN_DESKTOP_URL}
               onClick={handleOpenDesktop}
-              className="inline-flex items-center gap-2.5 rounded-lg bg-[var(--fg)] px-8 py-3.5 text-base font-medium text-[var(--bg)] no-underline hover:opacity-85 hover:no-underline"
+              className={`inline-flex h-12 min-w-[252px] items-center justify-center gap-2.5 rounded-lg bg-[var(--fg)] px-6 text-base font-medium text-[var(--bg)] no-underline transition hover:opacity-85 hover:no-underline ${downloadFocusClass}`}
             >
-              <IconAppWindow size={18} />
+              <IconAppWindow size={18} aria-hidden="true" />
               {t("downloadPage.openDesktop")}
             </a>
           )}
@@ -377,8 +361,7 @@ export default function DownloadPage() {
           {primaryAsset ? (
             <a
               href={primaryAsset.url}
-              target="_blank"
-              rel="noreferrer"
+              download
               onClick={() =>
                 handleDownload(
                   primaryAsset,
@@ -415,12 +398,11 @@ export default function DownloadPage() {
             <span className="sr-only">{t("downloadPage.downloadStarted")}</span>
             <a
               href={confirmedDownload.asset.url}
-              target="_blank"
-              rel="noreferrer"
+              download
               onClick={() =>
                 handleDownload(confirmedDownload.asset, confirmedDownload.label)
               }
-              className="text-[var(--fg-secondary)] underline underline-offset-2 hover:text-[var(--fg)]"
+              className={`text-[var(--fg-secondary)] underline underline-offset-2 transition hover:text-[var(--fg)] ${downloadFocusClass}`}
             >
               {t("downloadPage.downloadAgain")}
             </a>
@@ -428,25 +410,33 @@ export default function DownloadPage() {
         )}
 
         {alternativeDownloads.length > 0 && (
-          <div className="mt-3 flex flex-wrap justify-center gap-x-4 gap-y-2">
-            {alternativeDownloads.map(({ option, asset }) => (
-              <a
-                key={option.labelKey}
-                href={asset!.url}
-                target="_blank"
-                rel="noreferrer"
-                onClick={() => handleDownload(asset!, t(option.labelKey))}
-                className="text-sm text-[var(--fg-secondary)] no-underline hover:text-[var(--fg)] hover:underline"
-              >
-                {t(option.labelKey)}
-              </a>
-            ))}
+          <div className="mt-2 flex flex-wrap justify-center gap-x-4 gap-y-2">
+            {alternativeDownloads.map(
+              ({ platform: downloadPlatform, option, asset }) => {
+                const Icon = PLATFORMS[downloadPlatform].icon;
+                return (
+                  <a
+                    key={option.labelKey}
+                    href={asset!.url}
+                    download
+                    onClick={() => handleDownload(asset!, t(option.labelKey))}
+                    className={`inline-flex items-center gap-1.5 text-sm text-[var(--fg-secondary)] no-underline transition hover:text-[var(--fg)] hover:underline ${downloadFocusClass}`}
+                  >
+                    <Icon size={16} aria-hidden="true" />
+                    {t(option.labelKey)}
+                  </a>
+                );
+              },
+            )}
           </div>
         )}
 
         <div className="mt-4 min-h-4">
           {releaseStatus && (
-            <p className="text-xs text-[var(--fg-secondary)]">
+            <p
+              aria-live="polite"
+              className="text-xs text-[var(--fg-secondary)]"
+            >
               {releaseStatus}
             </p>
           )}
@@ -498,10 +488,10 @@ export default function DownloadPage() {
       {/* Run from source */}
       <div className="mt-16 mx-auto max-w-2xl">
         <div className="rounded-lg border border-[var(--docs-border)] px-6 py-5">
-          <h4 className="mb-2 flex items-center gap-2 text-sm font-semibold">
+          <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold">
             <IconTerminal2 size={16} />
             {t("downloadPage.runFromSource")}
-          </h4>
+          </h2>
           <p className="mb-3 text-xs text-[var(--fg-secondary)]">
             {t("downloadPage.runFromSourceBody")}
           </p>
