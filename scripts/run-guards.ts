@@ -21,6 +21,7 @@ const guards = [
   "guard:template-list",
   "guard:netlify-private-env",
   "guard:netlify-prebuilt-workflow",
+  "guard:beta-e2e-suite",
   "guard:trusted-acceptance",
   "guard:content-product-conformance",
   "guard:content-product-docs",
