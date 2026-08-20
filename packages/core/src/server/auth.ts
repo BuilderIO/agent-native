@@ -719,6 +719,10 @@ async function readDesktopSsoSafely(
   return await readDesktopSso();
 }
 
+function isDesktopSessionCookieOnlyCheck(event: H3Event): boolean {
+  return getHeader(event, "x-agent-native-session-check") === "cookie-only";
+}
+
 /**
  * Extract the framework session token from a Better Auth response's
  * Set-Cookie headers, if any. Used by the password-reset path to skip
@@ -3611,6 +3615,7 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
 async function resolveSessionUncached(
   event: H3Event,
 ): Promise<AuthSession | null> {
+  const cookieOnlyDesktopCheck = isDesktopSessionCookieOnlyCheck(event);
   // 1. MCP App embed session. This is a short-lived browser session minted
   // from a one-time ticket that was scoped to the authenticated MCP caller.
   // It lets an inline MCP App iframe load the real app without reusing the
@@ -3648,8 +3653,10 @@ async function resolveSessionUncached(
     // templates too. Gated on `readDesktopSsoSafely` so a non-loopback
     // request that spoofs `User-Agent: ... Electron/...` cannot read the
     // home-dir broker file (and so production builds never consult it).
-    const sso = await readDesktopSsoSafely(event);
-    if (sso?.email) return { email: sso.email, token: sso.token };
+    if (!cookieOnlyDesktopCheck) {
+      const sso = await readDesktopSsoSafely(event);
+      if (sso?.email) return { email: sso.email, token: sso.token };
+    }
     // Fall through to mobile _session check
   } else {
     // 4. Bearer session. Desktop/native clients can persist a legacy session
@@ -3687,9 +3694,11 @@ async function resolveSessionUncached(
     // a loopback (127.0.0.1 / ::1) source IP, and a non-production NODE_ENV
     // — anything else is rejected so a hostile network request cannot
     // impersonate whichever email last signed into the desktop app.
-    const sso = await readDesktopSsoSafely(event);
-    if (sso?.email) {
-      return { email: sso.email, token: sso.token };
+    if (!cookieOnlyDesktopCheck) {
+      const sso = await readDesktopSsoSafely(event);
+      if (sso?.email) {
+        return { email: sso.email, token: sso.token };
+      }
     }
   }
 

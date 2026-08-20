@@ -45,6 +45,26 @@ function normalizeIdentityEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
+function safeResponseOrigin(rawUrl: string | undefined): string | null {
+  if (!rawUrl) return null;
+  try {
+    return new URL(rawUrl).origin;
+  } catch {
+    // coercion-ok: a malformed response URL is diagnostic absence, not a session value.
+    return null;
+  }
+}
+
+function safeResponsePath(rawUrl: string | undefined): string | null {
+  if (!rawUrl) return null;
+  try {
+    return new URL(rawUrl).pathname;
+  } catch {
+    // coercion-ok: a malformed response URL is diagnostic absence, not a session value.
+    return null;
+  }
+}
+
 function cookieMatchesOrigin(
   cookie: Pick<Electron.Cookie, "domain" | "hostOnly">,
   origin: string,
@@ -1594,12 +1614,38 @@ export class DesktopIdentityBroker {
       if (!response.ok) {
         throw new Error(`Embed session returned ${response.status}`);
       }
+      const targetCookies = await app.session.cookies.get({});
+      const sessionCookieNames = targetCookies
+        .filter(
+          (cookie) =>
+            cookieMatchesOrigin(cookie, app.origin) &&
+            app.cookieNames.includes(cookie.name),
+        )
+        .map((cookie) => cookie.name);
+      console.info("[desktop identity] workspace app session response", {
+        appId: app.id,
+        responseOrigin: safeResponseOrigin(response.url),
+        responsePath: safeResponsePath(response.url),
+        sessionCookieNames,
+      });
       const appEmail = await this.verifyIdentitySession(app, app.session);
       if (
         !appEmail ||
         normalizeIdentityEmail(appEmail) !==
           normalizeIdentityEmail(identityEmail)
       ) {
+        console.warn(
+          "[desktop identity] workspace app session verification failed",
+          {
+            appId: app.id,
+            hasAppEmail: Boolean(appEmail),
+            identityMatched:
+              appEmail !== null &&
+              appEmail !== undefined &&
+              normalizeIdentityEmail(appEmail) ===
+                normalizeIdentityEmail(identityEmail),
+          },
+        );
         await this.clearAppSessionCookies(app);
         return false;
       }
@@ -1688,6 +1734,13 @@ export class DesktopIdentityBroker {
     }
 
     const startUrl = new URL(payload.startUrl);
+    console.info("[desktop identity] workspace embed start URL", {
+      appId: target.id,
+      status: response.status,
+      origin: startUrl.origin,
+      path: startUrl.pathname,
+      hasTicket: startUrl.searchParams.has("ticket"),
+    });
     if (
       (startUrl.protocol !== "https:" && startUrl.protocol !== "http:") ||
       startUrl.origin !== target.origin ||
@@ -2220,6 +2273,7 @@ export class DesktopIdentityBroker {
           signal: controller.signal,
           headers: {
             Accept: "application/json",
+            "X-Agent-Native-Session-Check": "cookie-only",
             ...(cookieHeader ? { Cookie: cookieHeader } : {}),
           },
         }),

@@ -1046,7 +1046,6 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       wv.addEventListener("page-title-updated", onTitleUpdated);
       wv.addEventListener("did-navigate", onNavigation);
       wv.addEventListener("did-navigate-in-page", onNavigation);
-      wv.addEventListener("did-stop-loading", onNavigation);
       wv.addEventListener("did-fail-load", onFailed);
       wv.addEventListener("console-message", onConsoleMessage);
       wv.addEventListener("ipc-message", onIpcMessage);
@@ -1060,7 +1059,6 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         wv.removeEventListener("page-title-updated", onTitleUpdated);
         wv.removeEventListener("did-navigate", onNavigation);
         wv.removeEventListener("did-navigate-in-page", onNavigation);
-        wv.removeEventListener("did-stop-loading", onNavigation);
         wv.removeEventListener("did-fail-load", onFailed);
         wv.removeEventListener("console-message", onConsoleMessage);
         wv.removeEventListener("ipc-message", onIpcMessage);
