@@ -329,6 +329,13 @@ export function shouldShowNativeDesktopIntegrations(input: {
   );
 }
 
+export function shouldShowNativeDesktopIntegrationsGuest(input: {
+  showNativeIntegrations: boolean;
+  nativeOAuthActive: boolean;
+}): boolean {
+  return !input.showNativeIntegrations || input.nativeOAuthActive;
+}
+
 function isVisibleChatFirstSurfaceTab(
   tab: ChatFirstSurfaceTab,
   apps: AppConfig[],
@@ -687,6 +694,9 @@ export default function CodeAgentsHub({
   const [webContentsIdByTab, setWebContentsIdByTab] = useState<
     Record<string, number>
   >({});
+  const [nativeOAuthActiveByTab, setNativeOAuthActiveByTab] = useState<
+    Record<string, boolean>
+  >({});
   const handleDesktopIdentityStatusChange = useCallback(
     (tabId: string, status: DesktopIdentityStatus | "checking") => {
       setDesktopIdentityStatusByTab((current) =>
@@ -711,6 +721,22 @@ export default function CodeAgentsHub({
     },
     [],
   );
+  const handleNativeOAuthActiveChange = useCallback(
+    (tabId: string, active: boolean) => {
+      setNativeOAuthActiveByTab((current) => {
+        if (!active) {
+          if (!(tabId in current)) return current;
+          const next = { ...current };
+          delete next[tabId];
+          return next;
+        }
+        return current[tabId] === true
+          ? current
+          : { ...current, [tabId]: true };
+      });
+    },
+    [],
+  );
   useEffect(() => {
     const openTabIds = new Set(chatFirstSurfaceTabs.tabs.map((tab) => tab.id));
     setDesktopIdentityStatusByTab((current) => {
@@ -732,6 +758,15 @@ export default function CodeAgentsHub({
       return next;
     });
     setWebContentsIdByTab((current) => {
+      const staleTabIds = Object.keys(current).filter(
+        (tabId) => !openTabIds.has(tabId),
+      );
+      if (staleTabIds.length === 0) return current;
+      const next = { ...current };
+      for (const tabId of staleTabIds) delete next[tabId];
+      return next;
+    });
+    setNativeOAuthActiveByTab((current) => {
       const staleTabIds = Object.keys(current).filter(
         (tabId) => !openTabIds.has(tabId),
       );
@@ -2564,6 +2599,17 @@ export default function CodeAgentsHub({
           appAuthState,
           desktopIdentityStatus,
         });
+        const nativeOAuthActive =
+          surfaceApp.id === "dispatch" &&
+          isNativeDesktopIntegrationsPath(tab.path) &&
+          nativeOAuthActiveByTab[tab.id] === true;
+        const nativeIntegrationsSurface =
+          showNativeIntegrations || nativeOAuthActive;
+        const showNativeIntegrationsGuest =
+          shouldShowNativeDesktopIntegrationsGuest({
+            showNativeIntegrations: nativeIntegrationsSurface,
+            nativeOAuthActive,
+          });
         return (
           <ChatFirstAppPane
             app={surfaceApp}
@@ -2586,16 +2632,18 @@ export default function CodeAgentsHub({
               >
                 <div
                   className={
-                    showNativeIntegrations
+                    nativeIntegrationsSurface
                       ? "relative h-full min-h-0"
                       : "h-full"
                   }
                 >
                   <div
                     className={
-                      showNativeIntegrations ? "invisible h-full" : "h-full"
+                      showNativeIntegrationsGuest
+                        ? "h-full"
+                        : "invisible h-full"
                     }
-                    aria-hidden={showNativeIntegrations}
+                    aria-hidden={!showNativeIntegrationsGuest}
                   >
                     <AppWebview
                       app={toAppDefinition(surfaceApp)}
@@ -2619,10 +2667,20 @@ export default function CodeAgentsHub({
                       }
                     />
                   </div>
-                  {showNativeIntegrations && (
-                    <div className="absolute inset-0 z-10">
+                  {nativeIntegrationsSurface && (
+                    <div
+                      className={
+                        nativeOAuthActive
+                          ? "invisible pointer-events-none absolute inset-0 z-10"
+                          : "absolute inset-0 z-10"
+                      }
+                      aria-hidden={nativeOAuthActive}
+                    >
                       <DesktopIntegrationsPage
                         targetWebContentsId={webContentsIdByTab[tab.id]}
+                        onOAuthActiveChange={(active) =>
+                          handleNativeOAuthActiveChange(tab.id, active)
+                        }
                       />
                     </div>
                   )}
@@ -2660,6 +2718,7 @@ export default function CodeAgentsHub({
       handleDesktopIdentityStatusChange,
       handleAppAuthStateChange,
       handleWebContentsIdChange,
+      handleNativeOAuthActiveChange,
       host,
       isActive,
       onLocalCodeChangeStarted,
@@ -2667,6 +2726,7 @@ export default function CodeAgentsHub({
       surfaceApps,
       terminalPreferences.agent,
       theme,
+      nativeOAuthActiveByTab,
       webContentsIdByTab,
       watchChatFirstAgent,
     ],

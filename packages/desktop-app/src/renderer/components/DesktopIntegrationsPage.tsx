@@ -9,8 +9,10 @@ import { useCallback, useMemo, useState } from "react";
 
 export default function DesktopIntegrationsPage({
   targetWebContentsId,
+  onOAuthActiveChange,
 }: {
   targetWebContentsId?: number;
+  onOAuthActiveChange?: (active: boolean) => void;
 }) {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
   const startOAuth = useCallback(
@@ -24,10 +26,15 @@ export default function DesktopIntegrationsPage({
           "The signed-in Dispatch integrations tab is not ready for OAuth.",
         );
       }
-      await handler(url, targetWebContentsId);
-      await queryClient.invalidateQueries({ queryKey: ["mcp-servers"] });
+      onOAuthActiveChange?.(true);
+      try {
+        await handler(url, targetWebContentsId);
+        await queryClient.invalidateQueries({ queryKey: ["mcp-servers"] });
+      } finally {
+        onOAuthActiveChange?.(false);
+      }
     },
-    [queryClient, targetWebContentsId],
+    [onOAuthActiveChange, queryClient, targetWebContentsId],
   );
   const desktopMcpApi = useMemo<McpServersApi | null>(() => {
     const api = window.electronAPI?.mcpServers;

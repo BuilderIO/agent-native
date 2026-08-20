@@ -21,6 +21,7 @@ import {
   isDispatchControlPlanePath,
   isNativeDesktopIntegrationsPath,
   shouldShowNativeDesktopIntegrations,
+  shouldShowNativeDesktopIntegrationsGuest,
   isChatFirstSurfaceTabActive,
   updateAppAuthStateByTab,
   updateWebContentsIdByTab,
@@ -556,6 +557,27 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
         desktopIdentityStatus: "signed-in",
       }),
     ).toBe(false);
+  });
+
+  it("shows the authenticated guest during native MCP OAuth", () => {
+    expect(
+      shouldShowNativeDesktopIntegrationsGuest({
+        showNativeIntegrations: true,
+        nativeOAuthActive: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldShowNativeDesktopIntegrationsGuest({
+        showNativeIntegrations: true,
+        nativeOAuthActive: true,
+      }),
+    ).toBe(true);
+    expect(
+      shouldShowNativeDesktopIntegrationsGuest({
+        showNativeIntegrations: false,
+        nativeOAuthActive: false,
+      }),
+    ).toBe(true);
   });
 
   it("keeps OAuth scoped to the current guest webview id", () => {

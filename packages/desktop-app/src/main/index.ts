@@ -287,6 +287,7 @@ import {
   registerUpdatesIpc,
 } from "./ipc/updates";
 import { registerWindowIpc } from "./ipc/window";
+import { createMcpOAuthNavigationGate } from "./mcp-oauth-navigation.js";
 import {
   createMultiFrontierQuitGuard,
   initializeMultiFrontierAppIntegration,
@@ -12857,6 +12858,7 @@ function openOAuthWindow(
 
 const webviewOAuthNavigationHandlers = new WeakSet<Electron.WebContents>();
 const webviewReloadGuardHandlers = new WeakSet<Electron.WebContents>();
+const mcpOAuthNavigationGate = createMcpOAuthNavigationGate();
 const routeChunkReloadBlockedUntil = new WeakMap<
   Electron.WebContents,
   number
@@ -12982,6 +12984,10 @@ async function navigateMcpOAuthInDispatchWebview(
   };
 
   await new Promise<void>((resolve, reject) => {
+    // MCP OAuth must follow the provider and hosted callback inside this
+    // partition. The normal handler externalizes cross-origin redirects,
+    // which would drop the partition cookie needed to validate MCP state.
+    const releaseMcpOAuthNavigation = mcpOAuthNavigationGate.begin(target.id);
     let settled = false;
     const timeout = setTimeout(
       () => {
@@ -12993,6 +12999,7 @@ async function navigateMcpOAuthInDispatchWebview(
       clearTimeout(timeout);
       target.removeListener("did-navigate", onNavigate);
       target.removeListener("did-navigate-in-page", onNavigate);
+      releaseMcpOAuthNavigation();
     };
     const finish = (error?: Error) => {
       if (settled) return;
@@ -13112,6 +13119,7 @@ function installWebviewOAuthNavigationHandler(contents: Electron.WebContents) {
     url: string,
     options: { isMainFrame: boolean },
   ) => {
+    if (mcpOAuthNavigationGate.isActive(contents.id)) return;
     if (handleDesktopProtocolUrl(url)) {
       event.preventDefault();
       return;
