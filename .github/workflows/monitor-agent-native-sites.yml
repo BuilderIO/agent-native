@@ -59,6 +59,24 @@ jobs:
           const maxAssetCount = 500;
           const maxRedirects = 5;
           const maxAttempts = 3;
+          const hostConcurrency = 4;
+          const assetConcurrency = 4;
+
+          async function mapWithConcurrency(items, concurrency, mapper) {
+            const results = new Array(items.length);
+            let nextIndex = 0;
+            const workerCount = Math.min(concurrency, items.length);
+            await Promise.all(
+              Array.from({ length: workerCount }, async () => {
+                while (nextIndex < items.length) {
+                  const index = nextIndex;
+                  nextIndex += 1;
+                  results[index] = await mapper(items[index]);
+                }
+              }),
+            );
+            return results;
+          }
 
           async function fetchOnVerifiedOrigin(url, origin, options) {
             let currentUrl = url;
@@ -164,7 +182,6 @@ jobs:
 
                   const assetFailures = [];
                   const assetUrls = [...assets];
-                  const assetConcurrency = 12;
                   for (let i = 0; i < assetUrls.length; i += assetConcurrency) {
                     if (Date.now() >= deadline) {
                       assetFailures.push("asset probe deadline exceeded");
@@ -228,7 +245,7 @@ jobs:
           }
 
           (async () => {
-            const results = await Promise.all(hosts.map(probe));
+            const results = await mapWithConcurrency(hosts, hostConcurrency, probe);
             results.sort((left, right) => left.host.localeCompare(right.host));
             for (const result of results) {
               console.log(

@@ -2099,6 +2099,9 @@ export function buildRecapPrompt(input: {
     lines.push(
       "3. Do not write `recap-url.txt`; the deterministic CLI publisher writes that after it successfully POSTs your source to `create-visual-recap`.",
     );
+    lines.push(
+      "Unified-diff framing is metadata, not recap content: never copy leading `+` or `-` markers, context-space prefixes, or `@@` hunk headers into the authored MDX. Every tag, paragraph, and block in `plan.mdx` must use the source content without patch markers.",
+    );
   }
   lines.push("");
   lines.push(
