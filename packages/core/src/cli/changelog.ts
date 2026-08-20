@@ -3,11 +3,12 @@
  *
  * The model mirrors changesets: instead of editing the shared CHANGELOG.md
  * directly (which conflicts when many agents work in parallel), each change
- * drops a small pending entry file under `changelog/`. A later `release` rolls
- * every pending file up into a single dated section of CHANGELOG.md.
+ * drops a small dated entry file under `changelog/`. A later `release`
+ * refreshes the recent CHANGELOG.md window while retaining those files as the
+ * complete history.
  *
  *   agent-native changelog add "Recordings can be trimmed before sharing" --type added
- *   agent-native changelog release           # roll pending → CHANGELOG.md (today)
+ *   agent-native changelog release           # refresh recent window
  *   agent-native changelog list              # show pending + released
  *
  * Runs in the current app directory (process.cwd()).
@@ -18,7 +19,7 @@ import path from "path";
 import {
   parsePendingEntry,
   parseChangelog,
-  rollupChangelog,
+  compactChangelog,
   changelogSlug,
   CHANGELOG_HEADER,
   type ChangelogChangeType,
@@ -77,7 +78,7 @@ function printUsage(): void {
       "  agent-native changelog list",
       "",
       "Entries are user-facing notes. `add` writes a pending file under",
-      `  ${PENDING_DIR}/; \`release\` rolls all pending files into ${CHANGELOG_FILE}.`,
+      `  ${PENDING_DIR}/; \`release\` refreshes the recent window in ${CHANGELOG_FILE}.`,
       "Generation requires changelog.enabled: true in agent-native.config.ts.",
     ].join("\n"),
   );
@@ -154,22 +155,24 @@ async function cmdRelease(args: string[]): Promise<number> {
     return 0;
   }
 
-  const pending = pendingFiles.map((p) => parsePendingEntry(p.content));
+  const pending = pendingFiles.map((p) =>
+    parsePendingEntry(
+      p.content,
+      path.basename(p.file).match(/^(\d{4}-\d{2}-\d{2})(?:-|\.md$)/)?.[1],
+    ),
+  );
   const changelogPath = path.resolve(CHANGELOG_FILE);
   const existing = fs.existsSync(changelogPath)
     ? fs.readFileSync(changelogPath, "utf-8")
     : "";
 
-  const next = rollupChangelog(existing, pending, date);
+  const next = compactChangelog(existing, pending);
   fs.writeFileSync(changelogPath, next, "utf-8");
 
-  // Remove the pending entries now that they're released.
-  for (const p of pendingFiles) fs.rmSync(p.file);
-
   console.log(
-    `Released ${pendingFiles.length} entr${
+    `Refreshed ${CHANGELOG_FILE} from ${pendingFiles.length} folder entr${
       pendingFiles.length === 1 ? "y" : "ies"
-    } into ${CHANGELOG_FILE} (## ${date}).`,
+    } (latest release date: ${date}).`,
   );
   return 0;
 }

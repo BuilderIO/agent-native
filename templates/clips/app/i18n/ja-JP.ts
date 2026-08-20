@@ -698,15 +698,6 @@ const messages = {
     viewAllUpdates: "すべての更新を見る",
     expand: "展開",
     collapse: "折りたたむ",
-    changelogMarkdown: `# 変更履歴
-
-Clips のユーザー向けの主な変更はここに記録されます。コマンドメニュー（Cmd+K -> "最新情報"）または設定からいつでも開けます。
-
-## 2026-06-23
-
-### 追加
-
-- Clips 内で最新情報を直接確認できるようになりました。変更履歴はコマンドメニュー（Cmd+K）と設定にあります。`,
     playback: "再生",
     defaultPlaybackSpeed: "デフォルト再生速度",
     playbackDescription: "録画を開いたときに自動的に適用されます。",

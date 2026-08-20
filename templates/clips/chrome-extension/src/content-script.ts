@@ -1,12 +1,10 @@
-// Loom-style in-page overlay host. The background service worker injects this
-// into the LAUNCH TAB on demand via chrome.scripting.executeScript (covered by
-// the activeTab permission the user grants when they click the extension), NOT
-// declaratively on every page — that would need broad "<all_urls>" host access
-// and Chrome's in-depth review. So the overlay lives on the tab the recording
-// was started from; it does not follow across tabs unless CROSS_TAB_FOLLOW is
-// re-enabled in background.ts (see PERMISSIONS.md). Wrapped in an IIFE so it
-// emits a single self-contained classic script with no module imports/exports
-// and leaks no names into the shared global scope. Its only job is to
+// Loom-style in-page overlay host. The next release declares this on every page
+// so the face bubble and controls can survive tab switches and navigations; the
+// background worker can also inject it into the launch tab for immediate and
+// reload recovery. That broad "<all_urls>" host access is the Chrome Web Store
+// in-depth review boundary. Wrapped in an IIFE so it emits a single self-contained
+// classic script with no module imports/exports and leaks no names into the shared
+// global scope. Its only job is to
 // mount/unmount the overlay iframes; all UI and control logic lives inside the
 // extension-origin overlay pages (src/overlay.html). The worker is the source of
 // truth for which "parts" are visible and pushes them here.
@@ -17,6 +15,12 @@
   const CONTAINER_ID = "clips-recorder-overlay-root";
   const ALL_PARTS: OverlayPart[] = ["bubble", "countdown", "toolbar", "saving"];
   const flags = window as unknown as { __clipsOverlayHostReady?: boolean };
+
+  // Declarative and recovery injection can target the same document. Return
+  // before any side effects so global listeners remain one-per-page.
+  if (flags.__clipsOverlayHostReady) return;
+  flags.__clipsOverlayHostReady = true;
+  let recordingActive = false;
 
   function errorPayload(error: unknown): {
     name: string;
@@ -40,6 +44,7 @@
     error: unknown,
     context: Record<string, unknown> = {},
   ): void {
+    if (!recordingActive) return;
     try {
       chrome.runtime.sendMessage(
         {
@@ -72,6 +77,15 @@
       mechanism: "unhandled-rejection",
     });
   });
+
+  try {
+    chrome.storage.onChanged.addListener((changes, areaName) => {
+      if (areaName !== "local" || !changes.clipsRecordingActive) return;
+      recordingActive = changes.clipsRecordingActive.newValue === true;
+    });
+  } catch {
+    /* storage unavailable */
+  }
 
   // ----- Draggable, resizable camera bubble ---------------------------------
   // Size + position persist in storage so the bubble stays where the user put it
@@ -339,7 +353,8 @@
     try {
       chrome.storage.local.get("clipsRecordingActive", (value) => {
         if (chrome.runtime.lastError) return;
-        if (value && value.clipsRecordingActive) requestState();
+        recordingActive = value?.clipsRecordingActive === true;
+        if (recordingActive) requestState();
       });
     } catch {
       /* ignore */
@@ -592,13 +607,6 @@
     if (gateCountdown) showConnecting(container);
     lastWantedParts = wanted;
   }
-
-  // Guard against rare double-injection (SPA soft-reloads re-running the script).
-  if (flags.__clipsOverlayHostReady) {
-    syncIfRecording();
-    return;
-  }
-  flags.__clipsOverlayHostReady = true;
 
   chrome.runtime.onMessage.addListener((message) => {
     if (!message || typeof message !== "object") return;

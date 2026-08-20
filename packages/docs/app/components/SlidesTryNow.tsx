@@ -50,6 +50,7 @@ export function SlidesTryNow() {
               role="tooltip"
               className="pointer-events-none absolute bottom-full left-0 z-10 mb-2 hidden w-64 rounded-lg border border-[var(--docs-border)] bg-[var(--bg)] p-2.5 text-xs font-normal normal-case leading-relaxed text-[var(--fg)] shadow-lg group-hover:block group-focus-within:block"
             >
+              {/* i18n-ignore: product guidance copy */}
               Be specific. Generic prompts = generic decks. Say who it is for,
               paste your notes, and even reference a website design you want to
               copy.
