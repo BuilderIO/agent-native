@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.31.6
+
+### Patch Changes
+
+- 8b73951: Isolate workspace app chat history and keep short chat-tab titles clear of the close target.
+
 ## 0.31.5
 
 ### Patch Changes
