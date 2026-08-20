@@ -2876,6 +2876,7 @@ const editorToolbarMessages = {
   pushFailed: "Push failed.",
   pushLocal: "Push local",
   pushToNotion: "Push to Notion",
+  redo: "Redo",
   revealInFinder: "Reveal in Finder",
   revealedLocalFile: "Revealed local file",
   searchNotionPages: "Search Notion pages...",
@@ -2896,6 +2897,7 @@ const editorToolbarMessages = {
   disconnectedNotionWorkspace: "Disconnected Notion workspace.",
   unlinkFailed: "Unlink failed.",
   unlinkedFromNotion: "Unlinked from Notion.",
+  undo: "Undo",
   versionHistory: "Version history",
 };
 
@@ -3135,6 +3137,22 @@ const enUS = {
     italic: "Italic",
     strikethrough: "Strikethrough",
     code: "Code",
+    textColor: "Text color",
+    backgroundColor: "Background color",
+    defaultColor: "Default",
+    color: {
+      label: "Color",
+      recentlyUsed: "Recently used",
+      gray: "Gray",
+      brown: "Brown",
+      orange: "Orange",
+      yellow: "Yellow",
+      green: "Green",
+      blue: "Blue",
+      purple: "Purple",
+      pink: "Pink",
+      red: "Red",
+    },
     heading1: "Heading 1",
     heading2: "Heading 2",
     heading3: "Heading 3",
@@ -3153,6 +3171,13 @@ const enUS = {
       "This Blocks field changed elsewhere. Your edit wasn't saved; the latest version is now shown.",
     couldNotReadLocalSourceFile: "Could not read local source file",
     couldNotSaveLocalFile: "Could not save local file",
+    localFileChangedWithUnsavedEdits:
+      "The file changed on disk while this page had unsaved edits.",
+    localFileReadOnlySnapshot:
+      "Read-only snapshot · Last synced from {{device}} at {{date}}",
+    copyUnsavedText: "Copy my unsaved text",
+    unsavedTextCopied: "Unsaved text copied",
+    useDiskVersion: "Use disk version",
     collabConnectingReadOnly:
       "Connecting live editor. Showing a read-only snapshot.",
     liveDocumentSaveBeforeSyncFailed:
@@ -3497,10 +3522,17 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
     editor: {
       couldNotReadLocalSourceFile: "无法读取本地源文件",
       couldNotSaveLocalFile: "无法保存本地文件",
+      localFileChangedWithUnsavedEdits:
+        "此页面有未保存的编辑时，磁盘上的文件已更改。",
+      copyUnsavedText: "复制我未保存的文本",
+      unsavedTextCopied: "已复制未保存的文本",
+      useDiskVersion: "使用磁盘版本",
       documentTitle: "文档标题",
       localFileSavedHistoryNotUpdated: "本地文件已保存，但历史记录未更新",
       title: "标题",
       toolbar: {
+        undo: "撤销",
+        redo: "重做",
         conflict: "冲突",
         conflictResolutionFailed: "冲突解决失败。",
         conflictResolvedFromLocalDocument: "已从本本文档解决冲突。",
@@ -3725,6 +3757,11 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
     editor: {
       couldNotReadLocalSourceFile: "No se pudo leer el archivo local de origen",
       couldNotSaveLocalFile: "No se pudo guardar el archivo local",
+      localFileChangedWithUnsavedEdits:
+        "El archivo del disco cambió mientras esta página tenía ediciones sin guardar.",
+      copyUnsavedText: "Copiar mi texto sin guardar",
+      unsavedTextCopied: "Texto sin guardar copiado",
+      useDiskVersion: "Usar la versión del disco",
       documentTitle: "Título del documento",
       localFileSavedHistoryNotUpdated:
         "El archivo local se guardó, pero el historial no se actualizó",
@@ -3791,6 +3828,8 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
           "Transcribe este video y agrega la transcripción debajo.",
       },
       toolbar: {
+        undo: "Deshacer",
+        redo: "Rehacer",
         conflict: "Conflicto",
         conflictResolutionFailed: "Error al resolver el conflicto.",
         conflictResolvedFromLocalDocument:
@@ -3929,6 +3968,14 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
     },
   },
   "fr-FR": {
+    editor: {
+      localFileChangedWithUnsavedEdits:
+        "Le fichier sur le disque a changé alors que cette page contenait des modifications non enregistrées.",
+      copyUnsavedText: "Copier mon texte non enregistré",
+      unsavedTextCopied: "Texte non enregistré copié",
+      useDiskVersion: "Utiliser la version du disque",
+      toolbar: { undo: "Annuler", redo: "Rétablir" },
+    },
     sidebar: {
       addChild: "Ajouter un enfant",
       addChildTo: "Ajouter un enfant à {{title}}",
@@ -3965,6 +4012,14 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
     },
   },
   "de-DE": {
+    editor: {
+      localFileChangedWithUnsavedEdits:
+        "Die Datei auf dem Datenträger wurde geändert, während diese Seite ungespeicherte Änderungen enthielt.",
+      copyUnsavedText: "Meinen ungespeicherten Text kopieren",
+      unsavedTextCopied: "Ungespeicherter Text kopiert",
+      useDiskVersion: "Version vom Datenträger verwenden",
+      toolbar: { undo: "Rückgängig", redo: "Wiederholen" },
+    },
     sidebar: {
       addChild: "Unterelement hinzufügen",
       addChildTo: "Unterelement zu {{title}} hinzufügen",
@@ -4000,6 +4055,14 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
     },
   },
   "ja-JP": {
+    editor: {
+      localFileChangedWithUnsavedEdits:
+        "このページに未保存の編集がある間に、ディスク上のファイルが変更されました。",
+      copyUnsavedText: "未保存のテキストをコピー",
+      unsavedTextCopied: "未保存のテキストをコピーしました",
+      useDiskVersion: "ディスク上の版を使用",
+      toolbar: { undo: "元に戻す", redo: "やり直す" },
+    },
     sidebar: {
       addChild: "子項目を追加",
       addChildTo: "{{title}} に子項目を追加",
@@ -4033,6 +4096,14 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
     },
   },
   "ko-KR": {
+    editor: {
+      localFileChangedWithUnsavedEdits:
+        "이 페이지에 저장하지 않은 편집 내용이 있는 동안 디스크의 파일이 변경되었습니다.",
+      copyUnsavedText: "저장하지 않은 텍스트 복사",
+      unsavedTextCopied: "저장하지 않은 텍스트를 복사했습니다",
+      useDiskVersion: "디스크 버전 사용",
+      toolbar: { undo: "실행 취소", redo: "다시 실행" },
+    },
     sidebar: {
       addChild: "하위 항목 추가",
       addChildTo: "{{title}}에 하위 항목 추가",
@@ -4065,6 +4136,14 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
     },
   },
   "pt-BR": {
+    editor: {
+      localFileChangedWithUnsavedEdits:
+        "O arquivo no disco foi alterado enquanto esta página tinha edições não salvas.",
+      copyUnsavedText: "Copiar meu texto não salvo",
+      unsavedTextCopied: "Texto não salvo copiado",
+      useDiskVersion: "Usar versão do disco",
+      toolbar: { undo: "Desfazer", redo: "Refazer" },
+    },
     sidebar: {
       addChild: "Adicionar filho",
       addChildTo: "Adicionar filho a {{title}}",
@@ -4099,6 +4178,14 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
     },
   },
   "hi-IN": {
+    editor: {
+      localFileChangedWithUnsavedEdits:
+        "इस पेज में सहेजे नहीं गए बदलाव होने के दौरान डिस्क की फ़ाइल बदल गई।",
+      copyUnsavedText: "मेरा सहेजा नहीं गया टेक्स्ट कॉपी करें",
+      unsavedTextCopied: "सहेजा नहीं गया टेक्स्ट कॉपी किया गया",
+      useDiskVersion: "डिस्क वाला संस्करण उपयोग करें",
+      toolbar: { undo: "पूर्ववत करें", redo: "फिर से करें" },
+    },
     sidebar: {
       addChild: "चाइल्ड जोड़ें",
       addChildTo: "{{title}} में चाइल्ड जोड़ें",
@@ -4131,6 +4218,14 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
     },
   },
   "ar-SA": {
+    editor: {
+      localFileChangedWithUnsavedEdits:
+        "تغيّر الملف على القرص أثناء وجود تعديلات غير محفوظة في هذه الصفحة.",
+      copyUnsavedText: "نسخ النص غير المحفوظ",
+      unsavedTextCopied: "تم نسخ النص غير المحفوظ",
+      useDiskVersion: "استخدام نسخة القرص",
+      toolbar: { undo: "تراجع", redo: "إعادة" },
+    },
     sidebar: {
       addChild: "إضافة عنصر فرعي",
       addChildTo: "إضافة عنصر فرعي إلى {{title}}",
@@ -5650,6 +5745,22 @@ const databaseExactEnglishMessagesByLocale = {
 
 const editorMessagesByLocale = {
   "zh-CN": {
+    textColor: "文本颜色",
+    backgroundColor: "背景颜色",
+    defaultColor: "默认",
+    color: {
+      label: "颜色",
+      recentlyUsed: "最近使用",
+      gray: "灰色",
+      brown: "棕色",
+      orange: "橙色",
+      yellow: "黄色",
+      green: "绿色",
+      blue: "蓝色",
+      purple: "紫色",
+      pink: "粉色",
+      red: "红色",
+    },
     noDocumentSelected: "未选择文档",
     blocksFieldRevisionConflict:
       "此 Blocks 字段已在其他位置更改。你的编辑未保存；现已显示最新版本。",
@@ -5999,6 +6110,22 @@ const editorMessagesByLocale = {
     },
   },
   "es-ES": {
+    textColor: "Color de texto",
+    backgroundColor: "Color de fondo",
+    defaultColor: "Predeterminado",
+    color: {
+      label: "Color",
+      recentlyUsed: "Usados recientemente",
+      gray: "Gris",
+      brown: "Marrón",
+      orange: "Naranja",
+      yellow: "Amarillo",
+      green: "Verde",
+      blue: "Azul",
+      purple: "Morado",
+      pink: "Rosa",
+      red: "Rojo",
+    },
     noDocumentSelected: "Ningún documento seleccionado",
     blocksFieldRevisionConflict:
       "Este campo de bloques cambió en otro lugar. Tu edición no se guardó; ahora se muestra la versión más reciente.",
@@ -6361,6 +6488,22 @@ const editorMessagesByLocale = {
     },
   },
   "fr-FR": {
+    textColor: "Couleur du texte",
+    backgroundColor: "Couleur d’arrière-plan",
+    defaultColor: "Par défaut",
+    color: {
+      label: "Couleur",
+      recentlyUsed: "Utilisées récemment",
+      gray: "Gris",
+      brown: "Marron",
+      orange: "Orange",
+      yellow: "Jaune",
+      green: "Vert",
+      blue: "Bleu",
+      purple: "Violet",
+      pink: "Rose",
+      red: "Rouge",
+    },
     noDocumentSelected: "Aucun document sélectionné",
     blocksFieldRevisionConflict:
       "Ce champ de blocs a été modifié ailleurs. Votre modification n’a pas été enregistrée ; la dernière version est maintenant affichée.",
@@ -6728,6 +6871,22 @@ const editorMessagesByLocale = {
     },
   },
   "de-DE": {
+    textColor: "Textfarbe",
+    backgroundColor: "Hintergrundfarbe",
+    defaultColor: "Standard",
+    color: {
+      label: "Farbe",
+      recentlyUsed: "Zuletzt verwendet",
+      gray: "Grau",
+      brown: "Braun",
+      orange: "Orange",
+      yellow: "Gelb",
+      green: "Grün",
+      blue: "Blau",
+      purple: "Violett",
+      pink: "Rosa",
+      red: "Rot",
+    },
     noDocumentSelected: "Kein Dokument ausgewählt",
     blocksFieldRevisionConflict:
       "Dieses Blocks-Feld wurde an anderer Stelle geändert. Deine Bearbeitung wurde nicht gespeichert; jetzt wird die neueste Version angezeigt.",
@@ -7098,6 +7257,22 @@ const editorMessagesByLocale = {
     },
   },
   "ja-JP": {
+    textColor: "テキストの色",
+    backgroundColor: "背景色",
+    defaultColor: "デフォルト",
+    color: {
+      label: "色",
+      recentlyUsed: "最近使用した色",
+      gray: "灰色",
+      brown: "茶色",
+      orange: "オレンジ",
+      yellow: "黄色",
+      green: "緑",
+      blue: "青",
+      purple: "紫",
+      pink: "ピンク",
+      red: "赤",
+    },
     noDocumentSelected: "ドキュメントが選択されていません",
     blocksFieldRevisionConflict:
       "このブロックフィールドは別の場所で変更されました。編集内容は保存されず、最新バージョンが表示されています。",
@@ -7457,6 +7632,22 @@ const editorMessagesByLocale = {
     },
   },
   "ko-KR": {
+    textColor: "텍스트 색상",
+    backgroundColor: "배경색",
+    defaultColor: "기본값",
+    color: {
+      label: "색상",
+      recentlyUsed: "최근 사용",
+      gray: "회색",
+      brown: "갈색",
+      orange: "주황색",
+      yellow: "노란색",
+      green: "녹색",
+      blue: "파란색",
+      purple: "보라색",
+      pink: "분홍색",
+      red: "빨간색",
+    },
     noDocumentSelected: "선택한 문서가 없습니다.",
     blocksFieldRevisionConflict:
       "이 블록 필드가 다른 곳에서 변경되었습니다. 편집 내용은 저장되지 않았으며 최신 버전이 표시됩니다.",
@@ -7815,6 +8006,22 @@ const editorMessagesByLocale = {
     },
   },
   "pt-BR": {
+    textColor: "Cor do texto",
+    backgroundColor: "Cor de fundo",
+    defaultColor: "Padrão",
+    color: {
+      label: "Cor",
+      recentlyUsed: "Usadas recentemente",
+      gray: "Cinza",
+      brown: "Marrom",
+      orange: "Laranja",
+      yellow: "Amarelo",
+      green: "Verde",
+      blue: "Azul",
+      purple: "Roxo",
+      pink: "Rosa",
+      red: "Vermelho",
+    },
     noDocumentSelected: "Nenhum documento selecionado",
     blocksFieldRevisionConflict:
       "Este campo de blocos foi alterado em outro lugar. Sua edição não foi salva; a versão mais recente agora está sendo exibida.",
@@ -8179,6 +8386,22 @@ const editorMessagesByLocale = {
     },
   },
   "hi-IN": {
+    textColor: "टेक्स्ट का रंग",
+    backgroundColor: "पृष्ठभूमि का रंग",
+    defaultColor: "डिफ़ॉल्ट",
+    color: {
+      label: "रंग",
+      recentlyUsed: "हाल में उपयोग किए गए",
+      gray: "स्लेटी",
+      brown: "भूरा",
+      orange: "नारंगी",
+      yellow: "पीला",
+      green: "हरा",
+      blue: "नीला",
+      purple: "बैंगनी",
+      pink: "गुलाबी",
+      red: "लाल",
+    },
     noDocumentSelected: "कोई दस्तावेज़ चयनित नहीं",
     blocksFieldRevisionConflict:
       "यह ब्लॉक फ़ील्ड कहीं और बदल गया है। आपका संपादन सहेजा नहीं गया; अब नवीनतम संस्करण दिखाया जा रहा है।",
@@ -8533,6 +8756,22 @@ const editorMessagesByLocale = {
     },
   },
   "ar-SA": {
+    textColor: "لون النص",
+    backgroundColor: "لون الخلفية",
+    defaultColor: "افتراضي",
+    color: {
+      label: "اللون",
+      recentlyUsed: "المستخدمة مؤخراً",
+      gray: "رمادي",
+      brown: "بني",
+      orange: "برتقالي",
+      yellow: "أصفر",
+      green: "أخضر",
+      blue: "أزرق",
+      purple: "أرجواني",
+      pink: "وردي",
+      red: "أحمر",
+    },
     noDocumentSelected: "لم يتم تحديد أي مستند",
     blocksFieldRevisionConflict:
       "تم تغيير حقل الكتل هذا في مكان آخر. لم يتم حفظ تعديلك؛ ويظهر الآن أحدث إصدار.",

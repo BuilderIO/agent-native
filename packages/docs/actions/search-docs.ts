@@ -71,6 +71,7 @@ export default defineAction({
   }),
   http: false,
   readOnly: true,
+  publicAgent: { expose: true, readOnly: true },
   run: async ({ query }) => {
     const sections = await loadDocSections();
     const lower = query.toLowerCase();

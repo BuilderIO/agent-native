@@ -1,7 +1,10 @@
 import {
   A2AClient,
   canonicalA2AAudience,
+  extractA2APersistedMutationReceipts,
   signA2AToken,
+  stripA2APersistedArtifactMarkers,
+  type A2APersistedMutationReceipt,
   type Task,
 } from "@agent-native/core/a2a";
 import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
@@ -25,9 +28,8 @@ import {
 } from "@agent-native/core/server/agent-discovery";
 
 import {
-  CANONICAL_WORKSPACE_SSO_APP_ORIGINS,
   DISPATCH_WORKSPACE_SSO_FLAG,
-  parseWorkspaceSsoAppRegistrations,
+  isWorkspaceSsoAppUrl,
 } from "../../shared/workspace-sso.js";
 import {
   listWorkspaceApps,
@@ -108,6 +110,39 @@ function dispatchTaskText(task: Task): string {
   );
 }
 
+type DispatchMutationReceipt = A2APersistedMutationReceipt;
+
+function dispatchTaskMutationReceipts(
+  task: Task,
+  app: string,
+  identity: {
+    userEmail: string;
+    orgId: string | null;
+    orgSecret: string | null;
+  },
+): DispatchMutationReceipt[] {
+  if (app !== "content" || !identity.orgSecret) return [];
+  const text = dispatchTaskText(task);
+  if (!text) return [];
+  const result = [{ tool: "call-agent", result: text }];
+  const receipts = extractA2APersistedMutationReceipts(result, {
+    persistedArtifactSecrets: [identity.orgSecret],
+    expectedDelegatedTaskId: task.id,
+  });
+  return receipts.filter((receipt) => {
+    if (receipt.target.authorityScopeKind === "personal") {
+      return (
+        receipt.target.authorityScopeId.toLowerCase() ===
+        identity.userEmail.toLowerCase()
+      );
+    }
+    return (
+      identity.orgId !== null &&
+      receipt.target.authorityScopeId === identity.orgId
+    );
+  });
+}
+
 type DispatchAskAppStatusErrorCategory =
   | "transport"
   | "timeout"
@@ -120,6 +155,7 @@ type DispatchAskAppTaskResult = {
   taskId: string;
   status: string;
   response?: string;
+  receipts?: DispatchMutationReceipt[];
   error?: string;
   inputRequired?: string;
   statusRead?: "unavailable";
@@ -134,9 +170,15 @@ type DispatchAskAppTaskResult = {
 function dispatchAskAppTaskResult(
   app: string,
   task: Task,
+  identity: {
+    userEmail: string;
+    orgId: string | null;
+    orgSecret: string | null;
+  },
 ): DispatchAskAppTaskResult {
   const status = String(task.status.state);
-  const response = dispatchTaskText(task);
+  const response = stripA2APersistedArtifactMarkers(dispatchTaskText(task));
+  const receipts = dispatchTaskMutationReceipts(task, app, identity);
   const base = {
     app,
     routedVia: "a2a" as const,
@@ -145,7 +187,11 @@ function dispatchAskAppTaskResult(
   };
 
   if (status === "completed") {
-    return { ...base, response: response || "(no response)" };
+    return {
+      ...base,
+      response: response || "(no response)",
+      ...(receipts.length > 0 ? { receipts } : {}),
+    };
   }
   if (status === "failed" || status === "canceled") {
     return {
@@ -465,17 +511,6 @@ function safeAppOrigin(app: DispatchMcpAccessibleApp): string | null {
   }
 }
 
-function isLoopbackOrigin(origin: string): boolean {
-  try {
-    const hostname = new URL(origin).hostname;
-    return ["localhost", "127.0.0.1", "::1"].includes(hostname);
-  } catch {
-    // coercion-ok: only a previously validated app origin reaches this helper;
-    // malformed values are ineligible for the loopback development exception.
-    return false;
-  }
-}
-
 function appBaseUrl(app: DispatchMcpAccessibleApp): string {
   return app.url.replace(/\/+$/, "");
 }
@@ -643,44 +678,13 @@ export async function resolveGrantedDispatchMcpApp(
   return match;
 }
 
-function workspaceSsoOriginForApp(appId: string): string | null {
-  const canonical =
-    CANONICAL_WORKSPACE_SSO_APP_ORIGINS[
-      appId as keyof typeof CANONICAL_WORKSPACE_SSO_APP_ORIGINS
-    ];
-  if (canonical) return canonical;
-  const custom = parseWorkspaceSsoAppRegistrations(
-    process.env.IDENTITY_SSO_APP_REGISTRY_JSON,
-  ).find((registration) => registration.appId === appId);
-  return custom?.origin ?? null;
-}
-
-function isWorkspaceSsoCanonicalApp(app: DispatchMcpAccessibleApp): boolean {
-  const origin = safeAppOrigin(app);
-  if (!origin) return false;
-  const registeredOrigin = workspaceSsoOriginForApp(app.id);
-  if (origin === registeredOrigin) return true;
-  // The built-in discovery table intentionally points at local dev ports when
-  // running outside production. Keep local development usable without ever
-  // weakening the production exact-origin check.
-  return process.env.NODE_ENV !== "production" && isLoopbackOrigin(origin)
-    ? Object.prototype.hasOwnProperty.call(
-        CANONICAL_WORKSPACE_SSO_APP_ORIGINS,
-        app.id,
-      )
-    : false;
-}
-
 async function isEligibleWorkspaceSsoApp(
   candidate: DispatchMcpAccessibleApp,
 ): Promise<boolean> {
-  const origin = safeAppOrigin(candidate);
-  if (!origin) return false;
-  if (isWorkspaceSsoCanonicalApp(candidate)) return true;
-
-  const customOrigin = workspaceSsoOriginForApp(candidate.id);
-  if (customOrigin === origin) return true;
-  return false;
+  return isWorkspaceSsoAppUrl(candidate, {
+    nodeEnv: process.env.NODE_ENV,
+    registryRaw: process.env.IDENTITY_SSO_APP_REGISTRY_JSON,
+  });
 }
 
 async function listWorkspaceSsoApps(): Promise<DispatchMcpAccessibleApp[]> {
@@ -796,7 +800,11 @@ export async function askGrantedDispatchMcpApp(
     { async: true, metadata },
   );
   const finalOrRunning = await waitForDispatchA2ATask(client, task, deadline);
-  return dispatchAskAppTaskResult(target.id, finalOrRunning);
+  return dispatchAskAppTaskResult(target.id, finalOrRunning, {
+    userEmail,
+    orgId: orgId ?? null,
+    orgSecret: orgSecret ?? null,
+  });
 }
 
 export async function getGrantedDispatchMcpAppTask(
@@ -831,7 +839,11 @@ export async function getGrantedDispatchMcpAppTask(
     const startedAt = Date.now();
     try {
       const task = await client.getTask(trimmedTaskId);
-      return dispatchAskAppTaskResult(target.id, task);
+      return dispatchAskAppTaskResult(target.id, task, {
+        userEmail,
+        orgId: orgId ?? null,
+        orgSecret: orgSecret ?? null,
+      });
     } catch (err) {
       const delayMs = DISPATCH_ASK_APP_STATUS_RETRY_DELAYS_MS[attempt];
       const errorCategory = dispatchAskAppStatusErrorCategory(err);

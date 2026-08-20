@@ -1,6 +1,7 @@
 import { BlockRegistryProvider } from "@agent-native/core/blocks";
 import { generateTabId } from "@agent-native/core/client/agent-chat";
 import { agentNativePath } from "@agent-native/core/client/api-path";
+import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import {
   useCollaborativeDoc,
   emailToColor,
@@ -79,8 +80,11 @@ import {
   usePushDocumentToNotion,
 } from "@/hooks/use-notion";
 import { rememberContentLandingDocument } from "@/lib/content-landing";
+import type { DesktopContentFileRevision } from "@/lib/desktop-content-files";
 import {
   canWriteLinkedLocalSource,
+  readDocumentFromLinkedLocalSource,
+  watchLinkedLocalSource,
   writeDocumentToLinkedLocalSource,
 } from "@/lib/local-content-source-files";
 import { isDatabaseChoicePending } from "@/lib/optimistic-document";
@@ -100,13 +104,23 @@ import { DocumentEditorSkeleton } from "./DocumentEditorSkeleton";
 import { DocumentInfoPanel } from "./DocumentInfoPanel";
 import { DocumentToolbar, type ToolbarBreadcrumbItem } from "./DocumentToolbar";
 import { EmojiPicker } from "./EmojiPicker";
+import {
+  classifyLocalSourceRead,
+  localSourceRevisionForQueuedEdit,
+  localSourceRevisionForSave,
+  type PendingLocalSourceWrite,
+} from "./local-source-write-state";
 import { NotionConflictBanner } from "./NotionConflictBanner";
 import {
   normalizeTitleText,
   stripMarkdownHeadingPrefixFromTitlePaste,
 } from "./title-text";
 import { VisualEditor } from "./VisualEditor";
-import type { NotionPageLink } from "./VisualEditor";
+import type {
+  NotionPageLink,
+  VisualEditorHistoryController,
+  VisualEditorHistoryState,
+} from "./VisualEditor";
 
 const TAB_ID = generateTabId();
 
@@ -303,6 +317,25 @@ export function shouldAwaitAuthoritativeDocument({
   return isFetching && !isFetchedAfterMount;
 }
 
+export function visualEditorInstanceKey(args: {
+  documentId: string;
+  documentUpdatedAt: string | null;
+  isLocalFileDocument: boolean;
+  canEdit: boolean;
+  collabEditorEnabled: boolean;
+  hasYDoc: boolean;
+  localFileSyncRevision?: number;
+}) {
+  const mode = args.isLocalFileDocument
+    ? `local-file:${args.localFileSyncRevision ?? 0}`
+    : args.collabEditorEnabled && args.hasYDoc
+      ? "live-ready"
+      : args.canEdit
+        ? "live-pending"
+        : `snapshot:${args.documentUpdatedAt}`;
+  return `${args.documentId}:${mode}`;
+}
+
 interface DocumentEditorBodyProps {
   documentId: string;
   document: Document;
@@ -319,11 +352,13 @@ type PendingDocumentSave = {
     options?: DocumentSaveOptions,
   ) => unknown | Promise<unknown>;
   canEditWhenQueued: boolean;
+  expectedLocalSourceRevision?: string | null;
   timeout: ReturnType<typeof setTimeout>;
 };
 
 type DocumentSaveOptions = {
   allowQueuedSave?: boolean;
+  expectedLocalSourceRevision?: string | null;
 };
 
 type DocumentSaveResult = {
@@ -597,9 +632,7 @@ function DocumentEditorBody({
   );
   // Polls Notion sync status to drive the conflict banner / sync bar and the
   // push-on-save path below (read via the query cache, not this return value).
-  useDocumentSyncStatus(canEdit && !isLocalFileDocument ? documentId : null, {
-    autoSync,
-  });
+  useDocumentSyncStatus(canEdit && !isLocalFileDocument ? documentId : null);
   const pushDocumentToNotion = usePushDocumentToNotion(documentId);
   const [localTitle, setLocalTitle] = useState("");
   const [localContent, setLocalContent] = useState("");
@@ -607,6 +640,42 @@ function DocumentEditorBody({
   const [localContentUpdatedAt, setLocalContentUpdatedAt] = useState<
     string | null
   >(document.updatedAt ?? null);
+  const localSourceRevisionRef = useRef<DesktopContentFileRevision | undefined>(
+    undefined,
+  );
+  const pendingLocalSourceWriteRef = useRef<PendingLocalSourceWrite | null>(
+    null,
+  );
+  const [localSourceConflict, setLocalSourceConflict] = useState<{
+    diskDocument: Document;
+    diskRevision?: DesktopContentFileRevision;
+    unsavedText: string;
+  } | null>(null);
+  const [localSourceMissing, setLocalSourceMissing] = useState(false);
+  const [localSourceAccess, setLocalSourceAccess] = useState<
+    "checking" | "available" | "unavailable"
+  >("checking");
+  const [localFileSyncRevision, setLocalFileSyncRevision] = useState(0);
+  const editorHistoryControllerRef =
+    useRef<VisualEditorHistoryController | null>(null);
+  const [editorHistoryState, setEditorHistoryState] =
+    useState<VisualEditorHistoryState>({ canUndo: false, canRedo: false });
+  const handleHistoryStateChange = useCallback(
+    (next: VisualEditorHistoryState) => {
+      setEditorHistoryState((current) =>
+        current.canUndo === next.canUndo && current.canRedo === next.canRedo
+          ? current
+          : next,
+      );
+    },
+    [],
+  );
+  const handleHistoryControllerChange = useCallback(
+    (controller: VisualEditorHistoryController | null) => {
+      editorHistoryControllerRef.current = controller;
+    },
+    [],
+  );
   const handleDeleteDocument = useCallback(async () => {
     try {
       if (document.database) {
@@ -779,7 +848,11 @@ function DocumentEditorBody({
   });
   const bodyHydrationPending = documentBodyHydrationIsPending(document);
   const editorCanEdit =
-    canEdit && !bodyHydrationPending && (isLocalFileDocument || collabSynced);
+    canEdit &&
+    !bodyHydrationPending &&
+    !localSourceMissing &&
+    (!isLocalFileDocument || localSourceAccess === "available") &&
+    (isLocalFileDocument || collabSynced);
   // Bind an editor's stable Y.Doc on its first mount, even while the initial
   // state is loading. Editability and the reconcile hook share the exact
   // `collabSynced` boundary; "not loading" can precede persisted Y.Doc
@@ -812,6 +885,10 @@ function DocumentEditorBody({
         saveTimeoutRef.current = null;
         pendingDocumentSaveRef.current = null;
       }
+      pendingLocalSourceWriteRef.current = null;
+      setLocalSourceMissing(false);
+      setLocalSourceAccess("checking");
+      setLocalFileSyncRevision(0);
     }
     if (!isInitializedRef.current) {
       setLocalTitle(document.title);
@@ -953,11 +1030,69 @@ function DocumentEditorBody({
       };
 
       if (isLinkedLocalSource) {
-        const result = await writeDocumentToLinkedLocalSource(
-          fileFirstDocument,
-          localSource,
+        let expectedLocalSourceRevision = localSourceRevisionForSave(
+          options.expectedLocalSourceRevision,
+          localSourceRevisionRef.current,
         );
+        if (!expectedLocalSourceRevision) {
+          const baseline = await readDocumentFromLinkedLocalSource(
+            document,
+            localSource,
+          );
+          if (!baseline.ok) throw new Error(baseline.error);
+          if (
+            baseline.revision &&
+            (baseline.document.content !==
+              lastSavedContentRef.current.content ||
+              baseline.document.title !== lastSavedTitleRef.current.title)
+          ) {
+            setLocalSourceConflict({
+              diskDocument: baseline.document,
+              diskRevision: baseline.revision,
+              unsavedText: localContentRef.current,
+            });
+            throw new Error(
+              "The file changed on disk before this edit could be saved.",
+            );
+          }
+          expectedLocalSourceRevision = baseline.revision;
+          localSourceRevisionRef.current = baseline.revision;
+        }
+        const pendingLocalWrite = {
+          title: fileFirstDocument.title,
+          content: fileFirstDocument.content,
+        };
+        pendingLocalSourceWriteRef.current = pendingLocalWrite;
+        let result;
+        try {
+          result = await writeDocumentToLinkedLocalSource(
+            fileFirstDocument,
+            localSource,
+            { expectedRevision: expectedLocalSourceRevision },
+          );
+        } catch (error) {
+          if (pendingLocalSourceWriteRef.current === pendingLocalWrite) {
+            pendingLocalSourceWriteRef.current = null;
+          }
+          throw error;
+        }
         if (!result.ok) {
+          if (pendingLocalSourceWriteRef.current === pendingLocalWrite) {
+            pendingLocalSourceWriteRef.current = null;
+          }
+          if (result.conflict) {
+            const latest = await readDocumentFromLinkedLocalSource(
+              fileFirstDocument,
+              localSource,
+            );
+            if (latest.ok) {
+              setLocalSourceConflict({
+                diskDocument: latest.document,
+                diskRevision: latest.revision,
+                unsavedText: localContentRef.current,
+              });
+            }
+          }
           if (!localSourceWriteErrorShownRef.current) {
             toast.error(t("editor.couldNotSaveLocalFile"), {
               description: result.error,
@@ -966,6 +1101,19 @@ function DocumentEditorBody({
           }
           throw new Error(result.error);
         }
+        localSourceRevisionRef.current = result.revision;
+        lastSavedTitleRef.current = {
+          ...lastSavedTitleRef.current,
+          title: fileFirstDocument.title,
+        };
+        lastSavedContentRef.current = {
+          ...lastSavedContentRef.current,
+          content: fileFirstDocument.content,
+        };
+        if (pendingLocalSourceWriteRef.current === pendingLocalWrite) {
+          pendingLocalSourceWriteRef.current = null;
+        }
+        setLocalSourceConflict(null);
         localSourceWriteErrorShownRef.current = false;
         setLocalContentUpdatedAt(nextSavedAt);
       }
@@ -1020,6 +1168,91 @@ function DocumentEditorBody({
   // browser with duplicate application-state requests.
   const persistDocumentUpdatesRef = useRef(persistDocumentUpdates);
   persistDocumentUpdatesRef.current = persistDocumentUpdates;
+
+  useEffect(() => {
+    if (!isLinkedLocalSourceDocument) return;
+    let active = true;
+
+    const adoptDisk = async () => {
+      const result = await readDocumentFromLinkedLocalSource(document);
+      if (!active) return;
+      if (!result.ok) {
+        setLocalSourceAccess("unavailable");
+        if (result.error.includes("was not found")) {
+          if (saveTimeoutRef.current) {
+            clearTimeout(saveTimeoutRef.current);
+            saveTimeoutRef.current = null;
+            pendingDocumentSaveRef.current = null;
+          }
+          pendingLocalSourceWriteRef.current = null;
+          setLocalSourceMissing(true);
+        }
+        return;
+      }
+      setLocalSourceAccess("available");
+      setLocalSourceMissing(false);
+      const diskContent = result.document.content;
+      const disposition = classifyLocalSourceRead({
+        diskTitle: result.document.title,
+        diskContent,
+        localContent: localContentRef.current,
+        lastSavedTitle: lastSavedTitleRef.current.title,
+        lastSavedContent: lastSavedContentRef.current.content,
+        pendingWrite: pendingLocalSourceWriteRef.current,
+        hasPendingSave: pendingDocumentSaveRef.current !== null,
+      });
+      if (disposition === "pending-self-write") {
+        localSourceRevisionRef.current = result.revision;
+        return;
+      }
+      if (disposition === "conflict") {
+        setLocalSourceConflict({
+          diskDocument: result.document,
+          diskRevision: result.revision,
+          unsavedText: localContentRef.current,
+        });
+        return;
+      }
+      localSourceRevisionRef.current = result.revision;
+      if (disposition === "unchanged") return;
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
+        pendingDocumentSaveRef.current = null;
+      }
+      localTitleRef.current = result.document.title;
+      localContentRef.current = diskContent;
+      setLocalTitle(result.document.title);
+      setLocalContent(diskContent);
+      setLocalContentUpdatedAt(result.updatedAt);
+      lastSavedTitleRef.current = {
+        title: result.document.title,
+        updatedAt: result.updatedAt,
+      };
+      lastSavedContentRef.current = {
+        content: diskContent,
+        updatedAt: result.updatedAt,
+      };
+      setLocalFileSyncRevision((revision) => revision + 1);
+      setLocalSourceConflict(null);
+    };
+
+    void adoptDisk();
+    let stop: (() => void) | undefined;
+    void watchLinkedLocalSource(document.source, () => void adoptDisk()).then(
+      (result) => {
+        if (!active) {
+          if (result.ok) result.unsubscribe();
+          return;
+        }
+        if (result.ok) stop = result.unsubscribe;
+      },
+    );
+    return () => {
+      active = false;
+      stop?.();
+    };
+  }, [document.id, document.source, isLinkedLocalSourceDocument]);
 
   const saveDocumentImmediately = useCallback(
     async (
@@ -1088,7 +1321,7 @@ function DocumentEditorBody({
       // Pulls remain driven by the polling refetch in useDocumentSyncStatus.
       if (autoSync) {
         const status = queryClient.getQueryData<DocumentSyncStatus>(
-          documentSyncStatusQueryKey(documentId, { autoSync }),
+          documentSyncStatusQueryKey(documentId),
         );
         if (status?.pageId && !status.hasConflict) {
           try {
@@ -1100,7 +1333,7 @@ function DocumentEditorBody({
               flushOpenEditor: false,
             });
             queryClient.setQueryData(
-              documentSyncStatusQueryKey(documentId, { autoSync }),
+              documentSyncStatusQueryKey(documentId),
               next,
             );
           } catch {
@@ -1134,6 +1367,7 @@ function DocumentEditorBody({
       void Promise.resolve(
         pending.save(pending.title, pending.content, {
           allowQueuedSave: true,
+          expectedLocalSourceRevision: pending.expectedLocalSourceRevision,
         }),
       ).catch(handleBackgroundSaveError);
     },
@@ -1142,12 +1376,19 @@ function DocumentEditorBody({
   const debouncedSave = useCallback(
     (title: string, content: string) => {
       if (!canEditRef.current) return;
+      const expectedLocalSourceRevision = isLinkedLocalSourceDocument
+        ? localSourceRevisionForQueuedEdit(
+            pendingDocumentSaveRef.current?.expectedLocalSourceRevision,
+            localSourceRevisionRef.current,
+          )
+        : undefined;
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
       const pending: PendingDocumentSave = {
         title,
         content,
         save: queueDocumentSave,
         canEditWhenQueued: canEditRef.current,
+        expectedLocalSourceRevision,
         timeout: setTimeout(() => {
           if (pendingDocumentSaveRef.current === pending) {
             pendingDocumentSaveRef.current = null;
@@ -1159,7 +1400,7 @@ function DocumentEditorBody({
       pendingDocumentSaveRef.current = pending;
       saveTimeoutRef.current = pending.timeout;
     },
-    [flushPendingDocumentSave, queueDocumentSave],
+    [flushPendingDocumentSave, isLinkedLocalSourceDocument, queueDocumentSave],
   );
 
   useEffect(() => {
@@ -1439,6 +1680,7 @@ function DocumentEditorBody({
   const handleContentChange = useCallback(
     (newContent: string) => {
       if (!editorCanEdit) return;
+      localContentRef.current = newContent;
       setLocalContent(newContent);
       debouncedSave(localTitleRef.current, newContent);
     },
@@ -1460,6 +1702,32 @@ function DocumentEditorBody({
     },
     [editorCanEdit, queueDocumentSave],
   );
+
+  const useDiskVersion = useCallback(() => {
+    if (!localSourceConflict) return;
+    const next = localSourceConflict.diskDocument;
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
+      pendingDocumentSaveRef.current = null;
+    }
+    localSourceRevisionRef.current = localSourceConflict.diskRevision;
+    localTitleRef.current = next.title;
+    localContentRef.current = next.content;
+    setLocalTitle(next.title);
+    setLocalContent(next.content);
+    setLocalContentUpdatedAt(next.updatedAt ?? new Date().toISOString());
+    lastSavedTitleRef.current = {
+      title: next.title,
+      updatedAt: next.updatedAt ?? null,
+    };
+    lastSavedContentRef.current = {
+      content: next.content,
+      updatedAt: next.updatedAt ?? null,
+    };
+    setLocalFileSyncRevision((revision) => revision + 1);
+    setLocalSourceConflict(null);
+  }, [localSourceConflict]);
 
   // Comments state — pending comment from text selection
   const [pendingComment, setPendingComment] = useState<{
@@ -1769,7 +2037,7 @@ function DocumentEditorBody({
             agentPresent={agentPresent}
             agentActive={agentActive}
             currentUserEmail={session?.email}
-            canEdit={canEdit}
+            canEdit={editorCanEdit}
             hideFromSearch={document.hideFromSearch}
             source={document.source}
             canDelete={canDelete}
@@ -1781,10 +2049,74 @@ function DocumentEditorBody({
             onUtilityPanelChange={handleUtilityPanelChange}
             showCommentsControl={canComment && !isLocalFileDocument}
             onOpenBreadcrumbItem={handleOpenToolbarBreadcrumb}
+            canUndo={editorHistoryState.canUndo}
+            canRedo={editorHistoryState.canRedo}
+            onUndo={() => editorHistoryControllerRef.current?.undo()}
+            onRedo={() => editorHistoryControllerRef.current?.redo()}
           />
 
           {!isLocalFileDocument ? (
             <NotionConflictBanner documentId={documentId} canEdit={canEdit} />
+          ) : null}
+
+          {localSourceConflict ? (
+            <div
+              className="flex flex-wrap items-center gap-2 border-b bg-muted/40 px-4 py-2 text-sm"
+              role="alert"
+              data-local-source-conflict
+            >
+              <span className="me-auto">
+                {t("editor.localFileChangedWithUnsavedEdits")}
+              </span>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  void writeClipboardText(localSourceConflict.unsavedText).then(
+                    (copied) => {
+                      if (copied) {
+                        toast.success(t("editor.unsavedTextCopied"));
+                      } else {
+                        toast.error(
+                          t("editor.toolbar.clipboardAccessUnavailable"),
+                        );
+                      }
+                    },
+                  );
+                }}
+              >
+                {t("editor.copyUnsavedText")}
+              </Button>
+              <Button type="button" size="sm" onClick={useDiskVersion}>
+                {t("editor.useDiskVersion")}
+              </Button>
+            </div>
+          ) : null}
+
+          {localSourceMissing ? (
+            <div
+              className="border-b bg-muted/40 px-4 py-2 text-sm"
+              role="alert"
+              data-local-source-missing
+            >
+              {t("empty.documentNotFound")}
+            </div>
+          ) : null}
+
+          {isLocalFileDocument && localSourceAccess === "unavailable" ? (
+            <div
+              className="border-b bg-muted/20 px-4 py-1.5 text-xs text-muted-foreground"
+              role="status"
+              data-local-source-read-only
+            >
+              {t("editor.localFileReadOnlySnapshot", {
+                device: "Agent Native Desktop",
+                date: new Date(
+                  document.source?.updatedAt ?? document.updatedAt,
+                ).toLocaleString(),
+              })}
+            </div>
           ) : null}
 
           <div
@@ -1978,7 +2310,15 @@ function DocumentEditorBody({
                       // fields.
                       const primaryEditor = (
                         <VisualEditor
-                          key={`${documentId}:${collabEditorEnabled && ydoc ? "live-ready" : canEdit && !isLocalFileDocument ? "live-pending" : `snapshot:${document.updatedAt}`}`}
+                          key={visualEditorInstanceKey({
+                            documentId,
+                            documentUpdatedAt: document.updatedAt,
+                            isLocalFileDocument,
+                            canEdit,
+                            collabEditorEnabled,
+                            hasYDoc: Boolean(ydoc),
+                            localFileSyncRevision,
+                          })}
                           documentId={documentId}
                           content={
                             isLocalFileDocument
@@ -2016,6 +2356,10 @@ function DocumentEditorBody({
                           notionPageLinks={notionPageLinks}
                           onOpenNotionPageLink={handleOpenNotionPageLink}
                           notionPageId={document.notionPageId}
+                          onHistoryControllerChange={
+                            handleHistoryControllerChange
+                          }
+                          onHistoryStateChange={handleHistoryStateChange}
                         />
                       );
 

@@ -327,7 +327,7 @@ const last = await getLatestAgentHarnessSessionForThread(threadId);
 عندما يتوقف الحزام مؤقتًا للموافقة عليه، فإنه يصدر حدث `approval-request` و
 تم وضع علامة `idle` على الجلسة مع تسجيل الموافقة المعلقة، لذا يمكن لـ UI
 أبرزها واستأنفها بناءً على قرار المستخدم. انظر
-[Human Approval](/docs/human-approval) لسطح الموافقة.
+[Human Approval](/docs/actions-access-control#needs-approval) لسطح الموافقة.
 
 ## الأحداث {#events}
 
@@ -417,4 +417,4 @@ registerAgentHarness({
 - [Agent-Native Code UI](/docs/code-agents-ui) — سطح مساحة عمل البرمجة القابلة لإعادة الاستخدام.
 - [Custom Agents & Teams](/docs/agent-teams) — عمليات التشغيل في الخلفية وتفويض الوكيل الفرعي.
 - [Sandbox Adapters](/docs/sandbox-adapters) — واجهات خلفية قابلة للتنفيذ لأدوات البرمجة.
-- [Human Approval](/docs/human-approval) — يتم استخدام مجموعة أحزمة السطح المعتمدة.
+- [Human Approval](/docs/actions-access-control#needs-approval) — يتم استخدام مجموعة أحزمة السطح المعتمدة.

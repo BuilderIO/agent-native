@@ -38,6 +38,7 @@ const requiredKeys = [
   "factoryRoute.defaultFactoryLabel",
   "factoryRoute.savedFactoryLabel",
   "factoryRoute.auditGuardsLabel",
+  "factoryRoute.factorySettings",
 ] as const;
 
 function readKey(source: Record<string, any>, key: string) {

@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "../components/ui/tooltip.js";
+import { registerFirstRunOnboardingExtension } from "./first-run-registry.js";
 import { FirstRunOnboarding } from "./FirstRunOnboarding.js";
 
 const mocks = vi.hoisted(() => ({
@@ -106,6 +107,7 @@ describe("FirstRunOnboarding", () => {
         ],
       },
       completeFirstRun: mocks.completeFirstRun,
+      completeFirstRunError: null,
     });
 
     container = document.createElement("div");
@@ -338,5 +340,82 @@ describe("FirstRunOnboarding", () => {
       "Who should be able to use this connection?",
     );
     expect(mocks.createMcpServerMutation).not.toHaveBeenCalled();
+  });
+
+  // Regression: Skip used to fire-and-forget completeFirstRun() with `void`,
+  // so a failed completion never surfaced — the click looked like it did
+  // nothing, and a rejecting mock here would fail the test via an unhandled
+  // rejection under the old behavior.
+  it("surfaces a failed Skip instead of silently doing nothing", async () => {
+    mocks.completeFirstRun.mockRejectedValue(
+      new Error("first-run completion failed: 500"),
+    );
+    mocks.useOnboarding.mockReturnValue({
+      firstRun: true,
+      loading: false,
+      error: null,
+      profile: {
+        appId: "builder-app",
+        appName: "Builder App",
+        capabilities: [],
+      },
+      completeFirstRun: mocks.completeFirstRun,
+      completeFirstRunError: "first-run completion failed: 500",
+    });
+    registerFirstRunOnboardingExtension({
+      id: "test-extension",
+      component: ({ onSkip }) => (
+        <button type="button" onClick={onSkip}>
+          Extension Skip
+        </button>
+      ),
+    });
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding skipIntegrations />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue")
+        ?.click();
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-use-own-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue")
+        ?.click();
+    });
+    act(() => {
+      document.body
+        .querySelector('[data-testid="first-run-open-app"]')
+        ?.click();
+    });
+
+    expect(document.body.textContent).toContain("Extension Skip");
+
+    await act(async () => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Extension Skip")
+        ?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mocks.completeFirstRun).toHaveBeenCalledTimes(1);
+    // Stays on the same step — no crash, no misleading full-screen bounce —
+    // and the failure is visible with a way forward.
+    expect(document.body.textContent).toContain("Extension Skip");
+    expect(document.body.textContent).toContain(
+      "first-run completion failed: 500",
+    );
+    expect(document.body.textContent).toContain("Try again");
   });
 });

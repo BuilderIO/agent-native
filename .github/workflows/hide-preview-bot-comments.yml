@@ -2,7 +2,14 @@ name: Hide preview bot comments
 
 on:
   issue_comment:
-    types: [created, edited]
+    types: [created]
+
+# Preview providers can post several comments while one deploy settles. The
+# newest run rescans the PR and handles all matching comments, so older runs
+# are safe to cancel instead of occupying the Actions queue.
+concurrency:
+  group: hide-preview-bot-comments-${{ github.event.issue.number || github.run_id }}
+  cancel-in-progress: true
 
 permissions:
   pull-requests: write
@@ -20,11 +27,43 @@ jobs:
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         with:
           script: |
-            const nodeId = context.payload.comment.node_id;
-            await github.graphql(`
-              mutation($id: ID!) {
-                minimizeComment(input: { subjectId: $id, classifier: OUTDATED }) {
-                  minimizedComment { isMinimized }
+            const previewBotLogins = new Set([
+              'cloudflare-workers-and-pages[bot]',
+              'netlify[bot]',
+            ]);
+            const comments = await github.paginate(
+              github.rest.issues.listComments,
+              {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                per_page: 100,
+              },
+            );
+            const commentIds = new Set(
+              comments
+                .filter((comment) =>
+                  previewBotLogins.has(comment.user?.login) && comment.node_id,
+                )
+                .map((comment) => comment.node_id),
+            );
+            const eventComment = context.payload.comment;
+            if (
+              previewBotLogins.has(eventComment?.user?.login) &&
+              eventComment.node_id
+            ) {
+              commentIds.add(eventComment.node_id);
+            }
+
+            for (const id of commentIds) {
+              await github.graphql(`
+                mutation($id: ID!) {
+                  minimizeComment(input: { subjectId: $id, classifier: OUTDATED }) {
+                    minimizedComment { isMinimized }
+                  }
                 }
-              }
-            `, { id: nodeId });
+              `, { id });
+            }
+            core.info(
+              `Minimized ${commentIds.size} preview bot comments on #${context.issue.number}.`,
+            );

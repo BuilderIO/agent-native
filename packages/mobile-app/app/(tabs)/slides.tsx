@@ -1,19 +1,5 @@
-import { TEMPLATE_APPS } from "@agent-native/shared-app-config";
-
-import AppWebView from "@/components/AppWebView";
-import { SafeAreaView } from "@/components/uniwind-interop";
-import { getAppUrl } from "@/lib/get-app-url";
-
-const slides = TEMPLATE_APPS.find((a) => a.id === "slides")!;
+import WorkspaceAppTab from "@/components/WorkspaceAppTab";
 
 export default function SlidesTab() {
-  return (
-    <SafeAreaView edges={["top"]} className="flex-1 bg-background-dark">
-      <AppWebView
-        url={getAppUrl(slides)}
-        captureSessionToken
-        workspaceAppId="slides"
-      />
-    </SafeAreaView>
-  );
+  return <WorkspaceAppTab appId="slides" />;
 }

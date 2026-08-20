@@ -83,4 +83,34 @@ describe("ORG_MIGRATIONS", () => {
       /ALTER TABLE organizations ADD COLUMN IF NOT EXISTS required_auth_provider TEXT/i,
     );
   });
+
+  it("creates the workspace app access tables and org visibility index", () => {
+    const apps = ORG_MIGRATIONS.find((m) => m.version === 1015);
+    const shares = ORG_MIGRATIONS.find((m) => m.version === 1016);
+    const indexes = ORG_MIGRATIONS.find((m) => m.version === 1017);
+
+    expect(apps?.sql).toMatch(/CREATE TABLE IF NOT EXISTS workspace_apps/i);
+    expect(apps?.sql).toMatch(/visibility TEXT NOT NULL DEFAULT 'org'/i);
+    expect(shares?.sql).toMatch(
+      /CREATE TABLE IF NOT EXISTS workspace_app_shares/i,
+    );
+    expect(shares?.sql).toMatch(/principal_type TEXT NOT NULL/i);
+    expect(shares?.sql).toMatch(/principal_id TEXT NOT NULL/i);
+    expect(shares?.sql).toMatch(/created_at TEXT NOT NULL/i);
+    expect(indexes?.sql).toMatch(/workspace_apps_org_visibility_idx/i);
+  });
+
+  it("backfills only ownerless, unshared legacy private apps", () => {
+    const migration = ORG_MIGRATIONS.find((m) => m.version === 1018);
+    const sql = typeof migration?.sql === "string" ? migration.sql : "";
+
+    expect(migration?.name).toBe(
+      "workspace-apps-restore-ownerless-legacy-visibility",
+    );
+    expect(sql).toMatch(/visibility = 'private'/i);
+    expect(sql).toMatch(/TRIM\(owner_email\) = ''/i);
+    expect(sql).toMatch(/NOT EXISTS/i);
+    expect(sql).toMatch(/workspace_app_shares/i);
+    expect(sql).toMatch(/visibility = 'org'/i);
+  });
 });

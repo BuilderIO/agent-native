@@ -31,10 +31,21 @@ import {
 import { buildContentDirectoryPickerBridgeScript } from "../lib/content-directory-picker-bridge.js";
 import { buildGuestThemeScript, type RendererTheme } from "../lib/theme.js";
 import DesktopIdentityGate from "./DesktopIdentityGate.js";
+import { shouldReloadActiveWebview } from "./webview-refresh.js";
 
 const IS_DEV = window.location.protocol !== "file:";
+const DEV_APP_LOAD_TIMEOUT_MS = 60_000;
+const APP_LOAD_TIMEOUT_MS = 15_000;
 export const APP_WEBVIEW_PREFERENCES =
   "contextIsolation=true,nodeIntegration=false,sandbox=true,backgroundThrottling=true";
+
+// The hosted environment switcher redirects authenticated Builder employees
+// from production to beta in a normal browser. Electron child sessions are
+// minted against the configured production origin, so keep first-party
+// production webviews on that same origin unless a beta URL was explicitly
+// supplied. The query is consumed by the hosted app and removed from history.
+const DESKTOP_BETA_OPT_OUT_QUERY_PARAM = "agentNativeBetaOptOut";
+const DESKTOP_BETA_OPT_OUT_DURATION_MS = 24 * 60 * 60 * 1000;
 
 type WebviewTitleUpdatedEvent = Event & { title?: string };
 type WebviewLoadFailedEvent = Event & {
@@ -130,6 +141,14 @@ export function isDesktopIdentityGateEligible(
   return canonical !== undefined;
 }
 
+export function shouldUseDesktopIdentityGate(input: {
+  eligible: boolean;
+  active: boolean;
+  enabled: boolean | null;
+}): boolean {
+  return input.eligible && input.active && input.enabled !== false;
+}
+
 export function shouldSuppressDesktopSignInPrompt(
   app: Pick<AppDefinition, "id">,
   appConfig: Pick<
@@ -139,6 +158,67 @@ export function shouldSuppressDesktopSignInPrompt(
   identityAvailable: boolean,
 ): boolean {
   return identityAvailable && isDesktopIdentityGateEligible(app, appConfig);
+}
+
+export function isDesktopIdentityGateUnauthenticated(
+  status: DesktopIdentityStatus | "checking" | undefined,
+): boolean {
+  return status === "sign-in-required" || status === "failed";
+}
+
+export function isDesktopIdentityAuthenticated(
+  status: DesktopIdentityStatus | "checking" | undefined,
+): boolean {
+  return status === "signed-in";
+}
+
+export function resolveDesktopIdentityStatusForChat(
+  status: DesktopIdentityStatus | "checking",
+  sessionReady: boolean,
+): DesktopIdentityStatus | "checking" {
+  return status === "signed-in" && !sessionReady ? "checking" : status;
+}
+
+export function resolveDesktopIdentityLazySyncStatus(
+  status: DesktopIdentityStatus,
+  synchronized: boolean,
+): DesktopIdentityStatus {
+  // Lazy child fan-out is best-effort. It must not demote a verified
+  // workspace session; the child app owns its fallback login surface.
+  if (status === "signed-in") return "signed-in";
+  return synchronized ? status : "failed";
+}
+
+const DESKTOP_IDENTITY_STATUS_CACHE_TTL_MS = 5 * 60 * 1000;
+const DESKTOP_IDENTITY_STATUS_POLL_INTERVAL_MS = 750;
+const DESKTOP_IDENTITY_STATUS_POLL_ATTEMPTS = 40;
+let rememberedDesktopIdentityStatus: DesktopIdentityStatus | null = null;
+let rememberedDesktopIdentityStatusAt = 0;
+
+export function rememberDesktopIdentityStatus(
+  status: DesktopIdentityStatus,
+  observedAt = Date.now(),
+): void {
+  rememberedDesktopIdentityStatus = status;
+  rememberedDesktopIdentityStatusAt = observedAt;
+}
+
+export function invalidateRememberedDesktopIdentityStatus(): void {
+  rememberedDesktopIdentityStatus = null;
+  rememberedDesktopIdentityStatusAt = 0;
+}
+
+export function shouldReuseRememberedDesktopIdentitySession(
+  status: DesktopIdentityStatus | null,
+  nextStatus?: DesktopIdentityStatus,
+  statusVerifiedAt = Date.now(),
+  now = Date.now(),
+): boolean {
+  return (
+    nextStatus === undefined &&
+    status === "signed-in" &&
+    now - statusVerifiedAt < DESKTOP_IDENTITY_STATUS_CACHE_TTL_MS
+  );
 }
 
 interface AppWebviewProps {
@@ -168,6 +248,10 @@ interface AppWebviewProps {
   onTitleChange?: (title: string) => void;
   /** Emits the guest page's coarse session state for host-owned UI. */
   onAuthStateChange?: (state: AppWebviewAuthState) => void;
+  /** Emits the native desktop identity state for sibling host surfaces. */
+  onDesktopIdentityStatusChange?: (
+    status: DesktopIdentityStatus | "checking",
+  ) => void;
   onAppsChanged?: (apps: AppConfig[]) => void;
 }
 
@@ -220,6 +304,41 @@ export function resolveAppWebviewUrl(
   // Keep incomplete custom entries on a stable blank document instead of
   // silently routing them through the retired local dev frame.
   return "about:blank";
+}
+
+function isFirstPartyProductionOrigin(rawUrl: string): boolean {
+  try {
+    const parsed = new URL(rawUrl);
+    if (parsed.protocol !== "https:") return false;
+    if (parsed.hostname.toLowerCase().startsWith("beta.")) return false;
+    return DESKTOP_DEFAULT_APPS.some((candidate) => {
+      try {
+        return (
+          new URL(resolveAppWebviewUrl(candidate)).origin === parsed.origin
+        );
+      } catch {
+        // coercion-ok: an invalid configured app URL is not a trusted first-party origin.
+        return false;
+      }
+    });
+  } catch {
+    // coercion-ok: an invalid requested URL cannot be a trusted first-party origin.
+    return false;
+  }
+}
+
+export function withDesktopEnvironmentOptOut(rawUrl: string): string {
+  if (!isFirstPartyProductionOrigin(rawUrl)) return rawUrl;
+  try {
+    const target = new URL(rawUrl);
+    target.searchParams.set(
+      DESKTOP_BETA_OPT_OUT_QUERY_PARAM,
+      String(Date.now() + DESKTOP_BETA_OPT_OUT_DURATION_MS),
+    );
+    return target.toString();
+  } catch {
+    return rawUrl;
+  }
 }
 
 function withUrlParams(
@@ -349,6 +468,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       refreshKey = 0,
       onTitleChange,
       onAuthStateChange,
+      onDesktopIdentityStatusChange,
       onAppsChanged,
     }: AppWebviewProps,
     ref,
@@ -359,17 +479,19 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     const [slowLoad, setSlowLoad] = useState(false);
     const [isFullscreen, setIsFullscreen] = useState(false);
     const loadFailureRef = useRef(false);
-    const url = sourceUrl?.trim()
-      ? withUrlParams(sourceUrl.trim(), urlParams)
-      : withUrlParams(
-          withUrlPath(resolveAppWebviewUrl(app, appConfig), urlPath),
-          {
-            ...(appConfig?.mode === "dev" && appConfig.localPath
-              ? { _agentNativeDesktopCode: "1" }
-              : {}),
-            ...urlParams,
-          },
-        );
+    const url = withDesktopEnvironmentOptOut(
+      sourceUrl?.trim()
+        ? withUrlParams(sourceUrl.trim(), urlParams)
+        : withUrlParams(
+            withUrlPath(resolveAppWebviewUrl(app, appConfig), urlPath),
+            {
+              ...(appConfig?.mode === "dev" && appConfig.localPath
+                ? { _agentNativeDesktopCode: "1" }
+                : {}),
+              ...urlParams,
+            },
+          ),
+    );
     const isDevMode = !sourceUrl && appConfig?.mode === "dev";
     const desktopIdentityGateEligible = isDesktopIdentityGateEligible(
       app,
@@ -381,19 +503,42 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     >("idle");
     const [desktopIdentityEnabled, setDesktopIdentityEnabled] = useState<
       boolean | null
-    >(() => (desktopIdentityGateEligible && isActive ? null : false));
+    >(() => (desktopIdentityGateEligible ? null : false));
     const [desktopIdentitySessionReady, setDesktopIdentitySessionReady] =
-      useState(() => !desktopIdentityGateEligible || !isActive);
-    const desktopIdentityGateActive =
-      desktopIdentityGateEligible &&
-      isActive &&
-      desktopIdentityEnabled === true;
+      useState(() => !desktopIdentityGateEligible);
+    const completeDesktopIdentitySignIn = useCallback(async () => {
+      const identity = window.electronAPI?.identity;
+      if (!identity) return false;
+      try {
+        if (!(await identity.signIn())) return false;
+        if (!(await identity.ensureAppSession(app.id))) return false;
+        rememberDesktopIdentityStatus("signed-in");
+        setDesktopIdentityEnabled(true);
+        setDesktopIdentitySessionReady(true);
+        setDesktopIdentityStatus("signed-in");
+        return true;
+      } catch (error) {
+        console.warn("[desktop-identity] inline sign-in failed", {
+          appId: app.id,
+          reason: error instanceof Error ? error.message : "unknown error",
+        });
+        return false;
+      }
+    }, [app.id]);
+    const desktopIdentityGateActive = shouldUseDesktopIdentityGate({
+      eligible: desktopIdentityGateEligible,
+      active: isActive,
+      enabled: desktopIdentityEnabled,
+    });
     const optimizeDepRecoveryRef = useRef(false);
     const prevUrlRef = useRef(url);
     const prevUrlOpenNonceRef = useRef(urlOpenNonce);
     const prevIsActiveRef = useRef(isActive);
     const onTitleChangeRef = useRef(onTitleChange);
     const onAuthStateChangeRef = useRef(onAuthStateChange);
+    const onDesktopIdentityStatusChangeRef = useRef(
+      onDesktopIdentityStatusChange,
+    );
     const perAppChatOpenRef = useRef(false);
 
     const applyGuestTheme = useCallback(() => {
@@ -434,21 +579,55 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     }, [onAuthStateChange]);
 
     useEffect(() => {
+      onDesktopIdentityStatusChangeRef.current = onDesktopIdentityStatusChange;
+    }, [onDesktopIdentityStatusChange]);
+
+    useEffect(() => {
+      onDesktopIdentityStatusChangeRef.current?.(
+        resolveDesktopIdentityStatusForChat(
+          desktopIdentityStatus,
+          desktopIdentitySessionReady,
+        ),
+      );
+    }, [desktopIdentitySessionReady, desktopIdentityStatus]);
+
+    useEffect(() => {
       const identity = window.electronAPI?.identity;
-      if (!identity || !desktopIdentityGateEligible || !isActive) {
+      if (!identity || !desktopIdentityGateEligible) {
         setDesktopIdentityEnabled(false);
         setDesktopIdentityStatus("idle");
         setDesktopIdentitySessionReady(true);
         return;
       }
+      if (!isActive) {
+        const rememberedSignedIn = shouldReuseRememberedDesktopIdentitySession(
+          rememberedDesktopIdentityStatus,
+          undefined,
+          rememberedDesktopIdentityStatusAt,
+        );
+        setDesktopIdentityEnabled(null);
+        setDesktopIdentityStatus(rememberedSignedIn ? "signed-in" : "idle");
+        setDesktopIdentitySessionReady(false);
+        return;
+      }
       let active = true;
       let statusRequest = 0;
-      setDesktopIdentityEnabled(null);
+      const rememberedSignedIn = shouldReuseRememberedDesktopIdentitySession(
+        rememberedDesktopIdentityStatus,
+        undefined,
+        rememberedDesktopIdentityStatusAt,
+      );
+      setDesktopIdentityEnabled(rememberedSignedIn ? true : null);
+      setDesktopIdentityStatus(rememberedSignedIn ? "signed-in" : "idle");
       setDesktopIdentitySessionReady(false);
 
-      const applyStatus = async (status: DesktopIdentityStatus) => {
-        const request = ++statusRequest;
-        if (!active) return;
+      const applyStatus = async (
+        status: DesktopIdentityStatus,
+        request: number,
+        fromRememberedSession = false,
+      ) => {
+        if (!active || request !== statusRequest) return;
+        if (!fromRememberedSession) rememberDesktopIdentityStatus(status);
         setDesktopIdentityStatus(status);
         if (status === "signed-in") {
           setDesktopIdentitySessionReady(false);
@@ -463,8 +642,18 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
             synchronized = null;
           }
           if (!active || request !== statusRequest) return;
-          setDesktopIdentitySessionReady(synchronized === true);
-          if (synchronized !== true) setDesktopIdentityStatus("failed");
+          if (fromRememberedSession && synchronized !== true) {
+            // A failed lazy sync can mean the broker is in the middle of
+            // sign-out while its public status is still signed-in. Do not
+            // keep reusing this renderer cache during that ceremony. Keep the
+            // current verified tab usable until the broker publishes its
+            // authoritative sign-out status or the next activation rechecks.
+            invalidateRememberedDesktopIdentityStatus();
+          }
+          setDesktopIdentitySessionReady(true);
+          setDesktopIdentityStatus(
+            resolveDesktopIdentityLazySyncStatus(status, synchronized === true),
+          );
           return;
         }
         setDesktopIdentitySessionReady(status !== "signing-in");
@@ -473,23 +662,49 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       const applySettingAndStatus = async (
         nextStatus?: DesktopIdentityStatus,
       ) => {
+        const request = ++statusRequest;
+        const reuseRememberedSession =
+          shouldReuseRememberedDesktopIdentitySession(
+            rememberedDesktopIdentityStatus,
+            nextStatus,
+            rememberedDesktopIdentityStatusAt,
+          );
         try {
           const settings = await identity.getSettings();
-          if (!active) return;
+          if (!active || request !== statusRequest) return;
           if (!settings.ssoEnabled) {
+            rememberDesktopIdentityStatus("idle");
             setDesktopIdentityEnabled(false);
             setDesktopIdentityStatus("idle");
             setDesktopIdentitySessionReady(true);
             return;
           }
           setDesktopIdentityEnabled(true);
-          setDesktopIdentityStatus("checking");
-          setDesktopIdentitySessionReady(false);
-          await applyStatus(nextStatus ?? (await identity.getStatus()));
+          const needsRemoteStatus =
+            nextStatus === undefined && !reuseRememberedSession;
+          if (needsRemoteStatus) {
+            setDesktopIdentityStatus("checking");
+            setDesktopIdentitySessionReady(false);
+          }
+          const status =
+            nextStatus ??
+            (reuseRememberedSession ? "signed-in" : await identity.getStatus());
+          await applyStatus(status, request, reuseRememberedSession);
         } catch {
           // An older or unavailable preload must fail closed to the legacy
           // app-owned login surface rather than strand the WebView behind SSO.
-          if (active) {
+          if (active && request === statusRequest) {
+            if (
+              shouldReuseRememberedDesktopIdentitySession(
+                rememberedDesktopIdentityStatus,
+                undefined,
+                rememberedDesktopIdentityStatusAt,
+              )
+            ) {
+              setDesktopIdentityEnabled(true);
+              await applyStatus("signed-in", request, true);
+              return;
+            }
             setDesktopIdentityEnabled(false);
             setDesktopIdentityStatus("idle");
             setDesktopIdentitySessionReady(true);
@@ -506,6 +721,65 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         unsubscribe();
       };
     }, [app.id, desktopIdentityGateEligible, isActive]);
+
+    useEffect(() => {
+      const identity = window.electronAPI?.identity;
+      if (
+        !identity ||
+        !desktopIdentityGateEligible ||
+        !isActive ||
+        desktopIdentityStatus !== "signing-in"
+      ) {
+        return;
+      }
+
+      let active = true;
+      let attempts = 0;
+      let pending = false;
+      const reconcile = async () => {
+        if (!active || pending) return;
+        pending = true;
+        attempts += 1;
+        try {
+          const status = await identity.getStatus();
+          if (!active) return;
+          if (status === "signed-in") {
+            const synchronized = await identity.ensureAppSession(app.id);
+            if (active && synchronized) {
+              rememberDesktopIdentityStatus("signed-in");
+              setDesktopIdentityEnabled(true);
+              setDesktopIdentitySessionReady(true);
+              setDesktopIdentityStatus("signed-in");
+              return;
+            }
+          } else {
+            setDesktopIdentitySessionReady(true);
+            setDesktopIdentityStatus(status);
+            return;
+          }
+
+          if (attempts >= DESKTOP_IDENTITY_STATUS_POLL_ATTEMPTS) {
+            setDesktopIdentityStatus("failed");
+          }
+        } catch {
+          if (attempts >= DESKTOP_IDENTITY_STATUS_POLL_ATTEMPTS) {
+            setDesktopIdentityStatus("failed");
+          }
+        } finally {
+          pending = false;
+        }
+      };
+
+      void reconcile();
+      const timer = window.setInterval(
+        () => void reconcile(),
+        DESKTOP_IDENTITY_STATUS_POLL_INTERVAL_MS,
+      );
+      return () => {
+        active = false;
+        window.clearInterval(timer);
+      };
+    }, [app.id, desktopIdentityGateEligible, desktopIdentityStatus, isActive]);
 
     useImperativeHandle(
       ref,
@@ -807,15 +1081,29 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     // Cmd+R — reload the active webview when refreshKey increments
     const prevRefreshKey = useRef(refreshKey);
     useEffect(() => {
-      if (refreshKey > 0 && refreshKey !== prevRefreshKey.current) {
-        prevRefreshKey.current = refreshKey;
-        const wv = webviewRef.current;
-        if (wv && isActive && !app.placeholder) {
-          try {
-            wv.reloadIgnoringCache();
-          } catch {
-            wv.reload();
-          }
+      const previousRefreshKey = prevRefreshKey.current;
+      if (
+        !shouldReloadActiveWebview({
+          previousRefreshKey,
+          refreshKey,
+          isActive,
+          isPlaceholder: app.placeholder ?? false,
+        })
+      ) {
+        return;
+      }
+
+      // Keep a refresh pending while this webview is hidden. The shell sends
+      // one shared key to all mounted apps, so an inactive app must consume it
+      // only when it can actually apply the reload.
+      prevRefreshKey.current = refreshKey;
+
+      const wv = webviewRef.current;
+      if (wv) {
+        try {
+          wv.reloadIgnoringCache();
+        } catch {
+          wv.reload();
         }
       }
     }, [refreshKey, isActive, app.placeholder]);
@@ -870,18 +1158,21 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     useEffect(() => {
       if (app.placeholder || error || !isLoading) return;
       const slowT = setTimeout(() => setSlowLoad(true), 2500);
-      const failT = setTimeout(() => {
-        if (isLoading) {
-          loadFailureRef.current = true;
-          setError(true);
-          setIsLoading(false);
-        }
-      }, 8000);
+      const failT = setTimeout(
+        () => {
+          if (isLoading) {
+            loadFailureRef.current = true;
+            setError(true);
+            setIsLoading(false);
+          }
+        },
+        isDevMode ? DEV_APP_LOAD_TIMEOUT_MS : APP_LOAD_TIMEOUT_MS,
+      );
       return () => {
         clearTimeout(slowT);
         clearTimeout(failT);
       };
-    }, [app.placeholder, error, isLoading, url]);
+    }, [app.placeholder, error, isDevMode, isLoading, url]);
 
     // Auto-focus the webview when it becomes active so keyboard events
     // (e.g. Tab to cycle mail filters) go to the app, not the shell.
@@ -889,16 +1180,12 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       if (isActive && !app.placeholder && !error) {
         const wv = webviewRef.current;
         if (wv) {
-          // Try focusing immediately, then retry — the webview needs a
-          // moment after becoming visible (visibility: hidden → visible)
-          // and the sidebar click may have stolen focus.
-          wv.focus();
-          const t1 = setTimeout(() => wv.focus(), 80);
-          const t2 = setTimeout(() => wv.focus(), 250);
-          return () => {
-            clearTimeout(t1);
-            clearTimeout(t2);
-          };
+          // Focus once after the slot becomes visible. Repeated focus calls
+          // trigger focus-aware data refreshes in embedded apps.
+          const frame = requestAnimationFrame(() => {
+            if (document.activeElement !== wv) wv.focus();
+          });
+          return () => cancelAnimationFrame(frame);
         }
       }
     }, [isActive, app.placeholder, error]);
@@ -975,13 +1262,6 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     return (
       <div
         className={`webview-slot${isActive ? " webview-slot--active" : " webview-slot--hidden"}${isFullscreen ? " webview-slot--fullscreen" : ""}`}
-        onClick={() => {
-          // Re-focus the webview when clicking the content area so
-          // keyboard shortcuts (Tab, etc.) route into the app.
-          if (isActive && !app.placeholder && !error) {
-            webviewRef.current?.focus();
-          }
-        }}
       >
         {app.placeholder && <PlaceholderScreen app={app} />}
 
@@ -1057,9 +1337,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
           <DesktopIdentityGate
             appName={app.name}
             status={desktopIdentityStatus}
-            onSignIn={() =>
-              window.electronAPI?.identity?.signIn() ?? Promise.resolve(false)
-            }
+            onSignIn={completeDesktopIdentitySignIn}
             onAuthenticate={(request) =>
               window.electronAPI?.identity?.authenticate(request) ??
               Promise.resolve({

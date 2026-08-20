@@ -20,6 +20,15 @@ describe("DesignEditor Interact URL command", () => {
     });
   });
 
+  it("opens a focused screen with editing chrome when the host asks for it", () => {
+    expect(
+      designEditorCommandFromSearchParams(
+        "design-123",
+        new URLSearchParams("view=single&screen=screen-123&mode=edit"),
+      ),
+    ).toMatchObject({ editorView: "single", mode: "edit" });
+  });
+
   it("does not honor Interact mode outside the focused view", () => {
     expect(
       designEditorCommandFromSearchParams(

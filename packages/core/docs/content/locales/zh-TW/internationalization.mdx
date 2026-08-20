@@ -1,25 +1,21 @@
 ---
 title: "國際化"
-description: "使用共用區域設定目錄、語言選取器、瀏覽器語言回退和區域設定感知檔案內容本機化 Agent-Native 應用。"
+description: "使用共用區域設定目錄、語言選取器和瀏覽器語言回退來本機化 Agent Native 應用程式。"
 ---
 
 # 國際化
 
-Agent-Native 應用程式可以透過共用本機化框架和範本 UI
-`@agent-native/core/client/i18n` 執行時。框架儲存使用者的
-SQL 設定中的語言選取，將其公開為 actions，並回退到
-當應用尚未翻譯字串時為英語。
+Agent Native 應用程式可以透過共用的 `@agent-native/core/client/i18n`
+執行時來本機化框架與範本 UI。框架會將使用者的語言選擇儲存在 SQL
+設定中，將其公開為 actions，並在應用程式尚未翻譯某個字串時回退到英語。
 
 ## 執行時
 
-透過`AppProviders`使用提供者：
+透過 `AppProviders` 使用該提供者。
 
 ```tsx
-import {
-  AppProviders,
-} from "@agent-native/core/client/hooks"import {
-  getLocaleInitScript,
-} from "@agent-native/core/client/i18n"
+import { AppProviders } from "@agent-native/core/client/hooks";
+import { getLocaleInitScript } from "@agent-native/core/client/i18n";
 import { i18nCatalog } from "./i18n";
 
 const LOCALE_INIT_SCRIPT = getLocaleInitScript();
@@ -34,103 +30,92 @@ const LOCALE_INIT_SCRIPT = getLocaleInitScript();
 </AppProviders>;
 ```
 
-`getLocaleInitScript()` 設定初始 `lang`、`dir` 和
-`window.__AGENT_NATIVE_LOCALE__` 在 React 水合之前。公開SSR路由可以
-從`@agent-native/core/server`呼叫`resolveLocaleFromRequest()`並傳遞
-將區域設定/目錄解析到該指令碼中以避免水合不匹配。
+`getLocaleInitScript()` 會在 React 水合之前設定初始的 `lang`、`dir`
+和 `window.__AGENT_NATIVE_LOCALE__`。公開的 SSR 路由可以呼叫
+`@agent-native/core/server` 的 `resolveLocaleFromRequest()`，並將解析出的
+區域設定或目錄傳入該指令碼，以避免水合不匹配。
 
 ## 目錄
 
-每個本機化範本都將目錄儲存在 `app/i18n/` 下：
+每個本機化的範本都會將目錄存放在 `app/i18n/` 下。
 
-```ts
-// app/i18n/index.ts
+```ts filename="app/i18n/index.ts"
+import { createAgentNativeI18nCatalog } from "@agent-native/core/client/i18n";
 import enUS from "./en-US";
-import type { AgentNativeI18nCatalog } from "@agent-native/core/client/i18n";
-export const i18nCatalog = {
-  sourceLocale: "en-US",
+
+export const i18nCatalog = createAgentNativeI18nCatalog({
   messages: enUS,
-  loadMessages: async (locale) => {
-    switch (locale) {
-      case "zh-CN":
-        return (await import("./zh-CN")).default;
-      default:
-        return null;
-    }
+  localeLoaders: {
+    "zh-CN": () => import("./zh-CN"),
+    "zh-TW": () => import("./zh-TW"),
+    "es-ES": () => import("./es-ES"),
+    "fr-FR": () => import("./fr-FR"),
+    "de-DE": () => import("./de-DE"),
+    "ja-JP": () => import("./ja-JP"),
+    "ko-KR": () => import("./ko-KR"),
+    "pt-BR": () => import("./pt-BR"),
+    "hi-IN": () => import("./hi-IN"),
+    "ar-SA": () => import("./ar-SA"),
   },
-} satisfies AgentNativeI18nCatalog;
+});
 ```
 
-始終捆綁 `en-US`。動態匯入非英語目錄，僅限使用者
-下載活動區域設定。支援的區域設定程式碼為 `en-US`、`zh-CN`、`zh-TW`、
-`es-ES`、`fr-FR`、`de-DE`、`ja-JP`、`ko-KR`、`pt-BR`、`hi-IN` 和 `ar-SA`。
+`messages` 會直接捆綁 `en-US`，所以在任何區域設定載入之前它一定可用。
+`localeLoaders` 會動態匯入其他每一個目錄，讓使用者只下載目前使用中的
+區域設定。支援的區域設定代碼為 `en-US`、`zh-CN`、`zh-TW`、`es-ES`、
+`fr-FR`、`de-DE`、`ja-JP`、`ko-KR`、`pt-BR`、`hi-IN` 和 `ar-SA`。
+
+這份清單是由框架固定的，並不只是這個範例剛好捆綁了哪些項目。
+`LocaleCode` 是一個恰好由這些代碼組成的 TypeScript 聯合型別，
+而 `set-localization-preference` 在執行時會拒絕任何其他值。每個
+區域設定也需要框架維護的中繼資料，例如右到左語言的文字方向。新增
+一個區域設定代表要擴充框架本身，而不是在應用程式裡加一個目錄檔案。
+
+`createAgentNativeI18nCatalog` 也接受一個選用的 `sourceLocale`（預設為
+`en-US`）以及一個選用的 `supportedLocales` 陣列。當應用程式只為框架
+支援的十種區域設定中的一部分提供翻譯，而不是全部都提供時，就設定
+`supportedLocales`。它預設為框架支援的每一個區域設定。`LanguagePicker`
+只會列出這個集合中的區域設定，任何在此集合之外被偵測到或被要求的
+區域設定都會回退到 `sourceLocale`。
 
 ## UI
 
-使用 `useT()` 作為介面字串，並將 `<LanguagePicker />` 放在應用程式的
-`/settings` 頁面。側邊欄應用程式應在應用程式側邊欄中公開**設定**；
-標題語言圖示只是一個快捷方式。
+使用 `useT()` 來翻譯介面字串。
 
 ```tsx
-import {
-  LanguagePicker,
-  useT,
-} from "@agent-native/core/client/i18n"import {
-  openAgentSettings,
-} from "@agent-native/core/client/navigation"
-function SettingsPage() {
-  const t = useT();
-  return (
-    <>
-      <h2>{t("settings.languageTitle")}</h2>
-      <LanguagePicker label={t("settings.languageLabel")} />
+import { useT } from "@agent-native/core/client/i18n";
 
-      <h2>{t("settings.agentTitle")}</h2>
-      <p>{t("settings.agentDescription")}</p>
-      <button type="button" onClick={() => openAgentSettings()}>
-        {t("settings.openAgentSettings")}
-      </button>
-    </>
-  );
+function Greeting({ name }: { name: string }) {
+  const t = useT();
+  return <p>{t("greeting.hello", { name })}</p>;
 }
 ```
 
-“代理設定”控制項應開啟右側代理側邊欄的“設定”分頁
-用於模型、API 按鍵、自動化、語音和其他框架級控制項。
-應用可能會在自己的設定頁面中複製高價值的框架設定
-當設定是應用程式的核心，但側邊欄設定分頁仍然是
-事實來源。
+使用 `useFormatters()` 來處理日期、數字、相對時間和清單。不要把區域
+設定敏感的日期或數字格式放進翻譯字串裡。
 
-使用 `useFormatters()` 表示日期、數字、相對時間和清單。不要放
-翻譯字串中區域設定敏感的日期/數字格式。
+把 `<LanguagePicker />` 放在應用程式讓使用者變更語言的位置。標準
+設定頁面的做法，包括 `openAgentSettings()` 適合放在哪裡，請參閱
+[Toolkit: Settings](/docs/toolkit-settings)。
 
-## 檔案網站內容 {#docs-site-content}
-
-公開檔案頁面使用相同的核心提供者，但具有
-`persistPreference={false}` 因此匿名檔案流量使用 localStorage 和
-瀏覽器語言而不是 SQL 設定 actions。英文來源程式碼保留在
-`packages/core/docs/content/*.md`。本機化頁面覆蓋其旁邊的即時頁面
-`packages/core/docs/content/locales/<locale>/<slug>.md`.
-
-使用與應用程式目錄相同的 BCP-47 區域設定程式碼。保留與
-英文來源，在翻譯的標題上使用 `{#anchor}` 保留穩定的錨點，
-並留下路由、操作名稱、協議欄位、環境變數和提供者名稱
-未翻譯。如果某個語言環境沒有為頁面翻譯 Markdown，則檔案站點
-該頁面恢復為英語，同時仍本機化導覽和 Chrome。
-
-Docs Markdown 可能包含結構化的 `an-*` 可視塊。請在合理時翻譯其中面向使用者的文字欄位，例如 file-tree 標題和 `entries[].note`、callout 內文、tab 標籤以及 annotated-code 的 labels/notes。保持穩定識別碼不變：檔名、路徑、env vars、路由字串、action 名稱、language tags、程式碼片段、JSON keys 和協議名稱。
-
-## Actions和堅持
+## Actions 與持久性
 
 每個應用程式都會繼承：
 
-- `get-localization-preference` — 讀取目前使用者的`{ locale }`
-- `set-localization-preference` — 設定 `"system"` 或支援的區域設定
+- `get-localization-preference` — 讀取目前使用者的 `{ locale, timezone }`
+- `set-localization-preference` — 設定 `locale` 或 `timezone`，兩者皆為選填
 
-持久值存在於 `localization` 下的使用者範圍 SQL 設定中。
-`localStorage` 僅用於預水合和匿名回退。主動
-區域設定作為環境脈絡鏡像到應用程式狀態中，以便代理可以看到
-目前介面語言。
+`locale` 是 `"system"` 或某個受支援的 BCP-47 區域設定。`timezone` 是
+`"system"` 或一個 IANA 時區，例如 `America/New_York`。它的存在是為了
+讓排程與自動化工作在使用者的時區執行，而不是在主機的時區執行。只
+設定其中一個欄位時，另一個欄位會維持不變，因為
+`set-localization-preference` 會將新值合併到既有的儲存值上，而不是
+整個覆寫它。
+
+持久值存放在 `localization` 底下、使用者範圍的 SQL 設定中。
+`localStorage` 只用於水合前與匿名情境下的回退。目前使用中的區域
+設定會以環境脈絡的形式鏡射進應用程式狀態，讓代理可以看到目前的
+介面語言。
 
 ## 守衛
 
@@ -140,11 +125,22 @@ Docs Markdown 可能包含結構化的 `an-*` 可視塊。請在合理時翻譯�
 pnpm guard:i18n-catalogs
 ```
 
-守衛驗證支援的區域設定檔名、金鑰對等、預留位置對等，
-過時的金鑰，以及 CLDR 複數類別到 `Intl.PluralRules`。它檢查
-結構，而不是翻譯品質；高可見度字串仍然需要人類
+針對應用程式與範本目錄，這個守衛會檢查：
+
+- 區域設定檔名、金鑰對等、預留位置對等，以及過時的金鑰
+- 重複的金鑰，以及殘留的僅限開發用標記
+- 錯誤的文字系統混入，例如阿拉伯文目錄裡出現中文文字
+- 透過 `Intl.PluralRules` 檢查 CLDR 複數類別
+- 應用程式原始碼中呼叫 `t()` 時，其金鑰在英語目錄裡找不到的情況
+
+這個守衛檢查的是結構，而不是翻譯品質。高能見度的字串仍然需要人工
 審查。
 
-不要翻譯穩定的識別碼，例如操作名稱、路由、枚舉值，
-應用程式狀態鍵、資料庫值、協議欄位、環境變數名稱或提供者
-名字。
+不要翻譯穩定的識別碼，例如 action 名稱、路由、列舉值、應用程式狀態
+金鑰、資料庫值、協議欄位、環境變數名稱或提供者名稱。
+
+## 下一步是什麼
+
+- [**總覽**](/docs/client-overview#app-shell) — i18n 所依賴的 `AppProviders` 包裝器與其他瀏覽器掛鉤
+- [**Toolkit: Settings**](/docs/toolkit-settings) — 把 `<LanguagePicker>` 放到標準設定頁面上
+- [**開始使用**](/docs/getting-started) — 在一個已經內建本機化目錄的範本上建置你的第一個應用程式

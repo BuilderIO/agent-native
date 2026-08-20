@@ -1,0 +1,101 @@
+---
+title: "Production Agent Access"
+description: "Control which framework tools and code-execution capabilities a deployed production agent has, through frameworkTools and codeExecution."
+---
+
+# Production Agent Access
+
+## Production Agent Tools {#production-agent-tools}
+
+Production agents get the app's registered actions plus the framework's own
+tools. `frameworkTools` selects which of those framework tools this app exposes.
+Every group defaults to today's behavior, so omitting the option changes
+nothing:
+
+```ts filename="server/plugins/agent-chat.ts"
+export default createAgentChatPlugin({
+  frameworkTools: {
+    database: "read", // "write" | "read" | "off", default "read"
+    extensions: true, // default false
+    sharing: false, // this app has no share surface
+    review: false,
+  },
+});
+```
+
+```ts filename="server/plugins/core-routes.ts"
+export default createCoreRoutesPlugin({
+  extensionTools: true,
+});
+```
+
+`database` and `extensions` accept the values the old top-level flags did:
+
+- `database: "read"`. Default. Registers only `db-schema` and `db-query`.
+  Agents inspect data with SQL but must use typed app actions for writes.
+- `database: "write"` or `true`. Additionally registers `db-exec` and
+  `db-patch` for deliberate raw SQL maintenance. Writes are scoped to the
+  current user/org and schema changes are blocked.
+- `database: "off"` or `false`. Removes raw database tools from the
+  agent surface so the app's actions are the only data access path.
+- `extensions: true`. Opts the app into framework extension-management
+  actions and prompt guidance (`create-extension`, `update-extension`, etc.).
+  Set `extensionTools: true` on the core-routes plugin as well to allow
+  authenticated REST creation. Extensions are disabled by default.
+
+The remaining groups are booleans, all on by default: `sharing`, `review`,
+`history`, `featureFlags`, `localization`, `audit`, `contextXray`,
+`userProfile`, `automation`, `docs`, `resources`, `web`, `workspaceApps`,
+`chat`, and `email`. Use `frameworkTools: "minimal"` to turn every group off at
+once for a voice-first or single-purpose app, or
+`frameworkTools: { preset: "minimal", resources: true }` to keep just one. An
+explicit group key always wins over the preset.
+
+Switching a group off removes it from the **agent** surfaces only: interactive
+chat, MCP, A2A, and background runs. The matching HTTP action routes stay
+mounted, because the UI reaches them through client hooks. Disabling `sharing`
+must not 404 a share dialog that is still on screen. Weigh that parity cost
+before using it: the framework's contract is that anything the UI can do the
+agent can do, so `sharing: false` alongside a visible share button is a
+deliberate break, and only makes sense when the app has no such surface at all.
+
+Framework tools are no longer promoted into the first model request by default,
+independent of this option. They stay in the searchable registry and load
+through `tool-search`, or immediately if the app names them in
+`initialToolNames`.
+
+<Callout tone="warning">
+  The top-level `databaseTools` and `extensionTools` options are deprecated in
+  favor of `frameworkTools.database` and `frameworkTools.extensions`. They are
+  still honored, but setting a top-level flag and its `frameworkTools`
+  equivalent to conflicting values throws at plugin startup rather than booting
+  with a tool surface nobody chose.
+</Callout>
+
+## Production Code Execution {#production-code-execution}
+
+By default, production agents run without code-execution tools. They can call app actions, database tools, MCP tools, browser/session tools, and other registered framework tools, but they do not get shell or filesystem access.
+
+Node-compatible deployments can opt into production code execution through the agent chat plugin or an environment override:
+
+```ts filename="server/plugins/agent-chat.ts"
+export default createAgentChatPlugin({
+  codeExecution: { production: "sandboxed" },
+});
+```
+
+The available modes are:
+
+- `off`. The default. No code-execution tools are registered in production.
+- `sandboxed`. Registers `run-code`, an isolated Node.js JavaScript runner with a scrubbed environment, a fresh temp directory, output/time limits, and a localhost bridge to allowlisted registered tools such as `provider-api-request`, `provider-api-docs`, `provider-api-catalog`, `web-request`, and the Resources-backed workspace file bridge used by `workspaceRead` / `workspaceWrite`.
+- `trusted`. Registers `run-code` plus the full coding tool registry (`bash`, `read`, `edit`, `write`). Use this only for single-tenant or operator-controlled deployments where full shell access to the host is intentional.
+
+Set `AGENT_PROD_CODE_EXECUTION=sandboxed` or `AGENT_PROD_CODE_EXECUTION=trusted` to override the plugin option for a specific deployment without a code change. `AGENT_PROD_CODE_EXECUTION=off` forces code execution off even when the plugin option enables it.
+
+The `run-code` sandbox is process-level isolation, not an OS container. It strips app secrets from the child process environment and uses the Node permission model when available, but outbound network is not blocked by Node itself. Authenticated calls should go through the bridge helpers the tool exposes.
+
+## What's next
+
+- [**Actions: Access & Authorization**](/docs/actions-access-control) — the per-action access-control axes this page's tool-level gating complements
+- [**Updating UI in Production**](/docs/updating-ui-in-production) — what a deployed agent can and can't edit with code execution left off
+- [**Deployment: Environment Variables**](/docs/deployment-environment-variables) — `AGENT_PROD_CODE_EXECUTION` and other production env vars

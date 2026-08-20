@@ -74,6 +74,7 @@ vi.mock("drizzle-orm", () => ({
   desc: (value: unknown) => value,
   eq: (left: unknown, right: unknown) => ({ left, right }),
   isNull: (value: unknown) => ({ isNull: value }),
+  sql: (...values: unknown[]) => values,
 }));
 
 vi.mock("../server/db/index.js", () => ({

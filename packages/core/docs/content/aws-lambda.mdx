@@ -1,0 +1,36 @@
+---
+title: "AWS Lambda"
+description: "Deploy an Agent-Native app to AWS Lambda with Nitro's aws-lambda preset."
+search: "AWS Lambda deployment Nitro preset serverless"
+---
+
+# AWS Lambda
+
+Use Nitro's `aws-lambda` preset to build a Lambda-compatible server bundle.
+The Lambda filesystem is temporary, so store application data in a persistent
+SQL provider.
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "aws-lambda" } })],
+});
+```
+
+Build the function bundle:
+
+```bash
+npx @agent-native/core@latest build
+```
+
+Publish the generated output with AWS SAM, CDK, Serverless Framework, or the
+AWS console. Configure `DATABASE_URL`, `BETTER_AUTH_SECRET`, and any app
+secrets in Lambda environment variables or AWS Secrets Manager.
+
+See [Nitro's AWS Lambda provider guide](https://nitro.build/deploy/providers/aws)
+for provider-specific packaging and streaming options.
+
+## What's next
+
+- [**Deploy an app**](/docs/deploy-an-app) - the complete app path
+- [**Deployment environment variables**](/docs/deployment-environment-variables) - production configuration
+- [**Deno Deploy**](/docs/deno-deploy) - another serverless runtime

@@ -1,0 +1,132 @@
+---
+title: "Zugriff für Produktionsagenten"
+description: "Steuern Sie, welche Framework-Tools und Code-Ausführungsfähigkeiten ein bereitgestellter Produktionsagent hat, über frameworkTools und codeExecution."
+---
+
+# Zugriff für Produktionsagenten
+
+## Produktions-Agent-Tools {#production-agent-tools}
+
+Produktionsagenten erhalten die registrierten Actions der App plus die eigenen
+Tools des Frameworks. `frameworkTools` wählt aus, welche dieser
+Framework-Tools diese App offenlegt. Jede Gruppe ist standardmäßig auf das
+heutige Verhalten gesetzt, sodass das Weglassen der Option nichts ändert:
+
+```ts filename="server/plugins/agent-chat.ts"
+export default createAgentChatPlugin({
+  frameworkTools: {
+    database: "read", // "write" | "read" | "off", default "read"
+    extensions: true, // default false
+    sharing: false, // this app has no share surface
+    review: false,
+  },
+});
+```
+
+```ts filename="server/plugins/core-routes.ts"
+export default createCoreRoutesPlugin({
+  extensionTools: true,
+});
+```
+
+`database` und `extensions` akzeptieren dieselben Werte wie die alten
+Top-Level-Flags:
+
+- `database: "read"`. Standard. Registriert nur `db-schema` und `db-query`.
+  Agenten prüfen Daten mit SQL, müssen für Schreibvorgänge aber typisierte
+  App-Actions verwenden.
+- `database: "write"` oder `true`. Registriert zusätzlich `db-exec` und
+  `db-patch` für bewusste rohe SQL-Wartung. Schreibvorgänge sind auf den
+  aktuellen Benutzer/die aktuelle Organisation beschränkt, und
+  Schemaänderungen werden blockiert.
+- `database: "off"` oder `false`. Entfernt rohe Datenbank-Tools aus der
+  Agentenoberfläche, sodass die Actions der App der einzige Datenzugriffspfad
+  sind.
+- `extensions: true`. Aktiviert für die App die Framework-Actions und
+  Prompt-Anleitung zur Erweiterungsverwaltung (`create-extension`,
+  `update-extension` usw.). Legen Sie `extensionTools: true` auch auf dem
+  Core-Routes-Plugin fest, um authentifizierte REST-Erstellung zu erlauben.
+  Erweiterungen sind standardmäßig deaktiviert.
+
+Die übrigen Gruppen sind Booleans und standardmäßig alle aktiviert: `sharing`,
+`review`, `history`, `featureFlags`, `localization`, `audit`, `contextXray`,
+`userProfile`, `automation`, `docs`, `resources`, `web`, `workspaceApps`,
+`chat` und `email`. Verwenden Sie `frameworkTools: "minimal"`, um alle Gruppen
+auf einmal für eine Voice-First- oder Einzweck-App abzuschalten, oder
+`frameworkTools: { preset: "minimal", resources: true }`, um genau eine zu
+behalten. Ein explizit gesetzter Gruppenschlüssel gewinnt immer gegen das
+Preset.
+
+Das Abschalten einer Gruppe entfernt sie nur aus den **Agent**-Oberflächen:
+interaktivem Chat, MCP, A2A und Hintergrundläufen. Die zugehörigen
+HTTP-Action-Routen bleiben eingebunden, weil die UI sie über Client-Hooks
+erreicht. Das Deaktivieren von `sharing` darf keinen Freigabe-Dialog, der noch
+auf dem Bildschirm ist, mit einem 404 abbrechen lassen. Wägen Sie diesen
+Paritätsverlust ab, bevor Sie es verwenden: Der Vertrag des Frameworks lautet,
+dass alles, was die UI kann, auch der Agent kann. `sharing: false` neben einem
+sichtbaren Freigabe-Button ist also ein bewusster Bruch und ergibt nur Sinn,
+wenn die App überhaupt keine solche Oberfläche hat.
+
+Framework-Tools werden standardmäßig nicht mehr in die erste Modellanfrage
+befördert, unabhängig von dieser Option. Sie bleiben im durchsuchbaren
+Registry und werden über `tool-search` geladen, oder sofort, wenn die App sie
+in `initialToolNames` nennt.
+
+<Callout tone="warning">
+  Die Top-Level-Optionen `databaseTools` und `extensionTools` sind zugunsten von
+  `frameworkTools.database` und `frameworkTools.extensions` veraltet. Sie werden
+  weiterhin berücksichtigt, aber das Setzen einer Top-Level-Option und ihres
+  `frameworkTools`-Gegenstücks auf widersprüchliche Werte wirft beim
+  Plugin-Start einen Fehler, statt mit einer Tool-Oberfläche zu starten, die
+  niemand gewählt hat.
+</Callout>
+
+## Produktions-Code-Ausführung {#production-code-execution}
+
+Standardmäßig laufen Produktionsagenten ohne Code-Ausführungstools. Sie können
+App-Actions, Datenbank-Tools, MCP-Tools, Browser-/Sitzungstools und andere
+registrierte Framework-Tools aufrufen, erhalten aber keinen Shell- oder
+Dateisystemzugriff.
+
+Node-kompatible Bereitstellungen können über das Agent-Chat-Plugin oder eine
+Umgebungsüberschreibung in die Produktions-Code-Ausführung einsteigen:
+
+```ts filename="server/plugins/agent-chat.ts"
+export default createAgentChatPlugin({
+  codeExecution: { production: "sandboxed" },
+});
+```
+
+Die verfügbaren Modi sind:
+
+- `off`. Der Standard. In Produktion sind keine Code-Ausführungstools
+  registriert.
+- `sandboxed`. Registriert `run-code`, einen isolierten Node.js-JavaScript-Runner
+  mit bereinigter Umgebung, einem frischen temporären Verzeichnis,
+  Ausgabe-/Zeitlimits und einer Localhost-Brücke zu zugelassenen registrierten
+  Tools wie `provider-api-request`, `provider-api-docs`, `provider-api-catalog`,
+  `web-request` und der ressourcengestützten Workspace-Dateibrücke, die von
+  `workspaceRead` / `workspaceWrite` verwendet wird.
+- `trusted`. Registriert `run-code` plus die vollständige Coding-Tool-Registry
+  (`bash`, `read`, `edit`, `write`). Verwenden Sie das nur für Einzelmandanten-
+  oder betreibergesteuerte Bereitstellungen, bei denen voller Shell-Zugriff auf
+  den Host beabsichtigt ist.
+
+Legen Sie `AGENT_PROD_CODE_EXECUTION=sandboxed` oder
+`AGENT_PROD_CODE_EXECUTION=trusted` fest, um die Plugin-Option für eine
+bestimmte Bereitstellung ohne Codeänderung zu überschreiben.
+`AGENT_PROD_CODE_EXECUTION=off` erzwingt die Deaktivierung der Code-Ausführung,
+selbst wenn die Plugin-Option sie aktiviert.
+
+Die `run-code`-Sandbox ist eine Isolierung auf Prozessebene, kein
+Betriebssystem-Container. Sie entfernt App-Secrets aus der Umgebung des
+untergeordneten Prozesses und verwendet, wo verfügbar, das
+Node-Berechtigungsmodell, aber ausgehender Netzwerkverkehr wird nicht von Node
+selbst blockiert. Authentifizierte Aufrufe sollten über die Bridge-Helper
+laufen, die das Tool bereitstellt.
+
+## Was kommt als nächstes?
+
+- [**Actions: Zugriff & Autorisierung**](/docs/actions-access-control) — die Zugriffskontroll-Achsen pro Action, die die Tool-Ebenen-Gates dieser Seite ergänzen
+- [**UI in der Produktion aktualisieren**](/docs/updating-ui-in-production) — was ein bereitgestellter Agent mit deaktivierter Code-Ausführung bearbeiten kann und was nicht
+- [**Bereitstellung: Umgebungsvariablen**](/docs/deployment-environment-variables) — `AGENT_PROD_CODE_EXECUTION` und andere Produktions-Umgebungsvariablen

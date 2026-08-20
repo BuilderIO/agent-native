@@ -347,7 +347,7 @@ export function VoiceTranscriptionSection({
 
   const openBuilderConnect = () => {
     openBuilderConnectPopup({
-      url: builderStatus?.cliAuthUrl ?? builderStatus?.connectUrl,
+      url: builderStatus?.connectUrl,
       source: "voice_transcription_settings",
       features: "noopener,noreferrer,width=600,height=700",
     });

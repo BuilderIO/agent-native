@@ -21,6 +21,8 @@ let syncLocalFolder: typeof import("./sync-local-folder-source.js").default;
 let disconnectLocalFolder: typeof import("./disconnect-local-folder-source.js").default;
 let resolveLocalFolderConflict: typeof import("./resolve-local-folder-conflict.js").default;
 let syncManifestLocalFolder: typeof import("./sync-manifest-local-folder-source.js").default;
+let getContentDatabaseSource: typeof import("./get-content-database-source.js").default;
+let getContentDatabase: typeof import("./get-content-database.js").default;
 let provisionContentSpaces: typeof import("./_content-spaces.js").provisionContentSpaces;
 
 beforeAll(async () => {
@@ -47,6 +49,9 @@ beforeAll(async () => {
   syncManifestLocalFolder = (
     await import("./sync-manifest-local-folder-source.js")
   ).default;
+  getContentDatabaseSource = (await import("./get-content-database-source.js"))
+    .default;
+  getContentDatabase = (await import("./get-content-database.js")).default;
   provisionContentSpaces = (await import("./_content-spaces.js"))
     .provisionContentSpaces;
 }, 60000);
@@ -100,6 +105,25 @@ describe("local-folder Content source", () => {
       connectLocalFolder.run({
         connectionId: "desktop-folder-1",
         label: "Product docs",
+        connectionMetadata: {
+          repository: {
+            localId: "repository-teenylilthoughts",
+            providerBinding: {
+              provider: "github",
+              repositoryId: "github-repository-123",
+            },
+          },
+          workingCopy: {
+            id: "working-copy-main",
+            repositoryId: "repository-teenylilthoughts",
+            kind: "persistent",
+            name: "Product docs",
+            branch: "main",
+            commit: "abc123",
+            deviceId: "desktop-alice",
+          },
+          liveBridgeEnabled: true,
+        },
         createSourceBackedSpace: true,
         propertyValues: {
           "source-workspace-focus-property": "Imported",
@@ -118,6 +142,40 @@ describe("local-folder Content source", () => {
       .where(eq(schema.contentDatabaseSources.id, connection.sourceId));
     expect(storedSource.sourceTable).toBe("desktop-folder-1");
     expect(storedSource.metadataJson).not.toContain("/Users/");
+    expect(storedSource.metadataJson).not.toContain("working-copy-main/");
+    expect(JSON.parse(storedSource.capabilitiesJson)).toMatchObject({
+      liveWritesEnabled: true,
+    });
+    expect(JSON.parse(storedSource.metadataJson)).toMatchObject({
+      syncPolicy: "keep_in_sync",
+      localIdentity: {
+        repository: { localId: "repository-teenylilthoughts" },
+        workingCopy: {
+          id: "working-copy-main",
+          kind: "persistent",
+          localOnly: false,
+          shareable: true,
+        },
+      },
+    });
+    const sourceStatus = await runWithRequestContext({ userEmail: OWNER }, () =>
+      getContentDatabaseSource.run({ databaseId: connection.filesDatabaseId }),
+    );
+    expect(sourceStatus.source).toMatchObject({
+      capabilities: { liveWritesEnabled: true },
+      metadata: {
+        writeMode: "stage_only",
+        syncPolicy: "keep_in_sync",
+        liveBridgeEnabled: true,
+        localIdentity: {
+          workingCopy: {
+            id: "working-copy-main",
+            localOnly: false,
+            shareable: true,
+          },
+        },
+      },
+    });
     const [catalogMapping] = await getDb()
       .select({ documentId: schema.contentSpaceCatalogItems.documentId })
       .from(schema.contentSpaceCatalogItems)
@@ -170,6 +228,20 @@ describe("local-folder Content source", () => {
         ),
       );
     expect(memberships).toHaveLength(1);
+    const filesDatabase = await runWithRequestContext(
+      { userEmail: OWNER },
+      () =>
+        getContentDatabase.run({
+          databaseId: connection.filesDatabaseId,
+        }),
+    );
+    expect(filesDatabase.items).toHaveLength(1);
+    expect(filesDatabase.items[0]!.document.source).toMatchObject({
+      mode: "local-files",
+      kind: "file",
+      path: "guide.md",
+      rootPath: "desktop-folder-1",
+    });
     const sourceRows = await getDb()
       .select()
       .from(schema.contentDatabaseSourceRows)
@@ -178,6 +250,14 @@ describe("local-folder Content source", () => {
       );
     expect(sourceRows).toHaveLength(1);
     expect(sourceRows[0]!.sourceValuesJson).not.toContain("First body");
+    const firstSourceValues = JSON.parse(sourceRows[0]!.sourceValuesJson);
+    expect(firstSourceValues).toMatchObject({
+      observedRevision: expect.stringMatching(/^sha256:/),
+      sourceFileIdentity: {
+        workingCopyId: "working-copy-main",
+        relativePath: "guide.md",
+      },
+    });
 
     const second = await runWithRequestContext({ userEmail: OWNER }, () =>
       syncLocalFolder.run({
@@ -200,6 +280,88 @@ describe("local-folder Content source", () => {
           ),
         ),
     ).resolves.toHaveLength(1);
+    const [secondSourceRow] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceRows)
+      .where(
+        eq(schema.contentDatabaseSourceRows.sourceId, connection.sourceId),
+      );
+    expect(JSON.parse(secondSourceRow.sourceValuesJson)).toMatchObject({
+      observedRevision: firstSourceValues.observedRevision,
+      sourceFileIdentity: firstSourceValues.sourceFileIdentity,
+    });
+  });
+
+  it("rejects raw paths and marks temporary working copies local-only", async () => {
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        connectLocalFolder.run({
+          connectionId: "desktop-folder-invalid-path",
+          label: "Unsafe folder",
+          connectionMetadata: {
+            workingCopy: {
+              id: "/Users/alice/worktree",
+              kind: "temporary",
+              name: "Fix local sync",
+              deviceId: "desktop-alice",
+            },
+          },
+          truthPolicy: "source_primary",
+        }),
+      ),
+    ).rejects.toThrow("opaque IDs, not paths");
+
+    const temporary = await runWithRequestContext({ userEmail: OWNER }, () =>
+      connectLocalFolder.run({
+        connectionId: "desktop-folder-temporary",
+        label: "Fix local sync",
+        connectionMetadata: {
+          workingCopy: {
+            id: "working-copy-fix-local-sync",
+            kind: "temporary",
+            name: "Fix local sync",
+            deviceId: "desktop-alice",
+          },
+        },
+        createSourceBackedSpace: true,
+        truthPolicy: "source_primary",
+      }),
+    );
+    const [source] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSources)
+      .where(eq(schema.contentDatabaseSources.id, temporary.sourceId));
+    expect(JSON.parse(source.metadataJson)).toMatchObject({
+      syncPolicy: "manual",
+      localIdentity: {
+        workingCopy: {
+          kind: "temporary",
+          localOnly: true,
+          shareable: false,
+        },
+      },
+    });
+    expect(JSON.parse(source.capabilitiesJson)).toMatchObject({
+      liveWritesEnabled: false,
+    });
+    const temporaryStatus = await runWithRequestContext(
+      { userEmail: OWNER },
+      () =>
+        getContentDatabaseSource.run({
+          databaseId: temporary.filesDatabaseId,
+        }),
+    );
+    expect(temporaryStatus.source).toMatchObject({
+      capabilities: { liveWritesEnabled: false },
+      metadata: {
+        writeMode: "stage_only",
+        syncPolicy: "manual",
+        liveBridgeEnabled: false,
+        localIdentity: {
+          workingCopy: { localOnly: true, shareable: false },
+        },
+      },
+    });
   });
 
   it("records concurrent source-primary changes for review without overwriting Content", async () => {
@@ -920,7 +1082,7 @@ describe("local-folder Content source", () => {
     }
   });
 
-  it("tracks stable-id renames and reviews source deletions without deleting the global page", async () => {
+  it("tracks stable-id renames and removes source-primary deletions from Files without deleting the cached page", async () => {
     const connection = await runWithRequestContext({ userEmail: OWNER }, () =>
       connectLocalFolder.run({
         connectionId: "desktop-folder-rename",
@@ -958,35 +1120,7 @@ describe("local-folder Content source", () => {
     const deletion = await runWithRequestContext({ userEmail: OWNER }, () =>
       syncLocalFolder.run({ sourceId: connection.sourceId, files: {} }),
     );
-    expect(deletion.conflicts).toEqual([
-      expect.objectContaining({ id: "stable-local-page", path: "new-name.md" }),
-    ]);
-    const [changeSet] = await getDb()
-      .select()
-      .from(schema.contentDatabaseSourceChangeSets)
-      .where(
-        and(
-          eq(
-            schema.contentDatabaseSourceChangeSets.sourceId,
-            connection.sourceId,
-          ),
-          eq(
-            schema.contentDatabaseSourceChangeSets.documentId,
-            "stable-local-page",
-          ),
-        ),
-      );
-    expect(changeSet).toMatchObject({
-      kind: "metadata_update",
-      direction: "incoming",
-      state: "proposed",
-    });
-    await runWithRequestContext({ userEmail: OWNER }, () =>
-      resolveLocalFolderConflict.run({
-        changeSetId: changeSet.id,
-        decision: "accept_source",
-      }),
-    );
+    expect(deletion.conflicts).toHaveLength(0);
     await expect(
       getDb()
         .select()
@@ -995,6 +1129,12 @@ describe("local-folder Content source", () => {
     ).resolves.toEqual([
       expect.objectContaining({ sourceMode: null, sourcePath: null }),
     ]);
+    await expect(
+      getDb()
+        .select()
+        .from(schema.contentDatabaseItems)
+        .where(eq(schema.contentDatabaseItems.documentId, "stable-local-page")),
+    ).resolves.toHaveLength(0);
     await expect(
       getDb()
         .select()
@@ -1011,7 +1151,94 @@ describe("local-folder Content source", () => {
     ).resolves.toHaveLength(0);
   });
 
-  it("keeps a remaining folder link when accepting deletion from another source", async () => {
+  it("recognizes an unchanged path-only file move without creating a deletion conflict", async () => {
+    const connection = await runWithRequestContext({ userEmail: OWNER }, () =>
+      connectLocalFolder.run({
+        connectionId: "desktop-folder-path-move",
+        label: "Moved docs",
+        createSourceBackedSpace: true,
+        truthPolicy: "source_primary",
+      }),
+    );
+    const source = "# Moved page\n\nUnchanged body.";
+    const initial = await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({
+        sourceId: connection.sourceId,
+        files: { "temporary/only/new.md": source },
+      }),
+    );
+    const documentId = initial.created[0]?.id;
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({
+        sourceId: connection.sourceId,
+        files: { "temporary/only/new.md": source },
+        fileIdentities: { "temporary/only/new.md": "bridge-file-one" },
+      }),
+    );
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({
+        sourceId: connection.sourceId,
+        files: { "temporary/only/new.md": source },
+      }),
+    );
+
+    const moved = await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({
+        sourceId: connection.sourceId,
+        files: { "notes/new.md": source },
+        fileIdentities: { "notes/new.md": "bridge-file-one" },
+      }),
+    );
+
+    expect(moved.created).toHaveLength(0);
+    expect(moved.conflicts).toHaveLength(0);
+    expect(moved.updated).toEqual([
+      expect.objectContaining({ id: documentId, path: "notes/new.md" }),
+    ]);
+    await expect(
+      getDb()
+        .select()
+        .from(schema.documents)
+        .where(eq(schema.documents.id, documentId!)),
+    ).resolves.toEqual([
+      expect.objectContaining({ sourcePath: "notes/new.md" }),
+    ]);
+  });
+
+  it("does not infer a rename from byte-identical files with different bridge identities", async () => {
+    const connection = await runWithRequestContext({ userEmail: OWNER }, () =>
+      connectLocalFolder.run({
+        connectionId: "desktop-folder-identical-files",
+        label: "Identical docs",
+        createSourceBackedSpace: true,
+        truthPolicy: "source_primary",
+      }),
+    );
+    const source = "# Same bytes";
+    const initial = await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({
+        sourceId: connection.sourceId,
+        files: { "old.md": source },
+        fileIdentities: { "old.md": "bridge-old" },
+      }),
+    );
+
+    const replaced = await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({
+        sourceId: connection.sourceId,
+        files: { "new.md": source },
+        fileIdentities: { "new.md": "bridge-new" },
+      }),
+    );
+
+    expect(replaced.created).toHaveLength(1);
+    expect(replaced.created[0]?.id).not.toBe(initial.created[0]?.id);
+    expect(replaced.conflicts).toHaveLength(0);
+  });
+
+  it("keeps a remaining folder link when another source deletes the same page", async () => {
     const first = await runWithRequestContext({ userEmail: OWNER }, () =>
       connectLocalFolder.run({
         connectionId: "desktop-folder-delete-shared-a",
@@ -1044,26 +1271,6 @@ describe("local-folder Content source", () => {
     await runWithRequestContext({ userEmail: OWNER }, () =>
       syncLocalFolder.run({ sourceId: first.sourceId, files: {} }),
     );
-    const [changeSet] = await getDb()
-      .select()
-      .from(schema.contentDatabaseSourceChangeSets)
-      .where(
-        and(
-          eq(schema.contentDatabaseSourceChangeSets.sourceId, first.sourceId),
-          eq(
-            schema.contentDatabaseSourceChangeSets.documentId,
-            "shared-delete-page",
-          ),
-        ),
-      );
-
-    await runWithRequestContext({ userEmail: OWNER }, () =>
-      resolveLocalFolderConflict.run({
-        changeSetId: changeSet.id,
-        decision: "accept_source",
-      }),
-    );
-
     await expect(
       getDb()
         .select()
@@ -1088,7 +1295,7 @@ describe("local-folder Content source", () => {
         sourceMode: "local-files",
         sourceKind: "file",
         sourcePath: "from-b.md",
-        sourceRootPath: "Delete shared B",
+        sourceRootPath: "desktop-folder-delete-shared-b",
       }),
     ]);
   });
@@ -1307,7 +1514,7 @@ describe("local-folder Content source", () => {
         sourceMode: "local-files",
         sourceKind: "file",
         sourcePath: "from-b.md",
-        sourceRootPath: "Shared folder B",
+        sourceRootPath: "desktop-folder-shared-b",
       }),
     ]);
   });

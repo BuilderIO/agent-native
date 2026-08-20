@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 
 import { docsI18nCatalog } from "../i18n";
 import { docsSlugFromPathname } from "./docs-locale";
-import { getDocsNavItems } from "./docsNavItems";
+import { getDocsNavItems, getDocsNavSections } from "./docsNavItems";
 import DocsSidebar from "./DocsSidebar";
 
 function renderSidebar(path: string) {
@@ -81,6 +81,46 @@ describe("DocsSidebar", () => {
     expect(html).toContain("Overview");
     expect(html).toContain('href="/docs"');
     expect(html).not.toContain('aria-controls="docs-sidebar-section-0"');
+  });
+
+  it("keeps Deployment last in Overview before FAQ", () => {
+    const sections = getDocsNavSections("en-US");
+    const overview = sections.find((section) => section.id === "overview");
+    const buildApps = sections.find((section) => section.id === "build-apps");
+    const coreArchitecture = sections.find(
+      (section) => section.id === "core-architecture",
+    );
+    const sectionIds = sections.map((section) => section.id);
+
+    expect(overview?.items.map((item) => item.id)).toEqual([
+      "getting-started",
+      "what-is-agent-native",
+      "key-concepts",
+      "deployment-section",
+      "faq",
+    ]);
+    const deploymentSection = overview?.items.find(
+      (item) => item.id === "deployment-section",
+    );
+    expect(deploymentSection).toBeDefined();
+    expect(
+      deploymentSection?.children?.some((item) => item.id === "deployment"),
+    ).toBe(true);
+    expect(
+      buildApps?.items.some((item) => item.id === "deployment-section"),
+    ).toBe(false);
+    const coreItemIds = coreArchitecture?.items.map((item) => item.id) ?? [];
+    expect(coreItemIds).toContain("agent-surfaces");
+    expect(coreItemIds.indexOf("actions-section")).toBeLessThan(
+      coreItemIds.indexOf("agent-surfaces"),
+    );
+    expect(coreItemIds.slice(-2)).toEqual([
+      "environment-variables",
+      "agent-native-config",
+    ]);
+    expect(sectionIds.indexOf("toolkits")).toBeLessThan(
+      sectionIds.indexOf("apps"),
+    );
   });
 
   it("uses the Agent Resources section and canonical overview link", () => {

@@ -1,0 +1,147 @@
+---
+title: "Local folder sources"
+description: "Connect Markdown and MDX folders to Content's database-backed spaces without switching the app into a separate local mode."
+---
+
+# Local folder sources
+
+Content has one data model: every page lives in SQL, belongs to a **space**, and
+is a member of that space's system **Files** database. A local Markdown or MDX
+folder is a source connected to Files. It is not a second application mode and
+does not replace the database.
+
+This means local files can keep their familiar repo workflow while Content still
+provides collaboration, sharing, comments, history, search, database properties,
+and the same action surface everywhere. There is no `AGENT_NATIVE_MODE` switch
+and no database/local fork in document actions.
+
+## Spaces, Files, and Workspaces
+
+Content provisions:
+
+- a personal space for each user
+- an organization space for each organization the user can access
+- a system **Files** database in every space
+- a personal **Workspaces** catalog that references the spaces shown in the app
+
+Every ordinary page belongs to exactly one space and exactly one Files database.
+Files is a normal Content database: add properties, save views, filter, sort, or
+group it. Its sidebar view renders those same rows as navigation. Grouping a
+sidebar view creates collapsible sections, while saved views can become alternate
+sidebar tabs.
+
+The Workspaces catalog applies the same idea one level higher. It controls which
+personal, organization, and folder-backed spaces participate in the app sidebar.
+
+## Connect a folder
+
+Open Content's local-folder screen and select a folder through the browser File
+System Access API or Agent Native Desktop. Content stores only an opaque
+connection identifier, relative paths, hashes, and source metadata in SQL. It
+does not store the absolute path, browser handle, or raw file bodies there.
+
+A folder can be connected in either way:
+
+- attach it to the Files database of an existing personal or organization space
+- create a private folder-backed space with its own Files database
+
+Choose a truth policy for the connection:
+
+| Policy                   | Behavior                                                           |
+| ------------------------ | ------------------------------------------------------------------ |
+| `database_primary`       | Content is authoritative; folder changes are reviewed before use   |
+| `source_primary`         | The folder is authoritative when no concurrent Content edit exists |
+| `reviewed_bidirectional` | Changes in either direction require review at conflicts            |
+
+Initial sync materializes files as ordinary SQL-backed pages and records their
+source identity. A repeated sync is idempotent. If a file and its Content page
+both changed, Content records an incoming change set instead of silently
+overwriting either side. Disconnecting keeps both the SQL pages and local files.
+
+## Start Content for a repo
+
+From a repo or folder, run:
+
+```bash
+npx @agent-native/core@latest content .
+```
+
+You can also target one file:
+
+```bash
+npx @agent-native/core@latest content docs/getting-started.mdx
+```
+
+The CLI starts the normal database-backed Content app, registers the folder as a
+local-folder source, and opens the connection screen. It does not set a mode
+environment variable.
+
+## Manifest configuration
+
+`agent-native.json` declares folder roots and their adapter metadata. `mode` is
+not a runtime selector:
+
+```json
+{
+  "version": 1,
+  "apps": {
+    "content": {
+      "roots": [
+        {
+          "name": "Docs",
+          "path": "docs",
+          "kind": "docs",
+          "extensions": [".md", ".mdx"],
+          "source": {
+            "type": "local-folder",
+            "connectionId": "local-folder:<opaque-id>",
+            "truthPolicy": "source_primary"
+          }
+        }
+      ],
+      "components": "components",
+      "extensions": "extensions",
+      "hide": ["**/_*.md", "**/_*.mdx"]
+    }
+  }
+}
+```
+
+The connection identifier is deliberately opaque. The trusted browser or
+Desktop bridge maps it back to a folder handle locally.
+
+## File format and identity
+
+Content reads `.md` and `.mdx`. Frontmatter may preserve the stable Content page
+ID, title, parent, ordering, and other supported metadata. Keeping the ID allows
+renames and moves to retain page identity instead of creating duplicates.
+
+Unknown frontmatter, imports, JSX, and custom MDX should be preserved by tools
+that edit the source. Local components remain in the configured `components/`
+folder and are loaded only through the trusted local bridge. Local extensions
+remain sandboxed under `extensions/`.
+
+## Migration from Local File Mode
+
+Older manifests may contain `mode: "local-files"`, and older launch workflows
+may set `AGENT_NATIVE_MODE=local-files`. Remove both. Keep the configured roots,
+add `source.type`, `source.connectionId`, and `source.truthPolicy`, then launch
+with `agent-native content <file-or-folder>`.
+
+After the first connection and sync, verify:
+
+1. the folder appears as a source on the intended Files database
+2. each imported page belongs to the intended space
+3. custom properties and saved sidebar views work normally
+4. concurrent edits appear as reviewable change sets
+5. disconnecting preserves the database pages and the files on disk
+
+The old two-mode architecture is retired. Local folders are now adapters around
+the global database model—which is less dramatic than a mode switch, and much
+less likely to leave half the product living in a parallel universe.
+
+## What's next
+
+- [**Database**](/docs/server-database) — the SQL model every Content page and space is backed by, mode switch or not
+- [**Content**](/docs/template-content) — the app this connects to: spaces, the Files database, and the editor built on top of it
+- [**Content: Local Files, Notion & Builder CMS Sync**](/docs/template-content-sync) — connecting a folder day-to-day, local MDX components, and conflict handling

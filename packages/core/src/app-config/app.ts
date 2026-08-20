@@ -52,6 +52,21 @@ export const appConfig = z.object({
       env: ["APP_NAME"],
       doc: "User-facing display name of this app.",
     }),
+  pingMessage: z
+    .string()
+    .min(1)
+    .default("pong")
+    .meta({
+      env: ["PING_MESSAGE"],
+      doc: "Message returned by the framework ping route.",
+    }),
+  healthStrictSchema: z
+    .boolean()
+    .default(false)
+    .meta({
+      env: ["AGENT_NATIVE_HEALTH_STRICT_SCHEMA"],
+      doc: "Return HTTP 503 when the framework health schema probe is not ready.",
+    }),
   /**
    * The app's canonical public URL — what a user sees in a share link, an
    * email, or a JWT issuer claim.

@@ -1,0 +1,340 @@
+name: Monitor Agent Native site availability
+
+# This is deliberately independent from app health and Netlify build status:
+# an edge outage can make both the app health endpoint and the dashboard
+# unavailable while the deploy metadata still says "ready".
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: monitor-agent-native-sites
+  cancel-in-progress: true
+
+jobs:
+  monitor:
+    name: Probe production and beta hosts
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PAGERDUTY_ROUTING_KEY: ${{ secrets.PAGERDUTY_ROUTING_KEY }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 1
+          sparse-checkout: scripts/netlify-site-hosts.json
+          sparse-checkout-cone-mode: false
+
+      - name: Probe every public host
+        id: probe
+        run: |
+          set -o pipefail
+          node <<'NODE' | tee /tmp/agent-native-site-availability.log
+          const fs = require("node:fs");
+          const dns = require("node:dns");
+
+          // Netlify publishes an IPv6 edge address, but some runners and
+          // corporate networks black-hole IPv6 instead of falling back. Keep
+          // this alert path on IPv4 so a client-network quirk does not page us
+          // for healthy sites.
+          dns.setDefaultResultOrder("ipv4first");
+
+          const manifest = JSON.parse(
+            fs.readFileSync("scripts/netlify-site-hosts.json", "utf8"),
+          );
+          const hosts = [
+            ...manifest.production.map((host) => ({ environment: "production", host })),
+            ...manifest.beta.map((host) => ({ environment: "beta", host })),
+            ...manifest.workspace.map((host) => ({ environment: "workspace", host })),
+          ];
+          const timeoutMs = 15_000;
+          const probeAttemptTimeoutMs = 45_000;
+          const maxDocumentBytes = 2_000_000;
+          const maxAssetCount = 500;
+          const maxRedirects = 5;
+          const maxAttempts = 3;
+
+          async function fetchOnVerifiedOrigin(url, origin, options) {
+            let currentUrl = url;
+            for (let redirect = 0; redirect <= maxRedirects; redirect += 1) {
+              const response = await fetch(currentUrl, {
+                ...options,
+                redirect: "manual",
+              });
+              if (response.status < 300 || response.status >= 400) {
+                return { response, url: currentUrl };
+              }
+              const location = response.headers.get("location");
+              await response.body?.cancel();
+              if (!location) {
+                throw new Error(`redirect from ${currentUrl} did not include a location`);
+              }
+              const nextUrl = new URL(location, currentUrl);
+              if (nextUrl.protocol !== "https:" || nextUrl.origin !== origin) {
+                throw new Error(`redirected off origin to ${nextUrl.href}`);
+              }
+              currentUrl = nextUrl.href;
+            }
+            throw new Error(`exceeded ${maxRedirects} redirects from ${url}`);
+          }
+
+          async function readResponseText(response, maxBytes) {
+            const reader = response.body?.getReader();
+            if (!reader) return "";
+            const decoder = new TextDecoder();
+            let bytes = 0;
+            let text = "";
+            try {
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                bytes += value.byteLength;
+                if (bytes > maxBytes) {
+                  throw new Error(`document exceeded ${maxBytes} bytes`);
+                }
+                text += decoder.decode(value, { stream: true });
+              }
+              return text + decoder.decode();
+            } catch (error) {
+              await reader.cancel().catch(() => undefined);
+              throw error;
+            }
+          }
+
+          async function probe({ environment, host }) {
+            let lastFailure = "unknown error";
+            for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+              const startedAt = Date.now();
+              const deadline = startedAt + probeAttemptTimeoutMs;
+              try {
+                const documentUrl = `https://${host}/`;
+                const documentOrigin = new URL(documentUrl).origin;
+                const { response, url: finalDocumentUrl } = await fetchOnVerifiedOrigin(
+                  documentUrl,
+                  documentOrigin,
+                  {
+                    headers: { "user-agent": "agent-native-site-monitor" },
+                    signal: AbortSignal.timeout(
+                      Math.min(timeoutMs, Math.max(1, deadline - Date.now())),
+                    ),
+                  },
+                );
+                const ms = Date.now() - startedAt;
+                const ok = response.status >= 200 && response.status < 400;
+                if (ok) {
+                  const html = await readResponseText(response, maxDocumentBytes);
+                  const baseUrl = finalDocumentUrl;
+                  const assets = new Set();
+                  let assetLimitExceeded = false;
+                  for (const match of html.matchAll(/<(link|script)\b[^>]*>/gi)) {
+                    const tag = match[0];
+                    const rel = tag.match(/\brel=["']([^"']+)["']/i)?.[1] || "";
+                    const attribute = match[1].toLowerCase() === "script"
+                      ? "src"
+                      : /(?:^|\s)modulepreload(?:\s|$)/i.test(rel) ||
+                          /(?:^|\s)stylesheet(?:\s|$)/i.test(rel)
+                        ? "href"
+                        : null;
+                    if (!attribute) continue;
+                    const value = tag.match(new RegExp(`\\b${attribute}=["']([^"']+)["']`, "i"))?.[1];
+                    if (!value || value.startsWith("#") || value.startsWith("data:")) continue;
+                    try {
+                      const url = new URL(value, baseUrl);
+                      if (url.origin === documentOrigin) {
+                        if (!assets.has(url.href) && assets.size >= maxAssetCount) {
+                          assetLimitExceeded = true;
+                          break;
+                        }
+                        assets.add(url.href);
+                      }
+                    } catch {
+                      // Ignore malformed or non-URL markup; the document probe
+                      // still reports the host itself as healthy.
+                    }
+                  }
+                  if (assetLimitExceeded) {
+                    throw new Error(`document referenced more than ${maxAssetCount} assets`);
+                  }
+
+                  const assetFailures = [];
+                  const assetUrls = [...assets];
+                  const assetConcurrency = 12;
+                  for (let i = 0; i < assetUrls.length; i += assetConcurrency) {
+                    if (Date.now() >= deadline) {
+                      assetFailures.push("asset probe deadline exceeded");
+                      break;
+                    }
+                    await Promise.all(assetUrls.slice(i, i + assetConcurrency).map(async (assetUrl) => {
+                      try {
+                        const { response: assetResponse } = await fetchOnVerifiedOrigin(
+                          assetUrl,
+                          documentOrigin,
+                          {
+                            headers: { "user-agent": "agent-native-site-monitor" },
+                            signal: AbortSignal.timeout(
+                              Math.min(timeoutMs, Math.max(1, deadline - Date.now())),
+                            ),
+                          },
+                        );
+                        await assetResponse.body?.cancel();
+                        if (assetResponse.status < 200 || assetResponse.status >= 300) {
+                          assetFailures.push(`${new URL(assetUrl).pathname} HTTP ${assetResponse.status}`);
+                        }
+                      } catch (error) {
+                        assetFailures.push(
+                          `${new URL(assetUrl).pathname} ${String(error?.message ?? error)}`,
+                        );
+                      }
+                    }));
+                  }
+
+                  if (assetFailures.length > 0) {
+                    assetFailures.sort();
+                    lastFailure = `HTTP ${response.status}; ${assetFailures.slice(0, 5).join(", ")}`;
+                  } else {
+                    return {
+                      environment,
+                      host,
+                      ok: true,
+                      detail: `HTTP ${response.status} with ${assets.size} referenced assets in ${ms}ms (attempt ${attempt})`,
+                    };
+                  }
+                } else {
+                  await response.body?.cancel();
+                }
+                if (!ok) lastFailure = `HTTP ${response.status}`;
+              } catch (error) {
+                lastFailure =
+                  error?.name === "TimeoutError"
+                    ? `timeout after ${timeoutMs}ms`
+                    : String(error?.message ?? error);
+              }
+              if (attempt < maxAttempts) {
+                await new Promise((resolve) => setTimeout(resolve, attempt * 1_000));
+              }
+            }
+            return {
+              environment,
+              host,
+              ok: false,
+              detail: `${lastFailure} after ${maxAttempts} attempts`,
+            };
+          }
+
+          (async () => {
+            const results = await Promise.all(hosts.map(probe));
+            results.sort((left, right) => left.host.localeCompare(right.host));
+            for (const result of results) {
+              console.log(
+                `${result.ok ? "PASS" : "FAIL"}\t${result.environment}\t${result.host}\t${result.detail}`,
+              );
+            }
+            const failures = results.filter((result) => !result.ok);
+            console.log(`Checked ${results.length} hosts; ${failures.length} failed.`);
+            if (failures.length > 0) process.exitCode = 1;
+          })().catch((error) => {
+            console.error(error instanceof Error ? error.message : error);
+            process.exitCode = 1;
+          });
+          NODE
+
+      - name: Page and open a rolling incident
+        if: failure()
+        shell: bash
+        run: |
+          set -euo pipefail
+          ISSUE_TITLE="Agent Native site availability failing"
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          FAILING="$(grep '^FAIL[[:space:]]' /tmp/agent-native-site-availability.log || true)"
+          if [ -z "$FAILING" ]; then
+            FAILING="(the monitor itself failed before producing per-host results)"
+          fi
+          # Strip timings and status codes so repeated copies of one outage
+          # keep one signature and do not bury the actionable issue.
+          SIGNATURE="$(printf '%s' "$FAILING" | tr -d '0-9' | shasum | cut -c1-12)"
+          # shellcheck disable=SC2016
+          BODY="$(printf '%s\n\n```\n%s\n```\n\n%s\n\n<!-- availability-signature: %s -->' \
+            "The five-minute public-host availability monitor is failing." "$FAILING" "$RUN_URL" "$SIGNATURE")"
+
+          page_oncall() {
+            if [ -z "${PAGERDUTY_ROUTING_KEY:-}" ]; then
+              echo "::warning::PAGERDUTY_ROUTING_KEY is not configured; GitHub issue fallback is active but no page was sent."
+              return 0
+            fi
+            # The jq program intentionally uses jq variables, not shell vars.
+            # shellcheck disable=SC2016
+            jq -n \
+              --arg routing_key "$PAGERDUTY_ROUTING_KEY" \
+              --arg dedup_key "agent-native-site-availability" \
+              --arg summary "Agent Native public site availability is failing" \
+              --arg source "${{ github.repository }}" \
+              --arg run_url "$RUN_URL" \
+              --arg failing "$FAILING" \
+              --arg signature "$SIGNATURE" \
+              '{routing_key: $routing_key, event_action: "trigger", dedup_key: $dedup_key, payload: {summary: $summary, source: $source, severity: "critical", custom_details: {run_url: $run_url, failing_hosts: $failing, availability_signature: $signature}}}' \
+              | curl --fail-with-body --connect-timeout 10 --max-time 20 --silent --show-error \
+                  --header 'Content-Type: application/json' \
+                  --data-binary @- \
+                  https://events.pagerduty.com/v2/enqueue
+          }
+
+          pagerduty_status=0
+          page_oncall || pagerduty_status=$?
+          ISSUE_NUMBER="$(gh issue list --repo "${{ github.repository }}" --state open \
+            --search "\"$ISSUE_TITLE\" in:title" --json number,title \
+            --jq ".[] | select(.title == \"$ISSUE_TITLE\") | .number" | head -n1)"
+          if [ -z "$ISSUE_NUMBER" ]; then
+            gh issue create --repo "${{ github.repository }}" \
+              --title "$ISSUE_TITLE" --body "$BODY"
+          else
+            LAST="$(gh issue view "$ISSUE_NUMBER" --repo "${{ github.repository }}" \
+              --json comments,body --jq '[.body] + [.comments[].body] | last')"
+            if printf '%s' "$LAST" | grep -q "availability-signature: $SIGNATURE"; then
+              echo "Same failure as the last report - issue #$ISSUE_NUMBER remains open without a duplicate comment."
+            else
+              gh issue comment "$ISSUE_NUMBER" --repo "${{ github.repository }}" --body "$BODY"
+            fi
+          fi
+          if [ "$pagerduty_status" -ne 0 ]; then
+            echo "::error::PagerDuty delivery failed; GitHub issue reporting completed but the audit remains failed." >&2
+            exit "$pagerduty_status"
+          fi
+
+      - name: Resolve PagerDuty and close a recovered incident
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          ISSUE_TITLE="Agent Native site availability failing"
+          pagerduty_status=0
+          if [ -n "${PAGERDUTY_ROUTING_KEY:-}" ]; then
+            # shellcheck disable=SC2016
+            jq -n \
+              --arg routing_key "$PAGERDUTY_ROUTING_KEY" \
+              --arg dedup_key "agent-native-site-availability" \
+              --arg source "${{ github.repository }}" \
+              '{routing_key: $routing_key, event_action: "resolve", dedup_key: $dedup_key, payload: {summary: "Agent Native public site availability recovered", source: $source}}' \
+              | curl --fail-with-body --connect-timeout 10 --max-time 20 --silent --show-error \
+                  --header 'Content-Type: application/json' \
+                  --data-binary @- \
+                  https://events.pagerduty.com/v2/enqueue || pagerduty_status=$?
+          else
+            echo "PagerDuty resolve skipped: PAGERDUTY_ROUTING_KEY is not configured."
+          fi
+          ISSUE_NUMBER="$(gh issue list --repo "${{ github.repository }}" --state open \
+            --search "\"$ISSUE_TITLE\" in:title" --json number,title \
+            --jq ".[] | select(.title == \"$ISSUE_TITLE\") | .number" | head -n1)"
+          if [ -n "$ISSUE_NUMBER" ]; then
+            gh issue close "$ISSUE_NUMBER" --repo "${{ github.repository }}" \
+              --comment "Public-host monitor is green again: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          fi
+          if [ "$pagerduty_status" -ne 0 ]; then
+            echo "::error::PagerDuty resolve failed; GitHub issue bookkeeping completed only if available." >&2
+            exit "$pagerduty_status"
+          fi

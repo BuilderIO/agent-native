@@ -6,12 +6,25 @@ export interface DesktopStartupDependencies {
   isPackaged: boolean;
   version: string;
   appDataPath: string;
+  requestedUserDataPath?: string;
   createDirectory: (directoryPath: string) => void;
   setUserDataPath: (directoryPath: string) => void;
   initializeSentry: () => void;
   initializeLogger: () => void;
   logError: (message: string, error: unknown) => void;
   logWarning: (message: string, error: unknown) => void;
+}
+
+export function desktopRequestedUserDataPath(
+  commandLineValue: string,
+  argv: string[],
+) {
+  const explicitSwitch = commandLineValue.trim();
+  if (explicitSwitch) return explicitSwitch;
+  return argv
+    .find((argument) => argument.startsWith("--user-data-dir="))
+    ?.slice("--user-data-dir=".length)
+    .trim();
 }
 
 export interface DesktopStartupStep {
@@ -39,6 +52,7 @@ export function initializeDesktopStartup({
   isPackaged,
   version,
   appDataPath,
+  requestedUserDataPath,
   createDirectory,
   setUserDataPath,
   initializeSentry,
@@ -50,11 +64,14 @@ export function initializeDesktopStartup({
     isPackaged,
     version,
   );
-  if (isolatedUserDataDirectoryName) {
-    const isolatedUserDataPath = path.join(
-      appDataPath,
-      isolatedUserDataDirectoryName,
-    );
+  const isolatedUserDataPath = requestedUserDataPath
+    ? path.resolve(requestedUserDataPath)
+    : isolatedUserDataDirectoryName
+      ? path.join(appDataPath, isolatedUserDataDirectoryName)
+      : !isPackaged
+        ? path.join(appDataPath, "Agent Native Dev")
+        : null;
+  if (isolatedUserDataPath) {
     try {
       createDirectory(isolatedUserDataPath);
       setUserDataPath(isolatedUserDataPath);

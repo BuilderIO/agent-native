@@ -1,10 +1,15 @@
 import { afterEach, describe, it, expect, vi } from "vitest";
 
+import {
+  defineAppConfig,
+  resetAppConfigForTests,
+} from "../app-config/index.js";
 import { createServer } from "./create-server.js";
 
 describe("createServer", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
+    resetAppConfigForTests();
   });
 
   it("returns an H3 app and router", () => {
@@ -24,6 +29,16 @@ describe("createServer", () => {
   it("accepts custom jsonLimit", () => {
     const { app } = createServer({ jsonLimit: "1mb" });
     expect(app).toBeDefined();
+  });
+
+  it("uses the shared app config for the liveness message", async () => {
+    defineAppConfig({ app: { name: "Test app", pingMessage: "ready" } });
+    const { app } = createServer();
+
+    const res = await app.request("http://localhost/_agent-native/ping");
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ message: "ready" });
   });
 
   it.each([

@@ -6,6 +6,7 @@ import {
   getAppCreationSettings,
   listAvailableWorkspaceTemplates,
   listWorkspaceApps,
+  scaffoldWorkspaceAppFromTemplate,
   setAppCreationSettings,
   startWorkspaceAppCreation,
   updateWorkspaceAppMetadata,
@@ -23,13 +24,35 @@ const mocks = vi.hoisted(() => {
     settings,
     state,
     getSetting: vi.fn(async (key: string) => settings.get(key) ?? null),
+    mutateSetting: vi.fn(
+      async (key: string, updater: (current: any) => any) => {
+        const next = await updater(settings.get(key) ?? null);
+        settings.set(key, next);
+        return next;
+      },
+    ),
     putSetting: vi.fn(async (key: string, value: unknown) => {
       settings.set(key, value);
     }),
+    getOrgSetting: vi.fn(async () => null),
+    resolveAccess: vi.fn(async () => ({
+      role: "viewer",
+      resource: {},
+    })),
     getDbExec: vi.fn(() => ({
-      execute: vi.fn(async () => ({
-        rows: state.orgRole ? [{ role: state.orgRole }] : [],
-      })),
+      execute: vi.fn(async (statement: unknown) => {
+        const sql =
+          typeof statement === "string"
+            ? statement
+            : String((statement as { sql?: unknown })?.sql ?? "");
+        if (sql.includes("SELECT id FROM workspace_apps")) {
+          return { rows: [], rowsAffected: 0 };
+        }
+        return {
+          rows: state.orgRole ? [{ role: state.orgRole }] : [],
+          rowsAffected: 0,
+        };
+      }),
     })),
     resolveBuilderCredentialsDetailed: vi.fn(async () => ({
       privateKey: null as string | null,
@@ -73,8 +96,19 @@ vi.mock("@agent-native/core/db", async (importOriginal) => {
 
 vi.mock("@agent-native/core/settings", () => ({
   getSetting: (...args: any[]) => mocks.getSetting(...args),
+  mutateSetting: (...args: any[]) => mocks.mutateSetting(...args),
   putSetting: (...args: any[]) => mocks.putSetting(...args),
+  getOrgSetting: (...args: any[]) => mocks.getOrgSetting(...args),
 }));
+
+vi.mock("@agent-native/core/sharing", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@agent-native/core/sharing")>();
+  return {
+    ...actual,
+    resolveAccess: (...args: any[]) => mocks.resolveAccess(...args),
+  };
+});
 
 vi.mock("@agent-native/core/server", async (importOriginal) => {
   const actual =
@@ -104,7 +138,35 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.clearAllMocks();
   mocks.settings.clear();
+  mocks.getOrgSetting.mockReset();
+  mocks.getOrgSetting.mockResolvedValue(null);
+  mocks.mutateSetting.mockReset();
+  mocks.mutateSetting.mockImplementation(
+    async (key: string, updater: (current: any) => any) => {
+      const next = await updater(mocks.settings.get(key) ?? null);
+      mocks.settings.set(key, next);
+      return next;
+    },
+  );
   mocks.state.orgRole = "admin";
+  mocks.getDbExec.mockReset();
+  mocks.getDbExec.mockImplementation(() => ({
+    execute: vi.fn(async (statement: unknown) => {
+      const sql =
+        typeof statement === "string"
+          ? statement
+          : String((statement as { sql?: unknown })?.sql ?? "");
+      if (sql.includes("SELECT id FROM workspace_apps")) {
+        return { rows: [], rowsAffected: 0 };
+      }
+      return {
+        rows: mocks.state.orgRole ? [{ role: mocks.state.orgRole }] : [],
+        rowsAffected: 0,
+      };
+    }),
+  }));
+  mocks.resolveAccess.mockReset();
+  mocks.resolveAccess.mockResolvedValue({ role: "viewer", resource: {} });
   mocks.resolveBuilderCredentialsDetailed.mockResolvedValue({
     privateKey: null,
     publicKey: null,
@@ -345,6 +407,145 @@ describe("listWorkspaceApps", () => {
     expect(apps.map((app) => app.id)).toEqual(["dispatch"]);
   });
 
+  it("keeps legacy apps organization-visible when the org default cannot be read", async () => {
+    stubManifest([
+      { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+      { id: "private-app", name: "Private app", path: "/private-app" },
+    ]);
+    mocks.getOrgSetting.mockRejectedValueOnce(
+      new Error("settings store unavailable"),
+    );
+
+    const apps = await runWithRequestContext(
+      { userEmail: "dev@example.test", orgId: "org-123" },
+      () => listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    expect(apps.map((app) => app.id)).toEqual(["dispatch", "private-app"]);
+  });
+
+  it("fails closed when the workspace-app access schema is unavailable", async () => {
+    stubManifest([
+      { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+      { id: "private-app", name: "Private app", path: "/private-app" },
+    ]);
+    mocks.resolveAccess.mockRejectedValueOnce(
+      new Error("no such table: workspace_app_shares"),
+    );
+
+    const apps = await runWithRequestContext(
+      { userEmail: "dev@example.test", orgId: "org-123" },
+      () => listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    expect(apps.map((app) => app.id)).toEqual(["dispatch"]);
+  });
+
+  it("does not expose the workspace app registry without an authenticated user", async () => {
+    stubNoPendingContext();
+    stubManifest([
+      { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+      { id: "private-app", name: "Private app", path: "/private-app" },
+    ]);
+
+    const apps = await runWithRequestContext({ orgId: "org-123" }, () =>
+      listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    expect(apps).toEqual([]);
+    expect(mocks.resolveAccess).not.toHaveBeenCalled();
+  });
+
+  it("does not apply the current default retroactively to legacy apps", async () => {
+    stubNoPendingContext();
+    stubManifest([
+      {
+        id: "legacy-app",
+        name: "Legacy app",
+        path: "/legacy-app",
+      },
+      {
+        id: "new-app",
+        name: "New app",
+        path: "/new-app",
+        createdBy: "creator@example.test",
+      },
+    ]);
+    mocks.getOrgSetting.mockResolvedValueOnce({ visibility: "private" });
+    const execute = vi.fn(async (statement: unknown) => {
+      const sql =
+        typeof statement === "string"
+          ? statement
+          : String((statement as { sql?: unknown })?.sql ?? "");
+      if (sql.includes("SELECT id, owner_email, org_id, visibility")) {
+        return { rows: [], rowsAffected: 0 };
+      }
+      return { rows: [], rowsAffected: 1 };
+    });
+    mocks.getDbExec.mockReturnValue({ execute });
+
+    const apps = await runWithRequestContext(
+      { userEmail: "dev@example.test", orgId: "org-123" },
+      () => listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    expect(apps.find((app) => app.id === "legacy-app")?.visibility).toBe("org");
+    expect(apps.find((app) => app.id === "new-app")?.visibility).toBe("org");
+    expect(mocks.getOrgSetting).not.toHaveBeenCalled();
+    const inserts = execute.mock.calls.filter(([statement]) =>
+      String((statement as { sql?: unknown })?.sql ?? "").includes(
+        "INSERT INTO workspace_apps",
+      ),
+    );
+    expect(inserts.map(([statement]) => (statement as any).args?.[3])).toEqual([
+      "org",
+      "org",
+    ]);
+  });
+
+  it("projects exact custom SSO eligibility without exposing registry details", async () => {
+    stubNoPendingContext();
+    stubManifest([
+      { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+      {
+        id: "workspace-reports",
+        name: "Workspace Reports",
+        path: "/workspace-reports",
+        url: "https://reports.example.com/workspace-reports",
+      },
+      {
+        id: "unregistered",
+        name: "Unregistered",
+        path: "/unregistered",
+        url: "https://unregistered.example.com",
+      },
+    ]);
+    vi.stubEnv(
+      "IDENTITY_SSO_APP_REGISTRY_JSON",
+      JSON.stringify([
+        {
+          appId: "workspace-reports",
+          clientId: "workspace-reports-client",
+          origin: "https://reports.example.com",
+          callbackPath: "/_agent-native/identity/callback",
+          capabilities: ["identity-sso"],
+        },
+      ]),
+    );
+
+    const apps = await runWithRequestContext(
+      { userEmail: "dev@example.test" },
+      () => listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    expect(apps.find((app) => app.id === "workspace-reports")).toMatchObject({
+      workspaceSso: true,
+    });
+    expect(apps.find((app) => app.id === "unregistered")).toMatchObject({
+      workspaceSso: false,
+    });
+  });
+
   it("filters workspace apps by audience", async () => {
     stubNoPendingContext();
     vi.stubEnv(
@@ -427,6 +628,61 @@ describe("listWorkspaceApps", () => {
     );
 
     expect(apps.map((app) => app.id)).toEqual(["dispatch", "legacy"]);
+  });
+
+  it("hides private pending apps from non-creators", async () => {
+    stubNoPendingContext();
+    stubManifest();
+    mocks.settings.set(settingsKey, {
+      pendingApps: [
+        pendingApp("private-pending", {
+          visibility: "private",
+          createdBy: "creator@example.test",
+          owner: "creator@example.test",
+        }),
+      ],
+    });
+
+    const apps = await runWithRequestContext(
+      { userEmail: "viewer@example.test", orgId: "org-123" },
+      () => listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    expect(apps.map((app) => app.id)).toEqual(["dispatch"]);
+  });
+
+  it("fails closed when a private app access record cannot be inserted", async () => {
+    stubNoPendingContext();
+    stubManifest([
+      { id: "scaffolded", name: "Scaffolded", path: "/scaffolded" },
+    ]);
+    mocks.settings.set("workspace-app-metadata:org:org-123", {
+      apps: {
+        scaffolded: {
+          visibility: "private",
+          createdBy: "creator@example.test",
+        },
+      },
+    });
+    const execute = vi.fn(async (statement: unknown) => {
+      const sql =
+        typeof statement === "string"
+          ? statement
+          : String((statement as { sql?: unknown })?.sql ?? "");
+      if (sql.includes("SELECT id, owner_email, org_id, visibility")) {
+        return { rows: [], rowsAffected: 0 };
+      }
+      throw new Error("workspace app access insert failed");
+    });
+    mocks.getDbExec.mockReturnValue({ execute });
+    mocks.resolveAccess.mockResolvedValue(null);
+
+    const apps = await runWithRequestContext(
+      { userEmail: "viewer@example.test", orgId: "org-123" },
+      () => listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    expect(apps).toEqual([]);
   });
 
   it("hides expired pending Builder app rows", async () => {
@@ -620,6 +876,179 @@ describe("startWorkspaceAppCreation", () => {
     );
   }
 
+  it("persists the private default for local-agent app creation", async () => {
+    mocks.getOrgSetting.mockResolvedValueOnce({ visibility: "private" });
+
+    const result = (await create("onboarding", {
+      userEmail: "dev@example.test",
+      orgId: "org-123",
+    })) as any;
+
+    expect(result.mode).toBe("local-agent");
+    expect(
+      mocks.settings.get("workspace-app-metadata:org:org-123"),
+    ).toMatchObject({
+      apps: {
+        onboarding: { visibility: "private" },
+      },
+    });
+  });
+
+  it("rejects a cross-member collision with an active pending app id", async () => {
+    stubHostedRuntime();
+    stubBuilderProjectConfigured();
+    mocks.getOrgSetting.mockResolvedValueOnce({ visibility: "private" });
+    mocks.settings.set("dispatch-app-creation-settings:org:org-123", {
+      pendingApps: [
+        {
+          id: "onboarding",
+          name: "Onboarding",
+          description: "Already being created",
+          path: "/onboarding",
+          builderUrl:
+            "https://builder.io/app/projects/project-1/branch/onboarding",
+          branchName: "onboarding",
+          projectId: "project-1",
+          createdBy: "creator@example.test",
+          owner: "creator@example.test",
+          createdAt: "2026-08-19T21:00:00.000Z",
+          updatedAt: "2026-08-19T21:00:00.000Z",
+          expiresAt: "2999-01-01T00:00:00.000Z",
+        },
+      ],
+    });
+
+    await expect(
+      create("onboarding", {
+        userEmail: "other@example.test",
+        orgId: "org-123",
+      }),
+    ).rejects.toThrow("already being created by another member");
+    expect(mocks.runBuilderAgent).not.toHaveBeenCalled();
+    expect(
+      mocks.settings.get("dispatch-app-creation-settings:org:org-123"),
+    ).toMatchObject({
+      pendingApps: [
+        expect.objectContaining({ createdBy: "creator@example.test" }),
+      ],
+    });
+  });
+
+  it("rejects a collision from another deployment context", async () => {
+    stubHostedRuntime();
+    stubBuilderProjectConfigured();
+    mocks.settings.set("dispatch-app-creation-settings:org:org-123", {
+      pendingApps: [
+        {
+          id: "onboarding",
+          name: "Onboarding",
+          description: "Already being created",
+          path: "/onboarding",
+          contextId: "branch:other-context",
+          createdBy: "creator@example.test",
+          owner: "creator@example.test",
+          createdAt: "2026-08-19T21:00:00.000Z",
+          updatedAt: "2026-08-19T21:00:00.000Z",
+          expiresAt: "2999-01-01T00:00:00.000Z",
+        },
+      ],
+    });
+
+    await expect(
+      create("onboarding", {
+        userEmail: "other@example.test",
+        orgId: "org-123",
+      }),
+    ).rejects.toThrow("already being created by another member");
+    expect(mocks.runBuilderAgent).not.toHaveBeenCalled();
+  });
+
+  it("atomically reserves an app id before starting Builder", async () => {
+    stubHostedRuntime();
+    stubBuilderProjectConfigured();
+    mocks.resolveBuilderCredentialsDetailed.mockResolvedValue(
+      credentials({
+        privateKey: "priv",
+        publicKey: "pub",
+        userId: "builder-user-42",
+      }),
+    );
+    mocks.runBuilderAgent.mockImplementation(async () => {
+      expect(
+        mocks.settings.get("dispatch-app-creation-settings:org:org-123"),
+      ).toMatchObject({
+        pendingApps: [
+          expect.objectContaining({
+            id: "onboarding",
+            createdBy: "dev@example.test",
+          }),
+        ],
+      });
+      return {
+        branchName: "onboarding1",
+        url: "https://builder.io/app/projects/project-1/branch/onboarding1",
+        status: "processing",
+      };
+    });
+
+    const result = (await create("onboarding", {
+      userEmail: "dev@example.test",
+      orgId: "org-123",
+    })) as any;
+
+    expect(result.mode).toBe("builder");
+    expect(mocks.mutateSetting).toHaveBeenCalled();
+  });
+
+  it("releases the reservation when Builder handoff fails", async () => {
+    stubHostedRuntime();
+    stubBuilderProjectConfigured();
+    mocks.resolveBuilderCredentialsDetailed.mockResolvedValue(
+      credentials({
+        privateKey: "priv",
+        publicKey: "pub",
+        userId: "builder-user-42",
+      }),
+    );
+    mocks.runBuilderAgent.mockRejectedValue(new Error("Builder unavailable"));
+
+    const result = (await create("onboarding", {
+      userEmail: "dev@example.test",
+      orgId: "org-123",
+    })) as any;
+
+    expect(result).toMatchObject({ mode: "builder-unavailable" });
+    expect(
+      mocks.settings.get("dispatch-app-creation-settings:org:org-123"),
+    ).toMatchObject({ pendingApps: [] });
+    expect(mocks.settings.get("workspace-app-metadata:org:org-123")).toBe(
+      undefined,
+    );
+  });
+
+  it("rejects a scaffold id already registered in the shared app registry", async () => {
+    mocks.getDbExec.mockReturnValue({
+      execute: vi.fn(async (statement: unknown) => {
+        const sql = String((statement as { sql?: unknown })?.sql ?? "");
+        if (sql.includes("SELECT id FROM workspace_apps")) {
+          return { rows: [{ id: "mail" }], rowsAffected: 0 };
+        }
+        return { rows: [], rowsAffected: 0 };
+      }),
+    });
+
+    await expect(
+      runWithRequestContext(
+        { userEmail: "dev@example.test", orgId: "org-123" },
+        () =>
+          scaffoldWorkspaceAppFromTemplate({
+            template: "mail",
+            appId: "mail",
+          }),
+      ),
+    ).rejects.toThrow("already registered");
+  });
+
   it("returns builder-not-connected without leaking the project id when no Builder credentials are configured", async () => {
     stubHostedRuntime();
     stubBuilderProjectConfigured();
@@ -672,6 +1101,7 @@ describe("startWorkspaceAppCreation", () => {
   it("starts the Builder branch and passes the resolved userId through", async () => {
     stubHostedRuntime();
     stubBuilderProjectConfigured();
+    mocks.getOrgSetting.mockResolvedValueOnce({ visibility: "private" });
     mocks.resolveBuilderCredentialsDetailed.mockResolvedValue(
       credentials({
         privateKey: "priv",
@@ -685,7 +1115,10 @@ describe("startWorkspaceAppCreation", () => {
       status: "processing",
     });
 
-    const result = (await create()) as any;
+    const result = (await create("onboarding", {
+      userEmail: "dev@example.test",
+      orgId: "org-123",
+    })) as any;
 
     expect(result.mode).toBe("builder");
     expect(mocks.runBuilderAgent).toHaveBeenCalledWith(
@@ -704,6 +1137,13 @@ describe("startWorkspaceAppCreation", () => {
     expect(builderPrompt).toContain(
       "Treat the source brief's unknowns and follow-up items as assumptions",
     );
+    expect(
+      mocks.settings.get("workspace-app-metadata:org:org-123"),
+    ).toMatchObject({
+      apps: {
+        onboarding: { visibility: "private" },
+      },
+    });
   });
 
   it("provisions and remembers the workspace Builder project when none is configured", async () => {

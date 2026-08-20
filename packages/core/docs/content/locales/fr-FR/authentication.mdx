@@ -413,7 +413,7 @@ function SignInCta() {
 
 Les pages normales de l’application utilisent une seule coque SSR impersonnelle et mise en cache publiquement pour tous les visiteurs. `AppProviders` vérifie la session côté client ; sur un chemin privé tel que `/dashboard`, il redirige un visiteur anonyme vers `/sign-in?return=%2Fdashboard` avant de monter l’interface privée. Après connexion, le visiteur revient sur `/dashboard`. Utilisez `isPublicPath` pour les routes publiques/SEO, ou `sessionBypass` pour une surface authentifiée par un autre mécanisme limité, tel qu’un jeton d’intégration MCP.
 
-La durée de mise en cache de cette coque est un paramètre valable pour l’ensemble du déploiement — voir [SSR Caching](/docs/deployment#ssr-caching) pour `AGENT_NATIVE_SSR_CACHE`. Raccourcir ou désactiver le cache ne change que la durée ; le SSR continue de rendre la branche anonyme avec les cookies supprimés.
+La durée de mise en cache de cette coque est un paramètre valable pour l’ensemble du déploiement — voir [SSR Caching](/docs/ssr-caching) pour `AGENT_NATIVE_SSR_CACHE`. Raccourcir ou désactiver le cache ne change que la durée ; le SSR continue de rendre la branche anonyme avec les cookies supprimés.
 
 ### Dans les coulisses : Google OAuth
 

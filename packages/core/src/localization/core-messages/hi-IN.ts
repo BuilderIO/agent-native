@@ -521,6 +521,7 @@ const messages: AgentChatTranslation = {
   "share.unknownPerson": "अज्ञात व्यक्ति",
   "share.viewer": "दर्शक",
   "share.viewerDescription": "देख सकता है",
+  "share.userGroup": "उपयोगकर्ता समूह",
   "status.resuming": "फिर से शुरू हो रहा है",
   "status.stillWorking": "अभी काम जारी है",
   "status.thinking": "सोच रहा है",

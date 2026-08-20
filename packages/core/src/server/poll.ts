@@ -47,6 +47,8 @@ import { getSession } from "./auth.js";
 
 export interface ChangeEvent {
   version: number;
+  /** Stable durable-row tie-breaker for events sharing a millisecond version. */
+  cursorId?: string;
   source: string;
   type: string;
   key?: string;
@@ -117,6 +119,7 @@ const ACCESS_CACHE_DENY_TTL_MS = 5_000;
 /** Max cache entries before FIFO eviction kicks in. */
 const ACCESS_CACHE_MAX = 500;
 const SCREEN_REFRESH_KEY = "__screen_refresh__";
+const SCREEN_REFRESH_QUERY_LIMIT = 256;
 
 /**
  * DB-assigned version allocation (see `AppSyncStateOptions.dbAssignedVersions`).
@@ -167,6 +170,35 @@ function sqlWatermarkValue(value: unknown): string | number | undefined {
   if (typeof value === "string" && value.length > 0) return value;
   if (typeof value === "number" && Number.isFinite(value)) return value;
   return undefined;
+}
+
+type SyncCursor = { version: number; id: string };
+
+function compareSyncCursors(a: SyncCursor, b: SyncCursor): number {
+  if (a.version !== b.version) return a.version - b.version;
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
+function cursorForEvent(event: ChangeEvent): SyncCursor {
+  return { version: event.version, id: event.cursorId ?? "" };
+}
+
+function encodeSyncCursor(cursor: SyncCursor): string {
+  return `${cursor.version}.${cursor.id}`;
+}
+
+function decodeSyncCursor(value: unknown): SyncCursor | undefined {
+  if (typeof value !== "string") return undefined;
+  const separator = value.indexOf(".");
+  if (separator < 1) return undefined;
+  const version = Number(value.slice(0, separator));
+  const id = value.slice(separator + 1);
+  if (!Number.isSafeInteger(version) || version < 0) return undefined;
+  return { version, id };
+}
+
+function isEventAfterCursor(event: ChangeEvent, cursor: SyncCursor): boolean {
+  return compareSyncCursors(cursorForEvent(event), cursor) > 0;
 }
 
 function syncEventsDisabled(): boolean {
@@ -292,6 +324,11 @@ function extensionTargetsForRow(
       addExtensionTarget(targets, { owner: principalId });
     } else if (principalType === "org" && principalId) {
       addExtensionTarget(targets, { orgId: principalId });
+    } else if (principalType === "group" && orgId) {
+      // Group membership is org-scoped. Invalidating the org target is a
+      // conservative fallback that keeps group-share changes fresh for every
+      // member without making the poll layer own group-directory queries.
+      addExtensionTarget(targets, { orgId });
     }
   }
 
@@ -344,6 +381,8 @@ type ChangeVisibility = "visible" | "hidden" | "pending";
 export type ChangeReadResult = {
   version: number;
   events: ChangeEvent[];
+  /** Composite `(version,id)` cursor for durable rows sharing a version. */
+  cursor?: string;
   /**
    * True when the returned version is an intentional cursor stop, not the
    * source high-water mark. This happens when access is still pending or when a
@@ -448,11 +487,16 @@ export class AppSyncState {
   // the same range (seeded from DB, then incremented via Date.now). Plain
   // ++counter diverges across cold starts.
   private version = 0;
+  private latestCursor: SyncCursor = { version: 0, id: "" };
   private readonly buffer: ChangeEvent[] = [];
   private readonly pollEmitter = new EventEmitter();
   private syncEventsInitPromise: Promise<boolean> | undefined;
-  private lastDurablePrune = 0;
+  // Cold starts should not immediately run a potentially large anti-join. A
+  // long-lived process will still prune on its first scheduled interval.
+  private lastDurablePrune = Date.now();
   private durablePruneFailures = 0;
+  private durableWriteFailures = 0;
+  private allocatorReseedFailures = 0;
 
   /**
    * Whether we've seeded `version` from the DB. In serverless (Netlify,
@@ -486,8 +530,9 @@ export class AppSyncState {
    * after a restart (where an existing row would look like a fresh bump).
    */
   private lastScreenRefreshTs = 0;
+  private lastScreenRefreshSessionId = "";
   private screenRefreshInitialized = false;
-  private readonly lastScreenRefreshTsBySession = new Map<string, number>();
+  private screenRefreshHasMore = false;
   private localEmittersWired = false;
 
   /**
@@ -684,8 +729,9 @@ export class AppSyncState {
    *     `sync_events_created_at_id_idx` drives the batch and the delete is a
    *     bounded index range scan.
    *
-   * The `lastDurablePrune` throttle below is per-process, so every serverless
-   * worker prunes on its first poll. Postgres workers also take a
+   * The `lastDurablePrune` throttle below is per-process and starts at process
+   * initialization, so a cold serverless worker does not run a potentially
+   * large delete during its first request. Postgres workers also take a
    * transaction-scoped advisory lease for each batch. The lease and delete
    * are one bounded statement, so a serverless worker killed after the
    * statement starts cannot leave an open transaction.
@@ -749,6 +795,29 @@ export class AppSyncState {
     }
   }
 
+  private reportDurableWriteFailure(
+    error: unknown,
+    event: Pick<ChangeEvent, "source" | "type" | "key">,
+  ): void {
+    this.durableWriteFailures++;
+    if (this.durableWriteFailures === 1) {
+      console.warn(
+        `[agent-native] sync_events write failed for ${event.source}/${event.type}${event.key ? `/${event.key}` : ""}; durable replay is unavailable until the database recovers:`,
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+
+  private reportAllocatorReseedFailure(error: unknown): void {
+    this.allocatorReseedFailures++;
+    if (this.allocatorReseedFailures === 1) {
+      console.warn(
+        "[agent-native] sync version allocator reseed failed; retrying allocation:",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+
   async persistSyncEvent(
     event: ChangeEvent,
     dedupeKey?: string,
@@ -756,31 +825,30 @@ export class AppSyncState {
   ): Promise<void> {
     if (!(await this.ensureSyncEventsTable())) return;
     const client = this.getDb();
-    await client
-      .execute({
-        sql: this.isPg()
-          ? `INSERT INTO sync_events (id, version, event_json, source, type, event_key, owner, org_id, resource_type, resource_id, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT (id) DO NOTHING`
-          : `INSERT OR IGNORE INTO sync_events (id, version, event_json, source, type, event_key, owner, org_id, resource_type, resource_id, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        args: [
-          // presetId lets a gated fallback reuse the allocating attempt's id,
-          // so a commit-then-timeout can't produce the same event twice.
-          presetId ?? this.durableEventId(event, dedupeKey),
-          event.version,
-          JSON.stringify(event),
-          event.source,
-          event.type,
-          event.key ?? null,
-          event.owner ?? null,
-          event.orgId ?? null,
-          event.resourceType ?? null,
-          event.resourceId ?? null,
-          Date.now(),
-        ],
-      })
-      .catch(() => {});
+    await client.execute({
+      sql: this.isPg()
+        ? `INSERT INTO sync_events (id, version, event_json, source, type, event_key, owner, org_id, resource_type, resource_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (id) DO NOTHING`
+        : `INSERT OR IGNORE INTO sync_events (id, version, event_json, source, type, event_key, owner, org_id, resource_type, resource_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        // presetId lets a gated fallback reuse the allocating attempt's id,
+        // so a commit-then-timeout can't produce the same event twice.
+        presetId ?? this.durableEventId(event, dedupeKey),
+        event.version,
+        JSON.stringify(event),
+        event.source,
+        event.type,
+        event.key ?? null,
+        event.owner ?? null,
+        event.orgId ?? null,
+        event.resourceType ?? null,
+        event.resourceId ?? null,
+        Date.now(),
+      ],
+    });
+    this.durableWriteFailures = 0;
     await this.pruneDurableEvents(client);
   }
 
@@ -818,9 +886,18 @@ export class AppSyncState {
     let result = await client.execute({ sql: ALLOCATING_INSERT_SQL, args });
     if (result.rows.length === 0) {
       // Allocator row missing (e.g. wiped after ensure): reseed, retry once.
-      await client.execute(SEED_SYNC_VERSION_SQL).catch(() => {});
+      try {
+        await client.execute(SEED_SYNC_VERSION_SQL);
+        this.allocatorReseedFailures = 0;
+      } catch (error) {
+        // Keep the retry/fallback behavior, but do not hide the reason the
+        // allocator was unavailable. A missing warning here makes a broken
+        // allocator look like a normal retry until version ordering drifts.
+        this.reportAllocatorReseedFailure(error);
+      }
       result = await client.execute({ sql: ALLOCATING_INSERT_SQL, args });
     }
+    if (result.rows.length > 0) this.allocatorReseedFailures = 0;
     const version = timestampValue(result.rows[0]?.version);
     await this.pruneDurableEvents(client);
     return version > 0 ? version : null;
@@ -1071,18 +1148,30 @@ export class AppSyncState {
       // drop every later event.
       this.recordChain = this.recordChain
         .then(() => this.recordWithDbVersion(event, opts?.dedupeKey))
-        .catch(() => {});
+        .catch((error) => {
+          this.reportDurableWriteFailure(error, event);
+        });
       return;
     }
     this.version = Math.max(this.version + 1, Date.now());
-    const entry: ChangeEvent = { ...event, version: this.version };
+    const provisional: ChangeEvent = { ...event, version: this.version };
+    const cursorId = this.durableEventId(provisional, opts?.dedupeKey);
+    const entry: ChangeEvent = { ...provisional, cursorId };
     this.commitEntry(entry);
-    void this.persistSyncEvent(entry, opts?.dedupeKey);
+    void this.persistSyncEvent(entry, opts?.dedupeKey, cursorId).catch(
+      (error) => {
+        this.reportDurableWriteFailure(error, entry);
+      },
+    );
   }
 
   /** Buffer + emit. Shared by both version-allocation modes. */
   private commitEntry(entry: ChangeEvent): void {
     this.buffer.push(entry);
+    const cursor = cursorForEvent(entry);
+    if (compareSyncCursors(cursor, this.latestCursor) > 0) {
+      this.latestCursor = cursor;
+    }
     if (this.buffer.length > MAX_BUFFER) {
       this.buffer.splice(0, this.buffer.length - MAX_BUFFER);
     }
@@ -1109,7 +1198,10 @@ export class AppSyncState {
         : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
     let version: number | null = null;
     try {
-      version = await this.persistWithDbAssignedVersion(event, id);
+      version = await this.persistWithDbAssignedVersion(
+        { ...event, cursorId: id },
+        id,
+      );
     } catch {
       version = null;
     }
@@ -1135,10 +1227,16 @@ export class AppSyncState {
         );
       }
       this.version = Math.max(this.version + 1, Date.now());
-      const entry: ChangeEvent = { ...event, version: this.version };
+      const entry: ChangeEvent = {
+        ...event,
+        version: this.version,
+        cursorId: id,
+      };
       await this.alignVersionAllocator(this.version);
       this.commitEntryForChain(entry);
-      void this.persistSyncEvent(entry, dedupeKey, id);
+      void this.persistSyncEvent(entry, dedupeKey, id).catch((error) => {
+        this.reportDurableWriteFailure(error, entry);
+      });
       return;
     }
     // A deterministic-id dedupe loser adopts the winner's (possibly older)
@@ -1146,7 +1244,7 @@ export class AppSyncState {
     // delivered correctly and the version-keyed combined-read dedupe collapses
     // it against the durable row.
     this.version = Math.max(this.version, version);
-    this.commitEntryForChain({ ...event, version });
+    this.commitEntryForChain({ ...event, version, cursorId: id });
   }
 
   /**
@@ -1235,14 +1333,28 @@ export class AppSyncState {
     since: number,
     userEmail: string,
     orgId: string | undefined,
+    cursor?: SyncCursor,
   ): ChangeReadResult {
-    if (since >= this.version) {
-      return { version: this.version, events: [] };
+    const readCursor = cursor ?? { version: since, id: "" };
+    if (
+      (!cursor && since >= this.version) ||
+      (cursor && compareSyncCursors(this.latestCursor, readCursor) <= 0)
+    ) {
+      return {
+        version: this.version,
+        events: [],
+        ...(cursor ? { cursor: encodeSyncCursor(readCursor) } : {}),
+      };
     }
     const events: ChangeEvent[] = [];
     let version = this.version;
+    let lastCursor = readCursor;
     for (const event of this.buffer) {
-      if (event.version <= since) continue;
+      if (
+        cursor ? !isEventAfterCursor(event, readCursor) : event.version <= since
+      ) {
+        continue;
+      }
       const visibility = this.getChangeVisibilityForUser(
         event,
         userEmail,
@@ -1250,26 +1362,50 @@ export class AppSyncState {
       );
       if (visibility === "visible") {
         events.push(event);
+        lastCursor = cursorForEvent(event);
         continue;
       }
       if (visibility === "pending") {
         version = Math.max(since, event.version - 1);
-        return { version, events, cursorLimited: true };
+        return {
+          version,
+          events,
+          cursorLimited: true,
+          ...(cursor && lastCursor !== readCursor
+            ? { cursor: encodeSyncCursor(lastCursor) }
+            : {}),
+        };
       }
+      lastCursor = cursorForEvent(event);
     }
-    return { version, events };
+    return {
+      version,
+      events,
+      ...(cursor && compareSyncCursors(lastCursor, readCursor) > 0
+        ? { cursor: encodeSyncCursor(lastCursor) }
+        : {}),
+    };
   }
 
   async getDurableChangesSinceForUser(
     since: number,
     userEmail: string,
     orgId: string | undefined,
+    cursor?: SyncCursor,
   ): Promise<ChangeReadResult> {
-    if (since <= 0 || !(await this.ensureSyncEventsTable())) {
+    if (
+      (!cursor && since <= 0) ||
+      (cursor && cursor.version <= 0 && cursor.id === "") ||
+      !(await this.ensureSyncEventsTable())
+    ) {
       return { version: this.version, events: [] };
     }
 
     try {
+      const readCursor = cursor ?? { version: since, id: "" };
+      const compositeCursorSql = cursor
+        ? "(version > ? OR (version = ? AND id > ?))"
+        : "version > ?";
       // Scope the fetch to rows that could ever be visible to this caller
       // before paying to JSON.parse and visibility-check every deployment-wide
       // event: deployment-global rows (no owner, no org), the caller's own
@@ -1280,19 +1416,29 @@ export class AppSyncState {
       // `orgId` bind param, which makes `org_id = ?` match no row in both
       // dialects — mirroring the `event.orgId && orgId` truthy check.
       const result = await this.getDb().execute({
-        sql: `SELECT version, event_json FROM sync_events WHERE version > ?
+        sql: `SELECT id, version, event_json FROM sync_events WHERE ${compositeCursorSql}
               AND (
                 (owner IS NULL AND org_id IS NULL)
                 OR owner = ?
                 OR org_id = ?
                 OR resource_type IS NOT NULL
               )
-            ORDER BY version ASC LIMIT ?`,
-        args: [since, userEmail, orgId ?? null, DURABLE_READ_LIMIT + 1],
+            ORDER BY version ASC, id ASC LIMIT ?`,
+        args: cursor
+          ? [
+              cursor.version,
+              cursor.version,
+              cursor.id,
+              userEmail,
+              orgId ?? null,
+              DURABLE_READ_LIMIT + 1,
+            ]
+          : [since, userEmail, orgId ?? null, DURABLE_READ_LIMIT + 1],
       });
       const events: ChangeEvent[] = [];
       let version = Math.max(this.version, since);
       let lastDurableVersion = since;
+      let lastCursor = readCursor;
       const rows = result.rows.slice(0, DURABLE_READ_LIMIT);
       const overflowVersion = timestampValue(
         result.rows[DURABLE_READ_LIMIT]?.version,
@@ -1302,6 +1448,8 @@ export class AppSyncState {
         const rawVersion = timestampValue(row.version);
         if (rawVersion > lastDurableVersion) lastDurableVersion = rawVersion;
         if (rawVersion > version) version = rawVersion;
+        const rowId = typeof row.id === "string" ? row.id : "";
+        let rowCursor = rowId ? { version: rawVersion, id: rowId } : undefined;
         let event: ChangeEvent | null = null;
         try {
           const parsed = JSON.parse(String(row.event_json));
@@ -1314,12 +1462,26 @@ export class AppSyncState {
             event = {
               ...(parsed as ChangeEvent),
               version: rawVersion || (parsed as ChangeEvent).version,
+              ...(rowId || typeof (parsed as ChangeEvent).cursorId === "string"
+                ? {
+                    cursorId: rowId || (parsed as ChangeEvent).cursorId,
+                  }
+                : {}),
             };
           }
         } catch {
           event = null;
         }
-        if (!event) continue;
+        if (!event) {
+          // Malformed durable rows are skipped from delivery, but their
+          // composite cursor still needs to advance. Otherwise every poll
+          // rereads the same bad row forever and can never reach later rows.
+          if (rowCursor) lastCursor = rowCursor;
+          continue;
+        }
+        if (!rowCursor && typeof event.cursorId === "string") {
+          rowCursor = { version: event.version, id: event.cursorId };
+        }
 
         const visibility = this.getChangeVisibilityForUser(
           event,
@@ -1328,6 +1490,7 @@ export class AppSyncState {
         );
         if (visibility === "visible") {
           events.push(event);
+          if (rowCursor) lastCursor = rowCursor;
           continue;
         }
         if (visibility === "pending") {
@@ -1335,11 +1498,23 @@ export class AppSyncState {
             version: Math.max(since, event.version - 1),
             events,
             cursorLimited: true,
+            ...(cursor && compareSyncCursors(lastCursor, readCursor) > 0
+              ? { cursor: encodeSyncCursor(lastCursor) }
+              : {}),
           };
         }
+        if (rowCursor) lastCursor = rowCursor;
       }
 
       if (rows.length >= DURABLE_READ_LIMIT) {
+        if (cursor) {
+          return {
+            version: Math.max(since, lastDurableVersion),
+            events,
+            cursor: encodeSyncCursor(lastCursor),
+            cursorLimited: result.rows.length > DURABLE_READ_LIMIT,
+          };
+        }
         if (overflowVersion === lastDurableVersion) {
           const boundaryVersion = lastDurableVersion;
           return {
@@ -1355,9 +1530,19 @@ export class AppSyncState {
         };
       }
 
-      return { version, events };
+      return {
+        version,
+        events,
+        ...(cursor && compareSyncCursors(lastCursor, readCursor) > 0
+          ? { cursor: encodeSyncCursor(lastCursor) }
+          : {}),
+      };
     } catch {
-      return { version: this.version, events: [] };
+      return {
+        version: this.version,
+        events: [],
+        ...(cursor ? { cursor: encodeSyncCursor(cursor) } : {}),
+      };
     }
   }
 
@@ -1366,19 +1551,22 @@ export class AppSyncState {
     userEmail: string,
     orgId: string | undefined,
     useDurableEvents: boolean,
-  ): Promise<{ version: number; events: ChangeEvent[] }> {
-    const memory = this.getChangesSinceForUser(since, userEmail, orgId);
+    cursor?: SyncCursor,
+  ): Promise<ChangeReadResult> {
+    const memory = this.getChangesSinceForUser(since, userEmail, orgId, cursor);
     if (!useDurableEvents) return memory;
 
     const durable = await this.getDurableChangesSinceForUser(
       since,
       userEmail,
       orgId,
+      cursor,
     );
     const byIdentity = new Map<string, ChangeEvent>();
     for (const event of [...durable.events, ...memory.events]) {
       byIdentity.set(
         JSON.stringify([
+          event.cursorId,
           event.version,
           event.source,
           event.type,
@@ -1391,9 +1579,47 @@ export class AppSyncState {
         event,
       );
     }
-    const events = Array.from(byIdentity.values()).sort(
-      (a, b) => a.version - b.version,
+    const events = Array.from(byIdentity.values()).sort((a, b) =>
+      compareSyncCursors(cursorForEvent(a), cursorForEvent(b)),
     );
+    if (cursor) {
+      const limitedCursors = [memory, durable]
+        .filter((result) => result.cursorLimited)
+        .map((result) => decodeSyncCursor(result.cursor))
+        .filter((value): value is SyncCursor => !!value);
+      if (limitedCursors.length > 0) {
+        const boundary = limitedCursors.reduce((minimum, value) =>
+          compareSyncCursors(value, minimum) < 0 ? value : minimum,
+        );
+        return {
+          version: boundary.version,
+          cursor: encodeSyncCursor(boundary),
+          cursorLimited: true,
+          events: events.filter(
+            (event) => compareSyncCursors(cursorForEvent(event), boundary) <= 0,
+          ),
+        };
+      }
+      const responseCursor = [
+        cursor,
+        decodeSyncCursor(memory.cursor),
+        decodeSyncCursor(durable.cursor),
+        ...events.map(cursorForEvent),
+      ]
+        .filter((value): value is SyncCursor => !!value)
+        .reduce(
+          (maximum, value) =>
+            compareSyncCursors(value, maximum) > 0 ? value : maximum,
+          cursor,
+        );
+      return {
+        version: Math.max(memory.version, durable.version, since),
+        events,
+        ...(compareSyncCursors(responseCursor, cursor) > 0
+          ? { cursor: encodeSyncCursor(responseCursor) }
+          : {}),
+      };
+    }
     const limitedVersions = [memory, durable]
       .filter((result) => result.cursorLimited)
       .map((result) => result.version);
@@ -1439,7 +1665,7 @@ export class AppSyncState {
         readActionMarkerMaxUpdatedAt(db),
         db
           .execute({
-            sql: "SELECT session_id, updated_at FROM application_state WHERE key = ?",
+            sql: "SELECT session_id, updated_at FROM application_state WHERE key = ? ORDER BY updated_at DESC, session_id DESC LIMIT 1",
             args: [SCREEN_REFRESH_KEY],
           })
           .catch(() => ({ rows: [] as Record<string, unknown>[] })),
@@ -1494,15 +1720,11 @@ export class AppSyncState {
       );
       this.replayActionMarkerOnce = actionMarkerTs > 0;
       this.lastScreenRefreshTs = refreshTs;
-      this.lastScreenRefreshTsBySession.clear();
-      for (const row of refreshResult.rows) {
-        if (typeof row.session_id === "string") {
-          this.lastScreenRefreshTsBySession.set(
-            row.session_id,
-            timestampValue(row.updated_at),
-          );
-        }
-      }
+      this.lastScreenRefreshSessionId =
+        typeof refreshResult.rows[0]?.session_id === "string"
+          ? refreshResult.rows[0].session_id
+          : "";
+      this.screenRefreshHasMore = false;
       this.screenRefreshInitialized = true;
       // Skip the redundant cold-start recheck unless there is an existing durable
       // action marker that the first poll still needs to emit.
@@ -1583,24 +1805,39 @@ export class AppSyncState {
       this.replayActionMarkerOnce = false;
       const appStateChanged =
         appStateMaxTs > this.lastAppStateTs || replayActionMarker;
+      const screenRefreshNeedsCheck =
+        appStateChanged || this.screenRefreshHasMore;
 
-      const [appResult, refreshResult, extensionMarkerTs] = appStateChanged
-        ? await Promise.all([
-            db.execute({
-              sql: "SELECT session_id, key, updated_at FROM application_state WHERE updated_at > ? ORDER BY updated_at ASC",
-              args: [this.lastAppStateTs],
-            }),
-            db.execute({
-              sql: "SELECT session_id, updated_at, value FROM application_state WHERE key = ?",
-              args: [SCREEN_REFRESH_KEY],
-            }),
-            readExtensionMarkerMaxUpdatedAt(db),
-          ])
-        : ([
-            { rows: [] as Record<string, unknown>[] },
-            null,
-            this.lastExtensionMarkerTs,
-          ] as const);
+      const [appResult, refreshResult, extensionMarkerTs] =
+        screenRefreshNeedsCheck
+          ? await Promise.all([
+              appStateChanged
+                ? db.execute({
+                    sql: "SELECT session_id, key, updated_at FROM application_state WHERE updated_at > ? ORDER BY updated_at ASC",
+                    args: [this.lastAppStateTs],
+                  })
+                : Promise.resolve({ rows: [] as Record<string, unknown>[] }),
+              db.execute({
+                sql: `SELECT session_id, updated_at, value FROM application_state
+                    WHERE key = ?
+                      AND (updated_at > ? OR (updated_at = ? AND session_id > ?))
+                    ORDER BY updated_at ASC, session_id ASC
+                    LIMIT ?`,
+                args: [
+                  SCREEN_REFRESH_KEY,
+                  this.lastScreenRefreshTs,
+                  this.lastScreenRefreshTs,
+                  this.lastScreenRefreshSessionId,
+                  SCREEN_REFRESH_QUERY_LIMIT,
+                ],
+              }),
+              readExtensionMarkerMaxUpdatedAt(db),
+            ])
+          : ([
+              { rows: [] as Record<string, unknown>[] },
+              null,
+              this.lastExtensionMarkerTs,
+            ] as const);
 
       // Check application_state for external writes. Preserve the changed key so
       // clients can invalidate one-shot command queries (`navigate`, `__set_url__`)
@@ -1675,22 +1912,15 @@ export class AppSyncState {
       // application_state row moved, which is also exactly when this block
       // could not emit anything.
       if (refreshResult) {
-        const refreshTs = refreshResult.rows.reduce(
-          (max, row) => Math.max(max, timestampValue(row.updated_at)),
-          0,
-        );
         if (!this.screenRefreshInitialized) {
-          this.lastScreenRefreshTs = refreshTs;
-          for (const row of refreshResult.rows) {
-            if (typeof row.session_id === "string") {
-              this.lastScreenRefreshTsBySession.set(
-                row.session_id,
-                timestampValue(row.updated_at),
-              );
-            }
-          }
+          const lastRow = refreshResult.rows.at(-1);
+          this.lastScreenRefreshTs = timestampValue(lastRow?.updated_at);
+          this.lastScreenRefreshSessionId =
+            typeof lastRow?.session_id === "string" ? lastRow.session_id : "";
+          this.screenRefreshHasMore =
+            refreshResult.rows.length >= SCREEN_REFRESH_QUERY_LIMIT;
           this.screenRefreshInitialized = true;
-        } else if (refreshTs > this.lastScreenRefreshTs) {
+        } else {
           // Emit a per-user event only for the session(s) whose row actually
           // advanced, scoped with `owner` so canSeeChangeForUser delivers it only
           // to that user — not every authenticated poller.
@@ -1699,9 +1929,6 @@ export class AppSyncState {
               typeof row.session_id === "string" ? row.session_id : undefined;
             if (!owner) continue;
             const rowTs = timestampValue(row.updated_at);
-            if (rowTs <= (this.lastScreenRefreshTsBySession.get(owner) ?? 0)) {
-              continue;
-            }
             let scope: string | undefined;
             try {
               const raw = row.value;
@@ -1718,11 +1945,13 @@ export class AppSyncState {
                 owner,
                 ...(scope ? { scope } : {}),
               },
-              { dedupeKey: `screen-refresh|${rowTs}` },
+              { dedupeKey: `screen-refresh|${rowTs}|${owner}` },
             );
-            this.lastScreenRefreshTsBySession.set(owner, rowTs);
+            this.lastScreenRefreshTs = rowTs;
+            this.lastScreenRefreshSessionId = owner;
           }
-          this.lastScreenRefreshTs = refreshTs;
+          this.screenRefreshHasMore =
+            refreshResult.rows.length >= SCREEN_REFRESH_QUERY_LIMIT;
         }
       }
 
@@ -1731,13 +1960,15 @@ export class AppSyncState {
       // marker rows back into extension-source events for targeted client
       // invalidation while preserving user/org scope.
       if (extensionMarkerTs > this.lastExtensionMarkerTs) {
+        // Bound the scan by the watermark instead of reading every marker row
+        // ever written and filtering in memory: this table keeps one row per
+        // session that has ever mutated an extension, so the unbounded read
+        // grows with lifetime users rather than with pending work.
         const extensionMarkerResult = await db.execute({
-          sql: "SELECT session_id, value, updated_at FROM application_state WHERE key = ? ORDER BY updated_at ASC",
-          args: [EXTENSION_CHANGE_MARKER_KEY],
+          sql: "SELECT session_id, value, updated_at FROM application_state WHERE key = ? AND updated_at > ? ORDER BY updated_at ASC",
+          args: [EXTENSION_CHANGE_MARKER_KEY, this.lastExtensionMarkerTs],
         });
-        const changedExtensionMarkers = extensionMarkerResult.rows.filter(
-          (row) => timestampValue(row.updated_at) > this.lastExtensionMarkerTs,
-        );
+        const changedExtensionMarkers = extensionMarkerResult.rows;
         if (this.lastExtensionMarkerTs > 0) {
           this.recordExtensionChanges(
             changedExtensionMarkers
@@ -1914,7 +2145,7 @@ export function getChangesSinceForUser(
 /**
  * Create an H3 handler for the poll endpoint.
  *
- * GET /_agent-native/poll?since=N → { version, events[] }
+ * GET /_agent-native/poll?since=N[&cursor=N.id] → { version, events[] }
  *
  * Requires an authenticated session. Events are filtered to the caller's
  * tenant — global events (owner-less, table-level pings) reach every
@@ -1943,12 +2174,15 @@ export function createPollHandler(
     await state.checkExternalDbChanges({ durableEvents });
 
     const query = getQuery(event);
-    const since = parseInt(String(query.since ?? "0"), 10) || 0;
+    const cursor = decodeSyncCursor(query.cursor);
+    const since =
+      cursor?.version ?? (parseInt(String(query.since ?? "0"), 10) || 0);
     return state.getCombinedChangesSinceForUser(
       since,
       session.email,
       session.orgId,
       durableEvents,
+      cursor,
     );
   });
 }

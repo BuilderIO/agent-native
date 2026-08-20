@@ -46,6 +46,7 @@ import { setBrowserDemoModeEnabled } from "../../demo/browser-state.js";
 import { shouldOfferWorkspace } from "../../org/workspace-url.js";
 import { agentNativePath } from "../api-path.js";
 import { useT } from "../i18n.js";
+import { buildSignInReturnHref } from "../require-session.js";
 import { useDemoModeStatus } from "../use-demo-mode-status.js";
 import { notifySessionInvalidated, useSession } from "../use-session.js";
 import {
@@ -369,15 +370,24 @@ export function OrgSwitcher({
     if (signingOut) return;
     setSigningOut(true);
     try {
-      await fetch(agentNativePath("/_agent-native/auth/logout"), {
-        method: "POST",
-        credentials: "include",
-      });
-    } catch {
-      /* fall through to reload — server may already have cleared the cookie */
+      const response = await fetch(
+        agentNativePath("/_agent-native/auth/logout"),
+        {
+          method: "POST",
+          credentials: "include",
+        },
+      );
+      if (!response.ok) {
+        console.warn(
+          "Logout request returned an error before sign-in",
+          response.status,
+        );
+      }
+    } catch (error) {
+      console.warn("Unable to complete logout request before sign-in", error);
     }
     notifySessionInvalidated();
-    window.location.reload();
+    window.location.replace(buildSignInReturnHref());
   };
 
   if (!org) {

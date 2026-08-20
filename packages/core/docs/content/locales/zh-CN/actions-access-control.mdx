@@ -83,7 +83,141 @@ export default defineAction({
 
 少数 action 的后果太过严重,不能让代理自行运行,比如发送邮件、扣款,或删除账户。在 `defineAction()` 上设置 `needsApproval: true`(或者一个谓词 `(args, ctx) => boolean | Promise<boolean>`),代理循环就会在 `run()` 之前暂停,需要人工批准这一次具体的调用。默认值是**关闭**,几乎每一个 action 都应该保持这个默认值。
 
-关于谓词 API、`approval_required` 事件,以及完整的端到端流程,参阅 [人在环批准](/docs/human-approval)。
+<Callout tone="warning">
+  批准应当保持罕见。每一个被门控的
+  action,都是代理循环中的一次硬性中断。它会打断运行,并要求一次人工往返确认。只把
+  `needsApproval`
+  用在那些后果真正严重、难以撤销、且面向外部的操作上。如果你发现自己在给读取操作或日常写入操作加上门控,那就是用错了地方。默认值是**关闭**,几乎每一个
+  action 都应该保持这个默认值。
+</Callout>
+
+<AnnotatedCode
+  id="doc-block-13p4g9y"
+  title="对那唯一有实际后果的操作进行门控"
+  filename="actions/send-email.ts"
+  language="ts"
+  code={
+    'export default defineAction({\n  description: "Send an email via Gmail.",\n  schema: z.object({\n    to: z.string(),\n    subject: z.string(),\n    body: z.string(),\n  }),\n  // Sending is outward-facing and hard to undo, so the agent can never send\n  // without a human approving the specific call. Drafting and queueing are\n  // not affected. Only the real send is gated.\n  needsApproval: true,\n  run: async (args) => {\n    /* ...actually send... */\n  },\n});'
+  }
+  annotations={[
+    {
+      lines: "10",
+      label: "整个门控",
+      note: "只有一个 flag。当它为真值且这次调用尚未获得批准时,循环会在 `run` 之前停下。模型永远无法独自到达这个副作用。",
+    },
+    {
+      lines: "11-13",
+      label: "`run()` 保持不变",
+      note: "处理函数本身没有变化。批准检查是由外层的循环强制执行的,而不是 `run` 内部的任何代码。",
+    },
+  ]}
+/>
+
+- **`needsApproval: true`** 始终要求批准。
+- **`needsApproval: (args, ctx) => boolean | Promise<boolean>`** 只有在谓词返回 true 时才要求批准。用它来做有条件的门控,例如只针对外部收件人,或者只在金额超过某个门槛时:
+
+  ```ts
+  needsApproval: (args) => !args.to.endsWith("@your-company.com"),
+  ```
+
+  保持这个谓词纯粹且执行迅速。如果谓词抛出异常,框架会把这次调用当作谓词返回了 true 来处理,所以该 action 会暂停等待批准,而不会继续运行。这意味着一个出问题的谓词,永远不会在没有人工批准的情况下,悄悄放行一个后果严重的操作。
+
+当省略 `needsApproval` 时,行为与之前逐字节保持一致。在常见路径上没有任何额外开销。
+
+对于旧式的 `parameters` 写法的 action 和基于 schema 的 action,这个机制的工作方式完全相同。对于应用内代理、子代理、A2A 和 MCP 调用者,它的工作方式也完全相同,因为每一个代理界面都会经过同一个循环。
+
+### 循环如何暂停 {#loop}
+
+当代理调用一个被门控的 action,并且这一次具体的调用**尚未**获得批准时,循环**不会**执行 `run()`。它会转而:
+
+1. 解析这个门控。对于一个谓词,循环会调用 `needsApproval(input, ctx)`。如果这次调用抛出异常,循环会把它当作返回了 `true` 来处理,所以该 action 会要求批准。
+2. 发出一个 `tool_start` 事件(这样 UI 就会显示这次调用),紧接着立即发出一个 **`approval_required`** 事件,然后停止这个 turn。该 action 的副作用永远不会发生。
+
+`approval_required` 事件携带了客户端渲染一个操作入口所需的一切信息:
+
+| 字段          | 类型     | 说明                                                         |
+| ------------- | -------- | ------------------------------------------------------------ |
+| `tool`        | `string` | 代理尝试调用的 action 名称。                                 |
+| `input`       | object   | 代理传入的参数。                                             |
+| `approvalKey` | `string` | **稳定的键**,客户端会把它原样传回,以批准*这一次确切的调用*。 |
+| `toolCallId`  | `string` | 模型侧的 tool-call id(如果可用)。                            |
+
+`approvalKey` 是根据工具名称加上其输入,以确定性的方式推导出来的,所以同一个逻辑调用总是会产生同一个键。模型永远看不到也不会设置这个键。它的存在,纯粹是为了在框架和人工的批准操作入口之间做一次握手。
+
+这个被暂停的工具会返回一个结果,告诉模型这个 turn 已经暂停,不要重试,这样模型就不会空转重复尝试。
+
+### 人工如何批准 {#approve}
+
+收到 `approval_required` 后,聊天界面会在这次被暂停的工具调用上渲染一个**批准 / 拒绝**操作入口。这在 `AssistantChat` 中是自动接好的,不需要你在每个模板里单独搭建。
+
+<WireframeBlock id="doc-block-humanapprovalwf1">
+  <Screen
+    surface="popover"
+    html={
+      "<div style='display:flex;flex-direction:column;box-sizing:border-box;padding:16px;gap:12px'><div class='wf-card' style='display:flex;flex-direction:column;gap:8px'><div style='display:flex;align-items:center;gap:8px'><span class='wf-pill warn'>Needs approval</span><strong>send-email</strong></div><div style='display:flex;flex-direction:column;gap:2px'><span class='wf-muted'>to: alex@acme.com</span><span class='wf-muted'>subject: Following up on the proposal</span></div><div style='display:flex;gap:8px'><button>Deny</button><button class='primary'>Approve</button></div></div></div>"
+    }
+  />
+</WireframeBlock>
+
+- **批准**会以一条普通的续接消息重新发出这个 turn,消息里在 `approvedToolCalls: [approvalKey]` 中携带这次调用的键。在重新发出的这个 turn 中,门控会在已批准的集合里看到这个键,于是让这一次具体的调用正常运行。
+- **拒绝**只会在本地关闭这个操作入口。不会重新发出任何东西,所以该 action 永远不会运行。
+
+`approvedToolCalls` 是聊天请求上的一个字段(`AgentChatRequest.approvedToolCalls`)。不在这个字段中出现的键,会一直保持暂停状态。批准一次调用,永远不会批准任何其他调用。因为这个键是按内容寻址的,所以一次批准只会授权那一次确切的调用,连同那些确切的参数。如果模型之后提议一次不同的发送,那会产生一个新的键,需要一次全新的批准。
+
+### 端到端流程 {#flow}
+
+<Diagram id="doc-block-2nor1g" title="批准中断" summary={"一次被门控的调用,会在 run() 触发之前暂停这个 turn。批准会重新发出这个 turn,并携带这次调用的键。只有到那时,副作用才会发生。"}>
+
+```html
+<div class="diagram-approve">
+  <div class="diagram-box" data-rough>代理调用 send-email</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-panel warn" data-rough>
+    <strong>门控为真,调用尚未获批准</strong
+    ><small class="diagram-muted"
+      >循环发出 tool_start + approval_required { tool, input, approvalKey
+      }</small
+    ><span class="diagram-pill warn">run() 尚未执行</span>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-box" data-rough>
+    人工在聊天中点击批准<br /><small class="diagram-muted"
+      >客户端携带 approvedToolCalls: [approvalKey] 重新发出这个 turn</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-panel ok" data-rough>
+    <span class="diagram-pill ok"
+      >门控看到这个键 &rarr; run() 执行 &rarr; 邮件发出</span
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-approve {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.diagram-approve .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+  padding: 12px 16px;
+  text-align: center;
+}
+.diagram-approve .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+Mail 模板中的 `send-email` action,是框架里这个门控机制的典范用法,而且它被有意设计得非常罕见。它设置了 `needsApproval: true`,这样代理就可以自由地起草和排队邮件。但在没有人工批准这次具体发送之前,它永远无法真正发送一条消息。
 
 ## 按角色限制调用者 {#authorize}
 
@@ -220,7 +354,7 @@ export default defineAction({
 - [**概览**](/docs/actions-overview) — action 是什么,以及 hello-world 演练
 - [**定义 Actions**](/docs/actions-defining) — `defineAction()` 的结构、schema 和 HTTP 配置
 - [**运行上下文**](/docs/actions-run-context) — 这些检查所读取的 `ctx` 参数
-- [**人在环批准**](/docs/human-approval) — 深入讲解 `needsApproval` 门控
+- [**Mail 模板**](/docs/template-mail) — `send-email` 是 `needsApproval` 的参考示例
 - [**审核日志**](/docs/audit-log) — 自动化的谁改了什么的记录
 - [**安全**](/docs/security) — `accessFilter`/`assertAccess`,以及扩展 iframe 的信任边界
 - [**共享**](/docs/sharing) — 这些辅助函数所依托的框架共享系统

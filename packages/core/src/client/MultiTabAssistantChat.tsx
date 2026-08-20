@@ -601,6 +601,22 @@ const DEFAULT_THREAD_URL_PARAM = "thread";
 const THREAD_URL_CHANGED_EVENT = "agent-chat:url-thread-changed";
 const hasOwn = Object.prototype.hasOwnProperty;
 
+// A duplicated id in `openTabIds` makes two tab-bar entries share one
+// underlying thread: closing either one filters that id out of the array
+// entirely, so both disappear at once. De-duplicate at every boundary the
+// array crosses (localStorage read and write) so a corrupted persisted list
+// self-heals instead of reproducing the phantom tab on every reload.
+function dedupeIds(ids: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const id of ids) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    result.push(id);
+  }
+  return result;
+}
+
 // The history patch is installed once and shared via a ref count so that
 // multiple synced chats (or a remount) don't restore a stale `pushState`
 // reference and silently drop a wrapper installed by another instance.
@@ -932,6 +948,7 @@ export function MultiTabAssistantChat({
     hasMoreThreads,
     isLoadingMoreThreads,
     threadsLoadError,
+    restoredThreadIdOnListFailure,
     isNewThread,
     pinThread,
     renameThread,
@@ -1320,7 +1337,7 @@ export function MultiTabAssistantChat({
   // (and rebroadcasting their run state) while another resource is open.
   const scopeKeyPart = scope ? `:scope:${scope.type}:${scope.id}` : "";
   const OPEN_TABS_KEY = `agent-chat-open-tabs${keyPrefix}${scopeKeyPart}`;
-  const [openTabIds, setOpenTabIds] = useState<string[]>(() => {
+  const [openTabIds, setOpenTabIdsRaw] = useState<string[]>(() => {
     if (!restoreActiveThread && activeThreadId) {
       for (const id of [activeThreadId]) mountedTabsRef.current.add(id);
       return [activeThreadId];
@@ -1330,14 +1347,34 @@ export function MultiTabAssistantChat({
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
+          const deduped = dedupeIds(parsed);
           // Mark restored tabs as mounted
-          for (const id of parsed) mountedTabsRef.current.add(id);
-          return parsed;
+          for (const id of deduped) mountedTabsRef.current.add(id);
+          return deduped;
         }
       }
     } catch {}
     return [];
   });
+
+  // Every writer routes through here so a duplicate id can never reach state.
+  // A `.includes()` guard evaluated outside the updater cannot prevent one: a
+  // synchronous burst of writes (the mount-time replay of buffered open
+  // requests dispatches its whole backlog in one loop) has every handler read
+  // the same pre-render list, so each one appends. Two tab-bar entries then
+  // share a single thread id and `closeTab`'s filter removes both at once.
+  // Returning `prev` unchanged is load-bearing, not an optimization — callers
+  // rely on identity bail-outs to keep effects that depend on `openTabIds`
+  // from re-running forever.
+  const setOpenTabIds = useCallback((value: React.SetStateAction<string[]>) => {
+    setOpenTabIdsRaw((prev) => {
+      const next = dedupeIds(typeof value === "function" ? value(prev) : value);
+      return next.length === prev.length &&
+        next.every((id, i) => id === prev[i])
+        ? prev
+        : next;
+    });
+  }, []);
   const openTabIdsRef = useRef(openTabIds);
   openTabIdsRef.current = openTabIds;
   const initializedRef = useRef(false);
@@ -1520,6 +1557,38 @@ export function MultiTabAssistantChat({
   // optimistic id for a brand-new session); the activeThreadId effect above
   // adds it to openTabIds without spinning up a duplicate thread.
   const autoCreatingRef = useRef(false);
+  const restoreFailureReplacementInFlightRef = useRef<string | null>(null);
+  const lastTabReplacementInFlightRef = useRef(false);
+  useEffect(() => {
+    if (
+      isLoading ||
+      !restoredThreadIdOnListFailure ||
+      activeThreadId !== restoredThreadIdOnListFailure ||
+      restoreFailureReplacementInFlightRef.current ===
+        restoredThreadIdOnListFailure
+    ) {
+      return;
+    }
+
+    restoreFailureReplacementInFlightRef.current =
+      restoredThreadIdOnListFailure;
+    void createThread().then((id) => {
+      if (!id) {
+        restoreFailureReplacementInFlightRef.current = null;
+        return;
+      }
+      newThreadIds.current.add(id);
+      setOpenTabIds([id]);
+      writeThreadUrl(null, { replace: true });
+    });
+  }, [
+    activeThreadId,
+    createThread,
+    isLoading,
+    restoredThreadIdOnListFailure,
+    writeThreadUrl,
+  ]);
+
   useEffect(() => {
     if (isLoading || autoCreatingRef.current) return;
     if (openTabIds.length === 0 && !activeThreadId) {
@@ -2017,25 +2086,45 @@ export function MultiTabAssistantChat({
 
   const closeTab = useCallback(
     (tabId: string) => {
-      setOpenTabIds((prev) => {
-        if (prev.length <= 1) {
-          // Last tab — create a new one and replace the old tab atomically
-          createThread().then((newId) => {
+      // Read the current list from the ref rather than a `setOpenTabIds`
+      // updater callback — `createThread()`/`switchThread()` below set
+      // `activeThreadId` synchronously as a side effect, and calling them
+      // from inside an updater left `openTabIds` and `activeThreadId`
+      // inconsistent for a render: the "ensure active thread is in open
+      // tabs" effect would then re-add the just-closed id, so the tab
+      // appeared to reopen itself right after closing.
+      const prev = openTabIdsRef.current;
+      if (prev.length <= 1) {
+        if (lastTabReplacementInFlightRef.current) return;
+        lastTabReplacementInFlightRef.current = true;
+        // Last tab — create a new one and replace the old tab once ready;
+        // the old tab stays visible in the meantime so the bar is never empty.
+        cleanupClosedTab(tabId);
+        void (async () => {
+          try {
+            const newId = await createThread();
             if (newId) {
               newThreadIds.current.add(newId);
               setOpenTabIds([newId]);
               writeThreadUrl(null);
             }
-          });
-          return prev; // Keep old tab until new one is ready
-        }
-        const next = prev.filter((id) => id !== tabId);
-        if (tabId === activeThreadIdRef.current && next.length > 0) {
-          const idx = prev.indexOf(tabId);
-          switchThread(next[Math.min(idx, next.length - 1)]);
-        }
-        return next;
-      });
+          } catch (error) {
+            console.error(
+              "[agent-chat] failed to replace the closed final tab",
+              error,
+            );
+          } finally {
+            lastTabReplacementInFlightRef.current = false;
+          }
+        })();
+        return;
+      }
+      const next = prev.filter((id) => id !== tabId);
+      if (tabId === activeThreadIdRef.current && next.length > 0) {
+        const idx = prev.indexOf(tabId);
+        switchThread(next[Math.min(idx, next.length - 1)]);
+      }
+      setOpenTabIds(next);
       cleanupClosedTab(tabId);
     },
     [switchThread, createThread, cleanupClosedTab, writeThreadUrl],

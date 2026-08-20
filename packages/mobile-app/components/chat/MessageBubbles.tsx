@@ -406,10 +406,12 @@ export function ErrorRow({
   error,
   errorCode,
   onRetry,
+  onSignIn,
 }: {
   error: string;
   errorCode: string | null;
   onRetry?: () => void;
+  onSignIn?: () => void;
 }) {
   const { accentOrange, mutedForeground, foreground } = useMobileThemeColors();
   const [copied, setCopied] = useState(false);
@@ -425,10 +427,13 @@ export function ErrorRow({
     void Linking.openURL("https://builder.io");
   };
 
+  const isAuth = errorCode === "auth";
   const displayedError =
     errorCode === "missing_api_key"
       ? "The agent needs an API key. Open the settings to add one."
-      : error;
+      : isAuth
+        ? "Your session expired. Sign in again to keep chatting."
+        : error;
 
   return (
     <View className="mx-4 my-2 rounded-xl border border-amber-500/25 bg-amber-500/[0.06] p-4.5 gap-3">
@@ -455,7 +460,7 @@ export function ErrorRow({
         </View>
         <View className="flex-1">
           <Text className="text-foreground font-bold text-[14px]">
-            The agent hit an error
+            {isAuth ? "Signed out" : "The agent hit an error"}
           </Text>
           <Text className="text-status-gray text-[13px] leading-4.5 mt-1">
             {displayedError}
@@ -465,14 +470,29 @@ export function ErrorRow({
 
       <View className="flex-row items-center justify-between mt-1">
         <View className="flex-row gap-2">
-          {onRetry && (
+          {/* Retrying a signed-out run just fails again — offer the only
+              action that can actually clear it. */}
+          {isAuth ? (
+            onSignIn && (
+              <Pressable
+                accessibilityRole="button"
+                className="h-8.5 px-4 bg-primary rounded-lg items-center justify-center active:opacity-75"
+                onPress={onSignIn}
+              >
+                <Text className="text-primary-foreground text-xs font-bold">
+                  Sign in
+                </Text>
+              </Pressable>
+            )
+          ) : onRetry ? (
             <Pressable
+              accessibilityRole="button"
               className="h-8.5 px-4 bg-white/10 rounded-lg items-center justify-center active:opacity-75"
               onPress={onRetry}
             >
               <Text className="text-foreground text-xs font-bold">Retry</Text>
             </Pressable>
-          )}
+          ) : null}
         </View>
         <Pressable
           className="flex-row items-center gap-1.5 px-2.5 py-1.5 rounded-lg active:bg-white/5"

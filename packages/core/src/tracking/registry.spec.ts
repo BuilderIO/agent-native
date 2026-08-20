@@ -30,28 +30,42 @@ describe("tracking registry", () => {
 
   it("attributes an event from an action ctx passed straight through", async () => {
     const events = captureEvents();
+    const previousNodeEnvironment = process.env.NODE_ENV;
+    process.env.NODE_ENV = "test";
 
-    await runWithRequestContext(
-      {
-        userEmail: "alice@example.com",
-        browserSessionId: "session-1",
-        clientPlatform: "electron",
-      },
-      () => {
-        track(
-          "project_created",
-          { template: "blank" },
-          { caller: "frontend", userEmail: "alice@example.com" },
-        );
-      },
-    );
+    try {
+      await runWithRequestContext(
+        {
+          userEmail: "alice@example.com",
+          browserSessionId: "session-1",
+          clientPlatform: "electron",
+        },
+        () => {
+          track(
+            "project_created",
+            { template: "blank" },
+            { caller: "frontend", userEmail: "alice@example.com" },
+          );
+        },
+      );
+    } finally {
+      if (previousNodeEnvironment === undefined) {
+        delete process.env.NODE_ENV;
+      } else {
+        process.env.NODE_ENV = previousNodeEnvironment;
+      }
+    }
 
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({
       name: "project_created",
       userId: "alice@example.com",
       sessionId: "session-1",
-      properties: { template: "blank", client_platform: "electron" },
+      properties: {
+        template: "blank",
+        deployment_environment: "local",
+        client_platform: "electron",
+      },
     });
   });
 

@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mockReadBody = vi.hoisted(() => vi.fn());
 const mockAssertAccess = vi.hoisted(() => vi.fn());
 const mockResolveAccess = vi.hoisted(() => vi.fn());
-const mockResolveSlidesRequestAuthContext = vi.hoisted(() => vi.fn());
+const mockResolveSlidesRequestAuth = vi.hoisted(() => vi.fn());
 const mockWithSlidesRequestContext = vi.hoisted(() => vi.fn());
 const mockSetResponseStatus = vi.hoisted(() => vi.fn());
 const insertedRows = vi.hoisted(() => ({ current: [] as unknown[] }));
@@ -56,8 +56,8 @@ vi.mock("../db", () => ({
 }));
 
 vi.mock("./request-auth-context.js", () => ({
-  resolveSlidesRequestAuthContext: (...args: unknown[]) =>
-    mockResolveSlidesRequestAuthContext(...args),
+  resolveSlidesRequestAuth: (...args: unknown[]) =>
+    mockResolveSlidesRequestAuth(...args),
   withSlidesRequestContext: (...args: unknown[]) =>
     mockWithSlidesRequestContext(...args),
 }));
@@ -69,8 +69,9 @@ describe("shareDeck", () => {
     vi.clearAllMocks();
     insertedRows.current = [];
     mockReadBody.mockResolvedValue({ deck: { id: "deck-1" } });
-    mockResolveSlidesRequestAuthContext.mockResolvedValue({
-      email: "owner@example.com",
+    mockResolveSlidesRequestAuth.mockResolvedValue({
+      ok: true,
+      context: { email: "owner@example.com" },
     });
     mockWithSlidesRequestContext.mockImplementation(async (_event, callback) =>
       callback(),

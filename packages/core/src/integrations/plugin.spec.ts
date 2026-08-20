@@ -607,6 +607,126 @@ describe("integrations plugin routes", () => {
     expect(saveIntegrationConfigMock).not.toHaveBeenCalled();
   });
 
+  it("registers the Telegram webhook and returns the provider result", async () => {
+    getSessionMock.mockResolvedValueOnce({ email: "owner@example.test" });
+    resolveSecretMock.mockImplementation((key: string) =>
+      key === "TELEGRAM_BOT_TOKEN"
+        ? "telegram-bot-token-example"
+        : key === "TELEGRAM_WEBHOOK_SECRET"
+          ? "telegram-webhook-secret-example"
+          : null,
+    );
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      expect(JSON.parse(String(init?.body))).toEqual({
+        url: "https://app.test/_agent-native/integrations/telegram/webhook",
+        secret_token: "telegram-webhook-secret-example",
+      });
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          result: { url: "https://app.test/webhook" },
+        }),
+        { status: 200 },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({
+      adapters: [{ ...adapter, platform: "telegram", label: "Telegram" }],
+    })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/telegram/setup",
+      "POST",
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.body).toMatchObject({
+      ok: true,
+      platform: "telegram",
+      webhookUrl:
+        "https://app.test/_agent-native/integrations/telegram/webhook",
+      result: { ok: true },
+    });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("surfaces Telegram setWebhook failures instead of reporting success", async () => {
+    getSessionMock.mockResolvedValueOnce({ email: "owner@example.test" });
+    resolveSecretMock.mockImplementation((key: string) =>
+      key === "TELEGRAM_BOT_TOKEN"
+        ? "telegram-bot-token-example"
+        : key === "TELEGRAM_WEBHOOK_SECRET"
+          ? "telegram-webhook-secret-example"
+          : null,
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              ok: false,
+              description: "Bad Request: webhook URL is invalid",
+            }),
+            { status: 200 },
+          ),
+      ),
+    );
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({
+      adapters: [{ ...adapter, platform: "telegram", label: "Telegram" }],
+    })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/telegram/setup",
+      "POST",
+    );
+
+    expect(result.status).toBe(502);
+    expect(result.body).toEqual({
+      error: "Telegram setWebhook failed: Bad Request: webhook URL is invalid",
+    });
+  });
+
+  it("surfaces non-JSON Telegram setWebhook failures as provider errors", async () => {
+    getSessionMock.mockResolvedValueOnce({ email: "owner@example.test" });
+    resolveSecretMock.mockImplementation((key: string) =>
+      key === "TELEGRAM_BOT_TOKEN"
+        ? "telegram-bot-token-example"
+        : key === "TELEGRAM_WEBHOOK_SECRET"
+          ? "telegram-webhook-secret-example"
+          : null,
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response("upstream gateway failure", {
+            status: 502,
+            headers: { "Content-Type": "text/html" },
+          }),
+      ),
+    );
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({
+      adapters: [{ ...adapter, platform: "telegram", label: "Telegram" }],
+    })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/telegram/setup",
+      "POST",
+    );
+
+    expect(result.status).toBe(502);
+    expect(result.body).toEqual({
+      error: "Telegram setWebhook failed: HTTP 502",
+    });
+  });
+
   it("answers platform verification challenges before requiring enablement", async () => {
     const challengeAdapter: PlatformAdapter = {
       ...adapter,

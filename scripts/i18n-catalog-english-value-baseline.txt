@@ -381,7 +381,6 @@ templates/clips/app/i18n/es-ES|preRecord.importing|Importing...
 templates/clips/app/i18n/es-ES|preRecord.includeAudioAria|Include audio in this recording
 templates/clips/app/i18n/es-ES|preRecord.includeCameraAria|Include camera in this recording
 templates/clips/app/i18n/es-ES|preRecord.loomImportFailed|Could not import that Loom.
-templates/clips/app/i18n/es-ES|preRecord.micOffConfirmDescription|Your mic is off, so this recording won't capture any audio. Turn it on before starting if you want narration.
 templates/clips/app/i18n/es-ES|preRecord.microphoneSelectionUnsupported|This browser does not support microphone device selection.
 templates/clips/app/i18n/es-ES|preRecord.modeCameraOnly|Camera only
 templates/clips/app/i18n/es-ES|preRecord.modeScreenCamera|Screen + cam
@@ -391,7 +390,6 @@ templates/clips/app/i18n/es-ES|preRecord.noCamera|No camera
 templates/clips/app/i18n/es-ES|preRecord.noMicrophone|No microphone
 templates/clips/app/i18n/es-ES|preRecord.openingMicrophone|Opening microphone...
 templates/clips/app/i18n/es-ES|preRecord.startRecording|Start recording
-templates/clips/app/i18n/es-ES|preRecord.startWithoutMic|Start anyway
 templates/clips/app/i18n/es-ES|preRecord.surfaceBrowserDescription|Choose an open tab
 templates/clips/app/i18n/es-ES|preRecord.surfaceBrowser|Browser tab
 templates/clips/app/i18n/es-ES|preRecord.surfaceScreenDescription|Capture everything
@@ -586,7 +584,6 @@ templates/clips/app/i18n/pt-BR|preRecord.importing|Importing...
 templates/clips/app/i18n/pt-BR|preRecord.includeAudioAria|Include audio in this recording
 templates/clips/app/i18n/pt-BR|preRecord.includeCameraAria|Include camera in this recording
 templates/clips/app/i18n/pt-BR|preRecord.loomImportFailed|Could not import that Loom.
-templates/clips/app/i18n/pt-BR|preRecord.micOffConfirmDescription|Your mic is off, so this recording won't capture any audio. Turn it on before starting if you want narration.
 templates/clips/app/i18n/pt-BR|preRecord.microphoneSelectionUnsupported|This browser does not support microphone device selection.
 templates/clips/app/i18n/pt-BR|preRecord.modeCameraOnly|Camera only
 templates/clips/app/i18n/pt-BR|preRecord.modeScreenCamera|Screen + cam
@@ -596,7 +593,6 @@ templates/clips/app/i18n/pt-BR|preRecord.noCamera|No camera
 templates/clips/app/i18n/pt-BR|preRecord.noMicrophone|No microphone
 templates/clips/app/i18n/pt-BR|preRecord.openingMicrophone|Opening microphone...
 templates/clips/app/i18n/pt-BR|preRecord.startRecording|Start recording
-templates/clips/app/i18n/pt-BR|preRecord.startWithoutMic|Start anyway
 templates/clips/app/i18n/pt-BR|preRecord.surfaceBrowserDescription|Choose an open tab
 templates/clips/app/i18n/pt-BR|preRecord.surfaceBrowser|Browser tab
 templates/clips/app/i18n/pt-BR|preRecord.surfaceScreenDescription|Capture everything

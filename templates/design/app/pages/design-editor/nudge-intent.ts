@@ -23,7 +23,7 @@ export const DEFAULT_NUDGE_AMOUNTS: NudgeAmounts = { small: 1, big: 10 };
 export type FlowAxis = "horizontal" | "vertical";
 
 export interface FlowContainerInfo {
-  kind: "flex" | "grid" | "none";
+  kind: "flex" | "grid" | "block" | "none";
   /** The axis DOM order advances along. */
   axis: FlowAxis;
   /** Visual order runs opposite to DOM order (`*-reverse`). */
@@ -32,6 +32,23 @@ export interface FlowContainerInfo {
   /** Items per line when statically knowable (grid tracks); null otherwise. */
   lineLength: number | null;
 }
+
+/**
+ * Normal block flow: children stack vertically in DOM order, so an arrow along
+ * the block axis reorders exactly like a flex column.
+ *
+ * Not inferable from the parent's own markup — a `<div>` with no styles is
+ * block, but so is one the stylesheet turned into a flex container. Only the
+ * browser knows, so this is built from the bridge's rendered `parentDisplay`
+ * rather than from parsed styles.
+ */
+export const BLOCK_FLOW_CONTAINER: FlowContainerInfo = {
+  kind: "block",
+  axis: "vertical",
+  reversed: false,
+  wraps: false,
+  lineLength: null,
+};
 
 export const NO_FLOW_CONTAINER: FlowContainerInfo = {
   kind: "none",
@@ -385,6 +402,15 @@ function isRenderedFlowDisplay(display: string | null | undefined): boolean {
   );
 }
 
+/**
+ * Rendered `display` values whose children stack in normal block flow, so DOM
+ * order is visual order. `list-item` covers `<li>`; table and flow-root boxes
+ * lay their children out on their own rules and are deliberately excluded.
+ */
+function isRenderedBlockDisplay(display: string | null | undefined): boolean {
+  return display === "block" || display === "list-item";
+}
+
 export interface ResolveElementNudgeIntentArgs {
   content: string;
   selectedElement: ElementInfo;
@@ -427,7 +453,60 @@ export function resolveElementNudgeIntent(
     (escapesFlow(undefined, node.classes) ? "absolute" : undefined) ??
     args.selectedElement.computedStyles?.position;
 
-  const container = describeFlowContainer(parent);
+  const parsedContainer = describeFlowContainer(parent);
+  // The parser sees only the parent's inline styles and Tailwind utilities, so
+  // a stylesheet-driven layout reads as `none` and every arrow key used to fall
+  // through to a blind translate. Prefer what the browser actually rendered.
+  //
+  // When nothing knows the display, treat it as block: that is the CSS initial
+  // value for the container elements a layer tree contains, and it is also the
+  // case that reaches here from a layers-tree selection, where no bridge
+  // round-trip has happened yet and `parentDisplay` is simply absent. An
+  // element that really is inline or a flex child is handled above — the parser
+  // sees those, and a rendered value always wins over this default.
+  const rendered = args.selectedElement.parentDisplay;
+  // A rendered grid needs its column count to map an arrow onto the next visual
+  // cell, and `display: grid` alone does not carry it. Guessing "flex row" walks
+  // DOM order instead, which is a different element in any multi-column grid.
+  if (
+    parsedContainer.kind === "none" &&
+    !escapesFlow(position) &&
+    (rendered === "grid" || rendered === "inline-grid")
+  ) {
+    return { kind: "none" };
+  }
+  // The rendered axis, which markup alone cannot give: a stylesheet-driven
+  // `flex-direction: column` maps up/down onto DOM order, and assuming a row
+  // reorders on left/right instead.
+  const renderedFlexDirection =
+    args.selectedElement.parentLayout?.flexDirection;
+  if (
+    parsedContainer.kind === "none" &&
+    !escapesFlow(position) &&
+    isRenderedFlowDisplay(rendered) &&
+    !renderedFlexDirection
+  ) {
+    return { kind: "none" };
+  }
+  const container: FlowContainerInfo =
+    parsedContainer.kind === "none" && !escapesFlow(position)
+      ? isRenderedFlowDisplay(rendered)
+        ? {
+            ...NO_FLOW_CONTAINER,
+            kind: "flex",
+            axis: renderedFlexDirection?.startsWith("column")
+              ? "vertical"
+              : "horizontal",
+            reversed: renderedFlexDirection?.endsWith("-reverse") ?? false,
+          }
+        : // `parent` null means the node is a projection root: it has no flow to
+          // reorder within, and the bridge reports `parentDisplay: undefined`
+          // for it exactly as it does for a not-yet-measured selection.
+          isRenderedBlockDisplay(rendered) ||
+            (rendered === undefined && parent !== null)
+          ? BLOCK_FLOW_CONTAINER
+          : parsedContainer
+      : parsedContainer;
   // Flex/grid paint children by `order` and explicit grid placement, not DOM
   // position, so moving the node would write a source change that produces no
   // visible movement.
@@ -444,16 +523,10 @@ export function resolveElementNudgeIntent(
     return { kind: "none" };
   }
 
-  // A `.row { display: flex }` parent parses as no container. Translating
-  // would write left/top onto a flex child and detach it from its
-  // neighbours, so do nothing rather than corrupt the layout.
-  if (
-    container.kind === "none" &&
-    !escapesFlow(position) &&
-    isRenderedFlowDisplay(args.selectedElement.parentDisplay)
-  ) {
-    return { kind: "none" };
-  }
+  // A `.row { display: flex }` parent used to reach here as `none` and get
+  // suppressed. It is now promoted to a flex container above, so a reorder is
+  // attempted instead of the key being swallowed — same protection against
+  // writing left/top onto a flex child, but it does the useful thing.
 
   // Rendered `order` from the bridge sees stylesheet rules that the authored
   // styles above cannot.

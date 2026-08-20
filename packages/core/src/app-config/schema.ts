@@ -3,6 +3,7 @@ import { z } from "zod";
 import { a2aConfig } from "./a2a.js";
 import { agentConfig } from "./agent.js";
 import { appConfig } from "./app.js";
+import { authConfig } from "./auth.js";
 import { integrationsConfig } from "./integrations.js";
 import { pluginsConfig } from "./plugins.js";
 import { privateBlobConfig } from "./private-blob.js";
@@ -28,6 +29,7 @@ export const appConfigSchema = z.object({
   a2a: a2aConfig.prefault({}),
   agent: agentConfig.prefault({}),
   app: appConfig.prefault({}),
+  auth: authConfig.prefault({}),
   integrations: integrationsConfig.prefault({}),
   plugins: pluginsConfig.prefault({}),
   privateBlob: privateBlobConfig.prefault({}),

@@ -353,6 +353,21 @@ h4 {
   margin: 8px 0;
 }
 
+.docs-content blockquote {
+  margin: 12px 0;
+  padding: 10px 14px;
+  border-inline-start: 3px solid var(--docs-accent);
+  border-start-start-radius: 0;
+  border-end-start-radius: 0;
+  border-start-end-radius: 8px;
+  border-end-end-radius: 8px;
+  background: var(--bg-secondary);
+}
+
+.docs-content blockquote p {
+  margin: 0;
+}
+
 .docs-content p:has(> .docs-image-frame:only-child) {
   margin: 20px 0 24px;
 }

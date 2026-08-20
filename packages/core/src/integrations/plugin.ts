@@ -3536,7 +3536,28 @@ export function createIntegrationsPlugin(
                   }),
                 },
               );
-              const data = await res.json();
+              const body = await res.text();
+              type TelegramSetWebhookResponse = {
+                ok?: boolean;
+                description?: string;
+                [key: string]: unknown;
+              };
+              let data: TelegramSetWebhookResponse | null = null;
+              try {
+                const parsed = JSON.parse(body);
+                if (parsed && typeof parsed === "object") {
+                  data = parsed as TelegramSetWebhookResponse;
+                }
+              } catch {
+                // Keep provider and proxy failures distinguishable from a successful setup.
+                data = null;
+              }
+              if (!res.ok || data?.ok !== true) {
+                setResponseStatus(event, 502);
+                return {
+                  error: `Telegram setWebhook failed: ${data?.description ?? `HTTP ${res.status}`}`,
+                };
+              }
               return { ok: true, platform, webhookUrl, result: data };
             } catch (err: any) {
               setResponseStatus(event, 500);

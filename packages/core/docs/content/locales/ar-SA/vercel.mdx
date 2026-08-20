@@ -1,0 +1,38 @@
+---
+title: "Vercel"
+description: "انشر تطبيق agent-native على Vercel باستخدام إعداد Vercel المسبق لـ Nitro، بشكل مستقل أو كمساحة عمل."
+---
+
+# Vercel
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "vercel" } })],
+});
+```
+
+انشر عبر Vercel CLI أو عبر git push:
+
+```bash
+vercel deploy
+```
+
+بالنسبة لمساحة عمل، قم ببناء كل تطبيق في حزمة واحدة من Vercel Build Output API:
+
+```bash
+npx @agent-native/core@latest deploy --preset vercel
+```
+
+بالنسبة لعمليات نشر Vercel Git، اضبط أمر البناء على:
+
+```bash
+npx @agent-native/core@latest deploy --preset vercel --build-only
+```
+
+ينسخ بناء مساحة العمل مخرجات `vercel` الخاصة بـ Nitro لكل تطبيق إلى `.vercel/output` الجذر، ويمنح كل دالة بيئة مسار تثبيت خاصة بها، ويكتب تكوين المسارات الذي يخدم التطبيقات على `/<app-id>`.
+
+## ما هي الخطوة التالية
+
+- [**النشر**](/docs/deployment) — اختر قاعدة بيانات دائمة وإعدادًا مسبقًا قبل أول عملية نشر إنتاجي
+- [**نشر مساحة العمل**](/docs/workspace-deployment) — بناء مساحة العمل الكامل لـ `deploy --preset vercel`
+- [Node.js](/docs/node-js), [Docker](/docs/docker)، و[**Netlify**](/docs/netlify)، و[**Cloudflare**](/docs/cloudflare)، و[**منصات أخرى**](/docs/other-platforms) — إعدادات Nitro المسبقة الأخرى

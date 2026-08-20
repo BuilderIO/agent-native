@@ -47,6 +47,11 @@ const originalProviderEnv = new Map(
 const originalPath = process.env.PATH;
 const originalAgentEngine = process.env.AGENT_ENGINE;
 
+function restoreEnv(name: string, value: string | undefined): void {
+  if (value === undefined) delete process.env[name];
+  else process.env[name] = value;
+}
+
 afterEach(() => {
   delete process.env.AGENT_NATIVE_CODE_AGENTS_HOME;
   delete process.env.AGENT_NATIVE_CODE_AGENT_FAKE_RESPONSE;
@@ -144,12 +149,22 @@ describe("executeCodeAgentRun", () => {
     const root = useTempCodeAgentsHome();
     for (const key of providerEnvKeys) delete process.env[key];
     const originalMcpServers = process.env.MCP_SERVERS;
+    const originalDesktopChild = process.env.AGENT_NATIVE_DESKTOP_CHILD;
+    const originalDesktopUrl =
+      process.env.AGENT_NATIVE_DESKTOP_COMPUTER_MCP_URL;
+    const originalDesktopToken =
+      process.env.AGENT_NATIVE_DESKTOP_COMPUTER_MCP_TOKEN;
+    const desktopToken = "x".repeat(43);
     process.env.MCP_SERVERS = JSON.stringify({
       workspaceHttp: {
         type: "http",
         url: "https://workspace.example/mcp",
       },
     });
+    process.env.AGENT_NATIVE_DESKTOP_CHILD = "1";
+    process.env.AGENT_NATIVE_DESKTOP_COMPUTER_MCP_URL =
+      "http://127.0.0.1:43123/mcp";
+    process.env.AGENT_NATIVE_DESKTOP_COMPUTER_MCP_TOKEN = desktopToken;
     const binDir = path.join(root, "bin");
     const promptPath = path.join(root, "codex-prompt.txt");
     const argsPath = path.join(root, "codex-args.json");
@@ -218,6 +233,12 @@ describe("executeCodeAgentRun", () => {
       expect(args.indexOf("--cd")).toBeLessThan(execIndex);
       expect(args.indexOf("-c")).toBeGreaterThan(-1);
       expect(args.indexOf("-c")).toBeLessThan(execIndex);
+      expect(args).toContain(
+        'mcp_servers.agent-native-desktop-computer.url="http://127.0.0.1:43123/mcp"',
+      );
+      expect(args).toContain(
+        `mcp_servers.agent-native-desktop-computer.http_headers={"Authorization"="Bearer ${desktopToken}"}`,
+      );
       expect(args.indexOf("--ignore-user-config")).toBeGreaterThan(execIndex);
       expect(args.slice(execIndex + 1)).not.toContain("--ask-for-approval");
       expect(listCodeAgentTranscriptEvents(run.id)).toEqual(
@@ -232,6 +253,12 @@ describe("executeCodeAgentRun", () => {
     } finally {
       if (originalMcpServers === undefined) delete process.env.MCP_SERVERS;
       else process.env.MCP_SERVERS = originalMcpServers;
+      restoreEnv("AGENT_NATIVE_DESKTOP_CHILD", originalDesktopChild);
+      restoreEnv("AGENT_NATIVE_DESKTOP_COMPUTER_MCP_URL", originalDesktopUrl);
+      restoreEnv(
+        "AGENT_NATIVE_DESKTOP_COMPUTER_MCP_TOKEN",
+        originalDesktopToken,
+      );
     }
   });
 

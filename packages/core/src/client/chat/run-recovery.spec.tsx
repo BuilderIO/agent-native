@@ -157,6 +157,27 @@ describe("run recovery surfaces", () => {
     expect(document.body.textContent).toContain("Ollama");
   });
 
+  it("keeps sidebar provider actions in a horizontal row", async () => {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <BuilderSetupContent layout="sidebar" />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    const actions = container.querySelector(
+      ".agent-builder-setup-card__actions",
+    );
+    expect(actions).not.toBeNull();
+    expect(actions?.className).toContain("flex-row");
+    expect(actions?.className).not.toContain("flex-col");
+  });
+
   it("formats the step limit with the selected locale", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
 
@@ -208,8 +229,133 @@ describe("run recovery surfaces", () => {
     expect(container.textContent).toContain("Retry");
   });
 
+  it("renders missing-provider errors as inline setup and retries on click", async () => {
+    const onRetry = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <RunErrorRecoveryCard
+            info={{
+              message: "No LLM provider is connected.",
+              errorCode: "missing_credentials",
+            }}
+            onContinue={vi.fn()}
+            onRetry={onRetry}
+            onDismiss={vi.fn()}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    expect(container.textContent).toContain("Connect AI");
+    expect(container.textContent).not.toContain("The agent hit an error");
+    expect(container.textContent).not.toContain(
+      "No LLM provider is connected.",
+    );
+    expect(onRetry).not.toHaveBeenCalled();
+
+    const addKeysButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Custom keys"),
+    );
+    await act(async () => {
+      addKeysButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const input = container.querySelector(
+      'input[type="password"]',
+    ) as HTMLInputElement;
+    const inputSetter = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )?.set;
+    await act(async () => {
+      inputSetter?.call(input, "sk-test");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    const saveButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Save"),
+    );
+    await act(async () => {
+      saveButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    expect(
+      agentEngineKeyMock.saveAgentEngineProviderSettings,
+    ).toHaveBeenCalled();
+    expect(container.textContent).toContain("Retry");
+    expect(onRetry).not.toHaveBeenCalled();
+
+    const retryButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Retry",
+    );
+    await act(async () => {
+      retryButton?.click();
+      retryButton?.click();
+    });
+    expect(onRetry).toHaveBeenCalledTimes(1);
+    expect((retryButton as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("routes structured provider-key errors to inline setup recovery", async () => {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <RunErrorRecoveryCard
+            info={{
+              message: "ANTHROPIC_API_KEY is not set",
+              errorCode: "missing_credentials",
+            }}
+            onContinue={vi.fn()}
+            onRetry={vi.fn()}
+            onDismiss={vi.fn()}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    expect(container.textContent).toContain("Connect AI");
+    expect(container.textContent).not.toContain("The agent hit an error");
+  });
+
+  it("keeps invalid provider keys on the authentication recovery path", async () => {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <RunErrorRecoveryCard
+            info={{
+              message: "Invalid API key",
+              errorCode: "authentication_error",
+            }}
+            onContinue={vi.fn()}
+            onRetry={vi.fn()}
+            onDismiss={vi.fn()}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    expect(container.textContent).toContain("The agent hit an error");
+    expect(container.textContent).toContain("Connect Builder.io");
+  });
+
   it("dismisses the recovery card after saving a provider key", async () => {
     const onDismiss = vi.fn();
+    const onRetry = vi.fn();
 
     await act(async () => {
       root.render(
@@ -225,7 +371,7 @@ describe("run recovery surfaces", () => {
               errorCode: "authentication_error",
             }}
             onContinue={vi.fn()}
-            onRetry={vi.fn()}
+            onRetry={onRetry}
             onDismiss={onDismiss}
           />
         </AgentNativeI18nProvider>,
@@ -271,6 +417,7 @@ describe("run recovery surfaces", () => {
       provider: "anthropic",
       model: expect.any(String),
     });
+    expect(onRetry).toHaveBeenCalledTimes(1);
     expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 });

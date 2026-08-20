@@ -4,7 +4,8 @@ export type PullRequestReviewState =
   | "approved"
   | "changes_requested"
   | "commented"
-  | "pending";
+  | "pending"
+  | "dismissed";
 
 export interface PullRequestReviewObservation {
   author: string;

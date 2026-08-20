@@ -447,6 +447,12 @@ const messages = {
     pasteStyle: "Colar estilo",
     copy: "Copiar",
     paste: "Colar",
+    insertRowAbove: "Inserir linha acima",
+    insertRowBelow: "Inserir linha abaixo",
+    deleteRow: "Excluir linha",
+    insertColumnLeft: "Inserir coluna à esquerda",
+    insertColumnRight: "Inserir coluna à direita",
+    deleteColumn: "Excluir coluna",
   },
   animations: {
     appear: "Aparecer",
@@ -532,6 +538,11 @@ const messages = {
     newSlide: "Novo slide",
     closeAddSlides: "Fechar",
     describeThisSlide: "Descreva este slide",
+    cut: "Recortar",
+    copy: "Copiar",
+    paste: "Colar",
+    skipSlide: "Pular slide",
+    unskipSlide: "Não pular slide",
   },
   presentation: {
     loadFailed: "Não foi possível carregar esta apresentação.",
@@ -551,18 +562,54 @@ const messages = {
   },
   deckEditor: {
     lookingForDeck: "Buscando este deck",
-    teamAccessCheckFailed: "No se pudo comprobar el acceso del equipo",
     joinTeamToOpen: "Únete a tu equipo para abrir este deck",
     deckUnavailable: "Deck no disponible",
     checkingSharedAccess:
       "Comprobando si esta presentación está compartida con tu cuenta.",
-    verifySharedAccessFailed:
-      "No pudimos verificar si esta presentación está compartida con tu cuenta. Inténtalo de nuevo para recargar el acceso del equipo y el deck.",
     joinTeamDescription:
       "Este enlace apunta a una presentación de equipo. Únete al equipo indicado arriba y el deck se abrirá aquí automáticamente.",
     deckUnavailableDescription:
       "Este deck puede haberse eliminado o tu cuenta no tiene acceso.",
-    backToDecks: "Volver a decks",
+    privateDeckTitle: "Este deck é privado",
+    privateDeckDescription:
+      "Peça acesso ao proprietário para abrir este deck. Ele será notificado quando você enviar a solicitação.",
+    signedInAs: "Você está conectado como",
+    accessRequestSentDescription:
+      "O proprietário foi notificado. Você poderá abrir este deck quando o acesso for concedido.",
+    accessRequestRecordedDescription:
+      "Sua solicitação foi registrada. Você poderá abrir este deck quando o acesso for concedido.",
+    requestAccessPending: "Enviando solicitação…",
+    accessRequestSent: "Solicitação enviada",
+    requestAccess: "Solicitar acesso",
+    signInToRequestAccess: "Entre para solicitar acesso",
+    requestAccessDialogTitle: "Solicitar acesso",
+    requestAccessDialogDescription:
+      "Entre ou informe o e-mail que o proprietário deve usar para compartilhar este deck.",
+    requestAccessSignIn: "Entrar ou criar conta",
+    requestAccessOr: "ou",
+    requestAccessEmailLabel: "Endereço de e-mail",
+    requestAccessEmailPlaceholder: "you@example.com",
+    requestAccessEmailHint:
+      "Depois que o acesso for concedido, entre com este e-mail para ver o deck.",
+    requestAccessWithEmail: "Solicitar por e-mail",
+    requestAccessEmailRequired: "Informe um endereço de e-mail válido.",
+    requestingAccess: "Solicitando acesso…",
+    accessRequestSentWithEmail:
+      "O proprietário foi solicitado a compartilhar este deck com {{email}}.",
+    accessRequestFailed: "Não foi possível solicitar acesso. Tente novamente.",
+    accessApprovalTitle: "Acesso concedido",
+    accessApprovalAlreadyTitle: "Acesso já concedido",
+    accessApprovalMessage: "{{email}} agora pode abrir este deck.",
+    accessApprovalAlreadyMessage: "{{email}} já tem acesso a este deck.",
+    accessApprovalErrorTitle: "Não foi possível conceder acesso",
+    accessApprovalInvalid: "Esta solicitação de acesso é inválida ou expirou.",
+    accessApprovalSignInTitle: "Entre para permitir o acesso",
+    accessApprovalSignInMessage:
+      "Entre como proprietário ou administrador do deck para aprovar esta solicitação.",
+    accessApprovalOpenDeck: "Abrir deck",
+    accessApprovalSignIn: "Entrar",
+    accessApprovalLoading: "Concedendo acesso...",
+    backToDecks: "Voltar aos decks",
     tryAgain: "Intentar de nuevo",
     imageUploadFailed: "Error al subir imagen",
     imageUploadNeedsBuilder:
@@ -713,6 +760,7 @@ const messages = {
     chooseReferences: "Escolher referências",
     addDesignSystem: "+ Sistema de design",
     importFrom: "Importar de",
+    attachedFiles: "Anexos",
     imported: "Importado",
     importedReferenceDeck: "Deck de referência importado",
     referenceImportSuccess: "Importado com sucesso",

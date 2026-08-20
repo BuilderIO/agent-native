@@ -172,7 +172,7 @@ Das Framework zu übernehmen ist vor allem deshalb wertvoll, weil man dadurch vi
 
 ## Daten in SQL {#data-in-sql}
 
-Der gesamte Anwendungsstatus lebt in einer SQL-Datenbank via Drizzle ORM. Schemas sind anbieteragnostisch; die unterstützten Datenbanken, die `DATABASE_URL`-Konfiguration und die Portabilitätsregeln finden Sie unter [Database](/docs/database).
+Der gesamte Anwendungsstatus lebt in einer SQL-Datenbank via Drizzle ORM. Schemas sind anbieteragnostisch; die unterstützten Datenbanken, die `DATABASE_URL`-Konfiguration und die Portabilitätsregeln finden Sie unter [Database](/docs/server-database).
 
 Core-SQL-Stores werden automatisch erstellt und sind in jedem Template verfügbar:
 
@@ -288,7 +288,7 @@ pnpm action db-query --sql "SELECT * FROM forms"
 
 Das Produktions-Agent-Chat-Plugin setzt rohe SQL-Werkzeuge standardmäßig auf read-only (`frameworkTools: { database: "read" }`). Agenten prüfen App-Daten mit `db-schema` / `db-query` und schreiben über typisierte App-Actions. Setze `database: "write"` (oder `true`) nur für bewusste Wartungsflächen, die auch scoped `db-exec` / `db-patch` anbieten sollen; setze `database: "off"` / `false`, um für jeden Datenzugriff typisierte App-Actions zu verlangen.
 
-`frameworkTools` steuert die übrigen framework-eigenen Tools genauso: Sharing, Review-Kommentare, Versionshistorie, Feature-Flags, Lokalisierung, Audit, Context X-Ray, Profil, Automatisierungen, Docs, Resources, Web, App-übergreifende Delegation, Chat und E-Mail. Siehe [Production Agent Tools](/docs/deployment#production-agent-tools) für die vollständige Liste, das `"minimal"`-Preset und warum eine abgeschaltete Gruppe ihre HTTP-Routen behält.
+`frameworkTools` steuert die übrigen framework-eigenen Tools genauso: Sharing, Review-Kommentare, Versionshistorie, Feature-Flags, Lokalisierung, Audit, Context X-Ray, Profil, Automatisierungen, Docs, Resources, Web, App-übergreifende Delegation, Chat und E-Mail. Siehe [Production Agent Tools](/docs/actions-agent-tools#production-agent-tools) für die vollständige Liste, das `"minimal"`-Preset und warum eine abgeschaltete Gruppe ihre HTTP-Routen behält.
 
 </Callout>
 
@@ -477,7 +477,7 @@ ohne Quellcodeänderungen verwenden Sie [Extensions](/docs/extensions).
 
 Zwei architektonische Regeln halten Apps über Datenbanken und Hosts hinweg portabel:
 
-- **Datenbankagnostisch.** Schreiben Sie Schemas mit `@agent-native/core/db/schema` und Lese-/Schreibvorgänge mit Drizzles portabler Query-DSL, sodass derselbe Code auf jedem unterstützten Anbieter läuft. Verwenden Sie rohes SQL nur für additive Migrationen oder einmalige Wartung, parametrisiert und dialektagnostisch gehalten. Siehe [Database](/docs/database).
+- **Datenbankagnostisch.** Schreiben Sie Schemas mit `@agent-native/core/db/schema` und Lese-/Schreibvorgänge mit Drizzles portabler Query-DSL, sodass derselbe Code auf jedem unterstützten Anbieter läuft. Verwenden Sie rohes SQL nur für additive Migrationen oder einmalige Wartung, parametrisiert und dialektagnostisch gehalten. Siehe [Database](/docs/server-database).
 - **Hosting-agnostisch.** Der Server läuft auf Nitro und kompiliert zu jedem Deployment-Ziel. Verwenden Sie in Server-Routen oder -Plugins niemals Node-spezifische APIs (`fs`, `child_process`, `path`), und gehen Sie niemals von einem dauerhaften Serverprozess aus. Serverless und Edge sind zustandslos, also halten Sie den gesamten Zustand in SQL. Siehe [Deployment](/docs/deployment).
 
 ## Agent Resources {#workspace}

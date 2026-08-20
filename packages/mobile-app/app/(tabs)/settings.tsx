@@ -5,17 +5,18 @@ import {
   IconRotateClockwise,
   IconTrash,
 } from "@tabler/icons-react-native";
+import { useMinimizeOnScroll } from "expo-glass-tabs";
 import { useCallback, useState } from "react";
 import {
   Alert,
   Platform,
   Pressable,
-  ScrollView,
   Switch,
   Text,
   TouchableOpacity,
   View,
 } from "react-native";
+import Animated from "react-native-reanimated";
 
 import {
   appAccentBackgroundColor,
@@ -32,6 +33,7 @@ import {
   setNativeAppAuthEnabled,
   useNativeAppAuthEnabled,
 } from "@/lib/native-app-auth";
+import { useTabBarLayout } from "@/lib/tab-bar-layout";
 import { useApps } from "@/lib/use-apps";
 
 function IOSBlueSwitch({
@@ -98,6 +100,8 @@ function AppIdentity({ app }: { app: AppConfig }) {
 }
 
 export default function SettingsScreen() {
+  const { contentInset } = useTabBarLayout();
+  const onScroll = useMinimizeOnScroll();
   const colors = useMobileThemeColors();
   const { apps, updateApp, addApp, removeApp, resetToDefaults } = useApps();
   const {
@@ -181,7 +185,11 @@ export default function SettingsScreen() {
 
   return (
     <SafeAreaView edges={["top"]} className="flex-1 bg-background-dark">
-      <ScrollView contentContainerStyle={{ paddingBottom: 28 }}>
+      <Animated.ScrollView
+        contentContainerStyle={{ paddingBottom: contentInset }}
+        onScroll={onScroll}
+        scrollEventThrottle={16}
+      >
         <View className="px-4 pb-1 pt-3">
           <Text className="text-foreground text-[30px] font-bold tracking-[-1px]">
             Settings
@@ -309,7 +317,7 @@ export default function SettingsScreen() {
             <Text className="text-error text-sm">Reset to Defaults</Text>
           </TouchableOpacity>
         </View>
-      </ScrollView>
+      </Animated.ScrollView>
 
       <AppForm
         visible={showAddForm}

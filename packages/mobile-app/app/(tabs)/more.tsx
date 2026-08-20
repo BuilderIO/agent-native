@@ -5,16 +5,12 @@ import {
   IconGripVertical,
   IconSettings,
 } from "@tabler/icons-react-native";
+import { useMinimizeOnScroll } from "expo-glass-tabs";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  Animated,
-  PanResponder,
-  Pressable,
-  ScrollView,
-  Text,
-  View,
-} from "react-native";
+import { Animated, PanResponder, Pressable, Text, View } from "react-native";
+// RN's Animated is already used for the drag-to-reorder gestures below.
+import Reanimated from "react-native-reanimated";
 
 import AppCard, {
   appAccentBackgroundColor,
@@ -25,6 +21,7 @@ import { SafeAreaView } from "@/components/uniwind-interop";
 import * as AppStore from "@/lib/app-store";
 import { getAppRoute } from "@/lib/mobile-app-navigation";
 import { useMobileThemeColors } from "@/lib/mobile-colors";
+import { useTabBarLayout } from "@/lib/tab-bar-layout";
 import { useApps } from "@/lib/use-apps";
 import { useWorkspaceApps } from "@/lib/workspace-apps";
 
@@ -151,6 +148,8 @@ function ReorderableAppRow({
 }
 
 export default function AppsScreen() {
+  const { contentInset } = useTabBarLayout();
+  const onScroll = useMinimizeOnScroll();
   const colors = useMobileThemeColors();
   const router = useRouter();
   const { enabledApps: localApps } = useApps();
@@ -240,7 +239,11 @@ export default function AppsScreen() {
 
   return (
     <SafeAreaView edges={["top"]} className="bg-background-dark flex-1">
-      <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 36 }}>
+      <Reanimated.ScrollView
+        contentContainerStyle={{ padding: 20, paddingBottom: contentInset }}
+        onScroll={onScroll}
+        scrollEventThrottle={16}
+      >
         <View className="items-center flex-row justify-between">
           <Text className="text-foreground text-[30px] font-bold tracking-[-1px]">
             Apps
@@ -349,7 +352,7 @@ export default function AppsScreen() {
           </View>
           <IconChevronRight color={colors.mutedForeground} size={20} />
         </Pressable>
-      </ScrollView>
+      </Reanimated.ScrollView>
     </SafeAreaView>
   );
 }

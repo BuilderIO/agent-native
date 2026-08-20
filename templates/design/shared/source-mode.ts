@@ -420,6 +420,16 @@ export function isDesignSourceType(value: unknown): value is DesignSourceType {
   );
 }
 
+/**
+ * Screens whose content is a URL into a running app. Their markup lives in the
+ * app's source, so every edit is a handoff, never a design-file write — the
+ * distinction the editor keeps having to make, and keeps making per-call-site.
+ */
+export function isRunningAppSourceType(value: unknown): boolean {
+  const sourceType = normalizeDesignSourceType(value);
+  return sourceType === "localhost" || sourceType === "fusion";
+}
+
 export function normalizeDesignSourceType(
   value: unknown,
 ): DesignSourceType | null {

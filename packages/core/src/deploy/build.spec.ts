@@ -11,6 +11,7 @@ import {
 import {
   DEFAULT_SSR_CACHE_HEADERS,
   DISABLED_SSR_CACHE_HEADERS,
+  SSR_QUERY_CACHE_KEY_HEADER,
   ssrCacheHeadersForPolicy,
 } from "../shared/cache-control.js";
 import {
@@ -41,6 +42,7 @@ import {
   findInstalledPackageRoot,
   findInstalledResvgPackages,
   findServerlessBrowserRuntimeConsumer,
+  findNonLinuxBetterSqlite3Binaries,
   isServerlessNativePlatformPackage,
   generateCloudflarePagesStaticShellFromManifest,
   generateCloudflareModuleWorkerEntry,
@@ -111,6 +113,14 @@ describe("resolveNitroBuildReplacements", () => {
     expect(replacements["process.env.AGENT_NATIVE_RELEASE_MIGRATIONS"]).toBe(
       JSON.stringify("1"),
     );
+  });
+
+  it("embeds the configured deployment lane into the Nitro server bundle", () => {
+    const replacements = resolveNitroBuildReplacements({}, " beta ");
+
+    expect(
+      replacements["process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT"],
+    ).toBe(JSON.stringify("beta"));
   });
 });
 
@@ -282,7 +292,10 @@ function makeTempDir(): string {
   return dir;
 }
 
-async function importGeneratedWorker(entrySource: string) {
+async function importGeneratedWorker(
+  entrySource: string,
+  options: { responseHeaders?: Record<string, string> } = {},
+) {
   const dir = makeTempDir();
   const nodeModules = path.join(dir, "node_modules", "react-router");
   fs.mkdirSync(nodeModules, { recursive: true });
@@ -316,7 +329,11 @@ export function createRequestHandler() {
     if (url.pathname === "/redirect") {
       return new Response(null, {
         status: 302,
-        headers: { location: "/login", "content-type": "text/html" },
+        headers: {
+          location: "/login",
+          "content-type": "text/html",
+          ...${JSON.stringify(options.responseHeaders ?? {})},
+        },
       });
     }
     if (url.pathname === "/private-html") {
@@ -702,6 +719,25 @@ export default (event) =>
     expect(response.headers.get("netlify-vary")).toBe("query=_routes|index");
   });
 
+  it("uses the full Netlify query key for marked public redirects", async () => {
+    vi.stubEnv("NETLIFY", "true");
+    const source = generateWorkerEntry([], []);
+    const worker = await importGeneratedWorker(source, {
+      responseHeaders: {
+        [SSR_QUERY_CACHE_KEY_HEADER]: "query",
+      },
+    });
+
+    const response = await worker.fetch(
+      new Request("https://app.test/redirect?from=home"),
+      {},
+      {},
+    );
+
+    expect(response.headers.get("netlify-vary")).toBe("query");
+    expect(response.headers.get(SSR_QUERY_CACHE_KEY_HEADER)).toBeNull();
+  });
+
   it("inlines the disabled SSR cache policy when AGENT_NATIVE_SSR_CACHE is off", async () => {
     vi.stubEnv("AGENT_NATIVE_SSR_CACHE", "off");
 
@@ -968,6 +1004,81 @@ export default (event) =>
 
     expect(html).toContain("data-agent-native-sentry-config");
     expect(html).toContain("https://public@example/4511270423822336");
+  });
+
+  it("normalizes explicit deployment environment in generated browser telemetry", async () => {
+    vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", " BETA ");
+    vi.stubEnv("SENTRY_DSN", "https://public@example/4511270423822336");
+
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+    const response = await worker.fetch(
+      new Request("https://app.test/inbox", { method: "GET" }),
+      {},
+      {},
+    );
+    const html = await response.text();
+
+    expect(html).toContain('"sentryEnvironment":"beta"');
+    expect(html).toContain('"deploymentEnvironment":"beta"');
+  });
+
+  it("rejects unsupported explicit deployment environment in generated workers", async () => {
+    vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "staging");
+
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+
+    const response = await worker.fetch(
+      new Request("https://app.test/inbox", { method: "GET" }),
+      {},
+      {},
+    );
+    expect(response.status).toBe(500);
+  });
+
+  it("uses Netlify CONTEXT for generated preview browser telemetry", async () => {
+    vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "");
+    vi.stubEnv("SENTRY_ENVIRONMENT", "production");
+    vi.stubEnv("CONTEXT", "deploy-preview");
+    vi.stubEnv("NETLIFY_CONTEXT", "production");
+    vi.stubEnv("BRANCH", "feature/auth");
+    vi.stubEnv("VERCEL_ENV", "");
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("SENTRY_DSN", "https://public@example/4511270423822336");
+
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+    const response = await worker.fetch(
+      new Request("https://app.test/inbox", { method: "GET" }),
+      {},
+      {},
+    );
+    const html = await response.text();
+
+    expect(html).toContain('"sentryEnvironment":"preview"');
+    expect(html).toContain('"deploymentEnvironment":"preview"');
+  });
+
+  it("injects deployment attribution without browser Sentry", async () => {
+    vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "");
+    vi.stubEnv("CONTEXT", "deploy-preview");
+    vi.stubEnv("NETLIFY_CONTEXT", "production");
+    vi.stubEnv("BRANCH", "feature/auth");
+    vi.stubEnv("VERCEL_ENV", "");
+    vi.stubEnv("SENTRY_CLIENT_DSN", "");
+    vi.stubEnv("SENTRY_DSN", "");
+    vi.stubEnv("VITE_SENTRY_DSN", "");
+    vi.stubEnv("NODE_ENV", "production");
+
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+    const response = await worker.fetch(
+      new Request("https://app.test/inbox", { method: "GET" }),
+      {},
+      {},
+    );
+    const html = await response.text();
+
+    expect(html).toContain("data-agent-native-sentry-config");
+    expect(html).toContain('"deploymentEnvironment":"preview"');
+    expect(html).not.toContain("sentryDsn");
   });
 
   it("keeps mounted SSR HEAD responses bodyless and leaves missing API paths as 404", async () => {
@@ -2636,6 +2747,97 @@ describe("durable-background Netlify function emit (single-template, default-on)
     prepareSingleTemplateNetlifyOutput(cwd);
 
     expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).not.toThrow();
+  });
+
+  it("rejects a macOS better-sqlite3 binary before Netlify publication", () => {
+    const cwd = setupNetlifyOutput();
+    prepareSingleTemplateNetlifyOutput(cwd);
+    const binary = path.join(
+      cwd,
+      ".netlify",
+      "functions-internal",
+      "server",
+      "node_modules",
+      "better-sqlite3",
+      "build",
+      "Release",
+      "better_sqlite3.node",
+    );
+    fs.mkdirSync(path.dirname(binary), { recursive: true });
+    fs.writeFileSync(binary, Buffer.from([0xcf, 0xfa, 0xed, 0xfe]));
+
+    const serverDir = path.join(
+      cwd,
+      ".netlify",
+      "functions-internal",
+      "server",
+    );
+    expect(findNonLinuxBetterSqlite3Binaries(serverDir)).toEqual([binary]);
+    expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).toThrow(
+      /non-Linux better-sqlite3 native binaries: .*better_sqlite3\.node/,
+    );
+  });
+
+  it("allows the Linux ELF better-sqlite3 binary", () => {
+    const cwd = setupNetlifyOutput();
+    prepareSingleTemplateNetlifyOutput(cwd);
+    const binary = path.join(
+      cwd,
+      ".netlify",
+      "functions-internal",
+      "server",
+      "node_modules",
+      "better-sqlite3",
+      "build",
+      "Release",
+      "better_sqlite3.node",
+    );
+    fs.mkdirSync(path.dirname(binary), { recursive: true });
+    const header = Buffer.alloc(20);
+    header.set([0x7f, 0x45, 0x4c, 0x46, 2, 1], 0);
+    header.writeUInt16LE(62, 18);
+    fs.writeFileSync(binary, header);
+
+    const serverDir = path.join(
+      cwd,
+      ".netlify",
+      "functions-internal",
+      "server",
+    );
+    expect(findNonLinuxBetterSqlite3Binaries(serverDir)).toEqual([]);
+    expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).not.toThrow();
+  });
+
+  it("rejects a Linux ELF better-sqlite3 binary for a non-x86_64 architecture", () => {
+    const cwd = setupNetlifyOutput();
+    prepareSingleTemplateNetlifyOutput(cwd);
+    const binary = path.join(
+      cwd,
+      ".netlify",
+      "functions-internal",
+      "server",
+      "node_modules",
+      "better-sqlite3",
+      "build",
+      "Release",
+      "better_sqlite3.node",
+    );
+    fs.mkdirSync(path.dirname(binary), { recursive: true });
+    const header = Buffer.alloc(20);
+    header.set([0x7f, 0x45, 0x4c, 0x46, 2, 1], 0);
+    header.writeUInt16LE(183, 18);
+    fs.writeFileSync(binary, header);
+
+    const serverDir = path.join(
+      cwd,
+      ".netlify",
+      "functions-internal",
+      "server",
+    );
+    expect(findNonLinuxBetterSqlite3Binaries(serverDir)).toEqual([binary]);
+    expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).toThrow(
+      /non-Linux better-sqlite3 native binaries: .*better_sqlite3\.node/,
+    );
   });
 
   it("fails a function that ships more than the per-function size budget", () => {

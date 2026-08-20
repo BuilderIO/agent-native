@@ -14,6 +14,7 @@ Read the matching skill before acting. This file is the always-on layer; the ski
 ## Core Rules
 
 - Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
+- For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver.
 - Follow the root framework contract: data in SQL, actions first, application state for navigation/selection, and shared agent chat for AI work.
 - Do not use `db-query` for normal task operations.
 - Call `view-screen` first when the user's visible task context matters (especially on `/tasks`).

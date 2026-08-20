@@ -261,9 +261,11 @@ describe("OrgSwitcher", () => {
     expect(mocks.navigate).toHaveBeenCalledWith("/settings/account");
   });
 
-  it("invalidates mounted sessions before reloading after sign out", async () => {
+  it("invalidates mounted sessions and warns before returning to sign-in after a failed sign out", async () => {
     const originalLocation = window.location;
     const reload = vi.fn();
+    const replace = vi.fn();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     Object.defineProperty(window, "location", {
       configurable: true,
       value: {
@@ -274,9 +276,10 @@ describe("OrgSwitcher", () => {
         href: "https://clips.example.com/library",
         host: "clips.example.com",
         reload,
+        replace,
       },
     });
-    const fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
+    const fetchMock = vi.fn(async () => new Response(null, { status: 503 }));
     vi.stubGlobal("fetch", fetchMock);
     mocks.useOrg.mockReturnValue({
       data: {
@@ -311,8 +314,16 @@ describe("OrgSwitcher", () => {
         credentials: "include",
       });
       expect(mocks.notifySessionInvalidated).toHaveBeenCalledOnce();
-      expect(reload).toHaveBeenCalledOnce();
+      expect(replace).toHaveBeenCalledWith(
+        expect.stringContaining("/sign-in?c="),
+      );
+      expect(warn).toHaveBeenCalledWith(
+        "Logout request returned an error before sign-in",
+        503,
+      );
+      expect(reload).not.toHaveBeenCalled();
     } finally {
+      warn.mockRestore();
       Object.defineProperty(window, "location", {
         configurable: true,
         value: originalLocation,

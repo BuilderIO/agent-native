@@ -53,6 +53,7 @@ export function buildContentDirectoryPickerBridgeScript(): string {
     return {
       folder: result.folder || {},
       sources: result.sources || {},
+      revisions: result.revisions || {},
     };
   }
 
@@ -71,9 +72,10 @@ export function buildContentDirectoryPickerBridgeScript(): string {
     return String(data);
   }
 
-  function DesktopWritable(folderId, filePath) {
+  function DesktopWritable(folderId, filePath, expectedRevision) {
     this._folderId = folderId;
     this._path = filePath;
+    this._expectedRevision = expectedRevision;
     this._parts = [];
   }
 
@@ -97,6 +99,7 @@ export function buildContentDirectoryPickerBridgeScript(): string {
       folderId: this._folderId,
       path: this._path,
       content: this._parts.join(""),
+      expectedRevision: this._expectedRevision,
     });
     if (!result || !result.ok) throw actionError(result, "Write failed.");
   };
@@ -125,7 +128,18 @@ export function buildContentDirectoryPickerBridgeScript(): string {
   };
 
   DesktopFileHandle.prototype.createWritable = async function () {
-    return new DesktopWritable(this._folderId, this._path);
+    var read = await readSources(this._folderId);
+    var expectedRevision = Object.prototype.hasOwnProperty.call(
+      read.revisions,
+      this._path,
+    )
+      ? read.revisions[this._path]
+      : null;
+    return new DesktopWritable(
+      this._folderId,
+      this._path,
+      expectedRevision,
+    );
   };
 
   DesktopFileHandle.prototype.isSameEntry = async function (other) {
@@ -215,8 +229,8 @@ export function buildContentDirectoryPickerBridgeScript(): string {
     if (typeof bridge.deleteFile !== "function") return;
     var target = pathFor(this._prefix, name);
     var targets = [target];
+    var read = await readSources(this._folderId);
     if (options && options.recursive) {
-      var read = await readSources(this._folderId);
       var directoryPrefix = target + "/";
       targets = Object.keys(read.sources).filter(function (filePath) {
         return filePath === target || filePath.startsWith(directoryPrefix);
@@ -226,9 +240,14 @@ export function buildContentDirectoryPickerBridgeScript(): string {
       }
     }
     for (var i = 0; i < targets.length; i += 1) {
+      var expectedRevision = read.revisions && read.revisions[targets[i]];
+      if (!expectedRevision) {
+        throw makeError("File changed before it could be deleted.", "InvalidStateError");
+      }
       var result = await bridge.deleteFile({
         folderId: this._folderId,
         path: targets[i],
+        expectedRevision: expectedRevision,
       });
       if (!result || !result.ok) throw actionError(result, "Delete failed.");
     }

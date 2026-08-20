@@ -1167,6 +1167,35 @@ button[title="Open agent sidebar"] {
   }
 }
 
+/* Sweeps across a slide thumbnail while the agent is generating its content.
+   Sits above the rendered slide so it reads as "in progress" instead of a
+   static placeholder for the length of the generation run. */
+.slide-thumbnail-ai-shimmer {
+  background: linear-gradient(
+    100deg,
+    transparent 30%,
+    rgba(255, 255, 255, 0.16) 50%,
+    transparent 70%
+  );
+  background-size: 200% 100%;
+  animation: slide-thumbnail-shimmer 1.6s ease-in-out infinite;
+}
+
+@keyframes slide-thumbnail-shimmer {
+  from {
+    background-position: 150% 0;
+  }
+  to {
+    background-position: -50% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .slide-thumbnail-ai-shimmer {
+    animation: none;
+  }
+}
+
 .image-overlay-btn {
   display: flex;
   align-items: center;

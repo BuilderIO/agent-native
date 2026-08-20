@@ -18,7 +18,11 @@ import {
   Text,
   View,
 } from "react-native";
-import { KeyboardAvoidingView } from "react-native-keyboard-controller";
+import {
+  KeyboardAvoidingView,
+  useReanimatedKeyboardAnimation,
+} from "react-native-keyboard-controller";
+import Animated, { useAnimatedStyle } from "react-native-reanimated";
 
 import {
   ChatSettingsSheet,
@@ -59,8 +63,9 @@ import {
   type RemoteTranscriptEvent,
 } from "@/lib/remote-sessions-api";
 import { getSessionToken } from "@/lib/session-token-store";
+import { useTabBarLayout } from "@/lib/tab-bar-layout";
 
-type AuthState = "checking" | "connected" | "signed-out";
+type AuthState = "checking" | "connected" | "signed-out" | "unreachable";
 
 function HeaderButton({
   label,
@@ -104,10 +109,6 @@ function ActionSheetRow({
     </Pressable>
   );
 }
-
-// The tabs layout pins the bar to a fixed height; the keyboard overlaps that
-// strip first, so keyboard padding must be reduced by it.
-const TAB_BAR_HEIGHT = 22;
 
 function ComputerMessages({
   events,
@@ -219,6 +220,13 @@ function ComputerMessages({
 
 export default function ChatTab() {
   const { foreground, mutedForeground } = useMobileThemeColors();
+  // The bar floats over the composer, so hold its space — and hand it back
+  // while the keyboard is already covering the bar.
+  const { contentInset } = useTabBarLayout();
+  const { progress: keyboardProgress } = useReanimatedKeyboardAnimation();
+  const tabBarSpacerStyle = useAnimatedStyle(() => ({
+    height: contentInset * (1 - keyboardProgress.value),
+  }));
   const previewMode =
     __DEV__ && Platform.OS === "web" && typeof window !== "undefined"
       ? new URLSearchParams(window.location.search).get("preview")
@@ -290,12 +298,25 @@ export default function ChatTab() {
       setAuthState("connected");
     } else if (result.status === "invalid") {
       setAuthState("signed-out");
+    } else {
+      // "Cannot read the session" is not "signed out" and not "still loading".
+      // Reporting it as either lies: one throws away a good token, the other
+      // spins forever with nothing the user can act on. Stay put once we have
+      // a confirmed session, so a dropped network never kicks anyone out.
+      setAuthState((current) =>
+        current === "connected" ? current : "unreachable",
+      );
     }
   }, [isWebPreview]);
 
   useEffect(() => {
-    if (authState !== "checking") return;
-    const retry = setTimeout(() => void refreshAuth(), 1_000);
+    if (authState !== "checking" && authState !== "unreachable") return;
+    // Back off once we know the server is unreachable: the screen already says
+    // so and offers a retry, so hammering it every second buys nothing.
+    const retry = setTimeout(
+      () => void refreshAuth(),
+      authState === "unreachable" ? 5_000 : 1_000,
+    );
     return () => clearTimeout(retry);
   }, [authState, refreshAuth]);
 
@@ -335,6 +356,23 @@ export default function ChatTab() {
       setAuthState("signed-out");
     }
   }, [authRequired, clearAuthRequired]);
+
+  // A session can die mid-run: the request was already accepted, so it comes
+  // back as an auth-classified error rather than a 401, and nothing above
+  // notices. Without this the user keeps a composer that rejects every send.
+  // The ref fires once per failure — the error survives sign-in, and re-running
+  // this on the stale code would bounce the user straight back out.
+  const handledAuthErrorRef = useRef(false);
+  const chatErrorCode = chat.errorCode;
+  useEffect(() => {
+    if (chatErrorCode !== "auth") {
+      handledAuthErrorRef.current = false;
+      return;
+    }
+    if (handledAuthErrorRef.current) return;
+    handledAuthErrorRef.current = true;
+    setAuthState("signed-out");
+  }, [chatErrorCode]);
 
   useEffect(() => {
     if (authState === "connected") setSignInOpen(false);
@@ -701,17 +739,33 @@ export default function ChatTab() {
         ) : null}
       </View>
 
-      <KeyboardAvoidingView
-        behavior="padding"
-        keyboardVerticalOffset={TAB_BAR_HEIGHT}
-        className="flex-1"
-      >
+      <KeyboardAvoidingView behavior="padding" className="flex-1">
         {authState === "checking" ? (
           <View className="flex-1 items-center justify-center">
             <ActivityIndicator color={mutedForeground} />
             <Text className="text-status-gray text-[13px] mt-2.5">
               Opening Chat…
             </Text>
+          </View>
+        ) : authState === "unreachable" ? (
+          <View className="flex-1 items-center justify-center px-7">
+            <Text className="text-center text-[22px] font-bold text-foreground">
+              Can't reach sign-in
+            </Text>
+            <Text className="mt-2 max-w-[300px] text-center text-[14px] leading-5 text-text-muted">
+              Your session could not be checked. You are still signed in on this
+              device — this is a connection problem, not a sign-out.
+            </Text>
+            <Pressable
+              accessibilityLabel="Retry checking your session"
+              accessibilityRole="button"
+              onPress={() => void refreshAuth()}
+              className="mt-6 min-h-11 items-center justify-center rounded-xl bg-primary px-5 active:opacity-75"
+            >
+              <Text className="text-[14px] font-bold text-primary-foreground">
+                Retry
+              </Text>
+            </Pressable>
           </View>
         ) : authState === "signed-out" ? (
           <View className="flex-1 items-center justify-center px-7">
@@ -754,6 +808,7 @@ export default function ChatTab() {
                 chat={chat}
                 bottomInset={8}
                 onMessageActions={setActionsFor}
+                onSignIn={() => setSignInOpen(true)}
               />
             )}
           </>
@@ -787,6 +842,7 @@ export default function ChatTab() {
             />
           </>
         ) : null}
+        <Animated.View style={tabBarSpacerStyle} />
       </KeyboardAvoidingView>
 
       {notice && (

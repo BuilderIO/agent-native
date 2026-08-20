@@ -2509,20 +2509,6 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
     return lines.join("\n");
   }
 
-  // Tiny diffs aren't worth a recap. The workflow upserts this state as a sticky
-  // comment (created or updated) so the too-small outcome is explained and stale
-  // recap links do not linger on no-op changes.
-  if (env.DIFF_TINY === "true") {
-    lines.push("### Visual recap — skipped (diff too small)");
-    lines.push("");
-    lines.push(
-      "The change in this pull request is too small to be worth a visual recap. This is informational only and does **not** block the PR.",
-    );
-    if (prevPlanId) lines.push("", `<!-- plan-id: ${prevPlanId} -->`);
-    if (headMarker) lines.push("", headMarker);
-    return lines.join("\n");
-  }
-
   const planUrl = (env.PLAN_URL || "").trim();
   const appUrl = (env.PLAN_RECAP_APP_URL || "").trim();
   // recap-url.txt is agent-written → untrusted. Rebuild a canonical link from a
@@ -3919,6 +3905,14 @@ async function runComment(
   }
 
   if (sub === "upsert") {
+    // Tiny diffs are intentionally silent. In particular, do not refresh an
+    // existing recap comment into a visible "skipped" state.
+    if (process.env.DIFF_TINY === "true") {
+      process.stdout.write(
+        `${JSON.stringify({ action: "skipped", id: 0, reason: "tiny diff" })}\n`,
+      );
+      return;
+    }
     const headSha = optionalArg(args, "head-sha") ?? process.env.HEAD_SHA ?? "";
     if (headSha) {
       const current = await isPullRequestHeadCurrent({
@@ -4360,89 +4354,6 @@ async function runGate(): Promise<void> {
       ? `Visual recap will run (${decision.agent}).`
       : `Visual recap skipped: ${reasons.join("; ")}`,
   );
-
-  // When gate skips, post or refresh a sticky comment with a short skip line so
-  // users are not left guessing whether the recap job ran.
-  if (!run) {
-    const ghToken = process.env.GH_TOKEN || process.env.GITHUB_TOKEN || "";
-    const prNumber =
-      process.env.PR_NUMBER ||
-      (pr && typeof pr.number === "number" ? String(pr.number) : "");
-    if (ghToken && repository && prNumber) {
-      try {
-        const { owner, repo } = repoParts(repository);
-        const headSha = process.env.HEAD_SHA || "";
-        const headShort = headSha ? headSha.slice(0, 7) : "";
-        const primaryReason =
-          reasons.filter(
-            (r) =>
-              !r.startsWith(
-                "could not list PR files for the self-modifying guard",
-              ),
-          )[0] ??
-          reasons[0] ??
-          "skipped";
-        const skipLine = buildGateSkipLine(primaryReason, headShort);
-        const existing = await findExistingComment({
-          token: ghToken,
-          owner,
-          repo,
-          issue: prNumber,
-        });
-        const updatedBody = appendGateSkipLine(
-          existing?.body ?? buildGateSkipCommentBody(),
-          skipLine,
-        );
-        await upsertComment({
-          token: ghToken,
-          owner,
-          repo,
-          issue: prNumber,
-          body: updatedBody,
-        });
-      } catch {
-        // Best-effort — never fail the gate step over a comment update.
-      }
-    }
-  }
-}
-
-/**
- * Build the short skip-line appended to an existing recap comment when the
- * gate skips. Pure so it can be unit-tested.
- *
- * @param reason    - Human-readable skip reason (primary reason, short).
- * @param headShort - 7-char short SHA, or "" if unavailable.
- */
-export function buildGateSkipLine(reason: string, headShort: string): string {
-  const shaRef = headShort ? `\`${headShort}\`` : "latest push";
-  return `_Recap skipped for ${shaRef}: ${reason}._`;
-}
-
-export function buildGateSkipCommentBody(): string {
-  return [
-    "### Visual recap — skipped",
-    "",
-    "The visual recap job did not run for this pull request. This is informational only and does **not** block the PR.",
-  ].join("\n");
-}
-
-/**
- * Append (or replace the last gate-skip line in) a sticky comment body.
- * Idempotent: calling it twice with different skip lines replaces the old one.
- * Pure so it can be unit-tested.
- */
-export function appendGateSkipLine(
-  existingBody: string,
-  skipLine: string,
-): string {
-  const planIdMatch = existingBody.match(
-    /<!--\s*plan-id:\s*([A-Za-z0-9_-]{1,64})\s*-->/,
-  );
-  const planIdMarker = planIdMatch
-    ? `\n\n<!-- plan-id: ${planIdMatch[1]} -->`
-    : "";
-  return `${buildGateSkipCommentBody()}${planIdMarker}\n\n${skipLine}`;
 }
 
 /* -------------------------------------------------------------------------- */

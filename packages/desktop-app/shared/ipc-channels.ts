@@ -73,12 +73,16 @@ export const IPC = {
   /** Hosted Content app local-file sync (Content webview ↔ main) */
   CONTENT_FILES_GET_FOLDER: "content-files:get-folder",
   CONTENT_FILES_CHOOSE_FOLDER: "content-files:choose-folder",
+  CONTENT_FILES_ASSOCIATE_SOURCE: "content-files:associate-source",
   CONTENT_FILES_WRITE: "content-files:write",
   CONTENT_FILES_WRITE_FILE: "content-files:write-file",
   CONTENT_FILES_DELETE_FILE: "content-files:delete-file",
   CONTENT_FILES_READ: "content-files:read",
   CONTENT_FILES_REVEAL_FILE: "content-files:reveal-file",
   CONTENT_FILES_CLEAR_FOLDER: "content-files:clear-folder",
+  CONTENT_FILES_SUBSCRIBE_CHANGES: "content-files:subscribe-changes",
+  CONTENT_FILES_UNSUBSCRIBE_CHANGES: "content-files:unsubscribe-changes",
+  CONTENT_FILES_CHANGED: "content-files:changed",
 
   /** Active webview tracking (renderer → main) */
   SET_ACTIVE_APP: "webview:set-active-app",
@@ -102,7 +106,15 @@ export const IPC = {
 
   /** Agent-Native Code hub (renderer ↔ main) */
   CODE_AGENTS_LIST_RUNS: "code-agents:list-runs",
+  CODE_AGENTS_LIST_SCHEDULES: "code-agents:list-schedules",
+  CODE_AGENTS_CREATE_SCHEDULE: "code-agents:create-schedule",
+  CODE_AGENTS_UPDATE_SCHEDULE: "code-agents:update-schedule",
+  CODE_AGENTS_DELETE_SCHEDULE: "code-agents:delete-schedule",
+  CODE_AGENTS_RUN_SCHEDULE_NOW: "code-agents:run-schedule-now",
+  CODE_AGENTS_LIST_WORKTREES: "code-agents:list-worktrees",
   CODE_AGENTS_CREATE_RUN: "code-agents:create-run",
+  CODE_AGENTS_FORK_RUN: "code-agents:fork-run",
+  CODE_AGENTS_RESTORE_WORKTREE: "code-agents:restore-worktree",
   CODE_AGENTS_REMOTE_WAITLIST: "code-agents:remote-waitlist",
   CODE_AGENTS_LIST_MODELS: "code-agents:list-models",
   CODE_AGENTS_READ_TRANSCRIPT: "code-agents:read-transcript",
@@ -149,6 +161,41 @@ export const IPC = {
   QUICK_PROMPT_HIDDEN: "quick-prompt:hidden",
   QUICK_PROMPT_SUBMIT: "quick-prompt:submit",
 } as const;
+
+export type CodeAgentScheduleScope = "global" | "thread";
+export type CodeAgentScheduleStatus = "queued" | "completed" | "errored";
+
+export interface CodeAgentSchedule {
+  schemaVersion: 1;
+  id: string;
+  name: string;
+  prompt: string;
+  scope: CodeAgentScheduleScope;
+  targetRunId?: string;
+  intervalMinutes: number;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+  nextRunAt: string;
+  lastRunAt?: string;
+  lastStatus?: CodeAgentScheduleStatus;
+  lastError?: string;
+  lastTriggeredRunId?: string;
+  createdByRunId?: string;
+}
+
+export interface CodeAgentScheduleListResult {
+  status: "ok" | "unavailable";
+  schedules: CodeAgentSchedule[];
+  error?: string;
+}
+
+export interface CodeAgentScheduleResult {
+  ok: boolean;
+  schedule?: CodeAgentSchedule;
+  message: string;
+  error?: string;
+}
 
 /** Auto-update status surfaced from electron-updater. */
 export type UpdateStatus =
@@ -341,20 +388,40 @@ export type DesktopPlanFilesResult =
 export interface DesktopContentFilesFolder {
   id?: string;
   name: string;
+  /** Persistent folders are human-selected; temporary copies are agent-opened. */
+  kind?: "persistent" | "temporary";
+  /** Derived local Git labels; no repository path is sent to the webview. */
+  repository?: DesktopContentFilesRepository;
+  /** Opaque Content IDs needed to resume reconciliation after Desktop restarts. */
+  contentSource?: {
+    sourceId: string;
+    databaseId?: string;
+  };
   path?: string;
   sourcePrefix?: string;
   updatedAt?: string;
 }
 
+export interface DesktopContentFilesRepository {
+  localId: string;
+  branch?: string;
+  commit?: string;
+  detached?: boolean;
+}
+
 export interface DesktopContentFilesWriteRequest {
   folderId?: string;
   files: Record<string, string>;
+  /** Complete disk snapshot observed before export; null means the path was absent. */
+  expectedRevisions: Record<string, string | null>;
 }
 
 export interface DesktopContentFileWriteRequest {
   folderId?: string;
   path: string;
   content: string;
+  /** SHA-256 revision observed by the caller; null means the path was absent. */
+  expectedRevision?: string | null;
 }
 
 export interface DesktopContentFileRevealRequest {
@@ -365,14 +432,34 @@ export interface DesktopContentFileRevealRequest {
 export interface DesktopContentFileDeleteRequest {
   folderId?: string;
   path: string;
+  /** SHA-256 revision observed by the caller. */
+  expectedRevision: string;
 }
 
 export interface DesktopContentFilesFolderRequest {
   folderId?: string;
 }
 
+export interface DesktopContentFilesAssociateSourceRequest {
+  folderId: string;
+  sourceId: string;
+  databaseId?: string;
+}
+
 export interface DesktopContentFilesClearFolderRequest {
   folderId?: string;
+}
+
+export interface DesktopContentFilesChangesRequest {
+  folderId?: string;
+}
+
+export interface DesktopContentFilesChange {
+  folderId: string;
+  revision: string;
+  changedAt: string;
+  missing?: boolean;
+  reason?: "attached" | "changed" | "missing";
 }
 
 export type DesktopContentFilesResult =
@@ -382,14 +469,23 @@ export type DesktopContentFilesResult =
       folders?: DesktopContentFilesFolder[];
       files?: string[];
       sources?: Record<string, string>;
+      revisions?: Record<string, string>;
+      /** Opaque bridge identity that remains stable when a file is renamed. */
+      identities?: Record<string, string>;
       controlResources?: Record<string, string>;
     }
   | {
       ok: false;
       error: string;
+      code?: "conflict" | "unavailable" | "invalid-request";
       canceled?: boolean;
       folder?: DesktopContentFilesFolder;
       folders?: DesktopContentFilesFolder[];
+      conflict?: {
+        path: string;
+        expectedRevision?: string | null;
+        actualRevision?: string;
+      };
     };
 
 export type CodeAgentRunStatus =
@@ -619,6 +715,7 @@ export interface CodeAgentCreateRunRequest {
   prompt: string;
   cwd?: string;
   executionTarget?: CodeAgentExecutionTarget;
+  worktree?: CodeAgentWorktreeSelection;
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
@@ -632,6 +729,67 @@ export interface CodeAgentCreateRunResult {
   run?: CodeAgentRun;
   event?: CodeAgentTranscriptEvent;
   eventFile?: string;
+  message: string;
+  error?: string;
+}
+
+export type CodeAgentWorktreeMode = "new" | "named";
+
+export interface CodeAgentWorktreeSelection {
+  mode: CodeAgentWorktreeMode;
+  name?: string;
+}
+
+export type CodeAgentWorktreeState =
+  | "available"
+  | "attached"
+  | "cleanup-pending"
+  | "recoverable"
+  | "removed"
+  | "error";
+
+export interface CodeAgentWorktreeSummary {
+  id: string;
+  name: string;
+  branch: string;
+  path: string;
+  sourcePath: string;
+  state: CodeAgentWorktreeState;
+  attached: boolean;
+  lastUsedAt: string;
+  lastCleanupError?: string;
+}
+
+export interface CodeAgentWorktreeListResult {
+  status: "ok" | "unavailable";
+  sourcePath: string;
+  worktrees: CodeAgentWorktreeSummary[];
+  error?: string;
+}
+
+export interface CodeAgentForkRunRequest {
+  goalId?: string;
+  sourceRunId: string;
+  executionTarget: "local" | "worktree";
+}
+
+export interface CodeAgentForkRunResult {
+  ok: boolean;
+  sourceRunId: string;
+  run?: CodeAgentRun;
+  message: string;
+  error?: string;
+}
+
+export interface CodeAgentRestoreWorktreeRequest {
+  worktreeId: string;
+  runId?: string;
+}
+
+export interface CodeAgentRestoreWorktreeResult {
+  ok: boolean;
+  worktreeId: string;
+  run?: CodeAgentRun;
   message: string;
   error?: string;
 }

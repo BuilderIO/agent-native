@@ -1,0 +1,243 @@
+name: Deploy Agent Native beta sites
+
+# The prebuilt GitHub workflow is now the sole automatic beta publisher. Keep
+# this Netlify-build implementation as a manual fallback during the pilot;
+# Netlify site-level Git builds remain a separate cutover switch.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-agent-native-beta-sites
+  # The beta branch is a single moving mirror; only its newest main commit can
+  # be deployed, so an older run must not wait for a ref it can no longer own.
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Build and smoke-test all beta sites
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 1
+          ref: ${{ github.event_name == 'workflow_dispatch' && 'main' || github.sha }}
+          sparse-checkout: scripts/netlify-beta-sites.json
+          sparse-checkout-cone-mode: false
+
+      - name: Build every beta project and verify its host
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          SOURCE_SHA: ${{ github.sha }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          : "${NETLIFY_AUTH_TOKEN:?NETLIFY_AUTH_TOKEN secret is required for beta deploys}"
+          node <<'NODE'
+          const fs = require("node:fs");
+
+          const sites = JSON.parse(
+            fs.readFileSync("scripts/netlify-beta-sites.json", "utf8"),
+          );
+          const token = process.env.NETLIFY_AUTH_TOKEN;
+          const sourceSha = process.env.SOURCE_SHA;
+          const api = "https://api.netlify.com/api/v1";
+          const headers = { Authorization: `Bearer ${token}` };
+          const githubHeaders = {
+            Accept: "application/vnd.github+json",
+            Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+            "X-GitHub-Api-Version": "2022-11-28",
+          };
+          const requestTimeoutMs = 30_000;
+
+          function request(url, options = {}) {
+            return fetch(url, {
+              ...options,
+              signal: AbortSignal.timeout(requestTimeoutMs),
+            });
+          }
+
+          async function readJson(response, label) {
+            const text = await response.text();
+            let body = null;
+            try {
+              body = text ? JSON.parse(text) : null;
+            } catch {
+              body = text;
+            }
+            if (!response.ok) {
+              throw new Error(
+                `${label} failed with HTTP ${response.status}: ${typeof body === "string" ? body : JSON.stringify(body)}`,
+              );
+            }
+            return body;
+          }
+
+          async function waitForBetaRef(expectedSha) {
+            const deadline = Date.now() + 10 * 60 * 1000;
+            while (Date.now() < deadline) {
+              const response = await request(
+                `https://api.github.com/repos/${process.env.REPOSITORY}/git/ref/heads/beta`,
+                { headers: githubHeaders },
+              );
+              if (response.ok) {
+                const ref = await response.json();
+                const betaSha = ref.object?.sha;
+                if (betaSha === expectedSha) return betaSha;
+                console.log(`Waiting for beta branch ${betaSha} to reach ${expectedSha}.`);
+              } else {
+                console.log(`Waiting for beta branch; GitHub returned HTTP ${response.status}.`);
+              }
+              await new Promise((resolve) => setTimeout(resolve, 10_000));
+            }
+            throw new Error(`beta branch did not reach ${expectedSha} within 10 minutes`);
+          }
+
+          async function resolveSourceSha() {
+            if (process.env.GITHUB_EVENT_NAME !== "workflow_dispatch") {
+              return sourceSha;
+            }
+
+            const response = await request(
+              `https://api.github.com/repos/${process.env.REPOSITORY}/git/ref/heads/main`,
+              { headers: githubHeaders },
+            );
+            const ref = await readJson(response, "main ref");
+            if (typeof ref?.object?.sha !== "string" || !ref.object.sha) {
+              throw new Error("GitHub main ref did not include a commit SHA.");
+            }
+            return ref.object.sha;
+          }
+
+          async function trigger(site) {
+            const build = await readJson(
+              await request(`${api}/sites/${site.siteId}/builds?branch=beta`, {
+                method: "POST",
+                headers,
+              }),
+              `[${site.id}] build trigger`,
+            );
+            if (!build?.id || !build?.deploy_id) {
+              throw new Error(`[${site.id}] Netlify did not return build and deploy ids.`);
+            }
+            console.log(`[${site.id}] queued ${build.id}.`);
+            return { ...site, buildId: build.id, deployId: build.deploy_id };
+          }
+
+          function isNoContentChange(value) {
+            return (
+              typeof value === "string" &&
+              value.includes("Canceled build due to no content change")
+            );
+          }
+
+          async function listBetaDeploys(site) {
+            const deploys = [];
+            for (let page = 1; page <= 100; page += 1) {
+              const pageDeploys = await readJson(
+                await request(`${api}/sites/${site.siteId}/deploys?per_page=100&page=${page}`, { headers }),
+                `[${site.id}] recent deploys page ${page}`,
+              );
+              if (!Array.isArray(pageDeploys)) {
+                throw new Error(`[${site.id}] Netlify returned an invalid deploy list.`);
+              }
+              deploys.push(...pageDeploys);
+              if (pageDeploys.length < 100) return deploys;
+            }
+            throw new Error(`[${site.id}] Netlify deploy pagination exceeded 100 pages.`);
+          }
+
+          async function findReadyDeploy(site, betaSha) {
+            const deploys = await listBetaDeploys(site);
+            return deploys.find(
+              (candidate) =>
+                candidate.branch === "beta" &&
+                candidate.state === "ready" &&
+                (!betaSha || candidate.commit_ref === betaSha),
+            );
+          }
+
+          async function reuseMatchingDeploy(site, betaSha, requireExactSha) {
+            const matchingDeploy = await findReadyDeploy(
+              site,
+              requireExactSha ? betaSha : undefined,
+            );
+            if (!matchingDeploy) return false;
+            if (requireExactSha) {
+              console.log(`[${site.id}] sibling deploy ready at ${matchingDeploy.commit_ref}.`);
+            } else {
+              console.log(`[${site.id}] no content change; reusing ready beta deploy at ${matchingDeploy.commit_ref}.`);
+            }
+            return true;
+          }
+
+          async function waitForReady(site, betaSha) {
+            const deadline = Date.now() + 30 * 60 * 1000;
+            while (Date.now() < deadline) {
+              const [build, deploy] = await Promise.all([
+                readJson(await request(`${api}/builds/${site.buildId}`, { headers }), `[${site.id}] build status`),
+                readJson(await request(`${api}/deploys/${site.deployId}`, { headers }), `[${site.id}] deploy status`),
+              ]);
+              const noContentChange = [build.error, deploy.error_message].some(isNoContentChange);
+              const skipped = [build.error, deploy.error_message].some(
+                (value) => value === "Skipped",
+              );
+              if (noContentChange || skipped) {
+                if (await reuseMatchingDeploy(site, betaSha, skipped)) {
+                  return;
+                }
+                await new Promise((resolve) => setTimeout(resolve, 15_000));
+                continue;
+              }
+              if (build.error || deploy.state === "error") {
+                throw new Error(`[${site.id}] deploy failed: ${build.error || deploy.error_message || deploy.state}`);
+              }
+              if (build.done && deploy.state === "ready") {
+                if (deploy.branch !== "beta" || deploy.commit_ref !== betaSha) {
+                  throw new Error(`[${site.id}] ready deploy was ${deploy.branch}/${deploy.commit_ref}, expected beta/${betaSha}`);
+                }
+                console.log(`[${site.id}] ready at ${deploy.commit_ref}.`);
+                return;
+              }
+              await new Promise((resolve) => setTimeout(resolve, 15_000));
+            }
+            throw new Error(`[${site.id}] deploy did not become ready within 30 minutes`);
+          }
+
+          async function smoke(site) {
+            let lastError;
+            for (let attempt = 1; attempt <= 3; attempt += 1) {
+              try {
+                const response = await request(`https://${site.host}/`, { redirect: "manual" });
+                if (response.status < 200 || response.status >= 400) {
+                  throw new Error(`HTTP ${response.status}`);
+                }
+                console.log(`[${site.id}] smoke HTTP ${response.status}.`);
+                return;
+              } catch (error) {
+                lastError = error instanceof Error ? error.message : String(error);
+                if (attempt < 3) {
+                  console.log(`[${site.id}] smoke attempt ${attempt} failed: ${lastError}; retrying.`);
+                  await new Promise((resolve) => setTimeout(resolve, attempt * 2_000));
+                }
+              }
+            }
+            throw new Error(`[${site.id}] https://${site.host}/ smoke failed after 3 attempts: ${lastError}`);
+          }
+
+          (async () => {
+            const sourceSha = await resolveSourceSha();
+            const betaSha = await waitForBetaRef(sourceSha);
+            const triggered = await Promise.all(sites.map(trigger));
+            await Promise.all(triggered.map((site) => waitForReady(site, betaSha)));
+            await Promise.all(triggered.map(smoke));
+            console.log(`All ${sites.length} beta sites verified at ${betaSha}.`);
+          })().catch((error) => {
+            console.error(error instanceof Error ? error.message : error);
+            process.exitCode = 1;
+          });
+          NODE

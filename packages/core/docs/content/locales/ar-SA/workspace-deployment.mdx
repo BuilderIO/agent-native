@@ -1,0 +1,350 @@
+---
+title: "نشر مساحة العمل"
+description: "انشر كل تطبيق في مساحة عمل agent-native إلى مصدر واحد بأمر واحد، أو استضف مساحة عمل ذاتيًا باستخدام Docker Compose."
+---
+
+# نشر مساحة العمل
+
+إذا كان مشروعك [مساحة عمل](/docs/multi-app-workspace) بأكثر من تطبيق واحد، يمكنك نشر كل تطبيق إلى مصدر واحد بدلاً من إدارة عمليات نشر منفصلة لكل تطبيق. تغطي هذه الصفحة المسار المُدار بأمر واحد وبديل Docker Compose المستضاف ذاتيًا. راجع [النشر](/docs/deployment) لاختيار قاعدة بيانات، وإعداد مسبق، ومنصة أولاً.
+
+## مصدر واحد، تطبيقات متعددة {#workspace-deploy}
+
+انشر كل تطبيق في مساحة عمل إلى مصدر واحد بأمر واحد:
+
+```bash
+npx @agent-native/core@latest deploy
+# https://your-agents.com/mail/*       → apps/mail
+# https://your-agents.com/calendar/*   → apps/calendar
+# https://your-agents.com/forms/*      → apps/forms
+```
+
+<Diagram id="doc-block-1aw1umr" title="مصدر واحد، تطبيقات متعددة" summary={"يُبنى كل تطبيق في مساحة العمل بمسار قاعدة خاص به ويُثبَّت تحت بادئة مسار على مصدر واحد. تسجيل الدخول وA2A بين التطبيقات نفس المصدر ومجاني نتيجة لذلك."}>
+
+```html
+<div class="diagram-ws">
+  <div class="diagram-panel" data-rough>
+    <strong>https://your-agents.com</strong>
+    <div class="diagram-row">
+      <span class="diagram-pill accent">/mail/*</span
+      ><small class="diagram-muted">apps/mail</small>
+    </div>
+    <div class="diagram-row">
+      <span class="diagram-pill accent">/calendar/*</span
+      ><small class="diagram-muted">apps/calendar</small>
+    </div>
+    <div class="diagram-row">
+      <span class="diagram-pill accent">/forms/*</span
+      ><small class="diagram-muted">apps/forms</small>
+    </div>
+  </div>
+  <div class="diagram-col wins">
+    <span class="diagram-pill ok">جلسة تسجيل دخول مشتركة</span
+    ><span class="diagram-pill ok">A2A بين التطبيقات بلا تكوين</span>
+  </div>
+</div>
+```
+
+```css
+.diagram-ws {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.diagram-ws .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+}
+.diagram-ws .diagram-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.diagram-ws .wins {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+```
+
+</Diagram>
+
+**نفس المصدر** تعني أن كل تطبيق يبدو للمتصفح جزءًا من نفس الموقع. هذا يمنحك فوزين كبيرين مجانًا:
+
+- **جلسة تسجيل دخول مشتركة**. سجّل الدخول إلى أي تطبيق، وكل تطبيق يصبح مسجَّل الدخول.
+- **A2A بين التطبيقات بلا تكوين**. الإشارة إلى `@calendar` من mail هي جلب من نفس المصدر. لا يوجد CORS ولا توقيع JWT بين الأشقاء.
+
+<Callout tone="info">
+
+تحت الغطاء، يُبنى كل تطبيق بـ **مسار قاعدة** خاص به، وهو بادئة عنوان URL مثل `/mail` مضبوطة عبر `APP_BASE_PATH`/`VITE_APP_BASE_PATH`، ثم يُحزَم لأجل إعداد Nitro المسبق المستهدف. يوجّه Cloudflare Pages من خلال **عامل مُرسِل** مُولَّد، وهو نص برمجي صغير في `dist/_worker.js` يقرأ المسار الوارد ويُحيل الطلب إلى التطبيق المطابق. يستخدم Netlify دالة واحدة لكل تطبيق بالإضافة إلى عمليات إعادة توجيه مُولَّدة. يكتب Vercel `.vercel/output` على مستوى مساحة العمل باستخدام Build Output API.
+
+</Callout>
+
+انشر البناء الخاص بمنصتك:
+
+<TabsBlock
+  id="doc-block-wsdeploytabs1"
+  tabs={[
+    {
+      id: "cloudflare",
+      label: "Cloudflare (افتراضي)",
+      blocks: [
+        {
+          type: "code",
+          id: "wf-cf",
+          data: { code: "wrangler pages deploy dist", language: "bash" },
+        },
+      ],
+    },
+    {
+      id: "netlify",
+      label: "Netlify",
+      blocks: [
+        {
+          type: "code",
+          id: "wf-nl",
+          data: {
+            code: "npx @agent-native/core@latest deploy --preset netlify",
+            language: "bash",
+          },
+        },
+      ],
+    },
+    {
+      id: "vercel",
+      label: "Vercel",
+      blocks: [
+        {
+          type: "code",
+          id: "wf-vc",
+          data: {
+            code: "npx @agent-native/core@latest deploy --preset vercel",
+            language: "bash",
+          },
+        },
+      ],
+    },
+  ]}
+/>
+
+<Callout tone="warning">
+
+تتطلب عمليات بناء مساحة العمل المستضافة `A2A_SECRET` في بيئة مزود النشر. بدونه، لا يعمل Slack، وwebhooks الواردة، واستئناف A2A بين التطبيقات، بما أن كل تلك تمر عبر معالجات خلفية موقَّعة. لا تزال فحوصات الأصول `--build-only` المحلية تعمل بدونه.
+
+</Callout>
+
+<Callout tone="info">
+
+هل تُكوِّن أمر بناء مزود بدلاً من النشر يدويًا؟ أضف `--build-only` إلى نفس الأمر، على سبيل المثال `npx @agent-native/core@latest deploy --preset vercel --build-only`. يكتب المخرجات مباشرةً، لذا لا يُطلَب `vercel.json` لتوجيه مساحة العمل.
+
+هل تفضّل نطاقًا منفصلًا لكل تطبيق بدلاً من مصدر مشترك واحد؟ لا يزال كل تطبيق في مساحة العمل قابلاً للنشر بشكل مستقل. شغّل `cd apps/<name> && npx @agent-native/core@latest build` مثل سقالة مستقلة.
+
+</Callout>
+
+## مساحة عمل مستضافة ذاتيًا باستخدام Docker Compose {#workspace-docker-compose}
+
+مساحة العمل ليست عملية خادم Nitro واحدة اليوم. لا يزال كل تطبيق يُبنى إلى دليل `.output/` الخاص به ويُشغّل خادم Node/Nitro الخاص به، لذا فإن الاستضافة الذاتية لمساحة عمل تعني تشغيل عدة خوادم خلف نقطة دخول واحدة.
+
+<Diagram id="doc-block-3selfhost1" title="شكل مساحة العمل المستضافة ذاتيًا" summary={"وكيل عكسي واحد أمام حاوية واحدة لكل تطبيق، تشير جميعها إلى نفس قاعدة بيانات Postgres."}>
+
+```html
+<div class="diagram-selfhost">
+  <div class="diagram-box" data-rough>الإنترنت</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill accent">الوكيل</span
+    ><small class="diagram-muted">يوجّه حسب بادئة المسار</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-row">
+      <span class="diagram-pill">/mail</span
+      ><small class="diagram-muted">حاوية mail</small>
+    </div>
+    <div class="diagram-row">
+      <span class="diagram-pill">/calendar</span
+      ><small class="diagram-muted">حاوية calendar</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
+  <div class="diagram-box" data-rough>
+    Postgres مشترك<br /><small class="diagram-muted">DATABASE_URL واحد</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-selfhost {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-selfhost .diagram-panel.center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px 16px;
+}
+.diagram-selfhost .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.diagram-selfhost .diagram-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.diagram-selfhost .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+**الوكيل العكسي** هو نقطة الدخول الواحدة تلك في الصورة أعلاه: يستقبل كل طلب ويُحيله إلى الحاوية الصحيحة بناءً على مسار عنوان URL، نفس المهمة التي يقوم بها عامل مُرسِل Cloudflare لنشر مُدار. على VPS، هذا يعني حاوية واحدة لكل تطبيق في مساحة العمل، تشير جميعها إلى نفس قاعدة بيانات Postgres والأسرار الإنتاجية المشتركة، مع الوكيل في المقدمة.
+
+<Steps>
+
+### ابنِ كل تطبيق بمسار قاعدة مطابق
+
+مسار القاعدة هو مُدخَل وقت بناء لحزمة العميل ومُدخَل وقت تشغيل للخادم. ابنِ كل تطبيق بنفس المسار الذي سيوجّهه إليه الوكيل:
+
+```bash maxLines=8
+APP_BASE_PATH=/mail VITE_APP_BASE_PATH=/mail npx @agent-native/core@latest build
+node .output/server/index.mjs
+```
+
+### اكتب Dockerfile قابل لإعادة الاستخدام
+
+خذ اسم التطبيق وبادئة المسار كوسائط بناء، بحيث يخدم Dockerfile واحد كل تطبيق في مساحة العمل:
+
+```dockerfile filename="Dockerfile.workspace-app" maxLines=12
+FROM node:24-slim AS build
+WORKDIR /workspace
+RUN corepack enable
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY packages ./packages
+COPY apps ./apps
+ARG APP_NAME
+ARG APP_BASE_PATH
+ENV APP_BASE_PATH=$APP_BASE_PATH
+ENV VITE_APP_BASE_PATH=$APP_BASE_PATH
+RUN pnpm install --frozen-lockfile
+RUN pnpm --dir apps/$APP_NAME build
+
+FROM node:24-slim
+WORKDIR /app
+ARG APP_NAME
+ARG APP_BASE_PATH
+ENV NODE_ENV=production
+ENV PORT=3000
+ENV APP_BASE_PATH=$APP_BASE_PATH
+COPY --from=build /workspace/apps/$APP_NAME/.output .output
+EXPOSE 3000
+CMD ["node", ".output/server/index.mjs"]
+```
+
+### ركّب Postgres، والتطبيقات، والوكيل
+
+يستخدم هذا المثال Caddy لأنه يمكنه إنهاء HTTP محليًا أو الجلوس خلف وكيل SSL الخاص بـ Cloudflare، لكن الجزء المهم هو التوجيه بحسب بادئة المسار:
+
+```yaml filename="docker-compose.yml" maxLines=30
+services:
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: agent_native
+      POSTGRES_USER: agent_native
+      POSTGRES_PASSWORD: change-me
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  mail:
+    build:
+      context: .
+      dockerfile: Dockerfile.workspace-app
+      args:
+        APP_NAME: mail
+        APP_BASE_PATH: /mail
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://agent_native:change-me@postgres:5432/agent_native
+      BETTER_AUTH_URL: https://agents.example.com/mail
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+      A2A_SECRET: ${A2A_SECRET}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+    depends_on:
+      - postgres
+
+  calendar:
+    build:
+      context: .
+      dockerfile: Dockerfile.workspace-app
+      args:
+        APP_NAME: calendar
+        APP_BASE_PATH: /calendar
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://agent_native:change-me@postgres:5432/agent_native
+      BETTER_AUTH_URL: https://agents.example.com/calendar
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+      A2A_SECRET: ${A2A_SECRET}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+    depends_on:
+      - postgres
+
+  proxy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      - mail
+      - calendar
+
+volumes:
+  postgres-data:
+```
+
+### كوِّن الوكيل
+
+```caddyfile filename="Caddyfile"
+agents.example.com {
+  reverse_proxy /mail* mail:3000
+  reverse_proxy /calendar* calendar:3000
+}
+```
+
+</Steps>
+
+<Callout tone="info">
+
+- أبقِ `DATABASE_URL`، و`BETTER_AUTH_SECRET`، و`A2A_SECRET`، والأسرار
+  الإنتاجية الأخرى متطابقة عبر حاويات التطبيق عندما تريد مصادقة مشتركة،
+  وبيانات اعتماد مشتركة، وA2A بين التطبيقات.
+- اضبط `BETTER_AUTH_URL` على عنوان URL العام لمسار ذلك التطبيق. يجب أن
+  تستخدم عناوين URL لرد اتصال OAuth نفس عنوان URL العام.
+- لا تعتمد على نظام ملفات الحاوية لبيانات الإنتاج. استخدم Postgres (أو
+  خلفية SQL دائمة أخرى) لأجل `DATABASE_URL`.
+- إذا كان Cloudflare يُنهي TLS أمام VPS، كوِّن Cloudflare لإرسال ترويسات
+  `X-Forwarded-Proto` / `X-Forwarded-Host` العادية وتوجيه المضيف العام
+  إلى حاوية الوكيل.
+
+</Callout>
+
+## ما هي الخطوة التالية
+
+- [**النشر**](/docs/deployment) — اختر قاعدة بيانات دائمة، وإعدادًا مسبقًا لـ Nitro، ومنصة قبل نشر مساحة عمل
+- [**مساحة عمل متعددة التطبيقات**](/docs/multi-app-workspace) — نموذج مساحة العمل الذي يُبنى عليه أمر `deploy` في هذه الصفحة
+- [**الأمان**](/docs/security) — قائمة التحقق الخاصة بالإنتاج والأعلام الاختيارية لنشر مُستضاف

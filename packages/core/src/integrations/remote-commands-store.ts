@@ -48,7 +48,7 @@ const REMOTE_COMMAND_KINDS: RemoteCommandKind[] = [
 
 const TERMINAL_STATUSES = new Set<RemoteCommandStatus>(["completed", "failed"]);
 
-async function ensureTable(): Promise<void> {
+export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
       const client = getDbExec();
