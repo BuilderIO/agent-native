@@ -27,6 +27,7 @@ describe("emails handler Gmail label listing", () => {
     const source = emailsHandlerSource();
 
     expect(source).toContain("setResponseStatus(_event, 502)");
+    expect(source).toContain("failedAccountReads > 0");
     expect(source).toContain("Unable to load Gmail labels. Please retry.");
   });
 });

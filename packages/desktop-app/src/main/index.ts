@@ -401,7 +401,6 @@ function forwardDesktopNavigationShortcut(
   if (!(input.meta || input.control) || input.type !== "keyDown") return false;
 
   const key = input.key.toLowerCase();
-  const isChatToggleShortcut = isDesktopChatToggleShortcut(input);
   const isNumericShortcut = !input.shift && !input.alt && /^[1-9]$/.test(key);
   const isBracketLeft =
     input.code === "BracketLeft" || key === "[" || key === "{";
@@ -409,21 +408,13 @@ function forwardDesktopNavigationShortcut(
     input.code === "BracketRight" || key === "]" || key === "}";
   const isBracketShortcut =
     Boolean(input.shift) && !input.alt && (isBracketLeft || isBracketRight);
-  if (!isNumericShortcut && !isBracketShortcut && !isChatToggleShortcut) {
-    return false;
-  }
+  if (!isNumericShortcut && !isBracketShortcut) return false;
 
   event.preventDefault();
   const win = mainWindow;
   if (!win || win.isDestroyed() || win.webContents.isDestroyed()) return true;
   win.webContents.send("shortcut:keydown", {
-    key: isChatToggleShortcut
-      ? "\\"
-      : isNumericShortcut
-        ? key
-        : isBracketLeft
-          ? "["
-          : "]",
+    key: isNumericShortcut ? key : isBracketLeft ? "[" : "]",
     code: input.code,
     shiftKey: Boolean(input.shift),
     altKey: Boolean(input.alt),
@@ -13148,20 +13139,22 @@ app.on("web-contents-created", (_event, contents) => {
       return;
     }
 
-    // Forward other Cmd+ shortcuts: F, L, R, T, Shift+T, 1-9, [, ]
+    if (forwardDesktopNavigationShortcut(event, input)) return;
+
+    const isAgentSidebarToggleShortcut = isDesktopChatToggleShortcut(input);
+
+    // Forward other Cmd+ shortcuts: F, L, R, T, Shift+T, \
     const isShortcut =
       key === "f" ||
       key === "l" ||
       key === "r" ||
       key === "t" ||
-      key === "[" ||
-      key === "]" ||
-      (key >= "1" && key <= "9");
+      isAgentSidebarToggleShortcut;
 
     if (isShortcut) {
       event.preventDefault();
       win.webContents.send("shortcut:keydown", {
-        key: input.key,
+        key: isAgentSidebarToggleShortcut ? "\\" : input.key,
         shiftKey: input.shift,
         altKey: false,
         ctrlKey: input.control,
@@ -13707,9 +13700,6 @@ app.whenReady().then(async () => {
 
   app.on("web-contents-created", (_event, wc) => {
     if (wc.getType() !== "webview") return;
-    wc.on("before-input-event", (event, input) => {
-      forwardDesktopNavigationShortcut(event, input);
-    });
     let id = resolveDesktopWebviewAppId(wc);
     configureWebviewSession(wc.session, id);
     if (id) desktopWebviewAppIds.set(wc, id);
@@ -13820,6 +13810,17 @@ app.whenReady().then(async () => {
       win.webContents.send("shortcut:keydown", {
         key: "l",
         shiftKey: input.shift,
+        ctrlKey: input.control,
+      });
+      return;
+    }
+
+    // Cmd+\\ — toggle the agent sidebar for the active webview
+    if (isDesktopChatToggleShortcut(input)) {
+      _event.preventDefault();
+      win.webContents.send("shortcut:keydown", {
+        key: "\\",
+        shiftKey: false,
         ctrlKey: input.control,
       });
       return;

@@ -272,22 +272,31 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       { replace: true },
     );
   }, [location.pathname, navigate, searchParams]);
-  // Remember which view (and label tab) the user was in before searching —
+  // Remember which view (label or inbox tab) the user was in before searching —
   // SearchBar always routes searches through /all?q=..., so on clear we'd
   // otherwise drop a user searching from Starred/Sent/Archive or from a
   // label-filtered tab back into plain Inbox.
-  const preSearchViewRef = useRef<{ view: string; label: string | null }>({
-    view,
-    label: activeLabel,
-  });
+  const preSearchViewRef = useRef<{
+    view: string;
+    label: string | null;
+    tab: string | null;
+  }>({ view, label: activeLabel, tab: activeInboxTab });
   useEffect(() => {
     if (!activeSearchQuery) {
-      preSearchViewRef.current = { view, label: activeLabel };
+      preSearchViewRef.current = {
+        view,
+        label: activeLabel,
+        tab: activeInboxTab,
+      };
     }
-  }, [view, activeLabel, activeSearchQuery]);
+  }, [view, activeLabel, activeInboxTab, activeSearchQuery]);
   const restorePreSearchPath = useCallback(() => {
-    const { view: v, label: l } = preSearchViewRef.current;
-    return `/${v}${l ? `?label=${encodeURIComponent(l)}` : ""}`;
+    const { view: v, label: l, tab } = preSearchViewRef.current;
+    const params = new URLSearchParams();
+    if (l) params.set("label", l);
+    if (tab) params.set("tab", tab);
+    const search = params.toString();
+    return `/${v}${search ? `?${search}` : ""}`;
   }, []);
   // When the search param is cleared externally (browser back/forward,
   // agent navigation), drop the searchFocused flag — otherwise the bar
@@ -401,14 +410,14 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       localStorage.removeItem(SIDEBAR_COLLAPSE_KEY);
     }
   }, [sidebarCollapsed]);
-  const showSidebar = sidebarOpen || sidebarPinned;
+  const showSidebar = isMobile ? sidebarOpen : sidebarOpen || sidebarPinned;
   const showCollapsedSidebar =
     !isMobile &&
     showSidebar &&
     (sidebarPinned ? sidebarCollapsed : perAppChatOpen);
   const closeSidebar = useCallback(() => {
-    if (!sidebarPinned) setSidebarOpen(false);
-  }, [sidebarPinned]);
+    if (!sidebarPinned || isMobile) setSidebarOpen(false);
+  }, [sidebarPinned, isMobile]);
 
   const collapseButton =
     sidebarPinned && !isMobile ? (
@@ -1489,7 +1498,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         {/* Sidebar overlay / pinned rail */}
         {showSidebar && (
           <>
-            {!sidebarPinned && (
+            {(!sidebarPinned || isMobile) && (
               <div
                 className="fixed inset-0 z-30 bg-[var(--mail-overlay-scrim)]"
                 onClick={() => setSidebarOpen(false)}

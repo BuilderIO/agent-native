@@ -30,6 +30,13 @@ describe("AppLayout inbox rail count", () => {
       "(sidebarPinned ? sidebarCollapsed : perAppChatOpen)",
     );
   });
+
+  it("keeps the explicit Other inbox tab and search restoration path", () => {
+    const source = appLayoutSource();
+
+    expect(source).toContain('href: "/inbox?tab=other"');
+    expect(source).toContain('params.set("tab", tab)');
+  });
 });
 
 describe("labelTabHref", () => {

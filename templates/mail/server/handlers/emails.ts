@@ -1795,8 +1795,8 @@ export const listLabels = defineEventHandler(async (_event: H3Event) => {
             }
           }
         } catch {
-          // Keep labels from accounts that succeeded, but never present an
-          // empty map as a successful response when every Gmail read failed.
+          // A partial label map is not safe to return because it drops labels
+          // from accounts that failed and makes counts look authoritative.
           failedAccountReads += 1;
         }
       }
@@ -1805,7 +1805,11 @@ export const listLabels = defineEventHandler(async (_event: H3Event) => {
           `[listLabels] ${failedAccountReads} Gmail account label read(s) failed`,
         );
       }
-      if (accountTokens.length === 0 || successfulAccountReads === 0) {
+      if (
+        accountTokens.length === 0 ||
+        successfulAccountReads === 0 ||
+        failedAccountReads > 0
+      ) {
         console.error("[listLabels] Gmail label fetch failed");
         setResponseStatus(_event, 502);
         return { error: "Unable to load Gmail labels. Please retry." };
