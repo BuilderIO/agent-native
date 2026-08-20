@@ -21,9 +21,11 @@ const hiIN = {
     copyLogoSvg: "लोगो SVG कॉपी करें",
     copyWordmark: "वर्डमार्क कॉपी करें",
     brandAssets: "ब्रांड सामग्री",
+    tryNow: "अभी आज़माएँ",
   },
   footer: {
     download: "डाउनलोड",
+    pricing: "मूल्य निर्धारण",
     brand: "ब्रांड",
     privacy: "गोपनीयता",
     terms: "शर्तें",
@@ -514,12 +516,6 @@ const hiIN = {
       description:
         "एजेंट-मूल फॉर्म बिल्डर। प्रॉम्प्ट से फ़ॉर्म जेनरेट करें, फ़ील्ड को दृश्यात्मक या संवादात्मक रूप से संपादित करें, और Slack, Discord, Google Sheets, या वेबहुक पर सबमिशन भेजें।",
     },
-    brain: {
-      replaces:
-        "टीम विकी, Glean-स्टाइल रिकॉल और संस्थागत मेमोरी टूल को प्रतिस्थापित या संवर्धित करता है",
-      description:
-        "स्वीकृत Slack, Clips, Granola, GitHub, और प्रतिलेख स्रोतों से उद्धृत मेमोरी पर पूर्ण-पृष्ठ कंपनी चैट, समीक्षा गेट्स, इवैल्स और अंतर्निहित साझा कनेक्शन तत्परता के साथ।",
-    },
     assets: {
       replaces:
         "DAMs, ब्रांड एसेट लाइब्रेरीज़ और AI मीडिया जनरेटर को प्रतिस्थापित या संवर्धित करता है",
@@ -543,14 +539,36 @@ const hiIN = {
     },
   },
   templateLanding: {
+    faq: {
+      eyebrow: "अक्सर पूछे जाने वाले प्रश्न",
+      title: "सामान्य प्रश्नों के उत्तर पाएँ",
+    },
     analytics: {
+      faq: {
+        question1: "क्या मैं analytics से जुड़े सवाल सामान्य भाषा में पूछ सकता हूँ?",
+        answer1:
+          "हाँ। सवाल पूछें; agent SQL लिखता है, उसे BigQuery पर चलाता है और chart बनाता है। Queries का history, row count और shareable URLs सुरक्षित रहते हैं।",
+        question2: "Analytics, Amplitude या Mixpanel से कैसे अलग है?",
+        answer2:
+          "वे हर user और event के हिसाब से शुल्क लेते हैं, और उनकी UI उन्हीं की रहती है। Analytics मुफ़्त और open source है, और अनुरोध करने पर agent app को खुद नए charts और connectors से आगे बढ़ाता है।",
+        question3: "मैं कौन-से data sources connect कर सकता हूँ?",
+        answer3:
+          "दस से अधिक built-in connectors: HubSpot, Stripe, GitHub, Jira, Sentry, Slack, Gong, Notion, Google Cloud और अन्य। अगर आपका source उपलब्ध नहीं है, तो agent उसका connector बना सकता है।",
+        question4: "क्या मुझे SQL आना ज़रूरी है?",
+        answer4:
+          "नहीं — सामान्य भाषा ही interface है। लेकिन जरूरत पड़ने पर SQL explorer भी वहीं मिलता है: BigQuery तक सीधी पहुँच और queries का पूरा history।",
+        question5: "क्या Analytics मुफ़्त है?",
+        answer5:
+          "हाँ — मुफ़्त और open source, बिना प्रति-event billing के। आपका data आपके अपने data warehouse में रहता है।",
+      },
       s001: "Analytics टेम्पलेट स्क्रीनशॉट",
       s002: "डेटा कनेक्टर्स",
       s003: "चार्ट प्रकार",
       s004: "क्वेरी एक्सप्लोरर",
       s005: "प्राकृतिक भाषा",
       s006: "सभी टेम्पलेट",
-      s007: "Amplitude और FullStory का ओपन-सोर्स विकल्प",
+      s007Primary: "Amplitude और FullStory का",
+      s007Secondary: "ओपन-सोर्स विकल्प",
       s008: "किसी भी डेटा स्रोत को कनेक्ट करें, किसी भी चार्ट के लिए संकेत दें, पुन: प्रयोज्य डैशबोर्ड बनाएं - AI एजेंट SQL लिखता है।",
       s009: "आज़माएँ",
       s010: "आप क्या कर सकते हैं",
@@ -610,12 +628,26 @@ const hiIN = {
       s064: "सभी टेम्पलेट देखें",
     },
     calendar: {
+      faq: {
+        question1: "क्या AI मेरी meetings schedule कर सकता है?",
+        answer1:
+          "हाँ। Agent से कोई खाली समय खोजने, event बनाने, उपलब्धता जाँचने या meeting का समय बदलने को कहें — वह आपके असली calendar में काम करता है और मौजूदा events का ध्यान रखता है।",
+        question2: "क्या Calendar, Calendly जैसे booking links देता है?",
+        answer2:
+          "हाँ — हर booking type के लिए अलग उपलब्धता, visitor की जानकारी लेने, confirmations और custom domains वाली अनुकूलन योग्य booking pages।",
+        question3: "क्या यह Google Calendar के साथ sync होता है?",
+        answer3:
+          "हाँ — कई accounts के support और automatic token refresh के साथ OAuth sync। Google पर सीधे events बनाएँ, update करें और delete करें।",
+        question4: "क्या Calendar मुफ़्त है?",
+        answer4: "हाँ। यह booking pages सहित मुफ़्त और open source है।",
+      },
       s001: "Calendar टेम्पलेट स्क्रीनशॉट",
       s002: "Calendar दृश्य",
       s003: "एजेंट की हरकतें",
       s004: "बुकिंग लिंक प्रकार",
       s005: "सभी टेम्पलेट",
-      s006: "ओपन-सोर्स Google Calendar और Calendly विकल्प",
+      s006Primary: "ओपन-सोर्स",
+      s006Secondary: "Google Calendar और Calendly विकल्प",
       s007: "मल्टी-अकाउंट Google Calendar सिंक, कॉन्फ़िगर करने योग्य उपलब्धता, और अनुकूलन योग्य Calendly-शैली बुकिंग लिंक - एक AI एजेंट के साथ जो आपकी ओर से शेड्यूल करता है।",
       s008: "आज़माएँ",
       s009: "साइन इन करने पर केवल मूल Google पहचान का उपयोग होता है, लेकिन Calendar सिंक कनेक्ट करने से कैलेंडर एक्सेस की मांग होती है। कुछ कार्यस्थान व्यवस्थापकों को होस्ट किए गए डेमो के लिए अनुमोदन की आवश्यकता हो सकती है। अपने स्वयं के Google OAuth क्लाइंट का उपयोग करने के लिए स्थानीय रूप से चलाएँ।",
@@ -669,6 +701,35 @@ const hiIN = {
       s057: "होस्ट किए गए डेमो की जानकारी",
       s058: "दो-तरफ़ा सिंक",
     },
+    assets: {
+      faq: {
+        question1: "क्या AI मेरे brand के अनुरूप images बना सकता है?",
+        answer1:
+          "हाँ — generation आपके upload किए गए brand libraries और references पर आधारित होती है, किसी सामान्य model की पसंद पर नहीं। Agent ने जो नियम सच में पढ़े हैं, उन्हीं से brand के अनुरूप images और videos बनते हैं।",
+        question2: "Assets किसी DAM से कैसे अलग है?",
+        answer2:
+          "DAM approved files को store करता है ताकि लोग उन्हें खोज सकें। Assets यह भी करता है और brand को machine-readable बनाता है — इसलिए agents default रूप से brand के अनुरूप media बनाते और चुनते हैं।",
+        question3: "क्या मेरी दूसरी apps इसे इस्तेमाल कर सकती हैं?",
+        answer3:
+          "हाँ — कोई भी Agent-Native app A2A के जरिए Assets को invoke कर सकती है या उसे picker की तरह embed कर सकती है, ताकि Slides और Design जैसी apps एक ही approved library का उपयोग करें।",
+        question4: "क्या Assets मुफ़्त है?",
+        answer4:
+          "हाँ — मुफ़्त और open source। `npx @agent-native/core@latest create my-assets-app --template assets` चलाएँ और app आपकी है।",
+      },
+    },
+    chat: {
+      faq: {
+        question1: "Chat template क्या है?",
+        answer1:
+          "आपके अपने agent के लिए एक छोटा ChatGPT-जैसा scaffold: durable threads, auth, actions, live sync, standard sidebar — और screens जोड़ने या अपना backend connect करने का साफ़ रास्ता।",
+        question2: "यह ChatGPT से कैसे अलग है?",
+        answer2:
+          "ChatGPT, OpenAI के models के लिए OpenAI की app है। यह आपकी है: आपका agent backend, आपका data और आपकी screens — ऐसा शुरुआती आधार जिसे आप आगे बढ़ाते हैं, कोई किराए का product नहीं।",
+        question3: "क्या यह production के लिए तैयार है?",
+        answer3:
+          "यह जानबूझकर छोटा रखा गया scaffold है — chat app के लिए ईमानदार शुरुआती आधार, कोई पूरी तरह तैयार app नहीं। अगर आपको तैयार app चाहिए, तो दूसरी apps में से किसी एक से शुरू करें।",
+      },
+    },
     clips: {
       s001: "Clips टेम्पलेट स्क्रीनशॉट",
       s002: "स्क्रीन रिकॉर्ड",
@@ -678,7 +739,7 @@ const hiIN = {
       s006: "सभी टेम्पलेट",
       s007: "Loom का ओपन-सोर्स विकल्प",
       s008: "एक एजेंट में एक Clips लिंक चिपकाएँ और यह प्रतिलेख सुन सकता है, सारांश पढ़ सकता है, और टाइमस्टैम्प्ड फ़्रेम देख सकता है, भले ही इसका मॉडल कच्चे वीडियो या ऑडियो को ग्रहण न कर सके।",
-      s009: "आज़माएँ",
+      s009: "इसे आज़माएँ",
       s010: "आप क्या कर सकते हैं",
       s011: "रिकॉर्ड, ट्रांसक्राइब और डीबग - एक ऐप, एक लाइब्रेरी, सब्सक्रिप्शन स्टैक के बिना।",
       s012: "एक-क्लिक स्क्रीन रिकॉर्डिंग",
@@ -721,19 +782,51 @@ const hiIN = {
       s049: "डेटा स्वामित्व",
       s050: "विक्रेता का भंडारण",
       s051: "विक्रेता का बादल",
-      s052: "कोड आपके पास है",
+      s052: "आप अपने डेटा और ऐप के कोड, दोनों के मालिक हैं।",
       s053: "मूल्य निर्धारण",
       s054: "$15-30 / माह प्रति उपयोगकर्ता",
       s055: "निःशुल्क + सशुल्क स्तर",
       s056: "$18-25 / माह प्रति उपयोगकर्ता",
       s057: "$12-15 / माह प्रति उपयोगकर्ता",
       s058: "मुफ़्त और खुला स्रोत",
-      s059: "मिनटों में आरंभ करें",
-      s060: "टेम्प्लेट से शुरू करें, अपने स्टोरेज में प्लग इन करें, और उन क्लिपों को रिकॉर्ड करना शुरू करें जो वास्तव में आपकी टीम के पास हैं।",
-      s061: "दस्तावेज़ पढ़ें",
+      s059: "अभी शुरू करें",
+      s060: "चुनें कि क्या कैप्चर करना है, फिर Clips में रिकॉर्डिंग शुरू करें।",
+      s061: "और ऐप्स देखें",
       s062: "सभी टेम्पलेट देखें",
+      quickStart: {
+        recordingMode: "रिकॉर्डिंग मोड",
+        modeScreenCamera: "स्क्रीन + कैमरा",
+        modeScreenOnly: "केवल स्क्रीन",
+        modeCameraOnly: "केवल कैमरा",
+        captureSource: "कैप्चर स्रोत",
+        surfaceWindow: "विंडो",
+        surfaceBrowser: "ब्राउज़र टैब",
+        surfaceScreen: "स्क्रीन",
+        audioSource: "ऑडियो स्रोत",
+        defaultMicrophone: "डिफ़ॉल्ट माइक्रोफ़ोन",
+        startRecording: "रिकॉर्डिंग शुरू करें",
+        uploadVideo: "वीडियो अपलोड करें",
+        importLoom: "Loom से इंपोर्ट करें",
+      },
     },
     content: {
+      faq: {
+        question1: "क्या AI agent बिना export या API के मेरे docs edit कर सकता है?",
+        answer1:
+          "हाँ। Content स्थानीय Markdown/MDX files पर काम करता है — वही files जो आपके repo में हैं। आपके agent के पास वे पहले से disk पर हैं: किसी API, sync या export step की जरूरत नहीं।",
+        question2: "Content, Notion या Obsidian से कैसे अलग है?",
+        answer2:
+          "Notion आपके docs को अपने database में, अपनी API के पीछे रखता है। Content, Obsidian की तरह स्थानीय files इस्तेमाल करता है — साथ में rich editor और ऐसा agent भी देता है जो आपकी शैली में draft, rewrite और publish करता है।",
+        question3: "क्या AI मेरी शैली में लिख सकता है?",
+        answer3:
+          "हाँ। Agent आपकी आवाज़, style guide और tone सीखता है, इसलिए drafts आपके जैसे लगते हैं — और किसी भी selection को rewrite, expand, summarize या उसका tone बदल सकता है।",
+        question4: "क्या मैं अपने CMS पर publish कर सकता हूँ?",
+        answer4:
+          "हाँ — scripts के जरिए किसी भी headless CMS को connect करें। WordPress, Contentful और Builder supported हैं, Notion दोनों दिशाओं में sync होता है, और agent publishing scripts को अपने-आप चलाता है।",
+        question5: "क्या Content मुफ़्त है?",
+        answer5:
+          "हाँ। मुफ़्त और open source — और आपके docs साधारण स्थानीय files हैं, इसलिए कभी Content छोड़ने पर export करने के लिए कुछ नहीं होगा।",
+      },
       s001: "Content टेम्पलेट स्क्रीनशॉट",
       s002: "सभी टेम्पलेट",
       s003: "MDX के लिए ओपन-सोर्स Obsidian",
@@ -798,6 +891,23 @@ const hiIN = {
       s062: "सभी टेम्पलेट देखें",
     },
     design: {
+      faq: {
+        question1: "क्या AI ऐसा design बना सकता है जो mockup नहीं, असली code हो?",
+        answer1:
+          "हाँ। Design, Tailwind styling और Alpine interactions के साथ पूरा, self-contained HTML देता है। Prototype ही implementation है — handoff करके दोबारा बनाने के लिए कुछ नहीं।",
+        question2: "Design, Figma से कैसे अलग है?",
+        answer2:
+          "Figma pixel level पर काम करने वाली design teams के लिए बना है, और उसका output एक तस्वीर होता है जिसे कोई फिर से implement करता है। Design prompt से शुरू होकर काम करने वाले HTML/CSS/JS पर खत्म होता है, जिसे आप ship या आगे iterate कर सकते हैं।",
+        question3: "क्या यह मेरे design system का पालन कर सकता है?",
+        answer3:
+          "हाँ। दोबारा इस्तेमाल होने वाली design-system preferences save करें, फिर सामान्य variables को visually adjust करें जबकि agent structure और copy के बदलाव संभाले — “थोड़ा गर्म palette”, “ज़्यादा bold headline”, और काम पूरा।",
+        question4: "Export करने पर मुझे क्या मिलता है?",
+        answer4:
+          "असल परिणाम: file, ZIP या PDF के रूप में पूरा HTML/CSS/JS। Self-contained, बिना किसी proprietary format के और कहीं भी ship करने के लिए आपका।",
+        question5: "क्या Design मुफ़्त है?",
+        answer5:
+          "हाँ — मुफ़्त और open source, जबकि अन्य design tools हर user के लिए मासिक शुल्क लेते हैं या credits से उपयोग मापते हैं।",
+      },
       s001: "Design टेम्पलेट स्क्रीनशॉट",
       s002: "वर्णन करें",
       s003: "उत्पन्न करें",
@@ -805,7 +915,7 @@ const hiIN = {
       s005: "सभी टेम्पलेट",
       s006: "ओपन-सोर्स AI HTML प्रोटोटाइप स्टूडियो",
       s007: "एक प्रॉम्प्ट से इंटरैक्टिव Alpine/Tailwind प्रोटोटाइप बनाएं, वेरिएंट की तुलना करें, ट्विक नियंत्रणों के साथ परिष्कृत करें, और अपनी वास्तविक फ़ाइलों को निर्यात करें।",
-      s008: "आज़माएँ",
+      s008: "कुछ डिज़ाइन करें",
       s009: "यह कैसे काम करता है",
       s010: "आपकी ज़रूरत की हर चीज़",
       s011: "एक एजेंट के साथ एक प्रोटोटाइप स्टूडियो जो स्रोत को लिखता और परिष्कृत करता है।",
@@ -860,6 +970,26 @@ const hiIN = {
       s060: "सभी टेम्पलेट देखें",
     },
     dispatch: {
+      faq: {
+        question1: "हर AI agent पर नज़र रखे बिना मैं कई agents कैसे चला सकता हूँ?",
+        answer1:
+          "Dispatch आपका home base है: Slack या Telegram से उसे message करें और वह A2A के जरिए काम को आपके दूसरे agents — Mail, Slides, Design — तक भेजता है, साथ ही approvals और schedules एक जगह रखता है।",
+        question2: "क्या मैं Slack से अपने agent से बात कर सकता हूँ?",
+        answer2:
+          "हाँ — Slack या Telegram में thread context और inline approvals के साथ दो-तरफ़ा messaging। Agent के परिणाम उसी conversation में वापस आते हैं।",
+        question3: "क्या agent schedule के अनुसार काम कर सकता है?",
+        answer3:
+          "हाँ — cron-based jobs: रोज़ाना stand-ups, साप्ताहिक summaries और हर घंटे checks। परिणाम आपके messenger में पहुँचते हैं, ऐसे dashboard में नहीं जिसे खोलना आपको याद रखना पड़े।",
+        question4: "क्या यह पिछली conversations याद रखता है?",
+        answer4:
+          "हाँ — हर conversation से सीख अपने-आप capture होती है और उसका scope हर user, हर organization या global रखा जा सकता है। Memory को देखा और edit किया जा सकता है; यह black box नहीं है।",
+        question5: "अगर मैं नहीं चाहता कि यह अकेले कार्रवाई करे तो क्या होगा?",
+        answer5:
+          "Approval workflows built in हैं: संवेदनशील actions — email भेजना, update post करना, automation चलाना — Slack में एक-tap approval का इंतज़ार करती हैं। किन actions के लिए sign-off चाहिए, यह आप तय करते हैं।",
+        question6: "क्या Dispatch मुफ़्त है?",
+        answer6:
+          "हाँ। मुफ़्त और open source, जबकि हर user के लिए मासिक शुल्क लेने वाले agent platforms इसके विकल्प हैं।",
+      },
       s001: "Dispatch टेम्पलेट स्क्रीनशॉट",
       s002: "+ Telegram support",
       s003: "अंतर-एजेंट",
@@ -916,12 +1046,30 @@ const hiIN = {
       s054: "सभी टेम्पलेट देखें",
     },
     forms: {
+      faq: {
+        question1: "क्या AI मेरे लिए form बना सकता है?",
+        answer1:
+          "हाँ। उसका वर्णन करें और पूरा form बन जाएगा। फिर बातचीत में उसे बेहतर करें — “अनुभव के स्तर का required dropdown जोड़ें” — या live preview और undo के साथ visual editor में fields को खींचकर व्यवस्थित करें।",
+        question2: "कोई form submit करता है तो क्या होता है?",
+        answer2:
+          "Submission आपके अपने SQL database में जाती है और आते ही structured रूप में Slack, Discord, Google Sheets या webhook तक भेज दी जाती है। Submissions वहाँ पहुँचती हैं जहाँ आपका agent कार्रवाई कर सके, ऐसे export में नहीं जिसे कोई खोलता नहीं।",
+        question3: "Forms, Typeform से कैसे अलग है?",
+        answer3:
+          "Typeform form भरने के अनुभव को बेहतर बनाता है। Forms उसके बाद होने वाले काम पर केंद्रित है: responses आपके अपने database में, आपके tools तक routed, बिना प्रति-response कीमत के — और form खुद prompt से आगे बढ़ता है।",
+        question4: "क्या Forms मुफ़्त है? क्या responses की कोई सीमा है?",
+        answer4:
+          "यह मुफ़्त और open source है, और हर response पर न कोई शुल्क है, न कोई सीमा। Data आपके database में है; सीमा आपके database की क्षमता है।",
+        question5: "क्या मैं form को अपनी website पर लगा सकता हूँ?",
+        answer5:
+          "हाँ — किसी भी website पर embed करें या custom domain पर host करें। हर form को अपनी SEO-friendly public URL भी मिलती है।",
+      },
       s001: "Forms टेम्पलेट स्क्रीनशॉट",
       s002: "वर्णन करें",
       s003: "उत्पन्न करें",
       s004: "मार्ग",
       s005: "सभी टेम्पलेट",
-      s006: "Typeform और Google Forms का ओपन-सोर्स AI विकल्प",
+      s006Primary: "Typeform और Google Forms का",
+      s006Secondary: "ओपन-सोर्स AI विकल्प",
       s007: "एक प्रॉम्प्ट से एक पूर्ण फॉर्म तैयार करें, संवादात्मक रूप से फ़ील्ड को परिष्कृत करें, और सबमिशन को Slack, Discord, Google Sheets, या वेबहुक पर रूट करें। अपने डेटा और अपने वर्कफ़्लो का स्वामी बनें - कोई प्रति-प्रतिक्रिया शुल्क नहीं।",
       s008: "आज़माएँ",
       s009: "यह कैसे काम करता है",
@@ -977,13 +1125,30 @@ const hiIN = {
       s059: "सभी टेम्पलेट देखें",
     },
     mail: {
+      faq: {
+        question1: "क्या AI मेरे inbox को व्यवस्थित कर सकता है?",
+        answer1:
+          "हाँ। Agent आपका inbox पढ़ता है, प्राथमिक messages सामने लाता है, labels लगाकर sort करता है, replies draft करता है, auto-archive rules सेट करता है और unread mail का सार action items के साथ देता है।",
+        question2: "Mail, Superhuman से कैसे अलग है?",
+        answer2:
+          "Keyboard-first गति इसका आधार है — compose, archive और reply, सब shortcuts से। अंतर यह है कि agent सच में inbox का काम करता है, कोई subscription नहीं है और code आपका है।",
+        question3: "क्या Mail, Gmail के साथ काम करता है?",
+        answer3: "हाँ — Gmail और कई accounts के support के साथ।",
+        question4: "क्या मेरा email निजी रहता है?",
+        answer4:
+          "Mail open source है और स्थानीय रूप से चलता है — आपका mail आपकी infrastructure पर रहता है, और उसे छूने वाली code की हर line आप पढ़ सकते हैं।",
+        question5: "क्या Mail मुफ़्त है?",
+        answer5:
+          "हाँ। मुफ़्त और open source — कोई subscription या vendor lock-in नहीं।",
+      },
       s001: "Mail टेम्पलेट स्क्रीनशॉट",
       s002: "कीबोर्ड-प्रथम",
       s003: "इनबॉक्स ट्राइएज",
       s004: "दृश्य",
       s005: "अनुकूलन योग्य",
       s006: "सभी टेम्पलेट",
-      s007: "Superhuman और Gmail का ओपन-सोर्स विकल्प",
+      s007Primary: "Superhuman और Gmail का",
+      s007Secondary: "ओपन-सोर्स विकल्प",
       s008: "आज़माएँ",
       s009: "होस्ट किया गया डेमो Gmail एक्सेस के लिए Agent-Native के साझा Google ऐप का उपयोग करता है, इसलिए Google आपको जारी रखने से पहले पुष्टि करने के लिए कह सकता है। अपने स्वयं के Google OAuth क्लाइंट का उपयोग करने के लिए स्थानीय रूप से चलाएँ।",
       s010: "आप क्या कर सकते हैं",
@@ -1039,6 +1204,27 @@ const hiIN = {
       s060: "होस्ट किए गए डेमो की जानकारी",
     },
     plan: {
+      faq: {
+        question1:
+          "क्या मैं AI coding agent के code लिखने से पहले उसके plan की समीक्षा कर सकता हूँ?",
+        answer1:
+          "हाँ। Plans agent के intent को wireframes, diagrams और annotated code में बदलता है और shareable URL देता है। आपकी team comments करती है, agent plan संशोधित करता है और फिर code लिखता है — समीक्षा code बनने से पहले होती है, बाद में नहीं।",
+        question2: "क्या Plans, Claude Code, Codex और Cursor के साथ काम करता है?",
+        answer2:
+          "हाँ — साथ ही GitHub Copilot, OpenCode और अन्य coding agents के साथ भी। एक command इसे skill के रूप में जोड़ती है: `npx @agent-native/core@latest skills add visual-plan`। Deploy करने के लिए कोई अलग app नहीं है।",
+        question3: "क्या केवल मैं नहीं, मेरी पूरी team plan की समीक्षा कर सकती है?",
+        answer3:
+          "हर plan को built-in comments वाली public URL मिलती है। Team के सदस्य wireframes और annotated diffs की async समीक्षा करते हैं — terminal की जरूरत नहीं — और agent feedback पढ़कर plan संशोधित करता है।",
+        question4: "यह Claude Code के plan mode से कैसे अलग है?",
+        answer4:
+          "Plan mode आपके terminal में text होता है, एक व्यक्ति को दिखता है और approve करते ही गायब हो जाता है। Plans visual हैं — wireframes, diagrams और annotated diffs — साथ ही shareable और persistent भी: agents feature के पूरे lifecycle में इन्हें बनाते, पढ़ते और update करते हैं।",
+        question5: "क्या मैं plans को अपने code के साथ देख सकता हूँ?",
+        answer5:
+          "हाँ। VS Code extension plans को side panel में खोलता है, और Agent Native Desktop hosted plans को स्थानीय MDX files में mirror करता है।",
+        question6: "क्या Plans मुफ़्त है?",
+        answer6:
+          "हाँ। मुफ़्त, open source और MIT licensed। Plans में hosted share links मिलते हैं, और आप सब कुछ स्थानीय files में mirror कर सकते हैं।",
+      },
       s001: "योजना टेम्पलेट स्क्रीनशॉट",
       s002: "ब्लॉक प्रकार",
       s003: "एजेंट एकीकरण",
@@ -1053,7 +1239,8 @@ const hiIN = {
       s012: "एजेंट पुनरावृत्त करता है",
       s013: "एजेंट आपकी टिप्पणियाँ पढ़ता है और योजना को उसी स्थान पर अपडेट करता है। कठिनाइयाँ वास्तव में दिखाती हैं कि क्या बदला और क्यों।",
       s014: "सभी टेम्पलेट",
-      s015: "Codex, Claude Code और कोडिंग एजेंटों के लिए विज़ुअल योजनाएँ",
+      s015Primary: "Codex,",
+      s015Secondary: "Claude Code और कोडिंग एजेंटों के लिए विज़ुअल योजनाएँ",
       s016: "एक कमांड में इंस्टॉल करें. आपका एजेंट टर्मिनल में मार्कडाउन की दीवारों को डंप करने के बजाय वायरफ्रेम, आरेख, एनोटेटेड कोड और साझा करने योग्य समीक्षा लिंक के साथ संरचित योजनाएं खोलता है।",
       s017: "आज़माएँ",
       s018: "एजेंट क्या कर सकते हैं",
@@ -1115,23 +1302,41 @@ const hiIN = {
       s074: "लागू नहीं",
     },
     slides: {
+      faq: {
+        question1: "क्या मैं Claude या ChatGPT से presentation बना सकता हूँ?",
+        answer1:
+          "हाँ। Claude या ChatGPT से deck बनाने को कहें और वह Slides में आ जाएगा — आपके brand के अनुरूप, editable और exportable — ताकि आपको किसी deck website पर फिर से शुरुआत न करनी पड़े।",
+        question2: "AI की गलतियों को मैं कैसे ठीक कर सकता हूँ?",
+        answer2:
+          "तीन तरीकों से: prompt के जरिए, हाथ से — किसी element पर click करें और किसी text पर double-click करें — या code में। आपको कभी दोबारा generate करके अच्छे परिणाम की उम्मीद में अटकना नहीं पड़ता।",
+        question3: "Decks brand के अनुरूप कैसे बने रहते हैं?",
+        answer3:
+          "जिस deck पर आपको गर्व हो उसे favorite बनाएँ। हर नया deck उसके layouts, headings, visual style और brand tokens अपनाता है। One-shot generators आपको एक deck देते हैं; यह आपके लिए decks बनाने की दोहराई जा सकने वाली प्रक्रिया बनाता है।",
+        question4: "Slides, Gamma से कैसे अलग है?",
+        answer4:
+          "Gamma एक बार में जल्दी ठीक-ठाक deck बना देता है — फिर आप उसके canvas और subscription में रहते हैं और 85% सही परिणाम पर दोबारा generate करते हैं। Slides मुफ़्त और open source है, आपका brand अपनाता है और आपको हर चीज़ edit करने देता है।",
+        question5: "क्या Slides मुफ़्त है?",
+        answer5:
+          "हाँ। मुफ़्त और open source — कोई subscription, credit meter या हर deck के लिए अलग कीमत नहीं।",
+      },
       s001: "Slides टेम्पलेट स्क्रीनशॉट",
       s002: "वर्णन करें",
       s003: "उत्पन्न करें",
       s004: "परिष्कृत करें",
       s005: "सभी टेम्पलेट",
-      s006: "PowerPoint और Canva का ओपन-सोर्स AI विकल्प",
-      s007: "एक प्रॉम्प्ट से एक पूर्ण डेक तैयार करें, फिर संवादात्मक रूप से परिष्कृत करें या दृश्य रूप से संपादित करें।",
+      s006Primary: "इंसानों और एजेंटों के लिए",
+      s006Secondary: "स्लाइड प्रस्तुतियाँ",
+      s007: "अपने AI एजेंट से ब्रांडेड स्लाइड डेक बनाएं, जब चाहें खुद बदलाव करें और कहीं भी एक्सपोर्ट करें।",
       s008: "आज़माएँ",
       s009: "यह कैसे काम करता है",
       s010: "आपकी ज़रूरत की हर चीज़",
       s011: "AI के साथ एक पूर्ण प्रेजेंटेशन स्टूडियो बनाया गया है।",
-      s012: "8 स्लाइड लेआउट",
-      s013: "शीर्षक, अनुभाग, सामग्री, दो-स्तंभ, छवि, कथन, पूर्ण-ब्लीड और रिक्त।",
+      s012: "पहले से बने स्लाइड लेआउट",
+      s013: "हमारे स्टार्टर स्लाइड टेम्पलेट इस्तेमाल करें। अपने स्लाइड टेम्पलेट बनाएँ और बाद में दोबारा उपयोग करें।",
       s014: "दृश्य + कोड संपादन",
       s015: "शैलियों को संपादित करने के लिए क्लिक करें, टेक्स्ट के लिए डबल-क्लिक करें। पूर्ण नियंत्रण के लिए कच्चे HTML पर स्विच करें।",
-      s016: "AI छवि निर्माण",
-      s017: "मिथुन राशि वाले चित्र बनाएं. ब्रांड स्थिरता के लिए शैली संदर्भ। चुनने के लिए 3 विविधताएँ।",
+      s016: "सहज छवि निर्माण",
+      s017: "शैलियों और ब्रांड दिशानिर्देशों का संदर्भ दें। Gemini AI द्वारा बनाए गए विकल्पों में से चुनें।",
       s018: "लोगो एवं छवि खोज",
       s019: "Logo.dev या Brandfetch के माध्यम से कंपनी के लोगो खोजें। Google स्टॉक फ़ोटो के लिए छवियाँ।",
       s020: "पुनः क्रमित करना खींचें और छोड़ें",
@@ -1169,10 +1374,84 @@ const hiIN = {
       s052: "नि:शुल्क / प्रति सीट",
       s053: "सदस्यता",
       s054: "मुफ़्त और खुला स्रोत",
-      s055: "मिनटों में आरंभ करें",
-      s056: "टेम्पलेट से शुरू करें और AI के साथ प्रेजेंटेशन बनाना शुरू करें।",
+      s055: "अभी स्लाइड डेक बनाएँ",
+      s056: "अपनी डिज़ाइन प्राथमिकताएँ चुनें और शुरू करने के लिए प्रॉम्प्ट लिखें। हमेशा मुफ़्त।",
       s057: "दस्तावेज़ पढ़ें",
       s058: "सभी टेम्पलेट देखें",
+      howItWorksDescribe:
+        "अपने विषय, दर्शकों और लहजे का वर्णन करें। संदर्भ के लिए एक स्लाइड डेक संलग्न करें। UI में या अपने AI वर्कफ़्लो से शुरू करें।",
+      signInIntegration:
+        "वेबहुक, MCP या A2A इंटीग्रेशन के ज़रिए Slides इस्तेमाल करने के लिए साइन इन करें।",
+      signIn: "साइन इन करें",
+      tryNow: {
+        step: "{{total}} में से चरण {{current}}",
+        q1: "आपको किस तरह का स्लाइड डेक चाहिए?",
+        q1Pitch: "निवेशक पिच डेक",
+        q1Sales: "ग्राहक सेल्स प्रेजेंटेशन",
+        q1Talk: "लाइव टॉक या पाठ का सहयोगी डेक",
+        q1Other: "कुछ और",
+        q1OtherPlaceholder: "बताएँ कि किस तरह का डेक चाहिए",
+        q2Pitch: "कंपनी कौन-सी है और कितनी राशि जुटानी है?",
+        q2Sales: "आप क्या बेच रहे हैं, और किसे?",
+        q2Talk: "टॉक किस बारे में है, और श्रोता कौन हैं?",
+        q2Other: "डेक में क्या शामिल होना चाहिए?",
+        q2Detail: "नोट्स लिखें या बस मुझे कोई वेबसाइट URL दें",
+        q2Placeholder: "नोट्स, या https://example.com",
+        q3: "मुझे कोई शैली बताएँ जिसे मैं फ़ॉलो करूँ",
+        q3Detail: "मिलती-जुलती वेबसाइट पेस्ट करें, या इसके बजाय कोई वाइब चुनें",
+        q3Placeholder: "https://example.com",
+        q3VibeToggle: "वेबसाइट नहीं है? कोई वाइब चुनें",
+        q3VibeMinimal: "मिनिमल और संपादकीय",
+        q3VibeBold: "बोल्ड और हाई-कॉन्ट्रास्ट",
+        q3VibeWarm: "गर्मजोशी भरा और मानवीय",
+        q3VibeTechnical: "तकनीकी और डेटा-सघन",
+        answerAction: "प्रॉम्प्ट में जोड़ें",
+        composerLabel: "आपका प्रॉम्प्ट",
+        composerPlaceholder:
+          "आप जो डेक चाहते हैं उसका वर्णन करें, या ऊपर दिए सवालों के जवाब दें।",
+        submit: "मेरा डेक बनाएँ",
+        readyHint: "आपका प्रॉम्प्ट तैयार है — इसे एजेंट को भेजें।",
+        promptDeck: "{{deck}} बनाएँ।",
+        promptSubject: "इसमें यह शामिल होना चाहिए: {{subject}}",
+        promptStyleSite: "{{style}} के लुक और फील से मेल खाएँ।",
+        promptStyleVibe: "शैली: {{style}}।",
+        promptClose: "स्पीकर नोट्स के साथ पूरा डेक तैयार करें, फिर मुझे रूपरेखा समझाएँ।",
+        deckPitch: "एक निवेशक पिच डेक",
+        deckSales: "एक ग्राहक सेल्स प्रेजेंटेशन",
+        deckTalk: "एक लाइव टॉक के लिए सहयोगी डेक",
+        designReference: "डिज़ाइन संदर्भ",
+        websiteUrl: "वेबसाइट URL",
+        websiteUrlPlaceholder: "https://example.com",
+        crawlWebsite: "वेबसाइट की जाँच करें",
+        crawlError:
+          "हम इस वेबसाइट की जाँच नहीं कर सके। हो सकता है यह स्वचालित पहुँच को रोकती हो। कोई दूसरा URL आज़माएँ या डिज़ाइन संदर्भ अपलोड करें।",
+        or: "या",
+        uploadDesignReference: "डिज़ाइन संदर्भ अपलोड करें",
+        importDesignSystem: "डिज़ाइन सिस्टम इंपोर्ट करें",
+        loginDesignSystems: "डिज़ाइन सिस्टम प्रबंधित करने के लिए लॉग इन करें।",
+        promptCreatePrefix: "एक",
+        deckTypeLabel: "डेक का प्रकार",
+        deckCapitalRaise: "पूंजी जुटाने वाला",
+        deckOfferingMemorandum: "प्रस्ताव ज्ञापन",
+        deckB2bSales: "B2B बिक्री पिच",
+        deckTeamMeeting: "टीम मीटिंग एजेंडा",
+        deckLiveTalk: "लाइव टॉक सहयोगी",
+        promptDeckFor: "डेक बनाएँ:",
+        promptTextShouldBe: "टेक्स्ट ऐसा हो:",
+        textAmountLabel: "टेक्स्ट की मात्रा",
+        textMinimal: "न्यूनतम",
+        textBrief: "संक्षिप्त",
+        textThorough: "विस्तृत",
+        findingTitle: "शीर्षक",
+        findingDescription: "विवरण",
+        findingColors: "रंग",
+        findingFonts: "फ़ॉन्ट",
+        findingPrimaryColor: "मुख्य रंग",
+        findingAccentColor: "एक्सेंट रंग",
+        findingHeadingFont: "शीर्षक का फ़ॉन्ट",
+        findingBodyFont: "मुख्य टेक्स्ट का फ़ॉन्ट",
+        styleGuidePrefix: "इसके लिए स्टाइल गाइड:",
+      },
     },
   },
   skillsPage: {
@@ -1670,12 +1949,6 @@ const hiIN = {
     clipsAiAndEditing: "AI और संपादन",
     clipsSharingAndTeams: "शेयरिंग और टीम",
     clipsDevelopers: "डेवलपर गाइड",
-    brain: "ब्रेन",
-    brainOverview: "अवलोकन",
-    brainSources: "स्रोत कनेक्ट करना",
-    brainKnowledge: "प्रश्न और उद्धरण",
-    brainAgent: "एजेंट से बात करें",
-    brainDevelopers: "डेवलपर गाइड",
     assets: "एसेट",
     assetsOverview: "अवलोकन",
     assetsGeneration: "बनाना और परिष्कृत करना",

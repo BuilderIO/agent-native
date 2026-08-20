@@ -418,37 +418,6 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         ],
       },
       {
-        id: "brain-group",
-        labelKey: "brain",
-        children: [
-          {
-            id: "template-brain",
-            labelKey: "brainOverview",
-            slug: "template-brain",
-          },
-          {
-            id: "template-brain-sources",
-            labelKey: "brainSources",
-            slug: "template-brain-sources",
-          },
-          {
-            id: "template-brain-knowledge",
-            labelKey: "brainKnowledge",
-            slug: "template-brain-knowledge",
-          },
-          {
-            id: "template-brain-agent",
-            labelKey: "brainAgent",
-            slug: "template-brain-agent",
-          },
-          {
-            id: "template-brain-developers",
-            labelKey: "brainDevelopers",
-            slug: "template-brain-developers",
-          },
-        ],
-      },
-      {
         id: "assets-group",
         labelKey: "assets",
         children: [
