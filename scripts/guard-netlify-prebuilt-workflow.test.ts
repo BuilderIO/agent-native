@@ -204,9 +204,14 @@ describe("production Netlify site concurrency guard", () => {
   it("captures the Netlify deploy baseline before draining production deploys", () => {
     const unlock = nodeHeredocs[1];
     assert.doesNotMatch(unlock, /readyIsBlocking/);
+    const baselineIndex = unlock.indexOf(
+      "const preexistingDeployIds = new Set",
+    );
+    const siteLookupIndex = unlock.indexOf("const site = await readJson(");
+    assert(baselineIndex >= 0 && siteLookupIndex > baselineIndex);
     assert.match(
       unlock,
-      /const preexistingDeployIds = new Set\([\s\S]*?Netlify pre-existing production deploy lookup[\s\S]*?\);\s*await drainPendingDeploys\(deployId, preexistingDeployIds\);/,
+      /const preexistingDeployIds = new Set\([\s\S]*?Netlify pre-existing production ready deploy lookup[\s\S]*?production: "true"[\s\S]*?state: "ready"[\s\S]*?\);\s*const site = await readJson\(/,
     );
   });
 
@@ -259,7 +264,8 @@ describe("production Netlify site concurrency guard", () => {
       "site-id",
     ) as (
       label: string,
-      cutoff: number,
+      cutoff: number | null,
+      filters?: Record<string, string>,
     ) => Promise<Array<Record<string, unknown>>>;
     const requests: string[] = [];
     const pages = new Map([
@@ -284,6 +290,13 @@ describe("production Netlify site concurrency guard", () => {
           next: null,
         },
       ],
+      [
+        "https://netlify.test/api/sites/site-id/deploys?per_page=100&production=true&state=ready",
+        {
+          deploys: [{ id: "old-ready", created_at: "2020-01-01T00:00:00Z" }],
+          next: null,
+        },
+      ],
     ]);
 
     const deploys = await listDeploys(
@@ -299,6 +312,20 @@ describe("production Netlify site concurrency guard", () => {
       "https://netlify.test/page-2",
       "https://netlify.test/page-3",
     ]);
+
+    const readyBaseline = await listDeploys(
+      "pre-existing ready deploy lookup",
+      null,
+      { production: "true", state: "ready" },
+    );
+    assert.deepEqual(
+      readyBaseline.map((deploy) => deploy.id),
+      ["old-ready"],
+    );
+    assert.equal(
+      requests.at(-1),
+      "https://netlify.test/api/sites/site-id/deploys?per_page=100&production=true&state=ready",
+    );
   });
 
   it("restores cutover state before failure lock cleanup", () => {

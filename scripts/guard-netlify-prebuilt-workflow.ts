@@ -273,11 +273,16 @@ if (unlockStart < 0 || (uploadStart >= 0 && unlockStart >= uploadStart)) {
   if (
     !unlock.includes("/unlock") ||
     !unlock.includes("locked !== false") ||
-    !unlock.includes("/deploys?per_page=100") ||
+    !unlock.includes("/deploys?${params}") ||
     !unlock.includes("nextPageUrl") ||
     !unlock.includes("DEPLOY_LOOKBACK_MS") ||
     !unlock.includes("oldestCreatedAt") ||
     !unlock.includes("Date.parse(oldestCreatedAt) < cutoff") ||
+    !unlock.includes(
+      'const params = new URLSearchParams({ per_page: "100", ...filters })',
+    ) ||
+    !unlock.includes('production: "true"') ||
+    !unlock.includes('state: "ready"') ||
     unlock.includes("readyIsBlocking") ||
     !unlock.includes("const preexistingDeployIds = new Set") ||
     !unlock.includes("preexistingDeployIds.has(candidate.id)") ||
@@ -286,7 +291,7 @@ if (unlockStart < 0 || (uploadStart >= 0 && unlockStart >= uploadStart)) {
       []
     ).length < 2 ||
     !unlock.includes("candidate.published_at") ||
-    !unlock.includes("Netlify pre-existing production deploy lookup") ||
+    !unlock.includes("Netlify pre-existing production ready deploy lookup") ||
     !unlock.includes("finalBeforeUnlock") ||
     (
       unlock.match(
@@ -296,6 +301,17 @@ if (unlockStart < 0 || (uploadStart >= 0 && unlockStart >= uploadStart)) {
   ) {
     issues.push(
       `${reusablePath} production unlock must ignore pre-existing ready deploys and block ready deploys created during this run`,
+    );
+  }
+  const baselineIndex = unlock.indexOf("const preexistingDeployIds = new Set");
+  const siteLookupIndex = unlock.indexOf("const site = await readJson(");
+  if (
+    baselineIndex < 0 ||
+    siteLookupIndex < 0 ||
+    baselineIndex > siteLookupIndex
+  ) {
+    issues.push(
+      `${reusablePath} must capture the ready production baseline before reading site/deploy state`,
     );
   }
 }

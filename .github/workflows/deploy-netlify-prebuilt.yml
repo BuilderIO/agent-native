@@ -363,9 +363,10 @@ jobs:
             return null;
           }
 
-          async function listDeploys(label, cutoff) {
+          async function listDeploys(label, cutoff, filters = {}) {
             const deploys = [];
-            let url = `${api}/sites/${siteId}/deploys?per_page=100`;
+            const params = new URLSearchParams({ per_page: "100", ...filters });
+            let url = `${api}/sites/${siteId}/deploys?${params}`;
             while (url) {
               const response = await request(url);
               const page = await readJson(response, label);
@@ -374,7 +375,7 @@ jobs:
               const oldestCreatedAt = page[page.length - 1]?.created_at;
               // Netlify returns deploys newest-first; historical pages cannot
               // contain a pending cutover deploy and make the drain time out.
-              if (oldestCreatedAt && Date.parse(oldestCreatedAt) < cutoff) break;
+              if (cutoff !== null && oldestCreatedAt && Date.parse(oldestCreatedAt) < cutoff) break;
               url = nextPageUrl(response.headers.get("link"));
             }
             return deploys;
@@ -442,6 +443,18 @@ jobs:
             );
           }
 
+          // Snapshot every ready production ID before reading site/deploy state.
+          // The bounded drain lookup must not classify an older ready backlog as new.
+          const preexistingDeployIds = new Set(
+            (
+              await listDeploys(
+                "Netlify pre-existing production ready deploy lookup",
+                null,
+                { production: "true", state: "ready" },
+              )
+            ).map((candidate) => candidate.id),
+          );
+
           const site = await readJson(
             await request(`${api}/sites/${siteId}`),
             "Netlify published deploy lookup",
@@ -454,17 +467,6 @@ jobs:
           const published = await readJson(
             await request(`${api}/deploys/${deployId}`),
             `Netlify deploy ${deployId} lock lookup before drain`,
-          );
-          // Netlify-created timestamps and runner clocks are not comparable.
-          // Snapshot the deploy IDs Netlify reports before draining; a ready ID
-          // that appears after this baseline is a new production artifact.
-          const preexistingDeployIds = new Set(
-            (
-              await listDeploys(
-                "Netlify pre-existing production deploy lookup",
-                Date.now() - DEPLOY_LOOKBACK_MS,
-              )
-            ).map((candidate) => candidate.id),
           );
           await drainPendingDeploys(deployId, preexistingDeployIds);
 
