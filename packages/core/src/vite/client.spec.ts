@@ -1551,7 +1551,7 @@ describe("agentNative Vite plugin preset", () => {
 });
 
 describe("app changelog raw imports", () => {
-  it("merges pending app changelog entries into CHANGELOG.md?raw", async () => {
+  it("merges folder-backed app changelog entries into CHANGELOG.md?raw", async () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-changelog-raw-"));
     const appDir = path.join(tmpDir, "app");
     const pendingDir = path.join(tmpDir, "changelog");
@@ -1568,6 +1568,10 @@ describe("app changelog raw imports", () => {
     fs.writeFileSync(
       path.join(pendingDir, "2026-06-23-same-day.md"),
       "---\ntype: fixed\ndate: 2026-06-23\n---\n\nSame-day fix.\n",
+    );
+    fs.writeFileSync(
+      path.join(pendingDir, "2026-06-23-seed-again.md"),
+      "---\ntype: added\n---\n\nSeed entry.\n",
     );
 
     try {
@@ -1589,7 +1593,7 @@ describe("app changelog raw imports", () => {
       const entries = parseChangelog(markdown);
 
       expect(watched).toContain(path.join(tmpDir, "CHANGELOG.md"));
-      // Watch the individual pending files, never the directory itself: Vite's
+      // Watch the individual folder files, never the directory itself: Vite's
       // import-analysis would try to resolve a watched directory as a module
       // and fail ("Failed to resolve import .../changelog"), breaking
       // hydration. New/removed files are still caught by the root dev watcher.
@@ -1598,6 +1602,9 @@ describe("app changelog raw imports", () => {
       );
       expect(watched).toContain(
         path.join(pendingDir, "2026-06-23-same-day.md"),
+      );
+      expect(watched).toContain(
+        path.join(pendingDir, "2026-06-23-seed-again.md"),
       );
       expect(watched).not.toContain(pendingDir);
       expect(entries.map((entry) => entry.title)).toEqual([
@@ -1608,6 +1615,7 @@ describe("app changelog raw imports", () => {
       expect(entries[0].body).toContain("New visible thing.");
       expect(entries[1].body).toContain("Same-day fix.");
       expect(entries[1].body).toContain("Seed entry.");
+      expect(entries[1].body.match(/Seed entry\./g)).toHaveLength(1);
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }

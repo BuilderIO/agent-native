@@ -26,7 +26,7 @@ export interface ChangelogEntry {
   body: string;
 }
 
-/** A not-yet-released entry authored as a `changelog/<file>.md` file. */
+/** A folder-backed entry authored as a `changelog/<file>.md` file. */
 export interface PendingChangelogEntry {
   /** Category — `added`, `improved`, `fixed`, `changed`, etc. */
   type: ChangelogChangeType;
@@ -43,6 +43,11 @@ export type ChangelogChangeType =
   | "changed"
   | "removed"
   | "security";
+
+export const DEFAULT_CHANGELOG_RELEASE_LIMIT = 5;
+
+export const CHANGELOG_ARCHIVE_NOTE =
+  'Older updates live in [the changelog folder](./changelog/) and are included in the in-app "What\'s new" view.';
 
 /**
  * Order changes are grouped under a release heading. Anything not listed here
@@ -271,21 +276,42 @@ function pendingSectionSort(a: string, b: string): number {
   return a.localeCompare(b);
 }
 
+function normalizedChangelogText(value: string): string {
+  return value
+    .replace(/^\s*-\s?/gm, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 /**
  * Render an app-facing changelog that includes both released CHANGELOG.md
- * sections and adjacent pending `changelog/*.md` entries. Unlike `release`,
- * this is pure and non-destructive, so build/dev bundles can show current
- * product notes without deleting the conflict-free pending files.
+ * sections and adjacent folder-backed `changelog/*.md` entries. This is pure
+ * and non-destructive, so build/dev bundles can show current product notes
+ * without moving or deleting the conflict-free entry files.
  */
 export function mergePendingChangelog(
   existing: string,
   pending: PendingChangelogEntry[],
 ): string {
-  const pendingWithText = pending.filter((entry) => entry.text.trim());
+  const existingEntries = parseChangelog(existing);
+  const pendingWithText = pending.filter((entry) => {
+    const text = entry.text.trim();
+    if (!text) return false;
+    return !existingEntries.some((existingEntry) => {
+      if (
+        entry.date &&
+        existingEntry.date &&
+        entry.date !== existingEntry.date
+      ) {
+        return false;
+      }
+      return normalizedChangelogText(existingEntry.body).includes(
+        normalizedChangelogText(text),
+      );
+    });
+  });
   if (pendingWithText.length === 0) return existing || CHANGELOG_HEADER;
 
-  const existingEntries = parseChangelog(existing);
-  const usedExistingIndexes = new Set<number>();
   const pendingByTitle = new Map<string, PendingChangelogEntry[]>();
 
   for (const entry of pendingWithText) {
@@ -293,36 +319,67 @@ export function mergePendingChangelog(
     pendingByTitle.set(title, [...(pendingByTitle.get(title) ?? []), entry]);
   }
 
-  const sections: string[] = [];
+  const sections = existingEntries.map((entry) => ({
+    title: entry.title,
+    date: entry.date,
+    body: entry.body,
+  }));
   for (const title of [...pendingByTitle.keys()].sort(pendingSectionSort)) {
     const body = renderReleaseBody(pendingByTitle.get(title) ?? []);
     if (!body) continue;
 
-    const existingIndex = existingEntries.findIndex((entry, index) => {
-      if (usedExistingIndexes.has(index)) return false;
+    const existingIndex = sections.findIndex((entry) => {
       return entry.date === title || entry.title === title;
     });
 
-    if (existingIndex === -1) {
-      sections.push(`## ${title}\n\n${body}`);
+    if (existingIndex !== -1) {
+      sections[existingIndex].body = [body, sections[existingIndex].body]
+        .filter(Boolean)
+        .join("\n\n");
       continue;
     }
 
-    usedExistingIndexes.add(existingIndex);
-    const existingEntry = existingEntries[existingIndex];
-    sections.push(
-      `## ${existingEntry.title}\n\n${[body, existingEntry.body]
-        .filter(Boolean)
-        .join("\n\n")}`,
+    const newSection = { title, date: title.match(ISO_DATE)?.[1], body };
+    const insertAt = newSection.date
+      ? sections.findIndex(
+          (entry) => entry.date && entry.date < newSection.date!,
+        )
+      : 0;
+    sections.splice(
+      insertAt === -1 ? sections.length : insertAt,
+      0,
+      newSection,
     );
   }
 
-  existingEntries.forEach((entry, index) => {
-    if (usedExistingIndexes.has(index)) return;
-    sections.push(`## ${entry.title}\n\n${entry.body}`);
-  });
+  return `${changelogHeader(existing)}\n\n${sections
+    .map((entry) => `## ${entry.title}\n\n${entry.body}`)
+    .join("\n\n")}\n`;
+}
 
-  return `${changelogHeader(existing)}\n\n${sections.join("\n\n")}\n`;
+/**
+ * Keep a short, human-readable release window in `CHANGELOG.md` while the
+ * dated `changelog/*.md` files remain the complete source for app history.
+ * The Vite raw-import path can still expand the full folder-backed history.
+ */
+export function compactChangelog(
+  existing: string,
+  folderEntries: PendingChangelogEntry[],
+  releaseLimit = DEFAULT_CHANGELOG_RELEASE_LIMIT,
+): string {
+  const merged = mergePendingChangelog(existing, folderEntries);
+  const entries = parseChangelog(merged).slice(0, Math.max(1, releaseLimit));
+  const header = changelogHeader(merged)
+    .replace(CHANGELOG_ARCHIVE_NOTE, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  const sections = entries.map((entry) => `## ${entry.title}\n\n${entry.body}`);
+
+  if (sections.length === 0) {
+    return `${header || CHANGELOG_HEADER.trim()}\n\n${CHANGELOG_ARCHIVE_NOTE}\n`;
+  }
+
+  return `${header || CHANGELOG_HEADER.trim()}\n\n${CHANGELOG_ARCHIVE_NOTE}\n\n${sections.join("\n\n")}\n`;
 }
 
 export { CHANGELOG_HEADER, GROUP_LABELS };

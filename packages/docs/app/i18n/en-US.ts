@@ -68,6 +68,7 @@ const enUS = {
     viewDocs: "View Docs",
     source: "Source",
     readDocs: "Read the docs",
+    signIn: "Sign in",
   },
   search: {
     dialogLabel: "Search documentation",

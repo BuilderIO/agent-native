@@ -426,6 +426,7 @@ const esES = {
     viewDocs: "Ver docs",
     source: "Fuente",
     readDocs: "Lea los documentos",
+    signIn: "Iniciar sesión",
   },
   templatesPage: {
     title: "Aplicaciones nativas del agente de código abierto de su propiedad",
