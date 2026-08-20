@@ -419,13 +419,21 @@ nonignored snapshot and update an existing PR rather than opening a second one.
 
 ## Completion and shipping
 
-A verified repo-owned fix is not complete at the handoff. Continue directly
-into the `ship` workflow in the same worktree: publish the complete snapshot,
-open or update the ready PR, babysit it, merge when its gates pass, verify the
+A verified repo-owned fix is not complete at the handoff. When the current
+invocation has shipping authority - including an explicit user request to ship
+or a caller that has already granted that authority - continue directly into
+the `ship` workflow in the same worktree: publish the complete snapshot, open
+or update the ready PR, babysit it, merge when its gates pass, verify the
 affected production surface, and leave the worktree on the fresh post-merge
-branch. Do not stop to ask whether the fix should be shipped. Carry this
-skill's start cursor, grouped reports, evidence links, owning seam, focused
-verification, and dispositions into the PR and ship recap.
+branch. Do not stop to ask for a second shipping confirmation once that
+authority exists. Carry this skill's start cursor, grouped reports, evidence
+links, owning seam, focused verification, and dispositions into the PR and
+ship recap.
+
+An ordinary or scheduled feedback sweep does not grant publish or merge
+authority by itself. Without shipping authority, automatically prepare the
+complete ready-to-ship handoff in the current worktree and state that shipping
+is pending authorization; do not publish, merge, or imply that the fix shipped.
 
 Only enter shipping when the fix is verified and in scope. If the sweep finds
 no verified repo-owned fix, finish with the disposition recap and state why no
