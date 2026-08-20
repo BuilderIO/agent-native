@@ -14,6 +14,7 @@ const ENVIRONMENT_SWITCHER_STYLE_MARKER =
   'data-agent-native-environment-switcher-style="1"';
 const ENVIRONMENT_SWITCHER_SCRIPT_MARKER =
   'data-agent-native-environment-switcher-script="1"';
+const EXISTING_ENVIRONMENT_SWITCHER_RE = /\bid=["']environment-switcher["']/;
 
 function insertBeforeClosingTag(
   html: string,
@@ -191,6 +192,10 @@ export function injectBetaOptOutPersistence(loginHtml: string): string {
   if (!html.includes(BETA_OPT_OUT_PERSISTENCE_MARKER)) {
     html = insertBeforeClosingTag(html, betaOptOutPersistenceScript, "</body>");
   }
+  // The standard onboarding shell already owns this markup, style, and
+  // initializer. Custom login pages need the shared switcher, but adding a
+  // second copy would create duplicate IDs and event handlers.
+  if (EXISTING_ENVIRONMENT_SWITCHER_RE.test(html)) return html;
   if (!html.includes(ENVIRONMENT_SWITCHER_STYLE_MARKER)) {
     html = insertBeforeClosingTag(html, environmentSwitcherStyles, "</head>");
   }

@@ -46,4 +46,24 @@ describe("injectBetaOptOutPersistence", () => {
     );
     expect(reinjected.match(/__anInitEnvironmentBadge/g)).toHaveLength(1);
   });
+
+  it("keeps the existing onboarding switcher instead of injecting a second one", () => {
+    const html = injectBetaOptOutPersistence(`
+      <html><head></head><body>
+        <div class="environment-switcher" id="environment-switcher" hidden>
+          <a id="environment-production-link" href="">Switch to production</a>
+        </div>
+        <script>function __anInitEnvironmentBadge() {}</script>
+      </body></html>
+    `);
+
+    expect(html).toContain(BETA_OPT_OUT_PERSISTENCE_MARKER);
+    expect(html.match(/id="environment-switcher"/g)).toHaveLength(1);
+    expect(html.match(/id="environment-production-link"/g)).toHaveLength(1);
+    expect(html.match(/__anInitEnvironmentBadge/g)).toHaveLength(1);
+    expect(html).not.toContain(
+      'data-agent-native-environment-switcher-style="1"',
+    );
+    expect(html).not.toContain('data-agent-native-environment-switcher="1"');
+  });
 });
