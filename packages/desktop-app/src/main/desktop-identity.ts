@@ -1083,18 +1083,22 @@ export class DesktopIdentityBroker {
         verifier,
         generation,
         abortController.signal,
-      ).then(async () => {
-        const succeeded = await this.runSignInFanout(appId, generation, {
-          interactive: false,
-        });
-        if (succeeded) {
-          closedByBroker = true;
-          resolveWindowClosed(true);
-        }
-        return succeeded;
-      });
+      ).then(() => true);
 
-      return await Promise.race([exchange, windowClosed]);
+      const exchangeSucceeded = await Promise.race([exchange, windowClosed]);
+      if (!exchangeSucceeded) return false;
+
+      // The close grace only protects exchange redemption. Once the one-time
+      // credential is stored, finish the app fan-out before returning so a
+      // slow child session cannot outlive a failed sign-in result.
+      const succeeded = await this.runSignInFanout(appId, generation, {
+        interactive: false,
+      });
+      if (succeeded) {
+        closedByBroker = true;
+        resolveWindowClosed(true);
+      }
+      return succeeded;
     } catch (error) {
       if (this.isCeremonyCurrent(generation) && !this.signOutOperation) {
         this.setStatus("failed");
