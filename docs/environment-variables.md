@@ -26,17 +26,25 @@ The focused user-facing guides remain authoritative for their areas:
   `templates/analytics/app/lib/data-sources.ts`
   - settings UI and provider-specific credential metadata
 
-For committed, non-secret app defaults such as first-run onboarding, prefer
-`agent-native.config.ts` and use the [Agent-Native app configuration
-guide](../packages/core/docs/content/agent-native-config.mdx) instead of adding
-another standalone `VITE_*` or `AGENT_NATIVE_*` flag. A public config path can
-use the deterministic `AGENT_NATIVE_CONFIG_<PATH>` alias when its non-secret
-value must vary by deployment. `AGENT_NATIVE_CONFIG` supplies a complete JSON
-object, and every supported nested path accepts a JSON fragment. The resolved
-value is public browser configuration. `agent-native.ts`, `agent-native.mts`,
-`agent-native.config.mts`, and `agent-native.json` remain supported. Keep
-credentials and deployment-specific server values in the environment or
-scoped secret store.
+## Configuration-first rule
+
+For committed, non-secret public app defaults, `agent-native.config.ts` is the
+primary configuration API and the [Agent-Native app configuration
+guide](../packages/core/docs/content/agent-native-config.mdx) is the primary
+reference. Put the default in that file first. Use the deterministic
+`AGENT_NATIVE_CONFIG_<PATH>` alias only when a public value must vary by
+deployment; the alias is the final override of the typed/JSON config.
+`AGENT_NATIVE_CONFIG` supplies a complete JSON object, and every supported
+nested path accepts a JSON fragment. The resolved value is public browser
+configuration.
+
+The server-only `defineAppConfig()` schema is a deliberate exception for
+credential scoping, webhook trust, agent runtime controls, and workspace
+wiring that must not be serialized into the browser. Its declared aliases are
+listed in the generated section below. Platform facts, routing values,
+deployment adapters, and secrets remain environment-owned. The compatibility
+filenames `agent-native.ts`, `agent-native.mts`, `agent-native.config.mts`, and
+`agent-native.json` remain supported.
 
 `runtime.environment.required` records environment variable names only. The
 resolved config is public browser configuration, so set the corresponding
@@ -335,10 +343,12 @@ not represented by an existing namespace or suffix family.
 
 ## Declared app configuration
 
-Every field below is set with `defineAppConfig()` from server code. The
-environment variable is a declared alias for the same field, listed in the
-order it is consulted; app configuration wins over any of them. Fields with
-no alias are settable only in code.
+Every field below is server-only and set with `defineAppConfig()` from
+server code. The environment variable is a declared deployment alias for
+the same field, listed in the order it is consulted; app configuration
+wins over any of them. These fields are deliberately separate from the
+public `agent-native.config.ts` surface. Fields with no alias are settable
+only in code.
 
 | Field                                         | Environment aliases                                                         | Type    | Default  | Description                                                                                                                                          |
 | --------------------------------------------- | --------------------------------------------------------------------------- | ------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
