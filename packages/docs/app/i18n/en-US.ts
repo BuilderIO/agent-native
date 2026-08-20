@@ -1509,6 +1509,8 @@ const enUS = {
     body: "All your agent-native apps in one desktop shell. Production apps built-in, with a dev mode toggle for local development.",
     openDesktop: "Open Agent Native",
     downloadInstaller: "Download installer",
+    downloadStarted: "Download started",
+    downloadAgain: "Didn't work? Try downloading again",
     loadError: "Could not load the latest desktop installer.",
     checkingRelease: "Checking the latest desktop release...",
     retry: "Retry",

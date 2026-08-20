@@ -1511,6 +1511,8 @@ const koKR = {
     body: "모든 agent-native 앱을 하나의 데스크톱 셸에서 사용하세요. 프로덕션 앱이 내장되어 있고 로컬 개발용 dev 모드 토글이 있습니다.",
     openDesktop: "Agent Native 열기",
     downloadInstaller: "설치 프로그램 다운로드",
+    downloadStarted: "다운로드가 시작되었습니다",
+    downloadAgain: "작동하지 않았나요? 다시 다운로드해 보세요",
     loadError: "최신 데스크톱 설치 프로그램을 불러올 수 없습니다.",
     checkingRelease: "최신 데스크톱 릴리스를 확인하는 중...",
     retry: "다시 시도",

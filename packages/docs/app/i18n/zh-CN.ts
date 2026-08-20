@@ -1492,6 +1492,8 @@ const zhCN = {
     body: "所有 agent-native 应用都在一个桌面外壳中。内置生产应用，并提供用于本地开发的开发模式开关。",
     openDesktop: "打开 Agent Native",
     downloadInstaller: "下载安装程序",
+    downloadStarted: "下载已开始",
+    downloadAgain: "没有成功？再次尝试下载",
     loadError: "无法加载最新桌面安装程序。",
     checkingRelease: "正在检查最新桌面版...",
     retry: "重试",

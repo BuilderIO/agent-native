@@ -4,6 +4,7 @@ import {
   IconAppWindow,
   IconBrandApple,
   IconBrandWindows,
+  IconCheck,
   IconDownload,
   IconTerminal2,
 } from "@tabler/icons-react";
@@ -105,6 +106,11 @@ interface Manifest {
   }[];
 }
 
+interface ConfirmedDownload {
+  asset: Manifest["assets"][number];
+  label: string;
+}
+
 function isManifestAsset(value: unknown): value is Manifest["assets"][number] {
   if (!value || typeof value !== "object") return false;
   const asset = value as Partial<Manifest["assets"][number]>;
@@ -183,6 +189,8 @@ export default function DownloadPage() {
   const [manifest, setManifest] = useState<Manifest | null>(null);
   const [manifestError, setManifestError] = useState(false);
   const [manifestRequest, setManifestRequest] = useState(0);
+  const [confirmedDownload, setConfirmedDownload] =
+    useState<ConfirmedDownload | null>(null);
   const [isDesktopApp, setIsDesktopApp] = useState(false);
 
   useEffect(() => {
@@ -251,22 +259,57 @@ export default function DownloadPage() {
   const desktopDownloadLabel = primaryAsset
     ? t("downloadPage.downloadInstaller")
     : primaryLabel;
+  const hasPrimaryDownloadStarted =
+    confirmedDownload?.asset.url === primaryAsset?.url;
+  const downloadButtonLabel = hasPrimaryDownloadStarted
+    ? t("downloadPage.downloadStarted")
+    : isDesktopApp
+      ? desktopDownloadLabel
+      : primaryLabel;
   const isManifestLoading = !manifest && !manifestError;
+  const downloadButtonClass = isDesktopApp
+    ? "inline-flex w-full max-w-[18rem] items-center justify-center gap-2.5 whitespace-nowrap rounded-lg border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline hover:bg-[var(--sidebar-hover)] hover:no-underline"
+    : "inline-flex w-full max-w-[18rem] items-center justify-center gap-2.5 whitespace-nowrap rounded-lg bg-[var(--fg)] px-8 py-3.5 text-base font-medium text-[var(--bg)] no-underline hover:opacity-85 hover:no-underline";
+  const downloadButtonContent = isManifestLoading ? (
+    <span
+      aria-hidden="true"
+      className="h-4 w-32 animate-pulse rounded-full bg-current/20 motion-reduce:animate-none"
+    />
+  ) : hasPrimaryDownloadStarted ? (
+    <>
+      <IconCheck size={18} aria-hidden="true" />
+      <span className="truncate">{downloadButtonLabel}</span>
+    </>
+  ) : (
+    <>
+      <IconDownload size={18} aria-hidden="true" />
+      <span className="truncate">{downloadButtonLabel}</span>
+    </>
+  );
 
   function handleChannelChange(nextChannel: DesktopReleaseChannel) {
     if (nextChannel === channel) return;
     setManifest(null);
     setManifestError(false);
+    setConfirmedDownload(null);
     setChannel(nextChannel);
+  }
+
+  function handlePlatformChange(nextPlatform: Platform) {
+    if (nextPlatform === platform) return;
+    setPlatform(nextPlatform);
+    setConfirmedDownload(null);
   }
 
   function handleRetry() {
     setManifest(null);
     setManifestError(false);
+    setConfirmedDownload(null);
     setManifestRequest((request) => request + 1);
   }
 
-  function handleDownload(label: string) {
+  function handleDownload(asset: Manifest["assets"][number], label: string) {
+    setConfirmedDownload({ asset, label });
     trackEvent("desktop download", { channel, platform, label });
   }
 
@@ -302,7 +345,7 @@ export default function DownloadPage() {
           return (
             <button
               key={p}
-              onClick={() => setPlatform(p)}
+              onClick={() => handlePlatformChange(p)}
               aria-label={plt.name}
               className={`group flex items-center justify-center rounded-lg p-4 ${
                 active
@@ -334,45 +377,55 @@ export default function DownloadPage() {
           {primaryAsset ? (
             <a
               href={primaryAsset.url}
+              target="_blank"
+              rel="noreferrer"
               onClick={() =>
                 handleDownload(
+                  primaryAsset,
                   primaryDownload?.option.labelKey
                     ? t(primaryDownload.option.labelKey)
                     : t(info.primary.labelKey),
                 )
               }
-              className={
-                isDesktopApp
-                  ? "inline-flex items-center gap-2.5 rounded-lg border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline hover:bg-[var(--sidebar-hover)] hover:no-underline"
-                  : "inline-flex items-center gap-2.5 rounded-lg bg-[var(--fg)] px-8 py-3.5 text-base font-medium text-[var(--bg)] no-underline hover:opacity-85 hover:no-underline"
-              }
+              className={downloadButtonClass}
             >
-              <IconDownload size={18} />
-              {isDesktopApp ? desktopDownloadLabel : primaryLabel}
+              {downloadButtonContent}
             </a>
           ) : (
             <button
               type="button"
               onClick={manifestError ? handleRetry : undefined}
               disabled={!manifestError}
+              aria-label={primaryLabel}
               aria-busy={isManifestLoading}
-              className={
-                manifestError
-                  ? isDesktopApp
-                    ? "inline-flex items-center gap-2.5 rounded-lg border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] hover:bg-[var(--sidebar-hover)]"
-                    : "inline-flex items-center gap-2.5 rounded-lg bg-[var(--fg)] px-8 py-3.5 text-base font-medium text-[var(--bg)] hover:opacity-85"
-                  : `inline-flex cursor-not-allowed items-center gap-2.5 rounded-lg px-8 py-3.5 text-base font-medium opacity-60 ${
-                      isDesktopApp
-                        ? "border border-[var(--docs-border)] text-[var(--fg)]"
-                        : "bg-[var(--fg)] text-[var(--bg)]"
-                    }`
-              }
+              className={`${downloadButtonClass} ${
+                manifestError ? "" : "cursor-not-allowed opacity-60"
+              }`}
             >
-              <IconDownload size={18} />
-              {isDesktopApp ? desktopDownloadLabel : primaryLabel}
+              {downloadButtonContent}
             </button>
           )}
         </div>
+
+        {confirmedDownload && (
+          <p
+            aria-live="polite"
+            className="mt-3 text-xs text-[var(--fg-secondary)]"
+          >
+            <span className="sr-only">{t("downloadPage.downloadStarted")}</span>
+            <a
+              href={confirmedDownload.asset.url}
+              target="_blank"
+              rel="noreferrer"
+              onClick={() =>
+                handleDownload(confirmedDownload.asset, confirmedDownload.label)
+              }
+              className="text-[var(--fg-secondary)] underline underline-offset-2 hover:text-[var(--fg)]"
+            >
+              {t("downloadPage.downloadAgain")}
+            </a>
+          </p>
+        )}
 
         {alternativeDownloads.length > 0 && (
           <div className="mt-3 flex flex-wrap justify-center gap-x-4 gap-y-2">
@@ -380,7 +433,9 @@ export default function DownloadPage() {
               <a
                 key={option.labelKey}
                 href={asset!.url}
-                onClick={() => handleDownload(t(option.labelKey))}
+                target="_blank"
+                rel="noreferrer"
+                onClick={() => handleDownload(asset!, t(option.labelKey))}
                 className="text-sm text-[var(--fg-secondary)] no-underline hover:text-[var(--fg)] hover:underline"
               >
                 {t(option.labelKey)}
@@ -389,11 +444,13 @@ export default function DownloadPage() {
           </div>
         )}
 
-        {releaseStatus && (
-          <p className="mt-4 text-xs text-[var(--fg-secondary)]">
-            {releaseStatus}
-          </p>
-        )}
+        <div className="mt-4 min-h-4">
+          {releaseStatus && (
+            <p className="text-xs text-[var(--fg-secondary)]">
+              {releaseStatus}
+            </p>
+          )}
+        </div>
         {info.note && (
           <p className="mt-4 text-xs text-[var(--fg-secondary)]">
             {t(info.note)}
@@ -415,7 +472,7 @@ export default function DownloadPage() {
                 handleChannelChange(isNightly ? "production" : "nightly")
               }
               className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border border-[var(--docs-border)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 ${
-                isNightly ? "bg-blue-600" : "bg-[var(--sidebar-hover)]"
+                isNightly ? "bg-[var(--fg)]" : "bg-[var(--sidebar-hover)]"
               }`}
             >
               <span
@@ -428,8 +485,8 @@ export default function DownloadPage() {
             <span
               className={
                 isNightly
-                  ? "font-medium text-blue-600 dark:text-blue-400"
-                  : "text-blue-600 dark:text-blue-400"
+                  ? "font-medium text-[var(--fg)]"
+                  : "text-[var(--fg-secondary)]"
               }
             >
               {t("downloadPage.nightly")}

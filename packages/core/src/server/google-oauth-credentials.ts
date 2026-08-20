@@ -93,12 +93,30 @@ export async function resolveGoogleProviderCredentialCandidatesWithReader(option
  * remain the backwards-compatible provider OAuth credentials.
  */
 export function resolveGoogleSignInCredentials(): GoogleOAuthCredentials | null {
-  return (
-    readCredentialPair(
-      "GOOGLE_SIGN_IN_CLIENT_ID",
-      "GOOGLE_SIGN_IN_CLIENT_SECRET",
-    ) ?? readCredentialPair("GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET")
+  const signIn = readCredentialPair(
+    "GOOGLE_SIGN_IN_CLIENT_ID",
+    "GOOGLE_SIGN_IN_CLIENT_SECRET",
   );
+  const provider = readCredentialPair(
+    "GOOGLE_CLIENT_ID",
+    "GOOGLE_CLIENT_SECRET",
+  );
+
+  // Both pairs configured for different clients means one of them is dead
+  // config that nothing will ever read. Silence here cost a fleet-wide beta
+  // sign-in outage: GOOGLE_CLIENT_SECRET was repaired and verified while the
+  // callback kept using a stale GOOGLE_SIGN_IN_CLIENT_SECRET, so the repaired
+  // variable looked correct and changed nothing. Name the loser explicitly.
+  if (signIn && provider && signIn.clientId !== provider.clientId) {
+    console.warn(
+      "[agent-native][google-oauth] GOOGLE_SIGN_IN_CLIENT_ID and GOOGLE_CLIENT_ID " +
+        "are set to different Google clients. Sign-in uses GOOGLE_SIGN_IN_CLIENT_ID; " +
+        "GOOGLE_CLIENT_ID/SECRET are ignored for sign-in. Editing them will not " +
+        "change sign-in behaviour.",
+    );
+  }
+
+  return signIn ?? provider;
 }
 
 export function hasGoogleSignInCredentials(): boolean {

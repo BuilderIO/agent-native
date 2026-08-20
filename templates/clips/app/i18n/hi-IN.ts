@@ -611,12 +611,16 @@ const messages = {
     alsoFor: "{{platform}} के लिए भी उपलब्ध है",
     backToLibrary: "लाइब्रेरी पर वापस जाएँ",
     clipsDesktop: "Clips Desktop",
+    stable: "स्थिर",
+    nightly: "Nightly",
+    switchToNightly: "Nightly बिल्ड पर जाएँ",
+    switchToStable: "स्थिर बिल्ड पर जाएँ",
+    retry: "फिर कोशिश करें",
     heroDescription:
       "स्क्रीन, कैमरा और स्क्रीन + कैमरा के लिए एक मेनू-बार रिकॉर्डर। एक-क्लिक प्रारंभ, खींचने योग्य कैमरा बबल, रुकने पर तत्काल-शेयर लिंक।",
     versionReleased: "संस्करण {{version}} - {{date}} जारी किया गया",
     version: "संस्करण {{version}}",
-    manifestError:
-      "रिलीज़ मेनिफ़ेस्ट लोड नहीं किया जा सका - रिलीज़ पृष्ठ से एक इंस्टॉलर चुनें।",
+    manifestError: "रिलीज़ मेनिफ़ेस्ट लोड नहीं किया जा सका। फिर कोशिश करें।",
     loadingRelease: "नवीनतम रिलीज़ लोड हो रहा है...",
     chromeTitle: "ब्राउज़र लॉग के लिए Chrome एक्सटेंशन",
     chromeDescription:

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   GOOGLE_PRIMARY_PROVIDER_CREDENTIAL_KEYS,
@@ -36,6 +36,33 @@ describe("resolveGoogleSignInCredentials", () => {
       clientId: "legacy-client",
       clientSecret: "legacy-secret",
     });
+  });
+
+  it("warns when both pairs are set to different Google clients", () => {
+    process.env.GOOGLE_SIGN_IN_CLIENT_ID = "sign-in-client";
+    process.env.GOOGLE_SIGN_IN_CLIENT_SECRET = "sign-in-secret";
+    process.env.GOOGLE_CLIENT_ID = "provider-client";
+    process.env.GOOGLE_CLIENT_SECRET = "provider-secret";
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    resolveGoogleSignInCredentials();
+
+    expect(warn).toHaveBeenCalledOnce();
+    expect(warn.mock.calls[0]?.[0]).toContain("GOOGLE_SIGN_IN_CLIENT_ID");
+    warn.mockRestore();
+  });
+
+  it("stays quiet when both pairs name the same Google client", () => {
+    process.env.GOOGLE_SIGN_IN_CLIENT_ID = "same-client";
+    process.env.GOOGLE_SIGN_IN_CLIENT_SECRET = "sign-in-secret";
+    process.env.GOOGLE_CLIENT_ID = "same-client";
+    process.env.GOOGLE_CLIENT_SECRET = "provider-secret";
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    resolveGoogleSignInCredentials();
+
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
   });
 
   it("does not mix an incomplete sign-in pair with a provider secret", () => {

@@ -1491,6 +1491,8 @@ const messages = {
     body: "所有 agent-native 應用都在一個桌面外殼中。內建正式環境應用，並提供用於本機開發的開發模式開關。",
     openDesktop: "開啟 Agent Native",
     downloadInstaller: "下載安裝程式",
+    downloadStarted: "已開始下載",
+    downloadAgain: "沒有成功？再試一次下載",
     loadError: "無法載入最新桌面安裝程式。",
     checkingRelease: "正在檢查最新桌面版...",
     retry: "重試",

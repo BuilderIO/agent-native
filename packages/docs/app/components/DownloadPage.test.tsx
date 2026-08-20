@@ -19,6 +19,8 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       "downloadPage.title": "Download Agent Native",
       "downloadPage.body": "All your apps in one desktop shell.",
       "downloadPage.downloadInstaller": "Download installer",
+      "downloadPage.downloadStarted": "Download started",
+      "downloadPage.downloadAgain": "Didn't work? Try downloading again",
       "downloadPage.checkingRelease": "Checking the latest desktop release...",
       "downloadPage.loadError": "Could not load the latest desktop installer.",
       "downloadPage.retry": "Retry",
@@ -112,6 +114,10 @@ describe("DownloadPage", () => {
     expect(screen.queryByText(productionManifest.version)).toBeNull();
     expect(screen.queryByText(nightlyManifest.version)).toBeNull();
     expect(screen.queryByRole("link", { name: /GitHub/i })).toBeNull();
+    expect(
+      screen.getByRole("switch").parentElement?.querySelector("span:last-child")
+        ?.className,
+    ).not.toContain("text-blue");
 
     fireEvent.click(
       screen.getByRole("switch", { name: "Switch to Nightly builds" }),
@@ -120,6 +126,11 @@ describe("DownloadPage", () => {
     expect(
       screen.getByRole("heading", { name: "Download Agent Native Nightly" }),
     ).toBeTruthy();
+    expect(
+      screen
+        .getByRole("heading", { name: "Download Agent Native Nightly" })
+        .querySelector("span")?.className,
+    ).toContain("text-blue-600");
     await waitFor(() => {
       expect(
         screen
@@ -144,6 +155,66 @@ describe("DownloadPage", () => {
           .getByRole("link", { name: "Download for Apple Silicon" })
           .getAttribute("href"),
       ).toBe(productionManifest.assets[0].url);
+    });
+  });
+
+  it("shows a confirmed state and retry link after starting a download", async () => {
+    render(<DownloadPage />);
+
+    const download = await screen.findByRole("link", {
+      name: "Download for Apple Silicon",
+    });
+    expect(download.getAttribute("target")).toBe("_blank");
+
+    fireEvent.click(download);
+
+    expect(
+      screen
+        .getByRole("link", { name: "Download started" })
+        .getAttribute("href"),
+    ).toBe(productionManifest.assets[0].url);
+    expect(
+      screen
+        .getByRole("link", {
+          name: "Didn't work? Try downloading again",
+        })
+        .getAttribute("href"),
+    ).toBe(productionManifest.assets[0].url);
+  });
+
+  it("keeps the download button fixed while the channel manifest loads", async () => {
+    let resolveManifest!: (response: {
+      ok: boolean;
+      json: () => Promise<typeof productionManifest>;
+    }) => void;
+    fetchMock.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveManifest = resolve;
+        }),
+    );
+
+    render(<DownloadPage />);
+
+    const loadingButton = screen.getByRole("button", {
+      name: "Checking the latest desktop release...",
+    });
+    expect((loadingButton as HTMLButtonElement).disabled).toBe(true);
+    expect(loadingButton.getAttribute("aria-busy")).toBe("true");
+    expect(loadingButton.className).toContain("max-w-[18rem]");
+    expect(loadingButton.textContent).not.toContain(
+      "Checking the latest desktop release...",
+    );
+
+    resolveManifest({
+      ok: true,
+      json: async () => productionManifest,
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("link", { name: "Download for Apple Silicon" }),
+      ).toBeTruthy();
     });
   });
 

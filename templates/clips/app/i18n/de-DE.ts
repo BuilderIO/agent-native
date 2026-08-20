@@ -638,12 +638,17 @@ const messages = {
     alsoFor: "Auch verfügbar für {{platform}}",
     backToLibrary: "Zurück zur Bibliothek",
     clipsDesktop: "Clips Desktop",
+    stable: "Stabil",
+    nightly: "Nightly",
+    switchToNightly: "Zu Nightly-Builds wechseln",
+    switchToStable: "Zu stabilen Builds wechseln",
+    retry: "Erneut versuchen",
     heroDescription:
       "Ein Menüleisten-Recorder für Bildschirm, Kamera und Bildschirm + Kamera. Ein-Klick-Start, verschiebbare Kamerablase, Link zum sofortigen Teilen, wenn Sie anhalten.",
     versionReleased: "Version {{version}} – veröffentlicht {{date}}",
     version: "Übersetzt: Version {{version}}",
     manifestError:
-      "Das Release-Manifest konnte nicht geladen werden. Wählen Sie auf der Release-Seite ein Installationsprogramm aus.",
+      "Das Release-Manifest konnte nicht geladen werden. Versuchen Sie es erneut.",
     loadingRelease: "Neueste Version wird geladen…",
     chromeTitle: "Chrome-Erweiterung für Browserprotokolle",
     chromeDescription:
