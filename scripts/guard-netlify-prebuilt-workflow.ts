@@ -178,6 +178,9 @@ const parsedPublishWaitIndex = parsedStepIndex(
   "Wait for the Netlify deploy to publish",
 );
 const parsedLockIndex = parsedStepIndex("Lock the published production deploy");
+const parsedResumeIndex = parsedStepIndex(
+  "Resume automatic Netlify builds after production cutover",
+);
 const parsedCleanupIndex = parsedStepIndex(
   "Restore the production deploy lock after a failed cutover",
 );
@@ -187,19 +190,22 @@ if (
   parsedUploadIndex < 0 ||
   parsedPublishWaitIndex < 0 ||
   parsedLockIndex < 0 ||
+  parsedResumeIndex < 0 ||
   parsedCleanupIndex < 0
 ) {
   issues.push(
-    `${reusablePath} must define pause, unlock, upload, publish-wait, lock, and failure-cleanup steps in parsed YAML`,
+    `${reusablePath} must define pause, unlock, upload, publish-wait, lock, resume, and failure-cleanup steps in parsed YAML`,
   );
 } else if (
   parsedPauseIndex >= parsedUnlockIndex ||
   parsedUnlockIndex >= parsedUploadIndex ||
   parsedUploadIndex >= parsedPublishWaitIndex ||
-  parsedPublishWaitIndex >= parsedLockIndex
+  parsedPublishWaitIndex >= parsedLockIndex ||
+  parsedLockIndex >= parsedResumeIndex ||
+  parsedResumeIndex >= parsedCleanupIndex
 ) {
   issues.push(
-    `${reusablePath} parsed YAML steps must order unlock before upload before publish-wait before lock`,
+    `${reusablePath} parsed YAML steps must order unlock before upload before publish-wait before lock before resume before cleanup`,
   );
 }
 const parsedUnlockIf = reusableSteps[parsedUnlockIndex]?.if;
@@ -211,6 +217,18 @@ if (
 ) {
   issues.push(
     `${reusablePath} must restrict the production unlock step to production uploads`,
+  );
+}
+const parsedResumeIf = reusableSteps[parsedResumeIndex]?.if;
+if (
+  typeof parsedResumeIf !== "string" ||
+  !parsedResumeIf.includes("inputs.target == 'production'") ||
+  !parsedResumeIf.includes("inputs.deploy") ||
+  !parsedResumeIf.includes("inputs.deploy_mode == 'production'") ||
+  !parsedResumeIf.includes("always()")
+) {
+  issues.push(
+    `${reusablePath} must always attempt automatic-build restoration after a production cutover`,
   );
 }
 
@@ -259,7 +277,9 @@ if (
   lockStart >= cleanupStart ||
   !reusable.slice(lockStart, cleanupStart).includes("/lock") ||
   !reusable.slice(lockStart, cleanupStart).includes("published_deploy") ||
-  !reusable.slice(cleanupStart).includes("always()") ||
+  !reusable.slice(cleanupStart).includes("failure()") ||
+  !reusable.slice(cleanupStart).includes("cutoverPublishedDeployId") ||
+  !reusable.slice(cleanupStart).includes("cutoverWasLocked") ||
   !reusable.slice(cleanupStart).includes("/lock")
 ) {
   issues.push(
@@ -277,7 +297,7 @@ if (
   );
 }
 const cleanup = reusable.slice(cleanupStart);
-if (!cleanup.includes("cutoverWasStopped")) {
+if (!cleanup.includes("cutoverWasStopped") || cleanup.includes("stop_builds")) {
   issues.push(
     `${reusablePath} production cleanup must restore the prior automatic-build setting`,
   );

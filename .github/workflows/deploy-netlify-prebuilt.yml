@@ -669,7 +669,7 @@ jobs:
           NODE
 
       - name: Resume automatic Netlify builds after production cutover
-        if: inputs.target == 'production' && inputs.deploy && inputs.deploy_mode == 'production' && success()
+        if: inputs.target == 'production' && inputs.deploy && inputs.deploy_mode == 'production' && always()
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
@@ -721,10 +721,12 @@ jobs:
           NODE
 
       - name: Restore the production deploy lock after a failed cutover
-        if: inputs.target == 'production' && inputs.deploy && inputs.deploy_mode == 'production' && always()
+        if: inputs.target == 'production' && inputs.deploy && inputs.deploy_mode == 'production' && failure()
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+          cutoverPublishedDeployId: ${{ steps.unlock.outputs.published_deploy_id }}
+          cutoverWasLocked: ${{ steps.unlock.outputs.was_locked }}
           cutoverWasStopped: ${{ steps.pause.outputs.was_stopped }}
         run: |
           set -euo pipefail
@@ -753,42 +755,50 @@ jobs:
             console.log("No production cutover state was acquired; cleanup is not needed.");
             process.exit(0);
           }
+          const deployId = process.env.cutoverPublishedDeployId;
+          if (!deployId) {
+            throw new Error("Cannot restore the production lock: unlock did not record the original published deploy.");
+          }
           const site = await readJson(
             await request(`${api}/sites/${process.env.NETLIFY_SITE_ID}`),
             "Netlify published deploy lookup during failure cleanup",
           );
-          const deployId = site.published_deploy?.id;
-          if (!deployId) throw new Error("Cannot restore the production lock: site has no published deploy.");
+          const currentDeployId = site.published_deploy?.id;
+          if (!currentDeployId) {
+            throw new Error("Cannot restore the production lock: site has no published deploy.");
+          }
+          if (currentDeployId !== deployId) {
+            throw new Error(
+              `Refusing failure cleanup to modify published deploy ${currentDeployId}; cutover started from ${deployId}.`,
+            );
+          }
           const deployUrl = `${api}/deploys/${deployId}`;
           const deploy = await readJson(await request(deployUrl), "Netlify published deploy lock lookup");
-          if (deploy.locked !== true) {
-            await readJson(
-              await request(`${deployUrl}/lock`, { method: "POST" }),
-              `Netlify published deploy ${deployId} failure lock`,
-            );
-          }
-          const locked = await readJson(await request(deployUrl), "Netlify failure lock verification");
-          if (locked.locked !== true) {
-            throw new Error(`Netlify published deploy ${deployId} was not locked during failure cleanup.`);
-          }
-          if (process.env.cutoverWasStopped === "false") {
-            await readJson(
-              await request(`${api}/sites/${process.env.NETLIFY_SITE_ID}`, {
-                method: "PATCH",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ build_settings: { stop_builds: false } }),
-              }),
-              "Netlify automatic build cleanup resume",
-            );
-            const resumed = await readJson(
-              await request(`${api}/sites/${process.env.NETLIFY_SITE_ID}`),
-              "Netlify automatic build cleanup verification",
-            );
-            if (resumed.build_settings?.stop_builds !== false) {
-              throw new Error("Netlify automatic builds were not resumed during failure cleanup.");
+          if (process.env.cutoverWasLocked === "true") {
+            if (deploy.locked !== true) {
+              await readJson(
+                await request(`${deployUrl}/lock`, { method: "POST" }),
+                `Netlify published deploy ${deployId} failure lock`,
+              );
             }
+            const locked = await readJson(await request(deployUrl), "Netlify failure lock verification");
+            if (locked.locked !== true) {
+              throw new Error(`Netlify published deploy ${deployId} was not locked during failure cleanup.`);
+            }
+            console.log(`Restored production lock on deploy ${deployId}.`);
+          } else {
+            if (deploy.locked === true) {
+              await readJson(
+                await request(`${deployUrl}/unlock`, { method: "POST" }),
+                `Netlify published deploy ${deployId} failure unlock`,
+              );
+            }
+            const unlocked = await readJson(await request(deployUrl), "Netlify failure unlock verification");
+            if (unlocked.locked !== false) {
+              throw new Error(`Netlify published deploy ${deployId} was not unlocked during failure cleanup.`);
+            }
+            console.log(`Restored production unlock state on deploy ${deployId}.`);
           }
-          console.log(`Restored production lock on published deploy ${deployId}.`);
           NODE
 
       - name: Summarize the pilot

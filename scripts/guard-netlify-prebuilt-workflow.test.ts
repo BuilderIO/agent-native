@@ -122,6 +122,37 @@ describe("production Netlify site concurrency guard", () => {
     );
   });
 
+  it("restores cutover state before failure lock cleanup", () => {
+    const workflow = readWorkflow(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+    );
+    const jobs = workflow.jobs as Record<string, Workflow>;
+    const steps = (jobs.deploy.steps as Array<Workflow>).filter(Boolean);
+    const resume = steps.find(
+      (step) =>
+        step.name ===
+        "Resume automatic Netlify builds after production cutover",
+    );
+    const cleanup = steps.find(
+      (step) =>
+        step.name ===
+        "Restore the production deploy lock after a failed cutover",
+    );
+    assert.equal(typeof resume?.if, "string");
+    assert.match(resume?.if as string, /always\(\)/);
+    assert.equal(typeof cleanup?.if, "string");
+    assert.match(cleanup?.if as string, /failure\(\)/);
+    assert.equal(
+      (cleanup?.env as Record<string, unknown>).cutoverPublishedDeployId,
+      "${{ steps.unlock.outputs.published_deploy_id }}",
+    );
+    assert.equal(
+      (cleanup?.env as Record<string, unknown>).cutoverWasLocked,
+      "${{ steps.unlock.outputs.was_locked }}",
+    );
+    assert.doesNotMatch(String(cleanup?.run), /stop_builds/);
+  });
+
   it("requires the exact shared queue on deploy, manage, and promote jobs", () => {
     assert.deepEqual(validateProductionSiteConcurrency(workflows()), []);
   });
