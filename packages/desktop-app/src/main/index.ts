@@ -262,7 +262,10 @@ import {
   resolveEnvironmentLaneOrigins,
 } from "./environment-navigation";
 import { registerAppsIpc } from "./ipc/apps";
-import { registerChatFirstMcpIpc } from "./ipc/chat-first-mcp.js";
+import {
+  registerChatFirstMcpIpc,
+  resolveMcpOAuthReturnPath,
+} from "./ipc/chat-first-mcp.js";
 import { registerCodeAgentsIpc } from "./ipc/code-agents";
 import { registerContentFilesIpc } from "./ipc/content-files";
 import { registerDesktopChatIpc } from "./ipc/desktop-chat";
@@ -280,6 +283,11 @@ import {
   registerUpdatesIpc,
 } from "./ipc/updates";
 import { registerWindowIpc } from "./ipc/window";
+import {
+  classifyMcpOAuthNavigation,
+  createMcpOAuthNavigationGate,
+  restoreMcpOAuthNavigationTarget,
+} from "./mcp-oauth-navigation.js";
 import {
   createMultiFrontierQuitGuard,
   initializeMultiFrontierAppIntegration,
@@ -12237,6 +12245,7 @@ registerDesktopChatIpc();
 
 registerChatFirstMcpIpc({
   resolveMcpHost: resolveDesktopMcpHost,
+  navigateMcpOAuth: navigateMcpOAuthInDispatchWebview,
   codeAgentWorkspaceRoot: () => resolveCodeAgentsTerminalCwd({}),
 });
 
@@ -12849,6 +12858,7 @@ function openOAuthWindow(
 
 const webviewOAuthNavigationHandlers = new WeakSet<Electron.WebContents>();
 const webviewReloadGuardHandlers = new WeakSet<Electron.WebContents>();
+const mcpOAuthNavigationGate = createMcpOAuthNavigationGate();
 const routeChunkReloadBlockedUntil = new WeakMap<
   Electron.WebContents,
   number
@@ -12921,6 +12931,140 @@ function openOAuthFromWebviewNavigation(
   } catch {
     return false;
   }
+}
+
+async function navigateMcpOAuthInDispatchWebview(
+  url: string,
+  host: { baseUrl: string; session: Electron.Session },
+  webContentsId: number,
+): Promise<void> {
+  const origin = new URL(host.baseUrl).origin;
+  const target = webContents.fromId(webContentsId);
+  if (
+    !target ||
+    target.isDestroyed() ||
+    target.getType() !== "webview" ||
+    target.session !== host.session
+  ) {
+    throw new Error(
+      "The signed-in Dispatch integrations tab is no longer available.",
+    );
+  }
+  try {
+    if (new URL(target.getURL()).origin !== origin) {
+      throw new Error(
+        "The signed-in Dispatch integrations tab is no longer available.",
+      );
+    }
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("no longer")) {
+      throw error;
+    }
+    throw new Error(
+      "The signed-in Dispatch integrations tab is no longer available.",
+    );
+  }
+
+  const normalizedReturnPath = resolveMcpOAuthReturnPath(url, host.baseUrl);
+  if (!normalizedReturnPath) {
+    throw new Error("MCP OAuth return path is invalid.");
+  }
+  await new Promise<void>((resolve, reject) => {
+    // MCP OAuth must follow the provider and hosted callback inside this
+    // partition. The normal handler externalizes cross-origin redirects,
+    // which would drop the partition cookie needed to validate MCP state.
+    const releaseMcpOAuthNavigation = mcpOAuthNavigationGate.begin(target.id);
+    let settled = false;
+    const timeout = setTimeout(
+      () => {
+        finish(new Error("MCP OAuth did not return to the integrations page."));
+      },
+      5 * 60 * 1000,
+    );
+    const clearNavigationWatchers = () => {
+      clearTimeout(timeout);
+      target.removeListener("did-navigate", onNavigate);
+      target.removeListener("did-navigate-in-page", onNavigateInPage);
+      target.removeListener("did-fail-load", onFailLoad);
+    };
+    const finish = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      clearNavigationWatchers();
+      if (!error) {
+        releaseMcpOAuthNavigation();
+        resolve();
+        return;
+      }
+
+      // Keep the target gate active until the failed provider/callback page is
+      // replaced, so the restored integrations UI can safely start another flow.
+      void restoreMcpOAuthNavigationTarget(target, origin, normalizedReturnPath)
+        .catch((restoreError: unknown) => {
+          console.warn("[main] failed to restore MCP OAuth webview", {
+            reason:
+              restoreError instanceof Error
+                ? restoreError.message
+                : restoreError,
+          });
+        })
+        .finally(() => {
+          releaseMcpOAuthNavigation();
+          reject(error);
+        });
+    };
+    const onNavigate = (
+      _event: Electron.Event,
+      navigationUrl?: string,
+      httpResponseCode?: number,
+      httpStatusText?: string,
+    ) => {
+      const outcome = classifyMcpOAuthNavigation({
+        candidateUrl: navigationUrl || target.getURL(),
+        origin,
+        returnPath: normalizedReturnPath,
+        httpResponseCode,
+      });
+      if (outcome === "success") finish();
+      else if (outcome === "error") {
+        const status = httpResponseCode ? ` (${httpResponseCode})` : "";
+        finish(
+          new Error(
+            `MCP OAuth callback failed${status}${httpStatusText ? `: ${httpStatusText}` : "."}`,
+          ),
+        );
+      }
+    };
+    const onNavigateInPage = (
+      _event: Electron.Event,
+      navigationUrl?: string,
+    ) => {
+      onNavigate(_event, navigationUrl);
+    };
+    const onFailLoad = (
+      _event: Electron.Event,
+      errorCode: number,
+      errorDescription: string,
+      _validatedURL: string,
+      isMainFrame: boolean,
+    ) => {
+      if (!isMainFrame) return;
+      finish(
+        new Error(
+          `MCP OAuth navigation failed (${errorCode}): ${errorDescription || "the page could not be loaded."}`,
+        ),
+      );
+    };
+
+    target.on("did-navigate", onNavigate);
+    target.on("did-navigate-in-page", onNavigateInPage);
+    target.on("did-fail-load", onFailLoad);
+    void target
+      .loadURL(url)
+      .catch((error: unknown) =>
+        finish(error instanceof Error ? error : new Error(String(error))),
+      );
+  });
 }
 
 function normalizedNavigationHost(hostname: string): string {
@@ -13019,6 +13163,7 @@ function installWebviewOAuthNavigationHandler(contents: Electron.WebContents) {
     url: string,
     options: { isMainFrame: boolean },
   ) => {
+    if (mcpOAuthNavigationGate.isActive(contents.id)) return;
     if (handleDesktopProtocolUrl(url)) {
       event.preventDefault();
       return;

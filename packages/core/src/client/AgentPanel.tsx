@@ -3048,6 +3048,8 @@ export interface AgentSidebarProps {
   onAgentChange?: AssistantChatProps["onAgentChange"];
   /** Route local runtime setup through the host's native bridge. */
   onConnectLocalRuntime?: AssistantChatProps["onConnectLocalRuntime"];
+  /** Route hosted provider setup through the host's native bridge. */
+  onConnectProvider?: AssistantChatProps["onConnectProvider"];
   /** Bring-your-own runtime used by embedded hosts such as Electron. */
   runtime?: AssistantChatProps["runtime"];
   /** Explicit key for recreating an injected runtime adapter. */
@@ -3140,6 +3142,7 @@ export function AgentSidebar({
   selectedAgent,
   onAgentChange,
   onConnectLocalRuntime,
+  onConnectProvider,
   runtime,
   adapterReloadKey,
   threadFooterSlot,
@@ -3958,6 +3961,7 @@ export function AgentSidebar({
             selectedAgent={effectiveSelectedAgent}
             onAgentChange={effectiveOnAgentChange}
             hostedHarness={hostedHarnessEnabled}
+            onConnectProvider={onConnectProvider}
             onConnectLocalRuntime={onConnectLocalRuntime}
             runtime={runtime}
             adapterReloadKey={adapterReloadKey}
