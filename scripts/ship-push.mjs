@@ -121,9 +121,12 @@ function main() {
   console.log(`ship-push: branch ${branch}`);
   if (committed) console.log(`  committed ${committed}`);
   console.log(`  pushed    origin/${branch}@${remoteSha}`);
-  if (excluded.length > 0) {
+  const remainingExcluded = parsePorcelain(
+    git(["status", "--porcelain", "-z"], { raw: true }),
+  ).filter((file) => EXCLUDED.test(file));
+  if (remainingExcluded.length > 0) {
     console.log(
-      `  left behind (say so explicitly):\n    ${excluded.join("\n    ")}`,
+      `  left behind (say so explicitly):\n    ${remainingExcluded.join("\n    ")}`,
     );
   }
 }
