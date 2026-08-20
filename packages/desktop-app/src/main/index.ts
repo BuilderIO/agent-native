@@ -287,7 +287,10 @@ import {
   registerUpdatesIpc,
 } from "./ipc/updates";
 import { registerWindowIpc } from "./ipc/window";
-import { createMcpOAuthNavigationGate } from "./mcp-oauth-navigation.js";
+import {
+  classifyMcpOAuthNavigation,
+  createMcpOAuthNavigationGate,
+} from "./mcp-oauth-navigation.js";
 import {
   createMultiFrontierQuitGuard,
   initializeMultiFrontierAppIntegration,
@@ -12969,19 +12972,11 @@ async function navigateMcpOAuthInDispatchWebview(
   if (!normalizedReturnPath) {
     throw new Error("MCP OAuth return path is invalid.");
   }
-  const matchesReturnPath = (candidate: string): boolean => {
-    try {
-      const parsed = new URL(candidate);
-      return (
-        parsed.origin === origin &&
-        parsed.pathname.replace(/\/+$/, "") ===
-          normalizedReturnPath.replace(/\/+$/, "")
-      );
-    } catch {
-      // coercion-ok: a navigation event without a parseable URL cannot match the OAuth return path.
-      return false;
-    }
-  };
+  const startPath = new URL(url).pathname;
+  const callbackPath = startPath.replace(
+    /\/_agent-native\/mcp\/servers\/oauth\/start$/,
+    "/_agent-native/mcp/servers/oauth/callback",
+  );
 
   await new Promise<void>((resolve, reject) => {
     // MCP OAuth must follow the provider and hosted callback inside this
@@ -12998,7 +12993,8 @@ async function navigateMcpOAuthInDispatchWebview(
     const cleanup = () => {
       clearTimeout(timeout);
       target.removeListener("did-navigate", onNavigate);
-      target.removeListener("did-navigate-in-page", onNavigate);
+      target.removeListener("did-navigate-in-page", onNavigateInPage);
+      target.removeListener("did-fail-load", onFailLoad);
       releaseMcpOAuthNavigation();
     };
     const finish = (error?: Error) => {
@@ -13008,13 +13004,53 @@ async function navigateMcpOAuthInDispatchWebview(
       if (error) reject(error);
       else resolve();
     };
-    const onNavigate = (_event: Electron.Event, navigationUrl?: string) => {
-      const candidate = navigationUrl || target.getURL();
-      if (matchesReturnPath(candidate)) finish();
+    const onNavigate = (
+      _event: Electron.Event,
+      navigationUrl?: string,
+      httpResponseCode?: number,
+      httpStatusText?: string,
+    ) => {
+      const outcome = classifyMcpOAuthNavigation({
+        candidateUrl: navigationUrl || target.getURL(),
+        origin,
+        returnPath: normalizedReturnPath,
+        callbackPath,
+        httpResponseCode,
+      });
+      if (outcome === "success") finish();
+      else if (outcome === "error") {
+        const status = httpResponseCode ? ` (${httpResponseCode})` : "";
+        finish(
+          new Error(
+            `MCP OAuth callback failed${status}${httpStatusText ? `: ${httpStatusText}` : "."}`,
+          ),
+        );
+      }
+    };
+    const onNavigateInPage = (
+      _event: Electron.Event,
+      navigationUrl?: string,
+    ) => {
+      onNavigate(_event, navigationUrl);
+    };
+    const onFailLoad = (
+      _event: Electron.Event,
+      errorCode: number,
+      errorDescription: string,
+      _validatedURL: string,
+      isMainFrame: boolean,
+    ) => {
+      if (!isMainFrame) return;
+      finish(
+        new Error(
+          `MCP OAuth navigation failed (${errorCode}): ${errorDescription || "the page could not be loaded."}`,
+        ),
+      );
     };
 
     target.on("did-navigate", onNavigate);
-    target.on("did-navigate-in-page", onNavigate);
+    target.on("did-navigate-in-page", onNavigateInPage);
+    target.on("did-fail-load", onFailLoad);
     void target
       .loadURL(url)
       .catch((error: unknown) =>

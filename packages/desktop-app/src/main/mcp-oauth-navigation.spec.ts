@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { createMcpOAuthNavigationGate } from "./mcp-oauth-navigation.js";
+import {
+  classifyMcpOAuthNavigation,
+  createMcpOAuthNavigationGate,
+} from "./mcp-oauth-navigation.js";
 
 describe("MCP OAuth navigation gate", () => {
   it("tracks the authenticated webview while OAuth is active", () => {
@@ -24,5 +27,55 @@ describe("MCP OAuth navigation gate", () => {
 
     releaseSecond();
     expect(gate.isActive(42)).toBe(false);
+  });
+});
+
+describe("MCP OAuth navigation outcomes", () => {
+  const navigation = {
+    origin: "https://dispatch.example.com",
+    returnPath: "/integrations",
+    callbackPath: "/_agent-native/mcp/servers/oauth/callback",
+  };
+
+  it("completes after the hosted callback redirects to the return path", () => {
+    expect(
+      classifyMcpOAuthNavigation({
+        ...navigation,
+        candidateUrl: "https://dispatch.example.com/integrations",
+        httpResponseCode: 200,
+      }),
+    ).toBe("success");
+  });
+
+  it("rejects an HTTP error from the hosted callback instead of waiting for timeout", () => {
+    expect(
+      classifyMcpOAuthNavigation({
+        ...navigation,
+        candidateUrl:
+          "https://dispatch.example.com/_agent-native/mcp/servers/oauth/callback?error=invalid_state",
+        httpResponseCode: 400,
+      }),
+    ).toBe("error");
+  });
+
+  it("keeps a successful callback redirect pending until its return navigation", () => {
+    expect(
+      classifyMcpOAuthNavigation({
+        ...navigation,
+        candidateUrl:
+          "https://dispatch.example.com/_agent-native/mcp/servers/oauth/callback?code=one-time&state=valid",
+        httpResponseCode: 302,
+      }),
+    ).toBe("pending");
+  });
+
+  it("rejects an HTTP error on the return path as well", () => {
+    expect(
+      classifyMcpOAuthNavigation({
+        ...navigation,
+        candidateUrl: "https://dispatch.example.com/integrations",
+        httpResponseCode: 403,
+      }),
+    ).toBe("error");
   });
 });
