@@ -133,8 +133,10 @@ if (workflow) {
         `${workflowPath} must offer workflow_dispatch — it is the manual promotion gate.`,
       );
     }
+    // `workflow_call` is allowed: a caller still has to be started by a
+    // person. What must never appear is a trigger that fires on its own.
     const automaticTriggers = Object.keys(on ?? {}).filter(
-      (key) => key !== "workflow_dispatch",
+      (key) => key !== "workflow_dispatch" && key !== "workflow_call",
     );
     if (automaticTriggers.length > 0) {
       issues.push(
@@ -160,6 +162,49 @@ if (workflow) {
   if (!workflow.includes("pnpm typecheck:e2e")) {
     issues.push(
       `${workflowPath} dropped the typecheck step. e2e/ is outside the workspace typecheck sweep, so a type error would only surface after tokens were spent.`,
+    );
+  }
+}
+
+// 9. An unrequested pre-flight must never hold up a deploy.
+const prodDeployPath = ".github/workflows/deploy-production-sites-prebuilt.yml";
+const prodDeploy = read(prodDeployPath);
+if (prodDeploy && prodDeploy.includes("beta-e2e")) {
+  type ProdDeploy = {
+    on?: {
+      workflow_dispatch?: {
+        inputs?: Record<string, { default?: unknown }>;
+      };
+    };
+    jobs?: Record<string, { needs?: unknown; if?: unknown }>;
+  };
+
+  let parsedDeploy: ProdDeploy | null = null;
+  try {
+    parsedDeploy = parse(prodDeploy) as ProdDeploy;
+  } catch (error) {
+    // Not skipped quietly: a workflow this guard cannot read is one it cannot
+    // vouch for, and "unreadable" must not look like "fine".
+    issues.push(
+      `${prodDeployPath} is not valid YAML, so the deploy gate could not be checked: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  const gateInput = parsedDeploy?.on?.workflow_dispatch?.inputs?.beta_e2e;
+  if (!gateInput) {
+    issues.push(
+      `${prodDeployPath} wires the beta E2E gate but exposes no beta_e2e input, so it cannot be opted into.`,
+    );
+  } else if (gateInput.default !== false) {
+    issues.push(
+      `${prodDeployPath} defaults beta_e2e to ${JSON.stringify(gateInput.default)}. It must default to false — a deploy should never be gated on this suite unless someone asked for it.`,
+    );
+  }
+
+  const deployIf = String(parsedDeploy?.jobs?.deploy?.if ?? "");
+  if (!deployIf.includes("needs.beta-e2e.result != 'failure'")) {
+    issues.push(
+      `${prodDeployPath}'s deploy job must proceed when the beta E2E pre-flight was SKIPPED, which is its state whenever the deploy did not ask for it. Depend on \`needs.beta-e2e.result != 'failure'\`; requiring 'success' would block every deploy that opted out.`,
     );
   }
 }

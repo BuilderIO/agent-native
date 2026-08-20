@@ -12,6 +12,22 @@ name: Beta E2E (browser)
 # on every push.
 
 on:
+  # Callable from another workflow — used by the production deploy's opt-in
+  # pre-flight gate. Still never fires on its own: there is no push, schedule,
+  # or pull_request trigger here, so nothing runs this suite unless a person
+  # asks for it.
+  workflow_call:
+    inputs:
+      apps:
+        description: 'Beta apps to test ("all", or e.g. "slides,analytics")'
+        required: false
+        default: "all"
+        type: string
+      lane:
+        description: "Which lanes to run"
+        required: false
+        default: "public"
+        type: string
   workflow_dispatch:
     inputs:
       apps:
@@ -63,7 +79,7 @@ jobs:
       # into the script text before bash parses it, so a crafted input would run
       # as a command in a step that has both secrets in scope.
       BETA_E2E_APPS: ${{ inputs.apps }}
-      BETA_E2E_GREP: ${{ inputs.grep }}
+      BETA_E2E_GREP: ${{ inputs.grep || '' }}
       BETA_E2E_EMAIL: ${{ secrets.BETA_E2E_EMAIL }}
       BETA_E2E_SESSION_TOKENS: ${{ secrets.BETA_E2E_SESSION_TOKENS }}
       BETA_E2E_OPENAI_API_KEY: ${{ secrets.BETA_E2E_OPENAI_API_KEY }}
@@ -71,6 +87,8 @@ jobs:
       # because billing the shared key is the thing a dedicated key prevents.
       BETA_E2E_SHARED_OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       BETA_E2E_ALLOW_SHARED_KEY: ${{ inputs.key_source == 'shared' }}
+      # A called run has no key_source input; it is public-lane only, so no
+      # credential is needed and none is resolved.
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
