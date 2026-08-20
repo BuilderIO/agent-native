@@ -97,12 +97,13 @@ permissions:
   contents: read
 
 concurrency:
-  # Production callers must share the same per-site queue as the manager and
-  # promotion workflows. The production cutover unlocks the live deploy before
-  # uploading, so separate queues would make that unlock/upload window racy.
-  # Beta follows its own moving-ref queue and may cancel superseded builds.
+  # Direct production dispatches share the per-site queue with the fleet,
+  # manager, and promotion jobs. A called workflow gets a distinct child queue
+  # because the fleet caller already owns the shared per-site lock.
   group: >-
-    ${{ inputs.target == 'production'
+    ${{ github.event_name == 'workflow_call'
+        && format('netlify-prebuilt-child-{0}-{1}', inputs.target, inputs.site)
+        || inputs.target == 'production'
         && format('agent-native-production-site-{0}', inputs.site)
         || format('netlify-prebuilt-{0}-{1}', inputs.target, inputs.site) }}
   # Beta follows the newest moving ref. Never cancel a production publish that
@@ -233,6 +234,64 @@ jobs:
             fi
           done
           du -sh "$PUBLISH_DIRECTORY" "$FUNCTIONS_DIRECTORY"
+
+      - name: Pause automatic Netlify builds for production cutover
+        id: pause
+        if: inputs.target == 'production' && inputs.deploy && inputs.deploy_mode == 'production'
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require("node:fs");
+          const api = "https://api.netlify.com/api/v1";
+          const headers = {
+            Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}`,
+            "User-Agent": "agent-native-prebuilt-production-build-pause",
+          };
+          const request = (url, options = {}) => fetch(url, {
+            ...options,
+            headers: { ...headers, ...(options.headers || {}) },
+            signal: AbortSignal.timeout(30_000),
+          });
+
+          async function readJson(response, label) {
+            const text = await response.text();
+            const body = text ? JSON.parse(text) : null;
+            if (!response.ok) {
+              throw new Error(`${label} failed with HTTP ${response.status}: ${JSON.stringify(body)}`);
+            }
+            return body;
+          }
+
+          const siteId = process.env.NETLIFY_SITE_ID;
+          if (!siteId) throw new Error("Netlify site id is required to pause automatic builds.");
+          const site = await readJson(
+            await request(`${api}/sites/${siteId}`),
+            "Netlify build setting lookup",
+          );
+          const wasStopped = site.build_settings?.stop_builds === true;
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `was_stopped=${wasStopped}\n`);
+          if (!wasStopped) {
+            await readJson(
+              await request(`${api}/sites/${siteId}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ build_settings: { stop_builds: true } }),
+              }),
+              "Netlify automatic build pause",
+            );
+          }
+          const paused = await readJson(
+            await request(`${api}/sites/${siteId}`),
+            "Netlify automatic build pause verification",
+          );
+          if (paused.build_settings?.stop_builds !== true) {
+            throw new Error("Netlify automatic builds were not paused before production cutover.");
+          }
+          console.log(`Automatic Netlify builds paused for production cutover (previously stopped: ${wasStopped}).`);
+          NODE
 
       - name: Unlock the published production deploy
         id: unlock
@@ -566,11 +625,64 @@ jobs:
           console.log(`Locked published production deploy ${process.env.DEPLOY_ID}.`);
           NODE
 
-      - name: Restore the production deploy lock after a failed cutover
-        if: inputs.target == 'production' && inputs.deploy && inputs.deploy_mode == 'production' && failure()
+      - name: Resume automatic Netlify builds after production cutover
+        if: inputs.target == 'production' && inputs.deploy && inputs.deploy_mode == 'production' && success()
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+          WAS_STOPPED: ${{ steps.pause.outputs.was_stopped }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const api = "https://api.netlify.com/api/v1";
+          const headers = {
+            Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}`,
+            "User-Agent": "agent-native-prebuilt-production-build-resume",
+          };
+          const request = (url, options = {}) => fetch(url, {
+            ...options,
+            headers: { ...headers, ...(options.headers || {}) },
+            signal: AbortSignal.timeout(30_000),
+          });
+
+          async function readJson(response, label) {
+            const text = await response.text();
+            const body = text ? JSON.parse(text) : null;
+            if (!response.ok) {
+              throw new Error(`${label} failed with HTTP ${response.status}: ${JSON.stringify(body)}`);
+            }
+            return body;
+          }
+
+          if (process.env.WAS_STOPPED === "true") {
+            console.log("Automatic Netlify builds were already stopped; preserving that setting.");
+            process.exit(0);
+          }
+          const siteId = process.env.NETLIFY_SITE_ID;
+          await readJson(
+            await request(`${api}/sites/${siteId}`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ build_settings: { stop_builds: false } }),
+            }),
+            "Netlify automatic build resume",
+          );
+          const resumed = await readJson(
+            await request(`${api}/sites/${siteId}`),
+            "Netlify automatic build resume verification",
+          );
+          if (resumed.build_settings?.stop_builds !== false) {
+            throw new Error("Netlify automatic builds were not resumed after production cutover.");
+          }
+          console.log("Automatic Netlify builds resumed after production cutover.");
+          NODE
+
+      - name: Restore the production deploy lock after a failed cutover
+        if: inputs.target == 'production' && inputs.deploy && inputs.deploy_mode == 'production' && always()
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+          WAS_STOPPED: ${{ steps.pause.outputs.was_stopped }}
         run: |
           set -euo pipefail
           node <<'NODE'
@@ -594,6 +706,10 @@ jobs:
             return body;
           }
 
+          if (!process.env.WAS_STOPPED) {
+            console.log("No production cutover state was acquired; cleanup is not needed.");
+            process.exit(0);
+          }
           const site = await readJson(
             await request(`${api}/sites/${process.env.NETLIFY_SITE_ID}`),
             "Netlify published deploy lookup during failure cleanup",
@@ -611,6 +727,23 @@ jobs:
           const locked = await readJson(await request(deployUrl), "Netlify failure lock verification");
           if (locked.locked !== true) {
             throw new Error(`Netlify published deploy ${deployId} was not locked during failure cleanup.`);
+          }
+          if (process.env.WAS_STOPPED === "false") {
+            await readJson(
+              await request(`${api}/sites/${process.env.NETLIFY_SITE_ID}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ build_settings: { stop_builds: false } }),
+              }),
+              "Netlify automatic build cleanup resume",
+            );
+            const resumed = await readJson(
+              await request(`${api}/sites/${process.env.NETLIFY_SITE_ID}`),
+              "Netlify automatic build cleanup verification",
+            );
+            if (resumed.build_settings?.stop_builds !== false) {
+              throw new Error("Netlify automatic builds were not resumed during failure cleanup.");
+            }
           }
           console.log(`Restored production lock on published deploy ${deployId}.`);
           NODE
