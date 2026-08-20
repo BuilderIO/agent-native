@@ -4,12 +4,20 @@ import {
   IconBrandChrome,
   IconBrandApple,
   IconBrandWindows,
+  IconChevronDown,
   IconDeviceDesktop,
   IconExternalLink,
 } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import enMessages from "@/i18n/en-US";
 import {
@@ -17,6 +25,10 @@ import {
   markDesktopAppDownloaded,
   useClipsChromeExtensionEnabled,
 } from "@/lib/capture-install-options";
+import {
+  getDefaultDownloadChannel,
+  type DownloadReleaseChannel,
+} from "@/lib/download-release-channel";
 
 export function meta() {
   return [
@@ -29,7 +41,6 @@ export function meta() {
 }
 
 type PlatformId = "mac" | "windows" | "linux";
-type ReleaseChannel = "production" | "nightly";
 
 interface PlatformVariant {
   id: PlatformId;
@@ -204,7 +215,8 @@ function secondaryDownloadButton(
 export default function DownloadPage() {
   const chromeExtensionEnabled = useClipsChromeExtensionEnabled();
   const t = useT();
-  const [channel, setChannel] = useState<ReleaseChannel>("production");
+  const [channel, setChannel] = useState<DownloadReleaseChannel>("production");
+  const [hostResolved, setHostResolved] = useState(false);
   const [manifest, setManifest] = useState<Manifest | null>(null);
   const [manifestError, setManifestError] = useState(false);
   const [detected, setDetected] = useState<PlatformId | null>(null);
@@ -215,6 +227,13 @@ export default function DownloadPage() {
   }, []);
 
   useEffect(() => {
+    setChannel(getDefaultDownloadChannel(window.location.hostname));
+    setHostResolved(true);
+  }, []);
+
+  useEffect(() => {
+    if (!hostResolved) return;
+
     let cancelled = false;
     setManifest(null);
     setManifestError(false);
@@ -233,7 +252,7 @@ export default function DownloadPage() {
     return () => {
       cancelled = true;
     };
-  }, [channel, manifestRequest]);
+  }, [channel, hostResolved, manifestRequest]);
 
   const retryManifest = () => {
     setManifestRequest((request) => request + 1);
@@ -335,46 +354,53 @@ export default function DownloadPage() {
                 <>{t("downloadRoute.loadingRelease")}</>
               )}
             </div>
-            <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
-              <span>{t("downloadRoute.stable")}</span>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={channel === "nightly"}
-                aria-label={t(
-                  channel === "nightly"
-                    ? "downloadRoute.switchToStable"
-                    : "downloadRoute.switchToNightly",
-                )}
-                onClick={() =>
-                  handleChannelChange(
-                    channel === "nightly" ? "production" : "nightly",
-                  )
-                }
-                className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border border-border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 ${
-                  channel === "nightly"
-                    ? "bg-foreground"
-                    : "bg-muted-foreground/20"
-                }`}
-              >
-                <span
-                  aria-hidden="true"
-                  className={`block size-3.5 rounded-full bg-primary-foreground shadow-sm transition-transform ${
-                    channel === "nightly"
-                      ? "translate-x-[18px]"
-                      : "translate-x-[2px]"
-                  }`}
-                />
-              </button>
-              <span
-                className={
-                  channel === "nightly"
-                    ? "font-medium text-foreground"
-                    : "text-muted-foreground"
-                }
-              >
-                {t("downloadRoute.nightly")}
-              </span>
+            <div className="mt-2 flex items-center justify-center text-xs text-muted-foreground">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 gap-1.5 px-2 font-normal text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                    aria-label={t(
+                      channel === "nightly"
+                        ? "downloadRoute.switchToStable"
+                        : "downloadRoute.switchToNightly",
+                    )}
+                    data-release-channel={channel}
+                  >
+                    <span
+                      className={
+                        channel === "nightly"
+                          ? "font-medium text-foreground"
+                          : undefined
+                      }
+                    >
+                      {channel === "nightly"
+                        ? t("downloadRoute.nightly")
+                        : t("downloadRoute.stable")}
+                    </span>
+                    <IconChevronDown className="size-3.5" aria-hidden="true" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="center" className="w-44">
+                  <DropdownMenuRadioGroup
+                    value={channel}
+                    onValueChange={(value) => {
+                      if (value === "production" || value === "nightly") {
+                        handleChannelChange(value);
+                      }
+                    }}
+                  >
+                    <DropdownMenuRadioItem value="production">
+                      {t("downloadRoute.stable")}
+                    </DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="nightly">
+                      {t("downloadRoute.nightly")}
+                    </DropdownMenuRadioItem>
+                  </DropdownMenuRadioGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </div>
 
