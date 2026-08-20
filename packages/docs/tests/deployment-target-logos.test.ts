@@ -25,6 +25,10 @@ describe("deployment target logos", () => {
   it("uses a real public logo for every supported target", () => {
     const content = readFileSync(deploymentDoc, "utf8");
 
+    expect(content).toContain(
+      'title="Supported deployment targets" summary="Agent-Native apps can deploy to Node.js, Docker, Vercel, Netlify, Cloudflare Pages, Cloudflare Workers, AWS Lambda, Deno Deploy, Azure Static Web Apps, Koyeb, and Render." frame="hide" renderMode="design"',
+    );
+
     for (const logo of deploymentLogos) {
       expect(content).toContain(`src="/integration-logos/${logo}"`);
       expect(existsSync(new URL(logo, logoDirectory))).toBe(true);

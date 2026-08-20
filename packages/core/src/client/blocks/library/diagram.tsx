@@ -952,7 +952,7 @@ export const diagramBlock = defineBlock<DiagramData>({
   editSurface: "panel",
   label: "Diagram",
   description:
-    "A flexible inline architecture/code diagram. Prefer html/css with SVG or semantic HTML for polished two-dimensional layouts; use renderMode design for clean presentation or .diagram-* primitives and --wf-* tokens for theme/sketch compatibility. Legacy nodes/edges are only for simple previews.",
+    "A flexible inline architecture/code diagram. Prefer html/css with SVG or semantic HTML for polished two-dimensional layouts; use renderMode design for UI-like blocks such as cards, logo walls, tables, and controls, or .diagram-* primitives and --wf-* tokens for actual diagrams that need theme/sketch compatibility. Legacy nodes/edges are only for simple previews.",
   // Seed the legacy fallback shape so a fresh block validates while agents can
   // replace it with html/css when layout quality matters.
   empty: () => ({ nodes: [{ id: "n1", label: "Module" }], edges: [] }),

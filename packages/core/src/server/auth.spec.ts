@@ -4557,6 +4557,47 @@ describe("server/auth", () => {
       expect(readDesktopSso).toHaveBeenCalledOnce();
     });
 
+    it("can verify a desktop child session without the broker fallback", async () => {
+      vi.stubEnv("NODE_ENV", "development");
+      vi.stubEnv("AUTH_DISABLED", "1");
+      delete process.env.AGENT_NATIVE_DISABLE_DESKTOP_SSO_FALLBACK;
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      const readDesktopSso = vi.fn(async () => ({
+        email: "desktop-owner@example.com",
+        token: "desktop-sso-token",
+      }));
+      vi.doMock("./desktop-sso.js", () => ({
+        readDesktopSso,
+        writeDesktopSso: vi.fn(),
+        clearDesktopSso: vi.fn(),
+      }));
+      vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
+        ...(await importOriginal<object>()),
+        getBetterAuthSync: () => null,
+      }));
+
+      const { getSession } = await import("./auth.js");
+      const event = createMockEvent({
+        headers: {
+          "user-agent":
+            "Mozilla/5.0 Electron/41.2.2 AgentNativeDesktop/0.1.215",
+          "x-agent-native-session-check": "cookie-only",
+        },
+      });
+      const socket = { remoteAddress: "127.0.0.1" };
+      event.req.context = { clientAddress: "127.0.0.1" };
+      event.req.ip = "127.0.0.1";
+      event.node.req.socket = socket;
+      event.node.req.connection = socket;
+
+      await expect(getSession(event)).resolves.toEqual({
+        email: "dev@local.test",
+      });
+      expect(readDesktopSso).not.toHaveBeenCalled();
+    });
+
     it("never consults the Desktop SSO fallback in production", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("AUTH_DISABLED", "1");
