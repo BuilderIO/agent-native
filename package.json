@@ -131,6 +131,8 @@
     "changeset:add": "changeset add",
     "changeset:status": "changeset status --since=origin/main",
     "changeset:version": "changeset version",
+    "changelog:compact": "tsx scripts/compact-changelogs.ts --write",
+    "guard:changelog": "tsx scripts/compact-changelogs.ts --check",
     "changeset:publish": "pnpm -r build && changeset publish",
     "prep": "pnpm fmt && concurrently -n types,test,guard -c cyan,green,yellow \"pnpm typecheck\" \"pnpm test:fast\" \"pnpm guards\"",
     "prep:urgent": "pnpm fmt && TEST_WORKSPACE_CONCURRENCY=6 TYPECHECK_WORKSPACE_CONCURRENCY=10 GUARD_CONCURRENCY=6 VITEST_CONCURRENCY=25% concurrently --kill-others-on-fail -n types,test,guard -c cyan,green,yellow \"pnpm typecheck\" \"pnpm test:fast\" \"pnpm guards\"",

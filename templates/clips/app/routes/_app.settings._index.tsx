@@ -19,6 +19,8 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import changelog from "../../CHANGELOG.md?raw";
+
 import { PageHeader } from "@/components/library/page-header";
 import { AiSetupSection } from "@/components/settings/ai-setup-section";
 import { SlackSection } from "@/components/settings/slack-section";
@@ -204,8 +206,6 @@ export default function SettingsIndexRoute() {
       setSaving(false);
     }
   }
-
-  const localizedChangelog = t("settings.changelogMarkdown");
 
   // Hashes match the row ids below, so a search hit still scrolls to the
   // individual setting now that the one-control cards are rows in a group.
@@ -456,7 +456,7 @@ export default function SettingsIndexRoute() {
         whatsNew={
           <div className="mx-auto w-full max-w-3xl">
             <ChangelogSettingsCard
-              markdown={localizedChangelog}
+              markdown={changelog}
               title={t("settings.whatsNew")}
               closeLabel={t("common.cancel")}
               emptyText={t("settings.changelogEmpty")}

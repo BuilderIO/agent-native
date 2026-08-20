@@ -15,6 +15,7 @@
  */
 
 import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -89,7 +90,15 @@ function main() {
   let committed = null;
   if (publishable.length > 0) {
     // Whole files only. `--` keeps a path that looks like a flag from being one.
-    git(["add", "--", ...publishable]);
+    // `--all` stages modified and newly-created files. Deleted paths are
+    // already staged by explicit cleanup commands; omitting absent paths
+    // avoids Git rejecting a pathspec that no longer exists on disk.
+    const existingPublishable = publishable.filter((file) =>
+      existsSync(path.join(REPO_ROOT, file)),
+    );
+    if (existingPublishable.length > 0) {
+      git(["add", "--all", "--", ...existingPublishable]);
+    }
     const staged = git(["diff", "--cached", "--name-only"])
       .split("\n")
       .filter(Boolean);

@@ -73,7 +73,10 @@ export function isDocsPath(path: string): boolean {
   }
 
   const fileName = basename(normalized);
-  return /^(?:CHANGELOG|CONTRIBUTING|README)\.md$/u.test(fileName);
+  return (
+    /^(?:CHANGELOG|CONTRIBUTING|README)\.md$/u.test(fileName) ||
+    /^packages\/[^/]+\/changelog(?:\/|$)/u.test(normalized)
+  );
 }
 
 export function isWorkspacePath(path: string): boolean {
@@ -94,9 +97,6 @@ function workspaceRootForPath(path: string): string | undefined {
   }
 
   if (parent !== "templates" || !segments[1]) return undefined;
-  if (segments[1] === ".retired" && segments[2]) {
-    return `templates/.retired/${segments[2]}`;
-  }
 
   const nested = segments[2];
   if (

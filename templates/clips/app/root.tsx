@@ -42,6 +42,8 @@ import {
 } from "react-router";
 import type { LinksFunction, LoaderFunctionArgs } from "react-router";
 
+import changelog from "../CHANGELOG.md?raw";
+
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -366,7 +368,7 @@ function AppContent() {
         <CommandMenu
           open={cmdkOpen}
           onOpenChange={setCmdkOpen}
-          changelog={t("settings.changelogMarkdown")}
+          changelog={changelog}
           changelogLabel={t("settings.whatsNew")}
           changelogKey="clips"
         >
