@@ -20,6 +20,7 @@ const guards = [
   "guard:db-tool-scoping",
   "guard:template-list",
   "guard:netlify-private-env",
+  "guard:netlify-prebuilt-workflow",
   "guard:trusted-acceptance",
   "guard:content-product-conformance",
   "guard:content-product-docs",

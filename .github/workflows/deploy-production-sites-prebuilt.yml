@@ -27,7 +27,10 @@ permissions:
   contents: read
 
 concurrency:
-  group: deploy-agent-native-production-sites-prebuilt
+  # Keep fleet runs in their own queue. Per-site child-job concurrency below
+  # coordinates each cutover without letting a manager or promotion run evict
+  # a pending fleet run from GitHub's single pending slot.
+  group: agent-native-production-fleet-${{ inputs.sites }}
   cancel-in-progress: false
 
 jobs:
@@ -137,6 +140,9 @@ jobs:
   deploy:
     name: ${{ matrix.site }} production prebuilt deploy
     needs: [resolve-source, discover-sites]
+    concurrency:
+      group: agent-native-production-site-${{ matrix.site }}
+      cancel-in-progress: false
     strategy:
       fail-fast: false
       max-parallel: 3
@@ -145,6 +151,7 @@ jobs:
     with:
       target: production
       site: ${{ matrix.site }}
+      caller: fleet
       source_ref: ${{ needs.resolve-source.outputs.source_ref }}
       build_context: production
       deploy: true
