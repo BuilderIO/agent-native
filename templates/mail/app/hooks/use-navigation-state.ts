@@ -11,6 +11,7 @@ export interface NavigationState {
   search?: string;
   label?: string;
   activeInboxTab?: string;
+  activeAccounts?: string[];
   queuedDraftId?: string;
   queueScope?: string;
   settingsSection?: string;

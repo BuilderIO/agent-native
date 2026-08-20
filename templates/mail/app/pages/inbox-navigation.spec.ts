@@ -43,8 +43,12 @@ describe("Inbox navigation commands", () => {
 
   it("syncs the active inbox partition into agent navigation state", () => {
     expect(navigationHookSource()).toContain("activeInboxTab?: string;");
+    expect(navigationHookSource()).toContain("activeAccounts?: string[];");
     expect(inboxSource()).toContain(
       "activeInboxTab: activeInboxTab ?? undefined",
+    );
+    expect(inboxSource()).toContain(
+      "activeAccounts.size > 0 ? Array.from(activeAccounts) : undefined",
     );
     expect(viewScreenSource()).toContain(
       "activeInboxTab: nav.activeInboxTab ?? null",
@@ -55,9 +59,14 @@ describe("Inbox navigation commands", () => {
     const source = viewScreenSource();
 
     expect(source).toContain("activeInboxTab?: string");
+    expect(source).toContain("activeAccounts?: string[]");
     expect(source).toContain("activeInboxTab === OTHER_INBOX_TAB_PARAM");
+    expect(source).toContain("augmentSelfSentLabels");
+    expect(source).toContain("selectedAccountSet");
+    expect(source).toContain("accountEmails:");
     expect(source).toContain("filterInboxTabEmails");
     expect(source).toContain("nav.activeInboxTab");
+    expect(source).toContain("nav.activeAccounts");
   });
 });
 

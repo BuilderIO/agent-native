@@ -6,6 +6,7 @@ import { emailMessageMatchesSearch } from "@shared/search.js";
 import { z } from "zod";
 
 import {
+  augmentSelfSentLabels,
   filterInboxTabEmails,
   OTHER_INBOX_TAB_PARAM,
   resolvePinnedLabels,
@@ -51,12 +52,31 @@ async function fetchEmailList(
   search?: string,
   _label?: string,
   activeInboxTab?: string,
+  activeAccounts?: string[],
 ): Promise<any[]> {
   try {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
     const shouldFilterOther =
       view === "inbox" && !search && activeInboxTab === OTHER_INBOX_TAB_PARAM;
+    const selectedAccountEmails = Array.isArray(activeAccounts)
+      ? [
+          ...new Set(
+            activeAccounts
+              .filter((email): email is string => typeof email === "string")
+              .map((email) => email.toLowerCase()),
+          ),
+        ]
+      : [];
+    const selectedAccountSet = new Set(selectedAccountEmails);
+    const filterSelectedAccounts = (emails: any[]) => {
+      if (selectedAccountEmails.length === 0) return emails;
+      return emails.filter(
+        (email) =>
+          typeof email.accountEmail === "string" &&
+          selectedAccountSet.has(email.accountEmail.toLowerCase()),
+      );
+    };
 
     if (view === "snoozed" || view === "scheduled") {
       let emails = await getSyntheticEmailsForView(ownerEmail, view);
@@ -65,23 +85,37 @@ async function fetchEmailList(
           emailMessageMatchesSearch(e, search),
         );
       }
-      return emails.slice(0, 50);
+      return filterSelectedAccounts(emails).slice(0, 50);
     }
 
     const googleConnected = await isConnected(ownerEmail);
-    const settings = shouldFilterOther
-      ? await readSettings(ownerEmail)
-      : undefined;
+    const settings =
+      googleConnected || shouldFilterOther
+        ? await readSettings(ownerEmail)
+        : undefined;
+    const userPinnedLabels = settings?.pinnedLabels;
     const pinnedLabels =
-      settings?.pinnedLabels === undefined
+      userPinnedLabels === undefined
         ? resolvePinnedLabels([], googleConnected)
-        : resolvePinnedLabels(settings.pinnedLabels, googleConnected);
+        : resolvePinnedLabels(userPinnedLabels, googleConnected);
+    const hasNoteToSelf = pinnedLabels.includes("note-to-self");
+    const clients = googleConnected ? await getClients(ownerEmail) : [];
+    const connectedEmails = new Set(
+      clients.map(({ email }) => email.toLowerCase()),
+    );
+    const prepareEmails = (emails: any[]) => {
+      const augmented = augmentSelfSentLabels(emails as EmailMessage[], {
+        isGoogleConnected: googleConnected,
+        connectedEmails,
+        hasNoteToSelf,
+      });
+      return filterSelectedAccounts(augmented);
+    };
     const applyActiveInboxTab = (emails: any[]) =>
       shouldFilterOther
-        ? filterInboxTabEmails(emails as EmailMessage[], null, pinnedLabels)
-        : emails;
+        ? filterInboxTabEmails(prepareEmails(emails), null, pinnedLabels)
+        : prepareEmails(emails);
     if (googleConnected) {
-      const clients = await getClients(ownerEmail);
       const labelMap = new Map<string, string>();
       await Promise.all(
         clients.map(async ({ accessToken }) => {
@@ -103,6 +137,10 @@ async function fetchEmailList(
         {
           mode: "threads",
           threadFormat: "metadata",
+          accountEmails:
+            selectedAccountEmails.length > 0
+              ? selectedAccountEmails
+              : undefined,
           threadCandidateLimit: search ? 500 : undefined,
           threadRecentMessageCandidateLimit:
             !search && (view === "inbox" || view === "unread")
@@ -286,6 +324,7 @@ export default defineAction({
         nav.search,
         nav.label,
         nav.activeInboxTab,
+        nav.activeAccounts,
       );
       const selectedThreadIds = Array.isArray(nav.selectedThreadIds)
         ? new Set(
@@ -311,6 +350,7 @@ export default defineAction({
         view: nav.view,
         label: nav.label ?? null,
         activeInboxTab: nav.activeInboxTab ?? null,
+        activeAccounts: nav.activeAccounts ?? [],
         search: nav.search ?? null,
         selectedThreadIds: Array.from(selectedThreadIds),
         count: compact.length,

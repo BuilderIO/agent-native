@@ -436,6 +436,8 @@ export function InboxPage() {
       search: searchQ,
       label: activeLabel ?? undefined,
       activeInboxTab: activeInboxTab ?? undefined,
+      activeAccounts:
+        activeAccounts.size > 0 ? Array.from(activeAccounts) : undefined,
       selectedThreadIds:
         selectedThreadIds.length > 0 ? selectedThreadIds : undefined,
     });
@@ -446,6 +448,7 @@ export function InboxPage() {
     searchQ,
     activeLabel,
     activeInboxTab,
+    activeAccounts,
     selectedThreadIds,
   ]); // eslint-disable-line react-hooks/exhaustive-deps
 
