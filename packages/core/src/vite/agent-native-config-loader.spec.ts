@@ -109,4 +109,21 @@ describe("agent-native config loading", () => {
       translations: { locales: ["en-US", "es-ES"] },
     });
   });
+
+  it("does not let the legacy deployment variable override explicit JSON config", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-native-config-"));
+    temporaryRoots.push(root);
+    fs.writeFileSync(
+      path.join(root, "agent-native.json"),
+      JSON.stringify({ deployment: { environment: "production" } }),
+    );
+
+    await expect(
+      loadResolvedAgentNativeConfig(
+        root,
+        createAgentNativeConfigContext("build", "production"),
+        { environment: { AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT: "beta" } },
+      ),
+    ).resolves.toEqual({ deployment: { environment: "production" } });
+  });
 });

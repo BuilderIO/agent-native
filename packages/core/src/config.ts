@@ -193,7 +193,6 @@ const AGENT_NATIVE_CONFIG_ENV_NODES: readonly AgentNativeConfigEnvNode[] = [
   {
     path: ["deployment", "environment"],
     kind: "deployment-environment",
-    aliases: ["AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT"],
   },
   { path: ["diagnostics"], kind: "object" },
   { path: ["diagnostics", "failOnBuild"], kind: "boolean" },
@@ -395,14 +394,12 @@ function assignAgentNativeConfigEnvFragment(
   }
 
   let node = target;
-  for (const [index, segment] of path.slice(0, -1).entries()) {
+  for (const segment of path.slice(0, -1)) {
     const existing = node[segment];
     if (existing === undefined) {
       node[segment] = {};
     } else if (!isRecord(existing)) {
-      throw new Error(
-        `${key} conflicts with an earlier environment fragment at ${path.slice(0, index + 1).join(".")}`,
-      );
+      node[segment] = {};
     }
     node = node[segment] as Record<string, unknown>;
   }

@@ -288,6 +288,9 @@ For a Vite app, the effective shared configuration follows this order:
    persistent database default to required in production diagnostics.
 2. `agent-native.json` at the app root.
 3. `AGENT_NATIVE_CONFIG` and its path aliases from the deployment environment.
+   The legacy `AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT` variable remains a
+   fallback for deployment inference only; it does not override explicit JSON,
+   typed, or canonical config-alias values.
 4. The automatically loaded typed file, if present. The loader checks these
    candidates in order: `agent-native.config.ts`, `agent-native.ts`,
    `agent-native.mts`, `agent-native.config.mts`.

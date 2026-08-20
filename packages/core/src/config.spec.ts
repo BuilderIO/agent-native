@@ -327,13 +327,26 @@ describe("agent-native config environment aliases", () => {
     });
   });
 
-  it("lets the canonical deployment path replace the legacy alias", () => {
+  it("keeps the legacy deployment variable outside config-layer precedence", () => {
     expect(
       readAgentNativeConfigEnv({
-        AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT: "local",
         AGENT_NATIVE_CONFIG_DEPLOYMENT_ENVIRONMENT: " BETA ",
       }),
     ).toEqual({ deployment: { environment: "beta" } });
+    expect(
+      readAgentNativeConfigEnv({
+        AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT: "local",
+      }),
+    ).toEqual({});
+  });
+
+  it("lets a specific alias replace a scalar parent fragment", () => {
+    expect(
+      readAgentNativeConfigEnv({
+        AGENT_NATIVE_CONFIG: JSON.stringify({ harness: true }),
+        AGENT_NATIVE_CONFIG_HARNESS_RUNTIMES: JSON.stringify(["codex"]),
+      }),
+    ).toEqual({ harness: { runtimes: ["codex"] } });
   });
 
   it.each([
