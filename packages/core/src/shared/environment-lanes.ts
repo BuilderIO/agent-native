@@ -1,5 +1,6 @@
 export const BETA_OPT_OUT_QUERY_PARAM = "agentNativeBetaOptOut";
 export const BETA_OPT_OUT_DURATION_MS = 24 * 60 * 60 * 1000;
+export const BETA_OPT_OUT_STORAGE_KEY = "agent-native:beta-opt-out-until";
 
 export const ENVIRONMENT_BETA_HOSTS = {
   "agent-workspace.builder.io": "beta.agent-workspace.builder.io",
