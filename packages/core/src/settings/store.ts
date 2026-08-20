@@ -266,6 +266,32 @@ export async function deleteSetting(
   return false;
 }
 
+/** Delete a setting only when its stored value still matches the inspected value. */
+export async function deleteSettingIfValue(
+  key: string,
+  expected: Record<string, unknown>,
+  options?: StoreWriteOptions,
+): Promise<boolean> {
+  await ensureTable();
+  const client = getDbExec();
+  const table = settingsTable();
+  const result = await client.execute({
+    sql: `DELETE FROM ${table} WHERE key = ? AND value = ?`,
+    args: [key, JSON.stringify(expected)],
+  });
+  if (result.rowsAffected === 0) return false;
+
+  requestSettingsCache()?.set(key, null);
+  invalidateRequestAllSettings();
+  settingsEmitter().emit("settings", {
+    source: "settings",
+    type: "delete",
+    key,
+    ...(options?.requestSource && { requestSource: options.requestSource }),
+  });
+  return true;
+}
+
 /**
  * Delete every setting whose key starts with `prefix`. Returns the number of
  * rows removed. Used when an owning entity is deleted (e.g. an organization

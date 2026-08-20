@@ -5,12 +5,14 @@ const mockGetSetting = vi.fn();
 const mockMutateSetting = vi.fn();
 const mockPutSetting = vi.fn();
 const mockDeleteSetting = vi.fn();
+const mockDeleteSettingIfValue = vi.fn();
 
 vi.mock("./store.js", () => ({
   getSetting: (...args: any[]) => mockGetSetting(...args),
   mutateSetting: (...args: any[]) => mockMutateSetting(...args),
   putSetting: (...args: any[]) => mockPutSetting(...args),
   deleteSetting: (...args: any[]) => mockDeleteSetting(...args),
+  deleteSettingIfValue: (...args: any[]) => mockDeleteSettingIfValue(...args),
 }));
 
 import {
@@ -85,10 +87,12 @@ describe("user-settings", () => {
 
   describe("mutateUserSetting", () => {
     it("mutates a legacy mixed-case key when normalized storage is absent", async () => {
-      mockGetSetting.mockResolvedValueOnce({
-        servers: [{ id: "mcps_legacy" }],
-      });
-      const updater = vi.fn();
+      const legacyValue = { servers: [{ id: "mcps_legacy" }] };
+      mockGetSetting
+        .mockResolvedValueOnce(legacyValue)
+        .mockResolvedValueOnce(legacyValue);
+      mockDeleteSetting.mockResolvedValue(true);
+      const updater = vi.fn(() => legacyValue);
       mockMutateSetting.mockImplementation(
         async (_key: string, callback: (value: unknown) => unknown) =>
           callback(null),
@@ -106,6 +110,29 @@ describe("user-settings", () => {
       });
       expect(mockDeleteSetting).toHaveBeenCalledWith(
         "u:Alice@Test.com:mcp-servers-remote",
+        undefined,
+      );
+    });
+
+    it("does not resurrect a legacy setting when deletion wins during migration", async () => {
+      const legacyValue = { servers: [{ id: "mcps_deleted" }] };
+      mockGetSetting
+        .mockResolvedValueOnce(legacyValue)
+        .mockResolvedValueOnce(null);
+      mockDeleteSettingIfValue.mockResolvedValue(true);
+      mockMutateSetting.mockImplementation(
+        async (_key: string, callback: (value: unknown) => unknown) =>
+          callback(null),
+      );
+
+      await expect(
+        mutateUserSetting("Alice@Test.com", "mcp-servers-remote", () => ({
+          servers: legacyValue.servers,
+        })),
+      ).rejects.toThrow("deleted while migrating");
+      expect(mockDeleteSettingIfValue).toHaveBeenCalledWith(
+        "u:alice@test.com:mcp-servers-remote",
+        { servers: legacyValue.servers },
         undefined,
       );
     });
