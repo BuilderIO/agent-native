@@ -412,6 +412,7 @@ export default function DownloadPage() {
             aria-live="polite"
             className="mt-3 text-xs text-[var(--fg-secondary)]"
           >
+            <span className="sr-only">{t("downloadPage.downloadStarted")}</span>
             <a
               href={confirmedDownload.asset.url}
               target="_blank"

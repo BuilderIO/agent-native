@@ -239,6 +239,12 @@ export default function DownloadPage() {
     setManifestRequest((request) => request + 1);
   };
 
+  const handleChannelChange = (nextChannel: ReleaseChannel) => {
+    setManifest(null);
+    setManifestError(false);
+    setChannel(nextChannel);
+  };
+
   const primary = VARIANTS.find((v) => v.id === detected) ?? VARIANTS[0];
   const secondary = VARIANTS.filter((v) => v.id !== primary.id);
 
@@ -341,7 +347,9 @@ export default function DownloadPage() {
                     : "downloadRoute.switchToNightly",
                 )}
                 onClick={() =>
-                  setChannel(channel === "nightly" ? "production" : "nightly")
+                  handleChannelChange(
+                    channel === "nightly" ? "production" : "nightly",
+                  )
                 }
                 className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border border-border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 ${
                   channel === "nightly"
