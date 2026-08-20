@@ -4,6 +4,7 @@ import { IconExternalLink } from "@tabler/icons-react";
 import { useState } from "react";
 import { Link } from "react-router";
 
+import { BuilderImage } from "./builder-image";
 import { BuilderWaitlistContent } from "./BuilderWaitlistPopover";
 import { sitePathForLocale } from "./docs-locale";
 import { applyFirstTouchAttributionToLink } from "./marketing-attribution";
@@ -384,12 +385,13 @@ export function TemplateCard({ template }: { template: Template }) {
         }
       >
         {template.screenshot ? (
-          <img
+          <BuilderImage
             src={
               template.slug === "clips"
                 ? "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Febc2a7d837664382853cbfb481592b31?format=webp&width=800&height=1200"
                 : template.screenshot
             }
+            sizes="(max-width: 768px) 100vw, 400px"
             crossOrigin="anonymous"
             alt={t("templateCard.screenshotAlt", { name: template.name })}
             loading="lazy"

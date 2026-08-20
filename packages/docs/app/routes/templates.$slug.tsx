@@ -2,6 +2,7 @@ import { useLocale, useT } from "@agent-native/core/client/i18n";
 import { IconArrowLeft } from "@tabler/icons-react";
 import { Link, useParams, type LoaderFunctionArgs } from "react-router";
 
+import { BuilderImage } from "../components/builder-image";
 import { sitePathForLocale } from "../components/docs-locale";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { SectionDivider } from "../components/SectionDivider";
@@ -69,8 +70,9 @@ function TemplateFallbackArt({ template }: { template: Template }) {
 
   if (screenshot) {
     return (
-      <img
+      <BuilderImage
         src={screenshot}
+        sizes="(max-width: 900px) 100vw, 800px"
         crossOrigin="anonymous"
         alt={t("templateCard.screenshotAlt", { name: template.name })}
         loading="lazy"

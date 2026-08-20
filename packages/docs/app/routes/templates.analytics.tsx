@@ -11,6 +11,7 @@ import {
 } from "@tabler/icons-react";
 import { Link } from "react-router";
 
+import { BuilderImage } from "../components/builder-image";
 import { sitePathForLocale } from "../components/docs-locale";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { SectionDivider } from "../components/SectionDivider";
@@ -172,8 +173,9 @@ export default function AnalyticsTemplate() {
           </a>
         }
         media={
-          <img
+          <BuilderImage
             src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F816761dfcd484a79b71ba38379f7beda"
+            sizes="(max-width: 900px) 100vw, 800px"
             crossOrigin="anonymous"
             alt={t("templateLanding.analytics.s001")}
             loading="lazy"

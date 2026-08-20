@@ -45,6 +45,17 @@ describe("renderMarkdownToHtml", () => {
     expect(html).toContain('decoding="async"');
   });
 
+  it("renders Builder CDN images as responsive WebP", () => {
+    const source =
+      "https://cdn.builder.io/api/v1/image/assets%2Fspace%2Fasset-id";
+    const html = renderMarkdownToHtml(`![Builder image](${source})`);
+
+    expect(html).toContain(`${source}?format=webp&amp;width=800`);
+    expect(html).toContain(`${source}?format=webp&amp;width=240 240w`);
+    expect(html).toContain('sizes="(max-width: 900px) 100vw, 900px"');
+    expect(html).not.toContain(`src="${source}"`);
+  });
+
   it("infers markdown highlighting for generic markdown-like snippets", () => {
     const html = renderMarkdownToHtml(`
 \`\`\`text

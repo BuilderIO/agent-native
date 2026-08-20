@@ -9,6 +9,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { codeToHtml } from "shiki";
 
 import {
+  BUILDER_IMAGE_WIDTHS,
+  getBuilderImageSrcSet,
+  getBuilderImageUrl,
+  isBuilderImageUrl,
+} from "./builder-image-urls";
+import {
   DEFAULT_DOCS_LOCALE,
   localizeDocsHref,
   type DocsLocale,
@@ -33,6 +39,9 @@ interface ImageDimensions {
 const DEFAULT_CODE_MAX_LINES = 17;
 const MAX_CONFIGURED_CODE_LINES = 2000;
 const MAX_RENDERED_MARKDOWN_CACHE_ENTRIES = 64;
+const DOCS_BUILDER_IMAGE_SIZES = "(max-width: 900px) 100vw, 900px";
+const DOCS_BUILDER_IMAGE_FALLBACK_WIDTH =
+  BUILDER_IMAGE_WIDTHS[BUILDER_IMAGE_WIDTHS.length - 1] ?? 800;
 
 const DOCS_IMAGE_DIMENSIONS: Record<string, ImageDimensions> = {
   "/screenshots/analytics.png": { width: 1400, height: 710 },
@@ -331,7 +340,14 @@ function createRenderer(locale: DocsLocale) {
     const sizeAttributes = dimensions
       ? ` width="${dimensions.width}" height="${dimensions.height}"`
       : "";
-    const image = `<img src="${escapeHtml(token.href)}" alt="${escapeHtml(token.text)}"${title} class="docs-image" loading="lazy" decoding="async"${sizeAttributes}>`;
+    const builderImageAttributes = isBuilderImageUrl(token.href)
+      ? [
+          `src="${escapeHtml(getBuilderImageUrl(token.href, DOCS_BUILDER_IMAGE_FALLBACK_WIDTH))}"`,
+          `srcset="${escapeHtml(getBuilderImageSrcSet(token.href) ?? "")}"`,
+          `sizes="${escapeHtml(DOCS_BUILDER_IMAGE_SIZES)}"`,
+        ].join(" ")
+      : `src="${escapeHtml(token.href)}"`;
+    const image = `<img ${builderImageAttributes} alt="${escapeHtml(token.text)}"${title} class="docs-image" loading="lazy" decoding="async"${sizeAttributes}>`;
 
     if (!dimensions) return image;
 
