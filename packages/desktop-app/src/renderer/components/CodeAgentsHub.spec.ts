@@ -19,7 +19,9 @@ import {
   filterDesktopApps,
   mergeDesktopAppLists,
   isDispatchControlPlanePath,
+  isNativeDesktopIntegrationsPath,
   isChatFirstSurfaceTabActive,
+  updateAppAuthStateByTab,
   updateDesktopIdentityStatusByTab,
   orderDesktopApps,
   MultiFrontierModeControl,
@@ -516,6 +518,9 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(dispatchControlPlaneTitle("/admin/automations?view=all")).toBe(
       "Automations",
     );
+    expect(isNativeDesktopIntegrationsPath("/integrations")).toBe(true);
+    expect(isNativeDesktopIntegrationsPath("/admin/integrations")).toBe(true);
+    expect(isNativeDesktopIntegrationsPath("/integrations/slack")).toBe(false);
   });
 
   it("keeps Dispatch internal while excluding it from Electron app discovery", () => {
@@ -658,5 +663,30 @@ describe("CodeAgentsHub desktop identity status", () => {
     expect(source).toContain("const openTabIds = new Set");
     expect(source).toContain("staleTabIds");
     expect(source).toContain("delete next[tabId]");
+  });
+});
+
+describe("CodeAgentsHub app auth state", () => {
+  it("keeps auth state isolated across app tabs", () => {
+    let stateByTab = updateAppAuthStateByTab(
+      {},
+      "dispatch-tab-1",
+      "unauthenticated",
+    );
+    stateByTab = updateAppAuthStateByTab(
+      stateByTab,
+      "dispatch-tab-2",
+      "authenticated",
+    );
+    stateByTab = updateAppAuthStateByTab(
+      stateByTab,
+      "dispatch-tab-1",
+      "authenticated",
+    );
+
+    expect(stateByTab).toEqual({
+      "dispatch-tab-1": "authenticated",
+      "dispatch-tab-2": "authenticated",
+    });
   });
 });

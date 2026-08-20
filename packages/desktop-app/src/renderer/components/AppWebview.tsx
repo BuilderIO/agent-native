@@ -105,6 +105,93 @@ export function resolveAppWebviewAuthState(
   }
 }
 
+export function buildGuestAuthStateProbeScript(): string {
+  return `(() => {
+    const sessionUrl = new URL("/_agent-native/auth/session", window.location.origin);
+    return fetch(sessionUrl.toString(), {
+      credentials: "include",
+      cache: "no-store",
+      headers: { Accept: "application/json" },
+    }).then(async (response) => {
+      const bodyText = await response.text();
+      let body = null;
+      try {
+        body = JSON.parse(bodyText);
+      } catch {
+        return {
+          authenticated: null,
+          invalidJson: true,
+          status: response.status,
+          url: response.url,
+        };
+      }
+      const record = body && typeof body === "object" ? body : null;
+      const hasSession = Boolean(
+        record &&
+          !Object.prototype.hasOwnProperty.call(record, "error") &&
+          (record.email || record.user || record.session),
+      );
+      return {
+        authenticated: hasSession,
+        status: response.status,
+        url: response.url,
+      };
+    });
+  })()`;
+}
+
+export function resolveAppWebviewAuthStateFromProbe(
+  result: unknown,
+  fallbackState: AppWebviewAuthState,
+): AppWebviewAuthState {
+  if (!result || typeof result !== "object") return fallbackState;
+  const probe = result as {
+    authenticated?: unknown;
+    invalidJson?: unknown;
+    status?: unknown;
+    url?: unknown;
+  };
+  if (probe.status === 401 || probe.status === 403) {
+    return "unauthenticated";
+  }
+  if (probe.status === 404) return fallbackState;
+  if (
+    typeof probe.status === "number" &&
+    (probe.status < 200 || probe.status >= 300)
+  ) {
+    return "unknown";
+  }
+  if (probe.invalidJson === true) return "unknown";
+  if (probe.authenticated === true) return "authenticated";
+  if (probe.authenticated === false) return "unauthenticated";
+  const responseUrl =
+    typeof probe.url === "string"
+      ? resolveAppWebviewAuthState(probe.url)
+      : "unknown";
+  return responseUrl === "unknown" ? "unknown" : responseUrl;
+}
+
+async function readAppWebviewAuthState(
+  webview: ElectronWebviewElement,
+): Promise<AppWebviewAuthState> {
+  let currentUrl = "";
+  try {
+    currentUrl = webview.getURL() || webview.src || "";
+  } catch {
+    currentUrl = webview.src || "";
+  }
+  const fallbackState = resolveAppWebviewAuthState(currentUrl || undefined);
+  try {
+    const result = await webview.executeJavaScript(
+      buildGuestAuthStateProbeScript(),
+      false,
+    );
+    return resolveAppWebviewAuthStateFromProbe(result, fallbackState);
+  } catch {
+    return "unknown";
+  }
+}
+
 export function isDesktopIdentityGateEligible(
   app: Pick<AppDefinition, "id">,
   appConfig?: Pick<AppConfig, "isBuiltIn" | "mode" | "url" | "workspaceSso">,
@@ -908,6 +995,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       };
       const titleTimers = new Set<ReturnType<typeof setTimeout>>();
       let disposed = false;
+      let authProbeSequence = 0;
       const emitTitle = (candidate?: unknown) => {
         const title = String(candidate ?? "").trim();
         if (title) onTitleChangeRef.current?.(title);
@@ -933,15 +1021,12 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       };
       const emitAuthState = () => {
         if (disposed) return;
-        let currentUrl: string | undefined;
-        try {
-          currentUrl = wv.getURL() || wv.src;
-        } catch {
-          currentUrl = wv.src;
-        }
-        onAuthStateChangeRef.current?.(
-          resolveAppWebviewAuthState(currentUrl || undefined),
-        );
+        const sequence = ++authProbeSequence;
+        onAuthStateChangeRef.current?.("unknown");
+        void readAppWebviewAuthState(wv).then((state) => {
+          if (disposed || sequence !== authProbeSequence) return;
+          onAuthStateChangeRef.current?.(state);
+        });
       };
 
       onAuthStateChangeRef.current?.("unknown");
@@ -1079,15 +1164,17 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       if (!isActive || app.placeholder) return;
       const wv = webviewRef.current;
       if (!wv) return;
-      let currentUrl: string | undefined;
+      let currentUrl = "";
       try {
-        currentUrl = wv.getURL() || wv.src;
+        currentUrl = wv.getURL() || "";
       } catch {
-        currentUrl = wv.src;
+        currentUrl = "";
       }
-      onAuthStateChangeRef.current?.(
-        resolveAppWebviewAuthState(currentUrl || undefined),
-      );
+      onAuthStateChangeRef.current?.("unknown");
+      if (!currentUrl) return;
+      void readAppWebviewAuthState(wv).then((state) => {
+        onAuthStateChangeRef.current?.(state);
+      });
     }, [app.placeholder, isActive, url]);
 
     // Cmd+R — reload the active webview when refreshKey increments

@@ -118,11 +118,13 @@ import AppWebview, {
   isDesktopIdentityAuthenticated,
   isDesktopIdentityGateUnauthenticated,
   resolveAppWebviewUrl,
+  type AppWebviewAuthState,
 } from "./AppWebview.js";
 import CodeAgentsAppIcon from "./CodeAgentsAppIcon.js";
 import CodeAgentSchedulesPanel from "./CodeAgentSchedulesPanel.js";
 import CreateAppPromptPopover from "./CreateAppPromptPopover.js";
 import DesktopAppChatShell from "./DesktopAppChatShell.js";
+import DesktopIntegrationsPage from "./DesktopIntegrationsPage.js";
 import DesktopTerminalSurface, {
   type DesktopTerminalPromptRequest,
 } from "./DesktopTerminalSurface.js";
@@ -300,6 +302,17 @@ export function dispatchControlPlaneTitle(path?: string): string | null {
     return "Integrations";
   }
   return "Automations";
+}
+
+export function isNativeDesktopIntegrationsPath(path?: string): boolean {
+  if (!path?.trim()) return false;
+  try {
+    const pathname = new URL(path, "http://agent-native.invalid").pathname;
+    return pathname === "/integrations" || pathname === "/admin/integrations";
+    // coercion-ok: malformed tab paths are absent from the native integrations route.
+  } catch {
+    return false;
+  }
 }
 
 function isVisibleChatFirstSurfaceTab(
@@ -552,6 +565,14 @@ export function updateDesktopIdentityStatusByTab(
   return current[tabId] === status ? current : { ...current, [tabId]: status };
 }
 
+export function updateAppAuthStateByTab(
+  current: Readonly<Record<string, AppWebviewAuthState>>,
+  tabId: string,
+  state: AppWebviewAuthState,
+): Record<string, AppWebviewAuthState> {
+  return current[tabId] === state ? current : { ...current, [tabId]: state };
+}
+
 interface CodeAgentsHubProps {
   apps: AppConfig[];
   workspaceAppList?: DesktopWorkspaceAppListResult;
@@ -630,6 +651,9 @@ export default function CodeAgentsHub({
   const [desktopIdentityStatusByTab, setDesktopIdentityStatusByTab] = useState<
     Record<string, DesktopIdentityStatus | "checking">
   >({});
+  const [appAuthStateByTab, setAppAuthStateByTab] = useState<
+    Record<string, AppWebviewAuthState>
+  >({});
   const handleDesktopIdentityStatusChange = useCallback(
     (tabId: string, status: DesktopIdentityStatus | "checking") => {
       setDesktopIdentityStatusByTab((current) =>
@@ -638,9 +662,26 @@ export default function CodeAgentsHub({
     },
     [],
   );
+  const handleAppAuthStateChange = useCallback(
+    (tabId: string, state: AppWebviewAuthState) => {
+      setAppAuthStateByTab((current) =>
+        updateAppAuthStateByTab(current, tabId, state),
+      );
+    },
+    [],
+  );
   useEffect(() => {
     const openTabIds = new Set(chatFirstSurfaceTabs.tabs.map((tab) => tab.id));
     setDesktopIdentityStatusByTab((current) => {
+      const staleTabIds = Object.keys(current).filter(
+        (tabId) => !openTabIds.has(tabId),
+      );
+      if (staleTabIds.length === 0) return current;
+      const next = { ...current };
+      for (const tabId of staleTabIds) delete next[tabId];
+      return next;
+    });
+    setAppAuthStateByTab((current) => {
       const staleTabIds = Object.keys(current).filter(
         (tabId) => !openTabIds.has(tabId),
       );
@@ -2465,6 +2506,15 @@ export default function CodeAgentsHub({
           tabId: tab.id,
           activeTabId: activeChatFirstSurfaceTab?.id,
         });
+        const appAuthState = appAuthStateByTab[tab.id];
+        const desktopIdentityStatus = desktopIdentityStatusByTab[tab.id];
+        const showNativeIntegrations =
+          surfaceApp.id === "dispatch" &&
+          isNativeDesktopIntegrationsPath(tab.path) &&
+          appAuthState === "authenticated" &&
+          (desktopIdentityStatus === undefined ||
+            desktopIdentityStatus === "idle" ||
+            desktopIdentityStatus === "signed-in");
         return (
           <ChatFirstAppPane
             app={surfaceApp}
@@ -2475,29 +2525,38 @@ export default function CodeAgentsHub({
                 appId={surfaceApp.id}
                 appName={surfaceApp.name}
                 desktopIdentityUnauthenticated={isDesktopIdentityGateUnauthenticated(
-                  desktopIdentityStatusByTab[tab.id],
+                  desktopIdentityStatus,
                 )}
                 desktopIdentityAuthenticated={isDesktopIdentityAuthenticated(
-                  desktopIdentityStatusByTab[tab.id],
+                  desktopIdentityStatus,
                 )}
+                desktopIdentityStatus={desktopIdentityStatus}
+                appAuthState={appAuthState}
                 isActive={isTabActive}
                 onLocalCodeChangeStarted={onLocalCodeChangeStarted}
               >
-                <AppWebview
-                  app={toAppDefinition(surfaceApp)}
-                  appConfig={surfaceApp}
-                  isActive={isTabActive}
-                  theme={theme}
-                  urlPath={tab.path}
-                  urlParams={
-                    dispatchControlPlane
-                      ? dispatchControlPlaneUrlParams(tab.path)
-                      : { embedded: "1", chatFirst: "1" }
-                  }
-                  onDesktopIdentityStatusChange={(status) =>
-                    handleDesktopIdentityStatusChange(tab.id, status)
-                  }
-                />
+                {showNativeIntegrations ? (
+                  <DesktopIntegrationsPage />
+                ) : (
+                  <AppWebview
+                    app={toAppDefinition(surfaceApp)}
+                    appConfig={surfaceApp}
+                    isActive={isTabActive}
+                    theme={theme}
+                    urlPath={tab.path}
+                    urlParams={
+                      dispatchControlPlane
+                        ? dispatchControlPlaneUrlParams(tab.path)
+                        : { embedded: "1", chatFirst: "1" }
+                    }
+                    onAuthStateChange={(state) =>
+                      handleAppAuthStateChange(tab.id, state)
+                    }
+                    onDesktopIdentityStatusChange={(status) =>
+                      handleDesktopIdentityStatusChange(tab.id, status)
+                    }
+                  />
+                )}
               </DesktopAppChatShell>
             )}
             copy={defaultChatFirstCopy}
@@ -2517,6 +2576,7 @@ export default function CodeAgentsHub({
     },
     [
       activeChatFirstSurfaceTab?.id,
+      appAuthStateByTab,
       chatFirstAgentActivities,
       chatFirstPreviewStatus,
       chatFirstPreviewStatusMessage,
@@ -2528,6 +2588,7 @@ export default function CodeAgentsHub({
       closeChatFirstSurfaceTab,
       desktopIdentityStatusByTab,
       handleDesktopIdentityStatusChange,
+      handleAppAuthStateChange,
       host,
       isActive,
       onLocalCodeChangeStarted,

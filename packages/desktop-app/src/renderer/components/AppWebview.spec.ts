@@ -17,8 +17,10 @@ import { buildGuestThemeScript } from "../lib/theme.js";
 import {
   APP_WEBVIEW_PREFERENCES,
   buildGuestAppChatSidebarStateScript,
+  buildGuestAuthStateProbeScript,
   resolveAppWebviewPartition,
   resolveAppWebviewAuthState,
+  resolveAppWebviewAuthStateFromProbe,
   resolveAppWebviewUrl,
   withDesktopEnvironmentOptOut,
   isDesktopIdentityAuthenticated,
@@ -591,6 +593,36 @@ describe("Desktop identity gate eligibility", () => {
 });
 
 describe("AppWebview auth state", () => {
+  it("probes the guest session instead of trusting a client route", () => {
+    expect(buildGuestAuthStateProbeScript()).toContain(
+      "/_agent-native/auth/session",
+    );
+    expect(
+      resolveAppWebviewAuthStateFromProbe(
+        { authenticated: false, status: 200 },
+        "authenticated",
+      ),
+    ).toBe("unauthenticated");
+    expect(
+      resolveAppWebviewAuthStateFromProbe(
+        { authenticated: true, status: 200 },
+        "unauthenticated",
+      ),
+    ).toBe("authenticated");
+  });
+
+  it("falls back only when the app does not expose the session endpoint", () => {
+    expect(
+      resolveAppWebviewAuthStateFromProbe({ status: 404 }, "authenticated"),
+    ).toBe("authenticated");
+    expect(
+      resolveAppWebviewAuthStateFromProbe(
+        { authenticated: false, status: 500 },
+        "authenticated",
+      ),
+    ).toBe("unknown");
+  });
+
   it("recognizes framework and app-base sign-in routes", () => {
     expect(
       resolveAppWebviewAuthState(
