@@ -49,11 +49,15 @@ contract.
 - Never add `Co-Authored-By` or other agent attribution to commits.
 - PRs use the current branch unless the user explicitly requests a new branch.
   PRs are ready for review by default, not drafts, unless requested.
-- Deployment split: merges to `main` auto-deploy only beta sites at
-  `beta.*.agent-native.com`. Normal `/ship` does not monitor post-merge
-  deployments or claim beta health; use `/ship-and-monitor` to verify beta.
-  Production promotion is manual, and critical fixes must be explicitly
-  promoted to production through the manual
+- Deployment split: `.github/workflows/deploy-beta-sites-prebuilt.yml` is the
+  sole automatic beta publisher. It builds in GitHub Actions and uploads
+  prebuilt artifacts to the independent Netlify beta sites at
+  `beta.*.agent-native.com`; Netlify Git-connected auto-builds are disabled.
+  Do not wait for Netlify build queues or deploy-preview checks. Verify the
+  GitHub Actions run and its per-site smoke checks instead. Normal `/ship` does
+  not monitor post-merge deployments or claim beta health; use
+  `/ship-and-monitor` to verify beta. Production promotion is manual, and
+  critical fixes must be explicitly promoted to production through the manual
   `.github/workflows/deploy-production-sites-prebuilt.yml` or targeted
   `promote-netlify-deploy.yml` workflows. Let the workflow manage Netlify lock
   transitions; do not manually remove a lock or imply that clearing one makes

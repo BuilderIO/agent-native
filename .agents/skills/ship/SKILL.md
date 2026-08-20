@@ -3,8 +3,8 @@ name: ship
 description: >-
   Commit and push the complete current-branch snapshot, open a ready PR,
   babysit it, merge when clean, then create a fresh branch. Use when the user
-  asks to ship, publish, or hand off local changes. Main auto-deploys beta;
-  production promotion is manual.
+  asks to ship, publish, or hand off local changes. GitHub Actions auto-deploys
+  beta through the prebuilt publisher; production promotion is manual.
 user-invocable: true
 scope: dev
 metadata:
@@ -57,7 +57,11 @@ snapshots as local work arrives.
 
 ## Deployment split
 
-Merges to `main` auto-deploy only beta sites at `beta.*.agent-native.com`.
+Merges to `main` trigger `.github/workflows/deploy-beta-sites-prebuilt.yml`,
+which builds in GitHub Actions and uploads prebuilt artifacts to the independent
+Netlify beta sites at `beta.*.agent-native.com`. Netlify Git-connected
+auto-builds are disabled, so do not wait for Netlify build queues or
+deploy-preview checks; verify the Actions run and its per-site smoke checks.
 Production promotion is a separate manual operation. The normal `/ship` flow
 does not wait for or verify post-merge beta deployment; use
 `/ship-and-monitor` to verify beta and the release tail. It also must not imply

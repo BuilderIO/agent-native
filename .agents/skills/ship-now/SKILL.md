@@ -5,7 +5,8 @@ description: >-
   feedback resolution, whole-branch push, immediate admin merge, and
   fresh-branch rotation. Use when the user explicitly wants to merge
   immediately after local prep recovery, then monitor beta and release
-  workflows. Main auto-deploys beta; production promotion is manual.
+  workflows. GitHub Actions auto-deploys beta through the prebuilt publisher;
+  production promotion is manual.
 ---
 
 # Ship Now
@@ -19,7 +20,11 @@ after merge, not waited on before the admin merge.
 
 ## Deployment split
 
-Merges to `main` auto-deploy only beta sites at `beta.*.agent-native.com`.
+Merges to `main` trigger `.github/workflows/deploy-beta-sites-prebuilt.yml`,
+which builds in GitHub Actions and uploads prebuilt artifacts to the independent
+Netlify beta sites at `beta.*.agent-native.com`. Netlify Git-connected
+auto-builds are disabled, so do not wait for Netlify build queues or
+deploy-preview checks; verify the Actions run and its per-site smoke checks.
 Production promotion is manual. `/ship-now` monitors beta and any release tail
 after the fast merge; it does not imply that production was promoted. If a
 critical fix needs production, explicitly run the manual promotion and monitor

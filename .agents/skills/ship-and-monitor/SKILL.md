@@ -18,7 +18,11 @@ below. Read `.agents/skills/ship/SKILL.md` and follow every step through
 
 ## Deployment split
 
-Merges to `main` auto-deploy only beta sites at `beta.*.agent-native.com`.
+Merges to `main` trigger `.github/workflows/deploy-beta-sites-prebuilt.yml`,
+which builds in GitHub Actions and uploads prebuilt artifacts to the independent
+Netlify beta sites at `beta.*.agent-native.com`. Netlify Git-connected
+auto-builds are disabled, so do not wait for Netlify build queues or
+deploy-preview checks; verify the Actions run and its per-site smoke checks.
 Production promotion is manual. A healthy beta deploy is not proof that
 production changed, and a production deploy is not expected unless an explicit
 manual promotion was started for the task.
