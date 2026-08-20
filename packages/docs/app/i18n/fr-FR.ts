@@ -1236,6 +1236,7 @@ const frFR = {
     downloadInstaller: "Télécharger l'installateur",
     loadError: "Impossible de charger le dernier installateur desktop.",
     checkingRelease: "Recherche de la dernière version desktop...",
+    retry: "Réessayer",
     unavailable: "Installateur indisponible pour cette plateforme",
     stable: "Stable",
     nightly: "Nightly",

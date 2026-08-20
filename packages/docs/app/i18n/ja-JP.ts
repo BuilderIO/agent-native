@@ -1232,6 +1232,7 @@ const jaJP = {
     downloadInstaller: "インストーラーをダウンロード",
     loadError: "最新のデスクトップインストーラーを読み込めませんでした。",
     checkingRelease: "最新のデスクトップリリースを確認しています...",
+    retry: "再試行",
     unavailable: "このプラットフォームではインストーラーを利用できません",
     stable: "安定版",
     nightly: "Nightly",

@@ -1217,6 +1217,7 @@ const messages = {
     downloadInstaller: "下載安裝程式",
     loadError: "無法載入最新桌面安裝程式。",
     checkingRelease: "正在檢查最新桌面版...",
+    retry: "重試",
     unavailable: "此平台沒有可用的安裝程式",
     stable: "穩定版",
     nightly: "Nightly",

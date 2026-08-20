@@ -1219,6 +1219,7 @@ const zhCN = {
     downloadInstaller: "下载安装程序",
     loadError: "无法加载最新桌面安装程序。",
     checkingRelease: "正在检查最新桌面版...",
+    retry: "重试",
     unavailable: "此平台暂无安装程序",
     stable: "稳定版",
     nightly: "Nightly",

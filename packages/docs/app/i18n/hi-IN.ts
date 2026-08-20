@@ -1229,6 +1229,7 @@ const hiIN = {
     downloadInstaller: "Installer डाउनलोड करें",
     loadError: "नवीनतम desktop installer लोड नहीं हो सका।",
     checkingRelease: "नवीनतम desktop release जांच रहे हैं...",
+    retry: "फिर कोशिश करें",
     unavailable: "इस platform के लिए installer उपलब्ध नहीं है",
     stable: "स्थिर",
     nightly: "Nightly",

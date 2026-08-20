@@ -1228,6 +1228,7 @@ const arSA = {
     downloadInstaller: "تنزيل المثبّت",
     loadError: "تعذر تحميل أحدث مثبّت لسطح المكتب.",
     checkingRelease: "جارٍ التحقق من أحدث إصدار لسطح المكتب...",
+    retry: "إعادة المحاولة",
     unavailable: "المثبّت غير متاح لهذه المنصة",
     stable: "مستقر",
     nightly: "Nightly",

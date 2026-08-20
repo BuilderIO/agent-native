@@ -1229,6 +1229,7 @@ const enUS = {
     downloadInstaller: "Download installer",
     loadError: "Could not load the latest desktop installer.",
     checkingRelease: "Checking the latest desktop release...",
+    retry: "Retry",
     unavailable: "Installer unavailable for this platform",
     stable: "Stable",
     nightly: "Nightly",

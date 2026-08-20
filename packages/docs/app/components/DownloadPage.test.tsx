@@ -21,6 +21,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       "downloadPage.downloadInstaller": "Download installer",
       "downloadPage.checkingRelease": "Checking the latest desktop release...",
       "downloadPage.loadError": "Could not load the latest desktop installer.",
+      "downloadPage.retry": "Retry",
       "downloadPage.unavailable": "Installer unavailable for this platform",
       "downloadPage.stable": "Stable",
       "downloadPage.nightly": "Nightly",
@@ -137,6 +138,26 @@ describe("DownloadPage", () => {
     expect(
       screen.getByRole("heading", { name: "Download Agent Native" }),
     ).toBeTruthy();
+    await waitFor(() => {
+      expect(
+        screen
+          .getByRole("link", { name: "Download for Apple Silicon" })
+          .getAttribute("href"),
+      ).toBe(productionManifest.assets[0].url);
+    });
+  });
+
+  it("offers a retry action when the manifest request fails", async () => {
+    fetchMock.mockRejectedValueOnce(new Error("temporary failure"));
+
+    render(<DownloadPage />);
+
+    const retry = await screen.findByRole("button", { name: "Retry" });
+    expect((retry as HTMLButtonElement).disabled).toBe(false);
+    expect(retry.getAttribute("aria-busy")).toBe("false");
+
+    fireEvent.click(retry);
+
     await waitFor(() => {
       expect(
         screen

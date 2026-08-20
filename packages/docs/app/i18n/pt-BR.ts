@@ -1232,6 +1232,7 @@ const ptBR = {
     downloadInstaller: "Baixar instalador",
     loadError: "Não foi possível carregar o instalador desktop mais recente.",
     checkingRelease: "Verificando a versão desktop mais recente...",
+    retry: "Tentar novamente",
     unavailable: "Instalador indisponível para esta plataforma",
     stable: "Estável",
     nightly: "Nightly",

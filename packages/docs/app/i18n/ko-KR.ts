@@ -1232,6 +1232,7 @@ const koKR = {
     downloadInstaller: "설치 프로그램 다운로드",
     loadError: "최신 데스크톱 설치 프로그램을 불러올 수 없습니다.",
     checkingRelease: "최신 데스크톱 릴리스를 확인하는 중...",
+    retry: "다시 시도",
     unavailable: "이 플랫폼에서는 설치 프로그램을 사용할 수 없습니다",
     stable: "안정",
     nightly: "Nightly",

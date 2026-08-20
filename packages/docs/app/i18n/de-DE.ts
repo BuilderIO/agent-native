@@ -1236,6 +1236,7 @@ const deDE = {
     downloadInstaller: "Installer herunterladen",
     loadError: "Der neueste Desktop-Installer konnte nicht geladen werden.",
     checkingRelease: "Neueste Desktop-Version wird geprüft...",
+    retry: "Erneut versuchen",
     unavailable: "Installer für diese Plattform nicht verfügbar",
     stable: "Stabil",
     nightly: "Nightly",

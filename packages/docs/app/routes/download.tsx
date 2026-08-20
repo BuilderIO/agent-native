@@ -182,6 +182,7 @@ export default function DownloadPage() {
   const [channel, setChannel] = useState<DesktopReleaseChannel>("production");
   const [manifest, setManifest] = useState<Manifest | null>(null);
   const [manifestError, setManifestError] = useState(false);
+  const [manifestRequest, setManifestRequest] = useState(0);
   const [isDesktopApp, setIsDesktopApp] = useState(false);
 
   useEffect(() => {
@@ -217,7 +218,7 @@ export default function DownloadPage() {
     return () => {
       cancelled = true;
     };
-  }, [channel]);
+  }, [channel, manifestRequest]);
 
   const isNightly = channel === "nightly";
   const info = PLATFORMS[platform];
@@ -243,19 +244,26 @@ export default function DownloadPage() {
   const primaryLabel = primaryAsset
     ? t(primaryDownload?.option.labelKey ?? info.primary.labelKey)
     : manifestError
-      ? t("downloadPage.loadError")
+      ? t("downloadPage.retry")
       : !manifest
         ? t("downloadPage.checkingRelease")
         : t("downloadPage.unavailable");
   const desktopDownloadLabel = primaryAsset
     ? t("downloadPage.downloadInstaller")
     : primaryLabel;
+  const isManifestLoading = !manifest && !manifestError;
 
   function handleChannelChange(nextChannel: DesktopReleaseChannel) {
     if (nextChannel === channel) return;
     setManifest(null);
     setManifestError(false);
     setChannel(nextChannel);
+  }
+
+  function handleRetry() {
+    setManifest(null);
+    setManifestError(false);
+    setManifestRequest((request) => request + 1);
   }
 
   function handleDownload(label: string) {
@@ -345,13 +353,20 @@ export default function DownloadPage() {
           ) : (
             <button
               type="button"
-              disabled
-              aria-busy={!manifest}
-              className={`inline-flex cursor-not-allowed items-center gap-2.5 rounded-lg px-8 py-3.5 text-base font-medium opacity-60 ${
-                isDesktopApp
-                  ? "border border-[var(--docs-border)] text-[var(--fg)]"
-                  : "bg-[var(--fg)] text-[var(--bg)]"
-              }`}
+              onClick={manifestError ? handleRetry : undefined}
+              disabled={!manifestError}
+              aria-busy={isManifestLoading}
+              className={
+                manifestError
+                  ? isDesktopApp
+                    ? "inline-flex items-center gap-2.5 rounded-lg border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] hover:bg-[var(--sidebar-hover)]"
+                    : "inline-flex items-center gap-2.5 rounded-lg bg-[var(--fg)] px-8 py-3.5 text-base font-medium text-[var(--bg)] hover:opacity-85"
+                  : `inline-flex cursor-not-allowed items-center gap-2.5 rounded-lg px-8 py-3.5 text-base font-medium opacity-60 ${
+                      isDesktopApp
+                        ? "border border-[var(--docs-border)] text-[var(--fg)]"
+                        : "bg-[var(--fg)] text-[var(--bg)]"
+                    }`
+              }
             >
               <IconDownload size={18} />
               {isDesktopApp ? desktopDownloadLabel : primaryLabel}

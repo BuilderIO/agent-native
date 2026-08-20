@@ -1236,6 +1236,7 @@ const esES = {
     downloadInstaller: "Descargar instalador",
     loadError: "No se pudo cargar el instalador de escritorio más reciente.",
     checkingRelease: "Buscando la versión de escritorio más reciente...",
+    retry: "Reintentar",
     unavailable: "Instalador no disponible para esta plataforma",
     stable: "Estable",
     nightly: "Nightly",
