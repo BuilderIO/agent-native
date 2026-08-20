@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.164.22
+
+### Patch Changes
+
+- 7bb5be0: Reject host-native better-sqlite3 binaries in Netlify server bundles before publication.
+- 7bb5be0: Persist beta-to-production opt-outs from the cached sign-in shell for 24 hours.
+
 ## 0.164.21
 
 ### Patch Changes
