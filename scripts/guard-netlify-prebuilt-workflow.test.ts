@@ -253,6 +253,16 @@ describe("production Netlify site concurrency guard", () => {
     );
   });
 
+  it("records cutover acquisition before pause verification", () => {
+    const pause = nodeHeredocs[0];
+    const acquiredIndex = pause.indexOf(
+      'fs.appendFileSync(process.env.GITHUB_OUTPUT, "cutover_acquired=true\\n")',
+    );
+    const verificationIndex = pause.indexOf("const paused =");
+    assert(acquiredIndex >= 0);
+    assert(verificationIndex > acquiredIndex);
+  });
+
   it("requires the exact shared queue on deploy, manage, and promote jobs", () => {
     assert.deepEqual(validateProductionSiteConcurrency(workflows()), []);
   });

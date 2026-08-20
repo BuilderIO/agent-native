@@ -290,14 +290,17 @@ if (
   );
 }
 const pause = reusable.slice(pauseStart, unlockStart);
+const cutoverAcquiredIndex = pause.indexOf("cutover_acquired=true");
+const pauseVerificationIndex = pause.indexOf("const paused =");
 if (
   !pause.includes("stop_builds") ||
   !pause.includes('method: "PATCH"') ||
   !pause.includes("was_stopped") ||
-  !pause.includes("cutover_acquired")
+  cutoverAcquiredIndex < 0 ||
+  pauseVerificationIndex <= cutoverAcquiredIndex
 ) {
   issues.push(
-    `${reusablePath} production cutovers must pause automatic Netlify builds and preserve the prior stop_builds setting`,
+    `${reusablePath} production cutovers must record acquisition before fallible pause verification and preserve the prior stop_builds setting`,
   );
 }
 const cleanup = reusable.slice(cleanupStart);

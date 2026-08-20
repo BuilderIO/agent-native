@@ -294,6 +294,7 @@ jobs:
               "Netlify automatic build pause",
             );
           }
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, "cutover_acquired=true\n");
           const paused = await readJson(
             await request(`${api}/sites/${siteId}`),
             "Netlify automatic build pause verification",
@@ -301,7 +302,6 @@ jobs:
           if (paused.build_settings?.stop_builds !== true) {
             throw new Error("Netlify automatic builds were not paused before production cutover.");
           }
-          fs.appendFileSync(process.env.GITHUB_OUTPUT, "cutover_acquired=true\n");
           console.log(`Automatic Netlify builds paused for production cutover (previously stopped: ${wasStopped}).`);
           })().catch((error) => {
             console.error(error instanceof Error ? error.message : error);
