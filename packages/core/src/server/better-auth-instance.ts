@@ -66,8 +66,8 @@ import {
 import { flushTracking, identify, track } from "../tracking/index.js";
 import { getAppProductionUrl } from "./app-url.js";
 import {
-  readAnalyticsAnonymousId,
-  signupAttributionFromCookieHeader,
+  signupAttributionContextFromCookieHeader,
+  signupAttributionContextFromHeaders,
 } from "./attribution.js";
 import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
@@ -79,6 +79,10 @@ import {
 import { getEmailReadiness, sendEmail } from "./email.js";
 import { resolveGoogleSignInCredentials } from "./google-oauth-credentials.js";
 import { readMagicLinkSignupAttribution } from "./magic-link-attribution.js";
+import {
+  getRequestContext,
+  hasContinuationLocalRequestContext,
+} from "./request-context.js";
 
 export {
   getAuthLoginMode,
@@ -1439,6 +1443,15 @@ async function createBetterAuthInstance(
                 context?.headers?.get("cookie") ??
                 context?.request?.headers?.get("cookie") ??
                 null;
+              const scopedSignupAttribution =
+                hasContinuationLocalRequestContext()
+                  ? getRequestContext()?.signupAttribution
+                  : undefined;
+              const requestSignupAttribution =
+                signupAttributionContextFromCookieHeader(cookieHeader);
+              const headerSignupAttribution =
+                signupAttributionContextFromHeaders(context?.headers) ??
+                signupAttributionContextFromHeaders(context?.request?.headers);
               const magicLinkAttribution = context?.request?.url?.includes(
                 "newUserCallbackURL",
               )
@@ -1447,11 +1460,16 @@ async function createBetterAuthInstance(
                     getAuthSecret(),
                   )
                 : undefined;
-              attribution = signupAttributionFromCookieHeader(cookieHeader);
-              attribution = magicLinkAttribution?.attribution ?? attribution;
+              attribution =
+                magicLinkAttribution?.attribution ??
+                scopedSignupAttribution?.attribution ??
+                headerSignupAttribution?.attribution ??
+                requestSignupAttribution.attribution;
               anonymousId =
                 magicLinkAttribution?.anonymousId ??
-                readAnalyticsAnonymousId(cookieHeader);
+                scopedSignupAttribution?.anonymousId ??
+                headerSignupAttribution?.anonymousId ??
+                requestSignupAttribution.anonymousId;
             } catch (err) {
               console.error("[auth] failed to derive signup attribution", err);
               attribution = undefined;
