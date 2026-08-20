@@ -462,6 +462,10 @@ describe("production Netlify site concurrency guard", () => {
       String(resume?.run),
       /process\.env\.cutoverWasStopped === "true"/,
     );
+    assert.match(
+      String(resume?.run),
+      /process\.env\.cutoverHasGitConnectedBuild !== "true"/,
+    );
     assert.equal(
       (resume?.env as Record<string, unknown>).cutoverWasStopped,
       "${{ steps.pause.outputs.was_stopped }}",
@@ -469,6 +473,10 @@ describe("production Netlify site concurrency guard", () => {
     assert.equal(
       (resume?.env as Record<string, unknown>).cutoverWasPaused,
       "${{ steps.pause.outputs.cutover_acquired }}",
+    );
+    assert.equal(
+      (resume?.env as Record<string, unknown>).cutoverHasGitConnectedBuild,
+      "${{ steps.pause.outputs.has_git_connected_build }}",
     );
     assert.equal(typeof cleanup?.if, "string");
     assert.match(cleanup?.if as string, /failure\(\)/);
@@ -503,12 +511,45 @@ describe("production Netlify site concurrency guard", () => {
 
   it("records cutover acquisition before pause verification", () => {
     const pause = nodeHeredocs[0];
+    assert.match(pause, /hasGitConnectedBuild/);
+    assert.match(pause, /has_git_connected_build/);
+    assert.match(pause, /No Git-connected Netlify build is configured/);
     const acquiredIndex = pause.indexOf(
       'fs.appendFileSync(process.env.GITHUB_OUTPUT, "cutover_acquired=true\\n")',
     );
-    const verificationIndex = pause.indexOf("const paused =");
+    const verificationIndex = pause.indexOf("await waitForBuildSetting");
     assert(acquiredIndex >= 0);
     assert(verificationIndex > acquiredIndex);
+  });
+
+  it("pauses the docs site before the prebuilt publisher runs", () => {
+    const workflow = readWorkflow(
+      ".github/workflows/deploy-docs-production.yml",
+    );
+    const jobs = workflow.jobs as Record<string, Workflow>;
+    const deploy = jobs.deploy;
+    const ownership = jobs["pause-netlify-builds"];
+    assert.equal(deploy?.needs, "pause-netlify-builds");
+    const steps = (ownership?.steps as Array<Workflow>).filter(Boolean);
+    const disable = steps.find(
+      (step) =>
+        step.name === "Disable the docs site's Git-connected Netlify builds",
+    );
+    assert(disable);
+    const run = String(disable.run);
+    assert.match(run, /'Content-Type': 'application\/json'/);
+    assert.match(run, /returned an invalid JSON response/);
+    assert.match(run, /returned an invalid JSON object/);
+    assert.doesNotMatch(run, /body = text;/);
+    assert.match(run, /hasGitConnectedBuild/);
+    assert.match(run, /current\.git_provider/);
+    assert.match(run, /current\.repo\?\.repo_path/);
+    assert.match(run, /stop_builds: true/);
+    assert.match(run, /for \(let attempt = 1; attempt <= 15; attempt \+= 1\)/);
+    assert.match(run, /stop_builds=\$\{expected\}/);
+    assert.match(run, /changedStopBuilds/);
+    assert.match(run, /verificationError/);
+    assert.match(run, /Netlify docs build pause rollback/);
   });
 
   it("requires the exact shared queue on deploy, manage, and promote jobs", () => {

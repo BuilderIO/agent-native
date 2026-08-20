@@ -300,19 +300,40 @@ jobs:
             }
             throw new Error(`${label} expected stop_builds=${expected}, got ${actual}.`);
           }
-
           const siteId = process.env.NETLIFY_SITE_ID;
           if (!siteId) throw new Error("Netlify site id is required to pause automatic builds.");
+          const siteUrl = `${api}/sites/${siteId}`;
           const site = await readJson(
-            await request(`${api}/sites/${siteId}`),
+            await request(siteUrl),
             "Netlify build setting lookup",
           );
           const wasStopped =
             (site.build_settings?.stop_builds ?? site.repo?.stop_builds) === true;
+          const hasGitConnectedBuild = Boolean(
+            site.build_settings?.repo_url ||
+              site.build_settings?.repo_path ||
+              site.build_settings?.provider ||
+              site.repo?.repo_url ||
+              site.repo?.repo_path ||
+              site.git_provider ||
+              site.repo?.provider ||
+              site.repo?.repo,
+          );
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `was_stopped=${wasStopped}\n`);
+          fs.appendFileSync(
+            process.env.GITHUB_OUTPUT,
+            `has_git_connected_build=${hasGitConnectedBuild}\n`,
+          );
+          if (!hasGitConnectedBuild) {
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, "cutover_acquired=true\n");
+            console.log(
+              "No Git-connected Netlify build is configured; automatic builds are unchanged.",
+            );
+            return;
+          }
           if (!wasStopped) {
             await readJson(
-              await request(`${api}/sites/${siteId}`, {
+              await request(siteUrl, {
                 method: "PATCH",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ build_settings: { stop_builds: true } }),
@@ -782,6 +803,7 @@ jobs:
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
           cutoverWasStopped: ${{ steps.pause.outputs.was_stopped }}
           cutoverWasPaused: ${{ steps.pause.outputs.cutover_acquired }}
+          cutoverHasGitConnectedBuild: ${{ steps.pause.outputs.has_git_connected_build }}
         run: |
           set -euo pipefail
           node <<'NODE'
@@ -807,6 +829,12 @@ jobs:
 
           if (process.env.cutoverWasPaused !== "true") {
             console.log("No production cutover state was acquired; automatic builds are unchanged.");
+            process.exit(0);
+          }
+          if (process.env.cutoverHasGitConnectedBuild !== "true") {
+            console.log(
+              "No Git-connected Netlify build was configured; automatic builds are unchanged.",
+            );
             process.exit(0);
           }
           if (process.env.cutoverWasStopped === "true") {
