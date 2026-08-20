@@ -697,6 +697,10 @@ jobs:
             return body;
           }
 
+          if (!process.env.cutoverWasStopped) {
+            console.log("No production cutover state was acquired; automatic builds are unchanged.");
+            process.exit(0);
+          }
           if (process.env.cutoverWasStopped === "true") {
             console.log("Automatic Netlify builds were already stopped; preserving that setting.");
             process.exit(0);

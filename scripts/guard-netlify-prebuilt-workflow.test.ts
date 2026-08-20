@@ -140,6 +140,7 @@ describe("production Netlify site concurrency guard", () => {
     );
     assert.equal(typeof resume?.if, "string");
     assert.match(resume?.if as string, /always\(\)/);
+    assert.match(String(resume?.run), /!process\.env\.cutoverWasStopped/);
     assert.equal(typeof cleanup?.if, "string");
     assert.match(cleanup?.if as string, /failure\(\)/);
     assert.equal(
