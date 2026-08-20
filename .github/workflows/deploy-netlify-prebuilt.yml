@@ -380,7 +380,7 @@ jobs:
             return deploys;
           }
 
-          function pendingProductionDeploys(deploys, publishedId, runStart) {
+          function pendingProductionDeploys(deploys, publishedId, preexistingDeployIds) {
             return deploys.filter(
               (candidate) => {
                 if (
@@ -392,24 +392,19 @@ jobs:
                   return false;
                 }
                 if (candidate.state !== "ready") return true;
-
-                const createdAt =
-                  typeof candidate.created_at === "string"
-                    ? Date.parse(candidate.created_at)
-                    : Number.NaN;
-                return Number.isFinite(createdAt) && createdAt > runStart;
+                return !preexistingDeployIds.has(candidate.id);
               },
             );
           }
 
-          async function drainPendingDeploys(publishedId, runStart) {
+          async function drainPendingDeploys(publishedId, preexistingDeployIds) {
             const deadline = Date.now() + 5 * 60 * 1000;
             const cutoff = Date.now() - DEPLOY_LOOKBACK_MS;
             while (Date.now() < deadline) {
               let pending = pendingProductionDeploys(
                 await listDeploys("Netlify pending production deploy lookup", cutoff),
                 publishedId,
-                runStart,
+                preexistingDeployIds,
               );
               const cancelable = pending.filter((candidate) =>
                 ["new", "enqueued"].includes(candidate.state),
@@ -427,7 +422,7 @@ jobs:
               pending = pendingProductionDeploys(
                 await listDeploys("Netlify production deploy drain verification", cutoff),
                 publishedId,
-                runStart,
+                preexistingDeployIds,
               );
               const ready = pending.filter((candidate) => candidate.state === "ready");
               if (ready.length) {
@@ -460,8 +455,18 @@ jobs:
             await request(`${api}/deploys/${deployId}`),
             `Netlify deploy ${deployId} lock lookup before drain`,
           );
-          const runStart = Date.now();
-          await drainPendingDeploys(deployId, runStart);
+          // Netlify-created timestamps and runner clocks are not comparable.
+          // Snapshot the deploy IDs Netlify reports before draining; a ready ID
+          // that appears after this baseline is a new production artifact.
+          const preexistingDeployIds = new Set(
+            (
+              await listDeploys(
+                "Netlify pre-existing production deploy lookup",
+                Date.now() - DEPLOY_LOOKBACK_MS,
+              )
+            ).map((candidate) => candidate.id),
+          );
+          await drainPendingDeploys(deployId, preexistingDeployIds);
 
           const beforeUnlock = await readJson(
             await request(`${api}/sites/${siteId}`),
@@ -484,6 +489,19 @@ jobs:
           if (deploy.locked !== true) {
             console.log(`Published deploy ${deployId} is already unlocked.`);
           } else {
+            // Queue inspection and unlock are separate Netlify calls. Recheck
+            // immediately before the unlock so a ready deploy created during
+            // the final site/deploy lookups still fails closed.
+            await drainPendingDeploys(deployId, preexistingDeployIds);
+            const finalBeforeUnlock = await readJson(
+              await request(`${api}/sites/${siteId}`),
+              "Netlify final published deploy verification before unlock",
+            );
+            if (finalBeforeUnlock.published_deploy?.id !== deployId) {
+              throw new Error(
+                `Netlify published deploy changed from ${deployId} immediately before unlock; refusing to upload an unrelated production artifact.`,
+              );
+            }
             await readJson(
               await request(`${api}/deploys/${deployId}/unlock`, {
                 method: "POST",

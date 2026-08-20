@@ -279,14 +279,18 @@ if (unlockStart < 0 || (uploadStart >= 0 && unlockStart >= uploadStart)) {
     !unlock.includes("oldestCreatedAt") ||
     !unlock.includes("Date.parse(oldestCreatedAt) < cutoff") ||
     unlock.includes("readyIsBlocking") ||
-    !unlock.includes("const runStart = Date.now()") ||
-    !unlock.includes("drainPendingDeploys(deployId, runStart)") ||
+    !unlock.includes("const preexistingDeployIds = new Set") ||
+    !unlock.includes("preexistingDeployIds.has(candidate.id)") ||
+    (
+      unlock.match(/drainPendingDeploys\(deployId, preexistingDeployIds\)/g) ??
+      []
+    ).length < 2 ||
     !unlock.includes("candidate.published_at") ||
-    !unlock.includes("Date.parse(candidate.created_at)") ||
-    !unlock.includes("createdAt > runStart") ||
+    !unlock.includes("Netlify pre-existing production deploy lookup") ||
+    !unlock.includes("finalBeforeUnlock") ||
     (
       unlock.match(
-        /pendingProductionDeploys\([\s\S]*?publishedId,\s*runStart/g,
+        /pendingProductionDeploys\([\s\S]*?publishedId,\s*preexistingDeployIds/g,
       ) ?? []
     ).length < 2
   ) {

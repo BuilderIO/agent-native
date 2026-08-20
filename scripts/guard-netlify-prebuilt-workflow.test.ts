@@ -141,7 +141,7 @@ describe("production Netlify site concurrency guard", () => {
     }
   });
 
-  it("allows pre-existing ready deploys but blocks ready deploys created during the run", () => {
+  it("allows Netlify-observed ready deploys but blocks newly observed ready deploys", () => {
     const unlock = nodeHeredocs[1];
     const pendingStart = unlock.indexOf("function pendingProductionDeploys");
     const drainStart = unlock.indexOf(
@@ -154,9 +154,8 @@ describe("production Netlify site concurrency guard", () => {
     )() as (
       deploys: Array<Record<string, unknown>>,
       publishedId: string,
-      runStart: number,
+      preexistingDeployIds: Set<unknown>,
     ) => Array<Record<string, unknown>>;
-    const runStart = Date.parse("2026-08-20T02:00:00Z");
     const deploys = [
       {
         id: "published",
@@ -171,13 +170,19 @@ describe("production Netlify site concurrency guard", () => {
         created_at: "2026-08-20T01:59:59Z",
       },
       {
+        id: "preexisting-unreadable-ready",
+        context: "production",
+        state: "ready",
+        created_at: "not-a-date",
+      },
+      {
         id: "new-ready",
         context: "production",
         state: "ready",
         created_at: "2026-08-20T02:00:01Z",
       },
       {
-        id: "unreadable-ready",
+        id: "new-unreadable-ready",
         context: "production",
         state: "ready",
         created_at: "not-a-date",
@@ -187,19 +192,36 @@ describe("production Netlify site concurrency guard", () => {
     ];
 
     assert.deepEqual(
-      pendingProductionDeploys(deploys, "published", runStart).map(
-        (deploy) => deploy.id,
-      ),
-      ["new-ready", "queued"],
+      pendingProductionDeploys(
+        deploys,
+        "published",
+        new Set(["published", "stale-ready", "preexisting-unreadable-ready"]),
+      ).map((deploy) => deploy.id),
+      ["new-ready", "new-unreadable-ready", "queued"],
     );
   });
 
-  it("captures the cutover start before draining production deploys", () => {
+  it("captures the Netlify deploy baseline before draining production deploys", () => {
     const unlock = nodeHeredocs[1];
     assert.doesNotMatch(unlock, /readyIsBlocking/);
     assert.match(
       unlock,
-      /const runStart = Date\.now\(\);\s*await drainPendingDeploys\(deployId, runStart\);/,
+      /const preexistingDeployIds = new Set\([\s\S]*?Netlify pre-existing production deploy lookup[\s\S]*?\);\s*await drainPendingDeploys\(deployId, preexistingDeployIds\);/,
+    );
+  });
+
+  it("rechecks the production queue immediately before unlocking", () => {
+    const unlock = nodeHeredocs[1];
+    const finalDrain = unlock.lastIndexOf(
+      "await drainPendingDeploys(deployId, preexistingDeployIds);",
+    );
+    const unlockRequest = unlock.lastIndexOf(
+      "await request(`${api}/deploys/${deployId}/unlock`",
+    );
+    assert(finalDrain >= 0 && unlockRequest > finalDrain);
+    assert.match(
+      unlock.slice(finalDrain, unlockRequest),
+      /finalBeforeUnlock[\s\S]*published_deploy\?\.id !== deployId/,
     );
   });
 
