@@ -3703,13 +3703,23 @@ export function findNonLinuxBetterSqlite3Binaries(serverDir: string): string[] {
       ) {
         continue;
       }
-      const header = fs.readFileSync(entryPath).subarray(0, 4);
+      const header = fs.readFileSync(entryPath).subarray(0, 20);
+      const isLittleEndian = header[5] === 1;
+      const machine =
+        header.length >= 20 && header[5] === 1
+          ? header.readUInt16LE(18)
+          : header.length >= 20 && header[5] === 2
+            ? header.readUInt16BE(18)
+            : null;
       if (
-        header.length < 4 ||
+        header.length < 20 ||
         header[0] !== 0x7f ||
         header[1] !== 0x45 ||
         header[2] !== 0x4c ||
-        header[3] !== 0x46
+        header[3] !== 0x46 ||
+        header[4] !== 2 ||
+        !isLittleEndian ||
+        machine !== 62
       ) {
         failures.push(entryPath);
       }

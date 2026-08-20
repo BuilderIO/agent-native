@@ -44,14 +44,40 @@ const uploadEnd = reusable.indexOf(
   "name: Wait for the Netlify deploy to publish",
   uploadStart,
 );
-const upload =
-  uploadStart >= 0 && uploadEnd > uploadStart
-    ? reusable.slice(uploadStart, uploadEnd)
-    : "";
-if (upload.includes('--context "$BUILD_CONTEXT"')) {
+const unlockStart = reusable.indexOf(
+  "name: Unlock the published production deploy",
+);
+if (unlockStart < 0 || (uploadStart >= 0 && unlockStart >= uploadStart)) {
   issues.push(
-    "prebuilt uploads must not pass --context with --no-build; the Netlify CLI rejects that combination",
+    `${reusablePath} must unlock the published deploy before a production upload`,
   );
+} else {
+  const unlock = reusable.slice(unlockStart, uploadStart);
+  if (!unlock.includes("/unlock") || !unlock.includes("locked !== false")) {
+    issues.push(
+      `${reusablePath} production unlock must call Netlify unlock and verify locked=false`,
+    );
+  }
+}
+if (uploadStart < 0 || uploadEnd <= uploadStart) {
+  issues.push(
+    `${reusablePath} must retain an ordered prebuilt upload step and publish-wait step`,
+  );
+} else {
+  const upload = reusable.slice(uploadStart, uploadEnd);
+  if (
+    !/\bnetlify\s+deploy\b/.test(upload) ||
+    !/(^|\s)--no-build(?:\s|$)/m.test(upload)
+  ) {
+    issues.push(
+      `${reusablePath} upload step must invoke netlify deploy with --no-build`,
+    );
+  }
+  if (/--context(?:\s|=|\)|$)/m.test(upload)) {
+    issues.push(
+      "prebuilt uploads must not pass --context with --no-build; the Netlify CLI rejects that combination",
+    );
+  }
 }
 
 for (const [path, expected] of [

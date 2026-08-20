@@ -227,6 +227,77 @@ jobs:
           done
           du -sh "$PUBLISH_DIRECTORY" "$FUNCTIONS_DIRECTORY"
 
+      - name: Unlock the published production deploy
+        if: inputs.deploy && inputs.deploy_mode == 'production'
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const api = "https://api.netlify.com/api/v1";
+          const headers = {
+            Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}`,
+            "User-Agent": "agent-native-prebuilt-production-unlock",
+          };
+
+          async function readJson(response, label) {
+            const text = await response.text();
+            let body = null;
+            try {
+              body = text ? JSON.parse(text) : null;
+            } catch {
+              body = text;
+            }
+            if (!response.ok) {
+              throw new Error(
+                `${label} failed with HTTP ${response.status}: ${typeof body === "string" ? body : JSON.stringify(body)}`,
+              );
+            }
+            return body;
+          }
+
+          const siteId = process.env.NETLIFY_SITE_ID;
+          if (!siteId) throw new Error("Netlify site id is required to unlock production.");
+
+          const site = await readJson(
+            await fetch(`${api}/sites/${siteId}`, { headers }),
+            "Netlify published deploy lookup",
+          );
+          const deployId = site.published_deploy?.id;
+          if (!deployId) {
+            throw new Error("Netlify site has no published deploy to unlock.");
+          }
+
+          const deploy = await readJson(
+            await fetch(`${api}/deploys/${deployId}`, { headers }),
+            `Netlify deploy ${deployId} lookup`,
+          );
+          if (deploy.locked !== true) {
+            console.log(`Published deploy ${deployId} is already unlocked.`);
+            process.exit(0);
+          }
+
+          await readJson(
+            await fetch(`${api}/deploys/${deployId}/unlock`, {
+              method: "POST",
+              headers,
+            }),
+            `Netlify deploy ${deployId} unlock`,
+          );
+
+          const unlocked = await readJson(
+            await fetch(`${api}/deploys/${deployId}`, { headers }),
+            `Netlify deploy ${deployId} unlock verification`,
+          );
+          if (unlocked.locked !== false) {
+            throw new Error(
+              `Netlify deploy ${deployId} did not report locked=false after unlock.`,
+            );
+          }
+          console.log(`Unlocked published production deploy ${deployId}.`);
+          NODE
+
       - name: Upload the prebuilt deploy
         id: deploy
         if: inputs.deploy
