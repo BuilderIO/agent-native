@@ -71,6 +71,7 @@ export interface CaptureSanitizationInput {
     title: string;
     provider: BrainSourceProvider;
     ownerEmail: string;
+    orgId?: string | null;
   };
   sourceConfig?: Record<string, unknown>;
   settings: BrainSettings;
@@ -440,6 +441,10 @@ async function classifyWithApprovedModel(
     apiKeyEnvVar: userApiKey.apiKeyEnvVar,
     appId: "brain",
     engineOption: engineName,
+    credentialIdentity: {
+      userEmail: input.source.ownerEmail,
+      orgId: input.source.orgId ?? undefined,
+    },
   });
 
   const maxChars = Math.min(
