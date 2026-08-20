@@ -961,16 +961,57 @@ export function useChatThreads(
           await fetchThreads();
           return;
         }
-        setThreads((prev) =>
-          prev.map((t) => (t.id === threadId ? { ...t, scope: null } : t)),
-        );
+        knownThreadScopesRef.current.set(threadId, null);
         optimisticThreadScopesRef.current.set(threadId, null);
+        const wasActive = activeThreadIdRef.current === threadId;
+        if (isolateHistory) {
+          setThreads((prev) =>
+            prev.filter(
+              (thread) =>
+                thread.id !== threadId &&
+                threadCanStayVisibleInHistory(
+                  thread.scope,
+                  historyScope,
+                  isolateHistory,
+                ),
+            ),
+          );
+          if (wasActive) {
+            const remaining = threadsRef.current.filter(
+              (thread) =>
+                thread.id !== threadId &&
+                threadCanStayVisibleInHistory(
+                  thread.scope,
+                  historyScope,
+                  isolateHistory,
+                ),
+            );
+            if (remaining.length > 0) {
+              setActiveThreadId(remaining[0].id);
+            } else if (autoCreate) {
+              void createThread();
+            } else {
+              setActiveThreadId(null);
+            }
+          }
+        } else {
+          setThreads((prev) =>
+            prev.map((t) => (t.id === threadId ? { ...t, scope: null } : t)),
+          );
+        }
         emitThreadsUpdated();
       } catch {
         await fetchThreads().catch(() => {});
       }
     },
-    [apiUrl, fetchThreads, historyScope],
+    [
+      apiUrl,
+      autoCreate,
+      createThread,
+      fetchThreads,
+      historyScope,
+      isolateHistory,
+    ],
   );
 
   const pinThread = useCallback(
