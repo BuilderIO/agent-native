@@ -4006,6 +4006,72 @@ describe("server/auth", () => {
       expect(forwardedPath).toBe("/_agent-native/auth/ba/sign-in/email");
     });
 
+    it("carries browser signup attribution through the direct Better Auth handler", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      let observedSignupAttribution: unknown;
+      const { getRequestContext } = await import("./request-context.js");
+      const betterAuthHandler = vi.fn(async () => {
+        observedSignupAttribution = getRequestContext()?.signupAttribution;
+        return new Response(JSON.stringify({ ok: true }), {
+          headers: { "content-type": "application/json" },
+        });
+      });
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: betterAuthHandler,
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const baHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/ba",
+      )?.[1];
+      expect(baHandler).toBeTypeOf("function");
+
+      const firstTouch = encodeURIComponent(
+        JSON.stringify({
+          ref: "clip_share",
+          via: "owner_42",
+          landing_path: "/share/clip-1",
+          utm_campaign: "launch",
+        }),
+      );
+      const response = await baHandler(
+        createJsonPostEvent(
+          "/_agent-native/auth/ba/sign-up/email",
+          { email: "new@example.com", password: "secret-password" },
+          { cookie: `an_aid=anon_signup_1; an_ft=${firstTouch}` },
+        ),
+      );
+
+      expect(response).toBeInstanceOf(Response);
+      expect((response as Response).status).toBe(200);
+      expect(observedSignupAttribution).toEqual({
+        attribution: {
+          referral_source: "clip_share",
+          referrer_user: "owner_42",
+          referral_campaign: "launch",
+          utm_campaign: "launch",
+          first_touch_path: "/share/clip-1",
+        },
+        anonymousId: "anon_signup_1",
+      });
+      expect(getRequestContext()).toBeUndefined();
+    });
+
     it("sanitizes raw Better Auth JSON errors on direct auth routes", async () => {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;

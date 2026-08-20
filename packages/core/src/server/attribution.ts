@@ -42,6 +42,17 @@ export interface FirstTouchAttribution {
   landed_at?: string;
 }
 
+/**
+ * Request-scoped browser attribution captured at the signup boundary.
+ * Better Auth may create the user in a later async callback where the
+ * original request headers are no longer available, so the values must be
+ * carried explicitly through that boundary.
+ */
+export interface SignupAttributionContext {
+  attribution: Record<string, string>;
+  anonymousId?: string;
+}
+
 /** Cookie name written by the client (non-HttpOnly; non-sensitive). */
 export const FIRST_TOUCH_COOKIE_NAME = "an_ft";
 
@@ -233,4 +244,19 @@ export function signupAttributionFromCookieHeader(
   } catch {
     return { referral_source: "direct" };
   }
+}
+
+/**
+ * Capture all browser attribution needed by the server-side signup event.
+ * Keep this as one boundary helper so every signup entry point carries the
+ * same values into Better Auth's user-create hook.
+ */
+export function signupAttributionContextFromCookieHeader(
+  cookieHeader: string | null | undefined,
+): SignupAttributionContext {
+  const anonymousId = readAnalyticsAnonymousId(cookieHeader);
+  return {
+    attribution: signupAttributionFromCookieHeader(cookieHeader),
+    ...(anonymousId ? { anonymousId } : {}),
+  };
 }

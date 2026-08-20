@@ -6,6 +6,7 @@ import {
   parseCookieHeader,
   readAnalyticsAnonymousId,
   readFirstTouchAttribution,
+  signupAttributionContextFromCookieHeader,
   signupAttributionFromCookieHeader,
   type FirstTouchAttribution,
 } from "./attribution.js";
@@ -216,6 +217,40 @@ describe("signupAttributionFromCookieHeader", () => {
     });
     expect(signupAttributionFromCookieHeader(undefined)).toEqual({
       referral_source: "direct",
+    });
+  });
+});
+
+describe("signupAttributionContextFromCookieHeader", () => {
+  it("captures attribution and the anonymous identity handoff together", () => {
+    const ft = {
+      ref: "clip_share",
+      via: "owner_9",
+      landing_path: "/share/c",
+      utm_campaign: "launch",
+    };
+
+    expect(
+      signupAttributionContextFromCookieHeader(
+        `${ftCookie(ft)}; an_aid=anon_123-abc`,
+      ),
+    ).toEqual({
+      attribution: {
+        referral_source: "clip_share",
+        referrer_user: "owner_9",
+        referral_campaign: "launch",
+        utm_campaign: "launch",
+        first_touch_path: "/share/c",
+      },
+      anonymousId: "anon_123-abc",
+    });
+  });
+
+  it("keeps malformed browser identity input out of the context", () => {
+    expect(
+      signupAttributionContextFromCookieHeader("an_aid=has%20space"),
+    ).toEqual({
+      attribution: { referral_source: "direct" },
     });
   });
 });

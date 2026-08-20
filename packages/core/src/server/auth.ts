@@ -130,6 +130,7 @@ import { getAppProductionUrl } from "./app-url.js";
 import {
   readAnalyticsAnonymousId,
   readFirstTouchAttribution,
+  signupAttributionContextFromCookieHeader,
   signupAttributionFromCookieHeader,
 } from "./attribution.js";
 import { getAuthLoginMode } from "./auth-login-mode.js";
@@ -193,6 +194,7 @@ import {
   getResetPasswordHtml,
   type OnboardingHtmlOptions,
 } from "./onboarding-html.js";
+import { getRequestContext, runWithRequestContext } from "./request-context.js";
 import { captureAuthError } from "./sentry.js";
 import {
   forgetCachedSessionEmail,
@@ -208,6 +210,19 @@ import { isWorkspaceOAuthCallbackRelayEnabled } from "./workspace-oauth.js";
  */
 export function getSessionMaxAge(): number {
   return sessionMaxAge;
+}
+
+function withSignupAttributionContext<T>(
+  cookieHeader: string | null | undefined,
+  fn: () => T | Promise<T>,
+): T | Promise<T> {
+  return runWithRequestContext(
+    {
+      ...(getRequestContext() ?? {}),
+      signupAttribution: signupAttributionContextFromCookieHeader(cookieHeader),
+    },
+    fn,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -4793,11 +4808,16 @@ async function mountBetterAuthRoutes(
         reqPath.includes("/sign-in/magic-link") && getMethod(event) === "POST";
       const isMagicLinkVerification =
         reqPath.includes("/magic-link/verify") && getMethod(event) === "GET";
+      const isEmailSignup =
+        reqPath.includes("/sign-up/email") && getMethod(event) === "POST";
       const isSignOut =
         reqPath.includes("sign-out") && getMethod(event) === "POST";
       if (isSignOut) optOutOfAuthDisabledSession(event);
       const authRequest = toWebRequest(event);
       let requestForAuth = authRequest;
+      const signupCookieHeader = isEmailSignup
+        ? authRequest.headers.get("cookie")
+        : undefined;
       let magicLinkPreConsume: Record<string, unknown> | undefined;
 
       if (isMagicLinkVerification) {
@@ -4936,7 +4956,11 @@ async function mountBetterAuthRoutes(
 
       let response: Response;
       try {
-        response = await auth.handler(requestForAuth);
+        response = await (isEmailSignup
+          ? withSignupAttributionContext(signupCookieHeader, () =>
+              auth.handler(requestForAuth),
+            )
+          : auth.handler(requestForAuth));
       } catch (error) {
         if (isMagicLinkVerification) {
           logMagicLinkDebug(event, "verify-exception", {
@@ -5314,10 +5338,19 @@ async function mountBetterAuthRoutes(
       }
 
       try {
-        await auth.api.signUpEmail({
-          body: { email, password, name: email.split("@")[0], callbackURL },
-          headers: event.headers,
-        });
+        await withSignupAttributionContext(
+          getHeader(event, "cookie") ?? null,
+          () =>
+            auth.api.signUpEmail({
+              body: {
+                email,
+                password,
+                name: email.split("@")[0],
+                callbackURL,
+              },
+              headers: event.headers,
+            }),
+        );
         setFirstRunOnboardingCookie(event);
         return { ok: true };
       } catch (e: any) {
@@ -5605,10 +5638,14 @@ function mountAuthFallbackRoutes(app: H3App): void {
 
       try {
         const auth = await getBetterAuth();
-        await auth.api.signUpEmail({
-          body: { email, password, name: email.split("@")[0] },
-          headers: event.headers,
-        });
+        await withSignupAttributionContext(
+          getHeader(event, "cookie") ?? null,
+          () =>
+            auth.api.signUpEmail({
+              body: { email, password, name: email.split("@")[0] },
+              headers: event.headers,
+            }),
+        );
         setFirstRunOnboardingCookie(event);
         return { ok: true };
       } catch (e: any) {

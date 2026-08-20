@@ -26,6 +26,7 @@ import {
 } from "../org/auth-policy.js";
 import { SIGN_IN_ENTRY_PATH } from "../shared/sign-in-journey.js";
 import { getAppName } from "./app-name.js";
+import { signupAttributionContextFromCookieHeader } from "./attribution.js";
 import { getSession, isExpectedAuthFailure, safeReturnPath } from "./auth.js";
 import {
   getBetterAuth,
@@ -45,6 +46,7 @@ import {
   isJtiReplayed,
   SSO_STATE_TTL_MS,
 } from "./identity-sso-store.js";
+import { getRequestContext, runWithRequestContext } from "./request-context.js";
 
 export { getIdentityHubUrl, identitySsoLoginButtonHtml, isIdentitySsoEnabled };
 
@@ -585,7 +587,15 @@ export async function handleIdentitySso(
     }
 
     try {
-      await jitLinkIdentity(identity);
+      await runWithRequestContext(
+        {
+          ...(getRequestContext() ?? {}),
+          signupAttribution: signupAttributionContextFromCookieHeader(
+            getHeader(event, "cookie") ?? null,
+          ),
+        },
+        () => jitLinkIdentity(identity),
+      );
     } catch {
       return errorPage(
         "Could not finish linking your account. Please try again.",
