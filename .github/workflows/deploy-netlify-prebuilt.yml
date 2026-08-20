@@ -275,6 +275,24 @@ jobs:
             await fetch(`${api}/deploys/${deployId}`, { headers }),
             `Netlify deploy ${deployId} lookup`,
           );
+
+          const deploys = await readJson(
+            await fetch(`${api}/sites/${siteId}/deploys?per_page=100`, { headers }),
+            "Netlify pending production deploy lookup",
+          );
+          const pendingProductionDeploys = deploys.filter(
+            (candidate) =>
+              candidate.id !== deployId &&
+              candidate.context === "production" &&
+              candidate.state === "ready" &&
+              !candidate.published_at,
+          );
+          if (pendingProductionDeploys.length) {
+            throw new Error(
+              `Refusing to unlock ${deployId} while ready production deploys are pending: ${pendingProductionDeploys.map((candidate) => candidate.id).join(", ")}.`,
+            );
+          }
+
           if (deploy.locked !== true) {
             console.log(`Published deploy ${deployId} is already unlocked.`);
             process.exit(0);
@@ -295,6 +313,16 @@ jobs:
           if (unlocked.locked !== false) {
             throw new Error(
               `Netlify deploy ${deployId} did not report locked=false after unlock.`,
+            );
+          }
+
+          const afterUnlock = await readJson(
+            await fetch(`${api}/sites/${siteId}`, { headers }),
+            "Netlify published deploy verification after unlock",
+          );
+          if (afterUnlock.published_deploy?.id !== deployId) {
+            throw new Error(
+              `Netlify published deploy changed from ${deployId} during unlock; refusing to upload an unrelated production artifact.`,
             );
           }
           console.log(`Unlocked published production deploy ${deployId}.`);

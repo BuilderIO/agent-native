@@ -24,14 +24,72 @@ permissions:
   contents: read
 
 concurrency:
-  # Share the publish lock with the GitHub-built production lane so a manual
-  # deploy or rollback cannot race a prebuilt publish for the same fleet.
-  group: agent-native-production-publish
+  # Keep manager operations in their own queue. The prebuilt fleet has
+  # per-site child-job queues, so a queued manager operation cannot evict a
+  # pending fleet run from GitHub's single pending slot.
+  group: agent-native-production-manager-${{ inputs.operation }}-${{ inputs.sites }}
   cancel-in-progress: false
 
 jobs:
+  resolve-sites:
+    name: Resolve production site matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: main
+          fetch-depth: 1
+          sparse-checkout: scripts/netlify-production-sites.json
+          sparse-checkout-cone-mode: false
+
+      - name: Build one coordination slot per site
+        id: matrix
+        env:
+          SITES: ${{ inputs.sites }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('node:fs');
+          const sites = JSON.parse(
+            fs.readFileSync('scripts/netlify-production-sites.json', 'utf8'),
+          );
+          const requested = process.env.SITES.trim().toLowerCase();
+          if (!requested) throw new Error('sites must be all or a comma-separated list.');
+          const aliases = new Map([
+            ['www', 'fw'],
+            ['chat', 'starter'],
+          ]);
+          const names = requested === 'all'
+            ? Object.keys(sites)
+            : [...new Set(requested.split(',').map((name) => aliases.get(name.trim()) || name.trim()).filter(Boolean))];
+          const unknown = names.filter((name) => !sites[name]);
+          if (unknown.length) throw new Error(`Unknown production site(s): ${unknown.join(', ')}`);
+          if (!names.length) throw new Error('No production sites selected.');
+          const matrix = {
+            include: names.map((site) => ({
+              site,
+              site_id: sites[site].siteId,
+            })),
+          };
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `matrix=${JSON.stringify(matrix)}\n`);
+          console.log(`Resolved ${names.length} production site(s): ${names.join(', ')}`);
+          NODE
+
   manage:
-    name: ${{ inputs.operation }} production sites
+    name: ${{ inputs.operation }} ${{ matrix.site }} production site
+    needs: resolve-sites
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix: ${{ fromJSON(needs.resolve-sites.outputs.matrix) }}
+    concurrency:
+      # Match the prebuilt fleet's per-site queue. GitHub can now retain one
+      # pending operation for every selected site instead of dropping an
+      # entire all-sites operation behind one shared workflow slot.
+      group: agent-native-production-site-${{ matrix.site }}
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -47,7 +105,8 @@ jobs:
           NETLIFY_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           GITHUB_TOKEN_VALUE: ${{ github.token }}
           OPERATION: ${{ inputs.operation }}
-          SITES: ${{ inputs.sites }}
+          SITE_NAME: ${{ matrix.site }}
+          SITE_ID: ${{ matrix.site_id }}
           REPOSITORY: ${{ github.repository }}
         with:
           script: |
@@ -352,17 +411,20 @@ jobs:
             }
 
             try {
-              const targets = parseTargets(process.env.SITES);
-              core.info(`Selected ${targets.length} production site(s): ${targets.map(([name]) => name).join(', ')}`);
+              const name = process.env.SITE_NAME;
+              const site = sites[name];
+              if (!name || !site || site.siteId !== process.env.SITE_ID) {
+                throw new Error(`Resolved production site ${name || 'unknown'} does not match the selected site id.`);
+              }
+
               const sourceSha = operation === 'deploy-main' ? await latestMainSha() : null;
-              if (sourceSha) core.info(`Deploying the latest main commit ${sourceSha}.`);
-              const failures = operation === 'deploy-main'
-                ? await runWithLimit(targets, async (name, site) => deployMain(name, site, sourceSha))
-                : operation === 'rollback'
-                  ? await runWithLimit(targets, rollback)
-                  : [`Unknown operation: ${operation}`];
-              if (failures.length) {
-                core.setFailed(`Production operation failed for ${failures.length} site(s):\n${failures.join('\n')}`);
+              if (sourceSha) core.info(`[${name}] deploying the latest main commit ${sourceSha}.`);
+              if (operation === 'deploy-main') {
+                await deployMain(name, site, sourceSha);
+              } else if (operation === 'rollback') {
+                await rollback(name, site);
+              } else {
+                throw new Error(`Unknown operation: ${operation}`);
               }
             } catch (error) {
               core.setFailed(error instanceof Error ? error.message : String(error));

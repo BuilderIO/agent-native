@@ -58,13 +58,36 @@ if (
   );
 }
 
-for (const path of [productionPath, manageProductionPath, promotePath]) {
-  const concurrency = asRecord(parsedWorkflows.get(path)?.concurrency);
-  if (concurrency?.group !== "agent-native-production-publish") {
-    issues.push(
-      `${path} must share the agent-native-production-publish fleet lock`,
-    );
-  }
+const productionConcurrency = asRecord(
+  parsedWorkflows.get(productionPath)?.concurrency,
+);
+if (
+  typeof productionConcurrency?.group !== "string" ||
+  !productionConcurrency.group.includes("agent-native-production-fleet")
+) {
+  issues.push(
+    `${productionPath} must keep fleet runs in a dedicated production queue`,
+  );
+}
+const manageConcurrency = asRecord(
+  parsedWorkflows.get(manageProductionPath)?.concurrency,
+);
+if (
+  typeof manageConcurrency?.group !== "string" ||
+  !manageConcurrency.group.includes("agent-native-production-manager")
+) {
+  issues.push(
+    `${manageProductionPath} must use a manager-specific production queue`,
+  );
+}
+const promoteConcurrency = asRecord(
+  parsedWorkflows.get(promotePath)?.concurrency,
+);
+if (
+  typeof promoteConcurrency?.group !== "string" ||
+  !promoteConcurrency.group.includes("agent-native-production-promote")
+) {
+  issues.push(`${promotePath} must use a promotion-specific production queue`);
 }
 
 const reusableOn = asRecord(reusableDocument?.on);
@@ -138,9 +161,15 @@ if (unlockStart < 0 || (uploadStart >= 0 && unlockStart >= uploadStart)) {
   );
 } else {
   const unlock = reusable.slice(unlockStart, uploadStart);
-  if (!unlock.includes("/unlock") || !unlock.includes("locked !== false")) {
+  if (
+    !unlock.includes("/unlock") ||
+    !unlock.includes("locked !== false") ||
+    !unlock.includes("/deploys?per_page=100") ||
+    !unlock.includes('candidate.state === "ready"') ||
+    !unlock.includes("candidate.published_at")
+  ) {
     issues.push(
-      `${reusablePath} production unlock must call Netlify unlock and verify locked=false`,
+      `${reusablePath} production unlock must reject pending ready deploys and verify locked=false`,
     );
   }
 }
@@ -180,6 +209,17 @@ for (const [path, target, buildContext] of [
   }
   if (deployWith?.build_context !== buildContext) {
     issues.push(`${path} deploy job must pass build_context=${buildContext}`);
+  }
+  if (path === productionPath) {
+    const deployConcurrency = asRecord(deployJob?.concurrency);
+    if (
+      typeof deployConcurrency?.group !== "string" ||
+      !deployConcurrency.group.includes("matrix.site")
+    ) {
+      issues.push(
+        `${path} production deploy jobs must coordinate each matrix site independently`,
+      );
+    }
   }
 }
 

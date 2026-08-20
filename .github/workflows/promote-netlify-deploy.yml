@@ -51,7 +51,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: agent-native-production-publish
+  # Promotion has its own queue; the fleet caller coordinates individual
+  # sites at the job level so a promotion cannot replace a pending fleet run.
+  group: agent-native-production-promote-${{ inputs.site }}
   cancel-in-progress: false
 
 jobs:
