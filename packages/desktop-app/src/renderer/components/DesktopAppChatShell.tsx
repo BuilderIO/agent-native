@@ -89,6 +89,7 @@ function wasDesktopAppChatSidebarOpenBeforeMount(): boolean {
     return (
       window.localStorage.getItem(DESKTOP_APP_CHAT_OPEN_STORAGE_KEY) === "true"
     );
+    // coercion-ok: localStorage may be unavailable; replaying the entrance is the safe fallback.
   } catch {
     return false;
   }

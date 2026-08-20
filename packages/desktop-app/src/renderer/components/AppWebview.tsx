@@ -970,6 +970,16 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         // Chromium can emit dom-ready for its internal error document after
         // did-fail-load. That event is not a successful app load.
         if (loadFailureRef.current) return;
+        if (deferDesktopWebviewLoad) {
+          let currentUrl = "";
+          try {
+            currentUrl = wv.getURL() || wv.src;
+          } catch {
+            // coercion-ok: Electron can expose the element src before Chromium attaches the contents.
+            currentUrl = wv.src;
+          }
+          if (!currentUrl || currentUrl === "about:blank") return;
+        }
         applyGuestTheme();
         syncGuestAppChatSidebar();
         if (app.id === "content") {
@@ -1063,6 +1073,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       isActive,
       applyGuestTheme,
       syncGuestAppChatSidebar,
+      deferDesktopWebviewLoad,
     ]);
 
     useEffect(() => {
@@ -1198,7 +1209,9 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     // a "still loading" hint. If it's still not ready after a bit longer,
     // assume the dev server isn't running and show the error screen.
     useEffect(() => {
-      if (app.placeholder || error || !isLoading) return;
+      if (app.placeholder || error || !isLoading || deferDesktopWebviewLoad) {
+        return;
+      }
       const slowT = setTimeout(() => setSlowLoad(true), 2500);
       const failT = setTimeout(
         () => {
@@ -1214,7 +1227,14 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         clearTimeout(slowT);
         clearTimeout(failT);
       };
-    }, [app.placeholder, error, isDevMode, isLoading, url]);
+    }, [
+      app.placeholder,
+      deferDesktopWebviewLoad,
+      error,
+      isDevMode,
+      isLoading,
+      url,
+    ]);
 
     // Auto-focus the webview when it becomes active so keyboard events
     // (e.g. Tab to cycle mail filters) go to the app, not the shell.
@@ -1351,9 +1371,10 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
                   partitionKey,
                 }),
               );
-              if (!deferDesktopWebviewLoad) {
-                wv.setAttribute("src", url);
-              }
+              wv.setAttribute(
+                "src",
+                deferDesktopWebviewLoad ? "about:blank" : url,
+              );
               container.appendChild(wv);
               webviewRef.current = wv;
             }}
