@@ -966,6 +966,19 @@ function measurePopoverHeight(el: HTMLElement): number {
     // window size. Their content can scroll inside the layer without changing
     // the tray popover underneath it.
     if (child.closest('[data-popover-overlay="true"]')) continue;
+    // A marked scroll region owns its overflow: content scrolls inside it
+    // without growing the native window. Without this, the fixed-height
+    // Settings pane's scrollHeight would resize the tray to the full length
+    // of whichever tab is open.
+    const scrollRegion = child.closest<HTMLElement>(
+      "[data-popover-scroll-region]",
+    );
+    if (scrollRegion) {
+      if (scrollRegion !== child) continue;
+      const regionRect = child.getBoundingClientRect();
+      lowestBottom = Math.max(lowestBottom, regionRect.bottom);
+      continue;
+    }
     const childStyle = window.getComputedStyle(child);
     if (childStyle.display === "none") continue;
     const childRect = child.getBoundingClientRect();
@@ -7917,6 +7930,7 @@ function Setup({
           ))}
         </nav>
         <main
+          data-popover-scroll-region
           className="min-h-0 min-w-0 overflow-y-auto overscroll-contain px-5 pb-6 pt-5"
           tabIndex={-1}
         >
