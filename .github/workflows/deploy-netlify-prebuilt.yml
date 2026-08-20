@@ -255,6 +255,7 @@ jobs:
           du -sh "$PUBLISH_DIRECTORY" "$FUNCTIONS_DIRECTORY"
 
       - name: Verify static SSR cache artifact
+        if: steps.target.outputs.source_template == 'clips' || steps.target.outputs.source_template == '@agent-native/docs'
         env:
           PUBLISH_DIRECTORY: ${{ steps.target.outputs.publish_directory }}
         run: |

@@ -145,6 +145,24 @@ describe("production Netlify site concurrency guard", () => {
     );
   });
 
+  it("only verifies static cache artifacts for prerendered prebuilt targets", () => {
+    const workflow = readWorkflow(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+    );
+    const jobs = workflow.jobs as Record<string, Workflow>;
+    const steps = (jobs.deploy.steps as Array<Workflow>).filter(Boolean);
+    const artifact = steps.find(
+      (step) => step.name === "Verify static SSR cache artifact",
+    );
+
+    assert(artifact);
+    assert.equal(
+      artifact.if,
+      "steps.target.outputs.source_template == 'clips' || steps.target.outputs.source_template == '@agent-native/docs'",
+    );
+    assert.match(String(artifact.run), /GUARD_SSR_CACHE_ARTIFACT_DIR/);
+  });
+
   it("rejects a purge step that is no longer production-only and success-gated", () => {
     const workflow = readWorkflow(
       ".github/workflows/deploy-netlify-prebuilt.yml",
