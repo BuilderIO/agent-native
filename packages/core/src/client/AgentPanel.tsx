@@ -76,11 +76,16 @@ import { ShareButton } from "./sharing/ShareButton.js";
 // assistant-ui + zod block schemas) so it is NOT in the static import closure of
 // every page. The header/tab chrome renders immediately; chat streams in once the
 // chunk lands (~650-700 KB gzip saved from the critical path).
-const MultiTabAssistantChatLazy = lazy(() =>
+const loadMultiTabAssistantChat = () =>
   import("./MultiTabAssistantChat.js").then((m) => ({
     default: m.MultiTabAssistantChat,
-  })),
-);
+  }));
+const MultiTabAssistantChatLazy = lazy(loadMultiTabAssistantChat);
+
+/** Start loading the desktop chat surface before a sidebar is opened. */
+export function preloadAgentChatSurface(): Promise<void> {
+  return loadMultiTabAssistantChat().then(() => undefined);
+}
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate } from "react-router";
 
@@ -3084,6 +3089,8 @@ export interface AgentSidebarProps {
   chatViewTransitionHandoff?: boolean;
   /** Namespace for persisted chat state. Use the same key as AgentChatHome. */
   storageKey?: string;
+  /** Restore the previously active chat thread on mount. Default: true. */
+  restoreActiveThread?: boolean;
   /** Namespace for the persisted open/closed preference. Defaults to storageKey. */
   openStorageKey?: string;
   /** API base URL used by the chat surface. */
@@ -3159,6 +3166,7 @@ export function AgentSidebar({
   chatViewTransitionHandoff = false,
   storageKey,
   openStorageKey,
+  restoreActiveThread = true,
   apiUrl,
   agentChatSurface,
   desktopIdentityUnauthenticated,
@@ -3988,6 +3996,7 @@ export function AgentSidebar({
             onExitWideDrawer={isMobile ? undefined : exitWideDrawer}
             onFullViewRequest={onFullscreenRequest}
             storageKey={storageKey}
+            restoreActiveThread={restoreActiveThread}
             scope={scope}
             isolateHistoryByScope={isolateHistoryByScope}
             showScopeBadge={showScopeBadge}

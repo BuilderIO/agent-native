@@ -225,6 +225,7 @@ export {
   AgentSidebar,
   AgentToggleButton,
   focusAgentChat,
+  preloadAgentChatSurface,
   type AgentChatSurfaceMode,
   type AgentChatSurfaceProps,
   type AgentPanelProps,

@@ -710,7 +710,7 @@ export function McpIntegrationDialog({
           </>
         ) : mode === "catalog" ? (
           <>
-            <DialogHeader className="shrink-0 border-b border-border px-7 pb-5 pe-14 pt-7 sm:px-10">
+            <DialogHeader className="shrink-0 px-7 pb-5 pe-14 pt-7 sm:px-10">
               <DialogTitle>{t("mcpIntegrations.title")}</DialogTitle>
               <DialogDescription>
                 {t("mcpIntegrations.description", {

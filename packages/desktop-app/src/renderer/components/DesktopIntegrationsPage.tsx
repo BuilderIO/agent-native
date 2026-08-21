@@ -1,5 +1,5 @@
-import { ConnectionsTab } from "@agent-native/core/client/agent-chat";
 import { createAgentNativeQueryClient } from "@agent-native/core/client/hooks";
+import { McpIntegrationsLanding } from "@agent-native/core/client/integrations";
 import {
   McpServersApiProvider,
   type McpServersApi,
@@ -51,11 +51,12 @@ export default function DesktopIntegrationsPage({
 
   return (
     <div className="flex h-full min-h-0 flex-1 overflow-auto bg-background">
-      <div className="mx-auto w-full max-w-4xl p-6 sm:p-8">
+      <div className="mx-auto w-full max-w-[1000px] px-6 py-7 sm:px-8 sm:py-8">
         {desktopMcpApi ? (
           <QueryClientProvider client={queryClient}>
             <McpServersApiProvider api={desktopMcpApi}>
-              <ConnectionsTab
+              <McpIntegrationsLanding
+                title="Integrations"
                 onOAuthStart={startOAuth}
                 oauthReturnPath="/integrations"
               />
