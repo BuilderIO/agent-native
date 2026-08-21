@@ -39,7 +39,8 @@
  *   toaster                  — custom Toaster element rendered after children.
  *                              Pass `null` to suppress the built-in Toaster when
  *                              children already include a styled one.
- *                              Defaults to `<Toaster richColors position="bottom-left" />`.
+ *                              Defaults to a rich-color bottom-left toaster raised above
+ *                              the environment badge.
  *   disableThemeTransitions  — passed to next-themes ThemeProvider
  *                              `disableTransitionOnChange`. Defaults to `true`
  *                              (suppresses CSS transitions during theme switches,
@@ -105,7 +106,7 @@ export interface AppProvidersProps {
    * Custom Toaster element rendered after children inside TooltipProvider.
    * Pass `null` to suppress the built-in Toaster when children already
    * include a styled one.
-   * Defaults to `<Toaster richColors position="bottom-left" />`.
+   * Defaults to a rich-color bottom-left toaster raised above the environment badge.
    */
   toaster?: React.ReactNode | null;
 
@@ -150,7 +151,14 @@ export interface AppProvidersProps {
   children: React.ReactNode;
 }
 
-const DEFAULT_TOASTER = <Toaster richColors position="bottom-left" />;
+const DEFAULT_TOASTER = (
+  <Toaster
+    richColors
+    position="bottom-left"
+    offset={{ bottom: 44, left: 32 }}
+    mobileOffset={{ bottom: 44, left: 16 }}
+  />
+);
 
 function RoutedAppEnhancements() {
   const isInRouter = useInRouterContext();

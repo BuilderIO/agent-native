@@ -10,11 +10,18 @@ vi.mock("./use-session.js", () => ({
   useSession: () => useSessionMock(),
 }));
 vi.mock("@agent-native/toolkit/ui/sonner", () => ({
-  Toaster: (props: { richColors?: boolean; position?: string }) => (
+  Toaster: (props: {
+    richColors?: boolean;
+    position?: string;
+    offset?: unknown;
+    mobileOffset?: unknown;
+  }) => (
     <div
       data-testid="toolkit-toaster"
       data-rich-colors={String(Boolean(props.richColors))}
       data-position={props.position}
+      data-offset={JSON.stringify(props.offset)}
+      data-mobile-offset={JSON.stringify(props.mobileOffset)}
     />
   ),
 }));
@@ -120,6 +127,36 @@ describe("AppProviders session gate", () => {
     const toaster = container.querySelector('[data-testid="toolkit-toaster"]');
     expect(toaster?.getAttribute("data-rich-colors")).toBe("true");
     expect(toaster?.getAttribute("data-position")).toBe("bottom-left");
+    expect(toaster?.getAttribute("data-offset")).toBe(
+      JSON.stringify({ bottom: 44, left: 32 }),
+    );
+    expect(toaster?.getAttribute("data-mobile-offset")).toBe(
+      JSON.stringify({ bottom: 44, left: 16 }),
+    );
+  });
+
+  it("preserves a custom toaster without adding default offsets", () => {
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
+
+    act(() => {
+      root.render(
+        <AppProviders
+          queryClient={new QueryClient()}
+          i18n={false}
+          isPublicPath
+          toaster={<div data-testid="custom-toaster" />}
+        >
+          <div>content</div>
+        </AppProviders>,
+      );
+    });
+
+    expect(
+      container.querySelector('[data-testid="custom-toaster"]'),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('[data-testid="toolkit-toaster"]'),
+    ).toBeNull();
   });
 
   it("renders public paths directly without resolving or redirecting a session", () => {

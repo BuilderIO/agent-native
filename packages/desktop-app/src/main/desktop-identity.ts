@@ -31,6 +31,7 @@ const DESKTOP_LOGOUT_ALL_PATH = "/_agent-native/auth/logout-all";
 const DEFAULT_CEREMONY_TIMEOUT_MS = 10 * 60 * 1000;
 const DEFAULT_SESSION_COOKIE_WAIT_MS = 10_000;
 const DEFAULT_AVAILABILITY_TIMEOUT_MS = 5_000;
+const DEFAULT_MAGIC_LINK_REQUEST_TIMEOUT_MS = 20_000;
 const DEFAULT_STATUS_REVALIDATION_INTERVAL_MS = 5 * 60 * 1000;
 const DEFAULT_STATUS_TIMEOUT_MS = 10_000;
 const SESSION_COOKIE_POLL_INTERVAL_MS = 25;
@@ -962,6 +963,22 @@ export class DesktopIdentityBroker {
     this.setStatus("signing-in");
 
     let response: Response;
+    let payload: Awaited<
+      ReturnType<typeof readDesktopIdentityMagicLinkResponse>
+    >;
+    const timeoutController = new AbortController();
+    const timeoutTimer = setTimeout(
+      () => timeoutController.abort(),
+      DEFAULT_MAGIC_LINK_REQUEST_TIMEOUT_MS,
+    );
+    const timeoutFailure = new Promise<never>((_resolve, reject) => {
+      timeoutController.signal.addEventListener(
+        "abort",
+        () =>
+          reject(new Error("Desktop identity magic-link request timed out.")),
+        { once: true },
+      );
+    });
     try {
       response = await this.options.identitySession.fetch(
         new URL("/_agent-native/auth/magic-link", authority.origin).toString(),
@@ -969,6 +986,7 @@ export class DesktopIdentityBroker {
           method: "POST",
           redirect: "manual",
           credentials: "include",
+          signal: timeoutController.signal,
           headers: {
             Accept: "application/json",
             "Content-Type": "application/json",
@@ -979,15 +997,22 @@ export class DesktopIdentityBroker {
           }),
         },
       );
+      payload = await Promise.race([
+        readDesktopIdentityMagicLinkResponse(response),
+        timeoutFailure,
+      ]);
     } catch (error) {
       return fail(
-        error instanceof Error
-          ? error.message
-          : "Could not reach the Agent Native identity service.",
+        timeoutController.signal.aborted
+          ? "The identity service did not respond in time. Please try again."
+          : error instanceof Error
+            ? error.message
+            : "Could not reach the Agent Native identity service.",
       );
+    } finally {
+      clearTimeout(timeoutTimer);
     }
 
-    const payload = await readDesktopIdentityMagicLinkResponse(response);
     if (!response.ok) {
       return fail(
         payload.error ?? "Could not send a sign-in link. Please try again.",
