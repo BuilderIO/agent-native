@@ -946,6 +946,19 @@ async function handleResumableChunk(
       }
       closeRes = relayed.result;
     } catch (error) {
+      const failedCloseLease = await renewUploadLease(recordingId, {
+        attemptId,
+        generationId: uploadGenerationId,
+      });
+      if (!failedCloseLease.held) {
+        setResponseStatus(event, 409);
+        return {
+          ok: false,
+          error:
+            "Upload retry ownership was lost while the provider was responding.",
+          staleAttempt: true,
+        };
+      }
       const cleanupFailed = await cleanupFailedFinalSession();
       const detail = error instanceof Error ? error.message : String(error);
       console.error(
@@ -1062,6 +1075,19 @@ async function handleResumableChunk(
         putResult = relayed.result;
       } catch (error) {
         if (isFinal) {
+          const failedFinalLease = await renewUploadLease(recordingId, {
+            attemptId,
+            generationId: uploadGenerationId,
+          });
+          if (!failedFinalLease.held) {
+            setResponseStatus(event, 409);
+            return {
+              ok: false,
+              error:
+                "Upload retry ownership was lost while the provider was responding.",
+              staleAttempt: true,
+            };
+          }
           const cleanupFailed = await cleanupFailedFinalSession();
           const detail = error instanceof Error ? error.message : String(error);
           console.error(

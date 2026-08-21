@@ -3772,17 +3772,20 @@ pub async fn native_fullscreen_recording_retry_upload(
                     None,
                     Some(0.0),
                 );
-                let reset = match reset_upload_chunks(
-                    &saved.server_url,
-                    &saved.recording_id,
-                    &prepared.mime_type,
-                    attempt_id.as_deref(),
-                    upload_generation_id.as_deref(),
-                    &auth_token,
-                    &cookie,
-                )
-                .await
-                {
+                let reset = match tokio::select! {
+                    reset = reset_upload_chunks(
+                        &saved.server_url,
+                        &saved.recording_id,
+                        &prepared.mime_type,
+                        attempt_id.as_deref(),
+                        upload_generation_id.as_deref(),
+                        &auth_token,
+                        &cookie,
+                    ) => reset,
+                    _ = wait_for_native_upload_retry_cancel(&saved.recording_id) => {
+                        Err(NATIVE_UPLOAD_RETRY_CANCELLED.to_string())
+                    }
+                } {
                     Ok(reset) => reset,
                     Err(err) => {
                         interrupt_native_retry_upload(
@@ -3833,17 +3836,20 @@ pub async fn native_fullscreen_recording_retry_upload(
             eprintln!(
                 "[clips-tray] native retry replaying from byte zero after the provider requested a restart"
             );
-            match reset_upload_chunks(
-                &saved.server_url,
-                &saved.recording_id,
-                &prepared.mime_type,
-                replay_attempt_id.as_deref(),
-                replay_upload_generation_id.as_deref(),
-                &auth_token,
-                &cookie,
-            )
-            .await
-            {
+            match tokio::select! {
+                reset = reset_upload_chunks(
+                    &saved.server_url,
+                    &saved.recording_id,
+                    &prepared.mime_type,
+                    replay_attempt_id.as_deref(),
+                    replay_upload_generation_id.as_deref(),
+                    &auth_token,
+                    &cookie,
+                ) => reset,
+                _ = wait_for_native_upload_retry_cancel(&saved.recording_id) => {
+                    Err(NATIVE_UPLOAD_RETRY_CANCELLED.to_string())
+                }
+            } {
                 Ok(reset) => {
                     interruption_upload_generation_id = reset.upload_generation_id.clone();
                     upload_prepared_recording_file(
@@ -5600,7 +5606,8 @@ async fn upload_prepared_recording_file(
             let mut buffer = vec![0_u8; UPLOAD_CHUNK_BYTES];
             file.read_exact(&mut buffer)
                 .map_err(|e| format!("native recording read failed: {e}"))?;
-            send_upload_post_with_attempt(
+            tokio::select! {
+                result = send_upload_post_with_attempt(
                 &client,
                 &server_url,
                 &recording_id,
@@ -5621,8 +5628,11 @@ async fn upload_prepared_recording_file(
                 upload_attempt_id,
                 upload_generation_id,
                 buffer,
-            )
-            .await?;
+                ) => result,
+                _ = wait_for_native_upload_retry_cancel(&recording_id) => {
+                    Err(NATIVE_UPLOAD_RETRY_CANCELLED.to_string())
+                }
+            }?;
             emit_native_upload_progress(
                 app,
                 "uploading",
@@ -5645,7 +5655,8 @@ async fn upload_prepared_recording_file(
             None,
             Some(streaming_full_chunks as f32 / total_posts as f32),
         );
-        verification_pending = send_upload_post_with_attempt(
+        verification_pending = tokio::select! {
+            result = send_upload_post_with_attempt(
             &client,
             &server_url,
             &recording_id,
@@ -5666,8 +5677,11 @@ async fn upload_prepared_recording_file(
             upload_attempt_id,
             upload_generation_id,
             final_body,
-        )
-        .await?;
+            ) => result,
+            _ = wait_for_native_upload_retry_cancel(&recording_id) => {
+                Err(NATIVE_UPLOAD_RETRY_CANCELLED.to_string())
+            }
+        }?;
     } else {
         for index in 0..total_chunks {
             let mut buffer = vec![0_u8; UPLOAD_CHUNK_BYTES];
@@ -5678,7 +5692,8 @@ async fn upload_prepared_recording_file(
                 return Err("Native recording ended before all chunks were read.".into());
             }
             buffer.truncate(read);
-            send_upload_post_with_attempt(
+            tokio::select! {
+                result = send_upload_post_with_attempt(
                 &client,
                 &server_url,
                 &recording_id,
@@ -5699,8 +5714,11 @@ async fn upload_prepared_recording_file(
                 upload_attempt_id,
                 upload_generation_id,
                 buffer,
-            )
-            .await?;
+                ) => result,
+                _ = wait_for_native_upload_retry_cancel(&recording_id) => {
+                    Err(NATIVE_UPLOAD_RETRY_CANCELLED.to_string())
+                }
+            }?;
             emit_native_upload_progress(
                 app,
                 "uploading",
@@ -5717,7 +5735,8 @@ async fn upload_prepared_recording_file(
             None,
             Some(total_chunks as f32 / total_posts as f32),
         );
-        verification_pending = send_upload_post_with_attempt(
+        verification_pending = tokio::select! {
+            result = send_upload_post_with_attempt(
             &client,
             &server_url,
             &recording_id,
@@ -5738,8 +5757,11 @@ async fn upload_prepared_recording_file(
             upload_attempt_id,
             upload_generation_id,
             Vec::new(),
-        )
-        .await?;
+            ) => result,
+            _ = wait_for_native_upload_retry_cancel(&recording_id) => {
+                Err(NATIVE_UPLOAD_RETRY_CANCELLED.to_string())
+            }
+        }?;
     }
 
     emit_native_upload_progress(app, "opening", "Uploading clip", None, Some(1.0));

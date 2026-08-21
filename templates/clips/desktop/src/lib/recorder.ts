@@ -1480,6 +1480,7 @@ export async function retryBrowserRecordingBackup(input: {
         }),
         chunk.blob,
         input.authToken,
+        input.signal,
       );
     }
 
@@ -1507,6 +1508,7 @@ export async function retryBrowserRecordingBackup(input: {
         finalChunkUrl,
         new Blob([], { type: meta.mimeType }),
         input.authToken,
+        input.signal,
       );
       const receiptStatus = verifyFinalizeReceipt(receipt, meta);
       if (receiptStatus === "processing") {
