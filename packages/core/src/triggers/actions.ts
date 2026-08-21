@@ -385,6 +385,7 @@ async function handleRunNow(
       appId,
       scope: automationScope(args.scope),
       name: typeof args.name === "string" ? args.name : "",
+      requestHeaders: context?.requestHeaders,
     });
     return JSON.stringify(result);
   } catch (error) {

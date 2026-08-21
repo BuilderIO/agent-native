@@ -374,6 +374,41 @@ const migrations = [
         WHERE slack_channel_id IS NOT NULL AND slack_channel_id != '';
     `,
   },
+  {
+    version: 25,
+    name: "factory-config-reconcile-legacy-rows",
+    sql: {},
+    run: async () => {
+      const { getDbExec } = await import("@agent-native/core/db");
+      const exec = getDbExec();
+      const defaultFactoryId = "product-feedback";
+      const legacyRows = await exec.execute({
+        sql: `SELECT id, org_id FROM factory_config WHERE factory_id IS NULL OR factory_id = ''`,
+        args: [],
+      });
+      for (const row of legacyRows.rows ?? []) {
+        const id = String(row.id ?? "");
+        const orgId = String(row.org_id ?? "");
+        if (!id || !orgId) continue;
+        const scopedId = `${orgId}:${defaultFactoryId}`;
+        const scoped = await exec.execute({
+          sql: `SELECT id FROM factory_config WHERE id = ? AND org_id = ?`,
+          args: [scopedId, orgId],
+        });
+        if (id !== scopedId && (scoped.rows?.length ?? 0) > 0) {
+          await exec.execute({
+            sql: `DELETE FROM factory_config WHERE id = ? AND org_id = ? AND (factory_id IS NULL OR factory_id = '')`,
+            args: [id, orgId],
+          });
+          continue;
+        }
+        await exec.execute({
+          sql: `UPDATE factory_config SET id = ?, factory_id = ? WHERE id = ? AND org_id = ? AND (factory_id IS NULL OR factory_id = '')`,
+          args: [scopedId, defaultFactoryId, id, orgId],
+        });
+      }
+    },
+  },
 ];
 
 export const runFactoryMigrations = runMigrations(migrations, {

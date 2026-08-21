@@ -10,6 +10,7 @@ import { getDb } from "../server/db/index.js";
 import { factoryAuditEvents } from "../server/db/schema.js";
 import {
   factoryIdSchema,
+  readAutomationDisplayName,
   readAutomationFactoryId,
 } from "../server/lib/factory-scope.js";
 import {
@@ -39,23 +40,30 @@ export default defineAction({
     const factoryDefinitions = definitions.filter(
       ({ meta, name, resource }) =>
         meta.domain === "factory" &&
-        readAutomationFactoryId(meta, resource.content) === factoryId &&
+        readAutomationFactoryId(meta, resource.content, resource.path) ===
+          factoryId &&
         (!automation || name === automation),
     );
     const runGroups = await Promise.all(
-      factoryDefinitions.map(async ({ name, resource }) =>
-        listAutomationRuns({
+      factoryDefinitions.map(async ({ name, resource }) => {
+        const runs = await listAutomationRuns({
           owners: [resource.owner],
           automation: name,
           appId: "factory",
           limit,
-        }),
-      ),
+        });
+        // Absent must stay distinguishable from a stored label so the client
+        // can derive its own fallback instead of rendering the nested path.
+        const displayName = readAutomationDisplayName(resource.content);
+        return runs.map((run) => ({ run, displayName }));
+      }),
     );
-    const runs = runGroups.flat().sort((a, b) => b.startedAt - a.startedAt);
-    const boundedRuns = runs.slice(0, limit);
-    const runIds = boundedRuns
-      .map((run) => run.runId)
+    const entries = runGroups
+      .flat()
+      .sort((a, b) => b.run.startedAt - a.run.startedAt);
+    const boundedEntries = entries.slice(0, limit);
+    const runIds = boundedEntries
+      .map(({ run }) => run.runId)
       .filter((runId): runId is string => Boolean(runId));
 
     const db = getDb();
@@ -81,9 +89,10 @@ export default defineAction({
     }
 
     return {
-      runs: boundedRuns.map((run) => ({
+      runs: boundedEntries.map(({ run, displayName }) => ({
         id: run.id,
         automation: run.automation,
+        displayName,
         runId: run.runId,
         threadId: run.threadId,
         status: run.status,
@@ -106,7 +115,7 @@ export default defineAction({
           createdAt: event.createdAt,
         })),
       })),
-      count: boundedRuns.length,
+      count: boundedEntries.length,
     };
   },
 });

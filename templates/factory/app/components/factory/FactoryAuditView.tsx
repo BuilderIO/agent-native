@@ -33,6 +33,7 @@ type FactoryAuditEvent = {
 type FactoryAuditRun = {
   id: string;
   automation: string;
+  displayName: string | null;
   runId: string | null;
   threadId: string | null;
   status: string;
@@ -76,7 +77,13 @@ export function FactoryAuditView({
   const auditQuery = useActionQuery<FactoryAuditResponse>(
     "list-factory-audit",
     { factoryId, limit: 30 },
-    { staleTime: 5_000 },
+    {
+      staleTime: 5_000,
+      refetchInterval: (query) =>
+        query.state.data?.runs.some((run) => run.status === "running")
+          ? 1_000
+          : false,
+    },
   );
   const refetchAudit = auditQuery.refetch;
   const runs = auditQuery.data?.runs ?? [];
@@ -167,7 +174,7 @@ export function FactoryAuditView({
                     >
                       <div className="flex items-center justify-between gap-3">
                         <span className="min-w-0 truncate text-sm font-medium">
-                          {formatAutomationName(run.automation)}
+                          {automationLabel(run)}
                         </span>
                         <AuditStatus status={run.status} />
                       </div>
@@ -192,8 +199,7 @@ export function FactoryAuditView({
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
                   <CardTitle className="truncate text-base">
-                    {selectedRun &&
-                      formatAutomationName(selectedRun.automation)}
+                    {selectedRun && automationLabel(selectedRun)}
                   </CardTitle>
                   {selectedRun && (
                     <p className="mt-1 truncate text-xs text-muted-foreground">
@@ -641,6 +647,14 @@ function resolveAuditSourceLink(group: AuditItemGroup): string | null {
 function slackThreadUrl(channelId: string, threadTs: string): string {
   const compactTs = threadTs.replace(".", "");
   return `https://slack.com/archives/${encodeURIComponent(channelId)}/p${compactTs}?thread_ts=${encodeURIComponent(threadTs)}`;
+}
+
+function automationLabel(run: FactoryAuditRun): string {
+  if (run.displayName) return run.displayName;
+  // Per-factory automations live at `factories/<id>/<leaf>`; only the leaf is a
+  // name, so formatting the whole path would render the storage layout.
+  const segments = run.automation.split("/");
+  return formatAutomationName(segments[segments.length - 1] || run.automation);
 }
 
 function formatAutomationName(value: string): string {

@@ -83,7 +83,7 @@ export function resolveSelfDispatchBaseUrl(event?: any): string {
 
   const proto = readHeader(event, "x-forwarded-proto") || "http";
   const host =
-    readHeader(event, "host") || `localhost:${process.env.PORT || 3000}`;
+    readHeader(event, "host") || `localhost:${process.env.PORT || 8080}`;
   return withConfiguredAppBasePath(`${proto}://${host}`);
 }
 

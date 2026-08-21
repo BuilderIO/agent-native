@@ -19,6 +19,7 @@ export default defineAction({
       appId: ctx.appId,
       scope,
       name,
+      requestHeaders: ctx.requestHeaders,
     });
   },
 });
