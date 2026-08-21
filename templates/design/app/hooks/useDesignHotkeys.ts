@@ -582,13 +582,11 @@ export function handleDesignHotkey(
   if (primary && key === "d") {
     return runSharedCanvasCommand() || run(props.onDuplicate);
   }
-  // Figma's Shift+Cmd+R — "Paste to replace" — must be checked BEFORE plain
-  // Cmd+R (rename) so shift wins; onPasteToReplace absent falls through to
-  // rename so existing behavior is unaffected until the handler is wired.
+  // Keep Shift+Cmd+R available for Figma's "Paste to replace" command. Bare
+  // Cmd/Ctrl+R stays native so browser refresh keeps its expected meaning.
   if (primary && event.shiftKey && key === "r") {
     return run(props.onPasteToReplace);
   }
-  if (primary && key === "r") return run(props.onRename);
   // Cmd+Shift+H/L (hide/lock the current selection) must take precedence over
   // the unmodified/shift-only h/l transform and alignment families.
   if (primary && event.shiftKey && key === "h") {

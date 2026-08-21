@@ -1,0 +1,332 @@
+name: 🚀 Release everything
+
+# This is the deliberate stable-release button. It completes the package
+# changeset release first, then releases both desktop apps and promotes every
+# configured *.agent-native.com site from that exact post-release commit.
+on:
+  workflow_dispatch:
+    inputs:
+      releaseType:
+        description: Stable npm release bump
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+        default: patch
+
+permissions:
+  actions: write
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: release-everything
+  cancel-in-progress: false
+
+jobs:
+  release-everything:
+    name: Release packages, desktop apps, and production sites
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      RELEASE_TYPE: ${{ inputs.releaseType }}
+    steps:
+      - name: Release packages, then desktop apps and production sites
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        timeout-minutes: 355
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const apiVersion = "2026-03-10";
+            const releaseType = process.env.RELEASE_TYPE;
+            const startedAt = Date.now();
+            const pollIntervalMs = 15_000;
+
+            const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+            async function getMainSha() {
+              const response = await github.rest.git.getRef({
+                owner,
+                repo,
+                ref: "heads/main",
+              });
+              return response.data.object.sha;
+            }
+
+            async function readJsonAt(ref, path) {
+              const response = await github.rest.repos.getContent({
+                owner,
+                repo,
+                path,
+                ref,
+              });
+              const file = response.data;
+              if (Array.isArray(file) || file.type !== "file" || !file.content) {
+                throw new Error(`Expected a file at ${path} on ${ref}.`);
+              }
+              return JSON.parse(Buffer.from(file.content, "base64").toString("utf8"));
+            }
+
+            async function dispatch(workflow, ref, inputs) {
+              const response = await github.request(
+                "POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches",
+                {
+                  owner,
+                  repo,
+                  workflow_id: workflow,
+                  ref,
+                  inputs,
+                  return_run_details: true,
+                  headers: {
+                    accept: "application/vnd.github+json",
+                    "X-GitHub-Api-Version": apiVersion,
+                  },
+                },
+              );
+              const runId = response.data?.workflow_run_id;
+              if (!Number.isInteger(runId)) {
+                throw new Error(
+                  `GitHub did not return a workflow run id for ${workflow} (HTTP ${response.status}).`,
+                );
+              }
+              const url = `https://github.com/${owner}/${repo}/actions/runs/${runId}`;
+              core.info(`Dispatched ${workflow}: ${url}`);
+              return { id: runId, url };
+            }
+
+            async function getRun(runId) {
+              return (await github.rest.actions.getWorkflowRun({
+                owner,
+                repo,
+                run_id: runId,
+              })).data;
+            }
+
+            async function waitForRun(run, label, timeoutMs) {
+              const deadline = Date.now() + timeoutMs;
+              let lastStatus = "";
+              let lastLoggedAt = 0;
+              while (Date.now() < deadline) {
+                const current = await getRun(run.id);
+                const now = Date.now();
+                if (
+                  current.status !== lastStatus ||
+                  now - lastLoggedAt >= 60_000
+                ) {
+                  core.info(`${label}: ${current.status}/${current.conclusion || "pending"}`);
+                  lastStatus = current.status;
+                  lastLoggedAt = now;
+                }
+                if (current.status === "completed") {
+                  if (current.conclusion !== "success") {
+                    throw new Error(
+                      `${label} ended ${current.conclusion || "without a conclusion"}: ${run.url}`,
+                    );
+                  }
+                  return current;
+                }
+                await sleep(pollIntervalMs);
+              }
+              throw new Error(`${label} did not finish before the coordinator timeout: ${run.url}`);
+            }
+
+            async function listReleasePullRequests() {
+              return github.paginate(github.rest.pulls.list, {
+                owner,
+                repo,
+                state: "all",
+                base: "main",
+                per_page: 100,
+              });
+            }
+
+            function isStableReleasePullRequest(pr) {
+              return (
+                pr.base?.ref === "main" &&
+                pr.head?.ref === "changeset-release/main" &&
+                typeof pr.title === "string" &&
+                pr.title.includes("[stable-release]")
+              );
+            }
+
+            async function waitForReleasePullRequest(previousNumbers) {
+              const deadline = Date.now() + 30 * 60_000;
+              while (Date.now() < deadline) {
+                const candidates = (await listReleasePullRequests())
+                  .filter(isStableReleasePullRequest)
+                  .filter((pr) => {
+                    const updatedAt = Date.parse(pr.updated_at || "");
+                    return (
+                      !previousNumbers.has(pr.number) ||
+                      (Number.isFinite(updatedAt) && updatedAt >= startedAt - 60_000)
+                    );
+                  })
+                  .sort((left, right) =>
+                    String(right.updated_at || "").localeCompare(String(left.updated_at || "")),
+                  );
+                if (candidates.length > 0) {
+                  const pr = candidates[0];
+                  core.info(`Found stable release PR #${pr.number}: ${pr.html_url}`);
+                  return pr;
+                }
+                await sleep(pollIntervalMs);
+              }
+              throw new Error("The stable package Version Packages PR was not created in time.");
+            }
+
+            async function waitForReleaseMerge(pr) {
+              const deadline = Date.now() + 45 * 60_000;
+              while (Date.now() < deadline) {
+                const current = (await github.rest.pulls.get({
+                  owner,
+                  repo,
+                  pull_number: pr.number,
+                })).data;
+                if (current.merged) {
+                  if (!current.merge_commit_sha) {
+                    throw new Error(`Stable release PR #${pr.number} merged without a commit SHA.`);
+                  }
+                  core.info(`Stable release PR #${pr.number} merged at ${current.merge_commit_sha}.`);
+                  return current.merge_commit_sha;
+                }
+                if (current.state === "closed") {
+                  throw new Error(`Stable release PR #${pr.number} closed without merging: ${pr.html_url}`);
+                }
+                await sleep(pollIntervalMs);
+              }
+              throw new Error(`Stable release PR #${pr.number} did not merge in time: ${pr.html_url}`);
+            }
+
+            async function waitForStablePackagePublish(mergeSha) {
+              const deadline = Date.now() + 120 * 60_000;
+              while (Date.now() < deadline) {
+                const response = await github.rest.actions.listWorkflowRuns({
+                  owner,
+                  repo,
+                  workflow_id: "auto-publish.yml",
+                  event: "push",
+                  head_sha: mergeSha,
+                  per_page: 100,
+                });
+                const run = response.data.workflow_runs.find(
+                  (candidate) => candidate.event === "push" && candidate.head_sha === mergeSha,
+                );
+                if (run) {
+                  return waitForRun(
+                    {
+                      id: run.id,
+                      url: run.html_url,
+                    },
+                    "Stable npm publication",
+                    Math.max(60_000, deadline - Date.now()),
+                  );
+                }
+                await sleep(pollIntervalMs);
+              }
+              throw new Error(`Stable npm publication was not started for ${mergeSha}.`);
+            }
+
+            const initialMainSha = await getMainSha();
+            const previousReleaseNumbers = new Set(
+              (await listReleasePullRequests())
+                .filter(isStableReleasePullRequest)
+                .map((pr) => pr.number),
+            );
+
+            const packagePreparation = await dispatch(
+              "auto-publish.yml",
+              "main",
+              {
+                releaseType,
+                redispatchDownstream: "false",
+              },
+            );
+            await waitForRun(
+              packagePreparation,
+              "Stable package release preparation",
+              30 * 60_000,
+            );
+
+            const releasePr = await waitForReleasePullRequest(previousReleaseNumbers);
+            const releaseSha = await waitForReleaseMerge(releasePr);
+            await waitForStablePackagePublish(releaseSha);
+
+            const desktopPackage = await readJsonAt(
+              releaseSha,
+              "packages/desktop-app/package.json",
+            );
+            const clipsPackage = await readJsonAt(
+              releaseSha,
+              "templates/clips/desktop/package.json",
+            );
+            const sitesManifest = await readJsonAt(
+              releaseSha,
+              "scripts/netlify-production-sites.json",
+            );
+            const stableVersion = (value, label) => {
+              if (typeof value !== "string" || !/^\d+\.\d+\.\d+$/.test(value)) {
+                throw new Error(`${label} has no exact stable semver: ${value}`);
+              }
+              return value;
+            };
+            const desktopVersion = stableVersion(desktopPackage.version, "Desktop app");
+            const clipsVersion = stableVersion(clipsPackage.version, "Clips desktop app");
+            const productionSites = Object.entries(sitesManifest)
+              .filter(([, site]) =>
+                typeof site?.host === "string" && site.host.endsWith(".agent-native.com"),
+              )
+              .map(([name]) => name);
+            if (productionSites.length === 0) {
+              throw new Error("The production site manifest contains no *.agent-native.com sites.");
+            }
+
+            const [desktop, clips, production] = await Promise.all([
+              dispatch("desktop-release.yml", releaseSha, {
+                channel: "production",
+                version: desktopVersion,
+              }),
+              dispatch("clips-desktop-release.yml", releaseSha, {
+                channel: "production",
+                version: clipsVersion,
+              }),
+              dispatch("deploy-production-sites-prebuilt.yml", releaseSha, {
+                sites: productionSites.join(","),
+                source_ref: releaseSha,
+                beta_e2e: "false",
+                smoke: "true",
+              }),
+            ]);
+
+            const downstream = await Promise.allSettled([
+              waitForRun(desktop, "Agent Native desktop stable release", 120 * 60_000),
+              waitForRun(clips, "Clips desktop stable release", 120 * 60_000),
+              waitForRun(production, "Production site fleet", 120 * 60_000),
+            ]);
+            const failures = downstream
+              .filter((result) => result.status === "rejected")
+              .map((result) => result.reason instanceof Error ? result.reason.message : String(result.reason));
+            if (failures.length > 0) {
+              throw new Error(`Release everything had downstream failures:\n${failures.join("\n")}`);
+            }
+
+            await core.summary
+              .addHeading("Release everything")
+              .addTable([
+                ["Target", "Result"],
+                ["npm packages", `${releaseType} release published`],
+                ["Agent Native desktop", `stable v${desktopVersion}`],
+                ["Clips desktop", `stable v${clipsVersion}`],
+                ["Production sites", `${productionSites.length} *.agent-native.com apps`],
+                ["Source commit", releaseSha],
+              ])
+              .addLink("Package release PR", releasePr.html_url)
+              .addLink("Desktop release run", desktop.url)
+              .addLink("Clips release run", clips.url)
+              .addLink("Production fleet run", production.url)
+              .write();
+
+            core.info(`Release everything completed from ${initialMainSha} through ${releaseSha}.`);

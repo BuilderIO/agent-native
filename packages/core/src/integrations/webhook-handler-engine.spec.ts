@@ -1463,7 +1463,7 @@ describe("integration webhook handler engine resolution", () => {
     });
 
     const sentText = vi.mocked(sendResponse).mock.calls[0]?.[0].text ?? "";
-    expect(sentText).toContain("Manage agent > LLM");
+    expect(sentText).toContain("Settings > Agent > AI providers");
     expect(sentText).not.toContain("ANTHROPIC_API_KEY");
   });
 

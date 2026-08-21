@@ -470,7 +470,7 @@ const messages: AgentChatTranslation = {
   "errorMessages.invalidToolSchema":
     "Ein Tool-Schema war ungültig. Deshalb hat das Modell die Anfrage abgelehnt, bevor sie gestartet wurde. Das ungültige Tool kann übersprungen und die Anfrage erneut gesendet werden.",
   "errorMessages.noProviderConnected":
-    "Es ist kein LLM-Anbieter verbunden. Öffne für diese App „Agent verwalten“ → „LLM“ und verbinde anschließend Builder.io oder füge einen Anbieterschlüssel hinzu.",
+    "Es ist kein LLM-Anbieter verbunden. Öffne Einstellungen > Agent > KI-Anbieter und verbinde anschließend Builder.io (kostenloser Tarif verfügbar) oder füge einen Anbieterschlüssel hinzu.",
   "errorMessages.openBuilderSpaceSettings":
     "Builder-Space-Einstellungen öffnen",
   "errorMessages.providerAuthentication":

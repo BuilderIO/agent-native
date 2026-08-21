@@ -3,13 +3,20 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { MemoryRouter, Route, Routes, useLocation } from "react-router";
+import {
+  MemoryRouter,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+} from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   useAgentRouteState,
   useSemanticNavigationState,
 } from "./route-state.js";
+import { AGENT_NATIVE_WORKSPACE_APP_ROUTE_MESSAGE_TYPE } from "./workspace-app-navigation.js";
 
 function jsonResponse(body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -105,7 +112,65 @@ describe("route-state client helpers", () => {
       container.remove();
     }
     Reflect.deleteProperty(document, "startViewTransition");
+    Object.defineProperty(window, "parent", {
+      configurable: true,
+      value: window,
+    });
     vi.unstubAllGlobals();
+  });
+
+  it("reports child route changes to an embedding parent", async () => {
+    const { fetchMock } = makeAppStateFetch({});
+    vi.stubGlobal("fetch", fetchMock);
+    const parentWindow = { postMessage: vi.fn() };
+    Object.defineProperty(window, "parent", {
+      configurable: true,
+      value: parentWindow,
+    });
+    let navigate: ReturnType<typeof useNavigate> | undefined;
+
+    function Harness() {
+      navigate = useNavigate();
+      useAgentRouteState({
+        refetchInterval: false,
+        getNavigationState: () => ({ view: "home" }),
+        getCommandPath: () => null,
+      });
+      return null;
+    }
+
+    const rendered = renderWithQueryClient(
+      <MemoryRouter initialEntries={["/"]}>
+        <Routes>
+          <Route path="*" element={<Harness />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    roots.push(rendered.root);
+    containers.push(rendered.container);
+    await act(flush);
+
+    expect(parentWindow.postMessage).toHaveBeenCalledWith(
+      {
+        type: AGENT_NATIVE_WORKSPACE_APP_ROUTE_MESSAGE_TYPE,
+        path: "/",
+      },
+      "*",
+    );
+
+    parentWindow.postMessage.mockClear();
+    await act(async () => {
+      void navigate?.("/foobar?mode=edit#canvas");
+      await flush();
+    });
+
+    expect(parentWindow.postMessage).toHaveBeenCalledWith(
+      {
+        type: AGENT_NATIVE_WORKSPACE_APP_ROUTE_MESSAGE_TYPE,
+        path: "/foobar?mode=edit#canvas",
+      },
+      "*",
+    );
   });
 
   it("writes semantic navigation state with request-source metadata", async () => {

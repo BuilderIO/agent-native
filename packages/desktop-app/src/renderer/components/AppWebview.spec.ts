@@ -472,6 +472,111 @@ describe("Desktop identity activation", () => {
     );
   });
 
+  it("keeps a loaded tab visible during a duplicate signed-in status check", async () => {
+    let resolveFirstSynchronization!: (synchronized: boolean) => void;
+    let resolveSecondSynchronization!: (synchronized: boolean) => void;
+    const ensureAppSession = vi
+      .fn<() => Promise<boolean>>()
+      .mockImplementationOnce(
+        () =>
+          new Promise<boolean>((resolve) => {
+            resolveFirstSynchronization = resolve;
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise<boolean>((resolve) => {
+            resolveSecondSynchronization = resolve;
+          }),
+      );
+    let statusHandler: ((status: "signed-in") => void) | undefined;
+    Object.defineProperty(window, "electronAPI", {
+      configurable: true,
+      value: {
+        identity: {
+          getSettings: vi.fn(async () => ({ ssoEnabled: true })),
+          getStatus: vi.fn(async () => "signed-in"),
+          ensureAppSession,
+          onStatusChange: vi.fn((handler: (status: "signed-in") => void) => {
+            statusHandler = handler;
+            return () => {};
+          }),
+          signIn: vi.fn(async () => true),
+          authenticate: vi.fn(async () => ({ ok: true })),
+          requestMagicLink: vi.fn(async () => ({ ok: true })),
+        },
+      },
+    });
+    rememberDesktopIdentityStatus("signed-in");
+    root = createRoot(container);
+
+    const app = {
+      id: "mail",
+      name: "Mail",
+      icon: "mail",
+      description: "",
+      devPort: 3000,
+    };
+    const appConfig = {
+      ...app,
+      url: "https://mail.agent-native.com",
+      isBuiltIn: true,
+      enabled: true,
+      mode: "prod" as const,
+    };
+
+    act(() => {
+      root.render(
+        React.createElement(AppWebview, {
+          app,
+          appConfig,
+          isActive: true,
+          theme: "dark",
+        }),
+      );
+    });
+
+    await vi.waitFor(() => expect(ensureAppSession).toHaveBeenCalledTimes(1));
+
+    const webview = container.querySelector("webview");
+    expect(webview).not.toBeNull();
+    Object.defineProperties(webview!, {
+      getTitle: { configurable: true, value: () => "" },
+      getURL: {
+        configurable: true,
+        value: () => webview!.getAttribute("src") ?? "",
+      },
+    });
+    const webviewSlot = [
+      ...container.querySelectorAll(".webview-slot > div"),
+    ].find((element) => element.querySelector("webview")) as
+      | HTMLElement
+      | undefined;
+    expect(webviewSlot?.style.display).toBe("none");
+    await act(async () => {
+      resolveFirstSynchronization(true);
+      await Promise.resolve();
+    });
+    await vi.waitFor(() => expect(webviewSlot?.style.display).toBe("flex"));
+    await act(async () => {
+      webview?.dispatchEvent(new Event("dom-ready"));
+      await Promise.resolve();
+    });
+    expect(webviewSlot?.style.display).toBe("flex");
+
+    await act(async () => {
+      statusHandler?.("signed-in");
+      await Promise.resolve();
+    });
+    await vi.waitFor(() => expect(ensureAppSession).toHaveBeenCalledTimes(2));
+    expect(webviewSlot?.style.display).toBe("flex");
+
+    await act(async () => {
+      resolveSecondSynchronization(true);
+      await Promise.resolve();
+    });
+  });
+
   it("invalidates a remembered session when lazy sync is rejected", async () => {
     let syncAttempts = 0;
     const getStatus = vi.fn(async () => "signed-in" as const);

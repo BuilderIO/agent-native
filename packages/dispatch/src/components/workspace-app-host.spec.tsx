@@ -183,6 +183,9 @@ describe("WorkspaceAppKeepAlive", () => {
     clientState.actionQueryParams.length = 0;
     clientState.actionQueryOptions.length = 0;
     clientState.workspaceApps = null;
+    clientState.legacyMutateAsync.mockImplementation(async () => ({
+      startUrl: "about:blank",
+    }));
     clientState.legacyMutateAsync.mockClear();
     clientState.legacyMutateError = null;
     clientState.legacyErrorMutateAsync.mockReset();
@@ -467,6 +470,101 @@ describe("WorkspaceAppKeepAlive", () => {
       },
       "*",
     );
+  });
+
+  it("reports trusted child routes to the standalone Dispatch host", async () => {
+    clientState.legacyMutateAsync.mockResolvedValue({
+      startUrl: "https://design.example.test/_agent-native/embed",
+    });
+    clientState.suppressFrameLoad = true;
+    const onChildRouteChange = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <WorkspaceAppFrame
+          app={{
+            id: "design",
+            name: "Design",
+            path: "/",
+            url: "https://design.example.test",
+          }}
+          onChildRouteChange={onChildRouteChange}
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const iframe = container.querySelector<HTMLIFrameElement>("iframe");
+    expect(iframe).not.toBeNull();
+    if (!iframe) throw new Error("Workspace app iframe was not rendered");
+
+    const frameWindow = iframe.contentWindow;
+    expect(frameWindow).not.toBeNull();
+    if (!frameWindow) throw new Error("Workspace app frame window is missing");
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agent-native:workspace-app-route",
+            path: "/foobar?mode=edit#canvas",
+          },
+          origin: "https://design.example.test",
+          source: frameWindow,
+        }),
+      );
+      await Promise.resolve();
+    });
+
+    expect(onChildRouteChange).toHaveBeenCalledWith(
+      "/apps/design/foobar?mode=edit#canvas",
+    );
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agent-native:workspace-app-route",
+            path: "/ignored",
+          },
+          origin: "https://evil.example.test",
+          source: frameWindow,
+        }),
+      );
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agent-native:workspace-app-route",
+            path: "/ignored",
+          },
+          origin: "https://design.example.test",
+          source: {} as Window,
+        }),
+      );
+      await Promise.resolve();
+    });
+
+    expect(onChildRouteChange).toHaveBeenCalledTimes(1);
+  });
+
+  it("seeds a standalone iframe from its initial Dispatch route", async () => {
+    await act(async () => {
+      root.render(
+        <WorkspaceAppFrame
+          app={{ id: "design", name: "Design", path: "/design" }}
+          initialPath="/foobar?mode=edit#canvas"
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(clientState.legacyMutateAsync).toHaveBeenCalledWith({
+      app: "design",
+      path: "/foobar?mode=edit#canvas",
+      chrome: "minimal",
+    });
   });
 
   it("clears the embed error after a direct fallback iframe loads", async () => {
