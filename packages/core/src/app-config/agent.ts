@@ -67,4 +67,38 @@ export const agentConfig = z.object({
       env: ["AGENT_ERRORED_RUN_RETENTION_MS"],
       doc: "How long an errored agent run row is kept, in milliseconds.",
     }),
+
+  // ── Run-lifecycle bounds ────────────────────────────────────────────────
+  //
+  // These are the numbers that can TERMINATE a run, or that encode an
+  // assumption about the host it runs on. They carry today's shipped values as
+  // declared defaults, so a deployment that configures nothing sees no
+  // behaviour change; `agent/run-lifecycle.ts` is the only place that reads
+  // them, one resolver per field, and `assertRunLifecycleInvariants` checks the
+  // ordering between them every time configuration resolves.
+  //
+  // Derived values (the foreground backstop fraction, tool-timeout headroom)
+  // stay internal on purpose: they are relationships, not host facts, and
+  // making them settable is how the ordering below stops being checkable.
+  //
+  // Each default here is the value that shipped as a module constant, and the
+  // constant still exists under its historical name where its reasoning is
+  // written down. `agent-run-lifecycle-config.spec.ts` pins the two together so
+  // editing one alone is a failing test, not a silent divergence.
+  backgroundNoProgressTimeoutMs: z
+    .number()
+    .nonnegative()
+    .default(150_000)
+    .meta({
+      env: ["AGENT_BACKGROUND_NO_PROGRESS_TIMEOUT_MS"],
+      doc: "No-progress backstop for a background-function run, in milliseconds. 0 disables it.",
+    }),
+  backgroundRunHardTimeoutMs: z
+    .number()
+    .positive()
+    .default(10 * 60_000)
+    .meta({
+      env: ["AGENT_BACKGROUND_RUN_HARD_TIMEOUT_MS"],
+      doc: "Hard abort for one in-process background automation run, in milliseconds. This is the host's real function budget for scheduled work.",
+    }),
 });
