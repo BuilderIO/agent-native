@@ -1,12 +1,9 @@
-import { useLocale, useT } from "@agent-native/core/client/i18n";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconCheck } from "@tabler/icons-react";
-import { Link } from "react-router";
 
 import { BuilderImage } from "../components/builder-image";
-import { sitePathForLocale } from "../components/docs-locale";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { SectionDivider } from "../components/SectionDivider";
-import { TemplateDocsLink } from "../components/template-docs";
 import {
   TemplateCapabilityGrid,
   TemplateComparisonTable,
@@ -80,7 +77,6 @@ const COMPARISON_ROWS = [
 
 export default function SlidesTemplate() {
   const t = useT();
-  const { locale } = useLocale();
   const workflowSteps = [
     {
       title: t("templateLanding.slides.s002"),
@@ -141,7 +137,7 @@ export default function SlidesTemplate() {
       <TemplateHero
         eyebrow={
           <span style={{ color: template.color }}>
-            Agent-Native {template.name}
+            {t("common.freeAndOpenSource")}
           </span>
         }
         title={
@@ -169,13 +165,12 @@ export default function SlidesTemplate() {
               });
             }}
           >
-            {t("templateLanding.slides.tryNow.submit")}
+            {t("common.getStarted")}
           </a>
         }
         media={
           <BuilderImage
             src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F74bf2e432b544b848f2dd6255b570178"
-            sizes="(max-width: 900px) 100vw, 800px"
             crossOrigin="anonymous"
             alt={t("templateLanding.slides.s001")}
             loading="lazy"
@@ -369,32 +364,7 @@ export default function SlidesTemplate() {
 
       <TemplateFinalCta
         className="[&>div:first-child]:py-10 sm:[&>div:first-child]:py-12 lg:[&>div:first-child]:py-16 [&>div:last-child]:gap-4 sm:[&>div:last-child]:gap-4"
-        actions={
-          <>
-            <a
-              href="https://slides.agent-native.com/_agent-native/sign-in"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="primary-button focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--docs-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg)]"
-            >
-              {t("templateLanding.slides.signIn")}
-            </a>
-            <TemplateDocsLink
-              template={template}
-              location="landing_page_cta"
-              className="inline-flex items-center gap-2 rounded-xl border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--docs-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg)]"
-            >
-              {t("templateLanding.slides.s057")}
-            </TemplateDocsLink>
-            <Link
-              data-an-prefetch="viewport"
-              to={sitePathForLocale("/apps", locale)}
-              className="inline-flex items-center gap-2 rounded-xl border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--docs-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg)]"
-            >
-              {t("templateLanding.slides.s058")}
-            </Link>
-          </>
-        }
+        template={template}
       />
 
       <SectionDivider />

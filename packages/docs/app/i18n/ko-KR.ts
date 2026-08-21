@@ -426,6 +426,12 @@ const koKR = {
     source: "소스",
     readDocs: "문서 읽기",
     signIn: "로그인",
+    tryTemplateFree: "{{name}} 무료로 사용해 보기",
+    designForFree: "무료로 디자인하기",
+    recordForFree: "무료로 녹화하기",
+    getStarted: "시작하기",
+    freeAndOpenSource: "100% 무료 • 오픈 소스",
+    viewAllApps: "모든 앱 보기",
   },
   templatesPage: {
     title: "귀하가 소유한 오픈 소스 에이전트 기반 앱",

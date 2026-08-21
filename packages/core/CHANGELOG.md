@@ -1,5 +1,17 @@
 # @agent-native/core
 
+## 0.168.12
+
+### Patch Changes
+
+- 51b31ed: Format localized core documentation after the release sync.
+
+## 0.168.11
+
+### Patch Changes
+
+- dc0978d: Fix action request context to use the forwarded workspace gateway origin instead of the internal dev proxy host.
+
 ## 0.168.10
 
 ### Patch Changes

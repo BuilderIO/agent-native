@@ -427,6 +427,12 @@ const frFR = {
     source: "Code source",
     readDocs: "Lire la documentation",
     signIn: "Se connecter",
+    tryTemplateFree: "Essayer {{name}} gratuitement",
+    designForFree: "Concevoir gratuitement",
+    recordForFree: "Enregistrer gratuitement",
+    getStarted: "Commencer",
+    freeAndOpenSource: "100 % gratuit • open source",
+    viewAllApps: "Voir toutes les applications",
   },
   templatesPage: {
     title: "Applications open source natives pour agents que vous possédez",
