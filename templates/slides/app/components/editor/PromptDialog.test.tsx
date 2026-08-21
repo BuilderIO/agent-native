@@ -100,6 +100,20 @@ describe("uploadPromptFiles", () => {
     ensureEmbedAuthFetchInterceptor.mockClear();
   });
 
+  it("rejects more than 20 files before starting uploads", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const files = Array.from(
+      { length: 21 },
+      (_, index) => new File(["x"], `reference-${index}.pdf`),
+    );
+
+    await expect(uploadPromptFiles(files)).rejects.toThrow(
+      "Too many files (max 20)",
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("uses the authenticated fetch boundary for reference uploads", async () => {
     const fetchMock = vi
       .fn()

@@ -6,8 +6,8 @@ import {
 import {
   defineEventHandler,
   getHeader,
-  getRouterParam,
   getQuery,
+  getRouterParam,
   readBody,
   readRawBody,
   setResponseStatus,
@@ -18,22 +18,18 @@ import {
   createChunkedUploadSession,
   deleteChunkedUploadSession,
   getChunkedUploadSession,
+  listChunkedUploadSessions,
   type ChunkedUploadSession,
 } from "../lib/chunked-upload-session.js";
 import {
-  resolveSlidesRequestAuthContext,
+  resolveSlidesRequestAuth,
   withSlidesRequestContext,
 } from "./request-auth-context.js";
 import { maxReferenceFileBytes, saveUploadedReferenceFile } from "./uploads.js";
 
-// Netlify functions have a 6 MB buffered request cap, but binary requests are
-// base64 encoded by the gateway and effectively cap out around 4.5 MB. A
-// single-shot multipart POST of a real PPTX/PDF routinely exceeds that, so
-// large reference files stream here in sub-4 MB slices instead: each chunk
-// lands in its own private blob, and the final chunk reassembles them into
-// one buffer before running the same validation/storage path as /api/uploads.
 const MAX_CHUNK_BYTES = 4 * 1024 * 1024;
 const MAX_CHUNKS = 128;
+const SESSION_TTL_MS = 60 * 60 * 1000;
 
 interface StartBody {
   filename?: unknown;
@@ -41,8 +37,45 @@ interface StartBody {
   declaredSize?: unknown;
 }
 
+async function deleteChunk(handle: ChunkedUploadSession["chunks"][string]) {
+  return (await deletePrivateBlob(handle)).deleted;
+}
+
+async function cleanupChunks(session: ChunkedUploadSession): Promise<boolean> {
+  const results = await Promise.all(
+    Object.values(session.chunks).map(deleteChunk),
+  );
+  return results.every(Boolean);
+}
+
+async function discardSession(
+  sessionId: string,
+  session: ChunkedUploadSession,
+): Promise<boolean> {
+  const cleaned = await cleanupChunks(session);
+  if (cleaned) await deleteChunkedUploadSession(sessionId);
+  return cleaned;
+}
+
+async function reapExpiredChunkedUploads(): Promise<void> {
+  const now = Date.now();
+  const sessions = await listChunkedUploadSessions();
+  await Promise.all(
+    sessions.map(async ({ sessionId, session }) => {
+      const expiresAt = Date.parse(session.expiresAt);
+      if (Number.isFinite(expiresAt) && expiresAt > now) return;
+      await discardSession(sessionId, session);
+    }),
+  );
+}
+
 export const startChunkedUpload = defineEventHandler(async (event) => {
-  const authContext = await resolveSlidesRequestAuthContext(event);
+  const auth = await resolveSlidesRequestAuth(event);
+  if (!auth.ok) {
+    setResponseStatus(event, auth.statusCode);
+    return { error: auth.error };
+  }
+  const authContext = auth.context;
   if (!authContext.email) {
     setResponseStatus(event, 401);
     return { error: "Unauthorized" };
@@ -51,6 +84,7 @@ export const startChunkedUpload = defineEventHandler(async (event) => {
   return withSlidesRequestContext(
     event,
     async () => {
+      await reapExpiredChunkedUploads();
       const body = (await readBody(event).catch(
         () => null,
       )) as StartBody | null;
@@ -78,11 +112,15 @@ export const startChunkedUpload = defineEventHandler(async (event) => {
       }
 
       const sessionId = nanoid();
+      const now = Date.now();
       await createChunkedUploadSession(sessionId, {
         filename,
         mimeType: mimetype,
         declaredSize,
         chunks: {},
+        chunkSizes: {},
+        createdAt: new Date(now).toISOString(),
+        expiresAt: new Date(now + SESSION_TTL_MS).toISOString(),
       });
       return { sessionId, maxChunkBytes: MAX_CHUNK_BYTES };
     },
@@ -91,7 +129,12 @@ export const startChunkedUpload = defineEventHandler(async (event) => {
 });
 
 export const uploadChunkedChunk = defineEventHandler(async (event) => {
-  const authContext = await resolveSlidesRequestAuthContext(event);
+  const auth = await resolveSlidesRequestAuth(event);
+  if (!auth.ok) {
+    setResponseStatus(event, auth.statusCode);
+    return { error: auth.error };
+  }
+  const authContext = auth.context;
   const email = authContext.email;
   if (!email) {
     setResponseStatus(event, 401);
@@ -111,6 +154,11 @@ export const uploadChunkedChunk = defineEventHandler(async (event) => {
         setResponseStatus(event, 404);
         return { error: "Upload session not found or expired" };
       }
+      if (Date.parse(session.expiresAt) <= Date.now()) {
+        await discardSession(sessionId, session);
+        setResponseStatus(event, 410);
+        return { error: "Upload session expired" };
+      }
 
       const query = getQuery(event);
       const index = Number(query.index ?? 0);
@@ -120,17 +168,46 @@ export const uploadChunkedChunk = defineEventHandler(async (event) => {
         return { error: "Invalid chunk index" };
       }
 
-      const contentLength = Number(getHeader(event, "content-length") || 0);
+      const contentLengthHeader = getHeader(event, "content-length");
+      if (!contentLengthHeader || !/^\d+$/.test(contentLengthHeader)) {
+        setResponseStatus(event, 411);
+        return { error: "Valid Content-Length header required" };
+      }
+      const contentLength = Number(contentLengthHeader);
+      if (contentLength <= 0) {
+        setResponseStatus(event, 400);
+        return { error: "Empty chunk body" };
+      }
       if (contentLength > MAX_CHUNK_BYTES) {
         setResponseStatus(event, 413);
         return { error: "Chunk too large" };
       }
 
+      const chunkKey = String(index);
+      const previousSize = session.chunkSizes[chunkKey] ?? 0;
+      const receivedBefore = Object.values(session.chunkSizes).reduce(
+        (total, size) => total + size,
+        0,
+      );
+      const nextSize = receivedBefore - previousSize + contentLength;
+      const fileLimit = maxReferenceFileBytes(session.filename);
+      if (nextSize > session.declaredSize || nextSize > fileLimit) {
+        await discardSession(sessionId, session);
+        setResponseStatus(event, 413);
+        return { error: "Uploaded bytes exceed the declared file size" };
+      }
+
       const raw = await readRawBody(event, false);
       const bytes = raw ?? new Uint8Array(0);
-      if (bytes.byteLength > MAX_CHUNK_BYTES) {
-        setResponseStatus(event, 413);
-        return { error: "Chunk too large" };
+      if (bytes.byteLength !== contentLength) {
+        setResponseStatus(event, 400);
+        return { error: "Chunk size does not match Content-Length" };
+      }
+
+      const previousHandle = session.chunks[chunkKey];
+      if (previousHandle && !(await deleteChunk(previousHandle))) {
+        setResponseStatus(event, 503);
+        return { error: "Could not replace the previously uploaded chunk" };
       }
 
       const handle = await putPrivateBlob({
@@ -143,35 +220,43 @@ export const uploadChunkedChunk = defineEventHandler(async (event) => {
         setResponseStatus(event, 503);
         return { error: "Upload storage is not available" };
       }
-      session.chunks[String(index)] = handle;
+      session.chunks[chunkKey] = handle;
+      session.chunkSizes[chunkKey] = bytes.byteLength;
       await createChunkedUploadSession(sessionId, session);
 
-      if (!isFinal) {
-        return { ok: true };
-      }
+      if (!isFinal) return { ok: true };
 
       const orderedIndices = Object.keys(session.chunks)
         .map(Number)
         .sort((a, b) => a - b);
       const missing = orderedIndices.some((value, i) => value !== i);
-      if (missing || orderedIndices.length === 0) {
-        await cleanupChunks(session);
-        await deleteChunkedUploadSession(sessionId);
-        setResponseStatus(event, 400);
-        return { error: "Upload is missing chunks" };
-      }
-
-      const parts = await Promise.all(
-        orderedIndices.map(async (chunkIndex) => {
-          const chunkHandle = session.chunks[String(chunkIndex)];
-          const read = await readPrivateBlob(chunkHandle);
-          return Buffer.from(read.data);
-        }),
+      const receivedSize = Object.values(session.chunkSizes).reduce(
+        (total, size) => total + size,
+        0,
       );
-      const combined = Buffer.concat(parts);
+      if (
+        missing ||
+        orderedIndices.length === 0 ||
+        receivedSize !== session.declaredSize
+      ) {
+        await discardSession(sessionId, session);
+        setResponseStatus(event, 400);
+        return { error: "Upload is incomplete or has an invalid size" };
+      }
 
       let result;
       try {
+        const parts = await Promise.all(
+          orderedIndices.map(async (chunkIndex) => {
+            const chunkHandle = session.chunks[String(chunkIndex)];
+            const read = await readPrivateBlob(chunkHandle);
+            return Buffer.from(read.data);
+          }),
+        );
+        const combined = Buffer.concat(parts);
+        if (combined.byteLength !== session.declaredSize) {
+          throw new Error("Assembled upload size does not match declaredSize");
+        }
         result = await saveUploadedReferenceFile({
           email,
           orgId,
@@ -180,8 +265,7 @@ export const uploadChunkedChunk = defineEventHandler(async (event) => {
           type: session.mimeType,
         });
       } catch (err) {
-        await cleanupChunks(session);
-        await deleteChunkedUploadSession(sessionId);
+        await discardSession(sessionId, session);
         const statusCode =
           typeof (err as { statusCode?: unknown })?.statusCode === "number"
             ? (err as { statusCode: number }).statusCode
@@ -190,18 +274,9 @@ export const uploadChunkedChunk = defineEventHandler(async (event) => {
         return { error: err instanceof Error ? err.message : "Invalid upload" };
       }
 
-      await cleanupChunks(session);
-      await deleteChunkedUploadSession(sessionId);
+      await discardSession(sessionId, session);
       return [result];
     },
     authContext,
   );
 });
-
-async function cleanupChunks(session: ChunkedUploadSession): Promise<void> {
-  await Promise.all(
-    Object.values(session.chunks).map((handle) =>
-      deletePrivateBlob(handle).catch(() => undefined),
-    ),
-  );
-}

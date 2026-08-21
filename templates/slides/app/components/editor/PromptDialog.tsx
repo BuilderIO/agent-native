@@ -14,7 +14,10 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
-import { MAX_REFERENCE_FILE_BYTES } from "../../../shared/upload-types";
+import {
+  MAX_REFERENCE_FILE_BYTES,
+  MAX_REFERENCE_FILES,
+} from "../../../shared/upload-types";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { GoogleDocImportHint } from "./GoogleDocImportHint";
@@ -36,11 +39,13 @@ export interface UploadedFile {
 const CHUNK_UPLOAD_THRESHOLD_BYTES = 4 * 1024 * 1024;
 const CHUNK_SIZE_BYTES = 4 * 1024 * 1024;
 
-async function readJsonSafe(response: Response): Promise<unknown> {
+async function readUploadJson(response: Response): Promise<unknown> {
   try {
     return await response.json();
-  } catch {
-    return null;
+  } catch (error) {
+    throw new Error(`Upload returned invalid JSON (${response.status})`, {
+      cause: error,
+    });
   }
 }
 
@@ -65,7 +70,7 @@ async function uploadFilesMultipart(files: File[]): Promise<UploadedFile[]> {
     body: formData,
     credentials: "include",
   });
-  const data = await readJsonSafe(response);
+  const data = await readUploadJson(response);
   if (!response.ok) {
     throw new Error(
       extractErrorMessage(data) || `Upload failed (${response.status})`,
@@ -91,7 +96,7 @@ async function uploadFileChunked(file: File): Promise<UploadedFile> {
       }),
     },
   );
-  const startData = await readJsonSafe(startResponse);
+  const startData = await readUploadJson(startResponse);
   const sessionId =
     startData && typeof startData === "object"
       ? (startData as { sessionId?: unknown }).sessionId
@@ -119,7 +124,7 @@ async function uploadFileChunked(file: File): Promise<UploadedFile> {
         body: file.slice(start, end),
       },
     );
-    const chunkData = await readJsonSafe(chunkResponse);
+    const chunkData = await readUploadJson(chunkResponse);
     if (!chunkResponse.ok) {
       throw new Error(
         extractErrorMessage(chunkData) ||
@@ -141,6 +146,9 @@ export async function uploadPromptFiles(
   files: File[],
 ): Promise<UploadedFile[]> {
   if (files.length === 0) return [];
+  if (files.length > MAX_REFERENCE_FILES) {
+    throw new Error(`Too many files (max ${MAX_REFERENCE_FILES})`);
+  }
   ensureEmbedAuthFetchInterceptor();
   const smallFiles = files.filter(
     (file) => file.size <= CHUNK_UPLOAD_THRESHOLD_BYTES,

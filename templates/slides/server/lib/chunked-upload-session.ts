@@ -1,5 +1,6 @@
 import {
   deleteAppState,
+  listAppState,
   readAppState,
   writeAppState,
 } from "@agent-native/core/application-state";
@@ -10,9 +11,13 @@ export interface ChunkedUploadSession {
   mimeType: string;
   declaredSize: number;
   chunks: Record<string, PrivateBlobHandle>;
+  chunkSizes: Record<string, number>;
+  createdAt: string;
+  expiresAt: string;
 }
 
-const key = (sessionId: string) => `slides-upload-chunks-${sessionId}`;
+const PREFIX = "slides-upload-chunks-";
+const key = (sessionId: string) => `${PREFIX}${sessionId}`;
 
 export async function createChunkedUploadSession(
   sessionId: string,
@@ -32,14 +37,14 @@ export async function getChunkedUploadSession(
   return raw as unknown as ChunkedUploadSession;
 }
 
-export async function setChunkedUploadSession(
-  sessionId: string,
-  session: ChunkedUploadSession,
-): Promise<void> {
-  await writeAppState(
-    key(sessionId),
-    session as unknown as Record<string, unknown>,
-  );
+export async function listChunkedUploadSessions(): Promise<
+  Array<{ sessionId: string; session: ChunkedUploadSession }>
+> {
+  const entries = await listAppState(PREFIX);
+  return entries.map(({ key: entryKey, value }) => ({
+    sessionId: entryKey.slice(PREFIX.length),
+    session: value as unknown as ChunkedUploadSession,
+  }));
 }
 
 export async function deleteChunkedUploadSession(

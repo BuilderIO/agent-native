@@ -1,8 +1,7 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 
 import { getAppConfig } from "../app-config/index.js";
-import { setAppConfigLayer } from "../app-config/store.js";
-import { uploadFile } from "../file-upload/index.js";
+import { deleteUploadedFile, uploadFile } from "../file-upload/index.js";
 import {
   decryptSecretValue,
   encryptSecretValue,
@@ -18,6 +17,7 @@ import type {
 
 interface PrivateBlobGlobals {
   __agentNativePrivateBlobProviders?: Map<string, PrivateBlobProvider>;
+  __agentNativePrivateBlobPublicUploadFallback?: { enabled: boolean };
 }
 
 interface EncryptedPayload {
@@ -49,6 +49,10 @@ const PUBLIC_UPLOAD_READ_RETRY_DELAYS_MS = [100, 250, 500] as const;
 const globals = globalThis as typeof globalThis & PrivateBlobGlobals;
 const providers: Map<string, PrivateBlobProvider> =
   (globals.__agentNativePrivateBlobProviders ??= new Map());
+const publicUploadFallbackRef: { enabled: boolean } =
+  (globals.__agentNativePrivateBlobPublicUploadFallback ??= {
+    enabled: true,
+  });
 
 function toBytes(data: Uint8Array | Buffer): Uint8Array {
   return data instanceof Uint8Array ? data : new Uint8Array(data);
@@ -273,15 +277,15 @@ export function listPrivateBlobProviders(): PrivateBlobProvider[] {
 }
 
 export function getActivePrivateBlobProvider(): PrivateBlobProvider | null {
-  const selected = getAppConfig().privateBlob.provider;
-  if (selected) {
-    const provider = providers.get(selected);
-    if (!provider) {
+  const selectedId = getAppConfig().privateBlob.provider;
+  if (selectedId) {
+    const selected = providers.get(selectedId);
+    if (!selected) {
       throw new Error(
-        `Private blob provider "${selected}" is selected in app config but no provider with that id is registered`,
+        `Private blob config selects '${selectedId}', but no provider with that id is registered`,
       );
     }
-    return provider;
+    return selected.isConfigured() ? selected : null;
   }
   for (const provider of providers.values()) {
     if (provider.isConfigured()) return provider;
@@ -289,17 +293,10 @@ export function getActivePrivateBlobProvider(): PrivateBlobProvider | null {
   return null;
 }
 
-/**
- * @deprecated Use `defineAppConfig({ privateBlob: { publicUploadFallback } })`
- * instead. This writes the same value into the deprecated layer of the config
- * ladder, so an explicit `defineAppConfig` call now wins over it.
- */
 export function setPrivateBlobPublicUploadFallbackEnabled(
   enabled: boolean,
 ): void {
-  setAppConfigLayer("legacy", {
-    privateBlob: { publicUploadFallback: enabled },
-  });
+  publicUploadFallbackRef.enabled = enabled;
 }
 
 export async function putPrivateBlob(
@@ -307,6 +304,7 @@ export async function putPrivateBlob(
 ): Promise<PrivateBlobHandle | null> {
   const provider = getActivePrivateBlobProvider();
   if (provider) return provider.put(input);
+  if (!publicUploadFallbackRef.enabled) return null;
   if (!getAppConfig().privateBlob.publicUploadFallback) return null;
   return putViaEncryptedPublicUpload(input);
 }
@@ -328,11 +326,17 @@ export async function deletePrivateBlob(
   const provider = providers.get(handle.provider);
   if (provider) return provider.delete(handle);
   if (isPublicUploadFallbackHandle(handle)) {
+    const descriptor = decodePublicUploadDescriptor(handle.id);
+    const deleted = await deleteUploadedFile(descriptor.uploadProvider, {
+      url: descriptor.url,
+      id: descriptor.uploadId,
+    });
     return {
-      deleted: false,
+      deleted,
       provider: handle.provider,
-      reason:
-        "delete is not supported by the encrypted public-upload fallback provider",
+      ...(deleted
+        ? {}
+        : { reason: "backing upload provider could not delete the asset" }),
     };
   }
   throw new Error(`No private blob provider registered for ${handle.provider}`);
