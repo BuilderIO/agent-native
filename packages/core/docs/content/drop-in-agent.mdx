@@ -11,7 +11,7 @@ description: "Mount the agent chat + resources into any React app with <AgentPan
 
 </Callout>
 
-You don't need to build agent-native from scratch. The agent chat, resources tab, CLI terminal, voice input, and all the related infrastructure ship as a handful of React components you drop into any app.
+You don't need to build Agent-Native from scratch. The agent chat, resources tab, CLI terminal, voice input, and all the related infrastructure ship as a handful of React components you drop into any app.
 
 <Callout tone="info">
 
@@ -184,7 +184,7 @@ Full props: `AgentPanelProps` in `@agent-native/core/client`.
 
 ## Programmatic messages: `sendToAgentChat()` {#send}
 
-A button that hands work off to the agent (instead of running an inline `llm()` call — the anti-pattern from the [ladder](/docs/what-is-agent-native#the-ladder)). For visible, user-initiated AI work, open the sidebar explicitly so the user can see, steer, and continue the same thread:
+A button that hands work off to the agent instead of creating a separate AI path with an inline `llm()` call. See [Why build apps this way](/docs/what-is-agent-native#why-build-apps-this-way) for why that distinction matters. For visible, user-initiated AI work, open the sidebar explicitly so the user can see, steer, and continue the same thread:
 
 ```tsx
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
@@ -283,7 +283,7 @@ AI-shaped workflow inside one opaque action.
 
 ## Typesafe actions from the UI: `useActionMutation()` {#use-action-mutation}
 
-When the UI needs to run the same operation an agent tool would run — rung 3 of the [ladder](/docs/what-is-agent-native#rung-three) — use `useActionMutation`:
+When the UI needs to run the same operation an agent tool would run, use [`useActionMutation`](/docs/client-data#use-action-mutation):
 
 ```tsx
 import { useActionMutation } from "@agent-native/core/client/hooks";
@@ -298,7 +298,7 @@ Type-safe arguments come from the zod schema in your `defineAction()`. See [Acti
 
 <Callout id="doc-block-1757zi5" tone="decision">
 
-**`useActionMutation` vs `sendToAgentChat`.** Run the operation directly with `useActionMutation` when the user clicked a deterministic button ("Send reply"). Hand it to `sendToAgentChat` when the work needs the agent's reasoning, tools, or multi-step planning. Never call an inline `llm()` from UI — that is rung 1 of the [ladder](/docs/what-is-agent-native#the-ladder).
+**`useActionMutation` vs `sendToAgentChat`.** Run the operation directly with `useActionMutation` when the user clicked a deterministic button ("Send reply"). Hand it to `sendToAgentChat` when the work needs the agent's reasoning, tools, or multi-step planning. Never call an inline `llm()` from UI; that creates a separate AI path instead of using the shared agent loop.
 
 </Callout>
 

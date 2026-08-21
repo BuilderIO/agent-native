@@ -1,0 +1,80 @@
+name: Beta E2E (scheduled)
+
+# Keep the promotion gate in beta-e2e.yml manually invokable while running the
+# same browser job on a fixed cadence. The issue reporter is deliberately a
+# separate job so a failing test run still gets a chance to report itself.
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: beta-e2e-scheduled
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  beta-e2e:
+    name: Run beta E2E
+    uses: ./.github/workflows/beta-e2e.yml
+    with:
+      apps: all
+      lane: public+authed
+      grep: ""
+    secrets: inherit
+    permissions:
+      contents: read
+
+  report:
+    name: Report beta E2E status
+    if: ${{ always() }}
+    needs: beta-e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Update one open issue for a failed run
+        if: ${{ needs.beta-e2e.result == 'failure' || needs.beta-e2e.result == 'cancelled' }}
+        run: |
+          set -euo pipefail
+
+          issue_title="[beta-e2e] Scheduled beta health check failing"
+          issue_number="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --limit 100 --json number,title | jq -r --arg title "$issue_title" '[.[] | select(.title == $title) | .number] | first // empty')"
+          failed_jobs="$(gh run view "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --json jobs --jq '[.jobs[] | select(.conclusion == "failure" or .conclusion == "cancelled") | .name] | join(", ")')"
+          body="$(cat <<EOF
+          The scheduled beta E2E check failed.
+
+          Run: $RUN_URL
+          Failed jobs: $failed_jobs
+          Schedule: every 6 hours (0 */6 * * *)
+
+          This issue is intentionally reused while it remains open. A successful run will comment with the recovery run and close it.
+          EOF
+          )"
+
+          if [ -n "$issue_number" ]; then
+            gh issue comment "$issue_number" --repo "$GITHUB_REPOSITORY" --body "$body"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$issue_title" --body "$body"
+          fi
+
+      - name: Close the open issue after recovery
+        if: ${{ needs.beta-e2e.result == 'success' }}
+        run: |
+          set -euo pipefail
+
+          issue_title="[beta-e2e] Scheduled beta health check failing"
+          issue_number="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --limit 100 --json number,title | jq -r --arg title "$issue_title" '[.[] | select(.title == $title) | .number] | first // empty')"
+          if [ -n "$issue_number" ]; then
+            gh issue comment "$issue_number" --repo "$GITHUB_REPOSITORY" --body "The scheduled beta E2E check recovered: $RUN_URL"
+            gh issue close "$issue_number" --repo "$GITHUB_REPOSITORY"
+          fi

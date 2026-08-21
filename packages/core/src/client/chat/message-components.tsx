@@ -340,6 +340,17 @@ export const MessageActionsContext = React.createContext<{
   bannerRunErrorKey?: string | null;
 } | null>(null);
 
+export function isLocalDevelopmentHost(hostname: string): boolean {
+  const normalizedHostname = hostname.trim().toLowerCase();
+  return (
+    normalizedHostname === "localhost" ||
+    normalizedHostname === "127.0.0.1" ||
+    normalizedHostname === "0.0.0.0" ||
+    normalizedHostname === "::1" ||
+    normalizedHostname === "[::1]"
+  );
+}
+
 /**
  * Restore rewrites the working tree, so only offer it when the server actually
  * has a checkpoint for this turn. Auto-checkpointing skips turns that started
@@ -352,8 +363,10 @@ export function shouldOfferRestore(args: {
   isLast: boolean;
   runId: string | undefined;
   checkpointRunIds: ReadonlySet<string> | undefined;
+  hostname: string;
 }): boolean {
   return Boolean(
+    isLocalDevelopmentHost(args.hostname) &&
     args.devMode &&
     args.isComplete &&
     !args.isLast &&
@@ -1089,6 +1102,55 @@ function missingFinalResponseWarningText(content: unknown): string | null {
   return null;
 }
 
+export function isMissingCredentialAssistantMessage(message: {
+  content?: unknown;
+  metadata?: unknown;
+}): boolean {
+  const metadata = message.metadata as
+    | {
+        custom?: {
+          runError?: { errorCode?: unknown; message?: unknown };
+        };
+        runError?: { errorCode?: unknown; message?: unknown };
+      }
+    | undefined;
+  const runError = metadata?.custom?.runError ?? metadata?.runError;
+  const errorCode =
+    typeof runError?.errorCode === "string"
+      ? runError.errorCode.toLowerCase()
+      : "";
+  const errorMessage =
+    typeof runError?.message === "string" ? runError.message : "";
+  if (
+    /no llm provider(?: key)? (?:is connected|was found)|missing credentials|missing api key|missing_api_key/i.test(
+      errorMessage,
+    ) ||
+    ((errorCode === "missing_credentials" || errorCode === "missing_api_key") &&
+      !errorMessage &&
+      !message.content)
+  ) {
+    return true;
+  }
+
+  const text = Array.isArray(message.content)
+    ? message.content
+        .filter(
+          (part): part is { type: "text"; text: string } =>
+            Boolean(part) &&
+            typeof part === "object" &&
+            (part as { type?: unknown }).type === "text" &&
+            typeof (part as { text?: unknown }).text === "string",
+        )
+        .map((part) => part.text)
+        .join("\n")
+    : typeof message.content === "string"
+      ? message.content
+      : "";
+  return /^Error:\s*(?:No LLM provider(?: key)? (?:is connected|was found))/i.test(
+    text.trim(),
+  );
+}
+
 export function latestUserMessageText(messages: readonly unknown[]): string {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
@@ -1645,6 +1707,7 @@ export function AssistantMessage() {
   const activeTurnId = React.useContext(ChatRunningTurnIdContext);
   const lastRunDurationMs = React.useContext(ChatRunDurationContext);
   const msg = messageRuntime.getState();
+  const isMissingCredential = isMissingCredentialAssistantMessage(msg);
   const persistedDurationMs = getAssistantRunDurationMs(msg);
   const timestamp = formatMessageTimestamp(
     msg.createdAt,
@@ -1860,6 +1923,7 @@ export function AssistantMessage() {
     isLast,
     runId: messageRunId,
     checkpointRunIds: cpCtx?.checkpointRunIds,
+    hostname: window.location.hostname,
   });
 
   // Collect parts for the files-changed summary (code-agent turns only).
@@ -1897,7 +1961,7 @@ export function AssistantMessage() {
     isLast,
   });
 
-  if (!hasRenderableContent) return null;
+  if (!hasRenderableContent || isMissingCredential) return null;
 
   return (
     <div

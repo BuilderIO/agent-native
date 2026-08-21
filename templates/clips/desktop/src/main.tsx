@@ -11,7 +11,6 @@ import { FlowBar } from "./overlays/flow-bar";
 import { MeetingNotification } from "./overlays/meeting-notification";
 import { MeetingNub } from "./overlays/meeting-nub";
 import { MonitorPicker } from "./overlays/monitor-picker";
-import { Onboarding } from "./overlays/onboarding";
 import { Preparing } from "./overlays/preparing";
 import { RecordingPill } from "./overlays/recording-pill";
 import { RegionGuideEditor, RegionGuides } from "./overlays/region-guides";
@@ -47,8 +46,6 @@ function pickRoute(route: string): React.ReactElement {
       return <Finalizing />;
     case "preparing":
       return <Preparing />;
-    case "onboarding":
-      return <Onboarding />;
     case "meeting-notif":
       return <MeetingNotification />;
     case "meeting-nub":

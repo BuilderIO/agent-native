@@ -179,6 +179,34 @@ describe("add-slide", () => {
     );
   });
 
+  it("persists speaker notes separately from the slide HTML", async () => {
+    await action.run({
+      deckId: "deck-1",
+      slideId: "slide-notes",
+      content: "<div>New</div>",
+      notes: "Explain the customer outcome before advancing.",
+    });
+
+    const updated = JSON.parse(updatedFields!.data as string);
+    expect(updated.slides[2]).toMatchObject({
+      id: "slide-notes",
+      content: "<div>New</div>",
+      notes: "Explain the customer outcome before advancing.",
+    });
+  });
+
+  it("preserves explicitly empty speaker notes when provided", async () => {
+    await action.run({
+      deckId: "deck-1",
+      slideId: "slide-empty-notes",
+      content: "<div>New</div>",
+      notes: "",
+    });
+
+    const updated = JSON.parse(updatedFields!.data as string);
+    expect(updated.slides[2]).toHaveProperty("notes", "");
+  });
+
   it("accepts CLI-style string positions and inserts at the requested index", async () => {
     const result = await action.run({
       deckId: "deck-1",

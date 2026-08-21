@@ -29,7 +29,7 @@ description: "defineAction() की संरचना: schema, run, और HTTP
     {
       lines: "12-16",
       label: "एक इम्प्लीमेंटेशन",
-      note: "`run` बॉडी एकमात्र सत्य स्रोत है। UI बटन और एजेंट टूल दोनों बिल्कुल यही एक्ज़िक्यूट करते हैं। `getDb()` और `schema` आपके ऐप के `server/db/index.ts` से आते हैं। [Database](/docs/database) देखें।",
+      note: "`run` बॉडी एकमात्र सत्य स्रोत है। UI बटन और एजेंट टूल दोनों बिल्कुल यही एक्ज़िक्यूट करते हैं। `getDb()` और `schema` आपके ऐप के `server/db/index.ts` से आते हैं। [Database](/docs/server-database) देखें।",
     },
   ]}
 />
@@ -271,5 +271,5 @@ POST डिफ़ॉल्ट है, और `http: { method: "GET" }` इसे
 - [**Access और Authorization**](/docs/actions-access-control) — `agentTool`, `toolCallable`, `authorize`, और `ctx` scoping
 - [**Run Context**](/docs/actions-run-context) — पूरी `ctx` फ़ील्ड तालिका
 - [**अन्य सतहें**](/docs/actions-other-surfaces) — नेटिव चैट UI, CLI, A2A, MCP, और स्टैंडर्ड actions
-- [**Database**](/docs/database) — `run()` के अंदर उपयोग किया गया `getDb()`/`schema`
+- [**Database**](/docs/server-database) — `run()` के अंदर उपयोग किया गया `getDb()`/`schema`
 - [**डेटा और सिंक**](/docs/client-data) — UI से इस action को कॉल करना

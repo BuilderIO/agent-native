@@ -29,12 +29,12 @@ export function sanitizeA2ACorrelationId(value: unknown): string | undefined {
 }
 
 /**
- * Keep only bounded, opaque ASCII correlation identifiers. These values
- * remain telemetry hints; authentication continues to come exclusively from
- * the verified A2A token/request context. `callerModel` is the one value here
- * a receiver may act on, and only as a preference — it never reaches identity,
- * org, access, or approval resolution, and it can only name a model the
- * receiver's own engine already offers (see `resolveDelegatedRunModel`).
+ * Keep only bounded, opaque ASCII correlation and routing identifiers.
+ * Authentication continues to come exclusively from the verified A2A
+ * token/request context. A receiver may use `selectedReceiverApp` only to
+ * prioritize its matching local tool surface, and `callerModel` only to choose
+ * a model its own engine already offers. Neither reaches identity, data
+ * ownership, org, access, or approval resolution.
  */
 export function sanitizeA2ACorrelationMetadata(
   value: unknown,
@@ -42,6 +42,10 @@ export function sanitizeA2ACorrelationMetadata(
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   const metadata = value as Record<string, unknown>;
   const callerApp = boundedIdentifier(metadata.callerApp, APP_ID_PATTERN);
+  const selectedReceiverApp = boundedIdentifier(
+    metadata.selectedReceiverApp,
+    APP_ID_PATTERN,
+  );
   const callerThreadId = sanitizeA2ACorrelationId(metadata.callerThreadId);
   const parentRunId = sanitizeA2ACorrelationId(metadata.parentRunId);
   const parentTurnId = sanitizeA2ACorrelationId(metadata.parentTurnId);
@@ -80,6 +84,7 @@ export function sanitizeA2ACorrelationMetadata(
           : undefined;
   return {
     ...(callerApp ? { callerApp } : {}),
+    ...(selectedReceiverApp ? { selectedReceiverApp } : {}),
     ...(callerThreadId ? { callerThreadId } : {}),
     ...(parentRunId ? { parentRunId } : {}),
     ...(parentTurnId ? { parentTurnId } : {}),

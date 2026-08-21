@@ -15,14 +15,14 @@ import {
 } from "../server/public-serialization.js";
 import { ensureContextItemHydration } from "../server/retrieval.js";
 import {
-  delimitUntrustedMetadata,
-  delimitUntrustedReference,
-  UNTRUSTED_REFERENCE_ROLE,
-} from "../server/untrusted-reference.js";
-import {
   getCreativeContextItem,
   getCreativeContextItemByExternalId,
 } from "../store/index.js";
+import {
+  delimitUntrustedMetadata,
+  delimitUntrustedReference,
+  UNTRUSTED_REFERENCE_ROLE,
+} from "../untrusted-reference.js";
 
 const MAX_PUBLIC_NATIVE_CODE_BYTES = 128 * 1024;
 

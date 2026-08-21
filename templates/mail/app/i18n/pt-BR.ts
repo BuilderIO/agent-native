@@ -510,6 +510,8 @@ const messages = {
     importFromGmail: "Importar do Gmail",
     signatureHelp:
       "Adicionada a novos rascunhos antes do histórico de resposta citado. Links e imagens Markdown são compatíveis.",
+    addSignatureImage: "Adicionar imagem",
+    signatureImageUploadFailed: "Falha ao enviar a imagem da assinatura",
     writingStyle: "Estilo de escrita",
     writingStylePlaceholder:
       "Curto, específico e acolhedor. Evite formalidades vazias.",

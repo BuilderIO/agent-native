@@ -64,6 +64,7 @@ import {
   decodeHtmlEntities,
   processHtmlImages,
 } from "@/lib/email-image-policy";
+import { getLabelStyle } from "@/lib/label-colors";
 import { isMcpEmbedSurface } from "@/lib/mcp-embed";
 import { getResolvedTheme } from "@/lib/theme";
 import { ensureThread, warmThreads } from "@/lib/thread-cache";
@@ -1138,14 +1139,21 @@ export function EmailThread({
               <h1 className="text-base sm:text-lg font-semibold leading-tight text-foreground line-clamp-2">
                 {threadSubject}
               </h1>
-              {displayLabels.map((labelId) => (
-                <span
-                  key={labelId}
-                  className="label-badge shrink-0 bg-pink-500/20 text-pink-700 dark:text-pink-300 mt-1"
-                >
-                  {labelId}
-                </span>
-              ))}
+              {displayLabels.map((labelId) => {
+                const style = getLabelStyle(labelId);
+                return (
+                  <span
+                    key={labelId}
+                    className={cn(
+                      "label-badge shrink-0 mt-1",
+                      style.bg,
+                      style.text,
+                    )}
+                  >
+                    {labelId}
+                  </span>
+                );
+              })}
               {/* Action bar */}
               <div className="hidden sm:flex items-center gap-0.5 ml-auto shrink-0">
                 <Tooltip>

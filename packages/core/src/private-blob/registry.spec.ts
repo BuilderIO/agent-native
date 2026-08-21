@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import {
+  defineAppConfig,
+  resetAppConfigForTests,
+} from "../app-config/index.js";
 import type { FileUploadInput } from "../file-upload/index.js";
 import type { PrivateBlobProvider } from "./types.js";
 
@@ -23,11 +27,12 @@ describe("private blob registry", () => {
       SECRETS_ENCRYPTION_KEY: "private-blob-test",
     };
     uploadFileMock.mockReset();
+    resetAppConfigForTests();
   });
 
   afterEach(async () => {
     const registry = await import("./registry.js");
-    registry.setPrivateBlobPublicUploadFallbackEnabled(true);
+    resetAppConfigForTests();
     for (const provider of registry.listPrivateBlobProviders()) {
       registry.unregisterPrivateBlobProvider(provider.id);
     }
@@ -184,5 +189,61 @@ describe("private blob registry", () => {
       registry.putPrivateBlob({ data: new TextEncoder().encode("hello") }),
     ).resolves.toBeNull();
     expect(uploadFileMock).not.toHaveBeenCalled();
+  });
+
+  it("disables the fallback from the declared environment alias", async () => {
+    process.env.AGENT_NATIVE_PRIVATE_BLOB_PUBLIC_UPLOAD_FALLBACK = "0";
+    const registry = await freshRegistry();
+    resetAppConfigForTests();
+
+    await expect(
+      registry.putPrivateBlob({ data: new TextEncoder().encode("hello") }),
+    ).resolves.toBeNull();
+    expect(uploadFileMock).not.toHaveBeenCalled();
+  });
+
+  it("selects the configured provider instead of the first registered one", async () => {
+    const registry = await freshRegistry();
+    resetAppConfigForTests();
+    const handle = {
+      id: "chosen:1",
+      provider: "chosen",
+      opaque: true as const,
+      encrypted: false,
+    };
+    registry.registerPrivateBlobProvider({
+      id: "first",
+      name: "First",
+      isConfigured: () => true,
+      put: vi.fn(),
+      read: vi.fn(),
+      delete: vi.fn(),
+    } as unknown as PrivateBlobProvider);
+    registry.registerPrivateBlobProvider({
+      id: "chosen",
+      name: "Chosen",
+      isConfigured: () => true,
+      put: vi.fn(async () => handle),
+      read: vi.fn(),
+      delete: vi.fn(),
+    } as unknown as PrivateBlobProvider);
+
+    expect(registry.getActivePrivateBlobProvider()?.id).toBe("first");
+
+    defineAppConfig({ privateBlob: { provider: "chosen" } });
+    expect(registry.getActivePrivateBlobProvider()?.id).toBe("chosen");
+    await expect(
+      registry.putPrivateBlob({ data: new TextEncoder().encode("hello") }),
+    ).resolves.toBe(handle);
+  });
+
+  it("fails loudly when the configured provider is not registered", async () => {
+    const registry = await freshRegistry();
+    resetAppConfigForTests();
+    defineAppConfig({ privateBlob: { provider: "missing" } });
+
+    expect(() => registry.getActivePrivateBlobProvider()).toThrow(
+      /no provider with that id is registered/,
+    );
   });
 });

@@ -22,6 +22,7 @@ Detailed event, availability, booking, storage, and UI rules live in
   thumbnails, or replay chunks in app tables, `application_state`, `settings`,
   or `resources`; persist URLs, ids, or handles instead.
 - Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
+- For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver.
 - Use actions for events, availability, booking links, settings, navigation,
   Google Calendar connection, and sharing. Do not bypass app access checks.
 - The `get-settings` and `update-settings` actions expose the General week-start
@@ -30,6 +31,11 @@ Detailed event, availability, booking, storage, and UI rules live in
   Google Calendar. Return its link to the user; do not `fetch`
   `/_agent-native/google/auth-url` from the agent backend because that route
   requires the signed-in browser session.
+- Satisfy a multi-event request with one batch call, never a loop of per-event
+  writes: `delete-events` handles every "remove all …" / "clear …" request,
+  including day-of-week filters, and `delete-event` is for exactly one event.
+  Preview with `dryRun` first, then report the returned `deleted` / `failed` /
+  `skipped` counts. See `event-management` and `reliable-mutations`.
 - The action schema is authoritative when a parameter is unclear.
 - Use the current date from runtime context, not a visible calendar date, when
   the user says today/tomorrow/yesterday.

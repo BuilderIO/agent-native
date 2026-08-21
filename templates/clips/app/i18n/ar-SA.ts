@@ -381,6 +381,9 @@ const messages = {
     aiNotes: "ملاحظات الذكاء الاصطناعي",
     summary: "الملخص",
     actionItems: "عناصر العمل",
+    addActionItem: "إضافة عنصر عمل",
+    removeActionItem: "إزالة عنصر العمل",
+    actionItemPlaceholder: "ما الذي يجب فعله؟",
     working: "عمل…",
     noActionItems:
       "لا توجد عناصر عمل حتى الآن. تظهر هنا بعد إنشاء الملاحظات من النص.",
@@ -615,12 +618,16 @@ const messages = {
     alsoFor: "متاح أيضًا لـ {{platform}}",
     backToLibrary: "العودة إلى المكتبة",
     clipsDesktop: "Clips Desktop",
+    stable: "مستقر",
+    nightly: "Nightly",
+    switchToNightly: "التبديل إلى إصدارات Nightly",
+    switchToStable: "التبديل إلى الإصدارات المستقرة",
+    retry: "إعادة المحاولة",
     heroDescription:
       "مسجل شريط القوائم للشاشة والكاميرا والشاشة + الكاميرا. البدء بنقرة واحدة، فقاعة الكاميرا القابلة للسحب، رابط المشاركة الفورية عند التوقف.",
     versionReleased: "الإصدار {{version}} — صدر {{date}}",
     version: "النسخة {{version}}",
-    manifestError:
-      "تعذر تحميل بيان الإصدار — اختر أداة التثبيت من صفحة الإصدارات.",
+    manifestError: "تعذر تحميل بيان الإصدار - حاول مرة أخرى.",
     loadingRelease: "جارٍ تحميل الإصدار الأخير…",
     chromeTitle: "ملحق Chrome لسجلات المتصفح",
     chromeDescription:
@@ -683,15 +690,6 @@ const messages = {
     viewAllUpdates: "عرض كل التحديثات",
     expand: "توسيع",
     collapse: "طي",
-    changelogMarkdown: `# سجل التغييرات
-
-يتم توثيق كل التغييرات المرئية لمستخدمي Clips هنا. يمكنك فتحه في أي وقت من قائمة الأوامر (Cmd K -> "ما الجديد") أو من الإعدادات.
-
-## 2026-06-23
-
-### تمت الإضافة
-
-- يمكنك الآن رؤية الجديد مباشرة داخل Clips. أصبح سجل التغييرات متاحًا في قائمة الأوامر (Cmd K) وفي الإعدادات.`,
     playback: "التشغيل",
     defaultPlaybackSpeed: "سرعة التشغيل الافتراضية",
     playbackDescription: "تُطبق تلقائيًا عند فتح تسجيل.",
@@ -987,7 +985,7 @@ const messages = {
   commentsPanel: {
     disabled: "تم تعطيل التعليقات لهذا التسجيل.",
     beFirst: "كن أول من يعلق",
-    leaveNotePanel: "اترك ملاحظة في أعلى هذه اللوحة.",
+    leaveNotePanel: "اترك ملاحظة في أسفل هذه اللوحة.",
     leaveNoteTimestamp: "اترك ملاحظة عند الطابع الزمني الحالي.",
     leaveComment: "اترك تعليقًا...",
     signInToComment: "سجّل الدخول لترك تعليق.",
@@ -1044,8 +1042,13 @@ const messages = {
     pauseShortcut: "إيقاف مؤقت (⌥⇧P)",
     stop: "إيقاف التسجيل",
     elapsed: "الوقت المنقضي",
-    cancel: "إلغاء التسجيل",
-    cancelShortcut: "إلغاء (⌥⇧C)",
+    cancel: "حذف التسجيل",
+    cancelShortcut: "حذف (⌥⇧C)",
+    discardConfirmTitle: "هل تريد حذف هذا التسجيل؟",
+    discardConfirmDescription:
+      "لا يمكن التراجع عن هذا الإجراء. سيتم حذف تسجيلك حتى الآن نهائيًا.",
+    resume: "استئناف",
+    discardRecording: "حذف التسجيل",
   },
   countdownOverlay: {
     startsIn: "يبدأ التسجيل خلال {{count}}",
@@ -1126,6 +1129,7 @@ const messages = {
     liveTranscriptDescription: "سيظهر النص المباشر هنا عند بدء الملاحظات.",
     me: "أنا",
     them: "هم",
+    unknownSpeaker: "المتحدث",
     searchTranscript: "البحث في النص",
     searchPlaceholder: "البحث في النص…",
     searchMatchCount: "{{current}} من {{total}}",
@@ -1246,7 +1250,7 @@ const messages = {
     seekTo: "Seek to {{time}} (مترجم)",
   },
   editorToolbar: {
-    undoTooltip: "Undo (Cmd/Ctrl Z) (مترجم)",
+    undoTooltip: "Undo (Cmd/Ctrl+Z) (مترجم)",
     playPauseTooltip: "Play / Pause (Space) (مترجم)",
     sourceDuration: "({{duration}} src) (مترجم)",
     previewSpeed: "Preview speed (مترجم)",
@@ -1340,10 +1344,11 @@ const messages = {
     cameraOff: "Camera off (مترجم)",
     includeCameraAria: "Include camera in this recording (مترجم)",
     startRecording: "Start recording (مترجم)",
-    micOffConfirmTitle: "Record without a microphone? (مترجم)",
+    micOffConfirmTitle: "الميكروفون مكتوم",
     micOffConfirmDescription:
-      "Your mic is off, so this recording won't capture any audio. Turn it on before starting if you want narration. (مترجم)",
-    startWithoutMic: "Start anyway (مترجم)",
+      "لإضافة صوت إلى الفيديو، يجب إلغاء كتم صوت الميكروفون.",
+    startWithoutMic: "متابعة",
+    unmuteMicrophone: "إلغاء كتم الميكروفون",
     uploadVideo: "Upload video (مترجم)",
     importLoom: "Import Loom (مترجم)",
     importing: "Importing... (مترجم)",
@@ -1426,6 +1431,10 @@ const messages = {
       "صِل التخزين في الشاشة التالية: Builder.io (تخزين + ذكاء اصطناعي في الخطة المجانية) أو تخزين متوافق مع S3. سيكمل Clips الحفظ.",
     connectStorageToRetryLoom:
       "صِل التخزين في الشاشة التالية: Builder.io (تخزين + ذكاء اصطناعي في الخطة المجانية) أو تخزين متوافق مع S3. سيعيد Clips محاولة الاستيراد.",
+    leaveConfirmTitle: "مغادرة هذه الصفحة وحذف التسجيل؟",
+    leaveConfirmDescription:
+      "لم يكتمل حفظ التسجيل الجاري بعد. مغادرة هذه الصفحة الآن ستؤدي إلى حذفه.",
+    leaveAndDiscard: "مغادرة وحذف",
   },
   importRoute: {
     pageTitle: "استيراد Loom — Clips",
@@ -1592,7 +1601,6 @@ const messages = {
     transcriptPending: "Transcript pending (مترجم)",
     notesPending: "Notes pending (مترجم)",
     pastRecordings: "Past recordings (مترجم)",
-    loadOlder: "تحميل الأقدم",
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (مترجم)",
     connectGoogleCalendar: "Connect Google Calendar (مترجم)",
@@ -1620,7 +1628,13 @@ const messages = {
     title: "Meetings (مترجم)",
     intro:
       "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time. (مترجم)",
-    searchPlaceholder: "Search meetings... (مترجم)",
+    searchPlaceholder: "Search meetings, attendees, and transcripts... (مترجم)",
+    agendaTab: "Agenda (مترجم)",
+    pastTab: "Past (مترجم)",
+    now: "Now (مترجم)",
+    noPastMeetings: "No past meetings yet (مترجم)",
+    loadOlder: "Load older (مترجم)",
+    searchFailed: "Couldn't search meetings. Try again in a moment. (مترجم)",
     clearSearch: "Clear search (مترجم)",
     noMeetingsYet: "No meetings yet (مترجم)",
     noMeetingsDescription:

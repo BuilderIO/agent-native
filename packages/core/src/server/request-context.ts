@@ -16,6 +16,8 @@
  * continue to work.
  */
 
+import type { SignupAttributionContext } from "./attribution.js";
+
 type AsyncLocalStorageLike<T> = {
   getStore(): T | undefined;
   run<R>(store: T, callback: () => R): R;
@@ -161,6 +163,13 @@ export interface RequestContext {
    */
   browserSessionId?: string;
   /**
+   * Browser attribution captured before a Better Auth signup crosses into its
+   * async user-create hook. Analytics-only; never used for authorization.
+   */
+  signupAttribution?: SignupAttributionContext;
+  /** Canonical client surface for analytics attribution. */
+  clientPlatform?: import("../shared/analytics-platform.js").AnalyticsClientPlatform;
+  /**
    * Set when code reads authenticated request context. Public SSR shell/data
    * should not depend on this value; user/org-specific reads belong behind
    * client-side actions/API after hydration.
@@ -267,6 +276,11 @@ export function assertRequestActionSurfaceIsolation(): void {
     "Request-scoped action surfaces require continuation-local request context storage; " +
       "this runtime only provides the non-isolated fallback.",
   );
+}
+
+/** Whether request context values are isolated across overlapping promises. */
+export function hasContinuationLocalRequestContext(): boolean {
+  return globalRef[CONTINUATION_LOCAL_KEY] === true;
 }
 
 /**

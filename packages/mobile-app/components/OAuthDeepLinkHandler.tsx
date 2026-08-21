@@ -2,7 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
 import { useEffect } from "react";
-import { Linking } from "react-native";
+import { Linking, Platform } from "react-native";
 
 import { completeOAuthCallback } from "@/lib/oauth-session";
 import {
@@ -63,10 +63,15 @@ async function handleOAuthUrl(url: string | null): Promise<void> {
 export default function OAuthDeepLinkHandler() {
   useEffect(() => {
     console.log("[oauth] handler mounted");
+    // iOS ASWebAuthenticationSession owns its callback and returns it to the
+    // caller promise. A global Linking listener can consume that same custom
+    // URL first, so only use the listener for Android's Custom Tab path. Keep
+    // the initial-URL check on iOS for a cold launch from an external link.
     void Linking.getInitialURL().then((url) => {
       console.log("[oauth] getInitialURL:", url);
       return handleOAuthUrl(url);
     });
+    if (Platform.OS === "ios") return;
     const sub = Linking.addEventListener("url", (event) => {
       console.log("[oauth] url event:", event.url);
       void handleOAuthUrl(event.url);

@@ -17,7 +17,7 @@ function normalize(settings: Partial<UserSettings> | undefined, email: string) {
 
 export default defineAction({
   description:
-    "Read the user's mail drafting settings, including configured signature and writing style.",
+    "Read the user's current mail drafting settings, including configured signature and writing style. Use this before updating a durable preference so unrelated settings can be preserved.",
   schema: z.object({}),
   http: { method: "GET" },
   readOnly: true,

@@ -14,6 +14,7 @@ import {
   refreshUnchangedContentSaveWatermark,
   shouldAwaitAuthoritativeDocument,
   titleMatchConfirmsSave,
+  visualEditorInstanceKey,
 } from "./DocumentEditor";
 import {
   compactToolbarBreadcrumbItems,
@@ -21,6 +22,82 @@ import {
 } from "./DocumentToolbar";
 
 describe("document editor layout", () => {
+  it("keeps a local-file editor mounted when its saved timestamp advances", () => {
+    const key = (documentUpdatedAt: string) =>
+      visualEditorInstanceKey({
+        documentId: "local-file",
+        documentUpdatedAt,
+        isLocalFileDocument: true,
+        canEdit: true,
+        collabEditorEnabled: false,
+        hasYDoc: false,
+      });
+
+    expect(key("2026-08-18T11:00:00.000Z")).toBe("local-file:local-file:0");
+    expect(key("2026-08-18T11:00:01.000Z")).toBe("local-file:local-file:0");
+  });
+
+  it("resets local undo history after an external disk reconciliation", () => {
+    const key = (localFileSyncRevision: number) =>
+      visualEditorInstanceKey({
+        documentId: "local-file",
+        documentUpdatedAt: "2026-08-18T11:00:00.000Z",
+        isLocalFileDocument: true,
+        canEdit: true,
+        collabEditorEnabled: false,
+        hasYDoc: false,
+        localFileSyncRevision,
+      });
+
+    expect(key(0)).not.toBe(key(1));
+  });
+
+  it("makes an externally deleted local source explicit and read-only", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    expect(source).toContain("data-local-source-missing");
+    expect(source).toContain("!localSourceMissing");
+    expect(source).toContain('result.error.includes("was not found")');
+  });
+
+  it("keeps a cached local source read-only when this client lacks its bridge", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    const toolbar = readFileSync(
+      new URL("./DocumentToolbar.tsx", import.meta.url),
+      "utf8",
+    );
+    expect(source).toContain('localSourceAccess === "available"');
+    expect(source).toContain("data-local-source-read-only");
+    expect(source).toContain('device: "Agent Native Desktop"');
+    expect(source).toContain("canEdit={editorCanEdit}");
+    expect(toolbar).toContain(
+      "disabled={!canEdit || revealLocalSource.isPending}",
+    );
+    expect(toolbar).toContain(
+      "disabled={!canEdit}\n                    onSelect={() => void handleCopyLocalAbsolutePath()}",
+    );
+  });
+
+  it("publishes unsaved local content to the synchronous conflict guard", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    const handler = source.slice(
+      source.indexOf("const handleContentChange"),
+      source.indexOf("const handleContentSaveNow"),
+    );
+    expect(handler).toContain("localContentRef.current = newContent");
+    expect(
+      handler.indexOf("localContentRef.current = newContent"),
+    ).toBeLessThan(handler.indexOf("debouncedSave("));
+  });
+
   it("waits for the first authoritative document fetch, then stays mounted", () => {
     expect(
       shouldAwaitAuthoritativeDocument({
@@ -380,12 +457,14 @@ describe("document editor layout", () => {
       "awareness={collabEditorEnabled ? awareness : null}",
     );
     expect(documentEditorSource).toContain(
-      'collabEditorEnabled && ydoc ? "live-ready"',
+      "args.collabEditorEnabled && args.hasYDoc",
     );
     expect(documentEditorSource).toContain(
-      'canEdit && !isLocalFileDocument ? "live-pending"',
+      'args.canEdit\n        ? "live-pending"',
     );
-    expect(documentEditorSource).toContain("snapshot:${document.updatedAt}");
+    expect(documentEditorSource).toContain(
+      "`snapshot:${args.documentUpdatedAt}`",
+    );
     expect(documentEditorSource).toContain(
       'awareness.setLocalStateField("canFlushDocument", editorCanEdit)',
     );

@@ -140,7 +140,7 @@ vi.mock("@agent-native/core/server", () => ({
 }));
 
 vi.mock("@agent-native/core/settings", () => ({
-  getAllSettings: async () => ({}),
+  listSettingsByPrefix: async () => [],
   getOrgSetting: async () => null,
   getUserSetting: async () => null,
   deleteOrgSetting: async () => undefined,

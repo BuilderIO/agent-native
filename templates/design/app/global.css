@@ -7,6 +7,12 @@
 
 @source "./**/*.{ts,tsx}";
 
+/* Keep agent context available to the Design agent without making the
+ * composer carry implementation details as visible chips. */
+[data-design-app] .agent-composer-context-row {
+  display: none;
+}
+
 :root {
   --background: 0 0% 100%;
   --foreground: 0 0% 10%;

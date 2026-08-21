@@ -287,6 +287,13 @@ const migrations = [
         ON factory_audit_events (org_id, item_id, created_at);
     `,
   },
+  {
+    version: 19,
+    name: "factory-config-builder-slack-user-id",
+    sql: `
+      ALTER TABLE factory_config ADD COLUMN builder_slack_user_id TEXT;
+    `,
+  },
 ];
 
 export const runFactoryMigrations = runMigrations(migrations, {

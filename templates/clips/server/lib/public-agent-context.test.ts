@@ -26,6 +26,7 @@ vi.mock("@agent-native/core/server", () => ({
 vi.mock("drizzle-orm", () => ({
   asc: vi.fn((column: unknown) => column),
   eq: vi.fn((column: unknown, value: unknown) => [column, value]),
+  sql: vi.fn(),
 }));
 
 vi.mock("../db/index.js", () => ({

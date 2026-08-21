@@ -100,4 +100,27 @@ describe("Clips updater platform coverage", () => {
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
+
+  it("keeps Nightly manifest requests on the Nightly pointer", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(manifestResponse(completeManifest("2.0.0-nightly.1")));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      __clipsUpdaterTest.getManifest("nightly"),
+    ).resolves.toMatchObject({
+      version: "2.0.0-nightly.1",
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://github.com/BuilderIO/agent-native/releases/download/clips-nightly-latest/clips-nightly-latest.json",
+      expect.objectContaining({
+        headers: {
+          accept: "application/json",
+          "user-agent": "clips-updater-manifest",
+        },
+      }),
+    );
+  });
 });

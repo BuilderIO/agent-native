@@ -179,6 +179,17 @@ export function isBuiltinDataWidgetActionRenderer(
   );
 }
 
+/** True whenever a result renders as a workspace-file card — with or
+ *  without a static chatUI on the action that produced it (see the
+ *  shape-based fallback registered below). The widget frames itself, so
+ *  callers use this the same way they use `isBuiltinDataWidgetActionRenderer`
+ *  to skip the chatUI-gated outer border and avoid a double frame. */
+export function isBuiltinWorkspaceFileResult(
+  context: ToolRendererContext,
+): boolean {
+  return normalizeWorkspaceFileResult(context.resultJson) !== null;
+}
+
 export function resolveBuiltinActionChatRenderer(
   context: ToolRendererContext,
 ): ToolRendererComponent | null {
@@ -238,4 +249,16 @@ registerReservedFallbackToolRenderer({
   id: "core.data-widgets",
   match: (context) => normalizeActionDataWidgetResult(context) !== null,
   Component: BuiltinDataWidgetRenderer,
+});
+
+// Shape-based, not chatUI-based: any tool result — from show-workspace-file,
+// or any other action that spreads `{ file: toWorkspaceFileCard(meta) }` into
+// its own result — renders a download card without a second discretionary
+// call to show-workspace-file. Matching by shape (instead of statically
+// tagging every such action with `chatUI`) also keeps read/list-style calls
+// on the same multi-purpose action collapsible when they don't produce a file.
+registerReservedFallbackToolRenderer({
+  id: "core.workspace-file",
+  match: (context) => normalizeWorkspaceFileResult(context.resultJson) !== null,
+  Component: BuiltinWorkspaceFileRenderer,
 });

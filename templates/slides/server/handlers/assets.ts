@@ -1,7 +1,6 @@
 import path from "path";
 
 import { uploadFile } from "@agent-native/core/file-upload";
-import { getSession } from "@agent-native/core/server";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { and, desc, eq } from "drizzle-orm";
 import {
@@ -13,6 +12,12 @@ import {
 import { nanoid } from "nanoid";
 
 import { getDb, schema } from "../db/index.js";
+import {
+  resolveSlidesRequestAuth,
+  type SlidesRequestAuthContext,
+} from "./request-auth-context.js";
+
+type AuthedSlidesSession = SlidesRequestAuthContext & { email: string };
 
 export const MAX_ASSET_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 
@@ -32,13 +37,19 @@ export interface ListedUploadedAsset {
   createdAt: string;
 }
 
-async function requireSession(event: Parameters<typeof getSession>[0]) {
-  const session = await getSession(event).catch(() => null);
-  if (!session?.email) {
-    setResponseStatus(event, 401);
-    return null;
+async function requireSession(
+  event: Parameters<typeof resolveSlidesRequestAuth>[0],
+): Promise<{ session: AuthedSlidesSession | null; error: string | null }> {
+  const auth = await resolveSlidesRequestAuth(event);
+  if (!auth.ok) {
+    setResponseStatus(event, auth.statusCode);
+    return { session: null, error: auth.error };
   }
-  return session;
+  if (!auth.context.email) {
+    setResponseStatus(event, 401);
+    return { session: null, error: "Unauthorized" };
+  }
+  return { session: auth.context as AuthedSlidesSession, error: null };
 }
 
 function isRasterAssetExtension(ext: string): boolean {
@@ -180,9 +191,9 @@ export async function uploadImageAsset(args: {
  * framework provider chain, return its hosted URL.
  */
 export const uploadAsset = defineEventHandler(async (event) => {
-  const session = await requireSession(event);
+  const { session, error: authError } = await requireSession(event);
   if (!session) {
-    return { error: "Unauthorized" };
+    return { error: authError };
   }
 
   const parts = await readMultipartFormData(event);
@@ -217,9 +228,9 @@ export const uploadAsset = defineEventHandler(async (event) => {
  * GET /api/assets — list assets this user has uploaded, most recent first.
  */
 export const listAssets = defineEventHandler(async (event) => {
-  const session = await requireSession(event);
+  const { session, error } = await requireSession(event);
   if (!session) {
-    return { error: "Unauthorized" };
+    return { error };
   }
   const db = getDb();
   const rows: ListedUploadedAsset[] = await db
@@ -244,9 +255,9 @@ export const listAssets = defineEventHandler(async (event) => {
  * that provider's own API — but it no longer appears in this app's library.
  */
 export const deleteAsset = defineEventHandler(async (event) => {
-  const session = await requireSession(event);
+  const { session, error } = await requireSession(event);
   if (!session) {
-    return { error: "Unauthorized" };
+    return { error };
   }
   const id = getRouterParam(event, "id");
   if (!id) {

@@ -95,3 +95,8 @@ export {
   creativeContextMessagesByLocale,
   type CreativeContextMessages,
 } from "./messages.js";
+export {
+  delimitUntrustedReference,
+  sanitizeUntrustedReference,
+  UNTRUSTED_REFERENCE_ROLE,
+} from "../untrusted-reference.js";

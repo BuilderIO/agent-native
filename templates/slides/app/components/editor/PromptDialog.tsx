@@ -57,9 +57,9 @@ function extractErrorMessage(data: unknown): string | null {
   return null;
 }
 
-async function uploadSingleFileMultipart(file: File): Promise<UploadedFile> {
+async function uploadFilesMultipart(files: File[]): Promise<UploadedFile[]> {
   const formData = new FormData();
-  formData.append("files", file);
+  files.forEach((file) => formData.append("files", file));
   const response = await fetch(`${appBasePath()}/api/uploads`, {
     method: "POST",
     body: formData,
@@ -71,9 +71,10 @@ async function uploadSingleFileMultipart(file: File): Promise<UploadedFile> {
       extractErrorMessage(data) || `Upload failed (${response.status})`,
     );
   }
-  const result = Array.isArray(data) ? (data[0] as UploadedFile) : undefined;
-  if (!result) throw new Error("Upload failed: no file returned");
-  return result;
+  if (!Array.isArray(data)) {
+    throw new Error("Upload failed: invalid response");
+  }
+  return data as UploadedFile[];
 }
 
 async function uploadFileChunked(file: File): Promise<UploadedFile> {
@@ -141,13 +142,17 @@ export async function uploadPromptFiles(
 ): Promise<UploadedFile[]> {
   if (files.length === 0) return [];
   ensureEmbedAuthFetchInterceptor();
-  return Promise.all(
-    files.map((file) =>
-      file.size > CHUNK_UPLOAD_THRESHOLD_BYTES
-        ? uploadFileChunked(file)
-        : uploadSingleFileMultipart(file),
-    ),
+  const smallFiles = files.filter(
+    (file) => file.size <= CHUNK_UPLOAD_THRESHOLD_BYTES,
   );
+  const largeFiles = files.filter(
+    (file) => file.size > CHUNK_UPLOAD_THRESHOLD_BYTES,
+  );
+  const [smallUploads, largeUploads] = await Promise.all([
+    smallFiles.length > 0 ? uploadFilesMultipart(smallFiles) : [],
+    Promise.all(largeFiles.map(uploadFileChunked)),
+  ]);
+  return [...smallUploads, ...largeUploads];
 }
 
 /**

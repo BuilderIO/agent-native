@@ -1,6 +1,9 @@
-import { relaunch } from "@tauri-apps/plugin-process";
+import { invoke } from "@tauri-apps/api/core";
+import { exit, relaunch } from "@tauri-apps/plugin-process";
 import { check, Update } from "@tauri-apps/plugin-updater";
 import { useEffect, useState } from "react";
+
+import { isMacPlatform } from "./platform";
 
 declare const __CLIPS_DESKTOP_LOCAL_BUILD__: boolean;
 
@@ -166,8 +169,25 @@ export async function installAndRestart(): Promise<void> {
   // bundle no longer matches the running process as short as possible — the
   // process is torn down by `relaunch()` right after, so capture never runs
   // against a swapped-out bundle.
+  const restartBundlePath = await invoke<string>("restart_bundle_path").catch(
+    (err) => {
+      console.error("[clips-updater] restart target lookup failed:", err);
+      return null;
+    },
+  );
   if (pendingUpdate) {
     await pendingUpdate.install();
+  }
+  if (isMacPlatform() && restartBundlePath) {
+    try {
+      await invoke("schedule_restart_after_exit", {
+        bundlePath: restartBundlePath,
+      });
+      await exit(0);
+      return;
+    } catch (err) {
+      console.error("[clips-updater] macOS restart handoff failed:", err);
+    }
   }
   await relaunch();
 }

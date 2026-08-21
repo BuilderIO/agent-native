@@ -143,7 +143,6 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
-      issues: write
       pull-requests: read
     outputs:
       run: ${{ steps.decide.outputs.run }}
@@ -304,50 +303,6 @@ jobs:
               // Surface the skip reason as a run-summary annotation, not just a
               // buried info log, so it's clear in the Actions UI why we skipped.
               core.notice(`Visual recap skipped: ${reasons.join('; ')}`);
-            }
-
-            // When skipping, upsert a sticky recap comment with a short skip
-            // line so the PR always explains why the recap job did not run.
-            if (!run && pr) {
-              try {
-                const MARKER = '<!-- pr-visual-recap -->';
-                const { data: comments } = await github.rest.issues.listComments({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: pr.number,
-                  per_page: 100,
-                });
-                const existing = comments.find(
-                  (c) => c.user && c.user.type === 'Bot' && c.body && c.body.includes(MARKER)
-                );
-                const headShort = (process.env.HEAD_SHA || '').slice(0, 7);
-                const shaRef = headShort ? `\`${headShort}\`` : 'latest push';
-                const primaryReason = reasons.filter(
-                  (r) => !r.startsWith('could not list PR files for the self-modifying guard')
-                )[0] || reasons[0] || 'skipped';
-                const skipLine = `_Recap skipped for ${shaRef}: ${primaryReason}._`;
-                const baseBody = `${MARKER}\n### Visual recap — skipped\n\nThe visual recap job did not run for this pull request. This is informational only and does **not** block the PR.`;
-                const planIdMatch = (existing && existing.body ? existing.body : '').match(/<!--\s*plan-id:\s*([A-Za-z0-9_-]{1,64})\s*-->/);
-                const planIdMarker = planIdMatch ? `\n\n<!-- plan-id: ${planIdMatch[1]} -->` : '';
-                const updatedBody = `${baseBody}${planIdMarker}\n\n${skipLine}`;
-                if (existing) {
-                  await github.rest.issues.updateComment({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    comment_id: existing.id,
-                    body: updatedBody,
-                  });
-                } else {
-                  await github.rest.issues.createComment({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    issue_number: pr.number,
-                    body: updatedBody,
-                  });
-                }
-              } catch (e) {
-                core.warning(`Could not update recap skip comment: ${e.message}`);
-              }
             }
 
   recap:
@@ -1120,7 +1075,7 @@ jobs:
           retention-days: 14
 
       - name: Upsert sticky comment
-        if: always() && !cancelled()
+        if: always() && !cancelled() && steps.diff.outputs.tiny != 'true'
         continue-on-error: true
         env:
           PLAN_URL: ${{ steps.url.outputs.plan_url }}

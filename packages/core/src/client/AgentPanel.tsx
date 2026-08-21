@@ -591,14 +591,13 @@ function useBuilderConnectUrl() {
     let lastConfigured = false;
     const refresh = () => {
       fetchBuilderStatus<{
-        cliAuthUrl?: string;
         connectUrl?: string;
         configured?: boolean;
       }>()
         .then((result) => (result.state === "available" ? result.value : null))
         .then((data) => {
           if (cancelled || !data) return;
-          const nextConnectUrl = data.cliAuthUrl || data.connectUrl;
+          const nextConnectUrl = data.connectUrl;
           if (nextConnectUrl) setConnectUrl(nextConnectUrl);
           const nextConfigured = !!data.configured;
           setConfigured(nextConfigured);
@@ -705,6 +704,8 @@ export interface AgentPanelProps extends Omit<
   restoreActiveThread?: boolean;
   /** Ambient resource context rendered as a composer chip. */
   scope?: import("./use-chat-threads.js").ChatThreadScope | null;
+  /** Keep app-owned chat history isolated to the supplied scope. */
+  isolateHistoryByScope?: boolean;
   /** @deprecated Scope context now appears inside the composer. */
   showScopeBadge?: MultiTabAssistantChatProps["showScopeBadge"];
   /** Stable browser tab id used for tab-scoped app-state context. */
@@ -874,6 +875,7 @@ function AgentPanelInner({
   storageKey,
   restoreActiveThread = true,
   scope,
+  isolateHistoryByScope = false,
   showScopeBadge,
   browserTabId,
   threadUrlSync,
@@ -1892,7 +1894,7 @@ function AgentPanelInner({
                           setActiveTabId(tab.id),
                         )}
                         className={cn(
-                          "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer max-w-[150px]",
+                          "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer min-w-[56px] max-w-[150px]",
                           isActive
                             ? "bg-accent text-foreground"
                             : "text-muted-foreground hover:bg-accent hover:text-foreground",
@@ -1988,7 +1990,7 @@ function AgentPanelInner({
                                     setActiveTabId(tab.id),
                                   )}
                                   className={cn(
-                                    "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer max-w-[150px]",
+                                    "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer min-w-[56px] max-w-[150px]",
                                     isActive
                                       ? "bg-accent text-foreground"
                                       : "text-muted-foreground hover:bg-accent hover:text-foreground",
@@ -2040,7 +2042,7 @@ function AgentPanelInner({
                                   setActiveCliTab(id),
                                 )}
                                 className={cn(
-                                  "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer",
+                                  "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer min-w-[56px]",
                                   id === activeCliTab
                                     ? "bg-accent text-foreground"
                                     : "text-muted-foreground hover:bg-accent hover:text-foreground",
@@ -2114,7 +2116,7 @@ function AgentPanelInner({
                               setActiveTabId(tab.id),
                             )}
                             className={cn(
-                              "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium cursor-pointer max-w-[140px]",
+                              "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium cursor-pointer min-w-[48px] max-w-[140px]",
                               tab.id === activeTabId
                                 ? "bg-accent text-foreground"
                                 : "text-muted-foreground hover:bg-accent hover:text-foreground",
@@ -2290,6 +2292,7 @@ function AgentPanelInner({
               storageKey={storageKey}
               restoreActiveThread={restoreActiveThread}
               scope={scope}
+              isolateHistoryByScope={isolateHistoryByScope}
               showScopeBadge={showScopeBadge}
               browserTabId={browserTabId}
               threadUrlSync={threadUrlSync}
@@ -3019,6 +3022,8 @@ export function AgentChatSurface({
 
 export interface AgentSidebarProps {
   children: React.ReactNode;
+  /** Keep the app surface mounted while temporarily disabling the chat panel. */
+  enabled?: boolean;
   /** Placeholder text for the empty chat state */
   emptyStateText?: string;
   /** Suggestion prompts shown when no messages */
@@ -3045,6 +3050,8 @@ export interface AgentSidebarProps {
   onAgentChange?: AssistantChatProps["onAgentChange"];
   /** Route local runtime setup through the host's native bridge. */
   onConnectLocalRuntime?: AssistantChatProps["onConnectLocalRuntime"];
+  /** Route hosted provider setup through the host's native bridge. */
+  onConnectProvider?: AssistantChatProps["onConnectProvider"];
   /** Bring-your-own runtime used by embedded hosts such as Electron. */
   runtime?: AssistantChatProps["runtime"];
   /** Explicit key for recreating an injected runtime adapter. */
@@ -3083,6 +3090,10 @@ export interface AgentSidebarProps {
   apiUrl?: string;
   /** Runtime surface identity used for server-side chat capabilities. */
   agentChatSurface?: AgentChatSurfaceKind;
+  /** Whether the desktop host is currently showing its unauthenticated identity gate. */
+  desktopIdentityUnauthenticated?: AssistantChatProps["desktopIdentityUnauthenticated"];
+  /** Whether the desktop host has just established its authenticated identity session. */
+  desktopIdentityAuthenticated?: AssistantChatProps["desktopIdentityAuthenticated"];
   /** Show the chat thread tab row. Default: true. */
   showTabBar?: MultiTabAssistantChatProps["showTabBar"];
   /** Keep inline app-opening results inside the current app chat. */
@@ -3095,6 +3106,8 @@ export interface AgentSidebarProps {
   onFullscreenRequest?: () => void;
   /** Ambient resource context rendered as a composer chip. */
   scope?: import("./use-chat-threads.js").ChatThreadScope | null;
+  /** Keep app-owned chat history isolated to the supplied scope. */
+  isolateHistoryByScope?: boolean;
   /** @deprecated Scope context now appears inside the composer. */
   showScopeBadge?: MultiTabAssistantChatProps["showScopeBadge"];
   /** Stable browser tab id used for tab-scoped app-state context. */
@@ -3118,6 +3131,7 @@ interface HostedHarnessStatus {
  */
 export function AgentSidebar({
   children,
+  enabled = true,
   emptyStateText = "How can I help you?",
   suggestions,
   dynamicSuggestions,
@@ -3131,6 +3145,7 @@ export function AgentSidebar({
   selectedAgent,
   onAgentChange,
   onConnectLocalRuntime,
+  onConnectProvider,
   runtime,
   adapterReloadKey,
   threadFooterSlot,
@@ -3146,12 +3161,15 @@ export function AgentSidebar({
   openStorageKey,
   apiUrl,
   agentChatSurface,
+  desktopIdentityUnauthenticated,
+  desktopIdentityAuthenticated,
   showTabBar = true,
   suppressInlineOpenApp,
   composerPlaceholder,
   openOnChatRunning = false,
   onFullscreenRequest,
   scope,
+  isolateHistoryByScope = false,
   showScopeBadge,
   browserTabId,
   threadUrlSync,
@@ -3367,6 +3385,7 @@ export function AgentSidebar({
     () => new Set(),
   );
   const shouldMountPanel =
+    enabled &&
     !isPerAppChatHosted &&
     !presentationMode &&
     (!frameCodeMode || !shouldParentFrameOwnAgentPanel()) &&
@@ -3384,9 +3403,11 @@ export function AgentSidebar({
     // dispatches the correct value.
     if (frameOwned && !hasFrameSidebarState && !isPerAppChatHosted) return;
     dispatchAgentSidebarStateChange({
-      open: isPerAppChatHosted
-        ? perAppChatState.open
-        : !presentationMode && (frameOwned ? frameSidebarOpen : open),
+      open:
+        enabled &&
+        (isPerAppChatHosted
+          ? perAppChatState.open
+          : !presentationMode && (frameOwned ? frameSidebarOpen : open)),
       source: frameOwned ? "frame" : "app",
       mode: frameOwned ? "code" : "app",
     });
@@ -3398,6 +3419,7 @@ export function AgentSidebar({
     hasFrameSidebarState,
     isPerAppChatHosted,
     perAppChatState.open,
+    enabled,
   ]);
 
   useEffect(() => {
@@ -3407,7 +3429,7 @@ export function AgentSidebar({
     if (frameOwned && !hasFrameSidebarState) return;
 
     const openState =
-      !presentationMode && (frameOwned ? frameSidebarOpen : open);
+      enabled && !presentationMode && (frameOwned ? frameSidebarOpen : open);
     const message = buildAppChatSidebarStateMessage(openState);
 
     window.dispatchEvent(
@@ -3435,6 +3457,7 @@ export function AgentSidebar({
     isPerAppChatSidebar,
     open,
     presentationMode,
+    enabled,
   ]);
 
   useEffect(() => {
@@ -3798,10 +3821,10 @@ export function AgentSidebar({
     };
   }, [shouldMountPanel, sidebarAnimationEnabled]);
 
-  const shouldRenderPanel = sidebarAnimationEnabled
-    ? renderAnimatedPanel
-    : shouldMountPanel;
-  const panelOpen = open && shouldMountPanel;
+  const shouldRenderPanel =
+    enabled &&
+    (sidebarAnimationEnabled ? renderAnimatedPanel : shouldMountPanel);
+  const panelOpen = enabled && open && shouldMountPanel;
   const panelLayout = isMobile
     ? "mobile"
     : wideDrawerEnabled
@@ -3946,12 +3969,15 @@ export function AgentSidebar({
             selectedAgent={effectiveSelectedAgent}
             onAgentChange={effectiveOnAgentChange}
             hostedHarness={hostedHarnessEnabled}
+            onConnectProvider={onConnectProvider}
             onConnectLocalRuntime={onConnectLocalRuntime}
             runtime={runtime}
             adapterReloadKey={adapterReloadKey}
             threadFooterSlot={threadFooterSlot}
             apiUrl={apiUrl}
             agentChatSurface={agentChatSurface}
+            desktopIdentityUnauthenticated={desktopIdentityUnauthenticated}
+            desktopIdentityAuthenticated={desktopIdentityAuthenticated}
             showTabBar={effectiveShowTabBar}
             suppressInlineOpenApp={suppressInlineOpenApp}
             composerPlaceholder={composerPlaceholder}
@@ -3963,6 +3989,7 @@ export function AgentSidebar({
             onFullViewRequest={onFullscreenRequest}
             storageKey={storageKey}
             scope={scope}
+            isolateHistoryByScope={isolateHistoryByScope}
             showScopeBadge={showScopeBadge}
             browserTabId={browserTabId}
             threadUrlSync={threadUrlSync}
@@ -4016,6 +4043,7 @@ export function AgentSidebar({
           {isMobile &&
             !isPerAppChatHosted &&
             !presentationMode &&
+            enabled &&
             (mobileAnimationEnabled ? shouldRenderPanel : open) && (
               <div
                 className={cn(

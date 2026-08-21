@@ -1005,6 +1005,15 @@ export function shouldOfferMcpOrganizationScope(
   return hasOrg && canCreateOrgMcp;
 }
 
+export function supportsMcpIntegrationOrganizationScope(
+  integration: DefaultMcpIntegration,
+): boolean {
+  return (
+    integration.supportsOrganizationScope === true &&
+    integration.managedOAuth !== true
+  );
+}
+
 export function shouldOfferMcpIntegrationOrganizationScope(
   integration: DefaultMcpIntegration,
   hasOrg: boolean,
@@ -1012,8 +1021,7 @@ export function shouldOfferMcpIntegrationOrganizationScope(
 ): boolean {
   return (
     shouldOfferMcpOrganizationScope(hasOrg, canCreateOrgMcp) &&
-    integration.supportsOrganizationScope === true &&
-    integration.managedOAuth !== true
+    supportsMcpIntegrationOrganizationScope(integration)
   );
 }
 

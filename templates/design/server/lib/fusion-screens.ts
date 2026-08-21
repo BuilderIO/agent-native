@@ -32,6 +32,8 @@ import {
 import { getDb, schema } from "../db/index.js";
 import { mutateDesignData } from "./design-data-mutation.js";
 
+const PATH_BASE_PLACEHOLDER = "http://fusion-screen-base.invalid";
+
 /** Default iframe viewport, mirroring add-localhost-screens' defaults. */
 export const DEFAULT_FUSION_SCREEN_WIDTH = 1280;
 export const DEFAULT_FUSION_SCREEN_HEIGHT = 900;
@@ -129,9 +131,23 @@ export async function upsertFusionScreens(args: {
 
   const results: FusionScreenResult[] = [];
 
+  // The base may carry a path prefix (the builder-host preview proxy), so route
+  // paths join onto it rather than resolve against it: `new URL("/", base)`
+  // would drop the prefix and point at the origin root.
+  const originRelativeBase = previewUrl.startsWith("/");
+  const baseWithSlash = previewUrl.endsWith("/")
+    ? previewUrl
+    : `${previewUrl}/`;
+  const resolutionBase = originRelativeBase
+    ? new URL(baseWithSlash, PATH_BASE_PLACEHOLDER).toString()
+    : baseWithSlash;
+
   for (let index = 0; index < paths.length; index += 1) {
     const path = paths[index]!;
-    const url = new URL(path, previewUrl).toString();
+    const screenUrl = new URL(path.replace(/^\/+/, ""), resolutionBase);
+    const url = originRelativeBase
+      ? `${screenUrl.pathname}${screenUrl.search}`
+      : screenUrl.toString();
     const preferredFilename = `fusion-${slugForPath(path)}.html`;
     const existing = existingByFilename.get(preferredFilename);
     const filename = existing?.filename ?? uniqueFilename(path, usedFilenames);

@@ -1,0 +1,107 @@
+---
+title: "Acesso do Agente em Produção"
+description: "Controle quais ferramentas do framework e capacidades de execução de código um agente de produção implantado tem, através de frameworkTools e codeExecution."
+---
+
+# Acesso do Agente em Produção
+
+## Ferramentas do Agente em Produção {#production-agent-tools}
+
+Agentes de produção recebem as actions registradas do app, além das
+ferramentas próprias do framework. `frameworkTools` seleciona quais dessas
+ferramentas do framework este app expõe. Todo grupo tem como padrão o
+comportamento atual, então omitir a opção não muda nada:
+
+```ts filename="server/plugins/agent-chat.ts"
+export default createAgentChatPlugin({
+  frameworkTools: {
+    database: "read", // "write" | "read" | "off", default "read"
+    extensions: true, // default false
+    sharing: false, // this app has no share surface
+    review: false,
+  },
+});
+```
+
+```ts filename="server/plugins/core-routes.ts"
+export default createCoreRoutesPlugin({
+  extensionTools: true,
+});
+```
+
+`database` e `extensions` aceitam os mesmos valores que as antigas flags de nível superior aceitavam:
+
+- `database: "read"`. Padrão. Registra apenas `db-schema` e `db-query`.
+  Os agentes inspecionam dados com SQL, mas devem usar actions tipadas do app
+  para gravar.
+- `database: "write"` ou `true`. Também registra `db-exec` e `db-patch`
+  para manutenção deliberada com SQL bruto. As gravações são limitadas ao
+  usuário/organização atual, e alterações de schema são bloqueadas.
+- `database: "off"` ou `false`. Remove as ferramentas brutas de banco de
+  dados da superfície do agente, de modo que as actions do app sejam o único
+  caminho de acesso aos dados.
+- `extensions: true`. Habilita no app as actions de gerenciamento de
+  extensões do framework e a orientação de prompt (`create-extension`,
+  `update-extension`, etc.). Defina `extensionTools: true` também no plugin
+  de core-routes para permitir a criação REST autenticada. As extensões
+  ficam desativadas por padrão.
+
+Os demais grupos são booleanos, todos ativados por padrão: `sharing`, `review`,
+`history`, `featureFlags`, `localization`, `audit`, `contextXray`,
+`userProfile`, `automation`, `docs`, `resources`, `web`, `workspaceApps`,
+`chat` e `email`. Use `frameworkTools: "minimal"` para desativar todos de uma
+vez em um app voice-first ou de propósito único, ou
+`frameworkTools: { preset: "minimal", resources: true }` para manter apenas
+um. Uma chave de grupo explícita sempre vence o preset.
+
+Desativar um grupo o remove apenas das superfícies do **agente**: chat
+interativo, MCP, A2A e execuções em background. As rotas HTTP de action
+correspondentes continuam montadas, porque a UI as alcança através de hooks
+de cliente. Desativar `sharing` não deve causar 404 em um diálogo de
+compartilhamento que ainda está na tela. Pese esse custo de paridade antes de
+usá-la: o contrato do framework é que tudo que a UI pode fazer o agente
+também pode fazer, então `sharing: false` ao lado de um botão de compartilhar
+visível é uma quebra deliberada, e só faz sentido quando o app não tem essa
+superfície.
+
+As ferramentas do framework não são mais promovidas para a primeira
+requisição do modelo por padrão, independentemente dessa opção. Elas
+permanecem no registro pesquisável e carregam através de `tool-search`, ou
+imediatamente se o app as nomear em `initialToolNames`.
+
+<Callout tone="warning">
+  As opções de nível superior `databaseTools` e `extensionTools` estão
+  descontinuadas em favor de `frameworkTools.database` e
+  `frameworkTools.extensions`. Elas ainda são respeitadas, mas definir uma flag
+  de nível superior e seu equivalente em `frameworkTools` com valores
+  conflitantes lança um erro na inicialização do plugin, em vez de subir com uma
+  superfície de ferramentas que ninguém escolheu.
+</Callout>
+
+## Execução de Código em Produção {#production-code-execution}
+
+Por padrão, agentes de produção rodam sem ferramentas de execução de código. Eles podem chamar actions do app, ferramentas de banco de dados, ferramentas MCP, ferramentas de navegador/sessão e outras ferramentas do framework registradas, mas não obtêm acesso a shell ou ao sistema de arquivos.
+
+Implantações compatíveis com Node podem optar pela execução de código em produção através do plugin de chat do agente ou de uma sobrescrita de ambiente:
+
+```ts filename="server/plugins/agent-chat.ts"
+export default createAgentChatPlugin({
+  codeExecution: { production: "sandboxed" },
+});
+```
+
+Os modos disponíveis são:
+
+- `off`. O padrão. Nenhuma ferramenta de execução de código é registrada em produção.
+- `sandboxed`. Registra `run-code`, um executor Node.js JavaScript isolado com um ambiente limpo, um diretório temporário novo, limites de saída/tempo, e uma ponte localhost para ferramentas registradas na lista de permissões, como `provider-api-request`, `provider-api-docs`, `provider-api-catalog`, `web-request` e a ponte de arquivos do espaço de trabalho apoiada em Resources, usada por `workspaceRead` / `workspaceWrite`.
+- `trusted`. Registra `run-code` mais o registro completo de ferramentas de codificação (`bash`, `read`, `edit`, `write`). Use isso somente para implantações de tenant único ou controladas pelo operador, onde o acesso total ao shell do host é intencional.
+
+Defina `AGENT_PROD_CODE_EXECUTION=sandboxed` ou `AGENT_PROD_CODE_EXECUTION=trusted` para sobrescrever a opção do plugin em uma implantação específica sem alterar o código. `AGENT_PROD_CODE_EXECUTION=off` força a desativação da execução de código mesmo quando a opção do plugin a habilita.
+
+O sandbox do `run-code` é um isolamento em nível de processo, não um container de sistema operacional. Ele remove os segredos do app do ambiente do processo filho e usa o modelo de permissões do Node quando disponível, mas o tráfego de rede de saída não é bloqueado pelo próprio Node. Chamadas autenticadas devem passar pelos auxiliares de ponte que a ferramenta expõe.
+
+## O que vem a seguir
+
+- [**Actions: Acesso e Autorização**](/docs/actions-access-control) — os eixos de controle de acesso por action que o controle no nível de ferramenta desta página complementa
+- [**Atualizando a UI em Produção**](/docs/updating-ui-in-production) — o que um agente implantado pode e não pode editar com a execução de código desativada
+- [**Implantação: Variáveis de Ambiente**](/docs/deployment-environment-variables) — `AGENT_PROD_CODE_EXECUTION` e outras variáveis de ambiente de produção

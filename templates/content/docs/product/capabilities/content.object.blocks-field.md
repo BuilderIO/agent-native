@@ -29,6 +29,7 @@ evidence:
     "server/db/schema.ts",
     "actions/_blocks-field-identity.ts",
     "actions/blocks-seeding.db.test.ts",
+    "actions/content-database-block-actions.db.test.ts",
   ]
 superseded_by: null
 last_reviewed: "2026-08-10"
@@ -70,7 +71,7 @@ Given a Page with two Blocks fields, when an authorized editor restores one fiel
 
 ## Current evidence
 
-Primary and additional database Blocks properties now retain distinct field identities, ordered Block identities, and independent monotonic revisions around their existing Markdown stores. Export reports each field and its identity status without changing plain NFM. Comment/Discussion owners, attributable history, arbitrary restore, shared mutation actions, and real-interface proof remain incomplete, so this is `in_progress`, not verified.
+Primary and additional database Blocks properties now retain distinct field identities, ordered Block identities, and independent monotonic revisions around their existing Markdown stores. Shared actions can list and mutate one exact database Blocks field with field-level compare-and-swap, sibling preservation, stable IDs, durable retry receipts, and verified read-back. Export reports each field and its identity status without changing plain NFM. Comment/Discussion owners, attributable history, arbitrary restore, and real-interface proof remain incomplete, so this is `in_progress`, not verified.
 
 ## Proof plan
 

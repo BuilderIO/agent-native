@@ -22,7 +22,7 @@ function normalizeLimit(value: number | undefined, fallback = 50): number {
   return Math.min(Math.floor(value), 200);
 }
 
-async function ensureTable(): Promise<void> {
+export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
       const client = getDbExec();

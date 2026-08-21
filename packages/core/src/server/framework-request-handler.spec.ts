@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { getMissingDefaultPlugins } from "../deploy/route-discovery.js";
 import {
+  markFrameworkRoutesReadyBeforeBootstrap,
   getH3App,
   markDefaultPluginProvided,
   trackPluginInit,
@@ -374,6 +375,88 @@ describe("framework request handler", () => {
     await expect(
       dispatch(nitroApp, "/_agent-native/auth/session"),
     ).resolves.toEqual({ ok: true });
+
+    release();
+  });
+
+  it("dispatches an explicitly early route while default bootstrap is pending", async () => {
+    const nitroApp = createNitroApp();
+    let release!: () => void;
+    const bootstrap = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    vi.mocked(getMissingDefaultPlugins).mockImplementationOnce(async () => {
+      await bootstrap;
+      return [];
+    });
+
+    markFrameworkRoutesReadyBeforeBootstrap(nitroApp, [
+      "/_agent-native/sign-in",
+    ]);
+    getH3App(nitroApp).use("/_agent-native/sign-in", () => ({ ok: true }));
+
+    await expect(dispatch(nitroApp, "/_agent-native/sign-in")).resolves.toEqual(
+      { ok: true },
+    );
+
+    release();
+  });
+
+  it("does not wait for unscoped plugin initialization on an early route", async () => {
+    const nitroApp = createNitroApp();
+    let release!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    markFrameworkRoutesReadyBeforeBootstrap(nitroApp, [
+      "/_agent-native/sign-in",
+    ]);
+    getH3App(nitroApp).use("/_agent-native/sign-in", () => ({ ok: true }));
+    trackPluginInit(nitroApp, ready);
+
+    await expect(dispatch(nitroApp, "/_agent-native/sign-in")).resolves.toEqual(
+      { ok: true },
+    );
+
+    release();
+  });
+
+  it.each(["/sign-in", "/login", "/signup"])(
+    "does not wait for unscoped plugin initialization on canonical auth route %s",
+    async (path) => {
+      const nitroApp = createNitroApp();
+      let release!: () => void;
+      const ready = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+
+      markFrameworkRoutesReadyBeforeBootstrap(nitroApp, [path]);
+      getH3App(nitroApp).use(path, () => ({ ok: true }));
+      trackPluginInit(nitroApp, ready);
+
+      await expect(dispatch(nitroApp, path)).resolves.toEqual({ ok: true });
+
+      release();
+    },
+  );
+
+  it("does not wait for an excluded route in a broad plugin readiness entry", async () => {
+    const nitroApp = createNitroApp();
+    let release!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    getH3App(nitroApp).use("/_agent-native/sign-in", () => ({ ok: true }));
+    trackPluginInit(nitroApp, ready, {
+      paths: ["/_agent-native"],
+      excludedPaths: ["/_agent-native/sign-in"],
+    });
+
+    await expect(dispatch(nitroApp, "/_agent-native/sign-in")).resolves.toEqual(
+      { ok: true },
+    );
 
     release();
   });

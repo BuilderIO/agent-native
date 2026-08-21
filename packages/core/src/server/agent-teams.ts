@@ -1771,7 +1771,9 @@ export async function processAgentTeamRun(
         } catch {
           priorThreadData = undefined;
         }
-        messages = threadDataToEngineMessages(priorThreadData);
+        messages = threadDataToEngineMessages(priorThreadData, {
+          includeToolCalls: true,
+        });
         if (messages.length === 0) {
           messages = [
             {

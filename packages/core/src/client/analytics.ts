@@ -2,14 +2,20 @@ import type * as amplitude from "@amplitude/analytics-browser";
 import type * as Sentry from "@sentry/browser";
 
 import {
+  ANALYTICS_CLIENT_PLATFORM_PROPERTY,
+  type AnalyticsClientPlatform,
+} from "../shared/analytics-platform.js";
+import {
   llmConnectionTrackingProperties,
   type LlmConnectionStatus,
 } from "../shared/llm-connection.js";
 import { toPostHogExceptionProperties } from "../tracking/posthog-exception.js";
+import { getAnalyticsClientPlatform } from "./analytics-platform.js";
 import {
   getOrCreateAnalyticsAnonymousId,
   getOrCreateAnalyticsSessionId,
 } from "./analytics-session.js";
+import { injectedAgentNativeConfig } from "./app-config.js";
 export {
   clearAnalyticsSessionId,
   setAnalyticsSessionId,
@@ -57,8 +63,19 @@ declare global {
   interface Window {
     gtag?: (...args: any[]) => void;
     __AGENT_NATIVE_CONFIG__?: {
+      /**
+       * This app's origins, projected by server/app-origin-config.ts. These
+       * replace the `VITE_` mirrors of APP_URL / WORKSPACE_* — the prefix only
+       * ever answered "how does this reach the browser", which the shell
+       * answers better. Impersonal, so safe in the CDN-cached shell.
+       */
+      appUrl?: string;
+      workspaceGatewayUrl?: string;
+      workspaceOAuthOrigin?: string;
+      workspaceRuntime?: boolean;
       sentryDsn?: string;
       sentryEnvironment?: string;
+      deploymentEnvironment?: string;
       /**
        * Public PostHog project key + host. Publishable and identical for every
        * visitor, so it ships inside the CDN-cached SSR shell alongside the
@@ -112,6 +129,8 @@ export type ErrorCaptureConfigOptions = {
 };
 
 export type ConfigureTrackingOptions = {
+  /** Platform attribution attached to every event emitted by this client. */
+  clientPlatform?: AnalyticsClientPlatform;
   /**
    * Agent Native first-party analytics public key. This mirrors hosted
    * analytics SDKs where consumers pass the key at setup time instead of
@@ -162,6 +181,7 @@ type TrackingIdentity = {
 };
 
 let _getDefaultProps: GetDefaultProps | null = null;
+let _configuredAnalyticsClientPlatform: AnalyticsClientPlatform | null = null;
 let _agentNativeAnalyticsPublicKey: string | null = null;
 let _agentNativeAnalyticsEndpoint: string | null = null;
 let _amplitudeInitialized = false;
@@ -923,6 +943,19 @@ function getClientSentryDsn(): string | undefined {
   );
 }
 
+function resolveClientDeploymentEnvironment(): string {
+  const env = (import.meta.env as Record<string, string | undefined>) ?? {};
+  return (
+    window.__AGENT_NATIVE_CONFIG__?.deploymentEnvironment ||
+    injectedAgentNativeConfig().deployment?.environment ||
+    env.VITE_AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT ||
+    env.VITE_SENTRY_ENVIRONMENT ||
+    window.__AGENT_NATIVE_CONFIG__?.sentryEnvironment ||
+    env.MODE ||
+    "production"
+  );
+}
+
 function captureWithSentry(
   module: typeof Sentry,
   error: unknown,
@@ -964,11 +997,12 @@ function ensureSentry(loadWithoutDsn = false): void {
       }
       module.init({
         dsn,
-        environment:
-          window.__AGENT_NATIVE_CONFIG__?.sentryEnvironment ||
-          (import.meta.env as Record<string, string | undefined>)?.MODE ||
-          "production",
+        environment: resolveClientDeploymentEnvironment(),
         beforeSend(event) {
+          event.tags = {
+            ...event.tags,
+            deployment_environment: resolveClientDeploymentEnvironment(),
+          };
           if (shouldDropBrowserSentryNoise(event)) {
             return null;
           }
@@ -1000,6 +1034,10 @@ function ensureSentry(loadWithoutDsn = false): void {
         },
       });
       module.setTag("runtime", "browser");
+      module.setTag(
+        "deployment_environment",
+        resolveClientDeploymentEnvironment(),
+      );
       _sentryInitialized = true;
       // Flush any user/tag that was set before init.
       if (_pendingSentryUser !== undefined) {
@@ -1224,6 +1262,9 @@ export function trackAgentChatLifecycle(input: AgentChatLifecycleEvent): void {
 }
 
 export function configureTracking(options: ConfigureTrackingOptions): void {
+  if (options.clientPlatform) {
+    _configuredAnalyticsClientPlatform = options.clientPlatform;
+  }
   const publicKey = options.key || options.publicKey;
   if (publicKey) {
     _agentNativeAnalyticsPublicKey = publicKey;
@@ -1482,9 +1523,7 @@ function maybeInstallErrorCapture(
     send: sendExceptionEvent,
     getSessionContext: errorCaptureSessionContext,
     emitReplayEvent: emitExceptionToReplay,
-    environment:
-      options.environment ||
-      (import.meta.env as Record<string, string | undefined>)?.MODE,
+    environment: options.environment || resolveClientDeploymentEnvironment(),
     ...(options.release ? { release: options.release } : {}),
     ...(options.captureGlobalErrors !== undefined
       ? { captureGlobalErrors: options.captureGlobalErrors }
@@ -1764,6 +1803,7 @@ function resolveProps(
   }
   const llmProps = llmConnectionTrackingProperties(_llmConnectionStatus);
   const enriched = { ...withTemplate };
+  enriched.deployment_environment = resolveClientDeploymentEnvironment();
   for (const [key, value] of Object.entries(llmProps)) {
     if (enriched[key] === undefined) enriched[key] = value;
   }
@@ -1771,7 +1811,12 @@ function resolveProps(
   for (const [key, value] of Object.entries(replayProps)) {
     if (enriched[key] === undefined) enriched[key] = value;
   }
-  return applyTrackingIdentity(enriched);
+  return {
+    ...applyTrackingIdentity(enriched),
+    [ANALYTICS_CLIENT_PLATFORM_PROPERTY]: getAnalyticsClientPlatform(
+      _configuredAnalyticsClientPlatform ?? undefined,
+    ),
+  };
 }
 
 function sessionReplayTrackingProperties(): Record<string, unknown> {

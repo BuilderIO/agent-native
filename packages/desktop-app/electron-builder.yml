@@ -15,12 +15,8 @@ files:
   - "!{tsconfig.json,tsconfig.*.json}"
 
 extraResources:
-  - from: native/bin/agent-native-computer-helper
-    to: native/agent-native-computer-helper
   - from: ../agent-chrome-extension/dist
     to: chrome-extension
-  - from: build/Assets.car
-    to: Assets.car
   # `electron-builder --dir` skips its normal onAfterPack updater metadata
   # write. Keep local packaged builds installable by supplying the same cache
   # configuration that release builds receive automatically.
@@ -33,6 +29,11 @@ protocols:
       - agentnative
 
 mac:
+  extraResources:
+    - from: native/bin/agent-native-computer-helper
+      to: native/agent-native-computer-helper
+    - from: build/Assets.car
+      to: Assets.car
   category: public.app-category.developer-tools
   identity: "Builder.io, Inc (W3PMF2T3MW)"
   icon: build/icon.icns

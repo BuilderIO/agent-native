@@ -55,7 +55,6 @@ try {
   fail([`.claude/settings.json is not valid JSON: ${error.message}`]);
 }
 
-/** Every `command` string across every event/matcher group. */
 const registeredCommands = Object.values(settings.hooks ?? {})
   .flat()
   .flatMap((group) => group?.hooks ?? [])
@@ -69,25 +68,26 @@ const hookScripts = existsSync(HOOKS_DIR)
 
 const problems = [];
 
-for (const script of hookScripts) {
-  const relative = `scripts/hooks/${script}`;
-  const documented = claudeMd.includes(relative);
-  const registered = registeredCommands.some((command) =>
-    command.includes(relative),
-  );
-  if (documented && !registered) {
+const claudeMdHookRefs = [
+  ...claudeMd.matchAll(/scripts\/hooks\/([\w.-]+\.(?:mjs|js|ts))/g),
+].map((match) => match[1]);
+
+for (const name of new Set(claudeMdHookRefs)) {
+  const wired = registeredCommands.some((command) => command.includes(name));
+  if (!wired) {
     problems.push(
-      `${relative} is documented in CLAUDE.md but not registered in .claude/settings.json.`,
+      `CLAUDE.md documents \`scripts/hooks/${name}\` but no hook command in .claude/settings.json references it.`,
     );
   }
 }
 
 for (const command of registeredCommands) {
-  const match = /scripts\/hooks\/[\w.-]+/.exec(command);
+  const match = command.match(/scripts\/hooks\/([\w.-]+\.(?:mjs|js|ts))/);
   if (!match) continue;
-  if (!existsSync(path.join(REPO_ROOT, match[0]))) {
+  const name = match[1];
+  if (!hookScripts.includes(name)) {
     problems.push(
-      `.claude/settings.json registers ${match[0]}, which does not exist.`,
+      `.claude/settings.json registers \`scripts/hooks/${name}\` but that file does not exist.`,
     );
   }
 }

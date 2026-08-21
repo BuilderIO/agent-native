@@ -98,6 +98,7 @@ function isVersionPackagesBumpOnly(file, baseSha) {
   // The Version Packages PR bumps `version` + appends to CHANGELOG.md.
   // If those are the ONLY files touched in a package, no changeset is
   // needed (the bump itself is what consumes the changesets).
+  if (/^packages\/[^/]+\/changelog\//.test(file)) return true;
   if (!file.endsWith("/package.json") && !file.endsWith("/CHANGELOG.md")) {
     return false;
   }

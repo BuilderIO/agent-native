@@ -395,6 +395,9 @@ const messages = {
     aiNotes: "Notes sur l'IA",
     summary: "Résumé",
     actionItems: "Éléments d'action",
+    addActionItem: "Ajouter une action",
+    removeActionItem: "Supprimer l'action",
+    actionItemPlaceholder: "Que faut-il faire ?",
     working: "Fonctionnement…",
     noActionItems:
       "Aucune action pour l'instant. Ils apparaissent ici après la génération des notes à partir d'une transcription.",
@@ -629,12 +632,16 @@ const messages = {
     alsoFor: "Également disponible pour {{platform}}",
     backToLibrary: "Retour à la bibliothèque",
     clipsDesktop: "Clips Desktop",
+    stable: "Stable",
+    nightly: "Nightly",
+    switchToNightly: "Passer aux versions Nightly",
+    switchToStable: "Passer aux versions stables",
+    retry: "Réessayer",
     heroDescription:
       "Un enregistreur de barre de menus pour l’écran, la caméra et écran + caméra. Démarrage en un clic, bulle caméra déplaçable et lien de partage instantané à l’arrêt.",
     versionReleased: "Version {{version}} — publiée {{date}}",
     version: "Traduit: Version {{version}}",
-    manifestError:
-      "Impossible de charger le manifeste de version : choisissez un programme d'installation sur la page des versions.",
+    manifestError: "Impossible de charger le manifeste de version. Réessayez.",
     loadingRelease: "Chargement de la dernière version…",
     chromeTitle: "Extension Chrome pour les journaux du navigateur",
     chromeDescription:
@@ -698,15 +705,6 @@ const messages = {
     viewAllUpdates: "Voir toutes les mises à jour",
     expand: "Développer",
     collapse: "Replier",
-    changelogMarkdown: `# Journal des modifications
-
-Tous les changements visibles par les utilisateurs de Clips sont documentés ici. Vous pouvez l’ouvrir à tout moment depuis le menu de commandes (Cmd K -> "Nouveautés") ou depuis les paramètres.
-
-## 2026-06-23
-
-### Ajouté
-
-- Vous pouvez maintenant voir les nouveautés directement dans Clips. Le journal des modifications est disponible dans le menu de commandes (Cmd K) et dans les paramètres.`,
     playback: "Lecture",
     defaultPlaybackSpeed: "Vitesse de lecture par défaut",
     playbackDescription:
@@ -1003,7 +1001,7 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
   commentsPanel: {
     disabled: "Les commentaires sont désactivés pour cet enregistrement.",
     beFirst: "Soyez le premier à commenter",
-    leaveNotePanel: "Laissez une note en haut de ce panneau.",
+    leaveNotePanel: "Laissez une note en bas de ce panneau.",
     leaveNoteTimestamp: "Laissez une note à l’horodatage actuel.",
     leaveComment: "Laisser un commentaire...",
     signInToComment: "Connectez-vous pour laisser un commentaire.",
@@ -1061,8 +1059,13 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     pauseShortcut: "Pause (⌥⇧P)",
     stop: "Arrêter l’enregistrement",
     elapsed: "Temps écoulé",
-    cancel: "Annuler l’enregistrement",
-    cancelShortcut: "Annuler (⌥⇧C)",
+    cancel: "Supprimer l’enregistrement",
+    cancelShortcut: "Supprimer (⌥⇧C)",
+    discardConfirmTitle: "Supprimer cet enregistrement ?",
+    discardConfirmDescription:
+      "Cette action est irréversible. Votre enregistrement en cours sera définitivement supprimé.",
+    resume: "Reprendre",
+    discardRecording: "Supprimer l’enregistrement",
   },
   countdownOverlay: {
     startsIn: "L’enregistrement commence dans {{count}}",
@@ -1145,6 +1148,7 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
       "La transcription en direct apparaîtra ici lorsque les notes commenceront.",
     me: "Moi",
     them: "Eux",
+    unknownSpeaker: "Interlocuteur",
     searchTranscript: "Rechercher dans la transcription",
     searchPlaceholder: "Rechercher dans la transcription…",
     searchMatchCount: "{{current}} sur {{total}}",
@@ -1265,7 +1269,7 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     seekTo: "Seek to {{time}} (Localisé)",
   },
   editorToolbar: {
-    undoTooltip: "Undo (Cmd/Ctrl Z) (Localisé)",
+    undoTooltip: "Undo (Cmd/Ctrl+Z) (Localisé)",
     playPauseTooltip: "Play / Pause (Space) (Localisé)",
     sourceDuration: "({{duration}} src) (Localisé)",
     previewSpeed: "Preview speed (Localisé)",
@@ -1359,10 +1363,11 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     cameraOff: "Camera off (Localisé)",
     includeCameraAria: "Include camera in this recording (Localisé)",
     startRecording: "Start recording (Localisé)",
-    micOffConfirmTitle: "Record without a microphone? (Localisé)",
+    micOffConfirmTitle: "Votre micro est désactivé",
     micOffConfirmDescription:
-      "Your mic is off, so this recording won't capture any audio. Turn it on before starting if you want narration. (Localisé)",
-    startWithoutMic: "Start anyway (Localisé)",
+      "Pour avoir du son dans votre vidéo, vous devez réactiver votre microphone.",
+    startWithoutMic: "Continuer",
+    unmuteMicrophone: "Réactiver le micro",
     uploadVideo: "Upload video (Localisé)",
     importLoom: "Import Loom (Localisé)",
     importing: "Importing... (Localisé)",
@@ -1445,6 +1450,10 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
       "Connectez le stockage sur l’écran suivant : Builder.io (stockage + IA sur l’offre gratuite) ou stockage compatible S3. Clips terminera l’enregistrement.",
     connectStorageToRetryLoom:
       "Connectez le stockage sur l’écran suivant : Builder.io (stockage + IA sur l’offre gratuite) ou stockage compatible S3. Clips relancera l’import.",
+    leaveConfirmTitle: "Quitter et abandonner cet enregistrement ?",
+    leaveConfirmDescription:
+      "Votre enregistrement en cours n’a pas fini d’être sauvegardé. Si vous quittez cette page maintenant, il sera abandonné.",
+    leaveAndDiscard: "Quitter et abandonner",
   },
   importRoute: {
     pageTitle: "Importer Loom — Clips",
@@ -1615,7 +1624,6 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     transcriptPending: "Transcript pending (Localisé)",
     notesPending: "Notes pending (Localisé)",
     pastRecordings: "Past recordings (Localisé)",
-    loadOlder: "Charger les plus anciens",
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (Localisé)",
     connectGoogleCalendar: "Connect Google Calendar (Localisé)",
@@ -1643,7 +1651,14 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     title: "Meetings (Localisé)",
     intro:
       "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time. (Localisé)",
-    searchPlaceholder: "Search meetings... (Localisé)",
+    searchPlaceholder:
+      "Search meetings, attendees, and transcripts... (Localisé)",
+    agendaTab: "Agenda (Localisé)",
+    pastTab: "Past (Localisé)",
+    now: "Now (Localisé)",
+    noPastMeetings: "No past meetings yet (Localisé)",
+    loadOlder: "Load older (Localisé)",
+    searchFailed: "Couldn't search meetings. Try again in a moment. (Localisé)",
     clearSearch: "Clear search (Localisé)",
     noMeetingsYet: "No meetings yet (Localisé)",
     noMeetingsDescription:

@@ -102,6 +102,43 @@ export interface SlackAdapterOptions {
   resolveBotToken?: (incoming: IncomingMessage) => Promise<string | undefined>;
 }
 
+function slackEventInstallationScope(payload: any): {
+  enterpriseId?: string;
+  isEnterpriseInstall: boolean;
+} {
+  const teamId =
+    typeof payload?.team_id === "string" ? payload.team_id : undefined;
+  const authorizations: Record<string, unknown>[] = Array.isArray(
+    payload?.authorizations,
+  )
+    ? payload.authorizations.filter(
+        (value: unknown): value is Record<string, unknown> =>
+          !!value && typeof value === "object" && !Array.isArray(value),
+      )
+    : [];
+  const enterpriseAuthorization = authorizations.find(
+    (authorization) =>
+      authorization.is_enterprise_install === true &&
+      typeof authorization.enterprise_id === "string",
+  );
+  const teamAuthorization = authorizations.find(
+    (authorization) => authorization.team_id === teamId,
+  );
+  const authorization = teamAuthorization ?? enterpriseAuthorization;
+
+  return {
+    enterpriseId:
+      typeof authorization?.enterprise_id === "string"
+        ? authorization.enterprise_id
+        : typeof payload?.enterprise_id === "string"
+          ? payload.enterprise_id
+          : undefined,
+    isEnterpriseInstall:
+      authorization?.is_enterprise_install === true ||
+      payload?.is_enterprise_install === true,
+  };
+}
+
 /**
  * Create a Slack platform adapter.
  *
@@ -275,6 +312,7 @@ export function slackAdapter(
           typeof payload.api_app_id === "string"
             ? payload.api_app_id
             : "unknown";
+        const installationScope = slackEventInstallationScope(payload);
         const agentContext = normalizeSlackAgentContext(e.app_context, teamId);
         const isDm =
           typeof e.channel_type === "string"
@@ -310,10 +348,8 @@ export function slackAdapter(
             messageTs: e.ts,
             teamId,
             apiAppId,
-            enterpriseId:
-              typeof payload.enterprise_id === "string"
-                ? payload.enterprise_id
-                : undefined,
+            enterpriseId: installationScope.enterpriseId,
+            isEnterpriseInstall: installationScope.isEnterpriseInstall,
             eventId: payload.event_id,
             ...(agentContext
               ? {
@@ -790,6 +826,8 @@ async function resolveManagedSlackBotToken(
     typeof incoming.platformContext.enterpriseId === "string"
       ? incoming.platformContext.enterpriseId
       : undefined;
+  const isEnterpriseInstall =
+    incoming.platformContext.isEnterpriseInstall === true;
   const installationKeyHint =
     typeof incoming.platformContext.installationKey === "string"
       ? incoming.platformContext.installationKey
@@ -805,7 +843,12 @@ async function resolveManagedSlackBotToken(
     if (!installation && apiAppId) {
       installation = await getActiveIntegrationInstallationByKey(
         "slack",
-        slackInstallationKey({ teamId, enterpriseId, apiAppId }),
+        slackInstallationKey({
+          teamId,
+          enterpriseId,
+          apiAppId,
+          isEnterpriseInstall,
+        }),
       );
     }
     if (!installation && !apiAppId) {
@@ -829,7 +872,12 @@ async function resolveManagedSlackBotToken(
     }
     const key =
       installation?.installationKey ??
-      slackInstallationKey({ teamId, enterpriseId, apiAppId });
+      slackInstallationKey({
+        teamId,
+        enterpriseId,
+        apiAppId,
+        isEnterpriseInstall,
+      });
     return (await resolveIntegrationTokenBundle("slack", key))?.accessToken;
   } catch {
     return undefined;
@@ -925,6 +973,7 @@ async function enforceWorkspaceAllowlist(payload: any): Promise<void> {
     typeof payload?.team_id === "string" ? payload.team_id : undefined;
   const apiAppId =
     typeof payload?.api_app_id === "string" ? payload.api_app_id : undefined;
+  const installationScope = slackEventInstallationScope(payload);
 
   const allowedTeamIds = parseAllowlistEnv("SLACK_ALLOWED_TEAM_IDS");
   const allowedAppIds = parseAllowlistEnv("SLACK_ALLOWED_API_APP_IDS");
@@ -933,7 +982,12 @@ async function enforceWorkspaceAllowlist(payload: any): Promise<void> {
     if (process.env.NODE_ENV === "production") {
       let managed = false;
       try {
-        const key = slackInstallationKey({ teamId, apiAppId });
+        const key = slackInstallationKey({
+          teamId,
+          apiAppId,
+          enterpriseId: installationScope.enterpriseId,
+          isEnterpriseInstall: installationScope.isEnterpriseInstall,
+        });
         managed = !!(await getActiveIntegrationInstallationByKey("slack", key));
       } catch {}
       if (!managed) {
@@ -953,7 +1007,21 @@ async function enforceWorkspaceAllowlist(payload: any): Promise<void> {
   }
 
   if (allowedTeamIds) {
-    if (!teamId || !allowedTeamIds.has(teamId)) {
+    let allowedEnterpriseInstall = false;
+    if (installationScope.isEnterpriseInstall) {
+      try {
+        const key = slackInstallationKey({
+          teamId,
+          apiAppId,
+          enterpriseId: installationScope.enterpriseId,
+          isEnterpriseInstall: true,
+        });
+        allowedEnterpriseInstall =
+          !!(await getActiveIntegrationInstallationByKey("slack", key));
+        // coercion-ok: lookup failure leaves the enterprise event denied below
+      } catch {}
+    }
+    if ((!teamId || !allowedTeamIds.has(teamId)) && !allowedEnterpriseInstall) {
       throw createError({
         statusCode: 401,
         statusMessage: "Unrecognized Slack workspace",

@@ -19,12 +19,17 @@ import type { H3Event } from "h3";
 import { deleteCookie, getCookie, getHeader, getMethod, setCookie } from "h3";
 import * as jose from "jose";
 
+import { getAppConfig } from "../app-config/index.js";
 import {
   GOOGLE_AUTH_REQUIRED_MESSAGE,
   isGoogleSignInRequiredForEmail,
 } from "../org/auth-policy.js";
 import { SIGN_IN_ENTRY_PATH } from "../shared/sign-in-journey.js";
 import { getAppName } from "./app-name.js";
+import {
+  addSignupAttributionHeader,
+  signupAttributionContextFromCookieHeader,
+} from "./attribution.js";
 import { getSession, isExpectedAuthFailure, safeReturnPath } from "./auth.js";
 import {
   getBetterAuth,
@@ -37,14 +42,18 @@ import {
   CANONICAL_IDENTITY_SSO_HUB_URL,
   getIdentityHubUrl,
   identitySsoLoginButtonHtml,
-  isCanonicalAgentNativeAppRequest,
   isCanonicalIdentitySsoClientRequest,
-  isDesktopSsoCanaryUserAgent,
+  isDesktopSsoUserAgent,
   isIdentitySsoExplicitlyEnabled,
   isIdentitySsoEnabled,
   isJtiReplayed,
   SSO_STATE_TTL_MS,
 } from "./identity-sso-store.js";
+import {
+  getRequestContext,
+  hasContinuationLocalRequestContext,
+  runWithRequestContext,
+} from "./request-context.js";
 
 export { getIdentityHubUrl, identitySsoLoginButtonHtml, isIdentitySsoEnabled };
 
@@ -134,9 +143,11 @@ function normalizeAuthority(raw: string): string | null {
 }
 
 function resolveAppId(event: H3Event): string {
-  const configured =
-    process.env.AGENT_NATIVE_APP_ID?.trim() ||
-    process.env.AGENT_NATIVE_WORKSPACE_APP_ID?.trim();
+  // Generic id first here, unlike credential scoping: SSO identifies this app
+  // instance to an authority, it does not look up a row keyed by the id a
+  // workspace deploy assigned.
+  const app = getAppConfig().app;
+  const configured = app.id ?? app.workspaceId;
   if (configured) return configured;
   const name = getAppName();
   if (name && name !== "app") return name;
@@ -225,12 +236,12 @@ export function resolveIdentityHubUrl(event: H3Event): string | undefined {
   ) {
     return CANONICAL_IDENTITY_SSO_HUB_URL;
   }
-  if (!isDesktopSsoCanaryUserAgent(getHeader(event, "user-agent"))) {
+  if (!isDesktopSsoUserAgent(getHeader(event, "user-agent"))) {
     return undefined;
   }
   try {
     if (
-      !isCanonicalAgentNativeAppRequest(
+      !isCanonicalIdentitySsoClientRequest(
         getHeader(event, "host"),
         getHeader(event, "x-forwarded-proto"),
       )
@@ -248,6 +259,7 @@ interface VerifiedIdentity {
   email: string;
   name: string;
   orgDomain?: string;
+  authProvider?: "google";
   sub: string;
   jti: string;
 }
@@ -297,6 +309,8 @@ async function verifyIdentityAssertion(
         typeof payload.org_domain === "string" && payload.org_domain
           ? payload.org_domain
           : undefined,
+      authProvider:
+        payload.identity_auth_provider === "google" ? "google" : undefined,
       sub: typeof payload.sub === "string" && payload.sub ? payload.sub : email,
       jti,
     };
@@ -344,7 +358,10 @@ async function exchangeIdentityCode(
   }
 }
 
-async function jitLinkIdentity(identity: VerifiedIdentity): Promise<void> {
+async function jitLinkIdentity(
+  identity: VerifiedIdentity,
+  signupHeaders?: Headers,
+): Promise<void> {
   const adapter = await getBetterAuthInternalAdapter();
   let existing = adapter
     ? await adapter
@@ -364,6 +381,7 @@ async function jitLinkIdentity(identity: VerifiedIdentity): Promise<void> {
           password: createUnusableSsoCredential(),
           name: identity.name || identity.email.split("@")[0] || "User",
         },
+        ...(signupHeaders ? { headers: signupHeaders } : {}),
       });
     } catch (error) {
       if (!isExpectedAuthFailure(error)) throw error;
@@ -414,15 +432,57 @@ export async function handleIdentitySso(
   event: H3Event,
   subpath: string,
 ): Promise<Response> {
-  const hub = resolveIdentityHubUrl(event);
-  if (!hub) return new Response("Not found", { status: 404 });
-
   const method = getMethod(event);
   const sub = ("/" + subpath.replace(/^\/+/, "").replace(/\/+$/, "")).replace(
     /^\/$/,
     "",
   );
   const loginPath = SIGN_IN_ENTRY_PATH;
+
+  // Dispatch is the identity authority, so it has no SSO hub for the
+  // browser to federate to. Its authenticated desktop completion page still
+  // lives on this route and must be reachable after ordinary sign-in.
+  if (sub === "/desktop-complete") {
+    if (method !== "GET" && method !== "HEAD") {
+      return new Response("Method not allowed", { status: 405 });
+    }
+    let nonce = "";
+    try {
+      nonce =
+        new URL(requestUrl(event), "http://an.invalid").searchParams.get(
+          "nonce",
+        ) || "";
+    } catch {
+      return new Response("Invalid completion request", { status: 400 });
+    }
+    if (!DESKTOP_COMPLETION_NONCE.test(nonce)) {
+      return new Response("Invalid completion request", { status: 400 });
+    }
+    const current = await getSession(event).catch((error) => {
+      void error;
+      return null;
+    });
+    if (!current?.email) {
+      return new Response("Authentication required", { status: 401 });
+    }
+    return new Response(
+      '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">' +
+        '<meta name="viewport" content="width=device-width,initial-scale=1">' +
+        "<title>Signed in</title></head><body>Signed in. You can close this window.</body></html>",
+      {
+        status: 200,
+        headers: {
+          "Cache-Control": "no-store",
+          "Content-Security-Policy": "default-src 'none'; style-src 'none'",
+          "Content-Type": "text/html; charset=utf-8",
+          "Referrer-Policy": "no-referrer",
+        },
+      },
+    );
+  }
+
+  const hub = resolveIdentityHubUrl(event);
+  if (!hub) return new Response("Not found", { status: 404 });
 
   if (sub === "/login") {
     if (method !== "GET" && method !== "HEAD") {
@@ -530,12 +590,31 @@ export async function handleIdentitySso(
         loginPath,
       );
     }
-    if (await isGoogleSignInRequiredForEmail(identity.email)) {
+    if (
+      (await isGoogleSignInRequiredForEmail(identity.email)) &&
+      identity.authProvider !== "google"
+    ) {
       return errorPage(GOOGLE_AUTH_REQUIRED_MESSAGE, loginPath);
     }
 
     try {
-      await jitLinkIdentity(identity);
+      const signupCookieHeader = getHeader(event, "cookie") ?? null;
+      const signupAttribution =
+        signupAttributionContextFromCookieHeader(signupCookieHeader);
+      const signupHeaders = addSignupAttributionHeader(
+        event.headers,
+        signupAttribution,
+      );
+      const linkIdentity = () => jitLinkIdentity(identity, signupHeaders);
+      await (hasContinuationLocalRequestContext()
+        ? runWithRequestContext(
+            {
+              ...(getRequestContext() ?? {}),
+              signupAttribution,
+            },
+            linkIdentity,
+          )
+        : linkIdentity());
     } catch {
       return errorPage(
         "Could not finish linking your account. Please try again.",
@@ -553,45 +632,6 @@ export async function handleIdentitySso(
       );
     }
     return redirect(event, safeReturnPath(stateResult.returnPath));
-  }
-
-  if (sub === "/desktop-complete") {
-    if (method !== "GET" && method !== "HEAD") {
-      return new Response("Method not allowed", { status: 405 });
-    }
-    let nonce = "";
-    try {
-      nonce =
-        new URL(requestUrl(event), "http://an.invalid").searchParams.get(
-          "nonce",
-        ) || "";
-    } catch {
-      return new Response("Invalid completion request", { status: 400 });
-    }
-    if (!DESKTOP_COMPLETION_NONCE.test(nonce)) {
-      return new Response("Invalid completion request", { status: 400 });
-    }
-    const current = await getSession(event).catch((error) => {
-      void error;
-      return null;
-    });
-    if (!current?.email) {
-      return new Response("Authentication required", { status: 401 });
-    }
-    return new Response(
-      '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">' +
-        '<meta name="viewport" content="width=device-width,initial-scale=1">' +
-        "<title>Signed in</title></head><body>Signed in. You can close this window.</body></html>",
-      {
-        status: 200,
-        headers: {
-          "Cache-Control": "no-store",
-          "Content-Security-Policy": "default-src 'none'; style-src 'none'",
-          "Content-Type": "text/html; charset=utf-8",
-          "Referrer-Policy": "no-referrer",
-        },
-      },
-    );
   }
 
   return new Response("Not found", { status: 404 });

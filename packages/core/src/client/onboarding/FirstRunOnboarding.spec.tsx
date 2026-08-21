@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "../components/ui/tooltip.js";
+import { registerFirstRunOnboardingExtension } from "./first-run-registry.js";
 import { FirstRunOnboarding } from "./FirstRunOnboarding.js";
 
 const mocks = vi.hoisted(() => ({
@@ -37,6 +38,8 @@ vi.mock("../resources/use-mcp-servers.js", () => ({
   useMcpServersApi: mocks.useMcpServersApi,
   formatMcpServerError: (error: unknown) =>
     error instanceof Error ? error.message : String(error),
+  formatMcpServersLoadError: (error: unknown) =>
+    error instanceof Error ? error.message : String(error),
 }));
 
 describe("FirstRunOnboarding", () => {
@@ -63,6 +66,10 @@ describe("FirstRunOnboarding", () => {
     mocks.useMcpServers.mockReturnValue({
       data: { user: [], org: [], orgId: null, role: null },
       isSuccess: true,
+      isError: false,
+      error: null,
+      isFetching: false,
+      refetch: vi.fn().mockResolvedValue(undefined),
     });
     mocks.useMcpServersApi.mockReturnValue({ test: mocks.testMcpServer });
     mocks.createMcpServerMutation.mockReset();
@@ -106,6 +113,7 @@ describe("FirstRunOnboarding", () => {
         ],
       },
       completeFirstRun: mocks.completeFirstRun,
+      completeFirstRunError: null,
     });
 
     container = document.createElement("div");
@@ -284,6 +292,56 @@ describe("FirstRunOnboarding", () => {
     expect(document.body.textContent).not.toContain("Agent integrations");
   });
 
+  it("keeps first-run integrations disabled until scope metadata is ready", () => {
+    const refetch = vi.fn().mockResolvedValue(undefined);
+    mocks.useMcpServers.mockReturnValue({
+      data: { user: [], org: [], orgId: null, role: null },
+      isSuccess: false,
+      isError: true,
+      error: new Error("Scope metadata unavailable"),
+      isFetching: false,
+      refetch,
+    });
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue")
+        ?.click();
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-use-own-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue to tools")
+        ?.click();
+    });
+
+    expect(
+      document.body.querySelector('[role="alert"]')?.textContent,
+    ).toContain("Scope metadata unavailable");
+    expect(
+      document.body.querySelector('button[aria-label="Connect Context7"]'),
+    ).toHaveProperty("disabled", true);
+
+    const retry = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent === "Retry",
+    );
+    act(() => retry?.click());
+    expect(refetch).toHaveBeenCalledOnce();
+    expect(mocks.createMcpServerMutation).not.toHaveBeenCalled();
+  });
+
   it("asks a workspace admin for scope before connecting a shared-capable integration", () => {
     mocks.useMcpServers.mockReturnValue({
       data: { user: [], org: [], orgId: "org-builder", role: "owner" },
@@ -334,9 +392,145 @@ describe("FirstRunOnboarding", () => {
         ?.click();
     });
 
-    expect(document.body.textContent).toContain(
-      "Who should be able to use this connection?",
-    );
+    expect(document.body.textContent).toContain("Who should use this?");
     expect(mocks.createMcpServerMutation).not.toHaveBeenCalled();
+  });
+
+  it("shows the workspace permission requirement to a non-admin", () => {
+    mocks.useMcpServers.mockReturnValue({
+      data: { user: [], org: [], orgId: "org-builder", role: "member" },
+      isSuccess: true,
+    });
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue")
+        ?.click();
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-use-own-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue to tools")
+        ?.click();
+    });
+
+    const search = document.body.querySelector(
+      'input[aria-label="Search integrations"]',
+    ) as HTMLInputElement | null;
+    expect(search).toBeTruthy();
+
+    act(() => {
+      if (!search) return;
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      setter?.call(search, "Context7");
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    act(() => {
+      document.body
+        .querySelector('button[aria-label="Connect Context7"]')
+        ?.click();
+    });
+
+    expect(document.body.textContent).toContain("Who should use this?");
+    expect(document.body.textContent).toContain(
+      "Workspace owner or admin required.",
+    );
+    const workspace = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent?.includes("Set up for workspace") ?? false,
+    );
+    expect(workspace).toHaveProperty("disabled", true);
+    expect(mocks.createMcpServerMutation).not.toHaveBeenCalled();
+  });
+
+  // Regression: Skip used to fire-and-forget completeFirstRun() with `void`,
+  // so a failed completion never surfaced — the click looked like it did
+  // nothing, and a rejecting mock here would fail the test via an unhandled
+  // rejection under the old behavior.
+  it("surfaces a failed Skip instead of silently doing nothing", async () => {
+    mocks.completeFirstRun.mockRejectedValue(
+      new Error("first-run completion failed: 500"),
+    );
+    mocks.useOnboarding.mockReturnValue({
+      firstRun: true,
+      loading: false,
+      error: null,
+      profile: {
+        appId: "builder-app",
+        appName: "Builder App",
+        capabilities: [],
+      },
+      completeFirstRun: mocks.completeFirstRun,
+      completeFirstRunError: "first-run completion failed: 500",
+    });
+    registerFirstRunOnboardingExtension({
+      id: "test-extension",
+      component: ({ onSkip }) => (
+        <button type="button" onClick={onSkip}>
+          Extension Skip
+        </button>
+      ),
+    });
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding skipIntegrations />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue")
+        ?.click();
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-use-own-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue")
+        ?.click();
+    });
+    act(() => {
+      document.body
+        .querySelector('[data-testid="first-run-open-app"]')
+        ?.click();
+    });
+
+    expect(document.body.textContent).toContain("Extension Skip");
+
+    await act(async () => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Extension Skip")
+        ?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mocks.completeFirstRun).toHaveBeenCalledTimes(1);
+    // Stays on the same step — no crash, no misleading full-screen bounce —
+    // and the failure is visible with a way forward.
+    expect(document.body.textContent).toContain("Extension Skip");
+    expect(document.body.textContent).toContain(
+      "first-run completion failed: 500",
+    );
+    expect(document.body.textContent).toContain("Try again");
   });
 });

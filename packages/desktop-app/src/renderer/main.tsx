@@ -1,3 +1,4 @@
+import { configureTracking } from "@agent-native/core/client/analytics";
 import React from "react";
 import ReactDOM from "react-dom/client";
 
@@ -11,6 +12,10 @@ import "@agent-native/code-agents-ui/styles.css";
 
 initializeDesktopRendererSentry();
 initRendererTheme();
+(
+  window as Window & { __AGENT_NATIVE_HOST_PLATFORM__?: string }
+).__AGENT_NATIVE_HOST_PLATFORM__ = "electron";
+configureTracking({ authSessionRefresh: false, llmConnectionStatus: false });
 
 // Apply platform class to body so CSS can adapt per OS
 // (e.g. add padding for macOS traffic lights)

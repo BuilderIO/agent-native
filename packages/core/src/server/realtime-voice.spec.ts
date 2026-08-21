@@ -23,14 +23,17 @@ vi.mock("./auth.js", () => ({
 }));
 
 const resolveSecret = vi.hoisted(() => vi.fn());
-const resolveBuilderCredentials = vi.hoisted(() => vi.fn());
+const resolveBuilderGatewayCredentials = vi.hoisted(() => vi.fn());
 const gatewayBaseUrl = vi.hoisted(() => ({
   value: "https://api.builder.io/agent-native/gateway/v1",
 }));
-vi.mock("./credential-provider.js", () => ({
+// Real `gatewayLaneUnavailableMessage`: which audience the setup-required copy
+// is written for is under test here, so that decision must not be stubbed.
+vi.mock("./credential-provider.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./credential-provider.js")>()),
   resolveSecret: (...args: unknown[]) => resolveSecret(...args),
-  resolveBuilderCredentials: (...args: unknown[]) =>
-    resolveBuilderCredentials(...args),
+  resolveBuilderGatewayCredentials: (...args: unknown[]) =>
+    resolveBuilderGatewayCredentials(...args),
   getBuilderGatewayBaseUrl: () => gatewayBaseUrl.value,
 }));
 
@@ -55,6 +58,7 @@ vi.mock("../agent/production-agent.js", () => ({
   actionsToEngineTools: (...args: unknown[]) => actionsToEngineTools(...args),
 }));
 
+import { GATEWAY_UNAVAILABLE_VISITOR_MESSAGE } from "../agent/engine/credential-errors.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import {
   mountRealtimeVoiceRoutes,
@@ -73,6 +77,36 @@ import {
   resolveRealtimeVoiceReasoningEffort,
   resolveRealtimeVoiceTranscriptionLanguage,
 } from "./realtime-voice.js";
+
+/**
+ * The deploy-lane predicate treats any of these as "preview/hosted workspace",
+ * which turns the visitor path off, so they are cleared around visitor
+ * assertions and restored for the owner assertions that follow.
+ */
+const FUSION_RUNTIME_FLAGS = [
+  "FUSION_ENVIRONMENT",
+  "FUSION_ENV_ORIGIN",
+  "VITE_FUSION_ENV_ORIGIN",
+] as const;
+
+function clearFusionRuntimeFlags(): Record<string, string | undefined> {
+  const previous: Record<string, string | undefined> = {};
+  for (const key of FUSION_RUNTIME_FLAGS) {
+    previous[key] = process.env[key];
+    delete process.env[key];
+  }
+  return previous;
+}
+
+function restoreFusionRuntimeFlags(
+  previous: Record<string, string | undefined>,
+): void {
+  for (const key of FUSION_RUNTIME_FLAGS) {
+    const value = previous[key];
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+}
 
 type Handler = (event: ReturnType<typeof fakeEvent>) => Promise<unknown>;
 
@@ -247,7 +281,7 @@ beforeEach(() => {
     orgId: "org-session",
   });
   resolveSecret.mockResolvedValue("sk-test-example");
-  resolveBuilderCredentials.mockResolvedValue({
+  resolveBuilderGatewayCredentials.mockResolvedValue({
     privateKey: null,
     publicKey: null,
     userId: null,
@@ -328,7 +362,7 @@ describe("mountRealtimeVoiceRoutes", () => {
     });
     expect(tool.statusCode).toBe(403);
     expect(getSession).not.toHaveBeenCalled();
-    expect(resolveBuilderCredentials).not.toHaveBeenCalled();
+    expect(resolveBuilderGatewayCredentials).not.toHaveBeenCalled();
     expect(resolveSecret).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
     expect(executeTool).not.toHaveBeenCalled();
@@ -370,7 +404,7 @@ describe("realtime voice inline preferences", () => {
 
 describe("realtime voice session route", () => {
   it("keeps navigation tools visible when a template registry exceeds the tool cap", async () => {
-    resolveBuilderCredentials.mockResolvedValue({
+    resolveBuilderGatewayCredentials.mockResolvedValue({
       privateKey: "builder-private-example",
       publicKey: "builder-public-example",
       userId: null,
@@ -402,6 +436,11 @@ describe("realtime voice session route", () => {
         inputSchema: { type: "object", properties: {} },
       },
       {
+        name: "chat-history",
+        description: "Search previous conversations",
+        inputSchema: { type: "object", properties: {} },
+      },
+      {
         name: "tool-search",
         description: "Discover tools",
         inputSchema: { type: "object", properties: {} },
@@ -419,20 +458,21 @@ describe("realtime voice session route", () => {
     const request = JSON.parse(String(init.body));
     expect(
       request.session.tools
-        .slice(0, 5)
+        .slice(0, 6)
         .map((tool: { name: string }) => tool.name),
     ).toEqual([
       "navigate",
       "set-url-path",
       "set-search-params",
       "view-screen",
+      "chat-history",
       "tool-search",
     ]);
     expect(request.session.tools).toHaveLength(REALTIME_VOICE_MAX_TOOLS);
   });
 
   it("caps tools to the Builder realtime gateway contract", async () => {
-    resolveBuilderCredentials.mockResolvedValue({
+    resolveBuilderGatewayCredentials.mockResolvedValue({
       privateKey: "builder-private-example",
       publicKey: "builder-public-example",
       userId: null,
@@ -463,7 +503,7 @@ describe("realtime voice session route", () => {
   });
 
   it("packs tools within the Builder realtime session byte budget", async () => {
-    resolveBuilderCredentials.mockResolvedValue({
+    resolveBuilderGatewayCredentials.mockResolvedValue({
       privateKey: "builder-private-example",
       publicKey: "builder-public-example",
       userId: null,
@@ -499,7 +539,7 @@ describe("realtime voice session route", () => {
   });
 
   it("rejects tool schemas over the UTF-8 byte limit", async () => {
-    resolveBuilderCredentials.mockResolvedValue({
+    resolveBuilderGatewayCredentials.mockResolvedValue({
       privateKey: "builder-private-example",
       publicKey: "builder-public-example",
       userId: null,
@@ -670,6 +710,8 @@ describe("realtime voice session route", () => {
     expect(realtimeSession.instructions).toContain(
       "The current view is the calendar.",
     );
+    expect(realtimeSession.instructions).toContain("chat-history");
+    expect(realtimeSession.instructions).toContain("finish or correct");
   });
 
   it("never returns the API key on missing/upstream failures", async () => {
@@ -705,8 +747,40 @@ describe("realtime voice session route", () => {
     });
   });
 
+  it("answers a credits-site visitor with the one line, and its owner with the fix", async () => {
+    const { handlers } = mount();
+    resolveSecret.mockResolvedValue(null);
+
+    process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
+    // `isBuilderGatewayDeployConfigured()` returns false in a Fusion workspace
+    // runtime, so an inherited flag would take the owner path and let the visitor
+    // assertions below pass against the wrong branch. Restored in the `finally`
+    // so the owner pass that follows still runs in the inherited runtime.
+    const fusionFlags = clearFusionRuntimeFlags();
+    try {
+      const visitorEvent = sessionEvent();
+      await expect(
+        handlers.get(REALTIME_VOICE_SESSION_PATH)!(visitorEvent),
+      ).resolves.toEqual({
+        error: GATEWAY_UNAVAILABLE_VISITOR_MESSAGE,
+        code: "realtime_voice_setup_required",
+      });
+      expect(visitorEvent.statusCode).toBe(409);
+    } finally {
+      delete process.env.BUILDER_GATEWAY_TOKEN;
+      restoreFusionRuntimeFlags(fusionFlags);
+    }
+
+    const ownerEvent = sessionEvent();
+    const ownerResult = (await handlers.get(REALTIME_VOICE_SESSION_PATH)!(
+      ownerEvent,
+    )) as { error: string };
+    expect(ownerResult.error).toContain("Connect Builder");
+    expect(ownerResult.error).toContain("OpenAI API key");
+  });
+
   it("uses Builder managed realtime automatically when connected", async () => {
-    resolveBuilderCredentials.mockResolvedValue({
+    resolveBuilderGatewayCredentials.mockResolvedValue({
       privateKey: "bpk-private-test",
       publicKey: "space-public-test",
       userId: "builder-user-test",
@@ -755,8 +829,65 @@ describe("realtime voice session route", () => {
     });
   });
 
+  // The pre-flight gate above only fires when nothing resolves. On a credits
+  // deployment the injected pair does resolve, so what a visitor actually
+  // reaches is the gateway's own rejection — which used to arrive verbatim,
+  // status code and upstream sentence included.
+  it("hides the Builder gateway's realtime rejection behind the one visitor line", async () => {
+    resolveBuilderGatewayCredentials.mockResolvedValue({
+      privateKey: "btk-site-token",
+      publicKey: "space-public-test",
+      userId: null,
+    });
+    vi.stubGlobal(
+      "fetch",
+      // A fresh Response per call: both passes below read the body, and a shared
+      // instance would leave the second one with an already-consumed stream.
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              error: {
+                message: "credits exhausted",
+                code: "credits-limit-reached",
+              },
+            }),
+            {
+              status: 402,
+              headers: { "content-type": "application/json" },
+            },
+          ),
+      ),
+    );
+    const { handlers } = mount();
+
+    process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
+    // `isBuilderGatewayDeployConfigured()` returns false in a Fusion workspace
+    // runtime, so an inherited flag would take the owner path and let the visitor
+    // assertions below pass against the wrong branch. Restored in the `finally`
+    // so the owner pass that follows still runs in the inherited runtime.
+    const fusionFlags = clearFusionRuntimeFlags();
+    try {
+      const visitorEvent = sessionEvent();
+      await expect(
+        handlers.get(REALTIME_VOICE_SESSION_PATH)!(visitorEvent),
+      ).resolves.toEqual({ error: GATEWAY_UNAVAILABLE_VISITOR_MESSAGE });
+      expect(visitorEvent.statusCode).toBe(402);
+    } finally {
+      delete process.env.BUILDER_GATEWAY_TOKEN;
+      restoreFusionRuntimeFlags(fusionFlags);
+    }
+
+    const ownerEvent = sessionEvent();
+    const ownerResult = (await handlers.get(REALTIME_VOICE_SESSION_PATH)!(
+      ownerEvent,
+    )) as { error: string };
+    expect(ownerResult.error).toContain("rejected the realtime session (402)");
+    expect(ownerResult.error).toContain("credits exhausted");
+  });
+
   it("accepts same-origin SDP through a host-rewriting reverse proxy", async () => {
-    resolveBuilderCredentials.mockResolvedValue({
+    resolveBuilderGatewayCredentials.mockResolvedValue({
       privateKey: "bpk-private-test",
       publicKey: "space-public-test",
       userId: "builder-user-test",
@@ -786,7 +917,7 @@ describe("realtime voice session route", () => {
 
   it("honors a local Builder gateway base URL", async () => {
     gatewayBaseUrl.value = "http://127.0.0.1:8181/agent-native/gateway/v1";
-    resolveBuilderCredentials.mockResolvedValue({
+    resolveBuilderGatewayCredentials.mockResolvedValue({
       privateKey: "bpk-private-test",
       publicKey: "space-public-test",
       userId: "builder-user-test",

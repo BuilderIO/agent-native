@@ -1,17 +1,23 @@
-import { defineEventHandler, setResponseHeaders } from "h3";
+import { defineEventHandler, getQuery, setResponseHeaders } from "h3";
 
 /**
  * Tauri updater manifest endpoint for the Clips desktop app.
  *
  * The installed app only needs this endpoint to be valid JSON when no signed
- * updater bundle is available. If the `clips-latest` GitHub pointer release
- * exists, we proxy its signed manifest. If it does not, return a deliberately
- * old no-update manifest so the desktop UI stays quiet instead of surfacing a
+ * updater bundle is available. If the channel's GitHub pointer release exists,
+ * we proxy its signed manifest. If it does not, return a deliberately old
+ * no-update manifest so the desktop UI stays quiet instead of surfacing a
  * release-channel setup error to end users.
  */
 
-const GITHUB_MANIFEST_URL =
-  "https://github.com/BuilderIO/agent-native/releases/download/clips-latest/clips-latest.json";
+type ClipsUpdateChannel = "production" | "nightly";
+
+const GITHUB_MANIFEST_URL: Record<ClipsUpdateChannel, string> = {
+  production:
+    "https://github.com/BuilderIO/agent-native/releases/download/clips-latest/clips-latest.json",
+  nightly:
+    "https://github.com/BuilderIO/agent-native/releases/download/clips-nightly-latest/clips-nightly-latest.json",
+};
 const CACHE_TTL_MS = 5 * 60_000;
 
 // Tauri throws a red-banner error if the requesting client's target triple is
@@ -48,8 +54,8 @@ export const INERT_MANIFEST = {
   },
 };
 
-let cache: { data: unknown; ts: number } | null = null;
-let inFlight: Promise<unknown> | null = null;
+const cache = new Map<ClipsUpdateChannel, { data: unknown; ts: number }>();
+const inFlight = new Map<ClipsUpdateChannel, Promise<unknown>>();
 
 function isManifestLike(value: unknown): value is Record<string, unknown> {
   if (!value || typeof value !== "object") return false;
@@ -72,8 +78,10 @@ export function hasAllRequiredPlatforms(value: unknown): boolean {
   return REQUIRED_PLATFORM_KEYS.every((k) => k in platforms);
 }
 
-async function fetchSignedManifest(): Promise<unknown> {
-  const res = await fetch(GITHUB_MANIFEST_URL, {
+async function fetchSignedManifest(
+  channel: ClipsUpdateChannel,
+): Promise<unknown> {
+  const res = await fetch(GITHUB_MANIFEST_URL[channel], {
     headers: {
       accept: "application/json",
       "user-agent": "clips-updater-manifest",
@@ -94,38 +102,49 @@ async function fetchSignedManifest(): Promise<unknown> {
   return json;
 }
 
-async function getManifest(): Promise<unknown> {
+function normalizeChannel(value: unknown): ClipsUpdateChannel {
+  return value === "nightly" ? "nightly" : "production";
+}
+
+async function getManifest(
+  channel: ClipsUpdateChannel = "production",
+): Promise<unknown> {
   const now = Date.now();
-  if (cache && now - cache.ts < CACHE_TTL_MS) return cache.data;
-  if (inFlight) return inFlight;
-  inFlight = (async () => {
+  const cached = cache.get(channel);
+  if (cached && now - cached.ts < CACHE_TTL_MS) return cached.data;
+  const pending = inFlight.get(channel);
+  if (pending) return pending;
+  const request = (async () => {
     try {
-      const data = await fetchSignedManifest();
-      cache = { data, ts: Date.now() };
+      const data = await fetchSignedManifest(channel);
+      cache.set(channel, { data, ts: Date.now() });
       return data;
     } catch {
       // A validation or network failure may serve the last good manifest (or
       // inert fallback), but it must not make that fallback fresh again.
       // Otherwise an incomplete release manifest can indefinitely extend the
       // stale cache window on every failed refresh.
-      return cache?.data ?? INERT_MANIFEST;
+      return cache.get(channel)?.data ?? INERT_MANIFEST;
     } finally {
-      inFlight = null;
+      inFlight.delete(channel);
     }
   })();
-  return inFlight;
+  inFlight.set(channel, request);
+  return request;
 }
 
 export const __clipsUpdaterTest = {
   getManifest,
   reset() {
-    cache = null;
-    inFlight = null;
+    cache.clear();
+    inFlight.clear();
   },
 };
 
 export default defineEventHandler(async (event) => {
-  const manifest = await getManifest();
+  const query = getQuery(event);
+  const channel = normalizeChannel(query.channel);
+  const manifest = await getManifest(channel);
   setResponseHeaders(event, {
     "content-type": "application/json; charset=utf-8",
     "cache-control": "public, max-age=60",

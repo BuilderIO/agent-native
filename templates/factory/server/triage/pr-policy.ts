@@ -2,6 +2,13 @@ import type { GuardResult } from "./contracts.js";
 
 export type OwnerOwnedArea = "clips" | "design" | "content";
 
+export type PullRequestOwnerException =
+  | "alice-content"
+  | "nick-slides"
+  | "enzo-factory"
+  | "sid-design"
+  | "docs-only";
+
 export interface PullRequestGovernanceInput {
   author: string;
   repository: string;
@@ -19,6 +26,7 @@ export interface PullRequestGovernanceInput {
 
 export interface PullRequestGovernanceDecision {
   ownerOwnedArea: OwnerOwnedArea | null;
+  ownerException: PullRequestOwnerException | null;
   autoApprove: boolean;
   autoMerge: boolean;
   reason: string;
@@ -69,6 +77,11 @@ export function decidePullRequestGovernance(
     input.summary,
     ...input.changedFiles,
   ]);
+  const ultraScary = isUltraScaryChange(input.changedFiles);
+  const ownerException = detectPullRequestOwnerException(input);
+  const verifiedOwnerException =
+    input.internalBuilderMember && !ultraScary ? ownerException : null;
+  const internalEvidenceException = input.internalBuilderMember;
   const gates: GuardResult[] = [
     {
       code: "identity",
@@ -79,17 +92,27 @@ export function decidePullRequestGovernance(
     },
     {
       code: "unknown_change",
-      passed: input.clearBug,
-      reason: input.clearBug
-        ? "The automation classified this as a clear bug with a concrete failure signal."
-        : "The automation did not establish a clear bug; product requests and guesses stay manual.",
+      passed: input.clearBug || verifiedOwnerException !== null,
+      reason:
+        input.clearBug || verifiedOwnerException !== null
+          ? "The automation classified this as a clear bug with a concrete failure signal."
+          : "The automation did not establish a clear bug; product requests and guesses stay manual.",
     },
     {
       code: "security",
-      passed: input.checksPassed,
+      passed: !ultraScary,
+      reason: ultraScary
+        ? "Security-sensitive auth, tenant-isolation, execution, payment, or deployment changes always require manual review."
+        : "The changed paths do not match the ultra-scary manual-review categories.",
+    },
+    {
+      code: "security",
+      passed: internalEvidenceException || input.checksPassed,
       reason: input.checksPassed
         ? "All observed CI checks passed."
-        : "CI is failing, cancelled, pending, or unavailable.",
+        : internalEvidenceException
+          ? "CI is failing, cancelled, pending, or unavailable; the verified internal-author exception does not treat that state as clean."
+          : "CI is failing, cancelled, pending, or unavailable.",
     },
     {
       code: "unknown_change",
@@ -100,21 +123,26 @@ export function decidePullRequestGovernance(
     },
     {
       code: "unknown_change",
-      passed: input.reviewFeedbackHandled,
+      passed: internalEvidenceException || input.reviewFeedbackHandled,
       reason: input.reviewFeedbackHandled
         ? "All observed review feedback is fixed, resolved, replied to, or outdated."
-        : "Review feedback is unanswered, unresolved, truncated, or otherwise unknown.",
+        : internalEvidenceException
+          ? "Review feedback is unanswered, unresolved, truncated, or otherwise unknown; the verified internal-author exception does not treat that state as clean."
+          : "Review feedback is unanswered, unresolved, truncated, or otherwise unknown.",
     },
   ];
 
-  if (ownerOwnedArea) {
+  if (
+    ownerOwnedArea &&
+    !ownerExceptionCoversArea(verifiedOwnerException, ownerOwnedArea)
+  ) {
     gates.push({
       code: "owner_owned",
       passed: false,
       reason: `${ownerOwnedArea} is owner-managed and is never auto-approved, auto-merged, or dispatched by this Factory.`,
     });
   }
-  if (input.productUxImplications) {
+  if (input.productUxImplications && verifiedOwnerException === null) {
     gates.push({
       code: "unknown_change",
       passed: false,
@@ -124,21 +152,171 @@ export function decidePullRequestGovernance(
 
   const baseEligible = gates.every((gate) => gate.passed);
   const autoApprove = baseEligible;
-  const autoMerge = baseEligible && input.factoryTriggered;
-  const reason = autoMerge
-    ? "Clear internal bug fix, all CI and review gates are clean, and the PR came from the Factory Builder flow."
-    : autoApprove
-      ? "Clear internal bug fix with clean CI and review gates; approval is safe to automate."
-      : gates
-          .filter((gate) => !gate.passed)
-          .map((gate) => gate.reason)
-          .join(" ");
+  const autoMerge = false;
+  const reason = autoApprove
+    ? verifiedOwnerException
+      ? `Verified ${verifiedOwnerException} owner exception; approval is safe to automate while ordinary check and review states remain recorded.`
+      : "Clear internal bug fix with verified membership; approval is safe to automate while ordinary check and review states remain recorded."
+    : gates
+        .filter((gate) => !gate.passed)
+        .map((gate) => gate.reason)
+        .join(" ");
 
   return {
     ownerOwnedArea,
+    ownerException: verifiedOwnerException,
     autoApprove,
     autoMerge,
     reason,
     guardResults: gates,
   };
+}
+
+export function detectPullRequestOwnerException(
+  input: Pick<PullRequestGovernanceInput, "author" | "changedFiles">,
+): PullRequestOwnerException | null {
+  const author = input.author.trim().toLowerCase();
+  const changedFiles = input.changedFiles.map(normalizePath);
+
+  if (author === "3mdistal" && isAppScoped(changedFiles, "content", true)) {
+    return "alice-content";
+  }
+  if (author === "nkoech123" && isAppScoped(changedFiles, "slides", true)) {
+    return "nick-slides";
+  }
+  if (author === "enzoames" && isFactoryScoped(changedFiles)) {
+    return "enzo-factory";
+  }
+  if (author === "sidmohanty11" && isAppScoped(changedFiles, "design", true)) {
+    return "sid-design";
+  }
+  if (
+    (author === "kapunahelewong" || author === "bwreid") &&
+    isDocsOnly(changedFiles)
+  ) {
+    return "docs-only";
+  }
+  return null;
+}
+
+export function hasCurrentPullRequestApproval(
+  reviews: readonly {
+    author: string;
+    state: string;
+    observedAt: string;
+  }[],
+): boolean {
+  const latestByAuthor = new Map<
+    string,
+    { state: string; observedAt: string; order: number }
+  >();
+  reviews.forEach((review, order) => {
+    const author = review.author.trim().toLowerCase();
+    if (!author) return;
+    const previous = latestByAuthor.get(author);
+    if (
+      !previous ||
+      Date.parse(review.observedAt) > Date.parse(previous.observedAt) ||
+      (review.observedAt === previous.observedAt && order > previous.order)
+    ) {
+      latestByAuthor.set(author, {
+        state: review.state,
+        observedAt: review.observedAt,
+        order,
+      });
+    }
+  });
+  return [...latestByAuthor.values()].some(
+    (review) => review.state === "approved",
+  );
+}
+
+export function isDocsOnly(changedFiles: readonly string[]): boolean {
+  return (
+    changedFiles.length > 0 &&
+    changedFiles.every((file) => {
+      const normalized = normalizePath(file);
+      return (
+        normalized.startsWith("docs/") ||
+        normalized.startsWith("packages/docs/") ||
+        normalized.startsWith("packages/core/docs/") ||
+        normalized.startsWith(".agents/skills/") ||
+        normalized.endsWith("/agents.md") ||
+        normalized.endsWith("/claude.md") ||
+        normalized === "agents.md" ||
+        normalized === "claude.md" ||
+        (normalized.startsWith(".changeset/") && normalized.endsWith(".md")) ||
+        (normalized.endsWith(".mdx") &&
+          (normalized.startsWith("docs/") ||
+            normalized.startsWith(".agents/skills/") ||
+            normalized.includes("/docs/")))
+      );
+    })
+  );
+}
+
+export function isUltraScaryChange(changedFiles: readonly string[]): boolean {
+  return changedFiles.some((file) => {
+    const normalized = normalizePath(file);
+    return (
+      normalized.startsWith(".github/workflows/") ||
+      /(^|\/)(auth|authentication|identity|credentials?|secrets?|sessions?|permissions?|tenant|tenants|isolation|security|execution|sandbox|payments?|billing|deploy|deployment|netlify|publish|release|migrations?)(\/|[-_.]|$)/.test(
+        normalized,
+      )
+    );
+  });
+}
+
+function ownerExceptionCoversArea(
+  exception: PullRequestOwnerException | null,
+  area: OwnerOwnedArea,
+): boolean {
+  return (
+    (exception === "alice-content" && area === "content") ||
+    (exception === "sid-design" && area === "design")
+  );
+}
+
+function isAppScoped(
+  changedFiles: readonly string[],
+  app: "content" | "slides" | "design",
+  allowSharedSupport: boolean,
+): boolean {
+  const appPrefix = `templates/${app}/`;
+  const hasAppPath = changedFiles.some((file) => file.startsWith(appPrefix));
+  if (!hasAppPath) return false;
+  return changedFiles.every(
+    (file) =>
+      file.startsWith(appPrefix) ||
+      (allowSharedSupport && isSharedSupportPath(file)) ||
+      isChangeset(file),
+  );
+}
+
+function isFactoryScoped(changedFiles: readonly string[]): boolean {
+  const hasFactoryPath = changedFiles.some((file) =>
+    file.startsWith("templates/factory/"),
+  );
+  return (
+    hasFactoryPath &&
+    changedFiles.every(
+      (file) => file.startsWith("templates/factory/") || isChangeset(file),
+    )
+  );
+}
+
+function isSharedSupportPath(file: string): boolean {
+  return (
+    file.startsWith("packages/core/") ||
+    file.startsWith("packages/desktop-app/") ||
+    file.startsWith("packages/code-agents-ui/")
+  );
+}
+
+function isChangeset(file: string): boolean {
+  return file.startsWith(".changeset/") && file.endsWith(".md");
+}
+
+function normalizePath(file: string): string {
+  return file.trim().split("\\").join("/").toLowerCase();
 }

@@ -42,6 +42,22 @@ export interface FirstTouchAttribution {
   landed_at?: string;
 }
 
+/**
+ * Request-scoped browser attribution captured at the signup boundary.
+ * Better Auth may create the user in a later async callback where the
+ * original request headers are no longer available, so the values must be
+ * carried explicitly through that boundary.
+ */
+export interface SignupAttributionContext {
+  attribution: Record<string, string>;
+  anonymousId?: string;
+}
+
+/** Internal Better Auth handoff header; attribution is analytics-only. */
+export const SIGNUP_ATTRIBUTION_HEADER_NAME =
+  "x-agent-native-signup-attribution";
+const SIGNUP_ATTRIBUTION_HEADER_MAX_LENGTH = 4096;
+
 /** Cookie name written by the client (non-HttpOnly; non-sensitive). */
 export const FIRST_TOUCH_COOKIE_NAME = "an_ft";
 
@@ -233,4 +249,95 @@ export function signupAttributionFromCookieHeader(
   } catch {
     return { referral_source: "direct" };
   }
+}
+
+/**
+ * Capture all browser attribution needed by the server-side signup event.
+ * Keep this as one boundary helper so every signup entry point carries the
+ * same values into Better Auth's user-create hook.
+ */
+export function signupAttributionContextFromCookieHeader(
+  cookieHeader: string | null | undefined,
+): SignupAttributionContext {
+  const anonymousId = readAnalyticsAnonymousId(cookieHeader);
+  return {
+    attribution: signupAttributionFromCookieHeader(cookieHeader),
+    ...(anonymousId ? { anonymousId } : {}),
+  };
+}
+
+/** Serialize the bounded attribution handoff for a Better Auth request. */
+export function encodeSignupAttributionContext(
+  context: SignupAttributionContext,
+): string {
+  return encodeURIComponent(JSON.stringify(context));
+}
+
+/**
+ * Decode the internal handoff header. Invalid input is absent, not a direct
+ * attribution, so the caller can safely fall back to the request cookie.
+ */
+export function decodeSignupAttributionContext(
+  value: string | null | undefined,
+): SignupAttributionContext | undefined {
+  if (!value || value.length > SIGNUP_ATTRIBUTION_HEADER_MAX_LENGTH) {
+    return undefined;
+  }
+  try {
+    const parsed = JSON.parse(decodeURIComponent(value)) as Record<
+      string,
+      unknown
+    >;
+    const rawAttribution = parsed?.attribution;
+    if (
+      !rawAttribution ||
+      typeof rawAttribution !== "object" ||
+      Array.isArray(rawAttribution)
+    ) {
+      return undefined;
+    }
+    const attribution: Record<string, string> = {};
+    for (const [key, rawValue] of Object.entries(rawAttribution)) {
+      if (
+        /^[A-Za-z0-9_]+$/.test(key) &&
+        key.length <= 64 &&
+        typeof rawValue === "string" &&
+        rawValue.length > 0
+      ) {
+        attribution[key] = rawValue.slice(0, 120);
+      }
+    }
+    if (Object.keys(attribution).length === 0) return undefined;
+    const anonymousId = normalizeAnalyticsAnonymousId(parsed?.anonymousId);
+    return {
+      attribution,
+      ...(anonymousId ? { anonymousId } : {}),
+    };
+  } catch (error) {
+    // `undefined` distinguishes an unreadable handoff from direct attribution.
+    void error;
+    return undefined;
+  }
+}
+
+/** Add the explicit handoff to a Better Auth request/API header set. */
+export function addSignupAttributionHeader(
+  headers: HeadersInit | undefined,
+  context: SignupAttributionContext,
+): Headers {
+  const result = new Headers(headers);
+  result.set(
+    SIGNUP_ATTRIBUTION_HEADER_NAME,
+    encodeSignupAttributionContext(context),
+  );
+  return result;
+}
+
+/** Read the explicit handoff from Better Auth's request context headers. */
+export function signupAttributionContextFromHeaders(
+  headers: Headers | null | undefined,
+): SignupAttributionContext | undefined {
+  return decodeSignupAttributionContext(
+    headers?.get(SIGNUP_ATTRIBUTION_HEADER_NAME),
+  );
 }

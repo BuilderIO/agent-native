@@ -324,5 +324,5 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com
 
 Dispatch 的 `desktop.workspace-sso` 旗標預設關閉，且只控制可用性；驗證、簽章、nonce、來源、回呼、工作階段及撤銷檢查一律強制執行。旗標關閉或無法讀取時，Desktop 不會變更逐一應用程式登入、登出或設定。
 User-Agent 中的 Canary 標記僅是可用性提示，不是遠端證明；驗證與授權皆不信任該標記。
-標準託管應用程式無需為每個應用程式設定身分中心環境變數，即可辨識封裝版 Desktop SSO Canary 的要求和一般瀏覽器登入。自行託管的應用程式仍需設定 `AGENT_NATIVE_IDENTITY_HUB_URL`。穩定版 Desktop 在後續版本獲得單獨核准前不會初始化代理程式。
+每個 Desktop 版本都可以在裝置偏好設定 `desktopSsoEnabled` 為 true（預設值）時初始化代理程式；明確持久化的 `false` 仍代表使用者選擇退出。Dispatch 的 `desktop.workspace-sso` 旗標也必須啟用。Canary User-Agent 標記不再控制代理程式初始化，只用於識別更新頻道。
 Canary 不會攔截匿名使用者前往應用程式登入頁面的導覽。使用者必須在 Desktop 設定中，為目前啟用的已註冊應用程式明確選擇工作區登入；一般應用程式登入仍是預設路徑。

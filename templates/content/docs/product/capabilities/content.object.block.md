@@ -22,7 +22,11 @@ proof_requirements:
     "Shared Action/UI editing, conflict, undo, and reload behavior",
   ]
 evidence:
-  ["shared/blocks-field-identity.ts", "actions/blocks-seeding.db.test.ts"]
+  [
+    "shared/blocks-field-identity.ts",
+    "actions/blocks-seeding.db.test.ts",
+    "actions/content-database-block-actions.db.test.ts",
+  ]
 superseded_by: null
 last_reviewed: "2026-08-10"
 ---
@@ -63,7 +67,7 @@ Given a Block reference in another Page, when an authorized reader opens it, the
 
 ## Current evidence
 
-Database Blocks fields now have a field-scoped ordered identity sidecar with deterministic legacy IDs, persisted revisions, and bounded tombstone recovery. Deterministic tests cover editing, reorder, insertion, deletion, recovery, reload, and field independence. Agent-facing exact Block actions, reference/comment anchors, actor-aware history, and real-interface proof remain incomplete, so this is `in_progress`, not verified.
+Database Blocks fields now have a field-scoped ordered identity sidecar with deterministic legacy IDs, persisted revisions, and bounded tombstone recovery. Exact database-row actions list stable Blocks and apply supported insert, update, upsert, delete, and same-parent reorder operations with schema, row, and field conflicts plus durable retry receipts. Deterministic tests cover sibling preservation, operation capabilities, deletion, recovery, reload, and field independence. Reference/comment anchors, actor-aware history, other Blocks-field owners, and real-interface proof remain incomplete, so this is `in_progress`, not verified.
 
 ## Proof plan
 

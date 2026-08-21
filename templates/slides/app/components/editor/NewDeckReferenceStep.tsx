@@ -7,6 +7,7 @@ import {
   IconChevronDown,
   IconFileText,
   IconFileTypePdf,
+  IconPaperclip,
   IconPresentation,
   IconWorld,
 } from "@tabler/icons-react";
@@ -40,6 +41,16 @@ import { sortDecksByRecency } from "@/lib/deck-sorting";
 import { cn } from "@/lib/utils";
 
 import { GoogleDriveConnectionCta } from "./GoogleDriveConnectionCta";
+import type { UploadedFile } from "./PromptDialog";
+
+const promptFileIcons: Record<string, typeof IconPaperclip> = {
+  pdf: IconFileTypePdf,
+  ppt: IconPresentation,
+  pptx: IconPresentation,
+  doc: IconFileText,
+  docx: IconFileText,
+  txt: IconFileText,
+};
 
 export interface NewDeckReferenceSelection {
   designSystemId?: string | null;
@@ -88,6 +99,7 @@ interface NewDeckReferenceStepProps {
   skipLabel: string;
   searchDecksLabel: string;
   promptSummary?: string;
+  promptFiles?: UploadedFile[];
 }
 
 export function NewDeckReferenceStep({
@@ -110,6 +122,7 @@ export function NewDeckReferenceStep({
   skipLabel,
   searchDecksLabel,
   promptSummary,
+  promptFiles,
 }: NewDeckReferenceStepProps) {
   const t = useT();
   const [selectedDesignSystemId, setSelectedDesignSystemId] = useState<
@@ -237,6 +250,29 @@ export function NewDeckReferenceStep({
             <p className="mt-2 max-w-xl truncate text-sm text-muted-foreground">
               “{promptSummary.trim()}”
             </p>
+          )}
+          {promptFiles && promptFiles.length > 0 && (
+            <div className="mt-4">
+              <span className="text-xs font-medium text-muted-foreground">
+                {t("home.attachedFiles")}
+              </span>
+              <ul className="mt-2 flex flex-wrap gap-2">
+                {promptFiles.map((file) => {
+                  const extension =
+                    file.originalName.toLowerCase().split(".").pop() ?? "";
+                  const FileIcon = promptFileIcons[extension] ?? IconPaperclip;
+                  return (
+                    <li
+                      key={file.path}
+                      className="flex max-w-full items-center gap-2 rounded-md border border-border bg-muted/40 px-2.5 py-1.5 text-sm"
+                    >
+                      <FileIcon className="size-4 shrink-0 text-muted-foreground" />
+                      <span className="truncate">{file.originalName}</span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
           )}
 
           <div className="mt-10 space-y-6">

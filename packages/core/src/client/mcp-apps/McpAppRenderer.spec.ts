@@ -144,6 +144,8 @@ describe("McpAppRenderer security helpers", () => {
     expect(container.textContent).toContain(
       "MCP App did not finish initializing.",
     );
+    expect(container.querySelector(".agent-mcp-app__error-box")).toBeTruthy();
+    expect(container.querySelector("iframe")).toBe(iframe);
     const button = Array.from(container.querySelectorAll("button")).find(
       (candidate) => candidate.textContent === "Open in new tab",
     );

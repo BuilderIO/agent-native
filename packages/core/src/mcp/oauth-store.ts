@@ -82,7 +82,7 @@ export const MCP_OAUTH_REFRESH_TOKEN_TTL_MS = 365 * 24 * 60 * 60_000;
 export const MCP_OAUTH_REGISTER_MAX = 60;
 export const MCP_OAUTH_REGISTER_WINDOW_MS = 60_000;
 
-async function ensureTable(): Promise<void> {
+export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
       const client = getDbExec();

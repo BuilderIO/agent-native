@@ -14,6 +14,7 @@ import {
 } from "../agent/production-agent.js";
 import { runAgentLoopDirectWithSoftTimeout } from "../agent/run-loop-with-resume.js";
 import type { AgentChatEvent } from "../agent/types.js";
+import { getAppConfig } from "../app-config/index.js";
 import { createGitHubRepoToolEntries } from "../provider-api/github-repo.js";
 import { resolveDevUserEmail } from "../scripts/dev-session.js";
 import { loadEnv } from "../scripts/utils.js";
@@ -211,7 +212,7 @@ async function runLocalAgentLoop(parsed: ParsedAgentArgs): Promise<{
   const localActions = await autoDiscoverActions("auto");
   const builtinActions = await createHeadlessBuiltinActions();
   const repoActions = createGitHubRepoToolEntries({
-    appId: process.env.AGENT_NATIVE_APP_ID ?? process.env.APP_ID ?? "app",
+    appId: getAppConfig().app.id ?? "app",
   });
   const actions = { ...builtinActions, ...localActions, ...repoActions };
   const tools = actionsToEngineTools(actions);

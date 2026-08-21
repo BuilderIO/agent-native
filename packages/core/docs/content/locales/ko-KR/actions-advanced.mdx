@@ -21,7 +21,7 @@ description: "아직 단계적으로 배포 중인 action을 위한 기능 플�
 
 ```ts
 // shared/feature-flags.ts
-import { defineFeatureFlag } from "@agent-native/core/feature-flags";
+import { defineFeatureFlag } from "@agent-native/core/feature-flags/registry";
 
 export const FULL_APP_BUILDING = defineFeatureFlag({
   key: "full-app-building",

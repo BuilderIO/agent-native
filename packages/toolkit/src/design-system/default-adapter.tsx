@@ -123,6 +123,7 @@ const DefaultIconButton: DesignSystemComponents["IconButton"] = ({
   disabled,
   type = "button",
   onPress,
+  onClick,
   elementRef,
   className,
   ...props
@@ -139,7 +140,10 @@ const DefaultIconButton: DesignSystemComponents["IconButton"] = ({
       className,
     )}
     disabled={disabled || pending}
-    onClick={(event) => onPress?.(event)}
+    onClick={(event) => {
+      onPress?.(event);
+      onClick?.(event);
+    }}
     aria-label={label}
     data-size={size}
   >

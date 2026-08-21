@@ -76,6 +76,25 @@ const ADD_ACCOUNT_POLL_ABORT_MS = Math.max(
   ADD_ACCOUNT_POLL_INTERVAL_MS * 4,
 );
 
+function newDesktopOAuthVerifier(): string | null {
+  const cryptoApi = globalThis.crypto;
+  const randomUuid = cryptoApi?.randomUUID;
+  if (typeof randomUuid === "function") {
+    return `${randomUuid.call(cryptoApi)}${randomUuid.call(cryptoApi)}`;
+  }
+  if (typeof cryptoApi?.getRandomValues === "function") {
+    const bytes = new Uint8Array(32);
+    cryptoApi.getRandomValues(bytes);
+    let binary = "";
+    for (const byte of bytes) binary += String.fromCharCode(byte);
+    return btoa(binary)
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+  }
+  return null;
+}
+
 interface GoogleConnectBannerProps {
   variant?: "banner" | "hero";
 }
@@ -128,20 +147,81 @@ export function GoogleConnectBanner({
     const flowId =
       crypto.randomUUID?.() ||
       Math.random().toString(36).slice(2) + Date.now().toString(36);
+    const verifier = newDesktopOAuthVerifier();
+    if (!verifier) {
+      setDesktopAuthIssue({
+        code: "desktop_auth_start_failed",
+        message: t("mail.error.failedToConnect"),
+      });
+      return;
+    }
     const origin = window.location.origin;
     const endpoint = addAccount
       ? "/_agent-native/google/add-account/auth-url"
       : "/_agent-native/google/auth-url";
-    const redirectUri = encodeURIComponent(
-      oauthRedirectUri("/_agent-native/google/callback"),
-    );
-    window.open(
-      `${origin}${agentNativePath(endpoint)}?redirect_uri=${redirectUri}&desktop=1&flow_id=${flowId}&redirect=1`,
-      "_blank",
-    );
+    const params = new URLSearchParams({
+      redirect_uri: oauthRedirectUri("/_agent-native/google/callback"),
+      desktop: "1",
+      flow_id: flowId,
+    });
+    const popup = window.open("", "_blank");
+    if (!popup) {
+      setDesktopAuthIssue({
+        code: "popup_blocked",
+        message: t("mail.error.failedToConnect"),
+      });
+      return;
+    }
+    let pollHandle: ReturnType<typeof setInterval> | null = null;
+    const stopPoll = () => {
+      if (!pollHandle) return;
+      clearInterval(pollHandle);
+      if (desktopPollRef.current === pollHandle) {
+        desktopPollRef.current = null;
+      }
+      pollHandle = null;
+    };
+    void fetch(`${origin}${agentNativePath(endpoint)}?${params.toString()}`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "X-Agent-Native-Desktop-Verifier": verifier },
+    })
+      .then(async (response) => {
+        let data: {
+          url?: unknown;
+          message?: unknown;
+          error?: unknown;
+        };
+        try {
+          data = (await response.json()) as typeof data;
+        } catch {
+          throw new Error(t("mail.googleConnect.connectionFailed"));
+        }
+        if (!response.ok || typeof data?.url !== "string") {
+          const message =
+            typeof data.message === "string"
+              ? data.message
+              : typeof data.error === "string"
+                ? data.error
+                : t("mail.googleConnect.connectionFailed");
+          throw new Error(message);
+        }
+        popup.location.href = data.url;
+      })
+      .catch((error) => {
+        stopPoll();
+        popup.close();
+        setDesktopAuthIssue({
+          code: "desktop_auth_start_failed",
+          message:
+            error instanceof Error
+              ? error.message
+              : t("mail.googleConnect.connectionFailed"),
+        });
+      });
     const start = Date.now();
     if (desktopPollRef.current) clearInterval(desktopPollRef.current);
-    desktopPollRef.current = setInterval(async () => {
+    pollHandle = setInterval(async () => {
       if (document.hidden || desktopPollInFlightRef.current) return;
       desktopPollInFlightRef.current = true;
       const controller = new AbortController();
@@ -153,18 +233,21 @@ export function GoogleConnectBanner({
         try {
           const res = await fetch(
             agentNativePath(
-              `/_agent-native/auth/desktop-exchange?flow_id=${flowId}`,
+              `/_agent-native/auth/desktop-exchange?flow_id=${encodeURIComponent(flowId)}`,
             ),
-            { signal: controller.signal },
+            {
+              headers: {
+                "X-Agent-Native-Desktop-Verifier": verifier,
+              },
+              signal: controller.signal,
+            },
           );
           const data = await res.json();
           if (data?.error) {
-            clearInterval(desktopPollRef.current!);
-            desktopPollRef.current = null;
+            stopPoll();
             setDesktopAuthIssue(data);
           } else if (data?.token) {
-            clearInterval(desktopPollRef.current!);
-            desktopPollRef.current = null;
+            stopPoll();
             await fetch(
               agentNativePath(
                 `/_agent-native/auth/session?_session=${data.token}`,
@@ -176,13 +259,11 @@ export function GoogleConnectBanner({
             );
             window.location.reload();
           } else if (Date.now() - start > 120_000) {
-            clearInterval(desktopPollRef.current!);
-            desktopPollRef.current = null;
+            stopPoll();
           }
         } catch {
           if (Date.now() - start > 120_000) {
-            clearInterval(desktopPollRef.current!);
-            desktopPollRef.current = null;
+            stopPoll();
           }
         }
       } finally {
@@ -190,6 +271,7 @@ export function GoogleConnectBanner({
         desktopPollInFlightRef.current = false;
       }
     }, DESKTOP_POLL_INTERVAL_MS);
+    desktopPollRef.current = pollHandle;
   }
 
   const [authError, setAuthError] = useState<string | null>(null);

@@ -1,3 +1,5 @@
+import { resolveDeployEnvironment } from "../server/deploy-environment.js";
+
 function normalizeTrackingSlug(value: string | undefined): string | undefined {
   const raw = value?.trim().toLowerCase();
   if (!raw) return undefined;
@@ -49,6 +51,7 @@ export function trackingIdentityProperties(): Record<string, string> {
     app;
 
   return {
+    deployment_environment: resolveDeployEnvironment(),
     ...(app ? { app, agent_native_app: app } : {}),
     ...(template ? { template, agent_native_template: template } : {}),
   };

@@ -48,6 +48,7 @@ afterEach(() => {
 interface HarnessProps {
   value: string;
   contentUpdatedAt: string;
+  editorOwnedFocus?: boolean;
 }
 
 interface CollabSeedHarnessProps {
@@ -65,7 +66,11 @@ interface Captured {
 function makeHarness() {
   const captured: Captured = { editor: null, emitted: [], setContentCalls: 0 };
 
-  function Harness({ value, contentUpdatedAt }: HarnessProps) {
+  function Harness({
+    value,
+    contentUpdatedAt,
+    editorOwnedFocus = false,
+  }: HarnessProps) {
     const guardsRef = React.useRef<ReturnType<
       typeof useCollabReconcile
     > | null>(null);
@@ -88,6 +93,7 @@ function makeHarness() {
       value,
       contentUpdatedAt,
       editable: true,
+      isEditorFocused: () => editorOwnedFocus,
       getMarkdown: getEditorMarkdown,
       setContent: (ed, v, options) => {
         captured.setContentCalls += 1;
@@ -738,5 +744,38 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
     await flush();
 
     expect(getEditorMarkdown(captured.editor!)).toBe("# Doc updated by agent");
+  });
+
+  it("does not reapply a partial save echo while an external editor control owns focus", async () => {
+    const { captured, Harness } = makeHarness();
+
+    render(root, Harness, {
+      value: "# abcdef",
+      contentUpdatedAt: "2024-01-01T00:00:01.000Z",
+      editorOwnedFocus: true,
+    });
+    await flush();
+
+    act(() => captured.editor!.commands.setContent("# abcde"));
+    act(() => captured.editor!.commands.setContent("# ab"));
+    expect(getEditorMarkdown(captured.editor!)).toBe("# ab");
+
+    render(root, Harness, {
+      value: "# abcde",
+      contentUpdatedAt: "2024-01-01T00:00:02.000Z",
+      editorOwnedFocus: true,
+    });
+    await flush();
+
+    expect(getEditorMarkdown(captured.editor!)).toBe("# ab");
+
+    render(root, Harness, {
+      value: "# updated externally",
+      contentUpdatedAt: "2024-01-01T00:00:03.000Z",
+      editorOwnedFocus: false,
+    });
+    await flush();
+
+    expect(getEditorMarkdown(captured.editor!)).toBe("# updated externally");
   });
 });

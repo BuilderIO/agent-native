@@ -14,7 +14,11 @@ import {
   getAuthSecret,
   resolveSignupTrackingIdentity,
 } from "./better-auth-instance.js";
-import { getAppBasePath, getOrigin } from "./google-oauth.js";
+import {
+  getAppBasePath,
+  getOrigin,
+  isAllowedOAuthRedirectUri,
+} from "./google-oauth.js";
 import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
 
 const DEFAULT_BUILDER_APP_HOST = "https://builder.io";
@@ -102,6 +106,97 @@ function safeEqualText(expected: string, actual: string): boolean {
     expectedBuffer.length === actualBuffer.length &&
     timingSafeEqual(expectedBuffer, actualBuffer)
   );
+}
+
+/**
+ * Opaque OAuth `state` for Builder connect. Bound to the app auth secret so a
+ * pending row cannot be forged from another deployment that shares a database.
+ */
+export function createBuilderConnectState(): string {
+  const stateNonce = randomBytes(32).toString("base64url");
+  const signature = createHmac(
+    "sha256",
+    `builder-connect-state:${getAuthSecret()}`,
+  )
+    .update(stateNonce)
+    .digest("base64url");
+  return `${stateNonce}.${signature}`;
+}
+
+export function isSignedBuilderConnectState(
+  value: string | null | undefined,
+): boolean {
+  if (!value) return false;
+  const [nonce, signature, ...rest] = value.split(".");
+  if (
+    !nonce ||
+    !signature ||
+    rest.length ||
+    !/^[A-Za-z0-9_-]{43}$/.test(nonce) ||
+    !/^[A-Za-z0-9_-]{43}$/.test(signature)
+  ) {
+    return false;
+  }
+  const expected = createHmac(
+    "sha256",
+    `builder-connect-state:${getAuthSecret()}`,
+  )
+    .update(nonce)
+    .digest("base64url");
+  return safeEqualText(expected, signature);
+}
+
+/**
+ * Railway-safe Builder OAuth callback URL check: same origin as this request
+ * (via `isAllowedOAuthRedirectUri`), under `/_agent-native/`, HTTPS in
+ * production, and loopback HTTP only outside production. No fixed domain
+ * allowlist — any deploy origin (including `*.up.railway.app`) works when the
+ * redirect URI is this app's own callback.
+ */
+export function isBuilderConnectCallbackUrlAllowed(
+  candidate: string,
+  event: H3Event,
+): boolean {
+  if (!isAllowedOAuthRedirectUri(candidate, event)) return false;
+  let url: URL;
+  try {
+    url = new URL(candidate);
+  } catch {
+    // coercion-ok: malformed callback strings are not allowed redirects.
+    return false;
+  }
+  if (url.username || url.password) return false;
+  const hostname = url.hostname.toLowerCase();
+  const loopback =
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname === "::1" ||
+    hostname === "[::1]";
+  if (loopback) {
+    return url.protocol === "http:" && process.env.NODE_ENV !== "production";
+  }
+  return url.protocol === "https:";
+}
+
+/**
+ * Build this request's Builder OAuth callback URL from the current origin +
+ * `getAppBasePath()` + `BUILDER_CALLBACK_PATH`. Intentionally ignores any
+ * `?redirect_uri=` query override — connect always returns to this app's own
+ * callback. Validated with `isBuilderConnectCallbackUrlAllowed` (Railway-safe,
+ * no fixed domain allowlist).
+ */
+export function resolveBuilderConnectCallbackUrl(
+  event: H3Event,
+): string | null {
+  const withBase = `${getOrigin(event)}${getAppBasePath()}${BUILDER_CALLBACK_PATH}`;
+  if (isBuilderConnectCallbackUrlAllowed(withBase, event)) return withBase;
+  // Match google-oauth default-redirect behavior when the request is not under
+  // APP_BASE_PATH: fall back to the root `/_agent-native/...` callback.
+  const root = `${getOrigin(event)}${BUILDER_CALLBACK_PATH}`;
+  if (root !== withBase && isBuilderConnectCallbackUrlAllowed(root, event)) {
+    return root;
+  }
+  return null;
 }
 
 function normalizeBuilderRelayBasePath(value: string): string | null {

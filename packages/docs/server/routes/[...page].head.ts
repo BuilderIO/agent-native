@@ -7,9 +7,17 @@ import {
   resolveSsrCacheHeaders,
   resolveSsrCacheKeyHeaders,
 } from "@agent-native/core/server/ssr-handler";
-import { getRequestHeader, getRequestURL, setHeader, type H3Event } from "h3";
+import {
+  createError,
+  getRequestHeader,
+  getRequestURL,
+  setHeader,
+  type H3Event,
+} from "h3";
 
 import { estimateMarkdownTokens } from "../../../core/src/agent-web/index";
+import { applyDocsSsrCacheKeyHeaders } from "../../lib/ssr-cache";
+import { fetchMarkdownMirror } from "../lib/markdown-mirror";
 
 const SITE_URL = "https://www.agent-native.com";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -42,9 +50,9 @@ export default async function docsHeadHandler(event: H3Event) {
 
   const response = await ssrHandler(event);
   const headers = new Headers(response.headers);
-  for (const [k, v] of Object.entries(resolveSsrCacheKeyHeaders())) {
-    headers.set(k, v);
-  }
+  // Preserve the stronger full-query key emitted by core for query-preserving
+  // redirects; the normal Docs key is only for ordinary public SSR pages.
+  applyDocsSsrCacheKeyHeaders(headers);
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
@@ -112,18 +120,10 @@ async function readMarkdownContent(
   const localContent = readLocalFile(relativePath);
   if (localContent !== undefined) return localContent;
 
-  // Netlify publishes markdown mirrors as static files, but does not mount the
-  // publish directory beside every serverless function. Read the same mirror
-  // when the function bundle cannot see the local build output.
-  const staticUrl = new URL(`/${relativePath}`, getRequestURL(event));
-  const response = await fetch(staticUrl, {
-    headers: { accept: "text/markdown" },
-  });
-  if (!response.ok) return undefined;
-  const responseContentType =
-    response.headers.get("content-type")?.toLowerCase() ?? "";
-  if (!responseContentType.includes("text/markdown")) return undefined;
-  return response.text();
+  const mirror = await fetchMarkdownMirror(relativePath, event);
+  if (mirror.kind === "found") return mirror.content;
+  if (mirror.kind === "absent") return undefined;
+  throw createError({ statusCode: 502, statusMessage: mirror.reason });
 }
 
 function readLocalFile(relativePath: string): string | undefined {

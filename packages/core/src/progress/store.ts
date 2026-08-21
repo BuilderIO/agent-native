@@ -39,7 +39,7 @@ function resolveProgressRunStaleMs(): number {
   return DEFAULT_PROGRESS_RUN_STALE_MS;
 }
 
-async function ensureTable(): Promise<void> {
+export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
       const client = getDbExec();

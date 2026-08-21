@@ -28,6 +28,7 @@ let previousDisableRecurringJobs: string | undefined;
 let previousNitroPreset: string | undefined;
 let previousVercel: string | undefined;
 let previousViteWorkspaceAppsJson: string | undefined;
+let previousViteAgentNativeFeedbackUrl: string | undefined;
 let previousViteAppBasePath: string | undefined;
 let previousViteWorkspaceAppAudience: string | undefined;
 let previousViteWorkspaceAppProtectedPaths: string | undefined;
@@ -40,6 +41,7 @@ let previousWorkspaceAppPublicPaths: string | undefined;
 let previousWorkspaceGatewayUrl: string | undefined;
 let previousWorkspaceOAuthOrigin: string | undefined;
 let previousWorkspaceAppsJson: string | undefined;
+let previousOrgDirectoryUrl: string | undefined;
 let execFile: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
@@ -73,6 +75,8 @@ beforeEach(() => {
   previousVercel = process.env.VERCEL;
   previousViteWorkspaceAppsJson =
     process.env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON;
+  previousViteAgentNativeFeedbackUrl =
+    process.env.VITE_AGENT_NATIVE_FEEDBACK_URL;
   previousViteAppBasePath = process.env.VITE_APP_BASE_PATH;
   previousViteWorkspaceAppAudience =
     process.env.VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE;
@@ -91,6 +95,7 @@ beforeEach(() => {
   previousWorkspaceGatewayUrl = process.env.WORKSPACE_GATEWAY_URL;
   previousWorkspaceOAuthOrigin = process.env.WORKSPACE_OAUTH_ORIGIN;
   previousWorkspaceAppsJson = process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON;
+  previousOrgDirectoryUrl = process.env.AGENT_NATIVE_ORG_DIRECTORY_URL;
   delete process.env.APP_BASE_PATH;
   delete process.env.APP_URL;
   delete process.env.A2A_SECRET;
@@ -105,6 +110,7 @@ beforeEach(() => {
   delete process.env.NITRO_PRESET;
   delete process.env.VERCEL;
   delete process.env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON;
+  delete process.env.VITE_AGENT_NATIVE_FEEDBACK_URL;
   delete process.env.VITE_APP_BASE_PATH;
   delete process.env.VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE;
   delete process.env.VITE_AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS;
@@ -117,6 +123,7 @@ beforeEach(() => {
   delete process.env.WORKSPACE_GATEWAY_URL;
   delete process.env.WORKSPACE_OAUTH_ORIGIN;
   delete process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON;
+  delete process.env.AGENT_NATIVE_ORG_DIRECTORY_URL;
 });
 
 afterEach(() => {
@@ -142,6 +149,10 @@ afterEach(() => {
   restoreEnv(
     "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
     previousViteWorkspaceAppsJson,
+  );
+  restoreEnv(
+    "VITE_AGENT_NATIVE_FEEDBACK_URL",
+    previousViteAgentNativeFeedbackUrl,
   );
   restoreEnv("VITE_APP_BASE_PATH", previousViteAppBasePath);
   restoreEnv(
@@ -173,10 +184,28 @@ afterEach(() => {
   restoreEnv("WORKSPACE_GATEWAY_URL", previousWorkspaceGatewayUrl);
   restoreEnv("WORKSPACE_OAUTH_ORIGIN", previousWorkspaceOAuthOrigin);
   restoreEnv("AGENT_NATIVE_WORKSPACE_APPS_JSON", previousWorkspaceAppsJson);
+  restoreEnv("AGENT_NATIVE_ORG_DIRECTORY_URL", previousOrgDirectoryUrl);
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
 describe("workspace deploy", () => {
+  it("preserves an explicitly configured hosted feedback URL", async () => {
+    process.env.VITE_AGENT_NATIVE_FEEDBACK_URL =
+      "https://feedback.example.com/f/workspace/form-id";
+    makeWorkspaceApp(tmpDir, "dispatch");
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      args: ["--preset=netlify", "--build-only"],
+      execFile: execFile as typeof execFileSync,
+    });
+
+    expect(buildCallForApp("dispatch")?.env).toMatchObject({
+      VITE_AGENT_NATIVE_FEEDBACK_URL:
+        "https://feedback.example.com/f/workspace/form-id",
+    });
+  });
+
   it("collects Netlify static assets, functions, and redirects for a workspace", async () => {
     makeWorkspaceApp(tmpDir, "dispatch");
     makeWorkspaceApp(tmpDir, "starter");
@@ -195,6 +224,8 @@ describe("workspace deploy", () => {
       NITRO_PRESET: "netlify",
       APP_BASE_PATH: "/dispatch",
       VITE_APP_BASE_PATH: "/dispatch",
+      VITE_AGENT_NATIVE_FEEDBACK_URL:
+        "https://forms.agent-native.com/f/agent-native-feedback/_16ewV",
       VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON:
         dispatchCall?.env?.AGENT_NATIVE_WORKSPACE_APPS_JSON,
     });
@@ -385,6 +416,7 @@ describe("workspace deploy", () => {
     expect(dispatchServer).toContain("APP_BASE_PATH: basePath");
     expect(dispatchServer).toContain('VITE_AGENT_NATIVE_WORKSPACE: "1"');
     expect(dispatchServer).toContain("AGENT_NATIVE_WORKSPACE_APPS_JSON");
+    expect(dispatchServer).toContain("AGENT_NATIVE_ORG_DIRECTORY_URL");
     expect(dispatchServer).toContain('\\"path\\":\\"/starter\\"');
     expect(dispatchServer).toContain('await import("./main.mjs")');
     expect(dispatchServer).toContain(
@@ -727,6 +759,7 @@ describe("workspace deploy", () => {
     expect(dispatchWrapper).toContain("APP_BASE_PATH: basePath");
     expect(dispatchWrapper).toContain('VITE_AGENT_NATIVE_WORKSPACE: "1"');
     expect(dispatchWrapper).toContain("AGENT_NATIVE_WORKSPACE_APPS_JSON");
+    expect(dispatchWrapper).toContain("AGENT_NATIVE_ORG_DIRECTORY_URL");
     expect(dispatchWrapper).toContain('\\"path\\":\\"/starter\\"');
     expect(dispatchWrapper).toContain('await import("./main.mjs")');
 
@@ -914,6 +947,8 @@ describe("workspace deploy", () => {
 
   it("writes workspace app URLs and preserves explicit manifest URLs", async () => {
     process.env.APP_URL = "https://workspace.example.test/dispatch";
+    process.env.AGENT_NATIVE_ORG_DIRECTORY_URL =
+      "https://directory.example.test";
     process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
       version: 1,
       apps: [
@@ -935,6 +970,9 @@ describe("workspace deploy", () => {
     });
 
     const dispatchCall = buildCallForApp("dispatch");
+    expect(dispatchCall?.env?.AGENT_NATIVE_ORG_DIRECTORY_URL).toBe(
+      "https://directory.example.test",
+    );
     expect(dispatchCall?.env?.VITE_WORKSPACE_OAUTH_ORIGIN).toBe(
       "https://workspace.example.test",
     );
@@ -1010,6 +1048,9 @@ describe("workspace deploy", () => {
       "https://workspace.example.test",
     );
     expect(dispatchCall?.env?.VITE_WORKSPACE_OAUTH_ORIGIN).toBe(
+      "https://workspace.example.test",
+    );
+    expect(dispatchCall?.env?.AGENT_NATIVE_ORG_DIRECTORY_URL).toBe(
       "https://workspace.example.test",
     );
     expect(

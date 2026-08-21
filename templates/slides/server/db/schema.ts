@@ -83,3 +83,21 @@ export const slideComments = table("slide_comments", {
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
 });
+
+export const deckEvents = table("deck_events", {
+  id: text("id").primaryKey(),
+  deckId: text("deck_id").notNull(),
+  type: text("type").notNull(),
+  message: text("message").notNull(),
+  payload: text("payload"),
+  createdBy: text("created_by").notNull().default("human"),
+  createdAt: text("created_at").notNull().default(now()),
+});
+
+// One durable bucket per deck keeps anonymous access-request throttling
+// consistent across serverless instances and cold starts.
+export const deckAccessRequestLimits = table("deck_access_request_limits", {
+  deckId: text("deck_id").primaryKey(),
+  windowStartedAt: text("window_started_at").notNull(),
+  requestCount: integer("request_count").notNull().default(0),
+});

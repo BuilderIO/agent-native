@@ -65,6 +65,22 @@ describe("authenticated recording route loading", () => {
     expect(route).toContain("{viewerCanEdit ? (");
   });
 
+  it("gates fullscreen share interactions by the viewer permission", () => {
+    const route = readRoute("share.$shareId.tsx");
+    expect(route).toContain(
+      "const viewerCanUseFullscreenInteractions = !session || viewerCanComment;",
+    );
+    expect(route).toContain(
+      "recording.enableComments && viewerCanUseFullscreenInteractions",
+    );
+    expect(route).toContain(
+      "recording.enableReactions && viewerCanUseFullscreenInteractions",
+    );
+    expect(route).toContain(
+      'viewerCanUseFullscreenInteractions\n                  ? () => setPanel("comments")',
+    );
+  });
+
   it("does not expose the insights tab to viewers", () => {
     const shareRoute = readRoute("share.$shareId.tsx");
     const shareTrigger = shareRoute.indexOf(
@@ -82,6 +98,33 @@ describe("authenticated recording route loading", () => {
       'canEdit ? trigger("insights", t("recordingPage.insights")) : null,',
     );
     expect(recordingRoute).not.toContain("InsightsUnavailableState");
+  });
+
+  it("keeps Share primary and places overflow after it in clip viewers", () => {
+    const recordingRoute = readRoute("r.$recordingId.tsx");
+    const shareRoute = readRoute("share.$shareId.tsx");
+    const trigger = readFileSync(
+      resolve(process.cwd(), "app/components/player/clips-share-trigger.tsx"),
+      "utf8",
+    );
+
+    expect(recordingRoute.match(/<ClipsShareTrigger/g)).toHaveLength(2);
+    expect(shareRoute).toContain("<ClipsShareTrigger");
+    expect(trigger).toContain('intent="primary"');
+    expect(trigger).toContain('emphasis="solid"');
+
+    const publicControlsStart = shareRoute.indexOf(
+      '<div className="flex w-full min-w-0 flex-wrap items-center justify-between gap-1',
+    );
+    const publicControls = shareRoute.slice(publicControlsStart);
+    expect(publicControls.indexOf("<ClipsShareTrigger")).toBeLessThan(
+      publicControls.indexOf("IconDotsVertical"),
+    );
+    expect(publicControls.indexOf("<ClipsShareTrigger")).toBeLessThan(
+      publicControls.indexOf("<RecordingOptionsMenu"),
+    );
+    expect(shareRoute).toContain("IconDotsVertical");
+    expect(shareRoute).not.toContain("IconDots className");
   });
 
   it("keeps meeting agent links scoped through both page and context loading", () => {

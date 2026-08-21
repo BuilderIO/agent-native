@@ -59,7 +59,7 @@ export const MAX_TOKEN_TTL_DAYS = 365;
 export const DEVICE_START_MAX = 20;
 export const DEVICE_START_WINDOW_MS = 60_000;
 
-async function ensureTable(): Promise<void> {
+export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
       const client = getDbExec();

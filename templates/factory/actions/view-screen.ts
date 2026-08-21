@@ -45,6 +45,18 @@ export default defineAction({
       navigation &&
       typeof navigation === "object" &&
       "view" in navigation &&
+      navigation.view === "factory-settings"
+    ) {
+      screen.factorySettings = {
+        scope: "workspace",
+        path: "/factory-settings",
+      };
+    }
+
+    if (
+      navigation &&
+      typeof navigation === "object" &&
+      "view" in navigation &&
       navigation.view === "factory"
     ) {
       const { orgId } = await requireWorkspaceMember(

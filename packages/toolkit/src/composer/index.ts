@@ -29,6 +29,7 @@ export {
   type PromptComposerFile,
   type PromptComposerSubmitOptions,
 } from "./PromptComposer.js";
+export type { ComposerTerminalModeControl } from "./ComposerPlusMenu.js";
 export {
   RealtimeVoiceModeDock,
   RealtimeVoiceModeEntry,

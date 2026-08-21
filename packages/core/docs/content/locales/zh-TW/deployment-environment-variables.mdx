@@ -1,0 +1,83 @@
+---
+title: "部署：環境變數"
+description: "建置、執行時期、密鑰與託管行為的正式環境環境變數參考。"
+---
+
+# 部署：環境變數
+
+若要查看涵蓋整個儲存庫的參考資料，包括範本、提供者、本機和 CI
+變數，請參閱 [Environment Variables](/docs/environment-variables)。以下表格
+仍然是正式環境數值與託管行為的權威部署指南。
+
+## 建置 / 執行時期 {#env-runtime}
+
+| Variable                                    | Description                                                                                                                                                                                                                                                                        |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PORT`                                      | 伺服器埠（僅限 Node.js）                                                                                                                                                                                                                                                           |
+| `NITRO_PRESET`                              | 在建置時期覆寫建置預設集                                                                                                                                                                                                                                                           |
+| `APP_BASE_PATH`                             | 將應用程式掛載在某個前綴下（例如 `/mail`）。由 `npx @agent-native/core@latest deploy` 自動設定。獨立應用程式請保持未設定。                                                                                                                                                         |
+| `APP_URL`                                   | 選用的正式公開來源。在解析 A2A JWT 對象、OAuth 公開來源、自我調度 webhook 目標，以及產生的資源連結時，會優先於 `BETTER_AUTH_URL` 被檢查。請在請求主機不可靠的預覽/暫存部署中明確設定它。                                                                                           |
+| `AGENT_PROD_CODE_EXECUTION`                 | 選用的正式環境程式碼執行模式：`off`（預設）、`sandboxed` 或 `trusted`。請參閱 [Production Code Execution](/docs/actions-agent-tools#production-code-execution)。                                                                                                                   |
+| `AGENT_NATIVE_SSR_CACHE`                    | 整個部署層級的 SSR shell 快取政策：未設定/`on` 會保持預設的強制快取，`off` 會傳送 `no-store`，或使用像 `30s` / `5m` 這樣的持續時間來設定較短的新鮮度。請參閱 [SSR Caching](/docs/ssr-caching)。                                                                                    |
+| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | 選擇加入 Netlify 的 keep-warm 排程 function。預設未設定。請參閱 [Keep-warm](/docs/netlify#netlify-keep-warm)。                                                                                                                                                                     |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Netlify keep-warm 排程 function 的相容性關閉開關。請參閱 [Keep-warm](/docs/netlify#netlify-keep-warm)。                                                                                                                                                                            |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | 使用 5 個欄位的 cron 表達式覆寫 keep-warm 的執行頻率（啟用時預設為 `* * * * *`）。無法解析的值會導致建置失敗。請參閱 [Keep-warm](/docs/netlify#netlify-keep-warm)。                                                                                                                |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | 只移除背景 function 的喚醒，並保留伺服器的喚醒。請參閱 [Keep-warm](/docs/netlify#netlify-keep-warm)。                                                                                                                                                                              |
+| `AGENT_NATIVE_DISABLE_INPROCESS_SWEEPS`     | 關閉行程內的後備掃描計時器（自動化重新調度、agent-teams 協調、沙盒執行復原）。在無伺服器環境中，這些計時器會依每個喚醒中的容器各自執行，因此其查詢頻率會隨執行個體數量增加。**只有**在已經有一個持久性排程器負責驅動相同的復原流程時才設定它，否則佇列中的工作將不會被重試。       |
+| `AGENT_NATIVE_SKIP_ENSURE_TABLES`           | 在自動無伺服器跳過機制沒有涵蓋到的部署環境中，跳過隨選結構描述 DDL。這需要你的結構描述已經完成遷移。請參閱 [On-demand schema DDL](/docs/deployment#skip-ensure-tables)。                                                                                                           |
+| `AGENT_NATIVE_BUILDER_RELAY_SECRET`         | 專用的 32 字元以上共用 HMAC 密鑰，用於預覽安全的 Builder 授權轉發。只有在授權必須落在獨立的預覽資料庫中時，才在已核准的企業回呼部署和預覽部署上設定相同的值。                                                                                                                      |
+| `AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS` | 僅限企業回呼使用、以逗號分隔的可信任預覽來源精確允許清單（例如 `https://0123456789abcdef01234567--content.netlify.app`）。只在企業回呼部署上設定它。Netlify 來源必須使用不可變、特定部署的 24 位十六進位永久連結。可變動的 `deploy-preview-*` 別名、萬用字元和網域字尾都會被拒絕。 |
+
+資料庫連線變數（`DATABASE_URL`、`DATABASE_AUTH_TOKEN`、逐應用程式的 `<APP_NAME>_DATABASE_URL`）記載於 [Database](/docs/server-database#production)。
+
+## 正式環境敏感設定 {#env-required-prod}
+
+這些設定涵蓋正式環境敏感行為。使用框架驗證的獨立應用程式，需要一個
+穩定的 `BETTER_AUTH_SECRET` 和一個持久性資料庫。當公開驗證 URL 未設定時，
+會從請求、已知範本或託管平台推斷出來。工作區和 A2A 設定則取決於是否
+使用了那些功能。缺少的值要嘛安全關閉，要嘛回退到較弱的行為，並顯示
+明顯的警告。
+
+| Variable                                    | Description                                                                                                                                                                                                                                                       |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BETTER_AUTH_SECRET`                        | 32 個字元以上的隨機字串。用來簽署工作階段 cookies，也是 `OAUTH_STATE_SECRET` 和應用程式本機加密值的回退依據。它也是既有共用保管庫密文的舊版讀取候選值。硬性必要：如果在正式環境中缺少，框架會在啟動時擲出例外。                                                   |
+| `BETTER_AUTH_URL`                           | 這個應用程式的選用公開來源覆寫值（例如 `https://mail.example.com`）。未設定時，框架會從請求、已知範本和託管平台的脈絡推斷出來。                                                                                                                                   |
+| `ANTHROPIC_API_KEY`                         | 嵌入式正式環境代理的 API 金鑰。**在多租戶部署中**，當使用者沒有個人金鑰時，框架拒絕回退使用這個值。必須自帶金鑰（BYO key）。單租戶自架安裝則將它當作全域金鑰使用。                                                                                                |
+| `OAUTH_STATE_SECRET`                        | 用於 OAuth state 信封（Google、Atlassian、Zoom）的專用 HMAC 金鑰。未設定時會回退使用 `BETTER_AUTH_SECRET`，但建議使用專用的值，這樣輪替其中一個就不會讓另一個失效。可透過 `openssl rand -hex 32` 產生。                                                           |
+| `A2A_SECRET`                                | 用於應用程式之間 A2A JSON-RPC 和已簽章背景交接的共用 HMAC。託管工作區部署和 A2A 功能都需要它。沒有它，那些端點在正式環境中會安全關閉。當沒有設定專用的工作區保管庫金鑰時，共用保管庫密文會使用從這個值衍生出來的專用金鑰，因此輪替它也會一併輪替保管庫金鑰。      |
+| `WORKSPACE_SECRETS_ENCRYPTION_KEY`          | 共用靜態加密密鑰保管庫偏好使用的穩定 AES-256-GCM 金鑰。請在每個會讀取保管庫的應用程式中設定相同的值。它與應用程式本機 OAuth/憑證加密是分開的，因此 A2A 信任可以輪替，而不會讓保管庫的資料列失效。既有的 A2A、Better Auth 和應用程式金鑰密文，會在成功讀取時遷移。 |
+| `WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS` | 選用的先前工作區保管庫金鑰，只在輪替期間使用。將它和新的 `WORKSPACE_SECRETS_ENCRYPTION_KEY` 一起部署，讓成功的讀取重新加密資料列，遷移完成後再移除它。                                                                                                            |
+| `SECRETS_ENCRYPTION_KEY`                    | 用於應用程式本機加密和共用保管庫的舊版合併金鑰。目前仍受支援，但新的多應用程式部署應該針對共用保管庫使用 `WORKSPACE_SECRETS_ENCRYPTION_KEY`，這樣變更工作區加密就不會改變應用程式本機的 OAuth 密文。                                                              |
+
+## 驗證與身分 {#env-auth}
+
+OAuth 提供者憑證（Google、GitHub）、靜態 MCP bearer 回退值（`ACCESS_TOKEN` / `ACCESS_TOKENS`），以及電子郵件驗證開關，都記載於 [Authentication](/docs/authentication)。請依照你所選擇的驗證模式，在那裡設定它們。
+
+## 傳入 Webhook {#env-webhooks}
+
+每一種訊息整合在正式環境中都需要自己的簽章密鑰（當密鑰缺少時，處理常式會對偽造的請求安全關閉）。各整合專屬的變數列在 [Messaging](/docs/messaging) 和 [Security](/docs/security) 中。僅限本機開發使用時，`AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS=1` 可以選擇退回「警告並接受」的行為。絕對不要在正式環境中設定它。
+
+## 安全性設定（選用）{#security-config}
+
+預設值是嚴格的。少數幾個選用旗標會放寬行為（偵錯堆疊追蹤、未驗證的 webhook、工作區範圍金鑰回退、MCP hub 多組織開關、執行時期環境變數寫入）。它們連同各自的安全性取捨，都記載於 [Security](/docs/security)。除非你確實想要那個較寬鬆的路徑，否則不要設定它們。
+
+## 工作區 .env 繼承 {#env-inheritance}
+
+在工作區中，根目錄的 `.env` 會自動載入每個應用程式，因此像 `ANTHROPIC_API_KEY`、`A2A_SECRET`、`BETTER_AUTH_SECRET` 和 `OAUTH_STATE_SECRET` 這類共用金鑰，只需要設定一次。發生衝突時，以逐應用程式的 `apps/<name>/.env` 為準。
+
+## 產生強密鑰 {#env-generate-secrets}
+
+對於任何標示為「32 個字元以上隨機字串」的密鑰（`BETTER_AUTH_SECRET`、`OAUTH_STATE_SECRET`、`A2A_SECRET`、`WORKSPACE_SECRETS_ENCRYPTION_KEY`、`SECRETS_ENCRYPTION_KEY`、`AGENT_NATIVE_BUILDER_RELAY_SECRET`），請使用以下指令產生新的值：
+
+```bash
+openssl rand -hex 32
+```
+
+若要輪替簽章/工作階段金鑰，請在每個執行個體上替換環境變數並重新部署。以舊金鑰簽署的工作階段和 OAuth state 信封會失效，因此使用者可能需要重新登入。請使用上面說明的 `..._PREVIOUS` 期間來輪替 `WORKSPACE_SECRETS_ENCRYPTION_KEY`，這樣加密的保管庫資料列在遷移期間仍然可以讀取。
+
+## 接下來呢
+
+- [**Deployment**](/docs/deployment) — 在第一次正式環境部署之前，選擇一個持久性資料庫和一個預設集
+- [**Environment Variables**](/docs/environment-variables) — 涵蓋整個儲存庫的參考資料，包括範本、提供者、本機和 CI 變數
+- [**Security**](/docs/security) — 本頁面中提到的正式環境檢查清單與選用旗標
+- [**Authentication**](/docs/authentication) — 你所選擇驗證模式所需的 OAuth 憑證與環境變數

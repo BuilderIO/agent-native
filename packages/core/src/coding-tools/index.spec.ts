@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { actionsToEngineTools } from "../agent/production-agent.js";
 import { createDevScriptRegistry } from "../scripts/dev/index.js";
 import { createDbScriptEntries } from "../server/agent-chat/script-entries.js";
+import { runWithRequestContext } from "../server/request-context.js";
 import {
   BASH_OUTPUT_HEAD_CHARS,
   BASH_OUTPUT_TAIL_CHARS,
@@ -53,6 +54,39 @@ describe("shared coding tools", () => {
     );
     await expect(registry.bash.run({ command: "ls -a" })).resolves.toContain(
       "hello.txt",
+    );
+  });
+
+  it("keeps restricted commands and file paths inside the workspace", async () => {
+    const cwd = tempDir();
+    const outside = tempDir();
+    fs.writeFileSync(path.join(outside, "secret.txt"), "outside\n", "utf8");
+    fs.symlinkSync(outside, path.join(cwd, "outside-link"), "dir");
+    const registry = createCodingToolRegistry({ cwd, restrictToCwd: true });
+
+    await expect(registry.bash.run({ command: "pwd" })).resolves.toContain(cwd);
+    await expect(
+      registry.bash.run({ command: "pwd", cwd: ".." }),
+    ).resolves.toBe("Error: cwd must stay inside the workspace.");
+    await expect(
+      registry.bash.run({ command: "cat /etc/hosts" }),
+    ).resolves.toBe("Error: command paths must stay inside the workspace.");
+    await expect(
+      registry.bash.run({ command: "git -C .. status" }),
+    ).resolves.toBe("Error: command paths must stay inside the workspace.");
+    await expect(
+      registry.read.run({ path: "outside-link/secret.txt" }),
+    ).resolves.toBe("Error: path must stay inside the workspace.");
+    await expect(
+      registry.write.run({
+        path: "outside-link/created.txt",
+        content: "must stay inside\n",
+      }),
+    ).resolves.toBe("Error: path must stay inside the workspace.");
+    expect(fs.existsSync(path.join(outside, "created.txt"))).toBe(false);
+    fs.symlinkSync(outside, path.join(cwd, ".agent-native"), "dir");
+    expect(() => spawnBackgroundCommand("echo must-stay-inside", cwd)).toThrow(
+      "Background log path must stay inside the workspace.",
     );
   });
 
@@ -127,6 +161,29 @@ describe("shared coding tools", () => {
         command: 'pnpm action db-query --sql "SELECT 1"',
       }),
     ).resolves.toContain("raw database tools are disabled");
+  });
+
+  it("enforces request-scoped app actions through the local bash path", async () => {
+    const registry = await createDevScriptRegistry({ databaseTools: false });
+
+    await expect(
+      runWithRequestContext(
+        { run: { allowedActionNames: ["allowed-action"] } },
+        () =>
+          registry.bash.run({
+            command: "pnpm action denied-action --value=secret",
+          }),
+      ),
+    ).resolves.toContain(
+      'action "denied-action" is not available in this request\'s action surface',
+    );
+
+    await expect(
+      runWithRequestContext(
+        { run: { allowedActionNames: ["allowed-action"] } },
+        () => registry.bash.run({ command: "printf local-bash" }),
+      ),
+    ).resolves.toContain("local-bash");
   });
 
   it("can expose read-only database tools without raw SQL write tools", async () => {
@@ -341,6 +398,12 @@ describe("bash background execution", () => {
     expect(result).toMatch(/Background process spawned/);
     expect(result).toMatch(/pid:/);
     expect(result).toMatch(/log:/);
+    const logMatch = result.match(/log:\s*(\S+\.log)/);
+    expect(
+      logMatch?.[1]?.startsWith(
+        path.join(cwd, ".agent-native", "background-logs"),
+      ),
+    ).toBe(true);
   });
 
   it("spawnBackgroundCommand returns pid and log path in output", async () => {
@@ -353,13 +416,16 @@ describe("bash background execution", () => {
 
   it("writes output to the log file", async () => {
     const cwd = tempDir();
+    const registry = createCodingToolRegistry({ cwd, restrictToCwd: true });
     const result = spawnBackgroundCommand("echo logged-output", cwd);
     const logMatch = result.match(/log:\s*(\S+)/);
     expect(logMatch).not.toBeNull();
     const logFile = logMatch![1];
     // Give the process a moment to write its output.
     await new Promise((resolve) => setTimeout(resolve, 200));
-    const content = fs.readFileSync(logFile, "utf8");
+    const content = await registry.read.run({
+      path: path.relative(cwd, logFile),
+    });
     expect(content).toContain("logged-output");
     fs.unlinkSync(logFile);
   });

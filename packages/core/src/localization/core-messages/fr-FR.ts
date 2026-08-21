@@ -31,6 +31,12 @@ const messages: AgentChatTranslation = {
   "commands.mention": "Mentionner des fichiers, des agents ou des ressources",
   "commands.new": "Identique à /clear",
   "commands.plan": "Passer à la planification en lecture seule",
+  "aboutAgentNative.title": "À propos d’Agent Native",
+  "aboutAgentNative.version": "Version",
+  "aboutAgentNative.environment": "Environnement",
+  "aboutAgentNative.build": "Build",
+  "aboutAgentNative.copyDiagnostics": "Copier les diagnostics",
+  "aboutAgentNative.unknown": "Inconnue",
   "common.agent": "Agent",
   "common.cancel": "Annuler",
   "common.collapse": "Réduire",
@@ -108,6 +114,8 @@ const messages: AgentChatTranslation = {
   "message.restoreFailed": "Échec de la restauration ({{status}}).",
   "message.restoreQuestion": "Restaurer jusqu’ici ?",
   "message.restoreRequestFailed": "Échec de la demande de restauration.",
+  "message.threadNotFound":
+    "Ce fil de discussion n’est plus disponible. Démarrez une nouvelle discussion ou réessayez si cela est inattendu.",
   "message.restoring": "Restauration...",
   "message.revertHere": "Revenir jusqu’ici",
   "message.sentAt": "Envoyé à {{time}}",
@@ -464,6 +472,8 @@ const messages: AgentChatTranslation = {
   "errorMessages.builderModelUnauthorized":
     "Le fournisseur de ce modèle a rejeté la demande. Choisissez un autre modèle, puis réessayez.",
   "errorMessages.errorPrefix": "Erreur : {{message}}",
+  "errorMessages.gatewayInternalError":
+    "La passerelle du modèle a rencontré une erreur interne avant que l'agent puisse répondre. Réessayez dans un instant et indiquez l'identifiant d'erreur ci-dessous si cela persiste.",
   "errorMessages.gatewayNoDetails":
     "La passerelle du modèle n’a fourni aucun détail sur l’erreur et la discussion n’a pas pu reprendre. Patientez un instant et réessayez. Si le problème persiste, démarrez une nouvelle discussion.",
   "errorMessages.inactivityTimeout":
@@ -487,10 +497,14 @@ const messages: AgentChatTranslation = {
   "errorMessages.startNewChat": "Démarrer une nouvelle discussion",
   "errorMessages.upgradeAtBuilder": "Mettre à niveau sur Builder.io",
   "feedback.inaccurate": "Inexact",
+  "feedback.keyboardHint": "{{shortcut}} Entrée pour envoyer",
   "feedback.notHelpful": "Peu utile",
+  "feedback.placeholder": "Dites-nous ce qui n'a pas fonctionné...",
+  "feedback.submit": "Envoyer",
   "feedback.thumbsDown": "Pouce vers le bas",
   "feedback.thumbsUp": "Pouce vers le haut",
   "feedback.tooSlow": "Trop lent",
+  "feedback.whatWentWrong": "Qu'est-ce qui n'a pas fonctionné ?",
   "feedback.wrongTool": "Mauvais outil",
   "contextMeter.ariaLabel":
     "Contexte {{percent}} %, {{totalTokens}}{{breakdown}}. Ouvrir l’analyse du contexte.",
@@ -610,6 +624,7 @@ const messages: AgentChatTranslation = {
   "share.unknownPerson": "Personne inconnue",
   "share.viewer": "Lecteur",
   "share.viewerDescription": "Peut consulter",
+  "share.userGroup": "Groupe d’utilisateurs",
 };
 
 export default messages;

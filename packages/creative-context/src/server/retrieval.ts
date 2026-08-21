@@ -34,12 +34,12 @@ import {
   type AccessibleSearchDocument,
 } from "../store/index.js";
 import type { ContextItemStatus } from "../types.js";
-import { PGVECTOR_REQUIRED_MESSAGE } from "../vector/pgvector.js";
-import { getCreativeContext } from "./context.js";
 import {
   delimitUntrustedReference,
   UNTRUSTED_REFERENCE_ROLE,
-} from "./untrusted-reference.js";
+} from "../untrusted-reference.js";
+import { PGVECTOR_REQUIRED_MESSAGE } from "../vector/pgvector.js";
+import { getCreativeContext } from "./context.js";
 
 export interface CreativeContextSearchInput {
   query?: string;

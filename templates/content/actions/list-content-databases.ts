@@ -1,10 +1,12 @@
 import { defineAction } from "@agent-native/core";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { accessFilter } from "@agent-native/core/sharing";
 import {
   and,
   asc,
   eq,
   inArray,
+  isNotNull,
   isNull,
   notInArray,
   or,
@@ -15,6 +17,11 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { documentDiscoveryFilter } from "../server/lib/documents.js";
 import type { ListContentDatabasesResponse } from "../shared/api.js";
+import {
+  listContentOrganizationMemberships,
+  normalizeContentSpaceEmail,
+  resolveContentSpaceAccess,
+} from "./_content-space-access.js";
 import { documentDiscoveryPagination } from "./_document-discovery-query.js";
 
 const DEFAULT_CONTENT_DATABASE_DISCOVERY_LIMIT = 50;
@@ -27,7 +34,7 @@ export class ContentDatabaseResolutionError extends Error {}
 
 export default defineAction({
   description:
-    "Discover one bounded page of ordinary Content databases the user can access from their live title and user-authored description. Returns stable database, document, and space IDs with explicit pagination; follow nextOffset until hasMore is false. Use exact filters before reading a selected database's schema.",
+    "Discover one bounded page of ordinary Content databases the user can access from their live title and user-authored description. Returns stable database, document, and space IDs with explicit pagination; follow nextOffset until hasMore is false. Use exact filters before reading a selected database's schema. Set includeSystemCollections to classify Files, Favorites, Workspaces, and other system chrome separately from ordinary databases.",
   schema: z.object({
     spaceId: z
       .string()
@@ -39,6 +46,12 @@ export default defineAction({
       .min(1)
       .optional()
       .describe("Exact Content database ID to resolve."),
+    includeSystemCollections: z
+      .boolean()
+      .optional()
+      .describe(
+        "Return system-role databases in systemCollections instead of treating them as ordinary databases.",
+      ),
     documentId: z
       .string()
       .min(1)
@@ -80,7 +93,21 @@ export default defineAction({
   readOnly: true,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   run: async (args): Promise<ListContentDatabasesResponse> => {
+    if (args.includeSystemCollections && !args.spaceId) {
+      throw new ContentDatabaseResolutionError(
+        "An exact spaceId is required to inventory system collections.",
+      );
+    }
     const db = getDb();
+    const requestUserEmail = getRequestUserEmail();
+    if (!requestUserEmail) throw new Error("no authenticated user");
+    const normalizedUserEmail = normalizeContentSpaceEmail(requestUserEmail);
+    const authorizedOrganizationIds = (
+      await listContentOrganizationMemberships(normalizedUserEmail)
+    ).map((membership) => membership.orgId);
+    if (args.spaceId) {
+      await resolveContentSpaceAccess(args.spaceId, "viewer", { db });
+    }
     const query = args.query?.trim();
     const pattern = query ? `%${escapeLike(query.toLowerCase())}%` : null;
     const exactTitle = args.title?.toLowerCase();
@@ -160,6 +187,19 @@ export default defineAction({
         isNull(schema.documents.hideFromSearch),
       ),
       isNull(schema.contentDatabases.deletedAt),
+      isNull(schema.contentSpaces.archivedAt),
+      or(
+        isNull(schema.contentDatabases.spaceId),
+        and(
+          isNotNull(schema.contentSpaces.id),
+          or(
+            sql`LOWER(${schema.contentSpaces.ownerEmail}) = ${normalizedUserEmail}`,
+            authorizedOrganizationIds.length > 0
+              ? inArray(schema.contentSpaces.orgId, authorizedOrganizationIds)
+              : undefined,
+          ),
+        ),
+      ),
       isNull(schema.contentDatabases.systemRole),
       args.spaceId
         ? eq(schema.contentDatabases.spaceId, args.spaceId)
@@ -205,6 +245,10 @@ export default defineAction({
         .innerJoin(
           schema.documents,
           eq(schema.contentDatabases.documentId, schema.documents.id),
+        )
+        .leftJoin(
+          schema.contentSpaces,
+          eq(schema.contentDatabases.spaceId, schema.contentSpaces.id),
         )
         .where(where)
         .orderBy(
@@ -252,9 +296,50 @@ export default defineAction({
                 schema.documents,
                 eq(schema.contentDatabases.documentId, schema.documents.id),
               )
+              .leftJoin(
+                schema.contentSpaces,
+                eq(schema.contentDatabases.spaceId, schema.contentSpaces.id),
+              )
               .where(where)
           )[0]?.count ?? 0,
         );
+
+    const systemCollections = args.includeSystemCollections
+      ? await db
+          .select({
+            databaseId: schema.contentDatabases.id,
+            documentId: schema.contentDatabases.documentId,
+            title: schema.documents.title,
+            spaceId: schema.contentDatabases.spaceId,
+            spaceName: schema.contentSpaces.name,
+            spaceKind: schema.contentSpaces.kind,
+            systemRole: schema.contentDatabases.systemRole,
+          })
+          .from(schema.contentDatabases)
+          .innerJoin(
+            schema.documents,
+            eq(schema.contentDatabases.documentId, schema.documents.id),
+          )
+          .leftJoin(
+            schema.contentSpaces,
+            eq(schema.contentDatabases.spaceId, schema.contentSpaces.id),
+          )
+          .where(
+            and(
+              accessFilter(schema.documents, schema.documentShares),
+              isNull(schema.documents.trashedAt),
+              isNull(schema.contentDatabases.deletedAt),
+              isNull(schema.contentSpaces.archivedAt),
+              isNotNull(schema.contentSpaces.id),
+              isNotNull(schema.contentDatabases.systemRole),
+              eq(schema.contentDatabases.spaceId, args.spaceId!),
+            ),
+          )
+          .orderBy(
+            asc(schema.documents.position),
+            asc(schema.contentDatabases.id),
+          )
+      : undefined;
 
     return {
       databases,
@@ -264,6 +349,15 @@ export default defineAction({
         totalItems,
         returnedItems: databases.length,
       }),
+      ...(systemCollections
+        ? {
+            systemCollections: systemCollections.map((collection) => ({
+              ...collection,
+              title: collection.title ?? "Untitled database",
+              systemRole: collection.systemRole!,
+            })),
+          }
+        : {}),
     };
   },
 });

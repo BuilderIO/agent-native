@@ -7,7 +7,12 @@ vi.mock("electron", () => ({
   ipcMain: { handle: vi.fn() },
 }));
 
-import { requestMcpHost, type McpHost } from "./chat-first-mcp.js";
+import {
+  requestMcpHost,
+  resolveMcpOAuthUrl,
+  resolveMcpOAuthReturnPath,
+  type McpHost,
+} from "./chat-first-mcp.js";
 
 const getCookies = vi.fn().mockResolvedValue([]);
 const host = {
@@ -75,5 +80,44 @@ describe("requestMcpHost", () => {
     caller.abort();
 
     await expect(request).rejects.toMatchObject({ name: "AbortError" });
+  });
+});
+
+describe("resolveMcpOAuthUrl", () => {
+  it("keeps OAuth starts inside the authenticated workspace origin", () => {
+    expect(
+      resolveMcpOAuthUrl(
+        "/_agent-native/mcp/servers/oauth/start?name=Notion",
+        "https://dispatch.example.com",
+      ),
+    ).toBe(
+      "https://dispatch.example.com/_agent-native/mcp/servers/oauth/start?name=Notion",
+    );
+    expect(
+      resolveMcpOAuthUrl(
+        "/_agent-native/mcp/servers/oauth/start?name=Notion&return=%2Fintegrations",
+        "https://workspace.example.com/dispatch",
+      ),
+    ).toBe(
+      "https://workspace.example.com/dispatch/_agent-native/mcp/servers/oauth/start?name=Notion&return=%2Fintegrations",
+    );
+    expect(
+      resolveMcpOAuthReturnPath(
+        "https://workspace.example.com/dispatch/_agent-native/mcp/servers/oauth/start?return=%2Fintegrations",
+        "https://workspace.example.com/dispatch",
+      ),
+    ).toBe("/dispatch/integrations");
+    expect(() =>
+      resolveMcpOAuthUrl(
+        "https://other.example.com/_agent-native/mcp/servers/oauth/start",
+        "https://dispatch.example.com",
+      ),
+    ).toThrow("signed-in workspace app");
+    expect(() =>
+      resolveMcpOAuthUrl(
+        "/_agent-native/mcp/servers",
+        "https://dispatch.example.com",
+      ),
+    ).toThrow("signed-in workspace app");
   });
 });

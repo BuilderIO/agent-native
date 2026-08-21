@@ -15,6 +15,11 @@ on:
       - ".github/workflows/clips-desktop-build-check.yml"
   workflow_dispatch:
 
+# A new PR head supersedes every OS build from the previous head.
+concurrency:
+  group: clips-desktop-build-check-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 

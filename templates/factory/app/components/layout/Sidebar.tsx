@@ -444,7 +444,9 @@ export function Sidebar({
             const isActive =
               item.href === "/"
                 ? isChatRoute
-                : location.pathname.startsWith(item.href);
+                : item.href === "/factory"
+                  ? location.pathname === "/factory"
+                  : location.pathname.startsWith(item.href);
             const link = (
               <Link
                 to={item.href}

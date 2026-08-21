@@ -71,6 +71,7 @@ import {
   useSetPageTitle,
   useSetHeaderActions,
 } from "@/components/layout/HeaderActions";
+import { ResourceLoadError } from "@/components/ResourceLoadError";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   AlertDialog,
@@ -128,6 +129,7 @@ import {
   resourceCanManage,
   type ResourceAccess,
 } from "@/lib/resource-access";
+import { useAutoFocusSelect } from "@/lib/use-auto-focus-select";
 
 import BlankDashboard from "../BlankDashboard";
 import { DashboardSkeleton } from "../DashboardSkeleton";
@@ -148,6 +150,7 @@ import { createDashboardSaveQueue } from "./dashboard-save-queue";
 import {
   createDashboardAdoptionHold,
   dashboardPrefetchInitialData,
+  shouldShowDashboardLoadError,
   shouldAdoptDashboardQueryResult,
   type DashboardAdoptionHold,
 } from "./dashboard-sync";
@@ -596,8 +599,11 @@ function SqlDashboardPageContent({
   );
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState("");
+  const nameInputRef = useAutoFocusSelect<HTMLInputElement>(editingName);
   const [editingDescription, setEditingDescription] = useState(false);
   const [descriptionInput, setDescriptionInput] = useState("");
+  const descriptionInputRef =
+    useAutoFocusSelect<HTMLTextAreaElement>(editingDescription);
   const [loaded, setLoaded] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [openDeleteAfterMenuClose, setOpenDeleteAfterMenuClose] =
@@ -1732,6 +1738,7 @@ function SqlDashboardPageContent({
       <div className="flex min-w-0 items-center gap-2">
         {editingName && canEdit ? (
           <Input
+            ref={nameInputRef}
             value={nameInput}
             onChange={(e) => setNameInput(e.target.value)}
             onBlur={handleSaveName}
@@ -2070,6 +2077,23 @@ function SqlDashboardPageContent({
     );
   }
 
+  if (
+    shouldShowDashboardLoadError({
+      dashboardId,
+      isError: dashboardQuery.isError,
+      loaded,
+      hasDashboard: !!dashboard,
+    })
+  ) {
+    return (
+      <ResourceLoadError
+        message={t("sidebar.dashboardsLoadFailed")}
+        retryLabel={t("sidebar.retry")}
+        onRetry={() => void dashboardQuery.refetch()}
+      />
+    );
+  }
+
   if (!loaded) {
     if (reportScreenshot) {
       return (
@@ -2140,6 +2164,7 @@ function SqlDashboardPageContent({
       {/* Description (click to edit) */}
       {editingDescription && canEdit ? (
         <Textarea
+          ref={descriptionInputRef}
           value={descriptionInput}
           onChange={(e) => setDescriptionInput(e.target.value)}
           onBlur={handleSaveDescription}

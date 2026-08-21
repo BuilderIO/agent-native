@@ -45,7 +45,16 @@ export function htmlSignatureToMarkdown(html: string): string {
     .replace(/<style[\s\S]*?<\/style>/gi, "");
 
   next = next.replace(/<br\s*\/?>/gi, "\n");
-  next = next.replace(/<img\b[^>]*>/gi, "");
+  const imageTokens: string[] = [];
+  next = next.replace(/<img\b[^>]*>/gi, (tag) => {
+    const src = safeUrl(attr(tag, "src"));
+    if (!src) return "";
+    const alt = cleanMarkdown(attr(tag, "alt") || attr(tag, "title") || "");
+    const image = `![${alt.replace(/]/g, "\\]")}](${normalizeMarkdownUrl(src)})`;
+    const token = `\uE100${imageTokens.length}\uE101`;
+    imageTokens.push(image);
+    return token;
+  });
   next = next.replace(
     /<a\b[^>]*href\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)[^>]*>([\s\S]*?)<\/a>/gi,
     (match, label) => {
@@ -69,5 +78,8 @@ export function htmlSignatureToMarkdown(html: string): string {
     )
     .replace(/<[^>]+>/g, "");
 
-  return cleanMarkdown(next);
+  return cleanMarkdown(next).replace(
+    /\uE100(\d+)\uE101/g,
+    (match, index: string) => imageTokens[Number(index)] ?? match,
+  );
 }

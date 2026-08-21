@@ -83,7 +83,142 @@ export default defineAction({
 
 이메일 전송, 카드 청구, 계정 삭제처럼 몇몇 action은 에이전트가 스스로 실행하기에는 결과가 너무 큽니다. `defineAction()`에 `needsApproval: true`(또는 술어 `(args, ctx) => boolean | Promise<boolean>`)를 설정하면 `run()` 전에 루프가 일시 정지되어, 사람이 그 특정 호출을 승인해야 합니다. 기본값은 **꺼짐**이며, 거의 모든 action은 이 상태를 유지해야 합니다.
 
-술어 API, `approval_required` 이벤트, 전체 흐름은 [Human-in-the-Loop 승인](/docs/human-approval)을 참고하세요.
+<Callout tone="warning">
+  승인은 드물게 유지하세요. 게이트가 걸린 action은 모두 에이전트 루프에서 완전히
+  멈추는 지점이 됩니다. 실행을 중단시키고 사람과의 왕복 확인을 요구합니다.
+  `needsApproval`은 진짜로 결과가 크고 되돌리기 어려우며 외부로 향하는 작업에만
+  사용하세요. 읽기나 일상적인 쓰기에 게이트를 걸고 있다면 잘못 사용하고 있는
+  것입니다. 기본값은 **꺼짐**이며, 거의 모든 action은 이 상태를 유지해야 합니다.
+</Callout>
+
+<AnnotatedCode
+  id="doc-block-13p4g9y"
+  title="결과가 큰 단 하나의 action에 게이트 걸기"
+  filename="actions/send-email.ts"
+  language="ts"
+  code={
+    'export default defineAction({\n  description: "Send an email via Gmail.",\n  schema: z.object({\n    to: z.string(),\n    subject: z.string(),\n    body: z.string(),\n  }),\n  // Sending is outward-facing and hard to undo, so the agent can never send\n  // without a human approving the specific call. Drafting and queueing are\n  // not affected. Only the real send is gated.\n  needsApproval: true,\n  run: async (args) => {\n    /* ...actually send... */\n  },\n});'
+  }
+  annotations={[
+    {
+      lines: "10",
+      label: "게이트 전체",
+      note: "플래그 하나뿐입니다. 이 값이 참이고 호출이 아직 승인되지 않았다면, 루프는 `run` 이전에 멈춥니다. 모델은 스스로 부작용에 도달할 수 없습니다.",
+    },
+    {
+      lines: "11-13",
+      label: "run()은 그대로입니다",
+      note: "핸들러는 그대로 유지됩니다. 승인은 `run` 내부의 무언가가 아니라 그것을 감싸는 루프에 의해 강제됩니다.",
+    },
+  ]}
+/>
+
+- **`needsApproval: true`** 는 항상 승인을 요구합니다.
+- **`needsApproval: (args, ctx) => boolean | Promise<boolean>`** 는 술어가 true를 반환할 때만 승인을 요구합니다. 예를 들어 외부 수신자에게만, 또는 특정 금액을 초과할 때만 조건부로 게이트를 걸고 싶을 때 사용하세요.
+
+  ```ts
+  needsApproval: (args) => !args.to.endsWith("@your-company.com"),
+  ```
+
+  술어는 순수하고 빠르게 유지하세요. 술어가 예외를 던지면 프레임워크는 그 호출을 술어가 true를 반환한 것과 동일하게 처리하므로, action은 실행되는 대신 승인 대기 상태로 멈춥니다. 즉 술어가 고장 나더라도, 사람이 먼저 승인하지 않는 한 결과가 큰 action이 조용히 실행되는 일은 결코 일어나지 않습니다.
+
+`needsApproval`을 생략하면 동작은 바이트 단위로 동일하게 유지됩니다. 일반적인 경로에는 추가 비용이 전혀 없습니다.
+
+이는 레거시 `parameters` 방식 action과 schema 기반 action에서 동일하게 동작합니다. 또한 앱 내 에이전트, 서브 에이전트, A2A, MCP 호출자에서도 동일하게 동작하는데, 모든 에이전트 표면이 같은 루프를 거치기 때문입니다.
+
+### 루프가 일시 정지되는 방식 {#loop}
+
+에이전트가 게이트가 걸린 action을 호출했는데 이 특정 호출이 아직 승인되지 **않았다면**, 루프는 `run()`을 실행하지 **않습니다**. 대신 다음을 수행합니다.
+
+1. 게이트를 판별합니다. 술어인 경우 루프가 `needsApproval(input, ctx)`를 호출합니다. 이 호출이 예외를 던지면 루프는 이를 `true` 결과와 동일하게 처리하므로, action은 승인을 요구하게 됩니다.
+2. `tool_start` 이벤트를 발생시켜 UI가 호출을 표시하게 한 뒤, 곧바로 **`approval_required`** 이벤트를 발생시키고 턴을 멈춥니다. action의 부작용은 결코 일어나지 않습니다.
+
+`approval_required` 이벤트는 클라이언트가 승인 UI를 렌더링하는 데 필요한 모든 것을 담고 있습니다.
+
+| 필드          | 타입     | 설명                                                                                 |
+| ------------- | -------- | ------------------------------------------------------------------------------------ |
+| `tool`        | `string` | 에이전트가 호출을 시도한 action의 이름입니다.                                        |
+| `input`       | object   | 에이전트가 전달한 인자입니다.                                                        |
+| `approvalKey` | `string` | 이 정확한 호출을 승인하기 위해 클라이언트가 그대로 돌려보내는 **안정적인 키**입니다. |
+| `toolCallId`  | `string` | 가능한 경우 모델 쪽 tool-call id입니다.                                              |
+
+`approvalKey`는 도구 이름과 입력값으로부터 결정적으로 파생되므로, 동일한 논리적 호출은 항상 동일한 키를 만들어냅니다. 모델은 이 키를 보거나 설정하지 않습니다. 이는 오직 프레임워크와 사람의 승인 UI 사이의 핸드셰이크로만 존재합니다.
+
+일시 정지된 도구는 턴이 일시 정지되었으니 재시도하지 말라고 모델에게 알리는 결과를 반환하므로, 모델이 무한히 반복하지 않습니다.
+
+### 사람이 승인하는 방식 {#approve}
+
+`approval_required`가 발생하면 채팅 UI는 일시 정지된 도구 호출에 **승인 / 거부** UI를 렌더링합니다. 이는 `AssistantChat`에 자동으로 연결되어 있습니다. 템플릿마다 직접 만들 필요가 없습니다.
+
+<WireframeBlock id="doc-block-humanapprovalwf1">
+  <Screen
+    surface="popover"
+    html={
+      "<div style='display:flex;flex-direction:column;box-sizing:border-box;padding:16px;gap:12px'><div class='wf-card' style='display:flex;flex-direction:column;gap:8px'><div style='display:flex;align-items:center;gap:8px'><span class='wf-pill warn'>Needs approval</span><strong>send-email</strong></div><div style='display:flex;flex-direction:column;gap:2px'><span class='wf-muted'>to: alex@acme.com</span><span class='wf-muted'>subject: Following up on the proposal</span></div><div style='display:flex;gap:8px'><button>Deny</button><button class='primary'>Approve</button></div></div></div>"
+    }
+  />
+</WireframeBlock>
+
+- **승인**은 호출의 키를 `approvedToolCalls: [approvalKey]`에 담은 일반적인 이어가기 메시지로 턴을 다시 발행합니다. 다시 발행된 턴에서 게이트는 승인된 집합 안에서 그 키를 확인하고, 그 특정 호출이 정상적으로 실행되도록 허용합니다.
+- **거부**는 로컬에서 UI를 닫습니다. 아무것도 다시 발행되지 않으므로 action은 결코 실행되지 않습니다.
+
+`approvedToolCalls`는 채팅 요청의 필드입니다(`AgentChatRequest.approvedToolCalls`). 여기에 없는 키는 일시 정지 상태로 남습니다. 하나의 호출을 승인해도 다른 어떤 호출도 승인되지 않습니다. 키가 내용 기반으로 주소가 매겨지므로, 승인은 정확히 그 인자를 가진 그 호출 하나만 허가합니다. 모델이 이후 다른 전송을 제안하면 이는 새로운 키가 되어 별도의 새 승인이 필요합니다.
+
+### 전체 흐름 {#flow}
+
+<Diagram id="doc-block-2nor1g" title="승인 인터럽트" summary={"게이트가 걸린 호출은 run()이 실행되기 전에 턴을 멈춥니다. 승인은 호출의 키를 담아 턴을 다시 발행합니다. 그때에야 비로소 부작용이 일어납니다."}>
+
+```html
+<div class="diagram-approve">
+  <div class="diagram-box" data-rough>에이전트가 send-email을 호출</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-panel warn" data-rough>
+    <strong>게이트가 참, 호출은 아직 승인되지 않음</strong
+    ><small class="diagram-muted"
+      >루프가 tool_start + approval_required { tool, input, approvalKey }를
+      발생시킴</small
+    ><span class="diagram-pill warn">run()이 아직 실행되지 않음</span>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-box" data-rough>
+    사람이 채팅에서 승인을 클릭<br /><small class="diagram-muted"
+      >클라이언트가 approvedToolCalls: [approvalKey]와 함께 턴을 다시
+      발행함</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-panel ok" data-rough>
+    <span class="diagram-pill ok"
+      >게이트가 키를 확인 &rarr; run()이 실행 &rarr; 이메일 전송</span
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-approve {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.diagram-approve .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+  padding: 12px 16px;
+  text-align: center;
+}
+.diagram-approve .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+Mail 템플릿의 `send-email` action은 프레임워크에서 이 게이트를 사용하는 대표적인 예시이며, 의도적으로 드물게 사용됩니다. 이 action은 `needsApproval: true`를 설정하여 에이전트가 이메일 초안 작성과 예약은 자유롭게 할 수 있게 하고, 사람이 그 특정 전송을 승인하지 않으면 실제로 메시지를 전송할 수 없도록 합니다.
 
 ## 역할로 호출자 제한하기 {#authorize}
 
@@ -220,7 +355,7 @@ export default defineAction({
 - [**개요**](/docs/actions-overview) — action이란 무엇인지와 hello-world 진행 과정
 - [**Actions 정의하기**](/docs/actions-defining) — `defineAction()`의 구조, schema, HTTP 설정
 - [**실행 컨텍스트**](/docs/actions-run-context) — 이 검사들이 읽는 `ctx` 인자
-- [**Human-in-the-Loop 승인**](/docs/human-approval) — `needsApproval` 게이트를 깊이 있게 다룸
+- [**Mail 템플릿**](/docs/template-mail) — `send-email`이 `needsApproval`의 참고 예시
 - [**감사 로그**](/docs/audit-log) — 자동으로 남는 누가-무엇을-바꿨는지 기록
 - [**보안**](/docs/security) — `accessFilter`/`assertAccess`와 확장 iframe 신뢰 경계
 - [**공유**](/docs/sharing) — 이 도우미들이 기대는 프레임워크 공유 시스템

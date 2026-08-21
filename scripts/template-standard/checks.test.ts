@@ -7,6 +7,14 @@ import {
   hasUnrenderedPlaceholder,
   packageScriptViolationMessage,
 } from "./checks.ts";
+import { isRetiredCompatibilityTemplate, listTemplates } from "./manifest.ts";
+
+describe("retired template compatibility packages", () => {
+  it("keeps retired host shims out of the live template standard", () => {
+    assert.equal(isRetiredCompatibilityTemplate("videos"), true);
+    assert.equal(listTemplates().includes("videos"), false);
+  });
+});
 
 describe("packageScriptViolationMessage", () => {
   it("flags a missing script", () => {

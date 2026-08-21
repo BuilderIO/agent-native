@@ -23,6 +23,7 @@ import {
   isReadableCalendar,
   type UpcomingMeeting,
 } from "@/lib/calendar-readiness";
+import { useMobileThemeColors } from "@/lib/mobile-colors";
 
 const LOOKAHEAD_DAYS = 30;
 
@@ -39,6 +40,7 @@ interface UpcomingMeetingCardProps {
 export default function UpcomingMeetingCard({
   onPrepare,
 }: UpcomingMeetingCardProps) {
+  const colors = useMobileThemeColors();
   const [state, setState] = useState<CalendarReadinessState>({
     status: "checking",
   });
@@ -125,14 +127,14 @@ export default function UpcomingMeetingCard({
             onPress={() => void loadUpcomingMeeting()}
             className="active:opacity-75"
           >
-            <IconRefresh color="#71717a" size={18} />
+            <IconRefresh color={colors.mutedForeground} size={18} />
           </Pressable>
         ) : null}
       </View>
 
       {state.status === "checking" ? (
         <View className="bg-card-dark border border-border-dark rounded-2xl mt-3 p-4 items-center flex-row gap-2.5 justify-center h-19">
-          <ActivityIndicator color="#8dd7ff" size="small" />
+          <ActivityIndicator color={colors.accentBlue} size="small" />
           <Text className="text-text-muted text-xs">
             Checking calendar access…
           </Text>
@@ -143,7 +145,11 @@ export default function UpcomingMeetingCard({
         <View className="bg-card-dark border border-border-dark rounded-2xl mt-3 p-4">
           <View className="items-center flex-row">
             <View className="items-center self-start bg-accent-blue rounded-xl h-10.5 justify-center w-10.5">
-              <IconCalendarEvent color="#0b0b0c" size={21} strokeWidth={1.9} />
+              <IconCalendarEvent
+                color={colors.primaryForeground}
+                size={21}
+                strokeWidth={1.9}
+              />
             </View>
             <View className="flex-1 ml-3">
               <Text className="text-text-bright text-base font-bold leading-5">
@@ -162,14 +168,21 @@ export default function UpcomingMeetingCard({
             className="items-center align-stretch bg-accent-blue rounded-xl flex-row gap-2 justify-center mt-4 h-10.5 px-3.5 active:opacity-70"
           >
             {connecting ? (
-              <ActivityIndicator color="#0b0b0c" size="small" />
+              <ActivityIndicator
+                color={colors.primaryForeground}
+                size="small"
+              />
             ) : (
-              <Text className="text-background-dark text-sm font-bold">
+              <Text className="text-primary-foreground text-sm font-bold">
                 {state.canAskAgain ? "Connect calendar" : "Open settings"}
               </Text>
             )}
             {!connecting ? (
-              <IconArrowRight color="#0b0b0c" size={18} strokeWidth={2.2} />
+              <IconArrowRight
+                color={colors.primaryForeground}
+                size={18}
+                strokeWidth={2.2}
+              />
             ) : null}
           </Pressable>
         </View>
@@ -178,7 +191,11 @@ export default function UpcomingMeetingCard({
       {state.status === "connected" && !state.meeting ? (
         <View className="bg-card-dark border border-border-dark rounded-2xl mt-3 p-4 items-center flex-row">
           <View className="items-center self-start bg-accent-blue rounded-xl h-10.5 justify-center w-10.5">
-            <IconCalendarEvent color="#0b0b0c" size={21} strokeWidth={1.9} />
+            <IconCalendarEvent
+              color={colors.primaryForeground}
+              size={21}
+              strokeWidth={1.9}
+            />
           </View>
           <View className="flex-1 ml-3">
             <Text className="text-text-bright text-base font-bold leading-5">
@@ -195,7 +212,11 @@ export default function UpcomingMeetingCard({
         <View className="bg-card-dark border border-border-dark rounded-2xl mt-3 p-4">
           <View className="items-center flex-row">
             <View className="items-center self-start bg-accent-blue rounded-xl h-10.5 justify-center w-10.5">
-              <IconCalendarEvent color="#0b0b0c" size={21} strokeWidth={1.9} />
+              <IconCalendarEvent
+                color={colors.primaryForeground}
+                size={21}
+                strokeWidth={1.9}
+              />
             </View>
             <View className="flex-1 ml-3">
               <Text
@@ -217,7 +238,7 @@ export default function UpcomingMeetingCard({
                 onPress={() => void openJoinLink(state.meeting!.joinUrl!)}
                 className="items-center bg-gray-charcoal rounded-xl flex-row gap-2 justify-center h-10.5 px-3.5 active:opacity-70"
               >
-                <IconExternalLink color="#d4d4d8" size={17} />
+                <IconExternalLink color={colors.foreground} size={17} />
                 <Text className="text-text-light text-sm font-bold">Join</Text>
               </Pressable>
             ) : null}
@@ -228,8 +249,12 @@ export default function UpcomingMeetingCard({
                 onPress={onPrepare}
                 className="items-center align-stretch bg-accent-blue rounded-xl flex-row gap-2 justify-center mt-0 h-10.5 px-3.5 flex-1 active:opacity-70"
               >
-                <IconMicrophone color="#0b0b0c" size={17} strokeWidth={2.1} />
-                <Text className="text-background-dark text-sm font-bold">
+                <IconMicrophone
+                  color={colors.primaryForeground}
+                  size={17}
+                  strokeWidth={2.1}
+                />
+                <Text className="text-primary-foreground text-sm font-bold">
                   Prepare recording
                 </Text>
               </Pressable>
@@ -251,7 +276,7 @@ export default function UpcomingMeetingCard({
             onPress={() => void loadUpcomingMeeting()}
             className="items-center bg-gray-charcoal rounded-xl flex-row gap-2 justify-center h-10.5 px-3.5 self-start mt-3.5 active:opacity-70"
           >
-            <IconRefresh color="#d4d4d8" size={17} />
+            <IconRefresh color={colors.foreground} size={17} />
             <Text className="text-text-light text-sm font-bold">Try again</Text>
           </Pressable>
         </View>

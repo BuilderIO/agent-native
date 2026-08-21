@@ -84,6 +84,8 @@ export interface IconButtonProps
   disabled?: boolean;
   type?: "button" | "submit" | "reset";
   onPress?: (event?: DesignSystemPressEvent) => void;
+  /** Native click interoperability for Radix `asChild` composition. */
+  onClick?: (event: ReactMouseEvent<HTMLButtonElement>) => void;
   elementRef?: Ref<HTMLButtonElement>;
 }
 

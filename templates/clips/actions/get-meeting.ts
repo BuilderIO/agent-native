@@ -17,9 +17,11 @@ interface Bullet {
   text: string;
 }
 interface ActionItem {
-  assigneeEmail?: string;
+  id?: string;
+  assigneeEmail?: string | null;
   text: string;
-  dueDate?: string;
+  dueDate?: string | null;
+  completedAt?: string | null;
 }
 
 /**
@@ -100,10 +102,16 @@ export default defineAction({
       .from(schema.meetingParticipants)
       .where(eq(schema.meetingParticipants.meetingId, meetingId));
 
-    const actionItems = await db
+    const actionItemRows = await db
       .select()
       .from(schema.meetingActionItems)
       .where(eq(schema.meetingActionItems.meetingId, meetingId));
+    // Older meetings may have action items only in the JSON column. Prefer
+    // the dedicated rows once present, but keep those legacy meetings
+    // editable instead of returning an empty action-item list.
+    const actionItems = actionItemRows.length
+      ? actionItemRows
+      : actionItemsParsed;
 
     let recording = null;
     let transcript = null;

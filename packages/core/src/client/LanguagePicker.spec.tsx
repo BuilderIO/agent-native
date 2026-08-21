@@ -67,9 +67,18 @@ describe("LanguagePicker", () => {
   let container: HTMLDivElement;
   let root: Root;
   let localStorageDescriptor: PropertyDescriptor | undefined;
+  let navigatorLanguagesDescriptor: PropertyDescriptor | undefined;
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    navigatorLanguagesDescriptor = Object.getOwnPropertyDescriptor(
+      window.navigator,
+      "languages",
+    );
+    Object.defineProperty(window.navigator, "languages", {
+      configurable: true,
+      value: ["en-US"],
+    });
     localStorageDescriptor = Object.getOwnPropertyDescriptor(
       window,
       "localStorage",
@@ -106,6 +115,15 @@ describe("LanguagePicker", () => {
     window.localStorage.clear();
     if (localStorageDescriptor) {
       Object.defineProperty(window, "localStorage", localStorageDescriptor);
+    }
+    if (navigatorLanguagesDescriptor) {
+      Object.defineProperty(
+        window.navigator,
+        "languages",
+        navigatorLanguagesDescriptor,
+      );
+    } else {
+      delete (window.navigator as { languages?: string[] }).languages;
     }
     vi.unstubAllGlobals();
   });
@@ -153,15 +171,15 @@ describe("LanguagePicker", () => {
     expect(trigger?.tagName).toBe("BUTTON");
     expect(trigger?.getAttribute("role")).not.toBe("combobox");
     expect(trigger?.getAttribute("aria-label")).toBe(
-      "Interface language: English (en-US)",
+      "Interface language: English",
     );
 
     await click(trigger!);
 
     expect(document.body.querySelector('[role="menu"]')).not.toBeNull();
     expect(document.body.textContent).toContain("System");
-    expect(document.body.textContent).toContain("Français (fr-FR)");
-    expect(document.body.textContent).toContain("العربية (ar-SA)");
+    expect(document.body.textContent).toContain("Français");
+    expect(document.body.textContent).toContain("العربية");
   });
 
   it("keeps the locale options in product order", async () => {
@@ -177,18 +195,52 @@ describe("LanguagePicker", () => {
 
     expect(optionLabels).toEqual([
       "System",
-      "English (en-US)",
-      "Español (es-ES)",
-      "Français (fr-FR)",
-      "Deutsch (de-DE)",
-      "Português (Brasil) (pt-BR)",
-      "简体中文 (zh-CN)",
-      "繁體中文 (zh-TW)",
-      "日本語 (ja-JP)",
-      "한국어 (ko-KR)",
-      "हिन्दी (hi-IN)",
-      "العربية (ar-SA)",
+      "English",
+      "Español",
+      "Français",
+      "Deutsch",
+      "Português",
+      "简体中文",
+      "繁體中文",
+      "日本語",
+      "한국어",
+      "हिन्दी",
+      "العربية",
     ]);
+  });
+
+  it("labels System using the browser locale instead of the active UI locale", async () => {
+    const languagesDescriptor = Object.getOwnPropertyDescriptor(
+      window.navigator,
+      "languages",
+    );
+    Object.defineProperty(window.navigator, "languages", {
+      configurable: true,
+      value: ["zh-CN"],
+    });
+
+    try {
+      await renderPicker();
+      await click(document.querySelector("[data-language-picker-trigger]")!);
+
+      const optionLabels = Array.from(
+        document.body.querySelectorAll<HTMLButtonElement>(
+          '[role="menuitemradio"]',
+        ),
+      ).map((button) => button.textContent?.trim());
+
+      expect(optionLabels[0]).toBe("系统");
+    } finally {
+      if (languagesDescriptor) {
+        Object.defineProperty(
+          window.navigator,
+          "languages",
+          languagesDescriptor,
+        );
+      } else {
+        delete (window.navigator as { languages?: string[] }).languages;
+      }
+    }
   });
 
   it("updates the shared locale preference from a popover row", async () => {
@@ -211,7 +263,34 @@ describe("LanguagePicker", () => {
       document
         .querySelector("[data-language-picker-trigger]")
         ?.getAttribute("aria-label"),
-    ).toBe("Interface language: Français (fr-FR)");
+    ).toBe("Interface language: Français");
+  });
+
+  it("resolves System from the browser after switching away from an explicit locale", async () => {
+    await renderPicker();
+
+    await click(document.querySelector("[data-language-picker-trigger]")!);
+    const chineseOption = Array.from(
+      document.body.querySelectorAll<HTMLButtonElement>(
+        '[role="menuitemradio"]',
+      ),
+    ).find((button) => button.textContent?.trim() === "简体中文");
+    expect(chineseOption).toBeTruthy();
+
+    await click(chineseOption!);
+    expect(document.documentElement.lang).toBe("zh-CN");
+
+    await click(document.querySelector("[data-language-picker-trigger]")!);
+    const systemOption = Array.from(
+      document.body.querySelectorAll<HTMLButtonElement>(
+        '[role="menuitemradio"]',
+      ),
+    ).find((button) => button.textContent?.trim() === "System");
+    expect(systemOption).toBeTruthy();
+
+    await click(systemOption!);
+    expect(document.documentElement.lang).toBe("en-US");
+    expect(window.localStorage.getItem(LOCALE_STORAGE_KEY)).toBe("system");
   });
 
   it("shares locale context across duplicate optimized module instances", async () => {
@@ -237,7 +316,7 @@ describe("LanguagePicker", () => {
       document
         .querySelector("[data-language-picker-trigger]")
         ?.getAttribute("aria-label"),
-    ).toBe("Interface language: English (en-US)");
+    ).toBe("Interface language: English");
   });
 
   it("only lists locales the app catalog declares support for", async () => {
@@ -266,12 +345,7 @@ describe("LanguagePicker", () => {
       ),
     ).map((button) => button.textContent?.trim());
 
-    expect(optionLabels).toEqual([
-      "System",
-      "English (en-US)",
-      "Español (es-ES)",
-      "Français (fr-FR)",
-    ]);
+    expect(optionLabels).toEqual(["System", "English", "Español", "Français"]);
   });
 
   it("routes the select variant through a registered picker adapter", async () => {

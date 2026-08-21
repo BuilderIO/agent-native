@@ -48,16 +48,20 @@ describe("classifyDesktopAsset", () => {
   });
 });
 
-function release(tag: string, publishedAt: string) {
+function release(
+  tag: string,
+  publishedAt: string,
+  options: { assetName?: string; prerelease?: boolean } = {},
+) {
   return {
     tag_name: tag,
     name: tag,
     published_at: publishedAt,
     draft: false,
-    prerelease: false,
+    prerelease: options.prerelease ?? false,
     assets: [
       {
-        name: "Agent-Native-arm64.dmg",
+        name: options.assetName ?? "Agent-Native-arm64.dmg",
         browser_download_url: `https://example.com/${tag}.dmg`,
         size: 123,
       },
@@ -126,6 +130,30 @@ describe("getDesktopDownloadManifest", () => {
     });
   });
 
+  it("keeps Nightly releases out of production and serves them separately", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse([
+          release("v2.0.0-nightly.4", "2026-01-02T00:00:00Z", {
+            assetName: "Agent Native Nightly-arm64.dmg",
+            prerelease: true,
+          }),
+          release("v1.0.0", "2026-01-01T00:00:00Z"),
+        ]),
+      ),
+    );
+
+    await expect(getDesktopDownloadManifest()).resolves.toMatchObject({
+      version: "1.0.0",
+      tag: "v1.0.0",
+    });
+    await expect(getDesktopDownloadManifest("nightly")).resolves.toMatchObject({
+      version: "2.0.0-nightly.4",
+      tag: "v2.0.0-nightly.4",
+    });
+  });
+
   it("does not walk older release pages after finding a desktop release", async () => {
     const fetchMock = vi
       .fn()
@@ -140,6 +168,24 @@ describe("getDesktopDownloadManifest", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls[0]?.[0]).toContain("page=1");
+  });
+
+  it("bounds the fallback scan at GitHub's supported release pages", async () => {
+    const fetchMock = vi.fn(async (input: unknown) => {
+      const page = Number(new URL(String(input)).searchParams.get("page"));
+      return jsonResponse(
+        Array.from({ length: 100 }, (_, index) =>
+          release(`unrelated-${page}-${index}`, "2026-01-01T00:00:00Z"),
+        ),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getDesktopDownloadManifest()).rejects.toMatchObject({
+      statusCode: 404,
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(10);
   });
 
   it("exposes durable stale-while-revalidate headers for the public endpoint", () => {

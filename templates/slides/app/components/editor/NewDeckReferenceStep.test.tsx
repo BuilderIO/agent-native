@@ -282,4 +282,21 @@ describe("<NewDeckReferenceStep>", () => {
       screen.getByRole("combobox", { name: "Reference deck" }).textContent,
     ).toContain("Last used deck");
   });
+
+  it("lists files attached to the prompt so the upload is visibly kept", () => {
+    renderStep({
+      promptSummary: "Some prompt",
+      promptFiles: [
+        {
+          path: "uploads/article-setup.pdf",
+          originalName: "Article Setup Requirements.pdf",
+          filename: "article-setup.pdf",
+          type: "application/pdf",
+          size: 1024,
+        },
+      ],
+    });
+
+    expect(screen.getByText("Article Setup Requirements.pdf")).toBeTruthy();
+  });
 });

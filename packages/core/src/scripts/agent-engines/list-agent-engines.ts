@@ -16,6 +16,7 @@ import {
   resolveEnginePreservesCustomModels,
 } from "../../agent/engine/index.js";
 import type { ActionTool } from "../../agent/types.js";
+import { getAppConfig } from "../../app-config/index.js";
 import { getSetting } from "../../settings/index.js";
 
 export const tool: ActionTool = {
@@ -58,8 +59,9 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
     !!appDefaultEntry &&
     (await isStoredEngineUsableForRequest(appDefault, appDefaultEntry));
   const detectedFromUser = await detectEngineFromUserSecrets();
-  const envEntry = process.env.AGENT_ENGINE
-    ? getAgentEngineEntry(process.env.AGENT_ENGINE)
+  const configuredEngine = getAppConfig().agent.engine;
+  const envEntry = configuredEngine
+    ? getAgentEngineEntry(configuredEngine)
     : undefined;
   const envUsable =
     !!envEntry &&

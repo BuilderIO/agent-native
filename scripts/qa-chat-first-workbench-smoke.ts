@@ -581,7 +581,7 @@ async function electronSnapshot(
       ".code-agents-standard-composer",
     );
     return {
-      hub: document.querySelectorAll(".desktop-chat-first-hub--enabled").length,
+      hub: document.querySelectorAll(".desktop-chat-first-hub").length,
       rail: rail && getComputedStyle(rail).display !== "none" ? 1 : 0,
       panel: document.querySelectorAll("[data-chat-first-surface-panel]")
         .length,
@@ -643,7 +643,14 @@ async function openElectronAgentSurface(page: Page): Promise<void> {
 async function installElectronAppCreationSmokeMock(
   electronApp: ElectronApplication,
 ): Promise<void> {
-  const apps = ["content", "design", "mail", "calendar", "clips"].map((id) => ({
+  const apps = [
+    "mail",
+    "calendar",
+    "design",
+    "clips",
+    "content",
+    "analytics",
+  ].map((id) => ({
     id,
     name: id[0].toUpperCase() + id.slice(1),
     icon: "Code",
@@ -801,50 +808,33 @@ async function runElectronSmoke(): Promise<void> {
     await page.waitForLoadState("domcontentloaded");
     await page.waitForTimeout(5_000);
 
-    await page.evaluate(async () => {
-      await window.electronAPI.frame.update({ chatFirstMode: false });
-      location.reload();
-    });
-    await page.waitForTimeout(5_000);
-
-    await openElectronAgentSurface(page);
-    const off = await electronSnapshot(
-      page,
-      "electron-01-chat-first-off",
-      electronApp,
-    );
-    assert.equal(off.hub, 0, "Electron legacy Agent shell must stay unchanged");
-    assert.equal(
-      off.rail,
-      0,
-      "Electron chat-first rail must be absent when off",
-    );
-    assert.equal(
-      off.toggle,
-      0,
-      "Electron chat-first toggle must be absent when off",
-    );
-
-    await page.evaluate(async (dispatchUrl) => {
-      if (dispatchUrl) {
+    if (electronDispatchUrl) {
+      await page.evaluate(async (dispatchUrl) => {
         await window.electronAPI.appConfig.update("dispatch", {
           mode: "prod",
           url: dispatchUrl,
         });
-      }
-      await window.electronAPI.frame.update({ chatFirstMode: true });
-      location.reload();
-    }, electronDispatchUrl);
-    await page.waitForTimeout(5_000);
+        location.reload();
+      }, electronDispatchUrl);
+      await page.waitForTimeout(5_000);
+    }
     await openElectronAgentSurface(page);
 
     const empty = await electronSnapshot(
       page,
-      "electron-02-chat-first-no-tabs",
+      "electron-01-chat-first-no-tabs",
       electronApp,
     );
-    assert.equal(empty.hub, 1, "Electron chat-first hub should be enabled");
-    assert.equal(empty.rail, 1, "Electron chat-first rail should be visible");
+    assert.equal(
+      empty.hub,
+      1,
+      "Electron chat-first hub should always be present",
+    );
+    assert.equal(
+      empty.rail,
+      1,
+      "Electron chat-first rail should always be visible",
+    );
     assert.equal(empty.panel, 0, "Electron no-tab state must hide the panel");
     assert.equal(
       empty.launcher,
@@ -877,15 +867,44 @@ async function runElectronSmoke(): Promise<void> {
         elements.map((element) => element.getAttribute("data-app-id")),
       );
     assert.deepEqual(
-      defaultAppIds.slice(0, 5),
-      ["content", "design", "mail", "calendar", "clips"],
-      "Electron first-run apps should use the shared default order",
+      defaultAppIds.slice(0, 6),
+      ["mail", "calendar", "design", "clips", "content", "analytics"],
+      "Electron first-run apps should use the desktop default order",
+    );
+    const newChatAppIds = await page
+      .locator(".code-agents-overview-footer .desktop-apps-grid [data-app-id]")
+      .evaluateAll((elements) =>
+        elements.map((element) => element.getAttribute("data-app-id")),
+      );
+    assert.deepEqual(
+      newChatAppIds.slice(0, 6),
+      ["mail", "calendar", "design", "clips", "content", "analytics"],
+      "Electron New chat app list should use the desktop default order",
     );
     assert.equal(
       await page.getByRole("button", { name: "Show more" }).count(),
       1,
       "Electron app rail should progressively disclose the remaining apps",
     );
+    await page.locator("[data-chat-first-all-apps]").click();
+    await page
+      .locator(".desktop-apps-grid--full-page")
+      .waitFor({ state: "visible", timeout: 15_000 });
+    const allAppsIds = await page
+      .locator(".desktop-apps-grid--full-page [data-app-id]")
+      .evaluateAll((elements) =>
+        elements.map((element) => element.getAttribute("data-app-id")),
+      );
+    assert.deepEqual(
+      allAppsIds.slice(0, 6),
+      ["mail", "calendar", "design", "clips", "content", "analytics"],
+      "Electron All apps view should use the desktop default order",
+    );
+    await page.getByRole("button", { name: "Back to chats" }).click();
+    await page.locator(".desktop-apps-grid--full-page").waitFor({
+      state: "detached",
+      timeout: 15_000,
+    });
     assert.equal(
       await page.locator("[data-chat-first-main-chat]").count(),
       0,
@@ -897,7 +916,7 @@ async function runElectronSmoke(): Promise<void> {
       "The empty chat-first center should not show a workbench before a chat is selected",
     );
     const topNavColors = await page
-      .locator(".code-agents-nav-list > button")
+      .locator(".code-agents-rail-scroll .code-agents-nav-link")
       .evaluateAll((buttons) =>
         buttons.map((button) => getComputedStyle(button).color),
       );
@@ -1115,7 +1134,7 @@ async function runElectronSmoke(): Promise<void> {
 
     await page.getByRole("button", { name: "Show less" }).click();
     const chatFirstNav = await page
-      .locator(".code-agents-nav-list")
+      .locator(".code-agents-rail-scroll")
       .innerText();
     assert.doesNotMatch(chatFirstNav, /Agent chat|Code work/);
     assert.doesNotMatch(chatFirstNav, /Mobile|Computer access/);

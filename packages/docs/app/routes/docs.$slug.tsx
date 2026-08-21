@@ -1,3 +1,4 @@
+import { withSsrHtmlContentType } from "@agent-native/core/shared";
 import { redirect, useLoaderData, type LoaderFunctionArgs } from "react-router";
 
 import DocContent from "../components/DocContent";
@@ -19,12 +20,16 @@ import { withDefaultSocialImage, withDocsSocialImage } from "../seo";
 export async function loader({ params }: LoaderFunctionArgs) {
   const slug = params.slug!;
   if (isDocsLocale(slug)) {
-    throw redirect(docsPathForSlug("getting-started", slug), 302);
+    throw withSsrHtmlContentType(
+      redirect(docsPathForSlug("getting-started", slug), 302),
+    );
   }
 
   const target = DOCS_SLUG_REDIRECTS[slug];
   if (target) {
-    throw redirect(docsPathForSlug(target, DEFAULT_DOCS_LOCALE), 301);
+    throw withSsrHtmlContentType(
+      redirect(docsPathForSlug(target, DEFAULT_DOCS_LOCALE), 301),
+    );
   }
   const doc = await loadDocRespectingDraftVisibility(slug);
   if (!doc) {

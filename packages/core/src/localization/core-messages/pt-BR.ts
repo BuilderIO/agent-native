@@ -28,6 +28,12 @@ const messages: AgentChatTranslation = {
   "commands.mention": "Mencionar arquivos, agentes ou recursos",
   "commands.new": "O mesmo que /clear",
   "commands.plan": "Mudar para o planejamento somente leitura",
+  "aboutAgentNative.title": "Sobre o Agent Native",
+  "aboutAgentNative.version": "Versão",
+  "aboutAgentNative.environment": "Ambiente",
+  "aboutAgentNative.build": "Build",
+  "aboutAgentNative.copyDiagnostics": "Copiar diagnósticos",
+  "aboutAgentNative.unknown": "Desconhecida",
   "common.agent": "Agente",
   "common.cancel": "Cancelar",
   "common.collapse": "Recolher",
@@ -105,6 +111,8 @@ const messages: AgentChatTranslation = {
   "message.restoreFailed": "Falha ao restaurar ({{status}}).",
   "message.restoreQuestion": "Restaurar até aqui?",
   "message.restoreRequestFailed": "Falha na solicitação de restauração.",
+  "message.threadNotFound":
+    "Esta conversa não está mais disponível. Inicie uma nova conversa ou tente novamente se isso for inesperado.",
   "message.restoring": "Restaurando...",
   "message.revertHere": "Reverter até aqui",
   "message.sentAt": "Enviado às {{time}}",
@@ -455,6 +463,8 @@ const messages: AgentChatTranslation = {
   "errorMessages.builderModelUnauthorized":
     "O provedor por trás deste modelo rejeitou a solicitação. Escolha um modelo diferente e tente novamente.",
   "errorMessages.errorPrefix": "Erro: {{message}}",
+  "errorMessages.gatewayInternalError":
+    "O gateway do modelo teve um erro interno antes de o agente poder responder. Tente novamente em instantes e informe o id de erro abaixo se continuar acontecendo.",
   "errorMessages.gatewayNoDetails":
     "O gateway do modelo não retornou detalhes do erro, e o chat não pôde ser recuperado. Aguarde um momento e tente novamente. Se o problema persistir, inicie um novo chat.",
   "errorMessages.inactivityTimeout":
@@ -477,10 +487,14 @@ const messages: AgentChatTranslation = {
   "errorMessages.startNewChat": "Iniciar novo chat",
   "errorMessages.upgradeAtBuilder": "Fazer upgrade no Builder.io",
   "feedback.inaccurate": "Impreciso",
+  "feedback.keyboardHint": "{{shortcut}} Enter para enviar",
   "feedback.notHelpful": "Pouco útil",
+  "feedback.placeholder": "Conte-nos o que deu errado...",
+  "feedback.submit": "Enviar",
   "feedback.thumbsDown": "Não gostei",
   "feedback.thumbsUp": "Gostei",
   "feedback.tooSlow": "Muito lento",
+  "feedback.whatWentWrong": "O que deu errado?",
   "feedback.wrongTool": "Ferramenta errada",
   "contextMeter.ariaLabel":
     "Contexto {{percent}}%, {{totalTokens}}{{breakdown}}. Abrir a análise de contexto.",
@@ -598,6 +612,7 @@ const messages: AgentChatTranslation = {
   "share.unknownPerson": "Pessoa desconhecida",
   "share.viewer": "Visualizador",
   "share.viewerDescription": "Pode visualizar",
+  "share.userGroup": "Grupo de usuários",
 };
 
 export default messages;

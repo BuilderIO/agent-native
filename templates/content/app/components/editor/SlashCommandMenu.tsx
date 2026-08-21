@@ -439,16 +439,17 @@ const commands: CommandTemplate[] = [
     descriptionKey: "editor.slash.toggleDescription",
     shortcut: ">",
     icon: IconChevronRight,
-    action: (editor) => {
-      editor
-        .chain()
-        .focus()
-        .insertContent({
-          type: "notionToggle",
-          attrs: { summary: "", open: true },
-          content: [{ type: "paragraph" }],
-        })
-        .run();
+    preserveSlashRange: true,
+    action: (editor, { slashRange }) => {
+      const toggle = {
+        type: "notionToggle",
+        attrs: { summary: "", open: true },
+      };
+      if (slashRange) {
+        editor.chain().focus().insertContentAt(slashRange, toggle).run();
+      } else {
+        editor.chain().focus().insertContent(toggle).run();
+      }
       focusMostRecentEmptyToggleSummary(editor);
     },
   },
@@ -553,7 +554,6 @@ const turnIntoCommands: CommandTemplate[] = [
         .insertContent({
           type: "notionToggle",
           attrs: { summary: text, open: true },
-          content: [{ type: "paragraph" }],
         })
         .run();
       if (!text) focusMostRecentEmptyToggleSummary(editor);

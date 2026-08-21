@@ -1,5 +1,7 @@
 import type { CalendarEvent, UpdateEventScope } from "@shared/api";
 
+import { eventOverlapsCalendarDay } from "@/lib/calendar-timezone";
+
 export type WorkingLocationKind =
   | "homeOffice"
   | "officeLocation"
@@ -64,14 +66,12 @@ export function getWorkingLocationLabel(
       properties.officeLocation?.label ||
       properties.officeLocation?.buildingId ||
       event.location ||
-      event.title ||
       labels.office
     );
   }
   return (
     properties?.customLocation?.label ||
     event.location ||
-    event.title ||
     labels.workingLocation
   );
 }
@@ -145,6 +145,38 @@ export function getWorkingLocationTitle(
   return isWorkingLocationEvent(event)
     ? labels.title(getWorkingLocationLabel(event, labels))
     : event.title;
+}
+
+export function isWorkingLocationDraftReadyToCreate(
+  event: Pick<
+    CalendarEvent,
+    "eventType" | "location" | "workingLocationProperties"
+  >,
+): boolean {
+  if (!isWorkingLocationEvent(event)) return true;
+  if (getWorkingLocationType(event) !== "customLocation") return true;
+  return getWorkingLocationEditableLabel(event).trim().length > 0;
+}
+
+export function findOwnedWorkingLocationForDay(
+  events: readonly CalendarEvent[],
+  day: Date,
+  timezone: string,
+  accountEmail?: string,
+): CalendarEvent | undefined {
+  const matches = events.filter((event) => {
+    if (!isWorkingLocationEvent(event)) return false;
+    if (event.overlayEmail) return false;
+    if (
+      accountEmail &&
+      event.accountEmail &&
+      event.accountEmail !== accountEmail
+    ) {
+      return false;
+    }
+    return eventOverlapsCalendarDay(event, day, timezone);
+  });
+  return matches.find((event) => event.source === "google") ?? matches[0];
 }
 
 export function getWorkingLocationDetail(

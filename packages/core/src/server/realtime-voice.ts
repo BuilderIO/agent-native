@@ -22,8 +22,9 @@ import { TOOL_SEARCH_ACTION_NAME } from "../agent/tool-search.js";
 import { parseAcceptLanguage } from "../localization/server.js";
 import { getSession } from "./auth.js";
 import {
+  gatewayLaneUnavailableMessage,
   getBuilderGatewayBaseUrl,
-  resolveBuilderCredentials,
+  resolveBuilderGatewayCredentials,
   resolveSecret,
 } from "./credential-provider.js";
 import { getH3App } from "./framework-request-handler.js";
@@ -53,7 +54,7 @@ const OPENAI_REALTIME_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
 const DEFAULT_MODEL = "gpt-realtime-2.1";
 const DEFAULT_VOICE = "marin";
 const DEFAULT_INSTRUCTIONS =
-  "You are the live voice interface for this Agent Native app. Speak naturally, briefly, and conversationally. Use the available function tools when the user asks you to navigate or take an action. Never claim an action succeeded until its tool result confirms success. If a tool requires approval, explain that the user must approve it in chat.";
+  "You are the live voice interface for this Agent Native app. Speak naturally, briefly, and conversationally. Use the available function tools when the user asks you to navigate or take an action. When the user asks about a previous conversation, saved chat details, or something they told you before, search with the `chat-history` tool before saying you cannot access it. Summarize a matching result and open a thread only when the user asks. If the user repeats a request, acknowledge the prior attempt and finish or correct the missing part instead of restarting from scratch or asking the same clarification again. Never claim an action succeeded until its tool result confirms success. If a tool requires approval, explain that the user must approve it in chat.";
 const MAX_INSTRUCTIONS_CHARS = 16_000;
 const MAX_TOOL_DESCRIPTION_CHARS = 2_000;
 const MAX_APPROVAL_KEY_CHARS = 1_024;
@@ -90,6 +91,7 @@ const REALTIME_VOICE_PRIORITY_TOOLS = [
   "set-url-path",
   "set-search-params",
   "view-screen",
+  "chat-history",
   TOOL_SEARCH_ACTION_NAME,
 ] as const;
 
@@ -576,7 +578,7 @@ function createSessionHandler(
           : undefined,
       },
       async () => {
-        const builderCredentials = await resolveBuilderCredentials();
+        const builderCredentials = await resolveBuilderGatewayCredentials();
         const builderConfigured = Boolean(
           builderCredentials.privateKey?.trim() &&
           builderCredentials.publicKey?.trim(),
@@ -587,8 +589,9 @@ function createSessionHandler(
         if (!builderConfigured && !apiKey) {
           setResponseStatus(event, 409);
           return {
-            error:
+            error: gatewayLaneUnavailableMessage(
               "Connect Builder (free tier available) or configure an OpenAI API key to use realtime voice.",
+            ),
             code: "realtime_voice_setup_required",
           };
         }
@@ -682,7 +685,9 @@ function createSessionHandler(
           setResponseStatus(event, 502);
           return {
             error: builderConfigured
-              ? "Could not reach the Builder realtime voice gateway"
+              ? gatewayLaneUnavailableMessage(
+                  "Could not reach the Builder realtime voice gateway",
+                )
               : "Could not reach the OpenAI Realtime API",
           };
         }
@@ -693,16 +698,22 @@ function createSessionHandler(
             builderConfigured ? builderCredentials.privateKey! : apiKey!,
           );
           setResponseStatus(event, builderConfigured ? upstream.status : 502);
+          const rejection = `${builderConfigured ? "Builder" : "OpenAI"} rejected the realtime session (${upstream.status})${detail ? `: ${detail}` : ""}`;
           return {
-            error: `${builderConfigured ? "Builder" : "OpenAI"} rejected the realtime session (${upstream.status})${detail ? `: ${detail}` : ""}`,
+            error: builderConfigured
+              ? gatewayLaneUnavailableMessage(rejection)
+              : rejection,
           };
         }
 
         const answerSdp = await upstream.text().catch(() => "");
         if (!answerSdp.trim()) {
           setResponseStatus(event, 502);
+          const emptyAnswer = `${builderConfigured ? "Builder" : "OpenAI"} returned an empty realtime session answer`;
           return {
-            error: `${builderConfigured ? "Builder" : "OpenAI"} returned an empty realtime session answer`,
+            error: builderConfigured
+              ? gatewayLaneUnavailableMessage(emptyAnswer)
+              : emptyAnswer,
           };
         }
 

@@ -132,4 +132,53 @@ export const ORG_MIGRATIONS = [
     version: 1014,
     sql: `ALTER TABLE organizations ADD COLUMN IF NOT EXISTS required_auth_provider TEXT`,
   },
+  {
+    version: 1015,
+    sql: `CREATE TABLE IF NOT EXISTS workspace_apps (
+      id TEXT PRIMARY KEY,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      visibility TEXT NOT NULL DEFAULT 'org',
+      name TEXT NOT NULL,
+      description TEXT,
+      path TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )`,
+  },
+  {
+    version: 1016,
+    sql: `CREATE TABLE IF NOT EXISTS workspace_app_shares (
+      id TEXT PRIMARY KEY,
+      resource_id TEXT NOT NULL,
+      principal_type TEXT NOT NULL,
+      principal_id TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'viewer',
+      created_at TEXT NOT NULL,
+      created_by TEXT NOT NULL DEFAULT '',
+      UNIQUE(resource_id, principal_type, principal_id)
+    )`,
+  },
+  {
+    version: 1017,
+    name: "workspace-app-access-indexes",
+    sql: `CREATE INDEX IF NOT EXISTS workspace_apps_org_visibility_idx
+          ON workspace_apps (org_id, visibility)`,
+  },
+  {
+    // Legacy manifest discovery has no trusted creator and no explicit share
+    // provenance. Restore organization visibility only for that population;
+    // owned or explicitly shared private apps remain private.
+    version: 1018,
+    name: "workspace-apps-restore-ownerless-legacy-visibility",
+    sql: `UPDATE workspace_apps
+          SET visibility = 'org'
+          WHERE visibility = 'private'
+            AND TRIM(owner_email) = ''
+            AND NOT EXISTS (
+              SELECT 1
+              FROM workspace_app_shares
+              WHERE workspace_app_shares.resource_id = workspace_apps.id
+            )`,
+  },
 ];

@@ -17,6 +17,8 @@ import {
 
 import { buildMarkdownResponseHeaders } from "../../../core/src/agent-web/index";
 import { wrapDocumentResponse } from "../../lib/analytics";
+import { applyDocsSsrCacheKeyHeaders } from "../../lib/ssr-cache";
+import { fetchMarkdownMirror } from "../lib/markdown-mirror";
 
 const SITE_URL = "https://www.agent-native.com";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -66,9 +68,9 @@ export default async function docsPageHandler(event: H3Event) {
 
 function setSsrCacheHeaders(event: H3Event) {
   // Keep docs-only public text/markdown assets on the same framework SSR cache
-  // policy as HTML and React Router .data. Do not move these back to
-  // netlify.toml: core owns the browser/CDN/Netlify durable header set so every
-  // provider and template gets the same long-fresh/long-SWR edge behavior.
+  // policy as HTML and React Router .data. Core owns the headers for function
+  // responses; prerendered HTML is served statically and is covered by the
+  // matching public SWR rules generated into the Netlify publish directory.
   for (const [name, value] of Object.entries(resolveSsrCacheHeaders())) {
     setHeader(event, name, value);
   }
@@ -100,9 +102,10 @@ function appendVary(headers: Headers, value: string) {
       headers.set("vary", `${existing}, ${value}`);
     }
   }
-  for (const [k, v] of Object.entries(resolveSsrCacheKeyHeaders())) {
-    headers.set(k, v);
-  }
+  // Core has already promoted query-preserving HTML redirects to a full
+  // query cache key. Keep that stronger key when adding Docs' Accept variant;
+  // replacing it here would collapse distinct redirect targets again.
+  applyDocsSsrCacheKeyHeaders(headers);
 }
 
 function readAgentWebAssetForRequest(
@@ -160,17 +163,10 @@ async function readMarkdownContent(
   const absolutePath = findPublicFile(relativePath);
   if (absolutePath) return fs.readFileSync(absolutePath, "utf8");
 
-  // Netlify publishes markdown mirrors as static files, but does not mount the
-  // publish directory beside every serverless function. Read the same mirror
-  // when the function bundle cannot see the local build output.
-  const staticUrl = new URL(`/${relativePath}`, getRequestURL(event));
-  const response = await fetch(staticUrl, {
-    headers: { accept: "text/markdown" },
-  });
-  if (!response.ok) return undefined;
-  const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
-  if (!contentType.includes("text/markdown")) return undefined;
-  return response.text();
+  const mirror = await fetchMarkdownMirror(relativePath, event);
+  if (mirror.kind === "found") return mirror.content;
+  if (mirror.kind === "absent") return undefined;
+  throw createError({ statusCode: 502, statusMessage: mirror.reason });
 }
 
 function markdownRelativePathForRequest(

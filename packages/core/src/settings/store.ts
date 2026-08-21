@@ -70,7 +70,7 @@ function settingsTable(): string {
   return isPostgres() ? "public.settings" : "settings";
 }
 
-async function ensureTable(): Promise<void> {
+export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
       const client = getDbExec();
@@ -134,11 +134,17 @@ async function ensureTable(): Promise<void> {
   return _initPromise;
 }
 
+export interface StoreReadOptions {
+  /** Skip the per-request snapshot when a cross-request race must be checked. */
+  bypassCache?: boolean;
+}
+
 export async function getSetting(
   key: string,
+  options?: StoreReadOptions,
 ): Promise<Record<string, unknown> | null> {
   const cache = requestSettingsCache();
-  if (cache?.has(key)) {
+  if (!options?.bypassCache && cache?.has(key)) {
     const cached = cache.get(key);
     return cached == null ? null : JSON.parse(cached);
   }
@@ -150,7 +156,7 @@ export async function getSetting(
     args: [key],
   });
   const raw = rows.length === 0 ? null : (rows[0].value as string);
-  cache?.set(key, raw);
+  if (!options?.bypassCache) cache?.set(key, raw);
   return raw == null ? null : JSON.parse(raw);
 }
 
@@ -266,6 +272,32 @@ export async function deleteSetting(
   return false;
 }
 
+/** Delete a setting only when its stored value still matches the inspected value. */
+export async function deleteSettingIfValue(
+  key: string,
+  expected: Record<string, unknown>,
+  options?: StoreWriteOptions,
+): Promise<boolean> {
+  await ensureTable();
+  const client = getDbExec();
+  const table = settingsTable();
+  const result = await client.execute({
+    sql: `DELETE FROM ${table} WHERE key = ? AND value = ?`,
+    args: [key, JSON.stringify(expected)],
+  });
+  if (result.rowsAffected === 0) return false;
+
+  requestSettingsCache()?.set(key, null);
+  invalidateRequestAllSettings();
+  settingsEmitter().emit("settings", {
+    source: "settings",
+    type: "delete",
+    key,
+    ...(options?.requestSource && { requestSource: options.requestSource }),
+  });
+  return true;
+}
+
 /**
  * Delete every setting whose key starts with `prefix`. Returns the number of
  * rows removed. Used when an owning entity is deleted (e.g. an organization
@@ -294,6 +326,28 @@ export async function deleteSettingsByPrefix(
     });
   }
   return result.rowsAffected;
+}
+
+/**
+ * Read every setting whose key starts with `prefix`. Callers that only need
+ * one namespace must not use {@link getAllSettings} — that loads the whole
+ * table.
+ */
+export async function listSettingsByPrefix(
+  prefix: string,
+): Promise<Array<{ key: string; value: Record<string, unknown> }>> {
+  await ensureTable();
+  const client = getDbExec();
+  const table = settingsTable();
+  const escaped = prefix.replace(/[!%_]/g, (c) => `!${c}`);
+  const { rows } = await client.execute({
+    sql: `SELECT key, value FROM ${table} WHERE key LIKE ? ESCAPE '!'`,
+    args: [`${escaped}%`],
+  });
+  return rows.map((row) => ({
+    key: String(row.key),
+    value: JSON.parse(String(row.value)) as Record<string, unknown>,
+  }));
 }
 
 export async function getAllSettings(): Promise<

@@ -76,6 +76,11 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   }),
   useSession: () => ({ session: null, isLoading: false }),
   useAvatarUrl: () => null,
+  useChangeVersion: () => 0,
+  useChangeVersions: () => 0,
+  getBrowserTabId: () => "tab-1",
+  readClientAppState: async () => null,
+  setClientAppState: async () => undefined,
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({

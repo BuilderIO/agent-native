@@ -1,4 +1,5 @@
 import type { UseDesignHotkeysProps } from "@/hooks/useDesignHotkeys";
+import { SHOW_DESIGN_SECONDARY_LEFT_PANELS } from "@/pages/design-editor/types";
 
 export const DESIGN_SHORTCUT_CATEGORIES = [
   "essential",
@@ -136,13 +137,18 @@ export const DESIGN_SHORTCUTS: readonly DesignShortcutDefinition[] = [
     labelKey: "designEditor.keyboardShortcuts.commands.showLayers",
     handler: "onShowLayersPanel",
   }),
-  shortcut({
-    id: "show-assets",
-    category: "view",
-    bindings: ["alt+2"],
-    labelKey: "designEditor.keyboardShortcuts.commands.showAssets",
-    handler: "onShowAssetsPanel",
-  }),
+  ...(SHOW_DESIGN_SECONDARY_LEFT_PANELS
+    ? [
+        shortcut({
+          id: "show-assets",
+          category: "view" as const,
+          bindings: ["alt+2"],
+          labelKey:
+            "designEditor.keyboardShortcuts.commands.showAssets" as const,
+          handler: "onShowAssetsPanel" as const,
+        }),
+      ]
+    : []),
   shortcut({
     id: "toggle-ui",
     category: "view",

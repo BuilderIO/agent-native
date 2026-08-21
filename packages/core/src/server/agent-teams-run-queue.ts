@@ -84,7 +84,7 @@ export interface AgentTeamRunQueueRow {
 
 let _initPromise: Promise<void> | undefined;
 
-async function ensureTable(): Promise<void> {
+export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
       const client = getDbExec();

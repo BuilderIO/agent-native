@@ -13,7 +13,12 @@ import {
 } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import { useOrgMembers } from "@agent-native/core/client/org";
-import { CreativeContextShareSheet } from "@agent-native/creative-context/client";
+import {
+  CreativeContextShareSheet,
+  parseCreativeContexts,
+  useCreativeContexts,
+  useCreativeContextState,
+} from "@agent-native/creative-context/client";
 import {
   useSetHeaderActions,
   useSetPageTitle,
@@ -37,6 +42,7 @@ import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { useNavigate, Link, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
+import { trace } from "@/components/design/design-trace";
 import PromptPopover from "@/components/editor/PromptDialog";
 import type {
   PromptTemplateOption,
@@ -194,6 +200,35 @@ export default function Index() {
         isBuiltIn: template.isBuiltIn,
       })),
     [templatesData?.templates],
+  );
+  const creativeContextsQuery = useCreativeContexts();
+  const creativeContextState = useCreativeContextState();
+  const creativeContextOptions = useMemo(
+    () =>
+      parseCreativeContexts(creativeContextsQuery.data)
+        .filter((context) => context.memberCount > 0)
+        .map((context) => ({ id: context.id, name: context.name })),
+    [creativeContextsQuery.data],
+  );
+  // The editor rereads persisted creative-context state after navigation to
+  // pick the generation precedent. Track the in-flight save so a submit that
+  // follows a pick right away can wait for it instead of racing it.
+  const creativeContextPersistRef = useRef<Promise<unknown> | null>(null);
+  const handleCreativeContextChange = useCallback(
+    (contextId: string | null) => {
+      creativeContextPersistRef.current = creativeContextState
+        .setState({
+          ...creativeContextState.state,
+          contextMode: "auto",
+          selectedContextId: contextId,
+          pinnedPackId: null,
+        })
+        .catch((error) => {
+          toast.error(t("creativeContext.stateSaveFailed"));
+          throw error;
+        });
+    },
+    [creativeContextState, t],
   );
   const selectedTemplate =
     templateOptions.find((template) => template.id === newTemplateId) ?? null;
@@ -458,6 +493,10 @@ export default function Index() {
       options: PromptComposerSubmitOptions,
       pendingOptions?: { skipQuestions?: boolean },
     ) => {
+      // The rejection already surfaced its own toast in handleCreativeContextChange;
+      // swallow it here so a flaky context save can't block generation, but
+      // only after letting it settle instead of racing it.
+      await creativeContextPersistRef.current?.catch(() => {});
       const trimmedPrompt = prompt.trim();
       const designSystemId =
         newDesignSystemId === undefined
@@ -586,8 +625,24 @@ export default function Index() {
           skipQuestions: pendingOptions?.skipQuestions,
           ...options,
         });
+        // Rejecting here is what lets PromptPopover restore the typed prompt.
+        // Navigating first strands the user in an empty editor with no error.
+        try {
+          await ready;
+        } catch (error) {
+          clearPendingGeneration(id);
+          setNewDesignHandoffPending(false);
+          trace("persist", "create-design-failed", {
+            id,
+            designSystemId,
+            message: error instanceof Error ? error.message : String(error),
+          });
+          toast.error(t("home.failedToCreateDesign"));
+          throw error;
+        }
       }
 
+      trace("persist", "new-design-handoff", { id, designSystemId });
       setNewDesignHandoffPending(true);
       navigate(`/design/${id}`);
     },
@@ -1121,6 +1176,12 @@ export default function Index() {
         designSystemsLoading={designSystemsLoading}
         selectedDesignSystemId={newDesignSystemId ?? null}
         onDesignSystemChange={handleNewDesignSystemChange}
+        creativeContexts={creativeContextOptions}
+        creativeContextsLoading={creativeContextsQuery.isLoading}
+        selectedCreativeContextId={
+          creativeContextState.state.selectedContextId ?? null
+        }
+        onCreativeContextChange={handleCreativeContextChange}
         loading={newDesignHandoffPending}
         onCreateDesignSystem={() => {
           handleNewPromptOpenChange(false);

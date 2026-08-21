@@ -179,14 +179,17 @@ flag state. Custom and third-party apps are excluded.
 Canonical hosted apps recognize packaged Desktop requests without per-app
 identity-hub environment configuration. Ordinary browsers and self-hosted apps
 still require `AGENT_NATIVE_IDENTITY_HUB_URL` to opt in.
-Stable Desktop builds do not initialize the broker until a later release is
-separately approved.
+Every Desktop build may initialize the broker when the per-device
+`desktopSsoEnabled` preference is true (the default); an explicit persisted
+`false` remains an opt-out. The `desktop.workspace-sso` Dispatch flag must also
+be enabled. The Canary user-agent marker no longer gates broker initialization;
+it only identifies the update channel.
 The Canary user-agent marker is an availability hint rather than remote
 attestation. Authentication and authorization never trust it; supervised
 acceptance binds the client through exact signed-artifact provenance.
-The Canary does not intercept anonymous app sign-in navigation. The user must
-explicitly choose workspace sign-in in Desktop Settings for the active
-registered app; ordinary app sign-in remains the default path.
+For an eligible registered app, Desktop presents the workspace sign-in surface
+over the app's sign-in flow. If the rollout is unavailable or the app is not
+eligible, ordinary per-app sign-in remains available.
 
 ## QA Accounts {#qa-accounts}
 
@@ -453,7 +456,7 @@ function SignInCta() {
 
 Normal app pages use one impersonal, public-cacheable SSR shell for every visitor. `AppProviders` checks the session on the client; on a private path such as `/dashboard`, it redirects an anonymous visitor to `/sign-in?return=%2Fdashboard` before mounting private app UI. After sign-in, the visitor returns to `/dashboard`. Pass `isPublicPath` for public/SEO routes, or `sessionBypass` for a surface that authenticates through another scoped mechanism such as an MCP embed token.
 
-How long that shell is cached is a deployment-wide setting — see [SSR Caching](/docs/deployment#ssr-caching) for `AGENT_NATIVE_SSR_CACHE`. Shortening or disabling the cache changes duration only; SSR still renders the anonymous branch with cookies stripped.
+How long that shell is cached is a deployment-wide setting — see [SSR Caching](/docs/ssr-caching) for `AGENT_NATIVE_SSR_CACHE`. Shortening or disabling the cache changes duration only; SSR still renders the anonymous branch with cookies stripped.
 
 ### Behind the scenes: Google OAuth
 

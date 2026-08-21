@@ -14,7 +14,10 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
-import { uploadPptxSlideImages } from "../server/handlers/import/pptx-assets.js";
+import {
+  assertPptxImagesRenderable,
+  uploadPptxSlideImages,
+} from "../server/handlers/import/pptx-assets.js";
 import { upsertBuilderProxyDesignSystem } from "../server/lib/builder-design-system-proxy.js";
 import { setupPdfParse } from "../server/lib/pdf-parse-setup.js";
 import {
@@ -148,6 +151,7 @@ export default defineAction({
         await assertAccess("deck", deckId, "editor");
         const pptxOwnerEmail = getRequestUserEmail();
         if (!pptxOwnerEmail) throw new Error("no authenticated user");
+        assertPptxImagesRenderable(presentation.slides);
         const pptxThemeFont = presentation.theme?.fonts?.[0];
         const uploadLimit = pLimit(4);
         const pptxResults = await Promise.all(
@@ -162,6 +166,10 @@ export default defineAction({
           (total, r) => total + r.imageSkippedCount,
           0,
         );
+        const tablesDegraded = presentation.slides.reduce(
+          (total, s) => total + (s.tablesDegraded ?? 0),
+          0,
+        );
         const sourceImport = buildSourceImportMetadata({
           format: "pptx",
           slides: pptxResults.map((result) => ({
@@ -172,6 +180,7 @@ export default defineAction({
             editableText: true,
           })),
           imagesSkipped,
+          tablesDegraded,
         });
         if (imagesSkipped > 0) {
           throw new Error(
@@ -193,6 +202,7 @@ export default defineAction({
           aspectRatio,
           sourceImport,
           pptxResults[0]?.sourceText,
+          presentation.theme,
         );
         return {
           format: "pptx",
@@ -202,6 +212,7 @@ export default defineAction({
           deckId,
           imported: true,
           ...(imagesSkipped > 0 ? { imagesSkipped } : {}),
+          ...(tablesDegraded > 0 ? { tablesDegraded } : {}),
         };
       }
 
@@ -527,9 +538,14 @@ async function importPdfPagesWithFidelity(args: {
     ),
   );
   const slides = imported.map((entry) => entry.slide);
+  const imagesSkipped = fidelityPages.reduce(
+    (total, page) => total + page.imagesSkipped,
+    0,
+  );
   const sourceImport = buildSourceImportMetadata({
     format: "pdf",
     slides: imported.map((entry) => entry.snapshot),
+    imagesSkipped,
   });
 
   const importedTitle = await appendDeckSlides(
@@ -550,6 +566,7 @@ async function importPdfPagesWithFidelity(args: {
     aspectRatio,
     deckId,
     imported: true,
+    ...(imagesSkipped > 0 ? { imagesSkipped } : {}),
   };
 }
 
@@ -688,6 +705,7 @@ async function appendDeckSlides(
   aspectRatio?: AspectRatio,
   sourceImport?: ReturnType<typeof buildSourceImportMetadata>,
   titleSource?: unknown,
+  theme?: import("../server/handlers/import/pptx-parser.js").ParsedPresentation["theme"],
 ): Promise<string> {
   await assertAccess("deck", deckId, "editor");
 
@@ -736,6 +754,15 @@ async function appendDeckSlides(
       title: nextTitle,
       slides: [...previousSlides, ...slides],
       ...(!hadExistingSlides && aspectRatio ? { aspectRatio } : {}),
+      // Same rule as aspectRatio above: an appended file's palette only
+      // becomes the deck's theme when the deck had no slides yet, so
+      // appending onto an existing deck can't silently restyle every slide
+      // already on it. Deliberately keyed on slides rather than on whether a
+      // theme already exists: export writes one deck-level theme (OOXML allows
+      // one per master), so with zero slides there is nothing to protect, and
+      // refusing a new theme there would strand a deck whose slides were
+      // deleted with the old file's palette, unfixable by re-importing.
+      ...(!hadExistingSlides && theme ? { theme } : {}),
       ...(nextSourceImport ? { sourceImport: nextSourceImport } : {}),
       updatedAt: writeNow,
     };

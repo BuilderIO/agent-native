@@ -226,3 +226,44 @@ function supportsClaudeXHigh(model: string) {
 function isGeminiReasoningModel(model: string) {
   return /^gemini-/.test(model.toLowerCase().replace(/^google\//, ""));
 }
+
+/**
+ * Claude dropped the sampling parameters (`temperature`, `top_p`, `top_k`)
+ * starting with Opus 4.7 / Opus 5 / Sonnet 5 / Fable 5; sending one there is a
+ * 400. Older Claude models still accept them, but only the value 1 once
+ * thinking is on.
+ */
+function claudeAcceptsSamplingParams(model: string) {
+  const id = model.toLowerCase().replace(/^anthropic\//, "");
+  if (id.includes("fable-5") || id.includes("mythos-5")) return false;
+  if (id.includes("sonnet-5")) return false;
+  const opusMatch = id.match(/opus-(\d+)(?:[-.](\d+))?/);
+  if (opusMatch) {
+    const major = parseInt(opusMatch[1], 10);
+    if (major >= 5) return false;
+    const minor = opusMatch[2] ? parseInt(opusMatch[2], 10) : 0;
+    return !(major === 4 && minor >= 7);
+  }
+  return true;
+}
+
+/**
+ * Whether a request may carry the sampling parameters (`temperature`,
+ * `top_p`, `top_k`) at all. Effort resolves to High for every
+ * reasoning-capable Claude model, so a caller that asked only for
+ * `temperature: 0` — an eval judge, a classifier, the memory compactor — was
+ * building a request Anthropic answers with "`temperature` may only be set to
+ * 1 when thinking is enabled or in adaptive mode". Thinking is the capability
+ * worth keeping; the sampling knobs are what the provider withdrew, so they
+ * are dropped once at the engine boundary instead of at every caller. Pass
+ * `thinkingEnabled` only for requests that actually carry Anthropic thinking,
+ * so other providers keep their sampling controls.
+ */
+export function allowsSamplingParams(args: {
+  model: string | undefined;
+  thinkingEnabled: boolean;
+}): boolean {
+  if (!args.model) return true;
+  if (args.thinkingEnabled) return false;
+  return claudeAcceptsSamplingParams(args.model);
+}

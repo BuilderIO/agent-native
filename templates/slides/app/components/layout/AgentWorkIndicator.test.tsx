@@ -103,6 +103,28 @@ describe("AgentWorkIndicator", () => {
     });
   });
 
+  it("hides when the portal wrapper becomes inaccessible", async () => {
+    render(<AgentWorkIndicator />);
+    dispatchRunning(true);
+
+    const wrapper = document.createElement("div");
+    const panel = document.createElement("div");
+    panel.className = "agent-sidebar-panel";
+    panel.style.display = "flex";
+    setVisibleRect(panel);
+    wrapper.append(panel);
+    document.body.append(wrapper);
+
+    await waitFor(() => {
+      expect(screen.queryByText("Agent is working")).toBeNull();
+    });
+
+    wrapper.setAttribute("aria-hidden", "true");
+    await waitFor(() => {
+      expect(screen.getByText("Agent is working")).toBeTruthy();
+    });
+  });
+
   it("keeps Open chat behavior when the banner is shown", () => {
     const modeListener = vi.fn();
     window.addEventListener("agent-panel:set-mode", modeListener);

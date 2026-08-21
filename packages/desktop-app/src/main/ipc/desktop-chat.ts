@@ -14,6 +14,7 @@ import { IPC } from "@shared/ipc-channels";
 import { ipcMain, net, session, type IpcMainInvokeEvent } from "electron";
 
 import * as AppStore from "../app-store";
+import { readCookieHeaderForUrl } from "../cookie-header";
 
 const RELAY_ROOT = "/desktop-chat";
 const RELAY_ALLOWED_PREFIX = "/_agent-native/";
@@ -187,10 +188,10 @@ async function proxyRequest(
   }
 
   const appSession = session.fromPartition(`persist:app-${appConfig.id}`);
-  const cookies = await appSession.cookies.get({ url: targetUrl.toString() });
-  const cookieHeader = cookies
-    .map((cookie) => `${cookie.name}=${cookie.value}`)
-    .join("; ");
+  const cookieHeader = await readCookieHeaderForUrl(
+    appSession,
+    targetUrl.toString(),
+  );
 
   const upstream = net.request({
     url: targetUrl.toString(),
@@ -239,6 +240,17 @@ async function proxyRequest(
     upstreamResponse.on("end", () => response.end());
   });
   upstream.on("error", (error) => {
+    console.warn("[desktop-chat] upstream relay request failed", {
+      appId: relayPath.appId,
+      method: request.method ?? "GET",
+      targetOrigin: targetUrl.origin,
+      targetPath: targetUrl.pathname,
+      errorCode:
+        error instanceof Error && "code" in error
+          ? String((error as NodeJS.ErrnoException).code ?? "")
+          : "",
+      reason: error instanceof Error ? error.message : "unknown error",
+    });
     if (response.headersSent) {
       response.destroy(error);
       return;
@@ -302,6 +314,18 @@ export function registerDesktopChatIpc(): void {
       if (!appConfig || !resolveAppBaseUrl(appConfig)) return null;
       const relay = await ensureRelay();
       return `http://127.0.0.1:${relay.port}${RELAY_ROOT}/${relay.secret}/${encodeURIComponent(appId)}/_agent-native/agent-chat`;
+    },
+  );
+  ipcMain.handle(
+    IPC.DESKTOP_CHAT_GET_TERMINAL_INFO_URL,
+    async (_event: IpcMainInvokeEvent, appId: unknown) => {
+      if (typeof appId !== "string" || !appId.trim()) return null;
+      const appConfig = AppStore.loadApps().find(
+        (candidate) => candidate.id === appId,
+      );
+      if (!appConfig || !resolveAppBaseUrl(appConfig)) return null;
+      const relay = await ensureRelay();
+      return `http://127.0.0.1:${relay.port}${RELAY_ROOT}/${relay.secret}/${encodeURIComponent(appId)}/_agent-native/agent-terminal-info`;
     },
   );
 }

@@ -11,6 +11,7 @@ import { withBuilderUtmTrackingParams } from "../shared/builder-link-tracking.js
 import { agentNativePath } from "./api-path.js";
 import { BuilderBMark } from "./builder-mark.js";
 import { writeClipboardText } from "./clipboard.js";
+import { requestDesktopLocalCodeChange } from "./desktop-local-code-change.js";
 import { getCallbackOrigin } from "./frame.js";
 import { useBuilderConnectFlow } from "./settings/useBuilderStatus.js";
 import { cn } from "./utils.js";
@@ -28,6 +29,16 @@ function isLocalDevelopment() {
   return (
     hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1"
   );
+}
+
+function hasElectronShellBridge(): boolean {
+  if (typeof window === "undefined") return false;
+  const electronApi = (
+    window as Window & {
+      electronAPI?: { appConfig?: unknown };
+    }
+  ).electronAPI;
+  return Boolean(electronApi?.appConfig);
 }
 
 export interface ConnectBuilderCardProps {
@@ -75,6 +86,9 @@ export function ConnectBuilderCard({
   // arrives. A transient status failure must not replace a valid Send CTA with
   // the hook's initial disconnected defaults.
   const configured = flow.statusResolved ? flow.configured : initialConfigured;
+  const codeChangeConfigured = flow.statusResolved
+    ? flow.codeChangeConfigured
+    : initialConfigured;
   const builderEnabled = flow.statusResolved
     ? flow.builderEnabled
     : initialBuilderEnabled;
@@ -90,7 +104,10 @@ export function ConnectBuilderCard({
   const [sendErr, setSendErr] = useState<string | null>(null);
   const [copyErr, setCopyErr] = useState<string | null>(null);
   const [promptCopied, setPromptCopied] = useState(false);
+  const [localCodeChangeRequested, setLocalCodeChangeRequested] =
+    useState(false);
   const [localDevelopment] = useState(() => isLocalDevelopment());
+  const [electronShell] = useState(() => hasElectronShellBridge());
   const mountedRef = useRef(true);
   const copyResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Tracks whether the user clicked "Connect Builder" *this session*. When
@@ -202,7 +219,17 @@ export function ConnectBuilderCard({
   const err = sendErr ?? waitlistErr ?? copyErr ?? flow.error;
 
   const hasPrompt = prompt.trim().length > 0;
-  const canSend = configured && builderEnabled && hasPrompt;
+  const canSend = codeChangeConfigured && builderEnabled && hasPrompt;
+  const showDesktopLocalHandoff = electronShell && hasPrompt;
+
+  const handleDoLocally = useCallback(
+    (event: React.MouseEvent<HTMLButtonElement>) => {
+      if (requestDesktopLocalCodeChange(prompt, event.currentTarget)) {
+        setLocalCodeChangeRequested(true);
+      }
+    },
+    [prompt],
+  );
 
   // Auto-send the user's pending prompt the moment connecting finishes
   // successfully. Without this, the connect popup closing leaves the user
@@ -227,12 +254,16 @@ export function ConnectBuilderCard({
 
   // Title + subtitle depend on which mode we're in. We compute them up front
   // so the render tree below stays flat.
-  const connectedCapabilityText = builderEnabled
-    ? "AI credits and cloud code changes are ready to use."
-    : `AI credits are ready to use. ${CODE_CHANGE_FALLBACK_TEXT}`;
+  const connectedCapabilityText =
+    builderEnabled && codeChangeConfigured
+      ? "AI credits and cloud code changes are ready to use."
+      : `AI credits are ready to use. ${CODE_CHANGE_FALLBACK_TEXT}`;
   let title: string;
   let subtitle: React.ReactNode;
-  if (runResult) {
+  if (localCodeChangeRequested) {
+    title = "Preparing a local copy";
+    subtitle = "Desktop is cloning this app and applying this request.";
+  } else if (runResult) {
     title = "Builder is working on it";
     subtitle = (
       <>
@@ -245,8 +276,9 @@ export function ConnectBuilderCard({
     );
   } else if (showExternalAgentHandoff) {
     title = "This requires a code change";
-    subtitle =
-      "Open your coding agent in this project, then paste this request.";
+    subtitle = showDesktopLocalHandoff
+      ? "Make the change in a local copy of this app, or copy the request to another coding agent."
+      : "Open your coding agent in this project, then paste this request.";
   } else if (showWaitlist) {
     title = "This requires a code change";
     subtitle = waitlistJoined ? (
@@ -316,7 +348,7 @@ export function ConnectBuilderCard({
             {subtitle}
           </div>
 
-          {showWaitlist && (
+          {showWaitlist && !showDesktopLocalHandoff && (
             <a
               href={DESKTOP_DOWNLOAD_URL}
               target="_blank"
@@ -348,85 +380,195 @@ export function ConnectBuilderCard({
                 <IconExternalLink className="h-3.5 w-3.5" />
               </a>
             ) : canSend ? (
-              <button
-                type="button"
-                onClick={handleSend}
-                disabled={sending}
-                className={cn(
-                  "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
-                  "bg-foreground text-background hover:bg-foreground/90",
-                  sending && "opacity-70 cursor-wait",
+              <div className="flex flex-wrap gap-2">
+                {showDesktopLocalHandoff && (
+                  <button
+                    type="button"
+                    data-desktop-local-code-change
+                    onClick={handleDoLocally}
+                    disabled={localCodeChangeRequested}
+                    className={cn(
+                      "inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent",
+                      localCodeChangeRequested && "cursor-wait opacity-70",
+                    )}
+                  >
+                    {localCodeChangeRequested ? (
+                      <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <IconCode className="h-3.5 w-3.5" />
+                    )}
+                    {localCodeChangeRequested
+                      ? "Preparing locally…"
+                      : "Do locally"}
+                  </button>
                 )}
-              >
-                {sending ? (
-                  <>
-                    <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
-                    Sending to Builder…
-                  </>
-                ) : (
-                  <>Send to Builder</>
-                )}
-              </button>
+                <button
+                  type="button"
+                  onClick={handleSend}
+                  disabled={sending}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                    "bg-foreground text-background hover:bg-foreground/90",
+                    sending && "opacity-70 cursor-wait",
+                  )}
+                >
+                  {sending ? (
+                    <>
+                      <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+                      Sending to Builder…
+                    </>
+                  ) : (
+                    <>Send to Builder</>
+                  )}
+                </button>
+              </div>
             ) : showExternalAgentHandoff ? (
-              <button
-                type="button"
-                onClick={() => void handleCopyPrompt()}
-                className={cn(
-                  "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
-                  "bg-foreground text-background hover:bg-foreground/90",
+              <div className="flex flex-wrap gap-2">
+                {showDesktopLocalHandoff && (
+                  <button
+                    type="button"
+                    data-desktop-local-code-change
+                    onClick={handleDoLocally}
+                    disabled={localCodeChangeRequested}
+                    className={cn(
+                      "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                      "bg-foreground text-background hover:bg-foreground/90",
+                      localCodeChangeRequested && "cursor-wait opacity-70",
+                    )}
+                  >
+                    {localCodeChangeRequested ? (
+                      <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <IconCode className="h-3.5 w-3.5" />
+                    )}
+                    {localCodeChangeRequested
+                      ? "Preparing locally…"
+                      : "Do locally"}
+                  </button>
                 )}
-              >
-                {promptCopied ? (
-                  <>
-                    <IconCheck className="h-3.5 w-3.5" />
-                    Prompt copied
-                  </>
-                ) : (
-                  <>
-                    <IconCopy className="h-3.5 w-3.5" />
-                    Copy prompt
-                  </>
-                )}
-              </button>
+                <button
+                  type="button"
+                  onClick={() => void handleCopyPrompt()}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent",
+                  )}
+                >
+                  {promptCopied ? (
+                    <>
+                      <IconCheck className="h-3.5 w-3.5" />
+                      Prompt copied
+                    </>
+                  ) : (
+                    <>
+                      <IconCopy className="h-3.5 w-3.5" />
+                      Copy prompt
+                    </>
+                  )}
+                </button>
+              </div>
             ) : showWaitlist && !waitlistJoined ? (
-              <button
-                type="button"
-                onClick={handleJoinWaitlist}
-                disabled={joiningWaitlist}
-                className={cn(
-                  "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
-                  "bg-foreground text-background hover:bg-foreground/90",
-                  joiningWaitlist && "opacity-70 cursor-wait",
+              <div className="flex flex-wrap gap-2">
+                {showDesktopLocalHandoff && (
+                  <button
+                    type="button"
+                    data-desktop-local-code-change
+                    onClick={handleDoLocally}
+                    disabled={localCodeChangeRequested}
+                    className={cn(
+                      "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                      "bg-foreground text-background hover:bg-foreground/90",
+                      localCodeChangeRequested && "cursor-wait opacity-70",
+                    )}
+                  >
+                    {localCodeChangeRequested ? (
+                      <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <IconCode className="h-3.5 w-3.5" />
+                    )}
+                    {localCodeChangeRequested
+                      ? "Preparing locally…"
+                      : "Do locally"}
+                  </button>
                 )}
-              >
-                {joiningWaitlist ? (
-                  <>
-                    <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
-                    Joining…
-                  </>
-                ) : (
-                  <>Join the waitlist</>
-                )}
-              </button>
+                <button
+                  type="button"
+                  onClick={handleJoinWaitlist}
+                  disabled={joiningWaitlist}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent",
+                    joiningWaitlist && "opacity-70 cursor-wait",
+                  )}
+                >
+                  {joiningWaitlist ? (
+                    <>
+                      <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+                      Joining…
+                    </>
+                  ) : (
+                    <>Join the waitlist</>
+                  )}
+                </button>
+              </div>
             ) : !configured ? (
+              <div className="flex flex-wrap gap-2">
+                {showDesktopLocalHandoff && (
+                  <button
+                    type="button"
+                    data-desktop-local-code-change
+                    onClick={handleDoLocally}
+                    disabled={localCodeChangeRequested}
+                    className={cn(
+                      "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                      "bg-foreground text-background hover:bg-foreground/90",
+                      localCodeChangeRequested && "cursor-wait opacity-70",
+                    )}
+                  >
+                    {localCodeChangeRequested ? (
+                      <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <IconCode className="h-3.5 w-3.5" />
+                    )}
+                    {localCodeChangeRequested
+                      ? "Preparing locally…"
+                      : "Do locally"}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => flow.start()}
+                  disabled={connecting}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent",
+                    connecting && "opacity-70 cursor-wait",
+                  )}
+                >
+                  {connecting ? (
+                    <>
+                      <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+                      Waiting for Builder…
+                    </>
+                  ) : (
+                    "Connect Builder"
+                  )}
+                </button>
+              </div>
+            ) : showDesktopLocalHandoff ? (
               <button
                 type="button"
-                onClick={() => flow.start()}
-                disabled={connecting}
+                data-desktop-local-code-change
+                onClick={handleDoLocally}
+                disabled={localCodeChangeRequested}
                 className={cn(
-                  "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
-                  "bg-foreground text-background hover:bg-foreground/90",
-                  connecting && "opacity-70 cursor-wait",
+                  "inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent",
+                  localCodeChangeRequested && "cursor-wait opacity-70",
                 )}
               >
-                {connecting ? (
-                  <>
-                    <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
-                    Waiting for Builder…
-                  </>
+                {localCodeChangeRequested ? (
+                  <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
                 ) : (
-                  "Connect Builder"
+                  <IconCode className="h-3.5 w-3.5" />
                 )}
+                {localCodeChangeRequested ? "Preparing locally…" : "Do locally"}
               </button>
             ) : null}
           </div>

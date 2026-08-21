@@ -148,6 +148,8 @@ function runPackagedRunner(
     env: {
       ...environment,
       AGENT_NATIVE_CODE_AGENTS_HOME: storeRoot,
+      MCP_SERVERS: JSON.stringify({ servers: {} }),
+      AGENT_NATIVE_CODE_AGENT_MCP_SERVER_ALLOWLIST: "__none__",
       ELECTRON_RUN_AS_NODE: "1",
     },
     stdio: ["ignore", "pipe", "pipe"],

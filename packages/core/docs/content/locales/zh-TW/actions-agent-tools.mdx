@@ -1,0 +1,98 @@
+---
+title: "正式環境代理存取權"
+description: "透過 frameworkTools 和 codeExecution，控制已部署的正式環境代理擁有哪些框架工具和程式碼執行能力。"
+---
+
+# 正式環境代理存取權
+
+## 正式環境代理工具 {#production-agent-tools}
+
+正式環境代理會取得應用程式已註冊的 actions，加上框架自己的
+工具。`frameworkTools` 用來選擇這個應用程式要公開哪些框架工具。
+每個群組預設都是目前的行為，因此省略這個選項不會改變任何東西：
+
+```ts filename="server/plugins/agent-chat.ts"
+export default createAgentChatPlugin({
+  frameworkTools: {
+    database: "read", // "write" | "read" | "off", default "read"
+    extensions: true, // default false
+    sharing: false, // this app has no share surface
+    review: false,
+  },
+});
+```
+
+```ts filename="server/plugins/core-routes.ts"
+export default createCoreRoutesPlugin({
+  extensionTools: true,
+});
+```
+
+`database` 和 `extensions` 接受和舊版頂層旗標相同的值：
+
+- `database: "read"`。預設值。只註冊 `db-schema` 和 `db-query`。
+  代理可以用 SQL 檢查資料，但寫入必須使用型別化的應用程式 actions。
+- `database: "write"` 或 `true`。另外註冊 `db-exec` 和
+  `db-patch`，用於刻意的原始 SQL 維護。寫入的範圍限定於
+  目前的使用者/組織，且結構描述變更會被封鎖。
+- `database: "off"` 或 `false`。從代理介面中移除原始資料庫
+  工具，使應用程式的 actions 成為唯一的資料存取路徑。
+- `extensions: true`。讓應用程式選擇加入框架的擴充功能管理
+  actions 和提示指引（`create-extension`、`update-extension` 等等）。
+  也要在 core-routes 外掛程式上設定 `extensionTools: true`，才能允許
+  已驗證的 REST 建立方式。擴充功能預設是停用的。
+
+其餘的群組都是布林值，預設全部開啟：`sharing`、`review`、
+`history`、`featureFlags`、`localization`、`audit`、`contextXray`、
+`userProfile`、`automation`、`docs`、`resources`、`web`、`workspaceApps`、
+`chat` 和 `email`。針對語音優先或單一用途的應用程式，可以使用
+`frameworkTools: "minimal"` 一次關閉所有群組，或使用
+`frameworkTools: { preset: "minimal", resources: true }` 只保留其中一個。
+明確指定的群組鍵永遠會覆蓋預設集。
+
+關閉某個群組只會將它從**代理**介面中移除：互動式聊天、MCP、A2A 和
+背景執行。對應的 HTTP action 路由仍然會保持掛載，因為 UI 是透過用戶端
+hooks 存取它們的。停用 `sharing` 絕對不能讓畫面上仍然存在的分享對話框
+變成 404。使用它之前，請先權衡這個對等性的代價：框架的合約是「UI 能
+做的事，代理也要能做」，因此在有可見分享按鈕的情況下設定
+`sharing: false` 是一種刻意的破壞，只有在應用程式完全沒有這種介面時
+才合理。
+
+無論這個選項如何設定，框架工具預設都不再會被推送到第一次模型請求中。
+它們會留在可搜尋的註冊表中，透過 `tool-search` 載入，或者當應用程式在
+`initialToolNames` 中指名它們時立即載入。
+
+<Callout tone="warning">
+  頂層的 `databaseTools` 和 `extensionTools` 選項已被棄用，建議改用
+  `frameworkTools.database` 和 `frameworkTools.extensions`。它們目前仍然
+  有效，但如果將頂層旗標和對應的 `frameworkTools` 設定為互相衝突的值，
+  外掛程式會在啟動時擲出例外，而不是以一個沒有人選擇的工具介面啟動。
+</Callout>
+
+## 正式環境程式碼執行 {#production-code-execution}
+
+預設情況下，正式環境代理在沒有程式碼執行工具的狀態下運作。它們可以呼叫應用程式 actions、資料庫工具、MCP 工具、瀏覽器/工作階段工具，以及其他已註冊的框架工具，但無法取得 shell 或檔案系統存取權。
+
+相容於 Node 的部署，可以透過代理聊天外掛程式或環境變數覆寫，選擇加入正式環境程式碼執行：
+
+```ts filename="server/plugins/agent-chat.ts"
+export default createAgentChatPlugin({
+  codeExecution: { production: "sandboxed" },
+});
+```
+
+可用的模式有：
+
+- `off`。預設值。正式環境中不會註冊任何程式碼執行工具。
+- `sandboxed`。註冊 `run-code`，這是一個隔離的 Node.js JavaScript 執行器，具有經過清理的環境、全新的暫存目錄、輸出/時間限制，以及一個通往允許清單中已註冊工具的 localhost 橋接，例如 `provider-api-request`、`provider-api-docs`、`provider-api-catalog`、`web-request`，以及 `workspaceRead` / `workspaceWrite` 所使用、以 Resources 為後盾的工作區檔案橋接。
+- `trusted`。註冊 `run-code`，加上完整的編碼工具註冊表（`bash`、`read`、`edit`、`write`）。只在單租戶或由操作者控管、刻意允許對主機完整 shell 存取的部署中使用它。
+
+設定 `AGENT_PROD_CODE_EXECUTION=sandboxed` 或 `AGENT_PROD_CODE_EXECUTION=trusted`，可以在不變更程式碼的情況下，針對特定部署覆寫外掛程式選項。即使外掛程式選項啟用了程式碼執行，`AGENT_PROD_CODE_EXECUTION=off` 仍會強制將它關閉。
+
+`run-code` 沙盒是行程層級的隔離，而不是作業系統容器。它會從子行程環境中剝除應用程式密鑰，並在可用時使用 Node 的權限模型，但傳出的網路連線並不會被 Node 本身封鎖。已驗證的呼叫應該透過該工具公開的橋接輔助函式進行。
+
+## 接下來呢
+
+- [**Actions：存取與授權**](/docs/actions-access-control) — 本頁面的工具層級控管所補充的逐 action 存取控制軸
+- [**Updating UI in Production**](/docs/updating-ui-in-production) — 在關閉程式碼執行的情況下，已部署代理能編輯和不能編輯的內容
+- [**Deployment: Environment Variables**](/docs/deployment-environment-variables) — `AGENT_PROD_CODE_EXECUTION` 和其他正式環境環境變數

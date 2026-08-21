@@ -1,5 +1,10 @@
 import { table, text, integer } from "@agent-native/core/db/schema";
 
+// Workspace app ownership/sharing lives in core so every mounted app can
+// enforce the same access record. Re-exporting these tables keeps Dispatch's
+// Drizzle accessor aware of them for the generic share actions.
+export { workspaceApps, workspaceAppShares } from "@agent-native/core/org";
+
 export const dispatchDestinations = table("dispatch_destinations", {
   id: text("id").primaryKey(),
   ownerEmail: text("owner_email").notNull(),

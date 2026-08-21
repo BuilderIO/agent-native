@@ -547,10 +547,7 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
       return Promise.resolve();
     };
 
-    let onChange!: (markdown: string) => void;
-    const ready = (fn: (markdown: string) => void) => {
-      onChange = fn;
-    };
+    const ready = () => {};
     let seenContent = "";
     const onContent = (c: string) => {
       seenContent = c;

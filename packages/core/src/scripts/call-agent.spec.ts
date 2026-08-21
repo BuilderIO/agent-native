@@ -290,6 +290,7 @@ describe("call-agent action", () => {
       contextId: "thread-qa",
       correlation: {
         callerApp: "mail",
+        selectedReceiverApp: "slides",
         callerThreadId: "thread-qa",
         parentRunId: "run-qa",
         parentTurnId: "turn-qa",
@@ -322,6 +323,7 @@ describe("call-agent action", () => {
 
     expect(callAgentMock.mock.calls[0]?.[2]?.correlation).toMatchObject({
       callerApp: "mail",
+      selectedReceiverApp: "slides",
       delegationDepth: 2,
       visitedApps: ["dispatch", "mail"],
     });

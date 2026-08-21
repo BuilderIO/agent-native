@@ -22,7 +22,7 @@ import type {
 
 let tableReady: Promise<void> | null = null;
 
-async function ensureTable(): Promise<void> {
+export async function ensureTable(): Promise<void> {
   if (tableReady) return tableReady;
   tableReady = (async () => {
     const client = getDbExec();

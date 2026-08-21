@@ -7,7 +7,11 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "../server/request-context.js";
-import { getWorkspaceFileMeta, type WorkspaceFilesScope } from "./store.js";
+import {
+  getWorkspaceFileMeta,
+  toWorkspaceFileCard,
+  type WorkspaceFilesScope,
+} from "./store.js";
 
 const workspaceFileResultSchema = z.object({
   file: z.object({
@@ -36,15 +40,6 @@ function currentWorkspaceScope(): WorkspaceFilesScope {
   );
 }
 
-function fileName(path: string): string {
-  return path.split("/").at(-1) || path;
-}
-
-function isTextWorkspaceFile(contentType: string): boolean {
-  const mimeType = contentType.split(";")[0].trim().toLowerCase();
-  return mimeType.startsWith("text/") || mimeType === "application/json";
-}
-
 export const showWorkspaceFileAction = defineAction({
   description:
     "Render a workspace file as a downloadable card in chat. Call this after writing a user-requested export or other durable file with workspaceWrite; a file export is not complete until this action succeeds and the download card appears. The path must exactly match an existing file in the current organization or personal workspace.",
@@ -71,22 +66,11 @@ export const showWorkspaceFileAction = defineAction({
     if (!file) {
       throw new Error(`Workspace file not found: "${path}"`);
     }
-    if (!isTextWorkspaceFile(file.contentType)) {
-      throw new Error(
-        `Workspace file "${path}" has unsupported content type "${file.contentType}". show-workspace-file currently supports text files and application/json.`,
-      );
-    }
 
-    return {
-      file: {
-        resourceId: file.id,
-        path: file.path,
-        name: fileName(file.path),
-        contentType: file.contentType,
-        sizeBytes: file.sizeBytes,
-        updatedAt: file.updatedAt,
-      },
-    };
+    // The card only ever renders name/size/type + a download link — it never
+    // inlines file content — so every content type, binary included, is safe
+    // to show here.
+    return { file: toWorkspaceFileCard(file) };
   },
 });
 

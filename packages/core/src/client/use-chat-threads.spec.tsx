@@ -255,6 +255,160 @@ describe("useChatThreads", () => {
     ]);
   });
 
+  it("isolates app history requests and ignores threads from another app", async () => {
+    const appOneThread: ChatThreadSummary = {
+      id: "app-one-thread",
+      title: "App one chat",
+      preview: "keep this chat in app one",
+      messageCount: 1,
+      createdAt: 1,
+      updatedAt: 1,
+      scope: { type: "workspace-app", id: "app-one" },
+    };
+    const appTwoThread: ChatThreadSummary = {
+      id: "app-two-thread",
+      title: "App two chat",
+      preview: "do not show this in app one",
+      messageCount: 1,
+      createdAt: 2,
+      updatedAt: 2,
+      scope: { type: "workspace-app", id: "app-two" },
+    };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (
+        url === "/chat/threads?scopeType=workspace-app&scopeId=app-one" &&
+        !init
+      ) {
+        return jsonResponse({ threads: [appOneThread, appTwoThread] });
+      }
+      if (
+        url === "/chat/threads?scopeType=workspace-app&scopeId=app-two" &&
+        !init
+      ) {
+        return jsonResponse({ threads: [appTwoThread, appOneThread] });
+      }
+      if (
+        url === "/chat/threads?q=chat&scopeType=workspace-app&scopeId=app-two"
+      ) {
+        return jsonResponse({ threads: [appTwoThread, appOneThread] });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    window.localStorage.setItem(
+      "agent-chat-active-thread:workspace-app-chat:scope:workspace-app:app-one",
+      "app-one-thread",
+    );
+    window.localStorage.setItem(
+      "agent-chat-active-thread:workspace-app-chat:scope:workspace-app:app-two",
+      "app-two-thread",
+    );
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness({ appId }: { appId: string }) {
+      hook = useChatThreads(
+        "/chat",
+        "workspace-app-chat",
+        { type: "workspace-app", id: appId },
+        { autoCreate: false, isolateHistoryByScope: true },
+      );
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness appId="app-one" />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(hook!.threads.map((thread) => thread.id)).toEqual([
+      "app-one-thread",
+    ]);
+    expect(hook!.activeThreadId).toBe("app-one-thread");
+
+    await act(async () => {
+      root.render(<Harness appId="app-two" />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(hook!.threads.map((thread) => thread.id)).toEqual([
+      "app-two-thread",
+    ]);
+    expect(hook!.activeThreadId).toBe("app-two-thread");
+    await expect(hook!.searchThreads("chat")).resolves.toEqual([appTwoThread]);
+  });
+
+  it("removes a detached thread from isolated history and replaces the active tab", async () => {
+    const activeThread: ChatThreadSummary = {
+      id: "app-one-thread",
+      title: "App one chat",
+      preview: "detach this chat",
+      messageCount: 1,
+      createdAt: 1,
+      updatedAt: 1,
+      scope: { type: "workspace-app", id: "app-one" },
+    };
+    const remainingThread: ChatThreadSummary = {
+      id: "app-one-other-thread",
+      title: "Another app one chat",
+      preview: "keep this chat",
+      messageCount: 1,
+      createdAt: 2,
+      updatedAt: 2,
+      scope: { type: "workspace-app", id: "app-one" },
+    };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (
+        url === "/chat/threads?scopeType=workspace-app&scopeId=app-one" &&
+        !init
+      ) {
+        return jsonResponse({ threads: [activeThread, remainingThread] });
+      }
+      if (
+        url ===
+          "/chat/threads/app-one-thread?scopeType=workspace-app&scopeId=app-one" &&
+        init?.method === "PUT"
+      ) {
+        return jsonResponse({ ok: true });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.localStorage.setItem(
+      "agent-chat-active-thread:workspace-app-chat:scope:workspace-app:app-one",
+      "app-one-thread",
+    );
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads(
+        "/chat",
+        "workspace-app-chat",
+        { type: "workspace-app", id: "app-one" },
+        { autoCreate: false, isolateHistoryByScope: true },
+      );
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(hook!.activeThreadId).toBe("app-one-thread");
+
+    await act(async () => {
+      await hook!.detachThread("app-one-thread");
+    });
+
+    expect(hook!.threads.map((thread) => thread.id)).toEqual([
+      "app-one-other-thread",
+    ]);
+    expect(hook!.activeThreadId).toBe("app-one-other-thread");
+  });
+
   it("fetches fresh chat history when a sidebar remounts", async () => {
     let cachedTitle = "Cached chat";
     const existingThread: ChatThreadSummary = {
@@ -445,9 +599,10 @@ describe("useChatThreads", () => {
     expect(hook!.activeThreadId).toBe("thread-1");
     expect(hook!.threads).toEqual([]);
     expect(hook!.isNewThread("thread-1")).toBe(false);
+    expect(hook!.restoredThreadIdOnListFailure).toBe("thread-1");
   });
 
-  it("keeps a saved missing thread active so the chat can surface a restore error", async () => {
+  it("starts a fresh chat when a saved home thread no longer exists", async () => {
     window.localStorage.setItem(
       "agent-chat-active-thread:forms",
       "empty-sidebar-tab",
@@ -495,9 +650,13 @@ describe("useChatThreads", () => {
       await Promise.resolve();
     });
 
-    expect(hook!.activeThreadId).toBe("empty-sidebar-tab");
-    expect(hook!.isNewThread("empty-sidebar-tab")).toBe(false);
-    expect(hook!.threads.map((thread) => thread.id)).toEqual(["real-thread"]);
+    expect(hook!.activeThreadId).not.toBe("empty-sidebar-tab");
+    expect(hook!.activeThreadId).not.toBeNull();
+    expect(hook!.isNewThread(hook!.activeThreadId!)).toBe(true);
+    expect(hook!.threads.map((thread) => thread.id)).toContain("real-thread");
+    expect(hook!.threads.map((thread) => thread.id)).not.toContain(
+      "empty-sidebar-tab",
+    );
   });
 
   it("keeps a saved missing thread active when auto-create is disabled", async () => {

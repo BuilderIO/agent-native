@@ -84,6 +84,7 @@ function buildDelegationCorrelation(
   context: ActionRunContext | undefined,
   selfAppId: string | undefined,
   invocationId?: string,
+  selectedReceiverApp?: string,
 ): A2ACorrelationMetadata {
   const self = normalizeAppHandle(selfAppId);
   const inheritedVisited = Array.isArray(context?.visitedApps)
@@ -101,6 +102,7 @@ function buildDelegationCorrelation(
   const callerModel = getRequestRunContext()?.model?.trim();
   return {
     ...(selfAppId?.trim() ? { callerApp: selfAppId.trim() } : {}),
+    ...(selectedReceiverApp ? { selectedReceiverApp } : {}),
     ...(callerModel ? { callerModel } : {}),
     ...(context?.threadId ? { callerThreadId: context.threadId } : {}),
     ...(context?.runId ? { parentRunId: context.runId } : {}),
@@ -434,16 +436,21 @@ export async function run(
     }
   }
 
-  const correlation = buildDelegationCorrelation(context, selfAppId);
-  const idempotencyKey =
-    message && !taskId
-      ? buildMessageIdempotencyKey(context?.turnId, agent.url, message)
-      : undefined;
   const targetApp =
     normalizeAppHandle((agent as { id?: string }).id) ||
     normalizeAppHandle(agent.name) ||
     normalizeAppHandle(agentIdOrName) ||
     "unknown";
+  const correlation = buildDelegationCorrelation(
+    context,
+    selfAppId,
+    undefined,
+    taskId ? undefined : targetApp,
+  );
+  const idempotencyKey =
+    message && !taskId
+      ? buildMessageIdempotencyKey(context?.turnId, agent.url, message)
+      : undefined;
 
   if (action) {
     const agentCallId = randomUUID();

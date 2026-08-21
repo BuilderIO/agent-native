@@ -114,4 +114,38 @@ describe("ChatFirstSurfaceTabs", () => {
     });
     expect(onActivate).toHaveBeenCalledWith(tabs[1]);
   });
+
+  it("renders the shared new-tab affordance when a surface owns tab creation", () => {
+    const onAddTab = vi.fn();
+    const tabs = [
+      {
+        id: "terminal:desktop-1",
+        kind: "terminal" as const,
+        title: "Terminal 1",
+      },
+    ];
+
+    act(() => {
+      root.render(
+        <ChatFirstSurfaceTabs
+          tabs={tabs}
+          activeTabId={tabs[0].id}
+          onActivate={vi.fn()}
+          onClose={vi.fn()}
+          onCloseOthers={vi.fn()}
+          onCloseToRight={vi.fn()}
+          onCloseAll={vi.fn()}
+          onAddTab={onAddTab}
+          addTabLabel="New terminal"
+        />,
+      );
+    });
+
+    const addButton = container.querySelector<HTMLButtonElement>(
+      '[aria-label="New terminal"]',
+    );
+    expect(addButton).not.toBeNull();
+    act(() => addButton?.click());
+    expect(onAddTab).toHaveBeenCalledTimes(1);
+  });
 });

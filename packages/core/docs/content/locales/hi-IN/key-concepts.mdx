@@ -165,7 +165,7 @@ Framework अपनाना मुख्यतः इसलिए valuable ह�
 
 ## SQL में Data {#data-in-sql}
 
-सारा application state Drizzle ORM के ज़रिए एक SQL database में रहता है। Schemas provider-agnostic हैं; supported databases, `DATABASE_URL` config, और portability नियम [Database](/docs/database) में हैं।
+सारा application state Drizzle ORM के ज़रिए एक SQL database में रहता है। Schemas provider-agnostic हैं; supported databases, `DATABASE_URL` config, और portability नियम [Database](/docs/server-database) में हैं।
 
 Core SQL स्टोर auto-created हैं और हर template में उपलब्ध हैं:
 
@@ -281,7 +281,7 @@ pnpm action db-query --sql "SELECT * FROM forms"
 
 production agent chat plugin raw SQL tools को default रूप से read-only रखता है (`frameworkTools: { database: "read" }`), इसलिए agent app data को `db-schema` / `db-query` से inspect करते हैं और writes typed app actions से करते हैं। `database: "write"` (या `true`) केवल उन maintenance surfaces के लिए सेट करें जिन्हें scoped `db-exec` / `db-patch` भी चाहिए; सभी data access के लिए typed app actions ज़रूरी बनाने के लिए `database: "off"` / `false` सेट करें।
 
-`frameworkTools` फ़्रेमवर्क के बाकी अपने टूल को भी इसी तरह नियंत्रित करता है: sharing, रिव्यू कमेंट, वर्शन इतिहास, feature flags, लोकलाइज़ेशन, ऑडिट, Context X-Ray, प्रोफ़ाइल, ऑटोमेशन, docs, resources, web, ऐप-दर-ऐप डेलिगेशन, चैट और ईमेल। पूरी सूची, `"minimal"` preset, और किसी समूह को बंद करने पर उसके HTTP रूट क्यों माउंट रहते हैं — देखें [Production Agent Tools](/docs/deployment#production-agent-tools)।
+`frameworkTools` फ़्रेमवर्क के बाकी अपने टूल को भी इसी तरह नियंत्रित करता है: sharing, रिव्यू कमेंट, वर्शन इतिहास, feature flags, लोकलाइज़ेशन, ऑडिट, Context X-Ray, प्रोफ़ाइल, ऑटोमेशन, docs, resources, web, ऐप-दर-ऐप डेलिगेशन, चैट और ईमेल। पूरी सूची, `"minimal"` preset, और किसी समूह को बंद करने पर उसके HTTP रूट क्यों माउंट रहते हैं — देखें [Production Agent Tools](/docs/actions-agent-tools#production-agent-tools)।
 
 </Callout>
 
@@ -464,7 +464,7 @@ Framework embedded agent को ऐप के source code तक ambient access 
 
 दो architectural नियम ऐप्स को databases और hosts के बीच portable बनाए रखते हैं:
 
-- **Database-agnostic.** Schemas `@agent-native/core/db/schema` के साथ लिखें और reads/writes Drizzle के portable query DSL के साथ, ताकि वही code किसी भी supported provider पर चले। Raw SQL का उपयोग केवल additive migrations या one-off maintenance के लिए करें, जिसे parameterized और dialect-agnostic रखा गया हो। देखें [Database](/docs/database)।
+- **Database-agnostic.** Schemas `@agent-native/core/db/schema` के साथ लिखें और reads/writes Drizzle के portable query DSL के साथ, ताकि वही code किसी भी supported provider पर चले। Raw SQL का उपयोग केवल additive migrations या one-off maintenance के लिए करें, जिसे parameterized और dialect-agnostic रखा गया हो। देखें [Database](/docs/server-database)।
 - **Hosting-agnostic.** Server Nitro पर चलता है और किसी भी deployment target के लिए compile होता है। Server routes या plugins में कभी भी Node-specific APIs (`fs`, `child_process`, `path`) का उपयोग न करें, और कभी भी persistent server process मान कर न चलें। Serverless और edge stateless होते हैं, इसलिए सारा state SQL में रखें। देखें [Deployment](/docs/deployment)।
 
 ## Agent Resources {#workspace}

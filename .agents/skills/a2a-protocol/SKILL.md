@@ -238,10 +238,12 @@ change it when the work changes. Dedupe is scoped to the JWT-authenticated
 owner and verified org, and keys are limited to 128 characters.
 
 The caller also forwards bounded correlation metadata (`callerApp`,
-`callerThreadId`, `parentRunId`, `parentTurnId`, and direct-read
-`invocationId`). These fields
-are telemetry hints only. Receivers must continue to derive identity,
-ownership, org scope, access, and approval from the verified request context.
+`selectedReceiverApp`, `callerThreadId`, `parentRunId`, `parentTurnId`, and
+direct-read `invocationId`). `selectedReceiverApp` lets the matching receiver
+prioritize its declared local capabilities before loading cross-app tools; the
+other fields remain telemetry hints. Receivers must continue to derive
+identity, data ownership, org scope, access, and approval from the verified
+request context.
 Delegated model loops emit `$ai_generation` with A2A/MCP lineage, while direct
 reads emit the content-free `$a2a_read_invoke` event; neither event includes
 action arguments or results.

@@ -104,6 +104,12 @@ function parseProgramDescriptor(sql: string): {
   paramsText: string;
 } {
   if (!sql.trim()) return { programId: "", paramsText: "" };
+  // A panel may be stored as the bare program id — the server accepts that as a
+  // complete descriptor, so the editor has to show it rather than blanking the
+  // picker on a JSON.parse it was never going to satisfy.
+  if (/^dp_[A-Za-z0-9]+$/.test(sql.trim())) {
+    return { programId: sql.trim(), paramsText: "" };
+  }
   try {
     const parsed = JSON.parse(sql) as { programId?: unknown; params?: unknown };
     const programId =
@@ -756,7 +762,6 @@ function PanelEditorContent({
         <div className="grid gap-3">
           <Label>{t("panelEditor.whatToChart")}</Label>
           <PromptComposer
-            autoFocus
             disabled={isGenerating}
             placeholder={t("panelEditor.promptPlaceholder")}
             draftScope="analytics:add-panel"

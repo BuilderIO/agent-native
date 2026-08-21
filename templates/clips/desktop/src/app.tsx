@@ -37,16 +37,6 @@ import {
   useState,
 } from "react";
 
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "./components/AlertDialog";
 import { FeedbackButton } from "./components/FeedbackButton";
 import {
   CamIcon,
@@ -58,6 +48,7 @@ import {
   SettingsIcon,
 } from "./components/Icons";
 import { MediaDeviceRow } from "./components/MediaDeviceRow";
+import { MicOffConfirmation } from "./components/MicOffConfirmation";
 import { ReadinessPanel } from "./components/ReadinessPanel";
 import { SourceRow, type CaptureSource } from "./components/SourceRow";
 import { Switch } from "./components/Switch";
@@ -112,6 +103,7 @@ import {
   copyRecordingShareLink,
   recordingShareUrl,
 } from "./lib/recording-link";
+import { boundedCleanup } from "./lib/recording-start-guard";
 import { REWIND_AGENT_PROMPT } from "./lib/rewind-agent-prompt";
 import { getRewindStatusPresentation } from "./lib/rewind-status";
 import {
@@ -352,17 +344,6 @@ const DEFAULT_SCREEN_MEMORY_CONFIG = {
   ],
   excludePrivateWindows: false,
 };
-
-function parseExcludedBundleIds(value: string): string[] {
-  return [
-    ...new Set(
-      value
-        .split(/[\n,]/)
-        .map((id) => id.trim())
-        .filter(Boolean),
-    ),
-  ];
-}
 
 function isStorageSetupFailureMessage(message: string | null | undefined) {
   return STORAGE_SETUP_FAILURE_RE.test(message ?? "");
@@ -1005,9 +986,9 @@ export function App() {
     setPopoverView("settings");
   }
 
-  const [rewindSettingsReturnView, setRewindSettingsReturnView] = useState<
-    "recorder" | "settings"
-  >("recorder");
+  const [rewindSettingsReturnView] = useState<"recorder" | "settings">(
+    "recorder",
+  );
   const [rewindAgentPromptCopied, setRewindAgentPromptCopied] = useState(false);
   const [agentHandoff, setAgentHandoff] =
     useState<RewindAgentHandoffRequest | null>(null);
@@ -1045,7 +1026,7 @@ export function App() {
   // popover auto-hide during the macOS screen-picker focus dance.
   const [recordingFlowActive, setRecordingFlowActive] = useState(false);
   const [recordingStopFinalizing, setRecordingStopFinalizing] = useState(false);
-  const [lastRecordingId, setLastRecordingId] = useState<string | null>(null);
+  const [, setLastRecordingId] = useState<string | null>(null);
   const [authStatus, setAuthStatus] = useState<"unknown" | "authed" | "anon">(
     "unknown",
   );
@@ -1079,7 +1060,6 @@ export function App() {
   const {
     cameraId,
     setCameraId,
-    micId,
     setMicId,
     cameraLabel,
     setCameraLabel,
@@ -2070,11 +2050,19 @@ export function App() {
       const controller = new AbortController();
       const abortTimer = setTimeout(() => controller.abort(), POLL_ABORT_MS);
       try {
-        const exchangeParams = new URLSearchParams({ flow_id: flowId });
-        if (verifier) exchangeParams.set("verifier", verifier);
         const xr = await fetch(
-          `${base}/_agent-native/auth/desktop-exchange?${exchangeParams.toString()}`,
-          { credentials: "include", signal: controller.signal },
+          `${base}/_agent-native/auth/desktop-exchange?flow_id=${encodeURIComponent(flowId)}`,
+          {
+            credentials: "include",
+            ...(verifier
+              ? {
+                  headers: {
+                    "X-Agent-Native-Desktop-Verifier": verifier,
+                  },
+                }
+              : {}),
+            signal: controller.signal,
+          },
         );
         if (!xr.ok) {
           if (Date.now() - start > TIMEOUT_MS) {
@@ -2138,25 +2126,76 @@ export function App() {
     void tick();
   }
 
-  // Google and magic-link verification open in the system browser because
-  // the Tauri WebView has its own cookie jar. Both flows return through the
-  // same short-lived server-side exchange.
+  // Google verification opens in the system browser so the user's Google
+  // cookies are available. The client-held verifier still gates the exchange
+  // back into this Tauri app.
   async function signInExternal() {
     if (signInInflightRef.current) return;
     signInInflightRef.current = true;
 
     try {
       setSignInError(null);
-      const flowId =
-        crypto.randomUUID?.() ||
-        Math.random().toString(36).slice(2) + Date.now().toString(36);
+      const flowId = crypto.randomUUID?.() ?? null;
+      const verifier = (() => {
+        const randomUuid = crypto.randomUUID;
+        if (typeof randomUuid === "function") {
+          return `${randomUuid.call(crypto)}${randomUuid.call(crypto)}`;
+        }
+        if (typeof crypto.getRandomValues === "function") {
+          const bytes = new Uint8Array(32);
+          crypto.getRandomValues(bytes);
+          let binary = "";
+          for (const byte of bytes) binary += String.fromCharCode(byte);
+          return btoa(binary)
+            .replace(/\+/g, "-")
+            .replace(/\//g, "_")
+            .replace(/=+$/, "");
+        }
+        return null;
+      })();
+      if (!flowId || !verifier) {
+        // A Math.random flow id is guessable, which lets anyone else claim this
+        // sign-in's exchange slot; fail closed rather than weaken the credential.
+        throw new Error("Secure OAuth flow generation is unavailable.");
+      }
       const base = serverUrl.replace(/\/+$/, "");
 
-      await openExternal(
-        `${base}/_agent-native/google/auth-url?desktop=1&flow_id=${flowId}&redirect=1`,
+      const authParams = new URLSearchParams({
+        desktop: "1",
+        flow_id: flowId,
+      });
+      const authResponse = await fetch(
+        `${base}/_agent-native/google/auth-url?${authParams.toString()}`,
+        {
+          method: "POST",
+          headers: {
+            Accept: "application/json",
+            "X-Agent-Native-Desktop-Verifier": verifier,
+          },
+        },
       );
+      let authPayload: {
+        url?: unknown;
+        error?: unknown;
+        message?: unknown;
+      };
+      try {
+        authPayload = (await authResponse.json()) as typeof authPayload;
+      } catch {
+        throw new Error("Could not start Google sign-in.");
+      }
+      if (!authResponse.ok || typeof authPayload?.url !== "string") {
+        const message =
+          typeof authPayload.message === "string"
+            ? authPayload.message
+            : typeof authPayload.error === "string"
+              ? authPayload.error
+              : "Could not start Google sign-in.";
+        throw new Error(message);
+      }
+      await openExternal(authPayload.url);
       setSignInPending("google");
-      startDesktopAuthExchange(flowId, "google");
+      startDesktopAuthExchange(flowId, "google", verifier);
     } catch (err) {
       console.error("[clips-tray] signInExternal failed:", err);
       signInInflightRef.current = false;
@@ -3218,16 +3257,14 @@ export function App() {
         bubbleStreamTransferredToRecorder.current = false;
         recordingFlowGateRef.current = false;
         setRecordingFlowActive(false);
-        try {
-          await invoke("set_recording_state", { active: false });
-        } catch {
-          // ignore — best-effort
-        }
-        try {
-          await invoke("show_popover");
-        } catch {
-          // ignore — best-effort
-        }
+        // Bounded, not just best-effort: a plain unbounded await here would
+        // let a stuck native command (e.g. a ScreenCaptureKit handshake that
+        // never returns) turn this "always recovers" block into another
+        // permanent hang on top of the one that just failed — exactly the
+        // "stuck on Preparing…, have to restart" symptom this exists to
+        // prevent.
+        await boundedCleanup(invoke("set_recording_state", { active: false }));
+        await boundedCleanup(invoke("show_popover"));
       }
     }
 
@@ -3331,6 +3368,22 @@ export function App() {
       setMicOffConfirmOpen(true);
       return;
     }
+    void handleStartRecording(options);
+  }
+
+  function closeMicOffConfirmation() {
+    pendingStartOptionsRef.current = undefined;
+    setMicOffConfirmOpen(false);
+  }
+
+  function unmuteFromConfirmation() {
+    setMicOn(true);
+    closeMicOffConfirmation();
+  }
+
+  function continueWithoutMic() {
+    const options = pendingStartOptionsRef.current;
+    closeMicOffConfirmation();
     void handleStartRecording(options);
   }
 
@@ -3906,8 +3959,8 @@ export function App() {
   // (not a separate Tauri window). This avoids Tauri 2's separate-WebKit-
   // data-store-per-WebviewWindow cookie-jar issue — the cookie is set in
   // the same webview that reads it on the next /auth/session poll.
-  // Google and magic-link verification use the system browser, while the
-  // password fallback stays inline in this WebView.
+  // Google verification uses a popup in the bound WebView, while magic-link
+  // verification uses the system browser and password stays inline here.
   if (authStatus === "anon") {
     return (
       <div className="app" ref={appRef}>
@@ -3961,7 +4014,19 @@ export function App() {
 
   return (
     <div className="app app-recorder" ref={appRef}>
-      <div className="recorder-home-content">
+      {micOffConfirmOpen ? (
+        <MicOffConfirmation
+          onBack={closeMicOffConfirmation}
+          onUnmute={unmuteFromConfirmation}
+          onContinue={continueWithoutMic}
+        />
+      ) : null}
+
+      <div
+        className="recorder-home-content"
+        hidden={micOffConfirmOpen}
+        aria-hidden={micOffConfirmOpen}
+      >
         <Header
           mode={mode}
           onModeChange={setMode}
@@ -4078,35 +4143,6 @@ export function App() {
           </button>
         ) : null}
 
-        <AlertDialog
-          open={micOffConfirmOpen}
-          onOpenChange={(open) => {
-            setMicOffConfirmOpen(open);
-            if (!open) pendingStartOptionsRef.current = undefined;
-          }}
-        >
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Record without a microphone?</AlertDialogTitle>
-              <AlertDialogDescription>
-                Your mic is off, so this recording won&apos;t capture any audio.
-                Turn it on before starting if you want narration.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogAction
-                onClick={() => {
-                  const options = pendingStartOptionsRef.current;
-                  pendingStartOptionsRef.current = undefined;
-                  void handleStartRecording(options);
-                }}
-              >
-                Start anyway
-              </AlertDialogAction>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
         {recError ? (
           recError === MACOS_UPDATE_RESTART_MESSAGE ? (
             <UpdateRestartBanner message={recError} />
@@ -4336,7 +4372,7 @@ function PendingUploadBanner({
 
   const retrying = retryingUploadId === latest.recordingId;
   const storageSetupFailure = isStorageSetupFailureMessage(latest.lastError);
-  const exporting = exportingUploadId === latest.recordingId;
+
   const canOpenFolder = latest.kind === "native" && !!latest.folderPath;
   const canExport = latest.kind === "browser";
   const actionsDisabled =
@@ -4833,7 +4869,7 @@ function SignInForm({
         type="button"
         className="signin-google"
         onClick={onUseBrowser}
-        title="Opens your default browser to complete Google sign-in"
+        title="Returns to Clips to complete Google sign-in"
       >
         <GoogleIcon />
         Sign in with Google
@@ -5465,7 +5501,7 @@ function Setup({
   const [rewindLocalBusy, setRewindLocalBusy] = useState(false);
   const [rewindLocalError, setRewindLocalError] = useState<string | null>(null);
   const [rewindReplayId, setRewindReplayId] = useState<string | null>(null);
-  const [excludedBundleIdsInput, setExcludedBundleIdsInput] = useState("");
+  const [, setExcludedBundleIdsInput] = useState("");
   const [excludedApps, setExcludedApps] = useState<RewindExcludedApplication[]>(
     [],
   );

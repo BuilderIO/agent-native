@@ -369,6 +369,9 @@ const messages = {
     aiNotes: "人工智能笔记",
     summary: "摘要",
     actionItems: "行动项目",
+    addActionItem: "添加行动项",
+    removeActionItem: "删除行动项",
+    actionItemPlaceholder: "需要完成什么？",
     working: "在职的…",
     noActionItems: "还没有行动项目。从记录生成笔记后，它们会出现在此处。",
     transcript: "成绩单",
@@ -588,11 +591,16 @@ const messages = {
     alsoFor: "也可用于 {{platform}}",
     backToLibrary: "返回资料库",
     clipsDesktop: "Clips 桌面版",
+    stable: "稳定版",
+    nightly: "Nightly",
+    switchToNightly: "切换到 Nightly 构建",
+    switchToStable: "切换到稳定版构建",
+    retry: "重试",
     heroDescription:
       "用于屏幕、相机和屏幕+相机的菜单栏记录器。一键启动，可拖动相机气泡，停止时即时分享链接。",
     versionReleased: "版本 {{version}} — 发布 {{date}}",
     version: "版本{{version}}",
-    manifestError: "无法加载版本清单 - 从版本页面选择安装程序。",
+    manifestError: "无法加载版本清单，请重试。",
     loadingRelease: "正在加载最新版本...",
     chromeTitle: "Chrome 浏览器日志扩展",
     chromeDescription:
@@ -652,15 +660,6 @@ const messages = {
     viewAllUpdates: "查看所有更新",
     expand: "展开",
     collapse: "收起",
-    changelogMarkdown: `# 更新日志
-
-Clips 中所有面向用户的重要更改都会记录在这里。你可以随时从命令菜单（Cmd K -> “最新变化”）或设置中打开。
-
-## 2026-06-23
-
-### 新增
-
-- 现在可以直接在 Clips 中查看最新变化。更新日志已加入命令菜单（Cmd K）和设置。`,
     playback: "播放",
     defaultPlaybackSpeed: "默认播放速度",
     playbackDescription: "打开录制时会自动应用。",
@@ -935,7 +934,7 @@ Clips 中所有面向用户的重要更改都会记录在这里。你可以随�
   commentsPanel: {
     disabled: "此录制已禁用评论。",
     beFirst: "成为第一个评论的人",
-    leaveNotePanel: "在此面板顶部留下备注。",
+    leaveNotePanel: "在此面板底部留下备注。",
     leaveNoteTimestamp: "在当前时间戳留下备注。",
     leaveComment: "留下评论...",
     signInToComment: "登录以发表评论。",
@@ -991,8 +990,13 @@ Clips 中所有面向用户的重要更改都会记录在这里。你可以随�
     pauseShortcut: "暂停 (⌥⇧P)",
     stop: "停止录制",
     elapsed: "已用时间",
-    cancel: "取消录制",
-    cancelShortcut: "取消 (⌥⇧C)",
+    cancel: "丢弃录制",
+    cancelShortcut: "丢弃 (⌥⇧C)",
+    discardConfirmTitle: "要丢弃此录制吗?",
+    discardConfirmDescription:
+      "此操作无法撤销,到目前为止的录制内容将被永久删除。",
+    resume: "继续",
+    discardRecording: "丢弃录制",
   },
   countdownOverlay: {
     startsIn: "录制将在 {{count}} 后开始",
@@ -1071,6 +1075,7 @@ Clips 中所有面向用户的重要更改都会记录在这里。你可以随�
     liveTranscriptDescription: "开始记录后，实时转录会显示在这里。",
     me: "我",
     them: "对方",
+    unknownSpeaker: "说话人",
     searchTranscript: "搜索转录",
     searchPlaceholder: "搜索转录…",
     searchMatchCount: "第 {{current}} 项，共 {{total}} 项",
@@ -1189,7 +1194,7 @@ Clips 中所有面向用户的重要更改都会记录在这里。你可以随�
     seekTo: "Seek to {{time}} (已本地化)",
   },
   editorToolbar: {
-    undoTooltip: "Undo (Cmd/Ctrl Z) (已本地化)",
+    undoTooltip: "Undo (Cmd/Ctrl+Z) (已本地化)",
     playPauseTooltip: "Play / Pause (Space) (已本地化)",
     sourceDuration: "({{duration}} src) (已本地化)",
     previewSpeed: "Preview speed (已本地化)",
@@ -1283,10 +1288,10 @@ Clips 中所有面向用户的重要更改都会记录在这里。你可以随�
     cameraOff: "Camera off (已本地化)",
     includeCameraAria: "Include camera in this recording (已本地化)",
     startRecording: "Start recording (已本地化)",
-    micOffConfirmTitle: "Record without a microphone? (已本地化)",
-    micOffConfirmDescription:
-      "Your mic is off, so this recording won't capture any audio. Turn it on before starting if you want narration. (已本地化)",
-    startWithoutMic: "Start anyway (已本地化)",
+    micOffConfirmTitle: "你的麦克风已静音",
+    micOffConfirmDescription: "要让视频有声音，请取消麦克风静音。",
+    startWithoutMic: "继续",
+    unmuteMicrophone: "取消静音",
     uploadVideo: "Upload video (已本地化)",
     importLoom: "Import Loom (已本地化)",
     importing: "Importing... (已本地化)",
@@ -1369,6 +1374,10 @@ Clips 中所有面向用户的重要更改都会记录在这里。你可以随�
       "在下一屏连接存储：Builder.io（免费套餐存储 + AI）或 S3 兼容存储。Clips 将完成保存。",
     connectStorageToRetryLoom:
       "在下一屏连接存储：Builder.io（免费套餐存储 + AI）或 S3 兼容存储。Clips 将重试导入。",
+    leaveConfirmTitle: "离开并丢弃此录制？",
+    leaveConfirmDescription:
+      "正在进行的录制尚未保存完成。现在离开此页面将丢弃它。",
+    leaveAndDiscard: "离开并丢弃",
   },
   importRoute: {
     pageTitle: "导入 Loom — Clips",
@@ -1533,7 +1542,6 @@ Clips 中所有面向用户的重要更改都会记录在这里。你可以随�
     transcriptPending: "Transcript pending (已本地化)",
     notesPending: "Notes pending (已本地化)",
     pastRecordings: "Past recordings (已本地化)",
-    loadOlder: "加载更早的",
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (已本地化)",
     connectGoogleCalendar: "Connect Google Calendar (已本地化)",
@@ -1561,7 +1569,14 @@ Clips 中所有面向用户的重要更改都会记录在这里。你可以随�
     title: "Meetings (已本地化)",
     intro:
       "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time. (已本地化)",
-    searchPlaceholder: "Search meetings... (已本地化)",
+    searchPlaceholder:
+      "Search meetings, attendees, and transcripts... (已本地化)",
+    agendaTab: "Agenda (已本地化)",
+    pastTab: "Past (已本地化)",
+    now: "Now (已本地化)",
+    noPastMeetings: "No past meetings yet (已本地化)",
+    loadOlder: "Load older (已本地化)",
+    searchFailed: "Couldn't search meetings. Try again in a moment. (已本地化)",
     clearSearch: "Clear search (已本地化)",
     noMeetingsYet: "No meetings yet (已本地化)",
     noMeetingsDescription:

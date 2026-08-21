@@ -1,3 +1,5 @@
+import { getAppConfig } from "../app-config/index.js";
+
 function normalizeOrigin(raw: string | undefined): string {
   if (!raw) return "";
   try {
@@ -42,14 +44,10 @@ function isBuilderPreviewOrigin(origin: string): boolean {
 }
 
 export function getWorkspaceGatewayReturnOrigin(): string {
-  for (const raw of [
-    process.env.WORKSPACE_GATEWAY_URL,
-    process.env.VITE_WORKSPACE_GATEWAY_URL,
-  ]) {
-    const origin = normalizeOrigin(raw);
-    if (origin && isLoopbackOrigin(origin)) return origin;
-  }
-  return "";
+  // Loopback-only, inverted from getPublicOAuthOrigin: this is the local-dev
+  // gateway a return URL may point back at.
+  const origin = normalizeOrigin(getAppConfig().workspace.gatewayUrl);
+  return origin && isLoopbackOrigin(origin) ? origin : "";
 }
 
 function allowedOAuthReturnOrigins(allowDefaultLoopback: boolean): Set<string> {

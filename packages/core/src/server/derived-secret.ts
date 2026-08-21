@@ -1,11 +1,13 @@
 import crypto from "node:crypto";
 
+import { getAppConfig } from "../app-config/index.js";
+
 const DERIVED_SECRET_PREFIX = "agent-native:derived-secret:v1";
 
 function isWorkspaceRuntime(): boolean {
+  const workspace = getAppConfig().workspace;
   return (
-    process.env.AGENT_NATIVE_WORKSPACE === "1" ||
-    process.env.VITE_AGENT_NATIVE_WORKSPACE === "1"
+    workspace.isWorkspace === true || typeof workspace.appsJson === "string"
   );
 }
 

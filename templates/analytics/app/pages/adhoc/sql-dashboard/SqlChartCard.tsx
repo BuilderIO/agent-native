@@ -613,11 +613,12 @@ export function SqlChartCard({
             {panel.title}
           </CardTitle>
           <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-            {editable && onSaveSql ? (
+            {!editable || onSaveSql ? (
               <ViewSqlPopover
                 panel={panel}
                 resolvedSql={resolvedSql}
                 onSaveSql={onSaveSql}
+                editable={editable}
               >
                 <button
                   className="p-1 rounded text-muted-foreground hover:text-foreground"

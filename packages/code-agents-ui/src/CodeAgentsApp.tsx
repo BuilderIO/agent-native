@@ -27,6 +27,7 @@ import {
   isLunaModel,
   readAgentPromptAttachment,
   resolvePreferredAgentModel,
+  type ComposerTerminalModeControl,
   type PromptComposerFile,
   type SlashCommand,
   type TiptapComposerHandle,
@@ -37,10 +38,13 @@ import type { AppConfig } from "@agent-native/shared-app-config";
 import {
   IconAlertCircle,
   IconBan,
+  IconBrandOpenai,
   IconCheck,
+  IconChevronDown,
   IconClock,
   IconCode,
   IconBrandChrome,
+  IconCloud,
   IconCopy,
   IconDeviceMobile,
   IconDeviceDesktop,
@@ -48,13 +52,16 @@ import {
   IconEye,
   IconFolder,
   IconFolderPlus,
+  IconGitBranch,
+  IconGitFork,
+  IconKey,
   IconLink,
   IconLockAccess,
-  IconPlus,
   IconPlayerPlay,
   IconPlayerStop,
   IconQrcode,
   IconRefresh,
+  IconRestore,
   IconRoute,
   IconSearch,
   IconSettings,
@@ -74,6 +81,8 @@ import {
 } from "react";
 import { toast } from "sonner";
 
+const SCHEDULED_CHAT_PROMPT_EVENT = "agent-native:scheduled-chat-prompt";
+
 import {
   CODE_AGENT_GOALS,
   DEFAULT_CODE_AGENT_PERMISSION_MODE,
@@ -85,6 +94,13 @@ import {
   type CodeAgentGoalId,
   type CodeAgentPermissionMode,
 } from "./code-agents.js";
+import {
+  getChatFirstNumericAppShortcut,
+  resolveChatFirstKeyboardNavigationTarget,
+  type ChatFirstKeyboardNavigation,
+  type ChatFirstKeyboardShortcut,
+} from "./keyboard-navigation.js";
+import { RemoteWaitlistPopover } from "./RemoteWaitlistPopover.js";
 import { SessionWatchPanel } from "./SessionWatchPanel.js";
 import type {
   CodeAgentCodePack,
@@ -93,6 +109,10 @@ import type {
   CodeAgentControlResult,
   CodeAgentCreateRunRequest,
   CodeAgentCreateRunResult,
+  CodeAgentExecutionTarget,
+  CodeAgentForkRunRequest,
+  CodeAgentForkRunResult,
+  CodeAgentWorktreeSelection,
   CodeAgentFollowUpMode,
   CodeAgentFollowUpRequest,
   CodeAgentFollowUpResult,
@@ -100,6 +120,10 @@ import type {
   CodeAgentModelListResult,
   CodeAgentModelOption,
   CodeAgentModelSelection,
+  CodeAgentPortalTransferAllRequest,
+  CodeAgentPortalTransferAllResult,
+  CodeAgentPortalTransferRequest,
+  CodeAgentPortalTransferResult,
   CodeAgentProviderConnectResult,
   CodeAgentPromptAttachment,
   CodeAgentProjectFolder,
@@ -110,6 +134,8 @@ import type {
   CodeAgentRemoteConnectorPairRequest,
   CodeAgentRemoteConnectorPairResult,
   CodeAgentRemoteConnectorStatus,
+  CodeAgentRemoteWaitlistRequest,
+  CodeAgentRemoteWaitlistResult,
   CodeAgentRerunRequest,
   CodeAgentRerunResult,
   CodeAgentRetryRunRequest,
@@ -117,6 +143,10 @@ import type {
   CodeAgentRun,
   CodeAgentRunDetail,
   CodeAgentRunListResult,
+  CodeAgentScheduleListResult,
+  CodeAgentScheduleResult,
+  CodeAgentRestoreWorktreeRequest,
+  CodeAgentRestoreWorktreeResult,
   CodeAgentTerminalRequest,
   CodeAgentTerminalResult,
   CodeAgentTranscriptEvent,
@@ -125,6 +155,8 @@ import type {
   CodeAgentTranscriptSubscriptionBatch,
   CodeAgentUpdateRunRequest,
   CodeAgentUpdateRunResult,
+  CodeAgentWorktreeListResult,
+  CodeAgentWorktreeSummary,
   CodeAgentsOpenRequest,
 } from "./types.js";
 import {
@@ -137,6 +169,10 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu.js";
 import {
@@ -150,6 +186,11 @@ import {
 
 export interface CodeAgentsHost {
   listRuns: (goalId?: string) => Promise<CodeAgentRunListResult>;
+  listSchedules?: () => Promise<CodeAgentScheduleListResult>;
+  createSchedule?: (input: unknown) => Promise<CodeAgentScheduleResult>;
+  updateSchedule?: (input: unknown) => Promise<CodeAgentScheduleResult>;
+  deleteSchedule?: (input: unknown) => Promise<CodeAgentScheduleResult>;
+  runScheduleNow?: (input: unknown) => Promise<CodeAgentScheduleResult>;
   listModels?: () => Promise<CodeAgentModelListResult>;
   getHostMetadata?: () => Promise<CodeAgentHostMetadata>;
   runComputerSetupAction?: (
@@ -162,6 +203,16 @@ export interface CodeAgentsHost {
   createRun: (
     request: CodeAgentCreateRunRequest,
   ) => Promise<CodeAgentCreateRunResult>;
+  listWorktrees?: (cwd?: string) => Promise<CodeAgentWorktreeListResult>;
+  forkRun?: (
+    request: CodeAgentForkRunRequest,
+  ) => Promise<CodeAgentForkRunResult>;
+  restoreWorktree?: (
+    request: CodeAgentRestoreWorktreeRequest,
+  ) => Promise<CodeAgentRestoreWorktreeResult>;
+  submitRemoteWaitlist?: (
+    request: CodeAgentRemoteWaitlistRequest,
+  ) => Promise<CodeAgentRemoteWaitlistResult>;
   readTranscript: (
     request: CodeAgentTranscriptRequest,
   ) => Promise<CodeAgentTranscriptResult>;
@@ -172,6 +223,12 @@ export interface CodeAgentsHost {
   appendFollowUp: (
     request: CodeAgentFollowUpRequest,
   ) => Promise<CodeAgentFollowUpResult>;
+  transferRun?: (
+    request: CodeAgentPortalTransferRequest,
+  ) => Promise<CodeAgentPortalTransferResult>;
+  transferAll?: (
+    request?: CodeAgentPortalTransferAllRequest,
+  ) => Promise<CodeAgentPortalTransferAllResult>;
   updateRun: (
     request: CodeAgentUpdateRunRequest,
   ) => Promise<CodeAgentUpdateRunResult>;
@@ -280,15 +337,15 @@ export interface CodeAgentsAppProps {
   openRequest?: CodeAgentsOpenRequest;
   refreshKey?: number;
   brandIconUrl?: string;
-  onOpenSettings?: () => void;
+  onOpenSettings?: (tab?: string) => void;
   /** Compact actions rendered above the primary surface. */
   mainToolbarSlot?: ReactNode;
-  /** Extra first-party navigation items rendered below New chat. */
-  railNavigationSlot?: ReactNode;
   /** App shortcuts rendered between navigation and the chat history. */
   railWorkspaceSlot?: ReactNode;
   /** Optional actions pinned to the bottom of the rail. */
   railFooterSlot?: ReactNode;
+  /** Optional window controls mounted in the rail's title-bar area. */
+  railWindowControlsSlot?: ReactNode;
   /** Optional content shown below the empty new-chat composer. */
   overviewFooterSlot?: ReactNode;
   renderAppSurface?: CodeAgentsRenderAppSurface;
@@ -296,18 +353,29 @@ export interface CodeAgentsAppProps {
   openDetailRequest?: { detailId: string; nonce: number };
   /** Active chat-first side surface; watch is rendered only when selected. */
   activeChatFirstSurfaceKind?: ChatFirstSurfaceKind;
-  /** Keep session-watch affordances opt-in with the chat-first shell. */
-  chatFirstMode?: boolean;
-  /** Selected primary chat kind in the opt-in chat-first shell. */
+  /** Selected primary chat kind in the chat-first shell. */
   chatFirstMainKind?: "agent" | "code";
   /** Keep the chat-first navigation rail in its compact icon-only state. */
   railCollapsed?: boolean;
   /** Hide host transport-unavailable copy while the chat-first shell is booting. */
   suppressChatFirstUnavailableNotice?: boolean;
-  /** Select the primary chat kind in the opt-in chat-first shell. */
+  /** Select the primary chat kind in the chat-first shell. */
   onChatFirstMainKindChange?: (kind: "agent" | "code") => void;
-  /** Host-rendered shared Agent-Native chat surface for chat-first mode. */
+  /** Host-rendered shared Agent-Native chat surface for the agent chat tab. */
   renderChatFirstMainSurface?: ReactNode;
+  /** Host-rendered replacement for the chat stream and composer region. */
+  renderChatFirstChatSurface?: ReactNode;
+  /** Local terminal mode replaces the new-chat run with a PTY prompt. */
+  terminalMode?: {
+    agentId: string;
+    agentLabel: string;
+    onSubmit: (
+      prompt: string,
+      attachments: CodeAgentPromptAttachment[],
+    ) => void | Promise<void>;
+  };
+  /** Controls terminal mode from the new-chat composer plus menu. */
+  terminalModeControl?: ComposerTerminalModeControl;
   /** Navigation callbacks for the shared chat-first rail. */
   chatFirstNavigation?: {
     activeTab?: ChatFirstPrimaryTab;
@@ -317,6 +385,8 @@ export interface CodeAgentsAppProps {
     onOpenIntegrations: () => void;
     onOpenScheduled: () => void;
   };
+  /** Desktop-native shortcuts for app and chat navigation. */
+  keyboardNavigation?: ChatFirstKeyboardNavigation;
   /** Route first-party MCP open_app results through the shared app pane. */
   onChatFirstOpenApp?: (detail: ChatFirstOpenAppDetail) => void;
   /** Lets a host place the shared watch renderer in its side-surface slot. */
@@ -328,6 +398,12 @@ export interface CodeAgentsAppProps {
   onRunsChange?: (runs: CodeAgentRun[]) => void;
   /** Exposes the selected primary chat to a host-owned surface controller. */
   onSelectedRunChange?: (runId: string | null) => void;
+}
+
+interface CodeAgentTerminalAgentOption {
+  id: string;
+  label: string;
+  icon?: ReactNode;
 }
 
 function recordFromUnknown(value: unknown): Record<string, unknown> | null {
@@ -481,6 +557,28 @@ const CODE_AGENT_LOCAL_ENGINES = new Set([
   "opencode-cli",
 ]);
 
+type LocalRuntimeEngine = "codex-cli" | "claude-cli";
+
+function getLocalRuntimeOptions(
+  modelOptions: CodeAgentModelOption[],
+): Array<{ engine: LocalRuntimeEngine; label: string }> {
+  const availableEngines = new Set(
+    modelOptions
+      .map((option) => option.engine)
+      .filter(
+        (engine): engine is LocalRuntimeEngine =>
+          engine === "codex-cli" || engine === "claude-cli",
+      ),
+  );
+  return (["codex-cli", "claude-cli"] as const)
+    .filter((engine) => availableEngines.has(engine))
+    .map((engine) => ({
+      engine,
+      label:
+        engine === "codex-cli" ? "Sign in with ChatGPT" : "Sign in with Claude",
+    }));
+}
+
 const CODE_AGENT_RUNTIME_OPTIONS = [
   {
     id: "default",
@@ -584,9 +682,11 @@ const codeAgentComposerRootStyle = {
 function CodeAgentsChatHistoryHeaderActions({
   hasUnread,
   onMarkAllRead,
+  onTransferAll,
 }: {
   hasUnread: boolean;
   onMarkAllRead: () => void;
+  onTransferAll?: () => void;
 }) {
   return (
     <DropdownMenu>
@@ -609,9 +709,63 @@ function CodeAgentsChatHistoryHeaderActions({
           <IconCheck size={14} strokeWidth={1.8} aria-hidden="true" />
           <span>Mark all as read</span>
         </DropdownMenuItem>
+        {onTransferAll ? (
+          <DropdownMenuItem onSelect={onTransferAll}>
+            <IconRoute size={14} strokeWidth={1.8} aria-hidden="true" />
+            <span>Move local chats to Portal</span>
+          </DropdownMenuItem>
+        ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
   );
+}
+
+function isPortalCodeAgentRun(run: CodeAgentRun): boolean {
+  const metadata = run.metadata;
+  return Boolean(
+    metadata &&
+    (metadata.executionTarget === "portal" ||
+      (typeof metadata.portal === "object" && metadata.portal !== null)),
+  );
+}
+
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function firstRecordString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+export function getCodeAgentWorktreeRecoveryState(
+  worktree: Record<string, unknown> | undefined,
+): {
+  wasPreserved: boolean;
+  needsRecovery: boolean;
+  needsNotice: boolean;
+} {
+  const worktreePath = firstRecordString(worktree?.path);
+  const worktreeState = firstRecordString(worktree?.state);
+  const cleanupError = firstRecordString(worktree?.lastCleanupError);
+  // Older run records do not have pathAvailable. Preserve their existing
+  // behavior while making current records explicit when cleanup removed the
+  // checkout but kept its branch for recovery.
+  const pathAvailable = worktree?.pathAvailable !== false;
+  const wasPreserved =
+    worktreeState === "recoverable" && Boolean(cleanupError) && pathAvailable;
+  const needsRecovery = Boolean(
+    worktree &&
+    worktreePath &&
+    (worktreeState === "recoverable" ||
+      worktreeState === "removed" ||
+      worktreeState === "error") &&
+    !wasPreserved,
+  );
+  return {
+    wasPreserved,
+    needsRecovery,
+    needsNotice: needsRecovery || wasPreserved,
+  };
 }
 
 export default function CodeAgentsApp({
@@ -623,21 +777,24 @@ export default function CodeAgentsApp({
   brandIconUrl,
   onOpenSettings,
   mainToolbarSlot,
-  railNavigationSlot,
   railWorkspaceSlot,
   railFooterSlot,
+  railWindowControlsSlot,
   overviewFooterSlot,
   renderAppSurface,
   newSessionExtension,
   openDetailRequest,
   activeChatFirstSurfaceKind,
-  chatFirstMode = false,
   chatFirstMainKind = "code",
   railCollapsed = false,
   suppressChatFirstUnavailableNotice = false,
   onChatFirstMainKindChange,
   renderChatFirstMainSurface,
+  renderChatFirstChatSurface,
+  terminalMode,
+  terminalModeControl,
   chatFirstNavigation,
+  keyboardNavigation,
   onChatFirstOpenApp,
   onWatchedRunChange,
   onRunsChange,
@@ -660,8 +817,6 @@ export default function CodeAgentsApp({
   const watchedSessionTargetGoalId = watchedSessionTarget?.goalId ?? null;
   const selectedRunIdRef = useRef(selectedRunId);
   selectedRunIdRef.current = selectedRunId;
-  const chatFirstModeRef = useRef(chatFirstMode);
-  chatFirstModeRef.current = chatFirstMode;
   const onChatFirstMainKindChangeRef = useRef(onChatFirstMainKindChange);
   onChatFirstMainKindChangeRef.current = onChatFirstMainKindChange;
   const toggleRunPinnedRef = useRef<(run: CodeAgentRun) => Promise<void>>(
@@ -673,11 +828,35 @@ export default function CodeAgentsApp({
   const [selectedExtensionDetailId, setSelectedExtensionDetailId] = useState<
     string | null
   >(null);
-  const activeNewSessionExtension = newSessionExtension?.active
-    ? newSessionExtension
-    : null;
-  const newSessionExtensionComposerState =
-    resolveNewSessionExtensionComposerState(newSessionExtension);
+  const [transcriptEvents, setTranscriptEvents] = useState<
+    CodeAgentTranscriptEvent[]
+  >([]);
+  const [transcriptLoading, setTranscriptLoading] = useState(false);
+  const [transcriptError, setTranscriptError] = useState<string | null>(null);
+  const transcriptRequestRef = useRef(0);
+  const selectRun = useCallback((runId: string | null) => {
+    // Do not mount a newly selected chat with the previous run's repository.
+    // The transcript fetch completes after this render, and the shared chat
+    // runtime correctly rejects a shorter same-length repository as stale.
+    setTranscriptEvents([]);
+    setTranscriptError(null);
+    setSelectedRunId(runId);
+  }, []);
+  const activeNewSessionExtension =
+    !terminalMode && newSessionExtension?.active ? newSessionExtension : null;
+  const newSessionExtensionComposerState = terminalMode
+    ? { active: false, useDefaultModeControl: false, showModelSelector: true }
+    : resolveNewSessionExtensionComposerState(newSessionExtension);
+  const terminalAgentOption: CodeAgentTerminalAgentOption | undefined =
+    terminalMode
+      ? {
+          id: terminalMode.agentId,
+          label: terminalMode.agentLabel,
+          icon: (
+            <IconTerminal2 size={14} strokeWidth={1.8} aria-hidden="true" />
+          ),
+        }
+      : undefined;
   const selectedRun = useMemo(
     () => runs.find((run) => run.id === selectedRunId) ?? null,
     [runs, selectedRunId],
@@ -739,9 +918,9 @@ export default function CodeAgentsApp({
 
   useEffect(() => {
     if (!openDetailRequest || !activeNewSessionExtension?.renderDetail) return;
-    setSelectedRunId(null);
+    selectRun(null);
     setSelectedExtensionDetailId(openDetailRequest.detailId);
-  }, [activeNewSessionExtension, openDetailRequest]);
+  }, [activeNewSessionExtension, openDetailRequest, selectRun]);
   const selectedRunUsesAppSurface = selectedRun
     ? isMigrationRun(selectedRun)
     : false;
@@ -759,11 +938,6 @@ export default function CodeAgentsApp({
   const [newPrompt, setNewPrompt] = useState("");
   const [newPromptSeed, setNewPromptSeed] = useState(0);
   const [creatingRun, setCreatingRun] = useState(false);
-  const [transcriptEvents, setTranscriptEvents] = useState<
-    CodeAgentTranscriptEvent[]
-  >([]);
-  const [transcriptLoading, setTranscriptLoading] = useState(false);
-  const [transcriptError, setTranscriptError] = useState<string | null>(null);
   const seenChatFirstOpenAppEvents = useRef(new Set<string>());
   const registeredChatFirstMcpServerIds = useMemo(
     () =>
@@ -783,6 +957,22 @@ export default function CodeAgentsApp({
   );
   const [projects, setProjects] = useState<CodeAgentProjectFolder[]>([]);
   const [selectedProjectPath, setSelectedProjectPath] = useState<string>("");
+  const [newRunExecutionTarget, setNewRunExecutionTarget] =
+    useState<CodeAgentExecutionTarget>("local");
+  const [newRunWorktreeSelection, setNewRunWorktreeSelection] =
+    useState<CodeAgentWorktreeSelection>({ mode: "new" });
+  const [namedWorktrees, setNamedWorktrees] = useState<
+    CodeAgentWorktreeSummary[]
+  >([]);
+  const [namedWorktreesLoading, setNamedWorktreesLoading] = useState(false);
+  const namedWorktreeRequestRef = useRef(0);
+  const [namedWorktreeDialogOpen, setNamedWorktreeDialogOpen] = useState(false);
+  const [namedWorktreeName, setNamedWorktreeName] = useState("");
+  const [forkSourceRun, setForkSourceRun] = useState<CodeAgentRun | null>(null);
+  const [forkBusy, setForkBusy] = useState(false);
+  const [restoringWorktreeId, setRestoringWorktreeId] = useState<string | null>(
+    null,
+  );
   const [loadingProjects, setLoadingProjects] = useState(false);
   const [codePack, setCodePack] = useState<CodeAgentCodePack | null>(null);
   const [modelSelection, setModelSelection] = useState<CodeAgentModelSelection>(
@@ -798,6 +988,12 @@ export default function CodeAgentsApp({
   >(null);
   const [remoteConnectorPairing, setRemoteConnectorPairing] = useState(false);
   const [remoteConnectorUpdating, setRemoteConnectorUpdating] = useState(false);
+  const [portalTransferRequest, setPortalTransferRequest] = useState<
+    { kind: "run"; runId: string; title: string } | { kind: "all" } | null
+  >(null);
+  const [portalTransferBusy, setPortalTransferBusy] = useState(false);
+  const [cloudWaitlistOpen, setCloudWaitlistOpen] = useState(false);
+  const cloudWaitlistOpeningRef = useRef(false);
   const [searchPanelOpen, setSearchPanelOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchRuns, setSearchRuns] = useState<CodeAgentRun[]>([]);
@@ -846,11 +1042,14 @@ export default function CodeAgentsApp({
       const pinned = isRunPinned(run);
       const active = isRunActive(run);
       const unread = !active && unreadRunIds.has(run.id);
+      const scheduled = run.metadata?.hasSchedule === true;
       const timestampKey = active
         ? "active"
         : unread
           ? "unread"
-          : formatRelativeTime(run.updatedAt);
+          : scheduled
+            ? "scheduled"
+            : formatRelativeTime(run.updatedAt);
       const previous = railItemCacheRef.current.get(run.id);
       if (
         previous &&
@@ -1019,6 +1218,7 @@ export default function CodeAgentsApp({
 
   const loadTranscript = useCallback(
     async (runId: string | null = selectedRunId, busy = false) => {
+      const transcriptRequestId = ++transcriptRequestRef.current;
       if (!runId) {
         setTranscriptEvents([]);
         setTranscriptError(null);
@@ -1034,14 +1234,31 @@ export default function CodeAgentsApp({
           }),
           getHostCallTimeoutMs(1_000),
         );
+        if (
+          transcriptRequestId !== transcriptRequestRef.current ||
+          runId !== selectedRunIdRef.current
+        ) {
+          return;
+        }
         routeChatFirstOpenAppEvents(result.events);
         setTranscriptEvents(result.events);
         setTranscriptError(result.error ?? null);
       } catch (err) {
+        if (
+          transcriptRequestId !== transcriptRequestRef.current ||
+          runId !== selectedRunIdRef.current
+        ) {
+          return;
+        }
         setTranscriptEvents([]);
         setTranscriptError(err instanceof Error ? err.message : String(err));
       } finally {
-        setTranscriptLoading(false);
+        if (
+          transcriptRequestId === transcriptRequestRef.current &&
+          runId === selectedRunIdRef.current
+        ) {
+          setTranscriptLoading(false);
+        }
       }
     },
     [host, routeChatFirstOpenAppEvents, selectedGoal.id, selectedRunId],
@@ -1065,6 +1282,49 @@ export default function CodeAgentsApp({
       setLoadingProjects(false);
     }
   }, [host]);
+
+  const loadNamedWorktrees = useCallback(async () => {
+    const requestId = namedWorktreeRequestRef.current + 1;
+    namedWorktreeRequestRef.current = requestId;
+    const requestedProjectPath = selectedProjectPath;
+    if (newRunExecutionTarget !== "worktree" || !selectedProjectPath) {
+      setNamedWorktrees([]);
+      setNamedWorktreesLoading(false);
+      return;
+    }
+    if (!host.listWorktrees) {
+      setNamedWorktrees([]);
+      setNamedWorktreesLoading(false);
+      return;
+    }
+    setNamedWorktreesLoading(true);
+    try {
+      const result = await host.listWorktrees(selectedProjectPath);
+      if (
+        requestId !== namedWorktreeRequestRef.current ||
+        requestedProjectPath !== selectedProjectPath
+      ) {
+        return;
+      }
+      setNamedWorktrees(result.status === "ok" ? result.worktrees : []);
+    } catch {
+      if (
+        requestId !== namedWorktreeRequestRef.current ||
+        requestedProjectPath !== selectedProjectPath
+      ) {
+        return;
+      }
+      setNamedWorktrees([]);
+    } finally {
+      if (requestId === namedWorktreeRequestRef.current) {
+        setNamedWorktreesLoading(false);
+      }
+    }
+  }, [host, newRunExecutionTarget, selectedProjectPath]);
+
+  useEffect(() => {
+    void loadNamedWorktrees();
+  }, [loadNamedWorktrees]);
 
   const loadRemoteConnectorStatus = useCallback(async () => {
     if (!isActive || !host.getRemoteConnectorStatus) return;
@@ -1197,7 +1457,7 @@ export default function CodeAgentsApp({
             ...current.filter((run) => run.id !== retryResult.run!.id),
           ]);
           setSelectedExtensionDetailId(null);
-          setSelectedRunId(retryResult.run.id);
+          selectRun(retryResult.run.id);
           await loadTranscript(retryResult.run.id, true);
         }
       }
@@ -1215,6 +1475,7 @@ export default function CodeAgentsApp({
     loadRuns,
     loadTranscript,
     modelSelection.model,
+    selectRun,
     onOpenSettings,
     selectedGoal.id,
     selectedModelSelection,
@@ -1330,12 +1591,67 @@ export default function CodeAgentsApp({
     const nextGoal = getCodeAgentGoal(openRequest.goalId);
     if (nextGoal) setSelectedGoalId(nextGoal.id);
     setSelectedExtensionDetailId(null);
-    setSelectedRunId(openRequest.runId ?? null);
-    setWorkbenchOpen(!chatFirstMode);
+    selectRun(openRequest.runId ?? null);
+    setWorkbenchOpen(false);
     setSearchPanelOpen(false);
     setMobilePanelOpen(false);
     void loadRuns(true);
-  }, [chatFirstMode, loadRuns, onChatFirstMainKindChange, openRequest]);
+  }, [loadRuns, onChatFirstMainKindChange, openRequest, selectRun]);
+
+  useEffect(() => {
+    const pendingFrames = new Set<number>();
+    const handleScheduledPrompt = (event: Event) => {
+      const prompt = (event as CustomEvent<{ prompt?: unknown }>).detail
+        ?.prompt;
+      if (typeof prompt !== "string" || !prompt.trim()) return;
+
+      let attempts = 0;
+      let frame: number | undefined;
+      const insertPrompt = () => {
+        const editor = document.querySelector<HTMLElement>(
+          '[contenteditable="true"]',
+        );
+        const newChatSurface = editor?.closest(".code-agents-start");
+        if (
+          !editor ||
+          !editor.isConnected ||
+          !newChatSurface ||
+          document.querySelector(".desktop-code-agent-schedules")
+        ) {
+          attempts += 1;
+          if (attempts < 30) {
+            frame = window.requestAnimationFrame(insertPrompt);
+            pendingFrames.add(frame);
+          }
+          return;
+        }
+
+        if (frame !== undefined) pendingFrames.delete(frame);
+        editor.focus();
+        const selection = window.getSelection();
+        const range = document.createRange();
+        range.selectNodeContents(editor);
+        range.collapse(false);
+        selection?.removeAllRanges();
+        selection?.addRange(range);
+        document.execCommand("insertText", false, prompt.trim());
+      };
+
+      frame = window.requestAnimationFrame(insertPrompt);
+      pendingFrames.add(frame);
+    };
+
+    window.addEventListener(SCHEDULED_CHAT_PROMPT_EVENT, handleScheduledPrompt);
+    return () => {
+      window.removeEventListener(
+        SCHEDULED_CHAT_PROMPT_EVENT,
+        handleScheduledPrompt,
+      );
+      pendingFrames.forEach((pendingFrame) =>
+        window.cancelAnimationFrame(pendingFrame),
+      );
+    };
+  }, []);
 
   const hasActiveRuns = useMemo(() => runs.some(isRunActive), [runs]);
   const selectedRunIsActive = selectedRun ? isRunActive(selectedRun) : false;
@@ -1347,17 +1663,27 @@ export default function CodeAgentsApp({
     () => buildCodeAgentSlashCommands(codePack),
     [codePack],
   );
-  const canOpenTerminal = !chatFirstMode && Boolean(host.openTerminal);
+  const canOpenTerminal = false;
   const canChooseProjectFolder = Boolean(host.chooseProject);
   const providerGate = useMemo(
     () => getProviderGate(hostMetadata),
     [hostMetadata],
   );
+
+  const [providerGateBouncePulse, setProviderGateBouncePulse] = useState(0);
+  const bounceProviderGate = useCallback(() => {
+    setProviderGateBouncePulse((pulse) => pulse + 1);
+  }, []);
   // `listModels` only includes local runtimes when their CLI is installed.
   // Keep sign-in hidden until the host has confirmed the capability.
-  const localRuntimeEngine = modelOptions.find(
-    (option) => option.engine === "codex-cli" || option.engine === "claude-cli",
-  )?.engine;
+  const localRuntimeOptions = useMemo(
+    () => getLocalRuntimeOptions(modelOptions),
+    [modelOptions],
+  );
+  const supportsExecutionTarget =
+    CODE_AGENT_LOCAL_ENGINES.has(selectedModelSelection.engine ?? "") ||
+    Boolean(host.createRun);
+  const portalSelected = newRunExecutionTarget === "portal";
   const normalizedSearchQuery = searchQuery.trim();
   const searchResults = useMemo(
     () =>
@@ -1483,6 +1809,12 @@ export default function CodeAgentsApp({
     writeCodeAgentModelSelection(selectedModelSelection);
   }, [selectedModelSelection]);
 
+  useEffect(() => {
+    if (!supportsExecutionTarget && newRunExecutionTarget !== "local") {
+      setNewRunExecutionTarget("local");
+    }
+  }, [newRunExecutionTarget, supportsExecutionTarget]);
+
   usePollLoop(() => loadRuns(), {
     intervalMs: hasActiveRuns ? 2_000 : 10_000,
     enabled: isActive,
@@ -1535,7 +1867,7 @@ export default function CodeAgentsApp({
     selectedRunIsActive,
   ]);
 
-  // Cmd+N / Ctrl+N — start a new chat from anywhere in the Code tab.
+  // Cmd+N / Ctrl+N — start a new chat from anywhere in the workbench.
   // Use a ref so the effect is stable and doesn't re-register on every render.
   const openSelectedGoalRef = useRef(openSelectedGoal);
   openSelectedGoalRef.current = openSelectedGoal;
@@ -1603,7 +1935,7 @@ export default function CodeAgentsApp({
     if (matchingGoal) {
       setSelectedGoalId(matchingGoal.id);
       setSelectedExtensionDetailId(null);
-      setSelectedRunId(null);
+      selectRun(null);
       setWorkbenchOpen(false);
       setSearchPanelOpen(false);
       setMobilePanelOpen(false);
@@ -1617,7 +1949,7 @@ export default function CodeAgentsApp({
     );
     setSelectedGoalId("task");
     setSelectedExtensionDetailId(null);
-    setSelectedRunId(null);
+    selectRun(null);
     setWorkbenchOpen(false);
     setSearchPanelOpen(false);
     setMobilePanelOpen(false);
@@ -1676,16 +2008,9 @@ export default function CodeAgentsApp({
       current.some((item) => item.id === run.id) ? current : [run, ...current],
     );
     setSelectedExtensionDetailId(null);
-    setSelectedRunId(run.id);
+    selectRun(run.id);
     setSearchPanelOpen(false);
     setMobilePanelOpen(false);
-    setWorkbenchOpen(false);
-  }
-
-  function openMobilePanel() {
-    onChatFirstMainKindChange?.("code");
-    setSearchPanelOpen(false);
-    setMobilePanelOpen(true);
     setWorkbenchOpen(false);
   }
 
@@ -1777,12 +2102,10 @@ export default function CodeAgentsApp({
     onChatFirstMainKindChange?.("code");
     setSelectedGoalId("task");
     setSelectedExtensionDetailId(null);
-    setSelectedRunId(null);
+    selectRun(null);
     setWorkbenchOpen(false);
     setSearchPanelOpen(false);
     setMobilePanelOpen(false);
-    setTranscriptEvents([]);
-    setTranscriptError(null);
     seedNewPrompt("");
   }
 
@@ -1818,10 +2141,95 @@ export default function CodeAgentsApp({
     });
   }
 
+  async function forkSelectedChat(executionTarget: "local" | "worktree") {
+    if (!forkSourceRun || !host.forkRun) return;
+    setForkBusy(true);
+    try {
+      const result = await host.forkRun({
+        goalId: selectedGoal.id,
+        sourceRunId: forkSourceRun.id,
+        executionTarget,
+      });
+      if (!result.ok || !result.run) {
+        toast(result.message, {
+          description: result.error,
+          duration: 3600,
+        });
+        return;
+      }
+      setRuns((current) => [
+        result.run!,
+        ...current.filter((run) => run.id !== result.run!.id),
+      ]);
+      setForkSourceRun(null);
+      selectRun(result.run.id);
+      await loadTranscript(result.run.id, true);
+      toast(result.message, { duration: 2200 });
+    } catch (error) {
+      toast("Could not fork the chat", {
+        description: error instanceof Error ? error.message : String(error),
+        duration: 3600,
+      });
+    } finally {
+      setForkBusy(false);
+    }
+  }
+
+  async function restoreSelectedWorktree(worktreeId: string, runId: string) {
+    if (!host.restoreWorktree) return;
+    setRestoringWorktreeId(worktreeId);
+    try {
+      const result = await host.restoreWorktree({ worktreeId, runId });
+      if (!result.ok) {
+        toast(result.message, {
+          description: result.error,
+          duration: 3600,
+        });
+        return;
+      }
+      await loadRuns(true);
+      await loadTranscript(runId, true);
+      toast(result.message, { duration: 2200 });
+    } catch (error) {
+      toast("Could not restore the worktree", {
+        description: error instanceof Error ? error.message : String(error),
+        duration: 3600,
+      });
+    } finally {
+      setRestoringWorktreeId(null);
+    }
+  }
+
   async function createRunFromPrompt(
     preparedPrompt: string,
     attachments: CodeAgentPromptAttachment[],
   ) {
+    if (terminalMode) {
+      const prompt = preparedPrompt.trim();
+      if (!prompt) {
+        toast("Describe an outcome first", { duration: 1800 });
+        return;
+      }
+      setCreatingRun(true);
+      try {
+        await terminalMode.onSubmit(prompt, attachments);
+        setNewPrompt("");
+        setNewPromptSeed((seed) => seed + 1);
+        selectRun(null);
+        setSelectedExtensionDetailId(null);
+        setWorkbenchOpen(false);
+        setSearchPanelOpen(false);
+        setMobilePanelOpen(false);
+      } catch (err) {
+        toast("Could not start the terminal", {
+          description: err instanceof Error ? err.message : String(err),
+          duration: 3600,
+        });
+      } finally {
+        setCreatingRun(false);
+      }
+      return;
+    }
     if (activeNewSessionExtension) {
       const prompt = preparedPrompt.trim();
       if (!prompt) {
@@ -1851,7 +2259,7 @@ export default function CodeAgentsApp({
         }
         setNewPrompt("");
         setNewPromptSeed((seed) => seed + 1);
-        setSelectedRunId(null);
+        selectRun(null);
         setSelectedExtensionDetailId(result.detailId ?? null);
         setWorkbenchOpen(false);
         setSearchPanelOpen(false);
@@ -1867,7 +2275,7 @@ export default function CodeAgentsApp({
       }
       return;
     }
-    if (providerGate.blocked) {
+    if (providerGate.blocked && newRunExecutionTarget !== "portal") {
       toast("Connect a model provider first", {
         description: providerGate.description,
         duration: 3600,
@@ -1891,6 +2299,13 @@ export default function CodeAgentsApp({
         goalId: typedGoal.id,
         prompt,
         cwd: selectedProjectPath || undefined,
+        executionTarget: supportsExecutionTarget
+          ? newRunExecutionTarget
+          : "local",
+        worktree:
+          supportsExecutionTarget && newRunExecutionTarget === "worktree"
+            ? newRunWorktreeSelection
+            : undefined,
         permissionMode: newRunPermissionMode,
         engine: selectedModelSelection.engine,
         model: selectedModelSelection.model,
@@ -1908,7 +2323,7 @@ export default function CodeAgentsApp({
       setNewPromptSeed((seed) => seed + 1);
       setRuns((current) => [result.run!, ...current]);
       setSelectedExtensionDetailId(null);
-      setSelectedRunId(result.run.id);
+      selectRun(result.run.id);
       if (typedGoal.id !== selectedGoal.id) {
         setSelectedGoalId(typedGoal.id);
       }
@@ -2091,24 +2506,99 @@ export default function CodeAgentsApp({
       onChatFirstMainKindChangeRef.current?.("code");
       markRunsRead([id]);
       setSelectedExtensionDetailId(null);
-      setSelectedRunId(id);
+      selectRun(id);
       setSearchPanelOpen(false);
       setMobilePanelOpen(false);
     },
-    [markRunsRead],
+    [markRunsRead, selectRun],
   );
+
+  useEffect(() => {
+    if (!isActive || !keyboardNavigation) return;
+
+    const handleShortcut = (
+      shortcut: ChatFirstKeyboardShortcut,
+      preventDefault?: () => void,
+    ) => {
+      const isCommand = Boolean(shortcut.metaKey || shortcut.ctrlKey);
+      if (!isCommand || shortcut.altKey) return;
+
+      if (!shortcut.shiftKey) {
+        const appId = getChatFirstNumericAppShortcut(
+          keyboardNavigation.appIds,
+          shortcut.key,
+        );
+        if (!appId) return;
+        preventDefault?.();
+        keyboardNavigation.onSelectApp(appId);
+        return;
+      }
+
+      const isBack =
+        shortcut.code === "BracketLeft" ||
+        shortcut.key === "[" ||
+        shortcut.key === "{";
+      const isForward =
+        shortcut.code === "BracketRight" ||
+        shortcut.key === "]" ||
+        shortcut.key === "}";
+      if (!isBack && !isForward) return;
+
+      const target = resolveChatFirstKeyboardNavigationTarget({
+        appIds: keyboardNavigation.appIds,
+        activeAppId: keyboardNavigation.activeAppId,
+        chatIds: railItems.map((item) => item.id),
+        selectedChatId: selectedRunId,
+        direction: isBack ? -1 : 1,
+      });
+      if (!target) return;
+      preventDefault?.();
+      if (target.kind === "app") {
+        keyboardNavigation.onSelectApp(target.id);
+      } else {
+        handleRailSelect(target.id);
+      }
+    };
+
+    const handleDomKeyDown = (event: KeyboardEvent) => {
+      handleShortcut(
+        {
+          key: event.key,
+          code: event.code,
+          shiftKey: event.shiftKey,
+          altKey: event.altKey,
+          ctrlKey: event.ctrlKey,
+          metaKey: event.metaKey,
+        },
+        () => event.preventDefault(),
+      );
+    };
+
+    window.addEventListener("keydown", handleDomKeyDown);
+    const unsubscribe = keyboardNavigation.subscribe?.(handleShortcut);
+    return () => {
+      window.removeEventListener("keydown", handleDomKeyDown);
+      unsubscribe?.();
+    };
+  }, [
+    handleRailSelect,
+    isActive,
+    keyboardNavigation,
+    railItems,
+    selectedRunId,
+  ]);
 
   const handleRailOpen = useCallback(
     (id: string) => {
       onChatFirstMainKindChangeRef.current?.("code");
       markRunsRead([id]);
       setSelectedExtensionDetailId(null);
-      setSelectedRunId(id);
+      selectRun(id);
       setWorkbenchOpen(true);
       setSearchPanelOpen(false);
       setMobilePanelOpen(false);
     },
-    [markRunsRead],
+    [markRunsRead, selectRun],
   );
 
   const handleRailTogglePin = useCallback((id: string) => {
@@ -2120,6 +2610,65 @@ export default function CodeAgentsApp({
     const run = runsRef.current.find((item) => item.id === id);
     if (run) void renameRunRef.current(run, nextTitle);
   }, []);
+
+  const requestPortalTransfer = useCallback(
+    (runId?: string) => {
+      if (runId) {
+        const run = runsRef.current.find((candidate) => candidate.id === runId);
+        if (!run || isPortalCodeAgentRun(run)) return;
+        setPortalTransferRequest({
+          kind: "run",
+          runId,
+          title: getRunTitle(run) ?? "this chat",
+        });
+        return;
+      }
+      if (host.transferAll) setPortalTransferRequest({ kind: "all" });
+    },
+    [host.transferAll],
+  );
+
+  const confirmPortalTransfer = useCallback(async () => {
+    const request = portalTransferRequest;
+    if (!request || portalTransferBusy) return;
+    setPortalTransferBusy(true);
+    try {
+      if (request.kind === "run") {
+        if (!host.transferRun) {
+          toast("Portal transfer is not available on this host.", {
+            duration: 2200,
+          });
+          return;
+        }
+        const result = await host.transferRun({ runId: request.runId });
+        toast(result.ok ? result.message : "Could not move chat to Portal.", {
+          description: result.ok ? undefined : (result.error ?? result.message),
+          duration: 2600,
+        });
+      } else {
+        if (!host.transferAll) {
+          toast("Portal transfer is not available on this host.", {
+            duration: 2200,
+          });
+          return;
+        }
+        const result = await host.transferAll();
+        toast(result.ok ? result.message : "Portal transfer needs attention.", {
+          description: result.ok ? undefined : (result.error ?? result.message),
+          duration: 3200,
+        });
+      }
+      await loadRuns(true);
+    } catch (error) {
+      toast("Portal transfer did not finish.", {
+        description: error instanceof Error ? error.message : String(error),
+        duration: 3200,
+      });
+    } finally {
+      setPortalTransferBusy(false);
+      setPortalTransferRequest(null);
+    }
+  }, [host, loadRuns, portalTransferBusy, portalTransferRequest]);
 
   const handleRailAdditionalRowActions = useCallback(
     (item: ChatHistoryItem, closeMenu: () => void) => (
@@ -2141,37 +2690,52 @@ export default function CodeAgentsApp({
           <IconCopy size={13} strokeWidth={1.8} />
           <span>Copy session ID</span>
         </button>
-        {chatFirstModeRef.current ? (
+        <button
+          type="button"
+          role="menuitem"
+          className="an-chat-history-row__menu-item"
+          onClick={() => {
+            closeMenu();
+            const run = runsRef.current.find(
+              (candidate) => candidate.id === item.id,
+            );
+            if (!run) return;
+            emitChatFirstSessionWatch({
+              sessionId: item.id,
+              title: getRunTitle(run) ?? "Untitled session",
+              kind: "code-agent",
+              goalId: run.goalId,
+              sourceSessionId: selectedRunIdRef.current ?? undefined,
+            });
+          }}
+        >
+          <IconEye size={13} strokeWidth={1.8} />
+          <span>
+            {watchedSessionTargetRef.current?.sessionId === item.id
+              ? "Keep watching session"
+              : "Watch and message session"}
+          </span>
+        </button>
+        {host.transferRun &&
+        runsRef.current.some(
+          (run) => run.id === item.id && !isPortalCodeAgentRun(run),
+        ) ? (
           <button
             type="button"
             role="menuitem"
             className="an-chat-history-row__menu-item"
             onClick={() => {
               closeMenu();
-              const run = runsRef.current.find(
-                (candidate) => candidate.id === item.id,
-              );
-              if (!run) return;
-              emitChatFirstSessionWatch({
-                sessionId: item.id,
-                title: getRunTitle(run) ?? "Untitled session",
-                kind: "code-agent",
-                goalId: run.goalId,
-                sourceSessionId: selectedRunIdRef.current ?? undefined,
-              });
+              requestPortalTransfer(item.id);
             }}
           >
-            <IconEye size={13} strokeWidth={1.8} />
-            <span>
-              {watchedSessionTargetRef.current?.sessionId === item.id
-                ? "Keep watching session"
-                : "Watch and message session"}
-            </span>
+            <IconRoute size={13} strokeWidth={1.8} />
+            <span>Move to Portal</span>
           </button>
         ) : null}
       </>
     ),
-    [],
+    [host.transferRun, requestPortalTransfer],
   );
 
   const showingSelectedRunDetail =
@@ -2183,105 +2747,31 @@ export default function CodeAgentsApp({
   return (
     <section
       className={`code-agents-surface${
-        chatFirstMode && railCollapsed
-          ? " code-agents-surface--rail-collapsed"
-          : ""
+        railCollapsed ? " code-agents-surface--rail-collapsed" : ""
       }`}
       aria-label="Agent workspace"
     >
       <aside
         className={`code-agents-rail${
-          chatFirstMode && railCollapsed ? " code-agents-rail--collapsed" : ""
+          railCollapsed ? " code-agents-rail--collapsed" : ""
         }`}
         aria-label="Agent chats and navigation"
       >
-        {chatFirstMode ? (
-          <div className="code-agents-window-drag-region" aria-hidden="true" />
-        ) : null}
+        {railWindowControlsSlot}
+        <div className="code-agents-window-drag-region" aria-hidden="true" />
         <div className="code-agents-rail-scroll">
-          {chatFirstMode ? (
-            <ChatFirstPrimaryNavigation
-              onNewChat={() => {
-                chatFirstNavigation?.onNewChat?.();
-                openSelectedGoal();
-              }}
-              onOpenIntegrations={() =>
-                chatFirstNavigation?.onOpenIntegrations()
-              }
-              onOpenScheduled={() => chatFirstNavigation?.onOpenScheduled()}
-              onSearch={openSearchPanel}
-              activeTab={chatFirstNavigation?.activeTab}
-              collapsed={railCollapsed}
-              stickyNewChat
-            />
-          ) : (
-            <div className="code-agents-nav-list" aria-label="Agent navigation">
-              <>
-                <button
-                  type="button"
-                  className={`code-agents-nav-link${
-                    !chatFirstMode &&
-                    !searchPanelOpen &&
-                    !mobilePanelOpen &&
-                    !selectedRunId &&
-                    (!chatFirstMode || chatFirstMainKind === "code")
-                      ? " code-agents-nav-link--active"
-                      : ""
-                  }`}
-                  style={
-                    chatFirstMode
-                      ? { color: "hsl(var(--sidebar-foreground) / 0.8)" }
-                      : undefined
-                  }
-                  onClick={openSelectedGoal}
-                  aria-pressed={
-                    !chatFirstMode &&
-                    !searchPanelOpen &&
-                    !mobilePanelOpen &&
-                    !selectedRunId &&
-                    (!chatFirstMode || chatFirstMainKind === "code")
-                  }
-                >
-                  <IconPlus size={15} strokeWidth={1.8} />
-                  <span>New chat</span>
-                </button>
-                {railNavigationSlot}
-                <button
-                  type="button"
-                  className={`code-agents-nav-link${
-                    !chatFirstMode && searchPanelOpen
-                      ? " code-agents-nav-link--active"
-                      : ""
-                  }`}
-                  style={
-                    chatFirstMode
-                      ? { color: "hsl(var(--sidebar-foreground) / 0.8)" }
-                      : undefined
-                  }
-                  onClick={openSearchPanel}
-                  aria-pressed={searchPanelOpen}
-                >
-                  <IconSearch size={15} strokeWidth={1.8} />
-                  <span>Search</span>
-                </button>
-                {host.getRemoteConnectorStatus && (
-                  <MobileRailItem
-                    status={remoteConnectorStatus}
-                    error={remoteConnectorError}
-                    active={mobilePanelOpen}
-                    onOpen={openMobilePanel}
-                  />
-                )}
-                {hostMetadata?.computerControl && (
-                  <ComputerAccessRailItem
-                    metadata={hostMetadata}
-                    onOpen={() => setComputerSetupOpen(true)}
-                  />
-                )}
-              </>
-            </div>
-          )}
-
+          <ChatFirstPrimaryNavigation
+            onNewChat={() => {
+              chatFirstNavigation?.onNewChat?.();
+              openSelectedGoal();
+            }}
+            onOpenIntegrations={() => chatFirstNavigation?.onOpenIntegrations()}
+            onOpenScheduled={() => chatFirstNavigation?.onOpenScheduled()}
+            onSearch={openSearchPanel}
+            activeTab={chatFirstNavigation?.activeTab}
+            collapsed={railCollapsed}
+            stickyNewChat
+          />
           {railWorkspaceSlot}
 
           <ChatFirstChatHistory
@@ -2302,6 +2792,9 @@ export default function CodeAgentsApp({
               <CodeAgentsChatHistoryHeaderActions
                 hasUnread={runs.some((run) => unreadRunIds.has(run.id))}
                 onMarkAllRead={markAllRunsRead}
+                onTransferAll={
+                  host.transferAll ? () => requestPortalTransfer() : undefined
+                }
               />
             }
             loading={loading}
@@ -2324,14 +2817,11 @@ export default function CodeAgentsApp({
         {mainToolbarSlot ? (
           <div className="code-agents-main-toolbar">{mainToolbarSlot}</div>
         ) : null}
-        {chatFirstMode &&
-        chatFirstMainKind === "agent" &&
-        renderChatFirstMainSurface ? (
+        {chatFirstMainKind === "agent" && renderChatFirstMainSurface ? (
           renderChatFirstMainSurface
         ) : (
           <>
-            {chatFirstMode &&
-            !onWatchedRunChange &&
+            {!onWatchedRunChange &&
             watchedRun &&
             (!activeChatFirstSurfaceKind ||
               activeChatFirstSurfaceKind === "side-chat") ? (
@@ -2398,6 +2888,10 @@ export default function CodeAgentsApp({
                   )}
                 </div>
               </div>
+            ) : renderChatFirstChatSurface ? (
+              <div className="code-agents-overview code-agents-overview--chat-surface">
+                {renderChatFirstChatSurface}
+              </div>
             ) : (
               <div
                 className={`code-agents-overview${
@@ -2442,7 +2936,6 @@ export default function CodeAgentsApp({
                       <>
                         {status !== "ok" &&
                         !(
-                          chatFirstMode &&
                           suppressChatFirstUnavailableNotice &&
                           status === "unavailable"
                         ) ? (
@@ -2468,6 +2961,7 @@ export default function CodeAgentsApp({
                           })
                         ) : selectedRun ? (
                           <RunDetailCard
+                            key={selectedRun.id}
                             host={host}
                             run={selectedRun}
                             selectedRunId={selectedRunId}
@@ -2497,84 +2991,179 @@ export default function CodeAgentsApp({
                                 ? connectLocalRuntime
                                 : undefined
                             }
+                            onOpenRun={(runId) => {
+                              onChatFirstMainKindChange?.("code");
+                              selectRun(runId);
+                            }}
+                            onForkChat={
+                              host.forkRun
+                                ? () => setForkSourceRun(selectedRun)
+                                : undefined
+                            }
+                            onRestoreWorktree={restoreSelectedWorktree}
+                            restoringWorktreeId={restoringWorktreeId}
                           />
                         ) : (
                           <div className="code-agents-start">
                             <h2>What should we do today?</h2>
-                            {!activeNewSessionExtension &&
-                              providerGate.blocked && (
+                            {!terminalMode &&
+                              !activeNewSessionExtension &&
+                              providerGate.blocked &&
+                              !portalSelected && (
                                 <ProviderGateNotice
                                   description={providerGate.description}
                                   connecting={builderConnecting}
                                   message={builderConnectMessage}
+                                  bouncePulse={providerGateBouncePulse}
                                   onConnectBuilder={connectBuilderProvider}
                                   onOpenSettings={onOpenSettings}
+                                  localRuntimeOptions={localRuntimeOptions}
                                   onConnectLocalRuntime={
                                     host.openTerminal
-                                      ? () =>
-                                          void connectLocalRuntime(
-                                            localRuntimeEngine ?? "codex-cli",
-                                          )
+                                      ? connectLocalRuntime
                                       : undefined
                                   }
                                 />
                               )}
                             <NewSessionComposer
+                              key={newPromptSeed}
                               prompt={newPrompt}
                               promptSeed={newPromptSeed}
                               inputRef={newPromptRef}
                               creating={creatingRun}
+                              terminalAgent={terminalAgentOption}
+                              terminalModeControl={terminalModeControl}
                               permissionMode={newRunPermissionMode}
                               modelSelection={selectedModelSelection}
                               modelOptions={modelOptions}
                               slashCommands={
-                                activeNewSessionExtension ? [] : slashCommands
+                                terminalMode || activeNewSessionExtension
+                                  ? []
+                                  : slashCommands
                               }
                               disabled={
-                                activeNewSessionExtension
-                                  ? activeNewSessionExtension.disabled
-                                  : providerGate.blocked
+                                terminalMode
+                                  ? false
+                                  : activeNewSessionExtension
+                                    ? activeNewSessionExtension.disabled
+                                    : providerGate.blocked && !portalSelected
                               }
-                              modeControl={newSessionExtension?.renderModeControl?.(
-                                {
-                                  permissionMode: newRunPermissionMode,
-                                  onPermissionModeChange:
-                                    setNewRunPermissionMode,
-                                },
-                              )}
+                              onDisabledClick={
+                                !terminalMode &&
+                                !activeNewSessionExtension &&
+                                providerGate.blocked &&
+                                !portalSelected
+                                  ? bounceProviderGate
+                                  : undefined
+                              }
+                              modeControl={
+                                terminalMode
+                                  ? undefined
+                                  : newSessionExtension?.renderModeControl?.({
+                                      permissionMode: newRunPermissionMode,
+                                      onPermissionModeChange:
+                                        setNewRunPermissionMode,
+                                    })
+                              }
                               useDefaultModeControl={
-                                newSessionExtensionComposerState.useDefaultModeControl
+                                terminalMode
+                                  ? false
+                                  : newSessionExtensionComposerState.useDefaultModeControl
                               }
                               showModelSelector={
-                                newSessionExtensionComposerState.showModelSelector
+                                terminalMode
+                                  ? true
+                                  : newSessionExtensionComposerState.showModelSelector
                               }
                               onPromptChange={setNewPrompt}
                               onPermissionModeChange={setNewRunPermissionMode}
                               onModelSelectionChange={setModelSelection}
                               onSlashCommand={
-                                activeNewSessionExtension
+                                terminalMode || activeNewSessionExtension
                                   ? undefined
                                   : handleSlashCommand
                               }
                               onSubmit={createRunFromPrompt}
-                              onConnectProvider={connectBuilderProvider}
+                              onConnectProvider={
+                                terminalMode
+                                  ? undefined
+                                  : connectBuilderProvider
+                              }
                               onConnectLocalRuntime={
-                                !activeNewSessionExtension && host.openTerminal
+                                !terminalMode &&
+                                !activeNewSessionExtension &&
+                                host.openTerminal
                                   ? connectLocalRuntime
                                   : undefined
                               }
                             />
                             {(projects.length > 0 ||
                               canChooseProjectFolder) && (
-                              <ProjectFolderPicker
-                                variant="bar"
-                                projects={projects}
-                                selectedPath={selectedProjectPath}
-                                loading={loadingProjects}
-                                canChoose={canChooseProjectFolder}
-                                onSelect={selectProjectFolder}
-                                onChoose={chooseProjectFolder}
-                              />
+                              <RemoteWaitlistPopover
+                                open={cloudWaitlistOpen}
+                                onOpenChange={(open) => {
+                                  if (
+                                    !open &&
+                                    cloudWaitlistOpeningRef.current
+                                  ) {
+                                    cloudWaitlistOpeningRef.current = false;
+                                    return;
+                                  }
+                                  setCloudWaitlistOpen(open);
+                                }}
+                                submit={host.submitRemoteWaitlist}
+                              >
+                                <ProjectFolderPicker
+                                  variant="bar"
+                                  projects={projects}
+                                  selectedPath={selectedProjectPath}
+                                  executionTarget={newRunExecutionTarget}
+                                  worktreeSelection={newRunWorktreeSelection}
+                                  namedWorktrees={namedWorktrees}
+                                  namedWorktreesLoading={namedWorktreesLoading}
+                                  showExecutionTarget={supportsExecutionTarget}
+                                  loading={loadingProjects}
+                                  canChoose={canChooseProjectFolder}
+                                  onSelect={selectProjectFolder}
+                                  onChoose={chooseProjectFolder}
+                                  onCloudSelect={() => {
+                                    cloudWaitlistOpeningRef.current = true;
+                                    globalThis.setTimeout(() => {
+                                      setCloudWaitlistOpen(true);
+                                      globalThis.setTimeout(() => {
+                                        cloudWaitlistOpeningRef.current = false;
+                                      }, 0);
+                                    }, 0);
+                                  }}
+                                  onExecutionTargetChange={(target) => {
+                                    setNewRunExecutionTarget(target);
+                                    if (target !== "worktree") {
+                                      setNewRunWorktreeSelection({
+                                        mode: "new",
+                                      });
+                                    }
+                                  }}
+                                  onWorktreeSelectionChange={
+                                    host.listWorktrees
+                                      ? setNewRunWorktreeSelection
+                                      : undefined
+                                  }
+                                  onNewNamedWorktree={
+                                    host.listWorktrees
+                                      ? () => {
+                                          setNamedWorktreeName(
+                                            newRunWorktreeSelection.mode ===
+                                              "named"
+                                              ? (newRunWorktreeSelection.name ??
+                                                  "")
+                                              : "",
+                                          );
+                                          setNamedWorktreeDialogOpen(true);
+                                        }
+                                      : undefined
+                                  }
+                                />
+                              </RemoteWaitlistPopover>
                             )}
                             {overviewFooterSlot ? (
                               <div className="code-agents-overview-footer">
@@ -2592,6 +3181,133 @@ export default function CodeAgentsApp({
           </>
         )}
       </main>
+      <Dialog
+        open={Boolean(portalTransferRequest)}
+        onOpenChange={(open) => {
+          if (!open && !portalTransferBusy) setPortalTransferRequest(null);
+        }}
+      >
+        <DialogContent aria-describedby="portal-transfer-description">
+          <DialogTitle>
+            {portalTransferRequest?.kind === "all"
+              ? "Move local chats to Portal?"
+              : "Move chat to Portal?"}
+          </DialogTitle>
+          <DialogDescription id="portal-transfer-description">
+            {portalTransferRequest?.kind === "all"
+              ? "Each local or worktree chat will move its code and full text context to the paired computer."
+              : `Move ${portalTransferRequest?.title ?? "this chat"} with its code and full text context to the paired computer.`}
+          </DialogDescription>
+          <div className="code-agents-dialog-actions">
+            <button
+              type="button"
+              className="code-agents-button"
+              onClick={() => setPortalTransferRequest(null)}
+              disabled={portalTransferBusy}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="code-agents-button--primary"
+              onClick={() => void confirmPortalTransfer()}
+              disabled={portalTransferBusy}
+            >
+              {portalTransferBusy
+                ? "Moving..."
+                : portalTransferRequest?.kind === "all"
+                  ? "Move all"
+                  : "Move to Portal"}
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={namedWorktreeDialogOpen}
+        onOpenChange={(open) => {
+          if (!open) setNamedWorktreeDialogOpen(false);
+        }}
+      >
+        <DialogContent className="code-agents-worktree-dialog">
+          <DialogTitle>Name this worktree</DialogTitle>
+          <DialogDescription>
+            Reuse it from any chat for this folder.
+          </DialogDescription>
+          <input
+            autoFocus
+            className="code-agents-worktree-name-input"
+            value={namedWorktreeName}
+            maxLength={64}
+            placeholder="e.g. redesign"
+            aria-label="Worktree name"
+            onChange={(event) => setNamedWorktreeName(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                const name = namedWorktreeName.trim();
+                if (!name) return;
+                setNewRunWorktreeSelection({ mode: "named", name });
+                setNamedWorktreeDialogOpen(false);
+              }
+            }}
+          />
+          <div className="code-agents-dialog-actions">
+            <button
+              type="button"
+              className="code-agents-button"
+              onClick={() => setNamedWorktreeDialogOpen(false)}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="code-agents-button code-agents-button--primary"
+              disabled={!namedWorktreeName.trim()}
+              onClick={() => {
+                const name = namedWorktreeName.trim();
+                if (!name) return;
+                setNewRunWorktreeSelection({ mode: "named", name });
+                setNamedWorktreeDialogOpen(false);
+              }}
+            >
+              Use worktree
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={Boolean(forkSourceRun)}
+        onOpenChange={(open) => {
+          if (!open && !forkBusy) setForkSourceRun(null);
+        }}
+      >
+        <DialogContent className="code-agents-fork-dialog">
+          <DialogTitle>Fork chat from here</DialogTitle>
+          <DialogDescription>
+            Start a new chat with this conversation’s context.
+          </DialogDescription>
+          <div className="code-agents-fork-options">
+            <button
+              type="button"
+              className="code-agents-fork-option"
+              disabled={forkBusy || !host.forkRun}
+              onClick={() => void forkSelectedChat("local")}
+            >
+              <IconGitFork size={18} strokeWidth={1.8} />
+              <span>Fork in this workspace</span>
+            </button>
+            <button
+              type="button"
+              className="code-agents-fork-option"
+              disabled={forkBusy || !host.forkRun}
+              onClick={() => void forkSelectedChat("worktree")}
+            >
+              <IconGitBranch size={18} strokeWidth={1.8} />
+              <span>Fork in a new worktree</span>
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
       <ComputerAccessDialog
         open={computerSetupOpen}
         onOpenChange={setComputerSetupOpen}
@@ -2680,30 +3396,6 @@ function computerAccessReadiness(metadata: CodeAgentHostMetadata | null) {
     chromeReady,
     allReady: accessibilityReady && screenRecordingReady && chromeReady,
   };
-}
-
-function ComputerAccessRailItem({
-  metadata,
-  onOpen,
-}: {
-  metadata: CodeAgentHostMetadata;
-  onOpen: () => void;
-}) {
-  const { allReady } = computerAccessReadiness(metadata);
-  return (
-    <button type="button" className="code-agents-nav-link" onClick={onOpen}>
-      <IconDeviceDesktop size={15} strokeWidth={1.8} />
-      <span>Computer access</span>
-      <span
-        className={`code-agents-mobile-indicator ${
-          allReady
-            ? "code-agents-mobile-indicator--connected"
-            : "code-agents-mobile-indicator--attention"
-        }`}
-        aria-label={allReady ? "Ready" : "Setup needed"}
-      />
-    </button>
-  );
 }
 
 function ComputerAccessDialog({
@@ -2885,18 +3577,36 @@ function ProjectFolderPicker({
   variant = "rail",
   projects,
   selectedPath,
+  executionTarget = "local",
+  worktreeSelection = { mode: "new" },
+  namedWorktrees = [],
+  namedWorktreesLoading = false,
+  showExecutionTarget = false,
   loading,
   canChoose,
   onSelect,
   onChoose,
+  onCloudSelect,
+  onExecutionTargetChange,
+  onWorktreeSelectionChange,
+  onNewNamedWorktree,
 }: {
   variant?: "rail" | "bar";
   projects: CodeAgentProjectFolder[];
   selectedPath: string;
+  executionTarget?: CodeAgentExecutionTarget;
+  worktreeSelection?: CodeAgentWorktreeSelection;
+  namedWorktrees?: CodeAgentWorktreeSummary[];
+  namedWorktreesLoading?: boolean;
+  showExecutionTarget?: boolean;
   loading: boolean;
   canChoose: boolean;
   onSelect: (path: string) => void;
   onChoose: () => void;
+  onCloudSelect?: () => void;
+  onExecutionTargetChange?: (target: CodeAgentExecutionTarget) => void;
+  onWorktreeSelectionChange?: (selection: CodeAgentWorktreeSelection) => void;
+  onNewNamedWorktree?: () => void;
 }) {
   const active = projects.find((project) => project.path === selectedPath);
 
@@ -2946,9 +3656,147 @@ function ProjectFolderPicker({
             </SelectGroup>
           </SelectContent>
         </Select>
+        {showExecutionTarget && onExecutionTargetChange ? (
+          <>
+            <Select
+              value={executionTarget}
+              onValueChange={(value) => {
+                if (value === "cloud") {
+                  onCloudSelect?.();
+                  return;
+                }
+                onExecutionTargetChange(value as CodeAgentExecutionTarget);
+              }}
+            >
+              <SelectTrigger
+                className="code-agents-project-select code-agents-execution-target-select"
+                aria-label="Select workspace"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="code-agents-select-content">
+                <SelectGroup>
+                  <SelectItem
+                    value="local"
+                    description="Use the selected folder directly"
+                  >
+                    <span className="code-agents-project-select__item">
+                      <IconDeviceDesktop size={14} strokeWidth={1.8} />
+                      <span>Local</span>
+                    </span>
+                  </SelectItem>
+                  <SelectItem
+                    value="worktree"
+                    description="Start an isolated copy from the latest commit"
+                  >
+                    <span className="code-agents-project-select__item">
+                      <IconGitBranch size={14} strokeWidth={1.8} />
+                      <span>Worktree</span>
+                    </span>
+                  </SelectItem>
+                  <SelectItem
+                    value="portal"
+                    description="Continue on a paired computer"
+                  >
+                    <span className="code-agents-project-select__item">
+                      <IconRoute size={14} strokeWidth={1.8} />
+                      <span>Portal</span>
+                    </span>
+                  </SelectItem>
+                  <SelectItem
+                    value="cloud"
+                    description="Run in the cloud - join the waitlist"
+                  >
+                    <span className="code-agents-project-select__item">
+                      <IconCloud size={14} strokeWidth={1.8} />
+                      <span>Cloud</span>
+                    </span>
+                  </SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            {executionTarget === "worktree" && onWorktreeSelectionChange ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className="code-agents-worktree-options-trigger"
+                    aria-label="Worktree options"
+                    title="Worktree options"
+                  >
+                    <IconChevronDown size={13} strokeWidth={1.8} />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="end"
+                  sideOffset={4}
+                  className="code-agents-worktree-options-menu"
+                >
+                  <DropdownMenuItem
+                    onSelect={() => onWorktreeSelectionChange({ mode: "new" })}
+                  >
+                    <IconGitBranch size={14} strokeWidth={1.8} />
+                    <span>New worktree</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={onNewNamedWorktree}>
+                    <IconFolderPlus size={14} strokeWidth={1.8} />
+                    <span>New named worktree</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger>
+                      <IconFolder size={14} strokeWidth={1.8} />
+                      <span>Use named worktree</span>
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent>
+                      {namedWorktreesLoading ? (
+                        <DropdownMenuItem disabled>
+                          <span>Loading worktrees...</span>
+                        </DropdownMenuItem>
+                      ) : namedWorktrees.length === 0 ? (
+                        <DropdownMenuItem disabled>
+                          <span>No named worktrees yet</span>
+                        </DropdownMenuItem>
+                      ) : (
+                        namedWorktrees.map((worktree) => (
+                          <DropdownMenuItem
+                            key={worktree.id}
+                            onSelect={() =>
+                              onWorktreeSelectionChange({
+                                mode: "named",
+                                name: worktree.name,
+                              })
+                            }
+                            description={
+                              worktree.state === "recoverable"
+                                ? "Restore when used"
+                                : undefined
+                            }
+                          >
+                            <IconGitBranch size={14} strokeWidth={1.8} />
+                            <span>{worktree.name}</span>
+                          </DropdownMenuItem>
+                        ))
+                      )}
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : null}
+          </>
+        ) : null}
       </div>
       <p className="code-agents-project-path" title={active?.path}>
-        {active?.path ?? "Runs use the selected folder as cwd."}
+        {executionTarget === "portal"
+          ? "Code is pushed to a paired computer before the run starts."
+          : executionTarget === "worktree" &&
+              worktreeSelection.mode === "named" &&
+              worktreeSelection.name
+            ? `Named worktree: ${worktreeSelection.name}`
+            : (active?.path ??
+              (executionTarget === "worktree"
+                ? "A new isolated worktree will be created for this chat."
+                : "Runs use the selected folder as cwd."))}
       </p>
     </div>
   );
@@ -2959,6 +3807,8 @@ function NewSessionComposer({
   promptSeed,
   inputRef,
   creating,
+  terminalAgent,
+  terminalModeControl,
   permissionMode,
   modelSelection,
   modelOptions,
@@ -2974,11 +3824,14 @@ function NewSessionComposer({
   onSubmit,
   onConnectProvider,
   onConnectLocalRuntime,
+  onDisabledClick,
 }: {
   prompt: string;
   promptSeed: number;
   inputRef: React.RefObject<TiptapComposerHandle | null>;
   creating: boolean;
+  terminalAgent?: CodeAgentTerminalAgentOption;
+  terminalModeControl?: ComposerTerminalModeControl;
   permissionMode: CodeAgentPermissionMode;
   modelSelection: CodeAgentModelSelection;
   modelOptions: CodeAgentModelOption[];
@@ -2997,6 +3850,7 @@ function NewSessionComposer({
   ) => void;
   onConnectProvider?: () => void;
   onConnectLocalRuntime?: (engine: string) => void;
+  onDisabledClick?: () => void;
 }) {
   return (
     <CodeAgentComposer
@@ -3004,6 +3858,8 @@ function NewSessionComposer({
       promptSeed={promptSeed}
       inputRef={inputRef}
       submitting={creating}
+      terminalAgent={terminalAgent}
+      terminalModeControl={terminalModeControl}
       permissionMode={permissionMode}
       modelSelection={modelSelection}
       modelOptions={modelOptions}
@@ -3021,6 +3877,7 @@ function NewSessionComposer({
       onSubmit={onSubmit}
       onConnectProvider={onConnectProvider}
       onConnectLocalRuntime={onConnectLocalRuntime}
+      onDisabledClick={onDisabledClick}
     />
   );
 }
@@ -3030,6 +3887,7 @@ function CodeAgentComposer({
   promptSeed,
   inputRef,
   submitting,
+  terminalAgent,
   permissionMode,
   modelSelection,
   modelOptions,
@@ -3046,14 +3904,18 @@ function CodeAgentComposer({
   onStop,
   onConnectProvider,
   onConnectLocalRuntime,
+  onDisabledClick,
   modeControl: modeControlOverride,
   useDefaultModeControl = true,
   showModelSelector = true,
+  terminalModeControl,
 }: {
   prompt: string;
   promptSeed?: string | number;
   inputRef?: React.RefObject<TiptapComposerHandle | null>;
   submitting: boolean;
+  terminalAgent?: CodeAgentTerminalAgentOption;
+  terminalModeControl?: ComposerTerminalModeControl;
   permissionMode: CodeAgentPermissionMode;
   modelSelection: CodeAgentModelSelection;
   modelOptions: CodeAgentModelOption[];
@@ -3074,16 +3936,20 @@ function CodeAgentComposer({
   onStop?: () => void;
   onConnectProvider?: () => void;
   onConnectLocalRuntime?: (engine: string) => void;
+  onDisabledClick?: () => void;
   modeControl?: React.ReactNode;
   useDefaultModeControl?: boolean;
   showModelSelector?: boolean;
 }) {
   const normalizedModel = normalizeModelSelection(modelSelection, modelOptions);
   const availableModels = groupCodeAgentModelOptions(modelOptions);
-  const availableAgents = showModelSelector
-    ? getCodeAgentPickerOptions(modelOptions)
-    : undefined;
-  const selectedAgent = getCodeAgentIdForEngine(normalizedModel.engine);
+  const availableAgents = terminalAgent
+    ? [terminalAgent]
+    : showModelSelector
+      ? getCodeAgentPickerOptions(modelOptions)
+      : undefined;
+  const selectedAgent =
+    terminalAgent?.id ?? getCodeAgentIdForEngine(normalizedModel.engine);
   const handleAgentChange = useCallback(
     (agent: string) => {
       onModelSelectionChange(
@@ -3147,6 +4013,7 @@ function CodeAgentComposer({
       availableModels={showModelSelector ? availableModels : undefined}
       availableAgents={availableAgents}
       selectedAgent={showModelSelector ? selectedAgent : undefined}
+      agentOnly={Boolean(terminalAgent)}
       selectedModel={
         showModelSelector
           ? (normalizedModel.model ?? DEFAULT_CODE_AGENT_MODEL_OPTIONS[0].model)
@@ -3174,7 +4041,9 @@ function CodeAgentComposer({
               },
         )
       }
-      onAgentChange={showModelSelector ? handleAgentChange : undefined}
+      onAgentChange={
+        terminalAgent || !showModelSelector ? undefined : handleAgentChange
+      }
       onEffortChange={(effort) =>
         onModelSelectionChange({ ...normalizedModel, effort })
       }
@@ -3192,10 +4061,21 @@ function CodeAgentComposer({
         );
       }}
       attachmentsEnabled
+      plusMenuMode={
+        terminalModeControl
+          ? terminalModeControl.enabled
+            ? "terminal"
+            : "full"
+          : terminalAgent
+            ? "upload-only"
+            : undefined
+      }
+      terminalModeControl={terminalModeControl}
       voiceEnabled
       preserveDraftOnSubmit={false}
       onConnectProvider={onConnectProvider}
       onConnectLocalRuntime={onConnectLocalRuntime}
+      onDisabledClick={onDisabledClick}
     />
   );
 }
@@ -3246,34 +4126,78 @@ function getProviderGate(metadata: CodeAgentHostMetadata | null): {
   };
 }
 
+export function shouldShowCodeAgentCredentialCallout({
+  providerBlocked,
+  hasCredentialHistory,
+  phase,
+}: {
+  providerBlocked: boolean;
+  hasCredentialHistory: boolean;
+  phase?: string;
+}): boolean {
+  if (!hasCredentialHistory) return false;
+  return providerBlocked || phase === "missing-credentials";
+}
+
 function ProviderGateNotice({
   description,
   connecting,
   message,
+  bouncePulse,
   onConnectBuilder,
   onOpenSettings,
+  localRuntimeOptions,
   onConnectLocalRuntime,
 }: {
   description: string;
   connecting: boolean;
   message: string | null;
+  bouncePulse?: number;
   onConnectBuilder: () => void;
   onOpenSettings?: () => void;
-  onConnectLocalRuntime?: () => void;
+  localRuntimeOptions?: Array<{
+    engine: LocalRuntimeEngine;
+    label: string;
+  }>;
+  onConnectLocalRuntime?: (engine: string) => void;
 }) {
   return (
     <CodeProviderNotice
       className="code-agents-provider-gate"
-      title="Connect a provider to chat"
+      title="Connect AI"
       description={message ?? description}
       primaryActionLabel={connecting ? "Waiting..." : "Connect Builder.io"}
       primaryDisabled={connecting}
       onPrimaryAction={onConnectBuilder}
-      localRuntimeActionLabel="Sign in with ChatGPT"
+      bouncePulse={bouncePulse}
+      localRuntimeOptions={localRuntimeOptions}
       onConnectLocalRuntime={onConnectLocalRuntime}
       secondaryActionLabel="Custom keys"
       onOpenSettings={onOpenSettings}
     />
+  );
+}
+
+function LocalRuntimeIcon({ engine }: { engine: LocalRuntimeEngine }) {
+  return engine === "codex-cli" ? (
+    <IconBrandOpenai size={15} strokeWidth={1.7} aria-hidden="true" />
+  ) : (
+    <ClaudeMark size={15} />
+  );
+}
+
+function ClaudeMark({ size }: { size: number }) {
+  return (
+    <svg
+      aria-hidden="true"
+      fill="currentColor"
+      height={size}
+      viewBox="0 0 100 100"
+      width={size}
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path d="m19.6 66.5 19.7-11 .3-1-.3-.5h-1l-3.3-.2-11.2-.3L14 53l-9.5-.5-2.4-.5L0 49l.2-1.5 2-1.3 2.9.2 6.3.5 9.5.6 6.9.4L38 49.1h1.6l.2-.7-.5-.4-.4-.4L29 41l-10.6-7-5.6-4.1-3-2-1.5-2-.6-4.2 2.7-3 3.7.3.9.2 3.7 2.9 8 6.1L37 36l1.5 1.2.6-.4.1-.3-.7-1.1L33 25l-6-10.4-2.7-4.3-.7-2.6c-.3-1-.4-2-.4-3l3-4.2L28 0l4.2.6L33.8 2l2.6 6 4.1 9.3L47 29.9l2 3.8 1 3.4.3 1h.7v-.5l.5-7.2 1-8.7 1-11.2.3-3.2 1.6-3.8 3-2L61 2.6l2 2.9-.3 1.8-1.1 7.7L59 27.1l-1.5 8.2h.9l1-1.1 4.1-5.4 6.9-8.6 3-3.5L77 13l2.3-1.8h4.3l3.1 4.7-1.4 4.9-4.4 5.6-3.7 4.7-5.3 7.1-3.2 5.7.3.4h.7l12-2.6 6.4-1.1 7.6-1.3 3.5 1.6.4 1.6-1.4 3.4-8.2 2-9.6 2-14.3 3.3-.2.1.2.3 6.4.6 2.8.2h6.8l12.6 1 3.3 2 1.9 2.7-.3 2-5.1 2.6-6.8-1.6-16-3.8-5.4-1.3h-.8v.4l4.6 4.5 8.3 7.5L89 80.1l.5 2.4-1.3 2-1.4-.2-9.2-7-3.6-3-8-6.8h-.5v.7l1.8 2.7 9.8 14.7.5 4.5-.7 1.4-2.6 1-2.7-.6-5.8-8-6-9-4.7-8.2-.5.4-2.9 30.2-1.3 1.5-3 1.2-2.5-2-1.4-3 1.4-6.2 1.6-8 1.3-6.4 1.2-7.9.7-2.6v-.2H49L43 72l-9 12.3-7.2 7.6-1.7.7-3-1.5.3-2.8L24 86l10-12.8 6-7.9 4-4.6-.1-.5h-.3L17.2 77.4l-4.7.6-2-2 .2-3 1-1 8-5.5Z" />
+    </svg>
   );
 }
 
@@ -3284,10 +4208,11 @@ function CodeProviderNotice({
   primaryActionLabel,
   primaryDisabled,
   onPrimaryAction,
-  localRuntimeActionLabel,
+  localRuntimeOptions = [],
   onConnectLocalRuntime,
   secondaryActionLabel,
   onOpenSettings,
+  bouncePulse,
 }: {
   className: string;
   title: string;
@@ -3295,13 +4220,31 @@ function CodeProviderNotice({
   primaryActionLabel?: string;
   primaryDisabled?: boolean;
   onPrimaryAction?: () => void;
-  localRuntimeActionLabel?: string;
-  onConnectLocalRuntime?: () => void;
+  localRuntimeOptions?: Array<{
+    engine: LocalRuntimeEngine;
+    label: string;
+  }>;
+  onConnectLocalRuntime?: (engine: string) => void;
   secondaryActionLabel?: string;
   onOpenSettings?: () => void;
+  bouncePulse?: number;
 }) {
+  const noticeRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!bouncePulse) return;
+    const element = noticeRef.current;
+    if (!element) return;
+    element.classList.remove("code-agents-provider-bounce");
+    void element.offsetWidth;
+    element.classList.add("code-agents-provider-bounce");
+  }, [bouncePulse]);
+
+  const showRuntimeMenu =
+    localRuntimeOptions.length > 0 && Boolean(onConnectLocalRuntime);
+  const customKeysLabel = secondaryActionLabel ?? "Custom keys";
+
   return (
-    <div className={className}>
+    <div ref={noticeRef} className={className}>
       <IconAlertCircle size={16} strokeWidth={1.8} />
       <div>
         <strong>{title}</strong>
@@ -3318,25 +4261,59 @@ function CodeProviderNotice({
             {primaryActionLabel}
           </button>
         )}
-        {onConnectLocalRuntime && localRuntimeActionLabel && (
-          <button
-            type="button"
-            className="code-agents-button"
-            onClick={onConnectLocalRuntime}
-          >
-            <IconTerminal2 size={14} strokeWidth={1.8} />
-            {localRuntimeActionLabel}
-          </button>
-        )}
-        {onOpenSettings && secondaryActionLabel && (
+        {showRuntimeMenu ? (
+          <DropdownMenu>
+            <div className="code-agents-provider-runtime-split">
+              <button
+                type="button"
+                className="code-agents-button code-agents-provider-runtime-main"
+                onClick={() =>
+                  onConnectLocalRuntime?.(localRuntimeOptions[0].engine)
+                }
+              >
+                <LocalRuntimeIcon engine={localRuntimeOptions[0].engine} />
+                <span>{localRuntimeOptions[0].label}</span>
+              </button>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="code-agents-button code-agents-provider-runtime-chevron"
+                  aria-label="More sign-in options"
+                >
+                  <IconChevronDown size={14} strokeWidth={1.8} />
+                </button>
+              </DropdownMenuTrigger>
+            </div>
+            <DropdownMenuContent
+              align="end"
+              className="code-agents-provider-menu"
+            >
+              {localRuntimeOptions.slice(1).map((option) => (
+                <DropdownMenuItem
+                  key={option.engine}
+                  onSelect={() => onConnectLocalRuntime?.(option.engine)}
+                >
+                  <LocalRuntimeIcon engine={option.engine} />
+                  <span>{option.label}</span>
+                </DropdownMenuItem>
+              ))}
+              {onOpenSettings && (
+                <DropdownMenuItem onSelect={onOpenSettings}>
+                  <IconKey size={15} strokeWidth={1.8} aria-hidden="true" />
+                  <span>{customKeysLabel}</span>
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : onOpenSettings && customKeysLabel ? (
           <button
             type="button"
             className="code-agents-button"
             onClick={onOpenSettings}
           >
-            {secondaryActionLabel}
+            {customKeysLabel}
           </button>
-        )}
+        ) : null}
       </div>
     </div>
   );
@@ -3982,34 +4959,6 @@ function SearchChatsPanel({
   );
 }
 
-function MobileRailItem({
-  status,
-  error,
-  active,
-  onOpen,
-}: {
-  status: CodeAgentRemoteConnectorStatus | null;
-  error: string | null;
-  active: boolean;
-  onOpen: () => void;
-}) {
-  const copy = mobileConnectorCopy(status, error);
-  return (
-    <button
-      type="button"
-      className={`code-agents-nav-link code-agents-mobile-link${
-        active ? " code-agents-nav-link--active" : ""
-      }`}
-      onClick={onOpen}
-      aria-pressed={active}
-      title={copy.description}
-    >
-      <IconDeviceMobile size={15} strokeWidth={1.8} />
-      <span>Mobile</span>
-    </button>
-  );
-}
-
 function mobileConnectorCopy(
   status: CodeAgentRemoteConnectorStatus | null,
   error: string | null,
@@ -4313,6 +5262,10 @@ function RunDetailCard({
   onOpenSettings,
   onConnectProvider,
   onConnectLocalRuntime,
+  onOpenRun,
+  onForkChat,
+  onRestoreWorktree,
+  restoringWorktreeId,
 }: {
   host: CodeAgentsHost;
   run: CodeAgentRun | null;
@@ -4337,6 +5290,10 @@ function RunDetailCard({
   onOpenSettings?: () => void;
   onConnectProvider?: () => void;
   onConnectLocalRuntime?: (engine: string) => void;
+  onOpenRun?: (runId: string) => void;
+  onForkChat?: () => void;
+  onRestoreWorktree?: (worktreeId: string, runId: string) => void;
+  restoringWorktreeId?: string | null;
 }) {
   const runIsActive = run ? isRunActive(run) : false;
 
@@ -4359,7 +5316,7 @@ function RunDetailCard({
         <p>
           {selectedRunId
             ? `Open ${goal.surfaceLabel} to load the linked chat.`
-            : "Start a new chat or choose one from the sidebar."}
+            : "Start a new chat or choose one from the rail."}
         </p>
       </div>
     );
@@ -4369,7 +5326,11 @@ function RunDetailCard({
     run,
     transcriptEvents,
   );
-  const hasCredentialGap = providerBlocked && hasCredentialHistory;
+  const hasCredentialGap = shouldShowCodeAgentCredentialCallout({
+    providerBlocked,
+    hasCredentialHistory,
+    phase: run.phase,
+  });
   const pendingApproval = hasCredentialGap ? null : getPendingApproval(run);
   // The inline per-tool-call approval affordance (rendered by AssistantChat /
   // ToolCallDisplay via the tool-call's `approval` field) already covers this
@@ -4382,28 +5343,23 @@ function RunDetailCard({
     : false;
   const showApprovalBanner =
     Boolean(pendingApproval) && !hasInlineApprovalAffordance;
-  const localRuntimeOption =
-    modelOptions.find(
-      (option) =>
-        option.engine === modelSelection.engine &&
-        (option.engine === "codex-cli" || option.engine === "claude-cli"),
-    ) ??
-    modelOptions.find(
-      (option) =>
-        option.engine === "codex-cli" || option.engine === "claude-cli",
-    );
-  const localRuntimeEngine = localRuntimeOption?.engine;
-  const localRuntimeLabel =
-    localRuntimeEngine === "claude-cli"
-      ? "Sign in with Claude"
-      : "Sign in with ChatGPT";
+  const runWorktree = isObjectRecord(run.metadata?.worktree)
+    ? run.metadata.worktree
+    : undefined;
+  const worktreeCleanupError = firstRecordString(runWorktree?.lastCleanupError);
+  const {
+    wasPreserved: worktreeWasPreserved,
+    needsRecovery: worktreeNeedsRecovery,
+    needsNotice: worktreeNeedsNotice,
+  } = getCodeAgentWorktreeRecoveryState(runWorktree);
+  const worktreeId = firstRecordString(runWorktree?.id);
 
   return (
     <div className="code-agents-detail code-agents-detail--chat">
       {hasCredentialGap && (
         <CodeProviderNotice
           className="code-agents-credential-callout"
-          title="Provider needed"
+          title="Connect AI"
           description={
             builderConnectMessage ??
             "Connect Builder.io or add custom keys to continue coding."
@@ -4413,12 +5369,8 @@ function RunDetailCard({
           }
           primaryDisabled={builderConnecting}
           onPrimaryAction={onConnectBuilder}
-          localRuntimeActionLabel={localRuntimeLabel}
-          onConnectLocalRuntime={
-            onConnectLocalRuntime && localRuntimeEngine
-              ? () => onConnectLocalRuntime(localRuntimeEngine)
-              : undefined
-          }
+          localRuntimeOptions={getLocalRuntimeOptions(modelOptions)}
+          onConnectLocalRuntime={onConnectLocalRuntime}
           secondaryActionLabel="Custom keys"
           onOpenSettings={onOpenSettings}
         />
@@ -4463,6 +5415,39 @@ function RunDetailCard({
         </div>
       )}
 
+      {worktreeNeedsNotice && (
+        <div className="code-agents-worktree-recovery" role="status">
+          <div className="code-agents-worktree-recovery__copy">
+            <IconAlertCircle size={16} strokeWidth={1.8} />
+            <span>
+              <strong>
+                {worktreeWasPreserved
+                  ? "Worktree kept for recovery"
+                  : "Worktree cleaned up"}
+              </strong>
+              <small>
+                {worktreeWasPreserved
+                  ? worktreeCleanupError
+                  : "This chat’s files were removed to save disk space."}
+              </small>
+            </span>
+          </div>
+          {worktreeNeedsRecovery && worktreeId && onRestoreWorktree ? (
+            <button
+              type="button"
+              className="code-agents-button"
+              disabled={restoringWorktreeId === worktreeId}
+              onClick={() => onRestoreWorktree(worktreeId, run.id)}
+            >
+              <IconRestore size={14} strokeWidth={1.8} />
+              {restoringWorktreeId === worktreeId
+                ? "Restoring..."
+                : "Restore worktree"}
+            </button>
+          ) : null}
+        </div>
+      )}
+
       <TranscriptPanel
         host={host}
         goal={goal}
@@ -4482,6 +5467,8 @@ function RunDetailCard({
         onApproveAlways={onApproveAlways}
         onConnectProvider={onConnectProvider}
         onConnectLocalRuntime={onConnectLocalRuntime}
+        onOpenRun={onOpenRun}
+        onForkChat={onForkChat}
       />
     </div>
   );
@@ -4506,6 +5493,8 @@ function TranscriptPanel({
   onApproveAlways,
   onConnectProvider,
   onConnectLocalRuntime,
+  onOpenRun,
+  onForkChat,
 }: {
   host: CodeAgentsHost;
   goal: CodeAgentGoalDefinition;
@@ -4527,6 +5516,8 @@ function TranscriptPanel({
   onApproveAlways?: () => void;
   onConnectProvider?: () => void;
   onConnectLocalRuntime?: (engine: string) => void;
+  onOpenRun?: (runId: string) => void;
+  onForkChat?: () => void;
 }) {
   const normalizedModel = normalizeModelSelection(modelSelection, modelOptions);
   const selectedModel =
@@ -4621,60 +5612,120 @@ function TranscriptPanel({
         // but they intentionally enter the shared AssistantChat renderer so
         // message parts, tool activity, and integration suggestions stay in
         // parity with server-backed agent chats.
-        <AssistantChat
-          key={run.id}
-          className="code-agents-transcript__assistant"
-          tabId={`code-agent:${run.id}`}
-          showHeader={false}
-          emptyStateText="No messages yet."
-          suggestions={[]}
-          dynamicSuggestions={false}
-          plusMenuMode="upload-only"
-          providerStatusChecksEnabled={false}
-          createAdapter={createAdapter}
-          adapterReloadKey={controller}
-          loadHistoryRepository={loadHistoryRepository}
-          historyReloadKey={historyReloadKey}
-          externalStreaming={runIsActive}
-          approvalActions={
-            onDeny || onApproveAlways
-              ? { onDeny, onAlwaysAllow: onApproveAlways }
-              : undefined
-          }
-          availableModels={availableModels}
-          availableAgents={availableAgents}
-          selectedAgent={selectedAgent}
-          selectedModel={selectedModel}
-          selectedEngine={selectedEngine}
-          selectedEffort={selectedEffort}
-          onModelChange={(model, engine) =>
-            onModelSelectionChange({
-              engine,
-              model,
-              effort: selectedEffort,
-            })
-          }
-          onAgentChange={handleAgentChange}
-          onEffortChange={(effort) =>
-            onModelSelectionChange({ ...normalizedModel, effort })
-          }
-          composerAreaClassName="code-agents-standard-composer"
-          composerToolbarSlot={
-            <div className="code-agents-chat-composer-slot">
-              <RunModeSelect
-                value={permissionMode}
-                onChange={onPermissionModeChange}
-                compact
-              />
-            </div>
-          }
-          composerExtraActionButton={
-            runIsActive ? <CodeAgentStopButton onStop={onStop} /> : undefined
-          }
-          onConnectProvider={onConnectProvider}
-          onConnectLocalRuntime={onConnectLocalRuntime}
-        />
+        <>
+          <TranscriptSourceBanner events={events} onOpenRun={onOpenRun} />
+          <AssistantChat
+            key={run.id}
+            className="code-agents-transcript__assistant"
+            tabId={`code-agent:${run.id}`}
+            showHeader={false}
+            emptyStateText="No messages yet."
+            suggestions={[]}
+            dynamicSuggestions={false}
+            plusMenuMode="upload-only"
+            providerStatusChecksEnabled={false}
+            createAdapter={createAdapter}
+            adapterReloadKey={controller}
+            loadHistoryRepository={loadHistoryRepository}
+            historyReloadKey={historyReloadKey}
+            externalStreaming={runIsActive}
+            approvalActions={
+              onDeny || onApproveAlways
+                ? { onDeny, onAlwaysAllow: onApproveAlways }
+                : undefined
+            }
+            availableModels={availableModels}
+            availableAgents={availableAgents}
+            selectedAgent={selectedAgent}
+            selectedModel={selectedModel}
+            selectedEngine={selectedEngine}
+            selectedEffort={selectedEffort}
+            onModelChange={(model, engine) =>
+              onModelSelectionChange({
+                engine,
+                model,
+                effort: selectedEffort,
+              })
+            }
+            onAgentChange={handleAgentChange}
+            onEffortChange={(effort) =>
+              onModelSelectionChange({ ...normalizedModel, effort })
+            }
+            composerAreaClassName="code-agents-standard-composer"
+            composerToolbarSlot={
+              <div className="code-agents-chat-composer-slot">
+                <RunModeSelect
+                  value={permissionMode}
+                  onChange={onPermissionModeChange}
+                  compact
+                />
+              </div>
+            }
+            composerExtraActionButton={
+              runIsActive ? <CodeAgentStopButton onStop={onStop} /> : undefined
+            }
+            onConnectProvider={onConnectProvider}
+            onConnectLocalRuntime={onConnectLocalRuntime}
+            onForkChat={onForkChat}
+          />
+        </>
       )}
+    </div>
+  );
+}
+
+function TranscriptSourceBanner({
+  events,
+  onOpenRun,
+}: {
+  events: CodeAgentTranscriptEvent[];
+  onOpenRun?: (runId: string) => void;
+}) {
+  const event = [...events]
+    .reverse()
+    .find(
+      (candidate) =>
+        candidate.type === "user" &&
+        (candidate.metadata?.source === "scheduled-task" ||
+          candidate.metadata?.source === "agent"),
+    );
+  if (!event) return null;
+  const source = event.metadata?.source;
+  if (source === "scheduled-task") {
+    const scheduleName =
+      typeof event.metadata?.scheduleName === "string"
+        ? event.metadata.scheduleName
+        : undefined;
+    return (
+      <div
+        className="code-agents-transcript-source"
+        data-source="scheduled-task"
+      >
+        <IconClock size={14} strokeWidth={1.8} />
+        <span>Sent by scheduled task</span>
+        {scheduleName ? <small>{scheduleName}</small> : null}
+      </div>
+    );
+  }
+  const sourceRunId =
+    typeof event.metadata?.sourceRunId === "string"
+      ? event.metadata.sourceRunId
+      : undefined;
+  const sourceRunTitle =
+    typeof event.metadata?.sourceRunTitle === "string"
+      ? event.metadata.sourceRunTitle
+      : sourceRunId;
+  return (
+    <div className="code-agents-transcript-source" data-source="agent">
+      <IconLink size={14} strokeWidth={1.8} />
+      <span>Sent from another agent</span>
+      {sourceRunId && onOpenRun ? (
+        <button type="button" onClick={() => onOpenRun(sourceRunId)}>
+          {sourceRunTitle}
+        </button>
+      ) : sourceRunTitle ? (
+        <small>{sourceRunTitle}</small>
+      ) : null}
     </div>
   );
 }
@@ -4926,12 +5977,6 @@ function getRunTerminalRequest(
   return sourceRoot || outputRoot || cwd
     ? { sourceRoot, outputRoot, cwd }
     : undefined;
-}
-
-function getRunSourceDetail(run: CodeAgentRun): CodeAgentRunDetail | null {
-  const label = getRunSourceLabel(run);
-  if (!label) return null;
-  return { label: "Source", value: label };
 }
 
 function getRunSourceLabel(run: CodeAgentRun): string | null {

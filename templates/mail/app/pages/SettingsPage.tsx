@@ -37,6 +37,7 @@ import {
   IconClock,
   IconPlayerPlay,
   IconSignature,
+  IconPhoto,
   IconFilter,
   IconInfoCircle,
   IconMessage2,
@@ -89,6 +90,7 @@ import {
 } from "@/hooks/use-automations";
 import { useSettings, useUpdateSettings } from "@/hooks/use-emails";
 import { useNavigationState } from "@/hooks/use-navigation-state";
+import { openFilePicker, uploadFile } from "@/lib/upload";
 import { cn } from "@/lib/utils";
 
 import changelog from "../../CHANGELOG.md?raw";
@@ -1137,6 +1139,7 @@ function DraftingSection() {
   const queryClient = useQueryClient();
   const [signature, setSignature] = useState("");
   const [writingStyle, setWritingStyle] = useState("");
+  const signatureSelectionRef = useRef({ start: 0, end: 0 });
   const importSignature = useActionMutation("import-gmail-signature", {
     onSuccess: (result) => {
       setSignature(result.signature);
@@ -1167,6 +1170,49 @@ function DraftingSection() {
   const savedWritingStyle = settings?.writingStyle ?? "";
   const isDirty =
     signature !== savedSignature || writingStyle !== savedWritingStyle;
+
+  const insertSignatureImage = async (
+    file: File,
+    start: number,
+    end: number,
+  ) => {
+    try {
+      const result = await uploadFile(file);
+      const markdown = `![${file.name.replace(/\.[^.]+$/, "")}](${result.url})`;
+      setSignature(
+        (current) =>
+          `${current.slice(0, start)}${markdown}${current.slice(end)}`,
+      );
+    } catch {
+      toast.error(t("settings.signatureImageUploadFailed"));
+    }
+  };
+
+  const handleSignaturePaste = (
+    event: React.ClipboardEvent<HTMLTextAreaElement>,
+  ) => {
+    const image = Array.from(event.clipboardData.items)
+      .find((item) => item.kind === "file" && item.type.startsWith("image/"))
+      ?.getAsFile();
+    if (!image) return;
+    event.preventDefault();
+    const target = event.currentTarget;
+    void insertSignatureImage(
+      image,
+      target.selectionStart,
+      target.selectionEnd,
+    );
+  };
+
+  const handleSignatureImage = async () => {
+    const file = await openFilePicker("image/*");
+    if (!file) return;
+    await insertSignatureImage(
+      file,
+      signatureSelectionRef.current.start,
+      signatureSelectionRef.current.end,
+    );
+  };
 
   const handleSave = () => {
     updateSettings.mutate(
@@ -1223,10 +1269,27 @@ function DraftingSection() {
                   )}
                   {t("settings.importFromGmail")}
                 </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-2 text-[11px]"
+                  onClick={() => void handleSignatureImage()}
+                >
+                  <IconPhoto className="h-3 w-3" />
+                  {t("settings.addSignatureImage")}
+                </Button>
               </div>
               <Textarea
                 value={signature}
                 onChange={(event) => setSignature(event.target.value)}
+                onPaste={handleSignaturePaste}
+                onSelect={(event) => {
+                  signatureSelectionRef.current = {
+                    start: event.currentTarget.selectionStart,
+                    end: event.currentTarget.selectionEnd,
+                  };
+                }}
                 placeholder={"Best,\nSteve"}
                 rows={5}
                 className="resize-none px-3 py-2 text-[13px] placeholder:text-muted-foreground/40"

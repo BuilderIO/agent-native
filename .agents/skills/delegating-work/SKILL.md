@@ -78,14 +78,10 @@ default, not an exception.
 
 ## Parallel edits are the intended pattern, not a risk
 
-Parallel subagents editing disjoint files is normal and expected here — the
-safety is in giving each subagent its own file set up front, not in a guard
-catching overlap after the fact. `scripts/hooks/file-lease.mjs` denies a write
-when another live Claude Code session leased the same file in the last 15
-minutes, but it only sees writes made through this hook: a Codex peer or a
-plain human edit leaves no lease, so it cannot substitute for disjoint
-ownership. Assign non-overlapping file sets before you fan out; see
-`concurrent-agents` for what the hook does and doesn't catch.
+Parallel subagents editing disjoint files is normal and expected here. Assign
+non-overlapping file sets before you fan out, and have each subagent re-read
+existing changes before editing. Use the shared checkout's normal
+read-before-edit discipline.
 
 ## Related skills
 

@@ -14,6 +14,7 @@ import {
   resolveContinuationDispatchBudget,
   resolveSelfChainContinuationBudget,
   SELF_CHAIN_MIN_CONTINUATION_BUDGET_MS,
+  type BackgroundNoProgressRepeat,
   type ChainServerDrivenContinuationDeps,
 } from "./production-agent.js";
 import type { ActiveRun } from "./run-manager.js";
@@ -165,6 +166,7 @@ async function runChain(
     workerProvenInBackgroundFunction?: boolean;
     requestBody?: Record<string, unknown>;
     backgroundContinuationCount?: number;
+    noProgressRepeat?: BackgroundNoProgressRepeat;
     run?: ActiveRun;
   },
 ): Promise<void> {
@@ -180,6 +182,7 @@ async function runChain(
       [AGENT_CHAT_BACKGROUND_RUN_FIELD]: { runId: "run-chunk0" },
     },
     backgroundContinuationCount: opts?.backgroundContinuationCount ?? 0,
+    noProgressRepeat: opts?.noProgressRepeat,
     chainViaDurableBackground: opts?.chainViaDurableBackground ?? false,
     workerProvenInBackgroundFunction: opts?.workerProvenInBackgroundFunction,
     deps: harness.deps,
@@ -281,6 +284,34 @@ describe("chainServerDrivenContinuation — transactional handoff (foreground se
     });
     expect(dispatch.body.message).toBeUndefined();
     expect(dispatch.body.history).toBeUndefined();
+  });
+
+  it("carries the no-progress streak to the successor so the breaker survives the chunk boundary", async () => {
+    const h = makeHarness();
+    await runChain(h, {
+      run: recoverableErrorBoundaryRun(),
+      noProgressRepeat: {
+        errorCode: "builder_gateway_internal_error",
+        count: 1,
+        tripped: false,
+      },
+    });
+
+    const dispatch = (h.deps.fireInternalDispatch as any).mock.calls[0][0];
+    expect(dispatch.body[AGENT_CHAT_BACKGROUND_RUN_FIELD]).toMatchObject({
+      noProgressErrorCode: "builder_gateway_internal_error",
+      noProgressCount: 1,
+    });
+  });
+
+  it("omits the no-progress streak entirely when the chunk made progress", async () => {
+    const h = makeHarness();
+    await runChain(h, { noProgressRepeat: { count: 0, tripped: false } });
+
+    const dispatch = (h.deps.fireInternalDispatch as any).mock.calls[0][0];
+    const marker = dispatch.body[AGENT_CHAT_BACKGROUND_RUN_FIELD];
+    expect(marker.noProgressErrorCode).toBeUndefined();
+    expect(marker.noProgressCount).toBeUndefined();
   });
 
   it("retries a transiently failed dispatch (one retry on the foreground path) and heartbeats the held row", async () => {

@@ -11,9 +11,13 @@ vi.mock("../server/request-context.js", () => ({
   getRequestUserEmail: mocks.getRequestUserEmail,
 }));
 
-vi.mock("./store.js", () => ({
-  getWorkspaceFileMeta: mocks.getWorkspaceFileMeta,
-}));
+vi.mock("./store.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./store.js")>();
+  return {
+    ...actual,
+    getWorkspaceFileMeta: mocks.getWorkspaceFileMeta,
+  };
+});
 
 import { ACTION_CHAT_UI_WORKSPACE_FILE_RENDERER } from "../action-ui.js";
 import {
@@ -74,7 +78,10 @@ describe("show-workspace-file", () => {
     ).rejects.toThrow('Workspace file not found: "exports/missing.csv"');
   });
 
-  it("fails loudly for non-text workspace resources", async () => {
+  // Regression: the card only ever shows name/size/type + a download link —
+  // it never inlines file content — so a binary export must render a card
+  // exactly like a text one instead of throwing.
+  it("renders a card for a binary (non-text) workspace file", async () => {
     mocks.getWorkspaceFileMeta.mockResolvedValue({
       id: "resource-example",
       path: "exports/report.pdf",
@@ -86,9 +93,16 @@ describe("show-workspace-file", () => {
 
     await expect(
       showWorkspaceFileAction.run({ path: "exports/report.pdf" }),
-    ).rejects.toThrow(
-      'Workspace file "exports/report.pdf" has unsupported content type "application/pdf"',
-    );
+    ).resolves.toEqual({
+      file: {
+        resourceId: "resource-example",
+        path: "exports/report.pdf",
+        name: "report.pdf",
+        contentType: "application/pdf",
+        sizeBytes: 2048,
+        updatedAt: "2026-07-29T10:01:00.000Z",
+      },
+    });
   });
 
   it("fails without an authenticated scope", async () => {

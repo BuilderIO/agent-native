@@ -1,10 +1,10 @@
 import { DefaultSpinner } from "@agent-native/core/client/ui";
+import { withSsrHtmlContentType } from "@agent-native/core/shared";
 import { redirect, type LoaderFunctionArgs } from "react-router";
 
 const SEO_TITLE = "Clips - Open Source screen recorder";
 const SEO_DESCRIPTION =
   "Open Source screen recorder and meeting-notes app with AI transcripts, summaries, search, dictation, and agent-readable share links.";
-
 export function meta() {
   return [
     { title: SEO_TITLE },
@@ -38,11 +38,15 @@ function buildTarget(url: URL): string {
 }
 
 export function loader({ url }: LoaderFunctionArgs) {
-  throw redirect(buildTarget(url));
+  throw withSsrHtmlContentType(redirect(buildTarget(url)), {
+    varyByQuery: true,
+  });
 }
 
 export function clientLoader({ url }: LoaderFunctionArgs) {
-  throw redirect(buildTarget(url));
+  throw withSsrHtmlContentType(redirect(buildTarget(url)), {
+    varyByQuery: true,
+  });
 }
 
 export function HydrateFallback() {

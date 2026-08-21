@@ -76,6 +76,8 @@ vi.mock("../../lib/recordings.js", () => ({
   getOrganizationRoleForEmail: (...args: unknown[]) =>
     mockGetOrganizationRoleForEmail(...args),
   parseSpaceIds: vi.fn(() => []),
+  sameOwnerEmail: (left: string, right: string) =>
+    left.trim().toLowerCase() === right.trim().toLowerCase(),
 }));
 
 vi.mock("../../lib/agent-views.js", () => ({
@@ -675,6 +677,30 @@ describe("/api/public-recording route", () => {
       viewer: { role: "viewer", canOpenDashboard: false },
     });
     expect(mockHasExplicitRecordingShare).not.toHaveBeenCalled();
+  });
+
+  it("marks an authenticated public viewer as comment-capable", async () => {
+    const event = { setCookies: [] as unknown[] };
+    mockGetQuery.mockReturnValue({ id: "rec-1" });
+    mockGetSession.mockResolvedValue({ email: "viewer@example.com" });
+    mockGetDb.mockReturnValue(
+      createDbWithSelectResults([
+        [makeRecording({ visibility: "public", password: null })],
+        [],
+        [],
+        [],
+        [],
+      ]),
+    );
+
+    const result = await handler(event as any);
+
+    expect(result).toMatchObject({
+      viewer: {
+        canComment: true,
+        role: "viewer",
+      },
+    });
   });
 
   it("refuses an expired recording before exposing counts or dashboard eligibility", async () => {

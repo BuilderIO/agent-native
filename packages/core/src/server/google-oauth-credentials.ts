@@ -93,16 +93,102 @@ export async function resolveGoogleProviderCredentialCandidatesWithReader(option
  * remain the backwards-compatible provider OAuth credentials.
  */
 export function resolveGoogleSignInCredentials(): GoogleOAuthCredentials | null {
-  return (
-    readCredentialPair(
-      "GOOGLE_SIGN_IN_CLIENT_ID",
-      "GOOGLE_SIGN_IN_CLIENT_SECRET",
-    ) ?? readCredentialPair("GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET")
+  const signIn = readCredentialPair(
+    "GOOGLE_SIGN_IN_CLIENT_ID",
+    "GOOGLE_SIGN_IN_CLIENT_SECRET",
   );
+  const provider = readCredentialPair(
+    "GOOGLE_CLIENT_ID",
+    "GOOGLE_CLIENT_SECRET",
+  );
+
+  // Both pairs configured for different clients means one of them is dead
+  // config that nothing will ever read. Silence here cost a fleet-wide beta
+  // sign-in outage: GOOGLE_CLIENT_SECRET was repaired and verified while the
+  // callback kept using a stale GOOGLE_SIGN_IN_CLIENT_SECRET, so the repaired
+  // variable looked correct and changed nothing. Name the loser explicitly.
+  if (signIn && provider && signIn.clientId !== provider.clientId) {
+    console.warn(
+      "[agent-native][google-oauth] GOOGLE_SIGN_IN_CLIENT_ID and GOOGLE_CLIENT_ID " +
+        "are set to different Google clients. Sign-in uses GOOGLE_SIGN_IN_CLIENT_ID; " +
+        "GOOGLE_CLIENT_ID/SECRET are ignored for sign-in. Editing them will not " +
+        "change sign-in behaviour.",
+    );
+  }
+
+  return signIn ?? provider;
 }
 
 export function hasGoogleSignInCredentials(): boolean {
   return resolveGoogleSignInCredentials() !== null;
+}
+
+let activeSignInCredentials: GoogleOAuthCredentials | null = null;
+let activeSignInCredentialsRecorded = false;
+let activeSignInCredentialsVersion = 0;
+
+/**
+ * Record the pair Better Auth actually handed to the Google provider.
+ *
+ * The effective pair is not always the preferred one: a template asking for
+ * broader scopes is wired to GOOGLE_CLIENT_ID/SECRET instead. Anything testing
+ * "the credential the callback will use" must read this rather than
+ * re-deriving it, or it will verify a pair nothing reads and report healthy.
+ */
+export function recordActiveGoogleSignInCredentials(
+  credentials: GoogleOAuthCredentials | null,
+): void {
+  activeSignInCredentials = credentials;
+  activeSignInCredentialsRecorded = true;
+  activeSignInCredentialsVersion += 1;
+}
+
+/** Test seam: forget what Better Auth wired, as if it had not initialised. */
+export function resetActiveGoogleSignInCredentials(): void {
+  activeSignInCredentials = null;
+  activeSignInCredentialsRecorded = false;
+  activeSignInCredentialsVersion += 1;
+}
+
+export function getActiveGoogleSignInCredentials(): {
+  credentials: GoogleOAuthCredentials | null;
+  recorded: boolean;
+  version: number;
+} {
+  return {
+    credentials: activeSignInCredentials,
+    recorded: activeSignInCredentialsRecorded,
+    version: activeSignInCredentialsVersion,
+  };
+}
+
+/**
+ * Which sign-in credential pairs are configured, and whether they disagree.
+ *
+ * `mismatched` is the state that hid the 2026-08-20 outage: two pairs naming
+ * different Google clients, where only the winner is ever read. Callers report
+ * it; the resolver only warns.
+ */
+export function describeGoogleSignInCredentialPairs(): {
+  signInClientId: string | null;
+  providerClientId: string | null;
+  mismatched: boolean;
+} {
+  const signIn = readCredentialPair(
+    "GOOGLE_SIGN_IN_CLIENT_ID",
+    "GOOGLE_SIGN_IN_CLIENT_SECRET",
+  );
+  const provider = readCredentialPair(
+    "GOOGLE_CLIENT_ID",
+    "GOOGLE_CLIENT_SECRET",
+  );
+  return {
+    signInClientId: signIn?.clientId ?? null,
+    providerClientId: provider?.clientId ?? null,
+    mismatched: Boolean(
+      signIn && provider && signIn.clientId !== provider.clientId,
+    ),
+  };
 }
 
 export function resolveGoogleProviderCredentials(): GoogleOAuthCredentials | null {

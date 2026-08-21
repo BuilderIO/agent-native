@@ -53,6 +53,17 @@ export interface RuntimeConfigReportOptions {
   appName?: string;
 }
 
+/** Parse the truthy spellings accepted by typed runtime configuration flags. */
+export function isTruthyRuntimeValue(
+  value: string | boolean | undefined,
+): boolean {
+  if (value === true) return true;
+  return (
+    typeof value === "string" &&
+    ["1", "true", "yes", "on"].includes(value.trim().toLowerCase())
+  );
+}
+
 const ENV_KEY_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const RUNTIME_CONFIG_ISSUE_CODES = new Set<RuntimeConfigIssueCode>([
   "auth-disabled-in-production",
@@ -92,7 +103,7 @@ function valueOf(
 }
 
 function truthy(value: string | undefined): boolean {
-  return value === "1" || value?.toLowerCase() === "true";
+  return isTruthyRuntimeValue(value);
 }
 
 function isProductionEnvironment(
@@ -107,8 +118,10 @@ function isProductionEnvironment(
 
 function isWorkspaceRuntime(env: Record<string, string | undefined>): boolean {
   return (
-    valueOf(env, "AGENT_NATIVE_WORKSPACE") === "1" ||
-    valueOf(env, "VITE_AGENT_NATIVE_WORKSPACE") === "1"
+    isTruthyRuntimeValue(valueOf(env, "AGENT_NATIVE_WORKSPACE")) ||
+    isTruthyRuntimeValue(valueOf(env, "VITE_AGENT_NATIVE_WORKSPACE")) ||
+    Boolean(valueOf(env, "AGENT_NATIVE_WORKSPACE_APPS_JSON")) ||
+    Boolean(valueOf(env, "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON"))
   );
 }
 

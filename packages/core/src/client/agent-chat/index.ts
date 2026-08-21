@@ -48,6 +48,7 @@ export {
   type SaveAgentEngineProviderSettingsOptions,
 } from "../agent-engine-key.js";
 export { useAgentChatGenerating } from "../use-agent-chat.js";
+export { useActiveAgentChatRunId } from "../use-active-agent-chat-run.js";
 export {
   useAgentChatContext,
   type UseAgentChatContextResult,

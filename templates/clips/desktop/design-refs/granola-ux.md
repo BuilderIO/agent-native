@@ -91,6 +91,23 @@ Primary (cited inline below):
 - **+N attendee overflow** is used in the homepage marketing example: `Jim, Michaela +5`. So attendees collapse past ~2 named to a `+N` count.
 - Empty state copy and detail are not exposed publicly; design ours to match Apple-Notes minimalism (single illustrated/iconic prompt, no marketing fluff).
 
+### Home layout, observed 2026-08-14
+
+From a first-party screenshot of the current app (supersedes the review-derived
+notes above where they conflict):
+
+- Upcoming collapses into **one bordered "Coming up" card** at the top, roughly
+  300px tall for three days. Each day is a left column (`14 / August / Fri`)
+  beside its events; only the in-progress event carries a button (`Start now`).
+- Everything below is history, in day groups (`Tue, Aug 11`, `Thu, Aug 6`) that
+  **skip empty days** and scroll back indefinitely — no pager, no visible cap.
+- History rows are one line: avatar, title, attendee subtitle (`Elaine`,
+  `Lisa, Cody & 2 others`), right-aligned time. Notes with no attendees get a
+  document icon and `Me`. No status chips anywhere in the list.
+- An **"Ask anything" composer is pinned to the bottom** of the home view with
+  a suggestion chip (`List recent todos`) — the same bar as the note view, so
+  the agent is reachable over the whole corpus, not just one meeting.
+
 ### Sidebar organisation
 
 - Folders: "private" or "shared" (Business Dive, Wonder Tools).

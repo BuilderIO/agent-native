@@ -15,7 +15,6 @@ import {
   resolveChatFirstAppTarget,
   subscribeChatFirstOpenBrowser,
   subscribeChatFirstOpenApp,
-  writeChatFirstAppLayout,
   useChatFirstSessionWatch,
   useChatFirstSurfacePanel,
   useChatFirstSurfaceResize,
@@ -58,10 +57,7 @@ import {
   type ChatFirstPrimaryTab,
 } from "@agent-native/core/client/chat-first";
 import { writeClipboardText } from "@agent-native/core/client/clipboard";
-import {
-  useActionMutation,
-  useActionQuery,
-} from "@agent-native/core/client/hooks";
+import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { InvitationBanner, OrgSwitcher } from "@agent-native/core/client/org";
@@ -106,24 +102,24 @@ import { toast } from "sonner";
 import { cn } from "../../lib/utils";
 import {
   isDispatchWorkspaceAppId,
+  isPathMountedWorkspaceApp,
   isWorkspaceAppVisibleInDefaultLaunchers,
+  isWorkspaceSsoApp,
   mergeChatFirstWorkspaceApps,
+  navigateToWorkspaceApp,
   workspaceAppIdFromRoute,
+  workspaceAppDirectHref,
   workspaceAppRoute,
   type WorkspaceAppSummary,
 } from "../../lib/workspace-apps";
+import { CHAT_FIRST_PANE_STATE_KEY } from "../../shared/chat-first-pane";
 import { AppIcon } from "../app-icon";
 import { CreateAppPopover } from "../create-app-popover";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "../ui/dropdown-menu";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "../ui/sheet";
 import { Skeleton } from "../ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 import {
+  WorkspaceAppChatRail,
   WorkspaceAppFrame,
   WorkspaceAppKeepAlive,
 } from "../workspace-app-host";
@@ -215,7 +211,6 @@ const DISPATCH_SIDEBAR_LABEL = "Dispatch";
 const CHROMELESS_PATHS = ["/approval", "/browser-chat", "/browser-connect"];
 const SIDEBAR_COLLAPSE_KEY = "dispatch.sidebar.collapsed";
 const CHAT_HISTORY_SOURCE_KEY = "dispatch.chat-history.source";
-const CHAT_FIRST_PANE_STATE_KEY = "chat-first-pane";
 
 interface DispatchChatFirstPane {
   appId: string;
@@ -1402,7 +1397,7 @@ export function Layout({
   const chatFirstAppLayoutHydratedRef = useRef(false);
   const chatFirstAppsQuery = useActionQuery<WorkspaceAppSummary[]>(
     "list-workspace-apps",
-    { includeAgentCards: false },
+    { includeAgentCards: false, includeArchived: true },
     { enabled: chatFirstMode },
   );
   const chatFirstGrantedAppsQuery = useActionQuery<ChatFirstGrantedAppsResult>(
@@ -1448,6 +1443,26 @@ export function Layout({
           name: app.name ?? app.id,
         })),
     [chatFirstAppRegistrations],
+  );
+  const openChatFirstApp = useCallback(
+    (app: ChatFirstAppItem) => {
+      if (isDispatchWorkspaceAppId(app.id)) return;
+      const registration = chatFirstAppRegistrations.find(
+        (candidate) => candidate.id.toLowerCase() === app.id.toLowerCase(),
+      );
+      const directHref =
+        registration &&
+        !isWorkspaceSsoApp(registration) &&
+        isPathMountedWorkspaceApp(registration)
+          ? workspaceAppDirectHref(registration, "/")
+          : null;
+      if (directHref) {
+        navigateToWorkspaceApp(directHref);
+        return;
+      }
+      navigate(dispatchNavLinkTarget(workspaceAppRoute(app.id)));
+    },
+    [chatFirstAppRegistrations, navigate],
   );
   const chatFirstCopy = useMemo(() => createDispatchChatFirstCopy(t), [t]);
   const [chatFirstPane, setChatFirstPane] =
@@ -2349,28 +2364,14 @@ export function Layout({
     "Workspace app";
   const workspaceAppContent =
     workspaceAppRouteActive && workspaceAppId ? (
-      <AgentSidebar
-        position="left"
-        defaultOpen
-        openStorageKey="dispatch-app-chat"
-        storageKey={`dispatch-app-chat:${workspaceAppId}`}
-        scope={{
-          type: "workspace-app",
-          id: workspaceAppId,
-          label: workspaceAppChatName,
-          contextKey: `workspace-app:${workspaceAppId}`,
-        }}
-        agentChatSurface="app"
-        showTabBar
-        suppressInlineOpenApp
-        dynamicSuggestions={false}
-        suggestions={[]}
-        emptyStateText={`Ask about ${workspaceAppChatName}`}
+      <WorkspaceAppChatRail
+        appId={workspaceAppId}
+        appName={workspaceAppChatName}
         agentPageHref={agentPageHref}
         onFullscreenRequest={openAskAgentFullscreen}
       >
         <WorkspaceAppKeepAlive activeAppId={workspaceAppId} />
-      </AgentSidebar>
+      </WorkspaceAppChatRail>
     ) : (
       <WorkspaceAppKeepAlive
         activeAppId={workspaceAppRouteActive ? workspaceAppId : null}
@@ -2461,7 +2462,7 @@ export function Layout({
               onChatFirstAppOpen={(app) => {
                 if (isDispatchWorkspaceAppId(app.id)) return;
                 setSidebarCollapsed(true);
-                navigate(dispatchNavLinkTarget(workspaceAppRoute(app.id)));
+                openChatFirstApp(app);
               }}
               onChatFirstAppsRetry={() => void chatFirstAppsQuery.refetch()}
               collapsible
@@ -2502,9 +2503,7 @@ export function Layout({
                     chatFirstSurfaceTabsStore.closeAll();
                     setChatFirstSurfacePanelOpen(false);
                   }}
-                  onChatFirstAppOpen={(app) =>
-                    navigate(dispatchNavLinkTarget(workspaceAppRoute(app.id)))
-                  }
+                  onChatFirstAppOpen={openChatFirstApp}
                   onChatFirstAppsRetry={() => void chatFirstAppsQuery.refetch()}
                   onNavigate={() => setMobileOpen(false)}
                 />

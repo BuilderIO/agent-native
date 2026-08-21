@@ -18,6 +18,21 @@ export function nextLocalId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${idCounter}`;
 }
 
+/**
+ * An expired session inside an already-accepted run arrives as a plain error
+ * event, not an HTTP 401 — the request succeeded and the agent failed midway.
+ * Without this the UI offers "Retry", which can never succeed, instead of
+ * offering to sign in. Classify it here so the view never has to sniff strings.
+ */
+function authErrorCode(error: string | undefined): string | null {
+  if (!error) return null;
+  return /\b(unauthorized|unauthenticated|session expired|not signed in)\b/i.test(
+    error,
+  )
+    ? "auth"
+    : null;
+}
+
 export function initialTurnState(): ChatTurnState {
   return {
     messages: [],
@@ -225,7 +240,8 @@ export function applyWireEvent(
         error: event.error ?? "Agent chat failed.",
         errorCode:
           event.errorCode ??
-          (event.type === "missing_api_key" ? "missing_api_key" : null),
+          (event.type === "missing_api_key" ? "missing_api_key" : null) ??
+          authErrorCode(event.error),
       };
     }
     case "done":

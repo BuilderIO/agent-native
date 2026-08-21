@@ -492,6 +492,8 @@ const messages = {
     importFromGmail: "从 Gmail 导入",
     signatureHelp:
       "会添加到新草稿中，位于引用的回复历史之前。支持 Markdown 链接和图片。",
+    addSignatureImage: "添加图片",
+    signatureImageUploadFailed: "签名图片上传失败",
     writingStyle: "写作风格",
     writingStylePlaceholder: "简短、具体、温暖。避免正式套话。",
     saveDraftingSettings: "保存草稿设置",

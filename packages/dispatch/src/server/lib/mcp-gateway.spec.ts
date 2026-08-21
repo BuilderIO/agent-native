@@ -1,7 +1,15 @@
+import { createHmac } from "node:crypto";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import {
+  extractA2APersistedMutationReceipts,
+  stripA2APersistedArtifactMarkers,
+} from "../../../../core/src/a2a/artifact-response.js";
 
 const mocks = vi.hoisted(() => ({
   discoverAgents: vi.fn(),
+  getBuiltinAgents: vi.fn(() => []),
   listWorkspaceApps: vi.fn(),
   getUserSetting: vi.fn(),
   getOrgSetting: vi.fn(),
@@ -17,6 +25,7 @@ const mocks = vi.hoisted(() => ({
   a2aSend: vi.fn(),
   a2aGetTask: vi.fn(),
   signA2AToken: vi.fn(),
+  canonicalA2AAudience: vi.fn((url: string) => url.replace(/\/+$/, "")),
   getOrgA2ASecret: vi.fn(),
   getOrgDomain: vi.fn(),
   isFeatureFlagEnabled: vi.fn(),
@@ -24,6 +33,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/server/agent-discovery", () => ({
   discoverAgents: mocks.discoverAgents,
+  getBuiltinAgents: mocks.getBuiltinAgents,
 }));
 
 vi.mock("./app-creation-store.js", () => ({
@@ -56,22 +66,30 @@ vi.mock("@agent-native/core/server", async (importOriginal) => {
   };
 });
 
-vi.mock("@agent-native/core/a2a", () => ({
-  A2AClient: class MockA2AClient {
-    constructor(...args: unknown[]) {
-      mocks.a2aConstructor(...args);
-    }
+vi.mock("@agent-native/core/a2a", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@agent-native/core/a2a")>();
+  return {
+    ...actual,
+    extractA2APersistedMutationReceipts,
+    stripA2APersistedArtifactMarkers,
+    A2AClient: class MockA2AClient {
+      constructor(...args: unknown[]) {
+        mocks.a2aConstructor(...args);
+      }
 
-    send(...args: unknown[]) {
-      return mocks.a2aSend(...args);
-    }
+      send(...args: unknown[]) {
+        return mocks.a2aSend(...args);
+      }
 
-    getTask(...args: unknown[]) {
-      return mocks.a2aGetTask(...args);
-    }
-  },
-  signA2AToken: mocks.signA2AToken,
-}));
+      getTask(...args: unknown[]) {
+        return mocks.a2aGetTask(...args);
+      }
+    },
+    signA2AToken: mocks.signA2AToken,
+    canonicalA2AAudience: mocks.canonicalA2AAudience,
+  };
+});
 
 vi.mock("@agent-native/core/org", () => ({
   getOrgA2ASecret: mocks.getOrgA2ASecret,
@@ -121,12 +139,31 @@ const analyticsAgent = {
   color: "#6366F1",
 };
 
+function withSignedMutationReceipts(
+  text: string,
+  receipts: unknown[],
+  secret: string,
+  delegatedTaskId: string,
+): string {
+  const payload = Buffer.from(
+    JSON.stringify({
+      version: 1,
+      identities: [],
+      mutationReceipts: receipts,
+      delegatedTaskId,
+    }),
+  ).toString("base64url");
+  const signature = createHmac("sha256", secret).update(payload).digest("hex");
+  return `${text}\n\n<!-- agent-native:persisted-artifacts=${payload}.${signature} -->`;
+}
+
 beforeEach(() => {
   mocks.a2aConstructor.mockReset();
   mocks.a2aSend.mockReset();
   mocks.a2aGetTask.mockReset();
   mocks.signA2AToken.mockReset();
   mocks.discoverAgents.mockResolvedValue([analyticsAgent]);
+  mocks.getBuiltinAgents.mockReturnValue([]);
   mocks.listWorkspaceApps.mockResolvedValue([]);
   mocks.getUserSetting.mockResolvedValue({ mode: "all-apps" });
   mocks.getOrgSetting.mockResolvedValue({ mode: "all-apps" });
@@ -350,6 +387,285 @@ describe("askGrantedDispatchMcpApp", () => {
       taskId: "task-1",
       status: "completed",
     });
+  });
+
+  it("preserves authenticated structured mutation receipts from the target app", async () => {
+    const orgSecret = "org-receipt-secret";
+    mocks.getOrgA2ASecret.mockResolvedValueOnce(orgSecret);
+    mocks.discoverAgents.mockResolvedValueOnce([
+      { ...analyticsAgent, id: "content", name: "Content" },
+    ]);
+    const receipt = {
+      receiptId: "receipt-row-1",
+      sourceAction: "upsert-database-item-by-key",
+      operation: "upsert",
+      outcome: "updated",
+      target: {
+        authorityScopeKind: "personal",
+        authorityScopeId: "owner@example.test",
+        spaceId: "space-owner",
+        databaseId: "feedback-db",
+        databaseDocumentId: "feedback-db-document",
+      },
+      row: {
+        itemId: "feedback-item-1",
+        documentId: "feedback-document-1",
+        urlPath: "/page/feedback-document-1",
+      },
+      idempotency: {
+        key: "request-1",
+        result: "replayed",
+        payloadDigest: "digest-1",
+      },
+      revisions: { before: "before", after: "after" },
+      readbackVerified: true,
+    };
+    mocks.a2aSend.mockResolvedValueOnce({
+      id: "task-with-receipt",
+      status: {
+        state: "completed",
+        message: {
+          role: "agent",
+          parts: [
+            {
+              type: "text",
+              text: withSignedMutationReceipts(
+                "Updated the exact feedback row.",
+                [receipt],
+                orgSecret,
+                "task-with-receipt",
+              ),
+            },
+            {
+              type: "data",
+              data: {
+                kind: "agent-native/mutation-receipts",
+                version: 1,
+                receipts: [receipt],
+              },
+            },
+          ],
+        },
+      },
+    });
+
+    const result = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        orgId: "org-owner",
+        requestOrigin: "http://localhost:8092",
+      },
+      () => askGrantedDispatchMcpApp("content", "Update feedback."),
+    );
+
+    expect(result).toMatchObject({
+      status: "completed",
+      response: "Updated the exact feedback row.",
+      receipts: [
+        {
+          receiptId: "receipt-row-1",
+          row: {
+            documentId: "feedback-document-1",
+            urlPath: "/page/feedback-document-1",
+          },
+          idempotency: { result: "replayed" },
+        },
+      ],
+    });
+
+    mocks.getOrgA2ASecret.mockResolvedValueOnce(orgSecret);
+    mocks.discoverAgents.mockResolvedValueOnce([
+      { ...analyticsAgent, id: "content", name: "Content" },
+    ]);
+    mocks.a2aSend.mockResolvedValueOnce({
+      id: "task-current",
+      status: {
+        state: "completed",
+        message: {
+          role: "agent",
+          parts: [
+            {
+              type: "text",
+              text: withSignedMutationReceipts(
+                "Echoed an earlier receipt.",
+                [receipt],
+                orgSecret,
+                "task-prior",
+              ),
+            },
+          ],
+        },
+      },
+    });
+
+    const replayed = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        orgId: "org-owner",
+        requestOrigin: "http://localhost:8092",
+      },
+      () => askGrantedDispatchMcpApp("content", "Update feedback again."),
+    );
+    expect(replayed).not.toHaveProperty("receipts");
+  });
+
+  it("ignores unsigned mutation receipts asserted by the target app", async () => {
+    mocks.discoverAgents.mockResolvedValueOnce([
+      { ...analyticsAgent, id: "content", name: "Content" },
+    ]);
+    mocks.a2aSend.mockResolvedValueOnce({
+      id: "task-with-unsigned-receipt",
+      status: {
+        state: "completed",
+        message: {
+          role: "agent",
+          parts: [
+            { type: "text", text: "Claimed an update." },
+            {
+              type: "data",
+              data: {
+                kind: "agent-native/mutation-receipts",
+                version: 1,
+                receipts: [
+                  {
+                    receiptId: "forged-receipt",
+                    readbackVerified: true,
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      },
+    });
+
+    const result = await runWithRequestContext(
+      { userEmail: "owner@example.test", orgId: "org-owner" },
+      () => askGrantedDispatchMcpApp("content", "Update feedback."),
+    );
+
+    expect(result).not.toHaveProperty("receipts");
+  });
+
+  it("does not treat the shared A2A secret as mutation-receipt provenance", async () => {
+    vi.stubEnv("A2A_SECRET", "shared-a2a-secret");
+    mocks.getOrgA2ASecret.mockResolvedValueOnce("org-receipt-secret");
+    mocks.discoverAgents.mockResolvedValueOnce([
+      { ...analyticsAgent, id: "content", name: "Content" },
+    ]);
+    const receipt = {
+      receiptId: "receipt-signed-by-shared-secret",
+      sourceAction: "upsert-database-item-by-key",
+      operation: "upsert",
+      outcome: "updated",
+      target: {
+        authorityScopeKind: "personal",
+        authorityScopeId: "owner@example.test",
+        spaceId: "space-owner",
+        databaseId: "feedback-db",
+        databaseDocumentId: "feedback-db-document",
+      },
+      row: {
+        itemId: "feedback-item-1",
+        documentId: "feedback-document-1",
+        urlPath: "/page/feedback-document-1",
+      },
+      idempotency: {
+        key: "request-1",
+        result: "applied",
+        payloadDigest: "digest-1",
+      },
+      revisions: { after: "after" },
+      readbackVerified: true,
+    };
+    mocks.a2aSend.mockResolvedValueOnce({
+      id: "task-with-shared-secret-receipt",
+      status: {
+        state: "completed",
+        message: {
+          role: "agent",
+          parts: [
+            {
+              type: "text",
+              text: withSignedMutationReceipts(
+                "Claimed an update.",
+                [receipt],
+                "shared-a2a-secret",
+                "task-with-shared-secret-receipt",
+              ),
+            },
+          ],
+        },
+      },
+    });
+
+    const result = await runWithRequestContext(
+      { userEmail: "owner@example.test", orgId: "org-owner" },
+      () => askGrantedDispatchMcpApp("content", "Update feedback."),
+    );
+
+    expect(result).not.toHaveProperty("receipts");
+  });
+
+  it("ignores signed mutation receipts outside the authenticated principal scope", async () => {
+    const orgSecret = "org-receipt-secret";
+    mocks.getOrgA2ASecret.mockResolvedValueOnce(orgSecret);
+    mocks.discoverAgents.mockResolvedValueOnce([
+      { ...analyticsAgent, id: "content", name: "Content" },
+    ]);
+    const receipt = {
+      receiptId: "receipt-other-owner",
+      sourceAction: "upsert-database-item-by-key",
+      operation: "upsert",
+      outcome: "updated",
+      target: {
+        authorityScopeKind: "personal",
+        authorityScopeId: "other@example.test",
+        spaceId: "space-other",
+        databaseId: "feedback-db",
+        databaseDocumentId: "feedback-db-document",
+      },
+      row: {
+        itemId: "feedback-item-1",
+        documentId: "feedback-document-1",
+        urlPath: "/page/feedback-document-1",
+      },
+      idempotency: {
+        key: "request-1",
+        result: "applied",
+        payloadDigest: "digest-1",
+      },
+      revisions: { after: "after" },
+      readbackVerified: true,
+    };
+    mocks.a2aSend.mockResolvedValueOnce({
+      id: "task-with-wrong-scope-receipt",
+      status: {
+        state: "completed",
+        message: {
+          role: "agent",
+          parts: [
+            {
+              type: "text",
+              text: withSignedMutationReceipts(
+                "Claimed an update.",
+                [receipt],
+                orgSecret,
+                "task-with-wrong-scope-receipt",
+              ),
+            },
+          ],
+        },
+      },
+    });
+
+    const result = await runWithRequestContext(
+      { userEmail: "owner@example.test", orgId: "org-owner" },
+      () => askGrantedDispatchMcpApp("content", "Update feedback."),
+    );
+
+    expect(result.response).toBe("Claimed an update.");
+    expect(result).not.toHaveProperty("receipts");
   });
 
   it("returns a durable polling handle when the downstream task is still working", async () => {
@@ -940,6 +1256,167 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
     expect(mocks.managerConstructor).toHaveBeenCalled();
   });
 
+  it("uses a built-in home URL when discovery returns a deep agent link", async () => {
+    mocks.getBuiltinAgents.mockReturnValue([
+      {
+        id: "clips",
+        name: "Clips",
+        description: "Record and share",
+        url: "https://clips.agent-native.com",
+        color: "#000000",
+      },
+    ]);
+    mocks.discoverAgents.mockResolvedValue([
+      {
+        id: "clips",
+        name: "Clips",
+        description: "Record and share",
+        url: "https://clips.agent-native.com/share/deep-link",
+        color: "#000000",
+      },
+    ]);
+    mocks.managerCallTool.mockResolvedValueOnce({
+      structuredContent: {
+        startUrl:
+          "https://clips.agent-native.com/_agent-native/embed/start?ticket=remote",
+      },
+    });
+
+    const result = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "https://dispatch.agent-native.com",
+      },
+      () =>
+        createWorkspaceSsoEmbedSession({
+          app: "clips",
+          path: "/inbox",
+        }),
+    );
+
+    expect(mocks.managerCallTool).toHaveBeenCalledWith(
+      "mcp__target__create_embed_session",
+      {
+        url: "https://clips.agent-native.com/inbox",
+        chrome: "full",
+      },
+    );
+    expect(result).toMatchObject({
+      app: "clips",
+      startUrl:
+        "https://clips.agent-native.com/_agent-native/embed/start?ticket=remote",
+    });
+  });
+
+  it("uses an external agent origin as the home fallback for deep registrations", async () => {
+    vi.stubEnv(
+      "IDENTITY_SSO_APP_REGISTRY_JSON",
+      JSON.stringify([
+        {
+          appId: "custom-agent",
+          clientId: "custom-agent-client",
+          origin: "https://custom.example.com",
+          callbackPath: "/_agent-native/identity/callback",
+          capabilities: ["identity-sso"],
+        },
+      ]),
+    );
+    mocks.discoverAgents.mockResolvedValue([
+      {
+        id: "custom-agent",
+        name: "Custom agent",
+        description: "Deep endpoint",
+        url: "https://custom.example.com/agent/deep-link",
+        color: "#000000",
+      },
+    ]);
+    mocks.managerCallTool.mockResolvedValueOnce({
+      structuredContent: {
+        startUrl:
+          "https://custom.example.com/_agent-native/embed/start?ticket=remote",
+      },
+    });
+
+    const result = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "https://dispatch.agent-native.com",
+      },
+      () =>
+        createWorkspaceSsoEmbedSession({
+          app: "custom-agent",
+          path: "/home",
+        }),
+    );
+
+    expect(mocks.managerCallTool).toHaveBeenCalledWith(
+      "mcp__target__create_embed_session",
+      {
+        url: "https://custom.example.com/home",
+        chrome: "full",
+      },
+    );
+    expect(result.app).toBe("custom-agent");
+  });
+
+  it("excludes path-mounted apps from SSO while retaining canonical apps", async () => {
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+    mocks.discoverAgents.mockResolvedValue([
+      {
+        ...analyticsAgent,
+        url: "https://analytics.agent-native.com",
+      },
+    ]);
+    mocks.managerCallTool.mockResolvedValueOnce({
+      structuredContent: {
+        startUrl:
+          "https://analytics.agent-native.com/_agent-native/embed/start?ticket=remote",
+      },
+    });
+    mocks.listWorkspaceApps.mockResolvedValue([
+      {
+        id: "atlas",
+        name: "Atlas",
+        description: "Workspace app",
+        path: "/atlas",
+        url: "https://agent-workspace.builder.io/atlas",
+        isDispatch: false,
+        audience: "internal",
+        publicPaths: [],
+        protectedPaths: [],
+      },
+    ]);
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "https://dispatch.agent-native.com",
+        },
+        () =>
+          createWorkspaceSsoEmbedSession({
+            app: "atlas",
+            path: "/",
+          }),
+      ),
+    ).rejects.toThrow(/not registered/);
+
+    const result = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "https://dispatch.agent-native.com",
+      },
+      () =>
+        createWorkspaceSsoEmbedSession({
+          app: "analytics",
+          path: "/overview",
+        }),
+    );
+
+    expect(result.app).toBe("analytics");
+    expect(mocks.managerConstructor).toHaveBeenCalled();
+  });
+
   it("allows an exact custom registry entry and rejects an unregistered external app", async () => {
     vi.stubEnv(
       "IDENTITY_SSO_APP_REGISTRY_JSON",
@@ -1206,7 +1683,76 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
       "org-specific-secret",
       {
         expiresIn: "5m",
+        audience: "http://localhost:8086",
         preferGlobalSecret: false,
+      },
+    );
+  });
+
+  it("falls back to the shared A2A secret when the target rejects org signing", async () => {
+    vi.stubEnv("A2A_SECRET", "shared-secret");
+    mocks.getOrgDomain.mockResolvedValue("builder.io");
+    mocks.getOrgA2ASecret.mockResolvedValue("org-specific-secret");
+    mocks.signA2AToken
+      .mockResolvedValueOnce("org-signed-token")
+      .mockResolvedValueOnce("global-signed-token");
+    mocks.managerCallTool
+      .mockRejectedValueOnce(
+        new Error(
+          'MCP server "target" is not connected: HTTP 401 Unauthorized',
+        ),
+      )
+      .mockResolvedValueOnce({
+        structuredContent: {
+          startUrl:
+            "http://localhost:8086/_agent-native/embed/start?ticket=remote",
+        },
+      });
+
+    const result = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        orgId: "org-1",
+        requestOrigin: "http://localhost:8092",
+      },
+      () =>
+        createGrantedDispatchMcpEmbedSession({
+          app: "analytics",
+          path: "/dashboards",
+        }),
+    );
+
+    expect(result).toMatchObject({ app: "analytics" });
+    expect(mocks.managerConstructor).toHaveBeenCalledTimes(2);
+    expect(mocks.managerConstructor).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        servers: {
+          target: expect.objectContaining({
+            headers: { Authorization: "Bearer org-signed-token" },
+          }),
+        },
+      }),
+    );
+    expect(mocks.managerConstructor).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        servers: {
+          target: expect.objectContaining({
+            headers: { Authorization: "Bearer global-signed-token" },
+          }),
+        },
+      }),
+    );
+    expect(mocks.signA2AToken).toHaveBeenNthCalledWith(
+      2,
+      "owner@example.test",
+      "builder.io",
+      undefined,
+      {
+        expiresIn: "5m",
+        audience: "http://localhost:8086",
+        preferGlobalSecret: true,
       },
     );
   });
@@ -1234,6 +1780,7 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
       undefined,
       {
         expiresIn: "5m",
+        audience: "http://localhost:8086",
         preferGlobalSecret: true,
       },
     );
@@ -1262,6 +1809,7 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
       undefined,
       {
         expiresIn: "5m",
+        audience: "http://localhost:8086",
         preferGlobalSecret: true,
       },
     );

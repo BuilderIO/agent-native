@@ -29,7 +29,7 @@ Toda action começa com uma chamada a `defineAction()`. Ela reúne uma descripti
     {
       lines: "12-16",
       label: "Uma implementação",
-      note: "O corpo `run` é a única fonte de verdade. O botão da UI e a ferramenta do agente executam exatamente isso. `getDb()` e `schema` vêm do `server/db/index.ts` do seu app. Veja [Database](/docs/database).",
+      note: "O corpo `run` é a única fonte de verdade. O botão da UI e a ferramenta do agente executam exatamente isso. `getDb()` e `schema` vêm do `server/db/index.ts` do seu app. Veja [Database](/docs/server-database).",
     },
   ]}
 />
@@ -272,5 +272,5 @@ O repositório inclui um helper consultivo, `node scripts/audit-template-actions
 - [**Acesso e Autorização**](/docs/actions-access-control) — `agentTool`, `toolCallable`, `authorize` e o escopo de `ctx`
 - [**Contexto de Execução**](/docs/actions-run-context) — a tabela completa do campo `ctx`
 - [**Outras Superfícies**](/docs/actions-other-surfaces) — UI de chat nativa, CLI, A2A, MCP e actions padrão
-- [**Database**](/docs/database) — `getDb()`/`schema` usados dentro de `run()`
+- [**Database**](/docs/server-database) — `getDb()`/`schema` usados dentro de `run()`
 - [**Dados e sincronização**](/docs/client-data) — chamando essa action a partir da UI

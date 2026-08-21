@@ -9,6 +9,7 @@ const saveOAuthTokens = vi.fn();
 const deleteOAuthTokens = vi.fn();
 const resolveWorkspaceConnectionForApp = vi.fn();
 const resolveSecret = vi.fn();
+const writeWorkspaceFile = vi.fn();
 
 vi.mock("../credentials/index.js", () => ({
   describeCredentialScopeGap,
@@ -34,6 +35,20 @@ vi.mock("../workspace-connections/store.js", async (importOriginal) => ({
 }));
 
 vi.mock("../server/credential-provider.js", () => ({ resolveSecret }));
+
+vi.mock("../server/request-context.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../server/request-context.js")>()),
+  getCredentialContext: () => credentialContext,
+  getRequestOrgId: () => "org-1",
+  getRequestUserEmail: () => "ada@example.com",
+}));
+
+vi.mock("../workspace-files/store.js", () => ({
+  SAVE_TO_FILE_MAX_BYTES: 20 * 1024 * 1024,
+  isScratchWorkspacePath: (filePath: string) => filePath.startsWith("scratch/"),
+  toWorkspaceFileCard: (meta: unknown) => ({ meta }),
+  writeWorkspaceFile,
+}));
 
 const {
   createProviderApiRuntime,
@@ -64,6 +79,8 @@ describe("provider API runtime", () => {
     resolveWorkspaceConnectionForApp.mockReset();
     resolveSecret.mockReset();
     resolveSecret.mockResolvedValue(null);
+    writeWorkspaceFile.mockReset();
+    writeWorkspaceFile.mockResolvedValue({ id: "workspace-file-1" });
     resolveWorkspaceConnectionForApp.mockResolvedValue({
       available: false,
       connection: null,
@@ -116,6 +133,65 @@ describe("provider API runtime", () => {
     expect(catalog.map(({ id }) => id)).toEqual(["slack", "stripe"]);
     expect(catalog.find(({ id }) => id === "slack")?.label).toBe("Acme Slack");
     expect(catalog.find(({ id }) => id === "stripe")?.label).toBe("Stripe");
+  });
+
+  it("reports a Slack send as failed when the body says ok:false, even though the HTTP status is 200", async () => {
+    // Slack's Web API always answers HTTP 200, success or failure — the real
+    // outcome lives in the JSON body's `ok` field (api.slack.com/web#evaluating).
+    // A caller checking only the transport-level `response.ok`, the same
+    // signal every other provider uses for success, must not see this as a
+    // delivered message.
+    resolveCredential.mockImplementation(async (key: string) =>
+      key === "SLACK_BOT_TOKEN" ? "xoxb-test-token" : null,
+    );
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ ok: false, error: "not_in_channel" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const runtime = createProviderApiRuntime({
+      appId: "dispatch",
+      providerIds: ["slack"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    const result = (await runtime.executeRequest({
+      provider: "slack",
+      method: "POST",
+      path: "/chat.postMessage",
+      body: { channel: "D0BPPCV7T0C", text: "summary" },
+    })) as { response: { ok: boolean; status: number } };
+
+    expect(result.response.ok).toBe(false);
+  });
+
+  it("preserves a body-level provider failure when saving the response to a file", async () => {
+    resolveCredential.mockImplementation(async (key: string) =>
+      key === "SLACK_BOT_TOKEN" ? "xoxb-test-token" : null,
+    );
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ ok: false, error: "not_in_channel" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const runtime = createProviderApiRuntime({
+      appId: "dispatch",
+      providerIds: ["slack"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    const result = (await runtime.executeRequest({
+      provider: "slack",
+      method: "POST",
+      path: "/chat.postMessage",
+      body: { channel: "D0BPPCV7T0C", text: "summary" },
+      saveToFile: "scratch/slack-response.json",
+    })) as { ok: boolean; status: number };
+
+    expect(result).toMatchObject({ ok: false, status: 200 });
+    expect(writeWorkspaceFile).toHaveBeenCalledTimes(1);
   });
 
   it("injects Clay's public API key with the official header", async () => {

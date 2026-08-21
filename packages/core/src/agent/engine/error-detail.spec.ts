@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  BUILDER_GATEWAY_INTERNAL_ERROR_CODE,
   classifyProviderError,
   classifyTerminalErrorCode,
   describeErrorWithCauses,
+  isBuilderGatewayInternalErrorMessage,
   isProviderConnectionError,
   isProviderConnectionErrorMessage,
 } from "./error-detail.js";
@@ -120,6 +122,43 @@ describe("isProviderConnectionErrorMessage", () => {
     expect(
       classifyTerminalErrorCode("Bad request (request_id: req_a529b429c)"),
     ).toBe(undefined);
+  });
+
+  // The Builder gateway answers 200, streams nothing, then emits an error frame
+  // whose whole message is its own unhandled-500 envelope. No status, no code,
+  // and no keyword any other predicate here matches, so it persisted as
+  // `unknown`: 14 Analytics turns in one 100-minute window on 2026-08-17, every
+  // one at exactly 1.00 runs/turn, i.e. dead on the first attempt with Builder's
+  // internal correlation id shown to the user.
+  it("names the Builder gateway internal-error envelope", () => {
+    expect(
+      classifyTerminalErrorCode(
+        "Sorry, we ran into an issue processing your request. ERROR ID: bebaeb5da13441539790834b63ff955a",
+      ),
+    ).toBe(BUILDER_GATEWAY_INTERNAL_ERROR_CODE);
+    expect(
+      classifyTerminalErrorCode(
+        "Sorry, this was caused by an internal error. ERROR ID: ee0d523bbb22473387d71fd97da220ea",
+      ),
+    ).toBe(BUILDER_GATEWAY_INTERNAL_ERROR_CODE);
+  });
+
+  it("keeps a more specific upstream classification over the envelope", () => {
+    expect(
+      classifyTerminalErrorCode(
+        "Overloaded. ERROR ID: bebaeb5da13441539790834b63ff955a",
+      ),
+    ).toBe("overloaded_error");
+  });
+
+  it("does not read an ordinary id as the envelope", () => {
+    expect(
+      isBuilderGatewayInternalErrorMessage("Bad request (request id: req_9)"),
+    ).toBe(false);
+    expect(isBuilderGatewayInternalErrorMessage("error id: abc")).toBe(false);
+    expect(classifyTerminalErrorCode("Bad request, no id at all")).toBe(
+      undefined,
+    );
   });
 
   // `streamText` reports most provider HTTP failures as a stream part, not a

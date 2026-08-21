@@ -489,6 +489,8 @@ const messages = {
     importFromGmail: "從 Gmail 匯入",
     signatureHelp:
       "會新增到新草稿中，位於引用的回覆歷史之前。支援 Markdown 連結和圖片。",
+    addSignatureImage: "新增圖片",
+    signatureImageUploadFailed: "簽名圖片上傳失敗",
     writingStyle: "寫作風格",
     writingStylePlaceholder: "簡短、具體、溫暖。避免正式套話。",
     saveDraftingSettings: "儲存草稿設定",

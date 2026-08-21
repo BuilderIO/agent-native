@@ -1,8 +1,11 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import { meetingRowHasContent } from "./meeting-content.js";
 
-const emptyCalendarMeeting = {
+const emptyCalendarHusk = {
   recordingId: null,
   actualStart: null,
   actualEnd: null,
@@ -13,43 +16,54 @@ const emptyCalendarMeeting = {
 };
 
 describe("meetingRowHasContent", () => {
-  it("excludes an untouched calendar row", () => {
-    expect(meetingRowHasContent(emptyCalendarMeeting)).toBe(false);
+  it("hides a bare calendar row nobody has touched", () => {
+    expect(meetingRowHasContent(emptyCalendarHusk)).toBe(false);
     expect(meetingRowHasContent({})).toBe(false);
   });
 
-  it("keeps notes and summaries without a linked recording", () => {
+  // The regression this whole filter exists for: the Meetings list used to
+  // require a linked recording, so desktop live notes disappeared from history.
+  it("keeps notes and summaries that have no linked recording", () => {
     expect(
       meetingRowHasContent({
-        ...emptyCalendarMeeting,
-        userNotesMd: "Discussed the launch plan",
+        ...emptyCalendarHusk,
+        userNotesMd: "we agreed to ship Thursday",
       }),
     ).toBe(true);
     expect(
       meetingRowHasContent({
-        ...emptyCalendarMeeting,
-        summaryMd: "## Decisions\n- Ship Thursday",
+        ...emptyCalendarHusk,
+        summaryMd: "## Key points\n- pricing",
       }),
     ).toBe(true);
   });
 
-  it("keeps completed meetings and structured notes", () => {
+  it("keeps a meeting that was actually held", () => {
     expect(
       meetingRowHasContent({
-        ...emptyCalendarMeeting,
-        actualEnd: "2026-08-14T18:30:00.000Z",
+        ...emptyCalendarHusk,
+        recordingId: "rec_1",
       }),
     ).toBe(true);
     expect(
       meetingRowHasContent({
-        ...emptyCalendarMeeting,
-        bulletsJson: '[{"text":"Ship Thursday"}]',
+        ...emptyCalendarHusk,
+        actualStart: "2026-08-11T18:00:00.000Z",
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps bullets and action items even when prose is empty", () => {
+    expect(
+      meetingRowHasContent({
+        ...emptyCalendarHusk,
+        bulletsJson: '[{"text":"renewal is Q4"}]',
       }),
     ).toBe(true);
     expect(
       meetingRowHasContent({
-        ...emptyCalendarMeeting,
-        actionItemsJson: '[{"text":"Send the deck"}]',
+        ...emptyCalendarHusk,
+        actionItemsJson: '[{"text":"send the deck"}]',
       }),
     ).toBe(true);
   });
@@ -57,10 +71,39 @@ describe("meetingRowHasContent", () => {
   it("treats whitespace-only prose as empty", () => {
     expect(
       meetingRowHasContent({
-        ...emptyCalendarMeeting,
-        summaryMd: "  \n\t",
-        userNotesMd: " ",
+        ...emptyCalendarHusk,
+        summaryMd: "   \n  ",
+        userNotesMd: "\t",
       }),
     ).toBe(false);
+  });
+});
+
+describe("SQL mirror in list-meetings", () => {
+  const source = readFileSync(
+    resolve(process.cwd(), "actions/list-meetings.ts"),
+    "utf8",
+  );
+
+  // The predicate above and meetingHasContentFilter() are a matched pair. A
+  // column added to one and not the other silently changes which meetings the
+  // history list returns, so pin every column the SQL side must cover.
+  it("covers the same columns as the predicate", () => {
+    const filter = source.slice(
+      source.indexOf("function meetingHasContentFilter()"),
+      source.indexOf("export default defineAction"),
+    );
+    expect(filter).toContain("recordingId");
+    expect(filter).toContain("actualStart");
+    expect(filter).toContain("actualEnd");
+    expect(filter).toContain("summaryMd");
+    expect(filter).toContain("userNotesMd");
+    expect(filter).toContain("bulletsJson");
+    expect(filter).toContain("actionItemsJson");
+  });
+
+  it("trims prose columns so blank-but-not-empty rows match the predicate", () => {
+    expect(source).toContain("trim(${schema.meetings.summaryMd}) <> ''");
+    expect(source).toContain("trim(${schema.meetings.userNotesMd}) <> ''");
   });
 });

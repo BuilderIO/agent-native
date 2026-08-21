@@ -324,6 +324,7 @@ async function postRelayJson(
     method: "POST",
     headers: {
       authorization: `Bearer ${config.token}`,
+      "x-agent-native-device-token": config.token,
       "content-type": "application/json",
     },
     body: JSON.stringify(body),

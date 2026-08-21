@@ -21,6 +21,10 @@ export {
   writeCodeAgentModelSelection,
 } from "./CodeAgentsApp.js";
 export { SessionWatchPanel } from "./SessionWatchPanel.js";
+export type {
+  ChatFirstKeyboardNavigation,
+  ChatFirstKeyboardShortcut,
+} from "./keyboard-navigation.js";
 export * from "./composer-primitives.js";
 export * from "./code-agents.js";
 export * from "./types.js";

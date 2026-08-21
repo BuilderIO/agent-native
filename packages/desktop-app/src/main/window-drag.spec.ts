@@ -274,4 +274,23 @@ describe("window drag gesture", () => {
 
     cleanup();
   });
+
+  it("does not remove listeners from a destroyed window during cleanup", () => {
+    const host = createEventTarget();
+    const windowEvents = createEventTarget();
+    const window = {
+      isDestroyed: vi.fn(() => true),
+      on: windowEvents.on,
+      removeListener: windowEvents.removeListener,
+      webContents: host as unknown as WebContents,
+    } as unknown as BrowserWindow;
+
+    const cleanup = installWindowDragController(window, {
+      getCursorScreenPoint: () => ({ x: 0, y: 0 }),
+    });
+
+    expect(() => cleanup()).not.toThrow();
+    expect(windowEvents.removeListener).not.toHaveBeenCalled();
+    expect(host.removeListener).not.toHaveBeenCalled();
+  });
 });

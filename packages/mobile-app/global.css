@@ -1,73 +1,301 @@
 @import "tailwindcss";
 @import "uniwind";
 
-@theme {
-  --color-primary: #d4d4d8;
-  --color-background-dark: #0b0b0c;
-  --color-card-dark: #18181b;
-  --color-border-dark: #27272a;
-  --color-foreground: #fafafa;
+/* Keep native utilities on the same semantic palette as Electron and the web
+   templates. The raw variables change with Uniwind's resolved theme; the
+   aliases below preserve the mobile app's existing class names while the
+   surfaces move onto the shared light/dark contract. */
+@theme inline {
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-sidebar: hsl(var(--sidebar-background));
+  --color-sidebar-foreground: hsl(var(--sidebar-foreground));
+  --color-sidebar-primary: hsl(var(--sidebar-primary));
+  --color-sidebar-primary-foreground: hsl(var(--sidebar-primary-foreground));
+  --color-sidebar-accent: hsl(var(--sidebar-accent));
+  --color-sidebar-accent-foreground: hsl(var(--sidebar-accent-foreground));
+  --color-sidebar-border: hsl(var(--sidebar-border));
+  --color-sidebar-ring: hsl(var(--sidebar-ring));
 
-  --color-accent-green: #9ad6b0;
-  --color-accent-lime-bright: #e4e4e7;
-  --color-accent-blue: #8dd7ff;
-  --color-accent-pink: #f4a7ff;
-  --color-accent-orange: #ffd38d;
-
-  --color-status-gray: #71717a;
-  --color-status-error: #fb7185;
-
-  --color-gray-light: #999999;
-  --color-gray-medium: #666666;
-  --color-gray-dark: #1a1a1a;
-  --color-error: #ef4444;
-
-  --color-text-bright: #fafafa;
-  --color-text-muted: #a1a1aa;
-  --color-text-light: #d4d4d8;
-
-  --color-accent-green-dim: #202820;
-  --color-accent-green-dark: #171c19;
-  --color-accent-green-border: #35453a;
-  --color-accent-green-medium: #233027;
-  --color-accent-green-medium-dark: #242d28;
-  --color-gray-medium-dark: #202020;
-  --color-gray-border-light: #333333;
-  --color-gray-border-dim: rgba(51, 51, 51, 0.4);
-
-  --color-error-bg: #2b1115;
-  --color-error-text: #fda4af;
-  --color-error-border: #5f2029;
-
-  --color-warning-red-bg: #271715;
-  --color-warning-red-border: #63332d;
-
-  --color-warning-yellow-bg: #211805;
-  --color-warning-yellow-border: #5f420d;
-  --color-warning-yellow-text: #f5d999;
-
-  --color-success-bg: #102015;
-  --color-success-border: #14532d;
-  --color-success-text: #bbf7d0;
-
-  --color-background-pure: #111111;
-  --color-gray-charcoal: #27272a;
-  --color-gray-zinc: #52525b;
-  --color-red-danger: #dc2626;
-
-  --color-overlay-dark: rgba(18, 18, 18, 0.72);
-  --color-overlay-border: rgba(255, 255, 255, 0.18);
-  --color-status-recording-bg: rgba(30, 12, 10, 0.88);
-  --color-status-recording-border: rgba(255, 102, 87, 0.5);
-  --color-status-recording-dot: #ff5d4d;
-
-  --color-panel-bg: rgba(8, 8, 8, 0.76);
-  --color-banner-error-bg: rgba(37, 18, 16, 0.96);
-  --color-banner-error-text: #f1b1a9;
-  --color-banner-error-border: #62322c;
-
-  --color-divider-light: rgba(255, 255, 255, 0.14);
-  --color-text-medium-light: #d2d2d2;
-  --color-record-border-outer: rgba(255, 255, 255, 0.2);
+  /* Existing mobile names, now backed by semantic variables. */
+  --color-background-dark: hsl(var(--background));
+  --color-background-pure: hsl(var(--background));
+  --color-card-dark: hsl(var(--card));
+  --color-border-dark: hsl(var(--border));
+  --color-status-gray: hsl(var(--muted-foreground));
+  --color-status-error: hsl(var(--destructive));
+  --color-gray-light: hsl(var(--muted-foreground));
+  --color-gray-medium: hsl(var(--muted-foreground));
+  --color-gray-dark: hsl(var(--secondary));
+  --color-gray-medium-dark: hsl(var(--muted));
+  --color-gray-charcoal: hsl(var(--secondary));
+  --color-gray-zinc: hsl(var(--muted-foreground));
+  --color-gray-border-light: hsl(var(--border));
+  --color-gray-border-medium: hsl(var(--border));
+  --color-gray-border-dark: hsl(var(--border));
+  --color-gray-border-dim: hsl(var(--border) / 0.4);
+  --color-border-dim: hsl(var(--border) / 0.4);
+  --color-divider-light: hsl(var(--theme-contrast) / 0.14);
+  --color-text-bright: hsl(var(--foreground));
+  --color-text-light: hsl(var(--foreground));
+  --color-text-muted: hsl(var(--muted-foreground));
+  --color-text-medium-light: hsl(var(--foreground));
+  --color-accent-neutral: hsl(var(--primary));
+  --color-accent-neutral-bright: hsl(var(--foreground));
+  --color-accent-neutral-dim: hsl(var(--secondary));
+  --color-accent-neutral-dark: hsl(var(--card));
+  --color-accent-neutral-border: hsl(var(--border));
+  --color-accent-neutral-medium: hsl(var(--muted));
+  --color-accent-neutral-medium-dark: hsl(var(--muted));
+  --color-accent-lime-bright: hsl(var(--accent-lime-bright));
+  --color-white: hsl(var(--foreground));
+  /* Keep black as a true overlay/photo color; semantic button surfaces use
+     primary explicitly and their text uses primary-foreground. */
+  --color-black: hsl(0 0% 0%);
   --color-white-pure: #ffffff;
+  --color-zinc-300: hsl(var(--foreground));
+  --color-zinc-400: hsl(var(--muted-foreground));
+  --color-zinc-500: hsl(var(--muted-foreground));
+  --color-zinc-600: hsl(var(--border));
+  --color-zinc-700: hsl(var(--border));
+  --color-zinc-800: hsl(var(--muted));
+  --color-zinc-900: hsl(var(--card));
+  --color-zinc-950: hsl(var(--background));
+
+  /* Stable accents and feedback use semantic aliases so status surfaces stay
+     legible in both modes without changing the product's accent language. */
+  --color-accent-green: hsl(var(--accent-green));
+  --color-accent-blue: hsl(var(--accent-blue));
+  --color-accent-pink: hsl(var(--accent-pink));
+  --color-accent-orange: hsl(var(--accent-orange));
+  --color-accent-green-dim: hsl(var(--accent-green-dim));
+  --color-accent-green-dark: hsl(var(--accent-green-dark));
+  --color-accent-green-border: hsl(var(--accent-green-border));
+  --color-accent-green-medium: hsl(var(--accent-green-medium));
+  --color-accent-green-medium-dark: hsl(var(--accent-green-medium-dark));
+  --color-error: hsl(var(--destructive));
+  --color-error-bg: hsl(var(--error-bg));
+  --color-error-text: hsl(var(--error-text));
+  --color-error-border: hsl(var(--error-border));
+  --color-warning-red-bg: hsl(var(--warning-red-bg));
+  --color-warning-red-border: hsl(var(--warning-red-border));
+  --color-warning-yellow-bg: hsl(var(--warning-yellow-bg));
+  --color-warning-yellow-border: hsl(var(--warning-yellow-border));
+  --color-warning-yellow-text: hsl(var(--warning-yellow-text));
+  --color-success-bg: hsl(var(--success-bg));
+  --color-success-border: hsl(var(--success-border));
+  --color-success-text: hsl(var(--success-text));
+  --color-red-danger: hsl(var(--destructive));
+  --color-overlay-dark: hsl(var(--overlay) / 0.72);
+  --color-overlay-border: hsl(var(--theme-contrast) / 0.18);
+  --color-status-recording-bg: hsl(var(--status-recording-bg) / 0.88);
+  --color-status-recording-border: hsl(var(--status-recording-border) / 0.5);
+  --color-status-recording-dot: hsl(var(--status-recording-dot));
+  --color-panel-bg: hsl(var(--panel) / 0.76);
+  --color-banner-error-bg: hsl(var(--banner-error-bg) / 0.96);
+  --color-banner-error-text: hsl(var(--banner-error-text));
+  --color-banner-error-border: hsl(var(--banner-error-border));
+  --color-record-border-outer: hsl(var(--theme-contrast) / 0.2);
+}
+
+:root {
+  /* Electron/templates' light palette. */
+  --background: 0 0% 100%;
+  --foreground: 0 0% 10%;
+  --card: 0 0% 100%;
+  --card-foreground: 0 0% 10%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 0 0% 10%;
+  --primary: 0 0% 15%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 0 0% 95%;
+  --secondary-foreground: 0 0% 15%;
+  --muted: 0 0% 95%;
+  --muted-foreground: 0 0% 45%;
+  --accent: 0 0% 95%;
+  --accent-foreground: 0 0% 15%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 0 0% 90%;
+  --input: 0 0% 90%;
+  --ring: 0 0% 40%;
+  --sidebar-background: 0 0% 97%;
+  --sidebar-foreground: 0 0% 45%;
+  --sidebar-primary: 0 0% 15%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 0 0% 95%;
+  --sidebar-accent-foreground: 0 0% 15%;
+  --sidebar-border: 0 0% 90%;
+  --sidebar-ring: 0 0% 40%;
+  --theme-contrast: 0 0% 0%;
+  --overlay: 0 0% 0%;
+  --panel: 0 0% 100%;
+
+  --accent-green: 145 39% 55%;
+  --accent-lime-bright: 240 5% 90%;
+  --accent-blue: 200 100% 39%;
+  --accent-pink: 295 100% 65%;
+  --accent-orange: 39 100% 55%;
+  --accent-green-dim: 145 25% 92%;
+  --accent-green-dark: 145 24% 88%;
+  --accent-green-border: 145 22% 65%;
+  --accent-green-medium: 145 24% 82%;
+  --accent-green-medium-dark: 145 24% 78%;
+  --error-bg: 0 80% 96%;
+  --error-text: 0 65% 40%;
+  --error-border: 0 70% 85%;
+  --warning-red-bg: 9 70% 95%;
+  --warning-red-border: 9 55% 78%;
+  --warning-yellow-bg: 45 100% 93%;
+  --warning-yellow-border: 45 80% 70%;
+  --warning-yellow-text: 35 70% 25%;
+  --success-bg: 145 50% 94%;
+  --success-border: 145 50% 65%;
+  --success-text: 145 65% 25%;
+  --status-recording-bg: 10 70% 45%;
+  --status-recording-border: 10 80% 45%;
+  --status-recording-dot: 5 100% 65%;
+  --banner-error-bg: 9 70% 95%;
+  --banner-error-text: 9 55% 35%;
+  --banner-error-border: 9 55% 78%;
+}
+
+/* Declare both adaptive variants so Uniwind can resolve every token on the
+   native runtime and on Expo web. */
+@variant light {
+  --background: 0 0% 100%;
+  --foreground: 0 0% 10%;
+  --card: 0 0% 100%;
+  --card-foreground: 0 0% 10%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 0 0% 10%;
+  --primary: 0 0% 15%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 0 0% 95%;
+  --secondary-foreground: 0 0% 15%;
+  --muted: 0 0% 95%;
+  --muted-foreground: 0 0% 45%;
+  --accent: 0 0% 95%;
+  --accent-foreground: 0 0% 15%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 0 0% 90%;
+  --input: 0 0% 90%;
+  --ring: 0 0% 40%;
+  --sidebar-background: 0 0% 97%;
+  --sidebar-foreground: 0 0% 45%;
+  --sidebar-primary: 0 0% 15%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 0 0% 95%;
+  --sidebar-accent-foreground: 0 0% 15%;
+  --sidebar-border: 0 0% 90%;
+  --sidebar-ring: 0 0% 40%;
+  --theme-contrast: 0 0% 0%;
+  --overlay: 0 0% 0%;
+  --panel: 0 0% 100%;
+  --accent-green: 145 39% 55%;
+  --accent-lime-bright: 240 5% 90%;
+  --accent-blue: 200 100% 39%;
+  --accent-pink: 295 100% 65%;
+  --accent-orange: 39 100% 55%;
+  --accent-green-dim: 145 25% 92%;
+  --accent-green-dark: 145 24% 88%;
+  --accent-green-border: 145 22% 65%;
+  --accent-green-medium: 145 24% 82%;
+  --accent-green-medium-dark: 145 24% 78%;
+  --error-bg: 0 80% 96%;
+  --error-text: 0 65% 40%;
+  --error-border: 0 70% 85%;
+  --warning-red-bg: 9 70% 95%;
+  --warning-red-border: 9 55% 78%;
+  --warning-yellow-bg: 45 100% 93%;
+  --warning-yellow-border: 45 80% 70%;
+  --warning-yellow-text: 35 70% 25%;
+  --success-bg: 145 50% 94%;
+  --success-border: 145 50% 65%;
+  --success-text: 145 65% 25%;
+  --status-recording-bg: 10 70% 45%;
+  --status-recording-border: 10 80% 45%;
+  --status-recording-dot: 5 100% 65%;
+  --banner-error-bg: 9 70% 95%;
+  --banner-error-text: 9 55% 35%;
+  --banner-error-border: 9 55% 78%;
+}
+
+@variant dark {
+  /* Electron/templates' dark palette. */
+  --background: 0 0% 13%;
+  --foreground: 0 0% 90%;
+  --card: 0 0% 15%;
+  --card-foreground: 0 0% 90%;
+  --popover: 0 0% 15%;
+  --popover-foreground: 0 0% 90%;
+  --primary: 0 0% 75%;
+  --primary-foreground: 0 0% 10%;
+  --secondary: 0 0% 18%;
+  --secondary-foreground: 0 0% 90%;
+  --muted: 0 0% 16%;
+  --muted-foreground: 0 0% 60%;
+  --accent: 0 0% 18%;
+  --accent-foreground: 0 0% 90%;
+  --destructive: 0 91% 71%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 0 0% 24%;
+  --input: 0 0% 24%;
+  --ring: 0 0% 60%;
+  --sidebar-background: 0 0% 10%;
+  --sidebar-foreground: 0 0% 60%;
+  --sidebar-primary: 0 0% 75%;
+  --sidebar-primary-foreground: 0 0% 10%;
+  --sidebar-accent: 0 0% 16%;
+  --sidebar-accent-foreground: 0 0% 90%;
+  --sidebar-border: 0 0% 20%;
+  --sidebar-ring: 0 0% 60%;
+  --theme-contrast: 0 0% 100%;
+  --overlay: 0 0% 0%;
+  --panel: 0 0% 8%;
+  --accent-green: 145 39% 72%;
+  --accent-lime-bright: 240 5% 90%;
+  --accent-blue: 200 100% 77%;
+  --accent-pink: 295 100% 82%;
+  --accent-orange: 39 100% 78%;
+  --accent-green-dim: 145 25% 14%;
+  --accent-green-dark: 145 24% 10%;
+  --accent-green-border: 145 22% 24%;
+  --accent-green-medium: 145 24% 17%;
+  --accent-green-medium-dark: 145 24% 14%;
+  --error-bg: 352 47% 12%;
+  --error-text: 352 100% 82%;
+  --error-border: 352 50% 25%;
+  --warning-red-bg: 9 30% 12%;
+  --warning-red-border: 9 38% 28%;
+  --warning-yellow-bg: 42 74% 8%;
+  --warning-yellow-border: 42 75% 21%;
+  --warning-yellow-text: 44 80% 78%;
+  --success-bg: 140 38% 10%;
+  --success-border: 145 62% 20%;
+  --success-text: 140 75% 85%;
+  --status-recording-bg: 10 52% 10%;
+  --status-recording-border: 5 100% 70%;
+  --status-recording-dot: 5 100% 65%;
+  --banner-error-bg: 9 40% 14%;
+  --banner-error-text: 9 70% 80%;
+  --banner-error-border: 9 40% 28%;
 }

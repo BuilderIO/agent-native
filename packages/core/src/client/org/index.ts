@@ -15,6 +15,7 @@ export {
   useSwitchOrg,
   useJoinByDomain,
   useSetOrgDomain,
+  useSetWorkspaceAppDefaultVisibility,
   useSetOrgWorkspaceUrl,
   useRevealA2ASecret,
   useSetA2ASecret,
@@ -33,6 +34,7 @@ export type {
   UseOrgRoleResult,
   AppRoleAssignment,
   AppRolesInfo,
+  WorkspaceAppDefaultVisibility,
 } from "./hooks.js";
 
 // Type-only re-export so templates can annotate the `appRoles` prop without

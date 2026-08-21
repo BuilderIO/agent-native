@@ -96,6 +96,18 @@ its stored name). In table views a Blocks column shows a word count (e.g.
 database view's column menu (not from the page body); deleting the last
 Blocks field warns that it removes the body for every object of the type.
 
+For one-block agent edits, call `list-content-database-blocks` with the exact
+space, database, backing document, membership row, row document, and property
+IDs. Preserve its schema, row, and field revisions. Each returned block names
+the operations its kind supports and carries canonical Notion-flavored Markdown
+(NFM) for that one block. Pass all three revisions to
+`mutate-content-database-block`; its `insert`, `update`, `upsert`, `delete`, and
+`reorder` variants preserve unmentioned fields and sibling blocks. A block
+value must contain exactly one top-level block of the declared kind. Reuse an
+idempotency key only for an exact retry. Unsupported kinds, kind conversion,
+tombstone reuse, cross-parent reorder, schema drift, and stale row or field
+revisions fail explicitly.
+
 Formula properties store their expression in property options and support
 `{Property name}` substitution plus simple numeric math such as `{MSV} * 2`.
 
@@ -236,6 +248,7 @@ Use `create-content-database`, `create-inline-content-database`,
 `duplicate-database-items`, `remove-database-items`, `move-database-item`,
 `update-content-database-view`, `list-document-properties`,
 `configure-document-property`, `set-document-property`,
+`list-content-database-blocks`, `mutate-content-database-block`,
 `duplicate-document-property`, and `delete-document-property`; do not edit
 property rows or view config via raw SQL when an action can do it.
 

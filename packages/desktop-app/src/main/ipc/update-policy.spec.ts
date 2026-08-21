@@ -13,9 +13,10 @@ describe("resolveDesktopUpdateSupport", () => {
     });
   });
 
-  it("allows packaged local builds to update from the production channel", () => {
+  it("disables updates for packaged local builds", () => {
     expect(resolveDesktopUpdateSupport(true, "0.1.150", "dev")).toEqual({
-      supported: true,
+      supported: false,
+      reason: "Auto-update is unavailable for local packaged builds",
     });
   });
 

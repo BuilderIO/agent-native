@@ -17,7 +17,7 @@ Déclarez le flag dans un module que le serveur et le client peuvent tous deux i
 
 ```ts
 // shared/feature-flags.ts
-import { defineFeatureFlag } from "@agent-native/core/feature-flags";
+import { defineFeatureFlag } from "@agent-native/core/feature-flags/registry";
 
 export const FULL_APP_BUILDING = defineFeatureFlag({
   key: "full-app-building",

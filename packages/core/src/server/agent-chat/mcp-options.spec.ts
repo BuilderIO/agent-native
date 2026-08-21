@@ -20,7 +20,9 @@ describe("resolveAgentChatMcpOptions", () => {
     const resolved = resolveAgentChatMcpOptions({
       mcp: {
         enabled: false,
-        catalog: "app",
+        // Not `catalog: "app"` alongside it: the two are mutually exclusive,
+        // and this fixture asserting both passed through is what let the
+        // inert-allow-list combination look supported.
         connectorCatalog: ["list-emails"],
         externalAgents: { writes: "ask_app_only" },
         builtinCrossAppTools: false,
@@ -28,7 +30,6 @@ describe("resolveAgentChatMcpOptions", () => {
       },
     });
     expect(resolved.enabled).toBe(false);
-    expect(resolved.catalog).toBe("app");
     expect(resolved.connectorCatalog).toEqual(["list-emails"]);
     expect(resolved.externalAgents).toEqual({ writes: "ask_app_only" });
     expect(resolved.builtinCrossAppTools).toBe(false);
@@ -84,5 +85,32 @@ describe("resolveAgentChatMcpOptions", () => {
         mcp: { title: "New" },
       }),
     ).toThrow(/mcpServerInfo\.title/);
+  });
+
+  // `catalog: "app"` short-circuits the connector tier in `build-server.ts`, so
+  // an app declaring both served its whole registry to every connector client
+  // while the allow-list sat in the config reading as authoritative.
+  it("throws when an inert connectorCatalog sits next to catalog: app", () => {
+    expect(() =>
+      resolveAgentChatMcpOptions({
+        mcp: { catalog: "app", connectorCatalog: ["list-scouts"] },
+      }),
+    ).toThrow(/connectorCatalog/);
+  });
+
+  it("accepts either one on its own", () => {
+    expect(
+      resolveAgentChatMcpOptions({ mcp: { catalog: "app" } }).connectorCatalog,
+    ).toBeUndefined();
+    expect(
+      resolveAgentChatMcpOptions({ mcp: { connectorCatalog: ["list-scouts"] } })
+        .catalog,
+    ).toBeUndefined();
+    // An empty list is not an allow-list anyone wrote; it must not throw.
+    expect(
+      resolveAgentChatMcpOptions({
+        mcp: { catalog: "app", connectorCatalog: [] },
+      }).catalog,
+    ).toBe("app");
   });
 });

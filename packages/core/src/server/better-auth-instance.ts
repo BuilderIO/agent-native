@@ -66,8 +66,8 @@ import {
 import { flushTracking, identify, track } from "../tracking/index.js";
 import { getAppProductionUrl } from "./app-url.js";
 import {
-  readAnalyticsAnonymousId,
-  signupAttributionFromCookieHeader,
+  signupAttributionContextFromCookieHeader,
+  signupAttributionContextFromHeaders,
 } from "./attribution.js";
 import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
@@ -77,8 +77,15 @@ import {
   renderVerifySignupEmail,
 } from "./email-templates.js";
 import { getEmailReadiness, sendEmail } from "./email.js";
-import { resolveGoogleSignInCredentials } from "./google-oauth-credentials.js";
+import {
+  recordActiveGoogleSignInCredentials,
+  resolveGoogleSignInCredentials,
+} from "./google-oauth-credentials.js";
 import { readMagicLinkSignupAttribution } from "./magic-link-attribution.js";
+import {
+  getRequestContext,
+  hasContinuationLocalRequestContext,
+} from "./request-context.js";
 
 export {
   getAuthLoginMode,
@@ -105,6 +112,21 @@ export async function hasBetterAuthUserEmail(email: string): Promise<boolean> {
     .findUserByEmail(email, { includeAccounts: false })
     .catch(() => null);
   return !!existing?.user?.email;
+}
+
+/** Return whether the canonical user has a verified Google account link. */
+export async function hasGoogleAuthIdentity(
+  email: string,
+): Promise<boolean | undefined> {
+  const adapter = await getBetterAuthInternalAdapter();
+  if (!adapter) return undefined;
+  const existing = await adapter.findUserByEmail(email.trim().toLowerCase(), {
+    includeAccounts: true,
+  });
+  return (
+    existing?.accounts.some((account) => account.providerId === "google") ??
+    false
+  );
 }
 
 export async function trackSignupEvent({
@@ -755,6 +777,57 @@ export function getBetterAuthSync(): BetterAuthInstance | undefined {
   return _auth;
 }
 
+const BETTER_AUTH_MAGIC_LINK_VERIFY_MARKER =
+  "/_agent-native/auth/ba/magic-link/verify";
+const DESKTOP_MAGIC_LINK_CALLBACK_MARKER =
+  "/_agent-native/auth/magic-link/desktop-callback";
+const DESKTOP_MAGIC_LINK_LANDING_MARKER =
+  "/_agent-native/auth/magic-link/desktop-landing";
+
+/**
+ * Email security scanners commonly prefetch ordinary GET links. Better Auth
+ * intentionally consumes a magic-link token on that first GET, so a scanner
+ * can otherwise spend a desktop flow before the user ever clicks it. Keep the
+ * normal web link unchanged and put only desktop flows behind an explicit
+ * confirmation page that hands the original verification URL back after the
+ * user acts.
+ */
+export function desktopMagicLinkLandingUrl(value: string): string | undefined {
+  try {
+    const verificationUrl = new URL(value);
+    const callbackValue = verificationUrl.searchParams.get("callbackURL");
+    if (!callbackValue) return undefined;
+    const callbackUrl = new URL(callbackValue, verificationUrl.origin);
+    if (callbackUrl.origin !== verificationUrl.origin) return undefined;
+    if (!callbackUrl.pathname.endsWith(DESKTOP_MAGIC_LINK_CALLBACK_MARKER)) {
+      return undefined;
+    }
+
+    const verifyMarkerIndex = verificationUrl.pathname.lastIndexOf(
+      BETTER_AUTH_MAGIC_LINK_VERIFY_MARKER,
+    );
+    if (verifyMarkerIndex < 0) return undefined;
+
+    const landingUrl = new URL(verificationUrl.origin);
+    landingUrl.pathname =
+      verificationUrl.pathname.slice(0, verifyMarkerIndex) +
+      DESKTOP_MAGIC_LINK_LANDING_MARKER;
+    for (const key of [
+      "token",
+      "callbackURL",
+      "newUserCallbackURL",
+      "errorCallbackURL",
+    ]) {
+      const queryValue = verificationUrl.searchParams.get(key);
+      if (queryValue) landingUrl.searchParams.set(key, queryValue);
+    }
+    return landingUrl.toString();
+  } catch {
+    // coercion-ok: malformed provider URLs keep the original link unchanged.
+    return undefined;
+  }
+}
+
 /**
  * The subset of Better Auth's internal adapter we use for federated-SSO
  * JIT account linking. Better Auth owns these writes (id + timestamp +
@@ -1159,6 +1232,19 @@ async function createBetterAuthInstance(
   };
 
   const extraScopes = config?.googleScopes ?? [];
+  const configuredGoogleProvider =
+    typeof config?.socialProviders?.google === "function"
+      ? await config.socialProviders.google()
+      : config?.socialProviders?.google;
+  const configuredGoogleCredentials =
+    configuredGoogleProvider &&
+    typeof configuredGoogleProvider.clientId === "string" &&
+    typeof configuredGoogleProvider.clientSecret === "string"
+      ? {
+          clientId: configuredGoogleProvider.clientId,
+          clientSecret: configuredGoogleProvider.clientSecret,
+        }
+      : null;
   const googleCredentials =
     extraScopes.length > 0
       ? process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
@@ -1166,8 +1252,11 @@ async function createBetterAuthInstance(
             clientId: process.env.GOOGLE_CLIENT_ID,
             clientSecret: process.env.GOOGLE_CLIENT_SECRET,
           }
-        : null
-      : resolveGoogleSignInCredentials();
+        : configuredGoogleCredentials
+      : (resolveGoogleSignInCredentials() ?? configuredGoogleCredentials);
+  // Publish the pair actually wired to the provider so the credential
+  // self-check probes what the callback uses, not what it would prefer.
+  recordActiveGoogleSignInCredentials(googleCredentials);
   if (googleCredentials) {
     // When the template requests broader scopes (Gmail, Calendar, etc.)
     // ask for them on the primary sign-in flow so a separate "Connect
@@ -1179,6 +1268,7 @@ async function createBetterAuthInstance(
     const baseScopes = ["openid", "email", "profile"];
     const mergedScopes = Array.from(new Set([...baseScopes, ...extraScopes]));
     socialProviders.google = {
+      ...(configuredGoogleProvider ?? {}),
       clientId: googleCredentials.clientId,
       clientSecret: googleCredentials.clientSecret,
       ...(extraScopes.length > 0
@@ -1216,6 +1306,10 @@ async function createBetterAuthInstance(
     basePath,
     baseURL: appUrl,
     database,
+    // Auth schema relations are intentionally not registered here. Keep the
+    // experimental relational-query path off so a bundled Drizzle adapter
+    // cannot recurse while resolving a session or account join.
+    experimental: { joins: false },
     secret,
     emailAndPassword: {
       enabled: true,
@@ -1369,6 +1463,15 @@ async function createBetterAuthInstance(
                 context?.headers?.get("cookie") ??
                 context?.request?.headers?.get("cookie") ??
                 null;
+              const scopedSignupAttribution =
+                hasContinuationLocalRequestContext()
+                  ? getRequestContext()?.signupAttribution
+                  : undefined;
+              const requestSignupAttribution =
+                signupAttributionContextFromCookieHeader(cookieHeader);
+              const headerSignupAttribution =
+                signupAttributionContextFromHeaders(context?.headers) ??
+                signupAttributionContextFromHeaders(context?.request?.headers);
               const magicLinkAttribution = context?.request?.url?.includes(
                 "newUserCallbackURL",
               )
@@ -1377,11 +1480,16 @@ async function createBetterAuthInstance(
                     getAuthSecret(),
                   )
                 : undefined;
-              attribution = signupAttributionFromCookieHeader(cookieHeader);
-              attribution = magicLinkAttribution?.attribution ?? attribution;
+              attribution =
+                magicLinkAttribution?.attribution ??
+                scopedSignupAttribution?.attribution ??
+                headerSignupAttribution?.attribution ??
+                requestSignupAttribution.attribution;
               anonymousId =
                 magicLinkAttribution?.anonymousId ??
-                readAnalyticsAnonymousId(cookieHeader);
+                scopedSignupAttribution?.anonymousId ??
+                headerSignupAttribution?.anonymousId ??
+                requestSignupAttribution.anonymousId;
             } catch (err) {
               console.error("[auth] failed to derive signup attribution", err);
               attribution = undefined;
@@ -1497,7 +1605,34 @@ async function createBetterAuthInstance(
         storeToken: "hashed",
         rateLimit: { window: 60, max: 5 },
         disableSignUp,
-        sendMagicLink: async ({ email, url }) => {
+        sendMagicLink: async ({ email, url, token }) => {
+          let urlPath: string | undefined;
+          let urlQueryKeys: string[] | undefined;
+          try {
+            const parsedURL = new URL(url);
+            urlPath = parsedURL.pathname;
+            urlQueryKeys = [...parsedURL.searchParams.keys()].sort();
+          } catch {
+            // coercion-ok: diagnostics must never make email delivery fail.
+            // Better Auth owns URL construction; keep diagnostics non-fatal.
+          }
+          if (typeof token === "string") {
+            console.info("[agent-native][magic-link]", {
+              phase: "issued",
+              tokenDigest: crypto
+                .createHash("sha256")
+                .update(token)
+                .digest("hex")
+                .slice(0, 16),
+              expectedStoredIdentifierPrefix: crypto
+                .createHash("sha256")
+                .update(token)
+                .digest("base64url")
+                .slice(0, 16),
+              urlPath,
+              urlQueryKeys,
+            });
+          }
           const appBasePath = (
             process.env.VITE_APP_BASE_PATH ||
             process.env.APP_BASE_PATH ||
@@ -1506,9 +1641,11 @@ async function createBetterAuthInstance(
           const magicLinkUrl = appBasePath
             ? url.replace(/(\/\/[^/]+)(\/)/, `$1${appBasePath}$2`)
             : url;
+          const deliveredMagicLinkUrl =
+            desktopMagicLinkLandingUrl(magicLinkUrl) ?? magicLinkUrl;
           const { subject, html, text, appSender } = renderMagicLinkEmail({
             email,
-            magicLinkUrl,
+            magicLinkUrl: deliveredMagicLinkUrl,
           });
           await sendEmail({ to: email, subject, html, text, appSender });
         },
