@@ -26,6 +26,7 @@ import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import {
   readOAuthCredentialState,
   resolveOAuthCredentialAccess,
+  markOAuthReconnectRequired,
   revokeOAuthCredential,
   saveOAuthCredential,
   type OAuthCredential,
@@ -465,13 +466,22 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
 }
 
 export async function startMcpOAuthAuthorization(
-  options: McpOAuthProviderOptions & { scope?: string },
+  options: McpOAuthProviderOptions & {
+    scope?: string;
+    // Override the protected-resource metadata URL for servers whose metadata
+    // is not at the RFC 9728 default path; the SDK still discovers the resource
+    // and authorization-server endpoints from it live.
+    resourceMetadataUrl?: string;
+  },
 ): Promise<McpOAuthStartResult> {
   checkedRemoteUrl(options.serverUrl, "server");
   const provider = new McpOAuthClientProvider(options);
   const result = await auth(provider, {
     serverUrl: options.serverUrl,
     scope: options.scope,
+    ...(options.resourceMetadataUrl
+      ? { resourceMetadataUrl: new URL(options.resourceMetadataUrl) }
+      : {}),
     fetchFn: guardedOAuthFetch(),
   });
   if (result !== "REDIRECT" || !provider.authorizationRedirect) {
@@ -595,6 +605,24 @@ export async function getMcpOAuthConnectionState(options: {
 }): Promise<OAuthCredentialState<McpOAuthCredentialBundle>> {
   const serverUrl = canonicalServerUrl(options.serverUrl);
   return readOAuthCredentialState<McpOAuthCredentialBundle>(
+    credentialIdentity({ ...options, serverUrl }),
+    {
+      allowLegacy: true,
+      legacyAccountKey: true,
+      validateCredential: (credential) =>
+        serverUrlsMatch(credential.serverUrl, serverUrl),
+    },
+  );
+}
+
+export async function markMcpOAuthReconnectRequired(options: {
+  key: string;
+  scope: "user" | "org";
+  scopeId: string;
+  serverUrl: string;
+}): Promise<boolean> {
+  const serverUrl = canonicalServerUrl(options.serverUrl);
+  return markOAuthReconnectRequired<McpOAuthCredentialBundle>(
     credentialIdentity({ ...options, serverUrl }),
     {
       allowLegacy: true,
