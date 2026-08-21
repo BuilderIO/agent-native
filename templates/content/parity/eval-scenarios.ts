@@ -20,7 +20,7 @@ export const parityEvalScenarios: ParityEvalScenario[] = [
     defaultState: "skipped",
     requiresPrivateCredentials: false,
     prompt:
-      "Create exactly one row in the already-verified fixture Content database. Do not rediscover or alter the target. Use target spaceId fixture_personal_space, databaseId fixture_feedback_database, and documentId fixture_feedback_document; expectedSchemaRevision fixture_schema_revision; title [FIXTURE] preserve explicit properties; idempotencyKey fixture-create-property-preservation-v1. Set property fixture_status_property to status-cannot-verify and property fixture_evidence_property to Baseline fixture preserve-me. No Blocks value was requested. Call add-database-item once with every exact target constraint and both property values, then report its result truthfully.",
+      "Create exactly one row in the already-verified fixture Content database. Do not rediscover or alter the target. Use target spaceId fixture_personal_space, databaseId fixture_feedback_database, and documentId fixture_feedback_document; expectedSchemaRevision fixture_schema_revision; title [FIXTURE] preserve explicit properties; idempotencyKey fixture-create-property-preservation-v1. Set property fixture_status_property to status-cannot-verify and property fixture_evidence_property to Baseline fixture preserve-me. No Blocks value was requested. Call add-database-item once with every exact target constraint and both property entries, then report its result truthfully.",
     successSignals: [
       "Uses add-database-item once for the exact fixture target.",
       "Preserves both explicitly requested writable property values.",

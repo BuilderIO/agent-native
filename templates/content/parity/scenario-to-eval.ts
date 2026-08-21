@@ -32,7 +32,9 @@ function expectedToolScorer(expectedTools: string[]) {
 
 function normalizePropertyValues(input: unknown): Record<string, unknown> {
   if (!input || typeof input !== "object" || Array.isArray(input)) return {};
-  const propertyValues = (input as Record<string, unknown>).propertyValues;
+  const propertyValues =
+    (input as Record<string, unknown>).propertyEntries ??
+    (input as Record<string, unknown>).propertyValues;
   if (!propertyValues) return {};
   if (!Array.isArray(propertyValues)) {
     return typeof propertyValues === "object"
