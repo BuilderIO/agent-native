@@ -41,6 +41,33 @@ export const BACKGROUND_FUNCTION_WALL_MS = 15 * 60_000;
 export const BACKGROUND_FUNCTION_WALL_HEADROOM_MS = 2 * 60_000;
 
 /**
+ * Per-TURN follow budgets the browser applies while reading a background turn.
+ *
+ * They live here, not in `client/agent-chat-adapter.ts`, because they are one
+ * half of an ordering relationship whose other half is server configuration —
+ * and a relationship checked in only one of its two homes is the failure this
+ * module exists to prevent. This file has no runtime imports (the `AppConfig`
+ * import is type-only and erased), so the browser bundle pays nothing to read
+ * them from here.
+ *
+ * CLIENT-ABOVE-SERVER: these MUST stay above the server's own ceilings. The
+ * client fires on a clock and cannot tell looping from working; the server can,
+ * so the server must always terminate a turn first and write a truthful
+ * terminal reason. They shipped at 10 min / 6 runs while ONE legal background
+ * chunk may run 13 minutes — so the client killed healthy turns the server was
+ * still streaming, measured in production as aborts at 11-25 minutes with
+ * progress recorded right up to the abort. That was the top non-auth cause of
+ * "the chat just stopped".
+ *
+ * Do NOT tighten these to catch a stuck turn. A turn that is not progressing is
+ * already caught twice by mechanisms that read progress rather than a clock:
+ * `BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS` and the repeated-terminal-reason
+ * detector.
+ */
+export const MAX_FOLLOWED_BACKGROUND_RUNS = 24;
+export const MAX_BACKGROUND_FOLLOW_WALL_TIME_MS = 95 * 60_000;
+
+/**
  * Ordering relationships between the run-lifecycle bounds.
  *
  * Every one of these was already argued for in a source comment somewhere and
@@ -203,6 +230,38 @@ export function assertRunLifecycleInvariants(agent: AppConfig["agent"]): void {
     },
     "a streak bound above the chain bound can never trip, so a repeating failure runs to the chain limit instead",
   );
+
+  // ── Client-above-server ────────────────────────────────────────────────
+  //
+  // Until this branch these were pinned in `agent-chat-adapter.spec.ts` against
+  // the server's module CONSTANTS. Making those constants configurable moved
+  // the real values out from under that test without moving the test: a
+  // deployment could raise any of them past what the shipped client can follow
+  // and every check still passed. Asserting against the RESOLVED config is what
+  // closes that.
+  require("server chunk budget leaves the client room for more than one chunk", {
+    key: "agent.backgroundSoftTimeoutCeilingMs * 2",
+    value: backgroundSoftTimeoutCeilingMs * 2,
+  }, {
+    key: "MAX_BACKGROUND_FOLLOW_WALL_TIME_MS",
+    value: MAX_BACKGROUND_FOLLOW_WALL_TIME_MS,
+  }, "a whole-turn client budget below two full-length chunks kills a healthy turn mid-stream — the exact inversion that shipped");
+
+  require("server turn ceiling below the client's follow budget", {
+    key: "agent.maxTurnWallClockMs",
+    value: maxTurnWallClockMs,
+  }, {
+    key: "MAX_BACKGROUND_FOLLOW_WALL_TIME_MS",
+    value: MAX_BACKGROUND_FOLLOW_WALL_TIME_MS,
+  }, "the server must end the turn first, because it is the side that can tell progress from a loop and write a truthful terminal reason");
+
+  require("server chain bound below the client's follow-run budget", {
+    key: "agent.maxBackgroundRunContinuations",
+    value: maxBackgroundRunContinuations,
+  }, {
+    key: "MAX_FOLLOWED_BACKGROUND_RUNS",
+    value: MAX_FOLLOWED_BACKGROUND_RUNS,
+  }, "a client that stops following before the server stops chaining leaves the user watching a spinner over a live run");
 
   requireAtMost(
     "turn ceiling above one chunk budget",
