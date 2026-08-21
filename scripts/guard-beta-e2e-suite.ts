@@ -200,8 +200,8 @@ if (workflow) {
       `${workflowPath} no longer passes BETA_E2E_GREP through the advisory lane without failing when no advisory test matches.`,
     );
   }
-  const hasAuthSelectionCommand =
-    /BETA_E2E_AUTHED=0 pnpm e2e:beta[\s\\]+--project=authed --project=journeys[\s\\]+--grep "\$BETA_E2E_GREP" --list/.test(
+  const hasAuthSelectionCommandWithStatus =
+    /BETA_E2E_AUTHED=0 pnpm e2e:beta[\s\\]+--project=authed --project=journeys[\s\\]+--grep "\$BETA_E2E_GREP" --list >"\$selection_file" 2>&1\s+selection_status="\$\?"\s+set -e/.test(
       workflow,
     );
   const selectionStatusCapture = workflow.indexOf('selection_status="$?"');
@@ -214,7 +214,7 @@ if (workflow) {
   );
   const selectionStatusExit = workflow.indexOf('exit "$selection_status"');
   if (
-    !hasAuthSelectionCommand ||
+    !hasAuthSelectionCommandWithStatus ||
     selectionStatusCapture < 0 ||
     selectionStatusCheck < selectionStatusCapture ||
     noTestsMarker < selectionStatusCheck ||
