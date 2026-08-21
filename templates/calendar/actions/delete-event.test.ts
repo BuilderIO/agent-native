@@ -1,16 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const isConnectedMock = vi.hoisted(() => vi.fn());
+const getAuthStatusMock = vi.hoisted(() => vi.fn());
 const getEventMock = vi.hoisted(() => vi.fn());
 const deleteEventMock = vi.hoisted(() => vi.fn());
 const removeEventFromCalendarMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/server", () => ({
+  getRequestOrgId: vi.fn(() => undefined),
   getRequestUserEmail: vi.fn(() => "owner@example.com"),
 }));
 
 vi.mock("../server/lib/google-calendar.js", () => ({
   isConnected: isConnectedMock,
+  getAuthStatus: getAuthStatusMock,
   getEvent: getEventMock,
   deleteEvent: deleteEventMock,
   removeEventFromCalendar: removeEventFromCalendarMock,
@@ -27,6 +30,7 @@ describe("delete-event", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     isConnectedMock.mockResolvedValue(true);
+    getAuthStatusMock.mockResolvedValue({ accounts: [] });
     deleteEventMock.mockResolvedValue(undefined);
     removeEventFromCalendarMock.mockResolvedValue(undefined);
   });

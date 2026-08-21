@@ -26,6 +26,7 @@ const { chromium, _electron } = requireFromCore(
 const baseUrl = process.env.CHAT_FIRST_BASE_URL ?? "http://localhost:8080";
 const screenshotDir = process.env.CHAT_FIRST_SCREENSHOT_DIR;
 const electronLane = process.env.CHAT_FIRST_ELECTRON === "1";
+const electronOnly = process.env.CHAT_FIRST_ELECTRON_ONLY === "1";
 const electronDispatchUrl =
   process.env.CHAT_FIRST_ELECTRON_DISPATCH_URL?.trim();
 const colorScheme =
@@ -1336,10 +1337,10 @@ async function runElectronSmoke(): Promise<void> {
 async function main(): Promise<void> {
   const browser = await chromium.launch({ headless: true });
   try {
-    await runSmoke(browser);
-    if (electronLane) await runElectronSmoke();
+    if (!electronOnly) await runSmoke(browser);
+    if (electronLane || electronOnly) await runElectronSmoke();
     console.log(
-      `qa-chat-first-workbench-smoke: clean (${baseUrl}; electron=${electronLane ? "on" : "off"}; screenshots=${screenshotDir ?? "disabled"})`,
+      `qa-chat-first-workbench-smoke: clean (${baseUrl}; electron=${electronLane || electronOnly ? "on" : "off"}; screenshots=${screenshotDir ?? "disabled"})`,
     );
   } finally {
     await browser.close();

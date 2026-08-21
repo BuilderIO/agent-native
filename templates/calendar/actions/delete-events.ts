@@ -10,8 +10,8 @@ import {
   type WeekdayName,
 } from "../server/lib/event-weekday.js";
 import { zonedDateTimeToUtcIso } from "../server/lib/find-time.js";
-import * as googleCalendar from "../server/lib/google-calendar.js";
 import { isGoogleNotFoundError } from "../server/lib/google-api.js";
+import * as googleCalendar from "../server/lib/google-calendar.js";
 import type { CalendarEvent } from "../shared/api.js";
 import {
   cliBoolean,
@@ -37,12 +37,7 @@ const MAX_MATCHED_EVENTS = 200;
  *  firing every delete at once and turning a clean batch into retries. */
 const DELETE_CONCURRENCY = 4;
 
-type Outcome =
-  | "deleted"
-  | "already_absent"
-  | "matched"
-  | "skipped"
-  | "failed";
+type Outcome = "deleted" | "already_absent" | "matched" | "skipped" | "failed";
 
 interface EventResult {
   id: string;

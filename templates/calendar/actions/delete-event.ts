@@ -5,6 +5,7 @@ import {
   normalizeGuestNotificationMessage,
   sendEventGuestNotificationNote,
 } from "../server/lib/event-guest-notifications.js";
+import { isGoogleNotFoundError } from "../server/lib/google-api.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
 import {
   cliBoolean,
@@ -12,7 +13,6 @@ import {
   requireActionUserEmail,
   resolveOwnedAccountEmail,
 } from "./event-action-helpers.js";
-import { isGoogleNotFoundError } from "../server/lib/google-api.js";
 
 export default defineAction({
   description:

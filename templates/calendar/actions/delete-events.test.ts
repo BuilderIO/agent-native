@@ -251,7 +251,7 @@ describe("delete-events", () => {
     ]);
   });
 
-    it("reports per-event failures instead of rounding them up to success", async () => {
+  it("reports per-event failures instead of rounding them up to success", async () => {
     listGoogleEventsMock.mockResolvedValue({
       events: [
         googleEvent({ id: "ok", start: "2026-04-11T18:00:00.000Z" }),
@@ -286,9 +286,7 @@ describe("delete-events", () => {
 
   it("reports an already-absent Google event without retrying it as a failure", async () => {
     listGoogleEventsMock.mockResolvedValue({
-      events: [
-        googleEvent({ id: "gone", start: "2026-04-12T18:00:00.000Z" }),
-      ],
+      events: [googleEvent({ id: "gone", start: "2026-04-12T18:00:00.000Z" })],
       errors: [],
     });
     deleteEventMock.mockRejectedValue(
