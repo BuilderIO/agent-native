@@ -107,6 +107,10 @@ describe("MCP embed headers", () => {
   });
 
   it("only allows explicitly configured or exact native origins to read credentialed responses", () => {
+    // Pinned: a localhost origin is credentialed in development by design, so
+    // asserting the deployed boundary means naming the environment rather than
+    // inheriting whatever NODE_ENV the machine running the suite carries.
+    vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("CORS_ALLOWED_ORIGINS", "https://preview.example.com");
     expect(shouldAllowMcpEmbedCredentials("https://preview.example.com")).toBe(
       true,
@@ -124,6 +128,7 @@ describe("MCP embed headers", () => {
   });
 
   it("does not allow builder or local fallback origins to read credentialed responses", () => {
+    vi.stubEnv("NODE_ENV", "production");
     expect(shouldAllowMcpEmbedCredentials("https://builder.io")).toBe(false);
     expect(shouldAllowMcpEmbedCredentials("https://workspace.builder.io")).toBe(
       false,
