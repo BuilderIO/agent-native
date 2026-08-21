@@ -1,408 +1,111 @@
 ---
 title: "¿Qué es Agent-Native?"
-description: "Por qué la mayoría de las aplicaciones de IA se sienten a medias, qué hace que una aplicación sea verdaderamente agent-native, y cómo es tu experiencia diaria como resultado."
+description: "Qué es Agent-Native, cómo funciona su arquitectura de acciones compartidas y cuándo crear una aplicación de esta forma."
 ---
 
 # ¿Qué es Agent-Native?
 
-Agent-native es una forma de construir software donde el agente de IA y la superficie del producto que lo rodea son **socios iguales**. El camino habitual comienza con chat, añade acciones tipadas, renderiza resultados estructurados en línea, y crece hasta convertirse en páginas de aplicación duraderas sobre el mismo estado SQL. Lo importante es que los agentes y los humanos comparten las mismas acciones, base de datos y estado.
-
-Si solo recuerdas una cosa de esta página, recuerda esto: la mayoría de las aplicaciones de IA hoy en día se quedan un paso cortas de ser útiles, y esa brecha es el mayor error del sector ahora mismo.
-
-## Cómo se ve como usuario {#what-it-looks-like}
-
-Imagina un trabajador en segundo plano, una bandeja de entrada, un calendario, un generador de formularios o un panel de análisis. A menudo la primera pantalla es el chat: preguntas lo que quieres, el agente guía la configuración, muestra una tabla o gráfico, y abre la vista correcta de la aplicación. A veces el chat está anclado a la derecha de una aplicación completa. A veces no hay ninguna pantalla personalizada todavía porque el flujo de trabajo es un trabajo programado, una cola, un script o una integración de agente externo. En todas esas formas, puedes:
-
-- **Empezar con la operación real.** Una acción duradera puede ejecutarse desde la CLI, HTTP, MCP, A2A, el bucle agente-aplicación, y posteriormente una interfaz de usuario.
-- **Hacer clic en cualquier cosa que harías normalmente cuando hay una interfaz.** Todos los botones, listas, paneles, atajos de teclado — todos llaman a las mismas operaciones que el agente puede llamar.
-- **O simplemente pregunta.** Escribe "responde al correo de Sara diciendo que llegaré a las 3" en el agente. Abre el hilo correcto, redacta la respuesta y te la muestra para tu aprobación — exactamente como si lo hubieras hecho a mano.
-- **Ver lo que ve.** Abre un correo, y el agente sabe cuál es. Selecciona un gráfico, y el agente sabe qué gráfico es. Resalta un párrafo y pulsa Cmd+I, y el agente actúa solo sobre ese párrafo.
-- **Observarlo trabajar.** A medida que el agente hace cosas — abre vistas, edita borradores, ejecuta informes — la interfaz se actualiza en tiempo real. Puedes detenerlo, redirigirlo o tomar el control con el ratón en cualquier momento.
-- **Dirigirlo como a un compañero de equipo.** Da retroalimentación, encola otra tarea, edita sus instrucciones y audita lo que hizo ayer.
-
-Esa es la experiencia para la que está diseñado agent-native. Ahora veamos por qué la mayoría de los productos no llegan ahí.
-
-## Por qué la mayoría de las "aplicaciones de IA" se quedan cortas (El Principio de la Escalera) {#the-ladder}
-
-Hay una progresión que la mayoría de los equipos escalan, como una escalera, y la mayoría se detiene un peldaño demasiado pronto.
-
-### Peldaño 1 — una única llamada LLM (el antipatrón) {#rung-one}
-
-Un cuadro de texto envía un prompt, la IA devuelve una cadena de texto, y la muestras. Quizás con un indicador de carga. No hay forma de que el usuario corrija el rumbo, no hay forma de que la IA tome acción, no hay forma de ver qué pasó ni por qué.
-
-Esto se ve en todas partes: "funcionalidades de IA" que son básicamente un botón "Resumir" añadido a un producto SaaS. Parecen impresionantes en demos y se rompen en el momento en que la realidad se complica. Eso no es un producto; es un juguete.
-
-### Peldaño 2 — un chat con herramientas {#rung-two}
-
-Ahora la IA puede _hacer cosas_. Tiene herramientas — "redactar correo," "buscar contactos," "ejecutar consulta" — y una interfaz de chat donde trabaja frente a ti, mostrando llamadas a herramientas y resultados a medida que avanza. Así es como lucen Claude, ChatGPT y Cursor por dentro.
-
-Esto es un paso adelante real. Pero por sí solo, sigue siendo solo una ventana de chat. No hay una interfaz de usuario propia. Sin paneles, sin listas, sin formularios, sin atajos de teclado, sin colaboración en equipo. Si la IA se confunde, estás atascado reescribiendo en lugar de simplemente hacer clic en el botón correcto. Los no desarrolladores tienen dificultades para hacer trabajo real en este formato.
-
-### Peldaño 3 — agente + interfaz de usuario como socios iguales {#rung-three}
-
-Esto es agent-native. Añades una aplicación real y completa alrededor del agente — y, de manera crucial, cada acción que el agente puede tomar es también un botón en la interfaz, y cada botón que el usuario hace clic ejecuta la misma lógica que usa el agente. Una implementación, dos formas de acceso.
-
-Tres cosas cambian cuando llegas al peldaño 3:
-
-- **Dejaste de añadir botones a un chatbot. Añadiste un agente a una aplicación.** Eso es un producto de calidad mucho más alta en ambos lados.
-- **El agente tiene contexto real.** Ve lo que estás mirando, lo que has seleccionado, lo que acabas de hacer. Escribe en la misma base de datos que lee la interfaz, así que su trabajo aparece de inmediato.
-- **Los agentes externos también pueden usarlo.** Otras aplicaciones agent-native pueden llamar a las acciones de esta a través del [protocolo A2A](/docs/a2a-protocol). Claude Code, Codex, aplicaciones MCP personalizadas de ChatGPT, Cursor y otros hosts MCP pueden controlarlo como un [servidor MCP](/docs/mcp-protocol). Una aplicación, múltiples puntos de entrada.
-
-Ese es el peldaño 3. Eso es agent-native.
-
-<Diagram id="doc-block-19ku4da" title="El Principio de la Escalera" summary={"La mayoría de los equipos se detienen en el peldaño 1 o 2. Agent-native es el peldaño 3 — una aplicación real y un agente real sobre una única superficie de acción compartida."}>
-
-```html
-<div class="diagram-ladder">
-  <div class="diagram-card rung rung-3">
-    <span class="diagram-pill accent">Peldaño 3 · agent-native</span
-    ><strong>Agente + interfaz de usuario como socios iguales</strong
-    ><small class="diagram-muted"
-      >Una superficie de acción. Cada herramienta del agente es también un
-      botón; cada botón ejecuta la misma lógica que usa el agente.</small
-    >
-  </div>
-  <div class="diagram-card rung rung-2">
-    <span class="diagram-pill">Peldaño 2</span
-    ><strong>Un chat con herramientas</strong
-    ><small class="diagram-muted"
-      >El agente puede actuar — pero sigue siendo solo una ventana de chat. Sin
-      paneles, listas ni atajos.</small
-    >
-  </div>
-  <div class="diagram-card rung rung-1">
-    <span class="diagram-pill warn">Peldaño 1</span
-    ><strong>Una única llamada LLM</strong
-    ><small class="diagram-muted"
-      >Prompt de entrada, texto de salida. Impresionante en una demo; se rompe
-      en el momento en que la realidad se complica.</small
-    >
-  </div>
-</div>
-```
-
-```css
-.diagram-ladder {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-.diagram-ladder .rung {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 16px 18px;
-}
-.diagram-ladder .rung-2 {
-  margin-inline-end: 48px;
-}
-.diagram-ladder .rung-1 {
-  margin-inline-end: 96px;
-}
-```
-
-</Diagram>
-
-Consulta [Conceptos Clave — Protocolos](/docs/key-concepts#protocols) para ver cómo todo esto depende de la misma definición de acción.
-
-## Por qué cada agente necesita una interfaz de usuario {#why-every-agent-needs-a-ui}
-
-Incluso cuando el agente hace todo el trabajo pesado, los humanos todavía necesitan:
-
-- **Ver lo que está haciendo** — progreso, salida intermedia, lo que tocó
-- **Dirigirlo** — dar retroalimentación, interrumpirlo, encolar la siguiente tarea
-- **Gestionarlo** — editar sus instrucciones, habilidades, memoria, trabajos programados, cuentas conectadas
-- **Inspeccionar su trabajo** — revisar borradores, auditar el historial, revertir errores
-- **Compartir su salida** — paneles, informes, formularios, enlaces para enviar a compañeros de equipo
-
-Como mínimo, "una interfaz para el agente" es un panel de observabilidad y gestión. Como máximo, es una aplicación SaaS completa con el agente integrado como copiloto. Ambos extremos cuentan como agent-native, y la superficie puede crecer desde uno sin necesidad de reescritura.
-
-No tienes que elegir cada superficie desde el principio. El agente puede comenzar en chat enriquecido, renderizar interfaz de usuario nativa en línea, vivir dentro de una aplicación completa, o ejecutarse desde automatización y canales de agentes externos alrededor de la misma superficie de acción — consulta [Superficies de Agente](/docs/agent-surfaces) para conocer las formas concretas y las APIs.
-
-## Por qué cada aplicación se beneficia de un agente {#why-every-app-benefits-from-an-agent}
-
-El reverso es igual de importante. Los productos SaaS existentes siguen chocando contra el mismo muro: el 80% de lo que necesitas funciona muy bien, y el 20% simplemente no puedes cambiar. Añadir una barra lateral de chat rara vez lo soluciona — el chat normalmente no puede realmente _hacer_ las cosas que puede la interfaz de usuario.
-
-Agent-native invierte eso. Porque cada acción en la aplicación se define una vez y se expone tanto como un botón como como una herramienta del agente, el agente puede hacer todo lo que pueden los botones — y más — sin un "mundo de IA" separado que mantener. El lenguaje natural se convierte en una entrada de primera clase junto con los clics.
-
-El argumento no es "los agentes reemplazan la interfaz de usuario." Es "**los agentes pertenecen dentro de las aplicaciones, con una interfaz de usuario encima, como socios iguales**." Incluso una aplicación con prioridad en la automatización todavía necesita alguna superficie para que los humanos supervisen, configuren y la dirijan — normalmente chat, un historial de trabajos o una pequeña página de estado. Consulta [Superficies de Agente — Aplicación con prioridad en automatización](/docs/agent-surfaces#headless).
-
-## Paridad Agente + Interfaz de Usuario {#agent-ui-parity}
-
-Este es el principio definitorio.
-
-- **Desde la interfaz de usuario** — hacer clic en botones, rellenar formularios, navegar por vistas. La interfaz escribe en la base de datos; el agente ve los resultados.
-- **Desde el agente** — lenguaje natural, otros agentes vía A2A, Slack, Telegram. El agente escribe en la base de datos; la interfaz se actualiza automáticamente.
-
-Un buen modelo mental es una máquina de estado compartida. La superficie de usuario y la superficie del agente ambas envían acciones tipadas; esas acciones se comportan como eventos de reductor con un esquema y un límite de permisos alrededor de ellas: validan la entrada, autorizan al actor, aplican la actualización de estado, y luego transmiten/renderizan el resultado. La interfaz de usuario es principalmente una proyección de ese estado resultante. El agente no está adivinando desde el DOM ni mutando directamente el estado privado de los componentes; interactúa a través de la misma capa de acción tipada que usa la interfaz.
-
-<Diagram id="doc-block-1n18itc" title="Máquina de estado compartida" summary={"El usuario y el agente ambos envían acciones tipadas. Las acciones validan, autorizan, aplican la actualización de estado respaldada por SQL, luego transmiten/renderizan el nuevo estado."}>
-
-```html
-<div class="diagram-machine">
-  <div class="diagram-card surface user" data-rough>
-    <span class="diagram-pill">Superficie de usuario</span>
-    <div class="diagram-node diagram-accent">
-      Abrir pestaña Diseño<br /><small class="diagram-muted"
-        >navigate.panel</small
-      >
-    </div>
-    <div class="diagram-node">
-      Añadir bloque de texto<br /><small class="diagram-muted"
-        >plan.addBlock</small
-      >
-    </div>
-    <div class="diagram-node">
-      Eliminar resumen<br /><small class="diagram-muted"
-        >plan.removeBlock</small
-      >
-    </div>
-  </div>
-  <div class="core">
-    <div class="lane-row">
-      <span class="diagram-pill">intención -&gt; acción</span
-      ><span class="diagram-pill">acción &lt;- intención</span>
-    </div>
-    <div class="diagram-panel action" data-rough>
-      <span class="diagram-pill accent">Acción tipada</span
-      ><strong>navigate</strong
-      ><small class="diagram-muted"
-        >actor: usuario o agente &middot; entrada: panel = Design</small
-      >
-      <div class="steps">
-        <span class="diagram-pill">validar</span
-        ><span class="diagram-pill">autorizar</span
-        ><span class="diagram-pill">aplicar actualización</span>
-      </div>
-    </div>
-    <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
-    <div class="diagram-panel state" data-rough>
-      <span class="diagram-pill ok">Estado compartido</span
-      ><strong>SQL + estado de la aplicación</strong
-      ><code>{ panel: "Design", lastActor: "user" }</code
-      ><small class="diagram-muted"
-        >transmitido mediante sincronización en vivo</small
-      >
-    </div>
-    <div class="lane-row bottom">
-      <span class="diagram-pill ok">estado -&gt; interfaz</span
-      ><span class="diagram-pill ok">contexto -&gt; agente</span>
-    </div>
-  </div>
-  <div class="diagram-card surface agent" data-rough>
-    <span class="diagram-pill">Superficie del agente</span>
-    <div class="diagram-node">
-      Añadir bloque de diagrama<br /><small class="diagram-muted"
-        >plan.addBlock</small
-      >
-    </div>
-    <div class="diagram-node">
-      Eliminar bloque obsoleto<br /><small class="diagram-muted"
-        >plan.removeBlock</small
-      >
-    </div>
-    <div class="diagram-node diagram-accent">
-      Enfocar vista de revisión<br /><small class="diagram-muted"
-        >navigate.review</small
-      >
-    </div>
-  </div>
-</div>
-```
-
-```css
-.diagram-machine {
-  display: grid;
-  grid-template-columns: minmax(150px, 1fr) minmax(300px, 1.45fr) minmax(
-      150px,
-      1fr
-    );
-  gap: 12px;
-  align-items: stretch;
-}
-.diagram-machine .surface {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 14px;
-}
-.diagram-machine .surface .diagram-pill {
-  align-self: flex-start;
-}
-.diagram-machine .diagram-node {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 10px 12px;
-}
-.diagram-machine .core {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 8px;
-  min-width: 0;
-}
-.diagram-machine .lane-row {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.diagram-machine .lane-row.bottom {
-  justify-content: center;
-}
-.diagram-machine .diagram-arrow {
-  font-size: 22px;
-  line-height: 1;
-  text-align: center;
-}
-.diagram-machine .diagram-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-width: 0;
-  padding: 14px;
-}
-.diagram-machine .steps {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-.diagram-machine code {
-  align-self: flex-start;
-  max-width: 100%;
-  white-space: normal;
-}
-@media (max-width: 760px) {
-  .diagram-machine {
-    grid-template-columns: 1fr;
-  }
-  .diagram-machine .lane-row {
-    justify-content: flex-start;
-  }
-  .diagram-machine .lane-row.bottom {
-    justify-content: flex-start;
-  }
-}
-```
-
-</Diagram>
-
-Cuando el agente crea un borrador de correo, aparece en la interfaz. Cuando haces clic en "Enviar," el agente sabe que fue enviado. No hay un "mundo del agente" y un "mundo de la interfaz" separados — es un único sistema. Consulta [Conceptos Clave](/docs/key-concepts) para conocer la arquitectura que hace que esto funcione.
-
-## Personalización normalmente reservada para herramientas avanzadas {#workspace-customization}
-
-La razón por la que herramientas como Claude Code se sienten tan potentes no es el modelo — es la **capa de personalización**: instrucciones por proyecto, habilidades, memoria, sub-agentes, servicios conectados. Puedes moldear el agente a tu base de código, tus preferencias, tu equipo.
-
-Agent-native le da a cada usuario esa misma capa de personalización — sin salir nunca de la aplicación. Cada aplicación viene con **recursos de agente** personales que tú (o cualquier persona de tu equipo) puedes usar para:
-
-- Editar reglas de equipo que lee el agente de todos
-- Dejar que el agente recuerde preferencias automáticamente a medida que lo corriges
-- Escribir guías prácticas reutilizables como comandos `/slash`
-- Mantener sub-agentes personalizados para tareas específicas (invocados con `@mentions`)
-- Programar trabajos para que se ejecuten en un cron (p. ej. "cada lunes por la mañana, resume la semana pasada")
-- Conectar servicios externos (Gmail, Stripe, Slack, APIs internas) mediante servidores MCP por usuario
-
-El giro: todo se almacena en la base de datos, no en el sistema de archivos. No hay entorno de desarrollo que poner en marcha, no hay contenedor por usuario. Cada usuario obtiene su propio conjunto completo de recursos de agente — memoria personal, conexiones personales, habilidades personales — por esencialmente nada, porque todo son filas en una tabla. Eso es lo que hace viable la flexibilidad al nivel de Claude Code dentro de un producto SaaS multitenant real.
-
-Consulta [Recursos de Agente](/docs/agent-resources) para el concepto completo.
-
-## Qué lo hace diferente {#what-makes-it-different}
-
-| Enfoque                                       | Descripción                                                                                                                                                    |
-| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Aplicaciones tradicionales con IA añadida** | La IA es una ocurrencia tardía. Limitada a autocompletado, resúmenes o una barra lateral de chat que realmente no puede hacer nada en la aplicación.           |
-| **Interfaces puramente de chat / agente**     | Potentes pero inaccesibles. Sin paneles, sin flujos de trabajo, sin persistencia. Los no desarrolladores no pueden usarlas de manera efectiva.                 |
-| **Claude Code / Codex para SaaS**             | Ideal para desarrolladores en sus propias máquinas. No se traslada a SaaS multitenant — una base de código por usuario en una máquina de desarrollo no escala. |
-| **Aplicaciones agent-native**                 | El agente es un ciudadano de primera clase. Comparte la misma base de datos, el mismo estado, y puede hacer todo lo que puede la interfaz — y viceversa.       |
-
-## Desarrollo de todo el equipo {#whole-team-development}
-
-Agent-native no es solo para desarrolladores. El agente integrado le da a todo el equipo una forma compartida de operar la aplicación, mientras que los cambios en el código fuente siguen siendo parte del flujo de trabajo normal de desarrollo de la aplicación y pueden delegarse a un frame al que se le haya concedido intencionalmente acceso al espacio de trabajo y herramientas de escritura:
-
-- **Los diseñadores** actualizan los datos y flujos de trabajo de la aplicación directamente a través del agente
-- **Los gestores de producto** configuran flujos de trabajo y describen cambios para el equipo de desarrollo
-- **El equipo de QA** prueba la aplicación e informa de lo que está roto a través del agente
-- **Cualquier persona del equipo** contribuye a través del lenguaje natural
-
-La visión: menos traspasos, una persona haciendo el trabajo de un equipo pequeño.
-
-## Comenzar desde una plantilla y personalizar {#fork-and-customize}
-
-Las aplicaciones agent-native siguen un modelo de comenzar desde una aplicación que ya funciona. Empiezas desde una **plantilla** — Calendar, Content, Slides, Analytics, Mail, Clips, Design, Forms, Dispatch — y la haces tuya. Cada una es un producto SaaS completo y funcional, no un andamiaje en blanco:
-
-1. Elige una plantilla en [agent-native.com/templates](/templates)
-2. Muchas plantillas propias están disponibles como aplicaciones alojadas (p. ej. mail.agent-native.com)
-3. Crea tu propia aplicación a partir de la plantilla cuando quieras personalizar — "conecta nuestra cuenta de Stripe," "añade un gráfico de cohortes"
-4. Personaliza el código fuente en tu propio repositorio y flujo de trabajo de desarrollo
-5. Despliega tu aplicación en tu propio dominio — o quédate en agent-native.com
-
-Porque es _tu_ aplicación, no infraestructura compartida, eres propietario de su código fuente y puedes hacerla evolucionar sin cambiar el framework compartido. El agente integrado opera la aplicación desplegada a través de sus acciones y superficie de datos por defecto, y puede modificar el código fuente cuando su frame esté explícitamente habilitado para código. Consulta [Plantillas](/docs/cloneable-saas) para la historia completa.
-
-¿No estás listo para comenzar desde una plantilla completa? También puedes probar agent-native añadiendo una **habilidad** a un agente de programación que ya uses — instala la habilidad Plans con `npx @agent-native/core@latest skills add visual-plan`. Consulta la [Guía de Habilidades](/docs/skills-guide#app-backed-skills).
-
-## Agentes componibles {#composable-agents}
-
-Las aplicaciones agent-native pueden comunicarse entre sí. Desde dentro de la aplicación de correo, puedes etiquetar al agente de análisis para que consulte datos e incluya el resultado en un borrador de correo. Los agentes descubren qué otros agentes están disponibles, se transfieren trabajo entre sí y presentan los resultados en la interfaz en la que ya estás.
-
-Esto está impulsado por [A2A](/docs/a2a-protocol) y [MCP](/docs/mcp-protocol) por debajo — misma definición, múltiples superficies — pero como usuario, todo lo que necesitas saber es "puedo pedirle a cualquiera de mis aplicaciones ayuda con cualquier cosa que cualquiera de ellas pueda hacer."
-
-## ¿Cómo se ve esto en código? {#what-does-it-look-like-in-code}
-
-Si estás construyendo o extendiendo una aplicación agent-native, aquí está el patrón central: cada operación en la aplicación es una **acción** — definida una vez, disponible tanto para el agente como para la interfaz de usuario.
-
-<AnnotatedCode
-  id="doc-block-n4jy5o"
-  title="Una acción, definida una vez"
-  filename="actions/reply-to-email.ts"
-  language="ts"
-  code={
-    'import { defineAction } from "@agent-native/core/action";\nimport { z } from "zod";\n\nimport { getDb, schema } from "../server/db/index.js";\n\nexport default defineAction({\n  description: "Reply to an email thread",\n  schema: z.object({ emailId: z.string(), body: z.string() }),\n  run: async ({ emailId, body }) => {\n    const db = getDb();\n    await db.insert(schema.replies).values({ emailId, body });\n  },\n});'
-  }
-  annotations={[
-    {
-      lines: "7",
-      label: "Superficie de herramienta",
-      note: "La `description` es lo que el agente lee para decidir cuándo llamar a esto como herramienta.",
-    },
-    {
-      lines: "8",
-      label: "Contrato tipado",
-      note: "Un único `schema` de zod valida la entrada de **cada** superficie — agente, interfaz, HTTP, MCP y A2A.",
-    },
-    {
-      lines: "9-12",
-      label: "Una implementación",
-      note: "El cuerpo de `run` es la única fuente de verdad. El botón de la interfaz y la herramienta del agente ejecutan exactamente esto. `getDb()` y `schema` provienen del `server/db/index.ts` de tu aplicación — consulta [Base de Datos](/docs/server-database).",
-    },
-  ]}
+Agent-Native es un framework TypeScript de código abierto para crear aplicaciones
+que sirven tanto a personas como a agentes de IA. Defines la funcionalidad de tu
+aplicación una vez como [acciones](/docs/actions-overview): funciones tipadas que
+tu UI de React llama desde el código y que los agentes usan como herramientas.
+
+## Por qué crear aplicaciones de esta forma
+
+La mayoría de las aplicaciones se diseñan para que una persona trabaje en la UI.
+Incorporar un agente añade otra forma de usar el producto. Para que ambos formen
+un solo producto, deben cumplirse tres condiciones:
+
+- **El agente necesita acceso al producto.** Si recibe un conjunto de herramientas
+  más pequeño e independiente, seguirá estando limitado. Además, tendrás que
+  mantener dos implementaciones que se separan a medida que cambia la aplicación.
+- **Las personas siguen necesitando una UI de aplicación.** El chat funciona bien
+  para delegar trabajo, pero no siempre para consultar información, comparar
+  opciones, revisar cambios o compartir resultados con un equipo.
+- **El trabajo debe poder pasar entre ambos.** Una persona debe poder inspeccionar
+  o cambiar el trabajo del agente, y el agente debe poder continuar desde ahí sin
+  empezar de nuevo.
+
+La arquitectura de Agent-Native se basa en estos requisitos. Las personas pueden
+trabajar directamente mediante la UI o delegar un resultado al agente, y pasar
+de uno a otro sin perder el progreso.
+
+<Video
+  src="https://cdn.builder.io/o/assets%2Fc5b47d20f6a943e485717e5895739988%2Fc88d506c160142ae9b8618616ceedcea%2Fcompressed?apiKey=c5b47d20f6a943e485717e5895739988&token=c88d506c160142ae9b8618616ceedcea&alt=media&optimized=true"
+  alt="Una comparación entre una persona que usa una aplicación directamente y el trabajo mediante un agente de IA en la misma aplicación."
+  align="full"
+  caption="Ve una introducción de cuatro minutos a la arquitectura de Agent-Native."
 />
 
-```tsx
-// En cualquier componente React — la misma acción, llamada desde un botón
-const { mutate } = useActionMutation("reply-to-email");
+## Cómo funciona Agent-Native
 
-<Button onClick={() => mutate({ emailId, body: "Thanks!" })}>
-  Send Reply
-</Button>;
+Una aplicación Agent-Native ofrece a personas y agentes dos formas de trabajar
+con el mismo producto:
+
+- **La UI** ofrece a las personas una forma familiar de explorar, editar, revisar
+  y compartir trabajo.
+- **El agente** se encarga del trabajo que las personas le delegan.
+
+Tres bases compartidas lo hacen posible:
+
+- **Operaciones compartidas.** Las personas las activan desde la UI, mientras que
+  los agentes las llaman directamente. Agent-Native define cada operación una vez
+  como una [acción](/docs/actions-overview).
+- **Los [datos compartidos](/docs/server-database)** contienen el trabajo y la
+  información que la aplicación debe conservar, como registros de clientes,
+  planes de proyecto, conversaciones o informes. La UI y el agente leen y
+  actualizan esos datos.
+- **El [estado compartido de la aplicación](/docs/context-awareness)** describe
+  lo que ocurre ahora, como la página actual, el registro seleccionado o la vista
+  activa. El framework proporciona al agente el estado relevante como contexto,
+  para que sepa en qué está trabajando la persona.
+
+```mermaid
+graph TD
+  UI[UI] --> App[Una aplicación]
+  Agent[Agente] --> App
+  App --- Operations[Operaciones compartidas]
+  App --- Data[Datos compartidos]
+  App --- State[Estado compartido de la aplicación]
 ```
 
-```tsx
-// Y el panel del agente montado en cualquier lugar de tu aplicación
-import { AgentSidebar } from "@agent-native/core/client/agent-chat";
-<AgentSidebar />;
-```
+El agente no hace clic por la UI. Llama a las mismas acciones que la UI, con la
+misma validación, permisos e implementación.
 
-Una acción, muchas superficies: el agente la llama como herramienta, la interfaz la llama como una mutación con tipos seguros, el [chat nativo](/docs/native-chat-ui) puede renderizar resultados explícitos de widgets, los agentes externos llegan a ella a través de [A2A](/docs/a2a-protocol), y los hosts MCP la llaman a través del [servidor MCP](/docs/mcp-protocol) de la aplicación, opcionalmente con recursos de interfaz de usuario de MCP Apps y OAuth MCP remoto estándar gestionado por el framework. Consulta [Acciones](/docs/actions-overview) para la referencia completa.
+Por ejemplo, una persona puede asignar un ticket de soporte desde la UI o pedirle
+al agente que lo haga. Ambas vías ejecutan la misma acción y actualizan el mismo
+ticket. La persona puede inspeccionar o cambiar el resultado en la UI y dejar
+que el agente continúe desde ahí.
 
-## Qué sigue {#whats-next}
+## ¿Cuándo deberías usar Agent-Native?
 
-- [**Primeros pasos**](/docs/getting-started) — empieza con chat, añade una acción, renderiza un resultado nativo y crece hasta convertirse en una página
-- [**Superficies de Agente**](/docs/agent-surfaces) — elige chat, interfaz de usuario nativa en línea, páginas de aplicación completas, sidecar integrado, automatización o acceso de agentes externos
-- [**Conceptos Clave**](/docs/key-concepts) — la arquitectura: SQL, acciones, sincronización por sondeo, conciencia del contexto, portabilidad
-- [**Plantillas**](/docs/cloneable-saas) — plantillas como productos completos que posees
-- [**Recursos de Agente**](/docs/agent-resources) — la capa de personalización por usuario (habilidades, memoria, instrucciones, MCP) respaldada por SQL, no por archivos
-- [**Dispatch**](/docs/dispatch) — el plano de control del espacio de trabajo: bóveda de secretos, bandeja de entrada de Slack/correo, delegación entre aplicaciones
-- [**Extensiones**](/docs/extensions) — mini-aplicaciones en sandbox que el agente crea instantáneamente sin cambios de código
-- [**Agente Integrado**](/docs/drop-in-agent) — monta `<AgentPanel>` en cualquier aplicación React
-- [**Preguntas Frecuentes**](/docs/faq) — respuestas rápidas sobre coste, alojamiento, modelos y plantillas
+Agent-Native es adecuado cuando:
+
+- el agente debe hacer trabajo real en la aplicación, no solo responder preguntas;
+- las personas necesitan una UI para inspeccionar, editar, aprobar o compartir el trabajo;
+- el trabajo debe pasar entre la UI y el agente sin perder progreso ni contexto.
+
+Si solo necesitas una respuesta generada, llama a un modelo directamente. Si el
+flujo de trabajo sigue una secuencia fija y predecible, la lógica de aplicación o
+la automatización habituales son más simples. Usa Agent-Native cuando tanto la
+UI como el agente deban desempeñar un papel continuo en el mismo trabajo.
+
+## Próximos pasos
+
+<Cards>
+
+### [Primeros pasos](/docs/getting-started)
+
+Crea una aplicación y llama a la misma acción desde el agente y la UI.
+
+### [Conceptos clave](/docs/key-concepts)
+
+Aprende cómo encajan las acciones, los datos SQL, el contexto de la aplicación,
+el acceso y la sincronización en tiempo real.
+
+### [Superficies de agente](/docs/agent-surfaces)
+
+Descubre cómo el mismo modelo admite aplicaciones lideradas por una UI, chat,
+automatización u otro agente.
+
+</Cards>

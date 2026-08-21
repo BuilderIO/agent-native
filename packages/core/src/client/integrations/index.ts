@@ -1,4 +1,10 @@
-export { IntegrationsPanel } from "./IntegrationsPanel.js";
+export {
+  IntegrationsPanel,
+  McpIntegrationsLanding,
+  McpIntegrationsSection,
+  type McpIntegrationsLandingProps,
+  type McpIntegrationsSectionProps,
+} from "./IntegrationsPanel.js";
 export {
   IntegrationGrid,
   type IntegrationGridItem,

@@ -426,6 +426,12 @@ const koKR = {
     source: "소스",
     readDocs: "문서 읽기",
     signIn: "로그인",
+    tryTemplateFree: "{{name}} 무료로 사용해 보기",
+    designForFree: "무료로 디자인하기",
+    recordForFree: "무료로 녹화하기",
+    getStarted: "시작하기",
+    freeAndOpenSource: "100% 무료 • 오픈 소스",
+    viewAllApps: "모든 앱 보기",
   },
   templatesPage: {
     title: "귀하가 소유한 오픈 소스 에이전트 기반 앱",
@@ -439,7 +445,7 @@ const koKR = {
       "작성자가 직접 관리하는 독립 앱입니다. 공개 GitHub 저장소에서 설치하거나 호스팅 버전이 있으면 먼저 사용해 보세요.",
     submitCommunityTemplate: "템플릿 제출",
     communityEmpty:
-      "커뮤니티 등록을 받고 있습니다. 명확한 목적의 Agent Native 앱을 공개 저장소에 게시하고 카탈로그에 제출하세요.",
+      "커뮤니티 등록을 받고 있습니다. 명확한 목적의 Agent-Native 앱을 공개 저장소에 게시하고 카탈로그에 제출하세요.",
     publishGuide: "게시 가이드 읽기",
     communityTrust:
       "커뮤니티 템플릿은 타사 코드입니다. 실행하기 전에 저장소, 라이선스, 종속성 및 설치 스크립트를 검토하세요.",

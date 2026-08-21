@@ -425,6 +425,12 @@ const ptBR = {
     source: "Fonte",
     readDocs: "Leia os documentos",
     signIn: "Entrar",
+    tryTemplateFree: "Experimente {{name}} grátis",
+    designForFree: "Crie de graça",
+    recordForFree: "Grave de graça",
+    getStarted: "Começar",
+    freeAndOpenSource: "100% grátis • código aberto",
+    viewAllApps: "Ver todos os apps",
   },
   templatesPage: {
     title: "Aplicativos de código aberto e nativos do agente que você possui",
@@ -438,7 +444,7 @@ const ptBR = {
       "Aplicativos independentes mantidos por seus autores. Instale a partir de um repositório público do GitHub ou experimente uma versão hospedada quando disponível.",
     submitCommunityTemplate: "Enviar seu modelo",
     communityEmpty:
-      "As inscrições da comunidade estão abertas. Publique um aplicativo Agent Native focado em um repositório público e envie-o para o catálogo.",
+      "As inscrições da comunidade estão abertas. Publique um aplicativo Agent-Native focado em um repositório público e envie-o para o catálogo.",
     publishGuide: "Ler o guia de publicação",
     communityTrust:
       "Modelos da comunidade são código de terceiros. Revise o repositório, a licença, as dependências e os scripts de instalação antes de executá-lo.",
