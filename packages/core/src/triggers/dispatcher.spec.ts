@@ -718,10 +718,14 @@ Read the calendar.`,
         ]),
       }),
     );
-    // dispatch_mode is now set via the runner's own pre-claim (insertRun +
-    // claimBackgroundRun) before startRun is even called, not through
-    // startRun's options — see background-automation-runner.spec.ts.
-    expect(startRunMock.mock.calls[0]?.[4]).not.toHaveProperty("dispatchMode");
+    // dispatch_mode reaches the ROW through the runner's own pre-claim
+    // (insertRun + claimBackgroundRun) before startRun is called — see
+    // background-automation-runner.spec.ts. It is ALSO passed to startRun,
+    // which is what puts it on the terminal and boundary analytics events;
+    // without that every triggered run reported itself as `foreground`.
+    expect(startRunMock.mock.calls[0]?.[4]).toMatchObject({
+      dispatchMode: "background",
+    });
   });
 
   it("fails loudly before execution when a requested event MCP tool is unavailable", async () => {

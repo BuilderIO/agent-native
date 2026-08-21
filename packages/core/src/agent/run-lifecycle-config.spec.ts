@@ -41,10 +41,12 @@ import {
   resolveMaxTurnWallClockMs,
   resolveModelStreamNoProgressTimeoutMs,
   resolveRunNoProgressTimeoutMs,
+  resolveRunSoftTimeoutMs,
 } from "./run-manager.js";
 import {
   TURN_RUN_LEDGER_SLACK,
   resolveTurnRunLedgerBudget,
+  turnRunLedgerExhausted,
 } from "./run-store.js";
 
 afterEach(() => {
@@ -102,6 +104,23 @@ describe("run-lifecycle configuration", () => {
     );
   });
 
+  // A deployment lowering the GLOBAL soft timeout used to shrink the chunk
+  // without shrinking the background backstop, so the backstop stopped being
+  // reachable inside the chunk it guards — silently, with nothing asserting it.
+  it("keeps the background backstop inside a chunk shrunk by global configuration", () => {
+    defineAppConfig({ agent: { runSoftTimeoutMs: 20_000 } });
+    const soft = resolveRunSoftTimeoutMs(undefined, {
+      useHostedDefault: true,
+      backgroundFunction: true,
+    });
+    const backstop = resolveRunNoProgressTimeoutMs({
+      softTimeoutMs: soft,
+      backgroundFunction: true,
+    });
+    expect(soft).toBe(20_000);
+    expect(backstop).toBeLessThan(soft);
+  });
+
   it("keeps a per-call override above configuration", () => {
     defineAppConfig({ agent: { backgroundNoProgressTimeoutMs: 300_000 } });
     expect(
@@ -137,6 +156,16 @@ describe("run-lifecycle configuration", () => {
     expect(resolveTurnRunLedgerBudget()).toBeGreaterThan(
       resolveMaxBackgroundRunContinuations(),
     );
+  });
+
+  // Both call sites had `turnRunCount > budget` while the current run's row was
+  // already counted and the successor's row is inserted after the check, so at
+  // equality they allowed one row past the documented ceiling.
+  it("refuses the run that would take the turn past its ceiling, not one after", () => {
+    const budget = resolveTurnRunLedgerBudget();
+    expect(turnRunLedgerExhausted(budget - 1)).toBe(false);
+    expect(turnRunLedgerExhausted(budget)).toBe(true);
+    expect(turnRunLedgerExhausted(budget + 1)).toBe(true);
   });
 
   it("moves the turn-run budget with the configured chain bound", () => {

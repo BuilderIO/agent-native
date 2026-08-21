@@ -251,22 +251,34 @@ export function resolveRunNoProgressTimeoutMs(params: {
   // Per-call override wins, then configuration, then the shipped default —
   // the same ladder `resolveRunSoftTimeoutMs` implements.
   const configured = getAppConfig().agent;
+  // Largest window that can still fire inside the chunk it is guarding. A
+  // backstop at or above the chunk budget is not a loose backstop, it is an
+  // absent one.
+  const budgetCeilingMs = Math.floor(
+    softTimeoutMs * FOREGROUND_NO_PROGRESS_SOFT_TIMEOUT_FRACTION,
+  );
 
   if (backgroundFunction === true) {
+    // The background override exists to RAISE this window, so it is honoured
+    // as given — a caller asking for a longer one is making an explicit choice
+    // and stays bounded by its own hard abort.
     const override =
       explicit(params.backgroundOverrideMs) ?? explicit(params.overrideMs);
     if (override !== undefined) return override;
-    return softTimeoutMs > 0 ? configured.backgroundNoProgressTimeoutMs : 0;
+    if (!(softTimeoutMs > 0)) return 0;
+    // Clamped, unlike before: the background window was returned flat, so a
+    // deployment that lowered the GLOBAL `runSoftTimeoutMs` shrank the chunk
+    // without shrinking the backstop, and the backstop silently stopped being
+    // reachable. Nothing changes at the shipped values —
+    // min(150s, 0.75 x 13min) is still 150s.
+    return Math.min(configured.backgroundNoProgressTimeoutMs, budgetCeilingMs);
   }
 
   const override = explicit(params.overrideMs);
   // Local dev keeps runs unbounded unless a caller explicitly asks otherwise.
   if (!(softTimeoutMs > 0)) return override ?? 0;
 
-  const ceiling = Math.min(
-    configured.runNoProgressTimeoutMs,
-    Math.floor(softTimeoutMs * FOREGROUND_NO_PROGRESS_SOFT_TIMEOUT_FRACTION),
-  );
+  const ceiling = Math.min(configured.runNoProgressTimeoutMs, budgetCeilingMs);
   if (override === undefined) return ceiling;
   return override === 0 ? 0 : Math.min(override, ceiling);
 }
@@ -1759,8 +1771,14 @@ export function startRun(
     overrideMs: options?.noProgressTimeoutMs,
     backgroundOverrideMs: options?.backgroundNoProgressTimeoutMs,
   });
+  // Not armed for a runFn that recovers boundaries in this invocation. That
+  // runFn already races the SAME wall with its own per-round timer, budgeted
+  // against cumulative elapsed time — so this timer fires at the moment the
+  // wrapper has nothing left to continue with, producing a boundary that is
+  // recoverable in name only and burning the tail of the budget on nothing.
+  // One wall, one clock; the caller's hard abort still backstops it.
   const softTimeoutTimer =
-    softTimeoutMs > 0
+    softTimeoutMs > 0 && !recoverChunkBoundaries
       ? setTimeout(() => {
           reachRunBoundary("run_timeout", {
             lastEventType: run.events.at(-1)?.event.type,

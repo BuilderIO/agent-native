@@ -1664,6 +1664,79 @@ describe("chunk-boundary recovery", () => {
     expect(continuationNote).toBeDefined();
   });
 
+  it("names the server bound that ended the turn instead of calling it a cancel", async () => {
+    const turn = new AbortController();
+    const { control } = makeControl(turn.signal);
+    const messages: EngineMessage[] = [
+      { role: "user", content: [{ type: "text", text: "go" }] },
+    ];
+    mockRunAgentLoop.mockImplementation(async (opts: any) => {
+      turn.abort("background_automation_hard_timeout");
+      await waitForAbort(opts.signal);
+      throw Object.assign(new Error("aborted"), { name: "AbortError" });
+    });
+
+    const outcomes: AgentLoopOutcome[] = [];
+    await expect(
+      runAgentLoopDirectWithSoftTimeout(
+        makeOpts(
+          messages,
+          control.chunkSignal,
+          undefined,
+          "thread-hard",
+          outcomes,
+        ),
+        60_000,
+        { backgroundFunction: true },
+        control,
+      ),
+    ).rejects.toThrow();
+
+    // `canceled` here is what made a hard-timed-out automation byte-identical
+    // to a user Stop in `$ai_error`.
+    expect(outcomes.at(-1)).toMatchObject({
+      state: "failed",
+      code: "background_automation_hard_timeout",
+      retryable: false,
+    });
+  });
+
+  it("still reports a cancel when the abort reason came from the client", async () => {
+    const turn = new AbortController();
+    const { control } = makeControl(turn.signal);
+    const messages: EngineMessage[] = [
+      { role: "user", content: [{ type: "text", text: "go" }] },
+    ];
+    mockRunAgentLoop.mockImplementation(async (opts: any) => {
+      // The abort route accepts any /^[a-z0-9_-]{1,64}$/i reason from the
+      // client, so "not `user`" is not a safe test for "not a Stop".
+      turn.abort("stopped_by_reviewer");
+      await waitForAbort(opts.signal);
+      throw Object.assign(new Error("aborted"), { name: "AbortError" });
+    });
+
+    const outcomes: AgentLoopOutcome[] = [];
+    await expect(
+      runAgentLoopDirectWithSoftTimeout(
+        makeOpts(
+          messages,
+          control.chunkSignal,
+          undefined,
+          "thread-client-stop",
+          outcomes,
+        ),
+        60_000,
+        { backgroundFunction: true },
+        control,
+      ),
+    ).rejects.toThrow();
+
+    expect(outcomes.at(-1)).toEqual({
+      state: "canceled",
+      message: "Agent run was aborted.",
+    });
+  });
+
   it("treats a Stop as a Stop even when a chunk control is present", async () => {
     const turn = new AbortController();
     const { control } = makeControl(turn.signal);
@@ -1673,7 +1746,7 @@ describe("chunk-boundary recovery", () => {
     let attempts = 0;
     mockRunAgentLoop.mockImplementation(async (opts: any) => {
       attempts++;
-      turn.abort("user_stop");
+      turn.abort("user");
       await waitForAbort(opts.signal);
       throw Object.assign(new Error("aborted"), { name: "AbortError" });
     });

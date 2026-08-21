@@ -251,6 +251,21 @@ export function resolveTurnRunLedgerBudget(): number {
 }
 
 /**
+ * True when a turn holding `turnRunCount` run rows must not be given another.
+ *
+ * A predicate rather than a number the callers compare themselves, because
+ * both call sites had `turnRunCount > budget` and both were off by one: the
+ * current run's row is already inserted when they check, and the successor's
+ * row is inserted after — so at equality they permitted a row past the
+ * documented ceiling. Two sites, one comparison, no way for them to disagree
+ * about the boundary again. That is the third time in this area that one
+ * number had two spellings.
+ */
+export function turnRunLedgerExhausted(turnRunCount: number): boolean {
+  return turnRunCount >= resolveTurnRunLedgerBudget();
+}
+
+/**
  * Circuit breaker for a DETERMINISTIC dead-on-arrival loop: some request
  * shapes make the worker hang almost immediately every single time (e.g. an
  * un-timed-out provider fetch that blocks the event loop) rather than merely
@@ -1769,10 +1784,7 @@ async function attemptStaleRunRecovery(
   const turnRunCount = Number(
     (countRows?.[0] as { run_count?: unknown } | undefined)?.run_count,
   );
-  if (
-    Number.isFinite(turnRunCount) &&
-    turnRunCount > resolveTurnRunLedgerBudget()
-  ) {
+  if (Number.isFinite(turnRunCount) && turnRunLedgerExhausted(turnRunCount)) {
     return { outcome: "budget_exhausted" };
   }
 

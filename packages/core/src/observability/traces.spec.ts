@@ -318,6 +318,50 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(trace!.userId).toBe("alice@example.com");
   });
 
+  // A throw from inside a `finally` REPLACES what the block was doing, so an
+  // assembly failure in trace finalization would have turned a completed run
+  // into a failed one — instrumentation altering the run it observes.
+  it("does not let a trace-assembly failure change the run's own result", async () => {
+    const loopOpts: any = {
+      engine: { name: "anthropic" },
+      model: "claude-test",
+      systemPrompt: "",
+      tools: [],
+      messages: {
+        // `buildGenerationContent` walks messages; a getter that throws stands
+        // in for any malformed payload it could trip on.
+        get length() {
+          throw new Error("assembly blew up");
+        },
+      },
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    };
+
+    const usage = await instrumentAgentLoop({
+      runAgentLoop: async () => ({
+        inputTokens: 1,
+        outputTokens: 1,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: "claude-test",
+        usageReported: true,
+      }),
+      loopOpts,
+      runId: "run-assembly-throw",
+      threadId: "thread-assembly-throw",
+      userId: "alice@example.com",
+      config: {
+        ...DEFAULT_OBSERVABILITY_CONFIG,
+        enabled: true,
+        capturePrompts: true,
+      },
+    });
+
+    expect(usage).toMatchObject({ model: "claude-test", inputTokens: 1 });
+  });
+
   it("does not count a planned run_timeout boundary as an error", async () => {
     const events: TrackingEvent[] = [];
     registerTrackingProvider({
