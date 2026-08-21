@@ -177,3 +177,57 @@ blocked until Slack file access is reauthenticated or Lautaro's document/source
 is otherwise recovered from an authorized source. Work should first retry that
 read-only retrieval and bind the hosted artifact before choosing whether any
 code change is needed.
+
+## Approved replacement acceptance revision
+
+Alice explicitly approved this material acceptance and risk-policy change on
+2026-08-21 for PR #3350. This revision supersedes the reporter-exact hosted
+replay, exact-head approval-age distinction, and base-drift acceptance
+objections for this merge decision. The earlier story remains above as
+historical context, but it is no longer the governing Land gate for this PR.
+
+Replacement successful-user story:
+
+> PR #3350 is acceptable to integrate when its intended current head is
+> mergeable under the repository's live GitHub policy and every
+> repository-required CI check for that head has passed or reached another
+> repository-permitted terminal state.
+
+Required assertions:
+
+1. The live PR head equals the intended pushed branch head.
+2. Every repository-required CI check for that head is successful or otherwise
+   accepted by the repository's live merge policy.
+3. GitHub reports the PR mergeable and permits a normal, non-admin merge.
+4. The PR title and description accurately describe the current diff and its
+   verification evidence.
+
+Replacement acceptance policy:
+
+- Modality: `automated`
+- Independence: `not-required`
+- Custody: `same-context-allowed`
+- Interface: the live GitHub PR, checks, mergeability state, and normal merge
+  operation for PR #3350
+- Rationale: Alice explicitly accepted current repository mergeability and
+  required CI as sufficient evidence for this PR and discarded the earlier
+  reporter-exact, approval-age, and base-drift gates
+
+Revised frozen five:
+
+- **Outcome:** Integrate PR #3350 once the live repository accepts its current
+  head and required CI.
+- **Shipping surface:** `BuilderIO/agent-native`; Content authenticated document
+  editor for Content users; durable destination is `main`; ordinary integration
+  action is a normal GitHub merge of PR #3350.
+- **Governing architecture:** Unchanged from the original shape; inline NFM/MDX
+  remains authoritative, Content owns registry hydration, and core owns shared
+  Mermaid rendering.
+- **Acceptance story:** `content-mermaid-repository-mergeable-v2`, exactly as
+  frozen in this revision.
+- **Risk strategy:** `system-ready`; production validation after merge remains
+  `false`, with Alice explicitly accepting repository mergeability and required
+  CI as sufficient for this merge decision.
+
+Lifecycle authority is restored for the already-requested direct Land handoff
+at ledger revision `content-mermaid-repository-mergeable-v2-20260821`.
