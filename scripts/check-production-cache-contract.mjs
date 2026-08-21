@@ -99,7 +99,6 @@ async function probe(host) {
       detail: `origin returned ${response.status}; cache policy not asserted`,
     };
   }
-
   const cacheControl = response.headers.get("cache-control");
   if (!cacheControl) {
     return {

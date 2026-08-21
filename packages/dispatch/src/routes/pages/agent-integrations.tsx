@@ -10,7 +10,6 @@ export function meta() {
 
 export default function AgentIntegrationsRoute() {
   const t = useT();
-
   return (
     <DispatchShell
       title="Integrations"

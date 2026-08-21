@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.168.8
+
+### Patch Changes
+
+- 81fa180: Show immediate tooltips for apps and navigation controls in the collapsed chat-first rail.
+
 ## 0.168.7
 
 ### Patch Changes
