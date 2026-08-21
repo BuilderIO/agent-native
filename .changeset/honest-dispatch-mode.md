@@ -17,7 +17,9 @@ indistinguishable from the healthy one in the only view where anyone would have
 looked.
 
 `dispatch_mode` is now absent when the caller did not supply one, so "not
-recorded" and "was foreground" stop being the same value, and the background
+recorded" and "was foreground" stop being the same value; the background
 automation runner passes the `"background"` it already writes onto its own run
-row. Passing it cannot disturb the runner's self-claim: `insertRun` is
+row; and the durable background worker, which reaches the interactive handler's
+`startRun` call site, reports `"background"` instead of inheriting the
+foreground label from a flag that only describes self-chaining. Passing it cannot disturb the runner's self-claim: `insertRun` is
 `ON CONFLICT DO NOTHING`, so `startRun`'s insert is a no-op for a claimed row.

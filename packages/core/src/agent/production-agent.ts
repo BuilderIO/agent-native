@@ -10768,9 +10768,16 @@ export function createProductionAgentHandler(
         // client doesn't supply a turnId.
         turnId: effectiveTurnId,
         waitUntil: getRequestRunContext()?.waitUntil,
-        dispatchMode: foregroundSelfChainEligible
-          ? "foreground-self-chain"
-          : "foreground",
+        // A durable background worker reaches this same call site, so keying
+        // only on the foreground self-chain flag stamped every worker run
+        // `foreground` — the row says `background`, and the analytics said
+        // otherwise. That is the same defect this PR fixes for automations,
+        // one call site over.
+        dispatchMode: isBackgroundWorker
+          ? "background"
+          : foregroundSelfChainEligible
+            ? "foreground-self-chain"
+            : "foreground",
         // Resolved AFTER stored-model/experiment overrides — the same value
         // actually sent to the engine, not the raw client-requested model.
         // No userId here: `ownerEmail` is the only identity known at this
