@@ -102,6 +102,10 @@ export function validateBetaPrebuiltReleaseEnvironment(
     /if \[\[ "\$SOURCE_TEMPLATE" != "clips" \]\]; then([\s\S]*?)\n\s*fi/,
   );
   const nonClipsBlock = nonClipsBlockMatch?.[1] ?? "";
+  const clipsOwnerBlockMatch = betaBuild.match(
+    /if \[\[ "\$SOURCE_TEMPLATE" != "clips" \]\]; then[\s\S]*?\n\s*else([\s\S]*?)\n\s*fi/,
+  );
+  const clipsOwnerBlock = clipsOwnerBlockMatch?.[1] ?? "";
   const releaseExports = [
     "export AGENT_NATIVE_RELEASE_MIGRATIONS=1",
     "export AGENT_NATIVE_RUN_RELEASE_MIGRATIONS=1",
@@ -124,9 +128,12 @@ export function validateBetaPrebuiltReleaseEnvironment(
       `${file}: beta build must scope release migration exports to a non-Clips template block`,
     );
   }
-  if (!betaBuild.includes(BETA_SCHEMA_OWNER_EXPORT)) {
+  if (
+    !clipsOwnerBlockMatch ||
+    !clipsOwnerBlock.includes(BETA_SCHEMA_OWNER_EXPORT)
+  ) {
     issues.push(
-      `${file}: Clips beta build must export AGENT_NATIVE_BETA_SCHEMA_OWNER=production inside its beta-only build block`,
+      `${file}: Clips beta build must export AGENT_NATIVE_BETA_SCHEMA_OWNER=production only in the Clips branch of its beta-only build block`,
     );
   }
   for (const entry of releaseExports) {
@@ -145,6 +152,14 @@ export function validateBetaPrebuiltReleaseEnvironment(
         `${file}: ${entry.replace(/^export /, "")} must not be exported for Clips beta builds`,
       );
     }
+  }
+  const betaOutsideClipsOwnerBlock = clipsOwnerBlockMatch
+    ? betaBuild.replace(clipsOwnerBlockMatch[0], "")
+    : betaBuild;
+  if (betaOutsideClipsOwnerBlock.includes(BETA_SCHEMA_OWNER_EXPORT)) {
+    issues.push(
+      `${file}: AGENT_NATIVE_BETA_SCHEMA_OWNER=production must not be exported outside the Clips branch of the beta-only build block`,
+    );
   }
   return issues;
 }

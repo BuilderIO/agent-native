@@ -125,6 +125,15 @@ if [[ "$SOURCE_TEMPLATE" == "clips" ]]; then`;
     );
     assert.notDeepEqual(
       validateBetaPrebuiltReleaseEnvironment(
+        source.replace(
+          "else\n    export AGENT_NATIVE_BETA_SCHEMA_OWNER=production\n  fi",
+          "fi\n  export AGENT_NATIVE_BETA_SCHEMA_OWNER=production",
+        ),
+      ),
+      [],
+    );
+    assert.notDeepEqual(
+      validateBetaPrebuiltReleaseEnvironment(
         source.replace('if [[ "$SOURCE_TEMPLATE" != "clips" ]]; then', ""),
       ),
       [],
