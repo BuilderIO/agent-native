@@ -1,0 +1,361 @@
+---
+title: "액세스 및 권한 부여"
+description: "누가 action을 호출할 수 있는지: 노출 플래그(agentTool, toolCallable), ctx 기반 범위 지정, accessFilter/assertAccess, authorize 가드."
+---
+
+# 액세스 및 권한 부여
+
+action을 호출할 수 있는 대상은 다섯 가지 설정으로 결정됩니다: 에이전트, 프런트엔드, 확장, 외부 API 호출자, 그리고 사람의 승인 없이는 아무도 호출할 수 없는 경우입니다. 기본값이 이미 일반적인 UI-및-에이전트 사용 사례에 맞기 때문에, 대부분의 action은 이 중 어느 것도 건드릴 필요가 없습니다.
+
+### 노출 플래그 {#exposure-flags}
+
+다섯 플래그 모두 기본값은 허용적인 쪽이므로, 특정 표면을 조여야 할 때만 하나를 설정하면 됩니다. 아래 표는 간단한 요약입니다. 그 뒤 섹션들은 각 플래그에 필요한 세부 사항 한 가지씩을 추가로 다룹니다.
+
+| 플래그          | 기본값       | 제한 값 → 여전히 호출 가능한 대상                                        | 일반적인 용도                                                    |
+| --------------- | ------------ | ------------------------------------------------------------------------ | ---------------------------------------------------------------- |
+| `agentTool`     | `true`       | `false` → UI, HTTP, CLI만 (모델, MCP, A2A에서는 숨겨짐)                  | 도구 슬롯을 차지하면 안 되는 UI 전용 또는 프로그래밍 방식 action |
+| `toolCallable`  | `true`       | `false` → 샌드박스된 확장 iframe 브리지를 **제외한** 모든 것 (403)       | 민감한 계정/조직 변경 (계정 삭제, 멤버십 변경)                   |
+| `publicAgent`   | 꺼짐(비공개) | `{ expose: true }` → **공개** MCP/A2A/OpenAPI 표면에 이 action을 추가    | 인증이 필요 없는 안전한 읽기 또는 수집 도구                      |
+| `needsApproval` | `false`      | `true` → 에이전트가 **일시 정지**하고, 사람이 이 특정 호출을 승인해야 함 | 결과가 큰 부작용 (이메일 전송, 카드 청구, 삭제)                  |
+| `authorize`     | 없음         | 가드 함수 → **모든** 표면에서 이 함수가 허용하는 호출자만 통과           | 특정 역할로 제한되는 작업 (앱별 RBAC, 관리자 전용 작업)          |
+
+이 플래그들은 서로 독립적이므로, 하나를 설정해도 다른 것들은 바뀌지 않습니다. `agentTool`은 모델이 무엇을 보는지를 제어합니다. 아래 [모델에서 숨기기](#agent-tool)를 참고하세요. `toolCallable`은 확장 iframe만 제어합니다. 아래 [확장 iframe 차단하기](#tool-callable)를 참고하세요. `publicAgent`는 옵트인 방식의 공개 표면을 추가하며, 공개 웹 라우트라고 해서 도구까지 공개되는 것은 결코 아닙니다. 아래 [공개 에이전트에 노출하기](#public-agent)를 참고하세요. `needsApproval`은 호출이 이미 이루어진 뒤 실행을 게이트합니다. 아래 [사람의 승인 요구하기](#needs-approval)를 참고하세요. `authorize`는 `run()`에 진입하기 전, 모든 디스패치 경로에서 이 호출자가 애초에 이 action을 실행할 수 있는지를 결정합니다. 아래 [역할로 호출자 제한하기](#authorize)를 참고하세요.
+
+## 모델에서 숨기기 {#agent-tool}
+
+기본적으로 모든 action은 호출 가능한 에이전트 도구입니다. `agentTool: false`로 설정하면 모든 에이전트 도구 목록에서 제거되지만, 프레임워크의 인증 및 action 표면 뒤에는 그대로 남습니다. UI(`useActionMutation()` 또는 `callAction()`), CLI, `/_agent-native/actions/<name>`에서는 계속 호출할 수 있습니다.
+
+```ts
+export default defineAction({
+  description: "Persist the user's sidebar width.",
+  agentTool: false, // UI-only, not a tool in the model's context window
+  schema: z.object({ widthPx: z.number() }),
+  http: { method: "PUT" },
+  run: async ({ widthPx }) => {
+    /* ... */
+  },
+});
+```
+
+UI 전용이거나 순수하게 프로그래밍 방식인 action을 추가할 때, 또는 UI가 더 이상 사용하지 않아 모델에만 계속 노출되는 것을 막고 싶을 때 사용하세요.
+
+## 확장 iframe 차단하기 {#tool-callable}
+
+확장([샌드박스된 iframe 안의 Alpine.js 미니 앱](/docs/extensions))은 `appAction(name, params)`을 통해 action을 호출하며, 이때 뷰어 본인의 권한, 비밀, SQL 범위로 실행됩니다. 민감한 작업에는 이 정도 신뢰가 기본값으로는 과합니다. `toolCallable: false`로 설정하면 확장 브리지가 403을 반환하게 되지만, UI, 에이전트, CLI, MCP, A2A에서는 여전히 이 action을 호출할 수 있습니다.
+
+```ts
+export default defineAction({
+  description: "Delete the current user's account.",
+  toolCallable: false, // never callable from an extension iframe
+  schema: z.object({ confirm: z.literal("yes") }),
+  run: async () => {
+    /* ... */
+  },
+});
+```
+
+계정이나 조직을 삭제·이전하거나, 인증 상태를 바꾸거나, 조직 멤버십을 변경하거나, 공유 액세스를 부여하는 action에 사용하세요. 프레임워크에 내장된 `share-resource`, `unshare-resource`, `set-resource-visibility` action은 이미 이 옵션을 꺼두고 있습니다. 프레임워크는 iframe이 위조할 수 없는, 호스트가 iframe 호출에 설정하는 헤더로 이를 강제합니다. 일반적인 UI, 에이전트, CLI, MCP, A2A 호출에는 영향이 없습니다. 자세한 내용은 [보안](/docs/security)을 참고하세요.
+
+## 공개 에이전트에 노출하기 {#public-agent}
+
+웹 라우트가 공개되어 있는 action이라도, 기본적으로 모든 action은 공개 프로토콜 표면에서 벗어나 있습니다. 페이지를 크롤링 가능하게 만드는 것과 도구를 노출하는 것은 다른 문제입니다. `publicAgent: { expose: true, readOnly: true, ... }`로 설정하면 안전한 action 하나를 공개 MCP, A2A, OpenAPI 표면에 옵트인시킬 수 있습니다.
+
+```ts
+export default defineAction({
+  description: "Search published docs.",
+  schema: z.object({ query: z.string() }),
+  http: { method: "GET" },
+  readOnly: true,
+  publicAgent: {
+    expose: true,
+    readOnly: true,
+    requiresAuth: false,
+  },
+  run: async ({ query }) => {
+    /* ... */
+  },
+});
+```
+
+로그인하지 않은 낯선 사람이 호출해도 괜찮은, 안전하고 읽기 전용이거나 수집 전용인 action에만 사용하세요. `requiresAuth: false`는 인증 전에도 이 action을 나열해도 안전하다는 것을 공개 표면에 알립니다. 계정별 수집 도구처럼 연결된 호출자의 신원이 여전히 필요한 action이라면 `true`로 두세요. 이 옵션이 여는 전체 카탈로그와 인증 모델에 대해서는 [외부 에이전트](/docs/external-agents)와 [MCP 프로토콜](/docs/mcp-protocol)을 참고하세요.
+
+## 사람의 승인 요구하기 {#needs-approval}
+
+이메일 전송, 카드 청구, 계정 삭제처럼 몇몇 action은 에이전트가 스스로 실행하기에는 결과가 너무 큽니다. `defineAction()`에 `needsApproval: true`(또는 술어 `(args, ctx) => boolean | Promise<boolean>`)를 설정하면 `run()` 전에 루프가 일시 정지되어, 사람이 그 특정 호출을 승인해야 합니다. 기본값은 **꺼짐**이며, 거의 모든 action은 이 상태를 유지해야 합니다.
+
+<Callout tone="warning">
+  승인은 드물게 유지하세요. 게이트가 걸린 action은 모두 에이전트 루프에서 완전히
+  멈추는 지점이 됩니다. 실행을 중단시키고 사람과의 왕복 확인을 요구합니다.
+  `needsApproval`은 진짜로 결과가 크고 되돌리기 어려우며 외부로 향하는 작업에만
+  사용하세요. 읽기나 일상적인 쓰기에 게이트를 걸고 있다면 잘못 사용하고 있는
+  것입니다. 기본값은 **꺼짐**이며, 거의 모든 action은 이 상태를 유지해야 합니다.
+</Callout>
+
+<AnnotatedCode
+  id="doc-block-13p4g9y"
+  title="결과가 큰 단 하나의 action에 게이트 걸기"
+  filename="actions/send-email.ts"
+  language="ts"
+  code={
+    'export default defineAction({\n  description: "Send an email via Gmail.",\n  schema: z.object({\n    to: z.string(),\n    subject: z.string(),\n    body: z.string(),\n  }),\n  // Sending is outward-facing and hard to undo, so the agent can never send\n  // without a human approving the specific call. Drafting and queueing are\n  // not affected. Only the real send is gated.\n  needsApproval: true,\n  run: async (args) => {\n    /* ...actually send... */\n  },\n});'
+  }
+  annotations={[
+    {
+      lines: "10",
+      label: "게이트 전체",
+      note: "플래그 하나뿐입니다. 이 값이 참이고 호출이 아직 승인되지 않았다면, 루프는 `run` 이전에 멈춥니다. 모델은 스스로 부작용에 도달할 수 없습니다.",
+    },
+    {
+      lines: "11-13",
+      label: "run()은 그대로입니다",
+      note: "핸들러는 그대로 유지됩니다. 승인은 `run` 내부의 무언가가 아니라 그것을 감싸는 루프에 의해 강제됩니다.",
+    },
+  ]}
+/>
+
+- **`needsApproval: true`** 는 항상 승인을 요구합니다.
+- **`needsApproval: (args, ctx) => boolean | Promise<boolean>`** 는 술어가 true를 반환할 때만 승인을 요구합니다. 예를 들어 외부 수신자에게만, 또는 특정 금액을 초과할 때만 조건부로 게이트를 걸고 싶을 때 사용하세요.
+
+  ```ts
+  needsApproval: (args) => !args.to.endsWith("@your-company.com"),
+  ```
+
+  술어는 순수하고 빠르게 유지하세요. 술어가 예외를 던지면 프레임워크는 그 호출을 술어가 true를 반환한 것과 동일하게 처리하므로, action은 실행되는 대신 승인 대기 상태로 멈춥니다. 즉 술어가 고장 나더라도, 사람이 먼저 승인하지 않는 한 결과가 큰 action이 조용히 실행되는 일은 결코 일어나지 않습니다.
+
+`needsApproval`을 생략하면 동작은 바이트 단위로 동일하게 유지됩니다. 일반적인 경로에는 추가 비용이 전혀 없습니다.
+
+이는 레거시 `parameters` 방식 action과 schema 기반 action에서 동일하게 동작합니다. 또한 앱 내 에이전트, 서브 에이전트, A2A, MCP 호출자에서도 동일하게 동작하는데, 모든 에이전트 표면이 같은 루프를 거치기 때문입니다.
+
+### 루프가 일시 정지되는 방식 {#loop}
+
+에이전트가 게이트가 걸린 action을 호출했는데 이 특정 호출이 아직 승인되지 **않았다면**, 루프는 `run()`을 실행하지 **않습니다**. 대신 다음을 수행합니다.
+
+1. 게이트를 판별합니다. 술어인 경우 루프가 `needsApproval(input, ctx)`를 호출합니다. 이 호출이 예외를 던지면 루프는 이를 `true` 결과와 동일하게 처리하므로, action은 승인을 요구하게 됩니다.
+2. `tool_start` 이벤트를 발생시켜 UI가 호출을 표시하게 한 뒤, 곧바로 **`approval_required`** 이벤트를 발생시키고 턴을 멈춥니다. action의 부작용은 결코 일어나지 않습니다.
+
+`approval_required` 이벤트는 클라이언트가 승인 UI를 렌더링하는 데 필요한 모든 것을 담고 있습니다.
+
+| 필드          | 타입     | 설명                                                                                 |
+| ------------- | -------- | ------------------------------------------------------------------------------------ |
+| `tool`        | `string` | 에이전트가 호출을 시도한 action의 이름입니다.                                        |
+| `input`       | object   | 에이전트가 전달한 인자입니다.                                                        |
+| `approvalKey` | `string` | 이 정확한 호출을 승인하기 위해 클라이언트가 그대로 돌려보내는 **안정적인 키**입니다. |
+| `toolCallId`  | `string` | 가능한 경우 모델 쪽 tool-call id입니다.                                              |
+
+`approvalKey`는 도구 이름과 입력값으로부터 결정적으로 파생되므로, 동일한 논리적 호출은 항상 동일한 키를 만들어냅니다. 모델은 이 키를 보거나 설정하지 않습니다. 이는 오직 프레임워크와 사람의 승인 UI 사이의 핸드셰이크로만 존재합니다.
+
+일시 정지된 도구는 턴이 일시 정지되었으니 재시도하지 말라고 모델에게 알리는 결과를 반환하므로, 모델이 무한히 반복하지 않습니다.
+
+### 사람이 승인하는 방식 {#approve}
+
+`approval_required`가 발생하면 채팅 UI는 일시 정지된 도구 호출에 **승인 / 거부** UI를 렌더링합니다. 이는 `AssistantChat`에 자동으로 연결되어 있습니다. 템플릿마다 직접 만들 필요가 없습니다.
+
+<WireframeBlock id="doc-block-humanapprovalwf1">
+  <Screen
+    surface="popover"
+    html={
+      "<div style='display:flex;flex-direction:column;box-sizing:border-box;padding:16px;gap:12px'><div class='wf-card' style='display:flex;flex-direction:column;gap:8px'><div style='display:flex;align-items:center;gap:8px'><span class='wf-pill warn'>Needs approval</span><strong>send-email</strong></div><div style='display:flex;flex-direction:column;gap:2px'><span class='wf-muted'>to: alex@acme.com</span><span class='wf-muted'>subject: Following up on the proposal</span></div><div style='display:flex;gap:8px'><button>Deny</button><button class='primary'>Approve</button></div></div></div>"
+    }
+  />
+</WireframeBlock>
+
+- **승인**은 호출의 키를 `approvedToolCalls: [approvalKey]`에 담은 일반적인 이어가기 메시지로 턴을 다시 발행합니다. 다시 발행된 턴에서 게이트는 승인된 집합 안에서 그 키를 확인하고, 그 특정 호출이 정상적으로 실행되도록 허용합니다.
+- **거부**는 로컬에서 UI를 닫습니다. 아무것도 다시 발행되지 않으므로 action은 결코 실행되지 않습니다.
+
+`approvedToolCalls`는 채팅 요청의 필드입니다(`AgentChatRequest.approvedToolCalls`). 여기에 없는 키는 일시 정지 상태로 남습니다. 하나의 호출을 승인해도 다른 어떤 호출도 승인되지 않습니다. 키가 내용 기반으로 주소가 매겨지므로, 승인은 정확히 그 인자를 가진 그 호출 하나만 허가합니다. 모델이 이후 다른 전송을 제안하면 이는 새로운 키가 되어 별도의 새 승인이 필요합니다.
+
+### 전체 흐름 {#flow}
+
+<Diagram id="doc-block-2nor1g" title="승인 인터럽트" summary={"게이트가 걸린 호출은 run()이 실행되기 전에 턴을 멈춥니다. 승인은 호출의 키를 담아 턴을 다시 발행합니다. 그때에야 비로소 부작용이 일어납니다."}>
+
+```html
+<div class="diagram-approve">
+  <div class="diagram-box" data-rough>에이전트가 send-email을 호출</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-panel warn" data-rough>
+    <strong>게이트가 참, 호출은 아직 승인되지 않음</strong
+    ><small class="diagram-muted"
+      >루프가 tool_start + approval_required { tool, input, approvalKey }를
+      발생시킴</small
+    ><span class="diagram-pill warn">run()이 아직 실행되지 않음</span>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-box" data-rough>
+    사람이 채팅에서 승인을 클릭<br /><small class="diagram-muted"
+      >클라이언트가 approvedToolCalls: [approvalKey]와 함께 턴을 다시
+      발행함</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-panel ok" data-rough>
+    <span class="diagram-pill ok"
+      >게이트가 키를 확인 &rarr; run()이 실행 &rarr; 이메일 전송</span
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-approve {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.diagram-approve .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+  padding: 12px 16px;
+  text-align: center;
+}
+.diagram-approve .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+Mail 템플릿의 `send-email` action은 프레임워크에서 이 게이트를 사용하는 대표적인 예시이며, 의도적으로 드물게 사용됩니다. 이 action은 `needsApproval: true`를 설정하여 에이전트가 이메일 초안 작성과 예약은 자유롭게 할 수 있게 하고, 사람이 그 특정 전송을 승인하지 않으면 실제로 메시지를 전송할 수 없도록 합니다.
+
+## 역할로 호출자 제한하기 {#authorize}
+
+`authorize`는 한 가지 구체적인 질문에 답합니다. **이 호출자가 애초에 이 작업을 실행할 수 있는가?** 가드 함수를 전달하면, 에이전트 도구, HTTP, 프런트엔드, MCP, A2A, CLI 등 모든 호출자에 대해 `run()` 전에 실행됩니다.
+
+`defineAppRoles()`로 역할 어휘를 한 번만 선언하세요.
+
+```ts
+// server/lib/access.ts
+import { defineAppRoles } from "@agent-native/core/org-team";
+
+export const coachAccess = defineAppRoles({
+  appId: "coach",
+  roles: ["member", "coach-admin"] as const,
+  defaultRole: "member", // display only, never satisfies a guard
+});
+```
+
+그런 다음 허용되는 역할 목록을 명시하여 action을 가드하세요.
+
+```ts
+// actions/archive-plan.ts
+import { coachAccess } from "../server/lib/access.js";
+
+export default defineAction({
+  description: "Archive a training plan.",
+  schema: z.object({ id: z.string() }),
+  authorize: coachAccess.requireAny("coach-admin"),
+  run: async ({ id }) => {
+    /* ... */
+  },
+});
+```
+
+이 가드는 action의 다른 부분이 아니라 `run()` 자체를 감쌉니다. 여섯 개의 디스패치 지점 모두가 반드시 거치는 유일한 지점이 `run()`이기 때문에, 호출자가 검사를 거치지 않고 본문에 도달할 방법이 없습니다. 가드가 예외를 던지면 자신만의 오류 메시지로 호출을 거부합니다. 가드가 `false`를 반환하면 일반적인 403으로 호출을 거부합니다. `undefined`를 포함해 그 외 어떤 값을 반환해도 호출은 허용됩니다. 이 검사는 호출자의 신원이 필요하므로, 사용자 이메일이 없는 방치된 CLI나 cron 호출은 통과가 아니라 거부됩니다.
+
+래퍼들은 다음 순서로 합성됩니다.
+
+```text
+validate input -> authorize -> run -> validate output -> audit
+```
+
+권한 부여는 입력 검증 _안쪽_ 에 있으므로, `args`를 검사하는 가드는 호출자가 보낸 원시 형태가 아니라 `run()`이 받는 것과 동일한, 파싱되고 타입 검사된 값을 받습니다. 감사는 가장 바깥쪽에 있으므로, 거부된 호출도 기록됩니다.
+
+`requireAny()`는 요청 시점이 아니라 정의 시점에 실패합니다. 역할을 하나도 지정하지 않거나 선언되지 않은 역할로 호출하면 모듈이 로드되는 즉시 예외가 발생합니다. 이 덕분에 인자를 빠뜨린 `authorize: coachAccess.requireAny()` 같은 실수는 나중에 원인 불명의 403으로 나타나는 대신, 실수가 일어난 바로 그 지점에서 즉시 드러납니다.
+
+### Actions에서의 액세스 제어 {#access-control}
+
+`authorize`는 호출자가 이 작업을 애초에 실행할 수 있는지만 답합니다. 어떤 행에 접근할 수 있는지는 아무것도 말해주지 않으며, 그것은 별도의 행 수준 검사입니다. `ownableColumns()`로 구성되고 `registerShareableResource()`로 등록된 테이블([공유](/docs/sharing#building) 참고)에는 이를 위한 도우미 두 개가 딸려 있습니다. `accessFilter()`는 목록/읽기 쿼리를 호출자가 볼 수 있는 행으로 범위를 좁히고, `assertAccess()`는 호출자가 해당 행에 필요한 역할을 갖고 있지 않으면 쓰기 전에 예외를 던집니다.
+
+목록/읽기 action의 쿼리 안에서 `accessFilter()`를 사용하세요.
+
+```ts
+// actions/list-decks.ts
+import { defineAction } from "@agent-native/core/action";
+import { accessFilter } from "@agent-native/core/sharing";
+import { z } from "zod";
+import { getDb, schema } from "../server/db/index.js";
+
+export default defineAction({
+  description: "List the decks the current user can see.",
+  schema: z.object({}),
+  http: { method: "GET" },
+  run: async () => {
+    const db = getDb();
+    return await db
+      .select()
+      .from(schema.decks)
+      .where(accessFilter(schema.decks, schema.deckShares));
+  },
+});
+```
+
+`WHERE` 절만으로는 그 절이 배제한 행에 대한 쓰기를 막을 수 없으므로, 업데이트나 삭제 전에는 `assertAccess()`를 사용하세요.
+
+```ts
+// actions/rename-deck.ts
+import { defineAction } from "@agent-native/core/action";
+import { assertAccess } from "@agent-native/core/sharing";
+import { eq } from "drizzle-orm";
+import { z } from "zod";
+import { getDb, schema } from "../server/db/index.js";
+
+export default defineAction({
+  description: "Rename a deck.",
+  schema: z.object({ id: z.string(), title: z.string() }),
+  run: async ({ id, title }) => {
+    await assertAccess("deck", id, "editor");
+    const db = getDb();
+    await db.update(schema.decks).set({ title }).where(eq(schema.decks.id, id));
+    return { ok: true };
+  },
+});
+```
+
+생성 action은 두 도우미 중 어느 것도 호출하지 않습니다. 새 행을 삽입할 때 요청 컨텍스트에서 `ownerEmail`(및 `orgId`)을 찍기만 하면 됩니다. 아직 존재하지 않는 행이라 액세스를 확인할 대상 자체가 없기 때문입니다. 전체 등록 및 생성 패턴은 [공유](/docs/sharing#building)를, 위에서 사용한 `ctx` 두 번째 인자의 전체 형태는 [실행 컨텍스트](/docs/actions-run-context)를 참고하세요.
+
+이 세 메커니즘은 서로 대체할 수 없습니다.
+
+| 메커니즘                          | 답하는 질문                                       | 적용 대상                       |
+| --------------------------------- | ------------------------------------------------- | ------------------------------- |
+| `authorize`                       | 이 호출자가 애초에 이 작업을 수행할 수 있는가?    | 여섯 개 디스패치 지점 전체      |
+| `needsApproval`                   | 허용된 이 특정 호출을 사람이 승인해야 하는가?     | 에이전트 루프에만               |
+| `accessFilter()`/`assertAccess()` | 허용된 이 호출자가 어떤 행을 보거나 쓸 수 있는가? | `run()` 내부, 쿼리 또는 행 단위 |
+
+제한이 걸린 쓰기 action은 보통 `authorize`와 `assertAccess()`가 둘 다 필요합니다. 전자는 코치가 아닌 사람을 이 작업 자체에서 배제하고, 후자는 코치가 다른 조직의 플랜을 건드리지 못하게 막습니다. `needsApproval`은 별개의 축입니다. 누가 호출할 수 있는지는 전혀 제한하지 않고, 오직 에이전트가 방치된 상태로 진행해도 되는지만 제한합니다.
+
+위의 `coachAccess`는 `defineAppRoles()`에서 옵니다. 이는 조직 멤버십 위에 얹히는 앱별 역할 오버레이입니다. 역할 모델과 그 보장 사항은 [조직, 팀 및 권한 → 앱 역할](/docs/organizations-teams-permissions#app-roles-per-app-rbac)을 참고하세요.
+
+## 감사 로깅 {#audit}
+
+모든 변경 action은 자동으로 감사됩니다. 프레임워크는 누가, 언제, 어느 표면에서 실행했는지, 그리고 에이전트였을 경우 어느 스레드와 턴이었는지를 자격 증명이 마스킹된 입력값과 함께 기록합니다. 읽기 전용(`GET`) action은 건너뜁니다. 이를 위해 여러분이 작성할 코드는 없습니다. `defineAction()` 내부에서 자동으로 일어납니다.
+
+`audit` 블록은 캡처를 세부 조정할 때만 추가하세요. 가장 흔한 이유는 action이 변경한 리소스를 선언하여, 그 리소스 소유자의 기록에 변경 사항이 나타나도록 하는 것입니다.
+
+```ts
+export default defineAction({
+  description: "Delete a recording.",
+  schema: z.object({ id: z.string() }),
+  audit: {
+    target: (args, result) => ({ type: "recording", id: args.id }),
+    summary: (args) => `Deleted recording ${args.id}`,
+  },
+  run: async (args, ctx) => {
+    /* ...delete... */
+  },
+});
+```
+
+그 외 몇 가지 옵션이 있습니다. `audit: { onRead: true }`는 비밀 접근이나 대량 내보내기 같은 민감한 읽기를 감사합니다. `audit: { enabled: false }`는 시끄러운 쓰기를 감사 대상에서 제외합니다. `audit: { recordInputs: false }`는 인자 캡처를 건너뜁니다. 기록은 내장된 `list-audit-events`와 `get-audit-event` action으로 다시 읽을 수 있습니다. 자세한 내용은 [감사 로그](/docs/audit-log)를 참고하세요.
+
+## 다음 단계
+
+- [**개요**](/docs/actions-overview) — action이란 무엇인지와 hello-world 진행 과정
+- [**Actions 정의하기**](/docs/actions-defining) — `defineAction()`의 구조, schema, HTTP 설정
+- [**실행 컨텍스트**](/docs/actions-run-context) — 이 검사들이 읽는 `ctx` 인자
+- [**Mail 템플릿**](/docs/template-mail) — `send-email`이 `needsApproval`의 참고 예시
+- [**감사 로그**](/docs/audit-log) — 자동으로 남는 누가-무엇을-바꿨는지 기록
+- [**보안**](/docs/security) — `accessFilter`/`assertAccess`와 확장 iframe 신뢰 경계
+- [**공유**](/docs/sharing) — 이 도우미들이 기대는 프레임워크 공유 시스템

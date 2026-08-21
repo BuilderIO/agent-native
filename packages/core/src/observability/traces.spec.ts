@@ -189,6 +189,229 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     unregisterTrackingProvider("qa-ai-generation");
   });
 
+  // A run cut off at an `auto_continue` boundary never reaches the loop's
+  // outcome classification, so before this it reported no terminal state at
+  // all: `$ai_error` absent, `terminal_state` null, and the reason recoverable
+  // only from `agent_run_events` on a 7-day retention.
+  it("reports an unplanned cut-off with its reason as a failed terminal state", async () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        if (event.name === "$ai_trace" || event.name === "$ai_generation") {
+          events.push(event);
+        }
+      },
+    });
+
+    const loopOpts: any = {
+      engine: { name: "anthropic" },
+      model: "claude-test",
+      systemPrompt: "",
+      tools: [],
+      messages: [],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    };
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ send }) => {
+        send({ type: "text", text: "partial" });
+        send({ type: "auto_continue", reason: "no_progress" });
+        return {
+          inputTokens: 10,
+          outputTokens: 5,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "claude-test",
+          usageReported: true,
+        };
+      },
+      loopOpts,
+      runId: "run-cutoff-1",
+      threadId: "thread-cutoff-1",
+      config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+    });
+
+    await new Promise((r) => setTimeout(r, 0));
+
+    const trace = events.find((event) => event.name === "$ai_trace");
+    expect(trace).toBeDefined();
+    expect(trace!.properties).toMatchObject({
+      terminal_reason: "no_progress",
+      $ai_is_error: true,
+      $ai_error: expect.objectContaining({
+        terminal_state: "failed",
+        terminal_code: "no_progress",
+        retryable: true,
+      }),
+    });
+
+    const generation = events.find((event) => event.name === "$ai_generation");
+    expect(generation!.properties).toMatchObject({
+      status: "error",
+      terminal_state: "failed",
+      terminal_code: "no_progress",
+    });
+  });
+
+  // A trace from a scheduled automation was indistinguishable from a chat turn
+  // in LLM analytics: every path emitted the hardcoded `agent_run` name, and
+  // `metadata` — the one channel that could have said which automation this was
+  // — reached the local SQL store and stopped there.
+  it("carries the caller's span name and run metadata into LLM analytics", async () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        if (event.name === "$ai_trace") events.push(event);
+      },
+    });
+
+    const loopOpts: any = {
+      engine: { name: "anthropic" },
+      model: "claude-test",
+      systemPrompt: "",
+      tools: [],
+      messages: [],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    };
+
+    await instrumentAgentLoop({
+      runAgentLoop: async () => ({
+        inputTokens: 1,
+        outputTokens: 1,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: "claude-test",
+        usageReported: true,
+      }),
+      loopOpts,
+      runId: "run-named-1",
+      threadId: "thread-named-1",
+      userId: "alice@example.com",
+      config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+      spanName: "background_automation_run",
+      metadata: {
+        automation: "daily-digest",
+        trigger: "background_automation",
+        // Non-scalar values are operational noise in an analytics property and
+        // are dropped rather than stringified into an unqueryable blob.
+        nested: { dropped: true },
+      },
+    });
+
+    await new Promise((r) => setTimeout(r, 0));
+
+    const trace = events.find((event) => event.name === "$ai_trace");
+    expect(trace!.properties).toMatchObject({
+      $ai_span_name: "background_automation_run",
+      run_automation: "daily-digest",
+      run_trigger: "background_automation",
+    });
+    expect(trace!.properties).not.toHaveProperty("run_nested");
+    // A scheduled run has a real owner; per-user observability reads depend on
+    // it not being null.
+    expect(trace!.userId).toBe("alice@example.com");
+  });
+
+  // A throw from inside a `finally` REPLACES what the block was doing, so an
+  // assembly failure in trace finalization would have turned a completed run
+  // into a failed one — instrumentation altering the run it observes.
+  it("does not let a trace-assembly failure change the run's own result", async () => {
+    const loopOpts: any = {
+      engine: { name: "anthropic" },
+      model: "claude-test",
+      systemPrompt: "",
+      tools: [],
+      messages: {
+        // `buildGenerationContent` walks messages; a getter that throws stands
+        // in for any malformed payload it could trip on.
+        get length() {
+          throw new Error("assembly blew up");
+        },
+      },
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    };
+
+    const usage = await instrumentAgentLoop({
+      runAgentLoop: async () => ({
+        inputTokens: 1,
+        outputTokens: 1,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: "claude-test",
+        usageReported: true,
+      }),
+      loopOpts,
+      runId: "run-assembly-throw",
+      threadId: "thread-assembly-throw",
+      userId: "alice@example.com",
+      config: {
+        ...DEFAULT_OBSERVABILITY_CONFIG,
+        enabled: true,
+        capturePrompts: true,
+      },
+    });
+
+    expect(usage).toMatchObject({ model: "claude-test", inputTokens: 1 });
+  });
+
+  it("does not count a planned run_timeout boundary as an error", async () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        if (event.name === "$ai_trace") events.push(event);
+      },
+    });
+
+    const loopOpts: any = {
+      engine: { name: "anthropic" },
+      model: "claude-test",
+      systemPrompt: "",
+      tools: [],
+      messages: [],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    };
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ send }) => {
+        send({ type: "text", text: "partial" });
+        send({ type: "auto_continue", reason: "run_timeout" });
+        return {
+          inputTokens: 10,
+          outputTokens: 5,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "claude-test",
+          usageReported: true,
+        };
+      },
+      loopOpts,
+      runId: "run-cutoff-2",
+      threadId: "thread-cutoff-2",
+      config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+    });
+
+    await new Promise((r) => setTimeout(r, 0));
+
+    // A hosted foreground chunk ends this way roughly every 40s by design; the
+    // reason is still recorded so the run_timeout:no_progress ratio is legible.
+    expect(events[0]!.properties).toMatchObject({
+      terminal_reason: "run_timeout",
+    });
+    expect(events[0]!.properties.$ai_is_error).toBe(false);
+    expect(events[0]!.properties.$ai_error).toBeUndefined();
+  });
+
   it("emits a PostHog-compatible AI generation tracking event", async () => {
     const events: TrackingEvent[] = [];
     registerTrackingProvider({

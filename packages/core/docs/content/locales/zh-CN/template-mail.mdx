@@ -347,7 +347,7 @@ UI 中的路由：
 
 邮件由您更改。所有重要的事情都存在于少数几个地方——从那里开始。
 
-**添加代理功能。**使用 `defineAction` 在 `templates/mail/actions/` 下添加新文件。您的操作将成为代理工具、CLI 命令 (`pnpm action <name>`) 以及通过 `useActionQuery` / `useActionMutation` 键入的前端钩子表面。查看 `templates/mail/actions/star-email.ts` 作为一个简短示例，或者查看 `templates/mail/actions/manage-automations.ts` 作为具有多个子 actions 的示例。有关完整模式，请参阅 [actions](/docs/actions) 文档。
+**添加代理功能。**使用 `defineAction` 在 `templates/mail/actions/` 下添加新文件。您的操作将成为代理工具、CLI 命令 (`pnpm action <name>`) 以及通过 `useActionQuery` / `useActionMutation` 键入的前端钩子表面。查看 `templates/mail/actions/star-email.ts` 作为一个简短示例，或者查看 `templates/mail/actions/manage-automations.ts` 作为具有多个子 actions 的示例。有关完整模式，请参阅 [actions](/docs/actions-overview) 文档。
 
 **更改 UI。** 路由位于 `templates/mail/app/routes/` 中，组件位于 `templates/mail/app/components/email/` 和 `templates/mail/app/components/layout/` 中。该应用程序使用 `app/components/ui/` 和 Tabler 图标中的 shadcn/ui 原语 - 坚持这些。
 
@@ -367,4 +367,4 @@ UI 中的路由：
 - [**开始使用**](/docs/getting-started) — 框架基础：actions、application state 和实时同步
 - [**日历**](/docs/template-calendar) — 涵盖日程安排和预订的相关领域模板
 - [**自动化**](/docs/automations) — Mail 自动分类规则所基于的事件触发引擎
-- [**Actions**](/docs/actions) — 聊天、快捷键和自动化共同调用的 action 系统
+- [**Actions**](/docs/actions-overview) — 聊天、快捷键和自动化共同调用的 action 系统

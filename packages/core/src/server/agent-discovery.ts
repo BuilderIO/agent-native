@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { getAppConfig } from "../app-config/index.js";
 import { TEMPLATES } from "../cli/templates-meta.js";
 import {
   DEFAULT_WORKSPACE_APP_AUDIENCE,
@@ -316,15 +317,25 @@ export async function discoverAgents(
 
   // Overlay custom agents from resources
   try {
-    const { resourceList, resourceGet, SHARED_OWNER } =
+    const { resourceList, resourceGet, SHARED_OWNER, sharedResourceOwner } =
       await import("../resources/store.js");
 
     const { parseRemoteAgentManifest, REMOTE_AGENT_RESOURCE_PREFIXES } =
       await import("../resources/metadata.js");
 
+    const activeOwner = sharedResourceOwner(getRequestOrgId());
+    const owners = [...new Set([SHARED_OWNER, activeOwner])];
     const resources: Array<{ id: string; path: string }> = [];
-    for (const prefix of [...REMOTE_AGENT_RESOURCE_PREFIXES].reverse()) {
-      resources.push(...(await resourceList(SHARED_OWNER, prefix)));
+    const seenResources = new Set<string>();
+    for (const owner of owners) {
+      for (const prefix of [...REMOTE_AGENT_RESOURCE_PREFIXES].reverse()) {
+        for (const resource of await resourceList(owner, prefix)) {
+          const resourceKey = `${owner}\0${resource.id}`;
+          if (seenResources.has(resourceKey)) continue;
+          seenResources.add(resourceKey);
+          resources.push(resource);
+        }
+      }
     }
 
     for (const r of resources) {
@@ -641,12 +652,13 @@ function readWorkspaceAppsFromFilesystem(): WorkspaceAppManifestEntry[] | null {
 }
 
 function workspaceBaseUrl(): string | null {
+  const config = getAppConfig();
+  // `URL` / `DEPLOY_URL` stay raw: they are platform facts, not app config.
   return (
-    process.env.WORKSPACE_GATEWAY_URL ||
-    process.env.APP_URL ||
-    process.env.URL ||
-    process.env.DEPLOY_URL ||
-    process.env.BETTER_AUTH_URL ||
+    config.workspace.gatewayUrl ??
+    config.app.url ??
+    process.env.URL ??
+    process.env.DEPLOY_URL ??
     null
   );
 }

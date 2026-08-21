@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
+import { AgentNativeI18nProvider } from "../i18n.js";
 import type { ContentPart } from "../sse-event-processor.js";
 import {
   ApprovalContext,
@@ -32,6 +33,28 @@ import {
   resolveBuiltinActionChatRenderer,
   resolveBuiltinFallbackToolRenderer,
 } from "./widgets/builtin-tool-renderers.js";
+
+const builderHandoffMocks = vi.hoisted(() => ({
+  useAgentChatContext: vi.fn(),
+}));
+
+vi.mock("../ConnectBuilderCard.js", () => ({
+  ConnectBuilderCard: ({
+    context,
+    prompt,
+  }: {
+    context?: string;
+    prompt?: string;
+  }) => (
+    <div data-context={context} data-testid="connect-builder-card">
+      {prompt}
+    </div>
+  ),
+}));
+
+vi.mock("../use-agent-chat-context.js", () => ({
+  useAgentChatContext: builderHandoffMocks.useAgentChatContext,
+}));
 
 vi.mock("../mcp-apps/McpAppRenderer.js", () => ({
   McpAppRenderer: () => <div data-testid="mcp-app">MCP APP</div>,
@@ -101,6 +124,7 @@ describe("ToolCallDisplay native renderers", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    builderHandoffMocks.useAgentChatContext.mockReturnValue({ items: [] });
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -129,6 +153,44 @@ describe("ToolCallDisplay native renderers", () => {
     const logo = container.querySelector("img");
     expect(logo?.getAttribute("src")).toMatch(/^data:image\//);
     expect(logo?.getAttribute("title")).toBe("Slack");
+  });
+
+  it("passes the current staged chat context to the Builder handoff card", () => {
+    builderHandoffMocks.useAgentChatContext.mockReturnValue({
+      items: [
+        {
+          key: "analytics-selected-dashboard",
+          title: "Dashboard: Customer Credit Usage Review",
+          context:
+            "The user currently has this Analytics dashboard selected: Customer Credit Usage Review.\nDashboard id: dash-123",
+        },
+      ],
+    });
+
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="connect-builder"
+          args={{}}
+          result={JSON.stringify({
+            kind: "connect-builder-card",
+            configured: true,
+            builderEnabled: true,
+            connectUrl: "",
+            prompt: "Add an organization filter",
+          })}
+          isRunning={false}
+        />,
+      );
+    });
+
+    expect(
+      container
+        .querySelector("[data-testid='connect-builder-card']")
+        ?.getAttribute("data-context"),
+    ).toBe(
+      "## Dashboard: Customer Credit Usage Review\nThe user currently has this Analytics dashboard selected: Customer Credit Usage Review.\nDashboard id: dash-123",
+    );
   });
 
   it("falls back to a generic icon for MCP tools with no catalog match", async () => {
@@ -752,6 +814,45 @@ describe("ToolCallDisplay native renderers", () => {
       container.querySelector('[data-testid="agent-call-progress"]'),
     ).toBeNull();
     expect(container.textContent).toContain("Thinking");
+  });
+
+  it("localizes delegated-agent labels and elapsed durations", async () => {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          catalog={{
+            sourceLocale: "en-US",
+            messages: {
+              agentChat: {
+                tool: {
+                  askingAgent: "Localized asking {{agent}}",
+                  elapsed: "Localized elapsed {{duration}}",
+                },
+              },
+            },
+          }}
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <ToolCallDisplay
+            toolName="agent:Analytics"
+            args={{}}
+            isRunning={true}
+            structuredMeta={{
+              agentProgress: {
+                state: "working",
+                elapsedSeconds: 30,
+                detail: "Querying the warehouse",
+              },
+            }}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    expect(container.textContent).toContain("Localized asking Analytics");
+    expect(container.textContent).toContain("Localized elapsed 30s");
   });
 
   it("renders a reconnected raw call-agent result through the scroll-free agent cell", () => {
@@ -1564,6 +1665,13 @@ describe("formatWorkedDuration", () => {
     expect(formatWorkedDuration(125_000)).toBe("2m 5s");
     expect(formatWorkedDuration(3_600_000)).toBe("1h");
     expect(formatWorkedDuration(3_900_000)).toBe("1h 5m");
+    expect(
+      formatWorkedDuration(125_000, {
+        locale: "de-DE",
+        minute: " Min.",
+        second: " Sek.",
+      }),
+    ).toBe("2 Min. 5 Sek.");
   });
 });
 
@@ -2189,6 +2297,41 @@ describe("ApprovalAffordance", () => {
     expect(container.textContent).toContain("Denied. bash did not run.");
   });
 
+  it("keeps approval copy and every action visible in narrow chat cards", () => {
+    act(() => {
+      root.render(
+        <ApprovalContext.Provider
+          value={{ onApprove: vi.fn(), onAlwaysAllow: vi.fn() }}
+        >
+          <ToolCallDisplay
+            toolName="send-email"
+            args={{}}
+            approval={{ approvalKey: "approval-1" }}
+            isRunning={false}
+          />
+        </ApprovalContext.Provider>,
+      );
+    });
+
+    const approvalCopy = Array.from(container.querySelectorAll("span")).find(
+      (span) => span.textContent === "Approve to run send-email?",
+    ) as HTMLSpanElement;
+    const approvalCard = approvalCopy.parentElement as HTMLDivElement;
+    const actionButtons = Array.from(approvalCard.querySelectorAll("button"));
+
+    expect(approvalCard.className).toContain("flex-wrap");
+    expect(approvalCopy.className).toContain("min-w-0");
+    expect(approvalCopy.className).toContain("flex-1");
+    expect(actionButtons.map((button) => button.textContent)).toEqual([
+      "Approve",
+      "Always allow",
+      "Deny",
+    ]);
+    for (const button of actionButtons) {
+      expect(button.className).toContain("shrink-0");
+    }
+  });
+
   it("keeps the default two-button layout when only onApprove is provided", () => {
     const onApprove = vi.fn();
     act(() => {
@@ -2268,6 +2411,69 @@ describe("ApprovalAffordance", () => {
         (button) => button.textContent,
       ),
     ).toEqual(["bash"]);
+  });
+
+  it("shows Approve/Deny again when the server re-issues approval_required with a new askId for the same toolCallId", () => {
+    // Mirrors a failed resume: the server's resume never consumed the grant
+    // (expired TTL, turn-id mismatch) and re-enters the gate, re-emitting
+    // `approval_required` for the SAME toolCallId with a fresh `askId`. The
+    // approval host (AssistantChat) retains resolutions per askId, so the
+    // stale "approved" mark from the first ask must not apply to the new one.
+    const onApprove = vi.fn();
+    const resolutionsByIdentity = new Map<string, "approved" | "denied">();
+    const identity = (
+      approvalKey: string,
+      toolCallId?: string,
+      askId?: string,
+    ) => `${toolCallId ?? ""} ${approvalKey} ${askId ?? ""}`;
+
+    function ReissuedApproval({ askId }: { askId: string }) {
+      return (
+        <ApprovalContext.Provider
+          value={{
+            onApprove,
+            onApprovalResolved: (approvalKey, resolution, toolCallId, ask) => {
+              resolutionsByIdentity.set(
+                identity(approvalKey, toolCallId, ask),
+                resolution,
+              );
+            },
+            getApprovalResolution: (approvalKey, toolCallId, ask) =>
+              resolutionsByIdentity.get(
+                identity(approvalKey, toolCallId, ask),
+              ) ?? null,
+          }}
+        >
+          <ToolCallDisplay
+            toolName="bash"
+            toolCallId="call-1"
+            args={{}}
+            approval={{ approvalKey: "approval-1", askId }}
+            isRunning={false}
+          />
+        </ApprovalContext.Provider>
+      );
+    }
+
+    act(() => root.render(<ReissuedApproval askId="ask-1" />));
+    const approveButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Approve",
+    ) as HTMLButtonElement;
+    act(() => approveButton.click());
+
+    expect(onApprove).toHaveBeenCalledWith("approval-1");
+    expect(container.textContent).toContain("Approved. Re-running bash...");
+
+    // The failed resume re-emits approval_required for the same toolCallId
+    // with a new askId.
+    act(() => root.render(<ReissuedApproval askId="ask-2" />));
+
+    expect(container.textContent).not.toContain("Approved. Re-running bash...");
+    expect(
+      Array.from(container.querySelectorAll("button")).map(
+        (button) => button.textContent,
+      ),
+    ).toEqual(["bash", "Approve", "Deny"]);
   });
 
   it("calls onDeny in addition to the local denied state when provided", () => {

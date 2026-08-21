@@ -78,7 +78,6 @@ export async function getEligibleHostAvailability(
     }),
   );
 }
-
 /**
  * Attaches the owner's time zone and each eligible host's time zone to a
  * booking link for the public read response. Never attaches schedule

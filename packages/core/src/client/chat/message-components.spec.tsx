@@ -4,6 +4,7 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { AgentNativeI18nProvider } from "../i18n.js";
 import {
   assistantMessageHasCompletedCustomUi,
   assistantMessageHasActiveTool,
@@ -17,6 +18,7 @@ import {
   isAlwaysVisibleAssistantTool,
   isCollapsibleAssistantWorkPart,
   isMissingFinalResponseWarningText,
+  isMissingCredentialAssistantMessage,
   latestUserMessageText,
   messageTextFromContent,
   shouldShowAssistantWorkSummary,
@@ -27,10 +29,12 @@ import {
   ThinkingIndicator,
   userMessageTextBeforeAssistant,
   isHiddenUserMessage,
+  SelectionAttachedPill,
   assistantMessageRunId,
   assistantMessageTurnId,
   assistantMessageWasUserStopped,
   ChatImageAttachmentPreview,
+  MISSING_FINAL_RESPONSE_SETTLE_MS,
   resolveAssistantRequestId,
 } from "./message-components.js";
 import { runErrorKey } from "./run-recovery.js";
@@ -82,6 +86,104 @@ describe("assistant request ID resolution", () => {
       }),
     ).toBe(true);
     expect(assistantMessageWasUserStopped({})).toBe(false);
+  });
+});
+
+describe("isMissingCredentialAssistantMessage", () => {
+  it("detects the structured missing-provider error", () => {
+    expect(
+      isMissingCredentialAssistantMessage({
+        content: [
+          { type: "text", text: "Error: No LLM provider is connected" },
+        ],
+        metadata: {
+          custom: {
+            runError: {
+              errorCode: "missing_credentials",
+              message: "No LLM provider is connected",
+            },
+          },
+        },
+      }),
+    ).toBe(true);
+  });
+
+  it("does not hide provider authentication failures", () => {
+    expect(
+      isMissingCredentialAssistantMessage({
+        content: [
+          {
+            type: "text",
+            text: "Error: The model provider rejected the saved API key.",
+          },
+        ],
+        metadata: {
+          custom: {
+            runError: {
+              errorCode: "authentication_error",
+              message: "The model provider rejected the saved API key.",
+            },
+          },
+        },
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("SelectionAttachedPill", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: true, status: 204 })),
+    );
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.unstubAllGlobals();
+  });
+
+  it("formats the selected character count with the active app locale", async () => {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          catalog={{
+            sourceLocale: "de-DE",
+            messages: {
+              agentChat: {
+                selection: {
+                  attached: "{{formattedCount}} Zeichen der Auswahl angehängt",
+                },
+              },
+            },
+          }}
+          initialLocale="de-DE"
+          initialPreference="de-DE"
+          persistPreference={false}
+        >
+          <SelectionAttachedPill />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agent-panel:selection-attached", {
+          detail: { length: 1234 },
+        }),
+      );
+    });
+
+    expect(container.textContent).toContain(
+      "1.234 Zeichen der Auswahl angehängt",
+    );
   });
 });
 
@@ -141,13 +243,31 @@ describe("ChatImageAttachmentPreview", () => {
     vi.unstubAllGlobals();
   });
 
-  it("opens the full-size image in a lightbox and closes it", () => {
-    act(() => {
-      root.render(<ChatImageAttachmentPreview src={src} alt="Screenshot" />);
+  it("opens the full-size image with localized controls and closes it", async () => {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          persistPreference={false}
+          catalog={{
+            sourceLocale: "en-US",
+            messages: {
+              agentChat: {
+                composer: {
+                  previewAttachment: "Open {{name}}",
+                  closePreview: "Custom close",
+                },
+              },
+            },
+          }}
+        >
+          <ChatImageAttachmentPreview src={src} alt="Screenshot" />
+        </AgentNativeI18nProvider>,
+      );
+      await Promise.resolve();
     });
 
     const thumbnail = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Preview Screenshot"]',
+      'button[aria-label="Open Screenshot"]',
     );
     expect(thumbnail).toBeTruthy();
     expect(document.body.querySelector('[role="dialog"]')).toBeNull();
@@ -164,14 +284,12 @@ describe("ChatImageAttachmentPreview", () => {
       ),
     ).toBe(true);
     expect(
-      dialog?.querySelector('button[aria-label="Close image preview"]'),
+      dialog?.querySelector('button[aria-label="Custom close"]'),
     ).toBeTruthy();
 
     act(() => {
       dialog
-        ?.querySelector<HTMLButtonElement>(
-          'button[aria-label="Close image preview"]',
-        )
+        ?.querySelector<HTMLButtonElement>('button[aria-label="Custom close"]')
         ?.click();
     });
 
@@ -392,13 +510,14 @@ describe("useSettledFlag", () => {
   });
 
   it("holds the flag back until the condition has lasted the delay", () => {
+    expect(MISSING_FINAL_RESPONSE_SETTLE_MS).toBe(3_000);
     act(() => {
-      root.render(<Probe active delayMs={3000} />);
+      root.render(<Probe active delayMs={MISSING_FINAL_RESPONSE_SETTLE_MS} />);
     });
     expect(container.textContent).toBe("hidden");
 
     act(() => {
-      vi.advanceTimersByTime(2999);
+      vi.advanceTimersByTime(MISSING_FINAL_RESPONSE_SETTLE_MS - 1);
     });
     expect(container.textContent).toBe("hidden");
 
@@ -410,13 +529,15 @@ describe("useSettledFlag", () => {
 
   it("never shows when the condition clears inside the delay, and re-arms after", () => {
     act(() => {
-      root.render(<Probe active delayMs={3000} />);
+      root.render(<Probe active delayMs={MISSING_FINAL_RESPONSE_SETTLE_MS} />);
     });
     act(() => {
       vi.advanceTimersByTime(2000);
     });
     act(() => {
-      root.render(<Probe active={false} delayMs={3000} />);
+      root.render(
+        <Probe active={false} delayMs={MISSING_FINAL_RESPONSE_SETTLE_MS} />,
+      );
     });
     act(() => {
       vi.advanceTimersByTime(5000);
@@ -424,11 +545,11 @@ describe("useSettledFlag", () => {
     expect(container.textContent).toBe("hidden");
 
     act(() => {
-      root.render(<Probe active delayMs={3000} />);
+      root.render(<Probe active delayMs={MISSING_FINAL_RESPONSE_SETTLE_MS} />);
     });
     expect(container.textContent).toBe("hidden");
     act(() => {
-      vi.advanceTimersByTime(3000);
+      vi.advanceTimersByTime(MISSING_FINAL_RESPONSE_SETTLE_MS);
     });
     expect(container.textContent).toBe("shown");
   });
@@ -830,6 +951,42 @@ describe("InlineRunErrorNotice", () => {
 
     expect(container.querySelector("button")?.textContent).toBe(
       "The agent hit an error",
+    );
+  });
+
+  it("formats the inline error duration with the selected locale", async () => {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          catalog={{
+            sourceLocale: "en-US",
+            messages: {
+              agentChat: {
+                duration: {
+                  minuteShort: "min",
+                  secondShort: "sec",
+                },
+              },
+            },
+          }}
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <InlineRunErrorNotice
+            info={{
+              message: "Provider timed out.",
+              errorCode: "connection_error",
+              recoverable: true,
+            }}
+            durationMs={125_000}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    expect(container.querySelector("button")?.textContent).toBe(
+      "The agent stopped before finishing after 2min 5sec",
     );
   });
 });

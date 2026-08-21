@@ -63,6 +63,8 @@ export interface ChatMessage {
   role: "user" | "assistant";
   parts: ChatContentPart[];
   createdAt: number;
+  /** Replayed remote runs can provide their completed work duration directly. */
+  workDurationMs?: number;
 }
 
 export interface ChatTurnState {
@@ -125,6 +127,8 @@ export interface ChatReference {
 
 export interface ChatSendOptions {
   threadId?: string;
+  /** Stable logical turn id reused when a request continues a paused turn. */
+  turnId?: string;
   model?: string;
   engine?: string;
   effort?: string;
@@ -155,6 +159,7 @@ export interface ChatModelCatalog {
 export interface ActiveRunInfo {
   active: boolean;
   runId?: string;
+  turnId?: string;
   status?: string;
 }
 

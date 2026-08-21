@@ -13,8 +13,10 @@ import {
 } from "../agent/engine/credential-errors.js";
 import { extractThreadMeta } from "../agent/thread-data-builder.js";
 import { getThread, updateThreadData } from "../chat-threads/store.js";
+import { resolveArtifactBaseUrl } from "../server/agent-chat/action-filters-a2a.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
 import { FRAMEWORK_ROUTE_PREFIX } from "../server/core-routes-plugin.js";
+import { resolveSelfDispatchBaseUrl } from "../server/self-dispatch.js";
 import {
   claimA2AContinuation,
   claimA2AContinuationDelivery,
@@ -97,13 +99,18 @@ export async function dispatchA2AContinuation(
   continuationId: string,
   webhookBaseUrl?: string,
 ): Promise<void> {
+  // Self-dispatch: this POST has to land on the deployment that enqueued the
+  // continuation. It used to carry its own chain, which omitted
+  // DEPLOY_PRIME_URL — so a deploy preview dispatched to production — and
+  // silently fell back to localhost in production, where the request simply
+  // never arrives and the continuation is dropped with no error.
+  // `WEBHOOK_BASE_URL` stays ahead of it: this runs from a retry job with no
+  // inbound request, and a dev tunnel is reachable where the app's own address
+  // is not.
   const baseUrl =
     webhookBaseUrl ||
     process.env.WEBHOOK_BASE_URL ||
-    process.env.APP_URL ||
-    process.env.URL ||
-    process.env.DEPLOY_URL ||
-    `http://localhost:${process.env.PORT || 3000}`;
+    resolveSelfDispatchBaseUrl();
 
   const url = `${withConfiguredAppBasePath(baseUrl)}${PROCESSOR_PATH}`;
   const headers: Record<string, string> = {
@@ -1393,14 +1400,8 @@ function formatContinuationArtifactText(
   return appendA2AArtifactLinks(
     expandedText,
     [{ tool: "call-agent", result: expandedText }],
-    { baseUrl: resolveArtifactBaseUrl() },
+    { baseUrl: resolveArtifactBaseUrl(undefined) },
   );
-}
-
-function resolveArtifactBaseUrl(): string | undefined {
-  const baseUrl =
-    process.env.APP_URL || process.env.URL || process.env.DEPLOY_URL;
-  return baseUrl ? withConfiguredAppBasePath(baseUrl) : undefined;
 }
 
 function expandRelativeUrls(text: string, agentUrl: string): string {

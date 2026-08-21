@@ -35,8 +35,11 @@ export default defineAction({
       args.expectedUpdatedAt,
     );
     if (!restored) {
-      throw new Error(
-        `Dashboard revision "${args.revisionId}" was not found for dashboard "${args.dashboardId}".`,
+      throw Object.assign(
+        new Error(
+          `Dashboard revision "${args.revisionId}" was not found for dashboard "${args.dashboardId}".`,
+        ),
+        { statusCode: 404 },
       );
     }
     const { dashboard, snapshotRevisionId } = restored;

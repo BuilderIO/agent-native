@@ -21,13 +21,26 @@ describe("authenticated recording route loading", () => {
     const route = readRoute("share.$shareId.tsx");
     expect(route).toContain("enabled: !!shareId && !sessionLoading");
     expect(route).toContain("if (sessionLoading || dataQ.isLoading)");
+    expect(route).toContain("request-recording-access");
+    expect(route).toContain("RequestAccessDialog");
+    expect(route).toContain("requesterEmail");
+    expect(route).toContain("submitGuestAccessRequest");
+    expect(route).toContain("deniedData.accessRequestToken");
+    expect(route).toContain("...(userEmail ? { viewerEmail: userEmail } : {})");
+    expect(route).toContain("apiAccessDeniedStatus");
+    expect(route).toContain("accessDeniedStatus");
+    expect(route).toContain('IconLock className="h-5 w-5"');
   });
 
   it("waits for the browser session before the meeting share payload request", () => {
     const route = readRoute("share.meeting.$meetingId.tsx");
-    expect(route).toContain('fetchPublicMeeting(meetingId ?? "", { signal })');
+    expect(route).toContain('fetchPublicMeeting(meetingId ?? "", {');
     expect(route).toContain("enabled: !!meetingId && !sessionLoading");
     expect(route).toContain("initialData: initialMeetingResult");
+    expect(route).toContain("privateShareLoaderData");
+    expect(route).toContain(
+      "export function headers({ loaderHeaders }: HeadersArgs)",
+    );
     expect(route).toContain(
       "!meeting && (sessionLoading || meetingQuery.isLoading)",
     );
@@ -52,6 +65,22 @@ describe("authenticated recording route loading", () => {
     expect(route).toContain("{viewerCanEdit ? (");
   });
 
+  it("gates fullscreen share interactions by the viewer permission", () => {
+    const route = readRoute("share.$shareId.tsx");
+    expect(route).toContain(
+      "const viewerCanUseFullscreenInteractions = !session || viewerCanComment;",
+    );
+    expect(route).toContain(
+      "recording.enableComments && viewerCanUseFullscreenInteractions",
+    );
+    expect(route).toContain(
+      "recording.enableReactions && viewerCanUseFullscreenInteractions",
+    );
+    expect(route).toContain(
+      'viewerCanUseFullscreenInteractions\n                  ? () => setPanel("comments")',
+    );
+  });
+
   it("does not expose the insights tab to viewers", () => {
     const shareRoute = readRoute("share.$shareId.tsx");
     const shareTrigger = shareRoute.indexOf(
@@ -69,5 +98,43 @@ describe("authenticated recording route loading", () => {
       'canEdit ? trigger("insights", t("recordingPage.insights")) : null,',
     );
     expect(recordingRoute).not.toContain("InsightsUnavailableState");
+  });
+
+  it("keeps Share primary and places overflow after it in clip viewers", () => {
+    const recordingRoute = readRoute("r.$recordingId.tsx");
+    const shareRoute = readRoute("share.$shareId.tsx");
+    const trigger = readFileSync(
+      resolve(process.cwd(), "app/components/player/clips-share-trigger.tsx"),
+      "utf8",
+    );
+
+    expect(recordingRoute.match(/<ClipsShareTrigger/g)).toHaveLength(2);
+    expect(shareRoute).toContain("<ClipsShareTrigger");
+    expect(trigger).toContain('intent="primary"');
+    expect(trigger).toContain('emphasis="solid"');
+
+    const publicControlsStart = shareRoute.indexOf(
+      '<div className="flex w-full min-w-0 flex-wrap items-center justify-between gap-1',
+    );
+    const publicControls = shareRoute.slice(publicControlsStart);
+    expect(publicControls.indexOf("<ClipsShareTrigger")).toBeLessThan(
+      publicControls.indexOf("IconDotsVertical"),
+    );
+    expect(publicControls.indexOf("<ClipsShareTrigger")).toBeLessThan(
+      publicControls.indexOf("<RecordingOptionsMenu"),
+    );
+    expect(shareRoute).toContain("IconDotsVertical");
+    expect(shareRoute).not.toContain("IconDots className");
+  });
+
+  it("keeps meeting agent links scoped through both page and context loading", () => {
+    const meetingRoute = readRoute("share.meeting.$meetingId.tsx");
+    expect(meetingRoute).toContain("verifyScopedAgentAccessToken");
+    expect(meetingRoute).toContain("CLIPS_MEETING_AGENT_RESOURCE_KIND");
+    expect(meetingRoute).toContain("agentAccessToken");
+    expect(meetingRoute).toContain('fetchPublicMeeting(meetingId ?? "", {');
+    expect(meetingRoute).toContain("recordingId: schema.meetings.recordingId");
+    expect(meetingRoute).toContain("recordingTranscripts");
+    expect(meetingRoute).toContain("transcript: transcript");
   });
 });

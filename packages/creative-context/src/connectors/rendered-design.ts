@@ -8,10 +8,7 @@ import {
   friendlyTokenName,
   normalizeBrandWebsiteUrl,
 } from "@agent-native/core/brand-kit";
-import type {
-  WebsiteDesignTokens,
-  WebsiteExtraction,
-} from "@agent-native/core/ingestion";
+import type { WebsiteDesignTokens } from "@agent-native/core/ingestion";
 
 import {
   LayeredRenderedPageProvider,

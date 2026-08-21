@@ -63,6 +63,7 @@ import {
   buildCaptionSegmentsFromText,
   normalizeTranscriptSegments,
   parseTranscriptSegments,
+  type TranscriptSegment,
 } from "../shared/transcript-segments.js";
 import { PENDING_TRANSCRIPT_HEARTBEAT_MS } from "../shared/transcript-status.js";
 import cleanupTranscript from "./cleanup-transcript.js";
@@ -498,6 +499,161 @@ function fullTextSegmentJson(
   return JSON.stringify(buildCaptionSegmentsFromText(text, durationMs));
 }
 
+type WordSegmenterConstructor = new (
+  locale?: string | string[],
+  options?: { granularity: "word" },
+) => {
+  segment: (input: string) => Iterable<{ segment: string }>;
+};
+
+function splitMeasuredText(text: string): {
+  units: string[];
+  separator: "" | " ";
+} {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (!normalized) return { units: [], separator: " " };
+  if (/\s/.test(text)) {
+    return {
+      units: normalized.split(" ").filter(Boolean),
+      separator: " ",
+    };
+  }
+
+  // CJK and other scripts often have no spaces between words. Segment those
+  // with the runtime's locale data when available, then fall back to Unicode
+  // code points so every timed cue can still receive some cleaned text.
+  const Segmenter = (
+    Intl as typeof Intl & { Segmenter?: WordSegmenterConstructor }
+  ).Segmenter;
+  if (Segmenter) {
+    const segmented = Array.from(
+      new Segmenter(undefined, { granularity: "word" }).segment(normalized),
+      ({ segment }) => segment,
+    );
+    if (segmented.length > 1) {
+      return { units: segmented, separator: "" };
+    }
+  }
+
+  return { units: Array.from(normalized), separator: "" };
+}
+
+function normalizeAlignmentText(text: string): string {
+  return text
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, "");
+}
+
+function hasMeasuredAttribution(segments: TranscriptSegment[]): boolean {
+  return segments.some(
+    (segment) => segment.source !== undefined || segment.speaker !== undefined,
+  );
+}
+
+/**
+ * Rewrite attributed cues only when the cleanup is a sequence-preserving
+ * normalization. Without a per-word speaker map, proportional redistribution
+ * can move words across a speaker boundary. Returning null tells the caller to
+ * keep the complete original transcript instead of storing mismatched fullText
+ * and segmentsJson.
+ */
+function rewriteAttributedSegmentText(
+  segments: TranscriptSegment[],
+  cleanedText: string,
+): TranscriptSegment[] | null {
+  const originalAlignment = normalizeAlignmentText(
+    segments.map((segment) => segment.text).join(" "),
+  );
+  const cleanedAlignment = normalizeAlignmentText(cleanedText);
+  if (!originalAlignment || originalAlignment !== cleanedAlignment) return null;
+
+  const cleanedChars = Array.from(cleanedText);
+  let charIndex = 0;
+  const rewritten: TranscriptSegment[] = [];
+
+  for (const segment of segments) {
+    const target = normalizeAlignmentText(segment.text);
+    if (!target) return null;
+    const startIndex = charIndex;
+    let normalized = "";
+
+    while (
+      charIndex < cleanedChars.length &&
+      normalized.length < target.length
+    ) {
+      normalized += normalizeAlignmentText(cleanedChars[charIndex]);
+      if (!target.startsWith(normalized)) return null;
+      charIndex += 1;
+    }
+    if (normalized !== target) return null;
+
+    // Keep punctuation and whitespace with the preceding cue. They do not
+    // affect alignment, but dropping them makes the displayed transcript look
+    // broken at every measured speaker boundary.
+    while (
+      charIndex < cleanedChars.length &&
+      !normalizeAlignmentText(cleanedChars[charIndex])
+    ) {
+      charIndex += 1;
+    }
+
+    const text = cleanedChars.slice(startIndex, charIndex).join("").trim();
+    if (!text) return null;
+    rewritten.push({ ...segment, text });
+  }
+
+  if (normalizeAlignmentText(cleanedChars.slice(charIndex).join(""))) {
+    return null;
+  }
+  return rewritten;
+}
+
+function rewriteMeasuredSegmentText(
+  segments: TranscriptSegment[],
+  cleanedText: string,
+): TranscriptSegment[] | null {
+  const cleaned = splitMeasuredText(cleanedText);
+  if (segments.length === 0 || cleaned.units.length === 0) return [];
+
+  if (hasMeasuredAttribution(segments)) {
+    return rewriteAttributedSegmentText(segments, cleanedText);
+  }
+
+  const weights = segments.map((segment) =>
+    Math.max(1, splitMeasuredText(segment.text).units.length),
+  );
+  const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
+  let unitIndex = 0;
+  let weightIndex = 0;
+
+  return segments.flatMap((segment, index) => {
+    const isLast = index === segments.length - 1;
+    const remainingSegments = segments.length - index - 1;
+    const targetEnd = isLast
+      ? cleaned.units.length
+      : Math.round(
+          (cleaned.units.length * (weightIndex + weights[index])) / totalWeight,
+        );
+    // Unattributed cues can safely be dropped when cleanup removes short
+    // filler. Keep the measured timings for the remaining cues and preserve
+    // the complete cleaned text instead of reverting to stale source text.
+    const minimumEnd =
+      cleaned.units.length >= segments.length ? unitIndex + 1 : unitIndex;
+    const maximumEnd = Math.max(
+      unitIndex,
+      cleaned.units.length - remainingSegments,
+    );
+    const end = isLast
+      ? cleaned.units.length
+      : Math.min(maximumEnd, Math.max(minimumEnd, targetEnd));
+    const text = cleaned.units.slice(unitIndex, end).join(cleaned.separator);
+    unitIndex = end;
+    weightIndex += weights[index];
+    return text ? [{ ...segment, text }] : [];
+  });
+}
+
 /**
  * Pick the segments to store after cleanup rewrites the transcript text.
  *
@@ -511,9 +667,17 @@ export function resolveCleanupSegmentsJson(
   priorSegmentsJson: string | null | undefined,
   cleanedText: string,
   durationMs: number | null | undefined,
-): string {
-  if (parseTranscriptSegments(priorSegmentsJson).length > 1) {
-    return priorSegmentsJson as string;
+): string | null {
+  const priorSegments = parseTranscriptSegments(priorSegmentsJson);
+  if (priorSegments.length > 0) {
+    const rewrittenSegments = rewriteMeasuredSegmentText(
+      priorSegments,
+      cleanedText,
+    );
+    if (rewrittenSegments === null) return null;
+    if (rewrittenSegments.length > 0) {
+      return JSON.stringify(rewrittenSegments);
+    }
   }
   return fullTextSegmentJson(cleanedText, durationMs);
 }
@@ -785,6 +949,21 @@ async function cleanupNativeTranscript({
       return { cleaned: false, provider: result.provider };
     }
 
+    const cleanupSegmentsJson = resolveCleanupSegmentsJson(
+      segmentsJson,
+      cleanedText,
+      durationMs,
+    );
+    if (!cleanupSegmentsJson) {
+      await writeTranscriptCleanupState(recordingId, {
+        status: "unchanged",
+        provider: result.provider,
+        failureReason:
+          "Cleanup output could not be aligned with measured speaker cues; the original transcript was kept.",
+      });
+      return { cleaned: false, provider: result.provider };
+    }
+
     const now = new Date().toISOString();
     const language = await resolveStoredLanguage(db, recordingId);
     const updated = await db
@@ -794,11 +973,7 @@ async function cleanupNativeTranscript({
         status: "ready",
         failureReason: null,
         language,
-        segmentsJson: resolveCleanupSegmentsJson(
-          segmentsJson,
-          cleanedText,
-          durationMs,
-        ),
+        segmentsJson: cleanupSegmentsJson,
         fullText: cleanedText,
         retryCount: 0,
         updatedAt: now,
@@ -1351,18 +1526,22 @@ const requestTranscriptAction = defineAction({
             transcribeWithBuilderModelFallback({
               audioBytes: audioMedia.audioBytes,
               mimeType: audioMedia.mimeType,
-              diarize: false,
+              diarize: true,
               instructions: SPEECH_ONLY_TRANSCRIPTION_INSTRUCTIONS,
               timeoutMs: builderTranscriptionTimeoutMs(rec.durationMs),
             }),
         );
 
         const segments = (builderResult.segments ?? [])
-          .map((s) => ({
-            startMs: s.startMs,
-            endMs: s.endMs,
-            text: s.text.trim(),
-          }))
+          .map((s) => {
+            const speaker = s.speakerLabel?.trim();
+            return {
+              startMs: s.startMs,
+              endMs: s.endMs,
+              text: s.text.trim(),
+              ...(speaker ? { speaker } : {}),
+            };
+          })
           .filter((segment) => segment.text);
         const normalizedTranscript = normalizeProviderTranscript(
           builderResult.text,

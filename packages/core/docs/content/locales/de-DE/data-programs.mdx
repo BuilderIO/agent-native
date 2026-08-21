@@ -8,7 +8,7 @@ search: "data program emit rows schema providerFetch dashboard panel program sou
 
 Ein **Datenprogramm** ist ein benanntes, gespeichertes, vom Agenten verfasstes JS-Skript, das Daten abruft, verknüpft, filtert oder aggregiert – Provider-APIs über `providerFetch` / `providerFetchAll` / `providerSearchAll`, App-Daten über `appAction`, oder Resources-gestützte Workspace-Dateien – und genau einmal `emit(rows, schema)` mit dem Ergebnis aufruft. Das Ergebnis wird in SQL zwischengespeichert, und jede Chart-/Tabellenkomponente kann es rendern, aktualisiert nach einer von Ihnen gewählten Richtlinie statt bei jedem Seitenaufruf.
 
-Es ist automatisch überall verfügbar, wo [`run-code`](/docs/actions) verfügbar ist – es gibt nichts, das Sie pro App einbinden oder konfigurieren müssen. Wenn Ihre App run-code bereits aktiviert hat, sind `save-data-program`, `preview-data-program`, `run-data-program`, `list-data-programs`, `get-data-program` und `delete-data-program` bereits registrierte actions.
+Es ist automatisch überall verfügbar, wo [`run-code`](/docs/actions-overview) verfügbar ist – es gibt nichts, das Sie pro App einbinden oder konfigurieren müssen. Wenn Ihre App run-code bereits aktiviert hat, sind `save-data-program`, `preview-data-program`, `run-data-program`, `list-data-programs`, `get-data-program` und `delete-data-program` bereits registrierte actions.
 
 <Diagram id="doc-block-dp-overview" title={"Von der Ad-hoc-Abfrage zum Live-Panel"} summary={"Ein run-code-Skript wird zu einem gespeicherten Programm, sobald es emit() aufruft; jedes Dashboard-Panel kann sich daran binden, und die Cache-/Aktualisierungsrichtlinie übernimmt von dort aus."}>
 
@@ -324,6 +324,6 @@ Jede App kann dieselbe Anwendung für ihre eigenen Dashboards/Tabellen implement
 ## Verwandte Dokumentation {#related}
 
 - [Erweiterungen](/docs/extensions) — die sandboxed Mini-App-Primitive, mit der Datenprogramme ein Sicherheitsmodell und Sharing-Modell teilen, aber mit einer eigenen UI.
-- [Actions](/docs/actions) — die `run-code`-Konventionen und Sandbox-Globals (`providerFetch`, `appAction`, usw.), auf denen Datenprogramme aufbauen.
+- [Actions](/docs/actions-overview) — die `run-code`-Konventionen und Sandbox-Globals (`providerFetch`, `appAction`, usw.), auf denen Datenprogramme aufbauen.
 - [Sharing & Datenschutz](/docs/sharing) — das organisationsinterne, nie öffentliche Sharing-Modell, das Datenprogramme verwenden.
 - [Sicherheit](/docs/security) — die Credential-Handling- und Zugriffs-Scoping-Invarianten des Frameworks.

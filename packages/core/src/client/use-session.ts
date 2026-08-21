@@ -2,10 +2,12 @@ import { useCallback, useEffect, useState } from "react";
 
 import type { AuthSession } from "../server/auth.js";
 import { setSentryUser, trackSessionStatus } from "./analytics.js";
+import { agentNativeApiDisabledReason } from "./api-surface.js";
 import {
   fetchAuthSessionStatus,
   invalidateClientStatusRequest,
 } from "./client-status-requests.js";
+import { getFrameOrigin, getFramePostMessageTargetOrigin } from "./frame.js";
 
 export type { AuthSession };
 
@@ -70,6 +72,29 @@ function publishSessionIdentity(session: AuthSession | null): void {
   trackSessionStatus(Boolean(session));
 }
 
+function notifyParentAuthState(
+  status: "authenticated" | "unauthenticated",
+): void {
+  if (typeof window === "undefined" || window.parent === window) return;
+  // The frame-origin handshake validates the direct parent before this state
+  // crosses the frame boundary. Opaque sandbox frames still require "*".
+  if (!getFrameOrigin()) return;
+  const targetOrigin = getFramePostMessageTargetOrigin();
+  if (!targetOrigin) return;
+  try {
+    window.parent.postMessage(
+      {
+        type: "agentNative.authState",
+        data: { status },
+      },
+      targetOrigin,
+    );
+    // coercion-ok: Posting auth state is best-effort when an embedded host is being detached.
+  } catch {
+    // A host may revoke the frame while the session request is settling.
+  }
+}
+
 function invalidateSessionCache(): void {
   sessionGeneration += 1;
   cachedSession = undefined;
@@ -118,6 +143,9 @@ export function notifySessionInvalidated(): void {
 }
 
 function fetchSharedSession(): Promise<AuthSession | null | undefined> {
+  // A surface with no agent-native backend is genuinely signed out. `undefined`
+  // would read as "unavailable" and retry until it gave up with an error.
+  if (agentNativeApiDisabledReason()) return Promise.resolve(null);
   if (hasFreshSessionCache()) return Promise.resolve(cachedSession ?? null);
   if (sessionRequest) return sessionRequest;
 
@@ -211,6 +239,7 @@ export function useSession(): UseSessionResult {
       setSession(resolved);
       setError(null);
       setStatus(resolved ? "authenticated" : "unauthenticated");
+      notifyParentAuthState(resolved ? "authenticated" : "unauthenticated");
     };
 
     void resolveSession();

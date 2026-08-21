@@ -16,14 +16,22 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
 }));
 
 vi.mock("@agent-native/core/client/composer", () => ({
-  PromptComposer: ({ onSubmit }: { onSubmit: (value: string) => void }) => (
-    <button
-      type="button"
-      data-testid="prompt-submit"
-      onClick={() => onSubmit("Create a usage dashboard")}
-    >
-      submit
-    </button>
+  PromptComposer: ({
+    onSubmit,
+    layoutVariant,
+  }: {
+    onSubmit: (value: string) => void;
+    layoutVariant?: string;
+  }) => (
+    <div data-layout-variant={layoutVariant}>
+      <button
+        type="button"
+        data-testid="prompt-submit"
+        onClick={() => onSubmit("Create a usage dashboard")}
+      >
+        submit
+      </button>
+    </div>
   ),
 }));
 
@@ -82,5 +90,17 @@ describe("NewDashboardDialog", () => {
         reuseEmptyTab: true,
       }),
     );
+  });
+
+  it("uses the compact composer frame inside the popover", async () => {
+    await act(async () => {
+      root.render(<NewDashboardDialog />);
+    });
+
+    expect(
+      container
+        .querySelector("[data-layout-variant]")
+        ?.getAttribute("data-layout-variant"),
+    ).toBe("compact");
   });
 });

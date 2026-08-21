@@ -159,6 +159,13 @@ describe("observability routes", () => {
       expect(mockGetTraceSummary).toHaveBeenCalledWith("run-1", {
         userId: "alice@example.com",
       });
+      expect(mockInsertFeedback).toHaveBeenCalledWith(
+        expect.objectContaining({
+          feedbackType,
+          value: "must not be tracked",
+          userId: "alice@example.com",
+        }),
+      );
       expect(mockTrack).toHaveBeenCalledWith(
         "$ai_feedback",
         {
@@ -175,6 +182,7 @@ describe("observability routes", () => {
           $ai_trace_id: "run-1",
           $ai_session_id: "thread-1",
           $ai_model: "gpt-5.6-terra",
+          deployment_environment: "local",
         },
         { userId: "alice@example.com" },
       );
@@ -222,6 +230,13 @@ describe("observability routes", () => {
 
     await handler(createEvent("/feedback", "POST"));
 
+    expect(mockInsertFeedback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        feedbackType: "text",
+        value: "the answer cited the wrong doc",
+        userId: "alice@example.com",
+      }),
+    );
     expect(mockTrack).toHaveBeenCalledOnce();
     const [, properties] = mockTrack.mock.calls[0];
     expect(properties).toMatchObject({ feedback_type: "text" });
@@ -229,5 +244,20 @@ describe("observability routes", () => {
     // The first-party event stays content-free; the text itself is persisted
     // and, when a survey is configured, sent as the survey response.
     expect(JSON.stringify(properties)).not.toContain("wrong doc");
+  });
+
+  it("passes a feedback type filter through to the SQL-backed list", async () => {
+    const mockGetFeedback = vi.mocked((await import("./store.js")).getFeedback);
+    mockGetFeedback.mockResolvedValue([]);
+    const handler = createObservabilityHandler() as any;
+
+    await handler(createEvent("/feedback?feedbackType=text&limit=25"));
+
+    expect(mockGetFeedback).toHaveBeenCalledWith({
+      sinceMs: expect.any(Number),
+      limit: 25,
+      feedbackType: "text",
+      userId: "alice@example.com",
+    });
   });
 });

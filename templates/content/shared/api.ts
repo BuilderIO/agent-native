@@ -1,7 +1,6 @@
 import type { BlocksFieldIdentity } from "./blocks-field-identity";
 import type {
   DocumentPropertyOptions,
-  DocumentPropertyOption,
   DocumentPropertyType,
   DocumentPropertyValue,
   DocumentPropertyVisibility,
@@ -612,6 +611,28 @@ export interface ContentDatabaseSourceCapabilities {
   canUseLocalComponents?: boolean;
 }
 
+export interface ContentRepositoryIdentity {
+  localId: string;
+  providerBinding?: { provider: "github"; repositoryId: string };
+}
+
+export interface ContentWorkingCopyIdentity {
+  id: string;
+  repositoryId?: string;
+  kind: "persistent" | "temporary";
+  name: string;
+  branch?: string;
+  commit?: string;
+  deviceId: string;
+  localOnly: boolean;
+  shareable: boolean;
+}
+
+export interface ContentLocalSourceIdentity {
+  repository?: ContentRepositoryIdentity;
+  workingCopy: ContentWorkingCopyIdentity;
+}
+
 export interface ContentDatabaseSourceFieldMapping {
   id: string;
   propertyId: string | null;
@@ -782,6 +803,9 @@ export interface ContentDatabaseSource {
     connectionId?: string | null;
     connectionLabel?: string | null;
     truthPolicy?: ContentDatabaseSourceTruthPolicy;
+    syncPolicy?: "manual" | "keep_in_sync";
+    liveBridgeEnabled?: boolean;
+    localIdentity?: ContentLocalSourceIdentity;
     liveReadConfigured?: boolean;
     lastReadEntryCount?: number;
     lastReadMatchedRowCount?: number;
@@ -1077,11 +1101,31 @@ export interface ChangeContentDatabaseSourceRoleRequest {
 export interface ContentDatabaseSummary {
   databaseId: string;
   documentId: string;
+  spaceId: string | null;
   title: string;
+  description: string;
+}
+
+export interface ContentSystemCollectionSummary {
+  databaseId: string;
+  documentId: string;
+  title: string;
+  spaceId: string | null;
+  spaceName: string | null;
+  spaceKind: string | null;
+  systemRole: string;
+}
+
+export interface ContentDatabaseDescriptionResponse {
+  database: ContentDatabase;
+  contextPath: ContentContextPathEntry[];
+  properties: DocumentProperty[];
 }
 
 export interface ListContentDatabasesResponse {
   databases: ContentDatabaseSummary[];
+  pagination: DocumentDiscoveryPagination;
+  systemCollections?: ContentSystemCollectionSummary[];
 }
 
 export interface TrashedContentDatabaseSummary {

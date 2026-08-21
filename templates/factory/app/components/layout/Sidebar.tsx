@@ -17,6 +17,7 @@ import {
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
   IconGitPullRequest,
+  IconHierarchy2,
   IconMessageCircle,
   IconSearch,
   IconSettings,
@@ -45,6 +46,12 @@ const navItems = [
     labelKey: "navigation.triage",
     href: "/factory",
     view: "factory",
+  },
+  {
+    icon: IconHierarchy2,
+    labelKey: "navigation.agents",
+    href: "/agents",
+    view: "agents",
   },
 ];
 
@@ -437,7 +444,10 @@ export function Sidebar({
             const isActive =
               item.href === "/"
                 ? isChatRoute
-                : location.pathname.startsWith(item.href);
+                : item.href === "/factory"
+                  ? location.pathname === "/factory" ||
+                    location.pathname === "/new-factory"
+                  : location.pathname.startsWith(item.href);
             const link = (
               <Link
                 to={item.href}

@@ -39,10 +39,13 @@ export function registerBuiltinEngines(): void {
   _registered = true;
 
   // ── Builder.io managed gateway ─────────────────────────────────────────────
-  // Registered first so detectEngineFromEnv picks it when both Builder keys
-  // are set — Builder is the managed path we want everyone on long-term.
-  // Users who prefer BYO keys can opt out via AGENT_ENGINE_PREFER_BYO_KEY=true,
-  // which drops Builder to the fallback slot in detectEngineFromEnv.
+  // Registered first, so it wins whenever a customer configured Builder — the
+  // legacy key pair included. Two credential shapes select it: a user's own
+  // connection via that pair, or the deployment's Builder-credits token plus
+  // space id, which is the only lane an anonymous visitor on a hosted site has.
+  // Only the injected Builder-credits set is marked deployInjected, so it alone
+  // steps aside for a provider key the customer set (see selectDetectedEngine);
+  // users who prefer BYO everywhere can still set AGENT_ENGINE_PREFER_BYO_KEY.
   registerAgentEngine({
     name: "builder",
     label: "Builder.io Gateway",
@@ -52,6 +55,12 @@ export function registerBuiltinEngines(): void {
     defaultModel: BUILDER_DEFAULT_MODEL,
     supportedModels: BUILDER_SUPPORTED_MODELS,
     requiredEnvVars: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
+    alternateRequiredEnvVars: [
+      {
+        envVars: ["BUILDER_GATEWAY_TOKEN", "BUILDER_GATEWAY_SPACE_ID"],
+        deployInjected: true,
+      },
+    ],
     create: (config) => createBuilderEngine(config),
   });
 

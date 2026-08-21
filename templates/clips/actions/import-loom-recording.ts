@@ -1,5 +1,8 @@
 import { defineAction } from "@agent-native/core";
-import { writeAppState } from "@agent-native/core/application-state";
+import {
+  writeAppState,
+  writeAppStateForCurrentTab,
+} from "@agent-native/core/application-state";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { uploadFile } from "@agent-native/core/file-upload";
 import { buildDeepLink } from "@agent-native/core/server";
@@ -144,7 +147,7 @@ export default defineAction({
   description:
     "Import a public Loom share URL, or a direct link to a video file, into Clips as a playable recording. Loom links create the recording immediately and download/reupload Loom's public MP4 plus import Loom's public transcript in the background, since Loom's CDN plus a reupload can take longer than a single request should block on. Other direct video links (e.g. an MP4/WebM/MOV hosted by another screen recorder) are downloaded and reuploaded synchronously without transcript metadata — use request-transcript afterward. If storage is not connected, creates a waiting recording that can be retried after storage setup.",
   schema: ImportLoomRecordingSchema,
-  run: async (args) => {
+  run: async (args, actionContext) => {
     const loomId = extractLoomVideoId(args.url);
     const isLoom = Boolean(loomId);
     const loomShareUrl = isLoom ? normalizeLoomShareUrl(args.url) : null;
@@ -214,8 +217,10 @@ export default defineAction({
     const { organizationId } = await requireOrganizationAccess(
       existingRecording?.organizationId ?? args.organizationId,
     );
-    const defaultVisibility =
-      await getDefaultRecordingVisibility(organizationId);
+    const defaultVisibility = await getDefaultRecordingVisibility(
+      organizationId,
+      actionContext?.userEmail ?? ownerEmail,
+    );
 
     const now = new Date().toISOString();
     const id = existingRecording?.id ?? nanoid();
@@ -313,7 +318,10 @@ export default defineAction({
         updatedAt: now,
       });
       await writeAppState("refresh-signal", { ts: Date.now() });
-      await writeAppState("navigate", { view: "recording", recordingId: id });
+      await writeAppStateForCurrentTab("navigate", {
+        view: "recording",
+        recordingId: id,
+      });
 
       return {
         recordingId: id,
@@ -384,7 +392,10 @@ export default defineAction({
         updatedAt: now,
       });
       await writeAppState("refresh-signal", { ts: Date.now() });
-      await writeAppState("navigate", { view: "recording", recordingId: id });
+      await writeAppStateForCurrentTab("navigate", {
+        view: "recording",
+        recordingId: id,
+      });
 
       try {
         console.log("[import-loom-recording] dispatching loom-import job", {
@@ -538,7 +549,10 @@ export default defineAction({
       updatedAt: now,
     });
     await writeAppState("refresh-signal", { ts: Date.now() });
-    await writeAppState("navigate", { view: "recording", recordingId: id });
+    await writeAppStateForCurrentTab("navigate", {
+      view: "recording",
+      recordingId: id,
+    });
 
     return {
       recordingId: id,

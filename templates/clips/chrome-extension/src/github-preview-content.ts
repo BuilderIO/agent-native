@@ -1,13 +1,14 @@
-// GitHub Clips link previews. This is a narrow declarative content script for
-// github.com only; the recording overlay remains activeTab-injected.
-(function clipsGithubPreviewContent() {
-  const ROOT_CLASS = "clips-github-preview";
-  const PROCESSED_ATTR = "data-clips-github-preview";
+// Clips link previews for GitHub and Jira Cloud. The recording overlay remains
+// activeTab-injected so this content script only handles rendered issue text.
+(function clipsLinkPreviewContent() {
+  const ROOT_CLASS = "clips-link-preview";
+  const PROCESSED_ATTR = "data-clips-link-preview";
   const SOURCE_ATTR = "data-clips-source-url";
   const EXTENSION_ORIGIN = chrome.runtime.getURL("").replace(/\/$/, "");
   const CLIPS_HOSTS = new Set(["clips.agent-native.com"]);
   const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1"]);
   const ROUTE_SEGMENTS = new Set(["r", "share", "embed"]);
+  const JIRA_HOST_SUFFIXES = [".atlassian.net", ".jira.com"];
   const MIN_HEIGHT = 120;
   const MAX_HEIGHT = 720;
 
@@ -115,6 +116,34 @@
     );
   }
 
+  function isJiraPage(): boolean {
+    const hostname = location.hostname.toLowerCase();
+    return JIRA_HOST_SUFFIXES.some((suffix) => hostname.endsWith(suffix));
+  }
+
+  function isJiraIssueContentAnchor(anchor: HTMLAnchorElement): boolean {
+    if (anchor.closest(`.${ROOT_CLASS}`)) return false;
+    return Boolean(
+      anchor.closest(
+        [
+          '[data-testid="issue.views.issue-base.foundation.description.text"]',
+          '[data-testid^="issue.views.issue-base.foundation.description"]',
+          '[data-testid^="issue.views.issue-base.common.comment"]',
+          '[data-testid^="issue.views.issue-base.common.comments"]',
+          '[data-testid*="comment"]',
+          ".ak-renderer-document",
+          ".ak-renderer-document-container",
+        ].join(","),
+      ),
+    );
+  }
+
+  function isSupportedContentAnchor(anchor: HTMLAnchorElement): boolean {
+    return isJiraPage()
+      ? isJiraIssueContentAnchor(anchor)
+      : isGitHubMarkdownAnchor(anchor);
+  }
+
   function previewInsertionTarget(anchor: HTMLAnchorElement): HTMLElement {
     const block = anchor.closest(
       [
@@ -145,7 +174,7 @@
       return;
     }
 
-    const frameId = `clips-github-preview-${++frameCounter}`;
+    const frameId = `clips-link-preview-${++frameCounter}`;
     const wrapper = document.createElement("div");
     wrapper.className = ROOT_CLASS;
     wrapper.id = `${frameId}-wrapper`;
@@ -195,7 +224,7 @@
     for (const anchor of document.querySelectorAll<HTMLAnchorElement>(
       `a[href]:not([${PROCESSED_ATTR}])`,
     )) {
-      if (!isGitHubMarkdownAnchor(anchor)) continue;
+      if (!isSupportedContentAnchor(anchor)) continue;
       const link = parseClipsLink(anchor.href);
       if (!link) continue;
       mountPreview(anchor, link);
@@ -212,7 +241,7 @@
     const data = event.data as
       | { source?: string; frameId?: string; height?: number }
       | undefined;
-    if (data?.source !== "clips-github-preview") return;
+    if (data?.source !== "clips-link-preview") return;
     if (!data.frameId || typeof data.height !== "number") return;
     const frame = document.getElementById(data.frameId);
     if (!(frame instanceof HTMLIFrameElement)) return;

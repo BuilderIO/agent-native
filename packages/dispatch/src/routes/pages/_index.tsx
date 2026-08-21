@@ -1,4 +1,5 @@
 import { appPath } from "@agent-native/core/client/api-path";
+import { withSsrHtmlContentType } from "@agent-native/core/shared";
 import { redirect, type LoaderFunctionArgs } from "react-router";
 
 import { Spinner } from "../../components/ui/spinner";
@@ -40,11 +41,15 @@ function buildTarget(url: URL): string {
 }
 
 export function loader({ url }: LoaderFunctionArgs) {
-  throw redirect(buildTarget(url));
+  throw withSsrHtmlContentType(redirect(buildTarget(url)), {
+    varyByQuery: true,
+  });
 }
 
 export function clientLoader({ url }: LoaderFunctionArgs) {
-  throw redirect(buildTarget(url));
+  throw withSsrHtmlContentType(redirect(buildTarget(url)), {
+    varyByQuery: true,
+  });
 }
 
 export function HydrateFallback() {

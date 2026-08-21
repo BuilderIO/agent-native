@@ -1,406 +1,98 @@
 ---
 title: "Agent-Native क्या है?"
-description: "अधिकांश AI ऐप्स अधूरे क्यों लगते हैं, कोई ऐप सच में agent-native कब बनता है, और इसके परिणामस्वरूप आपका दैनिक अनुभव कैसा दिखता है।"
+description: "Agent-Native क्या है, इसकी shared action architecture कैसे काम करती है, और इस तरह ऐप कब बनाना चाहिए।"
 ---
 
 # Agent-Native क्या है?
 
-Agent-native सॉफ़्टवेयर बनाने का एक तरीका है जहाँ AI एजेंट और उसके चारों ओर का प्रोडक्ट सरफेस **बराबर के साझेदार** होते हैं। सामान्य रास्ता chat से शुरू होता है, typed actions जोड़ता है, inline structured results रेंडर करता है, और उसी SQL state के इर्द-गिर्द durable app pages में बढ़ता है। महत्वपूर्ण बात यह है कि agents और मनुष्य एक ही actions, database, और state साझा करते हैं।
-
-यदि आप इस पृष्ठ से एक ही बात याद रखते हैं, तो यह याद रखें: आज के अधिकांश AI ऐप्स उपयोगी होने से एक कदम पहले रुक जाते हैं, और यह अंतर अभी इस क्षेत्र की सबसे बड़ी गलती है।
-
-## यह एक उपयोगकर्ता के रूप में कैसा दिखता है {#what-it-looks-like}
-
-एक background worker, inbox, calendar, form builder, या analytics dashboard की कल्पना करें। अक्सर पहली स्क्रीन chat होती है: आप पूछते हैं कि आप क्या चाहते हैं, एजेंट setup में मार्गदर्शन करता है, एक table या chart दिखाता है, और सही app view खोलता है। कभी-कभी chat एक पूर्ण एप्लिकेशन के दाईं ओर docked होती है। कभी-कभी कोई custom screen नहीं होती क्योंकि workflow एक scheduled job, queue, script, या external-agent integration है। उन सभी रूपों में, आप कर सकते हैं:
-
-- **असली operation से शुरू करें।** एक durable action CLI, HTTP, MCP, A2A, app-agent loop, और बाद में एक UI से चल सकता है।
-- **जब UI हो तो सामान्यतः जो क्लिक करते हैं वह क्लिक करें।** सभी buttons, lists, dashboards, keyboard shortcuts — ये सभी वही operations call करते हैं जो agent call कर सकता है।
-- **या बस पूछें।** Agent में "reply to the email from Sara saying I'll be there by 3" टाइप करें। यह सही thread खोलता है, reply का draft बनाता है, और आपकी मंजूरी के लिए दिखाता है — बिल्कुल वैसे जैसे आपने खुद किया हो।
-- **देखें कि वह क्या देखता है।** एक email खोलें, और agent को पता चलता है कि कौन सी। एक chart चुनें, और agent को पता चलता है कि कौन सा। एक paragraph हाइलाइट करें और Cmd+I दबाएं, और agent केवल उस paragraph पर कार्य करता है।
-- **इसे काम करते देखें।** जैसे agent काम करता है — views खोलता है, drafts संपादित करता है, reports चलाता है — UI real time में अपडेट होता है। आप इसे रोक सकते हैं, redirect कर सकते हैं, या किसी भी क्षण mouse से संभाल सकते हैं।
-- **इसे एक teammate की तरह steer करें।** Feedback दें, दूसरा task queue करें, इसके instructions संपादित करें, और ऑडिट करें कि इसने कल क्या किया।
-
-यही वह अनुभव है जिसके लिए agent-native डिज़ाइन किया गया है। अब यहाँ बताते हैं कि अधिकांश products वहाँ तक क्यों नहीं पहुँचते।
-
-## अधिकांश "AI ऐप्स" क्यों कम पड़ते हैं (The Ladder Principle) {#the-ladder}
-
-अधिकांश teams एक progression चढ़ती हैं, जैसे एक सीढ़ी, और अधिकांश एक पायदान बहुत जल्दी रुक जाती हैं।
-
-### पायदान 1 — एक single LLM call (anti-pattern) {#rung-one}
-
-एक text box एक prompt भेजता है, AI एक string वापस करता है, और आप उसे display करते हैं। शायद spinner के साथ। उपयोगकर्ता के लिए course-correct करने का कोई तरीका नहीं, AI के लिए action लेने का कोई तरीका नहीं, यह देखने का कोई तरीका नहीं कि क्या हुआ या क्यों।
-
-आप इसे हर जगह देखते हैं: "AI features" जो मूल रूप से एक SaaS product पर bolted "Summarize" button हैं। वे demos में प्रभावशाली लगते हैं और उस क्षण टूट जाते हैं जब वास्तविकता जटिल हो जाती है। यह product नहीं है; यह एक toy है।
-
-### पायदान 2 — tools के साथ एक chat {#rung-two}
-
-अब AI _काम कर सकता है_। इसके पास tools हैं — "draft email," "search contacts," "run query" — और एक chat interface जहाँ यह आपके सामने काम करता है, जैसे-जैसे चलता है tool calls और results दिखाता है। Claude, ChatGPT, और Cursor hood के नीचे ऐसे ही दिखते हैं।
-
-यह एक real कदम आगे है। लेकिन अपने आप में, यह अभी भी एक chat window है। कोई proper UI नहीं। कोई dashboards नहीं, कोई lists नहीं, कोई forms नहीं, कोई keyboard shortcuts नहीं, कोई team collaboration नहीं। यदि AI confused हो जाता है, तो आप सही button क्लिक करने के बजाय retyping में फंसे रहते हैं। Non-developers इस format में real काम करने में संघर्ष करते हैं।
-
-### पायदान 3 — agent + UI बराबर के साझेदार के रूप में {#rung-three}
-
-यही agent-native है। आप agent के चारों ओर एक real, full-featured app जोड़ते हैं — और महत्वपूर्ण रूप से, agent जो भी action ले सकता है, वह UI में एक button भी है, और user जो भी button क्लिक करता है, वह वही logic चलाता है जो agent उपयोग करता है। एक implementation, दो तरीके से प्रवेश।
-
-पायदान 3 तक पहुँचने पर तीन चीजें बदलती हैं:
-
-- **आपने chatbot में buttons जोड़ना बंद कर दिया। आपने एक app में agent जोड़ा।** यह दोनों तरफ से बहुत उच्च-गुणवत्ता का product है।
-- **Agent के पास real context है।** यह देखता है कि आप क्या देख रहे हैं, आपने क्या select किया है, आपने अभी क्या किया। यह उसी database में लिखता है जिससे UI पढ़ता है, इसलिए इसका काम तुरंत दिखता है।
-- **बाहरी agents भी इसका उपयोग कर सकते हैं।** अन्य agent-native apps [A2A protocol](/docs/a2a-protocol) के माध्यम से इसके actions call कर सकते हैं। Claude Code, Codex, ChatGPT custom MCP apps, Cursor, और अन्य MCP hosts इसे [MCP server](/docs/mcp-protocol) के रूप में drive कर सकते हैं। एक app, कई entry points।
-
-यही पायदान 3 है। यही agent-native है।
-
-<Diagram id="doc-block-19ku4da" title="The Ladder Principle" summary={"अधिकांश teams पायदान 1 या 2 पर रुक जाती हैं। Agent-native पायदान 3 है — एक shared action surface पर एक real app और एक real agent।"}>
-
-```html
-<div class="diagram-ladder">
-  <div class="diagram-card rung rung-3">
-    <span class="diagram-pill accent">पायदान 3 · agent-native</span
-    ><strong>Agent + UI बराबर के साझेदार के रूप में</strong
-    ><small class="diagram-muted"
-      >एक action surface। हर agent tool एक button भी है; हर button वही logic
-      चलाता है जो agent उपयोग करता है।</small
-    >
-  </div>
-  <div class="diagram-card rung rung-2">
-    <span class="diagram-pill">पायदान 2</span
-    ><strong>Tools के साथ एक chat</strong
-    ><small class="diagram-muted"
-      >Agent कार्य कर सकता है — लेकिन यह अभी भी केवल एक chat window है। कोई
-      dashboards, lists, या shortcuts नहीं।</small
-    >
-  </div>
-  <div class="diagram-card rung rung-1">
-    <span class="diagram-pill warn">पायदान 1</span
-    ><strong>एक single LLM call</strong
-    ><small class="diagram-muted"
-      >Prompt in, string out। Demo में प्रभावशाली; वास्तविकता जटिल होते ही टूट
-      जाता है।</small
-    >
-  </div>
-</div>
-```
-
-```css
-.diagram-ladder {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-.diagram-ladder .rung {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 16px 18px;
-}
-.diagram-ladder .rung-2 {
-  margin-inline-end: 48px;
-}
-.diagram-ladder .rung-1 {
-  margin-inline-end: 96px;
-}
-```
-
-</Diagram>
-
-देखें [Key Concepts — Protocols](/docs/key-concepts#protocols) यह जानने के लिए कि यह सब एक ही action definition से कैसे जुड़ा है।
-
-## हर agent को UI की आवश्यकता क्यों है {#why-every-agent-needs-a-ui}
-
-यहाँ तक कि जब agent सारा भारी काम करता है, मनुष्यों को अभी भी ज़रूरत होती है:
-
-- **देखना कि यह क्या कर रहा है** — progress, intermediate output, इसने क्या छुआ
-- **इसे steer करना** — feedback देना, interrupt करना, अगला task queue करना
-- **इसे manage करना** — इसके instructions, skills, memory, scheduled jobs, connected accounts संपादित करना
-- **इसके काम का निरीक्षण करना** — drafts की समीक्षा करना, audit history, गलतियाँ वापस करना
-- **इसका output share करना** — dashboards, reports, forms, teammates को भेजने के links
-
-न्यूनतम रूप से, "agent के लिए एक UI" एक observability और management dashboard है। अधिकतम रूप से, यह एक full SaaS app है जिसमें agent co-pilot के रूप में embedded है। दोनों सिरे agent-native हैं, और surface एक से बिना rewrite के बढ़ सकता है।
-
-आपको हर surface को पहले से चुनने की ज़रूरत नहीं है। Agent rich chat में शुरू हो सकता है, native inline UI render कर सकता है, एक full application के अंदर रह सकता है, या एक ही action surface के आसपास automation और external-agent channels से चल सकता है — concrete shapes और APIs के लिए [Agent Surfaces](/docs/agent-surfaces) देखें।
-
-## हर app को agent से लाभ क्यों होता है {#why-every-app-benefits-from-an-agent}
-
-दूसरा पहलू भी उतना ही महत्वपूर्ण है। मौजूदा SaaS products एक ही दीवार से टकराते रहते हैं: आपको जो 80% चाहिए वह बढ़िया काम करता है, और 20% आप बस बदल नहीं सकते। एक chat sidebar जोड़ना शायद ही इसे ठीक करता है — chat आमतौर पर वास्तव में वे काम _नहीं कर सकती_ जो UI कर सकता है।
-
-Agent-native इसे पलट देता है। क्योंकि app का हर action एक बार defined होता है और button और agent tool दोनों के रूप में expose होता है, agent बिना एक अलग "AI world" को maintain किए — वह सब कर सकता है जो buttons कर सकते हैं — और अधिक भी। Natural language clicks के साथ-साथ एक first-class input बन जाती है।
-
-तर्क यह नहीं है कि "agents UI की जगह लें।" यह है: "**agents applications के अंदर होने चाहिए, ऊपर UI के साथ, बराबर के साझेदार के रूप में।**" यहाँ तक कि automation-first app को भी मनुष्यों के लिए supervise, configure, और steer करने के लिए कुछ surface की ज़रूरत होती है — आमतौर पर chat, job history, या एक छोटा status page। देखें [Agent Surfaces — Automation-first app](/docs/agent-surfaces#headless)।
-
-## Agent + UI parity {#agent-ui-parity}
-
-यह defining principle है।
-
-- **UI से** — buttons क्लिक करें, forms भरें, views navigate करें। UI database में लिखता है; agent results देखता है।
-- **Agent से** — natural language, A2A के माध्यम से अन्य agents, Slack, Telegram। Agent database में लिखता है; UI स्वचालित रूप से अपडेट होता है।
-
-एक अच्छा mental model है एक shared state machine। User surface और agent
-surface दोनों typed actions submit करते हैं; वे actions reducer events की तरह व्यवहार करते हैं जिनके चारों ओर
-एक schema और permission boundary होती है: input validate करें, actor authorize करें,
-state update apply करें, फिर result broadcast/render करें। UI ज़्यादातर
-उस resulting state का projection है। Agent DOM से अनुमान नहीं लगा रहा या
-private component state को directly mutate नहीं कर रहा; यह उसी typed
-action layer के माध्यम से interact करता है जो UI उपयोग करता है।
-
-<Diagram id="doc-block-1n18itc" title="Shared state machine" summary={"User और agent दोनों typed actions submit करते हैं। Actions validate, authorize, SQL-backed state update apply करते हैं, फिर नई state broadcast/render करते हैं।"}>
-
-```html
-<div class="diagram-machine">
-  <div class="diagram-card surface user" data-rough>
-    <span class="diagram-pill">User surface</span>
-    <div class="diagram-node diagram-accent">
-      Design tab खोलें<br /><small class="diagram-muted">navigate.panel</small>
-    </div>
-    <div class="diagram-node">
-      Text block जोड़ें<br /><small class="diagram-muted">plan.addBlock</small>
-    </div>
-    <div class="diagram-node">
-      Summary हटाएं<br /><small class="diagram-muted">plan.removeBlock</small>
-    </div>
-  </div>
-  <div class="core">
-    <div class="lane-row">
-      <span class="diagram-pill">intent -&gt; action</span
-      ><span class="diagram-pill">action &lt;- intent</span>
-    </div>
-    <div class="diagram-panel action" data-rough>
-      <span class="diagram-pill accent">Typed action</span
-      ><strong>navigate</strong
-      ><small class="diagram-muted"
-        >actor: user या agent &middot; input: panel = Design</small
-      >
-      <div class="steps">
-        <span class="diagram-pill">validate</span
-        ><span class="diagram-pill">authorize</span
-        ><span class="diagram-pill">update apply करें</span>
-      </div>
-    </div>
-    <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
-    <div class="diagram-panel state" data-rough>
-      <span class="diagram-pill ok">Shared state</span
-      ><strong>SQL + app state</strong
-      ><code>{ panel: "Design", lastActor: "user" }</code
-      ><small class="diagram-muted">live sync के माध्यम से broadcast</small>
-    </div>
-    <div class="lane-row bottom">
-      <span class="diagram-pill ok">state -&gt; UI</span
-      ><span class="diagram-pill ok">context -&gt; agent</span>
-    </div>
-  </div>
-  <div class="diagram-card surface agent" data-rough>
-    <span class="diagram-pill">Agent surface</span>
-    <div class="diagram-node">
-      Diagram block जोड़ें<br /><small class="diagram-muted"
-        >plan.addBlock</small
-      >
-    </div>
-    <div class="diagram-node">
-      पुराना block हटाएं<br /><small class="diagram-muted"
-        >plan.removeBlock</small
-      >
-    </div>
-    <div class="diagram-node diagram-accent">
-      Review view focus करें<br /><small class="diagram-muted"
-        >navigate.review</small
-      >
-    </div>
-  </div>
-</div>
-```
-
-```css
-.diagram-machine {
-  display: grid;
-  grid-template-columns: minmax(150px, 1fr) minmax(300px, 1.45fr) minmax(
-      150px,
-      1fr
-    );
-  gap: 12px;
-  align-items: stretch;
-}
-.diagram-machine .surface {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 14px;
-}
-.diagram-machine .surface .diagram-pill {
-  align-self: flex-start;
-}
-.diagram-machine .diagram-node {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 10px 12px;
-}
-.diagram-machine .core {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 8px;
-  min-width: 0;
-}
-.diagram-machine .lane-row {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.diagram-machine .lane-row.bottom {
-  justify-content: center;
-}
-.diagram-machine .diagram-arrow {
-  font-size: 22px;
-  line-height: 1;
-  text-align: center;
-}
-.diagram-machine .diagram-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-width: 0;
-  padding: 14px;
-}
-.diagram-machine .steps {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-.diagram-machine code {
-  align-self: flex-start;
-  max-width: 100%;
-  white-space: normal;
-}
-@media (max-width: 760px) {
-  .diagram-machine {
-    grid-template-columns: 1fr;
-  }
-  .diagram-machine .lane-row {
-    justify-content: flex-start;
-  }
-  .diagram-machine .lane-row.bottom {
-    justify-content: flex-start;
-  }
-}
-```
-
-</Diagram>
-
-जब agent एक draft email बनाता है, तो वह UI में दिखता है। जब आप "Send" क्लिक करते हैं, तो agent को पता चलता है कि यह भेज दिया गया। कोई अलग "agent world" और "UI world" नहीं है — यह एक system है। इसे काम करने वाली architecture के लिए [Key Concepts](/docs/key-concepts) देखें।
-
-## Customization जो आमतौर पर power tools के लिए reserved है {#workspace-customization}
-
-Claude Code जैसे tools इतने powerful क्यों लगते हैं इसका कारण model नहीं है — यह **customization layer** है: per-project instructions, skills, memory, sub-agents, connected services। आप agent को अपने codebase, अपनी preferences, अपनी team के अनुसार shape कर सकते हैं।
-
-Agent-native हर user को वही customization layer देता है — app छोड़े बिना। हर app personal **agent resources** के साथ आता है जिन्हें आप (या आपकी team का कोई भी) उपयोग कर सकते हैं:
-
-- Team-wide rules संपादित करें जो सभी के agent पढ़ते हैं
-- Agent को आपकी preferences automatically याद रखने दें जैसे-जैसे आप इसे correct करते हैं
-- Reusable how-to guides को `/slash` commands के रूप में लिखें
-- विशिष्ट कार्यों के लिए custom sub-agents रखें (`@mentions` के साथ invoke)
-- Cron पर चलने के लिए jobs schedule करें (जैसे "हर सोमवार सुबह, पिछले सप्ताह का सारांश करें")
-- Per-user MCP servers के माध्यम से external services (Gmail, Stripe, Slack, internal APIs) connect करें
-
-मोड़ यह है: यह सब filesystem में नहीं, database में stored है। कोई dev environment spin up नहीं करना, कोई container per user नहीं। हर user को agent resources का अपना full set मिलता है — personal memory, personal connections, personal skills — essentially मुफ़्त में, क्योंकि यह सब एक table में rows हैं। यही Claude-Code-level flexibility को real multi-tenant SaaS product के अंदर viable बनाता है।
-
-पूर्ण concept के लिए [Agent Resources](/docs/agent-resources) देखें।
-
-## यह अलग क्या बनाता है {#what-makes-it-different}
-
-| Approach                               | विवरण                                                                                                                                             |
-| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **AI bolted on वाले Traditional apps** | AI एक afterthought है। Autocomplete, summaries, या एक chat sidebar तक सीमित जो app में कुछ भी नहीं कर सकती।                                       |
-| **Pure chat / agent interfaces**       | Powerful लेकिन inaccessible। कोई dashboards नहीं, कोई workflows नहीं, कोई persistence नहीं। Non-developers इन्हें effectively उपयोग नहीं कर सकते। |
-| **SaaS के लिए Claude Code / Codex**    | Devs के लिए अपनी machines पर बढ़िया। Multi-tenant SaaS में translate नहीं होता — dev-box पर प्रति user एक codebase scale नहीं होता।               |
-| **Agent-native apps**                  | Agent एक first-class citizen है। यह वही database, वही state साझा करता है, और वह सब कर सकता है जो UI कर सकता है — और इसके विपरीत भी।               |
-
-## पूरी team का development {#whole-team-development}
-
-Agent-native केवल developers के लिए नहीं है। Embedded agent पूरी team को app operate करने का एक shared तरीका देता है, जबकि source-code changes app के normal development workflow का हिस्सा रहते हैं और एक frame को जो intentionally workspace और write tooling granted हो उसे delegate किए जा सकते हैं:
-
-- **Designers** agent के माध्यम से directly app data और workflows अपडेट करते हैं
-- **Product managers** workflows configure करते हैं और development team के लिए बदलाव describe करते हैं
-- **QA** app test करता है और agent के माध्यम से broken चीज़ें report करता है
-- **Team का कोई भी व्यक्ति** natural language के माध्यम से contribute करता है
-
-दृष्टिकोण: कम handoffs, एक व्यक्ति एक छोटी team का काम करता है।
-
-## Template से शुरू करें और customize करें {#fork-and-customize}
-
-Agent-native apps एक start-from-a-working-app model का पालन करते हैं। आप एक **template** से शुरू करते हैं — Calendar, Content, Slides, Analytics, Mail, Clips, Design, Forms, Dispatch — और इसे अपना बनाते हैं। हर एक एक complete, working SaaS product है, न कि blank scaffold:
-
-1. [agent-native.com/templates](/templates) पर एक template चुनें
-2. कई first-party templates hosted apps के रूप में उपलब्ध हैं (जैसे mail.agent-native.com)
-3. जब customize करना हो तो template से अपना app बनाएं — "हमारा Stripe account connect करें," "एक cohort chart जोड़ें"
-4. अपने repository और development workflow में source customize करें
-5. अपना app अपने domain पर deploy करें — या agent-native.com पर रहें
-
-क्योंकि यह _आपका_ app है, shared infrastructure नहीं, आप इसके source के मालिक हैं और shared framework को बदले बिना इसे evolve कर सकते हैं। Embedded agent deployed app को default रूप से इसके actions और data surface के माध्यम से operate करता है, और जब इसके frame को explicitly code-enabled किया जाए तो source modify कर सकता है। पूरी story के लिए [Templates](/docs/cloneable-saas) देखें।
-
-पूरे template से शुरू करने के लिए तैयार नहीं हैं? आप agent-native को एक **skill** जोड़कर एक coding agent में भी try कर सकते हैं जो आप पहले से उपयोग करते हैं — `npx @agent-native/core@latest skills add visual-plan` के साथ Plans skill install करें। [Skills Guide](/docs/skills-guide#app-backed-skills) देखें।
-
-## Composable agents {#composable-agents}
-
-Agent-native apps एक दूसरे से बात कर सकते हैं। Mail app के अंदर से, आप analytics agent को data query करने और एक draft email में result शामिल करने के लिए tag कर सकते हैं। Agents discover करते हैं कि कौन से अन्य agents उपलब्ध हैं, एक दूसरे के बीच काम hand off करते हैं, और results उस UI में surface करते हैं जिसमें आप पहले से हैं।
-
-यह hood के नीचे [A2A](/docs/a2a-protocol) और [MCP](/docs/mcp-protocol) द्वारा powered है — same definition, multiple surfaces — लेकिन एक user के रूप में, आपको बस यह जानना है कि "मैं किसी भी चीज़ के साथ मदद के लिए अपने किसी भी app से पूछ सकता हूँ जो उनमें से कोई भी कर सकता है।"
-
-## Code में यह कैसा दिखता है? {#what-does-it-look-like-in-code}
-
-यदि आप एक agent-native app build या extend कर रहे हैं, तो यहाँ central pattern है: app का हर operation एक **action** है — एक बार defined, agent और UI दोनों के लिए available।
-
-<AnnotatedCode
-  id="doc-block-n4jy5o"
-  title="One action, defined once"
-  filename="actions/reply-to-email.ts"
-  language="ts"
-  code={
-    'import { defineAction } from "@agent-native/core/action";\nimport { z } from "zod";\n\nimport { getDb, schema } from "../server/db/index.js";\n\nexport default defineAction({\n  description: "Reply to an email thread",\n  schema: z.object({ emailId: z.string(), body: z.string() }),\n  run: async ({ emailId, body }) => {\n    const db = getDb();\n    await db.insert(schema.replies).values({ emailId, body });\n  },\n});'
-  }
-  annotations={[
-    {
-      lines: "7",
-      label: "Tool surface",
-      note: "`description` वह है जो agent पढ़ता है यह decide करने के लिए कि इसे tool के रूप में कब call करना है।",
-    },
-    {
-      lines: "8",
-      label: "Typed contract",
-      note: "एक zod `schema` **हर** surface से input validate करता है — agent, UI, HTTP, MCP, और A2A।",
-    },
-    {
-      lines: "9-12",
-      label: "One implementation",
-      note: "`run` body single source of truth है। UI button और agent tool दोनों exactly यही execute करते हैं। `getDb()` और `schema` आपके app के `server/db/index.ts` से आते हैं — [Database](/docs/database) देखें।",
-    },
-  ]}
+Agent-Native एक open-source TypeScript framework है, जो ऐसे ऐप बनाने के लिए है
+जो लोगों और AI agents, दोनों को सेवा देते हैं। आप अपने ऐप की functionality एक बार
+[actions](/docs/actions-overview)—typed functions के रूप में define करते हैं, जिन्हें
+आपका React UI code से call करता है और agents tools के रूप में उपयोग करते हैं।
+
+## ऐप्स इस तरह क्यों बनाएं
+
+अधिकांश applications किसी व्यक्ति के UI के जरिए काम करने के लिए design की जाती हैं।
+Agent जोड़ने से product उपयोग करने का एक और तरीका आता है। दोनों को एक product की तरह
+काम करने के लिए तीन बातें सही होनी चाहिए:
+
+- **Agent को product तक access चाहिए।** अगर उसे छोटा, अलग tool set मिले, तो वह सीमित
+  रहता है। साथ ही, application बदलने पर अलग-अलग होने वाले दो implementations बनाए रखने पड़ते हैं।
+- **लोगों को फिर भी application UI चाहिए।** Chat से काम delegate करना अच्छा होता है,
+  लेकिन information browse करने, options compare करने, changes review करने या team के साथ
+  results share करने के लिए हमेशा नहीं।
+- **काम को दोनों के बीच move होना चाहिए।** व्यक्ति को agent के काम को inspect या change
+  करने में सक्षम होना चाहिए, और agent को वहीं से फिर काम जारी रखने में—बिना फिर से शुरू किए।
+
+Agent-Native architecture इन्हीं requirements के इर्द-गिर्द बनाई गई है। लोग UI में सीधे
+काम कर सकते हैं या agent को outcome delegate कर सकते हैं, फिर progress खोए बिना दोनों
+के बीच move कर सकते हैं।
+
+<Video
+  src="https://cdn.builder.io/o/assets%2Fc5b47d20f6a943e485717e5895739988%2Fc88d506c160142ae9b8618616ceedcea%2Fcompressed?apiKey=c5b47d20f6a943e485717e5895739988&token=c88d506c160142ae9b8618616ceedcea&alt=media&optimized=true"
+  alt="एक ही application में कोई व्यक्ति सीधे काम कर रहा है और AI agent के जरिए काम कर रहा है—इसकी तुलना।"
+  align="full"
+  caption="Agent-Native architecture का चार मिनट का परिचय देखें।"
 />
 
-```tsx
-// किसी भी React component में — same action, एक button से call
-const { mutate } = useActionMutation("reply-to-email");
+## Agent-Native कैसे काम करता है
 
-<Button onClick={() => mutate({ emailId, body: "Thanks!" })}>
-  Send Reply
-</Button>;
+Agent-Native application लोगों और agents को एक ही product के साथ काम करने के दो तरीके देता है:
+
+- **UI** लोगों को work browse, edit, review और share करने का परिचित तरीका देता है।
+- **Agent** लोगों द्वारा delegate किया गया काम संभालता है।
+
+तीन shared foundations इसे संभव बनाते हैं:
+
+- **Shared operations.** लोग इन्हें UI से trigger करते हैं, जबकि agents इन्हें सीधे call करते हैं।
+  Agent-Native हर operation को एक बार [action](/docs/actions-overview) के रूप में define करता है।
+- **[Shared data](/docs/server-database)** उस work और information को रखता है जिसे application को preserve करना होता है।
+  Application के अनुसार यह customer records, project plans, conversations या reports हो सकते हैं। UI और agent दोनों इस shared data को read और update करते हैं।
+- **[Shared application state](/docs/context-awareness)** बताता है कि इस समय क्या हो रहा है, जैसे current page,
+  selected record या active view। Framework relevant state को context के रूप में agent को देता है, ताकि उसे पता रहे कि व्यक्ति किस पर काम कर रहा है।
+
+```mermaid
+graph TD
+  UI[UI] --> App[एक application]
+  Agent[Agent] --> App
+  App --- Operations[Shared operations]
+  App --- Data[Shared data]
+  App --- State[Shared application state]
 ```
 
-```tsx
-// और agent panel आपके app में कहीं भी mounted
-import { AgentSidebar } from "@agent-native/core/client/agent-chat";
-<AgentSidebar />;
-```
+Agent UI में click करके काम नहीं करता। वह UI के समान actions को उसी validation, permissions और
+implementation के साथ call करता है।
 
-एक action, कई surfaces: agent इसे tool के रूप में call करता है, UI इसे typesafe mutation के रूप में call करता है, [native chat](/docs/native-chat-ui) explicit widget results render कर सकता है, external agents [A2A](/docs/a2a-protocol) के माध्यम से इसे reach करते हैं, और MCP hosts app के [MCP server](/docs/mcp-protocol) के माध्यम से इसे call करते हैं, वैकल्पिक रूप से framework द्वारा handled MCP Apps UI resources और standard remote MCP OAuth के साथ। पूर्ण reference के लिए [Actions](/docs/actions) देखें।
+उदाहरण के लिए, कोई व्यक्ति UI से support ticket assign कर सकता है या agent से ऐसा करने को कह सकता है।
+दोनों paths एक ही action चलाते हैं और उसी ticket को update करते हैं। व्यक्ति UI में result inspect या change
+कर सकता है, फिर agent को वहीं से काम जारी रखने दे सकता है।
 
-## आगे क्या है {#whats-next}
+## Agent-Native का उपयोग कब करना चाहिए?
 
-- [**Getting Started**](/docs/getting-started) — chat से शुरू करें, एक action जोड़ें, एक native result render करें, और एक page में बढ़ें
-- [**Agent Surfaces**](/docs/agent-surfaces) — chat, native inline UI, full app pages, embedded sidecar, automation, या external agent access चुनें
-- [**Key Concepts**](/docs/key-concepts) — architecture: SQL, actions, polling sync, context awareness, portability
-- [**Templates**](/docs/cloneable-saas) — templates complete products के रूप में जिनके आप मालिक हैं
-- [**Agent Resources**](/docs/agent-resources) — per-user customization layer (skills, memory, instructions, MCP) SQL द्वारा backed, files से नहीं
-- [**Dispatch**](/docs/dispatch) — workspace control plane: secrets vault, Slack/email inbox, cross-app delegation
-- [**Extensions**](/docs/extensions) — sandboxed mini-apps जो agent बिना code changes के instantly बनाता है
-- [**Drop-in Agent**](/docs/drop-in-agent) — किसी भी React app में `<AgentPanel>` mount करें
-- [**FAQ**](/docs/faq) — cost, hosting, models, और templates पर quick answers
+Agent-Native तब अच्छा fit है जब:
+
+- Agent को ऐप में असली काम करना हो, केवल सवालों के जवाब नहीं देने हों।
+- लोगों को काम inspect, edit, approve या share करने के लिए UI चाहिए।
+- UI और agent के बीच काम को progress या context खोए बिना move होना चाहिए।
+
+अगर केवल एक generated response चाहिए, तो सीधे model को call करें। अगर workflow fixed और predictable
+sequence का पालन करता है, तो सामान्य application logic या automation सरल है। Agent-Native तब उपयोग करें
+जब UI और agent दोनों को एक ही work में लगातार भूमिका चाहिए।
+
+## अगले कदम
+
+<Cards>
+
+### [शुरुआत करें](/docs/getting-started)
+
+ऐप बनाएं और उसी action को agent और UI से call करें।
+
+### [मुख्य अवधारणाएं](/docs/key-concepts)
+
+जानें कि actions, SQL data, application context, access और live sync साथ में कैसे काम करते हैं।
+
+### [Agent Surfaces](/docs/agent-surfaces)
+
+देखें कि यही model UI, chat, automation या दूसरे agent द्वारा चलाए जाने वाले apps को कैसे support करता है।
+
+</Cards>

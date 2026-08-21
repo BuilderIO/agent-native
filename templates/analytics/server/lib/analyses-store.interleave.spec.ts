@@ -126,6 +126,10 @@ vi.mock("drizzle-orm", () => ({
   desc: (column: unknown) => ({ kind: "desc", column }),
   isNull: (column: unknown) => ({ kind: "isNull", column }),
   isNotNull: (column: unknown) => ({ kind: "isNotNull", column }),
+  sql: (strings: TemplateStringsArray, ...values: unknown[]) => ({
+    strings,
+    values,
+  }),
 }));
 
 vi.mock("@agent-native/core/server", () => ({
@@ -133,7 +137,7 @@ vi.mock("@agent-native/core/server", () => ({
 }));
 
 vi.mock("@agent-native/core/settings", () => ({
-  getAllSettings: async () => ({}),
+  listSettingsByPrefix: async () => [],
   getOrgSetting: async () => null,
   getUserSetting: async () => null,
   deleteOrgSetting: async () => undefined,

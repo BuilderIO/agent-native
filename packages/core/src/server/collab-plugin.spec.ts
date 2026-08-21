@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createCollabPlugin, normalizeCollabAccess } from "./collab-plugin.js";
+import {
+  createCollabPlugin,
+  normalizeCollabAccess,
+  selectUnseededCollabRows,
+} from "./collab-plugin.js";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -120,5 +124,27 @@ describe("createCollabPlugin access warning", () => {
     });
 
     expect(warn).not.toHaveBeenCalled();
+  });
+});
+
+describe("selectUnseededCollabRows", () => {
+  it("filters using mapped collab ids and batches duplicate mappings", () => {
+    const rows = [
+      { id: "one", config: "first" },
+      { id: "two", config: "second" },
+      { id: "three", config: "third" },
+    ];
+
+    expect(
+      selectUnseededCollabRows(
+        rows,
+        "id",
+        new Set(["dash-one"]),
+        (sourceId) => `dash-${sourceId}`,
+      ),
+    ).toEqual([
+      { row: rows[1], docId: "dash-two" },
+      { row: rows[2], docId: "dash-three" },
+    ]);
   });
 });

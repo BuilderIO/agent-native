@@ -69,6 +69,21 @@ export interface DesktopComputerMcpBridgeOptions {
   browserExtensionPath?: () => string | undefined;
   token?: () => string;
   leaseTtlMs?: number;
+  openContentWorkingCopy?: (input: {
+    runId: string;
+    folder: string;
+    name: string;
+  }) => {
+    id: string;
+    name: string;
+    kind: "temporary";
+    repository?: {
+      localId: string;
+      branch?: string;
+      commit?: string;
+      detached?: boolean;
+    };
+  };
 }
 
 /**
@@ -280,6 +295,39 @@ export class DesktopComputerMcpBridge {
   }
 
   private registerTools(mcp: McpServer): void {
+    if (this.options.openContentWorkingCopy) {
+      mcp.registerTool(
+        "content_open_local_working_copy",
+        {
+          description:
+            "Open the exact local folder as a named temporary Content working copy. The folder remains device-local and is never checked out or changed by this tool.",
+          inputSchema: {
+            folder: z.string().min(1),
+            name: z.string().trim().min(1),
+          },
+          annotations: {
+            readOnlyHint: false,
+            destructiveHint: false,
+            idempotentHint: true,
+            openWorldHint: false,
+          },
+        },
+        async ({ folder, name }) => {
+          if (this.context().connector) {
+            throw new Error(
+              "Opening local Content working copies is unavailable to remote connectors.",
+            );
+          }
+          return this.textResult(
+            this.options.openContentWorkingCopy!({
+              runId: this.context().runId,
+              folder,
+              name,
+            }),
+          );
+        },
+      );
+    }
     mcp.registerTool(
       "computer_status",
       {
@@ -708,6 +756,28 @@ export class DesktopComputerMcpBridge {
       },
     );
     mcp.registerTool(
+      "browser_open_tab",
+      {
+        description:
+          "Open a new Chrome tab in the background within the exact origin assigned when this task attached the tab, then control that new tab without focusing Chrome.",
+        inputSchema: { url: z.string().max(16_384) },
+        annotations: { readOnlyHint: false, openWorldHint: true },
+      },
+      async ({ url }) => {
+        const context = this.assertBrowserContext();
+        const parsed = new URL(url);
+        if (parsed.origin !== context.browserOrigin) {
+          throw new Error("New tabs cannot leave the attached origin.");
+        }
+        const result = await this.browserExecute(context, {
+          type: "open-tab",
+          url: parsed.toString(),
+        });
+        context.browserObservationId = undefined;
+        return this.textResult(result);
+      },
+    );
+    mcp.registerTool(
       "browser_scroll",
       {
         description: "Scroll the attached Chrome tab.",
@@ -892,6 +962,11 @@ export class DesktopComputerMcpBridge {
       case "browser.navigate":
         return bridge.execute(registration, {
           type: "navigate",
+          url: String(input.url ?? ""),
+        });
+      case "browser.open-tab":
+        return bridge.execute(registration, {
+          type: "open-tab",
           url: String(input.url ?? ""),
         });
       case "browser.scroll":

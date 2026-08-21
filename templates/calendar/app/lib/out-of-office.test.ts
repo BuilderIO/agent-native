@@ -63,6 +63,24 @@ describe("out-of-office display", () => {
     );
   });
 
+  it("uses the pinned timezone for a DST-crossing visible segment", () => {
+    expect(
+      getOutOfOfficeSegment(
+        {
+          start: "2026-03-08T06:30:00.000Z",
+          end: "2026-03-08T08:30:00.000Z",
+        },
+        new Date(2026, 2, 8, 12),
+        "America/New_York",
+      ),
+    ).toEqual({
+      topMinutes: 90,
+      durationMinutes: 180,
+      startsOnDay: true,
+      endsOnDay: true,
+    });
+  });
+
   it("keeps partial-day and ordinary midnight events out of the all-day lane", () => {
     expect(
       isFullDayOutOfOfficeEvent({

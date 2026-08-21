@@ -1,6 +1,7 @@
 import { defineBlock } from "@agent-native/core/blocks";
 import type { BlockReadProps } from "@agent-native/core/blocks";
 
+import { BuilderImage } from "../builder-image";
 import { imageSchema, imageMdx, type ImageData } from "./image.config";
 import { MediaFrame } from "./media-layout";
 
@@ -16,7 +17,13 @@ export function ImageBlock({ data, ctx }: BlockReadProps<ImageData>) {
       text={data.text}
       ctx={ctx}
       media={
-        <img src={data.src} alt={data.alt} loading="lazy" decoding="async" />
+        <BuilderImage
+          src={data.src}
+          alt={data.alt}
+          width={data.width}
+          loading="lazy"
+          decoding="async"
+        />
       }
       expandable
     />

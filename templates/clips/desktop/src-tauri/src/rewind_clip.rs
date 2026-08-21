@@ -186,6 +186,7 @@ pub(crate) fn rewind_clip_prepare(
                 include_system_audio,
                 has_camera,
                 true,
+                crate::config::feature_config(&app).voice_cleanup_enabled && include_mic,
             ) {
                 shared_sink.cancel();
                 release_temporary_audio(&app, temporary_audio);
@@ -1129,6 +1130,7 @@ fn materialize(
                 include_system_audio,
                 has_camera,
                 true,
+                false,
             )?;
         }
         native_screen::materialize_mp4_slices_exact(&slices, &output, audio)?;
@@ -1220,6 +1222,7 @@ pub(crate) async fn rewind_clip_stop_and_upload(
                         include_mic,
                         include_system_audio,
                         has_camera,
+                        crate::config::feature_config(&app).voice_cleanup_enabled && include_mic,
                         Some(&error),
                     )
                     .err();
@@ -1251,6 +1254,7 @@ pub(crate) async fn rewind_clip_stop_and_upload(
                 include_mic,
                 include_system_audio,
                 has_camera,
+                crate::config::feature_config(&app).voice_cleanup_enabled && include_mic,
                 None,
             ) {
                 sink.cancel_upload();
@@ -1278,6 +1282,7 @@ pub(crate) async fn rewind_clip_stop_and_upload(
                         include_mic,
                         include_system_audio,
                         has_camera,
+                        crate::config::feature_config(&app).voice_cleanup_enabled && include_mic,
                         Some(&error),
                     );
                     native_screen::emit_native_upload_finished(
@@ -1343,6 +1348,7 @@ pub(crate) async fn rewind_clip_stop_and_upload(
         include_mic,
         include_system_audio,
         has_camera,
+        artifact.audio_cleanup_applied,
         None,
     )?;
     let recovery_server_url = server_url.clone();
@@ -1380,6 +1386,7 @@ pub(crate) async fn rewind_clip_stop_and_upload(
                 include_mic,
                 include_system_audio,
                 has_camera,
+                artifact.audio_cleanup_applied,
                 Some(error),
             );
         }

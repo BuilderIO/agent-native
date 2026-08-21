@@ -14,9 +14,9 @@ metadata:
 
 Steve runs many Claude Code and Codex sessions against this one checkout on
 purpose, often on the same branch or file. Default assumption on every task:
-any uncommitted change you did not make is a peer's live, in-progress work —
-not clutter, not a mistake, not yours to clean up, revert, or "tidy" away.
-Modified or untracked files you don't recognize are this repo's normal state.
+the working tree is shared branch state. Read existing changes before editing
+them, and never reset, clean, stash, or overwrite local work without explicit
+authorization.
 
 ## Read before you edit
 
@@ -53,52 +53,25 @@ or a fresh branch. That guard is what took unrequested branch creation from a
 recurring complaint to zero; read it before any branch operation instead of
 assuming a prohibition still lives at the tool layer.
 
-## Timing the next branch around in-flight peers
+## Timing the next branch
 
-Unrequested branch creation is solved; the residual risk now is timing.
-Cutting a fresh branch right after your own merge, while other agents are
-still mid-flight on the branch you're about to leave, strands their
-uncommitted work just as surely as an unrequested branch move would. Before
-running `/new-branch`, even on an explicit request, check who else is still
-using the current branch:
+Before running `/new-branch`, even on an explicit request, confirm that the
+current branch has been fully checkpointed and inspect the active worktrees:
 
 ```bash
-git status --short                          # uncommitted changes here — yours or a peer's
-ls -la .claude/leases/ 2>/dev/null           # fresh (<15 min) leases = a session actively editing
-ls .claude/worktrees/ 2>/dev/null            # peers working this branch from a separate worktree
+git status --short
+ls .claude/worktrees/ 2>/dev/null
 gh pr list --head "$(git branch --show-current)" --state open
 ```
 
-If any of those show live activity, say so and confirm with the user before
-moving off the branch — don't assume a merge landing means everyone else is
-done with it too.
-
-## File leases
-
-`scripts/hooks/file-lease.mjs` claims a file on every edit and denies the next
-write when another live session leased it in the last 15 minutes, or the file
-changed on disk since your session last wrote it. Both mean stop and look, not
-force through: work a different file, or re-read it and build on the landed
-change before writing again. If it's genuinely your file being taken back,
-say so in your response after re-reading.
-
-It only covers writes made through this hook: a Codex peer or a plain human
-edit leaves no lease, and it can't see a collision that reaches the same file
-through any other path. Treat it as a backstop for the Claude-Code case, not a
-substitute for "read before you edit" above. Confirm it's actually wired before
-relying on it — a documented hook and a registered one are different things:
-
-```bash
-grep -l file-lease .claude/settings.json 2>/dev/null || echo "not registered"
-```
+Run `corepack pnpm ship:push` for any nonignored changes before moving to the
+next branch. Do not leave local work behind during branch rotation.
 
 ## Before you ship
 
-Assume another agent may already be committing, pushing, or opening a PR for
-the same fix — "stop shipping, another agent is doing that right now" is a
-real recurring collision. Before you commit, push, or merge, check `git log
---oneline -5`, `git status`, and `gh pr list --head <branch>` for a PR someone
-already opened. If the work you were about to do just landed, say so and stop.
+Before you commit, push, or merge, check `git log --oneline -5`, `git status`,
+and `gh pr list --head <branch>` for the current PR. If the work you were
+about to do just landed, continue from the latest branch snapshot.
 
 ## Reading a Codex peer's intent
 
@@ -117,4 +90,4 @@ a peer's task without interrupting it or the user.
 
 - `new-branch` — the one workflow allowed to move branches, only on explicit
   `/new-branch` invocation.
-- `ship` — the commit/push/PR workflow; check for an in-flight peer first.
+- `ship` — the commit/push/PR workflow for the complete branch snapshot.

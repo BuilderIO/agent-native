@@ -6,6 +6,11 @@ const messages = {
     ...messagesByLocale["ar-SA"].designEditor,
     commenterRoleLabel: "معلّق",
     commenterRoleDescription: "يمكنه العرض وإضافة تعليقات المراجعة",
+    toasts: {
+      ...messagesByLocale["ar-SA"].designEditor.toasts,
+      pdfExportError: "تعذر تصدير PDF",
+      pdfDownloaded: "تم تنزيل PDF",
+    },
     nodeRewrite: {
       composerTitle: "اسأل عن التحديد أو غيّره",
       send: "إرسال",

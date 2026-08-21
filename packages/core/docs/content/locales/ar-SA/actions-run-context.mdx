@@ -1,0 +1,180 @@
+---
+title: "سياق التشغيل"
+description: "الوسيطة الثانية ctx الممرَّرة إلى run(): توقيع ActionRunContext الكامل واتحاد caller، للتتبع، وإسناد الأتمتة، والاهتمامات المتقاطعة."
+---
+
+# سياق التشغيل
+
+تستقبل `run` وسيطة ثانية اختيارية، `ctx`، تحمل هوية الطلب المحلولة والسطح الذي استدعى الـ action. اقرأها بدلاً من استدعاء `getRequestUserEmail()` / `getRequestOrgId()` يدويًا، ومرّر `ctx` بأكملها إلى التتبع:
+
+```ts
+export default defineAction({
+  description: "Log an audit entry for the current request.",
+  schema: z.object({ event: z.string() }),
+  run: async (args, ctx) => {
+    // ctx is undefined-safe: a 1-arg `run(args)` is still valid.
+    const actor = ctx?.userEmail ?? "system";
+    if (ctx?.caller === "frontend") {
+      // tighter rules for browser-initiated calls, looser for "tool"/"cli"
+    }
+    await db.insert(audit).values({
+      actor,
+      orgId: ctx?.orgId ?? null,
+      source: ctx?.caller ?? "unknown",
+      event: args.event,
+    });
+    return { ok: true };
+  },
+});
+```
+
+لا تقرأ معظم actions سوى `ctx?.userEmail` و`ctx?.orgId`، وهو [نطاق التحكم في الوصول](/docs/actions-access-control#access-control) المستخدم في كل action حقيقي تقريبًا. تغطي بقية هذه الصفحة اهتمامات متقاطعة مثل التتبع وإسناد الأتمتة، وهو ما تحتاجه actions أقل.
+
+## وسيطة `ctx` {#ctx}
+
+تحمل `ctx` نوعين من المعلومات: هوية الطلب المحلولة (`userEmail`، و`orgId`) الموجودة في كل استدعاء تقريبًا، وبيانات وصفية عن السطح الذي استدعى الـ action (`caller`، بالإضافة إلى حقول خاصة بالسطح مثل `threadId` أو `automation` لا تُملأ إلا لبعض المستدعين). الشكل الكامل، كوسيطة ثانية لـ `run()`:
+
+<Signature
+  id="doc-block-actions-run-context-1"
+  name="run"
+  params={[
+    {
+      name: "args",
+      type: "TInput",
+      description: "المدخل الذي تم التحقق من صحته، والمحلَّل من `schema`.",
+    },
+    {
+      name: "ctx",
+      type: "ActionRunContext",
+      optional: true,
+      description:
+        "هوية الطلب المحلولة والسطح الذي استدعى الـ action. آمنة عند عدم التعريف: يظل معالج `run(args)` بوسيطة واحدة صالحًا.",
+      fields: [
+        {
+          name: "userEmail",
+          type: "string",
+          optional: true,
+          description:
+            "مستخدم الطلب المحلول. **لا يُضبط أبدًا افتراضيًا على هوية تطوير**: يكون `undefined` عندما لا يحمل الطلب مستخدمًا مصادَقًا عليه. طبّق احتياطيًا خاصًا بك إذا احتجت إلى ذلك.",
+        },
+        {
+          name: "orgId",
+          type: "string | null",
+          description:
+            "معرف المؤسسة المحلول، أو `null` عندما لا يحمل الطلب مؤسسة.",
+        },
+        {
+          name: "caller",
+          type: "ActionCaller",
+          description:
+            "كيف تم استدعاء الـ action. راجع [اتحاد caller](#caller) أدناه.",
+        },
+        {
+          name: "send",
+          type: "(event) => void",
+          optional: true,
+          description:
+            'يُصدر حدث SSE إلى العميل. موجود فقط داخل حلقة أداة الوكيل (`caller: "tool"`). `undefined` في أي مكان آخر.',
+        },
+        {
+          name: "attachments",
+          type: "AgentChatAttachment[]",
+          optional: true,
+          description:
+            'الملفات والصور وكتل النص الملصقة المُرسَلة مع دور الوكيل الحالي. تُملأ فقط عندما تكون `caller: "tool"`. `undefined` على كل الأسطح الأخرى.',
+        },
+        {
+          name: "signal",
+          type: "AbortSignal",
+          optional: true,
+          description:
+            'يُلغي عندما تنتهي مهلة التشغيل بشكل ناعم، أو يُلغى، أو يُغلق الخادم. تُملأ فقط عندما تكون `caller: "tool"`. يمكن لـ actions الطويلة التشغيل مراقبتها للإلغاء مبكرًا بدلاً من انتظار المهلة الصارمة البالغة 60 ثانية لكل أداة.',
+        },
+        {
+          name: "actionName",
+          type: "string",
+          optional: true,
+          description:
+            "مفتاح السجل لـ action المستدعى (مثل `delete-recording`)، يُضبط عند كل موقع إرسال بحيث يمكن للاهتمامات المتقاطعة مثل سجل التدقيق إسناد الاستدعاء. `undefined` لاستدعاءات `run()` البرمجية المباشرة التي تتجاوز المُرسِل.",
+        },
+        {
+          name: "threadId",
+          type: "string",
+          optional: true,
+          description:
+            'مسار محادثة الوكيل الذي أطلق هذا الاستدعاء. تُملأ فقط عندما تكون `caller: "tool"`، بحيث يمكن لسجل التدقيق ربط تغيير بتشغيل الوكيل الدقيق.',
+        },
+        {
+          name: "runId",
+          type: "string",
+          optional: true,
+          description:
+            'محاولة تشغيل الوكيل التي أطلقت هذا الاستدعاء. تُملأ فقط عندما تكون `caller: "tool"`.',
+        },
+        {
+          name: "turnId",
+          type: "string",
+          optional: true,
+          description:
+            'الدور المحدد ضمن ذلك التشغيل الذي أطلق هذا الاستدعاء. تُملأ فقط عندما تكون `caller: "tool"`.',
+        },
+        {
+          name: "automation",
+          type: "ActionAutomationContext",
+          optional: true,
+          description:
+            'موجودة فقط عندما تكون `caller: "automation"`. تحمل `triggerId` و`triggerName` و`policyId` اختياريًا لأتمتة الحدث المُشغِّل التي أرسلت هذا الاستدعاء.',
+        },
+        {
+          name: "networkProtocol",
+          type: '"a2a" | "mcp" | "provider-api"',
+          optional: true,
+          description:
+            "بروتوكول الاستدعاء المفوَّض الذي وصل عبره هذا الطلب. يُضبط فقط لمسارات الإرسال المباشر تلك.",
+        },
+        {
+          name: "networkId",
+          type: "string",
+          optional: true,
+          description:
+            "معرف ربط لذلك الاستدعاء المفوَّض، مثل معرف JWT الخاص بتفويض A2A.",
+        },
+        {
+          name: "networkPeer",
+          type: "string",
+          optional: true,
+          description: "هوية النظير المستدعي لذلك الاستدعاء المفوَّض.",
+        },
+      ],
+    },
+  ]}
+  returns={{
+    type: "Promise<TReturn> | TReturn",
+    description:
+      "نتيجة الـ action، بعد التحقق من صحتها مقابل `outputSchema` إذا كانت مضبوطة.",
+  }}
+/>
+
+تبقى `run()` متوافقة مع الإصدارات السابقة: تستمر المعالجات الحالية بوسيطة واحدة، والمعالجات التي تُفكِّك `{ send }` فقط، في العمل دون تغيير.
+
+### اتحاد `caller` {#caller}
+
+`caller` هو الاتحاد `"tool" | "http" | "frontend" | "cli" | "mcp" | "a2a" | "automation"`:
+
+| `caller`       | يُضبط عندما...                                                                                                                                                          |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `"tool"`       | حلقة الوكيل داخل التطبيق، أو وكيل فرعي أو فريق وكلاء، أو تفويض A2A بلغة طبيعية عبر التطبيقات، والذي يشغّل حلقة الوكيل نفسها، لذا فإن استدعاءات أدواته هي `"tool"`.      |
+| `"frontend"`   | استدعاء من المتصفح عبر `useActionMutation()` أو `useActionQuery()` أو `callAction()` (مُعلَّم برأس `X-Agent-Native-Frontend: 1`).                                       |
+| `"http"`       | طلب `POST` أو `GET` برمجي مجرد إلى `/_agent-native/actions/<name>` دون علامة الواجهة الأمامية.                                                                          |
+| `"cli"`        | `pnpm action <name>` (مُشغِّل CLI).                                                                                                                                     |
+| `"mcp"`        | وكيل خارجي عبر نقطة نهاية `tools/call` الخاصة بـ MCP.                                                                                                                   |
+| `"a2a"`        | استدعاء HTTP مباشر إلى `/_agent-native/actions/<name>` يحمل رمز تفويض A2A موقَّعًا. هذا إرسال مكشوف صراحة وعبر التطبيقات، مختلف عن مسار `"tool"` باللغة الطبيعية أعلاه. |
+| `"automation"` | أتمتة مُشغَّلة بحدث تم إرسالها من مشغِّل مخزَّن في مساحة العمل. تحمل `ctx.automation` سلسلة نسب المشغِّل. راجع [الأتمتة](/docs/automations).                            |
+
+## ما هي الخطوة التالية
+
+- [**الوصول والتخويل**](/docs/actions-access-control) — نمط تحديد النطاق `ctx.userEmail`/`ctx.orgId` الذي يتيحه هذا السياق
+- [**تعريف Actions**](/docs/actions-defining) — تشريح `defineAction()` وإعداد HTTP
+- [**أسطح أخرى**](/docs/actions-other-surfaces) — كيف تضبط استدعاءات CLI وA2A وMCP والأتمتة قيمة `caller`
+- [**سجل التدقيق**](/docs/audit-log) — كيف تربط `threadId`/`runId`/`turnId` تغييرًا بتشغيل الوكيل الخاص به
+- [**الأتمتة**](/docs/automations) — سلسلة نسب المشغِّل في `ctx.automation`

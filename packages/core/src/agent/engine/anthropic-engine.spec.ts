@@ -525,7 +525,7 @@ describe("createAnthropicEngine", () => {
     const events = await collectEvents(engine.stream(opts));
     const stopEvent = events.find((e) => e.type === "stop");
     expect(stopEvent?.reason).toBe("error");
-    expect(stopEvent?.error).toContain("Manage agent > LLM");
+    expect(stopEvent?.error).toContain("Settings > Agent > AI providers");
     expect(stopEvent?.error).not.toContain("ANTHROPIC_API_KEY");
     expect(stopEvent?.errorCode).toBe("missing_credentials");
   });
@@ -915,5 +915,53 @@ describe("createAnthropicEngine streamed tool-input reconciliation", () => {
         input,
       },
     ]);
+  });
+
+  it("omits temperature when the request carries thinking", async () => {
+    // Reproduces the Observational Memory compaction 400: the caller asked
+    // only for temperature: 0, and the engine's default High effort turned
+    // thinking on underneath it.
+    const requestParams = await captureRequestParams({
+      model: "claude-sonnet-5",
+      systemPrompt: "You are helpful.",
+      messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      tools: [],
+      abortSignal: new AbortController().signal,
+      temperature: 0,
+    });
+
+    expect(requestParams.thinking).toEqual({ type: "adaptive" });
+    expect(requestParams.temperature).toBeUndefined();
+    expect("temperature" in requestParams).toBe(false);
+  });
+
+  it("keeps temperature when thinking is off and the model still accepts it", async () => {
+    const requestParams = await captureRequestParams({
+      model: "claude-haiku-4-5-20251001",
+      systemPrompt: "You are helpful.",
+      messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      tools: [],
+      abortSignal: new AbortController().signal,
+      temperature: 0,
+      reasoningEffort: "none",
+    });
+
+    expect(requestParams.thinking).toBeUndefined();
+    expect(requestParams.temperature).toBe(0);
+  });
+
+  it("omits temperature on models that dropped the sampling parameters", async () => {
+    const requestParams = await captureRequestParams({
+      model: "claude-opus-4-8",
+      systemPrompt: "You are helpful.",
+      messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      tools: [],
+      abortSignal: new AbortController().signal,
+      temperature: 0,
+      reasoningEffort: "none",
+    });
+
+    expect(requestParams.thinking).toBeUndefined();
+    expect("temperature" in requestParams).toBe(false);
   });
 });

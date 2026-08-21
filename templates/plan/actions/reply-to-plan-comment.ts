@@ -33,7 +33,7 @@ import {
 
 export default defineAction({
   description:
-    "Append a reply to an existing comment thread on an Agent-Native Plan. Call this when you want to respond to reviewer feedback in-thread, acknowledge a comment, or answer a question pinned to the plan. Requires an authenticated account; anonymous viewers cannot reply.",
+    "Append a reply to an existing comment thread on an Agent-Native Plan. Reply text supports inline Markdown for emphasis, inline code, links, and line breaks; headings are flattened. Call this when you want to respond to reviewer feedback in-thread, acknowledge a comment, or answer a question pinned to the plan. Requires an authenticated account; anonymous viewers cannot reply.",
   schema: z.object({
     planId: z.string().describe("Plan ID"),
     commentId: z
@@ -41,7 +41,12 @@ export default defineAction({
       .describe(
         "ID of the parent (thread-root) comment to reply to. Use get-plan-feedback to obtain comment IDs.",
       ),
-    body: z.string().min(1).describe("Reply message text"),
+    body: z
+      .string()
+      .min(1)
+      .describe(
+        "Reply message text with optional inline Markdown; no headings",
+      ),
     resolutionTarget: planCommentResolutionTargetSchema
       .optional()
       .describe(

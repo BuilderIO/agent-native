@@ -5,7 +5,7 @@ description: "app/ 用来读取、写入数据，并与代理调用的同一批 
 
 # 数据与同步
 
-从客户端应用读取和写入应用数据的主要方式是通过 [action](/docs/actions) 钩子。通过将请求封装进 actions，您的客户端和代理都能以相同的方式与应用交互。
+从客户端应用读取和写入应用数据的主要方式是通过 [action](/docs/actions-overview) 钩子。通过将请求封装进 actions，您的客户端和代理都能以相同的方式与应用交互。
 
 在下面的示例中，一个工单先通过下拉菜单手动分配给当前用户，然后再通过聊天代理分配。UI 和代理访问的是同一个 action。
 
@@ -423,7 +423,7 @@ function App() {
 
 - [**概览**](/docs/client-overview) — 本页这些钩子所在的 `app/` 与 `public/` 目录布局
 - [**Agent 聊天**](/docs/client-agent-chat) — 向代理发送提示并暂存上下文
-- [**Actions**](/docs/actions) — 本页每个钩子背后的 `defineAction` 界面
+- [**Actions**](/docs/actions-overview) — 本页每个钩子背后的 `defineAction` 界面
 - [**高级**](/docs/client-advanced) — 直接访问 `application_state`
 - [**同步内部机制**](/docs/client-sync-internals) — 使用 `useChangeVersion` 同步原始 `useQuery`
 - [**实时同步**](/docs/key-concepts#polling-sync) — `useDbSync` 如何让 UI 保持最新

@@ -92,7 +92,7 @@ describe("listInboxEmails", () => {
     if (!result.ok) throw new Error("expected ok result");
     expect(result.emails.map((e) => e.id)).toEqual(["m2", "m1"]);
     expect(listGmailMessages).toHaveBeenCalledWith(
-      "in:inbox -in:sent",
+      "in:inbox",
       50,
       OWNER,
       undefined,

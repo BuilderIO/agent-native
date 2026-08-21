@@ -111,6 +111,8 @@ pub struct FeatureConfig {
     pub clips_enabled: bool,
     pub meetings_enabled: bool,
     pub voice_enabled: bool,
+    #[serde(default = "default_voice_cleanup_enabled")]
+    pub voice_cleanup_enabled: bool,
     #[serde(default = "default_launch_at_login_enabled")]
     pub launch_at_login_enabled: bool,
     #[serde(default)]
@@ -132,7 +134,6 @@ pub struct FeatureConfig {
     pub region_guides: RegionGuidesConfig,
     #[serde(default)]
     pub screen_memory: ScreenMemoryConfig,
-    pub onboarding_complete: bool,
     #[serde(default = "default_whisper_model_enabled")]
     pub whisper_model_enabled: bool,
     #[serde(default = "default_whisper_model_id")]
@@ -157,6 +158,10 @@ pub enum LocalRecordingMode {
 }
 
 fn default_launch_at_login_enabled() -> bool {
+    true
+}
+
+fn default_voice_cleanup_enabled() -> bool {
     true
 }
 
@@ -223,6 +228,7 @@ impl Default for FeatureConfig {
             clips_enabled: true,
             meetings_enabled: true,
             voice_enabled: true,
+            voice_cleanup_enabled: default_voice_cleanup_enabled(),
             launch_at_login_enabled: true,
             auto_hide_popover_enabled: false,
             meeting_transcription_mode: default_meeting_transcription_mode(),
@@ -231,7 +237,6 @@ impl Default for FeatureConfig {
             show_in_screen_capture: false,
             region_guides: RegionGuidesConfig::default(),
             screen_memory: ScreenMemoryConfig::default(),
-            onboarding_complete: false,
             whisper_model_enabled: default_whisper_model_enabled(),
             whisper_model_id: default_whisper_model_id(),
         }
@@ -430,12 +435,12 @@ mod tests {
         let config: FeatureConfig = serde_json::from_value(serde_json::json!({
             "clipsEnabled": true,
             "meetingsEnabled": true,
-            "voiceEnabled": true,
-            "onboardingComplete": true
+            "voiceEnabled": true
         }))
         .unwrap();
 
         assert_eq!(config.whisper_model_id, "base");
+        assert!(config.voice_cleanup_enabled);
     }
 
     #[test]

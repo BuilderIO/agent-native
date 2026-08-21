@@ -1,0 +1,273 @@
+---
+title: "تعريف Actions"
+description: "تشريح defineAction(): المخطط، وrun، وإعداد HTTP، بالإضافة إلى كيفية إبقاء سطح actions صغيرًا."
+---
+
+# تعريف Actions
+
+يبدأ كل action باستدعاء `defineAction()`. فهو يجمع وصفًا للوكيل، ومخططًا يتحقق من صحة المدخلات، ودالة `run` تقوم بالعمل الفعلي، بحيث تستدعي واجهة المستخدم والوكيل الكود نفسه تمامًا.
+
+<AnnotatedCode
+  id="doc-block-actions-defining-1"
+  title="تشريح action"
+  filename="actions/reply-to-email.ts"
+  language="ts"
+  code={
+    'import { defineAction } from "@agent-native/core/action";\nimport { z } from "zod";\n\nimport { getDb, schema } from "../server/db/index.js";\n\nexport default defineAction({\n  description: "Reply to an email thread in the user\'s voice.",\n  schema: z.object({\n    emailId: z.string().describe("The id of the email to reply to."),\n    body: z.string().describe("The reply body, in markdown."),\n  }),\n  run: async ({ emailId, body }) => {\n    const db = getDb();\n    await db.insert(schema.replies).values({ emailId, body });\n    return { ok: true, emailId };\n  },\n});'
+  }
+  annotations={[
+    {
+      lines: "7",
+      label: "سطح الأداة",
+      note: "`description` هو ما يقرأه الوكيل ليقرر متى يستدعي هذا. تتدفق استدعاءات `.describe()` لكل حقل إلى JSON Schema أيضًا.",
+    },
+    {
+      lines: "8-11",
+      label: "عقد محدد الأنواع",
+      note: "يتحقق مخطط واحد من صحة المدخلات من **كل** سطح، ويُحوَّل إلى JSON Schema للنموذج. لا تصل المدخلات غير الصالحة أبدًا إلى `run`.",
+    },
+    {
+      lines: "12-16",
+      label: "تطبيق واحد",
+      note: "جسم `run` هو المصدر الوحيد للحقيقة. ينفّذ كل من زر واجهة المستخدم وأداة الوكيل هذا الجسم بالضبط. يأتي `getDb()` و`schema` من `server/db/index.ts` الخاص بتطبيقك. راجع [قاعدة البيانات](/docs/server-database).",
+    },
+  ]}
+/>
+
+يكتشف إطار العمل تلقائيًا كل ملف في `actions/` ويركّبه عند بدء التشغيل. لا يوجد شيء آخر يجب تسجيله يدويًا.
+
+<Signature
+  id="doc-block-actions-defining-2"
+  name="defineAction"
+  params={[
+    {
+      name: "config",
+      type: "DefineActionConfig<TSchema, TReturn, TOutputSchema>",
+      description:
+        "كل ما يلي هو كائن تكوين واحد. description وschema وrun فقط مطلوبة.",
+      fields: [
+        {
+          name: "description",
+          type: "string",
+          description: "ما يقرأه الوكيل ليقرر متى يستدعي هذا الـ action.",
+        },
+        {
+          name: "schema",
+          type: "StandardSchemaV1",
+          description:
+            "يتحقق من صحة المدخلات على كل سطح. راجع خيارات المخطط أدناه.",
+        },
+        {
+          name: "run",
+          type: "(args, ctx?) => Promise<TReturn> | TReturn",
+          description:
+            "التطبيق الوحيد الذي يستدعيه كل سطح. راجع سياق التشغيل لمعرفة وسيطة ctx.",
+        },
+        {
+          name: "http",
+          type: "ActionHttpConfig | false",
+          optional: true,
+          description:
+            "يتجاوز طريقة/مسار التركيب، أو يعطّل نقطة نهاية HTTP بالكامل. راجع إعداد HTTP أدناه.",
+        },
+        {
+          name: "readOnly",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description:
+            "يصبح صحيحًا تلقائيًا عندما تكون http.method هي GET. يتخطى إعادة تحديث الاستقصاء الخاصة بواجهة المستخدم وتدقيق الكتابة. ليس تحكمًا في الوصول.",
+        },
+        {
+          name: "outputSchema",
+          type: "StandardSchemaV1",
+          optional: true,
+          description:
+            "يتحقق من صحة ما تُرجعه run(). راجع التحقق من صحة القيمة المرجعة أدناه.",
+        },
+        {
+          name: "outputErrorStrategy",
+          type: '"warn" | "strict" | "fallback"',
+          optional: true,
+          default: '"warn"',
+          description: "ما الذي يحدث عند عدم تطابق الإخراج.",
+        },
+        {
+          name: "outputFallback",
+          type: "TReturn",
+          optional: true,
+          description:
+            'تُرجَع بدلاً من نتيجة غير صالحة عندما تكون outputErrorStrategy هي "fallback".',
+        },
+        {
+          name: "parallelSafe",
+          type: "boolean",
+          optional: true,
+          description:
+            "يسمح لـ action يغيّر البيانات بالعمل بالتزامن مع استدعاءات أدوات أخرى في الدور نفسه.",
+        },
+        {
+          name: "agentTool",
+          type: "boolean",
+          optional: true,
+          default: "true",
+          description:
+            "اضبطه على false لإخفائه عن كل قائمة أدوات الوكيل. راجع الوصول والتخويل.",
+        },
+        {
+          name: "toolCallable",
+          type: "boolean",
+          optional: true,
+          default: "true",
+          description:
+            "اضبطه على false لحظر جسر iframe المعزول الخاص بالامتداد. راجع الوصول والتخويل.",
+        },
+        {
+          name: "publicAgent",
+          type: "PublicAgentActionConfig",
+          optional: true,
+          description:
+            "{ expose: true } يضيف الـ action إلى أسطح MCP/A2A/OpenAPI العامة. راجع الوصول والتخويل.",
+        },
+        {
+          name: "needsApproval",
+          type: "boolean | ((args, ctx?) => boolean | Promise<boolean>)",
+          optional: true,
+          default: "false",
+          description:
+            "يوقف حلقة الوكيل مؤقتًا لانتظار موافقة الإنسان قبل run(). راجع موافقات الإنسان في الحلقة.",
+        },
+        {
+          name: "authorize",
+          type: "ActionAuthorize<TInput>",
+          optional: true,
+          description:
+            "دالة حارسة تقرر ما إذا كان يجوز لهذا المستدعي تشغيل الـ action أصلًا. راجع الوصول والتخويل.",
+        },
+        {
+          name: "audit",
+          type: "ActionAuditConfig",
+          optional: true,
+          description:
+            "يضبط التقاط التدقيق التلقائي الذي يحصل عليه بالفعل كل action يغيّر البيانات. راجع سجل التدقيق.",
+        },
+        {
+          name: "chatUI",
+          type: "ActionChatUIConfig",
+          optional: true,
+          description:
+            "يعلن عن عارض واجهة محادثة أصلية لنتيجة الـ action. راجع أسطح أخرى.",
+        },
+      ],
+    },
+  ]}
+  returns={{
+    type: "ActionDefinition<TInput, TReturn>",
+    description: "تعريف action محدد الأنواع. صدّره كتصدير افتراضي للملف.",
+  }}
+/>
+
+## خيارات المخطط {#schemas}
+
+يقبل `schema` أي مكتبة متوافقة مع [Standard Schema](https://standardschema.dev):
+
+- **Zod** (v4): الخيار الأكثر شيوعًا، مع أفضل استنتاج للأنواع وتحويل تلقائي إلى JSON Schema.
+- **Valibot**: خيار جيد عندما يهم حجم الحزمة.
+- **ArkType**: خيار جيد إذا كنت تفضّل صيغته.
+
+يقوم المخطط بمهمتين. يحوّل إلى JSON Schema لتعريف أداة Claude API، ويتحقق من صحة المدخلات في وقت التشغيل قبل إطلاق `run()`. لا تصل المدخلات غير الصالحة أبدًا إلى المعالج الخاص بك.
+
+## التحقق من صحة القيمة المرجعة {#output-schema}
+
+يتحقق `schema` من صحة _المدخلات_. للتحقق أيضًا مما **تُرجعه** action، مرّر `outputSchema` (أي مخطط متوافق مع Standard Schema: Zod، أو Valibot، أو ArkType، السطح نفسه المستخدم في `schema`). يتحقق إطار العمل من صحة المدخل قبل `run()` ومن صحة النتيجة بعد أن يُحلّ `run()`.
+
+```ts
+export default defineAction({
+  description: "Summarize a thread.",
+  schema: z.object({ threadId: z.string() }),
+  outputSchema: z.object({
+    summary: z.string(),
+    messageCount: z.number(),
+  }),
+  outputErrorStrategy: "warn", // default
+  run: async ({ threadId }) => {
+    /* ...returns { summary, messageCount } ... */
+  },
+});
+```
+
+`outputErrorStrategy` controls what happens on a mismatch:
+
+| الاستراتيجية | السلوك عند عدم التطابق                                                                         |
+| ------------ | ---------------------------------------------------------------------------------------------- |
+| `"warn"`     | **الافتراضي.** ينفّذ `console.warn` للمشكلات ويُرجع النتيجة **الأصلية** دون تغيير. غير معطِّل. |
+| `"strict"`   | يطرح خطأ واضحًا، بحيث يسهل ملاحظة أي خلل في الـ action.                                        |
+| `"fallback"` | يُرجع قيمة `outputFallback` المقدَّمة بدلاً من النتيجة غير الصالحة.                            |
+
+عندما تنجح `run()`، يُرجع إطار العمل القيمة التي تم التحقق من صحتها، بحيث تسري أي قيم افتراضية أو تحويلات على `outputSchema`، بالطريقة نفسها التي تسري بها على المدخل. عندما لا تمرّر `outputSchema`، تبقى القيمة المرجعة دون تغيير.
+
+## إعداد HTTP {#http}
+
+بشكل افتراضي، يُعرَض كل action كـ `POST /_agent-native/actions/<name>`. تجاوز ذلك عبر خيار `http`:
+
+```ts
+export default defineAction({
+  description: "Get details for a lead.",
+  schema: z.object({ leadId: z.string() }),
+  http: { method: "GET" },
+  run: async ({ leadId }) => {
+    return await db.select().from(leads).where(eq(leads.id, leadId));
+  },
+});
+```
+
+بالنسبة إلى action من نوع `GET`، يُمرَّر `leadId` كمعلمة استعلام: `/_agent-native/actions/get-lead?leadId=abc`.
+
+<Endpoint id="doc-block-actions-defining-3" title="نقطة نهاية action المثبَّتة تلقائيًا" method="GET" path="/_agent-native/actions/get-lead" summary={"يتم تركيب كل action هنا تلقائيًا. اسم الملف هو اسم الـ action."} auth={"ملف تعريف ارتباط الجلسة (تحمل استدعاءات الواجهة الأمامية `X-Agent-Native-Frontend: 1`)، أو `Authorization: Bearer <token>` للمستدعين الخارجيين"} params={[
+  {
+    "name": "leadId",
+    "in": "query",
+    "type": "string",
+    "required": true,
+    "description": "تصل وسائط GET كمعلمات استعلام. تصل وسائط POST في جسم JSON."
+  }
+]} responses={[
+  {
+    "status": "200",
+    "description": "القيمة المرجعة لـ action بصيغة JSON."
+  },
+  {
+    "status": "400",
+    "description": "فشل المدخل في التحقق من صحة المخطط قبل إطلاق run()."
+  }
+]}>
+
+POST هو الافتراضي، ويجعله `http: { method: "GET" }` GET. تستدعي خطافات React و`callAction()` دائمًا هذا المسار بالاسم، بغض النظر عن أي تجاوز لـ `http.path`. يمكن للأنظمة الخارجية استدعاء المسار نفسه برمز حامل طويل الأمد. راجع [HTTP API](/docs/http-api).
+
+</Endpoint>
+
+- **`http: { method: "GET" | "POST" | "PUT" | "DELETE" }`**: الافتراضي `POST`. تُعلَّم actions من نوع `GET` تلقائيًا بـ `readOnly`، لذا لا يؤدي الاستدعاء الناجح إلى تحفيز إعادة تحديث الاستقصاء في واجهة المستخدم.
+- **`http: { path: "..." }`**: يتجاوز عنوان URL المثبَّت تحت `/_agent-native/actions/`. الافتراضي هو اسم الملف. لا يغيّر هذا التجاوز العنوان إلا للمستدعين المباشرين عبر HTTP. تستدعي `useActionQuery()` و`useActionMutation()` و`callAction()` دائمًا `/_agent-native/actions/<name>`، بغض النظر عن هذا التجاوز، لذا فإن تجاوز المسار يجعل هذه الخطافات تُرجع 404. استخدم تجاوز المسار فقط للمستدعين الخارجيين عبر HTTP. لاحظ أيضًا أن أجزاء المسار `:param` في مسار التجاوز لا تُحلَّل إلى وسائط `run()`. فقط معلمات سلسلة الاستعلام وحقول جسم JSON تُحلَّل.
+- **`http: false`**: يعطّل نقطة نهاية HTTP بالكامل. فقط الوكيل وCLI يمكنهما استدعاء الـ action.
+- **`readOnly: true`**: يتخطى إعادة تحديث الاستقصاء صراحة، حتى لأجل actions من نوع POST لا تغيّر أي شيء. هذا ليس تحكمًا في الوصول. فهو لا يقيّد من يمكنه استدعاء الـ action، ولا يؤثر على `useActionQuery()` أو `useActionMutation()` أو أي خطاف عميل. تأثيراه الوحيدان هما كبت حدث إعادة التحديث بعد الاستدعاء، واستبعاد الـ action من تدقيق الكتابة. لإخفاء action عن النموذج، استخدم `agentTool: false`. للتحكم في من يمكنه استدعاءه، استخدم خيارات المصادقة والوصول في [الوصول والتخويل](/docs/actions-access-control).
+- **`parallelSafe: true`**: يسمح لـ action يغيّر البيانات بالعمل في الوقت نفسه مع استدعاءات أدوات أخرى في الدور نفسه. لا تضبط هذا إلا عندما يكون تشغيل الـ action بالتزامن آمنًا ولا يعتمد على الترتيب. تُسلسَل actions التي تغيّر البيانات بشكل افتراضي.
+
+## أبقِ سطح actions صغيرًا {#small-surface}
+
+يشغل كل action يمكن للوكيل رؤيته فتحة في قائمة أدوات النموذج، وتجعل القائمة الطويلة والمتداخلة اختيار النموذج للأداة الصحيحة أصعب. صمّم سطح actions مثل API تصونه، وليس action واحدًا لكل زر في واجهة المستخدم:
+
+- فضّل **action واحد بأسلوب CRUD باسم `update`** يأخذ تصحيحًا (patch) من الحقول الاختيارية، بدلاً من actions عديدة لكل حقل مثل `update-name` و`update-order` و`update-color`. لا يرسل المستدعي إلا الحقول التي تغيّرت.
+- قبل إضافة action قراءة جديد لكل استعلام أو عامل تصفية، ضع في اعتبارك خيارًا أكثر عمومية أولاً: [ثلاثي provider API](/docs/template-dispatch-vault-integrations#provider-api) (`provider-api-catalog` و`provider-api-docs` و`provider-api-request`) لبيانات الموفر، أو أداة `db-query` للتطوير لبيانات التطبيق.
+- علّم actions الخاصة بواجهة المستخدم فقط أو البرمجية بـ [`agentTool: false`](/docs/actions-access-control#agent-tool). تبقى قابلة للاستدعاء من الواجهة الأمامية أو عبر HTTP، دون أن تشغل فتحة في قائمة أدوات النموذج.
+- احذف أو أخفِ actions التي لم تعد واجهة المستخدم تستخدمها، بدلاً من تركها مكشوفة للنموذج.
+
+يتضمن المستودع مساعدًا استشاريًا، `node scripts/audit-template-actions.mjs [template ...]` (بالاسم المستعار `pnpm actions:audit`). يفحص مجلد `actions/` الخاص بالقالب ويشير إلى actions قد لا تستخدمها واجهة المستخدم بعد الآن، إلى جانب مجموعات actions لكل حقل يمكن دمجها في واحد. يخرج دائمًا برمز 0 ولا يُفشل CI أبدًا، وقواعده الاستدلالية متحفظة، لذا تعامل مع مخرجاته على أنها اقتراح، لا خطأ.
+
+## ما هي الخطوة التالية
+
+- [**نظرة عامة**](/docs/actions-overview) — ما هو action وجولة hello-world
+- [**الوصول والتخويل**](/docs/actions-access-control) — `agentTool` و`toolCallable` وauthorize ونطاق `ctx`
+- [**سياق التشغيل**](/docs/actions-run-context) — جدول حقول `ctx` الكامل
+- [**أسطح أخرى**](/docs/actions-other-surfaces) — واجهة المحادثة الأصلية، وCLI، وA2A، وMCP، وactions القياسية
+- [**قاعدة البيانات**](/docs/server-database) — `getDb()`/`schema` المستخدمة داخل `run()`
+- [**البيانات والمزامنة**](/docs/client-data) — استدعاء هذا الـ action من واجهة المستخدم

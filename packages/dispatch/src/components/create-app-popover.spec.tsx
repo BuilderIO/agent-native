@@ -154,7 +154,7 @@ describe("CreateAppFlow", () => {
 
   async function renderAndSubmit(
     prompt: string,
-    props: { onClose?: () => void } = {},
+    props: { onClose?: () => void; onCreated?: () => void } = {},
   ) {
     await act(async () => {
       root.render(React.createElement(CreateAppFlow, props));
@@ -216,6 +216,26 @@ describe("CreateAppFlow", () => {
     ).toBe(false);
   });
 
+  it("reuses an empty local chat for direct dev-mode app creation", async () => {
+    devState.isDevMode = true;
+
+    await renderAndSubmit("Build a quality dashboard");
+
+    expect(sendToAgentChatMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        submit: true,
+        type: "code",
+        newTab: true,
+        reuseEmptyTab: true,
+      }),
+    );
+    expect(
+      fetchSpy.mock.calls.some(([input]) =>
+        String(input).includes("start-workspace-app-creation"),
+      ),
+    ).toBe(false);
+  });
+
   it("opens a fresh local chat when the server hands off app creation", async () => {
     startWorkspaceAppCreationResponse.result = {
       mode: "local-agent",
@@ -235,6 +255,14 @@ describe("CreateAppFlow", () => {
       reuseEmptyTab: true,
     });
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("notifies the parent after Builder accepts app creation", async () => {
+    const onCreated = vi.fn();
+
+    await renderAndSubmit("Build a quality dashboard", { onCreated });
+
+    expect(onCreated).toHaveBeenCalledTimes(1);
   });
 
   it("renders the error affordance and a Try again control for builder-error, without a Connect Builder control", async () => {

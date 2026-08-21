@@ -1,0 +1,107 @@
+---
+title: "Accès de l'agent de production"
+description: "Contrôlez quels outils du framework et quelles capacités d'exécution de code un agent de production déployé possède, via frameworkTools et codeExecution."
+---
+
+# Accès de l'agent de production
+
+## Outils de l'agent de production {#production-agent-tools}
+
+Les agents de production obtiennent les actions enregistrées de l'application plus les propres
+outils du framework. `frameworkTools` sélectionne lesquels de ces outils du framework cette
+application expose. Chaque groupe se comporte par défaut comme aujourd'hui, donc omettre l'option
+ne change rien :
+
+```ts filename="server/plugins/agent-chat.ts"
+export default createAgentChatPlugin({
+  frameworkTools: {
+    database: "read", // "write" | "read" | "off", default "read"
+    extensions: true, // default false
+    sharing: false, // this app has no share surface
+    review: false,
+  },
+});
+```
+
+```ts filename="server/plugins/core-routes.ts"
+export default createCoreRoutesPlugin({
+  extensionTools: true,
+});
+```
+
+`database` et `extensions` acceptent les valeurs que les anciens drapeaux de premier niveau acceptaient :
+
+- `database: "read"`. Par défaut. N'enregistre que `db-schema` et `db-query`.
+  Les agents inspectent les données avec SQL mais doivent utiliser les actions
+  typées de l'application pour les écritures.
+- `database: "write"` ou `true`. Enregistre en plus `db-exec` et
+  `db-patch` pour la maintenance SQL brute délibérée. Les écritures sont limitées
+  à l'utilisateur/organisation courant et les changements de schéma sont bloqués.
+- `database: "off"` ou `false`. Retire les outils de base de données bruts de la
+  surface de l'agent afin que les actions de l'application soient le seul chemin
+  d'accès aux données.
+- `extensions: true`. Fait adhérer l'application aux actions de gestion des
+  extensions du framework et aux conseils de prompt (`create-extension`,
+  `update-extension`, etc.). Définissez aussi `extensionTools: true` sur le
+  plugin core-routes pour autoriser la création REST authentifiée. Les
+  extensions sont désactivées par défaut.
+
+Les groupes restants sont des booléens, tous activés par défaut : `sharing`, `review`,
+`history`, `featureFlags`, `localization`, `audit`, `contextXray`,
+`userProfile`, `automation`, `docs`, `resources`, `web`, `workspaceApps`,
+`chat`, et `email`. Utilisez `frameworkTools: "minimal"` pour désactiver tous les
+groupes à la fois pour une application vocale ou à usage unique, ou
+`frameworkTools: { preset: "minimal", resources: true }` pour n'en garder qu'un
+seul. Une clé de groupe explicite l'emporte toujours sur le préréglage.
+
+Désactiver un groupe le retire uniquement des surfaces **agent** : chat
+interactif, MCP, A2A, et exécutions en arrière-plan. Les routes d'action HTTP
+correspondantes restent montées, car l'interface les atteint via les hooks
+client. Désactiver `sharing` ne doit pas provoquer une 404 sur une boîte de
+dialogue de partage encore à l'écran. Pesez ce coût de parité avant de
+l'utiliser : le contrat du framework est que tout ce que l'interface peut faire,
+l'agent peut le faire, donc `sharing: false` aux côtés d'un bouton de partage
+visible est une rupture délibérée, et n'a de sens que quand l'application n'a
+aucune surface de ce type.
+
+Les outils du framework ne sont plus promus dans la première requête au modèle
+par défaut, indépendamment de cette option. Ils restent dans le registre
+consultable et se chargent via `tool-search`, ou immédiatement si l'application
+les nomme dans `initialToolNames`.
+
+<Callout tone="warning">
+  Les options de premier niveau `databaseTools` et `extensionTools` sont
+  dépréciées au profit de `frameworkTools.database` et
+  `frameworkTools.extensions`. Elles sont toujours honorées, mais définir un
+  drapeau de premier niveau et son équivalent `frameworkTools` avec des valeurs
+  contradictoires lève une erreur au démarrage du plugin plutôt que de démarrer
+  avec une surface d'outils que personne n'a choisie.
+</Callout>
+
+## Exécution de code en production {#production-code-execution}
+
+Par défaut, les agents de production s'exécutent sans outils d'exécution de code. Ils peuvent appeler les actions de l'application, les outils de base de données, les outils MCP, les outils de navigateur/session, et les autres outils du framework enregistrés, mais ils n'ont pas d'accès shell ou au système de fichiers.
+
+Les déploiements compatibles Node peuvent activer l'exécution de code en production via le plugin agent-chat ou une surcharge par variable d'environnement :
+
+```ts filename="server/plugins/agent-chat.ts"
+export default createAgentChatPlugin({
+  codeExecution: { production: "sandboxed" },
+});
+```
+
+Les modes disponibles sont :
+
+- `off`. Par défaut. Aucun outil d'exécution de code n'est enregistré en production.
+- `sandboxed`. Enregistre `run-code`, un exécuteur JavaScript Node.js isolé avec un environnement épuré, un répertoire temporaire frais, des limites de sortie/temps, et un pont localhost vers des outils enregistrés en liste blanche tels que `provider-api-request`, `provider-api-docs`, `provider-api-catalog`, `web-request`, et le pont de fichiers de workspace adossé à Resources utilisé par `workspaceRead` / `workspaceWrite`.
+- `trusted`. Enregistre `run-code` plus le registre complet d'outils de codage (`bash`, `read`, `edit`, `write`). N'utilisez ceci que pour des déploiements mono-tenant ou contrôlés par l'opérateur où un accès shell complet à l'hôte est intentionnel.
+
+Définissez `AGENT_PROD_CODE_EXECUTION=sandboxed` ou `AGENT_PROD_CODE_EXECUTION=trusted` pour surcharger l'option du plugin pour un déploiement spécifique sans changement de code. `AGENT_PROD_CODE_EXECUTION=off` force la désactivation de l'exécution de code même quand l'option du plugin l'active.
+
+Le bac à sable `run-code` est une isolation au niveau du processus, pas un conteneur OS. Il retire les secrets de l'application de l'environnement du processus enfant et utilise le modèle de permissions de Node quand il est disponible, mais le réseau sortant n'est pas bloqué par Node lui-même. Les appels authentifiés doivent passer par les fonctions d'aide du pont que l'outil expose.
+
+## Et ensuite
+
+- [**Accès et autorisation**](/docs/actions-access-control) — les axes de contrôle d'accès par action que le contrôle au niveau des outils de cette page complète
+- [**Mettre à jour l'interface en production**](/docs/updating-ui-in-production) — ce qu'un agent déployé peut et ne peut pas modifier avec l'exécution de code désactivée
+- [**Déploiement : Variables d'environnement**](/docs/deployment-environment-variables) — `AGENT_PROD_CODE_EXECUTION` et les autres variables d'environnement de production

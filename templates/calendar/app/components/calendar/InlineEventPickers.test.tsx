@@ -4,7 +4,7 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { TimePickerPopover } from "./InlineEventPickers";
+import { TimePickerPopover, TimezonePickerPopover } from "./InlineEventPickers";
 
 vi.mock("@/components/ui/popover", () => ({
   Popover: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
@@ -12,6 +12,10 @@ vi.mock("@/components/ui/popover", () => ({
   PopoverContent: ({ children }: { children?: ReactNode }) => (
     <div>{children}</div>
   ),
+}));
+
+vi.mock("@agent-native/core/client/i18n", () => ({
+  useT: () => (key: string) => key,
 }));
 
 describe("TimePickerPopover", () => {
@@ -62,5 +66,25 @@ describe("TimePickerPopover", () => {
     expect(unselected?.querySelector("svg")).toBeNull();
     expect(selected?.querySelector('[aria-hidden="true"]')).toBeTruthy();
     expect(unselected?.querySelector('[aria-hidden="true"]')).toBeTruthy();
+  });
+
+  it("keeps the timezone picker compact and accessible when requested", () => {
+    act(() => {
+      root.render(
+        <TimezonePickerPopover
+          compact
+          value="America/Halifax"
+          label="Timezone"
+          onChange={() => undefined}
+        />,
+      );
+    });
+
+    const trigger = document.querySelector<HTMLButtonElement>(
+      'button[aria-label="Timezone"]',
+    );
+    expect(trigger).toBeTruthy();
+    expect(trigger?.textContent).toBe("");
+    expect(trigger?.getAttribute("title")).toBe("Timezone");
   });
 });

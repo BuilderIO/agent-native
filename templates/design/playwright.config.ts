@@ -22,9 +22,24 @@ const E2E_DATABASE_URL =
   process.env.E2E_DATABASE_URL ??
   `file:${path.join(import.meta.dirname, "data", "e2e.db")}`;
 const BROWSER_CHANNEL = process.env.E2E_BROWSER_CHANNEL;
+const SHOW_SECONDARY_PANELS_IN_E2E =
+  process.env.E2E_SHOW_DESIGN_SECONDARY_LEFT_PANELS !== "0";
+const SECONDARY_PANELS_ENV = SHOW_SECONDARY_PANELS_IN_E2E
+  ? "VITE_SHOW_DESIGN_SECONDARY_LEFT_PANELS=1 "
+  : "VITE_SHOW_DESIGN_SECONDARY_LEFT_PANELS=0 ";
+const ADVANCED_PANEL_SPEC_FILES = [
+  /canvas-tools\.spec\.ts$/,
+  /code-native-deep-surfaces\.spec\.ts$/,
+  /code-native-pr-surfaces\.spec\.ts$/,
+  /code-workbench-local-files\.spec\.ts$/,
+];
 
 export default defineConfig({
   testDir: "./e2e",
+  // These suites intentionally exercise panels that are not mounted in the
+  // disabled profile. Ignoring them keeps that profile focused on verifying
+  // the hidden-panel contract without failing on missing advanced controls.
+  testIgnore: SHOW_SECONDARY_PANELS_IN_E2E ? [] : ADVANCED_PANEL_SPEC_FILES,
   // The editor is heavy (iframe bridge + polling); give generous budgets.
   timeout: 90_000,
   expect: { timeout: 15_000 },
@@ -56,9 +71,11 @@ export default defineConfig({
         // generic DATABASE_URL, but set both to an absolute SQLite URL so a
         // `.env` Postgres URL or a changed command cwd can never override this
         // throwaway local db.
-        command: `APP_NAME=design DESIGN_DATABASE_URL=${JSON.stringify(E2E_DATABASE_URL)} DATABASE_URL=${JSON.stringify(E2E_DATABASE_URL)} PORT=${PORT} corepack pnpm dev`,
+        command: `APP_NAME=design ${SECONDARY_PANELS_ENV}DESIGN_DATABASE_URL=${JSON.stringify(E2E_DATABASE_URL)} DATABASE_URL=${JSON.stringify(E2E_DATABASE_URL)} PORT=${PORT} corepack pnpm dev`,
         url: BASE_URL,
-        reuseExistingServer: !process.env.CI,
+        // The panel flag is compiled into the Vite bundle. Reusing a local
+        // server can therefore run this profile with the opposite setting.
+        reuseExistingServer: false,
         // Cold Vite dep-optimization on first boot can exceed two minutes.
         timeout: 300_000,
         stdout: "ignore",

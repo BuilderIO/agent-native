@@ -264,7 +264,7 @@ const { role } = useAppRole("coach");
 `useAppRoles`, `useAppRole`, and `useSetAppMemberRole` are progressive
 disclosure only. Every guarded operation re-resolves the role on the server, so
 a client that shows the wrong affordance still cannot perform the operation.
-See [Actions → Authorization](/docs/actions#authorize) for how `authorize`
+See [Actions → Authorization](/docs/actions-access-control#authorize) for how `authorize`
 differs from `needsApproval` and from row-level access guards.
 
 ## Resource permissions (sharing RBAC)
@@ -338,7 +338,7 @@ There is no single useful list of every environment variable in an app: each
 template and provider adds its own integration settings. The table below is the
 framework-level set developers most often need. Feature-specific variables stay
 on the page for the feature that owns them, and
-[Deployment → Environment Variables](/docs/deployment#environment-variables) is
+[Deployment: Environment Variables](/docs/deployment-environment-variables) is
 the canonical production checklist (build/runtime vars, required secrets such as
 `ANTHROPIC_API_KEY` and `A2A_SECRET`, and production code execution) — the
 tables below don't repeat what's already covered there.
@@ -364,7 +364,7 @@ tables below don't repeat what's already covered there.
 
 `APP_URL`, `BETTER_AUTH_URL` / `VITE_BETTER_AUTH_URL`, `PORT`,
 `APP_BASE_PATH` / `VITE_APP_BASE_PATH`, and `NITRO_PRESET` are documented in
-[Deployment → Environment Variables](/docs/deployment#environment-variables).
+[Deployment: Environment Variables](/docs/deployment-environment-variables).
 
 ### Authentication, cookies, and org defaults
 
@@ -399,7 +399,7 @@ org/workspace-specific and aren't covered on either of those pages:
 | `AGENT_MAX_OUTPUT_TOKENS`      | Default output-token limit for the agent.                                             |
 
 `ANTHROPIC_API_KEY` and `AGENT_PROD_CODE_EXECUTION` are documented in
-[Deployment → Environment Variables](/docs/deployment#environment-variables).
+[Deployment: Environment Variables](/docs/deployment-environment-variables).
 
 ### Optional framework integrations
 
@@ -489,6 +489,6 @@ For a new team app, configure in this order:
 - [**Multi-Tenancy**](/docs/multi-tenancy) — org switching and tenant isolation
 - [**Security — Data Scoping**](/docs/security#data-scoping) — SQL scoping and access guards
 - [**Sharing & Privacy**](/docs/sharing) — resource visibility and share roles
-- [**Database**](/docs/database) — schema and connection details
-- [**Deployment**](/docs/deployment#environment-variables) — production and provider environment
+- [**Database**](/docs/server-database) — schema and connection details
+- [**Deployment: Environment Variables**](/docs/deployment-environment-variables) — production and provider environment
 - [**Org & Team Kit**](/docs/toolkit-org-team) — reusable UI components and hooks

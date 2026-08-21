@@ -60,6 +60,9 @@ export interface AgentTeamRunPayload {
   parentRunId?: string;
   /** Display name for the sub-agent tab. */
   name?: string;
+  /** Exact action registry captured when the parent spawned this task. Older
+   * queue rows omit it and retain their original unscoped behavior. */
+  allowedActionNames?: string[];
   /** Logical-turn id, stable across continuation chunks so durable assistant
    * messages fold into one. */
   turnId: string;
@@ -81,7 +84,7 @@ export interface AgentTeamRunQueueRow {
 
 let _initPromise: Promise<void> | undefined;
 
-async function ensureTable(): Promise<void> {
+export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
       const client = getDbExec();

@@ -77,6 +77,13 @@ export function HighlightedCodeBlock({
   const renderedHashRef = useRef<number | null>(null);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cancelledRef = useRef(false);
+  // Whether this block has already put code on screen. Reserving space
+  // invisibly is right on FIRST paint — it avoids an unhighlighted→highlighted
+  // flash — but once code is visible, hiding it again to wait for Shiki blanks
+  // a code box the user was reading. That is what happened whenever the block
+  // lost its html (a re-highlight after the content changed): readable code
+  // went blank mid-answer.
+  const hasPaintedRef = useRef(false);
 
   useEffect(() => {
     cancelledRef.current = false;
@@ -146,6 +153,7 @@ export function HighlightedCodeBlock({
   }, [code, lang, streaming, loadHighlighter]);
 
   if (html) {
+    hasPaintedRef.current = true;
     return (
       <div
         className={containerClass}
@@ -156,8 +164,9 @@ export function HighlightedCodeBlock({
 
   // Streaming: show plain growing text (previous html already kept above when
   // available). Non-streaming first paint: reserve space invisibly so we never
-  // flash unhighlighted → highlighted.
-  const showPlain = streaming || failed;
+  // flash unhighlighted → highlighted. Once painted, never hide again.
+  const showPlain = streaming || failed || hasPaintedRef.current;
+  if (showPlain) hasPaintedRef.current = true;
   return (
     <div className={containerClass} aria-busy={!showPlain && !failed}>
       <pre>

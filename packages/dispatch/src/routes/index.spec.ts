@@ -1,3 +1,4 @@
+import { matchRoutes } from "react-router";
 import { describe, expect, it } from "vitest";
 
 import { dispatchRoutes } from "./index.js";
@@ -18,6 +19,8 @@ describe("Dispatch route registration", () => {
     expect(paths).toContain("browser-connect");
     expect(paths).toContain("operations");
     expect(paths).toContain("admin");
+    expect(paths).toContain("agents");
+    expect(paths).toContain("apps/:appId/*");
     expect(paths.indexOf("chat")).toBeLessThan(paths.indexOf(":appId"));
     expect(paths.indexOf("chat/:threadId")).toBeLessThan(
       paths.indexOf(":appId"),
@@ -34,5 +37,13 @@ describe("Dispatch route registration", () => {
     expect(adminPaths).not.toContain("apps");
     expect(adminPaths).not.toContain("apps/:appId");
     expect(adminPaths.indexOf("operations")).toBeGreaterThanOrEqual(0);
+  });
+
+  it("matches both workspace-app roots and nested deep links", () => {
+    for (const path of ["/apps/design", "/apps/design/foobar"]) {
+      expect(matchRoutes(dispatchRoutes, path)?.at(-1)?.route.path).toBe(
+        "apps/:appId/*",
+      );
+    }
   });
 });

@@ -17,12 +17,47 @@ import type {
   ContextSegmentStatus,
   ContextSegmentViewData,
   ContextSystemSectionViewData,
+  ContextTranslate,
 } from "./types.js";
+import { fallbackContextTranslate } from "./types.js";
 
 interface Group {
   name: string;
+  label: string;
   tokens: number;
   segments: ContextSegmentViewData[];
+}
+
+function groupLabel(name: string, translate: ContextTranslate): string {
+  if (name === "Pinned")
+    return translate("agentChat.contextXray.groups.pinned", {
+      defaultValue: name,
+    });
+  if (name === "Tool results")
+    return translate("agentChat.contextXray.groups.toolResults", {
+      defaultValue: name,
+    });
+  if (name === "Files read")
+    return translate("agentChat.contextXray.groups.filesRead", {
+      defaultValue: name,
+    });
+  if (name === "Conversation")
+    return translate("agentChat.contextXray.groups.conversation", {
+      defaultValue: name,
+    });
+  if (name === "Thinking")
+    return translate("agentChat.contextXray.groups.thinking", {
+      defaultValue: name,
+    });
+  if (name === "Evicted")
+    return translate("agentChat.contextXray.groups.evicted", {
+      defaultValue: name,
+    });
+  if (name === "Task & instructions")
+    return translate("agentChat.contextXray.groups.taskInstructions", {
+      defaultValue: name,
+    });
+  return name;
 }
 
 function applyOptimisticStatus(
@@ -37,7 +72,10 @@ function applyOptimisticStatus(
   );
 }
 
-function groupedSegments(segments: ContextSegmentViewData[]): Group[] {
+function groupedSegments(
+  segments: ContextSegmentViewData[],
+  translate: ContextTranslate,
+): Group[] {
   const map = new Map<string, Group>();
   for (const segment of segments) {
     const name =
@@ -46,7 +84,12 @@ function groupedSegments(segments: ContextSegmentViewData[]): Group[] {
         : segment.status === "evicted"
           ? "Evicted"
           : segment.group;
-    const group = map.get(name) ?? { name, tokens: 0, segments: [] };
+    const group = map.get(name) ?? {
+      name,
+      label: groupLabel(name, translate),
+      tokens: 0,
+      segments: [],
+    };
     group.tokens += segment.tokenCount;
     group.segments.push(segment);
     map.set(name, group);
@@ -68,21 +111,35 @@ function groupedSegments(segments: ContextSegmentViewData[]): Group[] {
   });
 }
 
-function sourceLabel(section: ContextSystemSectionViewData) {
+function sourceLabel(
+  section: ContextSystemSectionViewData,
+  translate: ContextTranslate,
+) {
+  const scope = section.sourceRef?.scope;
+  const localizedScope =
+    scope === "framework"
+      ? translate("agentChat.contextXray.framework", {
+          defaultValue: "framework",
+        })
+      : scope;
   return (
     section.sourceRef?.path ??
     section.sourceRef?.resourceId ??
-    section.sourceRef?.scope ??
-    "framework"
+    localizedScope ??
+    translate("agentChat.contextXray.framework", {
+      defaultValue: "framework",
+    })
   );
 }
 
 function SystemSectionRow({
   section,
   totalTokens,
+  translate,
 }: {
   section: ContextSystemSectionViewData;
   totalTokens: number;
+  translate: ContextTranslate;
 }) {
   const share =
     totalTokens > 0 ? Math.round((section.tokenCount / totalTokens) * 100) : 0;
@@ -96,9 +153,17 @@ function SystemSectionRow({
           {section.label}
         </div>
         <div className="truncate text-[11px] text-muted-foreground">
-          {sourceLabel(section)} · {formatContextTokens(section.tokenCount)}{" "}
-          tokens · {share}%
-          {section.tokenMethod === "estimate" ? " · estimated" : ""}
+          {sourceLabel(section, translate)} ·{" "}
+          {formatContextTokens(section.tokenCount)}{" "}
+          {translate("agentChat.contextXray.tokensShare", {
+            defaultValue: "tokens · {{share}}%",
+            share,
+          })}
+          {section.tokenMethod === "estimate"
+            ? translate("agentChat.contextXray.estimatedSuffix", {
+                defaultValue: " · estimated",
+              })
+            : ""}
         </div>
         {section.preview ? (
           <div className="mt-0.5 line-clamp-2 text-[11px] text-muted-foreground/80">
@@ -120,6 +185,7 @@ export function ContextXRayPanelView({
   governanceLabels = {},
   systemOrderedLabel = "System · ordered, not evictable",
   titleLabel = "Context X-Ray",
+  translate = fallbackContextTranslate,
 }: {
   manifest: ContextManifestViewData;
   contextWindow: number;
@@ -130,6 +196,7 @@ export function ContextXRayPanelView({
   governanceLabels?: Partial<Record<"required" | "inherited" | "user", string>>;
   systemOrderedLabel?: string;
   titleLabel?: string;
+  translate?: ContextTranslate;
 }) {
   const [mode, setMode] = useState<"list" | "map">("list");
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -137,7 +204,10 @@ export function ContextXRayPanelView({
     () => applyOptimisticStatus(manifest.segments, optimistic),
     [manifest.segments, optimistic],
   );
-  const groups = useMemo(() => groupedSegments(segments), [segments]);
+  const groups = useMemo(
+    () => groupedSegments(segments, translate),
+    [segments, translate],
+  );
   const sections = manifest.systemSections ?? [];
   const systemGroups = useMemo(
     () =>
@@ -173,13 +243,42 @@ export function ContextXRayPanelView({
     (segment) => segment.status === "evicted",
   ).length;
   const details = [
-    `${formatContextTokens(headroom)} free`,
-    system > 0 ? `${formatContextTokens(system)} system` : null,
-    `${formatContextTokens(conversation)} conversation`,
-    pinned > 0 ? `${pinned} pinned` : null,
-    evicted > 0 ? `${evicted} evicted` : null,
-    manifest.tokenCountMethod === "estimate" ? "estimated" : null,
-    !manifest.enforceable ? "advisory" : null,
+    translate("agentChat.contextXray.free", {
+      defaultValue: "{{count}} free",
+      count: formatContextTokens(headroom),
+    }),
+    system > 0
+      ? translate("agentChat.contextXray.system", {
+          defaultValue: "{{count}} system",
+          count: formatContextTokens(system),
+        })
+      : null,
+    translate("agentChat.contextXray.conversation", {
+      defaultValue: "{{count}} conversation",
+      count: formatContextTokens(conversation),
+    }),
+    pinned > 0
+      ? translate("agentChat.contextXray.pinned", {
+          defaultValue: "{{count}} pinned",
+          count: pinned,
+        })
+      : null,
+    evicted > 0
+      ? translate("agentChat.contextXray.evicted", {
+          defaultValue: "{{count}} evicted",
+          count: evicted,
+        })
+      : null,
+    manifest.tokenCountMethod === "estimate"
+      ? translate("agentChat.contextXray.estimated", {
+          defaultValue: "estimated",
+        })
+      : null,
+    !manifest.enforceable
+      ? translate("agentChat.contextXray.advisory", {
+          defaultValue: "advisory",
+        })
+      : null,
   ].filter((item): item is string => Boolean(item));
   const toggle = (key: string) =>
     setCollapsed((current) => {
@@ -201,7 +300,7 @@ export function ContextXRayPanelView({
         </div>
         <div className="mt-2 h-1 overflow-hidden rounded-full bg-muted/70">
           <div
-            className="h-full w-full origin-left rounded-full bg-foreground transition-transform duration-200"
+            className="h-full w-full origin-left rounded-full bg-foreground transition-transform duration-200 rtl:origin-right"
             style={{ transform: `scaleX(${Math.min(1, pct / 100)})` }}
           />
         </div>
@@ -224,7 +323,9 @@ export function ContextXRayPanelView({
                 <button
                   type="button"
                   onClick={() => setMode("list")}
-                  aria-label="Show context list"
+                  aria-label={translate("agentChat.contextXray.showList", {
+                    defaultValue: "Show context list",
+                  })}
                   className={cn(
                     "flex size-7 cursor-pointer items-center justify-center rounded text-muted-foreground",
                     mode === "list"
@@ -235,14 +336,20 @@ export function ContextXRayPanelView({
                   <IconListDetails className="h-3.5 w-3.5" />
                 </button>
               </TooltipTrigger>
-              <TooltipContent>List</TooltipContent>
+              <TooltipContent>
+                {translate("agentChat.contextXray.list", {
+                  defaultValue: "List",
+                })}
+              </TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
                   type="button"
                   onClick={() => setMode("map")}
-                  aria-label="Show context map"
+                  aria-label={translate("agentChat.contextXray.showMap", {
+                    defaultValue: "Show context map",
+                  })}
                   className={cn(
                     "flex size-7 cursor-pointer items-center justify-center rounded text-muted-foreground",
                     mode === "map"
@@ -253,7 +360,11 @@ export function ContextXRayPanelView({
                   <IconChartTreemap className="h-3.5 w-3.5" />
                 </button>
               </TooltipTrigger>
-              <TooltipContent>Map</TooltipContent>
+              <TooltipContent>
+                {translate("agentChat.contextXray.map", {
+                  defaultValue: "Map",
+                })}
+              </TooltipContent>
             </Tooltip>
           </div>
         </div>
@@ -261,6 +372,7 @@ export function ContextXRayPanelView({
           <ContextTreemapView
             segments={segments}
             systemSections={sections}
+            translate={translate}
             onSelect={(id) => {
               if (segments.some((segment) => segment.segmentId === id))
                 setCollapsed(new Set());
@@ -281,7 +393,7 @@ export function ContextXRayPanelView({
                       <button
                         type="button"
                         onClick={() => toggle(key)}
-                        className="flex w-full cursor-pointer items-center gap-2 rounded-sm px-1.5 py-2 text-left hover:bg-accent/35"
+                        className="flex w-full cursor-pointer items-center gap-2 rounded-sm px-1.5 py-2 text-start hover:bg-accent/35"
                       >
                         {isCollapsed ? (
                           <IconChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
@@ -313,6 +425,7 @@ export function ContextXRayPanelView({
                                 key={section.segmentId}
                                 section={section}
                                 totalTokens={manifest.totalTokens}
+                                translate={translate}
                               />
                             ))}
                         </div>
@@ -329,7 +442,7 @@ export function ContextXRayPanelView({
                   <button
                     type="button"
                     onClick={() => toggle(group.name)}
-                    className="flex w-full cursor-pointer items-center gap-2 rounded-sm px-1.5 py-2 text-left hover:bg-accent/35"
+                    className="flex w-full cursor-pointer items-center gap-2 rounded-sm px-1.5 py-2 text-start hover:bg-accent/35"
                   >
                     {isCollapsed ? (
                       <IconChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
@@ -343,7 +456,7 @@ export function ContextXRayPanelView({
                       )}
                     />
                     <span className="min-w-0 flex-1 truncate text-xs font-medium">
-                      {group.name}
+                      {group.label}
                     </span>
                     <span className="text-[11px] text-muted-foreground">
                       {formatContextTokens(group.tokens)}
@@ -362,6 +475,7 @@ export function ContextXRayPanelView({
                             onPin={() => onPin(segment.segmentId)}
                             onEvict={() => onEvict(segment.segmentId)}
                             onRestore={() => onRestore(segment.segmentId)}
+                            translate={translate}
                           />
                         ))}
                     </div>

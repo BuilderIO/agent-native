@@ -3,6 +3,7 @@ export interface AuthMarketingContent {
   tagline: string;
   description?: string;
   features?: string[];
+  /** @deprecated Local execution is no longer offered from auth pages. */
   runLocalCommand?: string;
   signupLocalModeNote?: {
     text: string;
@@ -56,6 +57,7 @@ export const BUILT_IN_AUTH_MARKETING: Record<string, AuthMarketingContent> = {
     features: [
       "One-click screen recording with automatic titles, summaries, and chapters",
       "Calendar-synced meeting notes with live transcripts and action items",
+      "Push-to-talk voice dictation with clean text from anywhere",
       "One searchable library across recordings, meetings, and dictations",
     ],
   },
@@ -78,7 +80,6 @@ export const BUILT_IN_AUTH_MARKETING: Record<string, AuthMarketingContent> = {
       "Review PR recaps with diagrams, file maps, and annotated code",
       "Share links for async comments and product review",
     ],
-    runLocalCommand: PLAN_LOCAL_FILES_COMMAND,
     signupLocalModeNote: {
       text: "Prefer no account or self-hosting? Switch /visual-plan to local files only:",
       command: PLAN_LOCAL_FILES_COMMAND,
@@ -132,8 +133,6 @@ export const BUILT_IN_AUTH_MARKETING: Record<string, AuthMarketingContent> = {
       "Multi-account Gmail in a single unified inbox",
       "Autonomous triage, archiving, and follow-ups",
     ],
-    runLocalCommand:
-      "npx @agent-native/core@latest create my-mail-app --template mail",
   },
   slides: {
     appName: "Agent-Native Slides",
@@ -153,6 +152,37 @@ export const BUILT_IN_AUTH_MARKETING: Record<string, AuthMarketingContent> = {
       "Full-page chat with durable threads and tool call history",
       "Actions work from chat, UI, HTTP, MCP, A2A, and CLI",
       "Use the built-in app-agent loop or plug in your own agent backend",
+    ],
+  },
+  crm: {
+    appName: "Agent-Native CRM",
+    tagline:
+      "A complete Native SQL CRM or a connected companion grounded in its source system.",
+    features: [
+      "Run accounts, people, opportunities, tasks, and cadence on Native SQL",
+      "Connect scoped HubSpot or Salesforce records without copying credentials",
+      "Work with the same safe actions from the UI or your CRM agent",
+    ],
+  },
+  factory: {
+    appName: "Agent-Native Factory",
+    tagline:
+      "Build agent factories: work in one end, shipped changes out the other, with gates you control.",
+    features: [
+      "Inspect Slack and pull-request signals in one queue",
+      "Tune rules with prompts and reviewable feedback",
+      "Approve bounded agent work with a durable audit trail",
+    ],
+  },
+  tasks: {
+    appName: "Agent-Native Tasks",
+    tagline:
+      "Manage your personal tasks: triage in the inbox, finish from the list. Use an agent that can do all of that for you.",
+    features: [
+      "Inbox triage — capture ideas and drafts as they come, then promote them to tasks when they are ready",
+      "Task management — create, reorder, and complete tasks in a list that stays in the order you put it in",
+      "Track what you care about with custom fields — text, numbers, currency, dates, and color-coded selects",
+      "Anything you can do here, the agent can do too — and it sees what is on your screen, so “finish these” means the rows you actually selected",
     ],
   },
 };
@@ -207,7 +237,11 @@ function slugFromHost(value: string | undefined): string | undefined {
   const host = value.split(",")[0]?.trim().split(":")[0]?.toLowerCase();
   if (!host) return undefined;
   if (host.endsWith(".agent-native.com")) {
-    return normalizeSlug(host.slice(0, -".agent-native.com".length));
+    const hostSlug = host.slice(0, -".agent-native.com".length);
+    return (
+      normalizeSlug(hostSlug) ??
+      normalizeSlug(hostSlug.replace(/^beta[.-]/, ""))
+    );
   }
   return undefined;
 }
@@ -244,11 +278,15 @@ function candidateSlugs(
 export function resolveBuiltInAuthMarketing(
   opts: ResolveBuiltInAuthMarketingOptions = {},
 ): AuthMarketingContent | undefined {
-  for (const slug of candidateSlugs(opts)) {
-    const marketing = BUILT_IN_AUTH_MARKETING[slug];
-    if (marketing) return cloneMarketing(marketing);
-  }
-  return undefined;
+  const slug = resolveBuiltInAuthMarketingSlug(opts);
+  const marketing = slug ? BUILT_IN_AUTH_MARKETING[slug] : undefined;
+  return marketing ? cloneMarketing(marketing) : undefined;
+}
+
+export function resolveBuiltInAuthMarketingSlug(
+  opts: ResolveBuiltInAuthMarketingOptions = {},
+): string | undefined {
+  return candidateSlugs(opts).find((slug) => !!BUILT_IN_AUTH_MARKETING[slug]);
 }
 
 export function resolveBuiltInAuthMarketingByName(

@@ -4,6 +4,7 @@ import { ToolkitProvider } from "@agent-native/toolkit";
 import type { PickerProps } from "@agent-native/toolkit/design-system";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { useTranslation } from "react-i18next";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -11,7 +12,49 @@ import {
   LanguagePicker,
   LOCALE_STORAGE_KEY,
   SUPPORTED_LOCALES,
+  useLocale,
+  useT,
 } from "./i18n.js";
+
+function CoreChatTranslationProbe() {
+  const t = useT();
+  return <span>{t("agentChat.status.thinking")}</span>;
+}
+
+function CoreChatPluralProbe({ count }: { count: number }) {
+  const t = useT();
+  return (
+    <span>
+      {t("agentChat.widget.rows", {
+        count,
+        formattedCount: count.toLocaleString("de-DE"),
+      })}
+    </span>
+  );
+}
+
+function CoreChatInterpolationProbe({ name }: { name: string }) {
+  const t = useT();
+  return <span>{t("agentChat.composer.removeAttachment", { name })}</span>;
+}
+
+function CoreVoiceModeProbe() {
+  const t = useT();
+  return <span>{t("agentChat.voiceMode.entryButtonLabel")}</span>;
+}
+
+function LocaleBundleFallbackProbe() {
+  const { i18n } = useTranslation();
+  const { locale, loading } = useLocale();
+  const bundle = i18n.getResourceBundle(locale, "translation") as
+    | { agentPanel?: { settings?: string } }
+    | undefined;
+  return (
+    <span>
+      {loading ? "loading" : (bundle?.agentPanel?.settings ?? "missing")}
+    </span>
+  );
+}
 
 function importI18nCopy(tag: string) {
   const specifier = `./i18n.js?${tag}`;
@@ -23,9 +66,40 @@ function importI18nCopy(tag: string) {
 describe("LanguagePicker", () => {
   let container: HTMLDivElement;
   let root: Root;
+  let localStorageDescriptor: PropertyDescriptor | undefined;
+  let navigatorLanguagesDescriptor: PropertyDescriptor | undefined;
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    navigatorLanguagesDescriptor = Object.getOwnPropertyDescriptor(
+      window.navigator,
+      "languages",
+    );
+    Object.defineProperty(window.navigator, "languages", {
+      configurable: true,
+      value: ["en-US"],
+    });
+    localStorageDescriptor = Object.getOwnPropertyDescriptor(
+      window,
+      "localStorage",
+    );
+    if (typeof window.localStorage.clear !== "function") {
+      const values = new Map<string, string>();
+      Object.defineProperty(window, "localStorage", {
+        configurable: true,
+        value: {
+          get length() {
+            return values.size;
+          },
+          clear: () => values.clear(),
+          getItem: (key: string) => values.get(key) ?? null,
+          key: (index: number) => [...values.keys()][index] ?? null,
+          removeItem: (key: string) => values.delete(key),
+          setItem: (key: string, value: string) =>
+            values.set(String(key), String(value)),
+        },
+      });
+    }
     window.localStorage.clear();
     document.documentElement.lang = "en-US";
     document.documentElement.dir = "ltr";
@@ -39,6 +113,18 @@ describe("LanguagePicker", () => {
     container.remove();
     document.body.innerHTML = "";
     window.localStorage.clear();
+    if (localStorageDescriptor) {
+      Object.defineProperty(window, "localStorage", localStorageDescriptor);
+    }
+    if (navigatorLanguagesDescriptor) {
+      Object.defineProperty(
+        window.navigator,
+        "languages",
+        navigatorLanguagesDescriptor,
+      );
+    } else {
+      delete (window.navigator as { languages?: string[] }).languages;
+    }
     vi.unstubAllGlobals();
   });
 
@@ -68,6 +154,16 @@ describe("LanguagePicker", () => {
     });
   }
 
+  async function waitForContainerText(expected: string) {
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      if (container.textContent === expected) return;
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      });
+    }
+    expect(container.textContent).toBe(expected);
+  }
+
   it("renders the app picker as a polished popover instead of a combobox menu", async () => {
     await renderPicker();
 
@@ -75,15 +171,15 @@ describe("LanguagePicker", () => {
     expect(trigger?.tagName).toBe("BUTTON");
     expect(trigger?.getAttribute("role")).not.toBe("combobox");
     expect(trigger?.getAttribute("aria-label")).toBe(
-      "Interface language: English (en-US)",
+      "Interface language: English",
     );
 
     await click(trigger!);
 
     expect(document.body.querySelector('[role="menu"]')).not.toBeNull();
     expect(document.body.textContent).toContain("System");
-    expect(document.body.textContent).toContain("Français (fr-FR)");
-    expect(document.body.textContent).toContain("العربية (ar-SA)");
+    expect(document.body.textContent).toContain("Français");
+    expect(document.body.textContent).toContain("العربية");
   });
 
   it("keeps the locale options in product order", async () => {
@@ -99,18 +195,52 @@ describe("LanguagePicker", () => {
 
     expect(optionLabels).toEqual([
       "System",
-      "English (en-US)",
-      "Español (es-ES)",
-      "Français (fr-FR)",
-      "Deutsch (de-DE)",
-      "Português (Brasil) (pt-BR)",
-      "简体中文 (zh-CN)",
-      "繁體中文 (zh-TW)",
-      "日本語 (ja-JP)",
-      "한국어 (ko-KR)",
-      "हिन्दी (hi-IN)",
-      "العربية (ar-SA)",
+      "English",
+      "Español",
+      "Français",
+      "Deutsch",
+      "Português",
+      "简体中文",
+      "繁體中文",
+      "日本語",
+      "한국어",
+      "हिन्दी",
+      "العربية",
     ]);
+  });
+
+  it("labels System using the browser locale instead of the active UI locale", async () => {
+    const languagesDescriptor = Object.getOwnPropertyDescriptor(
+      window.navigator,
+      "languages",
+    );
+    Object.defineProperty(window.navigator, "languages", {
+      configurable: true,
+      value: ["zh-CN"],
+    });
+
+    try {
+      await renderPicker();
+      await click(document.querySelector("[data-language-picker-trigger]")!);
+
+      const optionLabels = Array.from(
+        document.body.querySelectorAll<HTMLButtonElement>(
+          '[role="menuitemradio"]',
+        ),
+      ).map((button) => button.textContent?.trim());
+
+      expect(optionLabels[0]).toBe("系统");
+    } finally {
+      if (languagesDescriptor) {
+        Object.defineProperty(
+          window.navigator,
+          "languages",
+          languagesDescriptor,
+        );
+      } else {
+        delete (window.navigator as { languages?: string[] }).languages;
+      }
+    }
   });
 
   it("updates the shared locale preference from a popover row", async () => {
@@ -133,7 +263,34 @@ describe("LanguagePicker", () => {
       document
         .querySelector("[data-language-picker-trigger]")
         ?.getAttribute("aria-label"),
-    ).toBe("Interface language: Français (fr-FR)");
+    ).toBe("Interface language: Français");
+  });
+
+  it("resolves System from the browser after switching away from an explicit locale", async () => {
+    await renderPicker();
+
+    await click(document.querySelector("[data-language-picker-trigger]")!);
+    const chineseOption = Array.from(
+      document.body.querySelectorAll<HTMLButtonElement>(
+        '[role="menuitemradio"]',
+      ),
+    ).find((button) => button.textContent?.trim() === "简体中文");
+    expect(chineseOption).toBeTruthy();
+
+    await click(chineseOption!);
+    expect(document.documentElement.lang).toBe("zh-CN");
+
+    await click(document.querySelector("[data-language-picker-trigger]")!);
+    const systemOption = Array.from(
+      document.body.querySelectorAll<HTMLButtonElement>(
+        '[role="menuitemradio"]',
+      ),
+    ).find((button) => button.textContent?.trim() === "System");
+    expect(systemOption).toBeTruthy();
+
+    await click(systemOption!);
+    expect(document.documentElement.lang).toBe("en-US");
+    expect(window.localStorage.getItem(LOCALE_STORAGE_KEY)).toBe("system");
   });
 
   it("shares locale context across duplicate optimized module instances", async () => {
@@ -159,7 +316,7 @@ describe("LanguagePicker", () => {
       document
         .querySelector("[data-language-picker-trigger]")
         ?.getAttribute("aria-label"),
-    ).toBe("Interface language: English (en-US)");
+    ).toBe("Interface language: English");
   });
 
   it("only lists locales the app catalog declares support for", async () => {
@@ -188,12 +345,7 @@ describe("LanguagePicker", () => {
       ),
     ).map((button) => button.textContent?.trim());
 
-    expect(optionLabels).toEqual([
-      "System",
-      "English (en-US)",
-      "Español (es-ES)",
-      "Français (fr-FR)",
-    ]);
+    expect(optionLabels).toEqual(["System", "English", "Español", "Français"]);
   });
 
   it("routes the select variant through a registered picker adapter", async () => {
@@ -221,5 +373,196 @@ describe("LanguagePicker", () => {
     expect(
       document.querySelector("[data-custom-language-picker]"),
     ).not.toBeNull();
+  });
+
+  it("provides localized Core chat copy without requiring an app catalog", async () => {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="de-DE"
+          initialPreference="de-DE"
+          persistPreference={false}
+        >
+          <CoreChatTranslationProbe />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    await waitForContainerText("Denkt nach");
+  });
+
+  it("preserves mustache text inside an interpolated user value", async () => {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="de-DE"
+          initialPreference="de-DE"
+          persistPreference={false}
+        >
+          <CoreChatInterpolationProbe name="{{document}}" />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    await waitForContainerText("{{document}} entfernen");
+  });
+
+  it("lets an app catalog override built-in Core chat copy", async () => {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="de-DE"
+          initialPreference="de-DE"
+          persistPreference={false}
+          initialMessages={{
+            agentChat: { status: { thinking: "App denkt nach" } },
+          }}
+        >
+          <CoreChatTranslationProbe />
+        </AgentNativeI18nProvider>,
+      );
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toBe("App denkt nach");
+  });
+
+  it("keeps the default English framework fallback inside a non-source locale bundle", async () => {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="de-DE"
+          initialPreference="de-DE"
+          persistPreference={false}
+        >
+          <LocaleBundleFallbackProbe />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    await waitForContainerText("Settings");
+  });
+
+  it("maps legacy app chat overrides to new keys without overriding explicit new keys", async () => {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="de-DE"
+          initialPreference="de-DE"
+          persistPreference={false}
+          initialMessages={{
+            agentPanel: {
+              voiceMode: { entryButtonLabel: "Legacy microphone" },
+            },
+          }}
+        >
+          <CoreVoiceModeProbe />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    await waitForContainerText("Legacy microphone");
+
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="de-DE"
+          initialPreference="de-DE"
+          persistPreference={false}
+          initialMessages={{
+            agentPanel: {
+              voiceMode: { entryButtonLabel: "Legacy microphone" },
+            },
+            agentChat: {
+              voiceMode: { entryButtonLabel: "New microphone" },
+            },
+          }}
+          key="explicit-modern-override"
+        >
+          <CoreVoiceModeProbe />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    await waitForContainerText("New microphone");
+  });
+
+  it("loads the app catalog for an initial non-source locale before rendering overrides", async () => {
+    const requestedLocales: string[] = [];
+
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          catalog={{
+            sourceLocale: "en-US",
+            messages: {},
+            loadMessages: async (locale) => {
+              requestedLocales.push(locale);
+              return locale === "de-DE"
+                ? {
+                    agentChat: {
+                      status: { thinking: "App denkt nach" },
+                    },
+                  }
+                : null;
+            },
+          }}
+          initialLocale="de-DE"
+          initialPreference="de-DE"
+          persistPreference={false}
+        >
+          <CoreChatTranslationProbe />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    await waitForContainerText("App denkt nach");
+    expect(requestedLocales).toEqual(["de-DE"]);
+  });
+
+  it("uses locale plural rules for built-in count-bearing chat copy", async () => {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="de-DE"
+          initialPreference="de-DE"
+          persistPreference={false}
+        >
+          <CoreChatPluralProbe count={1} />
+        </AgentNativeI18nProvider>,
+      );
+    });
+    await waitForContainerText("1 Zeile");
+
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="de-DE"
+          initialPreference="de-DE"
+          persistPreference={false}
+        >
+          <CoreChatPluralProbe count={2} />
+        </AgentNativeI18nProvider>,
+      );
+    });
+    await waitForContainerText("2 Zeilen");
+  });
+
+  it("applies RTL direction when Arabic Core chat copy is active", async () => {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="ar-SA"
+          initialPreference="ar-SA"
+          persistPreference={false}
+        >
+          <CoreChatTranslationProbe />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    await waitForContainerText("يفكّر");
+    expect(document.documentElement.lang).toBe("ar-SA");
+    expect(document.documentElement.dir).toBe("rtl");
   });
 });

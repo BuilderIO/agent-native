@@ -237,6 +237,7 @@ describe("allowPublic: false", () => {
         allowPublic: false,
         requireOrgMemberForUserShares: true,
       });
+      expect((result as any).agentReadable).toBe(false);
     });
   });
 });

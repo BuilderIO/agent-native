@@ -231,4 +231,24 @@ describe("create-deck — aspectRatio", () => {
     ).rejects.toThrow();
     expect(insertedRow).toBeUndefined();
   });
+
+  it("persists speaker notes for bulk-created slides", async () => {
+    await action.run({
+      title: "T",
+      slides: [
+        {
+          id: "s1",
+          content: "<div>Slide</div>",
+          notes: "Explain the decision behind this slide.",
+        },
+      ],
+    });
+
+    const data = JSON.parse(insertedRow!.data as string);
+    expect(data.slides[0]).toMatchObject({
+      id: "s1",
+      notes: "Explain the decision behind this slide.",
+    });
+    expect(data.slides[0].content).toBe("<div>Slide</div>");
+  });
 });

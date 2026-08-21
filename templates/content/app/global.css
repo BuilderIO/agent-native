@@ -729,6 +729,11 @@
   background: hsl(var(--muted));
   border-radius: 0 0 6px 6px;
 }
+.notion-editor .notion-code-block {
+  background: hsl(var(--muted));
+  border-radius: 6px;
+  margin: 0.6em 0;
+}
 .notion-editor pre code {
   font-family: inherit;
   background: none;
@@ -1046,7 +1051,7 @@
 }
 
 .notion-toggle__chevron {
-  color: hsl(var(--muted-foreground));
+  color: hsl(var(--foreground));
   user-select: none;
   display: flex;
   align-items: center;
@@ -1055,6 +1060,9 @@
   height: 1.7em;
   border-radius: 3px;
   transition: background-color 120ms ease-out;
+}
+.notion-toggle--body-empty .notion-toggle__chevron {
+  color: hsl(var(--muted-foreground));
 }
 .notion-toggle__chevron:hover {
   background: hsl(var(--muted));
@@ -1325,6 +1333,10 @@ div[data-notion-column] > :last-child {
   transition: box-shadow 0.15s ease;
 }
 
+.notion-editor .node-image .media-block {
+  width: 100%;
+}
+
 .media-empty-block {
   position: relative;
   width: 100%;
@@ -1437,6 +1449,10 @@ div[data-notion-column] > :last-child {
   object-position: center;
   border-radius: 6px;
   user-select: none;
+}
+
+.notion-editor .node-image .media-block__content {
+  width: 100%;
 }
 
 .media-block__broken {

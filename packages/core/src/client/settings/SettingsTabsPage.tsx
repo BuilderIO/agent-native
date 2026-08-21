@@ -19,6 +19,7 @@ import {
 } from "react";
 import { Link } from "react-router";
 
+import { appBasePath, appPath } from "../../client/api-path.js";
 import { buildSettingsRoute } from "../../navigation/index.js";
 import { cn } from "../utils.js";
 
@@ -192,12 +193,13 @@ function activeTabFromLocation(
   defaultTab: string,
 ): string {
   if (typeof window === "undefined") return defaultTab;
+  const pathname = appLocalPathname();
   const settingsPrefix = "/settings";
-  if (window.location.pathname === settingsPrefix) {
+  if (pathname === settingsPrefix) {
     return resolveTabId(tabs, window.location.hash) ?? defaultTab;
   }
-  if (window.location.pathname.startsWith(`${settingsPrefix}/`)) {
-    const segments = window.location.pathname
+  if (pathname.startsWith(`${settingsPrefix}/`)) {
+    const segments = pathname
       .slice(`${settingsPrefix}/`.length)
       .split("/")
       .filter(Boolean)
@@ -214,6 +216,19 @@ function activeTabFromLocation(
     }
   }
   return resolveTabId(tabs, window.location.hash) ?? defaultTab;
+}
+
+function appLocalPathname(): string {
+  if (typeof window === "undefined") return "/";
+  const pathname = window.location.pathname;
+  const basePath = appBasePath();
+  if (
+    basePath &&
+    (pathname === basePath || pathname.startsWith(`${basePath}/`))
+  ) {
+    return pathname.slice(basePath.length) || "/";
+  }
+  return pathname;
 }
 
 function buildSettingsEntryRoute(tabId: string, section?: string): string {
@@ -233,7 +248,11 @@ function buildSettingsEntryRoute(tabId: string, section?: string): string {
 function updateRouteForTab(tabId: string, section?: string) {
   if (typeof window === "undefined") return;
   const route = buildSettingsEntryRoute(tabId, section);
-  window.history.pushState(null, "", `${route}${window.location.search}`);
+  window.history.pushState(
+    null,
+    "",
+    `${appPath(route)}${window.location.search}`,
+  );
 }
 
 function isEditableElement(element: Element | null): boolean {
@@ -385,7 +404,7 @@ export function SettingsTabsPage({
     const syncLocation = () => {
       const fromPath = activeTabFromLocation(tabs, fallbackTab);
       if (fromPath) setInternalTab(fromPath);
-      if (window.location.pathname.startsWith("/settings/")) return;
+      if (appLocalPathname().startsWith("/settings/")) return;
       const hashValue = window.location.hash.replace(/^#/, "");
       const fromHash = resolveTabId(tabs, hashValue);
       if (!fromHash || !hashValue) return;
@@ -404,7 +423,7 @@ export function SettingsTabsPage({
   useEffect(() => {
     if (!isControlled) return;
     const syncControlledLocation = () => {
-      const fromPath = window.location.pathname.startsWith("/settings/")
+      const fromPath = appLocalPathname().startsWith("/settings/")
         ? activeTabFromLocation(tabs, defaultTab)
         : null;
       const hashValue = window.location.hash.replace(/^#/, "");

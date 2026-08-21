@@ -98,3 +98,7 @@ file plus `.agents/skills/` for workspace-specific conventions.
 | --- | --- |
 | `docs-search` | Search version-matched framework docs by query or slug, or list |
 | `source-search` | Search the bundled core/template source corpus by pattern or path |
+
+- For external integrations, check the provider connection catalog first; reuse
+  its scoped resolver before app-local vault/OAuth/settings. Custom UI is for
+  provider readiness only, never duplicate credential storage.

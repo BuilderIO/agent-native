@@ -2,9 +2,10 @@ import { createReadStream } from "fs";
 import { stat } from "fs/promises";
 import path from "path";
 
-import { getSession, streamFile } from "@agent-native/core/server";
+import { streamFile } from "@agent-native/core/server";
 import { defineEventHandler, getRouterParam, setResponseStatus } from "h3";
 
+import { resolveSlidesRequestAuth } from "../../../handlers/request-auth-context.js";
 import { tenantExportDir } from "../../../lib/tenant-files.js";
 
 const CONTENT_TYPES: Record<string, string> = {
@@ -15,8 +16,13 @@ const CONTENT_TYPES: Record<string, string> = {
 };
 
 export default defineEventHandler(async (event) => {
-  const session = await getSession(event).catch(() => null);
-  if (!session?.email) {
+  const auth = await resolveSlidesRequestAuth(event);
+  if (!auth.ok) {
+    setResponseStatus(event, auth.statusCode);
+    return { error: auth.error };
+  }
+  const session = auth.context;
+  if (!session.email) {
     setResponseStatus(event, 401);
     return { error: "Unauthorized" };
   }

@@ -8,7 +8,7 @@ search: "data program emit rows schema providerFetch dashboard panel program sou
 
 Un **programme de données** est un script JS nommé, stocké et rédigé par l'agent qui récupère, joint, filtre ou agrège des données — des API de fournisseurs via `providerFetch` / `providerFetchAll` / `providerSearchAll`, des données d'app via `appAction`, ou des fichiers de workspace adossés à Resources — et appelle `emit(rows, schema)` exactement une fois avec le résultat. Le résultat est mis en cache dans SQL et n'importe quel composant graphique/tableau peut le rendre, actualisé selon une politique que vous choisissez au lieu de chaque vue de page.
 
-Il est disponible automatiquement partout où [`run-code`](/docs/actions) est disponible — il n'y a rien à monter ni à configurer par app. Si votre app a déjà run-code activé, `save-data-program`, `preview-data-program`, `run-data-program`, `list-data-programs`, `get-data-program` et `delete-data-program` sont déjà des actions enregistrées.
+Il est disponible automatiquement partout où [`run-code`](/docs/actions-overview) est disponible — il n'y a rien à monter ni à configurer par app. Si votre app a déjà run-code activé, `save-data-program`, `preview-data-program`, `run-data-program`, `list-data-programs`, `get-data-program` et `delete-data-program` sont déjà des actions enregistrées.
 
 <Diagram id="doc-block-dp-overview" title={"D'une requête ponctuelle à un panneau en direct"} summary={"Un script run-code devient un programme stocké dès qu'il appelle emit(); n'importe quel panneau de dashboard peut s'y lier et la politique de cache/actualisation prend le relais à partir de là."}>
 
@@ -324,6 +324,6 @@ Toute app peut implémenter la même adoption pour ses propres dashboards/tablea
 ## Docs associées {#related}
 
 - [Extensions](/docs/extensions) — la primitive de mini-app en bac à sable avec laquelle les programmes de données partagent une posture de sécurité et un modèle de sharing, mais avec une UI propre.
-- [Actions](/docs/actions) — les conventions `run-code` et les globals du bac à sable (`providerFetch`, `appAction`, etc.) sur lesquels les programmes de données sont construits.
+- [Actions](/docs/actions-overview) — les conventions `run-code` et les globals du bac à sable (`providerFetch`, `appAction`, etc.) sur lesquels les programmes de données sont construits.
 - [Sharing & confidentialité](/docs/sharing) — le modèle de sharing interne à l'organisation, jamais public, qu'utilisent les programmes de données.
 - [Sécurité](/docs/security) — les invariants de gestion des identifiants et de délimitation d'accès du framework.

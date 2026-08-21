@@ -92,7 +92,7 @@ description: "app/ 與 public/ 目錄：您在此建置 agent-native 應用程�
 
 ## Client 在架構中的位置 {#role}
 
-瀏覽器請求、代理迴圈和外部 API 用戶端都會解析到相同的 actions 和相同的 SQL 資料庫 — 這一層並沒有另一個代理無法觸及的獨立「應用後端」。在這裡建置一項功能，意味著在代理已經擁有的操作之上建置一個 UI，或是同時定義一個新的 action 並為它取得一個 UI。關於契約中操作端的內容，請參閱 [Actions](/docs/actions)。
+瀏覽器請求、代理迴圈和外部 API 用戶端都會解析到相同的 actions 和相同的 SQL 資料庫 — 這一層並沒有另一個代理無法觸及的獨立「應用後端」。在這裡建置一項功能，意味著在代理已經擁有的操作之上建置一個 UI，或是同時定義一個新的 action 並為它取得一個 UI。關於契約中操作端的內容，請參閱 [Actions](/docs/actions-overview)。
 
 此頁面涵蓋您建置所在的目錄，以及沒有其他文件說明的瀏覽器執行階段部分（`root.tsx`、`public/`）。將您的元件連接到 actions 與代理的 React 掛鉤則各有專屬頁面：
 
@@ -201,6 +201,6 @@ import { cn } from "@agent-native/toolkit/utils";
 - [**同步內部機制**](/docs/client-sync-internals) — 用於同步 `useQuery` 的 `useChangeVersion`
 - [**入口點**](/docs/client-entry-points) — SSR 啟動自訂
 - [**路由**](/docs/client-routing) — 基於檔案的頁面、動態參數與導覽
-- [**Actions**](/docs/actions) — 每個資料掛鉤背後的 `defineAction` 介面
+- [**Actions**](/docs/actions-overview) — 每個資料掛鉤背後的 `defineAction` 介面
 - [**自訂設計系統**](/docs/custom-design-system) — 透過 `app/design-system.ts` 換入您自己的元件庫
 - [**驗證**](/docs/authentication) — `AppProviders` 在私人路徑上執行的工作階段檢查

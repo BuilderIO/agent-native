@@ -39,10 +39,11 @@ describe("client track", () => {
     expect(init.headers).toMatchObject({
       "X-Agent-Native-CSRF": "1",
       "X-Agent-Native-Session-Id": "run-42",
+      "X-Agent-Native-Client-Platform": "web",
     });
     expect(JSON.parse(init.body)).toEqual({
       name: "checkout.completed",
-      properties: { total: 49.99 },
+      properties: { total: 49.99, client_platform: "web" },
     });
   });
 
@@ -57,5 +58,8 @@ describe("client track", () => {
     expect(fetchMock.mock.calls[0][1].headers).not.toHaveProperty(
       "X-Agent-Native-Session-Id",
     );
+    expect(fetchMock.mock.calls[0][1].headers).toMatchObject({
+      "X-Agent-Native-Client-Platform": "web",
+    });
   });
 });

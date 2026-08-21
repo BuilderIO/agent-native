@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { legacyBlocksFieldIdentity } from "./blocks-field-identity";
 import {
   buildDocumentExport,
+  collectionItemsMarkdown,
   exportFilename,
   markdownWithTitle,
 } from "./document-export";
@@ -75,6 +76,22 @@ describe("document export", () => {
     expect(markdownWithTitle("Roadmap", "# Roadmap\n\nFirst paragraph")).toBe(
       "# Roadmap\n\nFirst paragraph\n",
     );
+  });
+
+  it("composes collection items as readable document sections", () => {
+    expect(
+      collectionItemsMarkdown([
+        { title: "Announcement", content: "Launch copy" },
+        { title: "FAQ", content: "# FAQ\n\nAnswers" },
+        { title: "Empty record", content: "" },
+      ]),
+    ).toBe(
+      "## Announcement\n\nLaunch copy\n\n## FAQ\n\nAnswers\n\n## Empty record\n",
+    );
+  });
+
+  it("makes an empty authorized collection explicit", () => {
+    expect(collectionItemsMarkdown([])).toBe("_No accessible items._\n");
   });
 
   it("escapes user-authored HTML in portable HTML exports", () => {

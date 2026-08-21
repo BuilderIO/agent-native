@@ -5,7 +5,7 @@ description: "Agent-Native 應用中的 Nitro 伺服器層：它的用途、何�
 
 # 伺服器
 
-`server/` 目錄是 Agent-Native 應用的基礎架構層。它負責啟動時的任務、驗證，以及 actions 涵蓋不到的 HTTP 介面。大多數產品行為屬於 [Actions](/docs/actions) 的範疇；伺服器的職責是讓這些 actions 得以對外提供服務。
+`server/` 目錄是 Agent-Native 應用的基礎架構層。它負責啟動時的任務、驗證，以及 actions 涵蓋不到的 HTTP 介面。大多數產品行為屬於 [Actions](/docs/actions-overview) 的範疇；伺服器的職責是讓這些 actions 得以對外提供服務。
 
 <Diagram id="doc-block-server-overview-1" title="請求如何流經伺服器" summary="呼叫者抵達 Nitro 伺服器，其中大部分請求由 Actions 處理。中間件與路由涵蓋 Actions 無法表達的情況。兩條路徑都可以查詢資料庫。">
 
@@ -221,11 +221,11 @@ Agent Native 的架構思路不同。每當您想到應用的新功能時，先�
 - 可透過 MCP 與 A2A 呼叫的工具。
 - 用於開發的 CLI 指令。
 
-只有在您需要路由形式的協定或二進位／串流行為時，才使用自訂的 `/api/*` 路由。詳情請參閱 [Actions](/docs/actions)。
+只有在您需要路由形式的協定或二進位／串流行為時，才使用自訂的 `/api/*` 路由。詳情請參閱 [Actions](/docs/actions-overview)。
 
 ## 下一步是什麼 {#whats-next}
 
-- [**Actions**](/docs/actions)：預設的操作介面。只有在不合用時才改用自訂路由。
+- [**Actions**](/docs/actions-overview)：預設的操作介面。只有在不合用時才改用自訂路由。
 - [**資料庫**](/docs/server-database)：自訂路由與 actions 都會匯入的 `getDb()`／架構模式
 - [**中間件**](/docs/server-middleware)：驗證守衛與 `server/middleware/` 目錄
 - [**外掛**](/docs/server-plugins)：用於遷移、驗證與 agent 的啟動外掛

@@ -1,9 +1,98 @@
+import { THEME_VAR_NAMES } from "../extensions/theme.js";
 import {
   getViteDevRecoveryScript,
   shouldInlineViteDevRecoveryScript,
 } from "./vite-dev-recovery-script.js";
 
 export type ThemePreference = "light" | "dark" | "system";
+export type ResolvedTheme = "light" | "dark";
+
+export const EMBEDDED_THEME_UPDATE_MESSAGE = "agent-native-theme-update";
+export const EMBEDDED_THEME_CHANGE_EVENT = "agent-native:theme-change";
+
+export interface EmbeddedThemeUpdate {
+  type: typeof EMBEDDED_THEME_UPDATE_MESSAGE;
+  theme?: ResolvedTheme;
+  isDark?: boolean;
+  vars?: Record<string, string>;
+}
+
+export interface NormalizedEmbeddedThemeUpdate {
+  theme: ResolvedTheme;
+  vars?: Record<string, string>;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function readThemeVars(value: unknown): Record<string, string> | undefined {
+  if (!isRecord(value)) return undefined;
+
+  const vars: Record<string, string> = {};
+  for (const [name, rawValue] of Object.entries(value)) {
+    if (!THEME_VAR_NAMES.some((candidate) => candidate === name)) continue;
+    if (typeof rawValue === "string") vars[name] = rawValue;
+  }
+  return Object.keys(vars).length > 0 ? vars : undefined;
+}
+
+/**
+ * Accepts both the current `theme` field and the legacy `isDark` field used by
+ * extension iframes. Unknown messages and untrusted CSS variable names fail
+ * closed so a cross-window event cannot become an arbitrary style sink.
+ */
+export function parseEmbeddedThemeUpdate(
+  value: unknown,
+): NormalizedEmbeddedThemeUpdate | null {
+  if (!isRecord(value)) return null;
+  if (
+    value.type !== EMBEDDED_THEME_UPDATE_MESSAGE &&
+    value.type !== EMBEDDED_THEME_CHANGE_EVENT
+  ) {
+    return null;
+  }
+
+  const theme =
+    value.theme === "light" || value.theme === "dark"
+      ? value.theme
+      : typeof value.isDark === "boolean"
+        ? value.isDark
+          ? "dark"
+          : "light"
+        : null;
+  if (!theme) return null;
+
+  const vars = readThemeVars(value.vars);
+  return vars ? { theme, vars } : { theme };
+}
+
+export function buildEmbeddedThemeUpdate(
+  theme: ResolvedTheme,
+  vars?: Record<string, string>,
+): EmbeddedThemeUpdate {
+  return {
+    type: EMBEDDED_THEME_UPDATE_MESSAGE,
+    theme,
+    isDark: theme === "dark",
+    ...(vars ? { vars } : {}),
+  };
+}
+
+export function applyEmbeddedThemeUpdate(
+  root: HTMLElement,
+  update: NormalizedEmbeddedThemeUpdate,
+): void {
+  const isDark = update.theme === "dark";
+  root.classList.toggle("dark", isDark);
+  root.classList.toggle("light", !isDark);
+  root.setAttribute("data-theme", update.theme);
+  root.style.colorScheme = update.theme;
+
+  for (const [name, value] of Object.entries(update.vars ?? {})) {
+    root.style.setProperty(name, value);
+  }
+}
 
 function normalizeDefaultTheme(theme: ThemePreference): ThemePreference {
   if (theme === "light" || theme === "dark" || theme === "system") {

@@ -26,6 +26,7 @@ import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import {
   readOAuthCredentialState,
   resolveOAuthCredentialAccess,
+  markOAuthReconnectRequired,
   revokeOAuthCredential,
   saveOAuthCredential,
   type OAuthCredential,
@@ -56,6 +57,48 @@ function checkedRemoteUrl(value: string | URL, label: string): URL {
 
 function canonicalServerUrl(value: string): string {
   return checkedRemoteUrl(value, "server").toString();
+}
+
+/**
+ * RFC 8707 resource identifiers are exact strings. WHATWG `URL` origin-only
+ * values stringify with a trailing slash (`https://api.builder.io/` vs
+ * `https://api.builder.io`), and the MCP SDK puts `resource.href` on authorize
+ * and token requests. Servers that registered the unsuffixed identifier reject
+ * the canonical form as unregistered.
+ */
+class Rfc8707ResourceUrl extends URL {
+  readonly identifier: string;
+
+  constructor(identifier: string) {
+    super(identifier);
+    this.identifier = identifier;
+  }
+
+  override get href(): string {
+    return this.identifier;
+  }
+
+  override toString(): string {
+    return this.identifier;
+  }
+}
+
+function rfc8707ResourceUrl(identifier: string): URL {
+  checkedRemoteUrl(identifier, "resource");
+  return new Rfc8707ResourceUrl(identifier);
+}
+
+function resourceIsAllowed(requested: URL, configured: string): boolean {
+  const configuredUrl = new URL(configured);
+  if (requested.origin !== configuredUrl.origin) return false;
+  if (requested.pathname.length < configuredUrl.pathname.length) return false;
+  const requestedPath = requested.pathname.endsWith("/")
+    ? requested.pathname
+    : `${requested.pathname}/`;
+  const configuredPath = configuredUrl.pathname.endsWith("/")
+    ? configuredUrl.pathname
+    : `${configuredUrl.pathname}/`;
+  return requestedPath.startsWith(configuredPath);
 }
 
 function serverUrlsMatch(stored: string, canonical: string): boolean {
@@ -403,16 +446,42 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
   get savedClientInformation(): StoredOAuthClientInformation | undefined {
     return this.clientInfo;
   }
+
+  async validateResourceURL(
+    defaultResource: string | URL,
+    advertised?: string,
+  ): Promise<URL | undefined> {
+    if (!advertised) return undefined;
+    const requested =
+      typeof defaultResource === "string"
+        ? new URL(defaultResource)
+        : defaultResource;
+    if (!resourceIsAllowed(requested, advertised)) {
+      throw new Error(
+        `Protected resource ${advertised} does not match expected ${requested} (or origin)`,
+      );
+    }
+    return rfc8707ResourceUrl(advertised);
+  }
 }
 
 export async function startMcpOAuthAuthorization(
-  options: McpOAuthProviderOptions & { scope?: string },
+  options: McpOAuthProviderOptions & {
+    scope?: string;
+    // Override the protected-resource metadata URL for servers whose metadata
+    // is not at the RFC 9728 default path; the SDK still discovers the resource
+    // and authorization-server endpoints from it live.
+    resourceMetadataUrl?: string;
+  },
 ): Promise<McpOAuthStartResult> {
   checkedRemoteUrl(options.serverUrl, "server");
   const provider = new McpOAuthClientProvider(options);
   const result = await auth(provider, {
     serverUrl: options.serverUrl,
     scope: options.scope,
+    ...(options.resourceMetadataUrl
+      ? { resourceMetadataUrl: new URL(options.resourceMetadataUrl) }
+      : {}),
     fetchFn: guardedOAuthFetch(),
   });
   if (result !== "REDIRECT" || !provider.authorizationRedirect) {
@@ -546,6 +615,24 @@ export async function getMcpOAuthConnectionState(options: {
   );
 }
 
+export async function markMcpOAuthReconnectRequired(options: {
+  key: string;
+  scope: "user" | "org";
+  scopeId: string;
+  serverUrl: string;
+}): Promise<boolean> {
+  const serverUrl = canonicalServerUrl(options.serverUrl);
+  return markOAuthReconnectRequired<McpOAuthCredentialBundle>(
+    credentialIdentity({ ...options, serverUrl }),
+    {
+      allowLegacy: true,
+      legacyAccountKey: true,
+      validateCredential: (credential) =>
+        serverUrlsMatch(credential.serverUrl, serverUrl),
+    },
+  );
+}
+
 export async function deleteMcpOAuthCredentials(options: {
   key: string;
   scope: "user" | "org";
@@ -648,7 +735,7 @@ export async function getMcpOAuthAccessToken(options: {
           throw new Error("MCP OAuth refresh issuer binding is invalid.");
         }
         const resource = discovery.resourceMetadata?.resource
-          ? checkedRemoteUrl(discovery.resourceMetadata.resource, "resource")
+          ? rfc8707ResourceUrl(discovery.resourceMetadata.resource)
           : undefined;
         const authorizationServerUrl = checkedRemoteUrl(
           discovery.authorizationServerUrl,

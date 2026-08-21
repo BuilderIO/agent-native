@@ -27,6 +27,9 @@ describe("buildExtensionHtml", () => {
     expect(EXTENSION_IFRAME_CSP).not.toContain("frame-ancestors *");
     expect(EXTENSION_FRAME_ANCESTORS).toContain("https://*.agent-native.com");
     expect(EXTENSION_FRAME_ANCESTORS).toContain(
+      "https://agent-workspace.builder.io",
+    );
+    expect(EXTENSION_FRAME_ANCESTORS).toContain(
       "https://*.claudemcpcontent.com",
     );
     expect(EXTENSION_FRAME_ANCESTORS).toContain(

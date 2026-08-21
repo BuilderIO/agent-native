@@ -121,6 +121,63 @@ open state rather than shadcn variant names. When both APIs provide the button,
 falls back to Toolkit’s default adapter without disabling the rest of the
 registered system.
 
+## Data grid kit {#data-grid}
+
+`@agent-native/toolkit/data-grid` provides a Core-free, spreadsheet-like grid
+surface. The app supplies rows, typed columns, editor slots, selection state,
+and persistence callbacks. The kit provides keyboard navigation, active-cell
+behavior, optional selection, column sizing, and the scroll surface.
+
+The grid does not fetch data, call actions, resolve credentials, or persist
+edits. Use `renderHeader`, `renderBody`, `renderRow`, and `renderFooter` when an
+app needs to keep its own headers, grouping, row actions, or summary rows.
+
+| Export                       | Purpose                                                                |
+| ---------------------------- | ---------------------------------------------------------------------- |
+| `<DataGrid>`                 | Render rows and columns with shared grid mechanics.                    |
+| `DataGridColumn<Row>`        | Describe a typed column, including values, widths, cells, and editors. |
+| `clampDataGridColumnWidth()` | Clamp an app-owned width to a column's configured bounds.              |
+| `dataGridColumnTemplate()`   | Build the shared CSS grid template for custom slots.                   |
+
+The smallest adapter only supplies rows, columns, and stable row IDs:
+
+```tsx
+import { DataGrid, type DataGridColumn } from "@agent-native/toolkit/data-grid";
+
+type Row = { id: string; title: string };
+
+const columns: readonly DataGridColumn<Row>[] = [
+  {
+    id: "title",
+    label: "Title",
+    getValue: (row) => row.title,
+  },
+];
+
+<DataGrid rows={rows} columns={columns} getRowId={(row) => row.id} />;
+```
+
+Make selection and column widths controlled when the app needs to save them in
+its own state or database view preferences:
+
+```tsx
+<DataGrid
+  rows={rows}
+  columns={columns}
+  getRowId={(row) => row.id}
+  selection="multiple"
+  selectedRowIds={selectedRowIds}
+  onSelectedRowIdsChange={setSelectedRowIds}
+  columnWidths={columnWidths}
+  onColumnWidthsChange={setColumnWidths}
+/>
+```
+
+Content uses this surface in its database table view. `DatabaseView.tsx` keeps
+Content-specific property rendering, grouping, row drag and drop, selection
+actions, and row previews in the app while the Toolkit component supplies the
+shared grid mechanics. Use the [Content Developer Guide](/docs/template-content-developers#data-grid) when changing that adapter.
+
 ## Shell hooks {#shell-hooks}
 
 Toolkit includes small shell helpers and hooks that are useful across apps:

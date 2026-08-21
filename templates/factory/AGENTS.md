@@ -21,65 +21,61 @@ decisions, feedback, agent runs, and provider audit records.
   reconciliation is not success; preserve typed failure or
   `reconciliation_required` state.
 - Deduplicate by Factory item and rule/run identity, not provider comment ID.
-- Use the generic Slack adapter: clear-bug automations add 👀 and tag
-  `@builderio`; GitHub/Sentry clear bugs use the Builder run API. Clips, Design,
-  and Content stay owner-managed outside autonomous dispatch and PR governance.
-- PR governance requires verified BuilderIO membership, a clear bug, passing CI,
-  and handled review feedback; product/UX implications stay manual. Auto-merge
-  also requires a verified Factory Builder run.
+- Slack clear bugs go through `start-builder-for-item`; never post Slack
+  messages or `@handles`. GitHub/Sentry use the Builder run API. Read
+  `review-latest-feedback` for thread evidence and disposition rules.
+- PR governance follows `review-prs`: verify membership and evidence; skip
+  drafts and external authors; keep ultra-scary risks manual; never auto-merge.
 - Graph edits create immutable blueprint versions. AI proposes with `source=ai`;
   a person reviews and publishes through the same action surface.
 - Provider credentials belong to Dispatch/shared workspace integrations, never
   to a Factory or Factory graph. Agents use shared provider APIs and connected
   MCP tools through the workspace grant boundary.
+- For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver.
 
 ## Application state
 
-- `navigation.view`: `factory` when the workspace is open.
-- `navigation.factoryId`: selected Factory id when present.
-- `navigation.factoryTab`: `map` | `inbox` | `rules` | `automations` | `audit` | `settings`.
-- `navigation.factoryAuditRunId`: selected automation run in the audit view when present.
-- `navigation.factoryNodeId` / `navigation.factoryEdgeId`: selected graph item.
-- A selected graph node or edge is part of `navigation` context. Read
-  `view-screen` before answering why a route exists or changing the selected
-  Factory.
+- `navigation.view` is `factory` or `agents`. Runtime data is scoped by
+  `factoryId`; reusable agents stay workspace-wide. Read `view-screen` and
+  `factory-graphs` for tab and selection keys.
 
 ## Action contract
 
 | Action | Purpose |
 | --- | --- |
-| `list-triage-items` / `get-triage-item` | Inspect queue and evidence; scheduled reviewers must pass `needsReview: true` with a bounded `source` and `limit`. |
+| `list-triage-items` / `get-triage-item` | Inspect queue evidence; pass `factoryId`. |
+| `get-triage-config` / `save-triage-config` | Read or save observation settings for one factory. |
 | `poll-slack-channel` | Observe Slack history; never writes to Slack. |
 | `get-slack-feedback-context` | Read the bounded full Slack thread before classification. |
-| `poll-github-sources` / `poll-sentry-errors` | Observe bounded GitHub and Sentry source queues. |
+| `poll-github-sources` / `poll-sentry-errors` | Observe bounded source queues. |
 | `ingest-github-observation` | Store read-only PR evidence. |
-| `list-triage-rules` / `save-triage-rule` | Tune prompt rules and guards. |
+| `list-triage-rules` / `save-triage-rule` | Tune rules and guards. |
 | `evaluate-triage-item` | Append a decision. |
 | `record-triage-feedback` | Capture human correction for learning. |
 | `approve-factory-item` | Explicitly authorize one bounded run. |
-| `start-builder-for-item` | Govern clear-bug dispatch through Slack or Builder API. |
-| `govern-agent-native-pull-request` | Apply CI, review, author, product, and owner gates. |
-| `list-factory-automations` / `save-factory-automation` / `run-factory-automation` | Inspect or edit org-owned prompts, schedules, and runs. |
-| `list-factory-audit` | Inspect automation runs, evidence, decisions, and provider actions. |
+| `start-builder-for-item` | Govern clear-bug dispatch through Slack or Builder API, or record a skip reason. |
+| `govern-agent-native-pull-request` | Apply PR evidence and ownership gates. |
+| `list-factory-automations` / `save-factory-automation` / `run-factory-automation` | Inspect or edit org-owned automations. |
+| `list-factory-audit` | Inspect runs, evidence, and provider actions for one factory. |
 | `get-factory-automation-health` | Inspect scheduler heartbeat and last error. |
-| `suggest-factory-rules` | Mine feedback and fast approvals into proposals. |
+| `suggest-factory-rules` | Mine feedback into proposals. |
 | `reconcile-triage-run` | Persist callback/provider reconciliation. |
-| `list-factories` / `get-factory-graph` | Inspect Factory definitions, graph versions, and live evidence metrics. |
-| `save-factory-graph` | Create or version a complete visual graph; never starts provider work. |
+| `list-factories` / `get-factory-graph` | Inspect definitions, versions, and metrics. |
+| `create-factory` | Create a factory from `/new-factory` with optional sources. |
+| `save-factory-graph` | Create/version a graph with inspected `expectedGraphVersion`; never starts provider work. |
+| graph history actions | Factory graph version history. |
 | `list-factory-comments` / `add-factory-comment` | Read or attach comments to a canvas, node, or edge. |
-| `provider-api-catalog` / `provider-api-docs` / `provider-api-request` | Discover and use connected provider APIs with shared workspace credentials; never request raw keys. |
+| `provider-api-catalog` / `provider-api-docs` / `provider-api-request` | Use connected provider APIs with shared credentials; never request raw keys. |
+| `list-workspace-apps` / `update-workspace-app-metadata` | Inventory and edit mounted apps. |
+| `list-workspace-resources` / `create-workspace-resource` / `update-workspace-resource` | Manage shared agent resources. |
+| `import-agent` / `import-agent-pack` / `list-agent-pack` | Import profiles or agent packs. |
+| `start-workspace-app-creation` | Promote an agent and its pack into an app handoff. |
 
-Rules start in shadow mode; hard guards always apply. Organization automations
-execute stored prompts, and every external mutation needs a durable run,
-idempotency key, and provider confirmation. The legacy observer ends once org
-automations are seeded. Use the visual editor for graph changes and agent chat
+Rules start in shadow mode; hard guards apply. Organization automations use
+stored prompts; external mutations require durable, idempotent runs and
+provider confirmation. Use the visual editor for graph changes and agent chat
 for proposals; persist complete graphs with `save-factory-graph`. Change rules
-through triage rule actions, never graph JSON.
-
-The Slack, GitHub, and Sentry pollers are bounded ingestion adapters for the
-legacy default triage queue. They do not define the complete tool surface.
-Interactive and scheduled agents may discover additional connected provider or
-MCP tools through the shared workspace context.
+through triage actions, never graph JSON.
 
 ## Source Changes
 

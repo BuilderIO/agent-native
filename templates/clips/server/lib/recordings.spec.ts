@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getDb: vi.fn(),
@@ -166,6 +166,10 @@ describe("countRecordingViews", () => {
 });
 
 describe("getDefaultRecordingVisibility", () => {
+  beforeEach(() => {
+    mocks.getDb.mockClear();
+  });
+
   it("prefers the personal default over the organization default", async () => {
     mocks.getRequestUserEmail.mockReturnValue("Owner@Example.test");
     mocks.getUserSetting.mockResolvedValue({
@@ -195,5 +199,50 @@ describe("getDefaultRecordingVisibility", () => {
     });
 
     await expect(getDefaultRecordingVisibility("org-1")).resolves.toBe("org");
+  });
+
+  it("uses public when neither personal nor organization defaults exist", async () => {
+    mocks.getRequestUserEmail.mockReturnValue("owner@example.com");
+    mocks.getUserSetting.mockResolvedValue(null);
+    mocks.getDb.mockReturnValue({
+      select: () => ({
+        from: () => ({
+          where: () => ({
+            limit: async () => [],
+          }),
+        }),
+      }),
+    });
+
+    await expect(getDefaultRecordingVisibility("org-1")).resolves.toBe(
+      "public",
+    );
+  });
+
+  it("honors an explicit personal public preference", async () => {
+    mocks.getRequestUserEmail.mockReturnValue("owner@example.com");
+    mocks.getUserSetting.mockResolvedValue({
+      defaultRecordingVisibility: "public",
+    });
+
+    await expect(getDefaultRecordingVisibility("org-1")).resolves.toBe(
+      "public",
+    );
+    expect(mocks.getDb).not.toHaveBeenCalled();
+  });
+
+  it("accepts the authenticated action owner when request context is empty", async () => {
+    mocks.getRequestUserEmail.mockReturnValue(null);
+    mocks.getUserSetting.mockResolvedValue({
+      defaultRecordingVisibility: "private",
+    });
+
+    await expect(
+      getDefaultRecordingVisibility("org-1", "Owner@Example.test"),
+    ).resolves.toBe("private");
+    expect(mocks.getUserSetting).toHaveBeenCalledWith(
+      "owner@example.test",
+      "clips-user-prefs",
+    );
   });
 });

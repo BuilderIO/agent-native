@@ -5,7 +5,7 @@ description: "app/ 用來讀取、寫入，並與代理所呼叫的相同 action
 
 # 資料與同步
 
-從用戶端應用程式讀取和寫入應用資料的主要方式是透過 [action](/docs/actions) 掛鉤。透過將請求嵌入到 actions 中，您的用戶端和代理都能以相同的方式與您的應用程式互動。
+從用戶端應用程式讀取和寫入應用資料的主要方式是透過 [action](/docs/actions-overview) 掛鉤。透過將請求嵌入到 actions 中，您的用戶端和代理都能以相同的方式與您的應用程式互動。
 
 在下方的範例中，一張工單先透過下拉選單手動指派給目前使用者，然後再透過聊天代理指派。UI 和代理存取的是同一個 action。
 
@@ -423,7 +423,7 @@ function App() {
 
 - [**總覽**](/docs/client-overview) — 此頁面掛鉤所在的 `app/` 和 `public/` 目錄配置
 - [**Agent 聊天**](/docs/client-agent-chat) — 傳送提示與為代理暫存脈絡
-- [**Actions**](/docs/actions) — 本頁每個掛鉤背後的 `defineAction` 介面
+- [**Actions**](/docs/actions-overview) — 本頁每個掛鉤背後的 `defineAction` 介面
 - [**進階**](/docs/client-advanced) — 直接存取 `application_state`
 - [**同步內部機制**](/docs/client-sync-internals) — 用 `useChangeVersion` 同步原始 `useQuery`
 - [**即時同步**](/docs/key-concepts#polling-sync) — `useDbSync` 如何讓 UI 保持最新

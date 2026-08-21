@@ -81,6 +81,7 @@ describe("ReviewThreadPanel sidebar layout", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    rootComment.body = "Make the heading clearer";
     const comment = rootComment as ReviewComment & {
       resolutionNote?: string;
     };
@@ -191,6 +192,26 @@ describe("ReviewThreadPanel sidebar layout", () => {
     expect(
       container.querySelector('button[aria-label="Cancel reply"]'),
     ).not.toBeNull();
+  });
+
+  it("renders inline Markdown in comment bodies without headings", () => {
+    rootComment.body = "# Not a heading\n\n**Bold** and `code`.";
+
+    act(() => {
+      root.render(
+        <ReviewThreadPanel
+          resourceType="design"
+          resourceId="design-1"
+          showHeader={false}
+          showComposer={false}
+        />,
+      );
+    });
+
+    expect(container.querySelector("h1, h2, h3, h4, h5, h6")).toBeNull();
+    expect(container.querySelector("strong")?.textContent).toBe("Bold");
+    expect(container.querySelector("code")?.textContent).toBe("code");
+    expect(container.textContent).toContain("Not a heading");
   });
 
   it("routes the plain comment action to a human when agent dispatch is hidden", () => {

@@ -1,3 +1,10 @@
+use std::{
+    ffi::OsString,
+    path::{Path, PathBuf},
+    process::{Command, Stdio},
+    sync::atomic::{AtomicU64, Ordering},
+};
+
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
 use crate::dlog;
@@ -7,6 +14,7 @@ use crate::state::{
 };
 
 const POPOVER_SHADOW_GUTTER_LOGICAL: f64 = 24.0;
+static OAUTH_WINDOW_COUNTER: AtomicU64 = AtomicU64::new(0);
 const POPOVER_DEFAULT_WIDTH_LOGICAL: f64 = 320.0;
 const POPOVER_DEFAULT_HEIGHT_LOGICAL: f64 = 520.0;
 
@@ -103,6 +111,7 @@ pub fn set_capture_included(window: &WebviewWindow) {
 
 pub fn build_popover_window(app: &mut tauri::App) -> Result<WebviewWindow, tauri::Error> {
     let gutter = POPOVER_SHADOW_GUTTER_LOGICAL * 2.0;
+    let app_handle = app.handle().clone();
     WebviewWindowBuilder::new(app, "popover", WebviewUrl::App("index.html".into()))
         .title("Clips")
         .inner_size(
@@ -120,6 +129,35 @@ pub fn build_popover_window(app: &mut tauri::App) -> Result<WebviewWindow, tauri
         .focused(true)
         .shadow(false)
         .accept_first_mouse(true)
+        // Tauri does not create a native child for window.open by default.
+        // Create it here with the opener's webview configuration so Google
+        // OAuth stays in a visible child window and shares the binding cookie.
+        .on_new_window(move |url, features| {
+            let label = format!(
+                "google-oauth-{}",
+                OAUTH_WINDOW_COUNTER.fetch_add(1, Ordering::Relaxed)
+            );
+            let popup = WebviewWindowBuilder::new(&app_handle, label, WebviewUrl::External(url))
+                .title("Sign in to Clips")
+                .inner_size(520.0, 720.0)
+                .resizable(true)
+                .always_on_top(false)
+                .focused(true)
+                .window_features(features)
+                .build();
+
+            match popup {
+                Ok(window) => {
+                    set_capture_excluded(&window);
+                    configure_overlay_behavior(&window);
+                    tauri::webview::NewWindowResponse::Create { window }
+                }
+                Err(error) => {
+                    eprintln!("[clips-tray] failed to create OAuth popup: {error}");
+                    tauri::webview::NewWindowResponse::Deny
+                }
+            }
+        })
         .build()
 }
 
@@ -505,6 +543,78 @@ pub fn frontmost_bundle_id() -> Option<String> {
     None
 }
 
+fn bundle_path_from_executable_path(executable_path: &Path) -> Option<PathBuf> {
+    let macos_dir = executable_path.parent()?;
+    if macos_dir.file_name()?.to_str()? != "MacOS" {
+        return None;
+    }
+    let contents_dir = macos_dir.parent()?;
+    let bundle_path = contents_dir.parent()?;
+    Some(bundle_path.to_path_buf())
+}
+
+#[tauri::command]
+pub fn restart_bundle_path() -> Result<String, String> {
+    let executable_path = std::env::current_exe().map_err(|err| format!("current_exe: {err}"))?;
+    #[cfg(target_os = "macos")]
+    let bundle_path = bundle_path_from_executable_path(&executable_path).ok_or_else(|| {
+        format!(
+            "could not derive macOS bundle path from {}",
+            executable_path.display()
+        )
+    })?;
+    #[cfg(not(target_os = "macos"))]
+    let bundle_path = executable_path;
+    Ok(bundle_path.to_string_lossy().into_owned())
+}
+
+#[cfg(target_os = "macos")]
+fn spawn_macos_restart_helper(bundle_path: &Path, args: &[OsString]) -> Result<(), String> {
+    let parent_pid = std::process::id().to_string();
+    let mut command = Command::new("/bin/sh");
+    command
+        .arg("-c")
+        .arg(
+            r#"
+parent_pid="$1"
+bundle_path="$2"
+shift 2
+while kill -0 "$parent_pid" >/dev/null 2>&1; do
+  sleep 0.1
+done
+if [ "$#" -gt 0 ]; then
+  exec /usr/bin/open -n "$bundle_path" --args "$@"
+else
+  exec /usr/bin/open -n "$bundle_path"
+fi
+"#,
+        )
+        .arg("clips-restart-helper")
+        .arg(parent_pid)
+        .arg(bundle_path)
+        .args(args.iter().skip(1))
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+
+    command
+        .spawn()
+        .map_err(|err| format!("spawn restart helper: {err}"))?;
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn spawn_macos_restart_helper(_bundle_path: &Path, _args: &[OsString]) -> Result<(), String> {
+    Err("macOS restart helper is unavailable on this platform".to_string())
+}
+
+#[tauri::command]
+pub fn schedule_restart_after_exit(bundle_path: String) -> Result<(), String> {
+    let bundle_path = PathBuf::from(bundle_path);
+    let args: Vec<OsString> = std::env::args_os().collect();
+    spawn_macos_restart_helper(&bundle_path, &args)
+}
+
 pub fn set_dictation_active(app: &AppHandle, active: bool) {
     if let Some(state) = app.try_state::<DictationActive>() {
         if let Ok(mut g) = state.0.lock() {
@@ -535,5 +645,25 @@ pub fn hide_voice_wake_popover(app: &AppHandle) {
             let _ = w.hide();
             let _ = app.emit("clips:popover-visible", false);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::bundle_path_from_executable_path;
+    use std::path::Path;
+
+    #[test]
+    fn derives_macos_bundle_path_from_app_executable() {
+        let executable = Path::new("/Applications/Clips.app/Contents/MacOS/Clips");
+        let bundle =
+            bundle_path_from_executable_path(executable).expect("expected macOS bundle path");
+        assert_eq!(bundle, Path::new("/Applications/Clips.app"));
+    }
+
+    #[test]
+    fn rejects_non_bundle_executable_paths() {
+        let executable = Path::new("/Users/steve/dev/Clips");
+        assert!(bundle_path_from_executable_path(executable).is_none());
     }
 }

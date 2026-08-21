@@ -1,3 +1,5 @@
+export { MemoryRouter as AgentChatMemoryRouter } from "react-router";
+
 export {
   AgentAskPopover,
   type AgentAskPopoverProps,
@@ -46,6 +48,7 @@ export {
   type SaveAgentEngineProviderSettingsOptions,
 } from "../agent-engine-key.js";
 export { useAgentChatGenerating } from "../use-agent-chat.js";
+export { useActiveAgentChatRunId } from "../use-active-agent-chat-run.js";
 export {
   useAgentChatContext,
   type UseAgentChatContextResult,
@@ -222,6 +225,7 @@ export {
   AgentSidebar,
   AgentToggleButton,
   focusAgentChat,
+  preloadAgentChatSurface,
   type AgentChatSurfaceMode,
   type AgentChatSurfaceProps,
   type AgentPanelProps,

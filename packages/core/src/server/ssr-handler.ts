@@ -23,6 +23,7 @@ import {
   DEFAULT_SPECULATION_RULES_PATH,
   resolveSsrCacheHeaders,
   resolveSsrCacheKeyHeaders,
+  SSR_QUERY_CACHE_KEY_HEADER,
 } from "../shared/cache-control.js";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_ALT,
@@ -36,6 +37,7 @@ import {
   getAppBasePathFromViteEnv,
   stripAppBasePath as canonicalStripAppBasePath,
 } from "./app-base-path.js";
+import { getAppOriginClientConfigScript } from "./app-origin-config.js";
 import { captureError } from "./capture-error.js";
 import { getPostHogClientConfigScript } from "./posthog-config.js";
 import { runWithRequestContext } from "./request-context.js";
@@ -219,12 +221,30 @@ function injectDefaultSocialImageMeta(html: string, imageUrl: string): string {
   return html.slice(0, headCloseIdx) + tags.join("") + html.slice(headCloseIdx);
 }
 
+/**
+ * A "not found" shell is exactly as impersonal as a 200 shell, and leaving it
+ * uncached is expensive in a way that is invisible until it is not: every dead
+ * link, stale bookmark, renamed slug and crawler miss re-invoked the render
+ * function, and Netlify runs one request per container. Measured on
+ * www.agent-native.com, `/docs/<anything>` cost ~5s and cost the SAME ~5s on
+ * the very next identical request, because `no-cache` meant nothing was ever
+ * stored. Those invocations draw from the account-wide concurrency pool every
+ * other site shares, so one crawler walking dead links slowed unrelated apps.
+ *
+ * Only 404/410 join the shared policy. A 5xx is transient and must stay
+ * uncacheable — pinning one at the edge for the SWR window would turn a blip
+ * into an outage. 401/403 stay out because an auth-shaped response is the one
+ * error that could carry viewer-specific meaning.
+ */
+const CACHEABLE_ERROR_STATUSES = new Set([404, 410]);
+
 function isSsrHtmlOrDataResponse(
   headers: Headers,
   status: number,
   pathname: string,
 ): boolean {
-  if (status < 200 || status >= 400) return false;
+  if (status < 200) return false;
+  if (status >= 400 && !CACHEABLE_ERROR_STATUSES.has(status)) return false;
   const contentType = headers.get("content-type")?.toLowerCase() ?? "";
   if (contentType.includes("text/html")) return true;
   return pathname.endsWith(".data") && contentType.includes("text/x-script");
@@ -273,6 +293,9 @@ function applyDefaultSsrCacheHeader(
   status: number,
   pathname: string,
 ) {
+  const varyByQuery =
+    headers.get(SSR_QUERY_CACHE_KEY_HEADER)?.trim().toLowerCase() === "query";
+  headers.delete(SSR_QUERY_CACHE_KEY_HEADER);
   if (!isSsrHtmlOrDataResponse(headers, status, pathname)) return;
 
   // A public shell must never set a viewer cookie or vary by credentials.
@@ -304,9 +327,14 @@ function applyDefaultSsrCacheHeader(
   for (const [name, value] of Object.entries(resolveSsrCacheHeaders())) {
     headers.set(name, value);
   }
-  for (const [name, value] of Object.entries(resolveSsrCacheKeyHeaders())) {
-    headers.set(name, value);
-  }
+  const cacheKeyHeaders = resolveSsrCacheKeyHeaders();
+  const netlifyVary = varyByQuery
+    ? cacheKeyHeaders["netlify-vary"]
+      ? "query"
+      : undefined
+    : cacheKeyHeaders["netlify-vary"];
+  if (netlifyVary) headers.set("netlify-vary", netlifyVary);
+  else headers.delete("netlify-vary");
 }
 
 function applyDefaultSpeculationRulesHeader(
@@ -397,6 +425,7 @@ async function rewriteMountedResponse(
       getSentryClientConfigScript(),
       getPostHogClientConfigScript(),
       getRealtimeClientConfigScript(),
+      getAppOriginClientConfigScript(),
     ]
       .filter(Boolean)
       .join("") || null;

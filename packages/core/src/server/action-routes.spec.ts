@@ -14,6 +14,7 @@ const mockConsumeOneTimeJti = vi.hoisted(() => vi.fn(async () => false));
 const mockResolveEmbedSessionFromRequest = vi.hoisted(() =>
   vi.fn(async () => null),
 );
+const mockRegisterAuthPublicPaths = vi.hoisted(() => vi.fn());
 
 function fakeUnsignedJwt(payload: Record<string, string>): string {
   const encode = (value: Record<string, string>) =>
@@ -28,6 +29,8 @@ vi.mock("h3", () => ({
   getMethod: (event: any) => event._method ?? "GET",
   getQuery: (event: any) => event._query ?? {},
   getHeader: (event: any, name: string) => event._headers?.[name.toLowerCase()],
+  getRequestHeader: (event: any, name: string) =>
+    event._headers?.[name.toLowerCase()],
   getRequestURL: (event: any) =>
     new URL(event.req?.url ?? "http://localhost/_agent-native/actions/test"),
   setResponseStatus: (event: any, status: number) => {
@@ -66,6 +69,8 @@ vi.mock("../org/context.js", () => ({
 
 vi.mock("./auth.js", () => ({
   getSession: (...args: unknown[]) => mockGetSession(...args),
+  registerAuthPublicPaths: (...args: unknown[]) =>
+    mockRegisterAuthPublicPaths(...args),
   // Captured into the request context so code below the HTTP layer can tell a
   // local-dev caller from a remote one. Mocked false: these specs assert
   // ordinary remote-request behavior.
@@ -529,6 +534,7 @@ describe("mountActionRoutes", () => {
       ping: {
         run: vi.fn(async () => ({
           browserSessionId: getRequestContext()?.browserSessionId,
+          clientPlatform: getRequestContext()?.clientPlatform,
         })),
       } as any,
     };
@@ -539,7 +545,10 @@ describe("mountActionRoutes", () => {
 
     const withSession = {
       _method: "POST",
-      _headers: { "x-agent-native-session-id": "pinned-session-1" },
+      _headers: {
+        "x-agent-native-session-id": "pinned-session-1",
+        "x-agent-native-client-platform": "mobile",
+      },
       req: { json: async () => ({}) },
     };
     const withoutSession = {
@@ -550,9 +559,94 @@ describe("mountActionRoutes", () => {
 
     expect(await mounted[0].handler(withSession)).toEqual({
       browserSessionId: "pinned-session-1",
+      clientPlatform: "mobile",
     });
     expect(await mounted[0].handler(withoutSession)).toEqual({
       browserSessionId: undefined,
+      clientPlatform: undefined,
+    });
+  });
+
+  it("uses the forwarded gateway origin for request context behind a dev proxy", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { getRequestContext } = await import("./request-context.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const actions: Record<string, ActionEntry> = {
+      ping: {
+        run: vi.fn(async () => ({
+          requestOrigin: getRequestContext()?.requestOrigin,
+        })),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions, {
+      getOwnerFromEvent: async () => "alice@example.com",
+    });
+
+    const proxied = {
+      _method: "POST",
+      _headers: {
+        host: "127.0.0.1:8092",
+        "x-forwarded-host": "127.0.0.1:8080",
+        "x-forwarded-proto": "http",
+      },
+      req: {
+        url: "http://127.0.0.1:8092/dispatch/_agent-native/actions/ping",
+        json: async () => ({}),
+      },
+    };
+
+    expect(await mounted[0].handler(proxied)).toEqual({
+      requestOrigin: "http://127.0.0.1:8080",
+    });
+  });
+
+  it("keeps the forwarded gateway origin when workspace OAuth relay is configured", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv("APP_URL", "https://dispatch.agent-native.com");
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { getRequestContext } = await import("./request-context.js");
+    const { getOrigin } = await import("./google-oauth.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const actions: Record<string, ActionEntry> = {
+      ping: {
+        run: vi.fn(async () => ({
+          requestOrigin: getRequestContext()?.requestOrigin,
+        })),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions, {
+      getOwnerFromEvent: async () => "alice@example.com",
+    });
+
+    const proxied = {
+      _method: "POST",
+      _headers: {
+        host: "127.0.0.1:8092",
+        "x-forwarded-host": "127.0.0.1:8080",
+        "x-forwarded-proto": "http",
+      },
+      req: {
+        url: "http://127.0.0.1:8092/dispatch/_agent-native/actions/ping",
+        json: async () => ({}),
+      },
+    };
+
+    expect(getOrigin(proxied as any)).toBe("https://dispatch.agent-native.com");
+    expect(await mounted[0].handler(proxied)).toEqual({
+      requestOrigin: "http://127.0.0.1:8080",
     });
   });
 
@@ -1624,6 +1718,59 @@ describe("mountActionRoutes", () => {
     expect(mockResolveOrgByDomain).toHaveBeenCalledWith("outside.example");
   });
 
+  it("allows allowlisted no-org list and set delegations without active-org fallback", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    process.env.AGENT_NATIVE_FEATURE_FLAG_ADMIN_EMAILS = "admin@example.com";
+    mockResolveOrgByDomain.mockResolvedValue(null);
+    mockResolveOrgIdForEmail.mockResolvedValue("unrelated-active-org");
+
+    for (const [actionName, scope] of [
+      ["list-feature-flags", "flags:read"],
+      ["set-feature-flag", "flags:write"],
+    ] as const) {
+      mockVerifyA2ATokenWithClaims.mockResolvedValue({
+        email: "ADMIN@example.com",
+        orgId: "sender-org",
+        orgDomain: "outside.example",
+        jti: `${actionName}-no-org`,
+        issuer: "https://analytics.example",
+        scope: [scope],
+      });
+      const mounted: Array<{ path: string; handler: any }> = [];
+      let context: any;
+      mountActionRoutes(
+        {
+          use: (path: string, handler: any) => mounted.push({ path, handler }),
+        },
+        {
+          [actionName]: {
+            run: async (_params: unknown, ctx: any) => {
+              context = ctx;
+              return { ok: true };
+            },
+          },
+        } as any,
+      );
+
+      await mounted[0].handler({
+        _method: "POST",
+        _headers: {
+          authorization: `Bearer ${fakeUnsignedJwt({ scope })}`,
+        },
+        context: {},
+        req: { json: async () => ({}) },
+      });
+
+      expect(context).toMatchObject({
+        caller: "a2a",
+        userEmail: "ADMIN@example.com",
+        orgId: null,
+      });
+    }
+
+    expect(mockResolveOrgIdForEmail).not.toHaveBeenCalled();
+  });
+
   it("runs the action scoped to actionRouteAuth.resolveCaller and skips getOwnerFromEvent", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
     const { AGENT_RUN_OWNER_CONTEXT_KEY } =
@@ -1682,6 +1829,48 @@ describe("mountActionRoutes", () => {
       anonymous: false,
       name: "A2A Caller",
     });
+  });
+
+  it("passes the original mounted pathname to action auth adapters", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const resolveCaller = vi.fn(async (event: any) => {
+      expect(event.path).toBe("/");
+      expect(event.context._mountedPathname).toBe(
+        "/_agent-native/actions/do-thing",
+      );
+      return {
+        owner: "a2a-caller@example.com",
+        anonymous: false,
+        orgId: "org-builder",
+      };
+    });
+    const run = vi.fn(async () => ({ ok: true }));
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+
+    mountActionRoutes(
+      nitroApp,
+      { "do-thing": { run } as any },
+      { actionRouteAuth: { resolveCaller } },
+    );
+
+    await expect(
+      mounted[0]!.handler({
+        _method: "POST",
+        _headers: {},
+        path: "/",
+        context: {
+          _mountedPathname: "/_agent-native/actions/do-thing",
+        },
+        req: { json: async () => ({}) },
+      }),
+    ).resolves.toEqual({ ok: true });
+    expect(resolveCaller).toHaveBeenCalledOnce();
+    expect(run).toHaveBeenCalledOnce();
   });
 
   it("falls through to getOwnerFromEvent when resolveCaller returns null", async () => {
@@ -1807,6 +1996,184 @@ describe("mountActionRoutes", () => {
     );
     expect(received.ctx.orgId).toBe("org-owner-derived");
     expect(received.requestOrgId).toBe("org-owner-derived");
+  });
+
+  it("falls back to the stored active org for a cookie session that resolved none", async () => {
+    // A session minted before org selection — or one whose membership read
+    // failed — yields no org, and an undefined org narrows every scoped read
+    // to rows with a null org_id, hiding the user's own org-scoped data.
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { getRequestOrgId } = await import("./request-context.js");
+    mockResolveOrgIdForEmail.mockResolvedValue("org-stored-active");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    let received: any;
+    const actions: Record<string, ActionEntry> = {
+      "do-thing": {
+        run: vi.fn(async (_params, ctx) => {
+          received = { ctx, requestOrgId: getRequestOrgId() };
+          return { ok: true };
+        }),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions, {
+      getOwnerFromEvent: async () => "steve@example.com",
+      resolveOrgId: async () => null,
+    });
+
+    await mounted[0].handler({
+      _method: "POST",
+      _headers: { "x-agent-native-frontend": "1" },
+      req: { json: async () => ({}) },
+    });
+
+    expect(mockResolveOrgIdForEmail).toHaveBeenCalledWith("steve@example.com");
+    expect(received.ctx.orgId).toBe("org-stored-active");
+    expect(received.requestOrgId).toBe("org-stored-active");
+  });
+
+  it("keeps an explicit Personal selection personal", async () => {
+    // resolveOrgIdForEmail returns null for an explicit Personal choice, so
+    // the fallback must not promote the user into their oldest membership.
+    const { mountActionRoutes } = await import("./action-routes.js");
+    mockResolveOrgIdForEmail.mockResolvedValue(null);
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    let received: any;
+    const actions: Record<string, ActionEntry> = {
+      "do-thing": {
+        run: vi.fn(async (_params, ctx) => {
+          received = ctx;
+          return { ok: true };
+        }),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions, {
+      getOwnerFromEvent: async () => "steve@example.com",
+      resolveOrgId: async () => null,
+    });
+
+    await mounted[0].handler({
+      _method: "POST",
+      _headers: { "x-agent-native-frontend": "1" },
+      req: { json: async () => ({}) },
+    });
+
+    expect(received.orgId).toBeNull();
+  });
+
+  it.each([
+    "no such table: org_members",
+    'relation "org_members" does not exist',
+  ])(
+    "suppresses the verified first-boot missing org table error: %s",
+    async (message) => {
+      const { mountActionRoutes } = await import("./action-routes.js");
+      mockResolveOrgIdForEmail.mockRejectedValue(new Error(message));
+      const mounted: Array<{ path: string; handler: any }> = [];
+      const nitroApp = {
+        use: vi.fn((path: string, handler: any) =>
+          mounted.push({ path, handler }),
+        ),
+      };
+      let received: any;
+      mountActionRoutes(
+        nitroApp,
+        {
+          "do-thing": {
+            run: vi.fn(async (_params, ctx) => {
+              received = ctx;
+              return { ok: true };
+            }),
+          } as any,
+        },
+        {
+          getOwnerFromEvent: async () => "steve@example.com",
+          resolveOrgId: async () => null,
+        },
+      );
+
+      await expect(
+        mounted[0].handler({
+          _method: "POST",
+          _headers: { "x-agent-native-frontend": "1" },
+          req: { json: async () => ({}) },
+        }),
+      ).resolves.toEqual({ ok: true });
+      expect(received.orgId).toBeNull();
+    },
+  );
+
+  it("propagates persistent org-resolution failures", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const error = new Error("permission denied for table org_members");
+    mockResolveOrgIdForEmail.mockRejectedValue(error);
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const run = vi.fn(async () => ({ ok: true }));
+    mountActionRoutes(
+      nitroApp,
+      { "do-thing": { run } as any },
+      {
+        getOwnerFromEvent: async () => "steve@example.com",
+        resolveOrgId: async () => null,
+      },
+    );
+
+    await expect(
+      mounted[0].handler({
+        _method: "POST",
+        _headers: { "x-agent-native-frontend": "1" },
+        req: { json: async () => ({}) },
+      }),
+    ).rejects.toBe(error);
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("preserves transient org-resolution failures", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const error = Object.assign(new Error("db query timed out"), {
+      code: "57014",
+    });
+    mockResolveOrgIdForEmail.mockRejectedValue(error);
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const run = vi.fn(async () => ({ ok: true }));
+    mountActionRoutes(
+      nitroApp,
+      { "do-thing": { run } as any },
+      {
+        getOwnerFromEvent: async () => "steve@example.com",
+        resolveOrgId: async () => null,
+      },
+    );
+
+    await expect(
+      mounted[0].handler({
+        _method: "POST",
+        _headers: { "x-agent-native-frontend": "1" },
+        req: { json: async () => ({}) },
+      }),
+    ).rejects.toBe(error);
+    expect(run).not.toHaveBeenCalled();
   });
 
   it("never lets the ambient session org override the adapter caller's org", async () => {

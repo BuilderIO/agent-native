@@ -209,10 +209,60 @@ describe("cross-tab SSE sharing", () => {
     });
 
     const channel = FakeBroadcastChannel.instances.at(-1)!;
-    expect(channel.posted).toContainEqual({
+    expect(channel.posted).toContainEqual(
+      expect.objectContaining({
+        type: "events",
+        events: CHANGE,
+        version: 7,
+        cursor: { version: 7, id: "" },
+      }),
+    );
+    unsub();
+  });
+
+  it("never forwards the leader's ahead-of-frame cursor to followers", async () => {
+    vi.mocked(fetch).mockImplementation(async (input) => {
+      if (String(input).includes("/_agent-native/poll")) {
+        return {
+          ok: true,
+          json: async () => ({
+            version: 200,
+            events: [],
+            cursor: "200.z",
+          }),
+        } as Response;
+      }
+      return {
+        ok: true,
+        json: async () => ({ version: 0, events: [] }),
+      } as Response;
+    });
+    const unsub = subscribeSyncEvents({ onEvents: () => {} });
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    const source = FakeEventSource.instances.at(-1)!;
+    source.onmessage?.({
+      data: JSON.stringify({
+        type: "batch",
+        version: 100,
+        events: [
+          {
+            version: 100,
+            cursorId: "a",
+            source: "app-state",
+            type: "change",
+            key: "*",
+          },
+        ],
+      }),
+    });
+
+    const channel = FakeBroadcastChannel.instances.at(-1)!;
+    expect(channel.posted.at(-1)).toEqual({
       type: "events",
-      events: CHANGE,
-      version: 7,
+      events: [expect.objectContaining({ version: 100, cursorId: "a" })],
+      version: 100,
+      cursor: { version: 100, id: "a" },
     });
     unsub();
   });

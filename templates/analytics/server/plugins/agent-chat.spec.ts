@@ -7,6 +7,10 @@ const adhocAnalysisSkill = readFileSync(
   new URL("../../.agents/skills/adhoc-analysis/SKILL.md", import.meta.url),
   "utf8",
 );
+const accountHealthSkill = readFileSync(
+  new URL("../../.agents/skills/account-health/SKILL.md", import.meta.url),
+  "utf8",
+);
 
 const { agentChatPluginOptions, representativeAnalyticsActions } = vi.hoisted(
   () => ({
@@ -89,6 +93,8 @@ import {
   ANALYTICS_CROSS_APP_ROUTING_GUIDANCE,
   ANALYTICS_CUSTOM_BLOCK_GUIDANCE,
   ANALYTICS_BACKGROUND_RUN_NO_PROGRESS_TIMEOUT_MS,
+  ANALYTICS_ACCOUNT_HEALTH_GUIDANCE,
+  INTERNAL_PRODUCT_USAGE_GUIDANCE,
   BOUNDED_STRUCTURED_LOOKUP_GUIDANCE,
   DASHBOARD_REFERENCE_GUIDANCE,
   BUILT_IN_FIRST_PARTY_SOURCE_GUIDANCE,
@@ -119,6 +125,7 @@ describe("Analytics agent Plan mode policy", () => {
 
     expect(guidance).toContain("<data-source-guidance>");
     expect(guidance).toContain(BOUNDED_STRUCTURED_LOOKUP_GUIDANCE);
+    expect(guidance).toContain(ANALYTICS_ACCOUNT_HEALTH_GUIDANCE);
     expect(guidance).toContain(ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE);
     expect(guidance).toContain(ANALYTICS_CROSS_APP_ROUTING_GUIDANCE);
     expect(guidance).toContain(BUILT_IN_FIRST_PARTY_SOURCE_GUIDANCE);
@@ -151,6 +158,26 @@ describe("Analytics agent Plan mode policy", () => {
     );
   });
 
+  it("guards named account health against scope and metric-definition drift", () => {
+    for (const phrase of [
+      "org ID as a lookup key",
+      "different customer, mixed IDs",
+      "deprecated or retired",
+      "current partial-period snapshot",
+      "total distinct contracted users",
+      "utilization at or above 100%",
+      "each requested product or feature dimension separately",
+    ]) {
+      expect(ANALYTICS_ACCOUNT_HEALTH_GUIDANCE).toContain(phrase);
+    }
+  });
+
+  it("keeps account-health guidance organization- and provider-neutral", () => {
+    expect(accountHealthSkill).not.toMatch(
+      /Builder|Fusion|enterprise_pageview_utilization|monthly_pageviews_and_bandwidth_by_org/i,
+    );
+  });
+
   it("routes built-in product metrics to the first-party query action", () => {
     expect(BUILT_IN_FIRST_PARTY_SOURCE_GUIDANCE).toContain(
       "query-agent-native-analytics",
@@ -161,12 +188,33 @@ describe("Analytics agent Plan mode policy", () => {
     expect(BUILT_IN_FIRST_PARTY_SOURCE_GUIDANCE).toContain("analytics_events");
   });
 
+  it("routes internal product usage through schema discovery instead of user-supplied SQL", () => {
+    expect(INTERNAL_PRODUCT_USAGE_GUIDANCE).toContain("search-bigquery-schema");
+    expect(INTERNAL_PRODUCT_USAGE_GUIDANCE).toContain(
+      "list-dispatch-usage-metrics",
+    );
+    expect(INTERNAL_PRODUCT_USAGE_GUIDANCE).toContain(
+      "named customer or account such as OCBC",
+    );
+    expect(INTERNAL_PRODUCT_USAGE_GUIDANCE).toContain(
+      "do not ask the user to name the dataset",
+    );
+    expect(
+      looksLikeAnalyticsDataRequest(
+        "Pull AI credit usage and branch creation data by user for each month",
+      ),
+    ).toBe(true);
+  });
+
   it("advertises Analytics as the owner for curated first-party product metrics", () => {
     expect(ANALYTICS_CROSS_APP_ROUTING_GUIDANCE).toContain(
       "agent-native signups",
     );
     expect(ANALYTICS_CROSS_APP_ROUTING_GUIDANCE).toContain(
       "built-in first-party source and query catalog",
+    );
+    expect(ANALYTICS_CROSS_APP_ROUTING_GUIDANCE).toContain(
+      "list-dispatch-usage-metrics",
     );
     expect(ANALYTICS_CROSS_APP_ROUTING_GUIDANCE).toContain("call-agent");
   });
@@ -198,7 +246,7 @@ describe("Analytics agent Plan mode policy", () => {
     expect(context).toContain("available through");
     expect(context).toContain("`list-data-dictionary`");
     expect(context).toContain(
-      "Call `list-data-dictionary` separately only when the user asks",
+      "Call `list-data-dictionary` separately when the catalog has no usable match",
     );
     expect(context).toContain("approved entries as canonical");
     expect(context.length).toBeLessThan(1_000);
@@ -650,6 +698,26 @@ describe("realDataFinalGuard", () => {
     );
     expect((result as { retryMessage: string }).retryMessage).not.toContain(
       "which external source is missing",
+    );
+  });
+
+  it("retries a schema request through configured discovery instead of asking the user for table names", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText:
+          "Pull AI credit usage and branch creation data by user for each month",
+        draftText:
+          "Could you provide the BigQuery dataset name, table names, column names, or the exact SQL query?",
+      }),
+    );
+
+    expect(result).toMatchObject({
+      maxRetries: 2,
+      expandToolSurface: true,
+      retryMessage: expect.stringContaining("search-bigquery-schema"),
+    });
+    expect((result as { retryMessage: string }).retryMessage).toContain(
+      "Do not ask the user for warehouse schema identifiers",
     );
   });
 

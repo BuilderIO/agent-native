@@ -1,0 +1,152 @@
+---
+title: "Fortgeschritten & Legacy"
+description: "Feature-Flag-Gating für Actions, die noch ausgerollt werden, und der ältere CLI-only-Action-Stil (export default async function(args) plus parseArgs), erhalten für einmalige Dev-Skripte."
+---
+
+# Fortgeschritten & Legacy
+
+## Gestaffelte Features absichern {#feature-flags}
+
+Feature-Flags existieren für eine bestimmte Situation: Eine Action ist sicher genug zum Deployen, aber Sie möchten sie für ein paar Konten aktivieren, bevor alle sie bekommen. Dorthin zu gelangen braucht drei erforderliche Schritte, plus einen optionalen vierten für die UI.
+
+<Steps>
+
+### Das Flag deklarieren
+
+Deklarieren Sie das Flag in einem Modul, das sowohl der Server als auch der Client importieren können, da derselbe Flag-Schlüssel beide Seiten erreichen muss:
+
+```ts
+// shared/feature-flags.ts
+import { defineFeatureFlag } from "@agent-native/core/feature-flags/registry";
+
+export const FULL_APP_BUILDING = defineFeatureFlag({
+  key: "full-app-building",
+  displayName: "Full app building",
+  description: "Create and edit Fusion-backed applications.",
+});
+```
+
+`key` ist das einzige Feld, auf das sich jeder andere Code beziehen wird, daher muss es stabil sein. `displayName` und `description` erscheinen erst später, in der Operator-UI, wo jemand das Flag tatsächlich einschaltet. Das Flag hier zu deklarieren aktiviert nichts. Jedes Flag startet für jedes Konto ausgeschaltet.
+
+### Beim Start registrieren
+
+Registrieren Sie das Flag mit einem Nitro-Plugin, damit der laufende Server weiß, dass es existiert:
+
+```ts
+// server/plugins/feature-flags.ts
+import { createFeatureFlagsPlugin } from "@agent-native/core/server";
+
+import { FULL_APP_BUILDING } from "../../shared/feature-flags.js";
+
+export default createFeatureFlagsPlugin({ flags: [FULL_APP_BUILDING] });
+```
+
+Ein nicht registriertes Flag wertet immer zu `false` aus, egal was ein Operator später setzt. Dieser Schritt macht das Flag für den Server real. Es schaltet das Flag immer noch für niemanden ein. Das passiert über die am Ende dieses Abschnitts beschriebenen Operator-Actions.
+
+### Die Action absichern
+
+Dies ist die Prüfung, die tatsächlich zählt, da jeder Aufrufer, ob das der Agent, das Frontend oder ein Skript ist, sie durchlaufen muss:
+
+```ts
+// actions/create-fusion-app.ts
+import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
+
+run: async (args, ctx) => {
+  if (!(await isFeatureFlagEnabled(FULL_APP_BUILDING, ctx))) {
+    throw new Error("Full app building is not enabled for this account.");
+  }
+  // Perform the guarded operation.
+};
+```
+
+`isFeatureFlagEnabled()` liest die Identität des Aufrufers aus `ctx` (siehe [das ctx-Argument](/docs/actions-run-context#ctx)) und wertet das Flag für diesen konkreten Benutzer und diese Org aus. Wenn das Flag für sie nicht aktiv ist, wirft die Action, bevor sie sonst etwas tut. Diese Prüfung muss innerhalb von `run()` leben, weil `run()` der eine Ort ist, den garantiert jeder Dispatch-Pfad durchläuft.
+
+### In der UI verbergen (optional)
+
+Verwenden Sie dasselbe Flag auf dem Client, um das Feature vor Leuten zu verbergen, die es ohnehin nicht aufrufen können:
+
+```tsx
+// app/routes/fusion.tsx
+import { Button } from "@/components/ui/button";
+import { useFeatureFlag } from "@agent-native/core/client";
+
+import { FULL_APP_BUILDING } from "../../shared/feature-flags.js";
+
+export function CreateFusionAppButton() {
+  const enabled = useFeatureFlag(FULL_APP_BUILDING.key);
+  if (!enabled) return null;
+  return <Button onClick={createFusionApp}>Create Fusion app</Button>;
+}
+```
+
+`useFeatureFlag()` gibt einen einfachen Boolean zurück, ausgewertet für den angemeldeten Benutzer auf dieselbe Weise wie die serverseitige Prüfung. Die Schaltfläche zu verbergen, wenn er `false` ist, verhindert, dass jemand in ein Feature klickt, das er noch nicht nutzen kann, aber das ist nur Präsentation. Nichts daran hält einen direkten Aufruf der Action auf. Genau deshalb muss die Prüfung in `run()` aus dem vorherigen Schritt weiterhin da sein, unabhängig davon, was die UI zeigt.
+
+</Steps>
+
+Sobald ein Flag deklariert und registriert ist, läuft das tatsächliche Einschalten für echte Konten über drei eingebundene Actions. `get-feature-flags` ist die, die `useFeatureFlag()` selbst aufruft: Sie steht jedem angemeldeten Aufrufer offen, da jeder Benutzer seine eigenen Flags prüfen muss. `list-feature-flags` und `set-feature-flag` sind die zwei Verwaltungs-Actions. Beide sind auf die Owner und Admins einer Organisation beschränkt (oder den Administrator ohne Org), und beide werden auditiert.
+
+`set-feature-flag` ist, wie ein Operator tatsächlich ändert, für wen das Flag aktiv ist:
+
+| Operation                                         | Was sie tut                                                  | Beispielargumente                                                                                               |
+| ------------------------------------------------- | ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| `enable-for-current-user`                         | Schaltet das Flag nur für Ihr eigenes Konto ein.             | `{ key: "full-app-building", operation: "enable-for-current-user" }`                                            |
+| `off`                                             | Schaltet das Flag für alle aus und setzt alle Regeln zurück. | `{ key: "full-app-building", operation: "off" }`                                                                |
+| `replace-rules`, Modus `"on"`                     | Schaltet das Flag für alle ein.                              | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "on" } }`                               |
+| `replace-rules`, Modus `"rules"` mit `emails`     | Schaltet es für eine bestimmte Liste von Konten ein.         | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", emails: ["a@example.com"] } }` |
+| `replace-rules`, Modus `"rules"` mit `orgIds`     | Schaltet es für bestimmte Organisationen ein.                | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", orgIds: ["org_123"] } }`       |
+| `replace-rules`, Modus `"rules"` mit `percentage` | Schaltet es für einen prozentualen Rollout ein.              | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", percentage: 10 } }`            |
+
+Fleet-Operator-UIs rufen diese gleichen Actions über eng gescopte A2A-Delegation statt über einen gemeinsamen Login auf, und Analytics ist die einzige Operator-UI dafür. Apps sollten kein eigenes Flag-Einstellungspanel bauen, und Flag-Writes sollten nie über generische Settings-Endpunkte oder rohes SQL laufen.
+
+<Callout id="doc-block-actions-advanced-1" tone="warning">
+
+Legen Sie niemals Authentifizierung, Autorisierung, Audit, Secrets oder SSR-Cache-Verhalten hinter ein Laufzeit-Flag. Diese müssen bedingungslos korrekt sein, nicht umschaltbar.
+
+</Callout>
+
+## Legacy-CLI-Style-Actions {#legacy-cli-actions}
+
+Das Framework unterstützt weiterhin ältere `export default async function(args)`-Actions, die nicht in `defineAction()` eingehüllt sind. Diese sind nützlich für einmalige Dev-Skripte, die keine Agent- oder HTTP-Exposition brauchen. Sie sind CLI-only: Sie erscheinen nicht als Agent-Tools, binden keine HTTP-Endpunkte ein und bekommen keine typsicheren Frontend-Hooks.
+
+```ts
+// actions/debug-dump.ts (CLI-only)
+import { parseArgs } from "@agent-native/core";
+
+export default async function main(args: string[]) {
+  const { table } = parseArgs(args);
+  // one-off script you wouldn't want the agent to call
+}
+```
+
+Neuer Code sollte `defineAction()` bevorzugen. Greifen Sie nur zu diesem Muster, wenn Sie die Action bewusst nicht dem Agenten oder der UI aussetzen möchten.
+
+### `parseArgs(args)` {#parseargs}
+
+Helfer für Legacy-Style-Actions. Parst CLI-Argumente im Format `--key value` oder `--key=value`:
+
+```ts
+import { parseArgs } from "@agent-native/core";
+
+const args = parseArgs(["--name", "Steve", "--verbose", "--count=3"]);
+// { name: "Steve", verbose: "true", count: "3" }
+```
+
+## Utility-Funktionen {#utility-functions}
+
+Dies sind kleine Helfer zum Schreiben von Skripten, aus demselben `@agent-native/core`-Import, aus dem auch `parseArgs()` oben stammt. Sie sind nicht speziell an den Legacy-CLI-Style-Action-Stil gebunden. Greifen Sie in jedem einmaligen Dev-Skript darauf zurück: Umgebungsvariablen laden, ein Pfadargument validieren oder mit einem klaren Fehler abbrechen.
+
+| Funktion                | Rückgabe                 | Beschreibung                                                                                                                                                                                   |
+| ----------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `loadEnv(path?)`        | `void`                   | Lädt `.env` (und `.env.local`) aus dem Projekt-Root oder einem benutzerdefinierten Pfad. Fällt in einem Enterprise-Workspace auf das `.env` des Workspace-Roots zurück.                        |
+| `camelCaseArgs(args)`   | `Record<string, string>` | Wandelt kebab-case-Schlüssel in camelCase um.                                                                                                                                                  |
+| `isValidPath(p)`        | `boolean`                | Validiert einen relativen Pfad (keine Traversierung, kein absoluter Pfad).                                                                                                                     |
+| `isValidProjectPath(p)` | `boolean`                | Validiert einen Projekt-Slug (z. B. `my-project` oder `group/my-project`).                                                                                                                     |
+| `ensureDir(dir)`        | `void`                   | `mkdir -p`-Helfer.                                                                                                                                                                             |
+| `fail(message)`         | `never`                  | Wirft einen Fehler, um ein Skript abzubrechen. Der CLI-Runner fängt ihn ab und beendet mit Code 1. In-Server-Aufrufer (Agent-Tools, A2A) bekommen ihn stattdessen als Tool-Call-Fehler zurück. |
+
+## Was kommt als nächstes?
+
+- [**Actions definieren**](/docs/actions-defining) — das `defineAction()`-Muster, dem dieser Legacy-Stil vorausging
+- [**Überblick**](/docs/actions-overview) — was eine Action ist und der Hello-World-Durchlauf
+- [**Weitere Oberflächen**](/docs/actions-other-surfaces) — der CLI-Runner, den diese Utilities und Legacy-Actions unterstützen
+- [**Feature-Flags**](/docs/feature-flags) — der vollständige Flag-Lebenszyklus über das Gating einer einzelnen Action hinaus

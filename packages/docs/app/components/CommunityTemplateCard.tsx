@@ -6,6 +6,7 @@ import {
 } from "@tabler/icons-react";
 import { useState } from "react";
 
+import { BuilderImage } from "./builder-image";
 import { trackEvent } from "./TemplateCard";
 
 export interface CommunityTemplate {
@@ -82,7 +83,7 @@ export function CommunityTemplateCard({
           rel="noopener noreferrer"
           className="-mx-[24px] -mt-[24px] block aspect-[924/729] overflow-hidden border-b border-[var(--docs-border)] bg-[var(--bg-secondary)]"
         >
-          <img
+          <BuilderImage
             src={template.screenshot}
             alt=""
             loading="lazy"

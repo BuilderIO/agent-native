@@ -18,7 +18,6 @@ export interface BuilderStatus {
   envManaged?: boolean;
   credentialSource?: "user" | "org" | "workspace" | "env";
   connectUrl: string;
-  cliAuthUrl?: string;
   appHost: string;
   apiHost: string;
   branchProjectIdConfigured?: boolean;
@@ -140,7 +139,7 @@ export function useBuilderStatus({
 
 // ─── useBuilderConnectFlow ──────────────────────────────────────────────────
 //
-// Shared state machine for the "open Builder CLI-auth popup + poll
+// Shared state machine for the "open Builder OAuth popup + poll
 // /connection-status/builder until credentials land" interaction. Replaces three
 // near-duplicate inline implementations: `BuilderCliAuthMethod` in
 // OnboardingPanel, `ConnectBuilderCard`, and `BuilderConnectCta` in
@@ -148,11 +147,9 @@ export function useBuilderStatus({
 // behavior; the hook owns the polling + timeout + focus refresh.
 //
 // `popupUrl` is what we pass to `window.open`. The default
-// `/_agent-native/builder/connect` is a server-side 302 to the real
-// cli-auth URL — using it keeps the click handler synchronous so popup
-// blockers don't downgrade the open to same-tab navigation. Pass an
-// explicit `popupUrl` (e.g. the already-computed cli-auth URL) if your
-// caller already has it in hand.
+// `/_agent-native/builder/connect` begins discovery and redirects to Builder's
+// authorization endpoint. Keeping the initial open app-local makes popup
+// handling synchronous and lets the server mint fresh one-time state.
 
 export interface BuilderConnectFlowOptions {
   /** Skip server status polling for hosts that own provider routing. */
@@ -185,6 +182,12 @@ export interface BuilderConnectFlow {
    */
   envManaged: boolean;
   /**
+   * True when legacy Builder private/public keys are present. Cloud code-change
+   * routes (`/builder/run`, `/builder/agents-run`) still require those keys;
+   * OAuth `configured` only covers the chat gateway.
+   */
+  codeChangeConfigured: boolean;
+  /**
    * True when the server has a Builder branch project configured for this
    * request. When false, the card surfaces a waitlist CTA instead of a Send
    * button.
@@ -215,7 +218,6 @@ const STATUS_FETCH_ABORT_MS = 10_000;
 const CALLBACK_SUCCESS_STATUS_RETRY_MS = 500;
 const CALLBACK_SUCCESS_STATUS_RETRIES = 10;
 const BUILDER_CONNECT_PARAM = "_an_connect";
-const BUILDER_STATE_PARAM = "_an_state";
 const BUILDER_SIGNUP_SOURCE_PARAM = "signupSource";
 const BUILDER_AGENT_NATIVE_FLOW_PARAM = "agentNativeFlow";
 const BUILDER_AGENT_NATIVE_CONNECT_SOURCE_PARAM = "agentNativeConnectSource";
@@ -373,24 +375,12 @@ function hasSignedConnectToken(url: string | null | undefined): boolean {
   }
 }
 
-function hasSignedCallbackState(url: string | null | undefined): boolean {
-  if (!url || typeof window === "undefined") return false;
-  try {
-    const parsed = new URL(url, window.location.origin);
-    const redirectUrl = parsed.searchParams.get("redirect_url");
-    if (!redirectUrl) return false;
-    return new URL(redirectUrl).searchParams.has(BUILDER_STATE_PARAM);
-  } catch {
-    return false;
-  }
-}
-
 function isFreshSignedConnectUrl(
   url: string | null,
   fetchedAt: number | null,
 ): url is string {
   return (
-    (hasSignedConnectToken(url) || hasSignedCallbackState(url)) &&
+    hasSignedConnectToken(url) &&
     typeof fetchedAt === "number" &&
     Date.now() - fetchedAt < STATUS_CONNECT_URL_TTL_MS
   );
@@ -403,6 +393,15 @@ function isCurrentConnectError(
   if (!error?.message) return false;
   if (!startedAt) return true;
   return typeof error.at !== "number" || error.at >= startedAt - 1000;
+}
+
+function isCodeChangeConfigured(
+  status:
+    | Pick<BuilderStatus, "privateKeyConfigured" | "publicKeyConfigured">
+    | null
+    | undefined,
+): boolean {
+  return !!status?.privateKeyConfigured && !!status?.publicKeyConfigured;
 }
 
 function showBuilderConnectPopupPlaceholder(opened: Window) {
@@ -568,6 +567,7 @@ export function useBuilderConnectFlow(
     onConnected,
   } = opts;
   const [configured, setConfigured] = useState(false);
+  const [codeChangeConfigured, setCodeChangeConfigured] = useState(false);
   const [envManaged, setEnvManaged] = useState(false);
   const [builderEnabled, setBuilderEnabled] = useState(false);
   const [orgName, setOrgName] = useState<string | null>(null);
@@ -621,17 +621,19 @@ export function useBuilderConnectFlow(
           { signal: signal ?? ownController?.signal },
         );
         if (!r.ok) return null;
-        return (await r.json()) as {
-          configured: boolean;
-          envManaged?: boolean;
-          builderEnabled?: boolean;
-          orgName?: string | null;
-          connectUrl?: string;
-          cliAuthUrl?: string;
-          credentialSource?: "user" | "org" | "workspace" | "env";
-          connectError?: { message: string; at: number };
-          authError?: { message: string; at: number };
-        };
+        return (await r.json()) as Pick<
+          BuilderStatus,
+          | "configured"
+          | "envManaged"
+          | "builderEnabled"
+          | "orgName"
+          | "connectUrl"
+          | "credentialSource"
+          | "connectError"
+          | "authError"
+          | "privateKeyConfigured"
+          | "publicKeyConfigured"
+        >;
       } catch {
         // coercion-ok: null means "status unknown this tick" and callers hold
         // their previous state rather than rendering a disconnected Builder.
@@ -651,6 +653,7 @@ export function useBuilderConnectFlow(
   useEffect(() => {
     if (!enabled) {
       setConfigured(false);
+      setCodeChangeConfigured(false);
       setEnvManaged(false);
       setBuilderEnabled(false);
       setOrgName(null);
@@ -674,9 +677,10 @@ export function useBuilderConnectFlow(
       if (!s) return;
       setStatusResolved(true);
       setConfigured(!!s.configured);
+      setCodeChangeConfigured(isCodeChangeConfigured(s));
       setEnvManaged(!!s.envManaged);
       setBuilderEnabled(!!s.builderEnabled);
-      const nextConnectUrl = s.cliAuthUrl ?? s.connectUrl ?? null;
+      const nextConnectUrl = s.connectUrl ?? null;
       setStatusConnectUrl(nextConnectUrl);
       statusConnectUrlAtRef.current = nextConnectUrl ? Date.now() : null;
       const org = s.orgName ?? null;
@@ -753,15 +757,11 @@ export function useBuilderConnectFlow(
       // server/package restart cannot leave the user with a stale signed state.
       // Desktop keeps the direct path because the Electron shell owns the popup.
       const signedPropUrl = hasSignedConnectToken(popupUrl) ? popupUrl : null;
-      const signedCliPropUrl = hasSignedCallbackState(popupUrl)
-        ? popupUrl
-        : null;
       const fallbackUrl = new URL(
         agentNativePath("/_agent-native/builder/connect"),
         origin,
       ).href;
-      const directUrl =
-        cachedFreshUrl ?? signedCliPropUrl ?? signedPropUrl ?? fallbackUrl;
+      const directUrl = cachedFreshUrl ?? signedPropUrl ?? fallbackUrl;
 
       if (isAgentNativeDesktop()) {
         const opened = openBuilderConnectPopup({
@@ -795,9 +795,10 @@ export function useBuilderConnectFlow(
               setHasFetchedStatus(true);
               setStatusResolved(true);
               setConfigured(!!s.configured);
+              setCodeChangeConfigured(isCodeChangeConfigured(s));
               setEnvManaged(!!s.envManaged);
               setBuilderEnabled(!!s.builderEnabled);
-              const nextConnectUrl = s.cliAuthUrl ?? s.connectUrl ?? null;
+              const nextConnectUrl = s.connectUrl ?? null;
               setStatusConnectUrl(nextConnectUrl);
               statusConnectUrlAtRef.current = nextConnectUrl
                 ? Date.now()
@@ -805,8 +806,7 @@ export function useBuilderConnectFlow(
               setOrgName(s.orgName ?? null);
             }
 
-            const hostUrl =
-              s?.cliAuthUrl ?? s?.connectUrl ?? cachedFreshUrl ?? directUrl;
+            const hostUrl = s?.connectUrl ?? cachedFreshUrl ?? directUrl;
             const trackedHostUrl = withBuilderConnectTrackingParams(hostUrl, {
               source: clickTrackingSource,
               flow: clickTrackingFlow,
@@ -836,9 +836,10 @@ export function useBuilderConnectFlow(
               setHasFetchedStatus(true);
               setStatusResolved(true);
               setConfigured(!!s.configured);
+              setCodeChangeConfigured(isCodeChangeConfigured(s));
               setEnvManaged(!!s.envManaged);
               setBuilderEnabled(!!s.builderEnabled);
-              const nextConnectUrl = s.cliAuthUrl ?? s.connectUrl ?? null;
+              const nextConnectUrl = s.connectUrl ?? null;
               setStatusConnectUrl(nextConnectUrl);
               statusConnectUrlAtRef.current = nextConnectUrl
                 ? Date.now()
@@ -851,12 +852,7 @@ export function useBuilderConnectFlow(
             // the popup when the refresh hits a transient 401/HTML/error
             // response before the status cache has warmed.
             const freshUrl =
-              s?.cliAuthUrl ??
-              s?.connectUrl ??
-              cachedFreshUrl ??
-              signedCliPropUrl ??
-              signedPropUrl ??
-              fallbackUrl;
+              s?.connectUrl ?? cachedFreshUrl ?? signedPropUrl ?? fallbackUrl;
             if (!freshUrl) {
               try {
                 opened.close();
@@ -908,9 +904,10 @@ export function useBuilderConnectFlow(
       if (s) setStatusResolved(true);
       if (s?.configured) {
         setConfigured(true);
+        setCodeChangeConfigured(isCodeChangeConfigured(s));
         setEnvManaged(!!s.envManaged);
         setBuilderEnabled(!!s.builderEnabled);
-        const nextConnectUrl = s.cliAuthUrl ?? s.connectUrl ?? null;
+        const nextConnectUrl = s.connectUrl ?? null;
         setStatusConnectUrl(nextConnectUrl);
         statusConnectUrlAtRef.current = nextConnectUrl ? Date.now() : null;
         const org = s.orgName ?? null;
@@ -1000,9 +997,10 @@ export function useBuilderConnectFlow(
         if (s) {
           setStatusResolved(true);
           setConfigured(false);
+          setCodeChangeConfigured(false);
           setEnvManaged(!!s.envManaged);
           setBuilderEnabled(!!s.builderEnabled);
-          const nextConnectUrl = s.cliAuthUrl ?? s.connectUrl ?? null;
+          const nextConnectUrl = s.connectUrl ?? null;
           setStatusConnectUrl(nextConnectUrl);
           statusConnectUrlAtRef.current = nextConnectUrl ? Date.now() : null;
           setOrgName(s.orgName ?? null);
@@ -1019,9 +1017,10 @@ export function useBuilderConnectFlow(
       setHasFetchedStatus(true);
       setStatusResolved(true);
       setConfigured(true);
+      setCodeChangeConfigured(isCodeChangeConfigured(s));
       setEnvManaged(!!s.envManaged);
       setBuilderEnabled(!!s.builderEnabled);
-      const nextConnectUrl = s.cliAuthUrl ?? s.connectUrl ?? null;
+      const nextConnectUrl = s.connectUrl ?? null;
       setStatusConnectUrl(nextConnectUrl);
       statusConnectUrlAtRef.current = nextConnectUrl ? Date.now() : null;
       const org = s.orgName ?? null;
@@ -1076,6 +1075,7 @@ export function useBuilderConnectFlow(
 
   return {
     configured,
+    codeChangeConfigured,
     statusResolved,
     envManaged,
     builderEnabled,

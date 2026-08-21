@@ -11,6 +11,7 @@ import { HTTPError, type H3Event } from "h3";
 
 import {
   CLIPS_USER_PREFS_KEY,
+  DEFAULT_CLIPS_RECORDING_VISIBILITY,
   type ClipsUserPrefs,
 } from "../../shared/clips-ai-prefs.js";
 import { getDb, schema } from "../db/index.js";
@@ -67,7 +68,8 @@ export type OrganizationAccessRole = "owner" | "admin" | "member";
 
 export type RecordingVisibility = "private" | "org" | "public";
 
-export const DEFAULT_RECORDING_VISIBILITY: RecordingVisibility = "public";
+export const DEFAULT_RECORDING_VISIBILITY: RecordingVisibility =
+  DEFAULT_CLIPS_RECORDING_VISIBILITY;
 
 export function isRecordingVisibility(
   value: unknown,
@@ -110,8 +112,9 @@ export async function getOrganizationDefaultVisibility(
  */
 export async function getDefaultRecordingVisibility(
   organizationId: string | null | undefined,
+  userEmail: string | null | undefined = getRequestUserEmail(),
 ): Promise<RecordingVisibility> {
-  const email = getRequestUserEmail();
+  const email = userEmail;
   if (email) {
     const prefs = (await getUserSetting(
       normalizeOwnerEmail(email),

@@ -412,7 +412,14 @@ function elementInfoFor(
   nodeId: string,
   tagName = "div",
   parentDisplay?: string,
+  parentFlexDirection?: string,
 ): ElementInfo {
+  // A real bridge payload always carries a computed `flex-direction` alongside
+  // a flex `parentDisplay`, so the default keeps fixtures faithful to that.
+  const flexDirection =
+    parentDisplay === "flex" || parentDisplay === "inline-flex"
+      ? (parentFlexDirection ?? "row")
+      : parentFlexDirection;
   return {
     tagName,
     sourceId: nodeId,
@@ -420,6 +427,7 @@ function elementInfoFor(
     classes: [],
     computedStyles: {},
     parentDisplay,
+    ...(flexDirection ? { parentLayout: { flexDirection } } : {}),
     boundingRect: { x: 0, y: 0, width: 0, height: 0 },
   } as unknown as ElementInfo;
 }
@@ -430,10 +438,17 @@ function orderAfterNudge(
   content: string,
   nodeId: string,
   direction: "up" | "right" | "down" | "left",
+  parentDisplay?: string,
+  parentFlexDirection?: string,
 ): string[] | { kind: string } {
   const intent = resolveElementNudgeIntent({
     content,
-    selectedElement: elementInfoFor(nodeId),
+    selectedElement: elementInfoFor(
+      nodeId,
+      "div",
+      parentDisplay,
+      parentFlexDirection,
+    ),
     direction,
     largeStep: false,
   });
@@ -453,6 +468,15 @@ function orderAfterNudge(
       byId.get(childId)?.dataAttributes["data-agent-native-node-id"] ?? "?",
   );
 }
+
+const BLOCK_STACK = [
+  "<!doctype html><html><body>",
+  '<section data-agent-native-node-id="stack">',
+  '<div data-agent-native-node-id="alpha">Alpha</div>',
+  '<div data-agent-native-node-id="beta">Beta</div>',
+  "</section>",
+  "</body></html>",
+].join("");
 
 const ROW_SCREEN = `<!doctype html><html><body>
   <section data-agent-native-node-id="row" style="display:flex;flex-direction:row">
@@ -533,21 +557,14 @@ describe("resolveElementNudgeIntent", () => {
     ).toEqual({ kind: "translate", dx: 1, dy: 0 });
   });
 
-  it("translates a free-placed child of a plain block container", () => {
-    const content = `<!doctype html><html><body>
-      <section data-agent-native-node-id="stack">
-        <div data-agent-native-node-id="alpha">Alpha</div>
-        <div data-agent-native-node-id="beta">Beta</div>
-      </section>
-    </body></html>`;
-    expect(
-      resolveElementNudgeIntent({
-        content,
-        selectedElement: elementInfoFor("alpha"),
-        direction: "down",
-        largeStep: true,
-      }),
-    ).toEqual({ kind: "translate", dx: 0, dy: 10 });
+  it("reorders a child of a plain block container down the block axis", () => {
+    // Block children stack in DOM order, so ArrowDown moves the child past its
+    // sibling. This previously translated, which under `position: static` is a
+    // no-op the user sees as "nothing happens".
+    expect(orderAfterNudge(BLOCK_STACK, "alpha", "down")).toEqual([
+      "beta",
+      "alpha",
+    ]);
   });
 
   it("translates rather than swallowing the key when the node cannot be resolved", () => {
@@ -561,7 +578,7 @@ describe("resolveElementNudgeIntent", () => {
     ).toEqual({ kind: "translate", dx: 1, dy: 0 });
   });
 
-  it("does nothing when rendered CSS says the parent is a flow container the parser cannot see", () => {
+  it("reorders when rendered CSS says the parent is a flow container the parser cannot see", () => {
     const content = `<!doctype html><html><body>
       <section data-agent-native-node-id="row" class="row">
         <div data-agent-native-node-id="alpha">Alpha</div>
@@ -569,15 +586,69 @@ describe("resolveElementNudgeIntent", () => {
       </section>
     </body></html>`;
     // `.row { display: flex }` lives in a stylesheet, so describeFlowContainer
-    // sees no container — but the bridge reports the rendered display.
+    // sees no container — but the bridge reports the rendered display, which is
+    // the only source that knows. This used to swallow the key; now the arrow
+    // does the useful thing and moves the child through its siblings.
+    expect(orderAfterNudge(content, "alpha", "right", "flex")).toEqual([
+      "beta",
+      "alpha",
+    ]);
+  });
+
+  it("reorders along the rendered axis for a stylesheet-driven flex column", () => {
+    const content = `<!doctype html><html><body>
+      <section data-agent-native-node-id="col" class="col">
+        <div data-agent-native-node-id="alpha">Alpha</div>
+        <div data-agent-native-node-id="beta">Beta</div>
+      </section>
+    </body></html>`;
+    // `.col { display: flex; flex-direction: column }`. Assuming a row would
+    // reorder on left/right and do nothing useful on down.
+    expect(orderAfterNudge(content, "alpha", "down", "flex", "column")).toEqual(
+      ["beta", "alpha"],
+    );
+    // Cross-axis in a non-wrapping column has nowhere to go, and writing
+    // `left` on a static flow child would do nothing.
     expect(
-      resolveElementNudgeIntent({
-        content,
-        selectedElement: elementInfoFor("alpha", "div", "flex"),
-        direction: "right",
-        largeStep: false,
-      }),
+      orderAfterNudge(content, "alpha", "right", "flex", "column"),
     ).toEqual({ kind: "none" });
+  });
+
+  it("follows a reversed rendered direction", () => {
+    const content = `<!doctype html><html><body>
+      <section data-agent-native-node-id="row" class="row">
+        <div data-agent-native-node-id="alpha">Alpha</div>
+        <div data-agent-native-node-id="beta">Beta</div>
+      </section>
+    </body></html>`;
+    // Visual left is DOM forward under `row-reverse`.
+    expect(
+      orderAfterNudge(content, "alpha", "left", "flex", "row-reverse"),
+    ).toEqual(["beta", "alpha"]);
+  });
+
+  it("refuses a rendered flex parent whose direction the bridge did not report", () => {
+    const content = `<!doctype html><html><body>
+      <section data-agent-native-node-id="row" class="row">
+        <div data-agent-native-node-id="alpha">Alpha</div>
+        <div data-agent-native-node-id="beta">Beta</div>
+      </section>
+    </body></html>`;
+    const intent = resolveElementNudgeIntent({
+      content,
+      selectedElement: {
+        tagName: "div",
+        sourceId: "alpha",
+        selector: '[data-agent-native-node-id="alpha"]',
+        classes: [],
+        computedStyles: {},
+        parentDisplay: "flex",
+        boundingRect: { x: 0, y: 0, width: 0, height: 0 },
+      } as unknown as ElementInfo,
+      direction: "right",
+      largeStep: false,
+    });
+    expect(intent).toEqual({ kind: "none" });
   });
 
   it("still translates an absolute child whose parent renders as flex", () => {
@@ -691,5 +762,53 @@ describe("resolveElementNudgeIntent", () => {
         amounts: { small: 2, big: 8 },
       }),
     ).toEqual({ kind: "translate", dx: 8, dy: 0 });
+  });
+});
+
+/**
+ * Regression: a running-app screen (fusion / localhost) stores its ROUTE URL in
+ * `design_files.content`, not markup. Projecting that string finds no nodes, so
+ * every arrow key silently degraded to a blind translate — writing left/top on a
+ * flow child, the exact operation this module exists to avoid. The caller must
+ * feed the live DOM snapshot instead.
+ */
+describe("resolveElementNudgeIntent on a running-app screen", () => {
+  const ROUTE_URL = "https://design.example.com/builder-preview/design-1/about";
+
+  it("degrades to a blind translate when handed the stored route URL", () => {
+    expect(
+      resolveElementNudgeIntent({
+        content: ROUTE_URL,
+        selectedElement: elementInfoFor("alpha"),
+        direction: "right",
+        largeStep: false,
+      }),
+    ).toEqual({ kind: "translate", dx: 1, dy: 0 });
+  });
+
+  it("resolves a real reorder once the live snapshot is supplied instead", () => {
+    expect(orderAfterNudge(ROW_SCREEN, "alpha", "right")).toEqual([
+      "beta",
+      "alpha",
+      "gamma",
+    ]);
+  });
+
+  it("suppresses the nudge on a flow child the snapshot can see", () => {
+    // Without the snapshot this returned a translate, which is what put an
+    // inline left/top onto a flex child in the embedded Builder Design tab.
+    expect(orderAfterNudge(ROW_SCREEN, "beta", "up")).toEqual({ kind: "none" });
+  });
+
+  it("carries the snapshot forward as the reorder's base content", () => {
+    const intent = resolveElementNudgeIntent({
+      content: ROW_SCREEN,
+      selectedElement: elementInfoFor("alpha"),
+      direction: "right",
+      largeStep: false,
+    });
+    // The caller applies its moveNode to `intent.content`; if that were the
+    // route URL the patch would overwrite the screen's stored route.
+    expect(intent).toMatchObject({ kind: "reorder", content: ROW_SCREEN });
   });
 });

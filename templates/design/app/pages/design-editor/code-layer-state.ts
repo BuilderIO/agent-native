@@ -506,11 +506,39 @@ export function camelCaseCssProperty(property: string): string {
   );
 }
 
+// The inspector reads font longhands, and a class-less element's computed
+// styles are discarded by refreshedComputedStyles — so an authored `font`
+// shorthand is the only place a family/size/weight can come from.
+function fontShorthandLonghands(value: string): Record<string, string> {
+  const match =
+    /^\s*(.*?)\s*(-?[\d.]+(?:px|r?em|%|pt)|x{1,2}-(?:small|large)|small|medium|large)\s*(?:\/\s*([^\s]+)\s*)?(\S.*)$/.exec(
+      value,
+    );
+  if (!match) return {};
+  const [, leading, size, lineHeight, family] = match;
+  const longhands: Record<string, string> = {
+    fontSize: size,
+    fontFamily: family.trim(),
+  };
+  if (lineHeight) longhands.lineHeight = lineHeight;
+  for (const token of leading.split(/\s+/).filter(Boolean)) {
+    if (/^(?:normal|italic|oblique)$/.test(token)) longhands.fontStyle = token;
+    else if (/^(?:\d{3}|bold|bolder|lighter)$/.test(token)) {
+      longhands.fontWeight = token;
+    } else if (/^small-caps$/.test(token)) longhands.fontVariant = token;
+  }
+  return longhands;
+}
+
 export function cssStyleAliases(
   styles: Record<string, string>,
 ): Record<string, string> {
   const result: Record<string, string> = {};
   for (const [property, value] of Object.entries(styles)) {
+    // Expanded in source order so a later explicit longhand still wins.
+    if (property === "font") {
+      Object.assign(result, fontShorthandLonghands(value));
+    }
     result[property] = value;
     if (property.includes("-")) {
       result[camelCaseCssProperty(property)] = value;
@@ -1106,6 +1134,16 @@ export function removeEmptyGeneratedGroupWrappers(
   candidateParentAttrIds: ReadonlySet<string>,
 ): string {
   if (candidateParentAttrIds.size === 0) return content;
+  // Both are necessary conditions for isGeneratedGroupWrapperNode to ever
+  // match. Checking them on the raw string first keeps a document with no
+  // generated groups — the common case — from paying for a full projection of
+  // post-edit content on every structural edit.
+  if (
+    !content.includes("data-agent-native-layer-name") ||
+    !content.includes("Group")
+  ) {
+    return content;
+  }
   let next = content;
   // Loop: removing one empty wrapper can itself empty out ITS parent (e.g.
   // ungrouping down a chain of nested generated groups), so keep sweeping
@@ -1292,4 +1330,93 @@ export function parseInlineStyleAttribute(
     if (property && value) result[property] = value;
   }
   return result;
+}
+
+/**
+ * Resolve the selected element against the projection the Layers panel is
+ * actually rendering.
+ *
+ * A running-app screen (fusion / localhost) has TWO projections: the source one
+ * built from `design_files.content` — which for these screens is the route URL,
+ * not markup — and the runtime one built from the live DOM snapshot. The panel
+ * renders the runtime tree (see `shouldUseRuntimeLayerProjection`), and the two
+ * trees mint different node ids, so resolving selection against source returns
+ * an id no rendered row carries: the selected layer never highlights and has to
+ * be found by hand.
+ *
+ * Runtime first, then source, so an inline screen — and a live screen before
+ * its first snapshot arrives — resolves exactly as it did before.
+ */
+export function resolveSelectedCodeLayerNode(args: {
+  selectedElement: ElementInfo | null | undefined;
+  sourceProjection: CodeLayerProjection;
+  runtimeProjection?: CodeLayerProjection | null;
+}): CodeLayerNode | null {
+  if (!args.selectedElement) return null;
+  if (args.runtimeProjection) {
+    const runtimeNode = resolveCodeLayerNodeFromElementInfo(
+      args.runtimeProjection,
+      args.selectedElement,
+    );
+    if (runtimeNode) return runtimeNode;
+  }
+  return resolveCodeLayerNodeFromElementInfo(
+    args.sourceProjection,
+    args.selectedElement,
+  );
+}
+
+/**
+ * The document a keyboard nudge should resolve its intent against.
+ *
+ * Returns "" when a running-app screen has no live snapshot yet, which makes
+ * `resolveElementNudgeIntent` fall back to a plain translate rather than
+ * projecting a route URL as if it were markup.
+ */
+export function nudgeBaseContentForScreen(args: {
+  isRunningApp: boolean;
+  runtimeSnapshotHtml?: string | null;
+  liveSnapshotHtml?: string | null;
+  sourceContent: string;
+}): string {
+  if (!args.isRunningApp) return args.sourceContent;
+  return args.runtimeSnapshotHtml ?? args.liveSnapshotHtml ?? "";
+}
+
+export interface LiveNudgeReorderHandoff {
+  /** Selector the pending-edit pipeline anchors the move against. */
+  anchorSelector: string;
+  placement: "before" | "after";
+  /** Bridge-assigned id for the anchor, when it carries one. */
+  anchorSourceId?: string;
+}
+
+/**
+ * Translate a nudge reorder intent into the arguments a LIVE structure edit
+ * needs, or null when it cannot be expressed as one.
+ *
+ * `resolveElementNudgeIntent` reports the anchor as a PROJECTION node id, but
+ * `recordPendingLiveStructureEdit` addresses the running document by SELECTOR
+ * — the projection ids never reached the live DOM. Returning null (rather than
+ * guessing) makes the caller drop the keypress instead of queueing an edit
+ * that would anchor against nothing.
+ */
+export function liveNudgeReorderHandoff(args: {
+  content: string;
+  anchorNodeId: string;
+  placement: "before" | "after";
+}): LiveNudgeReorderHandoff | null {
+  const projection = buildCodeLayerProjection(args.content);
+  const anchorNode = projection.nodes.find(
+    (node) => node.id === args.anchorNodeId,
+  );
+  const anchorSelector = codeLayerSelectorAliases(anchorNode)[0];
+  if (!anchorSelector) return null;
+  const anchorSourceId =
+    anchorNode?.dataAttributes["data-agent-native-node-id"]?.trim();
+  return {
+    anchorSelector,
+    placement: args.placement,
+    ...(anchorSourceId ? { anchorSourceId } : {}),
+  };
 }

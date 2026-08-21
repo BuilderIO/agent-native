@@ -692,7 +692,7 @@ export default defineAction({
 });
 ```
 
-`GET` + `readOnly`는 ​​작업을 부작용 없이 유지하고 화면 새로 고침 변경 이벤트에서 제외됩니다. `publicAgent`는 **명시적인 선택**입니다. 공개 웹 경로는 공개 MCP/A2A 노출을 의미하지 않습니다. [Actions](/docs/actions)를 참조하세요. 디자인/컨텐츠는 actions MUST 읽기 **라이브** 상태(오래된 DB 스냅샷 열이 아닌 Yjs 공동 작업 문서)를 수집하여 외부 에이전트가 사용자가 실제로 화면에 무엇을 가지고 있는지 볼 수 있도록 합니다. 콘텐츠의 `pull-document`는 열려 있는 라이브 공동 작업 세션을 먼저 SQL로 플러시합니다. 디자인의 `get-design-snapshot`는 라이브 Yjs 파일 콘텐츠와 사용자가 해결한 조정 값을 반환합니다.
+`GET` + `readOnly`는 ​​작업을 부작용 없이 유지하고 화면 새로 고침 변경 이벤트에서 제외됩니다. `publicAgent`는 **명시적인 선택**입니다. 공개 웹 경로는 공개 MCP/A2A 노출을 의미하지 않습니다. [Actions](/docs/actions-overview)를 참조하세요. 디자인/컨텐츠는 actions MUST 읽기 **라이브** 상태(오래된 DB 스냅샷 열이 아닌 Yjs 공동 작업 문서)를 수집하여 외부 에이전트가 사용자가 실제로 화면에 무엇을 가지고 있는지 볼 수 있도록 합니다. 콘텐츠의 `pull-document`는 열려 있는 라이브 공동 작업 세션을 먼저 SQL로 플러시합니다. 디자인의 `get-design-snapshot`는 라이브 Yjs 파일 콘텐츠와 사용자가 해결한 조정 값을 반환합니다.
 
 ## 고급: 로컬 개발 및 수동 설정 {#advanced}
 
@@ -820,5 +820,5 @@ npx @agent-native/core@latest connect prod --apps mail,calendar,analytics --clie
 - [MCP Protocol](/docs/mcp-protocol) — 자동 마운트된 MCP 서버 및 `ask-agent` 메타 도구.
 - [MCP Clients](/docs/mcp-clients) — 대칭 방향: 앱이 로컬/원격 MCP 서버를 사용합니다.
 - [A2A Protocol](/docs/a2a-protocol) — `ask-agent` 메타 도구 및 JSON-RPC 피어 호출.
-- [Actions](/docs/actions) — actions, `publicAgent`, GET / `readOnly`를 정의합니다.
+- [Actions](/docs/actions-overview) — actions, `publicAgent`, GET / `readOnly`를 정의합니다.
 - [Context Awareness](/docs/context-awareness) — `navigate` / `application_state`는 개방형 경로 브리지와 계약합니다.

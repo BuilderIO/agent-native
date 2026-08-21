@@ -29,6 +29,8 @@ export const factoryGraphNodeSchema = z.object({
   kind: factoryNodeKindSchema,
   provider: factoryProviderSchema.optional(),
   agent: z.string().trim().max(120).optional(),
+  agentTargetType: z.enum(["agent", "app"]).optional(),
+  agentTargetId: z.string().trim().max(240).optional(),
   metricsKey: z.string().trim().max(120).optional(),
   position: z.object({
     x: z.number().finite().min(0).max(4000),
@@ -86,6 +88,30 @@ export function normalizeFactoryGraph(value: unknown): FactoryGraph {
     ...graph,
     nodes: graph.nodes.map((node) => ({ ...node })),
     edges: graph.edges.map((edge) => ({ ...edge })),
+  };
+}
+
+export function minimalFactoryGraph(
+  name: string,
+  description = "",
+): FactoryGraph {
+  return {
+    version: 1,
+    name,
+    description,
+    executionMode: "blueprint",
+    nodes: [
+      {
+        id: "start",
+        label: "Start",
+        description:
+          "Add sources and rules to route work through this factory.",
+        kind: "decision",
+        provider: "factory",
+        position: { x: 240, y: 220 },
+      },
+    ],
+    edges: [],
   };
 }
 

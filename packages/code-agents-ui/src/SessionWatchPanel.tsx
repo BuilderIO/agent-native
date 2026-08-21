@@ -44,7 +44,7 @@ export function SessionWatchPanel({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
-  const [prompt, setPrompt] = useState("");
+  const [, setPrompt] = useState("");
   const transcriptGenerationRef = useRef(0);
 
   const loadTranscript = useCallback(

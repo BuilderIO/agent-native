@@ -692,7 +692,7 @@ export default defineAction({
 });
 ```
 
-`GET` + `readOnly` क्रिया को दुष्प्रभाव-मुक्त और स्क्रीन-रिफ्रेश परिवर्तन इवेंट से बाहर रखता है। `publicAgent` **स्पष्ट ऑप्ट-इन** है - एक सार्वजनिक वेब रूट का तात्पर्य कभी भी सार्वजनिक MCP/A2A एक्सपोजर नहीं है; [Actions](/docs/actions) देखें। डिज़ाइन/सामग्री actions MUST को पढ़ें **लाइव** स्थिति (Yjs सहयोगी दस्तावेज़, पुराना DB स्नैपशॉट कॉलम नहीं) ताकि बाहरी एजेंट देख सके कि उपयोगकर्ता के पास वास्तव में स्क्रीन पर क्या है। सामग्री का `pull-document` किसी भी खुले लाइव कोलाब सत्र को पहले SQL पर फ्लश करता है; डिज़ाइन का `get-design-snapshot` लाइव Yjs फ़ाइल सामग्री और उपयोगकर्ता द्वारा हल किए गए ट्विक मान लौटाता है।
+`GET` + `readOnly` क्रिया को दुष्प्रभाव-मुक्त और स्क्रीन-रिफ्रेश परिवर्तन इवेंट से बाहर रखता है। `publicAgent` **स्पष्ट ऑप्ट-इन** है - एक सार्वजनिक वेब रूट का तात्पर्य कभी भी सार्वजनिक MCP/A2A एक्सपोजर नहीं है; [Actions](/docs/actions-overview) देखें। डिज़ाइन/सामग्री actions MUST को पढ़ें **लाइव** स्थिति (Yjs सहयोगी दस्तावेज़, पुराना DB स्नैपशॉट कॉलम नहीं) ताकि बाहरी एजेंट देख सके कि उपयोगकर्ता के पास वास्तव में स्क्रीन पर क्या है। सामग्री का `pull-document` किसी भी खुले लाइव कोलाब सत्र को पहले SQL पर फ्लश करता है; डिज़ाइन का `get-design-snapshot` लाइव Yjs फ़ाइल सामग्री और उपयोगकर्ता द्वारा हल किए गए ट्विक मान लौटाता है।
 
 ## उन्नत: स्थानीय विकास और मैन्युअल सेटअप {#advanced}
 
@@ -820,5 +820,5 @@ npx @agent-native/core@latest connect prod --apps mail,calendar,analytics --clie
 - [MCP Protocol](/docs/mcp-protocol) - ऑटो-माउंटेड MCP सर्वर और `ask-agent` मेटा-टूल।
 - [MCP Clients](/docs/mcp-clients) - सममित दिशा: आपका ऐप स्थानीय/दूरस्थ MCP सर्वर का उपभोग करता है।
 - [A2A Protocol](/docs/a2a-protocol) - `ask-agent` मेटा-टूल और JSON-RPC सहकर्मी कॉल।
-- [Actions](/docs/actions) - actions, `publicAgent`, GET / `readOnly` को परिभाषित करना।
+- [Actions](/docs/actions-overview) - actions, `publicAgent`, GET / `readOnly` को परिभाषित करना।
 - [Context Awareness](/docs/context-awareness) - `navigate` / `application_state` खुले मार्ग पुलों का अनुबंध करता है।

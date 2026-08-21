@@ -31,12 +31,15 @@
  * refetch when that source fires. A poll heartbeat with no event does
  * nothing.
  */
-import { useSyncExternalStore } from "react";
+import { useCallback, useMemo, useSyncExternalStore } from "react";
+
+const MAX_TRACKED_SOURCES = 1_000;
+const ZERO_SNAPSHOT = () => 0;
 
 class ChangeVersionStore {
   private versions = new Map<string, number>();
-  private listeners = new Set<() => void>();
-  private cachedSnapshots = new Map<string, number>();
+  private listeners = new Map<string, Set<() => void>>();
+  private activeSources = new Map<string, number>();
 
   /**
    * Advance the counter for `source` to at least `version`. Returns true if
@@ -47,32 +50,58 @@ class ChangeVersionStore {
     const current = this.versions.get(source) ?? 0;
     if (version > current) {
       this.versions.set(source, version);
-      this.cachedSnapshots.set(source, version);
-      this.notify();
+      this.evictUnobservedSources();
+      for (const listener of this.listeners.get(source) ?? []) listener();
       return true;
     }
     return false;
   }
 
   get(source: string): number {
-    // useSyncExternalStore requires reference-stable snapshots for unchanged
-    // values, so we serve from a cached map that we only update inside
-    // `bump`.
-    const cached = this.cachedSnapshots.get(source);
-    if (cached !== undefined) return cached;
-    this.cachedSnapshots.set(source, 0);
-    return 0;
+    return this.versions.get(source) ?? 0;
   }
 
-  subscribe(listener: () => void): () => void {
-    this.listeners.add(listener);
+  subscribe(sources: readonly string[], listener: () => void): () => void {
+    const uniqueSources = new Set(sources.filter(Boolean));
+    for (const source of uniqueSources) {
+      this.activeSources.set(source, (this.activeSources.get(source) ?? 0) + 1);
+      let listeners = this.listeners.get(source);
+      if (!listeners) {
+        listeners = new Set();
+        this.listeners.set(source, listeners);
+      }
+      listeners.add(listener);
+    }
     return () => {
-      this.listeners.delete(listener);
+      for (const source of uniqueSources) {
+        const listeners = this.listeners.get(source);
+        listeners?.delete(listener);
+        if (listeners?.size === 0) this.listeners.delete(source);
+        const count = (this.activeSources.get(source) ?? 1) - 1;
+        if (count > 0) this.activeSources.set(source, count);
+        else this.activeSources.delete(source);
+      }
+      this.evictUnobservedSources();
     };
   }
 
-  private notify() {
-    for (const listener of this.listeners) listener();
+  reset(): void {
+    this.versions.clear();
+    this.listeners.clear();
+    this.activeSources.clear();
+  }
+
+  private evictUnobservedSources(): void {
+    while (this.versions.size > MAX_TRACKED_SOURCES) {
+      let evicted = false;
+      for (const source of this.versions.keys()) {
+        if (this.activeSources.has(source)) continue;
+        this.versions.delete(source);
+        evicted = true;
+        break;
+      }
+      if (!evicted) return;
+    }
   }
 }
 
@@ -116,11 +145,13 @@ export function getChangeVersion(source: string): number {
  * ```
  */
 export function useChangeVersion(source: string): number {
-  return useSyncExternalStore(
-    (cb) => store.subscribe(cb),
-    () => store.get(source),
-    () => 0,
+  const subscribe = useCallback(
+    (listener: () => void) => store.subscribe([source], listener),
+    [source],
   );
+  const getSnapshot = useCallback(() => store.get(source), [source]);
+
+  return useSyncExternalStore(subscribe, getSnapshot, ZERO_SNAPSHOT);
 }
 
 /**
@@ -134,17 +165,32 @@ export function useChangeVersion(source: string): number {
  * ```
  */
 export function useChangeVersions(sources: readonly string[]): number {
-  return useSyncExternalStore(
-    (cb) => store.subscribe(cb),
-    () => sources.reduce((sum, src) => sum + store.get(src), 0),
-    () => 0,
+  const sourceKey = sources
+    .map((source) => `${source.length}:${source}`)
+    .join("\u0001");
+  const stableSources = useMemo(() => {
+    const uniqueSources: string[] = [];
+    const seen = new Set<string>();
+    for (const source of sources) {
+      if (seen.has(source)) continue;
+      seen.add(source);
+      uniqueSources.push(source);
+    }
+    return uniqueSources;
+  }, [sourceKey]);
+  const subscribe = useCallback(
+    (listener: () => void) => store.subscribe(stableSources, listener),
+    [stableSources],
   );
+  const getSnapshot = useCallback(
+    () => stableSources.reduce((sum, src) => sum + store.get(src), 0),
+    [stableSources],
+  );
+
+  return useSyncExternalStore(subscribe, getSnapshot, ZERO_SNAPSHOT);
 }
 
 /** Internal test helper — reset all counters. Do not use in app code. */
 export function _resetChangeVersionStoreForTests(): void {
-  // @ts-expect-error reaching past private to clear state in tests
-  store.versions.clear();
-  // @ts-expect-error reaching past private to clear state in tests
-  store.cachedSnapshots.clear();
+  store.reset();
 }

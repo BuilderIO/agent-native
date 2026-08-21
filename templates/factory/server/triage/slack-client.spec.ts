@@ -3,7 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveConnectorSecret } from "../connectors/credentials.js";
 import {
   addEyesReaction,
+  authTest,
   getChannelHistory,
+  getEyesReaction,
   getTeamInfo,
   getThread,
   postThreadReply,
@@ -12,7 +14,9 @@ import { createSlackReader } from "./slack-client";
 
 vi.mock("../connectors/slack.js", () => ({
   addEyesReaction: vi.fn(),
+  authTest: vi.fn(),
   getChannelHistory: vi.fn(),
+  getEyesReaction: vi.fn(),
   getTeamInfo: vi.fn(),
   getThread: vi.fn(),
   postThreadReply: vi.fn(),
@@ -23,6 +27,8 @@ vi.mock("../connectors/credentials.js", () => ({
 }));
 
 const mockedGetChannelHistory = vi.mocked(getChannelHistory);
+const mockedAuthTest = vi.mocked(authTest);
+const mockedGetEyesReaction = vi.mocked(getEyesReaction);
 const mockedGetTeamInfo = vi.mocked(getTeamInfo);
 const mockedGetThread = vi.mocked(getThread);
 const mockedAddEyesReaction = vi.mocked(addEyesReaction);
@@ -30,6 +36,12 @@ const mockedPostThreadReply = vi.mocked(postThreadReply);
 const mockedResolveConnectorSecret = vi.mocked(resolveConnectorSecret);
 
 beforeEach(() => {
+  mockedAuthTest.mockReset().mockResolvedValue({
+    userId: "U-agent-native",
+    userName: "agent-native",
+    teamId: "T1",
+    teamName: "Builder",
+  });
   mockedGetChannelHistory.mockReset().mockResolvedValue({
     messages: [],
     has_more: false,
@@ -47,6 +59,7 @@ beforeEach(() => {
     added: true,
     already_present: false,
   });
+  mockedGetEyesReaction.mockReset().mockResolvedValue({ eyesPresent: false });
   mockedPostThreadReply.mockReset().mockResolvedValue({
     channel: "C123",
     ts: "1.2",
@@ -94,12 +107,28 @@ describe("createSlackReader", () => {
     );
   });
 
+  it("rejects a Slack credential that is not the Agent-Native bot", async () => {
+    mockedAuthTest.mockResolvedValue({
+      userId: "U-other",
+      userName: "other-bot",
+      teamId: "T1",
+      teamName: "Builder",
+    });
+    const reader = createSlackReader({ ownerEmail: "owner@example.com" });
+
+    await expect(reader.getChannelHistory("primary", "C123")).rejects.toThrow(
+      "not @agent-native",
+    );
+    expect(mockedGetChannelHistory).not.toHaveBeenCalled();
+  });
+
   it("exposes bounded thread reads and the two typed write methods", async () => {
     const reader = createSlackReader({ ownerEmail: "owner@example.com" });
 
     await reader.getThread("primary", "C123", "10.1", 50, "cursor-1");
     await reader.addEyesReaction("primary", "C123", "10.1");
     await reader.postThreadReply("primary", "C123", "10.1", "Acknowledged");
+    await reader.getEyesReaction("primary", "C123", "10.1");
 
     const threadResolver = mockedGetThread.mock.calls[0]?.[5];
     const reactionResolver = mockedAddEyesReaction.mock.calls[0]?.[3];
@@ -127,6 +156,14 @@ describe("createSlackReader", () => {
       "10.1",
       "Acknowledged",
       replyResolver,
+    );
+    const eyesResolver = mockedGetEyesReaction.mock.calls[0]?.[3];
+    expect(eyesResolver).toEqual(expect.any(Function));
+    expect(mockedGetEyesReaction).toHaveBeenCalledWith(
+      "primary",
+      "C123",
+      "10.1",
+      eyesResolver,
     );
   });
 });

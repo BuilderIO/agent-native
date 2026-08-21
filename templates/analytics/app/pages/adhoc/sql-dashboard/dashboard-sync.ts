@@ -23,6 +23,20 @@ export function dashboardUpdatedAtMs(value: string | null | undefined) {
   return Number.isFinite(ms) ? ms : null;
 }
 
+export function shouldShowDashboardLoadError({
+  dashboardId,
+  isError,
+  loaded,
+  hasDashboard,
+}: {
+  dashboardId: string | null;
+  isError: boolean;
+  loaded: boolean;
+  hasDashboard: boolean;
+}): boolean {
+  return Boolean(dashboardId && isError && (!loaded || !hasDashboard));
+}
+
 export function createDashboardAdoptionHold({
   dashboardId,
   currentUpdatedAt,

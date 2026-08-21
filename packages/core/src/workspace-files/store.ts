@@ -48,10 +48,13 @@ function ownerForScope(scope: WorkspaceFilesScope): string {
   return scope.scope === "org" ? SHARED_OWNER : scope.scopeId;
 }
 
+/** True for `scratch/...` paths — hidden agent staging, never durable. */
+export function isScratchWorkspacePath(path: string): boolean {
+  return path === "scratch" || path.startsWith("scratch/");
+}
+
 function visibilityForPath(path: string): ResourceVisibility {
-  return path === "scratch" || path.startsWith("scratch/")
-    ? "agent_scratch"
-    : "workspace";
+  return isScratchWorkspacePath(path) ? "agent_scratch" : "workspace";
 }
 
 function workspaceFileMetadata(scope: WorkspaceFilesScope) {
@@ -102,6 +105,38 @@ export interface WorkspaceFileMeta {
   sizeBytes: number;
   createdAt: string;
   updatedAt: string;
+}
+
+/** Display name for a workspace path — the last path segment. */
+export function fileNameFromPath(path: string): string {
+  return path.split("/").at(-1) || path;
+}
+
+export interface WorkspaceFileCard {
+  resourceId: string;
+  path: string;
+  name: string;
+  contentType: string;
+  sizeBytes: number;
+  updatedAt: string;
+}
+
+/**
+ * Shape any workspace-file creator can spread into its own tool result as
+ * `{ file: toWorkspaceFileCard(meta) }` to get a download card in chat —
+ * the chat renderer matches on this shape alone, no per-caller wiring needed.
+ */
+export function toWorkspaceFileCard(
+  meta: WorkspaceFileMeta,
+): WorkspaceFileCard {
+  return {
+    resourceId: meta.id,
+    path: meta.path,
+    name: fileNameFromPath(meta.path),
+    contentType: meta.contentType,
+    sizeBytes: meta.sizeBytes,
+    updatedAt: meta.updatedAt,
+  };
 }
 
 // ---------------------------------------------------------------------------

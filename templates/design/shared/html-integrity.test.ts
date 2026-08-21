@@ -119,6 +119,61 @@ describe("Design HTML integrity", () => {
     ).toThrow(/x-cloak/);
   });
 
+  it("reports an x-show overlay with nothing hiding it, without blocking the save", () => {
+    // The incident shape minus the x-cloak attribute: same full-screen cover,
+    // but advisory — with Alpine healthy this is one frame, and a broken
+    // runtime is already a blocking issue.
+    const document = `<!doctype html><html><head><script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.11/dist/cdn.min.js"></script><script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script></head><body class="p-4"><div x-show="alertsOpen" class="fixed inset-0 z-50 bg-white">Alerts</div></body></html>`;
+    const result = inspectDesignHtmlDocumentIntegrity(document);
+
+    expect(result.valid).toBe(true);
+    expect(result.advisory).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          issue: "runtime-overlay-unhidden",
+          tag: "div",
+          attribute: "x-show",
+        }),
+      ]),
+    );
+    expect(() =>
+      assertDesignHtmlCreateIntegrity({
+        content: document,
+        fileType: "html",
+        filename: "index.html",
+      }),
+    ).not.toThrow();
+  });
+
+  it.each([
+    ["a positioned bar that does not reach every edge", "fixed top-0 h-16"],
+    ["a full-bleed element still in flow", "inset-0"],
+  ])("does not report %s as a covering overlay", (_name, className) => {
+    const document = `<!doctype html><html><head><script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.11/dist/cdn.min.js"></script><script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script></head><body class="p-4"><div x-show="open" class="${className}">Panel</div></body></html>`;
+    expect(
+      inspectDesignHtmlDocumentIntegrity(document).advisory,
+    ).toBeUndefined();
+  });
+
+  it("does not report a covering overlay that is already pre-hidden", () => {
+    const cloaked = `<!doctype html><html><head><script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.11/dist/cdn.min.js"></script><style>[x-cloak]{display:none!important}</style><script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script></head><body class="p-4"><div x-cloak x-show="open" class="fixed inset-0">Alerts</div></body></html>`;
+    const inlineHidden = `<!doctype html><html><head><script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.11/dist/cdn.min.js"></script><script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script></head><body class="p-4"><div x-show="open" style="display:none" class="fixed inset-0">Alerts</div></body></html>`;
+
+    expect(
+      inspectDesignHtmlDocumentIntegrity(cloaked).advisory,
+    ).toBeUndefined();
+    expect(
+      inspectDesignHtmlDocumentIntegrity(inlineHidden).advisory,
+    ).toBeUndefined();
+  });
+
+  it("templates are inert, so an x-if overlay is not reported", () => {
+    const document = `<!doctype html><html><head><script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.11/dist/cdn.min.js"></script><script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script></head><body class="p-4"><template x-if="open"><div class="fixed inset-0">Alerts</div></template></body></html>`;
+    expect(
+      inspectDesignHtmlDocumentIntegrity(document).advisory,
+    ).toBeUndefined();
+  });
+
   it("rejects the screenshot-like missing managed style opener", () => {
     const corrupted = DOCUMENT.replace(
       "<style data-agent-native-breakpoints>",

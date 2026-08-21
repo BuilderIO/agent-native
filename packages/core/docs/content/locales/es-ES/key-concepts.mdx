@@ -1,15 +1,15 @@
 ---
 title: "Conceptos clave"
-description: "Cómo funcionan las aplicaciones agent-native en tres capas: el framework Core, los bloques opcionales de Toolkit y las Plantillas opcionales, además de las actions compartidas, la base de datos SQL, el bucle aplicación-agente y las reglas de portabilidad."
+description: "Cómo funcionan las aplicaciones Agent-Native en tres capas: el framework Core, los bloques opcionales de Toolkit y las Plantillas opcionales, además de las actions compartidas, la base de datos SQL, el bucle aplicación-agente y las reglas de portabilidad."
 ---
 
 # Conceptos clave
 
-Cómo funcionan por dentro las aplicaciones agent-native: los principios y la arquitectura. Esta página es el contrato: las reglas fijas que una aplicación debe seguir para contar como agent-native. Para conocer la visión y los argumentos a favor de construir de esta manera, consulta [¿Qué es Agent-Native?](/docs/what-is-agent-native).
+Cómo funcionan por dentro las aplicaciones Agent-Native: los principios y la arquitectura. Esta página es el contrato: las reglas fijas que una aplicación debe seguir para contar como agent-native. Para conocer la visión y los argumentos a favor de construir de esta manera, consulta [¿Qué es Agent-Native?](/docs/what-is-agent-native).
 
 ## Las tres capas {#three-layers}
 
-Agent Native es un framework con tres capas:
+Agent-Native es un framework con tres capas:
 
 | Capa                                                           | Qué es                                                                                                                                                                                                                                                |
 | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -21,7 +21,7 @@ Core es la base. Toolkit y las Plantillas son opcionales: una plantilla puede us
 
 ## La arquitectura {#the-architecture}
 
-En tiempo de ejecución, cada aplicación agent-native es tres cosas funcionando juntas:
+En tiempo de ejecución, cada aplicación Agent-Native es tres cosas funcionando juntas:
 
 - **Agente:** La IA autónoma. Lee datos, escribe datos, ejecuta actions y usa las herramientas que estén configuradas. Cuando su frame recibe intencionadamente acceso al workspace y herramientas de escritura, también puede modificar el código fuente propio de la aplicación. Personalizable con skills e instrucciones.
 - **Aplicación:** La superficie de producto alrededor del agente. Puede empezar como chat, añadir resultados nativos en línea, crecer hasta convertirse en un pequeño plano de control, o convertirse en una interfaz React completa con paneles, flujos y visualizaciones.
@@ -95,7 +95,7 @@ Ese mismo bucle agente-aplicación-computadora es lo que se ejecuta localmente y
 
 ## Bloques de construcción del agente {#agent-building-blocks}
 
-Cada aplicación agent-native tiene los mismos bloques de construcción del agente,
+Cada aplicación Agent-Native tiene los mismos bloques de construcción del agente,
 sin importar si la superficie del producto es chat-first, automation-first o una
 UI completa. Cada uno vive en su propio archivo:
 
@@ -143,7 +143,7 @@ Cinco reglas rigen la arquitectura:
 
 ## La lista de verificación de las cuatro áreas {#four-area-checklist}
 
-Toda funcionalidad orientada al usuario debe actualizar todas las áreas aplicables. Omitir un área aplicable rompe el contrato agent-native; forzar una pantalla en una automatización que ningún humano necesita explorar también es una mala señal.
+Toda funcionalidad orientada al usuario debe actualizar todas las áreas aplicables. Omitir un área aplicable rompe el contrato Agent-Native; forzar una pantalla en una automatización que ningún humano necesita explorar también es una mala señal.
 
 - **1. UI:** Página, componente o cuadro de diálogo con el que interactúa el usuario.
 - **2. Acción:** Acción invocable por el agente en `actions/` para la misma operación.
@@ -152,7 +152,7 @@ Toda funcionalidad orientada al usuario debe actualizar todas las áreas aplicab
 
 Una funcionalidad con solo UI es invisible para el agente. Una funcionalidad de UI completa con solo actions es invisible para el usuario. Una funcionalidad sin estado de aplicación significa que el agente no ve lo que está haciendo el usuario. Una operación automation-first puede empezar legítimamente con acción + instrucciones y añadir chat, UI o estado de aplicación más adelante, cuando los humanos necesiten explorarla, aprobarla, configurarla o compartirla.
 
-## Qué incluye Agent Native {#what-you-get-for-free}
+## Qué incluye Agent-Native {#what-you-get-for-free}
 
 Adoptar el framework es valioso sobre todo por lo que dejas de tener que construir. En el momento en que tu aplicación sigue las cinco reglas anteriores, heredas:
 
@@ -172,7 +172,7 @@ Adoptar el framework es valioso sobre todo por lo que dejas de tener que constru
 
 ## Datos en SQL {#data-in-sql}
 
-Todo el estado de la aplicación vive en una base de datos SQL a través de Drizzle ORM. Los esquemas son independientes del proveedor; las bases de datos compatibles, la configuración de `DATABASE_URL` y las reglas de portabilidad están en [Database](/docs/database).
+Todo el estado de la aplicación vive en una base de datos SQL a través de Drizzle ORM. Los esquemas son independientes del proveedor; las bases de datos compatibles, la configuración de `DATABASE_URL` y las reglas de portabilidad están en [Database](/docs/server-database).
 
 Los almacenes SQL de Core se crean automáticamente y están disponibles en cada plantilla:
 
@@ -290,7 +290,7 @@ El complemento de chat del agente de producción deja las herramientas SQL sin f
 
 </Callout>
 
-`frameworkTools` gobierna igual el resto de las herramientas propias del framework: sharing, comentarios de revisión, historial de versiones, feature flags, localización, auditoría, Context X-Ray, perfil, automatizaciones, docs, resources, web, delegación entre apps, chat y email. Consulta [Production Agent Tools](/docs/deployment#production-agent-tools) para la lista completa, el preset `"minimal"` y por qué desactivar un grupo deja sus rutas HTTP montadas.
+`frameworkTools` gobierna igual el resto de las herramientas propias del framework: sharing, comentarios de revisión, historial de versiones, feature flags, localización, auditoría, Context X-Ray, perfil, automatizaciones, docs, resources, web, delegación entre apps, chat y email. Consulta [Production Agent Tools](/docs/actions-agent-tools#production-agent-tools) para la lista completa, el preset `"minimal"` y por qué desactivar un grupo deja sus rutas HTTP montadas.
 
 ## Puente de chat del agente {#agent-chat-bridge}
 
@@ -355,7 +355,7 @@ graph LR
 - **CLI:** `pnpm action fetch-data --source=signups` para scripts y bucles de desarrollo del agente.
 - **Herramienta MCP / herramienta A2A:** cuando el servidor MCP o A2A está habilitado, la misma acción aparece también ahí.
 
-Cada consumidor llama a la misma función subyacente, así que solo hay una implementación que escribir y mantener. Consulta [Actions](/docs/actions) para la referencia completa.
+Cada consumidor llama a la misma función subyacente, así que solo hay una implementación que escribir y mantener. Consulta [Actions](/docs/actions-overview) para la referencia completa.
 
 ## Sincronización en vivo {#polling-sync}
 
@@ -434,7 +434,7 @@ Esto funciona en todos los entornos de despliegue, incluidos serverless y edge, 
 
 Un _frame_ es el entorno que aloja al agente junto a tu aplicación. Localmente es el panel integrado; en la nube es la superficie gestionada de Builder.io. Consulta [Frames](/docs/frames).
 
-Las aplicaciones agent-native incluyen un panel de agente integrado que proporciona el agente de IA junto a la UI de la aplicación. Esto es lo que hace que la arquitectura funcione: el agente necesita una computadora (base de datos, navegador, ejecución de código), y la aplicación necesita al agente para el trabajo de IA.
+Las aplicaciones Agent-Native incluyen un panel de agente integrado que proporciona el agente de IA junto a la UI de la aplicación. Esto es lo que hace que la arquitectura funcione: el agente necesita una computadora (base de datos, navegador, ejecución de código), y la aplicación necesita al agente para el trabajo de IA.
 
 - **Panel de agente integrado:** chat y una terminal CLI opcional integrados en cada aplicación. Compatible con Claude Code, Codex, Gemini, OpenCode y Builder.io. Se ejecuta localmente, gratis y de código abierto.
 - **Nube:** despliega en cualquier nube con colaboración en tiempo real, edición visual, roles y permisos. Ideal para equipos.
@@ -478,7 +478,7 @@ tiempo de ejecución sin cambios en el código fuente, usa [Extensions](/docs/ex
 
 Dos reglas arquitectónicas mantienen las aplicaciones portátiles entre bases de datos y hosts:
 
-- **Independiente de la base de datos.** Escribe los esquemas con `@agent-native/core/db/schema` y las lecturas/escrituras con el DSL de consultas portátil de Drizzle, de modo que el mismo código se ejecute en cualquier proveedor compatible. Usa SQL sin procesar solo para migraciones aditivas o mantenimiento puntual, manteniéndolo parametrizado e independiente del dialecto. Consulta [Database](/docs/database).
+- **Independiente de la base de datos.** Escribe los esquemas con `@agent-native/core/db/schema` y las lecturas/escrituras con el DSL de consultas portátil de Drizzle, de modo que el mismo código se ejecute en cualquier proveedor compatible. Usa SQL sin procesar solo para migraciones aditivas o mantenimiento puntual, manteniéndolo parametrizado e independiente del dialecto. Consulta [Database](/docs/server-database).
 - **Independiente del hosting.** El servidor se ejecuta sobre Nitro y compila para cualquier destino de despliegue. Nunca uses APIs específicas de Node (`fs`, `child_process`, `path`) en rutas o plugins del servidor, y nunca asumas un proceso de servidor persistente. Serverless y edge no tienen estado, así que mantén todo el estado en SQL. Consulta [Deployment](/docs/deployment).
 
 ## Recursos del agente {#workspace}

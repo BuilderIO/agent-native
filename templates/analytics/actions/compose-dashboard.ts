@@ -13,7 +13,7 @@ import {
   upsertDashboard,
   upsertDashboardWithRetry,
 } from "../server/lib/dashboards-store";
-import { validateFirstPartyAnalyticsSql } from "../server/lib/first-party-analytics.js";
+import { validateFirstPartyAnalyticsSqlForScope } from "../server/lib/first-party-analytics.js";
 import {
   buildFirstPartyDashboardFilters,
   buildPanel,
@@ -212,7 +212,10 @@ export default defineAction({
           invalidMetrics.push({ metric: req.metric, reason: timeScopeError });
           continue;
         }
-        validateFirstPartyAnalyticsSql(panel.sql);
+        await validateFirstPartyAnalyticsSqlForScope(panel.sql, {
+          userEmail: ctx.email,
+          orgId: ctx.orgId,
+        });
       } catch (e: any) {
         invalidMetrics.push({
           metric: req.metric,

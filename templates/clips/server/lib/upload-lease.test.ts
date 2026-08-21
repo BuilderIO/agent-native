@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // "the sweep selected the wrong population", so the reaper's population has to
 // be exercised against a real table rather than an asserted SQL string.
 let sqlite: Client;
+const mockAbortResumableUploadSession = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/db", () => ({
   getDbExec: () => sqlite,
@@ -17,6 +18,11 @@ vi.mock("../db/index.js", () => ({
     throw new Error("renewUploadLease is covered by the route tests");
   },
   schema: { recordings: {} },
+}));
+
+vi.mock("./resumable-upload-cleanup.js", () => ({
+  abortResumableUploadSession: (...args: unknown[]) =>
+    mockAbortResumableUploadSession(...args),
 }));
 
 const { reapExpiredUploads, UPLOAD_LEASE_EXPIRED_REASON, uploadLeaseExpiry } =
@@ -73,6 +79,7 @@ async function statusOf(id: string) {
 describe("upload lease", () => {
   beforeEach(async () => {
     sqlite = createClient({ url: ":memory:" });
+    mockAbortResumableUploadSession.mockResolvedValue(true);
     await sqlite.execute(`CREATE TABLE recordings (
       id TEXT PRIMARY KEY,
       owner_email TEXT NOT NULL,
@@ -140,7 +147,15 @@ describe("upload lease", () => {
     });
     await sqlite.execute({
       sql: `INSERT INTO application_state (key, value) VALUES (?, ?)`,
-      args: ["resumable-session-fenced-dead-generation-1", "{}"],
+      args: [
+        "resumable-session-fenced-dead-generation-1",
+        JSON.stringify({
+          providerId: "s3",
+          sessionId: "remote-dead",
+          meta: { objectKey: "clips/fenced-dead.webm" },
+          bytesUploaded: 10,
+        }),
+      ],
     });
     await sqlite.execute({
       sql: `INSERT INTO application_state (key, value) VALUES (?, ?)`,
@@ -157,6 +172,14 @@ describe("upload lease", () => {
     expect(rows.map((row) => String(row.key))).toEqual([
       "resumable-session-fenced-dead",
     ]);
+    expect(result.resumableSessionsAborted).toBe(1);
+    expect(mockAbortResumableUploadSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerId: "s3",
+        sessionId: "remote-dead",
+      }),
+      expect.objectContaining({ label: "upload-reaper-fenced-dead" }),
+    );
   });
 
   it("reaches a long-stuck 'processing' recording that no upload session tracks", async () => {

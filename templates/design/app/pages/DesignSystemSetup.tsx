@@ -21,7 +21,6 @@ import {
   IconPhoto,
   IconComponents,
   IconCheck,
-  IconChevronDown,
   IconExternalLink,
 } from "@tabler/icons-react";
 import { useState, useCallback, useRef, useMemo, useEffect } from "react";
@@ -38,7 +37,6 @@ import {
   pollDecodeJobStatus,
   type DecodeJobStatus,
 } from "@/lib/builder-design-system-upload";
-import { cn } from "@/lib/utils";
 
 interface GitHubLink {
   id: string;
@@ -55,7 +53,15 @@ interface UploadedFile {
   textContent?: string;
 }
 
-type OtherSource = "brand" | "code" | "files" | "existing" | "notes";
+type OtherSource =
+  | "brand"
+  | "code"
+  | "design-md"
+  | "files"
+  | "existing"
+  | "notes";
+
+type BuilderIndexInputSource = "figma" | "github" | "design-md";
 
 interface BuilderIndexResult {
   ok: boolean;
@@ -91,6 +97,8 @@ interface BuilderIndexInput {
   designMd?: string;
 }
 
+const MAX_INLINE_DESIGN_MD_BYTES = 2 * 1024 * 1024;
+
 export default function DesignSystemSetup() {
   const t = useT();
   const navigate = useNavigate();
@@ -105,6 +113,7 @@ export default function DesignSystemSetup() {
   const [githubPaths, setGithubPaths] = useState("");
   const [githubLinks, setGithubLinks] = useState<GitHubLink[]>([]);
   const [codeFiles, setCodeFiles] = useState<UploadedFile[]>([]);
+  const [designMdFiles, setDesignMdFiles] = useState<UploadedFile[]>([]);
   const [docFiles, setDocFiles] = useState<UploadedFile[]>([]);
   const [imageFiles, setImageFiles] = useState<UploadedFile[]>([]);
   const [assets, setAssets] = useState<UploadedFile[]>([]);
@@ -119,6 +128,8 @@ export default function DesignSystemSetup() {
   const imageInputRef = useRef<HTMLInputElement>(null);
   const assetInputRef = useRef<HTMLInputElement>(null);
   const codeInputRef = useRef<HTMLInputElement>(null);
+  const designMdInputRef = useRef<HTMLInputElement>(null);
+  const designMdUploadGenerationRef = useRef(0);
   const appliedSourceIdRef = useRef<string | null>(null);
 
   const { data: designsData } = useActionQuery<{
@@ -142,6 +153,8 @@ export default function DesignSystemSetup() {
   const [builderIndexing, setBuilderIndexing] = useState(false);
   const [builderIndexResult, setBuilderIndexResult] =
     useState<BuilderIndexResult | null>(null);
+  const [builderIndexInputSource, setBuilderIndexInputSource] =
+    useState<BuilderIndexInputSource | null>(null);
   const [builderIndexError, setBuilderIndexError] = useState<string | null>(
     null,
   );
@@ -213,6 +226,7 @@ export default function DesignSystemSetup() {
       }
       setBuilderIndexError(null);
       setBuilderIndexResult(null);
+      setBuilderIndexInputSource("figma");
       stopDecodePolling();
       setDecodeStatus(null);
       setBuilderIndexing(true);
@@ -264,6 +278,7 @@ export default function DesignSystemSetup() {
       githubUrl.trim() ||
       githubLinks.length > 0 ||
       codeFiles.length > 0 ||
+      designMdFiles.length > 0 ||
       builderIndexResult ||
       docFiles.length > 0 ||
       imageFiles.length > 0 ||
@@ -279,6 +294,7 @@ export default function DesignSystemSetup() {
     githubUrl,
     githubLinks,
     codeFiles,
+    designMdFiles,
     builderIndexResult,
     docFiles,
     imageFiles,
@@ -390,6 +406,48 @@ export default function DesignSystemSetup() {
     [readTextFiles],
   );
 
+  const handleDesignMdUpload = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = e.target.files;
+      if (!files) return;
+      const file = files[0];
+      e.target.value = "";
+      if (!file) return;
+      const uploadGeneration = ++designMdUploadGenerationRef.current;
+      setDesignMdFiles([]);
+      if (!isDesignMdFile({ name: file.name })) {
+        setValidationError(t("designSystemSetup.errors.chooseDesignMd"));
+        return;
+      }
+      if (file.size > MAX_INLINE_DESIGN_MD_BYTES) {
+        setValidationError(t("designSystemSetup.errors.designMdTooLarge"));
+        return;
+      }
+      const uploadedFile: UploadedFile = {
+        id: crypto.randomUUID(),
+        name: file.name,
+        type: file.type || "text/markdown",
+        size: file.size,
+      };
+      file
+        .text()
+        .then((text) => {
+          if (designMdUploadGenerationRef.current !== uploadGeneration) {
+            return;
+          }
+          setDesignMdFiles([{ ...uploadedFile, textContent: text }]);
+          setValidationError(null);
+        })
+        .catch(() => {
+          if (designMdUploadGenerationRef.current !== uploadGeneration) {
+            return;
+          }
+          setValidationError(t("designSystemSetup.errors.readDesignMd"));
+        });
+    },
+    [t],
+  );
+
   const handleDocUpload = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       if (!e.target.files) return;
@@ -487,6 +545,7 @@ export default function DesignSystemSetup() {
       normalizedGithubLinks.length > 0 &&
       normalizedWebsiteUrls.length === 0 &&
       codeFiles.length === 0 &&
+      designMdFiles.length === 0 &&
       !builderIndexResult &&
       docFiles.length === 0 &&
       imageFiles.length === 0 &&
@@ -496,7 +555,7 @@ export default function DesignSystemSetup() {
     if (isGithubOnlySource) {
       setValidationError(null);
       try {
-        await indexSystemMutation.mutateAsync({
+        const result = await indexSystemMutation.mutateAsync({
           projectName: companyInfo.trim() || undefined,
           description:
             [notes.trim(), customInstructions.trim()]
@@ -508,8 +567,9 @@ export default function DesignSystemSetup() {
             ...(link.include?.length ? { include: link.include } : {}),
           })),
         });
+        setBuilderIndexInputSource("github");
+        setBuilderIndexResult(result);
         toast.success(t("designSystemSetup.githubIndexStarted"));
-        navigate("/design-systems");
       } catch (error) {
         setValidationError(
           error instanceof Error
@@ -521,11 +581,54 @@ export default function DesignSystemSetup() {
     }
 
     const readableCodeFiles = codeFiles.filter((f) => f.textContent);
-    const designMdFiles = readableCodeFiles.filter(isDesignMdFile);
+    const codeDesignMdFiles = readableCodeFiles.filter(isDesignMdFile);
     const builderCodeFiles = readableCodeFiles.filter(
       (file) => !isDesignMdFile(file),
     );
     const unreadableCodeFiles = codeFiles.filter((f) => !f.textContent);
+    const readableDesignMdFiles = designMdFiles.filter(
+      (file) => file.textContent,
+    );
+
+    if (designMdFiles.length > 0 && readableDesignMdFiles.length === 0) {
+      setValidationError(t("designSystemSetup.errors.readDesignMd"));
+      return;
+    }
+
+    const isDesignMdOnlySource =
+      readableDesignMdFiles.length > 0 &&
+      normalizedGithubLinks.length === 0 &&
+      normalizedWebsiteUrls.length === 0 &&
+      codeFiles.length === 0 &&
+      !builderIndexResult &&
+      docFiles.length === 0 &&
+      imageFiles.length === 0 &&
+      assets.length === 0 &&
+      !selectedProjectId;
+
+    if (isDesignMdOnlySource) {
+      setValidationError(null);
+      try {
+        const result = await indexSystemMutation.mutateAsync({
+          projectName: companyInfo.trim() || undefined,
+          description:
+            [notes.trim(), customInstructions.trim()]
+              .filter(Boolean)
+              .join("\n\n") || undefined,
+          designMd: readableDesignMdFiles[0]?.textContent,
+        });
+        setBuilderIndexInputSource("design-md");
+        setBuilderIndexResult(result);
+        toast.success(t("designSystemSetup.designMdIndexStarted"));
+      } catch (error) {
+        setValidationError(
+          error instanceof Error
+            ? error.message
+            : t("designSystemSetup.errors.designMdIndex"),
+        );
+      }
+      return;
+    }
 
     const parts: string[] = [];
     parts.push(
@@ -569,11 +672,11 @@ export default function DesignSystemSetup() {
           );
         }
       }
-      if (designMdFiles.length > 0) {
+      if (codeDesignMdFiles.length > 0) {
         parts.push(
-          `\n## Optional design.md (${designMdFiles.length} file${designMdFiles.length === 1 ? "" : "s"})\nPass this content as the \`designMd\` argument to \`index-design-system-with-builder\` alongside any Figma/code sources:`,
+          `\n## Optional design.md (${codeDesignMdFiles.length} file${codeDesignMdFiles.length === 1 ? "" : "s"})\nPass this content as the \`designMd\` argument to \`index-design-system-with-builder\` alongside any Figma/code sources:`,
         );
-        for (const f of designMdFiles) {
+        for (const f of codeDesignMdFiles) {
           parts.push(
             `\n### ${f.name}\n\`\`\`md\n${f.textContent!.slice(0, 5000)}\n\`\`\``,
           );
@@ -582,6 +685,17 @@ export default function DesignSystemSetup() {
       if (unreadableCodeFiles.length > 0) {
         parts.push(
           `\nBinary code files (could not read):\n${unreadableCodeFiles.map((f) => `- ${f.name}`).join("\n")}`,
+        );
+      }
+    }
+
+    if (designMdFiles.length > 0) {
+      parts.push(
+        `\n## design.md\nPass this content as the \`designMd\` argument to \`index-design-system-with-builder\` alongside any Figma/code sources:`,
+      );
+      for (const f of readableDesignMdFiles) {
+        parts.push(
+          `\n### ${f.name}\n\`\`\`md\n${f.textContent!.slice(0, 5000)}\n\`\`\``,
         );
       }
     }
@@ -680,6 +794,7 @@ export default function DesignSystemSetup() {
     githubPaths,
     githubLinks,
     codeFiles,
+    designMdFiles,
     builderIndexResult,
     docFiles,
     imageFiles,
@@ -753,6 +868,23 @@ export default function DesignSystemSetup() {
             </div>
           )}
 
+          {builderIndexResult && builderIndexInputSource !== "figma" ? (
+            <div className="mb-6">
+              <BuilderIndexPreview
+                result={builderIndexResult}
+                decodeStatus={null}
+                source={builderIndexInputSource ?? "design-md"}
+                displayTitle={companyInfo.trim()}
+                onReset={() => {
+                  setDecodeStatus(null);
+                  setBuilderIndexResult(null);
+                  setBuilderIndexInputSource(null);
+                  setBuilderIndexError(null);
+                }}
+              />
+            </div>
+          ) : null}
+
           <div className="space-y-5">
             <section className="rounded-lg border border-border bg-card p-4">
               <div className="mb-3">
@@ -781,6 +913,14 @@ export default function DesignSystemSetup() {
                   title={t("designSystemSetup.sections.code.title")}
                   selected={sourcePanel === "other" && otherSource === "code"}
                   onClick={() => selectOtherSource("code")}
+                />
+                <SourceChoice
+                  icon={IconFileDescription}
+                  title={t("designSystemSetup.sections.designMd.title")}
+                  selected={
+                    sourcePanel === "other" && otherSource === "design-md"
+                  }
+                  onClick={() => selectOtherSource("design-md")}
                 />
                 <SourceChoice
                   icon={IconFileDescription}
@@ -874,6 +1014,7 @@ export default function DesignSystemSetup() {
                     stopDecodePolling();
                     setDecodeStatus(null);
                     setBuilderIndexResult(null);
+                    setBuilderIndexInputSource(null);
                     setBuilderIndexError(null);
                   }}
                 />
@@ -1101,6 +1242,45 @@ export default function DesignSystemSetup() {
                   </div>
                 )}
               </div>
+            </Section>
+
+            {/* Import design.md guidance directly into Builder DSI. */}
+            <Section
+              title={t("designSystemSetup.sections.designMd.title")}
+              description={t("designSystemSetup.sections.designMd.description")}
+              hidden={sourcePanel !== "other" || otherSource !== "design-md"}
+              hideHeading
+              id="design-system-design-md-source"
+              className="rounded-lg border border-border bg-card p-4"
+            >
+              <button
+                type="button"
+                onClick={() => designMdInputRef.current?.click()}
+                className="w-full rounded-xl border border-dashed border-border bg-card p-8 text-center hover:border-foreground/15 cursor-pointer"
+              >
+                <div className="flex flex-col items-center gap-2">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10">
+                    <IconFileDescription className="size-6 text-primary" />
+                  </div>
+                  <p className="text-sm font-medium text-foreground/90">
+                    {t("designSystemSetup.designMdUpload")}
+                  </p>
+                  <p className="text-xs text-muted-foreground/70">
+                    {t("designSystemSetup.designMdHelp")}
+                  </p>
+                </div>
+              </button>
+              <input
+                ref={designMdInputRef}
+                type="file"
+                accept=".md,.mdx"
+                onChange={handleDesignMdUpload}
+                className="hidden"
+              />
+              <FileList
+                files={designMdFiles}
+                onRemove={() => setDesignMdFiles([])}
+              />
             </Section>
 
             {/* Design Files */}
@@ -1441,32 +1621,38 @@ function FileList({
 function BuilderIndexPreview({
   result,
   decodeStatus,
+  source = "figma",
   displayTitle,
   onReset,
 }: {
   result: BuilderIndexResult;
   decodeStatus: DecodeJobStatus | null;
+  source?: BuilderIndexInputSource;
   displayTitle?: string;
   onReset: () => void;
 }) {
   const t = useT();
   const decodeError =
     decodeStatus?.status === "error" ? decodeStatus.error : null;
+  const SourceIcon =
+    source === "figma"
+      ? IconBrandFigma
+      : source === "github"
+        ? IconBrandGithub
+        : IconFileDescription;
 
   return (
     <div className="space-y-4 rounded-xl border border-border bg-card p-4">
       <div className="flex items-start gap-3">
         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#609FF8]/10">
-          <IconBrandFigma className="h-5 w-5 text-[#609FF8]" />
+          <SourceIcon className="h-5 w-5 text-[var(--design-editor-accent-color)]" />
         </div>
         <div className="min-w-0 flex-1">
           <h3 className="text-sm font-semibold text-foreground">
             {displayTitle || result.suggestedTitle}
           </h3>
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-            {
-              "Builder is indexing this Figma file into a reusable design system." /* i18n-ignore Builder indexing status */
-            }
+            {t("designSystemSetup.figmaParsingDescription")}
           </p>
         </div>
       </div>
@@ -1507,7 +1693,7 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
 }
 
-function isDesignMdFile(file: UploadedFile): boolean {
+function isDesignMdFile(file: Pick<UploadedFile, "name">): boolean {
   const name = file.name.split(/[\\/]/).pop()?.toLowerCase() ?? file.name;
   return name === "design.md" || name === "design.mdx";
 }

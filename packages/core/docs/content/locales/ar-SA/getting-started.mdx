@@ -1,65 +1,199 @@
 ---
-title: "الخطوات الأولى"
-description: "أنشئ تطبيق Chat واضبط وكيلاً، ثم وسّعه بإجراء وصفحة."
+title: "البدء"
+description: "أنشئ تطبيق Agent-Native واستدعِ الإجراء نفسه من الوكيل وواجهة المستخدم."
 ---
 
-# الخطوات الأولى
+# البدء
 
-تمنح تطبيقات Agent-Native الوكيل وواجهة المستخدم نفس [الإجراءات](/docs/actions)
-وبيانات SQL وحالة التطبيق. يبدأ هذا المسار بـ Chat، الذي ينشئ جداول الإطار
-التي يحتاجها ويخزّن سجل المحادثات في SQLite المحلي افتراضيًا. أضف جداولك الخاصة
-فقط عندما يحتاج تطبيقك إلى حفظ بيانات المجال.
+Agent-Native هو إطار عمل TypeScript مفتوح المصدر لبناء تطبيقات تخدم الأشخاص
+ووكلاء الذكاء الاصطناعي معًا. تعرّف وظائف تطبيقك مرة واحدة على شكل
+[إجراءات](/docs/actions-overview) — دوال مكتوبة الأنواع تستدعيها واجهة React
+من الكود ويستخدمها الوكلاء كأدوات.
 
-<Steps>
+في هذا الدليل، ستنشئ تطبيق Chat وتستدعي إجراء `hello` المضمّن فيه من الوكيل
+وواجهة المستخدم.
 
-### إنشاء تطبيق Chat وضبط وكيل
+## المتطلبات الأساسية
 
-أنشئ هيكل قالب Chat، وثبّت التبعيات، وشغّل خادم التطوير، واضبط وكيلاً. ستحصل
-على تطبيق محادثة يعمل ويمكنك توسيعه. **أنت هنا.**
+- [Node.js](https://nodejs.org) 22 أو أحدث
+- [pnpm](https://pnpm.io)
+- اتصال LLM للوكيل: Builder.io، أو مفتاح API من Anthropic أو OpenAI، أو نموذج
+  Ollama محلي
 
-### إضافة إجراء
+## إنشاء تطبيق
 
-عرّف محلّل نصوص محدد الأنواع واعرض نتيجته كمخطط في المحادثة.
-
-### إضافة صفحة
-
-أنشئ مسار React يستدعي الإجراء نفسه خارج سجل المحادثة.
-
-</Steps>
-
-## 1. إنشاء تطبيق Chat {#create-your-app}
-
-ستحتاج إلى [Node.js 22+](https://nodejs.org) و[pnpm](https://pnpm.io).
-
-افتح طرفية، وانتقل إلى الدليل الذي تريد وضع تطبيق Agent Native فيه، ثم شغّل:
+في دليل جديد، أنشئ تطبيق Chat:
 
 ```bash
-npx @agent-native/core@latest create my-app --template chat
+npx @agent-native/core@latest create my-app --standalone --template chat
 cd my-app
 pnpm install
+```
+
+يتضمن القالب تطبيق متصفح، ومصادقة، ومحادثات دائمة، ومزامنة مباشرة، وسياق
+للتطبيق، ودليل `actions/`. كما يتضمن إجراء `hello` صغيرًا ستستخدمه خلال هذا
+الدليل.
+
+## بدء خادم التطوير
+
+ابدأ التطبيق:
+
+```bash
 pnpm dev
 ```
 
-يفتح التطبيق على `http://localhost:8080`. إذا ظهرت شاشة تسجيل الدخول، سجّل
-بمعلومات دخول وهمية. لا تتطلب بيئة التطوير المحلية التحقق من البريد الإلكتروني.
+يُفتح التطبيق على `http://localhost:8080`. إذا لم يُفتح تلقائيًا، فانتقل إلى
+هذا العنوان في متصفحك.
 
-يتضمن قالب Chat خيوط محادثة دائمة، ومصادقة، ومزامنة مباشرة، ودليل `actions/`،
-وإجرائي `view-screen` و`navigate` القياسيين.
+<Callout tone="info">
 
-### اختيار نقطة بداية مختلفة
+في شاشة الترحيب، اختر **Continue as local dev**. لا تحتاج إلى إدخال بريد
+إلكتروني أو كلمة مرور للتطوير المحلي.
 
-إذا لم يكن Chat نقطة البداية المناسبة، شغّل `create` من دون `--template` واختر
-خياراً آخر في CLI. راجع [إنشاء النماذج](/docs/creating-templates) للمسارات الأخرى.
+</Callout>
 
-## 2. ضبط وكيل {#connect-ai}
+بعد ذلك، صِل LLM. اختر **Connect Builder.io** لاستخدام أرصدة مجانية، أو اختر
+**Custom keys**، ثم اختر موفرًا وأدخل تفاصيل الاتصال المطلوبة.
 
-يفتح قالب Chat مباشرة على سطح المحادثة. إذا لم يكن الوكيل جاهزاً للرد، افتح
-**Settings > Manage agent** أو استخدم **Cmd/Ctrl+K > Manage agent** لضبط نموذج وموفّر.
+## تشغيل الإجراء من الوكيل
 
-بعد أن يرد الوكيل، تابع إلى [إضافة إجراء](/docs/getting-started-actions).
+الإجراء هو دالة مكتوبة الأنواع يمكن لواجهة React استدعاؤها من الكود ويمكن
+للوكلاء استخدامها كأداة. يتضمن قالب Chat إجراء `hello` بسيطًا لتجربة هذا
+النمط قبل كتابة إجراء خاص بك.
 
-## المستندات ذات الصلة
+في التطبيق، اطلب من الوكيل:
 
-- [ما هو Agent-Native؟](/docs/what-is-agent-native): البنية التي يقوم عليها هذا المسار.
-- [قالب Chat](/docs/template-chat): ما يتضمنه التطبيق المبدئي.
-- [الأسئلة الشائعة](/docs/faq): إجابات عن النماذج والاستضافة والقوالب.
+> Call the hello action for Alex.
+
+يعثر الوكيل على `hello` من وصفه ومخطط إدخاله، ويمرر `Alex` كإدخال `name`، ثم
+يرد:
+
+```text
+Hello, Alex!
+```
+
+## فحص الإجراء
+
+افتح `actions/hello.ts`:
+
+```ts filename="actions/hello.ts"
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Return a friendly greeting.",
+  schema: z.object({
+    name: z.string().default("world").describe("Name to greet"),
+  }),
+  http: { method: "GET" },
+  run: async ({ name }) => {
+    return { message: `Hello, ${name}!` };
+  },
+});
+```
+
+ركّز الآن على أربعة أجزاء:
+
+- يوضح `description` للوكيل متى يستخدم الإجراء.
+- يتحقق `schema` من الإدخال ويمنح الوكيل تعريف أداة مكتوب الأنواع.
+- يعرّض `http` هذا الإجراء للقراءة فقط عبر `GET`، ما يسمح لـ
+  `useActionQuery` باستدعائه من React.
+- يحتوي `run` على منطق التطبيق الذي يشترك فيه الوكيل وواجهة المستخدم.
+
+راجع [تعريف الإجراءات](/docs/actions-defining) للاطلاع على واجهة API الكاملة.
+
+## استدعاء الإجراء من React
+
+أضف مسارًا في `app/routes/hello.tsx`:
+
+```tsx filename="app/routes/hello.tsx"
+import { useActionQuery } from "@agent-native/core/client/hooks";
+import { useState } from "react";
+
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+
+export default function HelloRoute() {
+  const [name, setName] = useState("Alex");
+  const { data } = useActionQuery("hello", { name });
+
+  return (
+    <main className="mx-auto grid w-full max-w-xl gap-6 p-6">
+      <h1 className="text-2xl font-semibold">Hello action</h1>
+      <div className="grid gap-2">
+        <Label htmlFor="name">Name</Label>
+        <Input
+          id="name"
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+        />
+      </div>
+      <p className="text-xl font-medium">{data?.message}</p>
+    </main>
+  );
+}
+```
+
+<Callout tone="warning">
+
+أعد تشغيل خادم التطوير كي يكتشف المسار الجديد، ثم افتح
+`http://localhost:8080/hello`.
+
+</Callout>
+
+أثناء كتابة اسم، يستدعي `useActionQuery` الإجراء `hello` ويعرض النتيجة. وهو
+يستنتج أنواع إدخال الإجراء ونتيجته، لذلك لا تحتاج الصفحة إلى مسار API مخصص أو
+تنفيذ ثانٍ للتحية.
+
+## تغيير الإجراء
+
+في `actions/hello.ts`، غيّر القيمة المرجعة:
+
+```ts
+return { message: `Welcome, ${name}.` };
+```
+
+حدّث `/hello`، ثم اطلب من الوكيل استدعاء `hello` مرة أخرى. سيعيد كلاهما
+التحية المحدّثة لأنهما يستدعيان الإجراء نفسه.
+
+## استدعاء الإجراءات بطرق أخرى
+
+لقد استدعيت الإجراء نفسه من الوكيل وواجهة المستخدم. ويمكن أيضًا استدعاء
+الإجراء نفسه من:
+
+| الاستدعاء من                            | استخدمه من أجل                                                       |
+| --------------------------------------- | -------------------------------------------------------------------- |
+| [HTTP API](/docs/http-api)              | استدعاء إجراء من نص برمجي أو خلفية أو تكامل.                         |
+| [CLI](/docs/actions-other-surfaces#cli) | تشغيل إجراء أو اختباره من طرفية.                                     |
+| [MCP](/docs/actions-other-surfaces#mcp) | تمكين عميل ذكاء اصطناعي خارجي من اكتشاف الإجراءات واستدعائها كأدوات. |
+| [A2A](/docs/actions-other-surfaces#a2a) | تمكين تطبيق Agent-Native آخر من طلب عمل من هذا التطبيق.              |
+
+يستخدم كل مستدعٍ تعريف الإجراء نفسه. لا تحتاج إلى تنفيذ منفصل لكل واحد. يمثل
+نموذج الإجراءات المشتركة هذا جوهر Agent-Native: إذ تبقى السلوكيات والتحقق
+والصلاحيات متسقة بين واجهة المستخدم والوكلاء والتكاملات مع تغير التطبيق.
+
+## ما أنشأته
+
+أنشأت تطبيق Agent-Native، واستدعيت إجراء `hello` من الوكيل ومن واجهة React،
+ثم غيّرت التحية مرة واحدة وشاهدت كليهما يتحدثان. يتبع كل إجراء تكتبه من الآن
+فصاعدًا النمط نفسه.
+
+## الخطوات التالية
+
+<Cards>
+
+### [ما هو Agent-Native؟](/docs/what-is-agent-native)
+
+تعرّف على سبب مشاركة واجهة المستخدم والوكيل للإجراءات والبيانات والسياق.
+
+### [المفاهيم الأساسية](/docs/key-concepts)
+
+تعرّف على كيفية توافق الإجراءات وبيانات SQL وسياق التطبيق والوصول والمزامنة
+المباشرة معًا.
+
+### [الإجراءات](/docs/actions-overview)
+
+عرّف إجراءات للقراءة والكتابة والموافقات، ثم استدعها من واجهة المستخدم والوكلاء
+والعملاء الخارجيين.
+
+</Cards>

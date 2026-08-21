@@ -43,6 +43,21 @@ function renderComponent(
 }
 
 describe("default design system adapter", () => {
+  it("preserves native click handlers for composed ActionButtons", () => {
+    const onPress = vi.fn();
+    const onClick = vi.fn();
+    const button = renderComponent(defaultDesignSystemComponents.ActionButton, {
+      children: "Share",
+      onPress,
+      onClick,
+    });
+
+    (button.props.onClick as ((event: unknown) => void) | undefined)?.({});
+
+    expect(onPress).toHaveBeenCalledOnce();
+    expect(onClick).toHaveBeenCalledOnce();
+  });
+
   it("maps visual size and shape props to default styles", () => {
     const iconButton = renderComponent(
       defaultDesignSystemComponents.IconButton,

@@ -5,7 +5,7 @@ description: "エージェント ネイティブ アプリにおける Nitro サ
 
 # サーバー
 
-`server/` ディレクトリは、エージェント ネイティブ アプリのインフラストラクチャ層です。起動時のタスク、認証、そして actions ではカバーできない HTTP サーフェスを扱います。プロダクトの動作のほとんどは [Actions](/docs/actions) に属します。サーバーは、それらの actions を外部から利用可能にする存在です。
+`server/` ディレクトリは、エージェント ネイティブ アプリのインフラストラクチャ層です。起動時のタスク、認証、そして actions ではカバーできない HTTP サーフェスを扱います。プロダクトの動作のほとんどは [Actions](/docs/actions-overview) に属します。サーバーは、それらの actions を外部から利用可能にする存在です。
 
 <Diagram id="doc-block-server-overview-1" title="リクエストがサーバーをどう流れるか" summary="呼び出し元は Nitro サーバーに到達し、そのほとんどのリクエストは Actions によって処理されます。Middleware と Routes は Actions がカバーできないケースを扱います。どちらの経路もデータベースにクエリできます。">
 
@@ -223,11 +223,11 @@ Agent Native のアーキテクチャは従来とは異なります。アプリ�
 - MCP および A2A から呼び出し可能なツール。
 - 開発用の CLI コマンド。
 
-ルート形式のプロトコルやバイナリ/ストリーミングの挙動が必要な場合にのみ、カスタム `/api/*` ルートを使用してください。詳細は [Actions](/docs/actions) を参照してください。
+ルート形式のプロトコルやバイナリ/ストリーミングの挙動が必要な場合にのみ、カスタム `/api/*` ルートを使用してください。詳細は [Actions](/docs/actions-overview) を参照してください。
 
 ## 次は何ですか {#whats-next}
 
-- [**Actions**](/docs/actions): デフォルトの操作サーフェス。適合しない場合にのみカスタム ルートに頼ってください。
+- [**Actions**](/docs/actions-overview): デフォルトの操作サーフェス。適合しない場合にのみカスタム ルートに頼ってください。
 - [**データベース**](/docs/server-database): カスタム ルートと actions の両方がインポートする `getDb()`/スキーマ パターン
 - [**ミドルウェア**](/docs/server-middleware): 認証ガードと `server/middleware/` ディレクトリ
 - [**プラグイン**](/docs/server-plugins): マイグレーション、認証、エージェントのための起動プラグイン

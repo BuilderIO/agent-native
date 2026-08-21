@@ -7,7 +7,6 @@ import { IconMenu2 } from "@tabler/icons-react";
 import { useState, useEffect } from "react";
 import { useLocation } from "react-router";
 
-import { Button } from "@/components/ui/button";
 import {
   Sheet,
   SheetContent,

@@ -26,7 +26,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 
 vi.mock("@tabler/icons-react", () => ({
-  IconDots: () => <span />,
+  IconDotsVertical: () => <span data-testid="vertical-dots" />,
   IconDownload: () => <span />,
   IconTrash: () => <span />,
 }));
@@ -149,11 +149,29 @@ describe("RecordingOptionsMenu", () => {
     const closeEvent = { preventDefault: vi.fn() };
     act(() => mocks.closeAutoFocus?.(closeEvent));
     expect(closeEvent.preventDefault).toHaveBeenCalled();
-    expect(onDeleted).not.toHaveBeenCalled();
-
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
     expect(onDeleted).toHaveBeenCalledOnce();
+  });
+
+  it("uses a narrow vertical overflow trigger", () => {
+    act(() => {
+      root.render(
+        <RecordingOptionsMenu
+          recordingId="recording-1"
+          canDelete={false}
+          canDownload
+          onDownload={vi.fn()}
+        />,
+      );
+    });
+
+    const button = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="deleteRecordingMenu.clipOptions"]',
+    );
+
+    expect(button?.className).toContain("px-0.5");
+    expect(button?.className).toContain("py-1.5");
+    expect(container.querySelector('[data-testid="vertical-dots"]')).not.toBe(
+      null,
+    );
   });
 });

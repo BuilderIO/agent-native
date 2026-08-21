@@ -5,7 +5,7 @@ description: "app/ がエージェントが呼び出すのと同じアクショ�
 
 # データと同期
 
-クライアント アプリケーションからアプリ データを読み書きする主な方法は、[アクション](/docs/actions) フックを通すことです。リクエストをアクションに埋め込むことで、クライアントとエージェントの両方が同じ方法でアプリケーションを操作できます。
+クライアント アプリケーションからアプリ データを読み書きする主な方法は、[アクション](/docs/actions-overview) フックを通すことです。リクエストをアクションに埋め込むことで、クライアントとエージェントの両方が同じ方法でアプリケーションを操作できます。
 
 以下の例では、チケットがドロップダウンから手動で、続いてチャット エージェント経由で現在のユーザーに割り当てられます。UI とエージェントはどちらも同じアクションにアクセスします。
 
@@ -429,7 +429,7 @@ function App() {
 
 - [**概要**](/docs/client-overview) — このページのフックが存在する `app/` と `public/` ディレクトリ レイアウト
 - [**Agent チャット**](/docs/client-agent-chat) — エージェントへのプロンプト送信とコンテキストのステージング
-- [**Actions**](/docs/actions) — このページのすべてのフックの背後にある `defineAction` サーフェス
+- [**Actions**](/docs/actions-overview) — このページのすべてのフックの背後にある `defineAction` サーフェス
 - [**高度**](/docs/client-advanced) — `application_state` への直接アクセス
 - [**同期の内部**](/docs/client-sync-internals) — `useChangeVersion` で生の `useQuery` を同期する
 - [**Real-Time Sync**](/docs/key-concepts#polling-sync) — `useDbSync` が UI を最新の状態に保つ方法

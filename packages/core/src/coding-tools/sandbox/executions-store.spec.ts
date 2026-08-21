@@ -77,6 +77,22 @@ describe("sandbox executions store", () => {
     expect(row.timeoutMs).toBe(600_000);
     expect(row.claimToken).toBeNull();
     expect(row.leaseExpiresAt).toBeNull();
+    expect(row.allowedActionNames).toBeUndefined();
+  });
+
+  it("persists an explicit action surface and fails malformed data closed", async () => {
+    const row = await createSandboxExecution(
+      baseInput({ allowedActionNames: ["run-code", "read-things"] }),
+    );
+    expect(row.allowedActionNames).toEqual(["run-code", "read-things"]);
+
+    sqlite
+      .prepare(
+        "UPDATE sandbox_executions SET allowed_action_names = ? WHERE id = ?",
+      )
+      .run("not-json", row.id);
+    const malformed = await getSandboxExecutionInternal(row.id);
+    expect(malformed!.allowedActionNames).toEqual([]);
   });
 
   it("scopes owner reads: another owner cannot see the row", async () => {

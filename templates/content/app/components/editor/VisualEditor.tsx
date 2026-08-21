@@ -16,6 +16,7 @@ import { canonicalizeNfm, docToNfm, nfmToDoc } from "@shared/nfm";
 import {
   serializeRegistryBlockToMdx,
   parseRegistryBlockData,
+  type ParsedRegistryBlock,
 } from "@shared/nfm-registry";
 import { IconMusic, IconPhoto, IconVideo } from "@tabler/icons-react";
 import {
@@ -76,7 +77,7 @@ import {
   LocalMdxComponentNode,
 } from "./extensions/LocalMdxComponentNode";
 import {
-  EMPTY_TOGGLE_BODY_PLACEHOLDER,
+  CompatibleCode,
   createNotionEditorExtensions,
   focusMostRecentEmptyToggleSummary,
   type NotionPageLink,
@@ -95,9 +96,13 @@ import {
   hasImageFiles,
   hasVideoFiles,
   audioUploadErrorMessage,
+  completeImageFileUpload,
+  createMediaUploadId,
+  ImageRenderError,
   imageUploadErrorMessage,
   uploadAudioFile,
   uploadImageFile,
+  waitForRenderedImage,
   uploadVideoFile,
   videoUploadErrorMessage,
 } from "./image-upload";
@@ -443,10 +448,7 @@ const NotionMarkdownShortcuts = Extension.create({
                   .replaceWith(
                     shortcut.blockFrom,
                     shortcut.blockTo,
-                    toggle.create(
-                      { summary: "", open: true },
-                      paragraph.create(),
-                    ),
+                    toggle.create({ summary: "", open: true }),
                   )
                   .scrollIntoView(),
               );
@@ -467,47 +469,6 @@ const NotionMarkdownShortcuts = Extension.create({
             );
             view.dispatch(tr.scrollIntoView());
             return true;
-          },
-        },
-      }),
-    ];
-  },
-});
-
-const NotionToggleBodyPlaceholder = Extension.create({
-  name: "notionToggleBodyPlaceholder",
-
-  addProseMirrorPlugins() {
-    return [
-      new Plugin({
-        key: new PluginKey("notionToggleBodyPlaceholder"),
-        props: {
-          decorations: ({ doc, selection }) => {
-            const decorations: Decoration[] = [];
-
-            doc.descendants((node, pos, parent) => {
-              const selectionIsInsideNode =
-                selection.from >= pos && selection.to <= pos + node.nodeSize;
-
-              if (
-                node.type.name !== "paragraph" ||
-                parent?.type.name !== "notionToggle" ||
-                node.content.size > 0 ||
-                node.textContent.trim() ||
-                selectionIsInsideNode
-              ) {
-                return;
-              }
-
-              decorations.push(
-                Decoration.node(pos, pos + node.nodeSize, {
-                  class: "is-empty notion-toggle__body-placeholder",
-                  "data-placeholder": EMPTY_TOGGLE_BODY_PLACEHOLDER,
-                }),
-              );
-            });
-
-            return DecorationSet.create(doc, decorations);
           },
         },
       }),
@@ -812,6 +773,20 @@ interface VisualEditorProps {
    * whose type has no NFM analog (via the shared registry-block side-map).
    */
   notionPageId?: string | null;
+  onHistoryControllerChange?: (
+    controller: VisualEditorHistoryController | null,
+  ) => void;
+  onHistoryStateChange?: (state: VisualEditorHistoryState) => void;
+}
+
+export interface VisualEditorHistoryState {
+  canUndo: boolean;
+  canRedo: boolean;
+}
+
+export interface VisualEditorHistoryController {
+  undo: () => boolean;
+  redo: () => boolean;
 }
 
 export type { NotionPageLink };
@@ -1009,6 +984,27 @@ function isActiveSlashCommandDraft(editor: CoreEditor): boolean {
   return /^\s*\/[a-zA-Z0-9]*$/.test(textBefore);
 }
 
+export function runPersistableHistoryCommand(
+  editor: CoreEditor,
+  command: "undo" | "redo",
+): boolean {
+  let applied = false;
+  for (let index = 0; index < 20; index += 1) {
+    const changed = editor
+      .chain()
+      .focus()
+      .command(({ tr }) => {
+        tr.setMeta(LOCAL_FILE_USER_EDIT_META, true);
+        return true;
+      })
+      [command]()
+      .run();
+    applied ||= changed;
+    if (!changed || !isActiveSlashCommandDraft(editor)) break;
+  }
+  return applied;
+}
+
 interface VisualEditorExtensionOptions {
   documentId?: string;
   ydoc?: YDoc | null;
@@ -1020,6 +1016,7 @@ interface VisualEditorExtensionOptions {
     avatarUrl?: string;
   } | null;
   onImageComment?: (quotedText: string, offsetTop: number) => void;
+  onImageFilePickerRequest?: (request: PendingImagePicker) => void;
   onJoinTitle?: (text: string) => void;
   resolveNotionPageLink?: (notionPageId: string) => NotionPageLink | null;
   onOpenNotionPageLink?: (documentId: string) => void;
@@ -1143,17 +1140,15 @@ function mediaNodeLabel(typeName: MediaNodeType) {
   return "Audio";
 }
 
-function createMediaUploadId(kind: MediaNodeType) {
-  const random =
-    typeof crypto !== "undefined" && "randomUUID" in crypto
-      ? crypto.randomUUID()
-      : Math.random().toString(36).slice(2);
-  return `${kind}-upload-${random}`;
-}
-
 interface PendingMediaUpload {
   file: File;
   uploadId: string;
+}
+
+export interface PendingImagePicker {
+  pickerId: string;
+  position: number;
+  attrs: Record<string, unknown>;
 }
 
 function insertPendingMediaNodes(
@@ -1204,7 +1199,7 @@ function updatePendingMediaNode(
       tr = tr.setNodeMarkup(pos, undefined, {
         ...node.attrs,
         ...attrs,
-        uploadId: null,
+        uploadId: attrs.uploadId ?? null,
       });
       found = true;
       return false;
@@ -1216,6 +1211,130 @@ function updatePendingMediaNode(
     view.dispatch(tr);
   }
   return found;
+}
+
+function replacePendingMediaUploadId(
+  view: EditorView,
+  typeName: MediaNodeType,
+  currentUploadId: string,
+  nextUploadId: string,
+) {
+  let found = false;
+  let tr = view.state.tr;
+
+  view.state.doc.descendants((node, pos) => {
+    if (found) return false;
+    if (
+      node.type.name === typeName &&
+      node.attrs.uploadId === currentUploadId
+    ) {
+      tr = tr.setNodeMarkup(pos, undefined, {
+        ...node.attrs,
+        uploadId: nextUploadId,
+      });
+      found = true;
+      return false;
+    }
+    return true;
+  });
+
+  if (found) view.dispatch(tr);
+  return found;
+}
+
+function insertImageNodeAtPendingPosition(
+  view: EditorView,
+  request: PendingImagePicker,
+  attrs: Record<string, unknown>,
+  restoreSelection: boolean,
+) {
+  const imageType = view.state.schema.nodes.image;
+  if (!imageType) return false;
+  const position = Math.min(
+    Math.max(request.position, 0),
+    view.state.doc.content.size,
+  );
+  try {
+    let tr = view.state.tr.insert(
+      position,
+      imageType.create({ ...request.attrs, ...attrs }),
+    );
+    if (restoreSelection) {
+      tr = tr.setSelection(NodeSelection.create(tr.doc, position));
+    }
+    view.dispatch(tr.scrollIntoView());
+    if (restoreSelection) view.focus();
+    return true;
+  } catch (error) {
+    console.error("Could not restore the pending image node:", error);
+    return false;
+  }
+}
+
+export function ensurePendingImageUpload(
+  view: EditorView,
+  request: PendingImagePicker,
+  uploadId: string,
+) {
+  if (replacePendingMediaUploadId(view, "image", request.pickerId, uploadId)) {
+    return true;
+  }
+  return insertImageNodeAtPendingPosition(view, request, { uploadId }, false);
+}
+
+export function commitPendingImageUpload(
+  view: EditorView,
+  request: PendingImagePicker,
+  uploadId: string,
+  attrs: Record<string, unknown>,
+) {
+  if (updatePendingMediaNode(view, "image", uploadId, attrs)) return true;
+  return insertImageNodeAtPendingPosition(view, request, attrs, false);
+}
+
+function findPendingImageElement(view: EditorView, uploadId: string) {
+  return (
+    Array.from(view.dom.querySelectorAll<HTMLElement>("[data-image-upload-id]"))
+      .find((element) => element.dataset.imageUploadId === uploadId)
+      ?.querySelector<HTMLImageElement>("img") ?? null
+  );
+}
+
+export function restorePendingImagePicker(
+  view: EditorView,
+  request: PendingImagePicker,
+  currentUploadId = request.pickerId,
+) {
+  let found = false;
+  let nodePosition: number | null = null;
+  let tr = view.state.tr;
+
+  view.state.doc.descendants((node, pos) => {
+    if (found) return false;
+    if (node.type.name === "image" && node.attrs.uploadId === currentUploadId) {
+      tr = tr.setNodeMarkup(pos, undefined, {
+        ...request.attrs,
+        uploadId: null,
+      });
+      nodePosition = pos;
+      found = true;
+      return false;
+    }
+    return true;
+  });
+
+  if (found && nodePosition !== null) {
+    tr = tr.setSelection(NodeSelection.create(tr.doc, nodePosition));
+    view.dispatch(tr);
+    view.focus();
+    return true;
+  }
+  return insertImageNodeAtPendingPosition(
+    view,
+    request,
+    { uploadId: null },
+    true,
+  );
 }
 
 function getVisualEditorPlaceholder({
@@ -1236,9 +1355,7 @@ function getVisualEditorPlaceholder({
     hasAncestorType(editor, pos, "notionToggle");
 
   if (isToggleBody) {
-    return hasAnchor && editor.isFocused
-      ? emptyBlockPlaceholder
-      : EMPTY_TOGGLE_BODY_PLACEHOLDER;
+    return hasAnchor && editor.isFocused ? emptyBlockPlaceholder : "";
   }
 
   if (node.type.name === "heading") {
@@ -1499,6 +1616,7 @@ export function createVisualEditorExtensions({
   localAwareness,
   user,
   onImageComment,
+  onImageFilePickerRequest,
   onJoinTitle,
   resolveNotionPageLink,
   onOpenNotionPageLink,
@@ -1529,6 +1647,7 @@ export function createVisualEditorExtensions({
     },
     starterKit: {
       blockquote: false,
+      code: false,
       paragraph: false,
       heading: { levels: [1, 2, 3, 4, 5, 6] },
       horizontalRule: {},
@@ -1537,13 +1656,13 @@ export function createVisualEditorExtensions({
     collab:
       ydoc || localAwareness ? { ydoc, awareness: localAwareness, user } : null,
     extraExtensions: [
+      CompatibleCode,
       EmptyLineParagraph,
       NotionBlockquote,
       CodeBlock,
       VisualEditorPlaceholder.configure({
         emptyBlockPlaceholder,
       }),
-      NotionToggleBodyPlaceholder,
       Link.configure({
         openOnClick: false,
         HTMLAttributes: { class: "notion-link" },
@@ -1558,6 +1677,7 @@ export function createVisualEditorExtensions({
         HTMLAttributes: { class: "notion-image" },
         documentId,
         onImageComment,
+        onImageFilePickerRequest,
       }),
       VideoNode.configure({
         HTMLAttributes: { class: "notion-video" },
@@ -1622,6 +1742,7 @@ export function createVisualEditorExtensions({
  */
 interface RegistryBlockStoreEntry {
   type: string;
+  rawSource: string;
   base?: {
     title?: string;
     summary?: string;
@@ -1629,6 +1750,42 @@ interface RegistryBlockStoreEntry {
   };
   data: unknown;
   edited: boolean;
+  loadError?: {
+    reason: string;
+  };
+}
+
+export async function hydrateRegistryBlockRaw(
+  rawSource: string,
+): Promise<
+  | { status: "loaded"; block: ParsedRegistryBlock }
+  | { status: "error"; message: string; rawSource: string }
+> {
+  try {
+    const block = await parseRegistryBlockData(rawSource);
+    if (!block) {
+      return {
+        status: "error",
+        message: "unreadable",
+        rawSource,
+      };
+    }
+    return { status: "loaded", block };
+  } catch (error) {
+    return {
+      status: "error",
+      message: error instanceof Error ? error.message : "unreadable",
+      rawSource,
+    };
+  }
+}
+
+export function isRegistryBlockHydrationCurrent(
+  expectedRaw: string,
+  pendingRaw: string | undefined,
+  liveRaw: string,
+): boolean {
+  return pendingRaw === expectedRaw && liveRaw === expectedRaw;
 }
 
 function serializeRegistryBlockRaw(
@@ -1684,8 +1841,9 @@ function isNotionIncompatibleBlockType(blockType: string): boolean {
  * serializes identically to before.
  */
 function useRegistryBlockStore(editor: CoreEditor | null) {
+  const t = useT();
   const cacheRef = useRef<Map<string, RegistryBlockStoreEntry>>(new Map());
-  const pendingRef = useRef<Set<string>>(new Set());
+  const pendingRef = useRef<Map<string, string>>(new Map());
   // Bumping this state forces the NodeViews to re-read the cache once async
   // hydration (or an edit) lands. The `version` is surfaced to the side-map
   // value so the context reference changes on each bump — otherwise the Tiptap
@@ -1726,25 +1884,66 @@ function useRegistryBlockStore(editor: CoreEditor | null) {
         typeof node.attrs.title === "string" ? node.attrs.title : undefined;
       const summary =
         typeof node.attrs.summary === "string" ? node.attrs.summary : undefined;
+      const raw = typeof node.attrs.__raw === "string" ? node.attrs.__raw : "";
 
       const cached = cacheRef.current.get(blockId);
-      if (cached) {
-        return { id: blockId, title, summary, data: cached.data };
+      if (cached?.rawSource === raw) {
+        return {
+          id: blockId,
+          title,
+          summary,
+          data: cached.data,
+          loadError: cached.loadError
+            ? {
+                message: t("editor.registryBlockLoadError", {
+                  type:
+                    typeof node.attrs.blockType === "string"
+                      ? node.attrs.blockType
+                      : "registry",
+                  message:
+                    cached.loadError.reason === "unreadable"
+                      ? t("editor.registryBlockUnreadable")
+                      : cached.loadError.reason,
+                }),
+                rawSource: cached.rawSource,
+              }
+            : undefined,
+        };
       }
+      if (cached) cacheRef.current.delete(blockId);
 
       // Not hydrated yet: kick off a one-shot async parse of the verbatim MDX.
-      const raw = typeof node.attrs.__raw === "string" ? node.attrs.__raw : "";
-      if (raw && !pendingRef.current.has(blockId)) {
-        pendingRef.current.add(blockId);
-        void parseRegistryBlockData(raw)
-          .then((parsed) => {
-            if (parsed) {
+      if (pendingRef.current.get(blockId) !== raw) {
+        pendingRef.current.set(blockId, raw);
+        void hydrateRegistryBlockRaw(raw)
+          .then((result) => {
+            const live = findNode(blockId);
+            const liveRaw =
+              live && typeof live.node.attrs.__raw === "string"
+                ? live.node.attrs.__raw
+                : "";
+            if (
+              !isRegistryBlockHydrationCurrent(
+                raw,
+                pendingRef.current.get(blockId),
+                liveRaw,
+              )
+            ) {
+              if (pendingRef.current.get(blockId) === raw) {
+                pendingRef.current.delete(blockId);
+                bump();
+              }
+              return;
+            }
+            if (result.status === "loaded") {
+              const parsed = result.block;
               const existing = cacheRef.current.get(blockId);
               // A concurrent edit may have populated the cache first — don't
               // clobber it with the stale parse.
               if (!existing) {
                 cacheRef.current.set(blockId, {
                   type: parsed.type,
+                  rawSource: raw,
                   base: parsed.base,
                   data: parsed.data,
                   edited: false,
@@ -1783,6 +1982,8 @@ function useRegistryBlockStore(editor: CoreEditor | null) {
                         },
                       );
                       editor.view.dispatch(tr);
+                      const entry = cacheRef.current.get(blockId);
+                      if (entry) entry.rawSource = refreshedRaw;
                     } catch {
                       /* Keep the parsed cache; leave raw untouched if invalid. */
                     }
@@ -1790,18 +1991,31 @@ function useRegistryBlockStore(editor: CoreEditor | null) {
                 }
                 bump();
               }
+            } else if (!cacheRef.current.has(blockId)) {
+              cacheRef.current.set(blockId, {
+                type:
+                  typeof node.attrs.blockType === "string"
+                    ? node.attrs.blockType
+                    : "",
+                rawSource: result.rawSource,
+                data: undefined,
+                edited: false,
+                loadError: {
+                  reason: result.message,
+                },
+              });
+              bump();
             }
           })
-          .catch(() => {
-            /* Leave uncached; the NodeView keeps showing its placeholder. */
-          })
           .finally(() => {
-            pendingRef.current.delete(blockId);
+            if (pendingRef.current.get(blockId) === raw) {
+              pendingRef.current.delete(blockId);
+            }
           });
       }
       return undefined;
     },
-    [editor, findNode, bump],
+    [editor, findNode, bump, t],
   );
 
   const onBlockDataChange = useCallback(
@@ -1820,6 +2034,7 @@ function useRegistryBlockStore(editor: CoreEditor | null) {
       cacheRef.current.set(blockId, {
         type,
         base,
+        rawSource: typeof node.attrs.__raw === "string" ? node.attrs.__raw : "",
         data: nextData,
         edited: true,
       });
@@ -1835,6 +2050,8 @@ function useRegistryBlockStore(editor: CoreEditor | null) {
         bump();
         return;
       }
+      const updated = cacheRef.current.get(blockId);
+      if (updated) updated.rawSource = raw;
 
       const tr = editor.state.tr.setNodeMarkup(pos, undefined, {
         ...node.attrs,
@@ -1876,14 +2093,20 @@ export function VisualEditor({
   notionPageLinks = [],
   onOpenNotionPageLink,
   notionPageId,
+  onHistoryControllerChange,
+  onHistoryStateChange,
 }: VisualEditorProps) {
   const t = useT();
   const [isDraggingMedia, setIsDraggingMedia] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const imageFileInputRef = useRef<HTMLInputElement>(null);
+  const pendingImagePickerRef = useRef<PendingImagePicker | null>(null);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
   const onSaveContentRef = useRef(onSaveContent);
   onSaveContentRef.current = onSaveContent;
+  const onHistoryStateChangeRef = useRef(onHistoryStateChange);
+  onHistoryStateChangeRef.current = onHistoryStateChange;
   const notionPageLinksRef = useRef(notionPageLinks);
   notionPageLinksRef.current = notionPageLinks;
   const onMediaSourceCommittedRef = useRef<
@@ -1895,6 +2118,14 @@ export function VisualEditor({
     },
     [],
   );
+  const onImageFilePickerRequest = useCallback(
+    (request: PendingImagePicker) => {
+      if (pendingImagePickerRef.current) return;
+      pendingImagePickerRef.current = request;
+      imageFileInputRef.current?.click();
+    },
+    [],
+  );
   const resolveNotionPageLink = useCallback((notionPageId: string) => {
     const normalized = notionPageId.replace(/-/g, "").toLowerCase();
     return (
@@ -1903,6 +2134,14 @@ export function VisualEditor({
           link.notionPageId === notionPageId ||
           link.notionPageId.replace(/-/g, "").toLowerCase() === normalized,
       ) ?? null
+    );
+  }, []);
+  const isVisualEditorFocused = useCallback((editor: CoreEditor) => {
+    if (editor.isFocused) return true;
+    const activeElement = editor.view.dom.ownerDocument.activeElement;
+    return Boolean(
+      activeElement?.matches(".notion-toggle__summary") &&
+      editor.view.dom.contains(activeElement),
     );
   }, []);
 
@@ -1946,6 +2185,7 @@ export function VisualEditor({
         localAwareness,
         user,
         onImageComment: onComment,
+        onImageFilePickerRequest,
         onJoinTitle,
         resolveNotionPageLink,
         onOpenNotionPageLink,
@@ -1962,6 +2202,7 @@ export function VisualEditor({
       user?.email,
       user?.color,
       onComment,
+      onImageFilePickerRequest,
       onJoinTitle,
       resolveNotionPageLink,
       onOpenNotionPageLink,
@@ -2014,6 +2255,7 @@ export function VisualEditor({
         if (options?.immediate && onSaveContentRef.current) {
           return onSaveContentRef.current(normalized);
         }
+        if (options?.immediate) return false;
         // Don't persist an empty doc before Collaboration has seeded (would
         // clobber DB content with an empty string). `registerEmitted` records
         // this as the last-emitted value and returns false to skip the save.
@@ -2048,6 +2290,7 @@ export function VisualEditor({
     }
   };
 
+  const historyEditorRef = useRef<CoreEditor | null>(null);
   const editor = useEditor({
     extensions,
     // With Collaboration (ydoc) active, content is owned by the Y.XmlFragment —
@@ -2138,8 +2381,22 @@ export function VisualEditor({
           if (view.editable) markUserEditIntent();
           return false;
         },
-        keydown(view) {
+        keydown(view, event) {
           if (view.editable) markUserEditIntent();
+          if (
+            view.editable &&
+            (event.metaKey || event.ctrlKey) &&
+            !event.altKey &&
+            event.key.toLowerCase() === "z" &&
+            historyEditorRef.current
+          ) {
+            event.preventDefault();
+            runPersistableHistoryCommand(
+              historyEditorRef.current,
+              event.shiftKey ? "redo" : "undo",
+            );
+            return true;
+          }
           return false;
         },
         cut(view) {
@@ -2174,6 +2431,12 @@ export function VisualEditor({
       },
     },
     editable,
+    onTransaction: ({ editor }) => {
+      onHistoryStateChangeRef.current?.({
+        canUndo: editor.can().undo(),
+        canRedo: editor.can().redo(),
+      });
+    },
     onUpdate: ({ editor, transaction }) => {
       const guards = guardsRef.current;
       // `shouldIgnoreUpdate` covers: not editable, mid-programmatic setContent,
@@ -2224,6 +2487,110 @@ export function VisualEditor({
       });
     },
   });
+  historyEditorRef.current = editor;
+
+  useEffect(() => {
+    if (!editor) {
+      onHistoryControllerChange?.(null);
+      return;
+    }
+    onHistoryControllerChange?.({
+      undo: () => runPersistableHistoryCommand(editor, "undo"),
+      redo: () => runPersistableHistoryCommand(editor, "redo"),
+    });
+    onHistoryStateChange?.({
+      canUndo: editor.can().undo(),
+      canRedo: editor.can().redo(),
+    });
+    return () => onHistoryControllerChange?.(null);
+  }, [editor, onHistoryControllerChange, onHistoryStateChange]);
+
+  const handleImageFileInputChange = useCallback(
+    async (event: Event) => {
+      const input = event.currentTarget as HTMLInputElement;
+      const file = input.files?.[0];
+      input.value = "";
+      const request = pendingImagePickerRef.current;
+      pendingImagePickerRef.current = null;
+      if (!editor || !file || !request) return;
+
+      const uploadId = createMediaUploadId("image");
+      if (!ensurePendingImageUpload(editor.view, request, uploadId)) return;
+
+      const toastId = toast.loading(t("editor.media.uploadingImage"));
+      let staged = false;
+      let committed = false;
+      try {
+        await completeImageFileUpload({
+          file,
+          stageAttributes: (src) => {
+            if (editor.isDestroyed) return;
+            staged = commitPendingImageUpload(editor.view, request, uploadId, {
+              src,
+              uploadId,
+            });
+          },
+          waitForRender: async () => {
+            if (!staged) throw new Error(t("empty.genericError"));
+            await waitForRenderedImage(() =>
+              findPendingImageElement(editor.view, uploadId),
+            );
+          },
+          commitAttributes: (src) => {
+            if (editor.isDestroyed) return;
+            committed = commitPendingImageUpload(
+              editor.view,
+              request,
+              uploadId,
+              { src, uploadId: null },
+            );
+          },
+          persistCommittedImage: async () => {
+            if (!committed || editor.isDestroyed) return false;
+            return await persistEditorContent(editor, {
+              immediate: true,
+              userInitiated: true,
+            });
+          },
+        });
+        if (!committed) throw new Error(t("empty.genericError"));
+        toast.success(t("editor.media.imageAdded"), { id: toastId });
+      } catch (error) {
+        if (editor.isDestroyed) {
+          toast.dismiss(toastId);
+          return;
+        }
+        if (!committed) {
+          restorePendingImagePicker(editor.view, request, uploadId);
+        }
+        toast.error(
+          error instanceof ImageRenderError
+            ? t("editor.media.imageBroken")
+            : imageUploadErrorMessage(error),
+          { id: toastId },
+        );
+      }
+    },
+    [editor, t],
+  );
+
+  const handleImageFileInputCancel = useCallback(() => {
+    const request = pendingImagePickerRef.current;
+    pendingImagePickerRef.current = null;
+    if (!editor || !request) return;
+    restorePendingImagePicker(editor.view, request);
+  }, [editor]);
+
+  useEffect(() => {
+    const input = imageFileInputRef.current;
+    if (!input) return;
+    input.addEventListener("change", handleImageFileInputChange);
+    input.addEventListener("cancel", handleImageFileInputCancel);
+    return () => {
+      input.removeEventListener("change", handleImageFileInputChange);
+      input.removeEventListener("cancel", handleImageFileInputCancel);
+    };
+  }, [editor, handleImageFileInputCancel, handleImageFileInputChange]);
 
   // The shared seed / reconcile / lead-client / onUpdate-guard logic, with
   // Content's NFM serializer injected so the editor reads/writes the exact same
@@ -2239,6 +2606,7 @@ export function VisualEditor({
     value: content,
     contentUpdatedAt,
     editable,
+    isEditorFocused: isVisualEditorFocused,
     getMarkdown: (e) => docToNfm(e.getJSON() as any),
     // Read-only viewers join the shared Y.Doc purely to RECEIVE live edits and
     // cursors; their editor content comes from the server state fetch + peer Yjs
@@ -2563,6 +2931,13 @@ export function VisualEditor({
       <RegistryBlockDataProvider value={registryBlockDataValue}>
         <EditorContent editor={editor} />
       </RegistryBlockDataProvider>
+      <input
+        ref={imageFileInputRef}
+        type="file"
+        className="hidden"
+        tabIndex={-1}
+        aria-hidden="true"
+      />
     </div>
   );
 }

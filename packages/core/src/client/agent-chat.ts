@@ -116,6 +116,8 @@ export interface AgentChatContextItem {
   title: string;
   /** Hidden context included with the next submitted prompt. */
   context: string;
+  /** Optional host namespace used to keep ambient context local to one surface. */
+  contextNamespace?: string;
 }
 
 export interface AgentChatContextSetOptions extends AgentChatContextItem {
@@ -472,11 +474,33 @@ export function normalizeAgentChatContextItem(
   const key = candidate.key.trim();
   const context = candidate.context.trim();
   if (!key || !context) return null;
+  const contextNamespace =
+    typeof candidate.contextNamespace === "string"
+      ? candidate.contextNamespace.trim()
+      : "";
   return {
     key,
     title: candidate.title.trim() || key,
     context,
+    ...(contextNamespace ? { contextNamespace } : {}),
   };
+}
+
+/**
+ * Keep unscoped context visible everywhere, but hide ambient context owned by
+ * a different host surface. This prevents mounted-but-hidden app panes from
+ * leaking their resource chips into the active app's composer.
+ */
+export function filterAgentChatContextItems(
+  items: readonly AgentChatContextItem[],
+  contextNamespace?: string | null,
+): AgentChatContextItem[] {
+  const namespace = contextNamespace?.trim();
+  if (!namespace) return [...items];
+  return items.filter(
+    (item) =>
+      !item.contextNamespace || item.contextNamespace.trim() === namespace,
+  );
 }
 
 export function normalizeAgentChatContextItems(

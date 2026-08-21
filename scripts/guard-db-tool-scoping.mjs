@@ -117,6 +117,10 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
     "child rows scoped through generation sessions/libraries",
   "mail:email_link_tracking": "tracking rows scoped through owning draft/job",
   "slides:deck_share_links": "public share-token rows scoped through decks",
+  "slides:deck_events":
+    "access-request audit rows written through the request-access action",
+  "slides:deck_access_request_limits":
+    "internal anonymous access-request throttling buckets",
   "slides:slide_comments": "child rows scoped through decks",
 };
 

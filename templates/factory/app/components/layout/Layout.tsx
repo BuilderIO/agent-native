@@ -42,6 +42,8 @@ function routeOwnsToolbar(pathname: string): boolean {
     pathname === "/chat" ||
     pathname.startsWith("/chat/") ||
     pathname === "/factory" ||
+    pathname === "/new-factory" ||
+    pathname === "/agents" ||
     pathname === "/database" ||
     pathname.startsWith("/extensions")
   );
@@ -52,7 +54,7 @@ export function Layout({ children }: LayoutProps) {
   const navigate = useNavigate();
   const t = useT();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const isChatRoute =
     location.pathname === "/" ||
     location.pathname === "/chat" ||

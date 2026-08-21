@@ -164,6 +164,15 @@ an additional locale or changelog.
 - Dispatch vault access is workspace-wide by default: every saved vault key is
   available to every workspace app. Only create or request per-app vault grants
   when Dispatch's vault access setting is switched to manual mode.
+- Before implementing an app that connects to an external service, inspect the
+  workspace/provider connection catalog first. Reuse an existing connection and
+  its scoped credential resolver; only then use shared settings, vault, OAuth,
+  onboarding, and provider API primitives for app-local setup.
+- Keep custom setup UI only for provider-specific prerequisites, sequencing,
+  readiness, or health checks. It must link to or call shared settings/OAuth and
+  action surfaces, not duplicate credential storage or transport. Model one
+  logical connection as one onboarding outcome instead of marking every field
+  required by reflex.
 - When an app needs a provider credential, read it through the framework's
   scoped secret or workspace-connection resolver so the Dispatch vault remains
   the source of truth. Framework apps should use `resolveSecret` from

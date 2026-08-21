@@ -227,7 +227,7 @@ export default defineAction({
           .select({
             sourceDisplayKey: schema.contentDatabaseSourceRows.sourceDisplayKey,
             sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
-            sourceName: schema.contentDatabaseSources.sourceName,
+            sourceTable: schema.contentDatabaseSources.sourceTable,
           })
           .from(schema.contentDatabaseSourceRows)
           .innerJoin(
@@ -267,7 +267,7 @@ export default defineAction({
                   sourceMode: "local-files",
                   sourceKind: "file",
                   sourcePath: remainingPath ?? null,
-                  sourceRootPath: remainingLocalRow.sourceName,
+                  sourceRootPath: remainingLocalRow.sourceTable,
                   sourceUpdatedAt: now,
                   updatedAt: now,
                 }

@@ -5,7 +5,7 @@ description: "The action hooks app/ uses to read, write, and stay live-synced wi
 
 # Data & Sync
 
-The primary way to read and write app data from client application is through [action](/docs/actions) hooks. By embedding requests into actions, both your client and agent can interact with your application in the same way.
+The primary way to read and write app data from client application is through [action](/docs/actions-overview) hooks. By embedding requests into actions, both your client and agent can interact with your application in the same way.
 
 In the example below, a ticket is assigned to the current user manually through a dropdown, and then through the chat agent. Both the UI and agent access the same action.
 
@@ -426,7 +426,7 @@ For normal CRUD, prefer `useActionQuery()` and `useActionMutation()`. Mutating a
 
 - [**Overview**](/docs/client-overview) — the `app/` and `public/` directory layout this page's hooks live in
 - [**Agent Chat**](/docs/client-agent-chat) — sending prompts and staging context for the agent
-- [**Actions**](/docs/actions) — the `defineAction` surface behind every hook on this page
+- [**Actions**](/docs/actions-overview) — the `defineAction` surface behind every hook on this page
 - [**Advanced**](/docs/client-advanced) — direct `application_state` access
 - [**Sync Internals**](/docs/client-sync-internals) — syncing a raw `useQuery` with `useChangeVersion`
 - [**Real-Time Sync**](/docs/key-concepts#polling-sync) — how `useDbSync` keeps the UI current

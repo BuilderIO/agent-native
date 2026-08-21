@@ -34,7 +34,10 @@ import http from "node:http";
 
 import type { ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
-import { getRequestUserEmail } from "../server/request-context.js";
+import {
+  getRequestRunContext,
+  getRequestUserEmail,
+} from "../server/request-context.js";
 import {
   failExpiredSandboxExecution,
   getSandboxExecutionForOwner,
@@ -418,6 +421,7 @@ async function enqueueBackgroundRunCode(input: {
     owner,
     orgId: input.context?.orgId ?? null,
     threadId: input.context?.threadId ?? null,
+    allowedActionNames: getRequestRunContext()?.allowedActionNames,
   });
 
   const hasGetTool = Boolean(input.getActions()["get-code-execution"]);

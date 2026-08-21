@@ -1,0 +1,216 @@
+---
+title: "Vue d’ensemble"
+description: "Les actions sont la source unique de vérité pour tout ce que fait votre application. Définissez-en une avec defineAction() et elle se propage vers un outil agent, des hooks d’UI, HTTP, un outil MCP, un outil A2A et une commande CLI."
+---
+
+# Vue d’ensemble
+
+Les actions sont la source unique de vérité pour tout ce que fait votre application. Définissez-en une avec `defineAction()` et placez-la dans `actions/`. Chaque surface ci-dessous la récupère automatiquement. Vous écrivez la logique une seule fois. Aucune surface n’a sa propre copie, et aucune ne peut dériver et se désynchroniser des autres.
+
+<Cards columns={2}>
+
+### :robot: [Outil agent](/docs/agent-surfaces)
+
+L’agent lit la description et le schéma comme un outil qu’il peut appeler. Demandez-le dans le chat, par exemple « répondre à ce ticket » ou « résumer ce fil ».
+
+### :components: [Hooks d’UI](/docs/client-data)
+
+`useActionQuery()`, `useActionMutation()` et `callAction()` appellent la même action depuis React. Un clic et un message de chat exécutent exactement la même opération.
+
+### :server: [Transport du framework](/docs/http-api)
+
+Monté automatiquement sur `/_agent-native/actions/<name>` au démarrage. Les hooks d’UI appellent cette route en coulisses, et un client HTTP externe peut aussi l’appeler directement.
+
+### :plug: [Outil MCP](/docs/actions-other-surfaces#mcp)
+
+Apparaît comme un outil pour tout hôte MCP : Claude, Claude Desktop, Cursor, Codex. Utilisez-le lorsqu’un autre client IA doit piloter votre application.
+
+### :network: [Outil A2A](/docs/actions-other-surfaces#a2a)
+
+D’autres applications natives d’agent la découvrent et l’appellent via A2A. Utilisez-la lorsqu’une seconde application de votre espace de travail a besoin que celle-ci agisse en son nom.
+
+### :terminal: [Commande CLI](/docs/actions-other-surfaces#cli)
+
+`pnpm action <name>` l’exécute depuis un terminal. Utilisez-la pour les scripts, les tâches cron, et les tests manuels rapides.
+
+</Cards>
+
+La plupart des applications construisent une couche API séparée entre le frontend et la base de données, une couche que seul le navigateur peut appeler. Un agent qui veut la même capacité a besoin de sa propre intégration séparée, écrite et maintenue à nouveau. Les applications natives d’agent évitent cette séparation. L’UI et l’agent appellent exactement la même action, il n’y a donc qu’une seule implémentation à écrire, et un seul endroit où un bug peut se cacher.
+
+<Diagram id="doc-block-actions-overview-2" title="Frontend traditionnel vs. Agent Native" summary="Un frontend traditionnel appelle sa propre couche API, que lui seul peut atteindre. Dans Agent Native, app/ et l’agent appellent tous deux les mêmes actions, donc chaque fonctionnalité construite ici est appelable par l’agent gratuitement.">
+
+```html
+<div class="diagram-cocmp">
+  <div class="cocmp-col">
+    <div class="cocmp-label diagram-muted">Traditionnel</div>
+    <div class="diagram-node">app/ (frontend React)</div>
+    <div class="cocmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <strong>Couche API</strong>
+      <small class="diagram-muted">seul le frontend l’appelle</small>
+    </div>
+    <div class="cocmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>Base de données</div>
+  </div>
+  <div class="cocmp-vs diagram-muted">vs</div>
+  <div class="cocmp-col">
+    <div class="cocmp-label diagram-muted">Agent Native</div>
+    <div class="cocmp-callers">
+      <div class="diagram-node">app/ (frontend React)</div>
+      <div class="diagram-node">Agent</div>
+    </div>
+    <div class="cocmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <span class="diagram-pill accent">Actions</span
+      ><small class="diagram-muted">partenaires égaux, mêmes opérations</small>
+    </div>
+    <div class="cocmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>base de données SQL</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-cocmp {
+  display: flex;
+  align-items: flex-start;
+  gap: 28px;
+  flex-wrap: wrap;
+}
+.cocmp-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 180px;
+}
+.cocmp-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+.cocmp-callers {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.cocmp-vs {
+  font-size: 13px;
+  font-weight: 600;
+  padding-top: 52px;
+}
+.diagram-cocmp .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 16px;
+  align-self: stretch;
+  align-items: center;
+}
+.cocmp-arrow {
+  font-size: 18px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+Si l’UI et l’agent doivent tous les deux faire quelque chose, utilisez une action plutôt qu’une route personnalisée. Pour le cas rare où un protocole en forme de route est le bon choix, consultez [Préférer les actions pour les opérations d’application](/docs/server-overview#actions-first).
+
+## Où s’intègrent les actions {#role}
+
+`app/` (consultez [Vue d’ensemble du client](/docs/client-overview#role)) et l’agent aboutissent tous deux aux mêmes actions et à la même base de données SQL. Il n’existe pas de « backend d’application » séparé auquel cette couche parle et que l’agent ne pourrait pas aussi atteindre. Construire une fonctionnalité signifie définir une opération ici et obtenir en même temps une UI, un outil agent, et toute autre surface pour elle.
+
+`actions/` lui-même est un dossier plat. Chaque fichier est une action : un appel à `defineAction()` exporté comme export par défaut du fichier. Le framework scanne ce dossier au démarrage et monte chaque fichier qu’il trouve. Il n’y a aucune étape d’enregistrement ni de fichier d’index à tenir à jour.
+
+Le corps de `run()` d’une action est du code serveur ordinaire, il touche donc généralement à quelques autres répertoires :
+
+<FileTree
+  id="doc-block-actions-overview-filetree"
+  entries={[
+    {
+      path: "actions/reply-to-email.ts",
+      note: "Une action par fichier. Exporte un appel à defineAction(), et le framework le monte automatiquement.",
+    },
+    {
+      path: "server/db/schema.ts",
+      note: "Définitions de tables Drizzle à travers lesquelles la plupart des actions lisent et écrivent.",
+    },
+    {
+      path: "server/lib/access.ts",
+      note: "Gardes d’accès partagés (accessFilter, assertAccess, authorize) réutilisés dans plusieurs actions.",
+    },
+    {
+      path: "shared/feature-flags.ts",
+      note: "Définitions de flags qu’une action et un plugin serveur vérifient tous deux.",
+    },
+    {
+      path: "app/components/ReplyButton.tsx",
+      note: "Appelle l’action depuis l’UI avec useActionMutation.",
+    },
+  ]}
+/>
+
+Rien en dehors de `actions/` ne doit importer directement la fonction `run` d’une action. Appelez-la plutôt via l’une des surfaces ci-dessus : l’outil agent, un hook d’UI, HTTP, MCP, A2A, ou la CLI. Chacun de ces chemins exécute la même validation de schéma, les mêmes contrôles d’accès, et la même piste d’audit.
+
+## Commencer avec une seule action {#hello-action}
+
+La première opération d’une application chat-first peut être minuscule. Dans le template Chat,
+remplacez `actions/hello.ts` ou ajoutez un nouveau fichier à côté :
+
+```ts
+// actions/hello.ts
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Say hello from the local agent.",
+  schema: z.object({
+    name: z.string().default("world"),
+  }),
+  http: { method: "GET" },
+  readOnly: true,
+  run: async ({ name }) => {
+    return { message: `Hello, ${name}!` };
+  },
+});
+```
+
+Exécutez-la depuis le même répertoire :
+
+```bash
+pnpm action hello '{"name":"Steve"}'
+```
+
+La CLI accepte un objet JSON comme entrée de l’action, ce qui correspond aux
+appels d’outils structurés que les agents effectuent déjà. Des flags simples
+fonctionnent toujours pour des exécutions manuelles rapides :
+
+```bash
+pnpm action hello --name Steve
+```
+
+Exécutez ensuite la boucle app-agent sur le répertoire :
+
+```bash
+npx agent-native agent "Call hello for Steve and explain the result"
+```
+
+C’est la même boucle app-agent que vos tâches planifiées, votre UI de chat,
+vos outils MCP externes, et vos futurs écrans utiliseront. Les templates Chat
+et de domaine servent à ajouter une UI autour des actions, ce n’est pas un
+prérequis pour l’action elle-même.
+
+## Quelle est la prochaine étape
+
+- [**Définir des actions**](/docs/actions-defining) — anatomie de `defineAction()`, schéma, et configuration HTTP
+- [**Accès et autorisation**](/docs/actions-access-control) — flags d’exposition, portée de `ctx`, et `authorize`
+- [**Contexte d’exécution**](/docs/actions-run-context) — le tableau complet des champs de `ctx`
+- [**Autres surfaces**](/docs/actions-other-surfaces) — UI de chat native, CLI, A2A, MCP, et actions standard
+- [**Avancé et hérité**](/docs/actions-advanced) — activation par feature-flag et actions de style CLI héritées
+- [**Vue d’ensemble**](/docs/client-overview) — le côté `app/` de ce même contrat
+- [**Données et synchronisation**](/docs/client-data) — `useActionQuery`, `useActionMutation`, et `callAction` dans l’UI
+- [**Surfaces de l’agent**](/docs/agent-surfaces) — comment une action évolue d’un outil de chat vers un écran complet

@@ -37,6 +37,39 @@ describe("framework secret registrations", () => {
     });
   });
 
+  it("validates a pasted Anthropic API key at paste time", async () => {
+    registerFrameworkSecrets();
+
+    const anthropic = getRequiredSecret("ANTHROPIC_API_KEY");
+    expect(anthropic).toMatchObject({
+      label: "Anthropic API key",
+      scope: "user",
+      kind: "api-key",
+      required: false,
+    });
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(null, { status: 401 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      anthropic?.validator?.("<ANTHROPIC_API_KEY>"),
+    ).resolves.toEqual({
+      ok: false,
+      error: "Anthropic rejected the key (HTTP 401).",
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.anthropic.com/v1/models",
+      {
+        headers: {
+          "x-api-key": "<ANTHROPIC_API_KEY>",
+          "anthropic-version": "2023-06-01",
+        },
+      },
+    );
+  });
+
   it("registers Salesforce workspace OAuth credentials and connection metadata", () => {
     registerFrameworkSecrets();
 

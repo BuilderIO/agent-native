@@ -6,15 +6,12 @@ import {
   IconPlayerStopFilled,
 } from "@tabler/icons-react-native";
 import { useEffect, useState } from "react";
-import {
-  ActivityIndicator,
-  Platform,
-  Pressable,
-  Text,
-  View,
-} from "react-native";
+import { Platform, Pressable, Text, View } from "react-native";
 
 import type { ChatContentPart } from "@/lib/agent-chat/types";
+import { useMobileThemeColors } from "@/lib/mobile-colors";
+
+import { ShineText } from "./ShineText";
 
 const MONO_FONT = Platform.select({ ios: "Menlo", android: "monospace" });
 const DETAIL_LIMIT = 1200;
@@ -49,30 +46,35 @@ function StatusIcon({
 }: {
   status: Extract<ChatContentPart, { type: "tool-call" }>["status"];
 }) {
-  if (status === "running") {
-    return <ActivityIndicator size="small" color="#d4d4d8" />;
-  }
+  const { mutedForeground, destructive, successText, warningYellowText } =
+    useMobileThemeColors();
+  if (status === "running") return null;
   if (status === "failed") {
-    return <IconAlertTriangle color="#fb7185" size={15} strokeWidth={2} />;
+    return <IconAlertTriangle color={destructive} size={15} strokeWidth={2} />;
   }
   if (status === "cancelled") {
-    return <IconPlayerStopFilled color="#71717a" size={13} />;
+    return <IconPlayerStopFilled color={mutedForeground} size={13} />;
   }
   if (status === "awaiting-approval") {
-    return <IconAlertTriangle color="#f5d999" size={15} strokeWidth={2} />;
+    return (
+      <IconAlertTriangle color={warningYellowText} size={15} strokeWidth={2} />
+    );
   }
-  return <IconCheck color="#86efac" size={15} strokeWidth={2.2} />;
+  return <IconCheck color={successText} size={15} strokeWidth={2.2} />;
 }
 
 export function ToolCallCard({
   part,
+  isActiveTail = false,
   onApprove,
   onDeny,
 }: {
   part: Extract<ChatContentPart, { type: "tool-call" }>;
+  isActiveTail?: boolean;
   onApprove?: (approvalKey: string) => void;
   onDeny?: (approvalKey?: string) => void;
 }) {
+  const { mutedForeground } = useMobileThemeColors();
   const [expanded, setExpanded] = useState(false);
   const [showLongRunningHint, setShowLongRunningHint] = useState(false);
   const awaitingApproval = part.status === "awaiting-approval";
@@ -101,16 +103,20 @@ export function ToolCallCard({
         accessibilityLabel={`Tool ${part.toolName}, ${part.status}`}
       >
         {expanded ? (
-          <IconChevronDown color="#71717a" size={14} strokeWidth={2} />
+          <IconChevronDown color={mutedForeground} size={14} strokeWidth={2} />
         ) : (
-          <IconChevronRight color="#71717a" size={14} strokeWidth={2} />
+          <IconChevronRight color={mutedForeground} size={14} strokeWidth={2} />
         )}
-        <Text
-          className="text-status-gray text-[13px] font-medium"
-          numberOfLines={1}
-        >
-          {part.toolName}
-        </Text>
+        {isActiveTail ? (
+          <ShineText>{part.toolName}</ShineText>
+        ) : (
+          <Text
+            className="text-status-gray text-[13px] font-medium"
+            numberOfLines={1}
+          >
+            {part.toolName}
+          </Text>
+        )}
         <StatusIcon status={part.status} />
         {preview && !expanded ? (
           <Text
@@ -135,12 +141,12 @@ export function ToolCallCard({
           </Text>
           <View className="flex-row gap-2">
             <Pressable
-              className="flex-1 h-9 rounded-lg bg-white items-center justify-center active:opacity-75"
+              className="flex-1 h-9 rounded-lg bg-primary items-center justify-center active:opacity-75"
               onPress={() => part.approvalKey && onApprove?.(part.approvalKey)}
               accessibilityRole="button"
               accessibilityLabel="Approve tool call"
             >
-              <Text className="text-background-dark text-[13px] font-bold">
+              <Text className="text-primary-foreground text-[13px] font-bold">
                 Approve
               </Text>
             </Pressable>

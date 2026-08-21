@@ -54,6 +54,7 @@ const mockResolvePlayerThumbnailUrl = vi.hoisted(() =>
         : null,
   ),
 );
+const mockIsSeekableRepairPending = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core", () => ({
   defineAction: (options: unknown) => options,
@@ -145,6 +146,11 @@ vi.mock("../server/lib/media-verification-state.js", () => ({
   isMediaVerificationPending: vi.fn(() => false),
 }));
 
+vi.mock("../server/lib/seekable-media-state.js", () => ({
+  isSeekableRepairPending: (...args: unknown[]) =>
+    mockIsSeekableRepairPending(...args),
+}));
+
 vi.mock("../server/lib/recordings.js", () => ({
   parseSpaceIds: vi.fn(() => []),
   countRecordingViews: (recordingId: string) =>
@@ -182,6 +188,7 @@ describe("get-recording-player-data direct public access", () => {
     mockIsAgentRecordingCaller.mockImplementation(
       (caller: string | undefined) => caller === "tool",
     );
+    mockIsSeekableRepairPending.mockResolvedValue(false);
     mockShareLimit.mockResolvedValue([]);
   });
 
@@ -242,6 +249,8 @@ describe("get-recording-player-data view count", () => {
     mockPlayerQuery.build = emptyPlayerQuery;
     mockCountRecordingViews.mockClear();
     mockCountRecordingViews.mockResolvedValue(0);
+    mockIsSeekableRepairPending.mockClear();
+    mockIsSeekableRepairPending.mockResolvedValue(false);
     mockResolvePlayerVideoUrl.mockClear();
     mockShareLimit.mockResolvedValue([]);
     mockResolveAccess.mockResolvedValue({
@@ -280,6 +289,20 @@ describe("get-recording-player-data view count", () => {
 
     expect(result.viewCount).toBe(0);
     expect(result.recording.id).toBe("rec-1");
+  });
+
+  it("exposes pending seekable repair state to the player", async () => {
+    mockIsSeekableRepairPending.mockResolvedValue(true);
+
+    const result = await action.run({ recordingId: "rec-1" });
+
+    expect(result.recording.seekableRepairPending).toBe(true);
+    expect(mockIsSeekableRepairPending).toHaveBeenCalledWith({
+      ownerEmail: "owner@example.com",
+      recordingId: "rec-1",
+      recordingStatus: "ready",
+      videoUrl: "https://cdn.example.com/rec-1.webm",
+    });
   });
 
   it("keeps owner media behind the same-origin video proxy", async () => {

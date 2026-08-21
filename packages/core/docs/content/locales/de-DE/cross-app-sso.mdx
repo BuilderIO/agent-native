@@ -177,7 +177,7 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com
 ```
 
 - **Set** → Die App zeigt die Option **„Mit Agent-Native anmelden“** an, die den obigen Ablauf ausführt. Daneben funktioniert weiterhin die direkte lokale Anmeldung (E-Mail/Passwort, Google).
-- **Deaktiviert (Standard)** → **Keine Verhaltensänderung.** Die App authentifiziert sich genau wie zuvor; Der Verbundcodepfad ist inaktiv. Es gibt keine Schemaänderung und es muss nichts migriert werden, sodass das Ein- oder Ausschalten der Variablen jederzeit vollständig rückgängig gemacht werden kann.
+- **Kanonischer gehosteter Client** → Die App zeigt für den registrierten Origin die Option **„Mit Agent-Native anmelden“**; selbst gehostete Apps müssen die Variable weiterhin setzen. Es gibt keine Schemaänderung und nichts zu migrieren.
 
 ## Sicherheit {#security}
 
@@ -187,7 +187,7 @@ Das gesamte Modell basiert auf ein paar bewusst kleinen Garantien:
 - **Strikte, app-gebundene `redirect_uri`-Zulassungsliste.** Jede kanonische App-ID ist genau einer Produktions-Origin und Callback-Route zugeordnet; localhost bleibt für die Entwicklung verfügbar. Unbekannte Subdomains, nicht passende App-IDs, beliebige Pfade und Cross-Origin-Ziele werden abgelehnt.
 - **Nur E-Mail-Beitritt von einem verifizierten Token aus.** Das Einzige, was die Vertrauensgrenze überschreitet, ist die verifizierte E-Mail in einem signierten Token. Die App akzeptiert keine Benutzer-ID, Rolle, Organisationsmitgliedschaft oder einen privilegierten Status aus der Verbindung – sie leitet alles lokal vom übereinstimmenden Konto ab.
 - **Nur additive Identitätsschreibvorgänge.** Beim Verknüpfen wird entweder ein vorhandenes Konto mit derselben E-Mail-Adresse unverändert wiederverwendet oder ein neues eingefügt. Auf diesem Pfad findet niemals eine Aktualisierung, Umbenennung, Neuzuweisung oder Löschung von Identitätszeilen statt.
-- **Standardmäßig deaktiviert.** Wenn `AGENT_NATIVE_IDENTITY_HUB_URL` deaktiviert ist, ist die gesamte Funktion inaktiv.
+- **Kanonische Hosted-Clients nach Origin aktiviert.** Kanonische gehostete Apps mit registriertem Origin sind automatisch aktiv; selbst gehostete Apps bleiben ohne `AGENT_NATIVE_IDENTITY_HUB_URL` inaktiv.
 
 <Callout id="doc-block-1j7k5xd" tone="success">
 
@@ -326,5 +326,5 @@ Beim Rollout werden Benutzer abgemeldet, wenn jede App aktiviert wird (sie authe
 
 Das standardmäßig deaktivierte Dispatch-Flag `desktop.workspace-sso` steuert nur die Verfügbarkeit; Authentifizierung, Signatur-, Nonce-, Origin-, Callback-, Sitzungs- und Widerrufsprüfungen bleiben immer verpflichtend. Ist das Flag aus oder nicht lesbar, verändert Desktop weder App-Anmeldung noch Abmeldung oder Einstellungen.
 Die Canary-Kennung im User-Agent ist nur ein Verfügbarkeitshinweis und keine Remote-Attestierung; Authentifizierung und Autorisierung vertrauen ihr nicht.
-Kanonische gehostete Apps erkennen Anfragen der paketierten Desktop SSO Canary ohne eine Identity-Hub-Umgebungsvariable pro App. Normale Browser und selbst gehostete Apps benötigen weiterhin `AGENT_NATIVE_IDENTITY_HUB_URL`. Stabile Desktop-Builds initialisieren den Broker erst nach einer separat genehmigten späteren Veröffentlichung.
+Kanonische gehostete Apps erkennen Anfragen der paketierten Desktop SSO Canary und normale Browser ohne eine Identity-Hub-Umgebungsvariable pro App. Selbst gehostete Apps benötigen weiterhin `AGENT_NATIVE_IDENTITY_HUB_URL`. Stabile Desktop-Builds initialisieren den Broker erst nach einer separat genehmigten späteren Veröffentlichung.
 Die Canary-Version fängt anonyme App-Anmeldungen nicht ab. Benutzer müssen die Workspace-Anmeldung in den Desktop-Einstellungen für die aktive registrierte App ausdrücklich auswählen; die normale App-Anmeldung bleibt der Standardpfad.

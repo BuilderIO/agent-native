@@ -40,6 +40,7 @@ import {
   countRecordingViews,
   parseSpaceIds,
 } from "../server/lib/recordings.js";
+import { isSeekableRepairPending } from "../server/lib/seekable-media-state.js";
 import { parseBrowserDiagnosticsRow } from "../shared/browser-diagnostics.js";
 import {
   CLIPS_BUILDER_CREDITS_STATE_KEY,
@@ -154,13 +155,18 @@ export default defineAction({
       access.role === "owner" ||
       access.role === "admin" ||
       access.role === "editor";
-    const canCommentRecording = canEditRecording || access.role === "commenter";
+    // Reaching this action already requires a signed-in session with at
+    // least viewer access to the recording (`resolveAccess` above), so any
+    // resolved role qualifies to comment/react — no separate "commenter"
+    // tier.
+    const canCommentRecording = true;
     // This action is on a 1-3s poll from the player, so every read here shares
     // one Promise.all instead of adding serial round-trips.
     const [
       cleanupStateRaw,
       builderCreditsRaw,
       verificationPending,
+      seekableRepairPending,
       viewCount,
       agentViewCount,
     ] = await Promise.all([
@@ -172,6 +178,12 @@ export default defineAction({
         ownerEmail: rec.ownerEmail,
         recordingId: args.recordingId,
         recordingStatus: rec.status,
+      }),
+      isSeekableRepairPending({
+        ownerEmail: rec.ownerEmail,
+        recordingId: args.recordingId,
+        recordingStatus: rec.status,
+        videoUrl: rec.videoUrl,
       }),
       countRecordingViews(args.recordingId).catch(() => 0),
       countRecordingAgentViews(args.recordingId).catch(() => 0),
@@ -336,6 +348,7 @@ export default defineAction({
         hasCamera: Boolean(rec.hasCamera),
         status: rec.status,
         verificationPending,
+        seekableRepairPending,
         uploadProgress: rec.uploadProgress,
         failureReason: rec.failureReason,
         // Don't leak the password to clients (especially to MCP hosts that

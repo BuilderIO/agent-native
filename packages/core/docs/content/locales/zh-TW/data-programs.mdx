@@ -8,7 +8,7 @@ search: "data program emit rows schema providerFetch dashboard panel program sou
 
 **資料程式（data program）**是一個具名、儲存、由 agent 撰寫的 JS 腳本，用來擷取、連接、篩選或彙整資料——透過 `providerFetch` / `providerFetchAll` / `providerSearchAll` 存取 provider API，透過 `appAction` 存取 app 資料，或存取以 Resources 為基礎的 workspace 檔案——並且恰好呼叫一次 `emit(rows, schema)` 來提交結果。結果會快取在 SQL 中，任何圖表/表格元件都能渲染它，依你選擇的策略更新，而不是每次頁面瀏覽都重新擷取。
 
-只要 [`run-code`](/docs/actions) 可用，它就會自動可用——不需要依 app 掛載或設定任何東西。如果你的 app 已啟用 run-code，`save-data-program`、`preview-data-program`、`run-data-program`、`list-data-programs`、`get-data-program` 與 `delete-data-program` 就已經是已註冊的 actions。
+只要 [`run-code`](/docs/actions-overview) 可用，它就會自動可用——不需要依 app 掛載或設定任何東西。如果你的 app 已啟用 run-code，`save-data-program`、`preview-data-program`、`run-data-program`、`list-data-programs`、`get-data-program` 與 `delete-data-program` 就已經是已註冊的 actions。
 
 <Diagram id="doc-block-dp-overview" title={"從臨時查詢到即時面板"} summary={"一段 run-code 腳本一旦呼叫 emit()，就會變成一個儲存的程式；任何 dashboard 面板都能綁定到它，之後由快取／更新策略接手。"}>
 
@@ -324,6 +324,6 @@ emit(rows, [
 ## 相關文件 {#related}
 
 - [擴充功能](/docs/extensions) ——資料程式與之共享安全姿態與共用模型的沙箱化 mini-app 基礎元件，但擁有自己的 UI。
-- [Actions](/docs/actions) ——資料程式所建構於其上的 `run-code` 慣例與沙箱全域物件（`providerFetch`、`appAction` 等）。
+- [Actions](/docs/actions-overview) ——資料程式所建構於其上的 `run-code` 慣例與沙箱全域物件（`providerFetch`、`appAction` 等）。
 - [共用與隱私](/docs/sharing) ——資料程式所使用的、僅限組織內部、絕不公開的共用模型。
 - [安全性](/docs/security) ——框架的憑證處理與存取範圍限定不變量。

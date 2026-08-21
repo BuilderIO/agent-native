@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ACTION_CHAT_UI_WORKSPACE_FILE_RENDERER } from "../../../action-ui.js";
+import { resolveToolRenderer } from "../tool-render-registry.js";
 import { resolveBuiltinActionChatRenderer } from "./builtin-tool-renderers.js";
 
 describe("built-in workspace file renderer", () => {
@@ -64,5 +65,44 @@ describe("built-in workspace file renderer", () => {
         chatUI: { renderer: ACTION_CHAT_UI_WORKSPACE_FILE_RENDERER },
       }),
     ).toBeNull();
+  });
+
+  // Regression: a file-creating call (e.g. fetch/provider-api-request's
+  // saveToFile) never sets a chatUI renderer — a card must still render from
+  // its own result shape alone, with no second show-workspace-file call.
+  it("renders a card from any tool's result shape, without a chatUI renderer", async () => {
+    const context = {
+      toolName: "web-request",
+      args: {
+        url: "https://example.com/report.pdf",
+        saveToFile: "exports/report.pdf",
+      },
+      resultJson: {
+        savedToFile: true,
+        savedTo: "exports/report.pdf",
+        file: {
+          resourceId: "resource-pdf",
+          path: "exports/report.pdf",
+          name: "report.pdf",
+          contentType: "application/pdf",
+          sizeBytes: 4096,
+        },
+      },
+      isRunning: false,
+      // No chatUI here — this is the whole point of the fallback.
+    };
+
+    const Renderer = resolveToolRenderer(context);
+    expect(Renderer).not.toBeNull();
+
+    act(() => {
+      root.render(Renderer ? <Renderer context={context} /> : null);
+    });
+    await act(async () => {
+      await vi.dynamicImportSettled();
+    });
+
+    expect(container.textContent).toContain("report.pdf");
+    expect(container.querySelector("a")?.textContent).toContain("Download");
   });
 });

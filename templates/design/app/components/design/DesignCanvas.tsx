@@ -7,6 +7,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import { type ReviewThread } from "@agent-native/core/client/review";
 import type { ReviewComment } from "@agent-native/core/review";
 import { injectDocumentMarkup } from "@agent-native/core/shared";
+import { isLoopbackPreviewAllowed } from "@shared/builder-preview-url";
 import {
   DEFAULT_CANVAS_MAX_ZOOM,
   DEFAULT_CANVAS_MIN_ZOOM,
@@ -19,10 +20,12 @@ import {
   closePenPath,
   constrainPointTo45Degrees,
   createCornerNode,
-  createSmoothNode,
+  createPenCuspLatch,
+  createPenDragNode,
   isPenCloseTarget,
   serializePenPath,
   translatePenPath,
+  type PenCuspLatch,
   type PenPath,
   type PenPoint,
 } from "@shared/pen-path";
@@ -39,6 +42,7 @@ import {
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 // NOTE: This wires up the NEW shared visual-editor DrawOverlay + comment-pin
 // components from `@/components/visual-editor`. The legacy iframe-only
 // DrawOverlay at `./DrawOverlay.tsx` is intentionally NOT used here — both
@@ -150,8 +154,15 @@ function isAllowedFusionOrigin(
   } catch {
     return false;
   }
-  // Only allow secure (https) Builder origins.
-  if (protocol !== "https:") return false;
+  // Only allow secure (https) Builder origins. Loopback is a development-only
+  // exception: without it every bridge message from a local proxy is dropped.
+  if (protocol !== "https:") {
+    const loopbackDev =
+      isLoopbackPreviewAllowed() &&
+      (host === "localhost" || host === "127.0.0.1" || host === "[::1]");
+    if (!loopbackDev) return false;
+    return true;
+  }
   // Exact match against the configured fusion URL's origin.
   if (fusionUrl) {
     try {
@@ -485,7 +496,10 @@ interface DesignCanvasProps {
     selector: string,
     styles: Record<string, string>,
     info?: ElementInfo,
-    metadata?: { originalStyles?: Record<string, string> },
+    metadata?: {
+      originalStyles?: Record<string, string>;
+      preserveSelection?: boolean;
+    },
   ) => void;
   onTextContentChange?: (
     selector: string,
@@ -947,6 +961,16 @@ function originFromUrl(value: string | undefined): string | null {
   }
 }
 
+/**
+ * JSON for embedding inside an inline `<script>`. A bare `JSON.stringify` keeps
+ * `</script>` verbatim, and the HTML parser closes the surrounding script the
+ * moment it sees that sequence — truncating the bridge for any design whose
+ * head legitimately contains one (JSON-LD, a templating snippet).
+ */
+function inlineScriptJson(value: string): string {
+  return JSON.stringify(value).replace(/</g, "\\u003c");
+}
+
 function buildEditorChromeBridgeScript(args: {
   readOnly: boolean;
   editMode: boolean;
@@ -957,6 +981,7 @@ function buildEditorChromeBridgeScript(args: {
   contentOffsetX: number;
   contentOffsetY: number;
   runtimeLayerSnapshotEnabled: boolean;
+  initialSourceHead: string;
 }) {
   return (
     createEditorBridgeThemeScript(readEditorBridgeThemeVars()) +
@@ -992,7 +1017,16 @@ function buildEditorChromeBridgeScript(args: {
         "__SELECTED_LAYER_DRAG_PRIORITY__",
         SELECTED_LAYER_DRAG_PRIORITY_ENABLED ? "true" : "false",
       )
+      .replace(/__INITIAL_SOURCE_HEAD__/g, () =>
+        inlineScriptJson(args.initialSourceHead),
+      )
   );
+}
+
+/** The `<head>` the bridge's own srcdoc will render, so its first in-place
+ *  patch diffs against what is actually in the document. */
+function sourceHeadInnerHtml(html: string): string {
+  return /<head\b[^>]*>([\s\S]*?)<\/head\s*>/i.exec(html)?.[1] ?? "";
 }
 
 function contentHash(value: string): string {
@@ -1006,27 +1040,30 @@ function contentHash(value: string): string {
 const SCRIPT_ELEMENT_RE = /<script\b[^>]*>[\s\S]*?<\/script\s*>/gi; // i18n-ignore non-UI regex
 
 /**
- * Runtime document replacement uses `head.innerHTML` / `body.innerHTML`, which
- * intentionally preserves the iframe browsing context but cannot execute
- * newly inserted or changed scripts. Reload only when source script elements
- * change; ordinary markup/style edits continue through the no-flash bridge.
+ * Runtime document replacement morphs the live DOM, which preserves the iframe
+ * browsing context but cannot execute newly inserted or changed scripts.
+ * Reload only when source script elements change.
+ *
+ * A changed `<head>` is NOT a reload trigger: the bridge swaps only the nodes
+ * the previous source head contributed (replaceSourceHeadNodes), leaving what
+ * the page's own runtime injected in place. Treating any head edit as a reload
+ * meant every breakpoint override, motion track and token write — all of which
+ * persist into a managed `<style>` in the head — reloaded the whole frame.
  */
 function runtimeDocumentNeedsReload(
   previousContent: string,
   nextContent: string,
 ): boolean {
-  const scriptSignature = (html: string) =>
-    Array.from(html.matchAll(SCRIPT_ELEMENT_RE), (match) => match[0]).join(
-      "\n",
-    );
-  // A changed <head> is replaced wholesale, which drops whatever the page's own
-  // runtime injected there and cannot re-run the scripts that produced it.
-  const headSignature = (html: string) =>
-    /<head\b[^>]*>([\s\S]*?)<\/head\s*>/i.exec(html)?.[1] ?? "";
-  return (
-    scriptSignature(previousContent) !== scriptSignature(nextContent) ||
-    headSignature(previousContent) !== headSignature(nextContent)
-  );
+  const scriptSignature = (html: string) => {
+    const headEnd = html.search(/<\/head\s*>/i);
+    const boundary = headEnd === -1 ? 0 : headEnd;
+    return Array.from(
+      html.matchAll(SCRIPT_ELEMENT_RE),
+      (match) =>
+        `${(match.index ?? 0) < boundary ? "head" : "body"}:${match[0]}`,
+    ).join("\n");
+  };
+  return scriptSignature(previousContent) !== scriptSignature(nextContent);
 }
 
 /**
@@ -1303,7 +1340,7 @@ export function DesignCanvas({
   // twice from the same drawing.
   const [annotationCaptureBusy, setAnnotationCaptureBusy] = useState(false);
   const annotationCaptureBusyRef = useRef(false);
-  const [fetchedExternalSnapshot, setFetchedExternalSnapshot] = useState<{
+  const [, setFetchedExternalSnapshot] = useState<{
     url: string;
     html: string;
   } | null>(null);
@@ -1401,34 +1438,30 @@ export function DesignCanvas({
   );
   const onExternalContentSnapshotRef = useRef(onExternalContentSnapshot);
   const isEmbeddedFrame = Boolean(embeddedFrame);
-  // Resolve the URL to render in the iframe:
-  // 1. When sourceType === "fusion" and fusionUrl is set, prefer the explicit
-  //    Builder-hosted URL over whatever is in `content` (which may still be the
-  //    original inline HTML).
-  // 2. Otherwise fall back to the content-based URL detection (handles the case
-  //    where the branch URL has been written into the design file content, or
-  //    where the localhost URL is the file content).
+  // The screen's own URL wins: it carries the route path and may address the
+  // container through a same-origin proxy. `fusionUrl` only covers fusion
+  // screens whose content is still the original inline HTML.
   const rawExternalPreviewUrl = useMemo(() => {
+    const contentUrl = getExternalPreviewUrl(renderedContent);
+    if (contentUrl) return contentUrl;
     if (sourceType === "fusion" && fusionUrl) {
       try {
         const url = new URL(fusionUrl);
         url.hash = "";
         return url.toString();
       } catch {
-        // fall through to content detection below
+        // coercion-ok: an unparseable URL has no frame to render; the screen
+        // falls back to its own content, as it did before any fusion linkage.
+        return null;
       }
     }
-    return getExternalPreviewUrl(renderedContent);
+    return null;
   }, [fusionUrl, renderedContent, sourceType]);
   const runtimeLayerSnapshotEnabled =
-    sourceType === "localhost" &&
+    (sourceType === "localhost" || sourceType === "fusion") &&
     Boolean(rawExternalPreviewUrl) &&
     Boolean(onRuntimeLayerSnapshot);
-  const activeExternalSnapshotHtml =
-    externalSnapshotHtml ??
-    (fetchedExternalSnapshot?.url === rawExternalPreviewUrl
-      ? fetchedExternalSnapshot.html
-      : undefined);
+
   // Bake a neutral scale of 1 here (not the zoom-folded scale): this script is
   // registered with the localhost bridge via a large POST, so folding live zoom
   // in would re-fire the registration effect on every zoom tick. Live scale is
@@ -1460,6 +1493,9 @@ export function DesignCanvas({
         contentOffsetX: embeddedFrame?.contentOffsetX ?? 0,
         contentOffsetY: embeddedFrame?.contentOffsetY ?? 0,
         runtimeLayerSnapshotEnabled,
+        // A live/localhost screen's document is the running app, not content
+        // this canvas rendered, so there is no source head to diff against.
+        initialSourceHead: "",
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [boardSurface, contentKey, runtimeLayerSnapshotEnabled, screenId],
@@ -1605,6 +1641,117 @@ export function DesignCanvas({
   zoomRef.current = zoom;
   runtimeReplacementContentRef.current = runtimeReplacementContent;
   runtimeReplacementKeyRef.current = runtimeReplacementKey;
+
+  // A framed container has no dev-server bridge to register the editor chrome
+  // with, so it goes over postMessage to the bootstrap its proxy injects.
+  const containerPreview = useMemo(() => {
+    // Not the localhost live-edit path: there the bridge server injects the
+    // bridge into its own proxied document, so nothing is posted from here.
+    if (usesLiveEditInjectedBridge) return false;
+    if (!externalPreviewUrl || typeof window === "undefined") return false;
+    try {
+      return (
+        new URL(externalPreviewUrl, window.location.href).origin !==
+        window.location.origin
+      );
+      // coercion-ok: an unparseable URL frames nothing to bridge into.
+    } catch {
+      return false;
+    }
+  }, [externalPreviewUrl, usesLiveEditInjectedBridge]);
+  const installedBridgeKeyRef = useRef<string | null>(null);
+  const sendBridgeToContainer = useCallback(() => {
+    if (!containerPreview || !includeLiveEditEditorChrome) {
+      console.log("[design:bridge] install skipped", {
+        containerPreview,
+        includeLiveEditEditorChrome,
+      });
+      return;
+    }
+    const target = iframeRef.current?.contentWindow;
+    if (!target || !externalPreviewUrl) {
+      console.log("[design:bridge] install skipped", {
+        hasTarget: Boolean(target),
+        externalPreviewUrl,
+      });
+      return;
+    }
+    if (installedBridgeKeyRef.current === liveEditBridgeKey) return;
+    let origin: string;
+    try {
+      origin = new URL(externalPreviewUrl, window.location.href).origin;
+      // coercion-ok: without a parseable origin there is nowhere safe to post.
+    } catch {
+      return;
+    }
+    try {
+      // Never "*": the bridge carries editor internals, and the container is
+      // the only window that should receive it.
+      target.postMessage(
+        {
+          type: "agentNative.installBridge",
+          key: liveEditBridgeKey,
+          script: liveEditBridgeScript,
+        },
+        origin,
+      );
+    } catch (error) {
+      // Leave the key unmarked: `bridgeReady` drives the real install, and
+      // marking a failed attempt disables the bridge for the document's life.
+      console.error("[design:bridge] install post threw", origin, error);
+      return;
+    }
+    console.log(
+      "[design:bridge] install posted from",
+      window.location.origin,
+      "to",
+      origin,
+    );
+    installedBridgeKeyRef.current = liveEditBridgeKey;
+  }, [
+    containerPreview,
+    externalPreviewUrl,
+    includeLiveEditEditorChrome,
+    liveEditBridgeKey,
+    liveEditBridgeScript,
+  ]);
+  // The bootstrap announces itself on every document load, which is also how a
+  // reload or in-frame navigation asks for the bridge again.
+  useEffect(() => {
+    if (!containerPreview) return;
+    function onBootstrapMessage(event: MessageEvent) {
+      if (event.source !== iframeRef.current?.contentWindow) return;
+      // A failed install must not read as an installed one, or the retry below
+      // never fires and the canvas silently loses selection and inline editing.
+      if (event.data?.type === "agentNative.bridgeFailed") {
+        installedBridgeKeyRef.current = null;
+        console.error(
+          "[design] editor bridge failed to install in the preview:",
+          event.data?.message,
+        );
+        return;
+      }
+      if (event.data?.type === "agentNative.bridgeRejected") {
+        installedBridgeKeyRef.current = null;
+        console.error(
+          `[design] the preview container refused the editor bridge from ${window.location.origin}. ` +
+            "Containers install it only for https://design.agent-native.com, so selection " +
+            "and inline editing are dead anywhere else.",
+        );
+        return;
+      }
+      if (event.data?.type === "agentNative.bridgeInstalled") {
+        console.log("[design:bridge] installed", event.data?.key);
+        return;
+      }
+      if (event.data?.type !== "agentNative.bridgeReady") return;
+      console.log("[design:bridge] container reported ready");
+      installedBridgeKeyRef.current = null;
+      sendBridgeToContainer();
+    }
+    window.addEventListener("message", onBootstrapMessage);
+    return () => window.removeEventListener("message", onBootstrapMessage);
+  }, [containerPreview, sendBridgeToContainer]);
 
   useEffect(() => {
     onExternalContentSnapshotRef.current = onExternalContentSnapshot;
@@ -2213,6 +2360,7 @@ export function DesignCanvas({
     // keyed bridge registration is pending. The loading surface waits without
     // mounting an iframe, then mounts the real `src` exactly once.
     if (rawExternalPreviewUrl) return undefined;
+    const localizedContent = withLocalRuntimes(iframeRenderContent);
     const editorChromeBridge = interactMode
       ? ""
       : createEditorBridgeThemeScript(readEditorBridgeThemeVars()) +
@@ -2253,6 +2401,9 @@ export function DesignCanvas({
           .replace(
             "__SELECTED_LAYER_DRAG_PRIORITY__",
             SELECTED_LAYER_DRAG_PRIORITY_ENABLED ? "true" : "false",
+          )
+          .replace(/__INITIAL_SOURCE_HEAD__/g, () =>
+            inlineScriptJson(sourceHeadInnerHtml(localizedContent)),
           );
     // ALWAYS injected (like the other always-on bridges above) so
     // MultiScreenCanvas's cross-screen drag hit-testing
@@ -2273,7 +2424,7 @@ export function DesignCanvas({
       editorChromeBridge +
       imageDiagBridge;
     const frameContent = getEmbeddedFrameDocumentContent({
-      content: withLocalRuntimes(iframeRenderContent),
+      content: localizedContent,
       embeddedFrameBackground,
       transparentBackground,
       contentOffsetX: embeddedFrame?.contentOffsetX ?? 0,
@@ -2294,7 +2445,7 @@ export function DesignCanvas({
           embeddedFrame?.contentOffsetY ?? 0,
         ),
       ].join("");
-      frameDocument = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${frameStyle}</head><body>${withLocalRuntimes(iframeRenderContent)}${bridgeToInject}</body></html>`;
+      frameDocument = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${frameStyle}</head><body>${localizedContent}${bridgeToInject}</body></html>`;
     }
     // Overview frames report their own content height so the canvas can
     // content-fit them (Framer-style). Embedded (overview) frames only — a
@@ -2336,6 +2487,23 @@ export function DesignCanvas({
   // long tasks. Memoizing on the (already-stable) `srcdoc` reference
   // makes unrelated re-renders skip this entirely.
   const srcdocHash = useMemo(() => contentHash(srcdoc ?? ""), [srcdoc]);
+  /**
+   * A container we framed ourselves is cross-origin, so its messages match
+   * neither `parentOrigin` nor the localhost bridge origin. Without its origin
+   * here every selection, hover and layer message from the editor bridge is
+   * dropped as untrusted while the bootstrap handshake still succeeds.
+   */
+  const canvasBridgeAllowedOrigins = useMemo(
+    () =>
+      [
+        sourceType === "localhost" && bridgeUrl
+          ? originFromUrl(bridgeUrl)
+          : null,
+        externalPreviewUrl ? originFromUrl(externalPreviewUrl) : null,
+      ].filter((origin): origin is string => Boolean(origin)),
+    [bridgeUrl, externalPreviewUrl, sourceType],
+  );
+
   const iframeDocumentIdentity = externalPreviewUrl
     ? `src:${externalPreviewUrl}`
     : waitingForLiveEditBridge
@@ -2345,6 +2513,12 @@ export function DesignCanvas({
     previousIframeDocumentIdentityRef.current = iframeDocumentIdentity;
     bridgeReadyRef.current = false;
   }
+  // Only a URL-backed frame boots: srcdoc paints synchronously, so gating it on
+  // an onLoad that already fired would strand a spinner over finished content.
+  const [previewFrameLoaded, setPreviewFrameLoaded] = useState(false);
+  useEffect(() => {
+    setPreviewFrameLoaded(false);
+  }, [iframeDocumentIdentity]);
   // No snapshot is ever painted over the live frame, not even for the few
   // frames of a document swap. Covering the real iframe with a frozen copy is
   // the same false-success shape as rendering the snapshot outright: when the
@@ -2353,6 +2527,12 @@ export function DesignCanvas({
   const liveEditDocumentPending =
     usesLiveEditEditorBridge &&
     Boolean(externalPreviewUrl) &&
+    readyIframeDocumentIdentity !== iframeDocumentIdentity;
+  // A proxied container paints its own app immediately, so without this the
+  // canvas looks ready while hover, selection and layers are still dead.
+  const sameOriginBridgePending =
+    containerPreview &&
+    includeLiveEditEditorChrome &&
     readyIframeDocumentIdentity !== iframeDocumentIdentity;
 
   // Listen for messages from the iframe
@@ -2370,12 +2550,7 @@ export function DesignCanvas({
           origin: e.origin,
           iframeWindow: runtimeVerificationWindow,
           parentOrigin: window.location.origin,
-          allowedOrigins:
-            sourceType === "localhost" && bridgeUrl
-              ? [originFromUrl(bridgeUrl)].filter((origin): origin is string =>
-                  Boolean(origin),
-                )
-              : [],
+          allowedOrigins: canvasBridgeAllowedOrigins,
         });
       if (trustedRuntimeVerificationFrame) {
         if (e.data?.type !== "agent-native:runtime-layer-snapshot") return;
@@ -2402,16 +2577,11 @@ export function DesignCanvas({
         e.data?.type === "agent-native:editor-chrome-ready"
           ? lateLiveEditReadyRecoveryRef.current
           : null;
-      // For fusion sources the Builder-hosted app is cross-origin, so the strict
-      // `origin === parentOrigin` check can never match. We still require window
-      // identity (the message must come from our own iframe window, not any
-      // arbitrary cross-origin frame), AND we validate the message origin
-      // against a Builder-host allowlist (the configured fusionUrl origin or the
-      // *.builder.io family) before relaxing the origin check. If the origin is
-      // not on the allowlist we keep the strict check so a hostile frame that
-      // somehow shares our window reference still can't be trusted.
+      // A cross-origin fusion frame can never satisfy `origin === parentOrigin`,
+      // so trust there rests on window identity plus a Builder-host allowlist.
+      // A proxied one is same-origin and takes the strict path unchanged.
       const trustedCurrentFrame =
-        sourceType === "fusion"
+        sourceType === "fusion" && e.origin !== window.location.origin
           ? iframeWindow !== null &&
             e.source === iframeWindow &&
             isAllowedFusionOrigin(e.origin, fusionUrl)
@@ -2420,12 +2590,7 @@ export function DesignCanvas({
               origin: e.origin,
               iframeWindow,
               parentOrigin: window.location.origin,
-              allowedOrigins:
-                sourceType === "localhost" && bridgeUrl
-                  ? [originFromUrl(bridgeUrl)].filter(
-                      (origin): origin is string => Boolean(origin),
-                    )
-                  : [],
+              allowedOrigins: canvasBridgeAllowedOrigins,
             });
       const trustedLateLiveEditReady =
         sourceType === "localhost" &&
@@ -2436,9 +2601,7 @@ export function DesignCanvas({
           origin: e.origin,
           iframeWindow: lateReadyRecovery.source,
           parentOrigin: window.location.origin,
-          allowedOrigins: [originFromUrl(bridgeUrl)].filter(
-            (origin): origin is string => Boolean(origin),
-          ),
+          allowedOrigins: canvasBridgeAllowedOrigins,
         });
       const trusted = trustedCurrentFrame || trustedLateLiveEditReady;
       if (!trusted) {
@@ -2602,6 +2765,7 @@ export function DesignCanvas({
             isElementInfoPayload(e.data.payload) ? e.data.payload : undefined,
             {
               originalStyles,
+              preserveSelection: e.data.preserveSelection === true,
             },
           );
         }
@@ -3944,8 +4108,17 @@ export function DesignCanvas({
         preserveTextEditingSession?: boolean;
       },
     ) => {
+      // Raw content here drops the injected offset/background styles, moving a
+      // frame authored at a negative offset off screen. Both channels push the
+      // same shape.
       const replaced = replacePreviewContent(
-        nextContent,
+        getEmbeddedFrameDocumentContent({
+          content: withLocalRuntimes(nextContent),
+          embeddedFrameBackground,
+          transparentBackground,
+          contentOffsetX: embeddedFrame?.contentOffsetX ?? 0,
+          contentOffsetY: embeddedFrame?.contentOffsetY ?? 0,
+        }),
         selector,
         candidates,
         options,
@@ -3959,7 +4132,13 @@ export function DesignCanvas({
       }
       return replaced;
     },
-    [replacePreviewContent],
+    [
+      embeddedFrame?.contentOffsetX,
+      embeddedFrame?.contentOffsetY,
+      embeddedFrameBackground,
+      replacePreviewContent,
+      transparentBackground,
+    ],
   );
 
   const replaceRuntimeContentInPlace = useCallback(
@@ -3967,7 +4146,12 @@ export function DesignCanvas({
       if (externalPreviewUrl) return false;
       return replacePreviewContent(
         getEmbeddedFrameDocumentContent({
-          content: nextContent,
+          // The initial srcdoc is normalized through withLocalRuntimes below.
+          // Keep the in-place overview replacement on that same local runtime
+          // path, otherwise a saved CDN script is reintroduced after the
+          // iframe has mounted and can leave the design unstyled when the
+          // browser cannot reach the provider.
+          content: withLocalRuntimes(nextContent),
           embeddedFrameBackground,
           transparentBackground,
           contentOffsetX: embeddedFrame?.contentOffsetX ?? 0,
@@ -4445,6 +4629,8 @@ export function DesignCanvas({
           })}
           data-design-preview-iframe
           onLoad={(event) => {
+            setPreviewFrameLoaded(true);
+            sendBridgeToContainer();
             // The bridge logs into the IFRAME console and cannot read
             // import.meta.env, so dev has to switch it on from out here.
             if (!import.meta.env?.DEV) return;
@@ -4478,6 +4664,14 @@ export function DesignCanvas({
           title={t("designEditor.designPreview")}
         />
       )}
+      {externalPreviewUrl && !previewFrameLoaded ? (
+        <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center gap-2 bg-background px-2 text-muted-foreground">
+          <Spinner className="size-4 shrink-0" />
+          <span className="truncate !text-[11px] font-medium">
+            {t("multiScreenCanvas.preparingLiveEditor")}
+          </span>
+        </div>
+      ) : null}
       {runtimeVerificationUrl ? (
         <iframe
           key={`${runtimeVerificationUrl}::${runtimeVerificationRequest?.requestId ?? 0}`}
@@ -4573,6 +4767,7 @@ export function DesignCanvas({
       ) : null}
       {waitingForEditableExternalSnapshot ||
       waitingForLiveEditBridge ||
+      sameOriginBridgePending ||
       liveEditDocumentPending ? (
         <div className="pointer-events-auto absolute inset-0 z-10 flex items-center justify-center bg-background/85 px-4 text-center text-sm text-muted-foreground">
           {waitingForLiveEditBridge &&
@@ -4609,7 +4804,7 @@ export function DesignCanvas({
                 {"Retry" /* i18n-ignore local dev bridge retry button */}
               </Button>
             </div>
-          ) : waitingForLiveEditBridge ? (
+          ) : waitingForLiveEditBridge || sameOriginBridgePending ? (
             <div className="max-w-[28rem] rounded-md border bg-card px-4 py-3 shadow-sm">
               {
                 "Preparing live editor..." /* i18n-ignore transient localhost live-edit bridge loading state */
@@ -4951,6 +5146,7 @@ interface SingleScreenPenGestureState {
   pathBefore: PenPath | null;
   moved: boolean;
   closing: boolean;
+  cuspLatch: PenCuspLatch;
 }
 
 const SINGLE_SCREEN_PEN_HIT_RADIUS_PX = 10;
@@ -5183,6 +5379,7 @@ function SingleScreenCreationOverlay({
           pathBefore,
           moved: false,
           closing,
+          cuspLatch: createPenCuspLatch(),
         };
         const initialPath = closing
           ? closePenPath(pathBefore!)
@@ -5241,9 +5438,12 @@ function SingleScreenCreationOverlay({
           : appendPenNode(
               gesture.pathBefore,
               moved
-                ? createSmoothNode(gesture.anchor, handleOut, {
-                    breakSymmetry: e.altKey,
-                  })
+                ? createPenDragNode(
+                    gesture.anchor,
+                    handleOut,
+                    gesture.cuspLatch,
+                    e.altKey,
+                  )
                 : createCornerNode(gesture.anchor),
             );
         updatePenPath(nextPath);
@@ -5295,9 +5495,12 @@ function SingleScreenCreationOverlay({
           : appendPenNode(
               gesture.pathBefore,
               moved
-                ? createSmoothNode(gesture.anchor, handleOut, {
-                    breakSymmetry: e.altKey,
-                  })
+                ? createPenDragNode(
+                    gesture.anchor,
+                    handleOut,
+                    gesture.cuspLatch,
+                    e.altKey,
+                  )
                 : createCornerNode(gesture.anchor),
             );
         penGestureRef.current = null;

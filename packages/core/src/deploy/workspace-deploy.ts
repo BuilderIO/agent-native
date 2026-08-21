@@ -61,6 +61,8 @@ import {
 export type WorkspaceDeployPreset = "cloudflare_pages" | "netlify" | "vercel";
 
 const NETLIFY_WORKSPACE_STATIC_DIR = "_workspace_static";
+const DEFAULT_HOSTED_FEEDBACK_URL =
+  "https://forms.agent-native.com/f/agent-native-feedback/_16ewV";
 const NETLIFY_PUBLIC_ASSET_EXTENSIONS = new Set([
   "avif",
   "css",
@@ -86,6 +88,19 @@ const WORKSPACE_APPS_ENV_KEY = "AGENT_NATIVE_WORKSPACE_APPS_JSON";
 const WORKSPACE_APPS_MANIFEST_DIR = ".agent-native";
 const WORKSPACE_APPS_MANIFEST_FILE = "workspace-apps.json";
 const VERCEL_OUTPUT_DIR = ".vercel/output";
+
+const WORKSPACE_DIRECTORY_ENV_SNIPPET = `
+  const directoryOrigin =
+    processRef.env.AGENT_NATIVE_ORG_DIRECTORY_URL ||
+    processRef.env.WORKSPACE_GATEWAY_URL ||
+    processRef.env.APP_URL ||
+    processRef.env.URL ||
+    processRef.env.DEPLOY_URL ||
+    processRef.env.BETTER_AUTH_URL;
+  if (directoryOrigin) {
+    processRef.env.AGENT_NATIVE_ORG_DIRECTORY_URL = directoryOrigin;
+  }
+`;
 
 interface WorkspaceAppManifestEntry {
   id: string;
@@ -251,6 +266,13 @@ function buildOneApp(
     AGENT_NATIVE_WORKSPACE_APP_ID: app,
     VITE_AGENT_NATIVE_WORKSPACE: "1",
     VITE_AGENT_NATIVE_WORKSPACE_APP_ID: app,
+    ...(preset === "netlify"
+      ? {
+          VITE_AGENT_NATIVE_FEEDBACK_URL:
+            process.env.VITE_AGENT_NATIVE_FEEDBACK_URL ??
+            DEFAULT_HOSTED_FEEDBACK_URL,
+        }
+      : {}),
     APP_BASE_PATH: `/${app}`,
     VITE_APP_BASE_PATH: `/${app}`,
     AGENT_NATIVE_WORKSPACE_APP_AUDIENCE: workspaceAppAudience,
@@ -268,6 +290,12 @@ function buildOneApp(
       workspaceAppRouteAccess.protectedPaths,
     ),
     VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON: JSON.stringify(workspaceApps),
+    ...(workspaceGatewayUrl
+      ? {
+          AGENT_NATIVE_ORG_DIRECTORY_URL:
+            process.env.AGENT_NATIVE_ORG_DIRECTORY_URL || workspaceGatewayUrl,
+        }
+      : {}),
     ...(workspaceGatewayUrl
       ? {
           WORKSPACE_GATEWAY_URL:
@@ -925,6 +953,7 @@ function processorPathFromBody(body) {
 function setBasePathEnv() {
   const processRef = globalThis.process ??= { env: {} };
   processRef.env ??= {};
+${WORKSPACE_DIRECTORY_ENV_SNIPPET}
   Object.assign(processRef.env, {
     AGENT_NATIVE_WORKSPACE: "1",
     AGENT_NATIVE_WORKSPACE_APP_ID: ${JSON.stringify(app)},
@@ -1022,6 +1051,7 @@ globalThis.${INTEGRATION_RECOVERY_RUNTIME_MARKER} = true;
 function setBasePathEnv() {
   const processRef = globalThis.process ??= { env: {} };
   processRef.env ??= {};
+${WORKSPACE_DIRECTORY_ENV_SNIPPET}
   Object.assign(processRef.env, {
     AGENT_NATIVE_WORKSPACE: "1",
     AGENT_NATIVE_WORKSPACE_APP_ID: ${JSON.stringify(app)},
@@ -1134,6 +1164,7 @@ function normalizeBasePathArgs(args) {
 function setBasePathEnv() {
   const processRef = globalThis.process ??= { env: {} };
   processRef.env ??= {};
+${WORKSPACE_DIRECTORY_ENV_SNIPPET}
   Object.assign(processRef.env, {
     AGENT_NATIVE_WORKSPACE: "1",
     AGENT_NATIVE_WORKSPACE_APP_ID: ${JSON.stringify(app)},
@@ -1206,6 +1237,7 @@ function patchVercelFunctionEntry(
 function setBasePathEnv() {
   const processRef = globalThis.process ??= { env: {} };
   processRef.env ??= {};
+${WORKSPACE_DIRECTORY_ENV_SNIPPET}
   Object.assign(processRef.env, {
     AGENT_NATIVE_WORKSPACE: "1",
     AGENT_NATIVE_WORKSPACE_APP_ID: ${JSON.stringify(app)},

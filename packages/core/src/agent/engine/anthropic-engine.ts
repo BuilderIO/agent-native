@@ -14,6 +14,7 @@ import {
   recordProviderCredentialAuthFailure,
 } from "../../server/credential-provider.js";
 import {
+  allowsSamplingParams,
   anthropicManualThinkingBudget,
   normalizeReasoningEffortForModel,
   supportsClaudeAdaptiveThinking,
@@ -116,9 +117,6 @@ class AnthropicEngine implements AgentEngine {
             : anthropicOpts.thinking.budgetTokens,
       };
     }
-    if (anthropicOpts?.topK !== undefined) {
-      extra.top_k = anthropicOpts.topK;
-    }
     const reasoningEffort = normalizeReasoningEffortForModel(
       opts.model,
       opts.reasoningEffort,
@@ -136,6 +134,19 @@ class AnthropicEngine implements AgentEngine {
           extra.thinking = { type: "enabled", budget_tokens: budgetTokens };
         }
       }
+    }
+
+    // Thinking and the sampling parameters cannot travel together: Anthropic
+    // rejects any temperature but 1 once thinking is on, and the Opus 4.7+ /
+    // Sonnet 5 families removed temperature/top_k outright. Effort defaults to
+    // High on every reasoning-capable Claude model, so a caller that only asked
+    // for `temperature: 0` was building a request the API always 400s.
+    const samplingAllowed = allowsSamplingParams({
+      model: opts.model,
+      thinkingEnabled: Boolean(extra.thinking),
+    });
+    if (samplingAllowed && anthropicOpts?.topK !== undefined) {
+      extra.top_k = anthropicOpts.topK;
     }
 
     // Apply prompt caching to the system prompt and tools by default.
@@ -200,7 +211,7 @@ class AnthropicEngine implements AgentEngine {
       system: systemBlocks,
       tools: cachedTools.length > 0 ? cachedTools : undefined,
       messages: cachedMessages,
-      ...(opts.temperature !== undefined
+      ...(samplingAllowed && opts.temperature !== undefined
         ? { temperature: opts.temperature }
         : {}),
       ...extra,

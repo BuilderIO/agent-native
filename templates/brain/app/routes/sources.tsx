@@ -683,10 +683,6 @@ function scopedCredentialCount(provider: BrainConnectionProvider) {
   );
 }
 
-function countLabel(count: number, singular: string, plural = `${singular}s`) {
-  return `${count.toLocaleString()} ${count === 1 ? singular : plural}`;
-}
-
 function sharedConnectionReadiness(
   provider: BrainConnectionProvider,
   t: BrainT,
@@ -1875,8 +1871,7 @@ function SourceListItem({
             resourceId={source.id}
             allowedRoles={["viewer", "editor", "admin"]}
             resourceTitle={sourceName(source)}
-            trigger="icon"
-            triggerClassName="size-8"
+            triggerClassName="h-8 px-2"
           />
 
           <DropdownMenu>

@@ -11,6 +11,7 @@ import { nanoid } from "nanoid";
 import {
   MAX_FIG_REFERENCE_FILE_BYTES,
   MAX_REFERENCE_FILE_BYTES,
+  MAX_REFERENCE_FILES,
   SLIDES_REFERENCE_FILE_ERROR_LABEL,
   isSlidesReferenceFileExtension,
 } from "../../shared/upload-types.js";
@@ -21,7 +22,7 @@ import {
 } from "../lib/uploaded-reference-storage.js";
 import { canSaveAsUploadedAsset, uploadImageAsset } from "./assets.js";
 import {
-  resolveSlidesRequestAuthContext,
+  resolveSlidesRequestAuth,
   withSlidesRequestContext,
 } from "./request-auth-context.js";
 
@@ -211,7 +212,12 @@ export async function saveUploadedReferenceFile(args: {
 
 // Upload one or more files
 export const uploadFiles = defineEventHandler(async (event) => {
-  const authContext = await resolveSlidesRequestAuthContext(event);
+  const auth = await resolveSlidesRequestAuth(event);
+  if (!auth.ok) {
+    setResponseStatus(event, auth.statusCode);
+    return { error: auth.error };
+  }
+  const authContext = auth.context;
   const email = authContext.email;
   if (!email) {
     setResponseStatus(event, 401);
@@ -232,11 +238,9 @@ export const uploadFiles = defineEventHandler(async (event) => {
         return { error: "No files uploaded" };
       }
 
-      const MAX_FILES = 20;
-
-      if (fileParts.length > MAX_FILES) {
+      if (fileParts.length > MAX_REFERENCE_FILES) {
         setResponseStatus(event, 413);
-        return { error: `Too many files (max ${MAX_FILES})` };
+        return { error: `Too many files (max ${MAX_REFERENCE_FILES})` };
       }
 
       const oversized = fileParts.find(

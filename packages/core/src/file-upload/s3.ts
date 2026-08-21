@@ -235,6 +235,65 @@ async function putObject(
   return `${config.publicBaseUrl}/${key.split("/").map(encodePathSegment).join("/")}`;
 }
 
+async function deleteObject(config: S3Config, key: string): Promise<boolean> {
+  const now = new Date();
+  const amzDate =
+    now
+      .toISOString()
+      .replace(/[:-]|\.\d{3}/g, "")
+      .slice(0, 15) + "Z";
+  const dateStamp = amzDate.slice(0, 8);
+  const credentialScope = `${dateStamp}/${config.region}/s3/aws4_request`;
+  const host = new URL(config.endpoint).host;
+  const canonicalUri = objectPath(config, key);
+  const payloadHash = await sha256(new Uint8Array(0));
+  const headers: Record<string, string> = {
+    host,
+    "x-amz-content-sha256": payloadHash,
+    "x-amz-date": amzDate,
+  };
+  const signedHeaderKeys = Object.keys(headers).sort();
+  const signedHeaders = signedHeaderKeys.join(";");
+  const canonicalHeaders =
+    signedHeaderKeys
+      .map((header) => `${header}:${headers[header]}`)
+      .join("\n") + "\n";
+  const canonicalRequest = [
+    "DELETE",
+    canonicalUri,
+    "",
+    canonicalHeaders,
+    signedHeaders,
+    payloadHash,
+  ].join("\n");
+  const requestHash = await sha256(new TextEncoder().encode(canonicalRequest));
+  const stringToSign = [
+    "AWS4-HMAC-SHA256",
+    amzDate,
+    credentialScope,
+    requestHash,
+  ].join("\n");
+  const signature = toHex(
+    await hmac(
+      await signingKey(config.secretAccessKey, dateStamp, config.region),
+      stringToSign,
+    ),
+  );
+  const authorization =
+    `AWS4-HMAC-SHA256 Credential=${config.accessKeyId}/${credentialScope}, ` +
+    `SignedHeaders=${signedHeaders}, Signature=${signature}`;
+  const response = await fetch(`${config.endpoint}${canonicalUri}`, {
+    method: "DELETE",
+    headers: { ...headers, Authorization: authorization },
+  });
+  if (response.ok) return true;
+  if (response.status === 404) return false;
+  const detail = await response.text();
+  throw new Error(
+    `S3 DeleteObject failed (${response.status}): ${detail || response.statusText}`,
+  );
+}
+
 function safeFilename(filename: string | undefined): string {
   const basename = filename?.split(/[\\/]/).pop()?.trim() || "attachment";
   return (
@@ -262,6 +321,12 @@ export const s3FileUploadProvider: FileUploadProvider = {
       bytes,
       mimeType || "application/octet-stream",
     );
-    return { url, provider: "s3" };
+    return { url, id: key, provider: "s3" };
+  },
+  delete: async ({ id }) => {
+    if (!id) return false;
+    const config = await readRequestConfig();
+    if (!config) return false;
+    return deleteObject(config, id);
   },
 };

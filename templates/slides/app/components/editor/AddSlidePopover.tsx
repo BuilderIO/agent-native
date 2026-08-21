@@ -1,8 +1,14 @@
 import { appBasePath } from "@agent-native/core/client/api-path";
 import { PromptComposer } from "@agent-native/core/client/composer";
 import { useT } from "@agent-native/core/client/i18n";
-import { IconCopy, IconSquarePlus } from "@tabler/icons-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { IconCopy, IconSquarePlus, IconX } from "@tabler/icons-react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
@@ -66,6 +72,8 @@ export function AddSlidePopover({
   agentSubmit,
   onDuplicateCurrent,
   onAddEmpty,
+  placement = "below",
+  targetSlideId,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -78,11 +86,40 @@ export function AddSlidePopover({
   agentSubmit: (message: string, context: string) => void;
   onDuplicateCurrent?: () => void;
   onAddEmpty?: () => void;
+  /** "below" anchors under the trigger button; "right" sits beside a slide thumbnail. */
+  placement?: "below" | "right";
+  /** Id of a blank slide already inserted — the agent fills it in instead of
+   *  inserting another one. Used when this popover follows a "New slide"
+   *  click that already created the placeholder. */
+  targetSlideId?: string;
 }) {
   const t = useT();
   const panelRef = useRef<HTMLDivElement>(null);
   const [promptText, setPromptText] = useState("");
   const [googleDocContext, setGoogleDocContext] = useState("");
+  // Estimate before the panel has painted so the first frame doesn't hang
+  // off the bottom of the viewport; corrected once the real height is known.
+  const [panelHeight, setPanelHeight] = useState(320);
+
+  useLayoutEffect(() => {
+    if (!open || !panelRef.current) return;
+    setPanelHeight(panelRef.current.getBoundingClientRect().height);
+  });
+
+  // Content can grow after the first paint (Google Doc hint, file chips,
+  // an auto-growing textarea) without necessarily triggering a React
+  // re-render. Watch the panel directly so it keeps clamping to the
+  // viewport as it resizes, not just on the frame it first opens.
+  useEffect(() => {
+    if (!open || !panelRef.current) return;
+    const observer = new ResizeObserver(([entry]) => {
+      setPanelHeight(
+        entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height,
+      );
+    });
+    observer.observe(panelRef.current);
+    return () => observer.disconnect();
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -141,25 +178,39 @@ export function AddSlidePopover({
       const googleDocSourceForContext =
         truncateSourceForContext(googleDocContext);
       const fileContext = describeUploadedFilesForAgent(uploaded, deckId);
-      const context = [
-        `Add a new slide to deck "${deckTitle}" (id: ${deckId}).`,
-        `Insert after slide ${activeSlideIndex + 1} of ${slideCount} (active slide id: ${activeSlideId}).`,
-        "The visible user message above contains the user's request and/or pasted source material for the new slide(s). Treat pasted memo content as source material even if the user did not explicitly say they are pasting it.",
-        googleDocSourceForContext.text,
-        googleDocSourceForContext.truncated
-          ? `The pasted source was longer than ${MAX_SOURCE_CONTEXT_CHARS} characters, so only the first ${MAX_SOURCE_CONTEXT_CHARS} characters were included to keep the agent request reliable.`
-          : "",
-        fileContext,
-        "",
-        "Create the slide content and insert it at the correct position using `add-slide` with --deckId=" +
-          deckId +
-          ".",
-        "Every slide is rendered into a fixed native canvas (default 16:9 is 960x540 CSS pixels). Keep each slide within the density limits in AGENTS.md; split dense source material across more slides instead of packing it tightly.",
-        "If the user asked for multiple slides, call `add-slide` once per slide. Use positions starting at " +
-          (activeSlideIndex + 1) +
-          " so the new slides land after the active slide in order.",
-        "For larger requests, keep adding slides sequentially: wait for each add-slide result, then call add-slide for the next slide. Start slide 1 immediately; do not wait to design the entire sequence before adding it.",
-      ].join("\n");
+      const context = targetSlideId
+        ? [
+            `Fill in slide ${activeSlideIndex + 1} of ${slideCount} (id: ${targetSlideId}) in deck "${deckTitle}" (id: ${deckId}).`,
+            "This slide already exists as a blank placeholder that the user just inserted — update it with `update-slide`, do not call `add-slide` for it.",
+            "The visible user message above contains the user's request and/or pasted source material for this slide. Treat pasted memo content as source material even if the user did not explicitly say they are pasting it.",
+            googleDocSourceForContext.text,
+            googleDocSourceForContext.truncated
+              ? `The pasted source was longer than ${MAX_SOURCE_CONTEXT_CHARS} characters, so only the first ${MAX_SOURCE_CONTEXT_CHARS} characters were included to keep the agent request reliable.`
+              : "",
+            fileContext,
+            "",
+            "Every slide is rendered into a fixed native canvas (default 16:9 is 960x540 CSS pixels). Keep the slide within the density limits in AGENTS.md; split dense source material across more slides instead of packing it tightly.",
+            "If the user asked for more than one slide's worth of content, update this slide with the first one, then call `add-slide` for the rest, positioned starting right after this slide.",
+          ].join("\n")
+        : [
+            `Add a new slide to deck "${deckTitle}" (id: ${deckId}).`,
+            `Insert after slide ${activeSlideIndex + 1} of ${slideCount} (active slide id: ${activeSlideId}).`,
+            "The visible user message above contains the user's request and/or pasted source material for the new slide(s). Treat pasted memo content as source material even if the user did not explicitly say they are pasting it.",
+            googleDocSourceForContext.text,
+            googleDocSourceForContext.truncated
+              ? `The pasted source was longer than ${MAX_SOURCE_CONTEXT_CHARS} characters, so only the first ${MAX_SOURCE_CONTEXT_CHARS} characters were included to keep the agent request reliable.`
+              : "",
+            fileContext,
+            "",
+            "Create the slide content and insert it at the correct position using `add-slide` with --deckId=" +
+              deckId +
+              ".",
+            "Every slide is rendered into a fixed native canvas (default 16:9 is 960x540 CSS pixels). Keep each slide within the density limits in AGENTS.md; split dense source material across more slides instead of packing it tightly.",
+            "If the user asked for multiple slides, call `add-slide` once per slide. Use positions starting at " +
+              (activeSlideIndex + 1) +
+              " so the new slides land after the active slide in order.",
+            "For larger requests, keep adding slides sequentially: wait for each add-slide result, then call add-slide for the next slide. Start slide 1 immediately; do not wait to design the entire sequence before adding it.",
+          ].join("\n");
 
       agentSubmit(addSlideAgentMessage(trimmedText), context);
       onOpenChange(false);
@@ -173,6 +224,7 @@ export function AddSlidePopover({
       googleDocContext,
       onOpenChange,
       slideCount,
+      targetSlideId,
     ],
   );
 
@@ -187,23 +239,40 @@ export function AddSlidePopover({
 
   const rect = anchorRef.current.getBoundingClientRect();
   const panelWidth = Math.min(420, window.innerWidth - 24);
-  const left = Math.max(
-    12,
-    Math.min(rect.left, window.innerWidth - panelWidth - 12),
-  );
+  const left =
+    placement === "right"
+      ? Math.min(rect.right + 8, window.innerWidth - panelWidth - 12)
+      : Math.max(12, Math.min(rect.left, window.innerWidth - panelWidth - 12));
+  const top =
+    placement === "right"
+      ? Math.max(12, Math.min(rect.top, window.innerHeight - panelHeight - 12))
+      : rect.bottom + 8;
 
   return createPortal(
     <div
       ref={panelRef}
+      data-add-slide-popover
       className="fixed w-[min(420px,calc(100vw-24px))] rounded-xl border border-border bg-popover shadow-2xl shadow-black/60 z-[200] p-3"
       style={{
-        top: rect.bottom + 8,
+        top,
         left,
       }}
     >
-      <p className="px-1 pb-2 text-sm font-medium text-foreground/90">
-        {t("editorSidebar.addSlides")}
-      </p>
+      <div className="flex items-center justify-between px-1 pb-2">
+        <p className="text-sm font-medium text-foreground/90">
+          {targetSlideId
+            ? t("editorSidebar.describeThisSlide")
+            : t("editorSidebar.addSlides")}
+        </p>
+        <button
+          type="button"
+          onClick={() => onOpenChange(false)}
+          aria-label={t("editorSidebar.closeAddSlides")}
+          className="inline-flex size-5 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground/70"
+        >
+          <IconX className="size-3.5" />
+        </button>
+      </div>
       {(onAddEmpty || (onDuplicateCurrent && slideCount > 0)) && (
         <>
           {onAddEmpty && (

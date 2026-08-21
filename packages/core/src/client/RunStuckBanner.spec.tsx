@@ -187,7 +187,7 @@ describe("RunStuckBanner", () => {
     expect(container.textContent).toBe("stuck");
 
     await act(async () => {
-      updateActiveRunSeq(2, true);
+      updateActiveRunSeq("thread-1", "run-streaming", 2, true);
     });
     expect(container.textContent).toBe("healthy");
   });

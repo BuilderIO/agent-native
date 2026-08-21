@@ -1,0 +1,350 @@
+---
+title: "Workspace Deployment"
+description: "Ship every app in an agent-native workspace to one origin with a single command, or self-host a workspace with Docker Compose."
+---
+
+# Workspace Deployment
+
+If your project is a [workspace](/docs/multi-app-workspace) with more than one app, you can deploy every app to a single origin instead of managing separate deployments per app. This page covers the managed one-command path and a self-hosted Docker Compose alternative. See [Deployment](/docs/deployment) for picking a database, a preset, and a platform first.
+
+## One Origin, Many Apps {#workspace-deploy}
+
+Ship every app in a workspace to a single origin with one command:
+
+```bash
+npx @agent-native/core@latest deploy
+# https://your-agents.com/mail/*       → apps/mail
+# https://your-agents.com/calendar/*   → apps/calendar
+# https://your-agents.com/forms/*      → apps/forms
+```
+
+<Diagram id="doc-block-1aw1umr" title="One origin, many apps" summary={"Each workspace app is built with its own base path and mounted under a path prefix on a single origin. Login and cross-app A2A are same-origin and free as a result."}>
+
+```html
+<div class="diagram-ws">
+  <div class="diagram-panel" data-rough>
+    <strong>https://your-agents.com</strong>
+    <div class="diagram-row">
+      <span class="diagram-pill accent">/mail/*</span
+      ><small class="diagram-muted">apps/mail</small>
+    </div>
+    <div class="diagram-row">
+      <span class="diagram-pill accent">/calendar/*</span
+      ><small class="diagram-muted">apps/calendar</small>
+    </div>
+    <div class="diagram-row">
+      <span class="diagram-pill accent">/forms/*</span
+      ><small class="diagram-muted">apps/forms</small>
+    </div>
+  </div>
+  <div class="diagram-col wins">
+    <span class="diagram-pill ok">shared login session</span
+    ><span class="diagram-pill ok">zero-config cross-app A2A</span>
+  </div>
+</div>
+```
+
+```css
+.diagram-ws {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.diagram-ws .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+}
+.diagram-ws .diagram-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.diagram-ws .wins {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+```
+
+</Diagram>
+
+**Same-origin** means every app looks like part of the same website to the browser. That gives you two big wins for free:
+
+- **Shared login session**. Log into any app, and every app is logged in.
+- **Zero-config cross-app A2A**. Tagging `@calendar` from mail is a same-origin fetch. There's no CORS and no JWT signing between siblings.
+
+<Callout tone="info">
+
+Under the hood, each app is built with its own **base path**, a URL prefix like `/mail` set via `APP_BASE_PATH`/`VITE_APP_BASE_PATH`, then packaged for the target Nitro preset. Cloudflare Pages routes through a generated **dispatcher worker**, a small script at `dist/_worker.js` that reads the incoming path and forwards the request to the matching app. Netlify uses one function per app plus generated redirects. Vercel writes a workspace-level `.vercel/output` using the Build Output API.
+
+</Callout>
+
+Publish the build for your platform:
+
+<TabsBlock
+  id="doc-block-wsdeploytabs1"
+  tabs={[
+    {
+      id: "cloudflare",
+      label: "Cloudflare (default)",
+      blocks: [
+        {
+          type: "code",
+          id: "wf-cf",
+          data: { code: "wrangler pages deploy dist", language: "bash" },
+        },
+      ],
+    },
+    {
+      id: "netlify",
+      label: "Netlify",
+      blocks: [
+        {
+          type: "code",
+          id: "wf-nl",
+          data: {
+            code: "npx @agent-native/core@latest deploy --preset netlify",
+            language: "bash",
+          },
+        },
+      ],
+    },
+    {
+      id: "vercel",
+      label: "Vercel",
+      blocks: [
+        {
+          type: "code",
+          id: "wf-vc",
+          data: {
+            code: "npx @agent-native/core@latest deploy --preset vercel",
+            language: "bash",
+          },
+        },
+      ],
+    },
+  ]}
+/>
+
+<Callout tone="warning">
+
+Hosted workspace builds require `A2A_SECRET` in the deploy provider environment. Without it, Slack, inbound webhooks, and cross-app A2A resume don't work, since those all go through signed background processors. Local `--build-only` artifact checks still run without it.
+
+</Callout>
+
+<Callout tone="info">
+
+Wiring up a provider build command instead of deploying by hand? Add `--build-only` to the same command, for example `npx @agent-native/core@latest deploy --preset vercel --build-only`. It writes the output directly, so no `vercel.json` is required for workspace routing.
+
+Prefer a separate domain per app instead of one shared origin? Every app in the workspace is still independently deployable. Run `cd apps/<name> && npx @agent-native/core@latest build` like a standalone scaffold.
+
+</Callout>
+
+## Self-hosted Workspace with Docker Compose {#workspace-docker-compose}
+
+A workspace is not one Nitro server process today. Each app still builds to its own `.output/` directory and runs its own Node/Nitro server, so self-hosting a workspace means running several servers behind a single entry point.
+
+<Diagram id="doc-block-3selfhost1" title="Self-hosted workspace shape" summary={"One reverse proxy in front of one container per app, all pointing at the same Postgres database."}>
+
+```html
+<div class="diagram-selfhost">
+  <div class="diagram-box" data-rough>Internet</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill accent">proxy</span
+    ><small class="diagram-muted">routes by path prefix</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-row">
+      <span class="diagram-pill">/mail</span
+      ><small class="diagram-muted">mail container</small>
+    </div>
+    <div class="diagram-row">
+      <span class="diagram-pill">/calendar</span
+      ><small class="diagram-muted">calendar container</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
+  <div class="diagram-box" data-rough>
+    Shared Postgres<br /><small class="diagram-muted">one DATABASE_URL</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-selfhost {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-selfhost .diagram-panel.center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px 16px;
+}
+.diagram-selfhost .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.diagram-selfhost .diagram-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.diagram-selfhost .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+A **reverse proxy** is that single entry point in the picture above: it receives every request and forwards it to the right container based on the URL path, the same job Cloudflare's dispatcher worker does for a managed deploy. On a VPS, that means one container per workspace app, all pointing at the same Postgres database and shared production secrets, with the proxy in front.
+
+<Steps>
+
+### Build each app with a matching base path
+
+The base path is a build-time input for the client bundle and a runtime input for the server. Build each app with the same path the proxy will route to it:
+
+```bash maxLines=8
+APP_BASE_PATH=/mail VITE_APP_BASE_PATH=/mail npx @agent-native/core@latest build
+node .output/server/index.mjs
+```
+
+### Write a reusable Dockerfile
+
+Take the app name and path prefix as build arguments, so one Dockerfile serves every app in the workspace:
+
+```dockerfile filename="Dockerfile.workspace-app" maxLines=12
+FROM node:24-slim AS build
+WORKDIR /workspace
+RUN corepack enable
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY packages ./packages
+COPY apps ./apps
+ARG APP_NAME
+ARG APP_BASE_PATH
+ENV APP_BASE_PATH=$APP_BASE_PATH
+ENV VITE_APP_BASE_PATH=$APP_BASE_PATH
+RUN pnpm install --frozen-lockfile
+RUN pnpm --dir apps/$APP_NAME build
+
+FROM node:24-slim
+WORKDIR /app
+ARG APP_NAME
+ARG APP_BASE_PATH
+ENV NODE_ENV=production
+ENV PORT=3000
+ENV APP_BASE_PATH=$APP_BASE_PATH
+COPY --from=build /workspace/apps/$APP_NAME/.output .output
+EXPOSE 3000
+CMD ["node", ".output/server/index.mjs"]
+```
+
+### Compose Postgres, the apps, and the proxy
+
+This example uses Caddy because it can terminate HTTP locally or sit behind Cloudflare's SSL proxy, but the important part is the path-prefix routing:
+
+```yaml filename="docker-compose.yml" maxLines=30
+services:
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: agent_native
+      POSTGRES_USER: agent_native
+      POSTGRES_PASSWORD: change-me
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  mail:
+    build:
+      context: .
+      dockerfile: Dockerfile.workspace-app
+      args:
+        APP_NAME: mail
+        APP_BASE_PATH: /mail
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://agent_native:change-me@postgres:5432/agent_native
+      BETTER_AUTH_URL: https://agents.example.com/mail
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+      A2A_SECRET: ${A2A_SECRET}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+    depends_on:
+      - postgres
+
+  calendar:
+    build:
+      context: .
+      dockerfile: Dockerfile.workspace-app
+      args:
+        APP_NAME: calendar
+        APP_BASE_PATH: /calendar
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://agent_native:change-me@postgres:5432/agent_native
+      BETTER_AUTH_URL: https://agents.example.com/calendar
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+      A2A_SECRET: ${A2A_SECRET}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+    depends_on:
+      - postgres
+
+  proxy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      - mail
+      - calendar
+
+volumes:
+  postgres-data:
+```
+
+### Configure the proxy
+
+```caddyfile filename="Caddyfile"
+agents.example.com {
+  reverse_proxy /mail* mail:3000
+  reverse_proxy /calendar* calendar:3000
+}
+```
+
+</Steps>
+
+<Callout tone="info">
+
+- Keep `DATABASE_URL`, `BETTER_AUTH_SECRET`, `A2A_SECRET`, and other production
+  secrets identical across app containers when you want shared auth, shared
+  credentials, and cross-app A2A.
+- Set `BETTER_AUTH_URL` to the public URL for that app path. OAuth callback URLs
+  should use the same public URL.
+- Do not rely on the container filesystem for production data. Use Postgres (or
+  another persistent SQL backend) for `DATABASE_URL`.
+- If Cloudflare terminates TLS in front of the VPS, configure Cloudflare to send
+  normal `X-Forwarded-Proto` / `X-Forwarded-Host` headers and route the public
+  host to the proxy container.
+
+</Callout>
+
+## What's next
+
+- [**Deployment**](/docs/deployment) — pick a persistent database, a Nitro preset, and a platform before deploying a workspace
+- [**Multi-App Workspace**](/docs/multi-app-workspace) — the workspace model this page's `deploy` command builds on
+- [**Security**](/docs/security) — the production checklist and opt-in flags for a hosted deployment

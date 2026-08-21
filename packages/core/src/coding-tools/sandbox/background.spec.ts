@@ -61,6 +61,8 @@ const {
   resolveExecutionSandboxAdapter,
   resetSandboxAdapterForTests,
 } = await import("./index.js");
+const { getRequestRunContext, runWithRequestContext } =
+  await import("../../server/request-context.js");
 
 const OWNER = "alice@example.com";
 
@@ -191,6 +193,46 @@ describe("processQueuedSandboxExecution", () => {
     expect(done!.stdout).toBe("42");
     expect(done!.bridgeToolsUsed).toEqual(["provider-api-request"]);
     expect(done!.finishedAt).not.toBeNull();
+  });
+
+  it("restores the queued action surface before a runner resolves bridge actions", async () => {
+    const omittedActionRun = vi.fn(async () => ({ secret: true }));
+    registerSandboxExecutionRunner(
+      {
+        execute: async () => {
+          const allowedNames = getRequestRunContext()?.allowedActionNames;
+          if (!allowedNames || allowedNames.includes("omitted-reader")) {
+            await omittedActionRun();
+            return {
+              stdout: "unexpected action result",
+              stderr: "",
+              exitCode: 0,
+              timedOut: false,
+              bridgeToolsUsed: ["omitted-reader"],
+            };
+          }
+          return {
+            stdout: "",
+            stderr: 'Tool "omitted-reader" is not registered.',
+            exitCode: 1,
+            timedOut: false,
+            bridgeToolsUsed: [],
+          };
+        },
+      },
+      { replace: true },
+    );
+    const row = await makeExecution({
+      allowedActionNames: ["run-code"],
+    });
+
+    const result = await runWithRequestContext(
+      { userEmail: OWNER, orgId: "org-1" },
+      () => processQueuedSandboxExecution(row.id),
+    );
+
+    expect(result).toEqual({ status: "completed", finalStatus: "failed" });
+    expect(omittedActionRun).not.toHaveBeenCalled();
   });
 
   it("maps a timed-out run to timed_out with a structured error", async () => {

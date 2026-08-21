@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   getRemoteAgentIdFromPath,
   getResourceKind,
+  getSkillNameFromPath,
+  isSkillPath,
   isRemoteAgentPath,
   parseRemoteAgentManifest,
   remoteAgentResourcePath,
@@ -39,6 +41,20 @@ describe("resource metadata", () => {
 
   it("keeps markdown agents classified as local custom agents", () => {
     expect(isRemoteAgentPath("agents/researcher.md")).toBe(false);
+    expect(getResourceKind("agents/researcher.md")).toBe("agent");
+  });
+
+  it("classifies agent-pack skills without treating reference files as agents", () => {
+    expect(isSkillPath("agents/researcher/skills/interviews/SKILL.md")).toBe(
+      true,
+    );
+    expect(
+      getSkillNameFromPath("agents/researcher/skills/interviews/SKILL.md"),
+    ).toBe("interviews");
+    expect(
+      getResourceKind("agents/researcher/skills/interviews/SKILL.md"),
+    ).toBe("skill");
+    expect(getResourceKind("agents/researcher/context/brief.md")).toBe("file");
     expect(getResourceKind("agents/researcher.md")).toBe("agent");
   });
 });

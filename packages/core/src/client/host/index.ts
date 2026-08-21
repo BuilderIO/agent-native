@@ -1,5 +1,10 @@
 export { initializeAgentNativeClient } from "../client-bootstrap.js";
 export {
+  agentNativeApiDisabledReason,
+  AgentNativeApiDisabledError,
+  setAgentNativeApiDisabled,
+} from "../api-surface.js";
+export {
   ensureEmbedAuthFetchInterceptor,
   getEmbedAuthToken,
   isEmbedAuthActive,

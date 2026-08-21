@@ -88,6 +88,30 @@ describe("PlaybackCommentOverlay", () => {
     act(() => root.unmount());
     container.remove();
   });
+
+  it("renders inline Markdown without creating heading elements", () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    act(() => {
+      root.render(
+        <PlaybackCommentOverlay
+          comments={[{ ...comment, content: "# Label\n\n**Bold** and `code`" }]}
+          currentMs={12_500}
+        />,
+      );
+    });
+
+    expect(container.querySelector("h1, h2, h3, h4, h5, h6")).toBeNull();
+    expect(container.querySelector("strong")?.textContent).toBe("Bold");
+    expect(container.querySelector("code")?.textContent).toBe("code");
+    expect(container.textContent).toContain("Label");
+
+    act(() => root.unmount());
+    container.remove();
+  });
 });
 
 describe("embedded playback comments", () => {

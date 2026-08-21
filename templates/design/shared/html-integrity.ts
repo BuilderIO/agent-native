@@ -34,6 +34,7 @@ export type DesignHtmlIntegrityIssue =
   | "runtime-missing"
   | "runtime-alpine-missing"
   | "runtime-cloak-missing"
+  | "runtime-overlay-unhidden"
   | "url-backed-screen-replaced";
 
 /**
@@ -152,6 +153,14 @@ export function describeDesignHtmlIntegrityIssue(
         `the document uses x-cloak on <${detail.tag ?? "element"}> at ${at}, ` +
         `but no script source contains Alpine.js. The element will remain ` +
         `hidden forever; load Alpine.js before relying on x-cloak.`
+      );
+    case "runtime-overlay-unhidden":
+      return (
+        `<${detail.tag ?? "element"}> at ${at} covers the whole frame and is ` +
+        `shown by Alpine (${detail.attribute ?? "x-show"}), but nothing hides ` +
+        `it before Alpine starts. It paints over the design on first render. ` +
+        `Add x-cloak plus [x-cloak] { display: none !important; }, or an ` +
+        `inline style="display:none".`
       );
     case "runtime-cloak-missing":
       return (
@@ -1176,10 +1185,67 @@ function collectInteractiveRuntimeIssues(
 }
 
 /**
+ * Covers the frame when it is taken out of flow AND stretched to every edge.
+ * `fixed` alone is a toolbar; `inset-0` alone is a normal filled parent.
+ */
+function coversViewport(className: string): boolean {
+  const classes = new Set(className.split(/\s+/));
+  const positioned = classes.has("fixed") || classes.has("absolute");
+  const fullBleed =
+    classes.has("inset-0") ||
+    (classes.has("w-screen") && classes.has("h-screen"));
+  return positioned && fullBleed;
+}
+
+/**
+ * The shape the `x-cloak` checks above cannot see. An overlay toggled by
+ * `x-show` with no `x-cloak` at all paints over the design until Alpine
+ * evaluates the expression — the same symptom, minus the attribute that makes
+ * it detectable. Advisory rather than blocking: with Alpine healthy this is one
+ * frame, and a genuinely broken runtime is already caught above.
+ *
+ * `<template x-if>` is deliberately not checked: template content is inert
+ * until Alpine clones it, so it cannot paint early.
+ */
+function collectOverlayAdvisory(
+  parsed: ParsedDocument,
+  locate: Locator,
+): DesignHtmlIntegrityIssueDetail[] {
+  for (const element of parsed.elements) {
+    const names = new Set(
+      element.attrs.map((attribute) => attribute.name.toLowerCase()),
+    );
+    if (names.has("x-cloak") || !names.has("x-show")) continue;
+    if (!coversViewport(attributeOf(element, "class") ?? "")) continue;
+    if (INLINE_PRE_HIDE.test(attributeOf(element, "style") ?? "")) continue;
+
+    return [
+      {
+        issue: "runtime-overlay-unhidden",
+        ...locate(locationOf(element)?.startOffset ?? 0),
+        tag: element.tagName,
+        attribute: "x-show",
+      },
+    ];
+  }
+  return [];
+}
+
+/**
  * Reported, never enforced: legitimate fragments and token-only screens carry no
  * runtime of their own, so blocking here would reject valid work.
  */
 function collectAdvisoryIssues(
+  parsed: ParsedDocument,
+  locate: Locator,
+): DesignHtmlIntegrityIssueDetail[] {
+  return [
+    ...collectOverlayAdvisory(parsed, locate),
+    ...collectTailwindRuntimeAdvisory(parsed, locate),
+  ];
+}
+
+function collectTailwindRuntimeAdvisory(
   parsed: ParsedDocument,
   locate: Locator,
 ): DesignHtmlIntegrityIssueDetail[] {

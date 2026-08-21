@@ -41,3 +41,17 @@ export interface ContextManifestViewData {
   systemTokens: number;
   conversationTokens: number;
 }
+
+export type ContextTranslate = (
+  key: string,
+  options?: Record<string, unknown>,
+) => string;
+
+export const fallbackContextTranslate: ContextTranslate = (key, options) => {
+  const template =
+    typeof options?.defaultValue === "string" ? options.defaultValue : key;
+  return template.replace(/{{\s*([\w$.-]+)\s*}}/g, (match, name: string) => {
+    const value = options?.[name];
+    return value == null ? match : String(value);
+  });
+};

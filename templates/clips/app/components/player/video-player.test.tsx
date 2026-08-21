@@ -32,6 +32,7 @@ vi.mock("@agent-native/core/client/api-path", () => ({
 vi.mock("@agent-native/core/client/hooks", () => ({
   // Pulled in transitively by PlaybackCommentOverlay's avatar lookup.
   useAvatarUrl: () => null,
+  callAction: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -155,12 +156,15 @@ describe("VideoPlayer playback", () => {
     const centerPlay = container.querySelector<HTMLButtonElement>(
       'button[aria-label="videoPlayer.playClip"]',
     );
+    const playIcon = centerPlay?.querySelector("svg");
 
     // Mobile Safari can remain at HAVE_NOTHING until playback is initiated,
     // so loadeddata/canplay may not arrive before the user needs this control.
     expect(video.readyState).toBe(0);
     expect(container.textContent).not.toContain("Preparing clip");
     expect(centerPlay).not.toBeNull();
+    expect(playIcon).not.toBeNull();
+    expect(playIcon?.getAttribute("class")).not.toContain("ml-[6%]");
 
     act(() => {
       centerPlay?.click();
@@ -232,6 +236,26 @@ describe("VideoPlayer playback", () => {
     expect(getVideo().getAttribute("src")).toContain("media=repaired");
   });
 
+  it("uses an updated timestamp as the media version when the replacement size is unchanged", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <VideoPlayer
+            recordingId="recording-1"
+            videoUrl="/api/video/recording-1"
+            videoFormat="webm"
+            mediaVersion="2026-08-13T12:00:00.000Z"
+            durationMs={10_000}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(getVideo().getAttribute("src")).toContain(
+      "media=2026-08-13T12%3A00%3A00.000Z",
+    );
+  });
+
   it("starts after an intro cut instead of rewinding into the excluded range", () => {
     act(() => {
       root.render(
@@ -295,6 +319,60 @@ describe("VideoPlayer playback", () => {
     expect(container.textContent).toContain("0:00/0:08");
     expect(container.textContent).not.toContain("0:00/0:10");
     expect(container.textContent).not.toContain("10 sec");
+  });
+
+  it("reports native playback time directly on the original timeline", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <VideoPlayer
+            ref={(instance) => {
+              handleRef.current = instance;
+            }}
+            recordingId="recording-1"
+            videoUrl="https://cdn.example.com/clip.webm"
+            durationMs={10_000}
+            editsJson={JSON.stringify({
+              version: 1,
+              trims: [{ startMs: 2_000, endMs: 4_000, excluded: true }],
+              blurs: [],
+            })}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    const video = getVideo();
+    Object.defineProperty(video, "currentTime", {
+      configurable: true,
+      value: 6,
+    });
+
+    expect(handleRef.current?.getCurrentOriginalMs()).toBe(6_000);
+  });
+
+  it("reads the latest Loom position from the imperative handle", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <VideoPlayer
+            ref={(instance) => {
+              handleRef.current = instance;
+            }}
+            recordingId="recording-1"
+            videoUrl="https://www.loom.com/share/loom-recording"
+            embedProvider="loom"
+            durationMs={10_000}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      handleRef.current?.seek(4_000);
+    });
+
+    expect(handleRef.current?.getCurrentOriginalMs()).toBe(4_000);
   });
 
   it("stops a hung play attempt and leaves playback retryable", () => {
@@ -512,6 +590,124 @@ describe("VideoPlayer playback", () => {
     });
 
     expect(enterFullscreen).toHaveBeenCalledTimes(1);
+  });
+
+  it("prefers WebKit video fullscreen when the document API is unavailable", () => {
+    const surface = getPlayerSurface();
+    const video = getVideo();
+    const requestFullscreen = vi.fn().mockResolvedValue(undefined);
+    const enterFullscreen = vi.fn();
+
+    Object.defineProperty(surface, "requestFullscreen", {
+      configurable: true,
+      value: requestFullscreen,
+    });
+    Object.defineProperty(video, "webkitEnterFullscreen", {
+      configurable: true,
+      value: enterFullscreen,
+    });
+    const fullscreenEnabledDescriptor = Object.getOwnPropertyDescriptor(
+      document,
+      "fullscreenEnabled",
+    );
+    Object.defineProperty(document, "fullscreenEnabled", {
+      configurable: true,
+      value: false,
+    });
+
+    try {
+      act(() => {
+        container
+          .querySelector<HTMLButtonElement>(
+            'button[aria-label="Fullscreen (F)"]',
+          )
+          ?.click();
+      });
+
+      expect(requestFullscreen).not.toHaveBeenCalled();
+      expect(enterFullscreen).toHaveBeenCalledTimes(1);
+    } finally {
+      if (fullscreenEnabledDescriptor) {
+        Object.defineProperty(
+          document,
+          "fullscreenEnabled",
+          fullscreenEnabledDescriptor,
+        );
+      } else {
+        Reflect.deleteProperty(document, "fullscreenEnabled");
+      }
+    }
+  });
+
+  it("retries video fullscreen when a mobile container request is a no-op", async () => {
+    const surface = getPlayerSurface();
+    const video = getVideo();
+    const requestFullscreen = vi.fn().mockResolvedValue(undefined);
+    const enterFullscreen = vi.fn();
+
+    Object.defineProperty(surface, "requestFullscreen", {
+      configurable: true,
+      value: requestFullscreen,
+    });
+    Object.defineProperty(video, "webkitEnterFullscreen", {
+      configurable: true,
+      value: enterFullscreen,
+    });
+    const fullscreenEnabledDescriptor = Object.getOwnPropertyDescriptor(
+      document,
+      "fullscreenEnabled",
+    );
+    Object.defineProperty(document, "fullscreenEnabled", {
+      configurable: true,
+      value: true,
+    });
+
+    try {
+      await act(async () => {
+        container
+          .querySelector<HTMLButtonElement>(
+            'button[aria-label="Fullscreen (F)"]',
+          )
+          ?.click();
+        await Promise.resolve();
+      });
+
+      expect(requestFullscreen).toHaveBeenCalledTimes(1);
+      expect(enterFullscreen).toHaveBeenCalledTimes(1);
+    } finally {
+      if (fullscreenEnabledDescriptor) {
+        Object.defineProperty(
+          document,
+          "fullscreenEnabled",
+          fullscreenEnabledDescriptor,
+        );
+      } else {
+        Reflect.deleteProperty(document, "fullscreenEnabled");
+      }
+    }
+  });
+
+  it("uses a fixed viewport when fullscreen APIs are unavailable", () => {
+    const surface = getPlayerSurface();
+    const video = getVideo();
+
+    Object.defineProperty(surface, "requestFullscreen", {
+      configurable: true,
+      value: undefined,
+    });
+    Object.defineProperty(video, "webkitEnterFullscreen", {
+      configurable: true,
+      value: undefined,
+    });
+
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="Fullscreen (F)"]')
+        ?.click();
+    });
+
+    expect(surface.className).toContain("fixed");
+    expect(surface.className).toContain("h-dvh");
   });
 });
 

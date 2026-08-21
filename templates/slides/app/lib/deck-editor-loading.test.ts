@@ -17,6 +17,7 @@ describe("deck editor loading state", () => {
         accessCheckKey,
         checkedAccessKey: null,
         retrying: false,
+        privateDeckAccessConfirmed: false,
       }),
     ).toBe(true);
   });
@@ -30,6 +31,7 @@ describe("deck editor loading state", () => {
         accessCheckKey,
         checkedAccessKey: accessCheckKey,
         retrying: false,
+        privateDeckAccessConfirmed: false,
       }),
     ).toBe(false);
   });
@@ -43,6 +45,7 @@ describe("deck editor loading state", () => {
         accessCheckKey,
         checkedAccessKey: accessCheckKey,
         retrying: true,
+        privateDeckAccessConfirmed: false,
       }),
     ).toBe(true);
   });
@@ -56,6 +59,7 @@ describe("deck editor loading state", () => {
         accessCheckKey: deckAccessCheckKey("deck-1", "org-2"),
         checkedAccessKey: accessCheckKey,
         retrying: false,
+        privateDeckAccessConfirmed: false,
       }),
     ).toBe(true);
   });
@@ -69,6 +73,21 @@ describe("deck editor loading state", () => {
         accessCheckKey,
         checkedAccessKey: null,
         retrying: false,
+        privateDeckAccessConfirmed: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("shows the private access pane before protected deck loading settles", () => {
+    expect(
+      shouldShowDeckEditorSkeleton({
+        deckFound: false,
+        decksLoading: true,
+        orgLoading: true,
+        accessCheckKey,
+        checkedAccessKey: null,
+        retrying: false,
+        privateDeckAccessConfirmed: true,
       }),
     ).toBe(false);
   });

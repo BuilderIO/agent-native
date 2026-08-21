@@ -1,3 +1,7 @@
+export {
+  AgentShareSection,
+  type AgentShareSectionProps,
+} from "./AgentShareSection.js";
 export { ShareDialog, type ShareDialogProps } from "./ShareDialog.js";
 export { ShareButton, type ShareButtonProps } from "./ShareButton.js";
 export {

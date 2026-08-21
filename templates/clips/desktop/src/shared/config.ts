@@ -120,6 +120,7 @@ export interface FeatureConfig {
   clipsEnabled: boolean;
   meetingsEnabled: boolean;
   voiceEnabled: boolean;
+  voiceCleanupEnabled: boolean;
   launchAtLoginEnabled: boolean;
   autoHidePopoverEnabled: boolean;
   meetingTranscriptionMode: "manual" | "ask" | "auto";
@@ -128,7 +129,6 @@ export interface FeatureConfig {
   showInScreenCapture: boolean;
   regionGuides: RegionGuidesConfig;
   screenMemory: ScreenMemoryConfig;
-  onboardingComplete: boolean;
   whisperModelEnabled: boolean;
   whisperModelId: string;
 }

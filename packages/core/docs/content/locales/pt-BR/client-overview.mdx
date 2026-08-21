@@ -92,7 +92,7 @@ A única diferença arquitetural em relação a um front-end típico: esta camad
 
 ## Onde o cliente se encaixa {#role}
 
-Solicitações do navegador, o loop do agente e clientes de API externos resolvem todos para as mesmas actions e o mesmo banco de dados SQL — não existe um "backend de aplicativo" separado com o qual esta camada conversa e que o agente não possa também alcançar. Construir um recurso aqui significa construir uma UI sobre uma operação que o agente já possui, ou definir uma nova action e ganhar uma UI para ela ao mesmo tempo. Veja [Actions](/docs/actions) para o lado da operação desse contrato.
+Solicitações do navegador, o loop do agente e clientes de API externos resolvem todos para as mesmas actions e o mesmo banco de dados SQL — não existe um "backend de aplicativo" separado com o qual esta camada conversa e que o agente não possa também alcançar. Construir um recurso aqui significa construir uma UI sobre uma operação que o agente já possui, ou definir uma nova action e ganhar uma UI para ela ao mesmo tempo. Veja [Actions](/docs/actions-overview) para o lado da operação desse contrato.
 
 Esta página cobre os diretórios em que você constrói e as partes do runtime do navegador que nenhum outro lugar documenta (`root.tsx`, `public/`). Os ganchos React que conectam seus componentes às actions e ao agente vivem em suas próprias páginas focadas:
 
@@ -201,6 +201,6 @@ import { cn } from "@agent-native/toolkit/utils";
 - [**Sincronização interna**](/docs/client-sync-internals) — `useChangeVersion` para sincronizar um `useQuery` bruto
 - [**Pontos de entrada**](/docs/client-entry-points) — personalização do bootstrap de SSR
 - [**Roteamento**](/docs/client-routing) — páginas baseadas em arquivo, parâmetros dinâmicos e navegação
-- [**Actions**](/docs/actions) — a superfície `defineAction` por trás de cada gancho de dados
+- [**Actions**](/docs/actions-overview) — a superfície `defineAction` por trás de cada gancho de dados
 - [**Sistemas de design personalizados**](/docs/custom-design-system) — trocando sua própria biblioteca de componentes via `app/design-system.ts`
 - [**Autenticação**](/docs/authentication) — as verificações de sessão que `AppProviders` executa em caminhos privados

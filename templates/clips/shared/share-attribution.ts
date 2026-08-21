@@ -52,6 +52,19 @@ export type ShareAttribution = {
 };
 
 /**
+ * Keep only non-sensitive attribution state when a share page redirects to
+ * sign-in. Passwords and capability tokens must never enter auth URLs.
+ */
+export function buildShareContinuationQuery(
+  attribution: ShareAttribution,
+): string {
+  const params = new URLSearchParams();
+  if (attribution.ref) params.set(REF_PARAM, attribution.ref);
+  if (attribution.via) params.set(VIA_PARAM, attribution.via);
+  return params.toString();
+}
+
+/**
  * Read `ref`/`via` from a query string (e.g. `window.location.search`). Falls
  * back to `ref=clip_share` so downstream attribution stays meaningful even when
  * the visitor arrived via a link that lost the param.

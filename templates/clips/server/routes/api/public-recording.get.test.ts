@@ -17,6 +17,7 @@ const mockVerifySharePassword = vi.hoisted(() => vi.fn());
 const mockResolvePlayerVideoUrl = vi.hoisted(() => vi.fn());
 const mockBuildAgentApiUrls = vi.hoisted(() => vi.fn());
 const mockIsMediaVerificationPending = vi.hoisted(() => vi.fn());
+const mockIsSeekableRepairPending = vi.hoisted(() => vi.fn());
 const mockCountRecordingViews = vi.hoisted(() => vi.fn());
 const mockCountRecordingAgentViews = vi.hoisted(() => vi.fn());
 const mockHasExplicitRecordingShare = vi.hoisted(() => vi.fn());
@@ -75,6 +76,8 @@ vi.mock("../../lib/recordings.js", () => ({
   getOrganizationRoleForEmail: (...args: unknown[]) =>
     mockGetOrganizationRoleForEmail(...args),
   parseSpaceIds: vi.fn(() => []),
+  sameOwnerEmail: (left: string, right: string) =>
+    left.trim().toLowerCase() === right.trim().toLowerCase(),
 }));
 
 vi.mock("../../lib/agent-views.js", () => ({
@@ -95,6 +98,11 @@ vi.mock("../../lib/player-video-url.js", () => ({
 vi.mock("../../lib/media-verification-state.js", () => ({
   isMediaVerificationPending: (...args: unknown[]) =>
     mockIsMediaVerificationPending(...args),
+}));
+
+vi.mock("../../lib/seekable-media-state.js", () => ({
+  isSeekableRepairPending: (...args: unknown[]) =>
+    mockIsSeekableRepairPending(...args),
 }));
 
 vi.mock("../../lib/share-password.js", () => ({
@@ -166,6 +174,7 @@ function makeRecording(overrides: Record<string, unknown> = {}) {
     spaceIds: null,
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
+    mediaUpdatedAt: "2026-01-01T00:00:00.000Z",
     ...overrides,
   };
 }
@@ -198,6 +207,7 @@ describe("/api/public-recording route", () => {
       contextUrl: "https://clips.example/api/agent-context.json?id=rec-1",
     });
     mockIsMediaVerificationPending.mockResolvedValue(false);
+    mockIsSeekableRepairPending.mockResolvedValue(false);
     mockCountRecordingViews.mockResolvedValue(7);
     mockCountRecordingAgentViews.mockResolvedValue(2);
     mockHasExplicitRecordingShare.mockResolvedValue(false);
@@ -215,6 +225,7 @@ describe("/api/public-recording route", () => {
       recording: {
         videoUrl: "/api/video/rec-1?t=media-token",
         videoSizeBytes: 1200,
+        mediaUpdatedAt: "2026-01-01T00:00:00.000Z",
       },
     });
     expect(mockSignShortLivedToken).toHaveBeenCalledWith({
@@ -262,6 +273,32 @@ describe("/api/public-recording route", () => {
       ownerEmail: "owner@example.com",
       recordingId: "rec-1",
       recordingStatus: "processing",
+    });
+  });
+
+  it("exposes pending seekable repair to ready players", async () => {
+    const event = { setCookies: [] as unknown[] };
+    mockIsSeekableRepairPending.mockResolvedValue(true);
+    mockGetDb.mockReturnValue(
+      createDbWithSelectResults([
+        [makeRecording({ videoUrl: "https://cdn.example.com/rec-1.webm" })],
+        [],
+        [],
+        [],
+        [],
+      ]),
+    );
+
+    const result = await handler(event as any);
+
+    expect(result).toMatchObject({
+      recording: { status: "ready", seekableRepairPending: true },
+    });
+    expect(mockIsSeekableRepairPending).toHaveBeenCalledWith({
+      ownerEmail: "owner@example.com",
+      recordingId: "rec-1",
+      recordingStatus: "ready",
+      videoUrl: "https://cdn.example.com/rec-1.webm",
     });
   });
 
@@ -338,6 +375,50 @@ describe("/api/public-recording route", () => {
     expect(mockBuildAgentApiUrls).toHaveBeenCalledWith(
       "rec-1",
       expect.objectContaining({ token: "agent-token" }),
+    );
+  });
+
+  it("hides private recording existence from anonymous API callers", async () => {
+    const event = { setCookies: [] as unknown[] };
+    mockGetQuery.mockReturnValue({ id: "rec-1" });
+    mockGetDb.mockReturnValue(
+      createDbWithSelectResults([
+        [makeRecording({ visibility: "private", password: null })],
+      ]),
+    );
+
+    await expect(handler(event as any)).resolves.toEqual({
+      error: "Not found",
+    });
+    expect(mockSetResponseStatus).toHaveBeenCalledWith(event, 404);
+    expect(mockSetResponseHeader).toHaveBeenCalledWith(
+      event,
+      "Cache-Control",
+      "private, max-age=0, no-store",
+    );
+  });
+
+  it("hides private recording existence from authenticated outsiders", async () => {
+    const event = { setCookies: [] as unknown[] };
+    mockGetQuery.mockReturnValue({ id: "rec-1" });
+    mockGetSession.mockResolvedValue({
+      email: "viewer@example.com",
+      orgId: "org-1",
+    });
+    mockGetDb.mockReturnValue(
+      createDbWithSelectResults([
+        [makeRecording({ visibility: "private", password: null })],
+      ]),
+    );
+
+    await expect(handler(event as any)).resolves.toEqual({
+      error: "Not found",
+    });
+    expect(mockSetResponseStatus).toHaveBeenCalledWith(event, 404);
+    expect(mockSetResponseHeader).toHaveBeenCalledWith(
+      event,
+      "Cache-Control",
+      "private, max-age=0, no-store",
     );
   });
 
@@ -596,6 +677,30 @@ describe("/api/public-recording route", () => {
       viewer: { role: "viewer", canOpenDashboard: false },
     });
     expect(mockHasExplicitRecordingShare).not.toHaveBeenCalled();
+  });
+
+  it("marks an authenticated public viewer as comment-capable", async () => {
+    const event = { setCookies: [] as unknown[] };
+    mockGetQuery.mockReturnValue({ id: "rec-1" });
+    mockGetSession.mockResolvedValue({ email: "viewer@example.com" });
+    mockGetDb.mockReturnValue(
+      createDbWithSelectResults([
+        [makeRecording({ visibility: "public", password: null })],
+        [],
+        [],
+        [],
+        [],
+      ]),
+    );
+
+    const result = await handler(event as any);
+
+    expect(result).toMatchObject({
+      viewer: {
+        canComment: true,
+        role: "viewer",
+      },
+    });
   });
 
   it("refuses an expired recording before exposing counts or dashboard eligibility", async () => {

@@ -11,12 +11,14 @@ describe("htmlSignatureToMarkdown", () => {
     ).toBe("Steve\n\n[Website](https://example.com/)");
   });
 
-  it("drops image assets from Gmail signatures", () => {
+  it("preserves safe image assets, including linked images", () => {
     expect(
       htmlSignatureToMarkdown(
         '<div>Steve</div><div><a href="https://example.com"><img src="https://example.com/logo.png" alt="Acme"></a></div>',
       ),
-    ).toBe("Steve");
+    ).toBe(
+      "Steve\n\n[![Acme](https://example.com/logo.png)](https://example.com/)",
+    );
   });
 
   it("drops unsafe URLs", () => {
@@ -25,5 +27,11 @@ describe("htmlSignatureToMarkdown", () => {
         '<a href="javascript:alert(1)">Bad</a><img src="data:text/html,hi">',
       ),
     ).toBe("Bad");
+  });
+
+  it("does not persist data URLs from Gmail", () => {
+    expect(
+      htmlSignatureToMarkdown('<img src="data:image/png;base64,not-stored">'),
+    ).toBe("");
   });
 });

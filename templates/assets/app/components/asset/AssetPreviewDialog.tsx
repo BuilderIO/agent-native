@@ -159,7 +159,9 @@ export function AssetPreviewDialog({
                   onClick={() => setShowDetails((value) => !value)}
                 >
                   <IconInfoCircle className="h-4 w-4" />
-                  {t("library.viewDetails")}
+                  {showDetails
+                    ? t("library.hideDetails")
+                    : t("library.viewDetails")}
                 </Button>
                 <DialogClose
                   aria-label={t("library.closePreview")}

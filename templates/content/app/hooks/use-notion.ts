@@ -16,6 +16,8 @@ import type {
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 
+import { useLocalStorage } from "@/hooks/use-local-storage";
+
 import { documentQueryFilter } from "./use-documents";
 
 // The server signs a `redirect` query param into the OAuth `state` and the
@@ -64,20 +66,16 @@ export function invalidateDocumentQueries(
   queryClient.invalidateQueries({
     queryKey: documentSyncStatusQueryKey(documentId),
   });
-  queryClient.invalidateQueries({
-    queryKey: documentSyncStatusQueryKey(documentId, { autoSync: true }),
-  });
 }
 
-export function documentSyncStatusQueryKey(
-  documentId: string,
-  options?: { autoSync?: boolean },
-) {
-  const normalizedDocumentId = documentId.trim();
+// `autoSync` only decides how often to refetch, so keying on it split one
+// document's status across two cache entries and two independent poll loops —
+// the toolbar polling at 2s while the sync bar polled the same action at 30s.
+export function documentSyncStatusQueryKey(documentId: string) {
   return [
     "action",
     "refresh-notion-sync-status",
-    { documentId: normalizedDocumentId, autoSync: !!options?.autoSync },
+    { documentId: documentId.trim() },
   ] as const;
 }
 
@@ -119,17 +117,21 @@ export function documentSyncRefetchIntervalMs(
   return autoSync ? 2_000 : 30_000;
 }
 
-export function useDocumentSyncStatus(
-  documentId: string | null,
-  options?: { autoSync?: boolean },
-) {
+export function useDocumentSyncStatus(documentId: string | null) {
   const queryClient = useQueryClient();
   const lastObservedSyncedAtRef = useRef<string | null>(null);
   const normalizedDocumentId = documentId?.trim() || null;
-  const autoSync = !!options?.autoSync;
+  // `autoSync` changes what the server does, so every observer of the shared
+  // query key has to agree on it. Read the same per-document toggle the
+  // toolbar writes instead of taking it per mount, where one component could
+  // suppress or enable another's auto-sync through the shared query function.
+  const [autoSync] = useLocalStorage(
+    `notion-auto-sync:${normalizedDocumentId ?? ""}`,
+    false,
+  );
   const query = useQuery<DocumentSyncStatus>({
     queryKey: normalizedDocumentId
-      ? documentSyncStatusQueryKey(normalizedDocumentId, options)
+      ? documentSyncStatusQueryKey(normalizedDocumentId)
       : ["action", "refresh-notion-sync-status", null],
     queryFn: () => {
       if (!normalizedDocumentId) throw new Error("documentId is required");

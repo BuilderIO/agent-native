@@ -6,7 +6,7 @@ const mockIsHostedSlidesRuntime = vi.hoisted(() => vi.fn(() => false));
 const mockStoreUploadedReferenceBlob = vi.hoisted(() => vi.fn());
 const mockReadMultipartFormData = vi.hoisted(() => vi.fn());
 const mockSetResponseStatus = vi.hoisted(() => vi.fn());
-const mockResolveSlidesRequestAuthContext = vi.hoisted(() => vi.fn());
+const mockResolveSlidesRequestAuth = vi.hoisted(() => vi.fn());
 const mockWithSlidesRequestContext = vi.hoisted(() => vi.fn());
 
 vi.mock("h3", () => ({
@@ -41,8 +41,8 @@ vi.mock("./assets.js", () => ({
 }));
 
 vi.mock("./request-auth-context.js", () => ({
-  resolveSlidesRequestAuthContext: (...args: unknown[]) =>
-    mockResolveSlidesRequestAuthContext(...args),
+  resolveSlidesRequestAuth: (...args: unknown[]) =>
+    mockResolveSlidesRequestAuth(...args),
   withSlidesRequestContext: (...args: unknown[]) =>
     mockWithSlidesRequestContext(...args),
 }));
@@ -63,9 +63,9 @@ describe("Slides reference upload limits", () => {
     mockStoreUploadedReferenceBlob.mockReset();
     mockReadMultipartFormData.mockReset();
     mockSetResponseStatus.mockReset();
-    mockResolveSlidesRequestAuthContext.mockResolvedValue({
-      email: "owner@example.com",
-      orgId: "active-org",
+    mockResolveSlidesRequestAuth.mockResolvedValue({
+      ok: true,
+      context: { email: "owner@example.com", orgId: "active-org" },
     });
     mockWithSlidesRequestContext.mockImplementation(
       async (
@@ -173,7 +173,7 @@ describe("Slides reference upload limits", () => {
       expect.objectContaining({ path: "slides-upload:v1:scoped-handle" }),
     ]);
 
-    expect(mockResolveSlidesRequestAuthContext).toHaveBeenCalledWith(event);
+    expect(mockResolveSlidesRequestAuth).toHaveBeenCalledWith(event);
     expect(mockWithSlidesRequestContext).toHaveBeenCalledWith(
       event,
       expect.any(Function),

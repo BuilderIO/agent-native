@@ -1,5 +1,7 @@
 import {
+  getResourceKind,
   type CustomAgentProfile,
+  type AgentWorkspaceResource,
   parseCustomAgentProfile,
 } from "./metadata.js";
 import {
@@ -7,7 +9,46 @@ import {
   resourceGetByPath,
   resourceListAccessible,
   SHARED_OWNER,
+  type ResourceMeta,
 } from "./store.js";
+
+function metadataFields(
+  metadata: string | null,
+): Record<string, unknown> | null {
+  if (!metadata) return {};
+  try {
+    const parsed = JSON.parse(metadata);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+    // coercion-ok: malformed resource metadata is absent, not a valid profile field
+  } catch (_error) {
+    return null;
+  }
+}
+
+async function enrichAgentProfile(
+  owner: string,
+  profile: CustomAgentProfile,
+  accessibleResources?: ResourceMeta[],
+): Promise<CustomAgentProfile> {
+  const root = profile.path.replace(/\.md$/i, "");
+  const resources =
+    accessibleResources ?? (await resourceListAccessible(owner, `${root}/`));
+  const workspace: AgentWorkspaceResource[] = resources.map((resource) => {
+    const metadata = metadataFields(resource.metadata) ?? {};
+    return {
+      path: resource.path,
+      kind: getResourceKind(resource.path),
+      name: typeof metadata.name === "string" ? metadata.name : undefined,
+      description:
+        typeof metadata.description === "string"
+          ? metadata.description
+          : undefined,
+    };
+  });
+  return { ...profile, workspace: { root, resources: workspace } };
+}
 
 export async function listAccessibleCustomAgents(
   owner: string,
@@ -19,11 +60,24 @@ export async function listAccessibleCustomAgents(
       .map(async (resource) => {
         const full = await resourceGet(resource.id);
         if (!full) return null;
-        return parseCustomAgentProfile(full.content, resource.path);
+        const profile = parseCustomAgentProfile(full.content, resource.path);
+        return profile;
       }),
   );
 
-  return profiles.filter((profile): profile is CustomAgentProfile => !!profile);
+  const validProfiles = profiles.filter(
+    (profile): profile is CustomAgentProfile => !!profile,
+  );
+  return Promise.all(
+    validProfiles.map((profile) => {
+      const root = `${profile.path.replace(/\.md$/i, "")}/`;
+      return enrichAgentProfile(
+        owner,
+        profile,
+        resources.filter((resource) => resource.path.startsWith(root)),
+      );
+    }),
+  );
 }
 
 export async function findAccessibleCustomAgent(
@@ -43,12 +97,12 @@ export async function findAccessibleCustomAgent(
     const personal = await resourceGetByPath(owner, path);
     if (personal) {
       const profile = parseCustomAgentProfile(personal.content, personal.path);
-      if (profile) return profile;
+      if (profile) return enrichAgentProfile(owner, profile);
     }
     const shared = await resourceGetByPath(SHARED_OWNER, path);
     if (shared) {
       const profile = parseCustomAgentProfile(shared.content, shared.path);
-      if (profile) return profile;
+      if (profile) return enrichAgentProfile(owner, profile);
     }
   }
 

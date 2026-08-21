@@ -71,7 +71,7 @@ function threadCommentIdsFor(
 
 export default defineAction({
   description:
-    'Mark a plan comment thread as resolved or reopen it. Call this after addressing reviewer feedback to signal that the thread is handled. Pass status "resolved" to close the thread, "open" to reopen it. An optional resolutionNote posts a reply before the status change so reviewers see what was done. Resolving marks the thread done for reviewers; it does NOT remove it from get-plan-feedback — also call consume-plan-feedback (or pass consumedCommentIds to update-visual-plan) to stop the thread from appearing as pending work.',
+    'Mark a plan comment thread as resolved or reopen it. An optional resolutionNote supports inline Markdown for emphasis, inline code, links, and line breaks; headings are flattened. Call this after addressing reviewer feedback to signal that the thread is handled. Pass status "resolved" to close the thread, "open" to reopen it. Resolving marks the thread done for reviewers; it does NOT remove it from get-plan-feedback — also call consume-plan-feedback (or pass consumedCommentIds to update-visual-plan) to stop the thread from appearing as pending work.',
   schema: z.object({
     planId: z.string().describe("Plan ID"),
     commentId: z
@@ -88,7 +88,7 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "Optional message to post as a reply before changing the status — use this to briefly explain what was done or why the thread is being closed.",
+        "Optional inline Markdown message to post as a reply before changing the status; headings are flattened.",
       ),
   }),
   publicAgent: {

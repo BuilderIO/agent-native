@@ -12,7 +12,10 @@ import { resolveCredential } from "../credentials/index.js";
 import { getOrgContext } from "../org/context.js";
 import { readAppSecret } from "../secrets/storage.js";
 import { getSession } from "./auth.js";
-import { resolveBuilderCredentials } from "./credential-provider.js";
+import {
+  gatewayLaneUnavailableMessage,
+  resolveBuilderGatewayCredentials,
+} from "./credential-provider.js";
 import { runWithRequestContext } from "./request-context.js";
 import { isSameOriginRequest } from "./request-origin.js";
 
@@ -116,12 +119,13 @@ export function createGoogleRealtimeSessionHandler() {
         };
       }
 
-      const builderCreds = await resolveBuilderCredentials();
+      const builderCreds = await resolveBuilderGatewayCredentials();
       if (!builderCreds.privateKey || !builderCreds.publicKey) {
         setResponseStatus(event, 400);
         return {
-          error:
+          error: gatewayLaneUnavailableMessage(
             "Builder must be connected to mint a managed realtime transcription session.",
+          ),
         };
       }
 
@@ -161,10 +165,11 @@ export function createGoogleRealtimeSessionHandler() {
           .catch(() => ({ error: `HTTP ${res.status}` }));
         setResponseStatus(event, res.status);
         return {
-          error:
+          error: gatewayLaneUnavailableMessage(
             typeof errorBody?.error === "string"
               ? errorBody.error
               : `Realtime session failed (${res.status})`,
+          ),
         };
       }
 
@@ -172,8 +177,9 @@ export function createGoogleRealtimeSessionHandler() {
       if (!payload?.websocketUrl) {
         setResponseStatus(event, 502);
         return {
-          error:
+          error: gatewayLaneUnavailableMessage(
             "Realtime transcription service did not return a websocket URL.",
+          ),
         };
       }
       return payload;

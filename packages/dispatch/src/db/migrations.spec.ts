@@ -75,6 +75,10 @@ describe("dispatch migrations", () => {
     const { rows } = await exec.execute(
       "SELECT MAX(version) as version FROM dispatch_migrations",
     );
-    expect(rows[0]?.version).toBe(4);
+    expect(rows[0]?.version).toBe(5);
+    const { rows: identityRows } = await exec.execute(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'identity_sso_authorization_code'",
+    );
+    expect(identityRows).toHaveLength(1);
   });
 });

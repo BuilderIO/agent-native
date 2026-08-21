@@ -3,6 +3,10 @@
  * Enables cross-isolate access on Cloudflare Workers and
  * reliable reconnection after page refreshes.
  */
+import {
+  MAX_BACKGROUND_RUN_CONTINUATIONS,
+  TURN_RUN_LEDGER_SLACK,
+} from "../app-config/run-lifecycle-invariants.js";
 import type { DbExec } from "../db/client.js";
 import { getDbExec, intType, isPostgres } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
@@ -221,15 +225,33 @@ async function hasRunningRuns(): Promise<boolean> {
 }
 
 /**
- * FIX 3 (durable-background incident) per-turn run-count ceiling for
- * stale-run recovery — mirrors `chainServerDrivenContinuation`'s own ledger
- * guard in production-agent.ts (`MAX_BACKGROUND_RUN_CONTINUATIONS + 5` = 25).
- * Duplicated as a literal rather than imported: production-agent.ts already
- * imports run-manager.ts, which imports this file, so a runtime import back
- * from here would be circular. Keep this numerically in sync if that
- * constant ever changes.
+ * Ceiling on run ROWS for one logical turn — the number the continuation-chain
+ * guard and stale-run recovery must agree on.
+ *
+ * This was a literal `25` here plus `MAX_BACKGROUND_RUN_CONTINUATIONS + 5` in
+ * production-agent.ts, kept in step by a comment asking the next editor to
+ * remember, because importing back from this file would have been circular.
+ * It no longer needs to be: the base value is configuration, and `app-config`
+ * imports no agent code, so both sites can read the same resolver.
  */
-const STALE_RUN_RECOVERY_MAX_TURN_RUNS = 25;
+export function resolveTurnRunLedgerBudget(): number {
+  return MAX_BACKGROUND_RUN_CONTINUATIONS + TURN_RUN_LEDGER_SLACK;
+}
+
+/**
+ * True when a turn holding `turnRunCount` run rows must not be given another.
+ *
+ * A predicate rather than a number the callers compare themselves, because both
+ * call sites had `turnRunCount > budget` and both were off by one: the current
+ * run's row is already inserted when they check, and the successor's row is
+ * inserted after — so at equality they permitted a row past the documented
+ * ceiling. Two sites, one comparison, no way for them to disagree about the
+ * boundary again. That is the third time in this area that one number had two
+ * spellings.
+ */
+export function turnRunLedgerExhausted(turnRunCount: number): boolean {
+  return turnRunCount >= resolveTurnRunLedgerBudget();
+}
 
 /**
  * Circuit breaker for a DETERMINISTIC dead-on-arrival loop: some request
@@ -238,7 +260,7 @@ const STALE_RUN_RECOVERY_MAX_TURN_RUNS = 25;
  * hitting a transient blip. Because `attemptStaleRunRecovery` replays the
  * SAME captured `dispatch_payload` on every successor (never a fresh
  * request), such a turn was retrying an unwinnable request up to
- * `STALE_RUN_RECOVERY_MAX_TURN_RUNS` (25) times — ~25 * 53s ≈ 22 minutes,
+ * `resolveTurnRunLedgerBudget()` (25) times — ~25 * 53s ≈ 22 minutes,
  * each cycle re-billing the full input context — before finally giving up.
  * Confirmed live in prod (assets: one turn cycled 24x, each attempt an
  * identical ~32K-token request that made a token of real progress around
@@ -330,7 +352,7 @@ export const IN_FLIGHT_RUN_STALE_GRACE_MS = 14.5 * 60_000; // 870_000
  */
 export const IN_FLIGHT_GRACE_MAX_LIVENESS_GAP_MS = 120_000;
 
-async function ensureRunTables(): Promise<void> {
+export async function ensureRunTables(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
       const client = getDbExec();
@@ -1427,6 +1449,14 @@ export const RUN_DIAG_STAGE = {
    * the per-turn budget is exhausted). See `attemptStaleRunRecovery`.
    */
   staleRunRecoveryAttempted: "stale_run_recovery_attempted",
+  /**
+   * The run manager reached a server-owned chunk boundary (`no_progress` or
+   * `run_timeout`). Detail carries the reason, whether it was recovered in the
+   * same invocation or terminated the turn, how long the run had been silent,
+   * and the last event type seen — the segment that went quiet, which is what
+   * no boundary previously recorded anywhere.
+   */
+  runBoundaryReached: "run_boundary_reached",
 } as const;
 
 export type RunDiagStage = (typeof RUN_DIAG_STAGE)[keyof typeof RUN_DIAG_STAGE];
@@ -1683,7 +1713,7 @@ function staleRecoveryDispatchPayload(payload: string): string {
  *     caller's own atomic "did I win the reap" gate, this guarantees AT MOST
  *     ONE recovery successor per reaped run even under concurrent reapers.
  *   - the per-turn run ledger (`countRunsForTurn`'s underlying query) has
- *     room (`STALE_RUN_RECOVERY_MAX_TURN_RUNS`) — mirrors
+ *     room (`resolveTurnRunLedgerBudget`) — mirrors
  *     `chainServerDrivenContinuation`'s own budget guard so a pathological
  *     turn can't loop forever through reaper-driven recovery either.
  */
@@ -1742,10 +1772,7 @@ async function attemptStaleRunRecovery(
   const turnRunCount = Number(
     (countRows?.[0] as { run_count?: unknown } | undefined)?.run_count,
   );
-  if (
-    Number.isFinite(turnRunCount) &&
-    turnRunCount > STALE_RUN_RECOVERY_MAX_TURN_RUNS
-  ) {
+  if (Number.isFinite(turnRunCount) && turnRunLedgerExhausted(turnRunCount)) {
     return { outcome: "budget_exhausted" };
   }
 
@@ -2813,6 +2840,8 @@ const RUN_OUTCOME_DAY_MS = 86_400_000;
  * every run id a user pasted into a bug report was gone before anyone looked.
  */
 const UNSUCCESSFUL_STATUS_SQL_LIST = `('errored', 'aborted', 'truncated')`;
+const RUN_OUTCOME_PRUNE_BATCH_LIMIT = 200;
+const RUN_OUTCOME_PRUNE_LOCK_KEY = "agent-native:run-outcome-prune";
 
 /**
  * Fold the terminal outcomes of the rows `cleanupOldRuns` is about to delete
@@ -2821,9 +2850,10 @@ const UNSUCCESSFUL_STATUS_SQL_LIST = `('errored', 'aborted', 'truncated')`;
  * covers exactly the unpruned ones, so a rate over any window is
  * `getRunOutcomeCounters()` plus the live rows — no gap, no double count.
  *
- * The DELETE ... RETURNING is the claim: concurrent cleanup calls can both
- * observe a row, but only the caller that deletes it receives it to roll up.
- * Grouping the returned rows in TypeScript avoids dialect-specific date SQL.
+ * Postgres callers take a transaction-scoped advisory lease before the claim.
+ * The bounded DELETE ... RETURNING is still the source of truth for which rows
+ * this invocation owns. Grouping the returned rows in TypeScript avoids
+ * dialect-specific date SQL.
  * Counter upserts run in the same transaction as the delete; a failed upsert
  * rolls back the claim so the source rows remain available for a retry.
  */
@@ -2833,22 +2863,38 @@ async function pruneAndRollUpPrunedRunOutcomes(
   erroredCutoff: number,
 ): Promise<void> {
   const prune = async (tx: ReturnType<typeof getDbExec>): Promise<void> => {
-    await tx.execute({
-      sql: `DELETE FROM agent_run_events WHERE run_id IN (
-        SELECT id FROM agent_runs
-        WHERE (status = 'completed' AND completed_at < ?)
-           OR (status IN ${UNSUCCESSFUL_STATUS_SQL_LIST} AND completed_at < ?)
-      )`,
-      args: [cutoff, erroredCutoff],
-    });
+    if (isPostgres()) {
+      const lockResult = await tx.execute({
+        sql: "SELECT pg_try_advisory_xact_lock(hashtextextended(?, 0::bigint)) AS acquired",
+        args: [RUN_OUTCOME_PRUNE_LOCK_KEY],
+      });
+      const acquired = lockResult.rows[0]?.acquired;
+      if (acquired !== true && acquired !== "t") return;
+    }
 
     const { rows } = await tx.execute({
       sql: `DELETE FROM agent_runs
-            WHERE (status = 'completed' AND completed_at < ?)
-               OR (status IN ${UNSUCCESSFUL_STATUS_SQL_LIST} AND completed_at < ?)
-            RETURNING status, completed_at, terminal_reason`,
+            WHERE id IN (
+              SELECT id FROM agent_runs
+              WHERE (status = 'completed' AND completed_at < ?)
+                 OR (status IN ${UNSUCCESSFUL_STATUS_SQL_LIST} AND completed_at < ?)
+              ORDER BY completed_at ASC, id ASC
+              LIMIT ${RUN_OUTCOME_PRUNE_BATCH_LIMIT}
+            )
+            RETURNING id, status, completed_at, terminal_reason`,
       args: [cutoff, erroredCutoff],
     });
+
+    const runIds = rows
+      .map((row) => (row as { id?: unknown }).id)
+      .filter((id): id is string => typeof id === "string");
+    if (runIds.length > 0) {
+      const placeholders = runIds.map(() => "?").join(", ");
+      await tx.execute({
+        sql: `DELETE FROM agent_run_events WHERE run_id IN (${placeholders})`,
+        args: runIds,
+      });
+    }
 
     const groups = new Map<
       string,
@@ -2956,7 +3002,9 @@ export async function getRunOutcomeCounters(options?: {
  *  pruned at `olderThanMs`; errored/aborted/truncated runs are kept until
  *  `erroredOlderThanMs` (a longer window, falling back to `olderThanMs`) so
  *  their event log survives for cut-off pattern analysis via listErroredRuns. */
-export async function cleanupOldRuns(
+let cleanupOldRunsInFlight: Promise<void> | undefined;
+
+async function cleanupOldRunsInternal(
   olderThanMs: number,
   erroredOlderThanMs?: number,
 ): Promise<void> {
@@ -3060,6 +3108,26 @@ export async function cleanupOldRuns(
   // deleted. The transaction prevents concurrent cleanup calls from both
   // counting the same source rows.
   await pruneAndRollUpPrunedRunOutcomes(client, cutoff, erroredCutoff);
+}
+
+/**
+ * Run cleanup is scheduled after every completed run, including completions
+ * from several concurrent requests in one isolate. Share one sweep locally;
+ * Postgres additionally serializes the durable prune across isolates.
+ */
+export function cleanupOldRuns(
+  olderThanMs: number,
+  erroredOlderThanMs?: number,
+): Promise<void> {
+  if (cleanupOldRunsInFlight) return cleanupOldRunsInFlight;
+
+  const current = cleanupOldRunsInternal(olderThanMs, erroredOlderThanMs);
+  let settled: Promise<void>;
+  settled = current.finally(() => {
+    if (cleanupOldRunsInFlight === settled) cleanupOldRunsInFlight = undefined;
+  });
+  cleanupOldRunsInFlight = settled;
+  return settled;
 }
 
 /**

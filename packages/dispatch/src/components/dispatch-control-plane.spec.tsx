@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router";
@@ -99,6 +100,7 @@ vi.mock("./create-app-popover", () => ({
 describe("DispatchControlPlane", () => {
   let container: HTMLDivElement;
   let root: Root;
+  let queryClient: QueryClient;
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -109,6 +111,12 @@ describe("DispatchControlPlane", () => {
     clientState.connectedApps = [];
     clientState.curatedTemplates = [];
     clientState.useChatModels.mockClear();
+    queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -125,7 +133,9 @@ describe("DispatchControlPlane", () => {
       root.render(
         <MemoryRouter initialEntries={["/overview"]}>
           <TooltipProvider>
-            <DispatchControlPlane />
+            <QueryClientProvider client={queryClient}>
+              <DispatchControlPlane />
+            </QueryClientProvider>
           </TooltipProvider>
         </MemoryRouter>,
       );
@@ -189,7 +199,9 @@ describe("DispatchControlPlane", () => {
       root.render(
         <MemoryRouter initialEntries={["/overview"]}>
           <TooltipProvider>
-            <DispatchControlPlane />
+            <QueryClientProvider client={queryClient}>
+              <DispatchControlPlane />
+            </QueryClientProvider>
           </TooltipProvider>
         </MemoryRouter>,
       );
@@ -279,7 +291,9 @@ describe("DispatchControlPlane", () => {
       root.render(
         <MemoryRouter initialEntries={["/overview"]}>
           <TooltipProvider>
-            <DispatchControlPlane />
+            <QueryClientProvider client={queryClient}>
+              <DispatchControlPlane />
+            </QueryClientProvider>
           </TooltipProvider>
         </MemoryRouter>,
       );
@@ -291,6 +305,9 @@ describe("DispatchControlPlane", () => {
     expect(container.textContent).toContain("Analytics");
     expect(container.textContent).toContain("Apps");
     expect(container.textContent).toContain("New");
+    expect(
+      container.querySelector('input[placeholder="Search apps"]'),
+    ).not.toBeNull();
     const viewAllLink = Array.from(container.querySelectorAll("a")).find(
       (link) => link.textContent?.trim() === "View all",
     );

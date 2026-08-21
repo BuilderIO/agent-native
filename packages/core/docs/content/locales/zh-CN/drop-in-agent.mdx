@@ -7,7 +7,7 @@ description: "使用 <AgentPanel>、<AgentSidebar> 和 sendToAgentChat() 将代�
 
 > **开发人员页面。** 此页面供开发人员将代理嵌入到 React 应用程序中。有关使用代理的最终用户体验，请参阅 [Using Your Agent](/docs/using-your-agent)。
 
-您不需要从头开始构建原生代理。代理聊天、代理资源选项卡、CLI 终端、语音输入和所有相关基础设施都作为少数 React 组件提供给您放入任何应用程序中。
+你不需要从头构建 Agent-Native。智能体聊天、资源选项卡、CLI 终端、语音输入以及所有相关基础设施均以少量 React 组件的形式提供，可直接放入任何应用。
 
 > **先决条件：** 服务器必须运行 `agent-chat-plugin`（它会自动安装在每个模板中）。如果您是从头开始，请参阅 [Server](/docs/server-overview)。
 >
@@ -178,7 +178,7 @@ export default function AgentRoute() {
 
 ## 编程消息：`sendToAgentChat()` {#send}
 
-将工作交给代理的按钮（而不是运行内联 `llm()` 调用 - [ladder](/docs/what-is-agent-native#the-ladder) 的反模式）：
+将工作交给智能体的按钮，而不是通过内联 `llm()` 调用创建单独的 AI 路径。有关这一差别为何重要，请参阅[为什么要以这种方式构建应用](/docs/what-is-agent-native#why-build-apps-this-way)。对于用户发起且可见的 AI 工作，请显式打开侧边栏，以便用户可以查看、引导并在同一线程中继续：
 
 ```tsx
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
@@ -268,7 +268,7 @@ const { send, isGenerating } = useSendToAgentChat();
 
 ## 来自 UI 的类型安全 actions：`useActionMutation()` {#use-action-mutation}
 
-当 UI 需要运行代理工具将运行的相同操作（[ladder](/docs/what-is-agent-native#rung-three) 的梯级 3）时，请使用 `useActionMutation`：
+当 UI 需要运行智能体工具会运行的同一操作时，请使用 [`useActionMutation`](/docs/client-data#use-action-mutation)：
 
 ```tsx
 import { useActionMutation } from "@agent-native/core/client/hooks";
@@ -279,11 +279,11 @@ const { mutate, isPending } = useActionMutation("reply-to-email");
 </Button>;
 ```
 
-类型安全参数来自 `defineAction()` 中的 zod 模式。完整的动作系统请参见 [Actions](/docs/actions)。
+类型安全参数来自 `defineAction()` 中的 zod 模式。完整的动作系统请参见 [Actions](/docs/actions-overview)。
 
 <Callout id="doc-block-1757zi5" tone="decision">
 
-**`useActionMutation` vs `sendToAgentChat`.** Run the operation directly with `useActionMutation` when the user clicked a deterministic button ("Send reply"). Hand it to `sendToAgentChat` when the work needs the agent's reasoning, tools, or multi-step planning. Never call an inline `llm()` from UI — that is rung 1 of the [ladder](/docs/what-is-agent-native#the-ladder).
+**`useActionMutation` 与 `sendToAgentChat`。** 当用户点击确定性按钮（“Send reply”）时，直接使用 `useActionMutation` 运行操作。当工作需要智能体的推理、工具或多步骤规划时，将其交给 `sendToAgentChat`。不要从 UI 调用内联 `llm()`；这会创建单独的 AI 路径，而不是使用共享的智能体循环。
 
 </Callout>
 
@@ -337,7 +337,7 @@ export default function Root() {
 
 ## 下一步是什么
 
-- [**Actions**](/docs/actions) — `defineAction()` 和 `useActionMutation()`
+- [**Actions**](/docs/actions-overview) — `defineAction()` 和 `useActionMutation()`
 - [**Context Awareness**](/docs/context-awareness) — 选择、导航、查看屏幕
 - [**代理资源**](/docs/agent-resources) —“代理资源”选项卡包含的内容（skills、内存、MCP 服务器、计划作业）
 - [**Voice Input**](/docs/voice-input) — 聊天编辑器中的麦克风

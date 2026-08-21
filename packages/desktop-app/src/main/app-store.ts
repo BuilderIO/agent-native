@@ -7,7 +7,6 @@ import {
   TEMPLATE_APPS,
   sortDesktopApps,
   type AppConfig,
-  type FrameSettings,
 } from "@shared/app-registry";
 import {
   normalizeDesktopShortcutAccelerator,
@@ -28,7 +27,6 @@ import {
 import { app } from "electron";
 
 const STORE_FILE = "app-config.json";
-const FRAME_STORE_FILE = "frame-config.json";
 const REMOTE_CONNECTOR_STORE_FILE = "remote-connector-config.json";
 const CODE_AGENT_PROVIDER_STORE_FILE = "code-agent-providers.json";
 const SHORTCUT_STORE_FILE = "shortcut-config.json";
@@ -90,8 +88,6 @@ type CodeAgentProviderCredentials = Partial<
   Record<CodeAgentProviderCredentialKey, string>
 >;
 
-export type { FrameSettings };
-
 export interface RemoteConnectorSettings {
   enabled: boolean;
 }
@@ -101,6 +97,7 @@ export interface DesktopAppPreferences {
   managedAppIds: string[];
   appOrder: string[];
   appModeDefaultsVersion?: number;
+  desktopSsoEnabled: boolean;
 }
 
 interface ShortcutStore {
@@ -110,15 +107,6 @@ interface ShortcutStore {
 
 interface QuickPromptStore extends QuickPromptPreferences {
   version: 1;
-}
-
-function defaultFrameSettings(): FrameSettings {
-  return {
-    enabled: true,
-    showCodeTab: true,
-    chatFirstMode: true,
-    mode: "prod",
-  };
 }
 
 function defaultRemoteConnectorSettings(): RemoteConnectorSettings {
@@ -179,10 +167,6 @@ function canonicalizeTemplateApp(appConfig: AppConfig, def: AppConfig) {
     localPath: appConfig.localPath,
     devPort: appConfig.devPort || def.devPort,
   };
-}
-
-function getFrameStorePath(): string {
-  return path.join(app.getPath("userData"), FRAME_STORE_FILE);
 }
 
 function getRemoteConnectorStorePath(): string {
@@ -481,33 +465,6 @@ export function getCodeAgentProviderSettingsStatus(): CodeAgentProviderSettings 
   };
 }
 
-export function loadFrameSettings(): FrameSettings {
-  try {
-    const raw = fs.readFileSync(getFrameStorePath(), "utf-8");
-    const stored = JSON.parse(raw) as Partial<FrameSettings> | null;
-    const settings = {
-      ...defaultFrameSettings(),
-      ...(stored ?? {}),
-      mode: "prod" as const,
-    };
-    if (stored?.mode !== "prod") {
-      writeJsonFileAtomic(getFrameStorePath(), settings);
-    }
-    return settings;
-  } catch {
-    return defaultFrameSettings();
-  }
-}
-
-export function saveFrameSettings(
-  settings: Partial<FrameSettings>,
-): FrameSettings {
-  const current = loadFrameSettings();
-  const updated = { ...current, ...settings, mode: "prod" as const };
-  writeJsonFileAtomic(getFrameStorePath(), updated);
-  return updated;
-}
-
 export function loadRemoteConnectorSettings(): RemoteConnectorSettings {
   try {
     const raw = fs.readFileSync(getRemoteConnectorStorePath(), "utf-8");
@@ -535,6 +492,7 @@ export function loadDesktopAppPreferences(): DesktopAppPreferences {
     appsRoot: getDefaultDesktopAppsRoot(),
     managedAppIds: [],
     appOrder: [],
+    desktopSsoEnabled: true,
   };
   try {
     const raw = JSON.parse(
@@ -558,6 +516,10 @@ export function loadDesktopAppPreferences(): DesktopAppPreferences {
       appsRoot,
       managedAppIds: [...new Set(managedAppIds)],
       appOrder: [...new Set(appOrder)],
+      desktopSsoEnabled:
+        typeof raw.desktopSsoEnabled === "boolean"
+          ? raw.desktopSsoEnabled
+          : defaults.desktopSsoEnabled,
       ...(typeof raw.appModeDefaultsVersion === "number"
         ? { appModeDefaultsVersion: raw.appModeDefaultsVersion }
         : {}),
@@ -580,6 +542,10 @@ export function saveDesktopAppPreferences(
       ...new Set(settings.managedAppIds ?? current.managedAppIds),
     ],
     appOrder: [...new Set(settings.appOrder ?? current.appOrder)],
+    desktopSsoEnabled:
+      typeof settings.desktopSsoEnabled === "boolean"
+        ? settings.desktopSsoEnabled
+        : current.desktopSsoEnabled,
     ...(settings.appModeDefaultsVersion !== undefined
       ? { appModeDefaultsVersion: settings.appModeDefaultsVersion }
       : current.appModeDefaultsVersion !== undefined

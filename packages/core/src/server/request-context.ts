@@ -16,6 +16,8 @@
  * continue to work.
  */
 
+import type { SignupAttributionContext } from "./attribution.js";
+
 type AsyncLocalStorageLike<T> = {
   getStore(): T | undefined;
   run<R>(store: T, callback: () => R): R;
@@ -116,6 +118,10 @@ export interface RequestRunContext {
   engine?: import("../agent/engine/types.js").AgentEngine;
   /** Model name for this run (set by onEngineResolved). */
   model?: string;
+  /** Request-authorized action names exposed to this agent run. */
+  allowedActionNames?: readonly string[];
+  /** Hosted tools-only harness selected for this agent run. */
+  hostedHarnessRuntime?: "claude-code" | "codex" | "pi" | "opencode";
   /**
    * True when this run is executing inside the durable background-function
    * worker (the `_process-run` self-dispatch), not the synchronous foreground
@@ -130,6 +136,8 @@ export interface RequestRunContext {
   toolResults?: Array<{ name: string; content: string; isError: boolean }>;
   /** Per-run fingerprints for large extension bodies already sent to the LLM. */
   extensionContentReads?: Record<string, string>;
+  /** Per-run keys for extension excerpt reads already sent to the LLM. */
+  extensionExcerptReads?: Record<string, true>;
   /** Per-run fingerprints for repeated tool-search calls already sent to the LLM. */
   toolSearchReads?: Record<
     string,
@@ -154,6 +162,13 @@ export interface RequestContext {
    * replay; never used for authorization.
    */
   browserSessionId?: string;
+  /**
+   * Browser attribution captured before a Better Auth signup crosses into its
+   * async user-create hook. Analytics-only; never used for authorization.
+   */
+  signupAttribution?: SignupAttributionContext;
+  /** Canonical client surface for analytics attribution. */
+  clientPlatform?: import("../shared/analytics-platform.js").AnalyticsClientPlatform;
   /**
    * Set when code reads authenticated request context. Public SSR shell/data
    * should not depend on this value; user/org-specific reads belong behind
@@ -229,14 +244,18 @@ export interface RequestContext {
 const GLOBAL_KEY = "__agentNativeRequestContextAls" as const;
 const OBSERVERS_KEY = "__agentNativeRequestContextObservers" as const;
 const BOUNDARY_KEY = "__agentNativeRequestBoundaryInstalled" as const;
+const CONTINUATION_LOCAL_KEY =
+  "__agentNativeRequestContextContinuationLocal" as const;
 type RequestContextObserver = (ctx: RequestContext) => void;
 type GlobalWithRequestContext = typeof globalThis & {
   [GLOBAL_KEY]?: AsyncLocalStorageLike<RequestContext>;
   [OBSERVERS_KEY]?: RequestContextObserver[];
   [BOUNDARY_KEY]?: boolean;
+  [CONTINUATION_LOCAL_KEY]?: boolean;
 };
 const globalRef = globalThis as GlobalWithRequestContext;
 if (!globalRef[GLOBAL_KEY]) {
+  globalRef[CONTINUATION_LOCAL_KEY] = Boolean(AsyncLocalStorageCtor);
   globalRef[GLOBAL_KEY] = AsyncLocalStorageCtor
     ? new AsyncLocalStorageCtor<RequestContext>()
     : new StackAsyncLocalStorage<RequestContext>();
@@ -246,6 +265,23 @@ if (!globalRef[OBSERVERS_KEY]) {
 }
 const als = globalRef[GLOBAL_KEY]!;
 const observers = globalRef[OBSERVERS_KEY]!;
+
+/**
+ * Authorization state must never use the shared-stack compatibility fallback:
+ * overlapping async requests are only isolated by native AsyncLocalStorage.
+ */
+export function assertRequestActionSurfaceIsolation(): void {
+  if (globalRef[CONTINUATION_LOCAL_KEY] === true) return;
+  throw new Error(
+    "Request-scoped action surfaces require continuation-local request context storage; " +
+      "this runtime only provides the non-isolated fallback.",
+  );
+}
+
+/** Whether request context values are isolated across overlapping promises. */
+export function hasContinuationLocalRequestContext(): boolean {
+  return globalRef[CONTINUATION_LOCAL_KEY] === true;
+}
 
 /**
  * Register a callback fired every time `runWithRequestContext` enters a new
@@ -279,6 +315,9 @@ export function runWithRequestContext<T>(
   ctx: RequestContext,
   fn: () => T | Promise<T>,
 ): T | Promise<T> {
+  if (ctx.run?.allowedActionNames !== undefined) {
+    assertRequestActionSurfaceIsolation();
+  }
   return als.run(ctx, () => {
     if (observers.length > 0) {
       for (const obs of observers) {

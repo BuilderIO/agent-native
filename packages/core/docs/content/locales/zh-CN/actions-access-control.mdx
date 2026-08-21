@@ -1,0 +1,360 @@
+---
+title: "访问与授权"
+description: "谁可以调用一个 action:暴露 flag(agentTool、toolCallable)、基于 ctx 的范围界定、accessFilter/assertAccess,以及 authorize 守卫。"
+---
+
+# 访问与授权
+
+五个设置项决定谁可以调用一个 action:代理、前端、扩展、外部 API 调用者,或者在没有人工先批准的情况下谁都不行。大多数 action 从来不需要碰这些设置,因为默认值已经适合普通的 UI 和代理使用场景。
+
+### 暴露 flag {#exposure-flags}
+
+全部五个 flag 都默认取宽松值,所以只有在需要收紧某个特定界面时才需要设置其中之一。下表是一份速览,后面的小节会补充每个 flag 所需的那一个细节。
+
+| Flag            | 默认值     | 限制值 → 谁仍然可以调用                                            | 典型用途                                              |
+| --------------- | ---------- | ------------------------------------------------------------------ | ----------------------------------------------------- |
+| `agentTool`     | `true`     | `false` → 仅 UI、HTTP 和 CLI(对模型、MCP 和 A2A 隐藏)              | 不应占用工具位置的仅 UI 或程序化 action               |
+| `toolCallable`  | `true`     | `false` → 除沙盒化的扩展 iframe 桥接之外的一切(403)                | 敏感的账户或组织变更(删除账户、变更成员关系)          |
+| `publicAgent`   | 关闭(私有) | `{ expose: true }` → 把该 action 加入**公共** MCP/A2A/OpenAPI 界面 | 不需要身份验证的安全读取或摄取类工具                  |
+| `needsApproval` | `false`    | `true` → 代理**暂停**,必须由人工批准这次具体的调用                 | 有实际后果的副作用(发送邮件、扣款、删除)              |
+| `authorize`     | 无         | 一个守卫函数 → 只有它接受的调用者才能在**每一个**界面上调用        | 限定于某个角色的操作(按应用划分的 RBAC、仅管理员操作) |
+
+这些 flag 相互独立,设置其中一个不会改变其他的。`agentTool` 控制模型能看到什么,见下方[对模型隐藏](#agent-tool)。`toolCallable` 只控制扩展 iframe,见下方[阻止扩展 iframe](#tool-callable)。`publicAgent` 增加了一个可选的公共界面,一个公开的网页路由从不意味着公开的工具暴露,见下方[对公共代理暴露](#public-agent)。`needsApproval` 是在调用已经发生之后才对执行进行门控,见下方[要求人工批准](#needs-approval)。`authorize` 决定这个调用者是否可以运行该 action,适用于每一条调用路径,在进入 `run()` 之前生效,见下方[按角色限制调用者](#authorize)。
+
+## 对模型隐藏 {#agent-tool}
+
+默认情况下,每个 action 都是一个可调用的代理工具。设置 `agentTool: false` 可以把它从每一个代理工具列表中移除,同时仍然处于框架的鉴权和 action 界面之后。它依然可以从 UI(`useActionMutation()` 或 `callAction()`)、CLI,以及 `/_agent-native/actions/<name>` 调用:
+
+```ts
+export default defineAction({
+  description: "Persist the user's sidebar width.",
+  agentTool: false, // UI-only, not a tool in the model's context window
+  schema: z.object({ widthPx: z.number() }),
+  http: { method: "PUT" },
+  run: async ({ widthPx }) => {
+    /* ... */
+  },
+});
+```
+
+当你新增一个仅供 UI 使用或纯程序化的 action,或者当 UI 不再使用某个原本会一直暴露给模型的 action 时,使用它。
+
+## 阻止扩展 iframe {#tool-callable}
+
+扩展([沙盒 iframe 中的 Alpine.js 迷你应用](/docs/extensions))通过 `appAction(name, params)` 调用 action,并以查看者自己的权限、密钥和 SQL 范围运行。对于敏感操作,默认给予的信任太多。设置 `toolCallable: false` 会让扩展桥接返回 403,同时保持该 action 仍可从 UI、代理、CLI、MCP 和 A2A 调用:
+
+```ts
+export default defineAction({
+  description: "Delete the current user's account.",
+  toolCallable: false, // never callable from an extension iframe
+  schema: z.object({ confirm: z.literal("yes") }),
+  run: async () => {
+    /* ... */
+  },
+});
+```
+
+把它用在会删除或转移账户/组织、变更身份验证状态、修改组织成员关系,或授予共享访问权限的 action 上。框架内置的 `share-resource`、`unshare-resource` 和 `set-resource-visibility` action 已经选择了退出。框架通过一个宿主在 iframe 调用上设置的请求头来强制执行这一点,iframe 无法伪造这个请求头。常规的 UI、代理、CLI、MCP 和 A2A 调用不受影响。详见 [安全](/docs/security)。
+
+## 对公共代理暴露 {#public-agent}
+
+每个 action 默认都不在任何公共协议界面上,即便它的网页路由是公开的。让一个页面可被爬取,并不会暴露一个工具。设置 `publicAgent: { expose: true, readOnly: true, ... }` 可以让一个安全的 action 加入公共 MCP、A2A 和 OpenAPI 界面:
+
+```ts
+export default defineAction({
+  description: "Search published docs.",
+  schema: z.object({ query: z.string() }),
+  http: { method: "GET" },
+  readOnly: true,
+  publicAgent: {
+    expose: true,
+    readOnly: true,
+    requiresAuth: false,
+  },
+  run: async ({ query }) => {
+    /* ... */
+  },
+});
+```
+
+只把它用在安全、只读或仅摄取类的 action 上,也就是那种你愿意让一个陌生人在不登录的情况下调用的 action。`requiresAuth: false` 会告诉公共界面,这个 action 在身份验证之前列出也是安全的。对于那些仍然需要一个已连接调用者身份的 action(比如按账户区分的摄取工具),把它保留为 `true`。完整的目录和鉴权模型,参阅 [外部代理](/docs/external-agents) 和 [MCP 协议](/docs/mcp-protocol)。
+
+## 要求人工批准 {#needs-approval}
+
+少数 action 的后果太过严重,不能让代理自行运行,比如发送邮件、扣款,或删除账户。在 `defineAction()` 上设置 `needsApproval: true`(或者一个谓词 `(args, ctx) => boolean | Promise<boolean>`),代理循环就会在 `run()` 之前暂停,需要人工批准这一次具体的调用。默认值是**关闭**,几乎每一个 action 都应该保持这个默认值。
+
+<Callout tone="warning">
+  批准应当保持罕见。每一个被门控的
+  action,都是代理循环中的一次硬性中断。它会打断运行,并要求一次人工往返确认。只把
+  `needsApproval`
+  用在那些后果真正严重、难以撤销、且面向外部的操作上。如果你发现自己在给读取操作或日常写入操作加上门控,那就是用错了地方。默认值是**关闭**,几乎每一个
+  action 都应该保持这个默认值。
+</Callout>
+
+<AnnotatedCode
+  id="doc-block-13p4g9y"
+  title="对那唯一有实际后果的操作进行门控"
+  filename="actions/send-email.ts"
+  language="ts"
+  code={
+    'export default defineAction({\n  description: "Send an email via Gmail.",\n  schema: z.object({\n    to: z.string(),\n    subject: z.string(),\n    body: z.string(),\n  }),\n  // Sending is outward-facing and hard to undo, so the agent can never send\n  // without a human approving the specific call. Drafting and queueing are\n  // not affected. Only the real send is gated.\n  needsApproval: true,\n  run: async (args) => {\n    /* ...actually send... */\n  },\n});'
+  }
+  annotations={[
+    {
+      lines: "10",
+      label: "整个门控",
+      note: "只有一个 flag。当它为真值且这次调用尚未获得批准时,循环会在 `run` 之前停下。模型永远无法独自到达这个副作用。",
+    },
+    {
+      lines: "11-13",
+      label: "`run()` 保持不变",
+      note: "处理函数本身没有变化。批准检查是由外层的循环强制执行的,而不是 `run` 内部的任何代码。",
+    },
+  ]}
+/>
+
+- **`needsApproval: true`** 始终要求批准。
+- **`needsApproval: (args, ctx) => boolean | Promise<boolean>`** 只有在谓词返回 true 时才要求批准。用它来做有条件的门控,例如只针对外部收件人,或者只在金额超过某个门槛时:
+
+  ```ts
+  needsApproval: (args) => !args.to.endsWith("@your-company.com"),
+  ```
+
+  保持这个谓词纯粹且执行迅速。如果谓词抛出异常,框架会把这次调用当作谓词返回了 true 来处理,所以该 action 会暂停等待批准,而不会继续运行。这意味着一个出问题的谓词,永远不会在没有人工批准的情况下,悄悄放行一个后果严重的操作。
+
+当省略 `needsApproval` 时,行为与之前逐字节保持一致。在常见路径上没有任何额外开销。
+
+对于旧式的 `parameters` 写法的 action 和基于 schema 的 action,这个机制的工作方式完全相同。对于应用内代理、子代理、A2A 和 MCP 调用者,它的工作方式也完全相同,因为每一个代理界面都会经过同一个循环。
+
+### 循环如何暂停 {#loop}
+
+当代理调用一个被门控的 action,并且这一次具体的调用**尚未**获得批准时,循环**不会**执行 `run()`。它会转而:
+
+1. 解析这个门控。对于一个谓词,循环会调用 `needsApproval(input, ctx)`。如果这次调用抛出异常,循环会把它当作返回了 `true` 来处理,所以该 action 会要求批准。
+2. 发出一个 `tool_start` 事件(这样 UI 就会显示这次调用),紧接着立即发出一个 **`approval_required`** 事件,然后停止这个 turn。该 action 的副作用永远不会发生。
+
+`approval_required` 事件携带了客户端渲染一个操作入口所需的一切信息:
+
+| 字段          | 类型     | 说明                                                         |
+| ------------- | -------- | ------------------------------------------------------------ |
+| `tool`        | `string` | 代理尝试调用的 action 名称。                                 |
+| `input`       | object   | 代理传入的参数。                                             |
+| `approvalKey` | `string` | **稳定的键**,客户端会把它原样传回,以批准*这一次确切的调用*。 |
+| `toolCallId`  | `string` | 模型侧的 tool-call id(如果可用)。                            |
+
+`approvalKey` 是根据工具名称加上其输入,以确定性的方式推导出来的,所以同一个逻辑调用总是会产生同一个键。模型永远看不到也不会设置这个键。它的存在,纯粹是为了在框架和人工的批准操作入口之间做一次握手。
+
+这个被暂停的工具会返回一个结果,告诉模型这个 turn 已经暂停,不要重试,这样模型就不会空转重复尝试。
+
+### 人工如何批准 {#approve}
+
+收到 `approval_required` 后,聊天界面会在这次被暂停的工具调用上渲染一个**批准 / 拒绝**操作入口。这在 `AssistantChat` 中是自动接好的,不需要你在每个模板里单独搭建。
+
+<WireframeBlock id="doc-block-humanapprovalwf1">
+  <Screen
+    surface="popover"
+    html={
+      "<div style='display:flex;flex-direction:column;box-sizing:border-box;padding:16px;gap:12px'><div class='wf-card' style='display:flex;flex-direction:column;gap:8px'><div style='display:flex;align-items:center;gap:8px'><span class='wf-pill warn'>Needs approval</span><strong>send-email</strong></div><div style='display:flex;flex-direction:column;gap:2px'><span class='wf-muted'>to: alex@acme.com</span><span class='wf-muted'>subject: Following up on the proposal</span></div><div style='display:flex;gap:8px'><button>Deny</button><button class='primary'>Approve</button></div></div></div>"
+    }
+  />
+</WireframeBlock>
+
+- **批准**会以一条普通的续接消息重新发出这个 turn,消息里在 `approvedToolCalls: [approvalKey]` 中携带这次调用的键。在重新发出的这个 turn 中,门控会在已批准的集合里看到这个键,于是让这一次具体的调用正常运行。
+- **拒绝**只会在本地关闭这个操作入口。不会重新发出任何东西,所以该 action 永远不会运行。
+
+`approvedToolCalls` 是聊天请求上的一个字段(`AgentChatRequest.approvedToolCalls`)。不在这个字段中出现的键,会一直保持暂停状态。批准一次调用,永远不会批准任何其他调用。因为这个键是按内容寻址的,所以一次批准只会授权那一次确切的调用,连同那些确切的参数。如果模型之后提议一次不同的发送,那会产生一个新的键,需要一次全新的批准。
+
+### 端到端流程 {#flow}
+
+<Diagram id="doc-block-2nor1g" title="批准中断" summary={"一次被门控的调用,会在 run() 触发之前暂停这个 turn。批准会重新发出这个 turn,并携带这次调用的键。只有到那时,副作用才会发生。"}>
+
+```html
+<div class="diagram-approve">
+  <div class="diagram-box" data-rough>代理调用 send-email</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-panel warn" data-rough>
+    <strong>门控为真,调用尚未获批准</strong
+    ><small class="diagram-muted"
+      >循环发出 tool_start + approval_required { tool, input, approvalKey
+      }</small
+    ><span class="diagram-pill warn">run() 尚未执行</span>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-box" data-rough>
+    人工在聊天中点击批准<br /><small class="diagram-muted"
+      >客户端携带 approvedToolCalls: [approvalKey] 重新发出这个 turn</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-panel ok" data-rough>
+    <span class="diagram-pill ok"
+      >门控看到这个键 &rarr; run() 执行 &rarr; 邮件发出</span
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-approve {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.diagram-approve .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+  padding: 12px 16px;
+  text-align: center;
+}
+.diagram-approve .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+Mail 模板中的 `send-email` action,是框架里这个门控机制的典范用法,而且它被有意设计得非常罕见。它设置了 `needsApproval: true`,这样代理就可以自由地起草和排队邮件。但在没有人工批准这次具体发送之前,它永远无法真正发送一条消息。
+
+## 按角色限制调用者 {#authorize}
+
+`authorize` 回答一个具体的问题:**这个调用者到底能不能运行这个操作?** 给它一个守卫函数,它就会在每一个调用者(代理工具、HTTP、前端、MCP、A2A 和 CLI)上,在 `run()` 之前运行。
+
+用 `defineAppRoles()` 一次性声明角色词汇表:
+
+```ts
+// server/lib/access.ts
+import { defineAppRoles } from "@agent-native/core/org-team";
+
+export const coachAccess = defineAppRoles({
+  appId: "coach",
+  roles: ["member", "coach-admin"] as const,
+  defaultRole: "member", // display only, never satisfies a guard
+});
+```
+
+然后用一份显式的可接受角色列表来守卫该 action:
+
+```ts
+// actions/archive-plan.ts
+import { coachAccess } from "../server/lib/access.js";
+
+export default defineAction({
+  description: "Archive a training plan.",
+  schema: z.object({ id: z.string() }),
+  authorize: coachAccess.requireAny("coach-admin"),
+  run: async ({ id }) => {
+    /* ... */
+  },
+});
+```
+
+这个守卫包裹的是 `run()` 本身,而不是挂在该 action 的其他部分上。这是因为 `run()` 是所有六个调用路径都会经过的唯一一个地方,所以调用者没有任何办法绕过这个检查直接到达函数体。一个抛出异常的守卫会用它自己的错误信息拒绝这次调用。一个返回 `false` 的守卫会用一个通用的 403 拒绝这次调用。其他任何返回值,包括 `undefined`,都会放行这次调用。因为这个检查需要一个调用者身份,所以一次没有用户邮箱的无人值守 CLI 或 cron 调用会被拒绝,而不是被放行。
+
+这些包装器按以下顺序组合:
+
+```text
+validate input -> authorize -> run -> validate output -> audit
+```
+
+授权发生在输入校验*内部*,所以一个检查 `args` 的守卫拿到的,是 `run()` 收到的那份经过解析、类型检查过的值,而不是调用者发送的原始形状。审计是最外层的,所以一次拒绝依然会被记录下来。
+
+`requireAny()` 在定义时就会失败,而不是在请求时。用空角色列表调用它,或者用一个不在已声明列表中的角色调用它,都会在模块加载时立即抛出异常。这样一来,像 `authorize: coachAccess.requireAny()` 这种漏掉参数的错误,会在它发生的那一刻就出问题,而不是之后变成一个莫名其妙的 403。
+
+### Action 中的访问控制 {#access-control}
+
+`authorize` 只回答调用者是否可以运行这个操作,它不涉及调用者可以触碰哪些行,那是一个独立的、行级别的检查。一张用 `ownableColumns()` 构建、并用 `registerShareableResource()` 注册的表(见[共享](/docs/sharing#building))会为此获得两个辅助函数:`accessFilter()` 把一次列表或读取查询限定在调用者可见的行上,`assertAccess()` 会在写入之前抛出异常,如果调用者在这一行上没有所需的角色。
+
+在一个列表或读取 action 的查询中使用 `accessFilter()`:
+
+```ts
+// actions/list-decks.ts
+import { defineAction } from "@agent-native/core/action";
+import { accessFilter } from "@agent-native/core/sharing";
+import { z } from "zod";
+import { getDb, schema } from "../server/db/index.js";
+
+export default defineAction({
+  description: "List the decks the current user can see.",
+  schema: z.object({}),
+  http: { method: "GET" },
+  run: async () => {
+    const db = getDb();
+    return await db
+      .select()
+      .from(schema.decks)
+      .where(accessFilter(schema.decks, schema.deckShares));
+  },
+});
+```
+
+在一次更新或删除之前使用 `assertAccess()`,因为单靠一个 `WHERE` 子句无法阻止对它排除在外的某一行进行写入:
+
+```ts
+// actions/rename-deck.ts
+import { defineAction } from "@agent-native/core/action";
+import { assertAccess } from "@agent-native/core/sharing";
+import { eq } from "drizzle-orm";
+import { z } from "zod";
+import { getDb, schema } from "../server/db/index.js";
+
+export default defineAction({
+  description: "Rename a deck.",
+  schema: z.object({ id: z.string(), title: z.string() }),
+  run: async ({ id, title }) => {
+    await assertAccess("deck", id, "editor");
+    const db = getDb();
+    await db.update(schema.decks).set({ title }).where(eq(schema.decks.id, id));
+    return { ok: true };
+  },
+});
+```
+
+一个创建类 action 两个辅助函数都不会调用。它只需要在插入新行时,从请求上下文中盖上 `ownerEmail`(和 `orgId`)的戳,因为这时还没有已存在的行可以用来校验访问权限。完整的注册和创建模式,参阅 [共享](/docs/sharing#building);上面用到的 `ctx` 第二个参数的完整形状,参阅 [运行上下文](/docs/actions-run-context)。
+
+这三种机制不能互相替代:
+
+| 机制                              | 它回答的问题                               | 适用范围                  |
+| --------------------------------- | ------------------------------------------ | ------------------------- |
+| `authorize`                       | 这个调用者到底能不能执行这个操作?          | 全部六个调用路径          |
+| `needsApproval`                   | 这次已获许可的具体调用,是否应该由人工批准? | 仅代理循环                |
+| `accessFilter()`/`assertAccess()` | 这个已获许可的调用者可以看到或写入哪些行?  | `run()` 内部,按查询或按行 |
+
+一个受限制的写入类 action 通常同时需要 `authorize` 和 `assertAccess()`。前者把非教练挡在这个操作之外,后者把某个教练挡在另一个组织的训练计划之外。`needsApproval` 是一个独立的维度,它从不限制谁可以调用,只限制代理是否可以无人值守地继续执行。
+
+上面的 `coachAccess` 来自 `defineAppRoles()`,它是叠加在组织成员关系之上的按应用角色层。角色模型及其保证,参阅 [组织、团队与权限 → 按应用角色](/docs/organizations-teams-permissions#app-roles-per-app-rbac)。
+
+## 审计日志 {#audit}
+
+每个变更类 action 都会被自动审计。框架会记录谁运行了它、什么时候运行的、来自哪个界面,以及在是代理运行时,是哪个 thread 和 turn,同时对凭据信息做脱敏处理。只读的(`GET`)action 会被跳过。你不需要为此编写任何代码,它在 `defineAction()` 内部自动发生。
+
+只有在需要精细调整捕获行为时,才添加一个 `audit` 块。最常见的原因是声明该 action 变更的资源,这样这次变更就会出现在该资源所有者的记录中:
+
+```ts
+export default defineAction({
+  description: "Delete a recording.",
+  schema: z.object({ id: z.string() }),
+  audit: {
+    target: (args, result) => ({ type: "recording", id: args.id }),
+    summary: (args) => `Deleted recording ${args.id}`,
+  },
+  run: async (args, ctx) => {
+    /* ...delete... */
+  },
+});
+```
+
+还有一些其他选项。`audit: { onRead: true }` 会审计一次敏感的读取,比如访问某个密钥,或者一次批量导出。`audit: { enabled: false }` 让一个噪音很大的写入类 action 退出审计。`audit: { recordInputs: false }` 跳过捕获参数。用内置的 `list-audit-events` 和 `get-audit-event` action 读回这份记录。完整细节参阅 [审核日志](/docs/audit-log)。
+
+## 下一步
+
+- [**概览**](/docs/actions-overview) — action 是什么,以及 hello-world 演练
+- [**定义 Actions**](/docs/actions-defining) — `defineAction()` 的结构、schema 和 HTTP 配置
+- [**运行上下文**](/docs/actions-run-context) — 这些检查所读取的 `ctx` 参数
+- [**Mail 模板**](/docs/template-mail) — `send-email` 是 `needsApproval` 的参考示例
+- [**审核日志**](/docs/audit-log) — 自动化的谁改了什么的记录
+- [**安全**](/docs/security) — `accessFilter`/`assertAccess`,以及扩展 iframe 的信任边界
+- [**共享**](/docs/sharing) — 这些辅助函数所依托的框架共享系统

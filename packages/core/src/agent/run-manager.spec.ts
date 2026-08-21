@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  BACKGROUND_SOFT_TIMEOUT_CEILING_MS,
+  RUN_NO_PROGRESS_HARD_TIMEOUT_MS,
+} from "../app-config/run-lifecycle-invariants.js";
+import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "./engine/credential-errors.js";
@@ -78,6 +82,8 @@ vi.mock("./run-store.js", () => ({
   setRunError: vi.fn(() => Promise.resolve()),
   setRunTerminalReason: vi.fn(() => Promise.resolve()),
   persistRunCheckpointEvent: vi.fn(() => Promise.resolve()),
+  recordRunDiagnostic: vi.fn(() => Promise.resolve()),
+  RUN_DIAG_STAGE: { runBoundaryReached: "run_boundary_reached" },
   // Faithful copy of the real pure mapping so the run-manager abort paths can
   // be exercised without the real DB module.
   terminalEventForAbortReason: (reason: string | undefined) => {
@@ -134,14 +140,12 @@ import { isInBackgroundFunctionRuntime } from "./durable-background.js";
 import {
   abortRun,
   abortRunDurably,
-  BACKGROUND_SOFT_TIMEOUT_CEILING_MS,
+  engineRequestShapeTags,
   DEFAULT_BACKGROUND_NO_PROGRESS_TIMEOUT_MS,
-  DEFAULT_BACKGROUND_RUN_SOFT_TIMEOUT_MS,
   DEFAULT_COMPLETED_RUN_RETENTION_MS,
   DEFAULT_ERRORED_RUN_RETENTION_MS,
   DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS,
   HOSTED_SOFT_TIMEOUT_CEILING_MS,
-  RUN_NO_PROGRESS_HARD_TIMEOUT_MS,
   resolveRunNoProgressTimeoutMs,
   resolveRunToolTimeoutCeilingMs,
   getActiveRunForThreadAsync,
@@ -183,6 +187,7 @@ import {
   reapUnclaimedBackgroundRun,
   reconcileTerminalRunFromEvents,
   persistRunCheckpointEvent,
+  setRunInFlightMarker,
 } from "./run-store.js";
 
 const originalTimeoutEnv = process.env.AGENT_RUN_SOFT_TIMEOUT_MS;
@@ -676,11 +681,8 @@ describe("run manager soft timeout", () => {
     process.env.NETLIFY = "true";
     expect(
       resolveRunSoftTimeoutMs(undefined, { backgroundFunction: true }),
-    ).toBe(DEFAULT_BACKGROUND_RUN_SOFT_TIMEOUT_MS);
+    ).toBe(BACKGROUND_SOFT_TIMEOUT_CEILING_MS);
     // Sanity: that default is well above the 40s interactive clamp.
-    expect(DEFAULT_BACKGROUND_RUN_SOFT_TIMEOUT_MS).toBe(
-      BACKGROUND_SOFT_TIMEOUT_CEILING_MS,
-    );
     expect(BACKGROUND_SOFT_TIMEOUT_CEILING_MS).toBeGreaterThan(
       HOSTED_SOFT_TIMEOUT_CEILING_MS,
     );
@@ -768,7 +770,7 @@ describe("run manager soft timeout", () => {
     process.env.AWS_LAMBDA_FUNCTION_NAME = "server-agent-background";
     expect(isInBackgroundFunctionRuntime()).toBe(true);
     expect(resolveForWorker({ isBackgroundWorker: true })).toBe(
-      DEFAULT_BACKGROUND_RUN_SOFT_TIMEOUT_MS,
+      BACKGROUND_SOFT_TIMEOUT_CEILING_MS,
     );
   });
 
@@ -2072,6 +2074,82 @@ describe("run manager soft timeout", () => {
     });
   });
 
+  // The client decides auto-continue from the error code and these fields. A
+  // deployment that answers visitors with one line replaces the message it used
+  // to keyword-match, so the engine's verdict has to travel as a field or the
+  // turn ends on those sites alone.
+  it("carries a provider-retryable engine failure on the wire", async () => {
+    const events: AgentChatEvent[] = [];
+
+    const run = startRun(
+      "run-provider-retryable",
+      "thread-provider-retryable",
+      async () => {
+        throw new EngineError(
+          "AI features aren't available on this site right now.",
+          {
+            providerRetryable: true,
+          },
+        );
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    run.subscribers.add((event) => events.push(event.event));
+
+    await vi.waitFor(() =>
+      expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+        "run-provider-retryable",
+        "errored",
+      ),
+    );
+
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "error", providerRetryable: true }),
+    );
+    // NOT `recoverable`: that field is the server's own continuation-boundary
+    // signal, and the two classifiers that read it (thread-data-builder's
+    // `isInternalContinuationError`, production-agent's
+    // `isRecoverableContinuationError`) would drop this error from the persisted
+    // turn and self-chain a background continuation into a live provider
+    // throttle. Asserted per-property because `toEqual`/`objectContaining`
+    // treat an absent key and `recoverable: undefined` as the same thing.
+    const retryableEvent = events.find((event) => event.type === "error");
+    expect(retryableEvent).not.toHaveProperty("recoverable");
+  });
+
+  it("leaves a terminal engine failure unrecoverable on the wire", async () => {
+    const events: AgentChatEvent[] = [];
+
+    const run = startRun(
+      "run-provider-terminal",
+      "thread-provider-terminal",
+      async () => {
+        throw new EngineError(
+          "AI features aren't available on this site right now.",
+          {
+            errorCode: "credits-limit-reached",
+          },
+        );
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    run.subscribers.add((event) => events.push(event.event));
+
+    await vi.waitFor(() =>
+      expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+        "run-provider-terminal",
+        "errored",
+      ),
+    );
+
+    const errorEvent = events.find((event) => event.type === "error");
+    expect(errorEvent).toBeDefined();
+    expect(errorEvent).not.toHaveProperty("recoverable");
+    expect(errorEvent).not.toHaveProperty("providerRetryable");
+  });
+
   it("does not capture missing LLM provider errors while preserving the terminal event", async () => {
     const provider = vi.fn(() => "evt_run");
     const unregister = registerErrorCaptureProvider(
@@ -2225,6 +2303,56 @@ describe("run manager soft timeout", () => {
     });
   });
 
+  // A truncated gateway stream is a routine interruption the client continues
+  // from. It reached here as `builder_gateway_network_error` — recovered from the
+  // sentence "stream ended without a stop event" — until the engine gave it a
+  // code of its own, and on a Builder-credits deployment the sentence is replaced
+  // by one visitor line, so the code is the only thing left to suppress on.
+  it("keeps a truncated gateway stream out of Sentry on both lanes", async () => {
+    for (const [name, message] of [
+      ["owner", "Builder gateway stream ended without a stop event"],
+      ["visitor", "AI features aren't available on this site right now."],
+    ] as const) {
+      const provider = vi.fn(() => "evt_run");
+      const unregister = registerErrorCaptureProvider(
+        `run-manager-stream-ended-${name}`,
+        provider,
+      );
+      const events: AgentChatEvent[] = [];
+
+      try {
+        const run = startRun(
+          `run-stream-ended-${name}`,
+          `thread-stream-ended-${name}`,
+          async () => {
+            throw new EngineError(message, {
+              errorCode: "builder_gateway_stream_ended",
+            });
+          },
+          undefined,
+          { softTimeoutMs: 0 },
+        );
+        run.subscribers.add((event) => events.push(event.event));
+
+        await vi.waitFor(() =>
+          expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+            `run-stream-ended-${name}`,
+            "errored",
+          ),
+        );
+      } finally {
+        unregister();
+      }
+
+      expect(provider).not.toHaveBeenCalled();
+      expect(events).toContainEqual({
+        type: "error",
+        error: message,
+        errorCode: "builder_gateway_stream_ended",
+      });
+    }
+  });
+
   it("emits terminal events only after the completion callback resolves", async () => {
     let resolveComplete!: () => void;
     const onComplete = vi.fn(
@@ -2318,6 +2446,52 @@ describe("run manager soft timeout", () => {
       "run-server-continuation-terminal",
       1,
       JSON.stringify({ type: "auto_continue", reason: "stream_ended" }),
+    );
+  });
+
+  it("emits a terminal event the callback installed even when the loop already stashed one", async () => {
+    // `completionRun` is a COPY once the loop stashed a terminal event, so a
+    // callback writing to it used to be silently ignored — the run emitted the
+    // recoverable error the callback was overriding, and the client re-POSTed
+    // the chain the server had just stopped.
+    const events: AgentChatEvent[] = [];
+    const onComplete = vi.fn(async (completionRun: ActiveRun) => {
+      completionRun.continuationTerminalEvent = {
+        type: "error",
+        error: "Sorry, we ran into an issue. ERROR ID: 0f3c9ab21d7e",
+        errorCode: "builder_gateway_internal_error",
+        recoverable: false,
+      };
+    });
+    const run = startRun(
+      "run-callback-terminal-override",
+      "thread-callback-terminal-override",
+      async (send) => {
+        send({
+          type: "error",
+          error: "Sorry, we ran into an issue. ERROR ID: 0f3c9ab21d7e",
+          errorCode: "builder_gateway_internal_error",
+          recoverable: true,
+        });
+      },
+      onComplete,
+      { softTimeoutMs: 0 },
+    );
+    run.subscribers.add((event) => events.push(event.event));
+
+    await run.finalized;
+
+    expect(events.at(-1)).toEqual({
+      type: "error",
+      error: "Sorry, we ran into an issue. ERROR ID: 0f3c9ab21d7e",
+      errorCode: "builder_gateway_internal_error",
+      recoverable: false,
+    });
+    // The row still records the underlying failure, not a generic one.
+    expect(setRunError).toHaveBeenCalledWith(
+      "run-callback-terminal-override",
+      "builder_gateway_internal_error",
+      "Sorry, we ran into an issue. ERROR ID: 0f3c9ab21d7e",
     );
   });
 
@@ -3687,6 +3861,11 @@ describe("run manager soft timeout", () => {
       expect(resolveRunNoProgressTimeoutMs({ softTimeoutMs: 0 })).toBe(0);
     });
 
+    // The wedged-transport case the backstop was built for: keepalives with no
+    // engine call in flight (the loop never entered one, or died inside setup).
+    // Distinct from keepalives arriving INSIDE a `model_stream` bracket, which
+    // the next test covers — there the model is demonstrably generating and the
+    // loop's own 90s watchdog is the one on duty.
     it("checkpoints via auto_continue(no_progress) and aborts when only keepalives stream past the window", async () => {
       const events: AgentChatEvent[] = [];
       let aborted = false;
@@ -3984,6 +4163,501 @@ describe("run manager soft timeout", () => {
       expect(abortReason).toBe("no_progress");
       expect(run.status).toBe("completed");
     });
+
+    it("does NOT backstop a run with a model stream in flight, and re-arms when it ends", async () => {
+      const events: AgentChatEvent[] = [];
+      let aborted = false;
+      let abortReason: unknown;
+      let endStream: (() => void) | undefined;
+
+      const run = startRun(
+        "run-no-progress-model-stream-in-flight",
+        "thread-no-progress-model-stream-in-flight",
+        async (send, signal) => {
+          send({ type: "model_stream", status: "start" });
+          // Extended thinking: the engine is streaming frames the loop can see,
+          // but nothing forwarded here counts as progress. Before the bracket
+          // existed this window is what killed live runs at the backstop bound.
+          const keepaliveTimer = setInterval(() => {
+            send({ type: "stream_keepalive" });
+          }, 1500);
+          endStream = () => {
+            clearInterval(keepaliveTimer);
+            send({ type: "model_stream", status: "end" });
+          };
+          await new Promise<void>((resolve) => {
+            signal.addEventListener("abort", () => {
+              clearInterval(keepaliveTimer);
+              aborted = true;
+              abortReason = signal.reason;
+              resolve();
+            });
+          });
+        },
+        undefined,
+        { softTimeoutMs: 0, noProgressTimeoutMs: 5_000 },
+      );
+      run.subscribers.add((event) => events.push(event.event));
+
+      // Well past the window with the stream open — suspended, exactly like a
+      // tool call in flight.
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(aborted).toBe(false);
+      expect(events).not.toContainEqual(
+        expect.objectContaining({ type: "auto_continue" }),
+      );
+
+      // Closing the bracket both lifts the suspension and counts as progress,
+      // so the clock restarts from the `end` rather than firing immediately.
+      endStream?.();
+      await vi.advanceTimersByTimeAsync(3_000);
+      expect(aborted).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(3_000);
+      expect(aborted).toBe(true);
+      expect(abortReason).toBe("no_progress");
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "auto_continue",
+          reason: "no_progress",
+        }),
+      );
+    });
+
+    it("mirrors the SQL in-flight marker across the model-stream bracket", async () => {
+      vi.mocked(setRunInFlightMarker).mockClear();
+      let endStream: (() => void) | undefined;
+
+      const run = startRun(
+        "run-in-flight-marker-model-stream",
+        "thread-in-flight-marker-model-stream",
+        async (send, signal) => {
+          send({ type: "model_stream", status: "start" });
+          endStream = () => send({ type: "model_stream", status: "end" });
+          await new Promise<void>((resolve) => {
+            signal.addEventListener("abort", () => resolve());
+          });
+        },
+        undefined,
+        { softTimeoutMs: 0 },
+      );
+
+      await vi.waitFor(() =>
+        expect(vi.mocked(setRunInFlightMarker)).toHaveBeenCalledWith(
+          "run-in-flight-marker-model-stream",
+          true,
+          expect.any(Number),
+        ),
+      );
+
+      endStream?.();
+      await vi.waitFor(() =>
+        expect(vi.mocked(setRunInFlightMarker)).toHaveBeenCalledWith(
+          "run-in-flight-marker-model-stream",
+          false,
+          expect.any(Number),
+        ),
+      );
+
+      expect(abortRun("run-in-flight-marker-model-stream")).toBe(true);
+      await run.finalized;
+    });
+
+    it("clears a model-stream bracket leaked by a throw mid-stream", async () => {
+      vi.mocked(setRunInFlightMarker).mockClear();
+
+      // A stream that throws never reaches its own `end`; terminal cleanup is
+      // the backstop against a leaked increment holding the SQL grace marker.
+      const run = startRun(
+        "run-in-flight-marker-model-stream-leak",
+        "thread-in-flight-marker-model-stream-leak",
+        async (send) => {
+          send({ type: "model_stream", status: "start" });
+          throw new Error("transport died mid-stream");
+        },
+        undefined,
+        { softTimeoutMs: 0 },
+      );
+
+      await run.finalized;
+
+      expect(vi.mocked(setRunInFlightMarker)).toHaveBeenCalledWith(
+        "run-in-flight-marker-model-stream-leak",
+        false,
+        expect.any(Number),
+      );
+    });
+  });
+
+  // ─── Chunk-scoped checkpoints (recoverChunkBoundaries) ─────────────────────
+  //
+  // The property most at risk from scoping the checkpoint to the chunk is that
+  // a user Stop still ends the turn, so both abort sources are exercised here
+  // against the same runFn.
+  describe("chunk-scoped checkpoints", () => {
+    it("ends only the chunk on a no-progress boundary, leaving the turn alive", async () => {
+      const chunkAborts: unknown[] = [];
+      let turnAborted = false;
+      let boundaryReason: string | null = null;
+      let finish: (() => void) | undefined;
+
+      const run = startRun(
+        "run-chunk-no-progress",
+        "thread-chunk-no-progress",
+        async (send, signal, control) => {
+          control.turnSignal.addEventListener("abort", () => {
+            turnAborted = true;
+          });
+          const keepaliveTimer = setInterval(() => {
+            send({ type: "stream_keepalive" });
+          }, 1500);
+          await new Promise<void>((resolve) => {
+            signal.addEventListener("abort", () => resolve(), { once: true });
+          });
+          clearInterval(keepaliveTimer);
+          chunkAborts.push(signal.reason);
+          boundaryReason = control.chunkBoundaryReason();
+          // Recover exactly the way the agent-loop wrapper does.
+          const next = control.beginChunk();
+          send({ type: "text", text: "recovered" });
+          await new Promise<void>((resolve) => {
+            finish = resolve;
+            next.addEventListener("abort", () => resolve(), { once: true });
+          });
+        },
+        undefined,
+        {
+          softTimeoutMs: BACKGROUND_SOFT_TIMEOUT_CEILING_MS,
+          backgroundFunction: true,
+          recoverChunkBoundaries: true,
+        },
+      );
+      run.subscribers.add(() => {});
+
+      await vi.advanceTimersByTimeAsync(
+        DEFAULT_BACKGROUND_NO_PROGRESS_TIMEOUT_MS + 1,
+      );
+
+      expect(chunkAborts).toEqual(["no_progress"]);
+      expect(boundaryReason).toBe("no_progress");
+      expect(turnAborted).toBe(false);
+      expect(run.abort.signal.aborted).toBe(false);
+      expect(run.status).toBe("running");
+      // No `auto_continue` reaches the stream: the turn did not stop here, and
+      // a trailing auto_continue is exactly what a caller reads as a cut-off.
+      expect(run.events.some((e) => e.event.type === "auto_continue")).toBe(
+        false,
+      );
+      expect(run.events.some((e) => e.event.type === "text")).toBe(true);
+
+      finish?.();
+      await run.finalized;
+      expect(run.status).toBe("completed");
+    });
+
+    it("re-arms the backstop for each recovered chunk instead of firing on the previous chunk's silence", async () => {
+      const chunkAborts: unknown[] = [];
+
+      const run = startRun(
+        "run-chunk-rearm",
+        "thread-chunk-rearm",
+        async (send, signal, control) => {
+          let current = signal;
+          for (let i = 0; i < 2; i++) {
+            await new Promise<void>((resolve) => {
+              current.addEventListener("abort", () => resolve(), {
+                once: true,
+              });
+            });
+            chunkAborts.push(current.reason);
+            current = control.beginChunk();
+          }
+          await new Promise<void>((resolve) => {
+            current.addEventListener("abort", () => resolve(), { once: true });
+          });
+        },
+        undefined,
+        {
+          softTimeoutMs: BACKGROUND_SOFT_TIMEOUT_CEILING_MS,
+          backgroundFunction: true,
+          recoverChunkBoundaries: true,
+        },
+      );
+      run.subscribers.add(() => {});
+
+      await vi.advanceTimersByTimeAsync(
+        DEFAULT_BACKGROUND_NO_PROGRESS_TIMEOUT_MS + 1,
+      );
+      expect(chunkAborts).toEqual(["no_progress"]);
+
+      // Only a full second window later, measured from the recovery — not
+      // immediately, which is what a shared clock would have produced.
+      await vi.advanceTimersByTimeAsync(
+        DEFAULT_BACKGROUND_NO_PROGRESS_TIMEOUT_MS - 5_000,
+      );
+      expect(chunkAborts).toEqual(["no_progress"]);
+      await vi.advanceTimersByTimeAsync(5_001);
+      expect(chunkAborts).toEqual(["no_progress", "no_progress"]);
+
+      expect(abortRun("run-chunk-rearm")).toBe(true);
+      await run.finalized;
+    });
+
+    it("still ends the turn immediately on a user Stop", async () => {
+      let turnAborted = false;
+      let boundaryReason: string | null = "unset";
+
+      const run = startRun(
+        "run-chunk-user-stop",
+        "thread-chunk-user-stop",
+        async (send, signal, control) => {
+          await new Promise<void>((resolve) => {
+            signal.addEventListener("abort", () => resolve(), { once: true });
+          });
+          turnAborted = control.turnSignal.aborted;
+          boundaryReason = control.chunkBoundaryReason();
+          // A caller that tries to keep going after a Stop gets the aborted
+          // turn signal back, not a fresh chunk.
+          expect(control.beginChunk().aborted).toBe(true);
+        },
+        undefined,
+        {
+          softTimeoutMs: BACKGROUND_SOFT_TIMEOUT_CEILING_MS,
+          backgroundFunction: true,
+          recoverChunkBoundaries: true,
+        },
+      );
+      run.subscribers.add(() => {});
+
+      expect(abortRun("run-chunk-user-stop")).toBe(true);
+      await run.finalized;
+
+      expect(turnAborted).toBe(true);
+      // A Stop is not a chunk boundary. Reading it as one is the bug.
+      expect(boundaryReason).toBeNull();
+      expect(run.status).toBe("aborted");
+    });
+
+    it("still cancels the chunk opened AFTER a recovery when the turn aborts", async () => {
+      // The turn-abort listener is registered once and reads `chunkAbort`
+      // through the closure, so replacing the controller must not orphan it.
+      // If it did, Stop, the cross-isolate abort and a caller's hard timeout
+      // would all stop reaching a post-boundary chunk — the run would keep
+      // going after the user asked it not to.
+      let recoveredChunk: AbortSignal | undefined;
+      let recoveredChunkAbortReason: unknown;
+
+      const run = startRun(
+        "run-chunk-abort-after-recovery",
+        "thread-chunk-abort-after-recovery",
+        async (send, signal, control) => {
+          const keepaliveTimer = setInterval(() => {
+            send({ type: "stream_keepalive" });
+          }, 1500);
+          await new Promise<void>((resolve) => {
+            signal.addEventListener("abort", () => resolve(), { once: true });
+          });
+          clearInterval(keepaliveTimer);
+          recoveredChunk = control.beginChunk();
+          await new Promise<void>((resolve) => {
+            recoveredChunk!.addEventListener(
+              "abort",
+              () => {
+                recoveredChunkAbortReason = recoveredChunk!.reason;
+                resolve();
+              },
+              { once: true },
+            );
+          });
+        },
+        undefined,
+        {
+          softTimeoutMs: BACKGROUND_SOFT_TIMEOUT_CEILING_MS,
+          backgroundFunction: true,
+          recoverChunkBoundaries: true,
+        },
+      );
+      run.subscribers.add(() => {});
+
+      await vi.advanceTimersByTimeAsync(
+        DEFAULT_BACKGROUND_NO_PROGRESS_TIMEOUT_MS + 1,
+      );
+      expect(recoveredChunk).toBeDefined();
+      expect(recoveredChunk!.aborted).toBe(false);
+
+      expect(abortRun("run-chunk-abort-after-recovery", "user")).toBe(true);
+      await run.finalized;
+
+      expect(recoveredChunkAbortReason).toBe("user");
+      expect(run.status).toBe("aborted");
+    });
+
+    it("reports a run that ends on a terminal error event as errored, not completed", async () => {
+      // The agent-loop wrapper emits its give-up terminal through `send` and
+      // then RETURNS normally rather than throwing. If the stashed terminal
+      // event did not promote the status, every caller reading `run.status`
+      // would record a run that gave up as a success — and the background
+      // automation runner reads exactly that.
+      const completions: string[] = [];
+
+      const run = startRun(
+        "run-terminal-error-return",
+        "thread-terminal-error-return",
+        async (send) => {
+          send({ type: "text", text: "partial" });
+          send({
+            type: "error",
+            error: "I ran out of time before finishing this step.",
+            errorCode: "run_budget_exhausted",
+            recoverable: false,
+          });
+        },
+        (completed) => {
+          completions.push(completed.status);
+        },
+        { softTimeoutMs: 0 },
+      );
+
+      await run.finalized;
+
+      expect(completions).toEqual(["errored"]);
+    });
+
+    it("counts a boundary as recovered only once a round actually starts", async () => {
+      // This counter answers "is the recovery working?", so `recovered` has to
+      // mean a round started — not that one was invited to. A caller can still
+      // exhaust its budget after the boundary, and counting the invitation
+      // over-reports recovery, which is the direction that hides the failure.
+      const boundaryEvents: Array<Record<string, unknown>> = [];
+      track.mockImplementation((name: string, properties: unknown) => {
+        if (name === "agent_run_boundary") {
+          boundaryEvents.push(properties as Record<string, unknown>);
+        }
+      });
+
+      const run = startRun(
+        "run-boundary-not-recovered",
+        "thread-boundary-not-recovered",
+        async (send, signal) => {
+          const keepaliveTimer = setInterval(() => {
+            send({ type: "stream_keepalive" });
+          }, 1500);
+          await new Promise<void>((resolve) => {
+            signal.addEventListener("abort", () => resolve(), { once: true });
+          });
+          clearInterval(keepaliveTimer);
+          // Gives up instead of calling beginChunk() — the budget-exhausted case.
+        },
+        undefined,
+        {
+          softTimeoutMs: BACKGROUND_SOFT_TIMEOUT_CEILING_MS,
+          backgroundFunction: true,
+          recoverChunkBoundaries: true,
+        },
+      );
+      run.subscribers.add(() => {});
+
+      await vi.advanceTimersByTimeAsync(
+        DEFAULT_BACKGROUND_NO_PROGRESS_TIMEOUT_MS + 1,
+      );
+      await run.finalized;
+
+      await vi.waitFor(() => expect(boundaryEvents.length).toBe(1));
+      expect(boundaryEvents[0]).toMatchObject({
+        reason: "no_progress",
+        recovered: false,
+      });
+    });
+
+    it("counts a boundary as recovered when the caller opens the next round", async () => {
+      const boundaryEvents: Array<Record<string, unknown>> = [];
+      track.mockImplementation((name: string, properties: unknown) => {
+        if (name === "agent_run_boundary") {
+          boundaryEvents.push(properties as Record<string, unknown>);
+        }
+      });
+      let finish: (() => void) | undefined;
+
+      const run = startRun(
+        "run-boundary-recovered",
+        "thread-boundary-recovered",
+        async (send, signal, control) => {
+          const keepaliveTimer = setInterval(() => {
+            send({ type: "stream_keepalive" });
+          }, 1500);
+          await new Promise<void>((resolve) => {
+            signal.addEventListener("abort", () => resolve(), { once: true });
+          });
+          clearInterval(keepaliveTimer);
+          const next = control.beginChunk();
+          await new Promise<void>((resolve) => {
+            finish = resolve;
+            next.addEventListener("abort", () => resolve(), { once: true });
+          });
+        },
+        undefined,
+        {
+          softTimeoutMs: BACKGROUND_SOFT_TIMEOUT_CEILING_MS,
+          backgroundFunction: true,
+          recoverChunkBoundaries: true,
+        },
+      );
+      run.subscribers.add(() => {});
+
+      await vi.advanceTimersByTimeAsync(
+        DEFAULT_BACKGROUND_NO_PROGRESS_TIMEOUT_MS + 1,
+      );
+      await vi.waitFor(() => expect(boundaryEvents.length).toBe(1));
+      expect(boundaryEvents[0]).toMatchObject({
+        reason: "no_progress",
+        recovered: true,
+      });
+
+      finish?.();
+      await run.finalized;
+    });
+
+    it("keeps the terminal turn-ending checkpoint for a run that did not opt in", async () => {
+      let abortReason: unknown;
+
+      const run = startRun(
+        "run-chunk-not-opted-in",
+        "thread-chunk-not-opted-in",
+        async (send, signal) => {
+          const keepaliveTimer = setInterval(() => {
+            send({ type: "stream_keepalive" });
+          }, 1500);
+          await new Promise<void>((resolve) => {
+            signal.addEventListener("abort", () => {
+              clearInterval(keepaliveTimer);
+              abortReason = signal.reason;
+              resolve();
+            });
+          });
+        },
+        undefined,
+        {
+          softTimeoutMs: BACKGROUND_SOFT_TIMEOUT_CEILING_MS,
+          backgroundFunction: true,
+        },
+      );
+      run.subscribers.add(() => {});
+
+      await vi.advanceTimersByTimeAsync(
+        DEFAULT_BACKGROUND_NO_PROGRESS_TIMEOUT_MS + 1,
+      );
+
+      expect(abortReason).toBe("no_progress");
+      expect(run.events.at(-1)?.event).toMatchObject({
+        type: "auto_continue",
+        reason: "no_progress",
+      });
+      expect(vi.mocked(persistRunCheckpointEvent)).toHaveBeenCalledWith(
+        "run-chunk-not-opted-in",
+        { type: "auto_continue", reason: "no_progress" },
+        "no_progress",
+      );
+    });
   });
 
   describe("terminal tracking event", () => {
@@ -4063,7 +4737,6 @@ describe("run manager soft timeout", () => {
           turn_id: "run-tracking-done",
           status: "completed",
           terminal_reason: "done",
-          dispatch_mode: "foreground",
           duration_ms: expect.any(Number),
           app: "test-app",
         }),
@@ -4073,6 +4746,9 @@ describe("run manager soft timeout", () => {
       expect(properties).not.toHaveProperty("error_code");
       expect(properties).not.toHaveProperty("error_detail");
       expect(properties).not.toHaveProperty("abort_reason");
+      // This run passed no dispatchMode. It used to be reported as
+      // "foreground" anyway — see the dispatch-mode tests below.
+      expect(properties).not.toHaveProperty("dispatch_mode");
     });
 
     it("emits an aborted event with the abort reason, not a false completion", async () => {
@@ -4144,8 +4820,20 @@ describe("run manager soft timeout", () => {
       );
 
       await vi.advanceTimersByTimeAsync(1_001);
-      await vi.waitFor(() => expect(track).toHaveBeenCalledTimes(1));
+      // Two events: the boundary counter fires when the boundary is reached,
+      // the terminal event when the run finalizes. They answer different
+      // questions and must both be emitted.
+      await vi.waitFor(() => expect(track).toHaveBeenCalledTimes(2));
 
+      expect(track).toHaveBeenCalledWith(
+        "agent_run_boundary",
+        expect.objectContaining({
+          run_id: "run-tracking-truncated",
+          reason: "run_timeout",
+          recovered: false,
+        }),
+        expect.anything(),
+      );
       expect(track).toHaveBeenCalledWith(
         "agent_run_terminal",
         expect.objectContaining({
@@ -4154,6 +4842,51 @@ describe("run manager soft timeout", () => {
           terminal_reason: "run_timeout",
         }),
         expect.anything(),
+      );
+    });
+
+    // The default was wrong every time it applied: the interactive handler is the
+    // only caller that passes `dispatchMode`, so `?? "foreground"` only ever
+    // mislabelled the callers that are NOT foreground. A 6-of-7 no-progress rate
+    // on the automation path was indistinguishable from chat because of it.
+    it("omits dispatch_mode rather than calling an unlabelled run foreground", async () => {
+      startRun(
+        "run-dispatch-mode-absent",
+        "thread-dispatch-mode-absent",
+        async (send) => {
+          send({ type: "text", text: "answer" });
+        },
+        undefined,
+        { softTimeoutMs: 0 },
+      );
+
+      await vi.waitFor(() => expect(track).toHaveBeenCalled());
+      const [, properties] =
+        track.mock.calls.find(([name]) => name === "agent_run_terminal") ?? [];
+      expect(properties).toBeDefined();
+      expect(properties).not.toHaveProperty("dispatch_mode");
+    });
+
+    it("reports the caller's dispatch mode when it supplies one", async () => {
+      startRun(
+        "run-dispatch-mode-background",
+        "thread-dispatch-mode-background",
+        async (send) => {
+          send({ type: "text", text: "answer" });
+        },
+        undefined,
+        { softTimeoutMs: 0, dispatchMode: "background" },
+      );
+
+      await vi.waitFor(() =>
+        expect(
+          track.mock.calls.some(
+            ([name, properties]) =>
+              name === "agent_run_terminal" &&
+              (properties as Record<string, unknown>).dispatch_mode ===
+                "background",
+          ),
+        ).toBe(true),
       );
     });
 
@@ -4238,5 +4971,29 @@ describe("run manager soft timeout", () => {
         expect.anything(),
       );
     });
+  });
+});
+
+describe("engineRequestShapeTags", () => {
+  it("reports what was sent as searchable string tags", () => {
+    expect(
+      engineRequestShapeTags({
+        model: "gpt-5-6-sol",
+        payloadBytes: 131072,
+        toolCount: 39,
+        messageCount: 13,
+      }),
+    ).toEqual({
+      engineModel: "gpt-5-6-sol",
+      enginePayloadBytes: "131072",
+      engineToolCount: "39",
+      engineMessageCount: "13",
+    });
+  });
+
+  // Absent must stay absent: emitting zeros would report an empty request,
+  // which is a different — and wrong — diagnosis than "never sent".
+  it("emits nothing when the failure happened before a request was built", () => {
+    expect(engineRequestShapeTags(undefined)).toEqual({});
   });
 });

@@ -29,7 +29,8 @@ For any question about a specific customer account, follow this source order:
 Not every source is needed for every question — start with the primary source
 and add secondary sources only when the question requires them. But do not
 stop at one source for a "deep dive" — at minimum pull CRM + Gong + product
-usage for any account health question.
+usage for any account health question. Read `account-health` for the identity
+lock and contract-metric rules before querying the warehouse.
 
 ## 1. Plan Before You Query (Catalog-First)
 

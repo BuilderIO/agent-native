@@ -152,7 +152,6 @@ describe("useShareDialogController", () => {
     expect(result.activeTab).toBe("link");
     expect(result.tabs).toEqual([
       { value: "link", label: "share.link" },
-      { value: "invite", label: "share.invite" },
       { value: "embed", label: "share.embed" },
     ]);
     expect(result.canManage).toBe(true);

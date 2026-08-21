@@ -11,6 +11,7 @@ dist-ssr
 server/*
 !server/routes/
 !server/plugins/
+!server/lib/
 .vinxi
 __unconfig*
 todos.json
@@ -22,3 +23,4 @@ todos.json
 
 # Generated at build time
 public/source-index.json
+public/docs-source-index.json

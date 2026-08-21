@@ -678,7 +678,7 @@ export default defineAction({
 });
 ```
 
-`GET` + `readOnly` 保持操作无副作用，并且不受屏幕刷新更改事件的影响。 `publicAgent` 是**明确的选择加入** - 公共网络路由绝不意味着公开 MCP/A2A 暴露；见[Actions](/docs/actions)。设计/内容摄取 actions MUST 读取**实时**状态（Yjs 协作文档，而不是过时的数据库快照列），以便外部代理看到用户在屏幕上实际显示的内容。内容的 `pull-document` 首先将任何开放的实时协作会话刷新到 SQL； design 的 `get-design-snapshot` 返回实时 Yjs 文件内容以及用户解析的调整值。
+`GET` + `readOnly` 保持操作无副作用，并且不受屏幕刷新更改事件的影响。 `publicAgent` 是**明确的选择加入** - 公共网络路由绝不意味着公开 MCP/A2A 暴露；见[Actions](/docs/actions-overview)。设计/内容摄取 actions MUST 读取**实时**状态（Yjs 协作文档，而不是过时的数据库快照列），以便外部代理看到用户在屏幕上实际显示的内容。内容的 `pull-document` 首先将任何开放的实时协作会话刷新到 SQL； design 的 `get-design-snapshot` 返回实时 Yjs 文件内容以及用户解析的调整值。
 
 ## 高级：本地开发和手动设置 {#advanced}
 
@@ -806,5 +806,5 @@ npx @agent-native/core@latest connect prod --apps mail,calendar,analytics --clie
 - [MCP Protocol](/docs/mcp-protocol) — 自动安装的 MCP 服务器和 `ask-agent` 元工具。
 - [MCP Clients](/docs/mcp-clients) — 对称方向：您的应用使用本地/远程 MCP 服务器。
 - [A2A Protocol](/docs/a2a-protocol) — `ask-agent` 元工具和 JSON-RPC 对等调用。
-- [Actions](/docs/actions) — 定义 actions、`publicAgent`、GET / `readOnly`。
+- [Actions](/docs/actions-overview) — 定义 actions、`publicAgent`、GET / `readOnly`。
 - [Context Awareness](/docs/context-awareness) — 开放路由桥接到的 `navigate` / `application_state` 合约。

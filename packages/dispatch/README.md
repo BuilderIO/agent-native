@@ -24,7 +24,8 @@ Powers the `dispatch` template. Provides:
   ...) to splat into a consumer's `app/routes.ts`
 - **React components** — `DispatchShell`, `Layout`/`NavContent`,
   `CreateAppPopover`/`CreateAppFlow`, `AppKeysPopover`, plus a full
-  shadcn/ui-based `components/ui/*` primitive set
+  shadcn/ui-based `components/ui/*` primitive set. `SimpleAgentsPanel` is
+  also exported for embedding the shared agent manager in another workspace UI.
 - **Styles** — `dispatch.css` Tailwind layer
 
 ## Install
@@ -95,6 +96,8 @@ file in the consumer's own `actions/` to override any single action.
 | `./routes`                         | `dispatchRoutes` — a programmatic `RouteConfig[]` covering every Dispatch page (chat, overview, metrics, operations, apps, vault, integrations, agents, workspace, messaging, destinations, identities, approvals, automations, audit, settings, dreams, extensions, thread-debug, team, and a workspace-app catch-all route).                                                           |
 | `./routes/pages/*`                 | Individual compiled page modules the routes above point at (e.g. `./routes/pages/vault.js`). Not normally imported directly.                                                                                                                                                                                                                                                             |
 | `./server`                         | `setupDispatch(config)` plus the Nitro plugin set: `dispatchAuthPlugin`, `dispatchIntegrationsPlugin`, `dispatchAgentChatPlugin`, `dispatchDbPlugin`, `dispatchCoreRoutesPlugin`. Importing this module also side-effect-registers all Dispatch actions.                                                                                                                                 |
+| `./shared/feature-flags`           | The default-off `DISPATCH_WORKSPACE_SSO_FLAG` definition used to target browser workspace sign-in safely.                                                                                                                                                                                                                                                                                |
+| `./shared/workspace-sso`           | Exact first-party workspace SSO origins and the additive custom registration parser shared by Dispatch and the identity hub.                                                                                                                                                                                                                                                             |
 | `./server/lib/thread-link-preview` | `loadThreadLinkPreview(threadId)` — server-only helper (reads request context and checks thread ownership) that builds link-preview metadata for shared thread URLs.                                                                                                                                                                                                                     |
 | `./actions`                        | `dispatchActions` — the flat name → `ActionEntry` map of every Dispatch action (vault, workspace resources, destinations, dream jobs, provider-api catalog/docs/request, connected agents, audit, approvals, platform messaging, and more).                                                                                                                                              |
 | `./db`                             | `getDb()` / `db()`, the Drizzle `schema` namespace, the Dispatch table exports (`dispatchDestinations`, `dispatchIdentityLinks`, `dispatchLinkTokens`, `dispatchApprovalRequests`, `dispatchAuditEvents`, `dispatchDreams`, `dispatchDreamProposals`, `vaultSecrets`, `vaultGrants`, `vaultRequests`, `vaultAuditLog`, `workspaceResources`, `workspaceResourceGrants`), and migrations. |
@@ -112,6 +115,14 @@ apps:
   scoped per app.
 - **Workspace resources** — cross-app resources (e.g. shared instructions or
   data) with explicit per-app grants and effective-context resolution.
+- **Simple agents and agent packs** — reusable agents keep a Claude-compatible
+  Markdown/JSON profile at `agents/<slug>.md` and can own sibling files under
+  `agents/<slug>/context/`, `references/`, and `skills/<name>/SKILL.md`. The
+  `import-agent-pack` and `list-agent-pack` actions create/read the whole pack;
+  `import-agent` remains the fast single-file path. Unsafe capabilities such as
+  credentials, hooks, shell commands, and local environment settings are
+  stripped or reported as warnings. Pack files are text resources, not an
+  execution grant.
 - **Integrations & destinations** — outbound messaging channel setup (Slack,
   Teams, Discord, Telegram, WhatsApp, email, and more) and a destinations
   queue for delivering agent output.

@@ -1,0 +1,215 @@
+---
+title: "نظرة عامة"
+description: "Actions هي المصدر الوحيد للحقيقة بالنسبة إلى أي شيء يقوم به تطبيقك. عرّف action واحد باستخدام defineAction() وسينتشر تلقائيًا إلى أداة وكيل، وخطافات واجهة مستخدم، وHTTP، وأداة MCP، وأداة A2A، وأمر CLI."
+---
+
+# نظرة عامة
+
+Actions هي المصدر الوحيد للحقيقة بالنسبة إلى أي شيء يقوم به تطبيقك. عرّف action باستخدام `defineAction()` وضعه في `actions/`. يلتقطه كل سطح أدناه تلقائيًا. تكتب المنطق مرة واحدة فقط. لا يحصل أي سطح على نسخته الخاصة، ولا يمكن لأي منها أن ينحرف عن الآخرين.
+
+<Cards columns={2}>
+
+### :robot: [أداة الوكيل](/docs/agent-surfaces)
+
+يقرأ الوكيل الوصف والمخطط كأداة قابلة للاستدعاء. اطلبها في المحادثة، مثل "رد على هذه التذكرة" أو "لخّص هذا الموضوع".
+
+### :components: [خطافات واجهة المستخدم](/docs/client-data)
+
+تستدعي `useActionQuery()` و`useActionMutation()` و`callAction()` نفس الـ action من React. تُشغّل نقرة ورسالة محادثة العملية نفسها تمامًا.
+
+### :server: [نقل إطار العمل](/docs/http-api)
+
+يتم تركيبه تلقائيًا عند `/_agent-native/actions/<name>` عند بدء التشغيل. تستدعي خطافات واجهة المستخدم هذا المسار في الخلفية، ويمكن لعميل HTTP خارجي استدعاءه مباشرة أيضًا.
+
+### :plug: [أداة MCP](/docs/actions-other-surfaces#mcp)
+
+تظهر كأداة لأي مضيف MCP: Claude، وClaude Desktop، وCursor، وCodex. استخدمها عندما يحتاج عميل ذكاء اصطناعي مختلف إلى تشغيل تطبيقك.
+
+### :network: [أداة A2A](/docs/actions-other-surfaces#a2a)
+
+تكتشفها تطبيقات agent-native أخرى وتستدعيها عبر A2A. استخدمها عندما يحتاج تطبيق ثانٍ في مساحة عملك إلى أن يتصرف هذا التطبيق نيابة عنه.
+
+### :terminal: [أمر CLI](/docs/actions-other-surfaces#cli)
+
+يشغّله `pnpm action <name>` من الطرفية. استخدمه للنصوص البرمجية، ومهام cron، والاختبارات اليدوية السريعة.
+
+</Cards>
+
+تبني معظم التطبيقات طبقة API منفصلة بين الواجهة الأمامية وقاعدة البيانات، طبقة لا يمكن للمتصفح وحده استدعاؤها. يحتاج الوكيل الذي يريد القدرة نفسها إلى تكامل منفصل خاص به، يُكتب ويُصان من جديد. تتجاوز تطبيقات agent-native هذا الانقسام. تستدعي واجهة المستخدم والوكيل الـ action نفسه تمامًا، لذا لا يوجد سوى تطبيق واحد يُكتب، ومكان واحد فقط يمكن أن يختبئ فيه خطأ.
+
+<Diagram id="doc-block-actions-overview-2" title="الواجهة الأمامية التقليدية مقابل الوكيل الأصلي" summary="تستدعي الواجهة الأمامية التقليدية طبقة API الخاصة بها، التي لا يصل إليها إلا هي. في Agent Native، يستدعي app/ والوكيل نفس actions، لذا تصبح كل قدرة تُبنى هنا قابلة للاستدعاء من الوكيل مجانًا.">
+
+```html
+<div class="diagram-cocmp">
+  <div class="cocmp-col">
+    <div class="cocmp-label diagram-muted">تقليدي</div>
+    <div class="diagram-node">app/ (واجهة React الأمامية)</div>
+    <div class="cocmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <strong>طبقة API</strong>
+      <small class="diagram-muted">فقط الواجهة الأمامية تستدعيها</small>
+    </div>
+    <div class="cocmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>قاعدة البيانات</div>
+  </div>
+  <div class="cocmp-vs diagram-muted">مقابل</div>
+  <div class="cocmp-col">
+    <div class="cocmp-label diagram-muted">Agent Native</div>
+    <div class="cocmp-callers">
+      <div class="diagram-node">app/ (واجهة React الأمامية)</div>
+      <div class="diagram-node">الوكيل</div>
+    </div>
+    <div class="cocmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <span class="diagram-pill accent">Actions</span
+      ><small class="diagram-muted">شريكان متساويان، العمليات نفسها</small>
+    </div>
+    <div class="cocmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>قاعدة بيانات SQL</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-cocmp {
+  display: flex;
+  align-items: flex-start;
+  gap: 28px;
+  flex-wrap: wrap;
+}
+.cocmp-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 180px;
+}
+.cocmp-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+.cocmp-callers {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.cocmp-vs {
+  font-size: 13px;
+  font-weight: 600;
+  padding-top: 52px;
+}
+.diagram-cocmp .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 16px;
+  align-self: stretch;
+  align-items: center;
+}
+.cocmp-arrow {
+  font-size: 18px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+إذا احتاجت واجهة المستخدم والوكيل كلاهما إلى فعل شيء ما، فاستخدم action بدلاً من مسار مخصص. للحالة النادرة التي يكون فيها بروتوكول على هيئة مسار هو الخيار الصحيح، راجع [تفضيل Actions لعمليات التطبيق](/docs/server-overview#actions-first).
+
+## أين تتناسب Actions {#role}
+
+يتحول كل من `app/` (راجع [نظرة عامة على العميل](/docs/client-overview#role)) والوكيل إلى نفس actions ونفس قاعدة بيانات SQL. لا توجد "خلفية تطبيق" منفصلة تتحدث معها هذه الطبقة ولا يستطيع الوكيل الوصول إليها أيضًا. بناء ميزة يعني تعريف عملية هنا والحصول على واجهة مستخدم، وأداة وكيل، وكل سطح آخر لها في الوقت نفسه.
+
+`actions/` نفسه مجلد مسطّح. كل ملف هو action واحد: استدعاء `defineAction()` يُصدَّر كتصدير افتراضي للملف. يفحص إطار العمل هذا المجلد عند بدء التشغيل ويركّب كل ملف يجده. لا توجد خطوة تسجيل ولا ملف فهرس يجب إبقاؤه محدّثًا.
+
+جسم `run()` الخاص بـ action هو كود خادم عادي، لذا فهو يصل عادةً إلى عدد قليل من الدلائل الأخرى:
+
+<FileTree
+  id="doc-block-actions-overview-filetree"
+  entries={[
+    {
+      path: "actions/reply-to-email.ts",
+      note: "action واحد لكل ملف. يُصدّر استدعاء defineAction()، ويركّبه إطار العمل تلقائيًا.",
+    },
+    {
+      path: "server/db/schema.ts",
+      note: "تعريفات جداول Drizzle التي تقرأ وتكتب من خلالها معظم actions.",
+    },
+    {
+      path: "server/lib/access.ts",
+      note: "حراس وصول مشتركون (accessFilter، وassertAccess، وauthorize) يُعاد استخدامها عبر actions.",
+    },
+    {
+      path: "shared/feature-flags.ts",
+      note: "تعريفات أعلام يتحقق منها كل من action وبرنامج مساعد للخادم.",
+    },
+    {
+      path: "app/components/ReplyButton.tsx",
+      note: "يستدعي action من واجهة المستخدم باستخدام useActionMutation.",
+    },
+  ]}
+/>
+
+لا ينبغي لأي شيء خارج `actions/` أن يستورد دالة `run` الخاصة بـ action مباشرة. استدعِها بدلاً من ذلك من خلال أحد الأسطح أعلاه: أداة الوكيل، أو خطاف واجهة مستخدم، أو HTTP، أو MCP، أو A2A، أو CLI. يشغّل كل مسار من هذه المسارات نفس التحقق من صحة المخطط، وفحوصات الوصول، ومسار التدقيق.
+
+## ابدأ بـ action واحد {#hello-action}
+
+يمكن أن تكون أول عملية في تطبيق يعتمد على المحادثة أولاً صغيرة جدًا. في قالب Chat،
+استبدل `actions/hello.ts` أو أضف ملفًا جديدًا بجانبه:
+
+```ts
+// actions/hello.ts
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Say hello from the local agent.",
+  schema: z.object({
+    name: z.string().default("world"),
+  }),
+  http: { method: "GET" },
+  readOnly: true,
+  run: async ({ name }) => {
+    return { message: `Hello, ${name}!` };
+  },
+});
+```
+
+شغّله من الدليل نفسه:
+
+```bash
+pnpm action hello '{"name":"Steve"}'
+```
+
+يقبل CLI كائن JSON كمدخل لـ action، وهو ما يطابق استدعاءات الأداة المنظَّمة
+التي يقوم بها الوكلاء بالفعل. لا تزال الأعلام البسيطة تعمل للتشغيلات اليدوية السريعة:
+
+```bash
+pnpm action hello --name Steve
+```
+
+بعد ذلك، شغّل حلقة التطبيق-الوكيل على المجلد:
+
+```bash
+npx agent-native agent "Call hello for Steve and explain the result"
+```
+
+هذه هي حلقة التطبيق-الوكيل نفسها التي ستستخدمها مهامك المجدولة، وواجهة
+محادثتك، وأدوات MCP الخارجية، والشاشات المستقبلية. قوالب Chat والقوالب
+الخاصة بالمجال مخصصة لإضافة واجهة مستخدم حول actions، وليست شرطًا مسبقًا
+مطلوبًا لـ action نفسه.
+
+## ما هي الخطوة التالية
+
+- [**تعريف Actions**](/docs/actions-defining) — تشريح `defineAction()`، والمخطط، وإعداد HTTP
+- [**الوصول والتخويل**](/docs/actions-access-control) — أعلام التعريض، ونطاق `ctx`، وauthorize
+- [**سياق التشغيل**](/docs/actions-run-context) — جدول حقول `ctx` الكامل
+- [**أسطح أخرى**](/docs/actions-other-surfaces) — واجهة المحادثة الأصلية، وCLI، وA2A، وMCP، وactions القياسية
+- [**متقدم وقديم**](/docs/actions-advanced) — تفعيل تدريجي عبر أعلام الميزات وactions القديمة بأسلوب CLI
+- [**نظرة عامة**](/docs/client-overview) — جانب `app/` من العقد نفسه
+- [**البيانات والمزامنة**](/docs/client-data) — `useActionQuery` و`useActionMutation` و`callAction` في واجهة المستخدم
+- [**واجهات الوكيل**](/docs/agent-surfaces) — كيف ينمو action واحد من أداة محادثة إلى شاشة كاملة

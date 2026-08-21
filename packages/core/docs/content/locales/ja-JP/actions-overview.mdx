@@ -1,0 +1,210 @@
+---
+title: "概要"
+description: "アクションは、アプリが行うすべてのことの唯一の信頼できる情報源です。defineAction() で1つ定義すると、エージェント ツール、UI フック、HTTP、MCP ツール、A2A ツール、CLI コマンドへと自動的に展開されます。"
+---
+
+# 概要
+
+アクションは、アプリが行うすべてのことの唯一の信頼できる情報源です。`defineAction()` で1つ定義し、`actions/` に配置してください。以下のすべてのサーフェスが自動的にそれを拾い上げます。ロジックを書くのは一度だけです。どのサーフェスも独自のコピーを持たず、他と食い違うこともありません。
+
+<Cards columns={2}>
+
+### :robot: [エージェント ツール](/docs/agent-surfaces)
+
+エージェントは description とスキーマを、呼び出し可能なツールとして読み取ります。「このチケットに返信して」や「このスレッドを要約して」のように、チャットで頼むだけです。
+
+### :components: [UI フック](/docs/client-data)
+
+`useActionQuery()`、`useActionMutation()`、`callAction()` は、React から同じアクションを呼び出します。クリックとチャット メッセージは、まったく同じ操作を実行します。
+
+### :server: [フレームワーク トランスポート](/docs/http-api)
+
+起動時に `/_agent-native/actions/<name>` に自動マウントされます。UI フックは内部でこのルートを呼び出しており、外部の HTTP クライアントも直接呼び出せます。
+
+### :plug: [MCP ツール](/docs/actions-other-surfaces#mcp)
+
+Claude、Claude Desktop、Cursor、Codex など、あらゆる MCP ホストにツールとして表示されます。別の AI クライアントにアプリを操作させたい場合に使用します。
+
+### :network: [A2A ツール](/docs/actions-other-surfaces#a2a)
+
+他の agent-native アプリが A2A 経由でこれを発見し、呼び出します。ワークスペース内の別のアプリが、このアプリに代わって操作する必要がある場合に使用します。
+
+### :terminal: [CLI コマンド](/docs/actions-other-surfaces#cli)
+
+`pnpm action <name>` でターミナルから実行できます。スクリプト、cron ジョブ、素早い手動テストに使用します。
+
+</Cards>
+
+ほとんどのアプリは、フロントエンドとデータベースの間に、ブラウザだけが呼び出せる独自の API 層を構築します。同じ機能をエージェントにも持たせたい場合、別途の統合を書いて、また保守し続ける必要があります。Agent-native アプリはこの分断を回避します。UI とエージェントはまったく同じアクションを呼び出すため、実装すべき箇所は1つだけであり、バグが隠れる場所も1つだけです。
+
+<Diagram id="doc-block-actions-overview-2" title="従来のフロントエンド vs. Agent Native" summary="従来のフロントエンドは、それ専用の API 層を呼び出します。Agent Native では、app/ とエージェントの両方が同じアクションを呼び出すため、ここで構築されるすべての機能が無料でエージェント呼び出し可能になります。">
+
+```html
+<div class="diagram-cocmp">
+  <div class="cocmp-col">
+    <div class="cocmp-label diagram-muted">従来</div>
+    <div class="diagram-node">app/ (React フロントエンド)</div>
+    <div class="cocmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <strong>API 層</strong>
+      <small class="diagram-muted">フロントエンドだけが呼び出せる</small>
+    </div>
+    <div class="cocmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>データベース</div>
+  </div>
+  <div class="cocmp-vs diagram-muted">vs</div>
+  <div class="cocmp-col">
+    <div class="cocmp-label diagram-muted">Agent Native</div>
+    <div class="cocmp-callers">
+      <div class="diagram-node">app/ (React フロントエンド)</div>
+      <div class="diagram-node">エージェント</div>
+    </div>
+    <div class="cocmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <span class="diagram-pill accent">Actions</span
+      ><small class="diagram-muted">対等なパートナー、同じ操作</small>
+    </div>
+    <div class="cocmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>SQL データベース</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-cocmp {
+  display: flex;
+  align-items: flex-start;
+  gap: 28px;
+  flex-wrap: wrap;
+}
+.cocmp-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 180px;
+}
+.cocmp-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+.cocmp-callers {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.cocmp-vs {
+  font-size: 13px;
+  font-weight: 600;
+  padding-top: 52px;
+}
+.diagram-cocmp .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 16px;
+  align-self: stretch;
+  align-items: center;
+}
+.cocmp-arrow {
+  font-size: 18px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+UI とエージェントの両方が何かを行う必要がある場合は、カスタム ルートではなくアクションを使いましょう。ルート形式のプロトコルが適している稀なケースについては、[まず Actions をデフォルトにする](/docs/server-overview#actions-first) を参照してください。
+
+## アクションの役割 {#role}
+
+`app/`([概要](/docs/client-overview#role) を参照)とエージェントは、どちらも同じアクションと同じ SQL データベースに解決されます。エージェントが到達できない別個の「アプリのバックエンド」に、この層が話しかけることはありません。機能を構築するということは、ここで操作を定義し、それと同時に UI、エージェント ツール、その他すべてのサーフェスを手に入れることを意味します。
+
+`actions/` はフラットなフォルダです。各ファイルは1つのアクションであり、`defineAction()` の呼び出しをファイルのデフォルト エクスポートとしてエクスポートします。フレームワークは起動時にこのフォルダをスキャンし、見つかったすべてのファイルをマウントします。登録手順や、最新の状態に保つべきインデックス ファイルはありません。
+
+アクションの `run()` の本体は通常のサーバー コードなので、他のいくつかのディレクトリにも手を伸ばすのが一般的です。
+
+<FileTree
+  id="doc-block-actions-overview-filetree"
+  entries={[
+    {
+      path: "actions/reply-to-email.ts",
+      note: "1ファイルにつき1つのアクション。`defineAction()` の呼び出しをエクスポートし、フレームワークが自動的にマウントします。",
+    },
+    {
+      path: "server/db/schema.ts",
+      note: "ほとんどのアクションが読み書きに使う Drizzle のテーブル定義。",
+    },
+    {
+      path: "server/lib/access.ts",
+      note: "アクション間で再利用される共有アクセス ガード (accessFilter、assertAccess、authorize)。",
+    },
+    {
+      path: "shared/feature-flags.ts",
+      note: "アクションとサーバー プラグインの両方がチェックするフラグ定義。",
+    },
+    {
+      path: "app/components/ReplyButton.tsx",
+      note: "useActionMutation を使って UI からアクションを呼び出します。",
+    },
+  ]}
+/>
+
+`actions/` の外側から、アクションの `run` 関数を直接インポートすべきではありません。代わりに、上記のいずれかのサーフェス、つまりエージェント ツール、UI フック、HTTP、MCP、A2A、CLI のいずれかを通じて呼び出してください。これらの経路はすべて、同じスキーマ検証、アクセス チェック、監査証跡を実行します。
+
+## 最初のアクションから始める {#hello-action}
+
+チャットファーストのアプリにおける最初の操作は、ごく小さなものでかまいません。Chat テンプレートでは、`actions/hello.ts` を置き換えるか、その隣に新しいファイルを追加してください。
+
+```ts
+// actions/hello.ts
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Say hello from the local agent.",
+  schema: z.object({
+    name: z.string().default("world"),
+  }),
+  http: { method: "GET" },
+  readOnly: true,
+  run: async ({ name }) => {
+    return { message: `Hello, ${name}!` };
+  },
+});
+```
+
+同じフォルダから実行します。
+
+```bash
+pnpm action hello '{"name":"Steve"}'
+```
+
+CLI は、アクションの入力として JSON オブジェクトを受け付けます。これは、エージェントが既に行っている構造化されたツール呼び出しと一致する形式です。手早い手動実行には、シンプルなフラグも引き続き使えます。
+
+```bash
+pnpm action hello --name Steve
+```
+
+続いて、フォルダに対してアプリ エージェント ループを実行します。
+
+```bash
+npx agent-native agent "Call hello for Steve and explain the result"
+```
+
+これは、スケジュール済みジョブ、チャット UI、外部の MCP ツール、そして将来の画面が使うのと同じアプリ エージェント ループです。Chat やドメイン テンプレートは、アクションの周りに UI を追加するためのものであり、アクションそのものに必要な前提条件ではありません。
+
+## 次は何ですか
+
+- [**アクションを定義する**](/docs/actions-defining) — `defineAction()` の構造、スキーマ、HTTP 設定
+- [**アクセスと認可**](/docs/actions-access-control) — 公開フラグ、`ctx` によるスコープ設定、`authorize`
+- [**実行コンテキスト**](/docs/actions-run-context) — `ctx` の全フィールド一覧表
+- [**その他のサーフェス**](/docs/actions-other-surfaces) — ネイティブ チャット UI、CLI、A2A、MCP、標準アクション
+- [**高度な機能とレガシー**](/docs/actions-advanced) — フィーチャー フラグによる制御と、レガシーな CLI スタイルのアクション
+- [**概要**](/docs/client-overview) — この契約の `app/` 側
+- [**データと同期**](/docs/client-data) — UI 内の `useActionQuery`、`useActionMutation`、`callAction`
+- [**エージェントサーフェス**](/docs/agent-surfaces) — 1つのアクションがチャット ツールからフル スクリーンへと成長する仕組み

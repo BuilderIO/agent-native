@@ -52,6 +52,17 @@ export interface AgentNativeRuntimeConfig {
   environment?: AgentNativeRuntimeEnvironmentConfig;
 }
 
+export type AgentNativeDeploymentEnvironment =
+  | "local"
+  | "beta"
+  | "production"
+  | "preview";
+
+export interface AgentNativeDeploymentConfig {
+  /** The release lane that produced the currently running client bundle. */
+  environment?: AgentNativeDeploymentEnvironment;
+}
+
 export interface AgentNativeDiagnosticsConfig {
   /** Fail a production Vite build when runtime configuration has issues. */
   failOnBuild?: boolean;
@@ -77,14 +88,33 @@ export interface AgentNativeChangelogConfig {
   enabled?: boolean;
 }
 
+export type AgentNativeHarnessRuntime =
+  | "claude-code"
+  | "codex"
+  | "pi"
+  | "opencode";
+
+export interface AgentNativeHarnessConfig {
+  /** Optionally narrow the hosted harness picker to these runtimes. */
+  runtimes?: AgentNativeHarnessRuntime[];
+}
+
+/**
+ * The intentionally small app-level switch for hosted tools-only harnesses.
+ * `true` enables every supported runtime; an object narrows the picker.
+ */
+export type AgentNativeHarnessSetting = boolean | AgentNativeHarnessConfig;
+
 export interface AgentNativeConfig {
   version?: typeof AGENT_NATIVE_CONFIG_VERSION;
   onboarding?: AgentNativeOnboardingConfig;
   runtime?: AgentNativeRuntimeConfig;
+  deployment?: AgentNativeDeploymentConfig;
   diagnostics?: AgentNativeDiagnosticsConfig;
   instructions?: AgentNativeInstructionsConfig;
   translations?: AgentNativeTranslationsConfig;
   changelog?: AgentNativeChangelogConfig;
+  harness?: AgentNativeHarnessSetting;
 }
 
 export interface AgentNativeConfigContext {
@@ -115,6 +145,320 @@ export function defineAgentNativeConfig(
   return config;
 }
 
+export const AGENT_NATIVE_CONFIG_ENV_PREFIX = "AGENT_NATIVE_CONFIG" as const;
+
+type AgentNativeConfigEnvKind =
+  | "array"
+  | "boolean"
+  | "deployment-environment"
+  | "number"
+  | "object"
+  | "string"
+  | "union";
+
+interface AgentNativeConfigEnvNode {
+  path: readonly string[];
+  kind: AgentNativeConfigEnvKind;
+  aliases?: readonly string[];
+  dynamicObjectKeys?: boolean;
+}
+
+/**
+ * Serializable public config nodes that may be initialized from the
+ * deployment environment. Object nodes accept JSON fragments, which lets a
+ * deploy set a whole section without requiring a separate alias for every
+ * leaf. Dynamic keys in the onboarding mode map stay JSON-only at the union
+ * node because they are not part of the fixed config shape.
+ */
+const AGENT_NATIVE_CONFIG_ENV_NODES: readonly AgentNativeConfigEnvNode[] = [
+  { path: [], kind: "object" },
+  { path: ["version"], kind: "number" },
+  { path: ["onboarding"], kind: "object" },
+  {
+    path: ["onboarding", "firstRun"],
+    kind: "union",
+    dynamicObjectKeys: true,
+  },
+  { path: ["runtime"], kind: "object" },
+  { path: ["runtime", "auth"], kind: "object" },
+  { path: ["runtime", "auth", "enabled"], kind: "boolean" },
+  { path: ["runtime", "database"], kind: "object" },
+  { path: ["runtime", "database", "required"], kind: "boolean" },
+  { path: ["runtime", "environment"], kind: "object" },
+  {
+    path: ["runtime", "environment", "required"],
+    kind: "array",
+  },
+  { path: ["deployment"], kind: "object" },
+  {
+    path: ["deployment", "environment"],
+    kind: "deployment-environment",
+  },
+  { path: ["diagnostics"], kind: "object" },
+  { path: ["diagnostics", "failOnBuild"], kind: "boolean" },
+  { path: ["instructions"], kind: "object" },
+  { path: ["instructions", "runtime"], kind: "string" },
+  { path: ["instructions", "development"], kind: "string" },
+  { path: ["translations"], kind: "object" },
+  { path: ["translations", "locales"], kind: "array" },
+  { path: ["changelog"], kind: "object" },
+  { path: ["changelog", "enabled"], kind: "boolean" },
+  { path: ["harness"], kind: "union" },
+  { path: ["harness", "runtimes"], kind: "array" },
+];
+
+function agentNativeConfigEnvSegment(segment: string): string {
+  return segment
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .replace(/[^A-Za-z0-9]+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_|_$/g, "")
+    .toUpperCase();
+}
+
+/** Convert a config path such as `runtime.auth.enabled` to its env name. */
+export function agentNativeConfigEnvName(path: readonly string[]): string {
+  if (path.length === 0) return AGENT_NATIVE_CONFIG_ENV_PREFIX;
+  return `${AGENT_NATIVE_CONFIG_ENV_PREFIX}_${path
+    .map(agentNativeConfigEnvSegment)
+    .join("_")}`;
+}
+
+function agentNativeConfigEnvKeys(node: AgentNativeConfigEnvNode): string[] {
+  return [agentNativeConfigEnvName(node.path), ...(node.aliases ?? [])];
+}
+
+function isAgentNativeConfigEnvKey(key: string): boolean {
+  return (
+    key === AGENT_NATIVE_CONFIG_ENV_PREFIX ||
+    key.startsWith(`${AGENT_NATIVE_CONFIG_ENV_PREFIX}_`)
+  );
+}
+
+function parseAgentNativeConfigJson(raw: string, key: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch (error) {
+    throw new Error(
+      `${key} must contain valid JSON: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
+function parseAgentNativeConfigEnvValue(
+  raw: string,
+  key: string,
+  kind: AgentNativeConfigEnvKind,
+): unknown {
+  const value = raw.trim();
+  switch (kind) {
+    case "object": {
+      const parsed = parseAgentNativeConfigJson(value, key);
+      if (!isRecord(parsed)) {
+        throw new Error(`${key} must contain a JSON object`);
+      }
+      return parsed;
+    }
+    case "array": {
+      const parsed = parseAgentNativeConfigJson(value, key);
+      if (!Array.isArray(parsed)) {
+        throw new Error(`${key} must contain a JSON array`);
+      }
+      return parsed;
+    }
+    case "boolean": {
+      const normalized = value.toLowerCase();
+      if (["1", "true", "yes", "on"].includes(normalized)) return true;
+      if (["0", "false", "no", "off"].includes(normalized)) return false;
+      throw new Error(`${key} must be a boolean`);
+    }
+    case "number": {
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed)) throw new Error(`${key} must be a number`);
+      return parsed;
+    }
+    case "deployment-environment":
+      return value.toLowerCase();
+    case "string": {
+      if (value.startsWith('"')) {
+        const parsed = parseAgentNativeConfigJson(value, key);
+        if (typeof parsed !== "string") {
+          throw new Error(`${key} must contain a string`);
+        }
+        return parsed;
+      }
+      return value;
+    }
+    case "union": {
+      if (value.startsWith("{") || value.startsWith("[")) {
+        return parseAgentNativeConfigJson(value, key);
+      }
+      const normalized = value.toLowerCase();
+      if (["1", "true", "yes", "on"].includes(normalized)) return true;
+      if (["0", "false", "no", "off"].includes(normalized)) return false;
+      if (value.startsWith('"')) {
+        const parsed = parseAgentNativeConfigJson(value, key);
+        if (typeof parsed !== "string") {
+          throw new Error(`${key} must contain a string or JSON object`);
+        }
+        return parsed;
+      }
+      return value;
+    }
+  }
+}
+
+function agentNativeConfigEnvNodeForPath(
+  path: readonly string[],
+): AgentNativeConfigEnvNode | undefined {
+  return AGENT_NATIVE_CONFIG_ENV_NODES.find(
+    (node) =>
+      node.path.length === path.length &&
+      node.path.every((segment, index) => segment === path[index]),
+  );
+}
+
+function agentNativeConfigEnvChildren(
+  path: readonly string[],
+): AgentNativeConfigEnvNode[] {
+  return AGENT_NATIVE_CONFIG_ENV_NODES.filter(
+    (node) =>
+      node.path.length === path.length + 1 &&
+      path.every((segment, index) => node.path[index] === segment),
+  );
+}
+
+function validateAgentNativeConfigEnvFragment(
+  value: unknown,
+  path: readonly string[],
+  key: string,
+): void {
+  const node = agentNativeConfigEnvNodeForPath(path);
+  if (!node) return;
+
+  if (node.kind === "object") {
+    if (!isRecord(value)) {
+      throw new Error(`${key} must contain a JSON object`);
+    }
+  } else if (node.kind !== "union" || !isRecord(value)) {
+    return;
+  }
+
+  if (node.dynamicObjectKeys) return;
+
+  const children = new Map(
+    agentNativeConfigEnvChildren(path).map((child) => [
+      child.path[child.path.length - 1],
+      child,
+    ]),
+  );
+  for (const [childKey, childValue] of Object.entries(value)) {
+    const child = children.get(childKey);
+    if (!child) {
+      const childPath = [...path, childKey].join(".");
+      throw new Error(
+        `${key} contains unsupported Agent-Native config path ${childPath}`,
+      );
+    }
+    validateAgentNativeConfigEnvFragment(childValue, child.path, key);
+  }
+}
+
+function mergeAgentNativeConfigEnvFragments(
+  base: Record<string, unknown>,
+  override: Record<string, unknown>,
+): Record<string, unknown> {
+  const result = { ...base };
+  for (const [key, value] of Object.entries(override)) {
+    const existing = result[key];
+    result[key] =
+      isRecord(existing) && isRecord(value)
+        ? mergeAgentNativeConfigEnvFragments(existing, value)
+        : value;
+  }
+  return result;
+}
+
+function assignAgentNativeConfigEnvFragment(
+  target: Record<string, unknown>,
+  path: readonly string[],
+  value: unknown,
+  key: string,
+): void {
+  if (path.length === 0) {
+    if (!isRecord(value)) {
+      throw new Error(`${key} must contain a JSON object`);
+    }
+    Object.assign(target, mergeAgentNativeConfigEnvFragments(target, value));
+    return;
+  }
+
+  let node = target;
+  for (const segment of path.slice(0, -1)) {
+    const existing = node[segment];
+    if (existing === undefined) {
+      node[segment] = {};
+    } else if (!isRecord(existing)) {
+      node[segment] = {};
+    }
+    node = node[segment] as Record<string, unknown>;
+  }
+
+  const leaf = path[path.length - 1];
+  const existing = node[leaf];
+  node[leaf] =
+    isRecord(existing) && isRecord(value)
+      ? mergeAgentNativeConfigEnvFragments(existing, value)
+      : value;
+}
+
+/**
+ * Reads the public config's deterministic environment aliases.
+ *
+ * `AGENT_NATIVE_CONFIG` contains a complete JSON object. A suffixed name
+ * contains a JSON fragment at that config path, or a typed scalar at a leaf.
+ * Nodes are applied from shallowest to deepest so a more specific path wins.
+ */
+export function readAgentNativeConfigEnv(
+  env: Record<string, string | undefined>,
+): AgentNativeConfig {
+  const known = new Map<string, AgentNativeConfigEnvNode>();
+  for (const node of AGENT_NATIVE_CONFIG_ENV_NODES) {
+    for (const key of agentNativeConfigEnvKeys(node)) {
+      const previous = known.get(key);
+      if (previous && previous.path.join(".") !== node.path.join(".")) {
+        throw new Error(`Duplicate Agent-Native config environment key ${key}`);
+      }
+      known.set(key, node);
+    }
+  }
+
+  for (const key of Object.keys(env)) {
+    if (isAgentNativeConfigEnvKey(key) && !known.has(key)) {
+      throw new Error(
+        `${key} is not a supported Agent-Native config path. Use agent-native.config.ts or a documented config env alias.`,
+      );
+    }
+  }
+
+  const layer: Record<string, unknown> = {};
+  const nodes = [...AGENT_NATIVE_CONFIG_ENV_NODES].sort(
+    (left, right) => left.path.length - right.path.length,
+  );
+  for (const node of nodes) {
+    for (const key of agentNativeConfigEnvKeys(node)) {
+      const raw = env[key];
+      if (raw === undefined || raw.trim() === "") continue;
+      const value = parseAgentNativeConfigEnvValue(raw, key, node.kind);
+      validateAgentNativeConfigEnvFragment(value, node.path, key);
+      assignAgentNativeConfigEnvFragment(layer, node.path, value, key);
+      break;
+    }
+  }
+
+  return normalizeAgentNativeConfig(layer, "Agent-Native config environment");
+}
+
 export function normalizeAgentNativeConfig(
   input: unknown,
   source = "agent-native config",
@@ -134,10 +478,12 @@ export function normalizeAgentNativeConfig(
 
   const onboardingValue = input.onboarding;
   const runtimeValue = input.runtime;
+  const deploymentValue = input.deployment;
   const diagnosticsValue = input.diagnostics;
   const instructionsValue = input.instructions;
   const translationsValue = input.translations;
   const changelogValue = input.changelog;
+  const harnessValue = input.harness;
 
   const normalized: AgentNativeConfig = {
     ...(input.version === undefined
@@ -160,6 +506,13 @@ export function normalizeAgentNativeConfig(
     normalized.runtime = normalizeRuntimeConfig(
       runtimeValue,
       `${source}.runtime`,
+    );
+  }
+
+  if (deploymentValue !== undefined) {
+    normalized.deployment = normalizeDeploymentConfig(
+      deploymentValue,
+      `${source}.deployment`,
     );
   }
 
@@ -191,13 +544,25 @@ export function normalizeAgentNativeConfig(
     );
   }
 
+  if (harnessValue !== undefined) {
+    normalized.harness = normalizeHarnessConfig(
+      harnessValue,
+      `${source}.harness`,
+    );
+  }
+
   return normalized;
 }
 
 export function mergeAgentNativeConfigs(
   base: AgentNativeConfig,
   override: AgentNativeConfig,
+  options: {
+    arrayStrategy?: "merge" | "replace";
+  } = {},
 ): AgentNativeConfig {
+  const arrayStrategy = options.arrayStrategy ?? "merge";
+
   return {
     ...(base.version === undefined && override.version === undefined
       ? {}
@@ -239,9 +604,17 @@ export function mergeAgentNativeConfigs(
                     required: mergeStringLists(
                       base.runtime?.environment?.required,
                       override.runtime?.environment?.required,
+                      arrayStrategy,
                     ),
                   }
                 : undefined,
+          }
+        : undefined,
+    deployment:
+      base.deployment || override.deployment
+        ? {
+            ...base.deployment,
+            ...override.deployment,
           }
         : undefined,
     diagnostics:
@@ -280,6 +653,11 @@ export function mergeAgentNativeConfigs(
             ...override.changelog,
           }
         : undefined,
+    harness: mergeHarnessSettings(
+      base.harness,
+      override.harness,
+      arrayStrategy,
+    ),
   };
 }
 
@@ -380,6 +758,23 @@ function normalizeRuntimeConfig(
   return result;
 }
 
+function normalizeDeploymentConfig(
+  value: unknown,
+  source: string,
+): AgentNativeDeploymentConfig {
+  if (!isRecord(value)) {
+    throw new Error(`${source} must be an object`);
+  }
+  const environment = value.environment;
+  if (environment === undefined) return {};
+  if (!isAgentNativeDeploymentEnvironment(environment)) {
+    throw new Error(
+      `${source}.environment must be "local", "beta", "production", or "preview"`,
+    );
+  }
+  return { environment };
+}
+
 function normalizeDiagnosticsConfig(
   value: unknown,
   source: string,
@@ -456,6 +851,60 @@ function normalizeChangelogConfig(
   return value.enabled === undefined ? {} : { enabled: value.enabled };
 }
 
+function normalizeHarnessConfig(
+  value: unknown,
+  source: string,
+): AgentNativeHarnessSetting {
+  if (typeof value === "boolean") return value;
+  if (!isRecord(value)) {
+    throw new Error(`${source} must be a boolean or object`);
+  }
+  if ("enabled" in value || "ui" in value) {
+    throw new Error(`${source} must be true or an object with runtimes`);
+  }
+
+  const runtimes = value.runtimes;
+  if (runtimes !== undefined) {
+    if (
+      !Array.isArray(runtimes) ||
+      runtimes.some((runtime) => !isAgentNativeHarnessRuntime(runtime))
+    ) {
+      throw new Error(
+        `${source}.runtimes must contain only "claude-code", "codex", "pi", or "opencode"`,
+      );
+    }
+  }
+
+  return {
+    ...(runtimes === undefined
+      ? {}
+      : { runtimes: [...new Set(runtimes as AgentNativeHarnessRuntime[])] }),
+  };
+}
+
+function mergeHarnessSettings(
+  base: AgentNativeHarnessSetting | undefined,
+  override: AgentNativeHarnessSetting | undefined,
+  arrayStrategy: "merge" | "replace" = "merge",
+): AgentNativeHarnessSetting | undefined {
+  if (override === undefined) return base;
+  if (typeof override === "boolean") return override;
+  if (typeof base !== "object" || base === null) return override;
+  if (base.runtimes === undefined && override.runtimes === undefined) {
+    return {};
+  }
+  return {
+    runtimes: [
+      ...(arrayStrategy === "replace"
+        ? (override.runtimes ?? base.runtimes ?? [])
+        : new Set<AgentNativeHarnessRuntime>([
+            ...(base.runtimes ?? []),
+            ...(override.runtimes ?? []),
+          ])),
+    ],
+  };
+}
+
 function normalizeRelativeFilePath(value: string, source: string): string {
   const normalized = value.trim().replaceAll("\\", "/");
   if (
@@ -489,8 +938,10 @@ function normalizeRequiredEnvKeys(
 function mergeStringLists(
   base: string[] | undefined,
   override: string[] | undefined,
+  arrayStrategy: "merge" | "replace" = "merge",
 ): string[] | undefined {
   if (base === undefined && override === undefined) return undefined;
+  if (arrayStrategy === "replace") return override ?? base;
   return [...new Set([...(base ?? []), ...(override ?? [])])];
 }
 
@@ -502,6 +953,73 @@ function isFirstRunMode(
     value === "connect" ||
     value === "connect-and-integrations"
   );
+}
+
+function isAgentNativeHarnessRuntime(
+  value: unknown,
+): value is AgentNativeHarnessRuntime {
+  return (
+    value === "claude-code" ||
+    value === "codex" ||
+    value === "pi" ||
+    value === "opencode"
+  );
+}
+
+export function isAgentNativeDeploymentEnvironment(
+  value: unknown,
+): value is AgentNativeDeploymentEnvironment {
+  return (
+    value === "local" ||
+    value === "beta" ||
+    value === "production" ||
+    value === "preview"
+  );
+}
+
+/**
+ * Resolve the public deployment lane from hosting facts at build time.
+ *
+ * Netlify exposes `CONTEXT` and `BRANCH` to builds. Keeping this inference in
+ * the Vite/config boundary means browser code consumes typed public config and
+ * never parses process.env itself.
+ */
+export function inferAgentNativeDeploymentEnvironment(
+  env: Record<string, string | undefined>,
+  mode?: string,
+): AgentNativeDeploymentEnvironment | undefined {
+  const explicit =
+    env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT?.trim().toLowerCase();
+  if (explicit && !isAgentNativeDeploymentEnvironment(explicit)) {
+    throw new Error(
+      'AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT must be "local", "beta", "production", or "preview"',
+    );
+  }
+  if (isAgentNativeDeploymentEnvironment(explicit)) return explicit;
+
+  const context = env.CONTEXT?.trim().toLowerCase();
+  const branch = env.BRANCH?.trim().toLowerCase();
+  const vercelEnv = env.VERCEL_ENV?.trim().toLowerCase();
+
+  if (
+    branch === "production" ||
+    (context === "production" && branch !== "beta")
+  ) {
+    return "production";
+  }
+  if (branch === "beta" || (context === "branch-deploy" && branch === "main")) {
+    return "beta";
+  }
+  if (vercelEnv === "preview") return "preview";
+  if (
+    context === "deploy-preview" ||
+    context === "branch-deploy" ||
+    branch?.startsWith("deploy-preview")
+  ) {
+    return "preview";
+  }
+  if (mode === "development") return "local";
+  return undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

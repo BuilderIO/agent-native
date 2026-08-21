@@ -28,13 +28,17 @@ const localeMessages = {
 } as const;
 
 const requiredKeys = [
+  "navigation.agents",
+  "navigation.triage",
   "factoryRoute.rulesTitle",
+  "factoryRoute.createApp",
   "factoryRoute.shadowLabel",
   "factoryRoute.rulesGuidance",
   "factoryRoute.ruleNameLabel",
   "factoryRoute.defaultFactoryLabel",
   "factoryRoute.savedFactoryLabel",
   "factoryRoute.auditGuardsLabel",
+  "factoryRoute.factorySettings",
 ] as const;
 
 function readKey(source: Record<string, any>, key: string) {

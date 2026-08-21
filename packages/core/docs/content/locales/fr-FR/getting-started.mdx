@@ -1,74 +1,211 @@
 ---
 title: "Démarrage"
-description: "Créez une application Chat et configurez un agent, puis étendez-la avec une action et une page."
+description: "Créez une application Agent-Native et appelez la même action depuis l’agent et l’interface utilisateur."
 ---
 
 # Démarrage
 
-Les applications Agent-Native donnent à l’agent et à l’interface utilisateur les
-mêmes [actions](/docs/actions), données SQL et état de l’application. Ce parcours
-commence avec Chat, qui crée déjà les tables du framework nécessaires et stocke
-par défaut l’historique des conversations dans SQLite local. Ajoutez vos propres
-tables uniquement lorsque votre application doit conserver des données métier.
+Agent-Native est un framework TypeScript open source permettant de créer des
+applications au service des personnes comme des agents d’IA. Vous définissez la
+fonctionnalité de votre application une seule fois sous forme
+d’[actions](/docs/actions-overview) : des fonctions typées que votre interface
+utilisateur React appelle depuis le code et que les agents utilisent comme outils.
 
-<Steps>
+Dans ce guide, vous allez créer une application Chat et appeler son action
+`hello` incluse depuis l’agent et l’interface utilisateur.
 
-### Créer une application Chat et configurer un agent
+## Prérequis
 
-Créez le modèle Chat, installez les dépendances, démarrez le serveur de
-développement et configurez un agent. Vous disposerez d’une application Chat
-fonctionnelle à étendre.
-**Vous êtes ici.**
+- [Node.js](https://nodejs.org) 22 ou version ultérieure
+- [pnpm](https://pnpm.io)
+- Une connexion LLM pour l’agent : Builder.io, une clé API Anthropic ou OpenAI,
+  ou un modèle Ollama local
 
-### Ajouter une action
+## Créer une application
 
-Définissez un analyseur de texte typé et affichez son résultat sous forme de
-graphique dans le chat.
-
-### Ajouter une page
-
-Créez une route React qui appelle la même action en dehors de la transcription.
-
-</Steps>
-
-## 1. Créer une application Chat {#create-your-app}
-
-Vous aurez besoin de [Node.js 22+](https://nodejs.org) et de [pnpm](https://pnpm.io).
-
-Ouvrez un terminal, accédez au répertoire dans lequel vous voulez créer votre
-application Agent-Native, puis exécutez :
+Dans un nouveau répertoire, créez une application Chat :
 
 ```bash
-npx @agent-native/core@latest create my-app --template chat
+npx @agent-native/core@latest create my-app --standalone --template chat
 cd my-app
 pnpm install
+```
+
+Le modèle comprend une application navigateur, l’authentification, des
+conversations persistantes, la synchronisation en direct, le contexte de
+l’application et un répertoire `actions/`. Il comprend aussi une petite action
+`hello` que vous utiliserez tout au long de ce guide.
+
+## Démarrer le serveur de développement
+
+Démarrez l’application :
+
+```bash
 pnpm dev
 ```
 
-L’application s’ouvre à `http://localhost:8080`. Si l’écran de connexion
-s’affiche, inscrivez-vous avec des identifiants fictifs. Le développement local
-ne nécessite pas de vérification de l’adresse e-mail.
+L’application s’ouvre sur `http://localhost:8080`. Si elle ne s’ouvre pas
+automatiquement, accédez à cette URL dans votre navigateur.
 
-Le modèle Chat inclut des fils de discussion persistants, l’authentification, la
-synchronisation en direct, un répertoire `actions/` et les actions standard
-`view-screen` et `navigate`.
+<Callout tone="info">
 
-### Choisir un autre point de départ
+Sur l’écran d’accueil, sélectionnez **Continue as local dev**. Vous n’avez pas
+besoin de saisir d’adresse e-mail ni de mot de passe pour le développement local.
 
-Si Chat n’est pas le bon point de départ, exécutez `create` sans
-`--template` et choisissez une autre option dans la CLI. Consultez [Création de modèles](/docs/creating-templates)
-pour découvrir les autres possibilités.
+</Callout>
 
-## 2. Configurer un agent {#connect-ai}
+Connectez ensuite un LLM. Sélectionnez **Connect Builder.io** pour utiliser des
+crédits gratuits, ou sélectionnez **Custom keys**, choisissez un fournisseur et
+saisissez les informations de connexion demandées.
 
-Le modèle Chat ouvre directement la surface de chat. Si l’agent ne répond pas
-encore, ouvrez **Paramètres > Gérer l’agent** ou utilisez **Cmd/Ctrl+K > Gérer l’agent**
-pour configurer un modèle et un fournisseur.
+## Exécuter l’action depuis l’agent
 
-Une fois que l’agent répond, passez à [Ajouter une action](/docs/getting-started-actions).
+Une action est une fonction typée que votre interface utilisateur React peut
+appeler depuis le code et que les agents peuvent utiliser comme outil. Le modèle
+Chat comprend une action `hello` simple afin que vous puissiez essayer ce modèle
+avant d’en écrire une vous-même.
 
-## Documentation associée
+Dans l’application, demandez :
 
-- [Qu’est-ce qu’Agent-Native ?](/docs/what-is-agent-native) : l’architecture de ce parcours.
-- [Modèle de discussion](/docs/template-chat) : ce que contient l’application de départ.
-- [FAQ](/docs/faq) : réponses sur les modèles, l’hébergement et les modèles d’application.
+> Call the hello action for Alex.
+
+L’agent trouve `hello` grâce à sa description et à son schéma d’entrée, transmet
+`Alex` comme entrée `name`, puis répond :
+
+```text
+Hello, Alex!
+```
+
+## Examiner l’action
+
+Ouvrez `actions/hello.ts` :
+
+```ts filename="actions/hello.ts"
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Return a friendly greeting.",
+  schema: z.object({
+    name: z.string().default("world").describe("Name to greet"),
+  }),
+  http: { method: "GET" },
+  run: async ({ name }) => {
+    return { message: `Hello, ${name}!` };
+  },
+});
+```
+
+Pour le moment, concentrez-vous sur quatre éléments :
+
+- `description` indique à l’agent quand utiliser l’action.
+- `schema` valide l’entrée et fournit à l’agent une définition d’outil typée.
+- `http` expose cette action en lecture seule via `GET`, ce qui permet à
+  `useActionQuery` de l’appeler depuis React.
+- `run` contient la logique de l’application partagée par l’agent et l’interface
+  utilisateur.
+
+Consultez [Définir des actions](/docs/actions-defining) pour connaître l’API
+complète.
+
+## Appeler l’action depuis React
+
+Ajoutez une route dans `app/routes/hello.tsx` :
+
+```tsx filename="app/routes/hello.tsx"
+import { useActionQuery } from "@agent-native/core/client/hooks";
+import { useState } from "react";
+
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+
+export default function HelloRoute() {
+  const [name, setName] = useState("Alex");
+  const { data } = useActionQuery("hello", { name });
+
+  return (
+    <main className="mx-auto grid w-full max-w-xl gap-6 p-6">
+      <h1 className="text-2xl font-semibold">Hello action</h1>
+      <div className="grid gap-2">
+        <Label htmlFor="name">Name</Label>
+        <Input
+          id="name"
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+        />
+      </div>
+      <p className="text-xl font-medium">{data?.message}</p>
+    </main>
+  );
+}
+```
+
+<Callout tone="warning">
+
+Redémarrez le serveur de développement afin qu’il détecte la nouvelle route,
+puis ouvrez `http://localhost:8080/hello`.
+
+</Callout>
+
+Pendant que vous saisissez un nom, `useActionQuery` appelle `hello` et affiche le
+résultat. Il déduit les types d’entrée et de résultat de l’action ; la page n’a
+donc besoin ni d’une route API personnalisée ni d’une seconde implémentation du
+message d’accueil.
+
+## Modifier l’action
+
+Dans `actions/hello.ts`, modifiez la valeur de retour :
+
+```ts
+return { message: `Welcome, ${name}.` };
+```
+
+Actualisez `/hello`, puis demandez à nouveau à l’agent d’appeler `hello`. Les
+deux renvoient le message d’accueil mis à jour, car ils appellent la même action.
+
+## Appeler les actions d’autres façons
+
+Vous avez appelé la même action depuis l’agent et l’interface utilisateur. La
+même action peut aussi être appelée depuis :
+
+| Appeler depuis                          | Utilisez-le pour                                                                                       |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| [HTTP API](/docs/http-api)              | appeler une action depuis un script, un backend ou une intégration.                                    |
+| [CLI](/docs/actions-other-surfaces#cli) | exécuter ou tester une action depuis un terminal.                                                      |
+| [MCP](/docs/actions-other-surfaces#mcp) | laisser un client d’IA externe découvrir et appeler des actions comme outils.                          |
+| [A2A](/docs/actions-other-surfaces#a2a) | permettre à une autre application Agent-Native de demander à cette application d’effectuer un travail. |
+
+Chaque appelant utilise la même définition d’action. Vous n’avez pas besoin
+d’une implémentation distincte pour chacun. Ce modèle d’actions partagées est au
+cœur d’Agent-Native : le comportement, la validation et les autorisations
+restent alignés dans l’interface utilisateur, les agents et les intégrations à
+mesure que l’application évolue.
+
+## Ce que vous avez créé
+
+Vous avez créé une application Agent-Native, appelé son action `hello` depuis
+l’agent et une interface utilisateur React, puis modifié le message d’accueil
+une seule fois et constaté la mise à jour des deux. Chaque action que vous
+écrirez à partir de maintenant suivra ce même modèle.
+
+## Étapes suivantes
+
+<Cards>
+
+### [Qu’est-ce qu’Agent-Native ?](/docs/what-is-agent-native)
+
+Découvrez pourquoi l’interface utilisateur et l’agent partagent les actions,
+les données et le contexte.
+
+### [Concepts clés](/docs/key-concepts)
+
+Découvrez comment les actions, les données SQL, le contexte de l’application,
+l’accès et la synchronisation en direct s’articulent.
+
+### [Actions](/docs/actions-overview)
+
+Définissez des actions pour les lectures, les écritures et les approbations,
+puis appelez-les depuis l’interface utilisateur, les agents et les clients
+externes.
+
+</Cards>

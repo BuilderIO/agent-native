@@ -1,0 +1,216 @@
+---
+title: "개요"
+description: "Actions는 여러분의 앱이 하는 모든 일에 대한 단일 진실 공급원입니다. defineAction()으로 하나를 정의하면 에이전트 도구, UI 후크, HTTP, MCP 도구, A2A 도구, CLI 명령으로 자동 확장됩니다."
+---
+
+# 개요
+
+Actions는 여러분의 앱이 하는 모든 일에 대한 단일 진실 공급원입니다. `defineAction()`을 호출해 `actions/`에 넣으면 아래의 모든 표면이 이를 자동으로 인식합니다. 로직은 한 번만 작성하면 됩니다. 어떤 표면도 별도의 사본을 갖지 않으며, 서로 어긋날 수도 없습니다.
+
+<Cards columns={2}>
+
+### :robot: [에이전트 도구](/docs/agent-surfaces)
+
+에이전트는 description과 schema를 읽어 호출 가능한 도구로 취급합니다. "이 티켓에 답장해줘"나 "이 스레드를 요약해줘"처럼 채팅에서 요청하세요.
+
+### :components: [UI 후크](/docs/client-data)
+
+`useActionQuery()`, `useActionMutation()`, `callAction()`은 React에서 동일한 action을 호출합니다. 클릭과 채팅 메시지가 정확히 같은 작업을 실행합니다.
+
+### :server: [프레임워크 트랜스포트](/docs/http-api)
+
+시작 시 `/_agent-native/actions/<name>`에 자동으로 마운트됩니다. UI 후크는 내부적으로 이 경로를 호출하며, 외부 HTTP 클라이언트도 이를 직접 호출할 수 있습니다.
+
+### :plug: [MCP 도구](/docs/actions-other-surfaces#mcp)
+
+Claude, Claude Desktop, Cursor, Codex 등 모든 MCP 호스트에 도구로 나타납니다. 다른 AI 클라이언트가 여러분의 앱을 조작해야 할 때 사용하세요.
+
+### :network: [A2A 도구](/docs/actions-other-surfaces#a2a)
+
+다른 에이전트 네이티브 앱이 A2A를 통해 이를 발견하고 호출합니다. 워크스페이스 안의 두 번째 앱이 이 앱을 대신 동작시켜야 할 때 사용하세요.
+
+### :terminal: [CLI 명령](/docs/actions-other-surfaces#cli)
+
+`pnpm action <name>`으로 터미널에서 실행합니다. 스크립트, cron 작업, 빠른 수동 테스트에 사용하세요.
+
+</Cards>
+
+대부분의 앱은 프런트엔드와 데이터베이스 사이에 브라우저만 호출할 수 있는 별도의 API 레이어를 만듭니다. 같은 기능을 원하는 에이전트는 다시 작성하고 유지 관리해야 하는 자신만의 별도 통합이 필요합니다. 에이전트 네이티브 앱은 이 분리를 건너뜁니다. UI와 에이전트가 정확히 같은 action을 호출하므로, 구현은 하나만 작성하면 되고 버그가 숨을 곳도 한 곳뿐입니다.
+
+<Diagram id="doc-block-actions-overview-2" title="전통적인 프런트엔드 vs. Agent Native" summary="전통적인 프런트엔드는 자신만 접근할 수 있는 자체 API 레이어를 호출합니다. Agent Native에서는 app/과 에이전트가 동일한 actions를 호출하므로, 여기서 만든 모든 기능이 별도의 작업 없이 에이전트도 호출할 수 있게 됩니다.">
+
+```html
+<div class="diagram-cocmp">
+  <div class="cocmp-col">
+    <div class="cocmp-label diagram-muted">전통적인 방식</div>
+    <div class="diagram-node">app/ (React 프런트엔드)</div>
+    <div class="cocmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <strong>API 레이어</strong>
+      <small class="diagram-muted">프런트엔드만 호출 가능</small>
+    </div>
+    <div class="cocmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>데이터베이스</div>
+  </div>
+  <div class="cocmp-vs diagram-muted">vs</div>
+  <div class="cocmp-col">
+    <div class="cocmp-label diagram-muted">Agent Native</div>
+    <div class="cocmp-callers">
+      <div class="diagram-node">app/ (React 프런트엔드)</div>
+      <div class="diagram-node">에이전트</div>
+    </div>
+    <div class="cocmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <span class="diagram-pill accent">Actions</span
+      ><small class="diagram-muted">동등한 파트너, 동일한 작업</small>
+    </div>
+    <div class="cocmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>SQL 데이터베이스</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-cocmp {
+  display: flex;
+  align-items: flex-start;
+  gap: 28px;
+  flex-wrap: wrap;
+}
+.cocmp-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 180px;
+}
+.cocmp-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+.cocmp-callers {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.cocmp-vs {
+  font-size: 13px;
+  font-weight: 600;
+  padding-top: 52px;
+}
+.diagram-cocmp .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 16px;
+  align-self: stretch;
+  align-items: center;
+}
+.cocmp-arrow {
+  font-size: 18px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+UI와 에이전트 둘 다 무언가를 해야 한다면, 커스텀 라우트 대신 action을 사용하세요. 라우트 형태의 프로토콜이 실제로 옳은 선택인 드문 경우에는 [앱 작업에는 Actions를 우선하세요](/docs/server-overview#actions-first)를 참고하세요.
+
+## Actions의 역할 {#role}
+
+`app/`([클라이언트 개요](/docs/client-overview#role) 참고)와 에이전트는 모두 동일한 actions와 동일한 SQL 데이터베이스로 귀결됩니다. 에이전트가 접근할 수 없는 별도의 "앱 백엔드"가 이 레이어와 대화하는 일은 없습니다. 기능을 만든다는 것은 여기서 하나의 작업을 정의하고, 동시에 UI, 에이전트 도구, 그리고 다른 모든 표면을 얻는다는 뜻입니다.
+
+`actions/` 자체는 평평한 폴더입니다. 각 파일이 하나의 action입니다. `defineAction()` 호출을 파일의 기본 내보내기(default export)로 내보냅니다. 프레임워크는 시작 시 이 폴더를 스캔하여 찾은 모든 파일을 마운트합니다. 별도의 등록 단계도, 최신 상태로 유지해야 할 인덱스 파일도 없습니다.
+
+action의 `run()` 본문은 일반적인 서버 코드이므로, 흔히 몇 개의 다른 디렉터리에 접근합니다.
+
+<FileTree
+  id="doc-block-actions-overview-filetree"
+  entries={[
+    {
+      path: "actions/reply-to-email.ts",
+      note: "파일당 하나의 action입니다. defineAction() 호출을 내보내면 프레임워크가 자동으로 마운트합니다.",
+    },
+    {
+      path: "server/db/schema.ts",
+      note: "대부분의 actions가 읽고 쓰는 데 사용하는 Drizzle 테이블 정의입니다.",
+    },
+    {
+      path: "server/lib/access.ts",
+      note: "actions 전반에서 재사용되는 공유 액세스 가드(accessFilter, assertAccess, authorize)입니다.",
+    },
+    {
+      path: "shared/feature-flags.ts",
+      note: "action과 서버 플러그인이 함께 확인하는 플래그 정의입니다.",
+    },
+    {
+      path: "app/components/ReplyButton.tsx",
+      note: "useActionMutation으로 UI에서 action을 호출합니다.",
+    },
+  ]}
+/>
+
+`actions/` 바깥의 어떤 코드도 action의 `run` 함수를 직접 임포트해서는 안 됩니다. 대신 위의 표면들, 즉 에이전트 도구, UI 후크, HTTP, MCP, A2A, CLI 중 하나를 통해 호출하세요. 이 경로들은 모두 동일한 스키마 검증, 액세스 확인, 감사 기록을 거칩니다.
+
+## 하나의 action으로 시작하기 {#hello-action}
+
+채팅 우선 앱의 첫 작업은 아주 작아도 됩니다. Chat 템플릿에서
+`actions/hello.ts`를 교체하거나 그 옆에 새 파일을 추가하세요.
+
+```ts
+// actions/hello.ts
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Say hello from the local agent.",
+  schema: z.object({
+    name: z.string().default("world"),
+  }),
+  http: { method: "GET" },
+  readOnly: true,
+  run: async ({ name }) => {
+    return { message: `Hello, ${name}!` };
+  },
+});
+```
+
+같은 폴더에서 실행하세요.
+
+```bash
+pnpm action hello '{"name":"Steve"}'
+```
+
+CLI는 action의 입력으로 JSON 객체를 받아들이며, 이는 에이전트가 이미
+만드는 구조화된 도구 호출과 일치합니다. 빠른 수동 실행을 위한 단순한
+플래그도 여전히 동작합니다.
+
+```bash
+pnpm action hello --name Steve
+```
+
+그런 다음 이 폴더를 대상으로 앱-에이전트 루프를 실행하세요.
+
+```bash
+npx agent-native agent "Call hello for Steve and explain the result"
+```
+
+이것이 여러분의 예약 작업(jobs), 채팅 UI, 외부 MCP 도구, 그리고 앞으로
+만들 화면들이 사용할 것과 동일한 앱-에이전트 루프입니다. Chat 및 도메인
+템플릿은 actions 주위에 UI를 추가하기 위한 것이지, action 자체를 위해
+반드시 필요한 전제 조건은 아닙니다.
+
+## 다음 단계
+
+- [**Actions 정의하기**](/docs/actions-defining) — `defineAction()`의 구조, schema, HTTP 설정
+- [**액세스 및 권한 부여**](/docs/actions-access-control) — 노출 플래그, `ctx` 범위 지정, `authorize`
+- [**실행 컨텍스트**](/docs/actions-run-context) — 전체 `ctx` 필드 표
+- [**다른 표면들**](/docs/actions-other-surfaces) — 네이티브 채팅 UI, CLI, A2A, MCP, 표준 actions
+- [**고급 및 레거시**](/docs/actions-advanced) — 기능 플래그 게이팅과 레거시 CLI 스타일 actions
+- [**개요**](/docs/client-overview) — 동일한 계약의 `app/` 쪽
+- [**데이터 및 동기화**](/docs/client-data) — UI에서의 `useActionQuery`, `useActionMutation`, `callAction`
+- [**에이전트 표면**](/docs/agent-surfaces) — 하나의 action이 채팅 도구에서 전체 화면으로 성장하는 방법

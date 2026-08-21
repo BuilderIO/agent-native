@@ -178,7 +178,7 @@ export default function AgentRoute() {
 
 ## प्रोग्रामेटिक संदेश: `sendToAgentChat()` {#send}
 
-एक बटन जो एजेंट को काम सौंपता है (इनलाइन `llm()` कॉल चलाने के बजाय - [ladder](/docs/what-is-agent-native#the-ladder) से एंटी-पैटर्न):
+एक बटन जो inline `llm()` call से अलग AI path बनाने के बजाय agent को काम सौंपता है। यह अंतर क्यों महत्वपूर्ण है, इसके लिए [ऐप्स इस तरह क्यों बनाएं](/docs/what-is-agent-native#why-build-apps-this-way) देखें:
 
 ```tsx
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
@@ -268,7 +268,7 @@ CRUD, validation, provider reads और persistence जैसे deterministic l
 
 ## UI से टाइपसेफ actions: `useActionMutation()` {#use-action-mutation}
 
-जब UI को समान ऑपरेशन चलाने की आवश्यकता होती है तो एक एजेंट टूल चलेगा - [ladder](/docs/what-is-agent-native#rung-three) का क्रमांक 3 - `useActionMutation` का उपयोग करें:
+जब UI को वही operation चलाने की आवश्यकता हो जो agent tool चलाएगा, तो [`useActionMutation`](/docs/client-data#use-action-mutation) का उपयोग करें:
 
 ```tsx
 import { useActionMutation } from "@agent-native/core/client/hooks";
@@ -279,11 +279,11 @@ const { mutate, isPending } = useActionMutation("reply-to-email");
 </Button>;
 ```
 
-टाइप-सुरक्षित तर्क आपके `defineAction()` में ज़ोड स्कीमा से आते हैं। संपूर्ण कार्य प्रणाली के लिए [Actions](/docs/actions) देखें।
+टाइप-सुरक्षित तर्क आपके `defineAction()` में ज़ोड स्कीमा से आते हैं। संपूर्ण कार्य प्रणाली के लिए [Actions](/docs/actions-overview) देखें।
 
 <Callout id="doc-block-1757zi5" tone="decision">
 
-**`useActionMutation` vs `sendToAgentChat`.** Run the operation directly with `useActionMutation` when the user clicked a deterministic button ("Send reply"). Hand it to `sendToAgentChat` when the work needs the agent's reasoning, tools, or multi-step planning. Never call an inline `llm()` from UI — that is rung 1 of the [ladder](/docs/what-is-agent-native#the-ladder).
+**`useActionMutation` बनाम `sendToAgentChat`.** User ने deterministic button ("Send reply") click किया हो, तो operation सीधे `useActionMutation` से चलाएं। काम को agent के reasoning, tools या multi-step planning की जरूरत हो, तो `sendToAgentChat` को दें। UI से inline `llm()` कभी call न करें; इससे shared agent loop का उपयोग करने के बजाय अलग AI path बनता है।
 
 </Callout>
 
@@ -337,7 +337,7 @@ export default function Root() {
 
 ## आगे क्या
 
-- [**Actions**](/docs/actions) - `defineAction()` और `useActionMutation()`
+- [**Actions**](/docs/actions-overview) - `defineAction()` और `useActionMutation()`
 - [**Context Awareness**](/docs/context-awareness) - चयन, नेविगेशन, व्यू-स्क्रीन
 - [**एजेंट संसाधन**](/docs/agent-resources) - एजेंट संसाधन टैब में क्या शामिल है (skills, मेमोरी, MCP सर्वर, शेड्यूल किए गए कार्य)
 - [**Voice Input**](/docs/voice-input) - चैट कंपोजर में माइक्रोफोन

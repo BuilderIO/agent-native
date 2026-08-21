@@ -79,6 +79,7 @@ export function NewDashboardDialog({
         <PromptComposer
           autoFocus
           disabled={isGenerating}
+          layoutVariant="compact"
           placeholder={t("dialogs.newDashboardPlaceholder")}
           draftScope="analytics:new-dashboard"
           onSubmit={handleSubmit}

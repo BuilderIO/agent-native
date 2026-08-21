@@ -1,6 +1,7 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 
-import { uploadFile } from "../file-upload/index.js";
+import { getAppConfig } from "../app-config/index.js";
+import { deleteUploadedFile, uploadFile } from "../file-upload/index.js";
 import {
   decryptSecretValue,
   encryptSecretValue,
@@ -276,6 +277,21 @@ export function listPrivateBlobProviders(): PrivateBlobProvider[] {
 }
 
 export function getActivePrivateBlobProvider(): PrivateBlobProvider | null {
+  const selectedId = getAppConfig().privateBlob.provider;
+  if (selectedId) {
+    const selected = providers.get(selectedId);
+    if (!selected) {
+      throw new Error(
+        `Private blob config selects '${selectedId}', but no provider with that id is registered`,
+      );
+    }
+    if (!selected.isConfigured()) {
+      throw new Error(
+        `Private blob provider '${selectedId}' is selected but not configured`,
+      );
+    }
+    return selected;
+  }
   for (const provider of providers.values()) {
     if (provider.isConfigured()) return provider;
   }
@@ -294,9 +310,7 @@ export async function putPrivateBlob(
   const provider = getActivePrivateBlobProvider();
   if (provider) return provider.put(input);
   if (!publicUploadFallbackRef.enabled) return null;
-  if (process.env.AGENT_NATIVE_PRIVATE_BLOB_PUBLIC_UPLOAD_FALLBACK === "0") {
-    return null;
-  }
+  if (!getAppConfig().privateBlob.publicUploadFallback) return null;
   return putViaEncryptedPublicUpload(input);
 }
 
@@ -317,11 +331,17 @@ export async function deletePrivateBlob(
   const provider = providers.get(handle.provider);
   if (provider) return provider.delete(handle);
   if (isPublicUploadFallbackHandle(handle)) {
+    const descriptor = decodePublicUploadDescriptor(handle.id);
+    const deleted = await deleteUploadedFile(descriptor.uploadProvider, {
+      url: descriptor.url,
+      id: descriptor.uploadId,
+    });
     return {
-      deleted: false,
+      deleted,
       provider: handle.provider,
-      reason:
-        "delete is not supported by the encrypted public-upload fallback provider",
+      ...(deleted
+        ? {}
+        : { reason: "backing upload provider could not delete the asset" }),
     };
   }
   throw new Error(`No private blob provider registered for ${handle.provider}`);

@@ -5,7 +5,7 @@ description: "Les hooks d'action que app/ utilise pour lire, écrire et rester s
 
 # Données et synchronisation
 
-Le principal moyen de lire et d'écrire des données d'application depuis le client est d'utiliser les hooks d'[action](/docs/actions). En intégrant les requêtes dans des actions, votre client et votre agent peuvent tous deux interagir avec votre application de la même manière.
+Le principal moyen de lire et d'écrire des données d'application depuis le client est d'utiliser les hooks d'[action](/docs/actions-overview). En intégrant les requêtes dans des actions, votre client et votre agent peuvent tous deux interagir avec votre application de la même manière.
 
 Dans l'exemple ci-dessous, un ticket est assigné à l'utilisateur actuel manuellement via une liste déroulante, puis via l'agent de chat. L'UI et l'agent accèdent tous deux à la même action.
 
@@ -430,7 +430,7 @@ Pour les CRUD normaux, préférez `useActionQuery()` et `useActionMutation()`. L
 
 - [**Vue d’ensemble**](/docs/client-overview) — la disposition des répertoires `app/` et `public/` dans laquelle vivent les hooks de cette page
 - [**Chat de l’Agent**](/docs/client-agent-chat) — envoyer des prompts et préparer du contexte pour l'agent
-- [**Actions**](/docs/actions) — la surface `defineAction` derrière chaque hook de cette page
+- [**Actions**](/docs/actions-overview) — la surface `defineAction` derrière chaque hook de cette page
 - [**Avancé**](/docs/client-advanced) — accès direct à `application_state`
 - [**Synchronisation interne**](/docs/client-sync-internals) — synchroniser un `useQuery` brut avec `useChangeVersion`
 - [**Synchronisation en direct**](/docs/key-concepts#polling-sync) — comment `useDbSync` maintient l'UI à jour

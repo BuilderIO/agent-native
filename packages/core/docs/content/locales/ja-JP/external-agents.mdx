@@ -685,7 +685,7 @@ export default defineAction({
 });
 ```
 
-`GET` + `readOnly` は、アクションの副作用を発生させず、画面更新変更イベントの対象外に保ちます。 `publicAgent` は **明示的なオプトイン** です。パブリック Web ルートは、MCP/A2A への公開を決して意味しません。 [Actions](/docs/actions)を参照してください。デザイン/コンテンツの取り込み actions MUST は **ライブ** 状態 (古い DB スナップショット列ではなく、Yjs 共同ドキュメント) を読み取るため、外部エージェントはユーザーが実際に画面上に表示しているものを確認します。コンテンツの `pull-document` は、開いているライブ コラボ セッションを最初に SQL にフラッシュします。デザインの `get-design-snapshot` は、ライブ Yjs ファイルの内容とユーザーが解決した調整値を返します。
+`GET` + `readOnly` は、アクションの副作用を発生させず、画面更新変更イベントの対象外に保ちます。 `publicAgent` は **明示的なオプトイン** です。パブリック Web ルートは、MCP/A2A への公開を決して意味しません。 [Actions](/docs/actions-overview)を参照してください。デザイン/コンテンツの取り込み actions MUST は **ライブ** 状態 (古い DB スナップショット列ではなく、Yjs 共同ドキュメント) を読み取るため、外部エージェントはユーザーが実際に画面上に表示しているものを確認します。コンテンツの `pull-document` は、開いているライブ コラボ セッションを最初に SQL にフラッシュします。デザインの `get-design-snapshot` は、ライブ Yjs ファイルの内容とユーザーが解決した調整値を返します。
 
 ## 上級: ローカル開発と手動セットアップ {#advanced}
 
@@ -813,5 +813,5 @@ npx @agent-native/core@latest connect prod --apps mail,calendar,analytics --clie
 - [MCP Protocol](/docs/mcp-protocol) — 自動マウントされる MCP サーバーと `ask-agent` メタツール。
 - [MCP Clients](/docs/mcp-clients) — 対称方向: アプリはローカル/リモート MCP サーバーを消費します。
 - [A2A Protocol](/docs/a2a-protocol) — `ask-agent` メタツールおよび JSON-RPC ピア呼び出し。
-- [Actions](/docs/actions) — actions、`publicAgent`、GET / `readOnly` を定義します。
+- [Actions](/docs/actions-overview) — actions、`publicAgent`、GET / `readOnly` を定義します。
 - [Context Awareness](/docs/context-awareness) — オープン ルート ブリッジを契約する `navigate` / `application_state`。

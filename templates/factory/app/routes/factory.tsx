@@ -1,5 +1,5 @@
 import {
-  AgentToggleButton,
+  requestAgentChatThreadOpen,
   useChatModels,
 } from "@agent-native/core/client/agent-chat";
 import {
@@ -7,8 +7,6 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { buildSettingsRoute } from "@agent-native/core/client/navigation";
-import { SettingsGroup, SettingsRow } from "@agent-native/core/client/settings";
 import {
   IconAlertCircle,
   IconArrowLeft,
@@ -18,24 +16,27 @@ import {
   IconPlus,
   IconRefresh,
 } from "@tabler/icons-react";
-import { useEffect, useMemo, useState } from "react";
-import { Link, useSearchParams } from "react-router";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Link, Navigate, useSearchParams } from "react-router";
+import { toast } from "sonner";
 
+import { FactoryAgentsView } from "@/components/factory/FactoryAgentsView";
 import { FactoryAuditView } from "@/components/factory/FactoryAuditView";
 import {
   FactoryCanvas,
-  type FactoryCanvasEdge,
   type FactoryCanvasGraph,
   type FactoryCanvasNode,
 } from "@/components/factory/FactoryCanvas";
+import { FactoryHistoryView } from "@/components/factory/FactoryHistoryView";
 import { FactoryInspector } from "@/components/factory/FactoryInspector";
+import { FactorySettingsView } from "@/components/factory/FactorySettingsView";
+import { FactoryWorkspaceActions } from "@/components/factory/FactoryWorkspaceActions";
 import { TriageStatusPill } from "@/components/triage/triage-status-pill";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 
 type FactoryGraphResponse = {
@@ -77,6 +78,7 @@ type TriageDecision = {
 type TriageItem = {
   itemId?: string;
   id?: string;
+  title?: string | null;
   source?: string | null;
   sourceName?: string | null;
   sourceUrl?: string | null;
@@ -86,6 +88,8 @@ type TriageItem = {
   reason?: string | null;
   decisionSummary?: string | null;
   decisions?: TriageDecision[] | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
 };
 
 type TriageRule = {
@@ -97,34 +101,17 @@ type TriageRule = {
   promptVersion: number;
 };
 
-type TriageConfig = {
-  slackWorkspace?: "primary" | "secondary";
-  slackChannelId?: string | null;
-  slackChannelName?: string | null;
-  pollingEnabled?: boolean;
-  githubPollingEnabled?: boolean;
-  sentryPollingEnabled?: boolean;
-  sentryOrgSlug?: string | null;
-  sentryProjectSlug?: string | null;
-  sentryEnvironment?: string | null;
-  repository?: string | null;
-  automationFailureAlertsEnabled?: boolean;
-  automationFailureAlertEmail?: string | null;
-  emailReadiness?: {
-    status: "ready" | "not-configured" | "misconfigured" | "unavailable";
-    provider: string;
-  };
-};
-
 type Verdict = "correct" | "incorrect" | "uncertain";
 type WorkspaceTab =
   | "overview"
   | "map"
   | "inbox"
   | "rules"
+  | "settings"
   | "automations"
+  | "agents"
   | "audit"
-  | "settings";
+  | "history";
 
 type FactoryAutomationRun = {
   id?: string;
@@ -136,17 +123,10 @@ type FactoryAutomationRun = {
   threadId?: string | null;
 };
 
-type FactoryAutomationHealth = {
-  status: "healthy" | "stale" | "error" | "no-data";
-  lastCheckedAt?: number | null;
-  lastDispatchedAt?: number | null;
-  lastError?: string | null;
-  runtime?: string | null;
-};
-
 type FactoryAutomation = {
   id: string;
   name: string;
+  displayName: string;
   prompt?: string | null;
   body?: string | null;
   model?: string | null;
@@ -157,6 +137,7 @@ type FactoryAutomation = {
   timezone?: string | null;
   condition?: string | null;
   canUpdate?: boolean;
+  updatedAt?: string | number | null;
   runs?: FactoryAutomationRun[] | null;
   pastRuns?: FactoryAutomationRun[] | null;
 };
@@ -173,12 +154,16 @@ export default function FactoryRoute() {
   const activeTab = parseWorkspaceTab(searchParams.get("tab"));
   const selectedFactoryId = searchParams.get("factoryId");
   const factoryId = selectedFactoryId ?? DEFAULT_FACTORY_ID;
-  const [creating, setCreating] = useState(false);
   const [draftGraph, setDraftGraph] = useState<FactoryCanvasGraph | null>(null);
   const [dirty, setDirty] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveConflictRemoteGraph, setSaveConflictRemoteGraph] =
+    useState<FactoryCanvasGraph | null>(null);
+  const [refreshingFactory, setRefreshingFactory] = useState(false);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [auditRefreshToken, setAuditRefreshToken] = useState(0);
+  const draftRevisionRef = useRef(0);
 
   function setActiveTab(tab: WorkspaceTab) {
     setSearchParams(
@@ -186,6 +171,10 @@ export default function FactoryRoute() {
         const next = new URLSearchParams(current);
         if (tab === "overview") next.delete("tab");
         else next.set("tab", tab);
+        if (tab === "history") {
+          next.delete("node");
+          next.delete("edge");
+        }
         return next;
       },
       { replace: true },
@@ -196,7 +185,6 @@ export default function FactoryRoute() {
     nextFactoryId: string,
     options?: { tab?: WorkspaceTab; replace?: boolean },
   ) {
-    setCreating(false);
     setDraftGraph(null);
     setDirty(false);
     setSelectedNodeId(null);
@@ -210,6 +198,7 @@ export default function FactoryRoute() {
         next.delete("itemId");
         next.delete("automationId");
         next.delete("auditRunId");
+        next.delete("new");
         if (options?.tab) {
           if (options.tab === "overview") next.delete("tab");
           else next.set("tab", options.tab);
@@ -231,6 +220,7 @@ export default function FactoryRoute() {
         next.delete("itemId");
         next.delete("automationId");
         next.delete("auditRunId");
+        next.delete("new");
         return next;
       },
       { replace: true },
@@ -247,17 +237,17 @@ export default function FactoryRoute() {
   const graphData =
     rawGraphData?.factory.id === factoryId ? rawGraphData : undefined;
   const graph = draftGraph ?? graphData?.graph ?? null;
-  const graphVersion = graphData?.factory.graphVersion ?? graph?.version ?? 1;
+  const graphVersion = graph?.version ?? graphData?.factory.graphVersion ?? 1;
   const saveGraphMutation = useActionMutation("save-factory-graph");
   const factoryList = (factoryListQuery.data ?? []) as FactorySummary[];
 
   useEffect(() => {
-    if (!graphData || creating) return;
+    if (!graphData || dirty) return;
     setDraftGraph(graphData.graph);
     setDirty(false);
     setSelectedNodeId(null);
     setSelectedEdgeId(null);
-  }, [creating, graphData]);
+  }, [dirty, graphData]);
 
   useEffect(() => {
     setSelectedNodeId(searchParams.get("node"));
@@ -266,7 +256,6 @@ export default function FactoryRoute() {
 
   useEffect(() => {
     if (selectedFactoryId) return;
-    setCreating(false);
     setDraftGraph(null);
     setDirty(false);
     setSelectedNodeId(null);
@@ -305,6 +294,9 @@ export default function FactoryRoute() {
   }
 
   function updateGraph(next: FactoryCanvasGraph) {
+    draftRevisionRef.current += 1;
+    setSaveError(null);
+    setSaveConflictRemoteGraph(null);
     setDraftGraph(next);
     setDirty(
       !graphData?.graph ||
@@ -360,48 +352,113 @@ export default function FactoryRoute() {
     });
   }
 
-  function startNewFactory() {
-    const id = `factory-${Date.now().toString(36)}`;
-    openFactory(id, { tab: "overview" });
-    setCreating(true);
-    setDraftGraph({
-      version: 1,
-      name: t("factoryRoute.newFactory"),
-      description: t("factoryRoute.newFactoryDescription"),
-      executionMode: "blueprint",
-      nodes: [
-        {
-          id: "start",
-          label: t("factoryRoute.newStep"),
-          description: t("factoryRoute.newStepDescription"),
-          kind: "decision",
-          provider: "factory",
-          position: { x: 240, y: 220 },
-        },
-      ],
-      edges: [],
-    });
-    setDirty(true);
+  async function saveGraph() {
+    if (!graph || !selectedFactoryId) return;
+    const submittedDraftRevision = draftRevisionRef.current;
+    setSaveError(null);
+    try {
+      await saveGraphMutation.mutateAsync({
+        factoryId: selectedFactoryId,
+        name: graph.name,
+        description: graph.description,
+        prompt: graphData?.factory.prompt ?? "",
+        source: "manual",
+        changeSummary: "Updated in the Factory visual editor.",
+        expectedGraphVersion: graph.version,
+        graph,
+      });
+      setDirty(draftRevisionRef.current !== submittedDraftRevision);
+      setSaveConflictRemoteGraph(null);
+      await Promise.all([graphQuery.refetch(), factoryListQuery.refetch()]);
+    } catch (error) {
+      setSaveError(
+        error instanceof Error
+          ? error.message
+          : t("factoryRoute.saveConflictFallback"),
+      );
+    }
+  }
+
+  async function refreshFactoryAfterSaveConflict() {
+    setRefreshingFactory(true);
+    try {
+      const results = await Promise.all([
+        graphQuery.refetch(),
+        factoryListQuery.refetch(),
+      ]);
+      if (results.some((result) => result.isError)) {
+        throw new Error("Factory refresh failed.");
+      }
+      const remoteGraph = (results[0].data as FactoryGraphResponse | undefined)
+        ?.graph;
+      if (dirty) {
+        if (!remoteGraph) throw new Error("Factory graph refresh failed.");
+        setSaveConflictRemoteGraph(remoteGraph);
+        setSaveError(t("factoryRoute.saveConflictFallback"));
+        return;
+      }
+      setSaveError(null);
+    } catch {
+      setSaveError(t("factoryRoute.saveConflictFallback"));
+    } finally {
+      setRefreshingFactory(false);
+    }
+  }
+
+  function discardLocalFactoryChanges() {
+    if (!saveConflictRemoteGraph) return;
+    setDraftGraph(saveConflictRemoteGraph);
+    setSaveConflictRemoteGraph(null);
+    setSaveError(null);
+    setDirty(false);
     setSelectedNodeId(null);
     setSelectedEdgeId(null);
   }
 
-  async function saveGraph() {
-    if (!graph || !selectedFactoryId) return;
-    await saveGraphMutation.mutateAsync({
-      factoryId: selectedFactoryId,
-      name: graph.name,
-      description: graph.description,
-      prompt: creating ? "" : (graphData?.factory.prompt ?? ""),
-      source: "manual",
-      changeSummary: creating
-        ? "Created from the Factory visual editor."
-        : "Updated in the Factory visual editor.",
-      graph,
-    });
-    setCreating(false);
+  async function handleFactoryRestored(result?: { graph: FactoryCanvasGraph }) {
+    if (result?.graph) setDraftGraph(result.graph);
+    else setDraftGraph(null);
     setDirty(false);
-    await Promise.all([graphQuery.refetch(), factoryListQuery.refetch()]);
+    setSaveError(null);
+    setSaveConflictRemoteGraph(null);
+    setSelectedNodeId(null);
+    setSelectedEdgeId(null);
+    const results = await Promise.all([
+      graphQuery.refetch(),
+      factoryListQuery.refetch(),
+    ]);
+    if (results.some((result) => result.isError)) {
+      throw new Error("Factory view refresh failed.");
+    }
+  }
+
+  if (searchParams.get("new") === "1") {
+    return <Navigate to="/new-factory" replace />;
+  }
+
+  if (selectedFactoryId && searchParams.get("tab") === "agents") {
+    return <Navigate to="/factory?tab=agents" replace />;
+  }
+
+  if (!selectedFactoryId && activeTab === "agents") {
+    return (
+      <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-background">
+        <div className="flex items-center gap-3 px-4 py-4 lg:px-6">
+          <Button asChild type="button" variant="ghost" size="icon">
+            <Link to="/factory" aria-label={t("factoryRoute.backToFactories")}>
+              <IconArrowLeft className="size-4" />
+            </Link>
+          </Button>
+          <h1 className="text-sm font-medium sm:text-base">
+            {t("factoryRoute.agentsTitle")}
+          </h1>
+          <div className="ms-auto">
+            <FactoryWorkspaceActions />
+          </div>
+        </div>
+        <FactoryAgentsView />
+      </div>
+    );
   }
 
   if (!selectedFactoryId) {
@@ -410,13 +467,7 @@ export default function FactoryRoute() {
         <section className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-6 p-4 lg:p-6">
           <div className="flex flex-wrap items-end justify-between gap-4">
             <h1 className="text-2xl font-semibold tracking-tight">Factories</h1>
-            <div className="flex items-center gap-2">
-              <Button type="button" size="sm" onClick={startNewFactory}>
-                <IconPlus className="size-4" />
-                {t("factoryRoute.newFactory")}
-              </Button>
-              <AgentToggleButton />
-            </div>
+            <FactoryWorkspaceActions />
           </div>
 
           {factoryListQuery.isError ? (
@@ -512,10 +563,7 @@ export default function FactoryRoute() {
               </Button>
               <div className="h-5 w-48 animate-pulse rounded bg-muted" />
             </div>
-            <div className="flex items-center gap-2">
-              <div className="h-9 w-28 animate-pulse rounded bg-muted" />
-              <AgentToggleButton />
-            </div>
+            <FactoryWorkspaceActions />
           </div>
         </header>
         <main className="flex flex-1 items-center justify-center p-6">
@@ -562,16 +610,7 @@ export default function FactoryRoute() {
             </span>
           </div>
           <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={startNewFactory}
-            >
-              <IconPlus className="size-4" />
-              {t("factoryRoute.newFactory")}
-            </Button>
-            <AgentToggleButton />
+            <FactoryWorkspaceActions />
           </div>
         </div>
         <div className="flex items-center gap-2 overflow-x-auto px-2 py-2 sm:px-4 lg:px-6">
@@ -616,10 +655,16 @@ export default function FactoryRoute() {
               Activity
             </TabButton>
             <TabButton
+              active={activeTab === "history"}
+              onClick={() => setActiveTab("history")}
+            >
+              {t("factoryRoute.historyTab")}
+            </TabButton>
+            <TabButton
               active={activeTab === "settings"}
               onClick={() => setActiveTab("settings")}
             >
-              Settings
+              {t("factoryRoute.factorySettings")}
             </TabButton>
           </nav>
           {activeTab === "audit" && (
@@ -648,8 +693,8 @@ export default function FactoryRoute() {
             onOpenReview={() => setActiveTab("inbox")}
             onOpenAutomations={() => setActiveTab("automations")}
             onOpenActivity={() => setActiveTab("audit")}
-            onOpenSettings={() => setActiveTab("settings")}
             onOpenFlow={() => setActiveTab("map")}
+            onOpenSettings={() => setActiveTab("settings")}
           />
         ) : activeTab === "map" ? (
           <div className="grid min-h-full gap-4 p-4 lg:p-6 xl:grid-cols-[minmax(0,1fr)_360px]">
@@ -683,17 +728,24 @@ export default function FactoryRoute() {
               factoryId={factoryId}
               dirty={dirty}
               saving={saveGraphMutation.isPending}
+              saveError={saveError}
+              saveConflictNeedsResolution={Boolean(saveConflictRemoteGraph)}
+              refreshing={refreshingFactory}
               onGraphChange={updateGraph}
               onSave={() => void saveGraph()}
+              onRefresh={refreshFactoryAfterSaveConflict}
+              onDiscardLocalChanges={discardLocalFactoryChanges}
               onAddNode={addNode}
               onDeleteNode={deleteNode}
               onConnect={connectNodes}
             />
           </div>
         ) : activeTab === "inbox" ? (
-          <InboxView t={t} />
+          <InboxView factoryId={factoryId} t={t} />
         ) : activeTab === "rules" ? (
-          <RulesView t={t} />
+          <RulesView factoryId={factoryId} t={t} />
+        ) : activeTab === "settings" ? (
+          <FactorySettingsView factoryId={factoryId} />
         ) : activeTab === "automations" ? (
           <AutomationsView factoryId={factoryId} t={t} />
         ) : activeTab === "audit" ? (
@@ -701,9 +753,14 @@ export default function FactoryRoute() {
             factoryId={factoryId}
             refreshToken={auditRefreshToken}
           />
-        ) : (
-          <SettingsView t={t} />
-        )}
+        ) : activeTab === "history" ? (
+          <FactoryHistoryView
+            key={factoryId}
+            factoryId={factoryId}
+            hasUnsavedChanges={dirty}
+            onRestored={handleFactoryRestored}
+          />
+        ) : null}
       </main>
     </div>
   );
@@ -734,9 +791,11 @@ function parseWorkspaceTab(value: string | null): WorkspaceTab {
   return value === "map" ||
     value === "inbox" ||
     value === "rules" ||
+    value === "settings" ||
     value === "automations" ||
+    value === "agents" ||
     value === "audit" ||
-    value === "settings"
+    value === "history"
     ? value
     : "overview";
 }
@@ -749,8 +808,8 @@ function OverviewView({
   onOpenReview,
   onOpenAutomations,
   onOpenActivity,
-  onOpenSettings,
   onOpenFlow,
+  onOpenSettings,
 }: {
   graph: FactoryCanvasGraph;
   t: ReturnType<typeof useT>;
@@ -759,8 +818,8 @@ function OverviewView({
   onOpenReview: () => void;
   onOpenAutomations: () => void;
   onOpenActivity: () => void;
-  onOpenSettings: () => void;
   onOpenFlow: () => void;
+  onOpenSettings: () => void;
 }) {
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 p-4 lg:p-6">
@@ -837,8 +896,12 @@ function OverviewView({
             <Button type="button" variant="outline" onClick={onOpenActivity}>
               Activity
             </Button>
-            <Button type="button" variant="outline" onClick={onOpenSettings}>
-              Settings
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenSettings?.()}
+            >
+              {t("factoryRoute.factorySettings")}
             </Button>
             <Button type="button" onClick={onOpenFlow}>
               {t("factoryRoute.editFlow")}
@@ -931,11 +994,13 @@ function AutomationsView({
         current &&
         current.id === nextDraft.id &&
         current.name === nextDraft.name &&
+        current.displayName === nextDraft.displayName &&
         current.prompt === nextDraft.prompt &&
         current.body === nextDraft.body &&
         current.model === nextDraft.model &&
         current.schedule === nextDraft.schedule &&
-        current.enabled === nextDraft.enabled
+        current.enabled === nextDraft.enabled &&
+        current.updatedAt === nextDraft.updatedAt
       ) {
         return current;
       }
@@ -945,16 +1010,26 @@ function AutomationsView({
 
   async function saveAutomation() {
     if (!draft) return;
-    await saveMutation.mutateAsync({
-      factoryId,
-      automationId: draft.id,
-      name: draft.name,
-      prompt: draft.prompt ?? draft.body ?? "",
-      model: draft.model ?? "",
-      schedule: draft.schedule ?? "",
-      enabled: draft.enabled,
-    });
-    await automationsQuery.refetch();
+    try {
+      await saveMutation.mutateAsync({
+        factoryId,
+        automationId: draft.id,
+        name: draft.name,
+        displayName: draft.displayName,
+        prompt: draft.prompt ?? draft.body ?? "",
+        model: draft.model ?? "",
+        schedule: draft.schedule ?? "",
+        enabled: draft.enabled,
+      });
+      await automationsQuery.refetch();
+      toast.success(t("factoryRoute.automationSaved"));
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t("factoryRoute.automationSaveFailed"),
+      );
+    }
   }
 
   async function runAutomation() {
@@ -990,27 +1065,37 @@ function AutomationsView({
                 role="tablist"
                 aria-label={t("factoryRoute.automationsTitle")}
               >
-                {automations.map((automation) => (
-                  <button
-                    key={automation.id}
-                    type="button"
-                    id={`factory-automation-tab-${automation.id}`}
-                    role="tab"
-                    aria-selected={activeAutomationId === automation.id}
-                    aria-controls="factory-automation-panel"
-                    className={`w-full cursor-pointer rounded-lg bg-muted/20 p-4 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${activeAutomationId === automation.id ? "bg-muted/60" : ""}`}
-                    onClick={() => selectAutomation(automation.id)}
-                  >
-                    <span className="block truncate text-sm font-medium">
-                      {automation.name}
-                    </span>
-                    <span className="mt-1 block truncate text-xs text-muted-foreground">
-                      {automation.enabled
-                        ? t("factoryRoute.automationEnabled")
-                        : t("factoryRoute.automationDisabled")}
-                    </span>
-                  </button>
-                ))}
+                {automations.map((automation) => {
+                  const selected = activeAutomationId === automation.id;
+                  return (
+                    <button
+                      key={automation.id}
+                      type="button"
+                      id={`factory-automation-tab-${automation.id}`}
+                      role="tab"
+                      aria-selected={selected}
+                      aria-controls="factory-automation-panel"
+                      className={`w-full cursor-pointer rounded-lg p-4 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${
+                        selected
+                          ? "bg-primary/10 ring-1 ring-inset ring-primary/40"
+                          : "bg-muted/20 hover:bg-muted/50"
+                      }`}
+                      onClick={() => selectAutomation(automation.id)}
+                    >
+                      <span
+                        className="block truncate text-sm font-medium"
+                        title={automation.name}
+                      >
+                        {automation.displayName}
+                      </span>
+                      <span className="mt-1 block truncate text-xs text-muted-foreground">
+                        {automation.enabled
+                          ? t("factoryRoute.automationEnabled")
+                          : t("factoryRoute.automationDisabled")}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
             )}
           </CardContent>
@@ -1070,6 +1155,22 @@ function AutomationsView({
               </p>
             ) : (
               <>
+                <div className="grid gap-1.5">
+                  <Label htmlFor="factory-automation-display-name">
+                    {t("factoryRoute.automationDisplayName")}
+                  </Label>
+                  <Input
+                    id="factory-automation-display-name"
+                    value={draft.displayName}
+                    onChange={(event) =>
+                      setDraft({ ...draft, displayName: event.target.value })
+                    }
+                    placeholder={t(
+                      "factoryRoute.automationDisplayNamePlaceholder",
+                    )}
+                    disabled={draft.canUpdate === false}
+                  />
+                </div>
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="grid gap-1.5">
                     <Label htmlFor="factory-automation-model">
@@ -1148,8 +1249,24 @@ function AutomationsView({
                   </div>
                 </div>
                 <div className="grid gap-1.5">
-                  <Label>{t("factoryRoute.automationPrompt")}</Label>
+                  <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                    <Label htmlFor="factory-automation-prompt">
+                      {t("factoryRoute.automationPrompt")}
+                    </Label>
+                    {draft.updatedAt ? (
+                      <span className="capitalize text-xs text-muted-foreground">
+                        {t("factoryRoute.automationLastUpdated")}{" "}
+                        <time
+                          dateTime={new Date(draft.updatedAt).toISOString()}
+                          title={formatAutomationDate(draft.updatedAt)}
+                        >
+                          {formatInboxDateTime(draft.updatedAt)}
+                        </time>
+                      </span>
+                    ) : null}
+                  </div>
                   <Textarea
+                    id="factory-automation-prompt"
                     value={draft.prompt ?? draft.body ?? ""}
                     onChange={(event) =>
                       setDraft({ ...draft, prompt: event.target.value })
@@ -1185,11 +1302,25 @@ function AutomationsView({
                             </span>
                             {run.threadId && (
                               <a
-                                className="inline-flex items-center gap-1 text-xs text-muted-foreground underline-offset-4 hover:underline"
+                                className="inline-flex items-center text-xs text-muted-foreground underline-offset-4 hover:underline"
                                 href={`/chat/${encodeURIComponent(run.threadId)}`}
+                                onClick={(event) => {
+                                  if (
+                                    event.metaKey ||
+                                    event.ctrlKey ||
+                                    event.shiftKey ||
+                                    event.altKey ||
+                                    event.button !== 0
+                                  ) {
+                                    return;
+                                  }
+                                  event.preventDefault();
+                                  requestAgentChatThreadOpen({
+                                    threadId: run.threadId!,
+                                  });
+                                }}
                               >
                                 {t("factoryRoute.automationOpenThread")}
-                                <IconExternalLink className="size-3" />
                               </a>
                             )}
                             {run.error && (
@@ -1218,6 +1349,52 @@ function formatAutomationDate(value: string | number | null | undefined) {
   return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
 }
 
+function formatInboxDateTime(value: string | number | null | undefined) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function formatInboxAge(value: string | number | null | undefined) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+
+  const elapsedSeconds = Math.max(
+    0,
+    Math.floor((Date.now() - date.getTime()) / 1_000),
+  );
+  if (elapsedSeconds < 60) return "now";
+  const elapsedMinutes = Math.floor(elapsedSeconds / 60);
+  if (elapsedMinutes < 60) return `${elapsedMinutes}m`;
+  const elapsedHours = Math.floor(elapsedMinutes / 60);
+  if (elapsedHours < 24) return `${elapsedHours}h`;
+  const elapsedDays = Math.floor(elapsedHours / 24);
+  if (elapsedDays < 30) return `${elapsedDays}d`;
+  const elapsedMonths = Math.floor(elapsedDays / 30);
+  if (elapsedMonths < 12) return `${elapsedMonths}mo`;
+  return `${Math.floor(elapsedMonths / 12)}y`;
+}
+
+const reviewListColumns =
+  "w-full gap-3 sm:grid-cols-[minmax(0,1.3fr)_minmax(4.75rem,auto)_minmax(5.5rem,auto)_minmax(4.5rem,auto)_minmax(0,1.3fr)] sm:items-start";
+
+function formatInboxSource(source: string | null | undefined) {
+  const normalized = source?.toLowerCase() ?? "";
+  if (normalized.includes("slack")) return "Slack";
+  if (normalized.includes("github")) return "GitHub";
+  if (normalized.includes("sentry")) return "Sentry";
+  const trimmed = source?.trim();
+  return trimmed ? trimmed : "Source";
+}
+
 function formatModelName(model: string | null | undefined) {
   const value = model?.trim();
   if (!value) return "the app default";
@@ -1230,7 +1407,13 @@ function formatModelName(model: string | null | undefined) {
     .join(" ");
 }
 
-function InboxView({ t }: { t: ReturnType<typeof useT> }) {
+function InboxView({
+  factoryId,
+  t,
+}: {
+  factoryId: string;
+  t: ReturnType<typeof useT>;
+}) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [status, setStatus] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(
@@ -1238,7 +1421,9 @@ function InboxView({ t }: { t: ReturnType<typeof useT> }) {
   );
   const [feedbackNote, setFeedbackNote] = useState("");
   const [verdict, setVerdict] = useState<Verdict | null>(null);
+  const selectedRowRef = useRef<HTMLButtonElement | null>(null);
   const listQuery = useActionQuery("list-triage-items", {
+    factoryId,
     limit: 50,
     ...(status.trim()
       ? {
@@ -1256,7 +1441,7 @@ function InboxView({ t }: { t: ReturnType<typeof useT> }) {
   });
   const detailQuery = useActionQuery(
     "get-triage-item",
-    selectedId ? { itemId: selectedId } : undefined,
+    selectedId ? { factoryId, itemId: selectedId } : undefined,
     { enabled: Boolean(selectedId) },
   );
   const feedbackMutation = useActionMutation("record-triage-feedback");
@@ -1270,6 +1455,14 @@ function InboxView({ t }: { t: ReturnType<typeof useT> }) {
   useEffect(() => {
     setSelectedId(searchParams.get("itemId"));
   }, [searchParams]);
+
+  useEffect(() => {
+    if (!selectedId) return;
+    selectedRowRef.current?.scrollIntoView({
+      block: "nearest",
+      inline: "nearest",
+    });
+  }, [selectedId, normalizedItems.length]);
 
   function selectItem(itemId: string) {
     setSelectedId(itemId);
@@ -1330,19 +1523,51 @@ function InboxView({ t }: { t: ReturnType<typeof useT> }) {
             </p>
           ) : (
             <div className="grid gap-1.5 p-2">
+              <div
+                className={`hidden px-4 py-2 text-[11px] uppercase tracking-wide text-muted-foreground sm:grid ${reviewListColumns}`}
+              >
+                <span />
+                <span>{t("triage.risk")}</span>
+                <span>{t("triage.status")}</span>
+                <span>{t("triage.updatedAt")}</span>
+                <span>{t("triage.reason")}</span>
+              </div>
               {normalizedItems.map((item) => {
                 const id = item.itemId ?? item.id ?? "";
+                const selected = selectedId === id;
+                const createdAtLabel = formatInboxDateTime(item.createdAt);
+                const updatedAge = formatInboxAge(item.updatedAt);
                 return (
                   <button
                     key={id}
+                    ref={selected ? selectedRowRef : undefined}
                     type="button"
-                    className={`grid w-full gap-3 rounded-lg bg-muted/20 p-4 text-left transition-colors hover:bg-muted/50 sm:grid-cols-[1.1fr_.7fr_.9fr_1.6fr] ${selectedId === id ? "bg-muted/60" : ""}`}
+                    aria-current={selected ? "true" : undefined}
+                    className={`grid rounded-lg px-4 py-3 text-left transition-colors ${reviewListColumns} ${
+                      selected
+                        ? "bg-primary/10 ring-1 ring-inset ring-primary/40"
+                        : "bg-muted/20 hover:bg-muted/50"
+                    }`}
                     onClick={() => selectItem(id)}
                   >
                     <span className="min-w-0">
-                      <span className="block truncate text-sm font-medium">
-                        {item.sourceName ?? item.source ?? "Unknown source"}
+                      <span className="block text-[11px] uppercase tracking-wide text-muted-foreground">
+                        {formatInboxSource(item.source ?? item.sourceName)}
                       </span>
+                      <span className="block truncate text-sm font-medium">
+                        {item.title?.trim() ||
+                          item.sourceName ||
+                          item.source ||
+                          "Untitled"}
+                      </span>
+                      {createdAtLabel && item.createdAt && (
+                        <time
+                          className="mt-0.5 block text-xs text-muted-foreground"
+                          dateTime={item.createdAt}
+                        >
+                          {createdAtLabel}
+                        </time>
+                      )}
                       {item.sourceUrl && (
                         <span className="mt-1 flex max-w-full items-center gap-1 truncate text-xs text-primary">
                           {item.sourceUrl}
@@ -1351,20 +1576,36 @@ function InboxView({ t }: { t: ReturnType<typeof useT> }) {
                       )}
                     </span>
                     <span>
-                      <span className="block text-[11px] uppercase tracking-wide text-muted-foreground">
-                        Risk
+                      <span className="mb-1 block text-[11px] uppercase tracking-wide text-muted-foreground sm:hidden">
+                        {t("triage.risk")}
                       </span>
                       <TriageStatusPill status={item.risk} />
                     </span>
                     <span>
-                      <span className="block text-[11px] uppercase tracking-wide text-muted-foreground">
-                        Status
+                      <span className="mb-1 block text-[11px] uppercase tracking-wide text-muted-foreground sm:hidden">
+                        {t("triage.status")}
                       </span>
                       <TriageStatusPill status={item.status} />
                     </span>
-                    <span className="truncate">
-                      <span className="block text-[11px] uppercase tracking-wide text-muted-foreground">
-                        Reason
+                    <span>
+                      <span className="mb-1 block text-[11px] uppercase tracking-wide text-muted-foreground sm:hidden">
+                        {t("triage.updatedAt")}
+                      </span>
+                      {updatedAge && item.updatedAt ? (
+                        <time
+                          className="text-sm tabular-nums text-muted-foreground"
+                          dateTime={item.updatedAt}
+                          title={formatAutomationDate(item.updatedAt)}
+                        >
+                          {updatedAge}
+                        </time>
+                      ) : (
+                        <span className="text-sm text-muted-foreground">-</span>
+                      )}
+                    </span>
+                    <span className="min-w-0 truncate">
+                      <span className="mb-1 block text-[11px] uppercase tracking-wide text-muted-foreground sm:hidden">
+                        {t("triage.reason")}
                       </span>
                       <span className="text-sm">
                         {item.reason ?? item.decisionSummary ?? "-"}
@@ -1390,8 +1631,15 @@ function InboxView({ t }: { t: ReturnType<typeof useT> }) {
             <>
               <div className="flex items-start justify-between gap-3">
                 <div>
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                    {formatInboxSource(
+                      selectedItem.source ?? selectedItem.sourceName,
+                    )}
+                  </p>
                   <p className="text-sm font-medium">
-                    {selectedItem.sourceName ?? selectedItem.source}
+                    {selectedItem.title?.trim() ||
+                      selectedItem.sourceName ||
+                      selectedItem.source}
                   </p>
                   {selectedItem.sourceUrl && (
                     <a
@@ -1416,6 +1664,7 @@ function InboxView({ t }: { t: ReturnType<typeof useT> }) {
                     ];
                   if (!decision) return;
                   approveMutation.mutate({
+                    factoryId,
                     itemId: selectedItem.itemId ?? selectedItem.id ?? "",
                     decisionId: decision.decisionId,
                     confirm: true,
@@ -1470,6 +1719,7 @@ function InboxView({ t }: { t: ReturnType<typeof useT> }) {
                         onClick={() => {
                           if (verdict)
                             feedbackMutation.mutate({
+                              factoryId,
                               decisionId: decision.decisionId,
                               verdict,
                               ...(feedbackNote.trim()
@@ -1497,11 +1747,17 @@ function InboxView({ t }: { t: ReturnType<typeof useT> }) {
   );
 }
 
-function RulesView({ t }: { t: ReturnType<typeof useT> }) {
+function RulesView({
+  factoryId,
+  t,
+}: {
+  factoryId: string;
+  t: ReturnType<typeof useT>;
+}) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [prompt, setPrompt] = useState("");
-  const rulesQuery = useActionQuery("list-triage-rules", {});
+  const rulesQuery = useActionQuery("list-triage-rules", { factoryId });
   const saveMutation = useActionMutation("save-triage-rule");
   const rules = (rulesQuery.data ?? []) as TriageRule[];
   function selectRule(rule: TriageRule) {
@@ -1587,6 +1843,7 @@ function RulesView({ t }: { t: ReturnType<typeof useT> }) {
             onClick={() => {
               if (!name.trim() || !prompt.trim()) return;
               saveMutation.mutate({
+                factoryId,
                 ...(editingId ? { id: editingId } : {}),
                 name,
                 description: "",
@@ -1603,234 +1860,6 @@ function RulesView({ t }: { t: ReturnType<typeof useT> }) {
         </CardContent>
       </Card>
     </div>
-  );
-}
-
-function SettingsView({ t }: { t: ReturnType<typeof useT> }) {
-  const [automationFailureAlertsEnabled, setAutomationFailureAlertsEnabled] =
-    useState(true);
-  const [automationFailureAlertEmail, setAutomationFailureAlertEmail] =
-    useState("");
-  const query = useActionQuery("get-triage-config", {});
-  const schedulerHealthQuery = useActionQuery<FactoryAutomationHealth>(
-    "get-factory-automation-health",
-    {},
-    { refetchInterval: 60_000 },
-  );
-  const mutation = useActionMutation("save-triage-config");
-
-  useEffect(() => {
-    const data = query.data as TriageConfig | undefined;
-    if (!data) return;
-    setAutomationFailureAlertsEnabled(
-      data.automationFailureAlertsEnabled ?? true,
-    );
-    setAutomationFailureAlertEmail(data.automationFailureAlertEmail ?? "");
-  }, [query.data]);
-
-  const saveSettings = () => {
-    mutation.mutate({
-      automationFailureAlertsEnabled,
-      ...(automationFailureAlertEmail.trim()
-        ? { automationFailureAlertEmail: automationFailureAlertEmail.trim() }
-        : {}),
-    });
-  };
-
-  if (query.isLoading) {
-    return (
-      <div className="mx-auto w-full max-w-3xl space-y-6 p-4 lg:p-6">
-        <FactorySettingsSkeleton t={t} />
-      </div>
-    );
-  }
-
-  return (
-    <div className="mx-auto w-full max-w-3xl space-y-6 p-4 lg:p-6">
-      <SettingsGroup variant="soft">
-        <SettingsRow
-          label={t("factoryRoute.workspaceIntegrations")}
-          description={t("settings.workspaceDescription")}
-          control={
-            <Button asChild type="button" variant="outline">
-              <Link to={buildSettingsRoute("integrations")}>Manage</Link>
-            </Button>
-          }
-        />
-        <SettingsRow
-          label={t("factoryRoute.agentAccess")}
-          description={t("settings.agentDescription")}
-          control={
-            <Button asChild type="button" variant="outline">
-              <Link to={buildSettingsRoute("agent")}>Manage</Link>
-            </Button>
-          }
-        />
-      </SettingsGroup>
-
-      <SettingsGroup variant="soft">
-        <SettingsRow
-          label={t("factoryRoute.automationFailureAlertsTitle")}
-          description={t("factoryRoute.automationFailureAlertsDescription")}
-          control={
-            <Switch
-              aria-label={t("factoryRoute.automationFailureAlertsEnabled")}
-              checked={automationFailureAlertsEnabled}
-              onCheckedChange={(checked) =>
-                setAutomationFailureAlertsEnabled(checked === true)
-              }
-            />
-          }
-        />
-        <SettingsRow
-          label={t("factoryRoute.automationFailureAlertEmail")}
-          description={t("factoryRoute.automationFailureAlertEmailPlaceholder")}
-          control={
-            <Input
-              aria-label={t("factoryRoute.automationFailureAlertEmail")}
-              type="email"
-              value={automationFailureAlertEmail}
-              onChange={(event) =>
-                setAutomationFailureAlertEmail(event.target.value)
-              }
-              placeholder={t(
-                "factoryRoute.automationFailureAlertEmailPlaceholder",
-              )}
-              className="h-9 w-full sm:w-64"
-            />
-          }
-        />
-        <SettingsRow
-          label={t("factoryRoute.automationFailureEmailReadiness")}
-          description={t("factoryRoute.automationEmailReadinessHint")}
-          control={
-            <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
-              {(query.data as TriageConfig | undefined)?.emailReadiness
-                ?.status ?? "unknown"}
-            </span>
-          }
-        />
-        {query.isError && (
-          <div className="px-5 py-3 text-xs text-destructive sm:px-6">
-            {t("factoryRoute.automationDiagnosticsLoadError")}{" "}
-            {query.error instanceof Error
-              ? query.error.message
-              : String(query.error)}
-          </div>
-        )}
-      </SettingsGroup>
-
-      <div className="flex flex-wrap items-center justify-end gap-3">
-        {mutation.isError && (
-          <p className="text-sm text-destructive" role="alert">
-            {t("triage.settingsError")}
-          </p>
-        )}
-        {mutation.isSuccess && (
-          <p className="text-sm text-muted-foreground" role="status">
-            {t("triage.settingsSaved")}
-          </p>
-        )}
-        <Button onClick={saveSettings} disabled={mutation.isPending}>
-          {mutation.isPending && <IconLoader2 className="animate-spin" />}
-          {t("triage.saveSettings")}
-        </Button>
-      </div>
-
-      <SchedulerHealthStatus
-        health={schedulerHealthQuery.data}
-        isError={schedulerHealthQuery.isError}
-        error={schedulerHealthQuery.error}
-        t={t}
-      />
-    </div>
-  );
-}
-
-function FactorySettingsSkeleton({ t }: { t: ReturnType<typeof useT> }) {
-  return (
-    <div className="space-y-6" aria-label={t("triage.loading")}>
-      {Array.from({ length: 2 }).map((_, index) => (
-        <div key={index} className="grid gap-2">
-          <div className="grid gap-2">
-            {Array.from({ length: index === 0 ? 5 : 3 }).map((_, rowIndex) => (
-              <div
-                key={rowIndex}
-                className="flex min-h-20 items-center justify-between gap-4 rounded-xl bg-card px-5 py-4 shadow-sm sm:px-6"
-              >
-                <div className="h-3.5 w-36 animate-pulse rounded bg-muted" />
-                <div className="h-9 w-24 animate-pulse rounded bg-muted" />
-              </div>
-            ))}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-function SchedulerHealthStatus({
-  health,
-  isError,
-  error,
-  t,
-}: {
-  health?: FactoryAutomationHealth;
-  isError: boolean;
-  error: unknown;
-  t: ReturnType<typeof useT>;
-}) {
-  const healthLabel = isError
-    ? t("factoryRoute.automationHealthError")
-    : health
-      ? {
-          healthy: t("factoryRoute.automationHealthHealthy"),
-          stale: t("factoryRoute.automationHealthStale"),
-          error: t("factoryRoute.automationHealthError"),
-          "no-data": t("factoryRoute.automationHealthNoData"),
-        }[health.status]
-      : t("factoryRoute.automationHealthNoData");
-  const hasNoHeartbeat =
-    !isError &&
-    (!health || health.status === "no-data") &&
-    !health?.lastCheckedAt;
-  const healthDescription = isError
-    ? `${t("factoryRoute.automationDiagnosticsLoadError")} ${error instanceof Error ? error.message : String(error)}`
-    : health?.lastError
-      ? `${t("factoryRoute.automationHealthErrorDetail")}: ${health.lastError}`
-      : health?.status === "stale"
-        ? t("factoryRoute.automationHealthStaleHint")
-        : hasNoHeartbeat
-          ? t("factoryRoute.automationHealthNoDataHint")
-          : undefined;
-
-  return (
-    <SettingsGroup variant="soft">
-      <SettingsRow
-        label={t("factoryRoute.automationHealthTitle")}
-        description={
-          healthDescription ?? t("factoryRoute.automationHealthDescription")
-        }
-        control={
-          <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-1">
-            <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium">
-              {healthLabel}
-            </span>
-            {health?.lastCheckedAt && (
-              <span className="text-xs text-muted-foreground">
-                {t("factoryRoute.automationLastCheck")}:{" "}
-                {formatAutomationDate(health.lastCheckedAt)}
-              </span>
-            )}
-            {health?.lastDispatchedAt && (
-              <span className="text-xs text-muted-foreground">
-                {t("factoryRoute.automationLastDispatch")}:{" "}
-                {formatAutomationDate(health.lastDispatchedAt)}
-              </span>
-            )}
-          </div>
-        }
-      />
-    </SettingsGroup>
   );
 }
 

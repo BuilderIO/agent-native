@@ -371,7 +371,9 @@
 }
 
 .an-chat-history--rail .an-chat-history-row__menu {
-  inset-inline-end: 8px;
+  /* Keep the visible icon aligned with the trailing timestamp column while
+     preserving the full 24px action hit target. */
+  inset-inline-end: 3px;
 }
 
 .an-chat-history-row__menu-trigger {

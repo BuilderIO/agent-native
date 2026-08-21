@@ -5,23 +5,27 @@ import { describe, expect, it } from "vitest";
 const source = readFileSync(new URL("./DesignEditor.tsx", import.meta.url), {
   encoding: "utf8",
 });
-const createPrimitiveStart = source.indexOf("const handleCreatePrimitive");
-const createPrimitiveEnd = source.indexOf(
-  "const removeEmptyTextNodeIfUntouched",
-  createPrimitiveStart,
+// handleCreatePrimitive now lives in its own command module.
+const createPrimitiveSource = readFileSync(
+  new URL("./design-editor/commands/create-primitive.ts", import.meta.url),
+  { encoding: "utf8" },
 );
-const createPrimitiveSource = source.slice(
-  createPrimitiveStart,
-  createPrimitiveEnd,
+const createPrimitiveStart = createPrimitiveSource.indexOf(
+  "export function runCreatePrimitive",
 );
-const recordPendingStart = source.indexOf(
-  "const recordPendingLiveStructureEdit",
+const createPrimitiveEnd = createPrimitiveSource.length;
+// recordPendingLiveStructureEdit now lives in its own command module.
+const recordPendingSource = readFileSync(
+  new URL(
+    "./design-editor/commands/record-pending-live-structure-edit.ts",
+    import.meta.url,
+  ),
+  { encoding: "utf8" },
 );
-const recordPendingEnd = source.indexOf(
-  "const activeProjectionContent",
-  recordPendingStart,
+const recordPendingStart = recordPendingSource.indexOf(
+  "export function runRecordPendingLiveStructureEdit",
 );
-const recordPendingSource = source.slice(recordPendingStart, recordPendingEnd);
+const recordPendingEnd = recordPendingSource.length;
 
 describe("DesignEditor live primitive creation boundary", () => {
   it("routes URL-backed screens through the live insert bridge without rewriting the route URL", () => {

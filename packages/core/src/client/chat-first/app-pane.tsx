@@ -31,7 +31,7 @@ export function ChatFirstAppPane({
       ) : status === "error" ? (
         <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
           <p className="text-sm text-muted-foreground">
-            {errorMessage || copy("appUnavailable")}
+            {errorMessage || copy("appLoadError")}
           </p>
           {onRetry ? (
             <button

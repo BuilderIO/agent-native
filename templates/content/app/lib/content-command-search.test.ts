@@ -40,12 +40,16 @@ describe("content command search", () => {
         {
           databaseId: "db-1",
           documentId: "db-doc-1",
+          spaceId: null,
           title: "Launch calendar",
+          description: "",
         },
         {
           databaseId: "db-2",
           documentId: "db-doc-2",
+          spaceId: null,
           title: "Ideas",
+          description: "",
         },
       ],
     });
@@ -81,7 +85,9 @@ describe("content command search", () => {
         {
           databaseId: "db-1",
           documentId: "db-doc-1",
+          spaceId: null,
           title: "Launch calendar",
+          description: "",
         },
       ],
     });

@@ -83,7 +83,13 @@ interface MaterializableWorkspaceResource {
 function mimeTypeForWorkspaceResource(
   resource: MaterializableWorkspaceResource,
 ) {
-  return resource.path.endsWith(".json") ? "application/json" : "text/markdown";
+  if (resource.path.endsWith(".json")) return "application/json";
+  if (resource.path.endsWith(".txt")) return "text/plain";
+  if (resource.path.endsWith(".csv")) return "text/csv";
+  if (resource.path.endsWith(".yaml") || resource.path.endsWith(".yml")) {
+    return "text/yaml";
+  }
+  return "text/markdown";
 }
 
 function parseResourceMetadata(metadata: string | null): Record<string, any> {
@@ -188,6 +194,7 @@ export type WorkspaceResourceKind =
   | "skill"
   | "instruction"
   | "agent"
+  | "agent-file"
   | "knowledge"
   | "mcp-server";
 export type WorkspaceResourceScope = "all" | "selected";
@@ -526,7 +533,7 @@ async function writeStarterSeedMarker(ctx: WorkspaceResourceCtx) {
   }
 }
 
-async function getWorkspaceResourceByPath(
+export async function getWorkspaceResourceByPath(
   resourcePath: string,
   ctx: WorkspaceResourceCtx,
 ) {

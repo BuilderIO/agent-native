@@ -801,6 +801,36 @@ export function BuilderSourceReviewDialog({
                               <div className="font-medium">
                                 {row.bodyChange.summary}
                               </div>
+                              {row.bodyChange.currentExcerpt !== null ||
+                              row.bodyChange.proposedExcerpt !== null ? (
+                                <div
+                                  className="mt-2 grid gap-2 text-muted-foreground sm:grid-cols-2"
+                                  aria-label={t(
+                                    "database.bodyChangeComparison",
+                                  )}
+                                >
+                                  {row.bodyChange.currentExcerpt !== null ? (
+                                    <div className="min-w-0">
+                                      <div className="mb-1 font-medium text-foreground">
+                                        {t("database.currentBody")}
+                                      </div>
+                                      <div className="whitespace-pre-wrap break-words">
+                                        {row.bodyChange.currentExcerpt}
+                                      </div>
+                                    </div>
+                                  ) : null}
+                                  {row.bodyChange.proposedExcerpt !== null ? (
+                                    <div className="min-w-0">
+                                      <div className="mb-1 font-medium text-foreground">
+                                        {t("database.proposedBody")}
+                                      </div>
+                                      <div className="whitespace-pre-wrap break-words">
+                                        {row.bodyChange.proposedExcerpt}
+                                      </div>
+                                    </div>
+                                  ) : null}
+                                </div>
+                              ) : null}
                               {row.bodyChange.warnings?.length ? (
                                 <div className="mt-1 text-muted-foreground">
                                   {row.bodyChange.warnings.join(" ")}

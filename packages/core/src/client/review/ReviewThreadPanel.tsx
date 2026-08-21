@@ -24,6 +24,7 @@ import type {
   ReviewResolutionTarget,
 } from "../../review/types.js";
 import { useFormatters } from "../i18n.js";
+import { InlineMarkdown } from "../markdown/index.js";
 import { cn } from "../utils.js";
 import { ReviewCommentComposer } from "./ReviewCommentComposer.js";
 import { ReviewStatusBadge } from "./ReviewStatusBadge.js";
@@ -508,14 +509,13 @@ function CommentBubble({
           ) : null}
         </div>
         {!bodyIsResolutionNote ? (
-          <p
+          <InlineMarkdown
+            content={comment.body}
             className={cn(
-              "mt-1 whitespace-pre-wrap break-words text-foreground",
+              "mt-1 text-foreground",
               compact ? "text-xs leading-5" : "text-sm leading-5",
             )}
-          >
-            {comment.body}
-          </p>
+          />
         ) : null}
         {resolutionNote ? (
           <div
@@ -523,9 +523,10 @@ function CommentBubble({
             aria-label={resolvedLabel}
           >
             <IconCircleCheck className="mt-0.5 size-3.5 shrink-0" />
-            <p className="min-w-0 whitespace-pre-wrap break-words text-xs leading-4">
-              {resolutionNote}
-            </p>
+            <InlineMarkdown
+              content={resolutionNote}
+              className="min-w-0 text-xs leading-4"
+            />
           </div>
         ) : null}
       </div>

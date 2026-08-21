@@ -88,11 +88,20 @@ export default defineAction({
       startReceivedAt,
       startEventDate: startReceivedAt.slice(0, 10),
     };
-    const postgres = await countFirstPartyAnalyticsPostgresRows(
-      scope,
-      includeLegacyOwnerRows,
-      window,
-    );
+    let postgres: Awaited<
+      ReturnType<typeof countFirstPartyAnalyticsPostgresRows>
+    > | null = null;
+    let postgresError: string | null = null;
+    try {
+      postgres = await countFirstPartyAnalyticsPostgresRows(
+        scope,
+        includeLegacyOwnerRows,
+        window,
+      );
+    } catch (error) {
+      if (!dryRun) throw error;
+      postgresError = error instanceof Error ? error.message : String(error);
+    }
     let bigQuery: {
       eventCount: number;
       dailyRollupRows: number;
@@ -115,12 +124,15 @@ export default defineAction({
       }
     }
 
-    const uncopiedEventRows = bigQuery
-      ? Math.max(0, postgres.eventRows - bigQuery.eventCount)
-      : null;
+    const uncopiedEventRows =
+      bigQuery && postgres
+        ? Math.max(0, postgres.eventRows - bigQuery.eventCount)
+        : null;
     const safeToDelete =
       backend.sink === "bigquery" &&
       backend.backfillCompleted === true &&
+      postgresError === null &&
+      postgres !== null &&
       bigQueryError === null &&
       bigQuery !== null &&
       uncopiedEventRows === 0;
@@ -134,6 +146,11 @@ export default defineAction({
       if (backend.backfillCompleted !== true) {
         throw new Error(
           "Postgres purge is blocked until the durable BigQuery backfill reports completed.",
+        );
+      }
+      if (postgresError || !postgres) {
+        throw new Error(
+          `Postgres purge is blocked because the scoped Postgres inventory could not be verified: ${postgresError ?? "unknown Postgres state"}`,
         );
       }
       if (bigQueryError || !bigQuery) {
@@ -179,6 +196,7 @@ export default defineAction({
       sink: backend.sink,
       backfillCompleted: backend.backfillCompleted === true,
       postgres,
+      postgresError,
       bigQuery,
       bigQueryError,
       uncopiedEventRows,

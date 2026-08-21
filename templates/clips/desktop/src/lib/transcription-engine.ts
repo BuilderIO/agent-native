@@ -245,11 +245,48 @@ export function transcriptFullText(lines: TranscriptLine[]): string {
     .trim();
 }
 
-/** Flattened verbatim segments, as persisted alongside the text. */
+/** Rough duration estimate for a line with no verbatim timing, matching the
+ *  pacing `buildCaptionSegmentsFromText` uses server-side. */
+function estimatedLineDurationMs(text: string): number {
+  const words = text.split(/\s+/).filter(Boolean).length || 1;
+  return Math.max(900, words * 420);
+}
+
+/** Flattened verbatim segments, as persisted alongside the text.
+ *
+ *  A line with no verbatim timings still contributes one synthesized segment
+ *  rather than being dropped: the mic-only fallback engines report no
+ *  timestamps at all, and dropping the line loses its text and its `source`
+ *  — and a `source`-less stored segment silently renders as "Them". Those
+ *  engines report `startMs: null` on *every* line, so a synthesized segment
+ *  continues from the previous line's end; anchoring each at its own
+ *  null-coalesced 0 would stack the whole transcript on one instant and break
+ *  ordering and timestamp seeking. */
 export function transcriptSegments(
   lines: TranscriptLine[],
 ): SourcedTranscriptSegment[] {
-  return lines.flatMap((line) => line.segments);
+  const segments: SourcedTranscriptSegment[] = [];
+  let cursorMs = 0;
+  for (const line of lines) {
+    if (line.segments.length) {
+      segments.push(...line.segments);
+      cursorMs = line.segments.reduce(
+        (latest, segment) => Math.max(latest, segment.endMs),
+        cursorMs,
+      );
+      continue;
+    }
+    // `appendFinalTranscript` is the only path that yields an untimed line and
+    // it always pairs `segments: []` with `startMs: null`, so today this reads
+    // as `cursorMs`. Honouring a line's own stamp is for the shape the type
+    // still permits (see `historyLine` in overlays/live-transcript.tsx), and
+    // clamping to the cursor keeps a stale stamp from reordering the transcript.
+    const startMs = Math.max(line.startMs ?? cursorMs, cursorMs);
+    const endMs = startMs + estimatedLineDurationMs(line.text);
+    segments.push({ startMs, endMs, text: line.text, source: line.source });
+    cursorMs = endMs;
+  }
+  return segments;
 }
 
 /**

@@ -60,6 +60,10 @@ interface CreateAppPopoverProps {
    * Override the popover alignment. Defaults to "center" with a 10px offset.
    */
   align?: "start" | "center" | "end";
+  /**
+   * Called after the server accepts a Builder app creation request.
+   */
+  onCreated?: () => void;
 }
 
 async function fetchJson(url: string, init?: RequestInit): Promise<any> {
@@ -107,9 +111,11 @@ function isErrorFailureReason(reason: string | null): boolean {
  */
 export function CreateAppFlow({
   onClose,
+  onCreated,
   className = "",
 }: {
   onClose?: () => void;
+  onCreated?: () => void;
   className?: string;
 }) {
   const [step, setStep] = useState<"prompt" | "access">("prompt");
@@ -247,7 +253,13 @@ export function CreateAppFlow({
         setStatusMessage("Sent to Builder chat.");
         onClose?.();
       } else if (isDevMode) {
-        sendToAgentChat({ message, submit: true, type: "code", newTab: true });
+        sendToAgentChat({
+          message,
+          submit: true,
+          type: "code",
+          newTab: true,
+          reuseEmptyTab: true,
+        });
         setStatusMessage("Sent to the local agent.");
         onClose?.();
       } else {
@@ -269,6 +281,7 @@ export function CreateAppFlow({
           },
         );
         if (result?.mode === "builder") {
+          onCreated?.();
           setBranchUrl(result?.url || null);
           setStatusMessage("Builder branch created.");
         } else if (result?.mode === "local-agent") {
@@ -634,6 +647,7 @@ export function CreateAppFlow({
 export function CreateAppPopover({
   trigger,
   align = "center",
+  onCreated,
 }: CreateAppPopoverProps) {
   const [open, setOpen] = useState(false);
   return (
@@ -656,7 +670,7 @@ export function CreateAppPopover({
         sideOffset={10}
         className="w-[calc(100vw-2rem)] rounded-xl p-3 shadow-xl sm:w-[460px]"
       >
-        <CreateAppFlow onClose={() => setOpen(false)} />
+        <CreateAppFlow onClose={() => setOpen(false)} onCreated={onCreated} />
       </PopoverContent>
     </Popover>
   );

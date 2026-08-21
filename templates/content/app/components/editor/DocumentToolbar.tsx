@@ -6,10 +6,13 @@ import { useT } from "@agent-native/core/client/i18n";
 import { ShareButton } from "@agent-native/core/client/sharing";
 import { CreativeContextShareTab } from "@agent-native/creative-context/client";
 import { PresenceBar } from "@agent-native/toolkit/collab-ui";
+import { ShareTrigger } from "@agent-native/toolkit/sharing";
 import type { DocumentSourceInfo } from "@shared/api";
 import {
   IconArrowBarDown,
   IconArrowBarUp,
+  IconArrowBackUp,
+  IconArrowForwardUp,
   IconAlertTriangle,
   IconCheck,
   IconCopy,
@@ -31,7 +34,6 @@ import {
   IconLink,
   IconMessageCircle,
   IconRefresh,
-  IconShare3,
   IconTrash,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -472,6 +474,10 @@ interface DocumentToolbarProps {
   onUtilityPanelChange: (panel: "info" | "comments" | null) => void;
   showCommentsControl?: boolean;
   onOpenBreadcrumbItem?: (id: string) => void;
+  canUndo?: boolean;
+  canRedo?: boolean;
+  onUndo?: () => void;
+  onRedo?: () => void;
 }
 
 export function DocumentToolbar({
@@ -494,6 +500,10 @@ export function DocumentToolbar({
   onUtilityPanelChange,
   showCommentsControl = true,
   onOpenBreadcrumbItem,
+  canUndo = false,
+  canRedo = false,
+  onUndo,
+  onRedo,
 }: DocumentToolbarProps) {
   const t = useT();
   const navigate = useNavigate();
@@ -510,9 +520,6 @@ export function DocumentToolbar({
   const { data: connection } = useNotionConnection();
   const { data: syncStatus } = useDocumentSyncStatus(
     canEdit && !isLocalFileDocument ? documentId : null,
-    {
-      autoSync,
-    },
   );
   const linkDocument = useLinkDocumentToNotion(documentId);
   const unlinkDocument = useUnlinkDocumentFromNotion(documentId);
@@ -891,22 +898,13 @@ export function DocumentToolbar({
             className="mr-1"
           />
           {isLocalFileDocument ? (
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-9 gap-1.5 rounded-lg px-3"
+            <ShareTrigger
+              className="h-9 rounded-lg px-3"
+              pending={shareLocalFile.isPending}
               disabled={shareLocalFile.isPending}
-              onClick={() => void handleShareLocalFile()}
-            >
-              {shareLocalFile.isPending ? (
-                <IconLoader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <IconShare3 className="h-4 w-4" />
-              )}
-              <span className="hidden sm:inline">
-                {t("editor.toolbar.share")}
-              </span>
-            </Button>
+              label={t("editor.toolbar.share")}
+              onPress={() => void handleShareLocalFile()}
+            />
           ) : (
             <>
               <ShareButton
@@ -984,6 +982,17 @@ export function DocumentToolbar({
             </Tooltip>
             <DropdownMenuContent align="end" className="w-60">
               <DropdownMenuGroup>
+                <DropdownMenuItem disabled={!canUndo} onSelect={onUndo}>
+                  <IconArrowBackUp className="me-2 h-4 w-4" />
+                  {t("editor.toolbar.undo")}
+                </DropdownMenuItem>
+                <DropdownMenuItem disabled={!canRedo} onSelect={onRedo}>
+                  <IconArrowForwardUp className="me-2 h-4 w-4" />
+                  {t("editor.toolbar.redo")}
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
+              <DropdownMenuSeparator />
+              <DropdownMenuGroup>
                 <DropdownMenuItem onSelect={() => void handleCopyPageLink()}>
                   <IconLink className="me-2 h-4 w-4" />
                   {t("editor.toolbar.copyPageLink")}
@@ -1030,7 +1039,7 @@ export function DocumentToolbar({
                     <span className="truncate">{source?.path}</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem
-                    disabled={revealLocalSource.isPending}
+                    disabled={!canEdit || revealLocalSource.isPending}
                     onSelect={() => void handleRevealLocalPath()}
                   >
                     <IconFolderOpen className="me-2 h-4 w-4" />
@@ -1041,6 +1050,7 @@ export function DocumentToolbar({
                     {t("editor.toolbar.copyRelativePath")}
                   </DropdownMenuItem>
                   <DropdownMenuItem
+                    disabled={!canEdit}
                     onSelect={() => void handleCopyLocalAbsolutePath()}
                   >
                     <IconCopy className="me-2 h-4 w-4" />

@@ -1,0 +1,363 @@
+---
+title: "Accès et autorisation"
+description: "Qui peut appeler une action : flags d’exposition (agentTool, toolCallable), portée basée sur ctx, accessFilter/assertAccess, et le garde authorize."
+---
+
+# Accès et autorisation
+
+Cinq paramètres décident qui peut appeler une action : l’agent, le frontend, une extension, un appelant API externe, ou personne sans l’approbation préalable d’un humain. La plupart des actions n’ont jamais besoin de toucher à l’un d’eux, puisque les valeurs par défaut conviennent déjà à un usage UI-et-agent normal.
+
+### Flags d’exposition {#exposure-flags}
+
+Les cinq flags valent par défaut la valeur permissive, donc vous n’en définissez un que lorsque vous devez restreindre une surface spécifique. Le tableau ci-dessous est un résumé rapide. Les sections qui suivent ajoutent le détail dont chaque flag a besoin.
+
+| Flag            | Défaut            | Valeur restrictive → qui peut encore appeler                                        | Usage typique                                                                                    |
+| --------------- | ----------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `agentTool`     | `true`            | `false` → UI, HTTP, et CLI seulement (masqué au modèle, à MCP, et à A2A)            | Actions réservées à l’UI ou programmatiques qui ne doivent pas prendre de place dans les outils  |
+| `toolCallable`  | `true`            | `false` → tout **sauf** le pont iframe des extensions en bac à sable (403)          | Changements sensibles de compte ou d’organisation (suppression de compte, changement d’adhésion) |
+| `publicAgent`   | désactivé (privé) | `{ expose: true }` → ajoute l’action aux surfaces **publiques** MCP/A2A/OpenAPI     | Outils de lecture ou d’ingestion sûrs qui n’exigent pas d’authentification                       |
+| `needsApproval` | `false`           | `true` → l’agent **se met en pause**, et un humain doit approuver l’appel précis    | Effets secondaires conséquents (envoyer un email, débiter une carte, supprimer)                  |
+| `authorize`     | aucun             | une fonction de garde → seuls les appelants qu’elle accepte, sur **chaque** surface | Opérations restreintes à un rôle (RBAC par application, opérations réservées aux admins)         |
+
+Ces flags sont indépendants, donc en définir un ne change pas les autres. `agentTool` contrôle ce que le modèle voit, voir [Masquer au modèle](#agent-tool) ci-dessous. `toolCallable` ne contrôle que l’iframe d’extension, voir [Bloquer les iframes d’extension](#tool-callable) ci-dessous. `publicAgent` ajoute une surface publique optionnelle, et une route web publique n’implique jamais une exposition d’outil publique, voir [Exposer aux agents publics](#public-agent) ci-dessous. `needsApproval` restreint l’exécution après que l’appel a déjà été fait, voir [Exiger une approbation humaine](#needs-approval) ci-dessous. `authorize` décide si cet appelant peut exécuter l’action, tout court, sur chaque chemin de dispatch, avant que `run()` ne soit entré, voir [Restreindre les appelants par rôle](#authorize) ci-dessous.
+
+## Masquer au modèle {#agent-tool}
+
+Par défaut, chaque action est un outil d’agent appelable. Définissez `agentTool: false` pour la retirer de toute liste d’outils de l’agent, tout en la gardant derrière l’authentification et la surface d’actions du framework. Elle reste appelable depuis l’UI (`useActionMutation()` ou `callAction()`), la CLI, et `/_agent-native/actions/<name>` :
+
+```ts
+export default defineAction({
+  description: "Persist the user's sidebar width.",
+  agentTool: false, // UI-only, not a tool in the model's context window
+  schema: z.object({ widthPx: z.number() }),
+  http: { method: "PUT" },
+  run: async ({ widthPx }) => {
+    /* ... */
+  },
+});
+```
+
+Utilisez ceci quand vous ajoutez une action réservée à l’UI ou purement programmatique, ou quand l’UI cesse d’utiliser une action qui, sinon, resterait exposée au modèle.
+
+## Bloquer les iframes d’extension {#tool-callable}
+
+Les extensions ([mini-applications Alpine.js dans des iframes en bac à sable](/docs/extensions)) appellent les actions via `appAction(name, params)`, en s’exécutant avec les permissions, secrets, et la portée SQL du visiteur lui-même. Pour les opérations sensibles, c’est trop de confiance par défaut. Définissez `toolCallable: false` pour que le pont d’extension renvoie un 403, tout en gardant l’action appelable depuis l’UI, l’agent, la CLI, MCP, et A2A :
+
+```ts
+export default defineAction({
+  description: "Delete the current user's account.",
+  toolCallable: false, // never callable from an extension iframe
+  schema: z.object({ confirm: z.literal("yes") }),
+  run: async () => {
+    /* ... */
+  },
+});
+```
+
+Utilisez-le pour les actions qui suppriment ou transfèrent un compte ou une organisation, changent l’état d’authentification, modifient l’adhésion à une organisation, ou accordent l’accès de partage. Les actions intégrées `share-resource`, `unshare-resource`, et `set-resource-visibility` du framework s’en excluent déjà. Le framework applique ceci avec un en-tête que l’hôte définit sur les appels iframe, un en-tête qu’une iframe ne peut pas simuler. Les appels normaux UI, agent, CLI, MCP, et A2A ne sont pas affectés. Voir [Sécurité](/docs/security) pour les détails.
+
+## Exposer aux agents publics {#public-agent}
+
+Chaque action reste en dehors de toute surface de protocole public par défaut, même une dont la route web est publique. Rendre une page indexable n’expose jamais un outil. Définissez `publicAgent: { expose: true, readOnly: true, ... }` pour faire entrer une action sûre dans les surfaces publiques MCP, A2A, et OpenAPI :
+
+```ts
+export default defineAction({
+  description: "Search published docs.",
+  schema: z.object({ query: z.string() }),
+  http: { method: "GET" },
+  readOnly: true,
+  publicAgent: {
+    expose: true,
+    readOnly: true,
+    requiresAuth: false,
+  },
+  run: async ({ query }) => {
+    /* ... */
+  },
+});
+```
+
+Utilisez-le uniquement pour des actions sûres, en lecture seule, ou d’ingestion seule, le genre que vous laisseriez un inconnu appeler sans se connecter. `requiresAuth: false` indique à la surface publique que cette action est sûre à lister avant authentification. Laissez-le à `true` pour une action qui a encore besoin de l’identité d’un appelant connecté, comme un outil d’ingestion par compte. Voir [Agents externes](/docs/external-agents) et [Protocole MCP](/docs/mcp-protocol) pour le catalogue complet et le modèle d’authentification dans lequel ceci s’inscrit.
+
+## Exiger une approbation humaine {#needs-approval}
+
+Une poignée d’actions sont trop conséquentes pour laisser l’agent les exécuter seul, comme envoyer un email, débiter une carte, ou supprimer un compte. Définissez `needsApproval: true` (ou un prédicat `(args, ctx) => boolean | Promise<boolean>`) sur `defineAction()`, et la boucle se met en pause avant `run()`, exigeant qu’un humain approuve cet appel précis. La valeur par défaut est **désactivée**, et presque chaque action devrait le rester.
+
+<Callout tone="warning">
+  Gardez les approbations rares. Chaque action gardée est un arrêt complet dans
+  la boucle de l’agent. Elle interrompt l’exécution et exige un aller-retour
+  humain. Utilisez `needsApproval` seulement pour des opérations réellement
+  conséquentes, difficiles à annuler, et tournées vers l’extérieur. Si vous vous
+  surprenez à garder des lectures ou des écritures courantes, c’est le signe que
+  vous vous en servez mal. La valeur par défaut est **désactivée**, et presque
+  chaque action devrait le rester.
+</Callout>
+
+<AnnotatedCode
+  id="doc-block-13p4g9y"
+  title="Garder l’unique action conséquente"
+  filename="actions/send-email.ts"
+  language="ts"
+  code={
+    'export default defineAction({\n  description: "Send an email via Gmail.",\n  schema: z.object({\n    to: z.string(),\n    subject: z.string(),\n    body: z.string(),\n  }),\n  // Sending is outward-facing and hard to undo, so the agent can never send\n  // without a human approving the specific call. Drafting and queueing are\n  // not affected. Only the real send is gated.\n  needsApproval: true,\n  run: async (args) => {\n    /* ...actually send... */\n  },\n});'
+  }
+  annotations={[
+    {
+      lines: "10",
+      label: "La garde tout entière",
+      note: "Un seul flag. Quand il est vrai et que l’appel n’a pas encore été approuvé, la boucle s’arrête avant `run`. Le modèle n’atteint jamais l’effet de bord par lui-même.",
+    },
+    {
+      lines: "11-13",
+      label: "run() reste inchangé",
+      note: "Le gestionnaire reste identique. L’approbation est appliquée par la boucle qui l’entoure, pas par quoi que ce soit à l’intérieur de `run`.",
+    },
+  ]}
+/>
+
+- **`needsApproval: true`** exige toujours une approbation.
+- **`needsApproval: (args, ctx) => boolean | Promise<boolean>`** exige une approbation seulement quand le prédicat renvoie `true`. Utilisez ceci pour garder l’action de façon conditionnelle, par exemple seulement pour les destinataires externes ou seulement au-delà d’un certain montant :
+
+  ```ts
+  needsApproval: (args) => !args.to.endsWith("@your-company.com"),
+  ```
+
+  Gardez le prédicat pur et rapide. Si le prédicat lève une exception, le framework traite l’appel de la même façon que s’il avait renvoyé `true`, donc l’action se met en pause pour approbation au lieu de s’exécuter. Cela signifie qu’un prédicat défaillant ne peut jamais laisser silencieusement une action à conséquences importantes s’exécuter sans qu’un humain ne l’approuve d’abord.
+
+Quand `needsApproval` est omis, le comportement reste identique, octet pour octet. Il n’y a aucun coût supplémentaire sur le chemin courant.
+
+Cela fonctionne de la même façon pour les actions de style `parameters` hérité et pour les actions basées sur un schéma. Cela fonctionne aussi de la même façon pour l’agent intégré à l’application, les sous-agents, et les appelants A2A et MCP, parce que chaque surface d’agent passe par la même boucle.
+
+### Comment la boucle se met en pause {#loop}
+
+Quand l’agent appelle une action gardée et que cet appel précis n’a **pas** déjà été approuvé, la boucle n’exécute **pas** `run()`. À la place, elle :
+
+1. Résout la garde. Pour un prédicat, la boucle appelle `needsApproval(input, ctx)`. Si cet appel lève une exception, la boucle le traite de la même façon qu’un résultat `true`, donc l’action exige une approbation.
+2. Émet un événement `tool_start` (pour que l’UI affiche l’appel), immédiatement suivi d’un événement **`approval_required`**, puis arrête le tour. L’effet de bord de l’action ne se produit jamais.
+
+L’événement `approval_required` porte tout ce dont le client a besoin pour afficher une affordance :
+
+| Champ         | Type     | Notes                                                                  |
+| ------------- | -------- | ---------------------------------------------------------------------- |
+| `tool`        | `string` | Le nom de l’action que l’agent a essayé d’appeler.                     |
+| `input`       | object   | Les arguments que l’agent a passés.                                    |
+| `approvalKey` | `string` | **Clé stable** que le client renvoie pour approuver _cet appel exact_. |
+| `toolCallId`  | `string` | L’identifiant d’appel d’outil côté modèle, quand il est disponible.    |
+
+La `approvalKey` est dérivée de façon déterministe à partir du nom de l’outil et de son entrée, donc le même appel logique produit toujours la même clé. Le modèle ne la voit ni ne la définit jamais. Elle existe uniquement comme une poignée de main entre le framework et l’affordance Approuver de l’humain.
+
+L’outil en pause renvoie un résultat indiquant au modèle que le tour est en pause et de ne pas réessayer, afin que le modèle ne tourne pas en boucle.
+
+### Comment l’humain approuve {#approve}
+
+Sur `approval_required`, l’UI de chat affiche une affordance **Approuver / Refuser** sur l’appel d’outil en pause. Ceci est câblé automatiquement dans `AssistantChat`. Vous n’avez pas besoin de la construire par template.
+
+<WireframeBlock id="doc-block-humanapprovalwf1">
+  <Screen
+    surface="popover"
+    html={
+      "<div style='display:flex;flex-direction:column;box-sizing:border-box;padding:16px;gap:12px'><div class='wf-card' style='display:flex;flex-direction:column;gap:8px'><div style='display:flex;align-items:center;gap:8px'><span class='wf-pill warn'>Needs approval</span><strong>send-email</strong></div><div style='display:flex;flex-direction:column;gap:2px'><span class='wf-muted'>to: alex@acme.com</span><span class='wf-muted'>subject: Following up on the proposal</span></div><div style='display:flex;gap:8px'><button>Deny</button><button class='primary'>Approve</button></div></div></div>"
+    }
+  />
+</WireframeBlock>
+
+- **Approuver** réémet le tour comme un message de continuation ordinaire qui porte la clé de l’appel dans `approvedToolCalls: [approvalKey]`. Sur le tour réémis, la garde voit la clé dans l’ensemble approuvé et laisse cet appel précis s’exécuter normalement.
+- **Refuser** ferme l’affordance localement. Rien n’est réémis, donc l’action ne s’exécute jamais.
+
+`approvedToolCalls` est un champ de la requête de chat (`AgentChatRequest.approvedToolCalls`). Les clés qui n’y figurent pas restent en pause. Approuver un appel n’approuve jamais un autre appel. Parce que la clé est adressée par contenu, une approbation n’autorise que cet appel exact avec ces arguments exacts. Si le modèle propose plus tard un envoi différent, cela devient une nouvelle clé qui exige sa propre approbation.
+
+### De bout en bout {#flow}
+
+<Diagram id="doc-block-2nor1g" title="L’interruption d’approbation" summary={"Un appel gardé met le tour en pause avant que run() ne se déclenche. L’approbation réémet le tour en portant la clé de l’appel. C’est seulement alors que l’effet de bord se produit."}>
+
+```html
+<div class="diagram-approve">
+  <div class="diagram-box" data-rough>L'agent appelle send-email</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-panel warn" data-rough>
+    <strong>Garde vraie, appel pas encore approuvé</strong
+    ><small class="diagram-muted"
+      >la boucle émet tool_start + approval_required { tool, input, approvalKey
+      }</small
+    ><span class="diagram-pill warn">run() ne s'est pas exécuté</span>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-box" data-rough>
+    L'humain clique sur Approuver dans le chat<br /><small class="diagram-muted"
+      >le client réémet le tour avec approvedToolCalls: [approvalKey]</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-panel ok" data-rough>
+    <span class="diagram-pill ok"
+      >La garde voit la clé &rarr; run() s'exécute &rarr; l'email est
+      envoyé</span
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-approve {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.diagram-approve .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+  padding: 12px 16px;
+  text-align: center;
+}
+.diagram-approve .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+L’action `send-email` du template Mail est l’usage canonique de cette garde dans le framework, et elle est intentionnellement rare. Elle définit `needsApproval: true` afin que l’agent puisse rédiger et mettre en file d’attente des emails librement. Elle ne peut jamais réellement envoyer un message sans qu’un humain n’approuve cet envoi précis.
+
+## Restreindre les appelants par rôle {#authorize}
+
+`authorize` répond à une question précise : **cet appelant peut-il exécuter cette opération, tout court ?** Donnez-lui une fonction de garde, et elle s’exécute avant `run()` sur chaque appelant : outil agent, HTTP, frontend, MCP, A2A, et CLI.
+
+Déclarez le vocabulaire de rôles une seule fois avec `defineAppRoles()` :
+
+```ts
+// server/lib/access.ts
+import { defineAppRoles } from "@agent-native/core/org-team";
+
+export const coachAccess = defineAppRoles({
+  appId: "coach",
+  roles: ["member", "coach-admin"] as const,
+  defaultRole: "member", // display only, never satisfies a guard
+});
+```
+
+Puis gardez l’action avec une liste explicite de rôles acceptés :
+
+```ts
+// actions/archive-plan.ts
+import { coachAccess } from "../server/lib/access.js";
+
+export default defineAction({
+  description: "Archive a training plan.",
+  schema: z.object({ id: z.string() }),
+  authorize: coachAccess.requireAny("coach-admin"),
+  run: async ({ id }) => {
+    /* ... */
+  },
+});
+```
+
+La garde enveloppe `run()` lui-même, plutôt que de s’attacher à une autre partie de l’action. C’est parce que `run()` est la seule chose par laquelle passent les six sites de dispatch, donc il n’y a aucun moyen pour un appelant d’atteindre le corps sans passer le contrôle. Une garde qui lève une exception refuse l’appel avec son propre message d’erreur. Une garde qui renvoie `false` refuse l’appel avec un 403 générique. Tout le reste, y compris `undefined`, autorise l’appel. Parce que le contrôle a besoin d’une identité d’appelant, un appel CLI ou cron sans surveillance et sans email d’utilisateur est refusé plutôt que laissé passer.
+
+Les wrappers se composent dans cet ordre :
+
+```text
+validate input -> authorize -> run -> validate output -> audit
+```
+
+L’autorisation se situe _à l’intérieur_ de la validation d’entrée, donc une garde qui inspecte `args` reçoit la même valeur analysée et vérifiée en type que celle que reçoit `run()`, pas la forme brute que l’appelant a envoyée. L’audit est le plus externe, donc un refus est quand même enregistré.
+
+`requireAny()` échoue au moment de la définition, pas au moment de la requête. L’appeler sans rôle, ou avec un rôle en dehors de la liste déclarée, lève une exception dès le chargement du module. Ainsi, une erreur, comme `authorize: coachAccess.requireAny()` avec un argument oublié, casse exactement là où elle s’est produite, au lieu d’apparaître plus tard comme un 403 inexpliqué.
+
+### Contrôle d’accès dans les actions {#access-control}
+
+`authorize` répond seulement à la question de savoir si l’appelant peut exécuter l’opération, tout court. Cela ne dit rien sur les lignes qu’il peut toucher, c’est un contrôle séparé, au niveau des lignes. Une table construite avec `ownableColumns()` et enregistrée avec `registerShareableResource()` (voir [Partage](/docs/sharing#building)) obtient deux aides pour cela : `accessFilter()` restreint une requête de liste ou de lecture aux lignes que l’appelant peut voir, et `assertAccess()` lève une exception avant une écriture si l’appelant ne détient pas le rôle requis sur cette ligne.
+
+Utilisez `accessFilter()` à l’intérieur de la requête d’une action de liste ou de lecture :
+
+```ts
+// actions/list-decks.ts
+import { defineAction } from "@agent-native/core/action";
+import { accessFilter } from "@agent-native/core/sharing";
+import { z } from "zod";
+import { getDb, schema } from "../server/db/index.js";
+
+export default defineAction({
+  description: "List the decks the current user can see.",
+  schema: z.object({}),
+  http: { method: "GET" },
+  run: async () => {
+    const db = getDb();
+    return await db
+      .select()
+      .from(schema.decks)
+      .where(accessFilter(schema.decks, schema.deckShares));
+  },
+});
+```
+
+Utilisez `assertAccess()` avant une mise à jour ou une suppression, puisqu’une clause `WHERE` seule ne peut pas empêcher une écriture sur une ligne qu’elle exclut :
+
+```ts
+// actions/rename-deck.ts
+import { defineAction } from "@agent-native/core/action";
+import { assertAccess } from "@agent-native/core/sharing";
+import { eq } from "drizzle-orm";
+import { z } from "zod";
+import { getDb, schema } from "../server/db/index.js";
+
+export default defineAction({
+  description: "Rename a deck.",
+  schema: z.object({ id: z.string(), title: z.string() }),
+  run: async ({ id, title }) => {
+    await assertAccess("deck", id, "editor");
+    const db = getDb();
+    await db.update(schema.decks).set({ title }).where(eq(schema.decks.id, id));
+    return { ok: true };
+  },
+});
+```
+
+Une action de création n’appelle ni l’une ni l’autre de ces aides. Elle a seulement besoin d’estampiller `ownerEmail` (et `orgId`) depuis le contexte de la requête au moment de l’insertion de la nouvelle ligne, puisqu’il n’y a pas encore de ligne existante contre laquelle vérifier l’accès. Voir [Partage](/docs/sharing#building) pour le modèle complet d’enregistrement et de création, et [Contexte d’exécution](/docs/actions-run-context) pour la forme complète du second argument `ctx` utilisé ci-dessus.
+
+Les trois mécanismes ne sont pas interchangeables :
+
+| Mécanisme                         | Question à laquelle il répond                               | S’applique à                                   |
+| --------------------------------- | ----------------------------------------------------------- | ---------------------------------------------- |
+| `authorize`                       | Cet appelant peut-il effectuer l’opération, tout court ?    | Les six sites de dispatch                      |
+| `needsApproval`                   | Un humain doit-il approuver cet appel précis et permis ?    | La boucle de l’agent seulement                 |
+| `accessFilter()`/`assertAccess()` | Quelles lignes cet appelant permis peut-il voir ou écrire ? | À l’intérieur de `run()`, par requête ou ligne |
+
+Une action d’écriture restreinte a typiquement besoin à la fois de `authorize` et de `assertAccess()`. Le premier écarte les non-coachs de l’opération. Le second écarte un coach du plan d’une autre organisation. `needsApproval` est un axe séparé. Il ne restreint jamais qui peut appeler, seulement si l’agent peut continuer sans surveillance.
+
+`coachAccess` ci-dessus vient de `defineAppRoles()`, la surcouche de rôles par application sur l’adhésion à l’organisation. Voir [Organisations, équipes et permissions → Rôles d’application](/docs/organizations-teams-permissions#app-roles-per-app-rbac) pour le modèle de rôles et ses garanties.
+
+## Journalisation d’audit {#audit}
+
+Chaque action de mutation est auditée automatiquement. Le framework enregistre qui l’a exécutée, quand, depuis quelle surface, et, quand c’était l’agent, quel fil et quel tour, avec des entrées où les identifiants sont masqués. Les actions en lecture seule (`GET`) sont ignorées. Vous n’écrivez aucun code pour cela. Cela se produit automatiquement à l’intérieur de `defineAction()`.
+
+N’ajoutez un bloc `audit` que pour affiner la capture. La raison la plus courante est de déclarer la ressource que l’action a modifiée, afin que le changement apparaisse dans la piste du propriétaire de cette ressource :
+
+```ts
+export default defineAction({
+  description: "Delete a recording.",
+  schema: z.object({ id: z.string() }),
+  audit: {
+    target: (args, result) => ({ type: "recording", id: args.id }),
+    summary: (args) => `Deleted recording ${args.id}`,
+  },
+  run: async (args, ctx) => {
+    /* ...delete... */
+  },
+});
+```
+
+Quelques autres options. `audit: { onRead: true }` audite une lecture sensible, comme un accès à un secret ou un export en masse. `audit: { enabled: false }` exclut une écriture bruyante. `audit: { recordInputs: false }` évite de capturer les arguments. Relisez la piste avec les actions intégrées `list-audit-events` et `get-audit-event`. Voir [Journal d’audit](/docs/audit-log) pour les détails complets.
+
+## Quelle est la prochaine étape
+
+- [**Vue d’ensemble**](/docs/actions-overview) — ce qu’est une action et la démonstration hello-world
+- [**Définir des actions**](/docs/actions-defining) — anatomie de `defineAction()`, schéma, et configuration HTTP
+- [**Contexte d’exécution**](/docs/actions-run-context) — l’argument `ctx` que ces contrôles lisent
+- [**Template Mail**](/docs/template-mail) — `send-email` est l’exemple de référence pour `needsApproval`
+- [**Journal d’audit**](/docs/audit-log) — la piste automatique de qui-a-changé-quoi
+- [**Sécurité**](/docs/security) — `accessFilter`/`assertAccess` et la frontière de confiance de l’iframe d’extension
+- [**Partage**](/docs/sharing) — le système de partage du framework que ces aides soutiennent

@@ -5,12 +5,16 @@ import {
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { appApiPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
+import { usePerAppChatOpen } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { InvitationBanner, OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
 import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
-import { normalizeMailLabel } from "@shared/gmail-labels";
+import {
+  isInboxScopedAppLabel,
+  normalizeMailLabel,
+} from "@shared/gmail-labels";
 import type { Label } from "@shared/types";
 import {
   IconMenu2,
@@ -30,6 +34,7 @@ import {
   IconMailForward,
   IconStar,
   IconTrash,
+  IconAlertCircle,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
@@ -64,6 +69,7 @@ import {
   useBlockSender,
   useMuteThread,
   markExternalEmailRefresh,
+  EMPTY_LABELS,
 } from "@/hooks/use-emails";
 import {
   useGoogleAuthStatus,
@@ -77,6 +83,8 @@ import {
 import { useIsMobile } from "@/hooks/use-mobile";
 import { runUndo } from "@/hooks/use-undo";
 import {
+  OTHER_INBOX_TAB_ID,
+  OTHER_INBOX_TAB_PARAM,
   qualifiesForInboxTab,
   pinnedTriageLabels,
   augmentSelfSentLabels,
@@ -170,6 +178,18 @@ function labelDepth(name: string): number {
   return Math.max(0, name.split("/").length - 1);
 }
 
+// Gmail's inbox-only categories (important, social, promotions, ...) only
+// ever exist inside the inbox, so their tab stays scoped there. Regular user
+// labels are filed/archived independently of the inbox — routing them
+// through /inbox forces `in:inbox` server-side and hides every message the
+// user has archived out of the inbox while keeping the label, which reads as
+// "label is empty" even though it has mail. Route those through /all so the
+// label search is unscoped.
+export function labelTabHref(labelId: string): string {
+  const view = isInboxScopedAppLabel(labelId) ? "inbox" : "all";
+  return `/${view}?label=${encodeURIComponent(labelId)}`;
+}
+
 interface AppLayoutProps {
   children: React.ReactNode;
 }
@@ -186,7 +206,7 @@ const collapsibleViews = [
 
 export function AppLayout({ children }: AppLayoutProps) {
   const location = useLocation();
-  const isMobile = useIsMobile();
+
   const t = useT();
   if (BARE_ROUTES.has(location.pathname)) {
     return <>{children}</>;
@@ -229,7 +249,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     targets: SnoozeTarget[];
   } | null>(null);
   const [searchFocused, setSearchFocused] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
+  const [, setSearchQuery] = useState("");
   const navigate = useNavigate();
   const location = useLocation();
   // Parse view and threadId from pathname since AppLayout is outside <Routes>
@@ -240,6 +260,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   const [searchParams] = useSearchParams();
   const activeSearchQuery = searchParams.get("q");
   const activeLabel = searchParams.get("label");
+  const activeInboxTab = searchParams.get("tab");
   const composeInitialExpanded =
     searchParams.get(COMPOSE_FULLSCREEN_PARAM) === "1";
   const clearComposeInitialExpanded = useCallback(() => {
@@ -255,22 +276,31 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       { replace: true },
     );
   }, [location.pathname, navigate, searchParams]);
-  // Remember which view (and label tab) the user was in before searching —
+  // Remember which view (label or inbox tab) the user was in before searching —
   // SearchBar always routes searches through /all?q=..., so on clear we'd
   // otherwise drop a user searching from Starred/Sent/Archive or from a
   // label-filtered tab back into plain Inbox.
-  const preSearchViewRef = useRef<{ view: string; label: string | null }>({
-    view,
-    label: activeLabel,
-  });
+  const preSearchViewRef = useRef<{
+    view: string;
+    label: string | null;
+    tab: string | null;
+  }>({ view, label: activeLabel, tab: activeInboxTab });
   useEffect(() => {
     if (!activeSearchQuery) {
-      preSearchViewRef.current = { view, label: activeLabel };
+      preSearchViewRef.current = {
+        view,
+        label: activeLabel,
+        tab: activeInboxTab,
+      };
     }
-  }, [view, activeLabel, activeSearchQuery]);
+  }, [view, activeLabel, activeInboxTab, activeSearchQuery]);
   const restorePreSearchPath = useCallback(() => {
-    const { view: v, label: l } = preSearchViewRef.current;
-    return `/${v}${l ? `?label=${encodeURIComponent(l)}` : ""}`;
+    const { view: v, label: l, tab } = preSearchViewRef.current;
+    const params = new URLSearchParams();
+    if (l) params.set("label", l);
+    if (tab) params.set("tab", tab);
+    const search = params.toString();
+    return `/${v}${search ? `?${search}` : ""}`;
   }, []);
   // When the search param is cleared externally (browser back/forward,
   // agent navigation), drop the searchFocused flag — otherwise the bar
@@ -284,7 +314,15 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     }
     prevSearchQueryRef.current = activeSearchQuery;
   }, [activeSearchQuery]);
-  const { data: labels = [], isLoading: labelsLoading } = useLabels();
+  const {
+    data: labelsData,
+    isLoading: labelsLoading,
+    isError: labelsError,
+    error: labelsQueryError,
+    isFetching: labelsFetching,
+    refetch: refetchLabels,
+  } = useLabels();
+  const labels = labelsData ?? EMPTY_LABELS;
   const { data: settings, isLoading: settingsLoading } = useSettings();
   const updateSettings = useUpdateSettings();
   const googleStatus = useGoogleAuthStatus();
@@ -372,6 +410,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     if (typeof window === "undefined") return false;
     return localStorage.getItem(SIDEBAR_COLLAPSE_KEY) === "true";
   });
+  const perAppChatOpen = usePerAppChatOpen();
   useEffect(() => {
     if (sidebarPinned) localStorage.setItem("mail-sidebar-pinned", "true");
     else localStorage.removeItem("mail-sidebar-pinned");
@@ -383,8 +422,11 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       localStorage.removeItem(SIDEBAR_COLLAPSE_KEY);
     }
   }, [sidebarCollapsed]);
-  const showSidebar = sidebarOpen || (sidebarPinned && !isMobile);
-  const showCollapsedSidebar = sidebarPinned && sidebarCollapsed && !isMobile;
+  const showSidebar = isMobile ? sidebarOpen : sidebarOpen || sidebarPinned;
+  const showCollapsedSidebar =
+    !isMobile &&
+    showSidebar &&
+    (sidebarPinned ? sidebarCollapsed : perAppChatOpen);
   const closeSidebar = useCallback(() => {
     if (!sidebarPinned || isMobile) setSidebarOpen(false);
   }, [sidebarPinned, isMobile]);
@@ -539,7 +581,10 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         id: "inbox",
         label: t("mail.views.inbox"),
         href: "/inbox",
-        isActive: view === "inbox" && !activeLabel,
+        isActive:
+          view === "inbox" &&
+          !activeLabel &&
+          activeInboxTab !== OTHER_INBOX_TAB_PARAM,
         type: "system",
       });
     }
@@ -585,7 +630,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
           pinnedId: id,
           label: aliasedName,
           fullLabel: lbl.name,
-          href: `/inbox?label=${encodeURIComponent(lbl.id)}`,
+          href: labelTabHref(lbl.id),
           isActive: activeLabel === lbl.id,
           color: lbl.color,
           type: "label",
@@ -595,10 +640,13 @@ function AppLayoutInner({ children }: AppLayoutProps) {
 
     if (hasPinnedFilters) {
       tabs.push({
-        id: "inbox",
+        id: OTHER_INBOX_TAB_ID,
         label: t("mail.views.other"),
-        href: "/inbox",
-        isActive: view === "inbox" && !activeLabel,
+        href: `/inbox?tab=${OTHER_INBOX_TAB_PARAM}`,
+        isActive:
+          view === "inbox" &&
+          !activeLabel &&
+          activeInboxTab === OTHER_INBOX_TAB_PARAM,
         type: "system",
       });
     }
@@ -610,6 +658,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     labelAliases,
     view,
     activeLabel,
+    activeInboxTab,
     hasPinnedFilters,
     t,
   ]);
@@ -625,7 +674,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
           id: active.id,
           label: aliasedName,
           fullLabel: active.name,
-          href: `/inbox?label=${encodeURIComponent(active.id)}`,
+          href: labelTabHref(active.id),
           isActive: true,
           color: active.color,
           type: "label",
@@ -639,6 +688,15 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   const hiddenViews = useMemo(
     () => collapsibleViews.filter((v) => !pinnedLabels.includes(v.id)),
     [pinnedLabels],
+  );
+
+  // The top-bar inbox tabs are hidden on mobile, so mirror their non-standard
+  // entries in the drawer. Collapsible system views already appear in the
+  // fixed drawer list below and must not be duplicated here.
+  const mobileInboxTabs = visibleTabs.filter(
+    (tab) =>
+      tab.id !== "inbox" &&
+      !collapsibleViews.some((view) => view.id === tab.id),
   );
 
   // Is current view one of the hidden ones? If so force-show it
@@ -990,6 +1048,15 @@ function AppLayoutInner({ children }: AppLayoutProps) {
 
   const useServerLabelCounts = activeAccounts.size === 0;
 
+  // Gmail totals overlap across labels, while these tabs are an exclusive
+  // partition of the loaded inbox. Keep their badges tied to that partition.
+  const inboxPartitionTabIds = new Set<string>([OTHER_INBOX_TAB_ID]);
+  for (const pinnedId of pinnedTriageLabels(pinnedLabels)) {
+    inboxPartitionTabIds.add(pinnedId);
+    const label = resolveLabelForCount(pinnedId);
+    if (label) inboxPartitionTabIds.add(label.id);
+  }
+
   type CountKind = "unread" | "total";
   const countFieldForKind = (kind: CountKind) =>
     kind === "total" ? "totalCount" : "unreadCount";
@@ -1006,22 +1073,8 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     const serverCount = useServerLabelCounts
       ? (inboxLabel?.[countField] ?? 0)
       : 0;
-    const localCount = localCounts["inbox"] ?? 0;
+    const localCount = localCounts["__inboxTotal"] ?? 0;
     return Math.max(serverCount, localCount);
-  };
-
-  const isExclusivePinnedTab = (viewId: string) => {
-    if (!hasPinnedFilters) return false;
-    // Pinned label rows (the ones that contribute to the "Other" remainder)
-    // are exclusive: each inbox thread is counted in exactly one tab. Gmail's
-    // server label counts don't have that exclusivity (e.g. server "important"
-    // returns *all* important threads, regardless of whether they're also
-    // categorized elsewhere), so we can't mix the two — use local only.
-    return pinnedLabels.some((id) => {
-      if (collapsibleViews.some((view) => view.id === id)) return false;
-      const label = resolveLabelForCount(id);
-      return (label?.id ?? id) === viewId || id === viewId;
-    });
   };
 
   const getOtherCount = (kind: CountKind) => {
@@ -1036,20 +1089,18 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   };
 
   const getTabCount = (viewId: string, kind: CountKind) => {
-    if (viewId === "inbox") return getOtherCount(kind);
+    if (viewId === OTHER_INBOX_TAB_ID) return getOtherCount(kind);
+    if (viewId === "inbox") return getInboxCount(kind);
     const label = resolveLabelForCount(viewId);
     const countField = countFieldForKind(kind);
     const localCounts = localCountsForKind(kind);
     const localCount =
       localCounts[viewId] ?? (label ? (localCounts[label.id] ?? 0) : 0);
-    // Exclusive pinned tabs (when hasPinnedFilters is on, a thread belongs to
-    // exactly one tab) can't fall back to Gmail's non-exclusive server count
-    // — that would over-report the badge relative to what the tab renders.
-    if (isExclusivePinnedTab(viewId)) return localCount;
     const serverCount =
       useServerLabelCounts && viewId !== "note-to-self"
         ? (label?.[countField] ?? 0)
         : 0;
+    if (inboxPartitionTabIds.has(viewId)) return localCount;
     return Math.max(serverCount, localCount);
   };
   const getTopBarCount = (viewId: string) => getTabCount(viewId, "total");
@@ -1138,7 +1189,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
           {/* Primary tabs stay mounted during search so navigation does not jump. */}
           <>
             {tabsLoading ? (
-              <nav className="flex items-center gap-2 overflow-x-auto hide-scrollbar">
+              <nav className="hidden sm:flex items-center gap-2 overflow-x-auto hide-scrollbar">
                 {[1, 2, 3].map((i) => (
                   <span
                     key={i}
@@ -1148,7 +1199,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                 ))}
               </nav>
             ) : (
-              <nav className="flex min-w-0 items-center gap-0.5 overflow-x-auto hide-scrollbar">
+              <nav className="hidden sm:flex min-w-0 items-center gap-0.5 overflow-x-auto hide-scrollbar">
                 {topBarTabs.map((tab, idx) => {
                   const visibleIndex = visibleTabs.findIndex(
                     (item) => item.id === tab.id,
@@ -1232,7 +1283,12 @@ function AppLayoutInner({ children }: AppLayoutProps) {
             )}
 
             {/* Tab settings cog */}
-            <div className={cn("relative", tabsLoading && "invisible")}>
+            <div
+              className={cn(
+                "relative hidden sm:block",
+                tabsLoading && "invisible",
+              )}
+            >
               <Popover
                 open={tabSettingsOpen}
                 onOpenChange={(open) => {
@@ -1511,7 +1567,12 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                           <button
                             type="button"
                             onClick={() => {
-                              setSidebarPinned((value) => !value);
+                              if (sidebarPinned) {
+                                setSidebarPinned(false);
+                                setSidebarOpen(!isMobile);
+                                return;
+                              }
+                              setSidebarPinned(true);
                               setSidebarOpen(true);
                             }}
                             className={cn(
@@ -1706,63 +1767,56 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                         ))}
                       </div>
 
-                      {/* Pinned labels */}
-                      {pinnedLabels.filter(
-                        (l) => !collapsibleViews.some((v) => v.id === l),
-                      ).length > 0 && (
+                      {/* Mobile equivalents for the hidden top-bar inbox tabs */}
+                      {mobileInboxTabs.length > 0 && (
                         <>
                           <h2 className="text-[11px] font-medium text-muted-foreground/50 uppercase tracking-wider mt-5 mb-3">
                             {t("mail.views.labels")}
                           </h2>
                           <div className="space-y-0.5">
-                            {visibleTabs
-                              .filter(
-                                (t) => t.id !== "inbox" && t.type === "label",
-                              )
-                              .map((tab) => {
-                                const count = getUnreadCount(tab.id);
-                                const depth = labelDepth(
-                                  tab.fullLabel ?? tab.label,
-                                );
-                                return (
-                                  <Link
-                                    key={tab.id}
-                                    to={tab.href}
-                                    onClick={closeSidebar}
-                                    className={cn(
-                                      "flex items-center justify-between rounded-md px-3 py-2.5 text-[14px] transition-colors min-h-[44px]",
-                                      tab.isActive
-                                        ? "bg-accent/60 text-foreground font-medium"
-                                        : "text-foreground/70 hover:bg-accent/30",
-                                    )}
+                            {mobileInboxTabs.map((tab) => {
+                              const count = getUnreadCount(tab.id);
+                              const depth =
+                                tab.type === "label"
+                                  ? labelDepth(tab.fullLabel ?? tab.label)
+                                  : 0;
+                              return (
+                                <Link
+                                  key={tab.id}
+                                  to={tab.href}
+                                  onClick={closeSidebar}
+                                  className={cn(
+                                    "flex items-center justify-between rounded-md px-3 py-2.5 text-[14px] transition-colors min-h-[44px]",
+                                    tab.isActive
+                                      ? "bg-accent/60 text-foreground font-medium"
+                                      : "text-foreground/70 hover:bg-accent/30",
+                                  )}
+                                >
+                                  <span
+                                    className="flex min-w-0 items-center gap-2"
+                                    style={{ paddingLeft: depth * 12 }}
                                   >
-                                    <span
-                                      className="flex min-w-0 items-center gap-2"
-                                      style={{ paddingLeft: depth * 12 }}
-                                    >
-                                      {tab.color && (
-                                        <span
-                                          className="h-2 w-2 rounded-full shrink-0"
-                                          style={{ backgroundColor: tab.color }}
-                                        />
-                                      )}
+                                    {tab.color && (
                                       <span
-                                        className="truncate"
-                                        title={tab.fullLabel}
-                                      >
-                                        {shortLabelName(
-                                          tab.fullLabel ?? tab.label,
-                                        )}
-                                      </span>
-                                    </span>
-                                    {count > 0 && (
-                                      <span className="text-[12px] text-muted-foreground/50 tabular-nums">
-                                        {count}
-                                      </span>
+                                        className="h-2 w-2 rounded-full shrink-0"
+                                        style={{ backgroundColor: tab.color }}
+                                      />
                                     )}
-                                  </Link>
-                                );
-                              })}
+                                    <span
+                                      className="truncate"
+                                      title={tab.fullLabel ?? tab.label}
+                                    >
+                                      {tab.label}
+                                    </span>
+                                  </span>
+                                  {count > 0 && (
+                                    <span className="text-[12px] text-muted-foreground/50 tabular-nums">
+                                      {count}
+                                    </span>
+                                  )}
+                                </Link>
+                              );
+                            })}
                           </div>
                         </>
                       )}
@@ -1819,6 +1873,31 @@ function AppLayoutInner({ children }: AppLayoutProps) {
           )}
         >
           <InvitationBanner />
+
+          {labelsError && (
+            <div
+              role="alert"
+              className="flex shrink-0 items-center gap-2 border-b border-destructive/20 bg-destructive/5 px-4 py-2 text-xs text-muted-foreground"
+            >
+              <IconAlertCircle className="h-3.5 w-3.5 shrink-0 text-destructive" />
+              <span className="min-w-0 flex-1 truncate">
+                {labelsQueryError instanceof Error && labelsQueryError.message
+                  ? labelsQueryError.message
+                  : t("mail.error.loadTitle")}
+              </span>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                disabled={labelsFetching}
+                onClick={() => void refetchLabels()}
+              >
+                {labelsFetching
+                  ? t("mail.error.retrying")
+                  : t("mail.error.tryAgain")}
+              </Button>
+            </div>
+          )}
 
           {/* Show full-page takeover when no accounts connected (except on settings page) */}
           {!googleStatus.isLoading &&

@@ -27,6 +27,7 @@ import {
 import {
   IconBook2,
   IconExternalLink,
+  IconInfoCircle,
   IconMessage,
   IconHistory,
 } from "@tabler/icons-react";
@@ -42,9 +43,11 @@ import React, {
 } from "react";
 
 import { parseChangelog } from "../changelog/parse.js";
+import { AboutAgentNativeDialog } from "./AboutAgentNativeDialog.js";
 import { sendToAgentChat } from "./agent-chat.js";
 import { ChangelogDialog, useChangelogSeen } from "./changelog/Changelog.js";
 import { Dialog, DialogContent, DialogTitle } from "./components/ui/dialog.js";
+import { useT } from "./i18n.js";
 import { cn } from "./utils.js";
 
 // ─── Context ────────────────────────────────────────────────────────────────
@@ -283,6 +286,11 @@ export interface CommandMenuProps {
    * multiple apps share an origin.
    */
   changelogKey?: string;
+  /**
+   * Whether to show the built-in "About Agent Native" entry. Defaults to true
+   * for app-shell menus that provide a changelog; set false for local menus.
+   */
+  showAbout?: boolean;
 }
 
 export function CommandMenu({
@@ -297,17 +305,21 @@ export function CommandMenu({
   changelog,
   changelogLabel = "What's new",
   changelogKey,
+  showAbout: showAboutProp,
 }: CommandMenuProps) {
   const [search, setSearch] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const t = useT();
 
   // Built-in "What's new" changelog surface (only active when `changelog` is
   // passed). The dialog is rendered alongside the menu so it survives the menu
   // closing; the unseen dot persists per browser via localStorage.
   const [changelogOpen, setChangelogOpen] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
   const hasChangelog =
     typeof changelog === "string" && changelog.trim().length > 0;
+  const showAbout = showAboutProp ?? hasChangelog;
   const changelogEntries = useMemo(
     () => (hasChangelog ? parseChangelog(changelog as string) : []),
     [hasChangelog, changelog],
@@ -322,6 +334,12 @@ export function CommandMenu({
     // Let the menu close before the dialog opens (avoids overlay flicker).
     setTimeout(() => setChangelogOpen(true), 50);
   }, [onOpenChange, markChangelogSeen]);
+
+  const openAbout = useCallback(() => {
+    onOpenChange(false);
+    // Let the menu close before the dialog opens (avoids overlay flicker).
+    setTimeout(() => setAboutOpen(true), 50);
+  }, [onOpenChange]);
 
   // Focus input when opening; clear search while closed so reopen never renders
   // dynamic results for the previous query.
@@ -365,6 +383,40 @@ export function CommandMenu({
       .toLowerCase()
       .includes(search.toLowerCase());
   const showChangelogRow = hasChangelog && changelogRowMatches;
+  const aboutLabel = t("agentChat.aboutAgentNative.title", {
+    defaultValue: "About Agent Native",
+  });
+  const aboutVersionLabel = t("agentChat.aboutAgentNative.version", {
+    defaultValue: "Version",
+  });
+  const aboutEnvironmentLabel = t("agentChat.aboutAgentNative.environment", {
+    defaultValue: "Environment",
+  });
+  const aboutBuildLabel = t("agentChat.aboutAgentNative.build", {
+    defaultValue: "Build",
+  });
+  const aboutDiagnosticsLabel = t(
+    "agentChat.aboutAgentNative.copyDiagnostics",
+    {
+      defaultValue: "Copy diagnostics",
+    },
+  );
+  const aboutRowMatches =
+    !search ||
+    [
+      aboutLabel,
+      "agent native",
+      aboutVersionLabel,
+      "versions",
+      "package",
+      aboutEnvironmentLabel,
+      aboutBuildLabel,
+      aboutDiagnosticsLabel,
+    ]
+      .join(" ")
+      .toLowerCase()
+      .includes(search.toLowerCase());
+  const showAboutRow = showAbout && aboutRowMatches;
 
   // Filter children based on search
   const filterChildren = (nodes: ReactNode): ReactNode => {
@@ -495,12 +547,29 @@ export function CommandMenu({
                   </>
                 )}
 
+                {/* About Agent Native — built-in framework diagnostics entry */}
+                {showAboutRow && (
+                  <>
+                    {(hasResults || showChangelogRow) && <CommandSeparator />}
+                    <div className="p-1">
+                      <CommandItemPrimitive
+                        className="cursor-pointer gap-2 py-2"
+                        onSelect={openAbout}
+                      >
+                        <IconInfoCircle className="h-4 w-4 text-muted-foreground" />
+                        <span>{aboutLabel}</span>
+                      </CommandItemPrimitive>
+                    </div>
+                  </>
+                )}
+
                 {/* Ask AI — always visible at the bottom */}
                 {showAgentFallback && (
                   <>
-                    {(hasResults || showChangelogRow || hasDynamicResults) && (
-                      <CommandSeparator />
-                    )}
+                    {(hasResults ||
+                      showChangelogRow ||
+                      showAboutRow ||
+                      hasDynamicResults) && <CommandSeparator />}
                     <div className="p-1">
                       <CommandItemPrimitive
                         className="cursor-pointer gap-2 py-2"
@@ -543,6 +612,10 @@ export function CommandMenu({
           markdown={changelog as string}
           title={changelogLabel}
         />
+      )}
+
+      {showAbout && (
+        <AboutAgentNativeDialog open={aboutOpen} onOpenChange={setAboutOpen} />
       )}
     </>
   );

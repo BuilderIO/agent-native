@@ -4,7 +4,12 @@ import { z } from "zod";
 
 import { resolveConnectorSecret } from "../server/connectors/credentials.js";
 import { getDb } from "../server/db/index.js";
-import { triageConfig, triageItems } from "../server/db/schema.js";
+import { triageItems } from "../server/db/schema.js";
+import { DEFAULT_FACTORY_ID } from "../server/factory-graph/store.js";
+import {
+  factoryIdSchema,
+  readTriageConfigRow,
+} from "../server/lib/factory-scope.js";
 import { requireFactoryAutomation } from "../server/lib/require-factory-automation.js";
 import {
   requireWorkspaceMember,
@@ -85,13 +90,13 @@ export default defineAction({
     "Watch one builder-io-bot pull request, post the bounded feedback-fix request when CI, mergeability, or review feedback needs work, and stop after 20 quiet minutes. The action never merges or approves.",
   schema: z.object({
     itemId: z.string().min(1),
+    factoryId: factoryIdSchema.optional(),
   }),
   http: false,
-  run: async ({ itemId }, context) => {
+  run: async ({ itemId, factoryId: factoryIdInput }, context) => {
     const { userEmail, orgId } = await requireWorkspaceMember(
       workspaceMemberIdentityFromContext(context),
     );
-    await requireFactoryAutomation(context, { userEmail, orgId }, "prBabysit");
 
     const db = getDb();
     const item = (
@@ -102,6 +107,16 @@ export default defineAction({
         .limit(1)
     )[0];
     if (!item) throw new Error("Factory item not found for PR babysitting.");
+    const factoryId = factoryIdInput ?? item.factoryId ?? DEFAULT_FACTORY_ID;
+    if ((item.factoryId ?? DEFAULT_FACTORY_ID) !== factoryId) {
+      throw new Error("Factory item does not belong to this factory.");
+    }
+    await requireFactoryAutomation(
+      context,
+      { userEmail, orgId },
+      "prBabysit",
+      factoryId,
+    );
     if (
       item.source !== "github" ||
       !item.repository ||
@@ -115,12 +130,8 @@ export default defineAction({
     }
 
     const configuredRepository = (
-      await db
-        .select({ repository: triageConfig.repository })
-        .from(triageConfig)
-        .where(and(eq(triageConfig.id, orgId), eq(triageConfig.orgId, orgId)))
-        .limit(1)
-    )[0]?.repository;
+      await readTriageConfigRow(db, orgId, factoryId)
+    )?.repository;
     if (
       !configuredRepository ||
       configuredRepository.trim() !== item.repository.trim()
@@ -154,6 +165,7 @@ export default defineAction({
           summary: "Skipped because the pull request is closed or a draft.",
           details: { state: pullRequest.state, draft: pullRequest.draft },
         },
+        factoryId,
       );
       return { ok: true, action: "skipped", reason: "PR is closed or draft." };
     }
@@ -182,6 +194,7 @@ export default defineAction({
           summary: `${ownerOwnedArea} is owner-managed; no bot feedback was posted.`,
           details: { ownerOwnedArea },
         },
+        factoryId,
       );
       return {
         ok: true,
@@ -257,6 +270,7 @@ export default defineAction({
           reviewFeedbackClean: signal.isClean,
         },
       },
+      factoryId,
     );
     const now = new Date();
     const nowIso = now.toISOString();
@@ -326,6 +340,7 @@ export default defineAction({
         summary: "Posted the bounded feedback-fix request to builder-io-bot.",
         details: { commentUrl: comment.htmlUrl, quietForMinutes: 0 },
       },
+      factoryId,
     );
     await updateBabysitMetadata(itemId, orgId, {
       prBabysitState: "active",

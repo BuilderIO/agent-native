@@ -19,6 +19,19 @@ describe("public meeting client", () => {
     );
   });
 
+  it("adds a scoped agent token without changing the meeting id parameter", () => {
+    expect(
+      publicMeetingUrl(
+        "meeting-1",
+        "https://clips.example.com",
+        "/workspace/clips",
+        "token+1",
+      ),
+    ).toBe(
+      "https://clips.example.com/workspace/clips/api/public-meeting?id=meeting-1&agent_access=token%2B1",
+    );
+  });
+
   it("fetches and parses the access-checked meeting payload", async () => {
     const signal = new AbortController().signal;
     const fetchMock = vi.fn().mockResolvedValue({
@@ -46,6 +59,29 @@ describe("public meeting client", () => {
       status: 200,
       data: { meeting: { id: "meeting-1" } },
     });
+  });
+
+  it("forwards a scoped agent token to the access-checked endpoint", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: vi.fn().mockResolvedValue({
+        meeting: { id: "private-meeting", title: "Private sync" },
+        viewer: null,
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchPublicMeeting("private-meeting", {
+      origin: "https://clips.example.com",
+      basePath: "/clips",
+      agentAccessToken: "meeting-token",
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://clips.example.com/clips/api/public-meeting?id=private-meeting&agent_access=meeting-token",
+      { signal: undefined },
+    );
   });
 
   it("preserves inaccessible response status and error", async () => {

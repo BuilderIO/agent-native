@@ -66,6 +66,7 @@ export function isRealtimeVoiceSetupRequired(
 
 export function VoiceButton({ voice, isMac, disabled }: VoiceButtonProps) {
   const adapters = useComposerRuntimeAdapters();
+  const t = adapters.translate!;
   const { state, start, stop, supported } = voice;
   const realtimeVoice = useRealtimeVoiceModeOptional();
   const realtimeCopy = useRealtimeVoiceModeCopy();
@@ -144,10 +145,17 @@ export function VoiceButton({ voice, isMac, disabled }: VoiceButtonProps) {
   }
 
   const label = recording
-    ? "Stop recording"
+    ? t("agentChat.voice.dictation.stopRecording", {
+        defaultValue: "Stop recording",
+      })
     : transcribing
-      ? "Transcribing…"
-      : `Dictate (${isMac ? "Cmd Shift M" : "Ctrl Shift M"})`;
+      ? t("agentChat.voice.dictation.transcribing", {
+          defaultValue: "Transcribing…",
+        })
+      : t("agentChat.voice.dictation.start", {
+          shortcut: isMac ? "⌘⇧M" : "Ctrl+Shift+M",
+          defaultValue: `Dictate (${isMac ? "⌘⇧M" : "Ctrl+Shift+M"})`,
+        });
 
   const onClick = () => {
     if (recording) stop();
@@ -190,6 +198,7 @@ export interface VoiceRecordingOverlayProps {
 export function VoiceRecordingOverlay({ voice }: VoiceRecordingOverlayProps) {
   const { state, amplitude, durationMs, errorMessage, cancel } = voice;
   const { dismissError, start } = voice;
+  const t = useComposerRuntimeAdapters().translate!;
 
   if (state === "error" && errorMessage) {
     return (
@@ -207,12 +216,16 @@ export function VoiceRecordingOverlay({ voice }: VoiceRecordingOverlayProps) {
                 void start();
               }}
               className="shrink-0 cursor-pointer rounded px-1.5 py-0.5 text-[11px] font-medium text-red-500 hover:bg-red-500/20"
-              aria-label="Try again"
+              aria-label={t("agentChat.common.retry", {
+                defaultValue: "Try again",
+              })}
             >
-              Try again
+              {t("agentChat.common.retry", { defaultValue: "Try again" })}
             </button>
           </TooltipTrigger>
-          <TooltipContent>Try again</TooltipContent>
+          <TooltipContent>
+            {t("agentChat.common.retry", { defaultValue: "Try again" })}
+          </TooltipContent>
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -220,12 +233,16 @@ export function VoiceRecordingOverlay({ voice }: VoiceRecordingOverlayProps) {
               type="button"
               onClick={dismissError}
               className="shrink-0 flex h-4 w-4 cursor-pointer items-center justify-center rounded text-red-500 hover:bg-red-500/20"
-              aria-label="Dismiss"
+              aria-label={t("agentChat.common.dismiss", {
+                defaultValue: "Dismiss",
+              })}
             >
               <IconX className="h-3 w-3" />
             </button>
           </TooltipTrigger>
-          <TooltipContent>Dismiss</TooltipContent>
+          <TooltipContent>
+            {t("agentChat.common.dismiss", { defaultValue: "Dismiss" })}
+          </TooltipContent>
         </Tooltip>
       </div>
     );
@@ -245,18 +262,26 @@ export function VoiceRecordingOverlay({ voice }: VoiceRecordingOverlayProps) {
             type="button"
             onClick={cancel}
             className="shrink-0 flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/40"
-            aria-label="Cancel recording"
+            aria-label={t("agentChat.voice.dictation.cancelRecording", {
+              defaultValue: "Cancel recording",
+            })}
           >
             <IconX className="h-3 w-3" />
           </button>
         </TooltipTrigger>
-        <TooltipContent>Cancel (Esc)</TooltipContent>
+        <TooltipContent>
+          {t("agentChat.voice.dictation.cancel", {
+            defaultValue: "Cancel (Esc)",
+          })}
+        </TooltipContent>
       </Tooltip>
 
       <div className="flex-1 flex items-center gap-[2px] min-w-0 h-4">
         {state === "transcribing" ? (
           <span className="text-[11px] text-muted-foreground">
-            Transcribing…
+            {t("agentChat.voice.dictation.transcribing", {
+              defaultValue: "Transcribing…",
+            })}
           </span>
         ) : (
           <AmplitudeBars amplitude={amplitude} />

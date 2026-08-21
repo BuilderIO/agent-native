@@ -13,6 +13,10 @@ import { defineTransactionalEmail } from "@agent-native/core/email-catalog";
 
 import { renderClipsInviteEmail } from "../../actions/invite-member.js";
 import {
+  CLIPS_ACCESS_REQUEST_EMAIL_ID,
+  renderRecordingAccessRequestEmail,
+} from "../../actions/request-recording-access.js";
+import {
   CLIPS_ACTIVITY_COMMENT_EMAIL_ID,
   CLIPS_ACTIVITY_REACTION_EMAIL_ID,
   CLIPS_FIRST_AGENT_VIEW_EMAIL_ID,
@@ -48,12 +52,60 @@ const CLIPS_SENDER =
   'From is the configured EMAIL_FROM with the display name "Agent-Native Clips"; on first-party agent-native.com deployments it becomes clips@agent-native.com. Reply-to is hello@agent-native.com.';
 
 let registered = false;
+const GLOBAL_REGISTRATION_KEY =
+  "__agentNativeClipsTransactionalEmailCatalogRegistered";
+const globalRegistrationState = globalThis as typeof globalThis &
+  Record<string, boolean | undefined>;
+
+function defineClipsTransactionalEmail(
+  definition: Parameters<typeof defineTransactionalEmail>[0],
+): boolean {
+  try {
+    defineTransactionalEmail(definition);
+    return true;
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message.startsWith('Duplicate transactional email id "clips.')
+    ) {
+      // The same Clips catalog can be evaluated twice by Nitro/Vite. The
+      // first definition is canonical, so a duplicate is already registered.
+      return false;
+    }
+    throw error;
+  }
+}
 
 export function registerClipsEmails(): void {
-  if (registered) return;
+  // Nitro/Vite can evaluate the same server module through two module
+  // instances during dev reloads. Keep the catalog registration process-wide
+  // so those instances cannot submit the same id twice.
+  if (registered || globalRegistrationState[GLOBAL_REGISTRATION_KEY]) return;
   registered = true;
+  globalRegistrationState[GLOBAL_REGISTRATION_KEY] = true;
 
-  defineTransactionalEmail({
+  defineClipsTransactionalEmail({
+    id: CLIPS_ACCESS_REQUEST_EMAIL_ID,
+    name: "Clip access request",
+    trigger:
+      "A signed-in viewer requests access to a private Clip from its public share page. One request is recorded per viewer and Clip.",
+    recipientLabel: "Clip owner",
+    recipient:
+      "The owner of the private Clip. The in-app notification is stored even when email delivery is unavailable.",
+    senderLabel: "Agent-Native Clips",
+    sender: CLIPS_SENDER,
+    preview: () =>
+      renderRecordingAccessRequestEmail({
+        requesterName: "Sam Rivera",
+        requesterEmail: "sam.rivera@example.com",
+        recordingTitle: SAMPLE_TITLE,
+        url: "https://example.com/share/rec_sample",
+        allowAccessUrl:
+          "https://example.com/access-request/approve?recordingId=rec_sample&token=preview-token",
+      }),
+  });
+
+  defineClipsTransactionalEmail({
     id: CLIPS_FIRST_VIEW_EMAIL_ID,
     name: "First view on a Clip",
     trigger:
@@ -73,7 +125,7 @@ export function registerClipsEmails(): void {
       }),
   });
 
-  defineTransactionalEmail({
+  defineClipsTransactionalEmail({
     id: CLIPS_UNVIEWED_REMINDER_EMAIL_ID,
     name: "Unviewed Clip reminder",
     trigger:
@@ -95,7 +147,7 @@ export function registerClipsEmails(): void {
       }),
   });
 
-  defineTransactionalEmail({
+  defineClipsTransactionalEmail({
     id: CLIPS_FIRST_AGENT_VIEW_EMAIL_ID,
     name: "First agent read of a Clip",
     trigger:
@@ -115,7 +167,7 @@ export function registerClipsEmails(): void {
       }),
   });
 
-  defineTransactionalEmail({
+  defineClipsTransactionalEmail({
     id: CLIPS_FIRST_IMPORT_EMAIL_ID,
     name: "First imported video is ready",
     trigger:
@@ -134,7 +186,7 @@ export function registerClipsEmails(): void {
       }),
   });
 
-  defineTransactionalEmail({
+  defineClipsTransactionalEmail({
     id: CLIPS_MONTHLY_RECAP_EMAIL_ID,
     name: "Monthly Clips recap",
     trigger:
@@ -168,7 +220,7 @@ export function registerClipsEmails(): void {
       }),
   });
 
-  defineTransactionalEmail({
+  defineClipsTransactionalEmail({
     id: CLIPS_TWO_CLIPS_EMAIL_ID,
     name: "Two Clips received",
     trigger:
@@ -187,7 +239,7 @@ export function registerClipsEmails(): void {
       }),
   });
 
-  defineTransactionalEmail({
+  defineClipsTransactionalEmail({
     id: CLIPS_ACTIVITY_COMMENT_EMAIL_ID,
     name: "Clip comment",
     trigger:
@@ -211,7 +263,7 @@ export function registerClipsEmails(): void {
       }),
   });
 
-  defineTransactionalEmail({
+  defineClipsTransactionalEmail({
     id: CLIPS_ACTIVITY_REACTION_EMAIL_ID,
     name: "Clip reaction",
     trigger: "A viewer reacts with an emoji on a Clip.",
@@ -233,7 +285,7 @@ export function registerClipsEmails(): void {
       }),
   });
 
-  defineTransactionalEmail({
+  defineClipsTransactionalEmail({
     id: CLIPS_ORGANIZATION_INVITE_EMAIL_ID,
     name: "Organization invitation",
     trigger:

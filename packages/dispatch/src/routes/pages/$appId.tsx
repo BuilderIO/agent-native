@@ -1,13 +1,14 @@
 import { appPath } from "@agent-native/core/client/api-path";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { withSsrHtmlContentType } from "@agent-native/core/shared";
 import { withBuilderUtmTrackingParams } from "@agent-native/core/shared/builder-link-tracking";
 import {
   IconArrowLeft,
   IconArrowUpRight,
   IconClockHour4,
 } from "@tabler/icons-react";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Link,
   Navigate,
@@ -24,6 +25,7 @@ import { Button } from "../../components/ui/button";
 import { Spinner } from "../../components/ui/spinner";
 import { resolveServerCatchAllTarget } from "../../lib/catch-all-target";
 import {
+  navigateToWorkspaceApp,
   workspaceAppHref,
   type WorkspaceAppSummary,
 } from "../../lib/workspace-apps";
@@ -77,9 +79,9 @@ export async function loader({ params }: LoaderFunctionArgs) {
   const appId = params.appId;
   if (!appId) return null;
   const selfTarget = dispatchSelfRedirect(appId);
-  if (selfTarget) throw redirect(selfTarget);
+  if (selfTarget) throw withSsrHtmlContentType(redirect(selfTarget));
   const target = await resolveServerCatchAllTarget(appId);
-  if (target) throw redirect(target);
+  if (target) throw withSsrHtmlContentType(redirect(target));
   return null;
 }
 
@@ -88,7 +90,7 @@ export async function clientLoader({
   serverLoader,
 }: ClientLoaderFunctionArgs) {
   const selfTarget = dispatchSelfRedirect(params.appId);
-  if (selfTarget) throw redirect(selfTarget);
+  if (selfTarget) throw withSsrHtmlContentType(redirect(selfTarget));
   // Defer to the server loader so the built-in template fallback runs on
   // SPA navigations too (e.g. clicking a `/<template-id>` link inside
   // dispatch). Without this the client side would only check the workspace
@@ -111,12 +113,18 @@ export default function WorkspaceAppCatchAllRoute() {
   );
   const href = app ? workspaceAppHref(app) : null;
   const isSelfReference = appId === "dispatch";
+  const hasApp = app !== null;
+  const appIsPending = app?.status === "pending";
+  const [navigationFailed, setNavigationFailed] = useState(false);
 
   useEffect(() => {
     if (isSelfReference) return;
-    if (!app || app.status === "pending" || !href) return;
-    window.location.assign(href);
-  }, [app, href, isSelfReference]);
+    if (!hasApp || appIsPending || !href) {
+      setNavigationFailed(false);
+      return;
+    }
+    setNavigationFailed(!navigateToWorkspaceApp(href));
+  }, [appIsPending, hasApp, href, isSelfReference]);
 
   if (isSelfReference) {
     return <Navigate to={appPath("/overview")} replace />;
@@ -136,7 +144,23 @@ export default function WorkspaceAppCatchAllRoute() {
     );
   }
 
-  if ((isLoading && !app) || (app && app.status !== "pending" && href)) {
+  if (navigationFailed && href) {
+    return (
+      <DispatchShell
+        title={t("dispatch.pages.dataLoadFailed")}
+        description={t("dispatch.pages.pageNotFoundDescription")}
+      >
+        <ActionQueryError
+          onRetry={() => setNavigationFailed(!navigateToWorkspaceApp(href))}
+        />
+      </DispatchShell>
+    );
+  }
+
+  if (
+    (isLoading && !app) ||
+    (app && app.status !== "pending" && href && !navigationFailed)
+  ) {
     return (
       <div className="flex h-screen w-full items-center justify-center">
         <Spinner className="size-8" />

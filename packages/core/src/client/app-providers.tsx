@@ -39,7 +39,8 @@
  *   toaster                  — custom Toaster element rendered after children.
  *                              Pass `null` to suppress the built-in Toaster when
  *                              children already include a styled one.
- *                              Defaults to `<Toaster richColors position="bottom-left" />`.
+ *                              Defaults to a rich-color bottom-left toaster raised above
+ *                              the environment badge.
  *   disableThemeTransitions  — passed to next-themes ThemeProvider
  *                              `disableTransitionOnChange`. Defaults to `true`
  *                              (suppresses CSS transitions during theme switches,
@@ -51,7 +52,7 @@
 import { Toaster } from "@agent-native/toolkit/ui/sonner";
 import { TooltipProvider } from "@radix-ui/react-tooltip";
 import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
-import { ThemeProvider, type Attribute } from "next-themes";
+import { ThemeProvider, type Attribute, useTheme } from "next-themes";
 import React, { useEffect, useRef } from "react";
 import { useInRouterContext } from "react-router";
 
@@ -61,6 +62,7 @@ import {
 } from "../shared/document-title.js";
 import { ClientOnly } from "./ClientOnly.js";
 import { DefaultSpinner } from "./DefaultSpinner.js";
+import { EnvironmentBadge } from "./EnvironmentBadge.js";
 import {
   AgentNativeI18nProvider,
   type AgentNativeI18nProviderProps,
@@ -70,6 +72,11 @@ import { RequireSession } from "./require-session.js";
 import { AgentNativeRouteWarmup } from "./route-warmup.js";
 import { RouteTransitionIndicator } from "./RouteTransitionIndicator.js";
 import { RuntimeConfigNotice } from "./RuntimeConfigNotice.js";
+import {
+  EMBEDDED_THEME_CHANGE_EVENT,
+  applyEmbeddedThemeUpdate,
+  parseEmbeddedThemeUpdate,
+} from "./theme.js";
 
 export interface AppProvidersProps {
   /** QueryClient instance — create with `createAgentNativeQueryClient()`. */
@@ -99,7 +106,7 @@ export interface AppProvidersProps {
    * Custom Toaster element rendered after children inside TooltipProvider.
    * Pass `null` to suppress the built-in Toaster when children already
    * include a styled one.
-   * Defaults to `<Toaster richColors position="bottom-left" />`.
+   * Defaults to a rich-color bottom-left toaster raised above the environment badge.
    */
   toaster?: React.ReactNode | null;
 
@@ -144,7 +151,14 @@ export interface AppProvidersProps {
   children: React.ReactNode;
 }
 
-const DEFAULT_TOASTER = <Toaster richColors position="bottom-left" />;
+const DEFAULT_TOASTER = (
+  <Toaster
+    richColors
+    position="bottom-left"
+    offset={{ bottom: 44, left: 32 }}
+    mobileOffset={{ bottom: 44, left: 16 }}
+  />
+);
 
 function RoutedAppEnhancements() {
   const isInRouter = useInRouterContext();
@@ -171,6 +185,39 @@ function readDocumentTitleFallback(): string {
     )
     .find((title) => isHumanReadableDocumentTitle(title));
   return normalizeDocumentTitle(metadataTitle, "Agent Native");
+}
+
+function EmbeddedThemeSync() {
+  const { setTheme } = useTheme();
+
+  useEffect(() => {
+    const applyUpdate = (
+      update: ReturnType<typeof parseEmbeddedThemeUpdate>,
+    ) => {
+      if (!update) return;
+      applyEmbeddedThemeUpdate(document.documentElement, update);
+      setTheme(update.theme);
+    };
+
+    const onMessage = (event: MessageEvent) => {
+      if (window.parent === window || event.source !== window.parent) return;
+      applyUpdate(parseEmbeddedThemeUpdate(event.data));
+    };
+
+    const onThemeChange = (event: Event) => {
+      if (!(event instanceof CustomEvent)) return;
+      applyUpdate(parseEmbeddedThemeUpdate(event.detail));
+    };
+
+    window.addEventListener("message", onMessage);
+    window.addEventListener(EMBEDDED_THEME_CHANGE_EVENT, onThemeChange);
+    return () => {
+      window.removeEventListener("message", onMessage);
+      window.removeEventListener(EMBEDDED_THEME_CHANGE_EVENT, onThemeChange);
+    };
+  }, [setTheme]);
+
+  return null;
 }
 
 /** Repairs route metadata that would otherwise expose a structured payload in the tab. */
@@ -221,6 +268,7 @@ function ProvidersInner({
   disableThemeTransitions = true,
   i18n,
   documentTitleFallback,
+  showProductionEnvironmentBadge,
   children,
 }: {
   queryClient: QueryClient;
@@ -231,6 +279,7 @@ function ProvidersInner({
   disableThemeTransitions?: boolean;
   i18n?: Omit<AgentNativeI18nProviderProps, "children"> | false;
   documentTitleFallback?: string;
+  showProductionEnvironmentBadge: boolean;
   children: React.ReactNode;
 }) {
   const localizedChildren =
@@ -250,11 +299,13 @@ function ProvidersInner({
         enableSystem
         disableTransitionOnChange={disableThemeTransitions}
       >
+        <EmbeddedThemeSync />
         <TooltipProvider delayDuration={tooltipDelayDuration}>
           {localizedChildren}
           <DocumentTitleGuard fallbackTitle={documentTitleFallback} />
           <RuntimeConfigNotice />
           <RoutedAppEnhancements />
+          <EnvironmentBadge showProduction={showProductionEnvironmentBadge} />
           {toaster}
         </TooltipProvider>
       </ThemeProvider>
@@ -289,6 +340,7 @@ export function AppProviders({
         disableThemeTransitions={disableThemeTransitions}
         i18n={i18n}
         documentTitleFallback={documentTitleFallback}
+        showProductionEnvironmentBadge={false}
       >
         {children}
       </ProvidersInner>
@@ -306,6 +358,7 @@ export function AppProviders({
         disableThemeTransitions={disableThemeTransitions}
         i18n={i18n}
         documentTitleFallback={documentTitleFallback}
+        showProductionEnvironmentBadge={!sessionBypass}
       >
         <RequireSession bypass={sessionBypass} fallback={fallback}>
           {sessionBypass ? (

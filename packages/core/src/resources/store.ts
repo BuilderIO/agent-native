@@ -836,7 +836,7 @@ function scheduleExpiredAgentScratchCleanup(client: DbExec): void {
     });
 }
 
-async function ensureTable(): Promise<void> {
+export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = _doEnsureTable().catch((err) => {
       // Don't cache the rejection — let the next caller retry a fresh init.

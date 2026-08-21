@@ -116,6 +116,12 @@ export function McpAppRenderer({ app, className }: McpAppRendererProps) {
     setError(null);
   }, []);
 
+  const handleIframeError = useCallback(() => {
+    readyRef.current = false;
+    setReady(false);
+    setError("MCP App iframe failed to load.");
+  }, []);
+
   const applyHeight = useCallback((desiredHeight?: number) => {
     if (
       typeof desiredHeight === "number" &&
@@ -318,6 +324,17 @@ export function McpAppRenderer({ app, className }: McpAppRendererProps) {
       <div className={cn("agent-mcp-app agent-mcp-app--error", className)}>
         <IconAlertTriangle size={15} />
         <span>MCP App resource was not available.</span>
+        {externalOpenUrl && (
+          <button
+            type="button"
+            className="agent-mcp-app__open"
+            onClick={() =>
+              window.open(externalOpenUrl, "_blank", "noopener,noreferrer")
+            }
+          >
+            Open in new tab
+          </button>
+        )}
       </div>
     );
   }
@@ -337,20 +354,22 @@ export function McpAppRenderer({ app, className }: McpAppRendererProps) {
         </div>
       )}
       {error && (
-        <div className="agent-mcp-app__error">
-          <IconAlertTriangle size={15} />
-          <span>{error}</span>
-          {externalOpenUrl && (
-            <button
-              type="button"
-              className="agent-mcp-app__open"
-              onClick={() =>
-                window.open(externalOpenUrl, "_blank", "noopener,noreferrer")
-              }
-            >
-              Open in new tab
-            </button>
-          )}
+        <div className="agent-mcp-app__error" role="alert">
+          <div className="agent-mcp-app__error-box">
+            <IconAlertTriangle size={15} />
+            <span>{error}</span>
+            {externalOpenUrl && (
+              <button
+                type="button"
+                className="agent-mcp-app__open"
+                onClick={() =>
+                  window.open(externalOpenUrl, "_blank", "noopener,noreferrer")
+                }
+              >
+                Open in new tab
+              </button>
+            )}
+          </div>
         </div>
       )}
       <iframe
@@ -360,6 +379,7 @@ export function McpAppRenderer({ app, className }: McpAppRendererProps) {
         sandbox={SANDBOX_FLAGS}
         allow={buildAllowAttribute(supportedPermissions)}
         style={{ height }}
+        onError={handleIframeError}
       />
     </div>
   );

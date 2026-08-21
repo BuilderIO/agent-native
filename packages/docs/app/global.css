@@ -72,6 +72,7 @@
   --font-mono:
     "Geist Mono Variable", ui-monospace, SFMono-Regular, "SF Mono", Menlo,
     Consolas, "Liberation Mono", monospace;
+  --font-poppins: var(--font-sans);
 }
 
 :root {
@@ -79,6 +80,7 @@
   --fg-secondary: #666;
   --bg: #fff;
   --bg-secondary: #fafafa;
+  --docs-landing-max-width: 1600px;
   --docs-border: #ebebeb;
   --docs-accent: #0072f5;
   --docs-accent-light: rgba(0, 114, 245, 0.1);
@@ -100,7 +102,7 @@
 :root[data-theme="dark"] {
   --fg: #ededed;
   --fg-secondary: #a0a0a0;
-  --bg: #000;
+  --bg: #0a0a0a;
   --bg-secondary: #0a0a0a;
   --docs-border: #1f1f1f;
   --docs-accent: #52a8ff;
@@ -121,7 +123,7 @@
   :root:not([data-theme="light"]) {
     --fg: #ededed;
     --fg-secondary: #a0a0a0;
-    --bg: #000;
+    --bg: #0a0a0a;
     --bg-secondary: #0a0a0a;
     --docs-border: #1f1f1f;
     --docs-accent: #52a8ff;
@@ -157,6 +159,18 @@ body {
   overflow-x: clip;
 }
 
+.agent-sidebar-shell:has(
+  > .agent-sidebar-main-surface[data-agent-sidebar-main-state="closed"]
+) {
+  height: auto !important;
+  min-height: 100vh;
+  overflow: visible !important;
+}
+
+.agent-sidebar-main-surface[data-agent-sidebar-main-state="closed"] {
+  overflow: visible !important;
+}
+
 body {
   margin: 0;
   color: var(--fg);
@@ -170,7 +184,7 @@ body {
 
 /* Template detail pages */
 .template-detail-page {
-  max-width: min(1200px, 100%);
+  max-width: min(var(--docs-landing-max-width), 100%);
 }
 
 .template-detail-page :where(.grid) > * {
@@ -202,6 +216,30 @@ body {
   min-width: 0;
   justify-content: center;
   text-align: center;
+}
+
+.template-detail-cta-actions > .secondary-button {
+  min-height: 40px;
+  background-color: var(--bg);
+  padding: 0 20px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.template-detail-cta-actions {
+  background-color: var(--bg);
+  background-image:
+    linear-gradient(
+      to right,
+      color-mix(in srgb, var(--docs-border) 70%, transparent) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      to bottom,
+      color-mix(in srgb, var(--docs-border) 70%, transparent) 1px,
+      transparent 1px
+    );
+  background-size: 48px 48px;
 }
 
 [data-template-cli-copy] {
@@ -351,6 +389,21 @@ h4 {
   line-height: 1.7;
   color: var(--fg);
   margin: 8px 0;
+}
+
+.docs-content blockquote {
+  margin: 12px 0;
+  padding: 10px 14px;
+  border-inline-start: 3px solid var(--docs-accent);
+  border-start-start-radius: 0;
+  border-end-start-radius: 0;
+  border-start-end-radius: 8px;
+  border-end-end-radius: 8px;
+  background: var(--bg-secondary);
+}
+
+.docs-content blockquote p {
+  margin: 0;
 }
 
 .docs-content p:has(> .docs-image-frame:only-child) {
@@ -543,17 +596,20 @@ h4 {
    Usage in MDX: <Cards> ### [Title](/link)\n\nDescription </Cards> */
 .docs-cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  grid-template-columns: repeat(var(--cards-cols, 3), 1fr);
   gap: 12px;
   list-style: none;
   margin: 24px 0;
   padding: 0;
 }
 
+@media (max-width: 640px) {
+  .docs-cards {
+    grid-template-columns: 1fr;
+  }
+}
+
 .docs-card {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
   padding: 16px;
   border: 1px solid var(--docs-border);
   border-radius: 8px;
@@ -569,6 +625,43 @@ h4 {
   border-color: var(--docs-accent);
 }
 
+/* Two-row grid so an icon centers on the title row specifically, not on the
+   title+body block as a whole — a flex row with align-items:center would
+   instead center the icon against the full (often multi-line) body height. */
+.docs-card-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  row-gap: 6px;
+}
+
+.docs-card-grid--icon {
+  grid-template-columns: auto 1fr;
+  column-gap: 12px;
+}
+
+.docs-card-grid--icon .docs-card-icon {
+  grid-column: 1;
+  grid-row: 1;
+  align-self: center;
+}
+
+.docs-card-grid--icon .docs-card-title {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.docs-card-grid--icon .docs-card-body {
+  grid-column: 2;
+  grid-row: 2;
+}
+
+.docs-card-icon {
+  width: 22px;
+  height: 22px;
+  color: var(--docs-accent);
+  flex-shrink: 0;
+}
+
 .docs-card-title {
   font-size: 14px;
   font-weight: 600;
@@ -578,11 +671,6 @@ h4 {
 }
 
 .docs-card-link {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 6px;
   padding: 16px;
   color: var(--fg);
   text-decoration: none;
@@ -1502,7 +1590,8 @@ h4 {
 
 /* Header nav */
 .header-link {
-  font-size: 14px;
+  font-size: 15px;
+  font-weight: 500;
   color: var(--fg-secondary);
   text-decoration: none;
   transition: color 120ms;
@@ -1515,7 +1604,6 @@ h4 {
 
 .header-link.is-active {
   color: var(--fg);
-  font-weight: 500;
 }
 
 /* Mobile menu Cloud link */
@@ -1728,7 +1816,7 @@ html.dark .shiki span {
 
 .feature-card {
   border: 1px solid var(--docs-border);
-  border-radius: 12px;
+  border-radius: 6px;
   padding: 24px;
   transition:
     border-color 200ms ease,
@@ -2063,22 +2151,69 @@ html.dark .shiki span {
   }
 }
 
-/* Primary button — high contrast, flips with theme */
-.primary-button {
+.primary-button,
+.secondary-button {
   display: inline-flex;
+  min-height: 40px;
   align-items: center;
-  gap: 8px;
-  border-radius: 12px;
-  padding: 12px 24px;
-  font-size: 14px;
-  font-weight: 500;
+  justify-content: center;
+  border-radius: 6px;
+  padding: 0 20px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0.28px;
   text-decoration: none;
+  text-transform: none;
+  transition:
+    background-color 150ms,
+    border-color 150ms,
+    color 150ms;
+}
+
+.primary-button {
+  flex-shrink: 0;
+  gap: 8px;
+  border: 1px solid var(--fg);
   background-color: var(--fg);
   color: var(--bg);
 }
 
 .primary-button:hover {
-  opacity: 0.85;
+  background-color: var(--fg-secondary);
+  text-decoration: none;
+}
+
+.secondary-button {
+  min-height: 32px;
+  border: 1px solid var(--docs-border);
+  background-color: transparent;
+  padding: 0 12px;
+  color: var(--fg-secondary);
+  font-weight: 500;
+}
+
+.secondary-button:hover {
+  border-color: var(--fg-secondary);
+  color: var(--fg);
+  text-decoration: none;
+}
+
+.template-detail-page button,
+.template-detail-page .primary-button,
+.template-detail-page .secondary-button,
+.template-detail-page .template-detail-cta-actions a {
+  text-transform: uppercase;
+}
+
+.template-card-primary-button {
+  min-height: 32px;
+  padding: 0 12px;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 400;
+  letter-spacing: normal;
 }
 
 /* Mobile docs nav dropdown */

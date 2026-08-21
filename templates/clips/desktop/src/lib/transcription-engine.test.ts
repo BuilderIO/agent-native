@@ -288,6 +288,101 @@ describe("transcript echo suppression", () => {
   });
 });
 
+describe("transcriptSegments", () => {
+  // The macos-native fallback engine reports no word-level timestamps, so
+  // its lines carry `segments: []`. Flattening those away entirely (instead
+  // of falling back to a single segment) would drop `source` from the
+  // persisted array — which the transcript UI then defaults to "system",
+  // rendering the user's own mic speech as "Them".
+  it("keeps a source-tagged fallback segment for a line with no verbatim timings", () => {
+    const lines: TranscriptLine[] = [
+      { source: "mic", startMs: 1_000, text: "Hello there", segments: [] },
+    ];
+
+    const segments = transcriptSegments(lines);
+    expect(segments).toHaveLength(1);
+    expect(segments[0].source).toBe("mic");
+    expect(segments[0].text).toBe("Hello there");
+  });
+
+  // The mic-only engines report startMs: null on *every* line, so a
+  // synthesized segment must continue from the previous line's end. Anchoring
+  // each at its own null-coalesced 0 stacks the whole transcript on one
+  // instant, which silently breaks ordering and timestamp seeking.
+  it("gives untimed lines monotonic, non-overlapping timings", () => {
+    const lines: TranscriptLine[] = [
+      {
+        source: "mic",
+        startMs: null,
+        text: "Hello there friend",
+        segments: [],
+      },
+      { source: "mic", startMs: null, text: "How are you doing", segments: [] },
+      { source: "mic", startMs: null, text: "Good to hear it", segments: [] },
+    ];
+
+    const segments = transcriptSegments(lines);
+    expect(segments).toHaveLength(3);
+    segments.forEach((segment, index) => {
+      expect(segment.endMs).toBeGreaterThan(segment.startMs);
+      if (index > 0) {
+        expect(segment.startMs).toBeGreaterThanOrEqual(
+          segments[index - 1].endMs,
+        );
+      }
+    });
+  });
+
+  // A line carrying a stale stamp that precedes the running cursor must not
+  // reorder the transcript behind the segment already emitted before it.
+  it("does not let a stale line timestamp move a segment backwards", () => {
+    const lines: TranscriptLine[] = [
+      {
+        source: "system",
+        startMs: 5_000,
+        text: "First",
+        segments: [
+          { startMs: 5_000, endMs: 8_000, text: "First", source: "system" },
+        ],
+      },
+      {
+        source: "mic",
+        startMs: 1_000,
+        text: "Stale earlier stamp",
+        segments: [],
+      },
+    ];
+
+    const segments = transcriptSegments(lines);
+    expect(segments[1].startMs).toBeGreaterThanOrEqual(segments[0].endMs);
+  });
+
+  it("preserves per-line source across a mix of timed and untimed lines", () => {
+    const lines: TranscriptLine[] = [
+      {
+        source: "system",
+        startMs: 0,
+        text: "Let's get started",
+        segments: [
+          {
+            startMs: 0,
+            endMs: 2_000,
+            text: "Let's get started",
+            source: "system",
+          },
+        ],
+      },
+      { source: "mic", startMs: 2_000, text: "Sounds good", segments: [] },
+    ];
+
+    const segments = transcriptSegments(lines);
+    expect(segments.map((segment) => segment.source)).toEqual([
+      "system",
+      "mic",
+    ]);
+  });
+});
+
 describe("in-flight partials", () => {
   it("suppresses a mic partial that mirrors the system partial", () => {
     const inFlight: TranscriptLine[] = [

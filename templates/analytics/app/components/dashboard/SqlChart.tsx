@@ -231,6 +231,9 @@ export function formatSqlChartError(error: unknown): string {
   if (/inactivity timeout|too much time has passed/i.test(readableMessage)) {
     return "This chart took too long to load. Try again.";
   }
+  if (/abort(?:ed|ing)?|signal is aborted/i.test(readableMessage)) {
+    return "This chart load was interrupted. Try again.";
+  }
   if (/internal server error/i.test(readableMessage)) {
     return "This chart could not be loaded. Try again.";
   }
@@ -1381,7 +1384,7 @@ export function SqlChart({
         className={`flex flex-1 flex-col items-center justify-center gap-3 px-4 ${placeholderPadY} ${placeholderMinH}`}
         role="alert"
       >
-        <p className="text-center text-sm text-red-400 break-all">
+        <p className="text-center text-sm text-destructive break-words">
           {formatSqlChartError(error)}
         </p>
         <Button
@@ -1620,8 +1623,15 @@ function MetricRenderer({
 
 function numericTableValue(value: unknown): number | null {
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
-  if (typeof value !== "string" || value.trim() === "") return null;
-  const numeric = Number(value);
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (trimmed === "") return null;
+  // Strip display formatting (currency symbols, thousands separators,
+  // percent signs, whitespace) so a formatted numeric column ("$1,234",
+  // "12.5%") still parses as a number instead of falling back to text.
+  const cleaned = trimmed.replace(/[$€£¥%,\s]/g, "");
+  if (cleaned === "" || cleaned === "-" || cleaned === "+") return null;
+  const numeric = Number(cleaned);
   return Number.isFinite(numeric) ? numeric : null;
 }
 
@@ -1648,6 +1658,15 @@ export function sortTableRows(
 
         const an = numericTableValue(av);
         const bn = numericTableValue(bv);
+
+        // A value that fails to parse as a number sorts after one that
+        // does, regardless of column direction — same rule as null above.
+        // Keeps a mostly-numeric column ("10", "9", "N/A") grouped by
+        // magnitude instead of interleaving text lexically with numbers,
+        // and never coerces the unparseable value to 0.
+        if (an !== null && bn === null) return -1;
+        if (an === null && bn !== null) return 1;
+
         const comparison =
           an !== null && bn !== null
             ? an - bn

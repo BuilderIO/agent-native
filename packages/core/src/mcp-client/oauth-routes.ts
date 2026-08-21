@@ -18,7 +18,11 @@ import { decryptSecretValue, encryptSecretValue } from "../secrets/crypto.js";
 import { getSession, safeReturnPath } from "../server/auth.js";
 import { resolveSecret } from "../server/credential-provider.js";
 import { getH3App } from "../server/framework-request-handler.js";
-import { getAppUrl, resolveOAuthRedirectUri } from "../server/google-oauth.js";
+import {
+  getAppBasePath,
+  getAppUrl,
+  resolveOAuthRedirectUri,
+} from "../server/google-oauth.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import {
   finishMcpOAuthAuthorization,
@@ -28,7 +32,9 @@ import {
 } from "./oauth-client.js";
 import {
   addOAuthRemoteServer,
+  listRemoteServers,
   normalizeServerName,
+  replaceOAuthRemoteServer,
   validateRemoteUrl,
   type RemoteMcpScope,
 } from "./remote-store.js";
@@ -69,6 +75,7 @@ export interface McpOAuthFlow {
   clientInformation: StoredOAuthClientInformation;
   discoveryState?: McpOAuthDiscoveryState;
   returnUrl?: string;
+  replaceServerId?: string;
   expiresAt: number;
 }
 
@@ -131,8 +138,42 @@ async function handleMcpOAuthStart(
   if (!session?.email) return unauthorized(event);
 
   const query = getQuery(event);
-  const rawUrl = text(query.url);
-  const rawName = text(query.name);
+  const reconnectServerId = text(query.serverId);
+  const reconnectScope: RemoteMcpScope = query.scope === "org" ? "org" : "user";
+  const reconnectOrg =
+    reconnectScope === "org" ? await getOrgContext(event) : null;
+  const reconnectScopeId =
+    reconnectScope === "user" ? session.email : (reconnectOrg?.orgId ?? "");
+  let reconnectServer:
+    | Awaited<ReturnType<typeof listRemoteServers>>[number]
+    | undefined;
+  if (reconnectServerId) {
+    if (
+      reconnectScope === "org" &&
+      (!reconnectScopeId || !isOrgAdmin(reconnectOrg?.role))
+    ) {
+      setResponseStatus(event, reconnectScopeId ? 403 : 400);
+      return {
+        error: reconnectScopeId
+          ? "Only organization owners and admins can reconnect an org MCP server."
+          : "Join an organization before reconnecting an org MCP server.",
+      };
+    }
+    reconnectServer = (
+      await listRemoteServers(reconnectScope, reconnectScopeId)
+    ).find((server) => server.id === reconnectServerId);
+    if (!reconnectServer) {
+      setResponseStatus(event, 404);
+      return { error: "MCP server was not found." };
+    }
+    if (!reconnectServer.oauthSecretKey) {
+      setResponseStatus(event, 400);
+      return { error: "This MCP server does not use OAuth credentials." };
+    }
+  }
+
+  const rawUrl = reconnectServer?.url ?? text(query.url);
+  const rawName = reconnectServer?.name ?? text(query.name);
   const returnUrl = text(query.return);
   if (!rawUrl || !rawName) {
     setResponseStatus(event, 400);
@@ -231,6 +272,7 @@ async function handleMcpOAuthStart(
         ? { discoveryState: started.discoveryState }
         : {}),
       ...(safeReturnUrl ? { returnUrl: safeReturnUrl } : {}),
+      ...(reconnectServerId ? { replaceServerId: reconnectServerId } : {}),
       expiresAt: Date.now() + FLOW_TTL_SECONDS * 1_000,
     };
     setMcpOAuthFlowCookie(event, flow, redirectUri.startsWith("https://"));
@@ -258,6 +300,21 @@ export function resolveMcpOAuthScope(
     return null;
   }
   return requestedScope === "org" ? "org" : "user";
+}
+
+export function stripMcpOAuthAppBasePath(
+  path: string,
+  basePath: string,
+): string {
+  const normalizedBase = `/${basePath.replace(/^\/+|\/+$/g, "")}`;
+  if (normalizedBase === "/") return path;
+  const suffixStart = path.search(/[?#]/);
+  const pathname = suffixStart === -1 ? path : path.slice(0, suffixStart);
+  const suffix = suffixStart === -1 ? "" : path.slice(suffixStart);
+  if (pathname === normalizedBase) return `/${suffix}`;
+  return pathname.startsWith(`${normalizedBase}/`)
+    ? `${pathname.slice(normalizedBase.length)}${suffix}`
+    : path;
 }
 
 export async function resolveManagedMcpOAuthClient(
@@ -341,12 +398,19 @@ async function handleMcpOAuthCallback(
           iss,
         }),
     );
-    const result = await addOAuthRemoteServer(flow.scope, flow.scopeId, {
-      name: flow.name,
-      url: flow.url,
-      description: flow.description,
-      credentials: finished.credentials,
-    });
+    const result = flow.replaceServerId
+      ? await replaceOAuthRemoteServer(
+          flow.scope,
+          flow.scopeId,
+          flow.replaceServerId,
+          finished.credentials,
+        )
+      : await addOAuthRemoteServer(flow.scope, flow.scopeId, {
+          name: flow.name,
+          url: flow.url,
+          description: flow.description,
+          credentials: finished.credentials,
+        });
     if (!result.ok) {
       setResponseStatus(event, 400);
       return { error: result.error };
@@ -355,7 +419,10 @@ async function handleMcpOAuthCallback(
     const returnPath =
       flow.returnUrl ??
       `/settings/integrations?connected=mcp-${encodeURIComponent(flow.name)}`;
-    return redirectWithStagedCookies(event, getAppUrl(event, returnPath));
+    return redirectWithStagedCookies(
+      event,
+      getAppUrl(event, stripMcpOAuthAppBasePath(returnPath, getAppBasePath())),
+    );
   } catch {
     setResponseStatus(event, 400);
     return { error: "MCP OAuth authorization could not be completed." };

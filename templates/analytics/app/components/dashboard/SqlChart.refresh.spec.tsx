@@ -47,7 +47,7 @@ vi.mock("@agent-native/core/client/extensions", () => ({
   ExtensionSlot: () => null,
 }));
 
-import { SqlChart } from "./SqlChart";
+import { formatSqlChartError, SqlChart } from "./SqlChart";
 
 describe("SqlChart refresh feedback", () => {
   let container: HTMLDivElement;
@@ -216,5 +216,32 @@ describe("SqlChart refresh feedback", () => {
       retryButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     expect(mocks.query.refetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("hides abort implementation details and keeps error text word-wrapped", async () => {
+    expect(
+      formatSqlChartError(new Error("signal is aborted without reason")),
+    ).toBe("This chart load was interrupted. Try again.");
+
+    const panel = {
+      id: "signups",
+      title: "Signups",
+      sql: "SELECT 42 AS value",
+      source: "first-party" as const,
+      chartType: "metric" as const,
+      width: 1,
+    };
+    mocks.query.data = { rows: [] };
+    mocks.query.error = new Error(
+      "A provider returned a very long error message that should wrap at word boundaries instead of breaking every word",
+    );
+
+    await act(async () => {
+      root.render(<SqlChart panel={panel} />);
+    });
+
+    const message = container.querySelector('[role="alert"] p');
+    expect(message?.className).toContain("break-words");
+    expect(message?.className).not.toContain("break-all");
   });
 });

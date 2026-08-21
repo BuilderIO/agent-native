@@ -3,13 +3,29 @@
 ## Direction
 
 Mobile uses the same chat-first information architecture in a native form:
-Chat stays the home surface, a compact vertical rail exposes the five default
-apps first with a quiet Show more affordance for the rest, and history/settings
-remain native sheets.
+Chat is the initial landing surface and leftmost bottom-tab destination, with
+Cloud as the default target for workspace-wide conversations. Computer is an
+optional target for a paired laptop, while the connection flow stays inside
+Chat. Four device-local workspace app slots follow Chat with monochrome icons
+and labels, and More holds the rest of the registry and Settings.
+Mobile keeps Chat native while workspace apps remain secure WebView routes.
+
+The product mode is operate: frequent, focused actions on a phone. The visual
+world is ink-and-graphite utility - quiet dark surfaces, crisp white type,
+semantic app accents, compact controls, and generous space around the next
+action. Avoid dense setup dashboards, explanatory hero copy, desktop sidebars,
+and status-chip-heavy empty states.
 
 ## Layout contract
 
-- The preference is device-local and opt-in.
+- Bottom navigation is Chat + up to four app slots + More. The app slots are
+  chosen in Settings and default to Mail, Calendar, Content, and Analytics.
+- Chat target, mode, and model choices use compact text-first iOS-style
+  popovers above the composer.
+- Chat history is a left-side drawer with a solid backdrop, right border, and
+  shadow.
+- More is the overflow destination for all enabled apps and the settings
+  surface that manages the bottom-tab selection.
 - App rows route through the existing Expo app registry and secure WebView
   routes; they never accept arbitrary URLs.
 - The desktop/Dispatch split pane becomes a native navigation push on mobile.
@@ -17,9 +33,9 @@ remain native sheets.
 
 ## Deliberate platform boundary
 
-Mobile is a rail-and-navigation variant, not the desktop/web workbench in a
-smaller viewport. This pass intentionally keeps app launches full-screen and
-does not advertise contextual chrome-less panes, browser tabs, terminal, files,
-or diff surfaces on native mobile. Dispatch and Electron own those side-pane
-surfaces; mobile can add native equivalents later without pretending that a
-desktop iframe is a good phone UX.
+Mobile is a tab-and-navigation variant, not the desktop/web workbench in a
+smaller viewport. App launches remain full-screen and do not advertise
+contextual chrome-less panes, browser chrome, terminal, files, or diff
+surfaces on native mobile. Dispatch and Electron own those side-pane surfaces;
+mobile can add native equivalents later without pretending that a desktop
+iframe is a good phone UX.

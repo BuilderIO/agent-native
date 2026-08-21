@@ -1,5 +1,12 @@
+import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { IconArrowRight, IconPlus, IconTrash } from "@tabler/icons-react";
+import {
+  IconAlertCircle,
+  IconArrowRight,
+  IconLoader2,
+  IconPlus,
+  IconTrash,
+} from "@tabler/icons-react";
 import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 
@@ -21,11 +28,34 @@ interface FactoryInspectorProps {
   factoryId?: string;
   dirty: boolean;
   saving: boolean;
+  saveError: string | null;
+  saveConflictNeedsResolution: boolean;
+  refreshing: boolean;
   onGraphChange: (graph: FactoryCanvasGraph) => void;
   onSave: () => void;
+  onRefresh: () => void;
+  onDiscardLocalChanges: () => void;
   onAddNode: () => void;
   onDeleteNode: (nodeId: string) => void;
   onConnect: (sourceId: string, targetId: string) => void;
+}
+
+interface WorkspaceAgentOption {
+  id: string;
+  name: string;
+}
+
+interface WorkspaceAppOption {
+  id: string;
+  name: string;
+  description?: string;
+  status?: "ready" | "pending";
+}
+
+interface AgentTargetOption {
+  id: string;
+  label: string;
+  type: "agent" | "app";
 }
 
 export function FactoryInspector({
@@ -35,8 +65,13 @@ export function FactoryInspector({
   factoryId,
   dirty,
   saving,
+  saveError,
+  saveConflictNeedsResolution,
+  refreshing,
   onGraphChange,
   onSave,
+  onRefresh,
+  onDiscardLocalChanges,
   onAddNode,
   onDeleteNode,
   onConnect,
@@ -44,6 +79,28 @@ export function FactoryInspector({
   const t = useT();
   const [searchParams] = useSearchParams();
   const [connectTarget, setConnectTarget] = useState("");
+  const agentsQuery = useActionQuery<WorkspaceAgentOption[]>(
+    "list-workspace-resources",
+    { kind: "agent" },
+  );
+  const appsQuery = useActionQuery<WorkspaceAppOption[]>(
+    "list-workspace-apps",
+    { includeAgentCards: false },
+  );
+  const agentTargets: AgentTargetOption[] = [
+    ...(agentsQuery.data ?? []).map((agent) => ({
+      id: agent.id,
+      label: agent.name,
+      type: "agent" as const,
+    })),
+    ...(appsQuery.data ?? [])
+      .filter((app) => app.id !== "dispatch" && app.status !== "pending")
+      .map((app) => ({
+        id: app.id,
+        label: app.name,
+        type: "app" as const,
+      })),
+  ];
   const outgoingTargets = graph.nodes.filter(
     (node) => node.id !== selectedNode?.id,
   );
@@ -81,6 +138,44 @@ export function FactoryInspector({
       edges: graph.edges.map((edge) =>
         edge.id === selectedEdge.id ? { ...edge, ...patch } : edge,
       ),
+    });
+  }
+
+  function selectedTargetValue() {
+    if (!selectedNode?.agentTargetType || !selectedNode.agentTargetId) {
+      return selectedNode?.agent ? "custom" : "";
+    }
+    return `${selectedNode.agentTargetType}:${selectedNode.agentTargetId}`;
+  }
+
+  function updateAgentTarget(value: string) {
+    if (!selectedNode) return;
+    if (value === "") {
+      updateNode({
+        agent: undefined,
+        agentTargetType: undefined,
+        agentTargetId: undefined,
+      });
+      return;
+    }
+    if (value === "custom") {
+      updateNode({
+        agentTargetType: undefined,
+        agentTargetId: undefined,
+      });
+      return;
+    }
+    const [type, ...idParts] = value.split(":");
+    const id = idParts.join(":");
+    if ((type !== "agent" && type !== "app") || !id) return;
+    const target = agentTargets.find(
+      (option) => option.type === type && option.id === id,
+    );
+    if (!target) return;
+    updateNode({
+      agent: target.label,
+      agentTargetType: target.type,
+      agentTargetId: target.id,
     });
   }
 
@@ -141,15 +236,59 @@ export function FactoryInspector({
               </select>
             </div>
             <div className="grid gap-1.5">
-              <Label htmlFor="factory-node-agent">
+              <Label htmlFor="factory-node-agent-target">
                 {t("factoryInspector.agentOwner")}
               </Label>
-              <Input
-                id="factory-node-agent"
-                value={selectedNode.agent ?? ""}
-                onChange={(event) => updateNode({ agent: event.target.value })}
-                placeholder={t("factoryInspector.optional")}
-              />
+              <select
+                id="factory-node-agent-target"
+                value={selectedTargetValue()}
+                onChange={(event) => updateAgentTarget(event.target.value)}
+                className="h-9 rounded-md border bg-card px-3 text-sm"
+              >
+                <option value="">{t("factoryInspector.noTarget")}</option>
+                <option value="custom">
+                  {selectedNode.agent &&
+                  !selectedNode.agentTargetType &&
+                  !selectedNode.agentTargetId
+                    ? `${t("factoryInspector.customTarget")}: ${selectedNode.agent}`
+                    : t("factoryInspector.customTarget")}
+                </option>
+                {agentTargets.some((target) => target.type === "agent") ? (
+                  <optgroup label={t("factoryInspector.reusableAgents")}>
+                    {agentTargets
+                      .filter((target) => target.type === "agent")
+                      .map((target) => (
+                        <option
+                          key={`${target.type}:${target.id}`}
+                          value={`${target.type}:${target.id}`}
+                        >
+                          {target.label}
+                        </option>
+                      ))}
+                  </optgroup>
+                ) : null}
+                {agentTargets.some((target) => target.type === "app") ? (
+                  <optgroup label={t("factoryInspector.agenticApps")}>
+                    {agentTargets
+                      .filter((target) => target.type === "app")
+                      .map((target) => (
+                        <option
+                          key={`${target.type}:${target.id}`}
+                          value={`${target.type}:${target.id}`}
+                        >
+                          {target.label}
+                        </option>
+                      ))}
+                  </optgroup>
+                ) : null}
+              </select>
+              <p className="text-xs text-muted-foreground">
+                {selectedNode.agentTargetType === "app"
+                  ? t("factoryInspector.appTargetHint")
+                  : selectedNode.agentTargetType === "agent"
+                    ? t("factoryInspector.agentTargetHint")
+                    : t("factoryInspector.customTargetHint")}
+              </p>
             </div>
             <div className="rounded-lg bg-muted/25 p-3 shadow-sm">
               <p className="text-xs font-medium">
@@ -260,12 +399,56 @@ export function FactoryInspector({
         </section>
       </div>
 
+      {saveError ? (
+        <div
+          className="flex items-start gap-2 border-t border-border/60 bg-destructive/5 p-4 text-sm text-destructive"
+          role="alert"
+        >
+          <IconAlertCircle className="mt-0.5 size-4 shrink-0" />
+          <div className="min-w-0 flex-1 space-y-2">
+            <p>{saveError}</p>
+            {saveConflictNeedsResolution ? (
+              <p className="text-xs leading-5 text-destructive/80">
+                {t("factoryInspector.saveConflictHint")}
+              </p>
+            ) : null}
+            <div className="flex flex-wrap gap-2">
+              {!saveConflictNeedsResolution ? (
+                <Button
+                  type="button"
+                  variant="link"
+                  size="sm"
+                  className="h-auto p-0 text-destructive"
+                  disabled={refreshing}
+                  onClick={onRefresh}
+                >
+                  {refreshing ? (
+                    <IconLoader2 className="size-3.5 animate-spin" />
+                  ) : null}
+                  {t("triage.refresh")}
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  variant="link"
+                  size="sm"
+                  className="h-auto p-0 text-destructive"
+                  onClick={onDiscardLocalChanges}
+                >
+                  {t("factoryInspector.discardLocalChanges")}
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {(dirty || saving) && (
         <div className="bg-muted/15 p-4">
           <Button
             type="button"
             className="w-full"
-            disabled={saving}
+            disabled={saving || refreshing}
             onClick={onSave}
           >
             {saving

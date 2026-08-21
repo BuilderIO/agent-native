@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { InlineMarkdown } from "@agent-native/core/client/markdown";
 import {
   IconX,
   IconCheck,
@@ -99,9 +100,10 @@ function CommentItem({
             )}
           </div>
         </div>
-        <p className="text-[12px] text-foreground/90 mt-0.5 break-words leading-relaxed">
-          {comment.content}
-        </p>
+        <InlineMarkdown
+          content={comment.content}
+          className="mt-0.5 text-[12px] text-foreground/90 leading-relaxed"
+        />
       </div>
     </div>
   );
@@ -374,9 +376,10 @@ function ThreadCard({
               )}
             </div>
           </div>
-          <p className="text-[12px] text-foreground/90 mt-0.5 break-words leading-relaxed">
-            {rootComment.content}
-          </p>
+          <InlineMarkdown
+            content={rootComment.content}
+            className="mt-0.5 text-[12px] text-foreground/90 leading-relaxed"
+          />
         </div>
       </div>
 

@@ -7,6 +7,7 @@ const mockPdfGetImage = vi.hoisted(() => vi.fn());
 const mockPdfLoad = vi.hoisted(() => vi.fn());
 const mockParsePdfFidelity = vi.hoisted(() => vi.fn());
 const mockUploadPptxSlideImages = vi.hoisted(() => vi.fn());
+const mockParsePptx = vi.hoisted(() => vi.fn());
 const mockConvertToSlideHtml = vi.hoisted(() => vi.fn());
 const mockConvertSectionsToSlides = vi.hoisted(() => vi.fn());
 const mockUploadFile = vi.hoisted(() => vi.fn());
@@ -72,6 +73,11 @@ vi.mock("../server/handlers/import/pdf-fidelity-parser.js", () => ({
 vi.mock("../server/handlers/import/pptx-assets.js", () => ({
   uploadPptxSlideImages: (...args: unknown[]) =>
     mockUploadPptxSlideImages(...args),
+  assertPptxImagesRenderable: () => {},
+}));
+
+vi.mock("../server/handlers/import/pptx-parser.js", () => ({
+  parsePptx: (...args: unknown[]) => mockParsePptx(...args),
 }));
 
 vi.mock("../server/handlers/import/html-converter.js", () => ({
@@ -418,6 +424,53 @@ describe("import-file PDF source extraction", () => {
     expect(updatedDeck.sourceImport.fidelity).toBe("source-faithful");
   });
 
+  it("resolves a classic 4:3 PowerPoint page size to 4:3, not 1:1", async () => {
+    mockPdfText.mockResolvedValue({ pages: [{ num: 1, text: "" }] });
+    mockParsePdfFidelity.mockResolvedValue([
+      {
+        pageNumber: 1,
+        // 10in x 7.5in in EMU (914400 EMU/in) — the standard 4:3 PPTX page.
+        widthEmu: 9144000,
+        heightEmu: 6858000,
+        backgroundColor: undefined,
+        elements: [{ kind: "image" }],
+      },
+    ]);
+    const updateWhere = vi.fn().mockResolvedValue([]);
+    const db = {
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn().mockResolvedValue([
+              {
+                id: "deck-1",
+                title: "4:3 deck",
+                data: JSON.stringify({ slides: [] }),
+              },
+            ]),
+          })),
+        })),
+      })),
+      update: vi.fn(() => ({
+        set: vi.fn(() => ({ where: updateWhere })),
+      })),
+    };
+    mockGetDb.mockReturnValue(db);
+
+    const result = (await action.run({
+      filePath: "classic.pdf",
+      format: "pdf",
+      deckId: "deck-1",
+      importIntoDeck: true,
+    })) as any;
+
+    expect(result).toMatchObject({
+      imported: true,
+      slideCount: 1,
+      aspectRatio: "4:3",
+    });
+  });
+
   it("retains source provenance when appending to a nonempty deck", async () => {
     mockPdfText.mockResolvedValue({
       pages: [{ num: 1, text: "Appended source page" }],
@@ -468,6 +521,103 @@ describe("import-file PDF source extraction", () => {
       format: "pdf",
       slideCount: 1,
       slideIds: [updatedDeck.slides[1].id],
+    });
+  });
+
+  /**
+   * The deck's own theme palette/fonts are what `export-pptx` writes back
+   * into a generated PPTX's `ppt/theme/theme1.xml`. `parsePptx` returns it,
+   * but nothing used to persist it onto `decks.data`, so every imported deck
+   * exported with the stock Office palette instead of its own.
+   */
+  function pptxDeckHarness(existingSlides: unknown[], existingData = {}) {
+    mockParsePptx.mockResolvedValue({
+      title: "Themed deck",
+      slides: [
+        {
+          texts: [{ content: "Slide one" }],
+          images: [],
+          elements: [],
+          widthEmu: 12192000,
+          heightEmu: 6858000,
+        },
+      ],
+      theme: {
+        colors: ["#FFAB40"],
+        colorsByName: { accent1: "#FFAB40", accent5: "#0097A7" },
+        fonts: ["Arial"],
+      },
+    });
+    mockUploadPptxSlideImages.mockResolvedValue({
+      urls: {},
+      imageSkippedCount: 0,
+    });
+    mockConvertToSlideHtml.mockReturnValue("<div>Slide one</div>");
+    const updateWhere = vi.fn().mockResolvedValue([]);
+    const db = {
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn().mockResolvedValue([
+              {
+                id: "deck-1",
+                title: "Themed deck",
+                data: JSON.stringify({
+                  slides: existingSlides,
+                  ...existingData,
+                }),
+              },
+            ]),
+          })),
+        })),
+      })),
+      update: vi.fn(() => ({
+        set: vi.fn(() => ({ where: updateWhere })),
+      })),
+    };
+    mockGetDb.mockReturnValue(db);
+    return db;
+  }
+
+  it("persists the source deck's theme palette so exports keep it", async () => {
+    const db = pptxDeckHarness([]);
+
+    await action.run({
+      filePath: "themed.pptx",
+      format: "pptx",
+      deckId: "deck-1",
+      importIntoDeck: true,
+    });
+
+    const updateCall = db.update.mock.results[0]?.value.set.mock.calls[0][0];
+    const updatedDeck = JSON.parse(updateCall.data);
+    expect(updatedDeck.theme).toMatchObject({
+      colorsByName: { accent1: "#FFAB40", accent5: "#0097A7" },
+      fonts: ["Arial"],
+    });
+  });
+
+  it("does not restyle an existing deck's theme when appending slides onto it", async () => {
+    const db = pptxDeckHarness([{ id: "existing", content: "Existing" }], {
+      theme: {
+        colors: [],
+        colorsByName: { accent1: "#123456" },
+        fonts: ["Georgia"],
+      },
+    });
+
+    await action.run({
+      filePath: "themed.pptx",
+      format: "pptx",
+      deckId: "deck-1",
+      importIntoDeck: true,
+    });
+
+    const updateCall = db.update.mock.results[0]?.value.set.mock.calls[0][0];
+    const updatedDeck = JSON.parse(updateCall.data);
+    expect(updatedDeck.theme).toMatchObject({
+      colorsByName: { accent1: "#123456" },
+      fonts: ["Georgia"],
     });
   });
 

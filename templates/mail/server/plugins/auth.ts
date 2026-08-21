@@ -33,8 +33,6 @@ export default createAuthPlugin({
       "Multi-account Gmail in a single unified inbox",
       "Autonomous triage, archiving, and follow-ups",
     ],
-    runLocalCommand:
-      "npx @agent-native/core@latest create my-mail-app --template mail",
   },
   // Gmail Pub/Sub push notifications POST here from Google's servers — no
   // user session. The handler itself verifies the OIDC token when

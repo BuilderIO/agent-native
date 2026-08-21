@@ -22,6 +22,7 @@ const mockGetResumableSession = vi.hoisted(() => vi.fn());
 const mockDeleteResumableSession = vi.hoisted(() => vi.fn());
 const mockSetResumableSession = vi.hoisted(() => vi.fn());
 const mockRelayChunk = vi.hoisted(() => vi.fn());
+const mockAbortSession = vi.hoisted(() => vi.fn());
 const mockResolveResumableUploadProvider = vi.hoisted(() => vi.fn());
 const mockIsStreamingUploadDisabled = vi.hoisted(() => vi.fn());
 const mockAllowsSqlRecordingChunkScratch = vi.hoisted(() => vi.fn());
@@ -196,8 +197,12 @@ describe("/api/uploads/:recordingId/chunk route", () => {
     mockAllowsSqlRecordingChunkScratch.mockReturnValue(true);
     mockIsFeatureFlagEnabled.mockResolvedValue(true);
     mockResolveResumableUploadProvider.mockResolvedValue({
-      resumable: { relayChunk: mockRelayChunk },
+      resumable: {
+        relayChunk: mockRelayChunk,
+        abortSession: mockAbortSession,
+      },
     });
+    mockAbortSession.mockResolvedValue(undefined);
     mockRelayChunk.mockResolvedValue({ ok: true, status: 308 });
     mockFinalizeRun.mockResolvedValue({
       id: "rec-1",
@@ -935,6 +940,47 @@ describe("/api/uploads/:recordingId/chunk route", () => {
       },
       null,
     );
+    expect(mockFinalizeRun).not.toHaveBeenCalled();
+  });
+
+  it("aborts and surfaces a provider error on the final resumable chunk", async () => {
+    mockGetResumableSession.mockResolvedValue({
+      providerId: "s3",
+      sessionId: "sess-final",
+      meta: { objectKey: "clips/rec-1.webm" },
+      bytesUploaded: 100,
+      lastCommittedIndex: 2,
+    });
+    mockRelayChunk.mockRejectedValueOnce(
+      new Error("S3 staging object read failed (500)"),
+    );
+    setRequest({
+      query: {
+        index: "3",
+        total: "4",
+        isFinal: "1",
+        mimeType: "video/webm",
+      },
+      body: new Uint8Array([1, 2, 3]),
+    });
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+
+    try {
+      await expect(handler({} as any)).resolves.toEqual({
+        ok: false,
+        error: "Final chunk upload failed: S3 staging object read failed (500)",
+      });
+    } finally {
+      consoleError.mockRestore();
+    }
+
+    expect(mockAbortSession).toHaveBeenCalledWith({
+      sessionId: "sess-final",
+      meta: { objectKey: "clips/rec-1.webm" },
+    });
+    expect(mockDeleteResumableSession).toHaveBeenCalledWith("rec-1", null);
     expect(mockFinalizeRun).not.toHaveBeenCalled();
   });
 

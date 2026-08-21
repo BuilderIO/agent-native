@@ -593,7 +593,7 @@ export async function updateTrustedAcceptanceDirectoryScenario(
   profile: TrustedAuthorityProfile,
   lease: RuntimeLease,
   providers: RuntimeProviders,
-  now?: () => Date,
+  now: (() => Date) | undefined,
   journalStore: LeaseJournalStore,
 ): Promise<RuntimeLease> {
   const issues = validateTrustedAuthorityProfile(profile);

@@ -1,5 +1,7 @@
 import fs from "node:fs";
 
+import { shouldStopNativeHostPolling } from "./browser-control-host-policy.js";
+
 const MAX_NATIVE_MESSAGE_BYTES = 64 * 1024 * 1024;
 
 type HostConfig = { baseUrl: string; bearerToken: string };
@@ -74,7 +76,7 @@ async function poll(config: HostConfig): Promise<void> {
         if (Buffer.byteLength(text) <= MAX_NATIVE_MESSAGE_BYTES) {
           writeNativeMessage(JSON.parse(text));
         }
-      } else if (response.status === 401 || response.status === 404) {
+      } else if (shouldStopNativeHostPolling(response.status)) {
         return;
       }
       retryMs = 250;

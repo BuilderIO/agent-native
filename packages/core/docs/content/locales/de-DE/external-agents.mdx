@@ -687,7 +687,7 @@ export default defineAction({
 });
 ```
 
-`GET` + `readOnly` hält die Aktion ohne Nebenwirkungen und außerhalb des Bildschirmaktualisierungs-Änderungsereignisses. `publicAgent` ist das **explizite Opt-in** – eine öffentliche Webroute impliziert niemals eine öffentliche MCP/A2A-Exposition; siehe [Actions](/docs/actions). Design/Inhaltsaufnahme actions MUST liest den **Live**-Status (das Yjs-Gemeinschaftsdokument, nicht die veraltete DB-Snapshot-Spalte), damit der externe Agent sieht, was der Benutzer tatsächlich auf dem Bildschirm hat. `pull-document` von Content leitet alle offenen Live-Zusammenarbeitssitzungen zuerst an SQL weiter. Der `get-design-snapshot` von design gibt den Inhalt der Live-Yjs-Datei sowie die vom Benutzer aufgelösten Optimierungswerte zurück.
+`GET` + `readOnly` hält die Aktion ohne Nebenwirkungen und außerhalb des Bildschirmaktualisierungs-Änderungsereignisses. `publicAgent` ist das **explizite Opt-in** – eine öffentliche Webroute impliziert niemals eine öffentliche MCP/A2A-Exposition; siehe [Actions](/docs/actions-overview). Design/Inhaltsaufnahme actions MUST liest den **Live**-Status (das Yjs-Gemeinschaftsdokument, nicht die veraltete DB-Snapshot-Spalte), damit der externe Agent sieht, was der Benutzer tatsächlich auf dem Bildschirm hat. `pull-document` von Content leitet alle offenen Live-Zusammenarbeitssitzungen zuerst an SQL weiter. Der `get-design-snapshot` von design gibt den Inhalt der Live-Yjs-Datei sowie die vom Benutzer aufgelösten Optimierungswerte zurück.
 
 ## Erweitert: lokale Entwicklung und manuelle Einrichtung {#advanced}
 
@@ -815,5 +815,5 @@ Der als Fallback gehostete `connect`-Fluss kopiert niemals das gemeinsame Geheim
 - [MCP Protocol](/docs/mcp-protocol) – der automatisch gemountete MCP-Server und das `ask-agent`-Meta-Tool.
 - [MCP Clients](/docs/mcp-clients) – die symmetrische Richtung: Ihre App nutzt lokale/remote MCP-Server.
 - [A2A Protocol](/docs/a2a-protocol) – das `ask-agent`-Metatool und JSON-RPC-Peer-Aufrufe.
-- [Actions](/docs/actions) – Definition von actions, `publicAgent`, GET / `readOnly`.
+- [Actions](/docs/actions-overview) – Definition von actions, `publicAgent`, GET / `readOnly`.
 - [Context Awareness](/docs/context-awareness) – der `navigate` / `application_state` vertraglich die offenen Routenbrücken an.

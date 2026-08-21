@@ -61,7 +61,11 @@ describe("EditorSidebar thumbnail scroll cue", () => {
         slides={[slide]}
         activeSlideId="slide-1"
         deckId="deck-1"
+        deckTitle="Test deck"
         onSelectSlide={() => {}}
+        describeSlideId={null}
+        onCloseDescribe={() => {}}
+        addSlideAgentSubmit={() => {}}
       />,
     );
 
@@ -109,7 +113,11 @@ describe("EditorSidebar arrow navigation", () => {
         slides={[slideOne, slideTwo]}
         activeSlideId="slide-1"
         deckId="deck-1"
+        deckTitle="Test deck"
         onSelectSlide={onSelectSlide}
+        describeSlideId={null}
+        onCloseDescribe={() => {}}
+        addSlideAgentSubmit={() => {}}
       />,
     );
     const block = document.createElement("div");
@@ -143,7 +151,11 @@ describe("EditorSidebar arrow navigation", () => {
         slides={[slideOne, slideTwo]}
         activeSlideId="slide-1"
         deckId="deck-1"
+        deckTitle="Test deck"
         onSelectSlide={onSelectSlide}
+        describeSlideId={null}
+        onCloseDescribe={() => {}}
+        addSlideAgentSubmit={() => {}}
       />,
     );
     const selectedCanvas = document.createElement("div");

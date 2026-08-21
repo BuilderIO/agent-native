@@ -178,7 +178,7 @@ export default function AgentRoute() {
 
 ## الرسائل البرمجية: `sendToAgentChat()` {#send}
 
-زر يقوم بتسليم العمل إلى الوكيل (بدلاً من تشغيل استدعاء `llm()` المضمن - النمط المضاد من [ladder](/docs/what-is-agent-native#the-ladder)):
+زر يسلّم العمل إلى الوكيل بدلاً من إنشاء مسار AI منفصل عبر استدعاء `llm()` مضمن. راجع [لماذا نبني التطبيقات بهذه الطريقة](/docs/what-is-agent-native#why-build-apps-this-way) لمعرفة أهمية هذا الفرق:
 
 ```tsx
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
@@ -268,7 +268,7 @@ const { send, isGenerating } = useSendToAgentChat();
 
 ## Typesafe actions من UI: `useActionMutation()` {#use-action-mutation}
 
-عندما يحتاج UI إلى تشغيل نفس العملية، سيتم تشغيل أداة الوكيل - الدرجة 3 من [ladder](/docs/what-is-agent-native#rung-three) - استخدم `useActionMutation`:
+عندما تحتاج UI إلى تشغيل العملية نفسها التي قد تشغّلها أداة وكيل، استخدم [`useActionMutation`](/docs/client-data#use-action-mutation):
 
 ```tsx
 import { useActionMutation } from "@agent-native/core/client/hooks";
@@ -279,11 +279,11 @@ const { mutate, isPending } = useActionMutation("reply-to-email");
 </Button>;
 ```
 
-تأتي وسائط النوع الآمن من مخطط zod في `defineAction()`. راجع [Actions](/docs/actions) للتعرف على نظام العمل الكامل.
+تأتي وسائط النوع الآمن من مخطط zod في `defineAction()`. راجع [Actions](/docs/actions-overview) للتعرف على نظام العمل الكامل.
 
 <Callout id="doc-block-1757zi5" tone="decision">
 
-**`useActionMutation` vs `sendToAgentChat`.** Run the operation directly with `useActionMutation` when the user clicked a deterministic button ("Send reply"). Hand it to `sendToAgentChat` when the work needs the agent's reasoning, tools, or multi-step planning. Never call an inline `llm()` from UI — that is rung 1 of the [ladder](/docs/what-is-agent-native#the-ladder).
+**`useActionMutation` vs `sendToAgentChat`.** Run the operation directly with `useActionMutation` when the user clicked a deterministic button ("Send reply"). Hand it to `sendToAgentChat` when the work needs the agent's reasoning, tools, or multi-step planning. Never call an inline `llm()` from UI; that creates a separate AI path instead of using the shared agent loop.
 
 </Callout>
 
@@ -337,7 +337,7 @@ export default function Root() {
 
 ## ما هي الخطوة التالية
 
-- [**Actions**](/docs/actions) — `defineAction()` و`useActionMutation()`
+- [**Actions**](/docs/actions-overview) — `defineAction()` و`useActionMutation()`
 - [**Context Awareness**](/docs/context-awareness) — الاختيار، التنقل، شاشة العرض
 - [**موارد الوكيل**](/docs/agent-resources) — ما تحتويه علامة تبويب موارد الوكيل (skills، الذاكرة، خوادم MCP، المهام المجدولة)
 - [**Voice Input**](/docs/voice-input) — الميكروفون الموجود في مؤلف الدردشة

@@ -30,6 +30,7 @@ HubSpot/Salesforce lens; UI and agent share actions.
 
 - Workspace Connections own provider credentials. Never request, store, log, or
   return a provider token.
+- For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver.
 - The mirror is thin: unknown fields are remote-only, sensitive ones redacted,
   only allow-listed fields mirrored. Raw payloads, transcripts, media, and
   base64 never enter SQL — evidence is a URL/id plus a bounded quote.

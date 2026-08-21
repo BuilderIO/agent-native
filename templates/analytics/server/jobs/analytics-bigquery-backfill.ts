@@ -20,8 +20,8 @@ const DEFAULT_MAX_BATCHES_PER_SWEEP = 4;
 const MAX_BATCHES_PER_SWEEP = 4;
 const DEFAULT_PARALLELISM = 8;
 const MAX_PARALLELISM = 8;
-const DEFAULT_MAX_ACTIVE_SESSIONS = 80;
 const DEFAULT_MAX_TOTAL_SESSIONS = 250;
+const PRESSURE_RETRY_MS = 60 * 1000;
 
 type Query =
   | string
@@ -265,7 +265,18 @@ export async function getFirstPartyAnalyticsBigQueryBackfillJob(
 async function getNextFirstPartyAnalyticsBigQueryBackfillJob(
   db: Executor,
   now: string,
+  scope?: FirstPartyAnalyticsScope,
 ): Promise<BigQueryBackfillJob | null> {
+  const scopeClauses: string[] = [];
+  const args: unknown[] = [now, now];
+  if (scope?.orgId) {
+    scopeClauses.push("AND org_id = ?");
+    args.push(scope.orgId);
+  }
+  if (scope?.userEmail) {
+    scopeClauses.push("AND owner_email = ?");
+    args.push(scope.userEmail);
+  }
   const result = await db.execute({
     sql: `SELECT id, org_id, owner_email, table_ref, batch_size,
                  backfill_cursor, status, copied_count, lease_token,
@@ -278,9 +289,10 @@ async function getNextFirstPartyAnalyticsBigQueryBackfillJob(
                OR (status = 'running' AND lease_expires_at IS NOT NULL
                    AND lease_expires_at <= ?)
              )
+             ${scopeClauses.join("\n             ")}
            ORDER BY updated_at ASC
            LIMIT 1`,
-    args: [now, now],
+    args,
     timeoutMs: 3_000,
     maxAttempts: 1,
   });
@@ -813,15 +825,15 @@ export async function queueFirstPartyAnalyticsBigQueryBackfill(
 
 async function pressureSnapshot(
   db: Executor,
-): Promise<{ paused: boolean; reason?: string }> {
+): Promise<{ paused: boolean; degraded?: boolean; reason?: string }> {
   if (!isPostgres()) return { paused: false };
   try {
     const result = await db.execute({
       sql: `SELECT
               COUNT(*) AS total_sessions,
               SUM(CASE WHEN state = 'active' THEN 1 ELSE 0 END) AS active_sessions,
-              SUM(CASE WHEN wait_event_type IS NOT NULL THEN 1 ELSE 0 END) AS waiting_sessions,
-              SUM(CASE WHEN wait_event_type = 'Lock' THEN 1 ELSE 0 END) AS lock_waiters
+              SUM(CASE WHEN state = 'active' AND wait_event_type IS NOT NULL THEN 1 ELSE 0 END) AS waiting_sessions,
+              SUM(CASE WHEN state = 'active' AND wait_event_type = 'Lock' THEN 1 ELSE 0 END) AS lock_waiters
             FROM pg_stat_activity
            WHERE pid <> pg_backend_pid()`,
       timeoutMs: 2_000,
@@ -833,15 +845,11 @@ async function pressureSnapshot(
     const active = numberValue(row, "active_sessions");
     const waiting = numberValue(row, "waiting_sessions");
     const lockWaiters = numberValue(row, "lock_waiters");
-    const maxActive = positiveEnvNumber(
-      "ANALYTICS_BIGQUERY_BACKFILL_MAX_ACTIVE_SESSIONS",
-      DEFAULT_MAX_ACTIVE_SESSIONS,
-    );
     const maxTotal = positiveEnvNumber(
       "ANALYTICS_BIGQUERY_BACKFILL_MAX_TOTAL_SESSIONS",
       DEFAULT_MAX_TOTAL_SESSIONS,
     );
-    if (lockWaiters > 0 || active >= maxActive || total >= maxTotal) {
+    if (lockWaiters > 0 || waiting >= 8 || total >= maxTotal) {
       return {
         paused: true,
         reason: `database pressure: total=${total}, active=${active}, waiting=${waiting}, lockWaiters=${lockWaiters}`,
@@ -850,20 +858,54 @@ async function pressureSnapshot(
     return { paused: false };
   } catch (error) {
     return {
-      paused: true,
+      paused: false,
+      degraded: true,
       reason: `pressure probe failed: ${error instanceof Error ? error.message : String(error)}`,
     };
   }
 }
 
-export async function runFirstPartyAnalyticsBigQueryBackfillOnce(): Promise<BigQueryBackfillSweepResult> {
+async function recordPressurePause(
+  db: Executor,
+  jobId: string | null,
+  reason: string,
+): Promise<void> {
+  if (!jobId) return;
+  const retryAt = new Date(Date.now() + PRESSURE_RETRY_MS).toISOString();
+  await db.execute({
+    sql: `UPDATE ${JOB_TABLE}
+             SET last_error = ?, next_run_at = ?, updated_at = ?
+           WHERE id = ? AND status <> 'completed'`,
+    args: [reason.slice(0, 1_000), retryAt, new Date().toISOString(), jobId],
+    timeoutMs: 5_000,
+    maxAttempts: 1,
+  });
+}
+
+export async function runFirstPartyAnalyticsBigQueryBackfillOnce(
+  scope?: FirstPartyAnalyticsScope,
+): Promise<BigQueryBackfillSweepResult> {
   if (process.env.ANALYTICS_BIGQUERY_BACKFILL_JOBS?.trim() === "0") {
     return { status: "disabled", batches: 0, copied: 0, remaining: 0 };
   }
 
   const db = executor();
+  const coordinator = await getNextFirstPartyAnalyticsBigQueryBackfillJob(
+    db,
+    new Date().toISOString(),
+    scope,
+  );
+  if (!coordinator) {
+    return { status: "idle", batches: 0, copied: 0, remaining: 0 };
+  }
+
   const initialPressure = await pressureSnapshot(db);
   if (initialPressure.paused) {
+    await recordPressurePause(
+      db,
+      coordinator.id,
+      initialPressure.reason ?? "database pressure",
+    );
     return {
       status: "paused-pressure",
       batches: 0,
@@ -873,21 +915,19 @@ export async function runFirstPartyAnalyticsBigQueryBackfillOnce(): Promise<BigQ
     };
   }
 
-  const coordinator = await getNextFirstPartyAnalyticsBigQueryBackfillJob(
-    db,
-    new Date().toISOString(),
-  );
-  if (!coordinator) {
-    return { status: "idle", batches: 0, copied: 0, remaining: 0 };
-  }
-
   await ensureBackfillShards(db, coordinator);
 
   let batches = 0;
   let copied = 0;
+  let degraded = initialPressure.degraded === true;
   for (let index = 0; index < maxBatchesPerSweep(); index += 1) {
     const pressure = await pressureSnapshot(db);
     if (pressure.paused) {
+      await recordPressurePause(
+        db,
+        coordinator.id,
+        pressure.reason ?? "database pressure",
+      );
       return {
         status: "paused-pressure",
         batches,
@@ -896,10 +936,11 @@ export async function runFirstPartyAnalyticsBigQueryBackfillOnce(): Promise<BigQ
         reason: pressure.reason,
       };
     }
+    degraded ||= pressure.degraded === true;
 
     const claimed = (
       await Promise.all(
-        Array.from({ length: parallelism() }, () =>
+        Array.from({ length: degraded ? 1 : parallelism() }, () =>
           claimNextShard(db, coordinator.id, new Date().toISOString()),
         ),
       )

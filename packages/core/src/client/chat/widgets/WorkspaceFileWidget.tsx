@@ -48,7 +48,11 @@ export function WorkspaceFileWidget({
   const href = resourceDownloadUrl(file.resourceId);
 
   return (
-    <div className="flex items-center gap-3">
+    // Self-styled (like the data-widget cards) rather than relying on the
+    // chat surface's chatUI-gated border — this card also renders for
+    // actions that never set a static chatUI (see the shape-based fallback
+    // renderer in builtin-tool-renderers.tsx).
+    <div className="flex items-center gap-3 rounded-lg border border-border bg-card p-3 text-card-foreground shadow-sm">
       <div className="flex size-10 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
         <FileIcon className="size-5" aria-hidden="true" />
       </div>

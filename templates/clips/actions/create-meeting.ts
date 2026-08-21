@@ -9,6 +9,7 @@
 
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
+import { getRequestUserName } from "@agent-native/core/server/request-context";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
@@ -78,7 +79,7 @@ export default defineAction({
     .refine((v) => v.title || v.calendarEventId, {
       message: "Provide either title or calendarEventId",
     }),
-  run: async (args) => {
+  run: async (args, actionContext) => {
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();
     const orgId = await getActiveOrganizationId();
@@ -93,7 +94,7 @@ export default defineAction({
       email: string;
       name?: string;
       isOrganizer?: boolean;
-    }> = args.participants ?? [];
+    }> = [...(args.participants ?? [])];
     let calendarEventIdLink: string | null = null;
     let source: "calendar" | "adhoc" | "manual" =
       args.source ?? (args.title ? "manual" : "adhoc");
@@ -190,8 +191,29 @@ export default defineAction({
       }
     }
 
+    // Backfill a missing display name onto the owner's own attendee row —
+    // but only when they're already a genuine calendar attendee. Inserting
+    // a synthetic row for a non-attendee owner would put their email in
+    // meeting_participants indistinguishably from a real attendee, and that
+    // table is what the public share payload returns; a meeting made public
+    // later would leak an email the owner never actually disclosed. When the
+    // owner isn't an attendee, speaker resolution already has a safe
+    // fallback (the generic "Me" label) — no snapshot needed for that case.
+    const ownerName = getRequestUserName()?.trim() || undefined;
+    const ownerParticipant = participantsToInsert.find(
+      (participant) =>
+        participant.email.trim().toLowerCase() === ownerEmail.toLowerCase(),
+    );
+    if (ownerParticipant && !ownerParticipant.name?.trim() && ownerName) {
+      ownerParticipant.name = ownerName;
+    }
+
     const visibility =
-      args.visibility ?? (await getDefaultRecordingVisibility(orgId));
+      args.visibility ??
+      (await getDefaultRecordingVisibility(
+        orgId,
+        actionContext?.userEmail ?? ownerEmail,
+      ));
 
     try {
       await db.insert(schema.meetings).values({

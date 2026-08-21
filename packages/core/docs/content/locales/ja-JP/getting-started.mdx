@@ -1,58 +1,179 @@
 ---
 title: "はじめに"
-description: "Chatアプリを作成してエージェントを設定し、アクションとページを追加して拡張します。"
+description: "Agent-Nativeアプリを作成し、エージェントとUIから同じアクションを呼び出します。"
 ---
 
 # はじめに
 
-Agent-Nativeアプリでは、エージェントとUIが同じ[アクション](/docs/actions)、SQLデータ、アプリケーション状態を利用します。このガイドはChatから始めます。Chatは必要なフレームワークのテーブルをすでに作成し、チャット履歴をデフォルトでローカルSQLiteに保存します。アプリでドメインデータを永続化する必要がある場合だけ、独自のテーブルを追加してください。
+Agent-Nativeは、人とAIエージェントの両方に対応するアプリを構築するための
+オープンソースのTypeScriptフレームワークです。アプリの機能を一度だけ
+[アクション](/docs/actions-overview)として定義します。アクションは型付き関数で、
+React UIはコードから呼び出し、エージェントはツールとして使います。
 
-<Steps>
+このガイドでは、Chatアプリを作成し、付属の`hello`アクションをエージェントとUIから呼び出します。
 
-### チャットアプリを作成してエージェントを設定する
+## 前提条件
 
-Chatテンプレートをスキャフォールドし、依存関係をインストールして、開発サーバーを起動し、エージェントを設定します。拡張できる動作中のチャットアプリが完成します。
-**現在ここです。**
+- [Node.js](https://nodejs.org) 22以降
+- [pnpm](https://pnpm.io)
+- エージェント用のLLM接続: Builder.io、AnthropicまたはOpenAIのAPIキー、またはローカルのOllamaモデル
 
-### アクションを追加する
+## アプリを作成する
 
-型付きのテキスト分析を定義し、その結果をチャット内のグラフとして表示します。
-
-### ページを追加する
-
-トランスクリプトの外で同じアクションを呼び出すReactルートを作成します。
-
-</Steps>
-
-## 1. チャットアプリを作成する {#create-your-app}
-
-[Node.js 22+](https://nodejs.org)と[pnpm](https://pnpm.io)が必要です。
-
-ターミナルを開き、Agent Nativeアプリを作成したいディレクトリに移動して、次のコマンドを実行します。
+新しいディレクトリでChatアプリを作成します。
 
 ```bash
-npx @agent-native/core@latest create my-app --template chat
+npx @agent-native/core@latest create my-app --standalone --template chat
 cd my-app
 pnpm install
+```
+
+テンプレートには、ブラウザアプリ、認証、永続的な会話、ライブ同期、
+アプリケーションコンテキスト、`actions/`ディレクトリが含まれます。このガイドで使う
+小さな`hello`アクションも含まれています。
+
+## 開発サーバーを起動する
+
+アプリを起動します。
+
+```bash
 pnpm dev
 ```
 
-アプリは`http://localhost:8080`で開きます。ログイン画面が表示されたら、実在しないログイン情報でサインアップしてください。ローカル開発ではメール認証は必要ありません。
+アプリは`http://localhost:8080`で開きます。自動で開かない場合は、ブラウザでそのURLにアクセスしてください。
 
-Chatテンプレートには、永続的なチャットスレッド、認証、ライブ同期、`actions/`ディレクトリ、標準の`view-screen`および`navigate`アクションが含まれています。
+<Callout tone="info">
 
-### 別の開始点を選ぶ
+Welcome画面で**Continue as local dev**を選択します。ローカル開発ではメールアドレスやパスワードを入力する必要はありません。
 
-Chatが適切な開始点でない場合は、`--template`なしで`create`を実行し、CLIで別の選択肢を選びます。他の方法については[テンプレートを作成する](/docs/creating-templates)を参照してください。
+</Callout>
 
-## 2. エージェントを設定する {#connect-ai}
+次にLLMを接続します。無料クレジットを使うには**Connect Builder.io**を選択します。あるいは、**Custom keys**を選択してプロバイダーを選び、必要な接続情報を入力します。
 
-Chatテンプレートはチャット画面を直接開きます。エージェントが応答できる状態になっていない場合は、**Settings > Manage agent**を開くか、**Cmd/Ctrl+K > Manage agent**を使用してモデルとプロバイダーを設定します。
+## エージェントからアクションを実行する
 
-エージェントが応答したら、[アクションを追加する](/docs/getting-started-actions)に進みます。
+アクションは、React UIがコードから呼び出せ、エージェントがツールとして使える型付き関数です。Chatテンプレートにはシンプルな`hello`アクションが含まれているため、自分で書く前にこのパターンを試せます。
 
-## 関連ドキュメント
+アプリで次のように依頼します。
 
-- [Agent-Nativeとは？](/docs/what-is-agent-native): この手順の背景にあるアーキテクチャです。
-- [Chatテンプレート](/docs/template-chat): スターターアプリに含まれるものを説明します。
-- [FAQ](/docs/faq): モデル、ホスティング、テンプレートに関する回答です。
+> Call the hello action for Alex.
+
+エージェントは説明と入力スキーマから`hello`を見つけ、`Alex`を`name`入力として渡し、次のように応答します。
+
+```text
+Hello, Alex!
+```
+
+## アクションを確認する
+
+`actions/hello.ts`を開きます。
+
+```ts filename="actions/hello.ts"
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Return a friendly greeting.",
+  schema: z.object({
+    name: z.string().default("world").describe("Name to greet"),
+  }),
+  http: { method: "GET" },
+  run: async ({ name }) => {
+    return { message: `Hello, ${name}!` };
+  },
+});
+```
+
+まずは次の4つに注目してください。
+
+- `description`は、エージェントにアクションを使うタイミングを伝えます。
+- `schema`は入力を検証し、エージェントに型付きツール定義を提供します。
+- `http`は、この読み取り専用アクションを`GET`で公開し、`useActionQuery`からReactで呼び出せるようにします。
+- `run`には、エージェントとUIで共有されるアプリケーションロジックが含まれます。
+
+完全なAPIは[アクションを定義する](/docs/actions-defining)を参照してください。
+
+## Reactからアクションを呼び出す
+
+`app/routes/hello.tsx`にルートを追加します。
+
+```tsx filename="app/routes/hello.tsx"
+import { useActionQuery } from "@agent-native/core/client/hooks";
+import { useState } from "react";
+
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+
+export default function HelloRoute() {
+  const [name, setName] = useState("Alex");
+  const { data } = useActionQuery("hello", { name });
+
+  return (
+    <main className="mx-auto grid w-full max-w-xl gap-6 p-6">
+      <h1 className="text-2xl font-semibold">Hello action</h1>
+      <div className="grid gap-2">
+        <Label htmlFor="name">Name</Label>
+        <Input
+          id="name"
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+        />
+      </div>
+      <p className="text-xl font-medium">{data?.message}</p>
+    </main>
+  );
+}
+```
+
+<Callout tone="warning">
+
+新しいルートを検出できるように開発サーバーを再起動してから、`http://localhost:8080/hello`を開いてください。
+
+</Callout>
+
+名前を入力すると、`useActionQuery`が`hello`を呼び出して結果を表示します。アクションの入力型と結果型を推論するため、このページにカスタムAPIルートや挨拶の2つ目の実装は必要ありません。
+
+## アクションを変更する
+
+`actions/hello.ts`で戻り値を変更します。
+
+```ts
+return { message: `Welcome, ${name}.` };
+```
+
+`/hello`を更新してから、エージェントにもう一度`hello`を呼び出すよう依頼します。同じアクションを呼び出しているため、どちらも更新後の挨拶を返します。
+
+## ほかの方法でアクションを呼び出す
+
+同じアクションをエージェントとUIから呼び出しました。このアクションは次からも呼び出せます。
+
+| 呼び出し元                              | 用途                                                               |
+| --------------------------------------- | ------------------------------------------------------------------ |
+| [HTTP API](/docs/http-api)              | スクリプト、バックエンド、連携からアクションを呼び出す。           |
+| [CLI](/docs/actions-other-surfaces#cli) | ターミナルからアクションを実行またはテストする。                   |
+| [MCP](/docs/actions-other-surfaces#mcp) | 外部AIクライアントにアクションをツールとして検出・呼び出しさせる。 |
+| [A2A](/docs/actions-other-surfaces#a2a) | 別のAgent-Nativeアプリに、このアプリで作業するよう依頼する。       |
+
+すべての呼び出し元が同じアクション定義を使います。呼び出し元ごとに別の実装は不要です。この共有アクションモデルはAgent-Nativeの中心です。アプリが変化しても、UI、エージェント、連携の間で動作、検証、権限が揃ったままになります。
+
+## 作成したもの
+
+Agent-Nativeアプリを作成し、`hello`アクションをエージェントとReact UIから呼び出し、挨拶を一度変更して両方が更新されることを確認しました。これから書くすべてのアクションも同じパターンに従います。
+
+## 次のステップ
+
+<Cards>
+
+### [Agent-Nativeとは？](/docs/what-is-agent-native)
+
+UIとエージェントがアクション、データ、コンテキストを共有する理由を理解します。
+
+### [主要な概念](/docs/key-concepts)
+
+アクション、SQLデータ、アプリケーションコンテキスト、アクセス、ライブ同期がどのように連携するかを学びます。
+
+### [アクション](/docs/actions-overview)
+
+読み取り、書き込み、承認のアクションを定義し、UI、エージェント、外部クライアントから呼び出します。
+
+</Cards>

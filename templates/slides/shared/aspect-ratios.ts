@@ -23,10 +23,22 @@ export const ASPECT_RATIOS = {
     label: "4:5",
     pptxInches: { w: 8, h: 10 },
   },
+  "4:3": {
+    width: 960,
+    height: 720,
+    label: "4:3",
+    pptxInches: { w: 10, h: 7.5 },
+  },
 } as const;
 
 export type AspectRatio = keyof typeof ASPECT_RATIOS;
-export const ASPECT_RATIO_VALUES = ["16:9", "1:1", "9:16", "4:5"] as const;
+export const ASPECT_RATIO_VALUES = [
+  "16:9",
+  "1:1",
+  "9:16",
+  "4:5",
+  "4:3",
+] as const;
 export const DEFAULT_ASPECT_RATIO: AspectRatio = "16:9";
 
 export function getAspectRatioDims(ratio: AspectRatio | undefined | null) {

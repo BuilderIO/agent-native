@@ -17,6 +17,8 @@ import {
 } from "./_content-spaces.js";
 import {
   LOCAL_FOLDER_SOURCE_TYPE,
+  localFolderSourceConnectionMetadataSchema,
+  localFolderOpaqueIdentitySchema,
   localFolderSourceCapabilities,
   localFolderSourceId,
   localFolderSourceMetadata,
@@ -30,12 +32,15 @@ export default defineAction({
   description:
     "Connect an opaque trusted local-folder handle to a canonical Files database. The browser or Desktop bridge keeps the real handle/path; Content stores only safe connection metadata.",
   schema: z.object({
-    connectionId: z
-      .string()
-      .min(1)
-      .max(300)
-      .describe("Stable opaque ID from the trusted browser/Desktop registry"),
+    connectionId: localFolderOpaqueIdentitySchema.describe(
+      "Stable opaque ID from the trusted browser/Desktop registry",
+    ),
     label: z.string().min(1).max(200).describe("User-visible folder label"),
+    connectionMetadata: localFolderSourceConnectionMetadataSchema
+      .optional()
+      .describe(
+        "Safe repository/working-copy identity from the trusted local bridge; raw paths and handles are not accepted.",
+      ),
     spaceId: z
       .string()
       .optional()
@@ -70,9 +75,10 @@ export default defineAction({
     }
 
     const db = getDb();
-    const connectionId = args.connectionId.trim();
+    const connectionId = args.connectionId;
     const label = args.label.trim();
     const truthPolicy = args.truthPolicy as ContentDatabaseSourceTruthPolicy;
+    const connectionMetadata = args.connectionMetadata;
     if (args.dryRun) {
       const [existing] = await db
         .select({
@@ -185,9 +191,18 @@ export default defineAction({
       sourceTable: connectionId,
       syncState: "linked",
       freshness: "unknown",
-      capabilitiesJson: JSON.stringify(localFolderSourceCapabilities()),
+      capabilitiesJson: JSON.stringify(
+        localFolderSourceCapabilities({
+          liveBridgeEnabled: connectionMetadata?.liveBridgeEnabled,
+        }),
+      ),
       metadataJson: JSON.stringify(
-        localFolderSourceMetadata({ connectionId, label, truthPolicy }),
+        localFolderSourceMetadata({
+          connectionId,
+          label,
+          truthPolicy,
+          connectionMetadata,
+        }),
       ),
       lastError: null,
       createdAt: now,

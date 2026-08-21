@@ -1,0 +1,98 @@
+---
+title: "生产代理访问权限"
+description: "通过 frameworkTools 和 codeExecution 控制一个已部署的生产代理拥有哪些框架工具和代码执行能力。"
+---
+
+# 生产代理访问权限
+
+## 生产代理工具 {#production-agent-tools}
+
+生产代理会获得应用注册的 actions,外加框架自带的
+工具。`frameworkTools` 选择这个应用暴露这些框架工具中的哪些。
+每个分组默认保持今天的行为,因此省略这个选项不会改变任何东西:
+
+```ts filename="server/plugins/agent-chat.ts"
+export default createAgentChatPlugin({
+  frameworkTools: {
+    database: "read", // "write" | "read" | "off", default "read"
+    extensions: true, // default false
+    sharing: false, // this app has no share surface
+    review: false,
+  },
+});
+```
+
+```ts filename="server/plugins/core-routes.ts"
+export default createCoreRoutesPlugin({
+  extensionTools: true,
+});
+```
+
+`database` 和 `extensions` 接受和旧的顶层标志一样的值:
+
+- `database: "read"`。默认值。只注册 `db-schema` 和 `db-query`。
+  代理用 SQL 检查数据,但必须使用类型化的应用 actions 进行写入。
+- `database: "write"` 或 `true`。额外注册 `db-exec` 和
+  `db-patch`,用于有意的原始 SQL 维护。写入的范围限定在
+  当前用户/组织,并且会阻止 schema 更改。
+- `database: "off"` 或 `false`。从代理表面移除原始数据库
+  工具,这样应用的 actions 就是唯一的数据访问路径。
+- `extensions: true`。让应用选择加入框架的扩展管理
+  actions 和提示指导(`create-extension`、`update-extension` 等)。
+  还要在 core-routes 插件上设置 `extensionTools: true`,以允许
+  经过身份验证的 REST 创建。扩展默认是关闭的。
+
+其余的分组都是布尔值,默认全部开启:`sharing`、`review`、
+`history`、`featureFlags`、`localization`、`audit`、`contextXray`、
+`userProfile`、`automation`、`docs`、`resources`、`web`、`workspaceApps`、
+`chat` 和 `email`。用 `frameworkTools: "minimal"` 可以为语音优先或
+单一用途的应用一次性关闭所有分组,或者用
+`frameworkTools: { preset: "minimal", resources: true }` 只保留其中一个。
+一个显式的分组键总是优先于预设。
+
+关闭一个分组只会把它从**代理**表面移除:交互式聊天、MCP、A2A
+和后台运行。对应的 HTTP action 路由仍然保持挂载,因为 UI 是通过
+客户端 hooks 访问它们的。关闭 `sharing` 不应该让一个仍然显示在
+屏幕上的分享对话框返回 404。使用它之前请权衡这个对等性代价:
+框架的约定是 UI 能做的事代理也能做,所以在分享按钮可见的情况下
+设置 `sharing: false` 是一次有意的破坏,只有当应用根本没有这样
+的表面时才说得通。
+
+无论这个选项如何设置,框架工具默认都不再被推送进第一次
+模型请求。它们仍然留在可搜索的注册表中,通过 `tool-search` 加载,
+或者当应用在 `initialToolNames` 中指定它们时立即加载。
+
+<Callout tone="warning">
+  顶层的 `databaseTools` 和 `extensionTools` 选项已被弃用,取而代之的是
+  `frameworkTools.database` 和 `frameworkTools.extensions`。它们仍然会被
+  识别,但如果把一个顶层标志和它对应的 `frameworkTools` 值设置为互相冲突
+  的值,插件会在启动时抛出错误,而不是以一个无人选择的工具表面启动。
+</Callout>
+
+## 生产代码执行 {#production-code-execution}
+
+默认情况下,生产代理在没有代码执行工具的情况下运行。它们可以调用应用 actions、数据库工具、MCP 工具、浏览器/会话工具,以及其他已注册的框架工具,但它们不能获得 shell 或文件系统访问权限。
+
+兼容 Node 的部署可以通过代理聊天插件或一个环境变量覆盖来选择加入生产代码执行:
+
+```ts filename="server/plugins/agent-chat.ts"
+export default createAgentChatPlugin({
+  codeExecution: { production: "sandboxed" },
+});
+```
+
+可用的模式有:
+
+- `off`。默认值。生产环境中不会注册任何代码执行工具。
+- `sandboxed`。注册 `run-code`,一个隔离的 Node.js JavaScript 运行器,带有一个清理过的环境、一个全新的临时目录、输出/时间限制,以及一个连接到允许列表中已注册工具(例如 `provider-api-request`、`provider-api-docs`、`provider-api-catalog`、`web-request`,以及 `workspaceRead` / `workspaceWrite` 所使用的、由 Resources 支持的工作区文件桥)的本地主机桥。
+- `trusted`。注册 `run-code` 以及完整的编码工具注册表(`bash`、`read`、`edit`、`write`)。只在单租户或由操作员完全掌控、有意允许对主机进行完整 shell 访问的部署中使用它。
+
+设置 `AGENT_PROD_CODE_EXECUTION=sandboxed` 或 `AGENT_PROD_CODE_EXECUTION=trusted`,可以在不改代码的情况下,为某个特定部署覆盖插件选项。即使插件选项启用了代码执行,`AGENT_PROD_CODE_EXECUTION=off` 也会强制将其关闭。
+
+`run-code` 沙箱是进程级别的隔离,不是一个操作系统容器。它会从子进程环境中剥离应用密钥,并在可用时使用 Node 的权限模型,但出站网络并不会被 Node 本身阻止。经过身份验证的调用应该通过这个工具暴露的桥接辅助函数来进行。
+
+## 下一步
+
+- [**Actions: Access & Authorization**](/docs/actions-access-control) — 本页工具层面的门控所补充的、逐个 action 的访问控制维度
+- [**Updating UI in Production**](/docs/updating-ui-in-production) — 在代码执行关闭的情况下,一个已部署代理能编辑什么、不能编辑什么
+- [**Deployment: Environment Variables**](/docs/deployment-environment-variables) — `AGENT_PROD_CODE_EXECUTION` 以及其他生产环境变量

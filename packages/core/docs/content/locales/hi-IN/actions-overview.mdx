@@ -1,0 +1,215 @@
+---
+title: "अवलोकन"
+description: "Actions आपके ऐप द्वारा की जाने वाली हर चीज़ के लिए एकमात्र सत्य स्रोत हैं। defineAction() के साथ एक को परिभाषित करें और यह अपने आप एक एजेंट टूल, UI हुक, HTTP, एक MCP टूल, एक A2A टूल, और एक CLI कमांड में फैल जाता है।"
+---
+
+# अवलोकन
+
+Actions आपके ऐप द्वारा की जाने वाली हर चीज़ के लिए एकमात्र सत्य स्रोत हैं। `defineAction()` के साथ एक को परिभाषित करें और उसे `actions/` में रखें। नीचे दी गई हर सतह इसे अपने आप उठा लेती है। आप लॉजिक केवल एक बार लिखते हैं। किसी भी सतह की अपनी अलग कॉपी नहीं होती, और कोई भी दूसरों से आउट-ऑफ़-सिंक नहीं हो सकती।
+
+<Cards columns={2}>
+
+### :robot: [एजेंट टूल](/docs/agent-surfaces)
+
+एजेंट description और schema को एक कॉल करने योग्य टूल के रूप में पढ़ता है। इसे चैट में मांगें, जैसे "इस टिकट का जवाब दें" या "इस थ्रेड को सारांशित करें"।
+
+### :components: [UI हुक](/docs/client-data)
+
+`useActionQuery()`, `useActionMutation()`, और `callAction()` React से उसी action को कॉल करते हैं। एक क्लिक और एक चैट मैसेज बिल्कुल वही ऑपरेशन चलाते हैं।
+
+### :server: [फ्रेमवर्क ट्रांसपोर्ट](/docs/http-api)
+
+स्टार्टअप पर `/_agent-native/actions/<name>` पर ऑटो-माउंट होता है। UI हुक अंदर से इसी रूट को कॉल करते हैं, और कोई बाहरी HTTP क्लाइंट भी इसे सीधे कॉल कर सकता है।
+
+### :plug: [MCP टूल](/docs/actions-other-surfaces#mcp)
+
+किसी भी MCP होस्ट को एक टूल के रूप में दिखता है: Claude, Claude Desktop, Cursor, Codex। इसका उपयोग तब करें जब कोई अलग AI क्लाइंट आपके ऐप को चलाए।
+
+### :network: [A2A टूल](/docs/actions-other-surfaces#a2a)
+
+अन्य एजेंट-नेटिव ऐप्स इसे A2A के माध्यम से खोजते और कॉल करते हैं। इसका उपयोग तब करें जब आपके वर्कस्पेस में कोई दूसरा ऐप इसे अपनी ओर से कार्य करने के लिए चाहता हो।
+
+### :terminal: [CLI कमांड](/docs/actions-other-surfaces#cli)
+
+`pnpm action <name>` इसे टर्मिनल से चलाता है। इसका उपयोग स्क्रिप्ट्स, cron jobs, और त्वरित मैनुअल टेस्ट के लिए करें।
+
+</Cards>
+
+अधिकतर ऐप्स फ्रंटएंड और डेटाबेस के बीच एक अलग API लेयर बनाते हैं, जिसे केवल ब्राउज़र ही कॉल कर सकता है। जो एजेंट वही क्षमता चाहता है उसे अपना अलग इंटीग्रेशन चाहिए, जिसे फिर से लिखना और मेंटेन करना पड़ता है। एजेंट-नेटिव ऐप्स उस विभाजन को छोड़ देते हैं। UI और एजेंट बिल्कुल वही action कॉल करते हैं, इसलिए लिखने के लिए केवल एक इम्प्लीमेंटेशन है, और किसी बग के छुपने के लिए केवल एक जगह है।
+
+<Diagram id="doc-block-actions-overview-2" title="सामान्य फ्रंटएंड बनाम Agent Native" summary="एक सामान्य फ्रंटएंड अपनी खुद की API लेयर को कॉल करता है, जिसे केवल वही पहुंच सकता है। Agent Native में, app/ और एजेंट दोनों एक ही actions को कॉल करते हैं, इसलिए यहां बनाई गई हर क्षमता मुफ़्त में एजेंट-कॉल करने योग्य है।">
+
+```html
+<div class="diagram-cocmp">
+  <div class="cocmp-col">
+    <div class="cocmp-label diagram-muted">सामान्य</div>
+    <div class="diagram-node">app/ (React फ्रंटएंड)</div>
+    <div class="cocmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <strong>API लेयर</strong>
+      <small class="diagram-muted">केवल फ्रंटएंड इसे कॉल करता है</small>
+    </div>
+    <div class="cocmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>डेटाबेस</div>
+  </div>
+  <div class="cocmp-vs diagram-muted">बनाम</div>
+  <div class="cocmp-col">
+    <div class="cocmp-label diagram-muted">Agent Native</div>
+    <div class="cocmp-callers">
+      <div class="diagram-node">app/ (React फ्रंटएंड)</div>
+      <div class="diagram-node">एजेंट</div>
+    </div>
+    <div class="cocmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <span class="diagram-pill accent">Actions</span
+      ><small class="diagram-muted">समान भागीदार, समान ऑपरेशन</small>
+    </div>
+    <div class="cocmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>SQL डेटाबेस</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-cocmp {
+  display: flex;
+  align-items: flex-start;
+  gap: 28px;
+  flex-wrap: wrap;
+}
+.cocmp-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 180px;
+}
+.cocmp-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+.cocmp-callers {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.cocmp-vs {
+  font-size: 13px;
+  font-weight: 600;
+  padding-top: 52px;
+}
+.diagram-cocmp .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 16px;
+  align-self: stretch;
+  align-items: center;
+}
+.cocmp-arrow {
+  font-size: 18px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+अगर UI और एजेंट दोनों को कुछ करने की आवश्यकता है, तो एक कस्टम रूट के बजाय action का उपयोग करें। उस दुर्लभ स्थिति के लिए जहां route-shaped प्रोटोकॉल सही विकल्प है, [ऐप ऑपरेशंस के लिए Actions को प्राथमिकता दें](/docs/server-overview#actions-first) पर जाएं।
+
+## Actions कहां फिट होते हैं {#role}
+
+`app/` ([Client अवलोकन](/docs/client-overview#role) देखें) और एजेंट दोनों एक ही actions और एक ही SQL डेटाबेस पर रिज़ॉल्व होते हैं। यहां कोई अलग "app backend" नहीं है जिससे यह लेयर बात करती हो और जिसे एजेंट न पहुंच सके। कोई फ़ीचर बनाने का मतलब है यहां एक ऑपरेशन परिभाषित करना और उसके लिए एक साथ एक UI, एक एजेंट टूल, और हर दूसरी सतह पाना।
+
+`actions/` स्वयं एक फ़्लैट फ़ोल्डर है। हर फ़ाइल एक action है: फ़ाइल के डिफ़ॉल्ट एक्सपोर्ट के रूप में एक्सपोर्ट किया गया `defineAction()` कॉल। फ्रेमवर्क स्टार्टअप पर इस फ़ोल्डर को स्कैन करता है और जो भी फ़ाइल मिलती है उसे माउंट करता है। कोई रजिस्ट्रेशन स्टेप नहीं है और कोई इंडेक्स फ़ाइल नहीं है जिसे अपडेट रखना पड़े।
+
+किसी action की `run()` बॉडी सामान्य सर्वर कोड होती है, इसलिए यह आमतौर पर कुछ अन्य डायरेक्टरी में पहुंचती है:
+
+<FileTree
+  id="doc-block-actions-overview-filetree"
+  entries={[
+    {
+      path: "actions/reply-to-email.ts",
+      note: "प्रति फ़ाइल एक action। एक defineAction() कॉल एक्सपोर्ट करता है, और फ्रेमवर्क इसे अपने आप माउंट करता है।",
+    },
+    {
+      path: "server/db/schema.ts",
+      note: "Drizzle टेबल परिभाषाएं जिनके माध्यम से अधिकतर actions पढ़ते और लिखते हैं।",
+    },
+    {
+      path: "server/lib/access.ts",
+      note: "साझा access गार्ड्स (accessFilter, assertAccess, authorize) जिन्हें actions में दोबारा उपयोग किया जाता है।",
+    },
+    {
+      path: "shared/feature-flags.ts",
+      note: "Flag परिभाषाएं जिन्हें एक action और एक server plugin दोनों जांचते हैं।",
+    },
+    {
+      path: "app/components/ReplyButton.tsx",
+      note: "useActionMutation के साथ UI से action को कॉल करता है।",
+    },
+  ]}
+/>
+
+`actions/` के बाहर किसी को भी किसी action के `run` फ़ंक्शन को सीधे इम्पोर्ट नहीं करना चाहिए। इसके बजाय इसे ऊपर दी गई किसी सतह के माध्यम से कॉल करें: एजेंट टूल, एक UI हुक, HTTP, MCP, A2A, या CLI। इनमें से हर पथ वही schema validation, access जांच, और audit trail चलाता है।
+
+## एक action से शुरू करें {#hello-action}
+
+चैट-फर्स्ट ऐप में पहला ऑपरेशन बहुत छोटा हो सकता है। Chat टेम्पलेट में,
+`actions/hello.ts` को बदलें या उसके बगल में एक नई फ़ाइल जोड़ें:
+
+```ts
+// actions/hello.ts
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Say hello from the local agent.",
+  schema: z.object({
+    name: z.string().default("world"),
+  }),
+  http: { method: "GET" },
+  readOnly: true,
+  run: async ({ name }) => {
+    return { message: `Hello, ${name}!` };
+  },
+});
+```
+
+इसे उसी फ़ोल्डर से चलाएं:
+
+```bash
+pnpm action hello '{"name":"Steve"}'
+```
+
+CLI action input के रूप में एक JSON ऑब्जेक्ट स्वीकार करता है, जो उन structured
+tool calls से मेल खाता है जो एजेंट पहले से करते हैं। त्वरित मैनुअल रन के लिए
+साधारण flags भी काम करते हैं:
+
+```bash
+pnpm action hello --name Steve
+```
+
+फिर फ़ोल्डर के विरुद्ध app-agent लूप चलाएं:
+
+```bash
+npx agent-native agent "Call hello for Steve and explain the result"
+```
+
+यह वही app-agent लूप है जिसका उपयोग आपकी scheduled jobs, चैट UI, बाहरी MCP
+टूल, और भविष्य की स्क्रीन करेंगी। Chat और domain टेम्पलेट actions के इर्द-गिर्द
+UI जोड़ने के लिए हैं, न कि स्वयं action के लिए एक आवश्यक पूर्वापेक्षा।
+
+## आगे क्या
+
+- [**Actions परिभाषित करना**](/docs/actions-defining) — `defineAction()` की संरचना, schema, और HTTP config
+- [**Access और Authorization**](/docs/actions-access-control) — exposure flags, `ctx` scoping, और `authorize`
+- [**Run Context**](/docs/actions-run-context) — पूरी `ctx` फ़ील्ड तालिका
+- [**अन्य सतहें**](/docs/actions-other-surfaces) — नेटिव चैट UI, CLI, A2A, MCP, और स्टैंडर्ड actions
+- [**उन्नत और Legacy**](/docs/actions-advanced) — feature-flag गेटिंग और legacy CLI-style actions
+- [**अवलोकन**](/docs/client-overview) — इसी कॉन्ट्रैक्ट का `app/` पक्ष
+- [**डेटा और सिंक**](/docs/client-data) — UI में `useActionQuery`, `useActionMutation`, और `callAction`
+- [**एजेंट सतहें**](/docs/agent-surfaces) — कैसे एक action चैट टूल से पूरी स्क्रीन तक बढ़ता है

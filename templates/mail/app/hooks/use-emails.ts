@@ -88,19 +88,27 @@ export function fetchThreadMessages(
 }
 
 let externalRefreshAt = 0;
+let externalRefreshGeneration = 0;
+const externalRefreshConsumers = new Map<string, number>();
 
 export function markExternalEmailRefresh() {
   externalRefreshAt = Date.now();
+  externalRefreshGeneration += 1;
 }
 
-export function consumeExternalEmailRefresh(): number | undefined {
+export function consumeExternalEmailRefresh(
+  scope = "default",
+): number | undefined {
   const refreshAt = externalRefreshAt;
   if (!refreshAt) return undefined;
   if (Date.now() - refreshAt >= 5000) {
     externalRefreshAt = 0;
+    externalRefreshConsumers.clear();
     return undefined;
   }
-  externalRefreshAt = 0;
+  if (externalRefreshConsumers.get(scope) === externalRefreshGeneration)
+    return undefined;
+  externalRefreshConsumers.set(scope, externalRefreshGeneration);
   return refreshAt;
 }
 
@@ -516,7 +524,9 @@ export function useEmails(
       if (label) params.set("label", label);
       if (pageParam) params.set("pageToken", pageParam);
       const forceRefreshAt = !pageParam
-        ? consumeExternalEmailRefresh()
+        ? consumeExternalEmailRefresh(
+            JSON.stringify([view, search ?? null, label ?? null]),
+          )
         : undefined;
       if (forceRefreshAt) {
         params.set("forceRefresh", String(forceRefreshAt));
@@ -573,6 +583,7 @@ export function useEmails(
     hasNextPage: q.hasNextPage,
     fetchNextPage: q.fetchNextPage,
     isFetchingNextPage: q.isFetchingNextPage,
+    isFetchNextPageError: q.isFetchNextPageError,
   };
 }
 
@@ -1452,10 +1463,16 @@ export function useContacts() {
 
 // ─── Labels ──────────────────────────────────────────────────────────────────
 
+export const EMPTY_LABELS: Label[] = [];
+
 export function useLabels() {
   return useQuery<Label[]>({
     queryKey: ["labels"],
     queryFn: () => apiFetch("/api/labels"),
+    // A failed background refresh must not erase the last complete label map.
+    // The layout still surfaces isError so an initial failure has an explicit
+    // retry path instead of looking like an empty mailbox.
+    placeholderData: (previousData) => previousData,
     staleTime: 60_000,
   });
 }

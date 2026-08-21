@@ -244,6 +244,12 @@ describe("public form SSR", () => {
     expect(html).toContain(
       'data-field-id="venue" data-cond-field="event_type" data-cond-op="equals" data-cond-val="Physical" style="display:none" data-hidden="1"',
     );
+    expect(html).toContain(
+      "var checked = el.querySelector('input[type=\"radio\"]:checked');",
+    );
+    expect(html).toContain(
+      "if (checked && checked.value) data[f.id] = checked.value;",
+    );
     expect(html).toContain("control.disabled = !show");
     expect(html).toContain("var pageUrl = scrubPageUrl(window.location.href);");
     expect(html).toContain("_meta: { pageUrl: pageUrl }");

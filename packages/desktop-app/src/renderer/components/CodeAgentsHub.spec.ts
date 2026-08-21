@@ -17,8 +17,16 @@ import {
   dispatchControlPlaneUrlParams,
   dispatchControlPlaneTitle,
   filterDesktopApps,
+  mergeDesktopAppLists,
   isDispatchControlPlanePath,
+  isNativeDesktopIntegrationsPath,
+  shouldShowNativeDesktopIntegrations,
+  shouldShowNativeDesktopIntegrationsGuest,
+  shouldUseDesktopAppChatShell,
   isChatFirstSurfaceTabActive,
+  updateAppAuthStateByTab,
+  updateWebContentsIdByTab,
+  updateDesktopIdentityStatusByTab,
   orderDesktopApps,
   MultiFrontierModeControl,
 } from "./CodeAgentsHub.js";
@@ -214,16 +222,48 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(shellCss).toContain('@import "@agent-native/toolkit/styles.css";');
   });
 
-  it("keeps the chat-first composer narrower than its apps grid", () => {
+  it("keeps the chat-first chat column aligned and narrower than its apps grid", () => {
     const shellCss = readFileSync("src/renderer/shell.css", "utf8");
 
-    expect(shellCss).toContain("width: min(100%, 750px) !important;");
+    expect(shellCss).toContain(
+      "width: min(100%, var(--code-agents-chat-max)) !important;",
+    );
+    expect(shellCss).toMatch(
+      /\.desktop-chat-first-hub \.code-agents-start \.code-agents-provider-gate\s*\{[\s\S]*?align-self: center;[\s\S]*?width: min\(100%, var\(--code-agents-chat-max\)\);[\s\S]*?max-width: var\(--code-agents-chat-max\);/,
+    );
     expect(shellCss).toMatch(
       /\.desktop-apps-grid\s*\{[\s\S]*?max-width: 1000px;/,
     );
+    expect(shellCss).toMatch(
+      /\.desktop-chat-first-hub \.code-agents-start \.code-agents-project-picker--bar\s*\{[\s\S]*?margin-top: -10px;/,
+    );
+    expect(shellCss).toMatch(
+      /\.desktop-chat-first-hub \.code-agents-start \.code-agents-overview-footer\s*\{[\s\S]*?margin-top: 10px;/,
+    );
   });
 
-  it("keeps the chat-first rail collapse control beside settings", () => {
+  it("keeps the light desktop composer aligned with the rail gray", () => {
+    const shellCss = readFileSync("src/renderer/shell.css", "utf8");
+
+    expect(shellCss).toMatch(
+      /\.light\s+\.desktop-chat-first-hub\s+\[data-chat-first-app-pane\]\s+\.agent-sidebar-panel\s+\.agent-composer-root\s*\{\s*background:\s*hsl\(var\(--sidebar-background\)\);\s*\}/,
+    );
+  });
+
+  it("keeps all visible chat-first app surfaces mounted in the main view", () => {
+    const hubSource = readFileSync(
+      "src/renderer/components/CodeAgentsHub.tsx",
+      "utf8",
+    );
+
+    expect(hubSource).toContain("<ChatFirstSurfaceContent");
+    expect(hubSource).toContain("tabs={visibleChatFirstSurfaceTabs}");
+    expect(hubSource).toContain(
+      "activeTabId={visibleActiveChatFirstSurfaceTabId}",
+    );
+  });
+
+  it("keeps the chat-first rail collapse control at the bottom of the rail", () => {
     const hubSource = readFileSync(
       "src/renderer/components/CodeAgentsHub.tsx",
       "utf8",
@@ -236,10 +276,19 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
 
     expect(hubSource).toContain("desktop-chat-first-rail-footer-actions");
     expect(hubSource).toContain(
-      'desktop-chat-first-rail-settings"\n                      onClick',
+      'import { FeedbackButton } from "@agent-native/core/client/ui";',
     );
+    expect(hubSource).toContain("desktop-chat-first-rail-feedback");
+    expect(hubSource).toContain(
+      "https://forms.agent-native.com/f/agent-native-feedback/_16ewV",
+    );
+    expect(hubSource).not.toContain("desktop-chat-first-rail-settings");
+    expect(hubSource).not.toContain('<DesktopRailTooltip label="Settings">');
+    expect(hubSource).toContain("<TooltipProvider delayDuration={0}>");
     expect(hubSource).toContain("IconLayoutSidebarLeftCollapse");
     expect(hubSource).toContain("desktop-chat-first-rail-collapse");
+    expect(hubSource).toContain("data-chat-first-rail-collapse");
+    expect(hubSource).toContain("<DesktopRailTooltip");
     expect(hubSource).toContain("setChatFirstRailCollapsed(true)");
     expect(hubSource).not.toContain(
       '{chatFirstRailCollapsed ? "Expand" : "Collapse"}',
@@ -250,15 +299,39 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
       ".desktop-chat-first-rail-footer-actions > .code-agents-nav-link",
     );
     expect(shellCss).toContain("code-agents-primary-new-chat-shell");
-    expect(shellCss).toMatch(
-      /\.code-agents-rail--collapsed[\s\S]*\.code-agents-nav-list\s*>\s*button/,
+    expect(shellCss).toContain(
+      ".desktop-chat-first-hub .code-agents-rail--collapsed .code-agents-nav-link",
     );
     expect(shellCss).toContain("border-bottom: 0;");
     expect(shellCss).toMatch(
-      /\.desktop-chat-first-rail-footer-actions\s*>\s*\.desktop-chat-first-rail-settings\s*\{[\s\S]*?flex: 1 1 auto;/,
+      /\.desktop-chat-first-rail-footer-actions\s*>\s*\.desktop-chat-first-rail-feedback\s*\{[\s\S]*?flex: 1 1 auto;/,
     );
     expect(shellCss).toContain("visibility: hidden;");
     expect(shellCss).toContain("margin-top: auto;");
+    expect(shellCss).toContain("height: 100%;");
+    expect(shellCss).toContain("min-height: 0;");
+    expect(shellCss).toContain("z-index: 1;");
+    expect(shellCss).toContain("[data-chat-first-rail-collapse]");
+  });
+
+  it("routes Electron-forwarded Cmd+backslash to the chat sidebar", () => {
+    const hubSource = readFileSync(
+      "src/renderer/components/CodeAgentsHub.tsx",
+      "utf8",
+    );
+    const mainSource = readFileSync("src/main/index.ts", "utf8");
+
+    expect(hubSource).toContain("isDesktopChatToggleShortcut");
+    expect(hubSource).toContain(
+      'window.dispatchEvent(new Event("agent-panel:toggle"))',
+    );
+    expect(mainSource).toContain(
+      "const isAgentSidebarToggleShortcut = isDesktopChatToggleShortcut(input);",
+    );
+    expect(mainSource).toContain(
+      "if (forwardDesktopNavigationShortcut(event, input)) return;",
+    );
+    expect(mainSource).toContain("if (isDesktopChatToggleShortcut(input)) {");
   });
 
   it("orders pinned desktop apps ahead of unpinned apps and filters by name or description", () => {
@@ -297,6 +370,44 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     ]);
   });
 
+  it("keeps local apps first while adding each workspace app once", () => {
+    const merged = mergeDesktopAppLists(
+      [{ id: "mail" }, { id: "personal-notes" }],
+      [{ id: "team-ops" }, { id: "mail" }],
+    );
+
+    expect(merged.map((app) => app.id)).toEqual([
+      "mail",
+      "personal-notes",
+      "team-ops",
+    ]);
+  });
+
+  it("uses the Electron default app order before the remaining catalog", () => {
+    const ordered = orderDesktopApps(
+      [
+        { id: "brain", enabled: true },
+        { id: "analytics", enabled: true },
+        { id: "content", enabled: true },
+        { id: "design", enabled: true },
+        { id: "mail", enabled: true },
+        { id: "calendar", enabled: true },
+        { id: "clips", enabled: true },
+      ],
+      { pinnedIds: [], orderedIds: [] },
+    );
+
+    expect(ordered.map((app) => app.id)).toEqual([
+      "mail",
+      "calendar",
+      "design",
+      "clips",
+      "content",
+      "analytics",
+      "brain",
+    ]);
+  });
+
   it("renders the desktop apps grid controls in the hub source", () => {
     const hubSource = readFileSync(
       "src/renderer/components/CodeAgentsHub.tsx",
@@ -306,16 +417,37 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(hubSource).toContain("Search apps");
     expect(hubSource).toContain("desktop-apps-grid__search");
     expect(hubSource).toContain("desktop-app-card__body");
+    expect(hubSource).toContain(
+      "data-app-id={app.id}\n                  onClick={() => onOpenApp(app)}",
+    );
     expect(hubSource).toContain("AppOpenActions");
     expect(hubSource).toContain("desktop-app-card__actions");
+    expect(hubSource).not.toContain("ShareButton");
     expect(hubSource).toContain("Open in browser");
-    expect(hubSource).toContain("Pin to top");
+    expect(hubSource).toContain("Pin this app");
+    expect(hubSource).toContain("Unpin this app");
     expect(hubSource).toContain("desktop-apps-grid--full-page");
     expect(hubSource).toContain("chatFirstAllAppsOpen");
     expect(hubSource).toContain("onOpenAllApps={openChatFirstAllApps}");
     expect(hubSource).not.toContain("desktop-apps-grid__summary");
     expect(hubSource).toContain("layout={chatFirstAppLayout}");
     expect(hubSource).toContain("onTogglePinned={toggleChatFirstAppPinned}");
+  });
+
+  it("keeps normal app opens embedded and makes browser opening explicit", () => {
+    const hubSource = readFileSync(
+      "src/renderer/components/CodeAgentsHub.tsx",
+      "utf8",
+    );
+
+    expect(hubSource).toContain(
+      'terminalPreferences.enabled ? "side" : "main"',
+    );
+    expect(hubSource).toContain("<AppWebview");
+    expect(hubSource).toContain("onOpenInBrowser={openChatFirstAppInBrowser}");
+    expect(hubSource).toContain(
+      "void window.electronAPI.shell.openExternal(url)",
+    );
   });
 
   it("keeps full-page settings on the shared query and theme contracts", () => {
@@ -340,9 +472,7 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
       "utf8",
     );
 
-    expect(hubSource).toContain(
-      "suppressChatFirstUnavailableNotice={chatFirstMode}",
-    );
+    expect(hubSource).toContain("suppressChatFirstUnavailableNotice");
     expect(hubSource).toContain('error: "Desktop bridge is not available."');
   });
 
@@ -421,6 +551,80 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(dispatchControlPlaneTitle("/admin/automations?view=all")).toBe(
       "Automations",
     );
+    expect(isNativeDesktopIntegrationsPath("/integrations")).toBe(true);
+    expect(isNativeDesktopIntegrationsPath("/admin/integrations")).toBe(true);
+    expect(isNativeDesktopIntegrationsPath("/integrations/slack")).toBe(false);
+  });
+
+  it("only exposes native integrations after both app and desktop auth are ready", () => {
+    expect(
+      shouldShowNativeDesktopIntegrations({
+        appId: "dispatch",
+        path: "/integrations",
+        appAuthState: "authenticated",
+        desktopIdentityStatus: "signed-in",
+      }),
+    ).toBe(true);
+    for (const desktopIdentityStatus of [
+      undefined,
+      "idle",
+      "checking",
+    ] as const) {
+      expect(
+        shouldShowNativeDesktopIntegrations({
+          appId: "dispatch",
+          path: "/integrations",
+          appAuthState: "authenticated",
+          desktopIdentityStatus,
+        }),
+      ).toBe(false);
+    }
+    expect(
+      shouldShowNativeDesktopIntegrations({
+        appId: "dispatch",
+        path: "/integrations",
+        appAuthState: "unauthenticated",
+        desktopIdentityStatus: "signed-in",
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps the primary Integrations surface out of per-app chat", () => {
+    expect(shouldUseDesktopAppChatShell("/integrations")).toBe(false);
+    expect(shouldUseDesktopAppChatShell("/admin/integrations")).toBe(false);
+    expect(shouldUseDesktopAppChatShell("/calendar")).toBe(true);
+  });
+
+  it("shows the authenticated guest during native MCP OAuth", () => {
+    expect(
+      shouldShowNativeDesktopIntegrationsGuest({
+        showNativeIntegrations: true,
+        nativeOAuthActive: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldShowNativeDesktopIntegrationsGuest({
+        showNativeIntegrations: true,
+        nativeOAuthActive: true,
+      }),
+    ).toBe(true);
+    expect(
+      shouldShowNativeDesktopIntegrationsGuest({
+        showNativeIntegrations: false,
+        nativeOAuthActive: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps OAuth scoped to the current guest webview id", () => {
+    const current = updateWebContentsIdByTab({}, "dispatch-tab", 42);
+    expect(current).toEqual({ "dispatch-tab": 42 });
+    expect(updateWebContentsIdByTab(current, "dispatch-tab", 43)).toEqual({
+      "dispatch-tab": 43,
+    });
+    expect(
+      updateWebContentsIdByTab(current, "dispatch-tab", undefined),
+    ).toEqual({});
   });
 
   it("keeps Dispatch internal while excluding it from Electron app discovery", () => {
@@ -514,5 +718,100 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(document.body.textContent).toContain(
       "Usage is updating from the connected subscription",
     );
+  });
+});
+
+describe("CodeAgentsHub desktop identity status", () => {
+  it("keeps duplicate app tabs isolated across identity transitions", () => {
+    let statusByTab = updateDesktopIdentityStatusByTab(
+      {},
+      "mail-tab-1",
+      "sign-in-required",
+    );
+    statusByTab = updateDesktopIdentityStatusByTab(
+      statusByTab,
+      "mail-tab-2",
+      "idle",
+    );
+    statusByTab = updateDesktopIdentityStatusByTab(
+      statusByTab,
+      "mail-tab-1",
+      "signed-in",
+    );
+
+    expect(statusByTab).toEqual({
+      "mail-tab-1": "signed-in",
+      "mail-tab-2": "idle",
+    });
+  });
+
+  it("rerenders the chat-first surface when identity state changes", () => {
+    const source = readFileSync(
+      "src/renderer/components/CodeAgentsHub.tsx",
+      "utf8",
+    );
+
+    expect(source).toContain("desktopIdentityStatusByTab");
+    expect(source).toContain("handleDesktopIdentityStatusChange");
+    expect(source).toContain("desktopIdentityStatusByTab,");
+    expect(source).toContain("handleDesktopIdentityStatusChange,");
+    expect(source).toContain("handleDesktopIdentityStatusChange(tab.id");
+  });
+
+  it("drops identity state for tabs that are no longer open", () => {
+    const source = readFileSync(
+      "src/renderer/components/CodeAgentsHub.tsx",
+      "utf8",
+    );
+
+    expect(source).toContain("const openTabIds = new Set");
+    expect(source).toContain("staleTabIds");
+    expect(source).toContain("delete next[tabId]");
+  });
+});
+
+describe("CodeAgentsHub app auth state", () => {
+  it("keeps auth state isolated across app tabs", () => {
+    let stateByTab = updateAppAuthStateByTab(
+      {},
+      "dispatch-tab-1",
+      "unauthenticated",
+    );
+    stateByTab = updateAppAuthStateByTab(
+      stateByTab,
+      "dispatch-tab-2",
+      "authenticated",
+    );
+    stateByTab = updateAppAuthStateByTab(
+      stateByTab,
+      "dispatch-tab-1",
+      "authenticated",
+    );
+
+    expect(stateByTab).toEqual({
+      "dispatch-tab-1": "authenticated",
+      "dispatch-tab-2": "authenticated",
+    });
+  });
+
+  it("does not demote a confirmed state while a navigation probe is pending", () => {
+    const authenticated = updateAppAuthStateByTab(
+      {},
+      "dispatch-tab",
+      "authenticated",
+    );
+    expect(
+      updateAppAuthStateByTab(authenticated, "dispatch-tab", "unknown"),
+    ).toBe(authenticated);
+
+    const unauthenticated = updateAppAuthStateByTab(
+      authenticated,
+      "dispatch-tab",
+      "unauthenticated",
+    );
+    expect(unauthenticated).toEqual({ "dispatch-tab": "unauthenticated" });
+    expect(
+      updateAppAuthStateByTab(unauthenticated, "dispatch-tab", "unknown"),
+    ).toBe(unauthenticated);
   });
 });

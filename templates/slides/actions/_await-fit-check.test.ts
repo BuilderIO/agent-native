@@ -42,6 +42,26 @@ describe("awaitLayoutFitCheck", () => {
     }
   });
 
+  it("returns { status: 'overflows' } when only horizontal overflow is reported", async () => {
+    mockReadAppState.mockResolvedValueOnce({
+      slideId: "slide-A",
+      contentHeight: 420,
+      contentWidth: 1200,
+      viewportHeight: 420,
+      viewportWidth: 740,
+      verticalOverflow: 0,
+      horizontalOverflow: 460,
+      measuredAt: 1500,
+    });
+
+    const result = await awaitLayoutFitCheck("slide-A", 1000, 2000);
+
+    expect(result.status).toBe("overflows");
+    if (result.status === "overflows") {
+      expect(result.measurement.horizontalOverflow).toBe(460);
+    }
+  });
+
   it("reads the tab-scoped measurement when the action came from a browser tab", async () => {
     mockRunContext = { browserTabId: "slides-tab-a" };
     mockReadAppState.mockImplementation(async (key) => {
@@ -227,5 +247,45 @@ describe("formatOverflowForTool", () => {
     expect(msg).toMatch(/Tighten copy/);
     expect(msg).toMatch(/Reduce vertical density/);
     expect(msg).toMatch(/transform: scale/);
+  });
+
+  it("describes horizontal overflow in the agent repair message", () => {
+    const msg = formatOverflowForTool("deck-X", {
+      slideId: "slide-Y",
+      contentHeight: 420,
+      contentWidth: 1200,
+      viewportHeight: 420,
+      viewportWidth: 740,
+      verticalOverflow: 0,
+      horizontalOverflow: 460,
+      measuredAt: Date.now(),
+    });
+
+    expect(msg).toContain("horizontally by 460px");
+    expect(msg).toContain("1200x420");
+    expect(msg).toContain("740x420");
+  });
+
+  // Reproduces the Oliver Robertson thread (Slack C0ATH3CCZT4 / 1786909841224549):
+  // a side-by-side card row overflowing horizontally got the exact same
+  // vertical-density fix list ("fewer stacked cards", "smaller gaps",
+  // "reduce padding") on every repair attempt. None of those items touch a
+  // fixed/oversized column width, so the agent looped without ever being
+  // told the one repair that actually fixes a horizontal overflow.
+  it("prescribes a column-width fix for horizontal-only overflow instead of the vertical checklist", () => {
+    const msg = formatOverflowForTool("deck-X", {
+      slideId: "slide-Y",
+      contentHeight: 420,
+      contentWidth: 1200,
+      viewportHeight: 420,
+      viewportWidth: 740,
+      verticalOverflow: 0,
+      horizontalOverflow: 460,
+      measuredAt: Date.now(),
+    });
+
+    expect(msg).toMatch(
+      /fewer.*columns|flex-based column widths|percentage.*column widths/i,
+    );
   });
 });

@@ -13,6 +13,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   checkDesignSystemAdherence,
+  checkRenderBlockingOverlays,
   checkTapTargets,
   checkTokenDrift,
   designSystemExpectation,
@@ -220,6 +221,38 @@ describe("checkTokenDrift", () => {
     ]);
     expect(findings).toHaveLength(1);
     expect(findings[0].message).toContain("pricing.html");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// checkRenderBlockingOverlays
+// ---------------------------------------------------------------------------
+
+describe("checkRenderBlockingOverlays", () => {
+  const head = `<head><script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.11/dist/cdn.min.js"></script><script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script></head>`;
+
+  it("flags the reported failure: an x-cloak overlay with no hiding rule", () => {
+    const findings = checkRenderBlockingOverlays(
+      `<!doctype html><html>${head}<body class="p-4"><div x-cloak x-show="alertsOpen" class="fixed inset-0 z-50 bg-white">Alerts</div></body></html>`,
+    );
+    expect(findings).toHaveLength(1);
+    expect(findings[0].category).toBe("render-blocking-overlay");
+    expect(findings[0].detail).toMatch(/x-cloak/);
+  });
+
+  it("flags a covering x-show overlay that a screenshot cannot catch", () => {
+    const findings = checkRenderBlockingOverlays(
+      `<!doctype html><html>${head}<body class="p-4"><div x-show="sidebarOpen" class="fixed inset-0 bg-black/30 z-30">scrim</div></body></html>`,
+    );
+    expect(findings).toHaveLength(1);
+    expect(findings[0].category).toBe("render-blocking-overlay");
+  });
+
+  it("does not flag a screen whose overlay is correctly pre-hidden", () => {
+    const findings = checkRenderBlockingOverlays(
+      `<!doctype html><html><head><script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.11/dist/cdn.min.js"></script><script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script><style>[x-cloak]{display:none!important}</style></head><body class="p-4"><div x-cloak x-show="open" class="fixed inset-0">Alerts</div></body></html>`,
+    );
+    expect(findings).toEqual([]);
   });
 });
 

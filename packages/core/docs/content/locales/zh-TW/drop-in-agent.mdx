@@ -7,7 +7,7 @@ description: "使用 <AgentPanel>、<AgentSidebar> 和 sendToAgentChat() 將代�
 
 > **開發人員頁面。** 此頁面供開發人員將代理嵌入到 React 應用程式中。有關使用代理的最終使用者體驗，請參閱 [Using Your Agent](/docs/using-your-agent)。
 
-您不需要從頭開始建置原生代理。代理聊天、代理資源分頁、CLI 終端、語音輸入和所有相關基礎設施都作為少數 React 元件提供給您放入任何應用程式中。
+您不需要從頭建置 Agent-Native。代理聊天、資源分頁、CLI 終端、語音輸入和所有相關基礎設施都以少量 React 元件的形式提供，您可將它們放入任何應用程式。
 
 > **先決條件：** 伺服器必須執行 `agent-chat-plugin`（它會自動安裝在每個範本中）。如果您是從頭開始，請參閱 [Server](/docs/server-overview)。
 >
@@ -178,7 +178,7 @@ export default function AgentRoute() {
 
 ## 程式化訊息：`sendToAgentChat()` {#send}
 
-將工作交給代理的按鈕（而不是執行行內 `llm()` 呼叫 - [ladder](/docs/what-is-agent-native#the-ladder) 的反模式）：
+將工作交給代理的按鈕，而不是以行內 `llm()` 呼叫建立獨立的 AI 路徑。請參閱[為什麼要以這種方式建置應用程式](/docs/what-is-agent-native#why-build-apps-this-way)，了解這項差異為何重要。對使用者發起且可見的 AI 工作，請明確開啟側邊欄，讓使用者能檢視、引導並在同一對話串中繼續：
 
 ```tsx
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
@@ -268,7 +268,7 @@ const { send, isGenerating } = useSendToAgentChat();
 
 ## 來自 UI 的型別安全 actions：`useActionMutation()` {#use-action-mutation}
 
-當 UI 需要執行代理工具將執行的相同操作（[ladder](/docs/what-is-agent-native#rung-three) 的梯級 3）時，請使用 `useActionMutation`：
+當 UI 需要執行代理工具會執行的相同操作時，請使用 [`useActionMutation`](/docs/client-data#use-action-mutation)：
 
 ```tsx
 import { useActionMutation } from "@agent-native/core/client/hooks";
@@ -279,11 +279,11 @@ const { mutate, isPending } = useActionMutation("reply-to-email");
 </Button>;
 ```
 
-型別安全參數來自 `defineAction()` 中的 zod 模式。完整的動作系統請參見 [Actions](/docs/actions)。
+型別安全參數來自 `defineAction()` 中的 zod 模式。完整的動作系統請參見 [Actions](/docs/actions-overview)。
 
 <Callout id="doc-block-1757zi5" tone="decision">
 
-**`useActionMutation` vs `sendToAgentChat`.** Run the operation directly with `useActionMutation` when the user clicked a deterministic button ("Send reply"). Hand it to `sendToAgentChat` when the work needs the agent's reasoning, tools, or multi-step planning. Never call an inline `llm()` from UI — that is rung 1 of the [ladder](/docs/what-is-agent-native#the-ladder).
+**`useActionMutation` 與 `sendToAgentChat`。** 當使用者點擊確定性按鈕（"Send reply"）時，直接以 `useActionMutation` 執行操作。工作需要代理的推理、工具或多步驟規劃時，交給 `sendToAgentChat`。切勿從 UI 呼叫行內 `llm()`；那會建立獨立 AI 路徑，而非使用共用的代理迴圈。
 
 </Callout>
 
@@ -337,7 +337,7 @@ export default function Root() {
 
 ## 下一步是什麼
 
-- [**Actions**](/docs/actions) — `defineAction()` 和 `useActionMutation()`
+- [**Actions**](/docs/actions-overview) — `defineAction()` 和 `useActionMutation()`
 - [**Context Awareness**](/docs/context-awareness) — 選取、導覽、檢視螢幕
 - [**代理資源**](/docs/agent-resources) —“代理資源”分頁包含的內容（skills、記憶、MCP 伺服器、計畫作業）
 - [**Voice Input**](/docs/voice-input) — 聊天編輯器中的麥克風

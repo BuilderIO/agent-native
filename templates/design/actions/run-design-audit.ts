@@ -25,32 +25,14 @@ import type {
   A11yFindingCategory,
   A11ySeverity,
 } from "../shared/design-review.js";
+import {
+  describeDesignHtmlIntegrityIssue,
+  inspectDesignHtmlDocumentIntegrity,
+} from "../shared/html-integrity.js";
 
 // ---------------------------------------------------------------------------
 // HTML helpers (static analysis — no DOM runtime available server-side)
 // ---------------------------------------------------------------------------
-
-/** Extract all attribute values matching a simple regex over raw HTML. */
-function extractAttrs(
-  html: string,
-  tagPattern: RegExp,
-  attrName: string,
-): string[] {
-  const attrRegex = new RegExp(
-    `${attrName}\\s*=\\s*(?:"([^"]*?)"|'([^']*?)')`,
-    "gi",
-  );
-  const results: string[] = [];
-  let match: RegExpExecArray | null;
-  const tagMatches = [...html.matchAll(tagPattern)];
-  for (const tm of tagMatches) {
-    attrRegex.lastIndex = 0;
-    while ((match = attrRegex.exec(tm[0])) !== null) {
-      results.push(match[1] ?? match[2] ?? "");
-    }
-  }
-  return results;
-}
 
 /** Pull a node id from a raw tag string (data-agent-native-node-id attr). */
 function extractNodeId(tagHtml: string): string | undefined {
@@ -257,6 +239,34 @@ export function checkTapTargets(html: string): A11yFinding[] {
     idx++;
   }
   return findings;
+}
+
+/**
+ * Screens that render with an Alpine-controlled element covering them. Every
+ * other check here is a regex over the raw string; this one delegates to the
+ * save-time integrity parser so the audit and the write gate cannot drift into
+ * disagreeing about the same document. It is the only check that can see the
+ * failure a screenshot cannot: `take-design-screenshot` waits for Alpine to
+ * settle, so a pre-Alpine cover never appears in the agent's own capture.
+ */
+export function checkRenderBlockingOverlays(html: string): A11yFinding[] {
+  const result = inspectDesignHtmlDocumentIntegrity(html);
+  const issues = [...(result.detail ?? []), ...(result.advisory ?? [])].filter(
+    (issue) =>
+      issue.issue === "runtime-overlay-unhidden" ||
+      issue.issue === "runtime-cloak-missing" ||
+      issue.issue === "runtime-alpine-missing",
+  );
+
+  return issues.map((issue, index) => ({
+    id: `render-blocking-overlay:${issue.issue}-${index}`,
+    severity: "error" as A11ySeverity,
+    category: "render-blocking-overlay" as A11yFindingCategory,
+    message:
+      "An Alpine-controlled element can cover the screen before Alpine starts.",
+    detail: describeDesignHtmlIntegrityIssue(issue),
+    fixAvailable: false,
+  }));
 }
 
 /** Check for animations/transitions without a prefers-reduced-motion guard. */
@@ -848,6 +858,7 @@ export default defineAction({
       ...checkReducedMotion(html),
       ...checkFocusVisibility(html),
       ...checkContrastHint(html),
+      ...checkRenderBlockingOverlays(html),
       ...tokenDriftFindings,
       ...designSystemFindings,
     ];

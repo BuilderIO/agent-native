@@ -9,13 +9,13 @@ description: "الأسئلة الشائعة حول Agent-Native - ما هو، و
 
 ## الأساسيات {#general}
 
-### ما هو الوكيل الأصلي؟ {#what-is-agent-native}
+### ما هو Agent-Native؟ {#what-is-agent-native}
 
-Agent-native هو framework لبناء التطبيقات حيث يكون AI agent وسطح المنتج المحيط به شريكين متساويين. يبدأ المسار المعتاد بالدردشة، ثم يضيف typed actions، ويعرض نتائج منظمة inline، ثم ينمو إلى صفحات دائمة فوق نفس SQL state. الثابت هو أن agents والبشر يتشاركون نفس actions وقاعدة البيانات والحالة. راجع [What Is Agent-Native?](/docs/what-is-agent-native) للحصول على الشرح الكامل.
+Agent-Native هو framework لبناء التطبيقات حيث يكون AI agent وسطح المنتج المحيط به شريكين متساويين. يبدأ المسار المعتاد بالدردشة، ثم يضيف typed actions، ويعرض نتائج منظمة inline، ثم ينمو إلى صفحات دائمة فوق نفس SQL state. الثابت هو أن agents والبشر يتشاركون نفس actions وقاعدة البيانات والحالة. راجع [ما هو Agent-Native؟](/docs/what-is-agent-native) للحصول على الشرح الكامل.
 
 ### لمن هذا؟ {#who-is-this-for}
 
-Agent-native مخصص للأشخاص الذين يريدون تطبيقًا حقيقيًا ووكيل AI للعمل من نفس البيانات وactions. المسارات الشائعة هي:
+Agent-Native مخصص للأشخاص الذين يريدون تطبيقًا حقيقيًا ووكيل AI للعمل من نفس البيانات وactions. المسارات الشائعة هي:
 
 - **استخدم تطبيقًا مستضافًا** إذا كنت تريد البريد أو التقويم أو النماذج أو الخطة أو أي قالب نهائي آخر بدون إعداد - ابدأ من [template gallery](/templates).
 - **ابدأ بالدردشة** إذا كنت تريد المسار الافتراضي من الصفر: يتحدث المستخدمون مع agent فورًا، ثم توسع التطبيق باستخدام actions ونتائج أصلية وشاشات - ابدأ بـ [Getting Started](/docs/getting-started) أو [Chat](/docs/template-chat).
@@ -26,9 +26,9 @@ Agent-native مخصص للأشخاص الذين يريدون تطبيقًا حق
 
 ### كيف يختلف هذا عن إضافة الذكاء الاصطناعي إلى تطبيق موجود؟ {#how-is-this-different}
 
-تعمل معظم التطبيقات على تشغيل الذكاء الاصطناعي كفكرة لاحقة لا يمكنها في الواقع القيام بأشياء في التطبيق. في تطبيق الوكيل الأصلي، يكون الوكيل مواطنًا من الدرجة الأولى يشترك في نفس actions وقاعدة البيانات والحالة مثل UI، لذا يمكنه فعل أي شيء يمكن أن تفعله الأزرار. انظر [What Is Agent-Native?](/docs/what-is-agent-native#the-ladder).
+تعمل معظم التطبيقات على تشغيل الذكاء الاصطناعي كفكرة لاحقة لا يمكنها في الواقع القيام بأشياء في التطبيق. في تطبيق Agent-Native، يكون الوكيل مواطنًا من الدرجة الأولى يشترك في نفس actions وقاعدة البيانات والحالة مثل UI، لذا يمكنه فعل أي شيء يمكن أن تفعله الأزرار. انظر [لماذا نبني التطبيقات بهذه الطريقة؟](/docs/what-is-agent-native#why-build-apps-this-way).
 
-<Diagram id="doc-block-17bd4r1" title={"الذكاء الاصطناعي المثبت مقابل agent-native"} summary={"يعيش الشريط الجانبي للدردشة المثبت في عالمه الخاص. يشارك وكيل agent-native نفس الإجراءات وقاعدة البيانات والحالة مثل واجهة المستخدم."}>
+<Diagram id="doc-block-17bd4r1" title={"الذكاء الاصطناعي المثبت مقابل Agent-Native"} summary={"يعيش الشريط الجانبي للدردشة المثبت في عالمه الخاص. يشارك وكيل Agent-Native نفس الإجراءات وقاعدة البيانات والحالة مثل واجهة المستخدم."}>
 
 ```html
 <div class="diagram-vs">
@@ -45,7 +45,7 @@ Agent-native مخصص للأشخاص الذين يريدون تطبيقًا حق
   </div>
   <div class="diagram-divider" aria-hidden="true"></div>
   <div class="diagram-col">
-    <span class="diagram-pill ok">Agent-native</span>
+    <span class="diagram-pill ok">Agent-Native</span>
     <div class="diagram-row2">
       <div class="diagram-node">UI</div>
       <div class="diagram-node">Agent</div>
@@ -104,7 +104,7 @@ Agent-native مخصص للأشخاص الذين يريدون تطبيقًا حق
 
 ### هل يمكنني استضافة هذا بنفسي؟ {#can-i-self-host}
 
-نعم. اختر أي مضيف يقوم بتشغيل Node - Netlify، وVercel، وCloudflare، وAWS، وDeno Deploy، والخادم الخاص بك - وأي قاعدة بيانات SQL (Postgres، SQLite، Turso، D1). تم تصميم الإطار ليكون محمولاً. انظر [Deployment](/docs/deployment).
+نعم. اختر أي مضيف يقوم بتشغيل Node - Netlify، وVercel، وCloudflare، وAWS، وDeno Deploy، والخادم الخاص بك - وأي قاعدة بيانات SQL (Postgres، SQLite، Turso، D1). تم تصميم الإطار ليكون محمولاً. ابدأ بـ [دليل Docker المحلي السريع](https://www.agent-native.com/docs/deployment#self-host-quickstart)، ثم استخدم [Deployment](/docs/deployment) للإنتاج.
 
 ### ما هي نماذج الذكاء الاصطناعي التي يدعمها؟ {#what-models}
 

@@ -688,7 +688,7 @@ export default defineAction({
 });
 ```
 
-`GET` + `readOnly` maintient l'action sans effet secondaire et en dehors de l'événement de changement d'actualisation de l'écran. `publicAgent` est l'**opt-in explicite** — un itinéraire Web public n'implique jamais une exposition publique à MCP/A2A ; voir [Actions](/docs/actions). Conception/contenu ingéré actions MUST lit l'état **en direct** (le document collaboratif Yjs, pas la colonne d'instantané de base de données obsolète) afin que l'agent externe voie ce que l'utilisateur a réellement à l'écran. Le `pull-document` de Content transfère d'abord toute session de collaboration en direct ouverte vers SQL ; Le `get-design-snapshot` de Design renvoie le contenu du fichier Yjs en direct ainsi que les valeurs de réglage résolues par l'utilisateur.
+`GET` + `readOnly` maintient l'action sans effet secondaire et en dehors de l'événement de changement d'actualisation de l'écran. `publicAgent` est l'**opt-in explicite** — un itinéraire Web public n'implique jamais une exposition publique à MCP/A2A ; voir [Actions](/docs/actions-overview). Conception/contenu ingéré actions MUST lit l'état **en direct** (le document collaboratif Yjs, pas la colonne d'instantané de base de données obsolète) afin que l'agent externe voie ce que l'utilisateur a réellement à l'écran. Le `pull-document` de Content transfère d'abord toute session de collaboration en direct ouverte vers SQL ; Le `get-design-snapshot` de Design renvoie le contenu du fichier Yjs en direct ainsi que les valeurs de réglage résolues par l'utilisateur.
 
 ## Avancé : développement local et configuration manuelle {#advanced}
 
@@ -816,5 +816,5 @@ Le flux `connect` hébergé de secours ne copie jamais le secret partagé du dé
 - [MCP Protocol](/docs/mcp-protocol) : le serveur MCP monté automatiquement et le méta-outil `ask-agent`.
 - [MCP Clients](/docs/mcp-clients) — la direction symétrique : votre application consomme des serveurs MCP locaux/distants.
 - [A2A Protocol](/docs/a2a-protocol) : le méta-outil `ask-agent` et les appels homologues JSON-RPC.
-- [Actions](/docs/actions) — définissant actions, `publicAgent`, GET / `readOnly`.
+- [Actions](/docs/actions-overview) — définissant actions, `publicAgent`, GET / `readOnly`.
 - [Context Awareness](/docs/context-awareness) — les `navigate` / `application_state` contractent les ponts à route ouverte.

@@ -1,13 +1,12 @@
 import type { CalendarEvent } from "@shared/api";
-import {
-  addDays,
-  differenceInMinutes,
-  format,
-  parseISO,
-  startOfDay,
-} from "date-fns";
 
-import { dateTimeInTimezoneToIso } from "@/lib/event-form-utils";
+import {
+  dateKeyToTimezoneIso,
+  dateToCalendarDateKey,
+  getBrowserTimezone,
+  getDateTimePartsInTimezone,
+  getEventSegmentForCalendarDay,
+} from "@/lib/calendar-timezone";
 
 export interface OutOfOfficeSegment {
   topMinutes: number;
@@ -20,34 +19,6 @@ export function isOutOfOfficeEvent(
   event: Pick<CalendarEvent, "eventType">,
 ): boolean {
   return event.eventType === "outOfOffice";
-}
-
-function localDateTimeParts(value: string, timeZone: string) {
-  const date = parseISO(value);
-  if (Number.isNaN(date.getTime())) return null;
-
-  try {
-    const parts = new Intl.DateTimeFormat("en-US", {
-      timeZone,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      hourCycle: "h23",
-    }).formatToParts(date);
-    const valueFor = (type: Intl.DateTimeFormatPartTypes) =>
-      parts.find((part) => part.type === type)?.value;
-    const year = valueFor("year");
-    const month = valueFor("month");
-    const day = valueFor("day");
-    const hour = valueFor("hour");
-    const minute = valueFor("minute");
-    if (!year || !month || !day || !hour || !minute) return null;
-    return { date: `${year}-${month}-${day}`, hour, minute };
-  } catch {
-    return null;
-  }
 }
 
 export function isFullDayOutOfOfficeEvent(
@@ -68,19 +39,15 @@ export function getFullDayOutOfOfficeDateRange(
   if (!isOutOfOfficeEvent(event) || event.allDay) return null;
   const timeZone = event.startTimeZone ?? event.endTimeZone;
   if (!timeZone) return null;
-  const start = localDateTimeParts(event.start, timeZone);
-  const end = localDateTimeParts(event.end, timeZone);
+  const start = getDateTimePartsInTimezone(event.start, timeZone);
+  const end = getDateTimePartsInTimezone(event.end, timeZone);
   const isFullDay =
     start !== null &&
     end !== null &&
     new Date(event.start).getTime() ===
-      new Date(
-        dateTimeInTimezoneToIso(start.date, "00:00", timeZone),
-      ).getTime() &&
+      new Date(dateKeyToTimezoneIso(start.date, "00:00", timeZone)).getTime() &&
     new Date(event.end).getTime() ===
-      new Date(
-        dateTimeInTimezoneToIso(end.date, "00:00", timeZone),
-      ).getTime() &&
+      new Date(dateKeyToTimezoneIso(end.date, "00:00", timeZone)).getTime() &&
     end.date > start.date;
   return isFullDay
     ? { startDate: start.date, endDateExclusive: end.date }
@@ -96,36 +63,37 @@ export function fullDayOutOfOfficeCoversDate(
 ): boolean {
   const range = getFullDayOutOfOfficeDateRange(event);
   if (!range) return false;
-  const dateString = format(date, "yyyy-MM-dd");
+  const dateString = dateToCalendarDateKey(date);
   return dateString >= range.startDate && dateString < range.endDateExclusive;
 }
 
 /** Return the portion of a timed out-of-office event visible on one day. */
 export function getOutOfOfficeSegment(
-  event: Pick<CalendarEvent, "start" | "end">,
+  event: Pick<CalendarEvent, "start" | "end" | "startTimeZone" | "endTimeZone">,
   day: Date,
+  timezone: string = event.startTimeZone ??
+    event.endTimeZone ??
+    getBrowserTimezone(),
 ): OutOfOfficeSegment | null {
-  const eventStart = parseISO(event.start);
-  const eventEnd = parseISO(event.end);
-  const dayStart = startOfDay(day);
-  const dayEnd = addDays(dayStart, 1);
-
-  if (eventStart >= dayEnd || eventEnd <= dayStart) return null;
-
-  const segmentStart = eventStart > dayStart ? eventStart : dayStart;
-  const segmentEnd = eventEnd < dayEnd ? eventEnd : dayEnd;
+  const segment = getEventSegmentForCalendarDay(event, day, timezone);
+  if (!segment) return null;
 
   return {
-    topMinutes: Math.max(0, differenceInMinutes(segmentStart, dayStart)),
-    durationMinutes: Math.max(1, differenceInMinutes(segmentEnd, segmentStart)),
-    startsOnDay: eventStart >= dayStart && eventStart < dayEnd,
-    endsOnDay: eventEnd > dayStart && eventEnd <= dayEnd,
+    topMinutes: segment.topMinutes,
+    durationMinutes: segment.durationMinutes,
+    startsOnDay: segment.startsOnDay,
+    endsOnDay: segment.endsOnDay,
   };
 }
 
 export function getFirstVisibleOutOfOfficeDayIndex(
-  event: Pick<CalendarEvent, "start" | "end">,
+  event: Pick<CalendarEvent, "start" | "end" | "startTimeZone" | "endTimeZone">,
   days: Date[],
+  timezone: string = event.startTimeZone ??
+    event.endTimeZone ??
+    getBrowserTimezone(),
 ): number {
-  return days.findIndex((day) => getOutOfOfficeSegment(event, day) !== null);
+  return days.findIndex(
+    (day) => getOutOfOfficeSegment(event, day, timezone) !== null,
+  );
 }

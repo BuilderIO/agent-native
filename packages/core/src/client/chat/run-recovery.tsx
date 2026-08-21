@@ -23,8 +23,11 @@ import { useState, useEffect, useCallback, useRef } from "react";
 
 import { agentNativePath } from "../api-path.js";
 import { writeClipboardText } from "../clipboard.js";
-import { isProviderAuthenticationError } from "../error-format.js";
-import { useT } from "../i18n.js";
+import {
+  isProviderAuthenticationError,
+  localizeKnownChatErrorText,
+} from "../error-format.js";
+import { useFormatters, useT } from "../i18n.js";
 import { AgentProviderSetupForm } from "../settings/ProviderSetupForm.js";
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 import { cn } from "../utils.js";
@@ -124,10 +127,17 @@ export function runErrorKey(info: RunErrorInfo): string {
   return `${info.runId ?? ""}:${info.errorCode ?? ""}:${info.message}`;
 }
 
-export function runErrorHeadline(info: RunErrorInfo): string {
-  return info.recoverable === true
-    ? "The agent stopped before finishing"
-    : "The agent hit an error";
+export function runErrorHeadline(
+  info: RunErrorInfo,
+  labels: {
+    recoverable: string;
+    terminal: string;
+  } = {
+    recoverable: "The agent stopped before finishing",
+    terminal: "The agent hit an error",
+  },
+): string {
+  return info.recoverable === true ? labels.recoverable : labels.terminal;
 }
 
 export function getRequestModeMetadata(
@@ -189,9 +199,30 @@ function isConnectionRecoveryRunError(info: RunErrorInfo): boolean {
   );
 }
 
+function isMissingLlmProviderRunError(info: RunErrorInfo): boolean {
+  const code = (info.errorCode ?? "").toLowerCase();
+  const text = [info.message, info.details].filter(Boolean).join("\n");
+  const hasCredentialSetupText =
+    /no llm provider(?: key)? (?:is connected|was found)|missing credentials|missing api key|missing_api_key|(?:api[_ -]?key|auth[_ -]?token)\s*(?:(?:is|was)\s+)?(?:not\s+(?:set|configured|available|present|provided|found)|missing|unavailable|empty|unset|unconfigured)/i.test(
+      text,
+    );
+  return (
+    hasCredentialSetupText ||
+    ((code === "missing_credentials" || code === "missing_api_key") &&
+      !text.trim())
+  );
+}
+
+function isDesktopChatRelayRunError(info: RunErrorInfo): boolean {
+  return [info.message, info.details].some(
+    (value): value is string =>
+      typeof value === "string" && /desktop app chat relay failed/i.test(value),
+  );
+}
+
 // ─── BuilderConnectCta ────────────────────────────────────────────────────────
 // Renders a single row with left-aligned copy and a right-aligned action.
-// Click opens the Builder CLI-auth popup via the shared
+// Click opens the Builder OAuth popup via the shared
 // `useBuilderConnectFlow` hook (which owns the synchronous window.open,
 // the 2s status poll, and the focus-refresh). On success the hook broadcasts
 // a config-change event so the chat clears its local `missingApiKey` gate.
@@ -208,6 +239,7 @@ export function BuilderConnectCta({
   variant?: "primary" | "compact";
   onConnected?: () => void;
 }) {
+  const t = useT();
   const { configured, orgName, connecting, error, start } =
     useBuilderConnectFlow({
       trackingSource: "assistant_chat_builder_cta",
@@ -219,7 +251,9 @@ export function BuilderConnectCta({
       return (
         <span className="agent-builder-setup-card__builder-button inline-flex h-8 items-center gap-1.5 whitespace-nowrap rounded-md border border-border bg-background px-2.5 text-[11px] font-medium text-foreground">
           <IconCheck size={11} className="text-emerald-500" />
-          {orgName ? `Connected to ${orgName}` : "Connected"}
+          {orgName
+            ? t("agentChat.setup.connectedTo", { organization: orgName })
+            : t("agentChat.setup.connected")}
         </span>
       );
     }
@@ -236,14 +270,14 @@ export function BuilderConnectCta({
           {connecting ? (
             <>
               <IconLoader2 size={10} className="animate-spin" />
-              Waiting…
+              {t("agentChat.common.waiting")}
             </>
           ) : (
-            "Connect Builder.io"
+            t("agentChat.setup.connectBuilder")
           )}
         </button>
         {error && (
-          <p className="max-w-[13rem] text-[10px] leading-snug text-destructive sm:text-right">
+          <p className="max-w-[13rem] text-[10px] leading-snug text-destructive sm:text-end">
             {error}
           </p>
         )}
@@ -260,12 +294,16 @@ export function BuilderConnectCta({
         <div className="min-w-0 flex-1">
           <div className="text-xs font-medium text-foreground">Builder.io</div>
           <p className="text-[11px] text-muted-foreground mt-0.5">
-            {orgName ? `Connected — ${orgName}` : "Connected"}
+            {orgName
+              ? t("agentChat.setup.connectedOrganization", {
+                  organization: orgName,
+                })
+              : t("agentChat.setup.connected")}
           </p>
         </div>
-        <span className="ml-auto inline-flex items-center gap-1 shrink-0 rounded-md bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-500">
+        <span className="ms-auto inline-flex items-center gap-1 shrink-0 rounded-md bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-500">
           <IconCheck size={10} />
-          Connected
+          {t("agentChat.setup.connected")}
         </span>
       </div>
     );
@@ -275,10 +313,10 @@ export function BuilderConnectCta({
     <div className={containerClass}>
       <div className="min-w-0 flex-1">
         <div className="text-xs font-medium text-foreground">
-          Connect Builder.io
+          {t("agentChat.setup.connectBuilder")}
         </div>
         <p className="text-[11px] text-muted-foreground mt-0.5 max-w-[220px]">
-          Free credits for LLM, hosting, and more — no API key needed
+          {t("agentChat.setup.freeCredits")}
         </p>
         {error && <p className="mt-1 text-[10px] text-destructive">{error}</p>}
       </div>
@@ -286,16 +324,16 @@ export function BuilderConnectCta({
         type="button"
         onClick={() => start()}
         disabled={connecting}
-        className="ml-auto inline-flex items-center gap-1 shrink-0 rounded-md bg-foreground px-3 py-1.5 text-[11px] font-medium no-underline text-background hover:opacity-90 disabled:opacity-60 disabled:cursor-wait"
+        className="ms-auto inline-flex items-center gap-1 shrink-0 rounded-md bg-foreground px-3 py-1.5 text-[11px] font-medium no-underline text-background hover:opacity-90 disabled:opacity-60 disabled:cursor-wait"
         aria-busy={connecting}
       >
         {connecting ? (
           <>
             <IconLoader2 size={10} className="animate-spin" />
-            Waiting…
+            {t("agentChat.common.waiting")}
           </>
         ) : (
-          "Connect"
+          t("agentChat.common.connect")
         )}
       </button>
     </div>
@@ -356,7 +394,7 @@ export function BuilderSetupContent({
           className={cn(
             "agent-builder-setup-card__actions flex shrink-0",
             sidebarLayout
-              ? "flex-col items-start gap-1 sm:items-center"
+              ? "flex-row items-center gap-1"
               : "flex-nowrap items-center gap-2",
           )}
         >
@@ -391,11 +429,13 @@ export function BuilderSetupContent({
 export function BuilderSetupCard({
   onConnected,
   bouncePulse,
+  attached = false,
   fullWidth,
   layout = "default",
 }: {
   onConnected?: () => void;
   bouncePulse?: number;
+  attached?: boolean;
   fullWidth?: boolean;
   layout?: BuilderSetupCardLayout;
 }) {
@@ -420,6 +460,7 @@ export function BuilderSetupCard({
       className={cn(
         "agent-builder-setup-card",
         sidebarLayout && "agent-builder-setup-card--sidebar",
+        attached && "agent-builder-setup-card--attached",
         fullWidth
           ? "w-full px-3 pb-2"
           : sidebarLayout
@@ -456,27 +497,38 @@ export function RunErrorRecoveryCard({
   onDismiss: () => void;
   onProviderConnected?: () => void;
 }) {
+  const t = useT();
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">(
     "idle",
   );
   const [forking, setForking] = useState(false);
   const [forkError, setForkError] = useState<string | null>(null);
+  const [providerConnected, setProviderConnected] = useState(false);
+  const retryRequestedRef = useRef(false);
+  const [retryRequested, setRetryRequested] = useState(false);
   const builderReconnect = useBuilderConnectFlow({
     trackingSource: "assistant_chat_reconnect_error",
   });
   const canRecover = info.recoverable === true;
   const shouldShowBuilderReconnect = isBuilderReconnectRunError(info);
+  const shouldShowProviderSetup =
+    isMissingLlmProviderRunError(info) || isDesktopChatRelayRunError(info);
   const isProviderAuthError = isProviderAuthenticationError(
     [info.message, info.details].filter(Boolean).join("\n"),
     info.errorCode,
   );
   // Blocked on something the reader goes and fixes elsewhere, then comes back
-  // to. Without a retry the card is a dead end and its own copy ("then retry")
-  // points at a button that isn't there.
+  // to. Recoverable runs and email verification keep a retry path; rejected
+  // provider credentials use the setup flow below so the same bad key is not
+  // replayed.
   const isUnblockableExternally =
     info.errorCode === "email_verification_required";
-  const canRetry = canRecover || isProviderAuthError || isUnblockableExternally;
+  // Rejected provider keys already have a recovery path: update/connect the
+  // credential, then let the setup callback re-run the turn. Exposing a
+  // separate retry button here just replays the same rejected credential and
+  // turns a permanent auth failure into a loop.
+  const canRetry = canRecover || isUnblockableExternally;
   const builderReconnectResolved =
     shouldShowBuilderReconnect &&
     builderReconnect.hasFetchedStatus &&
@@ -484,7 +536,9 @@ export function RunErrorRecoveryCard({
   const isQueryError = isProviderQueryRunError(info);
   const isConnectionRecoveryError = isConnectionRecoveryRunError(info);
   const copyLabel =
-    info.runId || info.errorCode || info.details ? "Copy debug" : "Copy";
+    info.runId || info.errorCode || info.details
+      ? t("agentChat.recovery.copyDebug")
+      : t("agentChat.common.copy");
   const copyDetails = useCallback(() => {
     const text = [
       info.message,
@@ -511,8 +565,20 @@ export function RunErrorRecoveryCard({
 
   const handleProviderConnected = useCallback(() => {
     onProviderConnected?.();
+    onRetry();
     onDismiss();
-  }, [onDismiss, onProviderConnected]);
+  }, [onDismiss, onProviderConnected, onRetry]);
+
+  const handleMissingProviderConnected = useCallback(() => {
+    setProviderConnected(true);
+    onProviderConnected?.();
+  }, [onProviderConnected]);
+  const handleMissingProviderRetry = useCallback(() => {
+    if (retryRequestedRef.current) return;
+    retryRequestedRef.current = true;
+    setRetryRequested(true);
+    onRetry();
+  }, [onRetry]);
 
   const handleFork = useCallback(async () => {
     if (!onFork || forking) return;
@@ -521,20 +587,45 @@ export function RunErrorRecoveryCard({
     try {
       const result = await onFork();
       if (result === false) {
-        setForkError("Could not fork this chat. Try starting a new chat.");
+        setForkError(t("agentChat.recovery.forkFailed"));
       }
     } catch {
-      setForkError("Could not fork this chat. Try starting a new chat.");
+      setForkError(t("agentChat.recovery.forkFailed"));
     } finally {
       setForking(false);
     }
-  }, [forking, onFork]);
+  }, [forking, onFork, t]);
 
   useEffect(() => {
     if (builderReconnectResolved) {
       onDismiss();
     }
   }, [builderReconnectResolved, onDismiss]);
+
+  if (shouldShowProviderSetup) {
+    return (
+      <div className="w-full">
+        <BuilderSetupCard
+          fullWidth
+          layout="sidebar"
+          onConnected={handleMissingProviderConnected}
+        />
+        {providerConnected ? (
+          <div className="flex justify-center px-3 pt-1">
+            <button
+              type="button"
+              onClick={handleMissingProviderRetry}
+              disabled={retryRequested}
+              className="inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90 disabled:cursor-wait disabled:opacity-60"
+            >
+              <IconRefresh size={13} />
+              {t("agentChat.common.retry")}
+            </button>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
 
   return (
     <div className="rounded-lg border border-amber-500/25 bg-amber-500/[0.06] p-3 text-sm">
@@ -544,10 +635,13 @@ export function RunErrorRecoveryCard({
         </span>
         <div className="min-w-0 flex-1">
           <div className="font-medium text-foreground">
-            {runErrorHeadline(info)}
+            {runErrorHeadline(info, {
+              recoverable: t("agentChat.error.stopped"),
+              terminal: t("agentChat.error.failed"),
+            })}
           </div>
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-            {info.message}
+            {localizeKnownChatErrorText(info.message, t)}
           </p>
           {isProviderAuthError && (
             <div className="mt-3 rounded-md border border-border/70 bg-background/60 p-2.5">
@@ -559,15 +653,12 @@ export function RunErrorRecoveryCard({
           )}
           {shouldShowBuilderReconnect && !builderReconnectResolved && (
             <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-              The current Builder.io or model-provider credential was rejected.
-              Reconnect Builder.io (free tier available), then retry this
-              message.
+              {t("agentChat.recovery.credentialRejected")}
             </p>
           )}
           {isConnectionRecoveryError && (
             <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-              If retry lands on the same error, start a new chat session and
-              continue from what already changed.
+              {t("agentChat.recovery.newChatHint")}
             </p>
           )}
           {(info.runId || info.errorCode || info.details) && (
@@ -583,7 +674,7 @@ export function RunErrorRecoveryCard({
                   detailsOpen && "rotate-180",
                 )}
               />
-              Details
+              {t("agentChat.common.details")}
             </button>
           )}
           {detailsOpen && (
@@ -601,13 +692,13 @@ export function RunErrorRecoveryCard({
         <button
           type="button"
           onClick={onDismiss}
-          aria-label="Dismiss"
+          aria-label={t("agentChat.common.dismiss")}
           className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-background/80 hover:text-foreground"
         >
           <IconX size={14} />
         </button>
       </div>
-      <div className="mt-3 flex flex-wrap items-center gap-2">
+      <div className="mt-3 flex min-w-0 items-center gap-2">
         {shouldShowBuilderReconnect && !builderReconnectResolved && (
           <button
             type="button"
@@ -619,79 +710,102 @@ export function RunErrorRecoveryCard({
               <IconLoader2 size={13} className="animate-spin" />
             ) : null}
             {builderReconnect.connecting
-              ? "Connecting Builder.io"
-              : "Reconnect Builder.io"}
+              ? t("agentChat.recovery.connectingBuilder")
+              : t("agentChat.recovery.reconnectBuilder")}
           </button>
         )}
         {canRecover && (
-          <>
+          <button
+            type="button"
+            onClick={onContinue}
+            className="inline-flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90"
+          >
+            <IconPlayerPlay size={13} />
+            <span className="truncate">{t("agentChat.common.continue")}</span>
+          </button>
+        )}
+        <div className="flex shrink-0 items-center gap-0.5 rounded-md border border-border/70 bg-background/60 p-0.5">
+          {canRetry && (
             <button
               type="button"
-              onClick={onContinue}
-              className="inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90"
+              onClick={onRetry}
+              title={
+                isQueryError
+                  ? t("agentChat.recovery.diagnoseRetry")
+                  : t("agentChat.common.retry")
+              }
+              aria-label={
+                isQueryError
+                  ? t("agentChat.recovery.diagnoseRetry")
+                  : t("agentChat.common.retry")
+              }
+              className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
             >
-              <IconPlayerPlay size={13} />
-              Continue
+              <IconRefresh size={14} />
             </button>
-          </>
-        )}
-        {canRetry && (
-          <button
-            type="button"
-            onClick={onRetry}
-            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-3 text-xs font-medium text-foreground hover:bg-accent"
-          >
-            <IconRefresh size={13} />
-            {isQueryError ? "Diagnose and retry" : "Retry"}
-          </button>
-        )}
-        {canRecover && isConnectionRecoveryError && (
-          <button
-            type="button"
-            onClick={startNewChat}
-            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-3 text-xs font-medium text-foreground hover:bg-accent"
-          >
-            <IconPlus size={13} />
-            New chat
-          </button>
-        )}
-        {canRecover && onFork && !isConnectionRecoveryError && (
-          <button
-            type="button"
-            onClick={handleFork}
-            disabled={forking}
-            title="Fork this conversation into a separate chat thread."
-            aria-label="Fork this conversation into a separate chat thread"
-            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-3 text-xs font-medium text-foreground hover:bg-accent disabled:cursor-wait disabled:opacity-70"
-          >
-            {forking ? (
-              <IconLoader2 size={13} className="animate-spin" />
-            ) : (
-              <IconGitFork size={13} />
-            )}
-            {forking ? "Forking..." : "Fork chat"}
-          </button>
-        )}
-        <button
-          type="button"
-          onClick={copyDetails}
-          className="ml-auto inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium text-muted-foreground hover:bg-background/80 hover:text-foreground"
-        >
-          {copyState === "copied" ? (
-            <IconCheck size={13} />
-          ) : copyState === "failed" ? (
-            <IconX size={13} />
-          ) : (
-            <IconCopy size={13} />
           )}
-          <span aria-live="polite">
-            {copyState === "copied"
-              ? "Copied"
-              : copyState === "failed"
-                ? "Copy failed"
-                : copyLabel}
-          </span>
-        </button>
+          {canRecover && isConnectionRecoveryError && (
+            <button
+              type="button"
+              onClick={startNewChat}
+              title={t("agentChat.tabs.newChat")}
+              aria-label={t("agentChat.tabs.newChat")}
+              className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              <IconPlus size={14} />
+            </button>
+          )}
+          {canRecover && onFork && !isConnectionRecoveryError && (
+            <button
+              type="button"
+              onClick={handleFork}
+              disabled={forking}
+              title={t("agentChat.recovery.forkDescription")}
+              aria-label={t("agentChat.recovery.forkDescription")}
+              className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-wait disabled:opacity-70"
+            >
+              {forking ? (
+                <IconLoader2 size={14} className="animate-spin" />
+              ) : (
+                <IconGitFork size={14} />
+              )}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={copyDetails}
+            title={
+              copyState === "copied"
+                ? t("agentChat.common.copied")
+                : copyState === "failed"
+                  ? t("agentChat.recovery.copyFailed")
+                  : copyLabel
+            }
+            aria-label={
+              copyState === "copied"
+                ? t("agentChat.common.copied")
+                : copyState === "failed"
+                  ? t("agentChat.recovery.copyFailed")
+                  : copyLabel
+            }
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+          >
+            {copyState === "copied" ? (
+              <IconCheck size={14} />
+            ) : copyState === "failed" ? (
+              <IconX size={14} />
+            ) : (
+              <IconCopy size={14} />
+            )}
+            <span className="sr-only" aria-live="polite">
+              {copyState === "copied"
+                ? t("agentChat.common.copied")
+                : copyState === "failed"
+                  ? t("agentChat.recovery.copyFailed")
+                  : copyLabel}
+            </span>
+          </button>
+        </div>
       </div>
       {shouldShowBuilderReconnect && builderReconnect.error && (
         <p className="mt-2 text-xs leading-relaxed text-red-500">
@@ -714,6 +828,8 @@ export function LoopLimitContinueCard({
   info: LoopLimitInfo;
   onContinue: () => void;
 }) {
+  const t = useT();
+  const { formatNumber } = useFormatters();
   const [settings, setSettings] = useState<AgentLoopSettingsResponse | null>(
     null,
   );
@@ -751,9 +867,11 @@ export function LoopLimitContinueCard({
   const scopeLabel =
     settings?.scope === "org"
       ? settings.orgName
-        ? `${settings.orgName} org`
-        : "org"
-      : "your account";
+        ? t("agentChat.limit.namedOrganization", {
+            organization: settings.orgName,
+          })
+        : t("agentChat.limit.organization")
+      : t("agentChat.limit.account");
 
   const saveLimit = useCallback(async (): Promise<boolean> => {
     if (!settings?.canUpdate) return false;
@@ -771,7 +889,10 @@ export function LoopLimitContinueCard({
       );
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error(body?.error ?? `Save failed (${res.status})`);
+        throw new Error(
+          body?.error ??
+            t("agentChat.common.saveFailedStatus", { status: res.status }),
+        );
       }
       setSettings(body as AgentLoopSettingsResponse);
       setValue(String((body as AgentLoopSettingsResponse).maxIterations));
@@ -782,12 +903,14 @@ export function LoopLimitContinueCard({
       setTimeout(() => setSaved(false), 2000);
       return true;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Save failed");
+      setError(
+        err instanceof Error ? err.message : t("agentChat.common.saveFailed"),
+      );
       return false;
     } finally {
       setSaving(false);
     }
-  }, [numericValue, settings?.canUpdate]);
+  }, [numericValue, settings?.canUpdate, t]);
 
   const handleContinue = useCallback(async () => {
     if (hasPendingChange) {
@@ -812,14 +935,16 @@ export function LoopLimitContinueCard({
         </span>
         <div className="min-w-0">
           <p className="text-sm font-medium text-foreground">
-            Step limit reached
+            {t("agentChat.limit.reached")}
           </p>
           <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
-            The agent used{" "}
             {currentLimit
-              ? `${currentLimit.toLocaleString()} steps`
-              : "all available steps"}
-            . Keep going in a fresh turn, or raise the {scopeLabel} limit first.
+              ? t("agentChat.limit.descriptionWithCount", {
+                  count: currentLimit,
+                  formattedCount: formatNumber(currentLimit),
+                  scope: scopeLabel,
+                })
+              : t("agentChat.limit.descriptionAll", { scope: scopeLabel })}
           </p>
         </div>
       </div>
@@ -827,7 +952,7 @@ export function LoopLimitContinueCard({
       <div className="mt-3 flex flex-wrap items-end gap-2">
         <label className="min-w-[116px] flex-1 space-y-1">
           <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-            Max steps
+            {t("agentChat.limit.maxSteps")}
           </span>
           <input
             type="number"
@@ -853,7 +978,7 @@ export function LoopLimitContinueCard({
           ) : saved ? (
             <IconCheck size={12} />
           ) : (
-            "Save"
+            t("agentChat.common.save")
           )}
         </button>
         <button
@@ -862,22 +987,24 @@ export function LoopLimitContinueCard({
           className="inline-flex h-8 items-center gap-1 rounded-md border border-border px-2.5 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
         >
           <IconSettings size={12} />
-          Settings
+          {t("agentChat.common.settings")}
         </button>
         <button
           type="button"
           onClick={handleContinue}
           disabled={saving}
-          className="ml-auto inline-flex h-8 items-center gap-1 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90 disabled:opacity-60"
+          className="ms-auto inline-flex h-8 items-center gap-1 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90 disabled:opacity-60"
         >
-          {hasPendingChange ? "Save and keep going" : "Keep going"}
+          {hasPendingChange
+            ? t("agentChat.limit.saveAndContinue")
+            : t("agentChat.limit.keepGoing")}
           <IconArrowRight size={12} />
         </button>
       </div>
 
       {settings && !settings.canUpdate && (
         <p className="mt-2 text-[11px] text-muted-foreground">
-          Only organization owners and admins can change this limit.
+          {t("agentChat.limit.ownerOnly")}
         </p>
       )}
       {error && <p className="mt-2 text-[11px] text-destructive">{error}</p>}
@@ -902,12 +1029,15 @@ export function PlanModeCallout({
   onImplementPlan: () => void;
   onSwitchToAct: () => void;
 }) {
+  const t = useT();
   return (
     <div className="agent-plan-mode-callout shrink-0 px-3">
-      <div className="ml-auto flex w-fit max-w-full items-center gap-2 rounded-full border border-border/70 bg-background/95 px-2 py-1.5 text-xs text-muted-foreground shadow-sm">
+      <div className="ms-auto flex w-fit max-w-full items-center gap-2 rounded-full border border-border/70 bg-background/95 px-2 py-1.5 text-xs text-muted-foreground shadow-sm">
         <IconClipboardList size={13} className="shrink-0" />
         <span className="min-w-0 truncate">
-          {canImplementPlan ? "Plan ready" : "Plan mode"}
+          {canImplementPlan
+            ? t("agentChat.plan.ready")
+            : t("agentChat.plan.mode")}
         </span>
         {canImplementPlan ? (
           <button
@@ -916,16 +1046,16 @@ export function PlanModeCallout({
             className="inline-flex h-6 shrink-0 items-center gap-1 rounded-full bg-foreground px-2.5 text-[11px] font-medium text-background hover:opacity-90"
           >
             <IconPlayerPlay size={12} />
-            Implement
+            {t("agentChat.plan.implement")}
           </button>
         ) : (
           <button
             type="button"
             onClick={onSwitchToAct}
             className="inline-flex h-6 shrink-0 items-center gap-1 rounded-full border border-border bg-background px-2.5 text-[11px] font-medium text-foreground hover:bg-accent"
-            aria-label="Switch to Act mode"
+            aria-label={t("agentChat.plan.switchToAct")}
           >
-            Act
+            {t("agentChat.plan.act")}
             <IconArrowRight size={12} />
           </button>
         )}

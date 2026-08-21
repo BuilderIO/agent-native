@@ -1,5 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+const installationStoreMocks = vi.hoisted(() => ({
+  getActiveIntegrationInstallationByKey: vi.fn(),
+}));
+
+vi.mock("../installations-store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../installations-store.js")>()),
+  getActiveIntegrationInstallationByKey:
+    installationStoreMocks.getActiveIntegrationInstallationByKey,
+}));
+
 import { slackAdapter } from "./slack.js";
 
 const originalNodeEnv = process.env.NODE_ENV;
@@ -9,6 +19,7 @@ describe("slackAdapter", () => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+    installationStoreMocks.getActiveIntegrationInstallationByKey.mockReset();
     process.env.NODE_ENV = originalNodeEnv;
     delete process.env.SLACK_BOT_TOKEN;
     delete process.env.SLACK_ALLOWED_TEAM_IDS;
@@ -235,6 +246,24 @@ describe("slackAdapter", () => {
     );
   });
 
+  it("converts bare Slack user IDs into mentions", () => {
+    const formatted = slackAdapter().formatAgentResponse(
+      "Please review this with @U0BNS6TLRK8's team.",
+    );
+
+    expect(formatted.text).toBe(
+      "Please review this with <@U0BNS6TLRK8>'s team.",
+    );
+  });
+
+  it("preserves existing Slack mentions", () => {
+    const formatted = slackAdapter().formatAgentResponse(
+      " cc <@U0BNS6TLRK8> and <@W0123456789>",
+    );
+
+    expect(formatted.text).toBe(" cc <@U0BNS6TLRK8> and <@W0123456789>");
+  });
+
   it("rejects Slack events in production when the team allowlist is missing", async () => {
     process.env.NODE_ENV = "production";
 
@@ -275,6 +304,115 @@ describe("slackAdapter", () => {
     expect(warn).toHaveBeenCalledWith(
       expect.stringContaining("SLACK_ALLOWED_TEAM_IDS not set"),
     );
+  });
+
+  it("uses Enterprise Grid scope for the managed-install allowlist fallback", async () => {
+    process.env.NODE_ENV = "production";
+    installationStoreMocks.getActiveIntegrationInstallationByKey.mockResolvedValue(
+      { id: "installation-enterprise" },
+    );
+
+    await expect(
+      slackAdapter().parseIncomingMessage(
+        slackEvent({
+          enterprise_id: "E123",
+          authorizations: [
+            {
+              enterprise_id: "E123",
+              team_id: null,
+              is_enterprise_install: true,
+            },
+          ],
+        }),
+      ),
+    ).resolves.toBeTruthy();
+    expect(
+      installationStoreMocks.getActiveIntegrationInstallationByKey,
+    ).toHaveBeenCalledWith("slack", "enterprise:E123:app:A123");
+  });
+
+  it("accepts an org-wide Enterprise Grid event through a managed installation when a team allowlist exists", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.SLACK_ALLOWED_TEAM_IDS = "T123";
+    installationStoreMocks.getActiveIntegrationInstallationByKey.mockResolvedValue(
+      { id: "installation-enterprise" },
+    );
+
+    await expect(
+      slackAdapter().parseIncomingMessage(
+        slackEvent({
+          team_id: undefined,
+          enterprise_id: "E123",
+          authorizations: [
+            {
+              enterprise_id: "E123",
+              team_id: null,
+              is_enterprise_install: true,
+            },
+          ],
+        }),
+      ),
+    ).resolves.toBeTruthy();
+    expect(
+      installationStoreMocks.getActiveIntegrationInstallationByKey,
+    ).toHaveBeenCalledWith("slack", "enterprise:E123:app:A123");
+  });
+
+  it("accepts a managed Enterprise Grid event with a workspace team ID", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.SLACK_ALLOWED_TEAM_IDS = "T-OTHER";
+    installationStoreMocks.getActiveIntegrationInstallationByKey.mockResolvedValue(
+      { id: "installation-enterprise" },
+    );
+
+    await expect(
+      slackAdapter().parseIncomingMessage(
+        slackEvent({
+          team_id: "T123",
+          enterprise_id: "E123",
+          authorizations: [
+            {
+              enterprise_id: "E123",
+              team_id: "T123",
+              is_enterprise_install: true,
+            },
+          ],
+        }),
+      ),
+    ).resolves.toBeTruthy();
+    expect(
+      installationStoreMocks.getActiveIntegrationInstallationByKey,
+    ).toHaveBeenCalledWith("slack", "enterprise:E123:app:A123");
+  });
+
+  it("prefers the event workspace authorization over an enterprise authorization", async () => {
+    process.env.NODE_ENV = "development";
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const parsed = await slackAdapter().parseIncomingMessage(
+      slackEvent({
+        team_id: "T123",
+        enterprise_id: "E123",
+        authorizations: [
+          {
+            enterprise_id: "E123",
+            team_id: null,
+            is_enterprise_install: true,
+          },
+          {
+            enterprise_id: "E123",
+            team_id: "T123",
+            is_enterprise_install: false,
+          },
+        ],
+      }),
+    );
+
+    expect(parsed?.platformContext).toMatchObject({
+      teamId: "T123",
+      enterpriseId: "E123",
+      isEnterpriseInstall: false,
+    });
   });
 
   it("uses workspace and app ids in the canonical thread key", async () => {
@@ -539,6 +677,68 @@ describe("slackAdapter", () => {
     );
     expect(authorizations).toContain("Bearer managed-token");
     expect(authorizations).not.toContain("Bearer legacy-token");
+  });
+
+  it("preserves Enterprise Grid authorization scope through sender hydration", async () => {
+    process.env.NODE_ENV = "development";
+    process.env.SLACK_ALLOWED_TEAM_IDS = "T123";
+    const resolveBotToken = vi.fn(async () => "enterprise-managed-token");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              ok: true,
+              user: {
+                profile: { email: "enterprise-member@example.test" },
+              },
+            }),
+          ),
+      ),
+    );
+    const adapter = slackAdapter({ resolveBotToken });
+    const parsed = await adapter.parseIncomingMessage(
+      slackEvent({
+        enterprise_id: "E123",
+        event: {
+          type: "message",
+          channel: "D-ENTERPRISE",
+          channel_type: "im",
+          user: "U-ENTERPRISE",
+          text: "check my content",
+          ts: "456.789",
+        },
+        authorizations: [
+          {
+            enterprise_id: "E123",
+            team_id: null,
+            user_id: "U-BOT",
+            is_bot: true,
+            is_enterprise_install: true,
+          },
+        ],
+      }),
+    );
+
+    expect(parsed?.platformContext).toMatchObject({
+      enterpriseId: "E123",
+      isEnterpriseInstall: true,
+    });
+    await expect(
+      adapter.hydrateIncomingIdentity?.(parsed!),
+    ).resolves.toMatchObject({
+      senderEmail: "enterprise-member@example.test",
+      senderVerified: true,
+    });
+    expect(resolveBotToken).toHaveBeenCalledWith(
+      expect.objectContaining({
+        platformContext: expect.objectContaining({
+          enterpriseId: "E123",
+          isEnterpriseInstall: true,
+        }),
+      }),
+    );
   });
 
   it("does not let a legacy token from another Slack app answer the event", async () => {

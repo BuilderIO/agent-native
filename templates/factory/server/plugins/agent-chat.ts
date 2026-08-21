@@ -1,4 +1,5 @@
 import { getOrgContext } from "@agent-native/core/org";
+import "@agent-native/dispatch/server";
 import {
   createAgentChatPlugin,
   loadActionsFromStaticRegistry,
@@ -32,6 +33,14 @@ const INITIAL_TOOL_NAMES = [
   "list-triage-rules",
   "get-triage-config",
   "navigate",
+  "list-workspace-apps",
+  "list-workspace-resources",
+  "create-workspace-resource",
+  "update-workspace-resource",
+  "import-agent",
+  "import-agent-pack",
+  "list-agent-pack",
+  "start-workspace-app-creation",
 ];
 
 const options = {
@@ -48,7 +57,9 @@ current factory graph, and executes only the explicit automation prompts that
 are stored in the organization.
 Use the Factory actions as the source of truth. When a user asks to
 create or change a factory, first inspect the current graph, then propose a complete
-versioned graph through save-factory-graph with source=ai and a concise changeSummary.
+versioned graph through save-factory-graph with source=ai, the inspected graphVersion
+as expectedGraphVersion, and a concise changeSummary. Never save a graph from a
+stale read: refresh and re-propose when the action reports a version conflict.
 Never hide a graph change in prose: the visual map and the saved graph must agree.
 The graph is currently a reviewable blueprint, not the runtime router: automation
 markdown resources are the runtime prompts, while enabled triage rules are evaluated
@@ -59,8 +70,10 @@ provider keys per factory. Start with provider-api-catalog to discover the
 workspace's connected provider APIs, use provider-api-docs when an endpoint is
 unclear, and use provider-api-request with the shared credentials. The normalized
 poll-slack-channel, poll-github-sources, and poll-sentry-errors actions are legacy
-observer adapters for the default triage queue, not a list of Factory integrations
-or a limit on what agents can use.
+observer adapters scoped by factoryId (pass the current factory from automation
+meta or navigation), not a list of Factory integrations or a limit on what agents
+can use. Triage config, inbox, rules, automations, and activity are per-factory;
+reusable agents and workspace integrations stay shared.
 For rule or guard changes, use the triage rule actions and preserve
 normalizeTriagePolicyGuards; do not encode policy in graph JSON.
 Use add-factory-comment for durable comments attached to the selected node or edge.
@@ -78,11 +91,18 @@ requests, broad UX suggestions, vague questions, and incomplete context stay
 manual. Clips, Design, and Content are fully owner-managed: never react, tag
 Builder, auto-approve, or auto-merge those items. Slack clear bugs use the
 thread-preserving start-builder-for-item flow; GitHub and Sentry clear bugs use
-the Builder agent-run flow. For pull requests, auto-approval requires an internal
-BuilderIO author, a clear bug, passing CI, and handled review feedback. Auto-merge
-also requires a verified Factory Builder run. When a user says to do a review-gated
-item now, use the explicit approval action, which records the approver and applies
-the rule's configured executor policy. Keep Slack replies concise and link to the
+the Builder agent-run flow. Slack repeat reports must be clustered by underlying
+symptom, with one Builder thread for the cluster and 👀 on every grouped report.
+After classifying an item, call start-builder-for-item with clearBug true or
+false and a short reason so a skip is recorded. Do not post Slack messages,
+reactions, or @mentions yourself; start-builder-for-item owns the Builder ping.
+Use /address-feedback for the repository feedback workflow. For pull requests,
+follow review-prs: read the complete diff and review evidence, verify current
+BuilderIO membership, preserve the ultra-scary safety gate, and distinguish
+unknown or unresolved checks from clean ones. Auto-merge also requires a
+verified Factory Builder run. When a user says to do a review-gated item now,
+use the explicit approval action, which records the approver and applies the
+rule's configured executor policy. Keep Slack replies concise and link to the
 Factory item when a review is needed. The scheduled builder-io-bot PR babysitter
 posts its exact feedback-fix request through GitHub, persists a 20-minute quiet
 window, and never approves or merges.`,

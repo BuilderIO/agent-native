@@ -14,16 +14,7 @@ function splitQuotedContent(body: string): [string, string] {
 }
 
 export function normalizeSignature(signature?: string | null): string {
-  return stripSignatureImages(signature ?? "").trim();
-}
-
-export function stripSignatureImages(signature: string): string {
-  return signature
-    .replace(
-      /\[!\[[\s\S]*?\]\((?:https?:\/\/|data:image\/)[^)]*\)\]\([^)]*\)/gi,
-      "",
-    )
-    .replace(/!\[[\s\S]*?\]\((?:https?:\/\/|data:image\/)[^)]*\)/gi, "")
+  return (signature ?? "")
     .split("\n")
     .map((line) => line.replace(/[ \t]+$/g, ""))
     .join("\n")

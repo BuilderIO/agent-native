@@ -1,0 +1,214 @@
+---
+title: "總覽"
+description: "Action 是您應用程式所做任何事情的唯一真實來源。用 defineAction() 定義一個 action，它就會同時延伸為代理工具、UI 掛鉤、HTTP、MCP 工具、A2A 工具，以及 CLI 指令。"
+---
+
+# 總覽
+
+Action 是您應用程式所做任何事情的唯一真實來源。用 `defineAction()` 定義一個 action，放進 `actions/` 中即可。以下每一種介面都會自動接手處理它。您只需要撰寫一次邏輯。沒有任何介面會擁有自己的副本，也不會有任何介面與其他介面失去同步。
+
+<Cards columns={2}>
+
+### :robot: [代理工具](/docs/agent-surfaces)
+
+代理會讀取描述與架構，將其視為可呼叫的工具。您可以在對話中要求它執行，例如「回覆這則工單」或「摘要這個對話串」。
+
+### :components: [UI 掛鉤](/docs/client-data)
+
+`useActionQuery()`、`useActionMutation()` 和 `callAction()` 會從 React 呼叫相同的 action。一次點擊和一則聊天訊息執行的是完全相同的操作。
+
+### :server: [框架傳輸](/docs/http-api)
+
+啟動時會自動掛載於 `/_agent-native/actions/<name>`。UI 掛鉤在底層呼叫這個路由，外部的 HTTP 用戶端也能直接呼叫它。
+
+### :plug: [MCP 工具](/docs/actions-other-surfaces#mcp)
+
+對任何 MCP 主機（Claude、Claude Desktop、Cursor、Codex）來說都會顯示為一個工具。當您想讓另一個 AI 用戶端來操作您的應用程式時，可以使用它。
+
+### :network: [A2A 工具](/docs/actions-other-surfaces#a2a)
+
+其他 agent-native 應用程式會透過 A2A 探索並呼叫它。當您工作區中的第二個應用程式需要這個應用程式代為執行操作時，可以使用它。
+
+### :terminal: [CLI 指令](/docs/actions-other-surfaces#cli)
+
+`pnpm action <name>` 可以從終端機執行它。適用於腳本、cron 工作，以及快速的手動測試。
+
+</Cards>
+
+大多數應用程式會在前端與資料庫之間建置一層獨立的 API，而這層只有瀏覽器能呼叫。想擁有相同能力的代理則需要一套自己的、獨立的整合，得再重新寫一次、再維護一次。Agent-native 應用程式省去了這種分裂。UI 和代理呼叫的是完全相同的 action，因此只需要撰寫一份實作，錯誤也只可能藏在一個地方。
+
+<Diagram id="doc-block-actions-overview-2" title="傳統前端 vs. Agent Native" summary="傳統前端呼叫自己的 API 層，只有它自己能存取。在 Agent Native 中，app/ 和代理都呼叫相同的 actions，因此這裡建置的每項功能都能免費供代理呼叫。">
+
+```html
+<div class="diagram-cocmp">
+  <div class="cocmp-col">
+    <div class="cocmp-label diagram-muted">傳統</div>
+    <div class="diagram-node">app/（React 前端）</div>
+    <div class="cocmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <strong>API 層</strong>
+      <small class="diagram-muted">只有前端會呼叫它</small>
+    </div>
+    <div class="cocmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>資料庫</div>
+  </div>
+  <div class="cocmp-vs diagram-muted">vs</div>
+  <div class="cocmp-col">
+    <div class="cocmp-label diagram-muted">Agent Native</div>
+    <div class="cocmp-callers">
+      <div class="diagram-node">app/（React 前端）</div>
+      <div class="diagram-node">代理</div>
+    </div>
+    <div class="cocmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <span class="diagram-pill accent">Actions</span
+      ><small class="diagram-muted">平等的夥伴，相同的操作</small>
+    </div>
+    <div class="cocmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>SQL 資料庫</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-cocmp {
+  display: flex;
+  align-items: flex-start;
+  gap: 28px;
+  flex-wrap: wrap;
+}
+.cocmp-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 180px;
+}
+.cocmp-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+.cocmp-callers {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.cocmp-vs {
+  font-size: 13px;
+  font-weight: 600;
+  padding-top: 52px;
+}
+.diagram-cocmp .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 16px;
+  align-self: stretch;
+  align-items: center;
+}
+.cocmp-arrow {
+  font-size: 18px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+如果 UI 和代理都需要執行某件事，請使用 action，而不是自訂路由。對於少數路由形式的協定才是正確選擇的情況，請參閱[偏好以 Actions 處理應用程式操作](/docs/server-overview#actions-first)。
+
+## Actions 在架構中的位置 {#role}
+
+`app/`（請參閱 [Client 總覽](/docs/client-overview#role)）和代理都會解析到相同的 actions 與相同的 SQL 資料庫。這一層並沒有另一個代理無法觸及的獨立「應用後端」。建置一項功能，代表在這裡定義一個操作，就能同時取得一個 UI、一個代理工具，以及其他每一種介面。
+
+`actions/` 本身是一個扁平的資料夾。每個檔案就是一個 action：一個以檔案預設匯出（default export）方式匯出的 `defineAction()` 呼叫。框架會在啟動時掃描這個資料夾，並掛載找到的每個檔案。不需要任何註冊步驟，也沒有需要手動維護的索引檔案。
+
+一個 action 的 `run()` 主體就是一般的伺服器程式碼，因此它通常會用到其他幾個目錄：
+
+<FileTree
+  id="doc-block-actions-overview-filetree"
+  entries={[
+    {
+      path: "actions/reply-to-email.ts",
+      note: "每個檔案一個 action。匯出一個 defineAction() 呼叫，框架會自動掛載它。",
+    },
+    {
+      path: "server/db/schema.ts",
+      note: "大多數 action 讀寫時使用的 Drizzle 資料表定義。",
+    },
+    {
+      path: "server/lib/access.ts",
+      note: "跨 action 共用的存取守衛（accessFilter、assertAccess、authorize）。",
+    },
+    {
+      path: "shared/feature-flags.ts",
+      note: "一個 action 與一個伺服器外掛都會檢查的旗標定義。",
+    },
+    {
+      path: "app/components/ReplyButton.tsx",
+      note: "透過 useActionMutation 從 UI 呼叫這個 action。",
+    },
+  ]}
+/>
+
+`actions/` 之外的任何程式碼都不應該直接 import 一個 action 的 `run` 函式。請改用上述其中一種介面來呼叫它：代理工具、UI 掛鉤、HTTP、MCP、A2A 或 CLI。這些路徑都會執行相同的架構驗證、存取檢查與稽核記錄。
+
+## 從一個 action 開始 {#hello-action}
+
+chat-first 應用程式中的第一個操作可以非常小。在 Chat 範本中，
+取代 `actions/hello.ts`，或在它旁邊新增一個檔案：
+
+```ts
+// actions/hello.ts
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Say hello from the local agent.",
+  schema: z.object({
+    name: z.string().default("world"),
+  }),
+  http: { method: "GET" },
+  readOnly: true,
+  run: async ({ name }) => {
+    return { message: `Hello, ${name}!` };
+  },
+});
+```
+
+從同一個資料夾執行它：
+
+```bash
+pnpm action hello '{"name":"Steve"}'
+```
+
+CLI 接受 JSON 物件作為 action 的輸入，這與代理已經在使用的結構化
+工具呼叫方式相符。簡單的旗標對於快速手動執行仍然可行：
+
+```bash
+pnpm action hello --name Steve
+```
+
+接著針對這個資料夾執行 app-agent 迴圈：
+
+```bash
+npx agent-native agent "Call hello for Steve and explain the result"
+```
+
+這與您的排程工作、聊天 UI、外部 MCP 工具，以及未來畫面所使用的是同一個
+app-agent 迴圈。Chat 與領域範本是用來在 actions 周圍加上 UI，而不是
+action 本身的必要前提。
+
+## 下一步是什麼
+
+- [**定義 Actions**](/docs/actions-defining) — `defineAction()` 的結構、架構與 HTTP 設定
+- [**存取與授權**](/docs/actions-access-control) — 曝露旗標、`ctx` 範圍限定，以及 `authorize`
+- [**執行情境**](/docs/actions-run-context) — 完整的 `ctx` 欄位表
+- [**其他介面**](/docs/actions-other-surfaces) — 原生聊天 UI、CLI、A2A、MCP，以及標準 actions
+- [**進階與舊版**](/docs/actions-advanced) — 功能旗標閘控，以及舊版 CLI 風格的 actions
+- [**總覽**](/docs/client-overview) — 這份相同契約中 `app/` 端的內容
+- [**資料與同步**](/docs/client-data) — UI 中的 `useActionQuery`、`useActionMutation` 與 `callAction`
+- [**Agent 介面**](/docs/agent-surfaces) — 一個 action 如何從聊天工具成長為完整畫面

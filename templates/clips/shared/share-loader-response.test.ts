@@ -14,4 +14,12 @@ describe("privateShareLoaderData", () => {
     expect(headers.get("Cache-Control")).toBe("private, max-age=0, no-store");
     expect(headers.get("Referrer-Policy")).toBe("no-referrer");
   });
+
+  it("preserves an access-denied status without making the response cacheable", () => {
+    const result = privateShareLoaderData({ recording: null }, 403) as {
+      init: { status: number };
+    };
+
+    expect(result.init.status).toBe(403);
+  });
 });

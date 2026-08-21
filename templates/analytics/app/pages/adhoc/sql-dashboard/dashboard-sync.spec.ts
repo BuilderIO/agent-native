@@ -3,10 +3,33 @@ import { describe, expect, it } from "vitest";
 import {
   createDashboardAdoptionHold,
   dashboardPrefetchInitialData,
+  shouldShowDashboardLoadError,
   shouldAdoptDashboardQueryResult,
 } from "./dashboard-sync";
 
 describe("dashboard sync adoption", () => {
+  it("shows a retryable load error when the first dashboard request fails", () => {
+    expect(
+      shouldShowDashboardLoadError({
+        dashboardId: "dash",
+        isError: true,
+        loaded: false,
+        hasDashboard: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps an already-rendered dashboard visible after a background failure", () => {
+    expect(
+      shouldShowDashboardLoadError({
+        dashboardId: "dash",
+        isError: true,
+        loaded: true,
+        hasDashboard: true,
+      }),
+    ).toBe(false);
+  });
+
   it("does not seed initial data from stale non-null prefetch snapshots", () => {
     const snapshot = {
       data: { id: "dash", panels: [{ id: "old" }] },

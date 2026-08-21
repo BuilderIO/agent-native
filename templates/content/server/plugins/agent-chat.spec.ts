@@ -49,4 +49,32 @@ describe("Content agent chat plugin", () => {
       "Do not call view-screen at the start of a turn or repeatedly",
     );
   });
+
+  it("keeps the direct authenticated A2A surface to bounded database reads", async () => {
+    await import("./agent-chat.js");
+
+    expect(mocks.createAgentChatPlugin).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appId: "content",
+        mcp: {
+          connectorCatalog: [
+            "list-content-databases",
+            "describe-content-database",
+          ],
+        },
+      }),
+    );
+  });
+
+  it("rolls selected-receiver ownership out through Content's app-owned flag", async () => {
+    const { A2A_RECEIVER_OWNERSHIP_FLAG } =
+      await import("../../shared/feature-flags.js");
+    await import("./agent-chat.js");
+
+    expect(mocks.createAgentChatPlugin).toHaveBeenCalledWith(
+      expect.objectContaining({
+        a2aReceiverOwnershipFlag: A2A_RECEIVER_OWNERSHIP_FLAG,
+      }),
+    );
+  });
 });

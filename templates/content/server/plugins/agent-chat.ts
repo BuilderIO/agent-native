@@ -5,6 +5,7 @@ import {
 } from "@agent-native/core/server";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
+import { A2A_RECEIVER_OWNERSHIP_FLAG } from "../../shared/feature-flags.js";
 import {
   publicDocumentExtraContext,
   resolvePublicViewerOwner,
@@ -32,8 +33,12 @@ const INITIAL_TOOL_NAMES = [
 export default createAgentChatPlugin({
   appId: "content",
   durableBackgroundRuns: true,
+  a2aReceiverOwnershipFlag: A2A_RECEIVER_OWNERSHIP_FLAG,
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   initialToolNames: INITIAL_TOOL_NAMES,
+  mcp: {
+    connectorCatalog: ["list-content-databases", "describe-content-database"],
+  },
   anonymousOwner: resolvePublicViewerOwner,
   extraContext: publicDocumentExtraContext,
   // Enable sandboxed JavaScript execution so Content agents can fetch,

@@ -1,3 +1,6 @@
+import { getAppConfig } from "../app-config/index.js";
+import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
+
 /**
  * Whether workspace OAuth callbacks use the root framework relay.
  *
@@ -8,6 +11,7 @@
  * the mounted app that initiated it.
  */
 export function isWorkspaceOAuthCallbackRelayEnabled(): boolean {
+  const workspace = getAppConfig().workspace;
   const metaEnv = (
     import.meta as unknown as {
       env?: Record<string, string | undefined>;
@@ -15,12 +19,14 @@ export function isWorkspaceOAuthCallbackRelayEnabled(): boolean {
   ).env;
 
   return (
+    workspace.isWorkspace === true ||
+    typeof workspace.appsJson === "string" ||
     [
       process.env.AGENT_NATIVE_WORKSPACE,
       process.env.VITE_AGENT_NATIVE_WORKSPACE,
       metaEnv?.AGENT_NATIVE_WORKSPACE,
       metaEnv?.VITE_AGENT_NATIVE_WORKSPACE,
-    ].some((value) => value === "1" || value === "true") ||
+    ].some((value) => isTruthyRuntimeValue(value)) ||
     [
       process.env.AGENT_NATIVE_WORKSPACE_APP_ID,
       process.env.VITE_AGENT_NATIVE_WORKSPACE_APP_ID,

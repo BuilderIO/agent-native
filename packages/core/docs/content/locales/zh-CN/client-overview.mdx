@@ -92,7 +92,7 @@ description: "app/ 和 public/ 目录：您在其中构建代理本机应用程�
 
 ## 客户端的定位 {#role}
 
-浏览器请求、代理循环和外部 API 客户端都会解析到相同的 actions 和相同的 SQL 数据库——这一层并没有一个代理无法访问的独立"应用后端"。在这里构建功能，意味着在代理已经拥有的操作之上构建 UI，或者定义一个新 action 并同时为它获得一个 UI。关于这份契约中操作那一侧的内容，请参阅 [Actions](/docs/actions)。
+浏览器请求、代理循环和外部 API 客户端都会解析到相同的 actions 和相同的 SQL 数据库——这一层并没有一个代理无法访问的独立"应用后端"。在这里构建功能，意味着在代理已经拥有的操作之上构建 UI，或者定义一个新 action 并同时为它获得一个 UI。关于这份契约中操作那一侧的内容，请参阅 [Actions](/docs/actions-overview)。
 
 本页涵盖您在其中构建的目录，以及没有其他文档介绍的浏览器运行时部分（`root.tsx`、`public/`）。将您的组件与 actions 和代理连接起来的 React 钩子则位于各自专门的页面上：
 
@@ -201,6 +201,6 @@ import { cn } from "@agent-native/toolkit/utils";
 - [**同步内部机制**](/docs/client-sync-internals) — 用于同步原始 `useQuery` 的 `useChangeVersion`
 - [**入口点**](/docs/client-entry-points) — SSR 引导自定义
 - [**路由**](/docs/client-routing) — 基于文件的页面、动态参数与导航
-- [**Actions**](/docs/actions) — 每个数据钩子背后的 `defineAction` 界面
+- [**Actions**](/docs/actions-overview) — 每个数据钩子背后的 `defineAction` 界面
 - [**自定义设计系统**](/docs/custom-design-system) — 通过 `app/design-system.ts` 换入您自己的组件库
 - [**身份验证**](/docs/authentication) — `AppProviders` 在私有路径上运行的会话检查

@@ -12,8 +12,11 @@ import {
   useBuilderStatus,
   type SettingsSearchEntry,
 } from "@agent-native/core/client/settings";
-import type { ClipsDefaultVisibility } from "@shared/clips-ai-prefs";
-import { useEffect, useMemo, useState } from "react";
+import {
+  DEFAULT_CLIPS_RECORDING_VISIBILITY,
+  type ClipsDefaultVisibility,
+} from "@shared/clips-ai-prefs";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { PageHeader } from "@/components/library/page-header";
@@ -33,6 +36,8 @@ import { OrganizationIdentityCard } from "@/components/workspace/organization-id
 import { useSecretStatus } from "@/hooks/use-secret-status";
 import { useVideoStorageStatus } from "@/hooks/use-video-storage-status";
 import enMessages from "@/i18n/en-US";
+
+import changelog from "../../CHANGELOG.md?raw";
 
 export function meta() {
   return [{ title: enMessages.settings.pageTitle }];
@@ -101,22 +106,33 @@ export default function SettingsIndexRoute() {
   const storageStatus = useVideoStorageStatus();
   const secrets = useSecretStatus();
   const builderStatus = useBuilderStatus();
+  const connectRequestedRef = useRef(false);
   const builderConnect = useBuilderConnectFlow({
-    popupUrl:
-      builderStatus.status?.cliAuthUrl ?? builderStatus.status?.connectUrl,
+    popupUrl: builderStatus.status?.connectUrl,
     trackingSource: "clips_settings",
     trackingFlow: "clips_setup",
     onConnected: async () => {
+      const shouldShowConnectedToast = connectRequestedRef.current;
+      connectRequestedRef.current = false;
       await Promise.all([storageStatus.refetch(), builderStatus.refetch()]);
-      toast.success(t("settings.builderConnectedToast"));
+      if (shouldShowConnectedToast) {
+        toast.success(t("settings.builderConnectedToast"));
+      }
     },
   });
+  const startBuilderConnect = useCallback(
+    (options?: Parameters<typeof builderConnect.start>[0]) => {
+      connectRequestedRef.current = true;
+      builderConnect.start(options);
+    },
+    [builderConnect.start],
+  );
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [defaultSpeed, setDefaultSpeed] = useState("1.2");
   const [emailNotifications, setEmailNotifications] = useState(true);
   const [defaultVisibility, setDefaultVisibility] =
-    useState<ClipsDefaultVisibility>("private");
+    useState<ClipsDefaultVisibility>(DEFAULT_CLIPS_RECORDING_VISIBILITY);
   const [transcriptCleanupEnabled, setTranscriptCleanupEnabled] =
     useState(true);
 
@@ -126,7 +142,9 @@ export default function SettingsIndexRoute() {
       if (cancelled) return;
       setDefaultSpeed(v.defaultPlaybackSpeed ?? "1.2");
       setEmailNotifications(v.emailNotifications ?? true);
-      setDefaultVisibility(v.defaultRecordingVisibility ?? "private");
+      setDefaultVisibility(
+        v.defaultRecordingVisibility ?? DEFAULT_CLIPS_RECORDING_VISIBILITY,
+      );
       setTranscriptCleanupEnabled(v.transcriptCleanupEnabled !== false);
       setLoading(false);
     });
@@ -151,9 +169,9 @@ export default function SettingsIndexRoute() {
         !builderConnect.hasFetchedStatus,
       connecting: builderConnect.connecting,
       orgName: builderConnect.orgName ?? builderStatus.status?.orgName ?? null,
-      start: builderConnect.start,
+      start: startBuilderConnect,
     }),
-    [builderConnect, builderStatus, storageStatus],
+    [builderConnect, builderStatus, startBuilderConnect, storageStatus],
   );
 
   async function handleUploadWorkspaceChange(organizationId: string) {
@@ -188,8 +206,6 @@ export default function SettingsIndexRoute() {
       setSaving(false);
     }
   }
-
-  const localizedChangelog = t("settings.changelogMarkdown");
 
   // Hashes match the row ids below, so a search hit still scrolls to the
   // individual setting now that the one-control cards are rows in a group.
@@ -440,7 +456,7 @@ export default function SettingsIndexRoute() {
         whatsNew={
           <div className="mx-auto w-full max-w-3xl">
             <ChangelogSettingsCard
-              markdown={localizedChangelog}
+              markdown={changelog}
               title={t("settings.whatsNew")}
               closeLabel={t("common.cancel")}
               emptyText={t("settings.changelogEmpty")}

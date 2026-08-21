@@ -147,11 +147,11 @@ Each step is a `###` heading followed by the body content. Steps work best for 3
 
 <Cards>
 
-### [Actions](/docs/actions)
+### :components: [Actions](/docs/actions-overview)
 
 Typed operations callable from the agent, UI, CLI, and HTTP. Define once, call from anywhere.
 
-### [Database](/docs/database)
+### [Database](/docs/server-database)
 
 SQL persistence with automatic migrations. SQLite locally, Postgres/Turso in production.
 
@@ -168,11 +168,11 @@ Plain-text instruction files that give the agent domain knowledge and task-speci
 ```mdx
 <Cards>
 
-### [Actions](/docs/actions)
+### :components: [Actions](/docs/actions-overview)
 
 Typed operations callable from the agent, UI, CLI, and HTTP. Define once, call from anywhere.
 
-### [Database](/docs/database)
+### [Database](/docs/server-database)
 
 SQL persistence with automatic migrations. SQLite locally, Postgres/Turso in production.
 
@@ -187,7 +187,18 @@ Plain-text instruction files that give the agent domain knowledge and task-speci
 </Cards>
 ```
 
-Each card is a `###` heading (optionally linked) followed by the description. Cards without a link render as plain info boxes with no hover state or arrow.
+Each card is a `###` heading (optionally linked) followed by the description. Cards without a link render as plain info boxes with no hover state or arrow. Prefix the heading with `:icon-name:` to add an icon in its own column to the left of the title and body — useful for a set of cards that represent distinct categories rather than a features list. Icons come from a curated set, not an arbitrary Tabler icon name:
+
+| Icon key     | Renders                                 |
+| ------------ | --------------------------------------- |
+| `robot`      | agent / autonomous behavior             |
+| `components` | UI, hooks, composable pieces            |
+| `server`     | backend, transport, infrastructure      |
+| `plug`       | integrations, connected tools           |
+| `network`    | cross-app or distributed communication  |
+| `terminal`   | CLI, scripts, terminal-driven workflows |
+
+The grid defaults to 3 columns. Set `columns` (1-4) on the opening tag to override it, e.g. `<Cards columns={2}>`. Below 640px the grid always collapses to a single column regardless of `columns`.
 
 ---
 

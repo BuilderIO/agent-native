@@ -15,7 +15,6 @@ import {
   IconArchive,
   IconActivity,
   IconHeartbeat,
-  IconPlus,
   IconLock,
   IconLink,
   IconMessageCircle,
@@ -46,8 +45,12 @@ import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { useAuth } from "@/components/auth/AuthProvider";
-import { getIdToken } from "@/lib/auth";
 import { ANALYTICS_CHAT_STORAGE_KEY } from "@/lib/chat-handoff";
+import {
+  matchesDashboardVisibilityFilter,
+  type DashboardVisibility,
+  type DashboardVisibilityFilter,
+} from "@/lib/dashboard-visibility";
 import { cn, shortcutModifierLabel } from "@/lib/utils";
 import {
   dashboards,
@@ -65,6 +68,7 @@ type SidebarDashboard = {
   source: "static" | "sql" | "analysis";
   resourceId?: string;
   visibility?: Visibility;
+  ownerEmail?: string | null;
   /** Id of the dashboard this one nests under in the sidebar, if any. */
   parentId?: string;
 };
@@ -121,7 +125,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
 import {
   Popover,
   PopoverTrigger,
@@ -150,6 +153,7 @@ import {
   type PrefetchSnapshot,
 } from "@/lib/prefetch-keys";
 import type { ResourceAccess } from "@/lib/resource-access";
+import { useAutoFocusSelect } from "@/lib/use-auto-focus-select";
 
 import { resolveAskNavigationAction } from "./layout-route-policy";
 import { NewDashboardDialog } from "./NewDashboardDialog";
@@ -164,7 +168,7 @@ const SIDEBAR_SKELETON_CLASS =
   "bg-sidebar-foreground/12 dark:bg-sidebar-foreground/10";
 
 type SidebarSortMode = "most-used" | "alphabetical" | "manual";
-type SidebarVisibilityFilter = "all" | "private" | "shared";
+type SidebarVisibilityFilter = DashboardVisibilityFilter;
 
 import {
   DndContext,
@@ -255,15 +259,33 @@ function applyOrder<T extends { id: string }>(
   return ordered;
 }
 
-function matchesVisibilityFilter(
-  item: { visibility?: Visibility },
+function isVisibility(value: unknown): value is Visibility {
+  return value === "private" || value === "org" || value === "public";
+}
+
+export function matchesVisibilityFilter(
+  item: { visibility?: Visibility; ownerEmail?: string | null },
+  filter: SidebarVisibilityFilter,
+  currentUserEmail?: string | null,
+): boolean {
+  return matchesDashboardVisibilityFilter(item, filter, currentUserEmail);
+}
+
+export function threadMatchesVisibilityFilter(
+  thread: ChatThreadSummary,
   filter: SidebarVisibilityFilter,
 ): boolean {
-  if (filter === "all") return true;
-  if (filter === "private") {
-    return item.visibility !== "org" && item.visibility !== "public";
-  }
-  return item.visibility === "org" || item.visibility === "public";
+  const runtimeThread = thread as ChatThreadSummary & {
+    visibility?: unknown;
+  };
+  return matchesVisibilityFilter(
+    {
+      visibility: isVisibility(runtimeThread.visibility)
+        ? runtimeThread.visibility
+        : "private",
+    },
+    filter,
+  );
 }
 
 function SidebarSectionSettingsPopover({
@@ -276,8 +298,8 @@ function SidebarSectionSettingsPopover({
   onShowHiddenChange,
 }: {
   label: string;
-  sortMode: SidebarSortMode;
-  onSortModeChange: (value: SidebarSortMode) => void;
+  sortMode?: SidebarSortMode;
+  onSortModeChange?: (value: SidebarSortMode) => void;
   visibilityFilter: SidebarVisibilityFilter;
   onVisibilityFilterChange: (value: SidebarVisibilityFilter) => void;
   showHidden?: boolean;
@@ -352,54 +374,56 @@ function SidebarSectionSettingsPopover({
               </Tooltip>
             </ToggleGroup>
           </div>
-          <div className="grid gap-1.5">
-            <p className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-              {t("sidebar.sortBy")}
-            </p>
-            <ToggleGroup
-              type="single"
-              value={sortMode}
-              onValueChange={(next) => {
-                if (
-                  next === "most-used" ||
-                  next === "alphabetical" ||
-                  next === "manual"
-                ) {
-                  onSortModeChange(next);
-                }
-              }}
-              className="grid grid-cols-3 gap-1 rounded-lg border border-border/60 bg-background/50 p-1"
-            >
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <ToggleGroupItem
-                    value="most-used"
-                    aria-label={t("sidebar.sortMostUsedPersonal")}
-                    className={segmentedItemClass}
-                  >
-                    {t("sidebar.used")}
-                  </ToggleGroupItem>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">
-                  {t("sidebar.usedExplainer")}
-                </TooltipContent>
-              </Tooltip>
-              <ToggleGroupItem
-                value="alphabetical"
-                aria-label={t("sidebar.sortAlphabetically")}
-                className={segmentedItemClass}
+          {sortMode && onSortModeChange ? (
+            <div className="grid gap-1.5">
+              <p className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                {t("sidebar.sortBy")}
+              </p>
+              <ToggleGroup
+                type="single"
+                value={sortMode}
+                onValueChange={(next) => {
+                  if (
+                    next === "most-used" ||
+                    next === "alphabetical" ||
+                    next === "manual"
+                  ) {
+                    onSortModeChange(next);
+                  }
+                }}
+                className="grid grid-cols-3 gap-1 rounded-lg border border-border/60 bg-background/50 p-1"
               >
-                {t("sidebar.alphabetical")}
-              </ToggleGroupItem>
-              <ToggleGroupItem
-                value="manual"
-                aria-label={t("sidebar.sortManually")}
-                className={segmentedItemClass}
-              >
-                {t("sidebar.manual")}
-              </ToggleGroupItem>
-            </ToggleGroup>
-          </div>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <ToggleGroupItem
+                      value="most-used"
+                      aria-label={t("sidebar.sortMostUsedPersonal")}
+                      className={segmentedItemClass}
+                    >
+                      {t("sidebar.used")}
+                    </ToggleGroupItem>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    {t("sidebar.usedExplainer")}
+                  </TooltipContent>
+                </Tooltip>
+                <ToggleGroupItem
+                  value="alphabetical"
+                  aria-label={t("sidebar.sortAlphabetically")}
+                  className={segmentedItemClass}
+                >
+                  {t("sidebar.alphabetical")}
+                </ToggleGroupItem>
+                <ToggleGroupItem
+                  value="manual"
+                  aria-label={t("sidebar.sortManually")}
+                  className={segmentedItemClass}
+                >
+                  {t("sidebar.manual")}
+                </ToggleGroupItem>
+              </ToggleGroup>
+            </div>
+          ) : null}
           <div className="grid gap-1">
             {onShowHiddenChange && showHidden !== undefined && (
               <label
@@ -426,7 +450,7 @@ function SidebarSectionSettingsPopover({
 
 // --- Visibility types and helpers ---
 
-type Visibility = "private" | "org" | "public";
+type Visibility = DashboardVisibility;
 
 // --- Shared sortable row (used by both dashboards and analyses) ---
 
@@ -492,6 +516,7 @@ function SortableRow({
     useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState(name);
+  const renameInputRef = useAutoFocusSelect<HTMLInputElement>(isRenaming);
 
   useEffect(() => {
     if (!isRenaming) setRenameValue(name);
@@ -650,6 +675,7 @@ function SortableRow({
       >
         {isRenaming ? (
           <input
+            ref={renameInputRef}
             autoFocus
             value={renameValue}
             onChange={(e) => setRenameValue(e.target.value)}
@@ -1120,6 +1146,7 @@ type SqlDashboardListItem = {
   id: string;
   name: string;
   visibility?: Visibility;
+  ownerEmail?: string | null;
   parentId?: string;
 };
 
@@ -1137,18 +1164,25 @@ async function fetchSqlDashboards(
           d.visibility === "org" ||
           d.visibility === "public"),
     )
-    .map((d: any) => ({
-      id: d.id,
-      name:
-        typeof d.name === "string" && d.name.trim().length > 0
-          ? d.name
-          : t("sidebar.untitledDashboard"),
-      visibility: d.visibility as Visibility,
-      parentId:
-        typeof d.parentId === "string" && d.parentId.trim().length > 0
-          ? d.parentId
-          : undefined,
-    }));
+    .map((d: any) => {
+      const ownerEmail =
+        typeof d.ownerEmail === "string" && d.ownerEmail.trim().length > 0
+          ? d.ownerEmail
+          : undefined;
+      return {
+        id: d.id,
+        name:
+          typeof d.name === "string" && d.name.trim().length > 0
+            ? d.name
+            : t("sidebar.untitledDashboard"),
+        visibility: d.visibility as Visibility,
+        ...(ownerEmail ? { ownerEmail } : {}),
+        parentId:
+          typeof d.parentId === "string" && d.parentId.trim().length > 0
+            ? d.parentId
+            : undefined,
+      };
+    });
 }
 
 async function fetchSidebarAnalyses(t: (key: string) => string): Promise<
@@ -1285,9 +1319,11 @@ function persistedAnalyticsThreadId() {
 function AnalyticsChatsSection({
   isAskRoute,
   open,
+  visibilityFilter,
 }: {
   isAskRoute: boolean;
   open: boolean;
+  visibilityFilter: SidebarVisibilityFilter;
 }) {
   const navigate = useNavigate();
   const t = useT();
@@ -1309,10 +1345,15 @@ function AnalyticsChatsSection({
   const visibleThreads = useMemo(
     () =>
       threads
-        .filter((thread) => thread.messageCount > 0 && !thread.archivedAt)
+        .filter(
+          (thread) =>
+            thread.messageCount > 0 &&
+            !thread.archivedAt &&
+            threadMatchesVisibilityFilter(thread, visibilityFilter),
+        )
         .sort(compareThreads)
         .slice(0, 15),
-    [threads],
+    [threads, visibilityFilter],
   );
   const chatItems = useMemo<ChatHistoryItem[]>(
     () =>
@@ -1488,13 +1529,15 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const [askOpen, setAskOpen] = useState(
     () => getStoredBooleanPreference(ASK_OPEN_KEY) ?? isAskRoute,
   );
+  const [askFilter, setAskFilter] = useState<SidebarVisibilityFilter>("all");
   const [dashOpen, setDashOpen] = useState(
     () =>
       getStoredBooleanPreference(DASHBOARDS_OPEN_KEY) ??
       activeDashboardId !== null,
   );
   const [dashShowAll, setDashShowAll] = useState(false);
-  const [dashFilter, setDashFilter] = useState<SidebarVisibilityFilter>("all");
+  const [dashFilter, setDashFilter] =
+    useState<SidebarVisibilityFilter>("private");
   const [dashboardSortMode, setDashboardSortModeState] =
     useState<SidebarSortMode>(() => getStoredSortMode(DASHBOARD_SORT_MODE_KEY));
   const { data: popularity, isReady: popularityReady } = usePopularity();
@@ -1718,6 +1761,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       name: d.name,
       source: "sql",
       visibility: d.visibility,
+      ownerEmail: d.ownerEmail,
       parentId: d.parentId,
     }));
     const analysisItems: SidebarDashboard[] = analysesList.map((a) => ({
@@ -1771,9 +1815,9 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const filteredDashboards = useMemo(
     () =>
       visibleDashboards.filter((dashboard) =>
-        matchesVisibilityFilter(dashboard, dashFilter),
+        matchesVisibilityFilter(dashboard, dashFilter, auth?.email),
       ),
-    [visibleDashboards, dashFilter],
+    [auth?.email, visibleDashboards, dashFilter],
   );
 
   // Group dashboards that declare a parentId beneath their parent. Nesting is
@@ -2295,6 +2339,11 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                       {t("navigation.ask")}
                     </span>
                   </Link>
+                  <SidebarSectionSettingsPopover
+                    label={t("navigation.ask")}
+                    visibilityFilter={askFilter}
+                    onVisibilityFilterChange={setAskFilter}
+                  />
                   <button
                     type="button"
                     onClick={toggleAskOpen}
@@ -2314,7 +2363,11 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                     />
                   </button>
                 </div>
-                <AnalyticsChatsSection isAskRoute={isAskRoute} open={askOpen} />
+                <AnalyticsChatsSection
+                  isAskRoute={isAskRoute}
+                  open={askOpen}
+                  visibilityFilter={askFilter}
+                />
               </div>
 
               {/* Sessions link */}

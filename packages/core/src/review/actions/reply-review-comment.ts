@@ -29,7 +29,8 @@ const schema = z.object({
 });
 
 export default defineAction({
-  description: "Reply to an existing review comment thread.",
+  description:
+    "Reply to an existing review comment thread with inline Markdown text without headings.",
   schema,
   run: async (args, ctx) => {
     const actionCtx = ctx as ReviewResourceContext | undefined;

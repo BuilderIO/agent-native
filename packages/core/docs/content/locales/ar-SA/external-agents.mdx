@@ -681,7 +681,7 @@ export default defineAction({
 });
 ```
 
-يبقي `GET` + `readOnly` الإجراء خاليًا من التأثيرات الجانبية وبعيدًا عن حدث تغيير تحديث الشاشة. `publicAgent` هو **الاشتراك الصريح** — مسار الويب العام لا يعني أبدًا التعرض العام لـ MCP/A2A؛ انظر [Actions](/docs/actions). استيعاب التصميم/المحتوى actions MUST قراءة حالة **مباشرة** (مستند Yjs التعاوني، وليس عمود لقطة قاعدة بيانات قديمة) بحيث يرى الوكيل الخارجي ما يمتلكه المستخدم بالفعل على الشاشة. يقوم `pull-document` الخاص بالمحتوى بنقل أي جلسة تعاون مباشرة مفتوحة إلى SQL أولاً؛ يقوم `get-design-snapshot` الخاص بالتصميم بإرجاع محتويات ملف Yjs المباشر بالإضافة إلى قيم التعديل التي تم حلها بواسطة المستخدم.
+يبقي `GET` + `readOnly` الإجراء خاليًا من التأثيرات الجانبية وبعيدًا عن حدث تغيير تحديث الشاشة. `publicAgent` هو **الاشتراك الصريح** — مسار الويب العام لا يعني أبدًا التعرض العام لـ MCP/A2A؛ انظر [Actions](/docs/actions-overview). استيعاب التصميم/المحتوى actions MUST قراءة حالة **مباشرة** (مستند Yjs التعاوني، وليس عمود لقطة قاعدة بيانات قديمة) بحيث يرى الوكيل الخارجي ما يمتلكه المستخدم بالفعل على الشاشة. يقوم `pull-document` الخاص بالمحتوى بنقل أي جلسة تعاون مباشرة مفتوحة إلى SQL أولاً؛ يقوم `get-design-snapshot` الخاص بالتصميم بإرجاع محتويات ملف Yjs المباشر بالإضافة إلى قيم التعديل التي تم حلها بواسطة المستخدم.
 
 ## متقدم: التطوير المحلي والإعداد اليدوي {#advanced}
 
@@ -809,5 +809,5 @@ npx @agent-native/core@latest connect prod --apps mail,calendar,analytics --clie
 - [MCP Protocol](/docs/mcp-protocol) — خادم MCP المثبت تلقائيًا والأداة التعريفية `ask-agent`.
 - [MCP Clients](/docs/mcp-clients) — الاتجاه المتماثل: يستهلك تطبيقك خوادم MCP المحلية/البعيدة.
 - [A2A Protocol](/docs/a2a-protocol) — الأداة التعريفية `ask-agent` واستدعاءات الأقران JSON-RPC.
-- [Actions](/docs/actions) — تعريف actions، `publicAgent`، GET / `readOnly`.
+- [Actions](/docs/actions-overview) — تعريف actions، `publicAgent`، GET / `readOnly`.
 - [Context Awareness](/docs/context-awareness) — يتعاقد `navigate` / `application_state` على جسور المسار المفتوح.

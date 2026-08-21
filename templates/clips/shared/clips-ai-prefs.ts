@@ -37,6 +37,9 @@ export type ClipsUserPrefs = ClipsAiPrefs & {
 /** Visibility applied to new recordings unless the creator picks another. */
 export type ClipsDefaultVisibility = "private" | "org" | "public";
 
+export const DEFAULT_CLIPS_RECORDING_VISIBILITY: ClipsDefaultVisibility =
+  "public";
+
 export function isIncludeFullVideoInAiEnabled(
   prefs: ClipsAiPrefs | Record<string, unknown> | null | undefined,
 ): boolean {

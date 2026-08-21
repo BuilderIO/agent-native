@@ -256,6 +256,41 @@ const messages = {
     passwordProtected: "This clip is password-protected",
     linkExpired: "Link expired",
     linkExpiredMessage: "The creator set an expiry on this share link.",
+    privateClip: "Private clip",
+    privateClipMessage:
+      "This clip is private. Request access and the owner will be notified.",
+    privateClipSignedOutMessage:
+      "This clip is private. Sign in or enter your email to request access.",
+    requestAccess: "Request access",
+    requestAccessDialogTitle: "Request access",
+    requestAccessDialogDescription:
+      "Sign in, or enter the email address the owner should share this clip with.",
+    requestAccessSignIn: "Sign in or sign up",
+    requestAccessOr: "or",
+    requestAccessEmailLabel: "Email address",
+    requestAccessEmailPlaceholder: "you@example.com",
+    requestAccessEmailHint:
+      "After access is granted, sign in with this email to view the clip.",
+    requestAccessWithEmail: "Request with email",
+    requestAccessEmailRequired: "Enter a valid email address.",
+    requestingAccess: "Requesting access...",
+    accessRequested: "Access requested",
+    accessRequestSent: "The clip owner was notified.",
+    accessRequestSentWithEmail:
+      "The clip owner was asked to share this clip with {{email}}.",
+    accessRequestFailed: "Couldn't request access. Try again.",
+    accessApprovalTitle: "Access granted",
+    accessApprovalAlreadyTitle: "Access already granted",
+    accessApprovalMessage: "{{email}} can now view this clip.",
+    accessApprovalAlreadyMessage: "{{email}} already has access to this clip.",
+    accessApprovalErrorTitle: "Couldn't grant access",
+    accessApprovalInvalid: "This access request is invalid or expired.",
+    accessApprovalSignInTitle: "Sign in to allow access",
+    accessApprovalSignInMessage:
+      "Sign in as the clip owner or admin to approve this request.",
+    accessApprovalOpenClip: "Open clip",
+    accessApprovalSignIn: "Sign in",
+    accessApprovalLoading: "Granting access...",
     clipUnavailable: "Clip unavailable",
     clipUnavailableMessage:
       "This recording isn't public, or the link is invalid. If it's your clip, sign in to check access.",
@@ -349,6 +384,9 @@ const messages = {
     aiNotes: "AI notes",
     summary: "Summary",
     actionItems: "Action items",
+    addActionItem: "Add action item",
+    removeActionItem: "Remove action item",
+    actionItemPlaceholder: "What needs to happen?",
     working: "Working…",
     noActionItems:
       "No action items yet. They appear here after notes are generated from a transcript.",
@@ -577,12 +615,16 @@ const messages = {
     alsoFor: "Also available for {{platform}}",
     backToLibrary: "Back to library",
     clipsDesktop: "Clips Desktop",
+    stable: "Stable",
+    nightly: "Nightly",
+    switchToNightly: "Switch to Nightly builds",
+    switchToStable: "Switch to stable builds",
+    retry: "Try again",
     heroDescription:
       "A menu-bar recorder for screen, camera, and screen + camera. One-click start, draggable camera bubble, instant-share link when you stop.",
     versionReleased: "Version {{version}} — released {{date}}",
     version: "Version {{version}}",
-    manifestError:
-      "Could not load release manifest — pick an installer from the releases page.",
+    manifestError: "Could not load release manifest. Try again.",
     loadingRelease: "Loading latest release…",
     chromeTitle: "Chrome extension for browser logs",
     chromeDescription:
@@ -645,15 +687,6 @@ const messages = {
     viewAllUpdates: "View all updates",
     expand: "Expand",
     collapse: "Collapse",
-    changelogMarkdown: `# Changelog
-
-All notable user-facing changes to Clips are documented here. Open it any time from the command menu (Cmd K -> "What's new") or from Settings.
-
-## 2026-06-23
-
-### Added
-
-- See what's new right inside Clips. A changelog now lives in the command menu (Cmd K) and in Settings.`,
     playback: "Playback",
     defaultPlaybackSpeed: "Default playback speed",
     playbackDescription: "Applied automatically when you open a recording.",
@@ -939,7 +972,7 @@ All notable user-facing changes to Clips are documented here. Open it any time f
   commentsPanel: {
     disabled: "Comments are disabled for this recording.",
     beFirst: "Be the first to comment",
-    leaveNotePanel: "Leave a note at the top of this panel.",
+    leaveNotePanel: "Leave a note at the bottom of this panel.",
     leaveNoteTimestamp: "Leave a note at the current timestamp.",
     leaveComment: "Leave a comment...",
     signInToComment: "Sign in to leave a comment.",
@@ -969,6 +1002,8 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     includeTranscriptDescription:
       "Anyone with access to this meeting can read the complete transcript.",
     transcriptUnavailable: "The transcript isn't ready yet.",
+    agentLinkDescription:
+      "This temporary link lets agents read these meeting notes without making them public. It expires after two hours.",
     transcript: "Transcript",
     copyTranscript: "Copy transcript",
     transcriptCopied: "Transcript copied",
@@ -994,8 +1029,13 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     pauseShortcut: "Pause (⌥⇧P)",
     stop: "Stop recording",
     elapsed: "Elapsed time",
-    cancel: "Cancel recording",
-    cancelShortcut: "Cancel (⌥⇧C)",
+    cancel: "Discard recording",
+    cancelShortcut: "Discard (⌥⇧C)",
+    discardConfirmTitle: "Discard this recording?",
+    discardConfirmDescription:
+      "This can't be undone. Your recording so far will be permanently deleted.",
+    resume: "Resume",
+    discardRecording: "Discard recording",
   },
   countdownOverlay: {
     startsIn: "Recording starts in {{count}}",
@@ -1077,6 +1117,7 @@ All notable user-facing changes to Clips are documented here. Open it any time f
       "The live transcript will appear here once notes start.",
     me: "Me",
     them: "Them",
+    unknownSpeaker: "Speaker",
     searchTranscript: "Search transcript",
     searchPlaceholder: "Search transcript…",
     searchMatchCount: "{{current}} of {{total}}",
@@ -1084,6 +1125,10 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     searchPrevMatch: "Previous match",
     searchNextMatch: "Next match",
     searchClose: "Close search",
+  },
+  bulletLink: {
+    jumpToTranscript: "Jump to {{time}} in transcript",
+    noMatchingMoment: "No matching moment found",
   },
   editorLayout: {
     trimmed: "Trimmed",
@@ -1285,10 +1330,11 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     cameraOff: "Camera off",
     includeCameraAria: "Include camera in this recording",
     startRecording: "Start recording",
-    micOffConfirmTitle: "Record without a microphone?",
+    micOffConfirmTitle: "Your mic is muted",
     micOffConfirmDescription:
-      "Your mic is off, so this recording won't capture any audio. Turn it on before starting if you want narration.",
-    startWithoutMic: "Start anyway",
+      "To have sound in your video, you’ll need to unmute your microphone.",
+    startWithoutMic: "Continue",
+    unmuteMicrophone: "Unmute",
     uploadVideo: "Upload video",
     importLoom: "Import Loom",
     importing: "Importing...",
@@ -1367,6 +1413,10 @@ All notable user-facing changes to Clips are documented here. Open it any time f
       "Connect storage on the next screen: Builder.io (free tier storage + AI) or S3-compatible storage. Clips will finish saving it.",
     connectStorageToRetryLoom:
       "Connect storage on the next screen: Builder.io (free tier storage + AI) or S3-compatible storage. Clips will retry the import.",
+    leaveConfirmTitle: "Leave and discard this recording?",
+    leaveConfirmDescription:
+      "Your in-progress recording hasn't finished saving. Leaving this page now will discard it.",
+    leaveAndDiscard: "Leave and discard",
   },
   importRoute: {
     pageTitle: "Import Loom — Clips",
@@ -1545,12 +1595,28 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     calendarConnected: "Calendar connected",
     calendarDisconnected: "Calendar disconnected",
     calendarSettings: "Calendar settings",
+    calendarAccountsButton: "Calendars",
+    connectedAccounts: "Connected accounts",
+    calendarConnectedLabel: "Connected",
+    calendarNeedsReconnectLabel: "Needs reconnect",
+    calendarDisconnectedLabel: "Disconnected",
+    calendarStatusUnavailable: "Status unavailable",
+    reconnectCalendar: "Reconnect calendar",
+    addAnotherCalendarAccount: "Add another account",
+    connectCalendar: "Connect calendar",
+    disconnectCalendarAccount: "Disconnect an account",
     connectCalendarReminder: "Connect Google Calendar for meeting reminders.",
     disconnectGoogleCalendarTitle: "Disconnect Google Calendar?",
     title: "Meetings",
     intro:
       "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time.",
-    searchPlaceholder: "Search meetings...",
+    agendaTab: "Agenda",
+    pastTab: "Past",
+    now: "Now",
+    noPastMeetings: "No past meetings yet",
+    loadOlder: "Load older",
+    searchFailed: "Couldn't search meetings. Try again in a moment.",
+    searchPlaceholder: "Search meetings, attendees, and transcripts...",
     clearSearch: "Clear search",
     noMeetingsYet: "No meetings yet",
     noMeetingsDescription:

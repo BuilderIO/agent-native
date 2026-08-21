@@ -1,7 +1,10 @@
 // @vitest-environment happy-dom
 
+import { act, createElement } from "react";
+import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { ComposerRuntimeAdaptersProvider } from "./runtime-adapters.js";
 import {
   createRealtimeVoiceGreetingEvent,
   createRealtimeVoiceGreetingStarter,
@@ -28,6 +31,7 @@ import {
   realtimeVoiceReasoningEffort,
   resolveRealtimeVoiceLanguage,
   shouldRestoreRealtimeVoiceTranscriptThread,
+  useRealtimeVoiceModeCopy,
 } from "./useRealtimeVoiceMode.js";
 import type { RealtimeVoiceFunctionTool } from "./useRealtimeVoiceMode.js";
 
@@ -44,6 +48,36 @@ function realtimeTool(name: string): RealtimeVoiceFunctionTool {
     parameters: { type: "object", properties: {} },
   };
 }
+
+describe("Realtime voice localization", () => {
+  it("uses app overrides from the modern agentChat namespace", () => {
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    let entryButtonLabel = "";
+
+    function Consumer() {
+      entryButtonLabel = useRealtimeVoiceModeCopy().entryButtonLabel;
+      return null;
+    }
+
+    act(() => {
+      root.render(
+        createElement(ComposerRuntimeAdaptersProvider, {
+          adapters: {
+            translate: (key, options) =>
+              key === "agentChat.voiceMode.entryButtonLabel"
+                ? "Modern voice override"
+                : String(options?.defaultValue ?? key),
+          },
+          children: createElement(Consumer),
+        }),
+      );
+    });
+
+    expect(entryButtonLabel).toBe("Modern voice override");
+    act(() => root.unmount());
+  });
+});
 
 describe("Realtime voice client transport", () => {
   it("normalizes persisted preferences and resolves Auto from the browser language", () => {

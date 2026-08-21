@@ -152,6 +152,30 @@ preference, notification preference, or usage/billing surface, register it as a
 settings tab or app settings panel first. Only add sidebar UI when it is needed
 in the moment of agent use.
 
+## Integration Setup Preflight
+
+Before building any setup, settings, credential, OAuth, or connection surface,
+search the workspace/provider connection catalog first. If the provider already
+has a reusable connection, use its catalog, app grant, and scoped credential
+resolver rather than registering a parallel secret. Only then classify fields
+that still need app-local setup by lifecycle and scope:
+
+| Need | Default primitive |
+| --- | --- |
+| Deploy- or app-level configuration | Runtime configuration or deployment env vars |
+| Existing workspace/provider connection | Workspace-connection catalog/grant plus `resolveWorkspaceConnectionCredential(s)ForApp` |
+| App-local API/service key with no reusable connection | `registerRequiredSecret({ kind: "api-key" })` and the vault |
+| Authorization-code or refresh-token flow | `kind: "oauth"` with `@agent-native/core/oauth-tokens` |
+| Account, customer, or other non-secret identifiers | Scoped connection metadata or app data |
+| Provider-specific prerequisites, sequencing, or health | A thin app-local guide over the shared primitives |
+
+Do not register every provider field as a generic secret, mark every field as
+required, or create a second credential-management surface. One logical
+connection should normally produce one onboarding outcome. A custom setup page
+is appropriate only when it adds domain-specific guidance or readiness checks;
+it should link to or call the shared settings, OAuth, and action surfaces rather
+than duplicating their storage or transport.
+
 ## Reusable Kits
 
 - **Settings kit**: a searchable settings page with account, workspace, AI
@@ -182,6 +206,11 @@ in the moment of agent use.
   five-item sidebar preview and a footer row with New chat followed by an
   ellipsis disclosure up to fifteen. Apps inject routing, labels, and domain
   actions.
+- **Data grid kit**: provider-agnostic spreadsheet mechanics belong in
+  `@agent-native/toolkit/data-grid`. Apps provide rows, typed columns, editor
+  slots, selection and width state, persistence callbacks, and product-level
+  row/body slots. Keep database models, access checks, grouping, drag/drop,
+  and domain actions in the app adapter.
 - **Agent page kit**: the full-page `/agent` surface (`AgentTabsPage` from
   `@agent-native/core/client`) with Context, Files, Connections, Jobs, and
   Access tabs plus a Personal/Organization scope toggle. The canonical home

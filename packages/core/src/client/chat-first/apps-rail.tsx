@@ -7,6 +7,7 @@ import {
   Skeleton,
   Tooltip,
   TooltipContent,
+  TooltipProvider,
   TooltipTrigger,
 } from "@agent-native/toolkit/ui";
 import {
@@ -17,9 +18,10 @@ import {
   IconPlus,
   IconTrash,
 } from "@tabler/icons-react";
-import { memo, useMemo, useState, type ReactNode } from "react";
+import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
 
 import {
+  CHAT_FIRST_DEFAULT_APP_IDS,
   orderChatFirstAppIds,
   readChatFirstAppLayout,
   writeChatFirstAppLayout,
@@ -29,12 +31,67 @@ import { cn } from "../utils.js";
 import { defaultChatFirstCopy } from "./copy.js";
 import type {
   ChatFirstAppItem,
+  ChatFirstAppIconRenderOptions,
   ChatFirstAppRailProps,
   ChatFirstCopy,
 } from "./types.js";
 
+export const CHAT_FIRST_APP_RAIL_SHOW_ALL_STORAGE_KEY =
+  "agent-native:chat-first-app-rail-show-all:v1";
+
+function readChatFirstAppRailShowAll(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return (
+      window.localStorage.getItem(CHAT_FIRST_APP_RAIL_SHOW_ALL_STORAGE_KEY) ===
+      "true"
+    );
+  } catch {
+    // coercion-ok: localStorage is optional; false keeps the rail usable in-memory.
+    return false;
+  }
+}
+
+function writeChatFirstAppRailShowAll(showAllApps: boolean) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(
+      CHAT_FIRST_APP_RAIL_SHOW_ALL_STORAGE_KEY,
+      String(showAllApps),
+    );
+  } catch {
+    // coercion-ok: localStorage is optional; the in-memory toggle remains usable.
+  }
+}
+
+function ChatFirstRailAppIcon({
+  app,
+  activeAppId,
+  renderIcon,
+}: {
+  app: ChatFirstAppItem;
+  activeAppId?: string;
+  renderIcon: (
+    app: ChatFirstAppItem,
+    options?: ChatFirstAppIconRenderOptions,
+  ) => ReactNode;
+}) {
+  const isActive = activeAppId !== undefined && activeAppId === app.id;
+  const isInactive = activeAppId !== undefined && !isActive;
+
+  return (
+    <span
+      data-chat-first-app-icon
+      className={cn("transition-[filter]", isInactive && "grayscale")}
+    >
+      {renderIcon(app, { isActive, isInactive })}
+    </span>
+  );
+}
+
 function AppRows({
   apps,
+  defaultAppIds,
   activeAppId,
   layout,
   onDragStart,
@@ -48,6 +105,7 @@ function AppRows({
   copy,
 }: {
   apps: ChatFirstAppItem[];
+  defaultAppIds?: readonly string[];
   activeAppId?: string;
   layout: ChatFirstAppLayoutPreference;
   onDragStart: (id: string) => void;
@@ -57,12 +115,16 @@ function AppRows({
   onRemoveApp?: (app: ChatFirstAppItem) => void;
   onTogglePinned: (id: string) => void;
   onMove: (id: string, direction: -1 | 1) => void;
-  renderIcon: (app: ChatFirstAppItem) => ReactNode;
+  renderIcon: (
+    app: ChatFirstAppItem,
+    options?: ChatFirstAppIconRenderOptions,
+  ) => ReactNode;
   copy: ChatFirstCopy;
 }) {
   const orderedIds = orderChatFirstAppIds(
     apps.map((app) => app.id),
     layout,
+    defaultAppIds,
   );
   const appsById = new Map(apps.map((app) => [app.id, app]));
   const orderedApps = orderedIds
@@ -85,7 +147,7 @@ function AppRows({
                 className={cn(
                   "group flex h-8 w-full min-w-0 items-center gap-1 rounded-md px-0 text-sm",
                   active
-                    ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
+                    ? "font-medium text-sidebar-foreground"
                     : "text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
                 )}
                 onDragStart={(event) => {
@@ -113,7 +175,11 @@ function AppRows({
                   aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
                   aria-label={copy("openApp", { name: app.name })}
                 >
-                  {renderIcon(app)}
+                  <ChatFirstRailAppIcon
+                    app={app}
+                    activeAppId={activeAppId}
+                    renderIcon={renderIcon}
+                  />
                   <span className="truncate">{app.name}</span>
                 </button>
                 <button
@@ -181,6 +247,7 @@ function AppRows({
 
 export const ChatFirstAppsRail = memo(function ChatFirstAppsRail({
   apps,
+  defaultAppIds,
   activeAppId,
   loading = false,
   error,
@@ -202,18 +269,39 @@ export const ChatFirstAppsRail = memo(function ChatFirstAppsRail({
   );
   const layout = controlledLayout ?? localLayout;
   const [draggedAppId, setDraggedAppId] = useState<string | null>(null);
-  const [showAllApps, setShowAllApps] = useState(false);
+  const [showAllApps, setShowAllApps] = useState(() =>
+    readChatFirstAppRailShowAll(),
+  );
+
+  useEffect(() => {
+    writeChatFirstAppRailShowAll(showAllApps);
+  }, [showAllApps]);
+
   const orderedApps = useMemo(() => {
     const orderedIds = orderChatFirstAppIds(
       apps.map((app) => app.id),
       layout,
+      defaultAppIds,
     );
     const appsById = new Map(apps.map((app) => [app.id, app]));
     return orderedIds
       .map((id) => appsById.get(id))
       .filter((app): app is ChatFirstAppItem => Boolean(app));
-  }, [apps, layout]);
-  const visibleApps = showAllApps ? orderedApps : orderedApps.slice(0, 5);
+  }, [apps, defaultAppIds, layout]);
+  const visibleApps = useMemo(() => {
+    if (showAllApps) return orderedApps;
+
+    const defaultApps = orderedApps.slice(
+      0,
+      defaultAppIds?.length ?? CHAT_FIRST_DEFAULT_APP_IDS.length,
+    );
+    if (!activeAppId || defaultApps.some((app) => app.id === activeAppId)) {
+      return defaultApps;
+    }
+
+    const activeApp = orderedApps.find((app) => app.id === activeAppId);
+    return activeApp ? [...defaultApps, activeApp] : defaultApps;
+  }, [activeAppId, defaultAppIds, orderedApps, showAllApps]);
   const hasMoreApps = orderedApps.length > visibleApps.length;
   const createTrigger =
     createAppTrigger ??
@@ -248,6 +336,7 @@ export const ChatFirstAppsRail = memo(function ChatFirstAppsRail({
     const currentOrder = orderChatFirstAppIds(
       apps.map((app) => app.id),
       layout,
+      defaultAppIds,
     );
     const fromIndex = currentOrder.indexOf(draggedAppId);
     const toIndex = currentOrder.indexOf(targetId);
@@ -263,6 +352,7 @@ export const ChatFirstAppsRail = memo(function ChatFirstAppsRail({
     const currentOrder = orderChatFirstAppIds(
       apps.map((app) => app.id),
       layout,
+      defaultAppIds,
     );
     const index = currentOrder.indexOf(appId);
     const nextIndex = index + direction;
@@ -277,55 +367,67 @@ export const ChatFirstAppsRail = memo(function ChatFirstAppsRail({
 
   if (collapsed) {
     return (
-      <section
-        data-chat-first-apps-rail
-        className="flex flex-col items-center gap-1 px-1.5 pt-2"
-        aria-label={copy("workspaceApps")}
-      >
-        {createTrigger}
-        {loading && apps.length === 0
-          ? [0, 1, 2].map((index) => (
-              <Skeleton key={index} className="size-9 rounded-md" />
-            ))
-          : visibleApps.map((app) => (
-              <button
-                key={app.id}
-                type="button"
-                data-chat-first-app
-                data-app-id={app.id}
-                className={cn(
-                  "flex size-9 items-center justify-center rounded-md",
-                  activeAppId === app.id
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                    : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-                )}
-                onClick={() => onOpenApp(app)}
-                aria-label={copy("openApp", { name: app.name })}
-                title={app.name}
-              >
-                {renderIcon(app)}
-              </button>
-            ))}
-        {onOpenAllApps ? (
-          <button
-            type="button"
-            data-chat-first-all-apps
-            className="flex size-9 items-center justify-center rounded-md text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-            onClick={onOpenAllApps}
-            aria-label={copy("allApps")}
-            title={copy("allApps")}
-          >
-            <IconApps size={16} aria-hidden="true" />
-          </button>
-        ) : null}
-        {error ? (
-          <span
-            className="size-1.5 rounded-full bg-destructive"
-            title={error}
-            aria-label={error}
-          />
-        ) : null}
-      </section>
+      <TooltipProvider>
+        <section
+          data-chat-first-apps-rail
+          className="flex flex-col items-center gap-1 px-1.5 pt-2"
+          aria-label={copy("workspaceApps")}
+        >
+          {loading && apps.length === 0
+            ? [0, 1, 2].map((index) => (
+                <Skeleton key={index} className="size-9 rounded-md" />
+              ))
+            : visibleApps.map((app) => (
+                <Tooltip key={app.id} delayDuration={0}>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      data-chat-first-app
+                      data-app-id={app.id}
+                      className={cn(
+                        "flex size-9 items-center justify-center rounded-md",
+                        activeAppId === app.id
+                          ? "text-sidebar-foreground"
+                          : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                      )}
+                      onClick={() => onOpenApp(app)}
+                      aria-label={copy("openApp", { name: app.name })}
+                    >
+                      <ChatFirstRailAppIcon
+                        app={app}
+                        activeAppId={activeAppId}
+                        renderIcon={renderIcon}
+                      />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="right">{app.name}</TooltipContent>
+                </Tooltip>
+              ))}
+          {onOpenAllApps ? (
+            <Tooltip delayDuration={0}>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  data-chat-first-all-apps
+                  className="flex size-9 items-center justify-center rounded-md text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                  onClick={onOpenAllApps}
+                  aria-label={copy("allApps")}
+                >
+                  <IconApps size={16} aria-hidden="true" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right">{copy("allApps")}</TooltipContent>
+            </Tooltip>
+          ) : null}
+          {error ? (
+            <span
+              className="size-1.5 rounded-full bg-destructive"
+              title={error}
+              aria-label={error}
+            />
+          ) : null}
+        </section>
+      </TooltipProvider>
     );
   }
 
@@ -368,6 +470,7 @@ export const ChatFirstAppsRail = memo(function ChatFirstAppsRail({
       ) : (
         <AppRows
           apps={visibleApps}
+          defaultAppIds={defaultAppIds}
           activeAppId={activeAppId}
           layout={layout}
           onDragStart={setDraggedAppId}

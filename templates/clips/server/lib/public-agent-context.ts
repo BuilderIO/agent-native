@@ -41,6 +41,25 @@ export type PublicAgentTranscript =
 export type PublicAgentBugReport =
   | typeof schema.recordingBugReports._.inferSelect
   | null;
+export type PublicAgentComment = {
+  id: string;
+  recordingId: string;
+  threadId: string;
+  parentId: string | null;
+  authorName: string | null;
+  content: string;
+  videoTimestampMs: number;
+  resolved: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+export type PublicAgentReaction = {
+  id: string;
+  emoji: string;
+  videoTimestampMs: number;
+  viewerName: string | null;
+  createdAt: string;
+};
 
 export interface PublicAgentAccess {
   recording: PublicAgentRecording;
@@ -58,6 +77,7 @@ export type PublicAgentAccessResult =
   | { ok: false; failure: PublicAgentFailure };
 
 const DEFAULT_MAX_AGENT_FRAME_MEDIA_BYTES = 200 * 1024 * 1024;
+export const MAX_PUBLIC_AGENT_HISTORY_ITEMS = 100;
 export const CLIPS_AGENT_ACCESS_TTL_SECONDS = 2 * 60 * 60;
 export { CLIPS_AGENT_ACCESS_PARAM };
 
@@ -525,6 +545,12 @@ export function buildPublicAgentContext({
   transcript,
   agentSegments,
   chapters,
+  comments,
+  reactions,
+  commentCount = comments.length,
+  commentsTruncated = false,
+  reactionCount = reactions.length,
+  reactionsTruncated = false,
   ctas,
   browserDiagnostics,
   bugReport,
@@ -534,6 +560,12 @@ export function buildPublicAgentContext({
   transcript: PublicAgentTranscript;
   agentSegments: ReturnType<typeof toAgentTranscriptSegments>;
   chapters: ReturnType<typeof parseAgentChapters>;
+  comments: PublicAgentComment[];
+  reactions: PublicAgentReaction[];
+  commentCount?: number;
+  commentsTruncated?: boolean;
+  reactionCount?: number;
+  reactionsTruncated?: boolean;
   ctas: Awaited<ReturnType<typeof loadAgentCtas>>;
   browserDiagnostics?: BrowserDiagnosticsData | null;
   bugReport?: PublicAgentBugReport;
@@ -639,6 +671,29 @@ export function buildPublicAgentContext({
       segments: agentSegments,
       segmentCount: agentSegments.length,
     },
+    comments: comments.map((comment) => ({
+      id: comment.id,
+      recordingId: comment.recordingId,
+      threadId: comment.threadId,
+      parentId: comment.parentId,
+      authorName: comment.authorName,
+      content: comment.content,
+      videoTimestampMs: comment.videoTimestampMs,
+      resolved: comment.resolved,
+      createdAt: comment.createdAt,
+      updatedAt: comment.updatedAt,
+    })),
+    commentCount,
+    commentsTruncated,
+    reactions: reactions.map((reaction) => ({
+      id: reaction.id,
+      emoji: reaction.emoji,
+      videoTimestampMs: reaction.videoTimestampMs,
+      viewerName: reaction.viewerName,
+      createdAt: reaction.createdAt,
+    })),
+    reactionCount,
+    reactionsTruncated,
     chapters,
     recommendedFrames: suggestedFrames,
     bugReport: compactBugReport(bugReport ?? null),

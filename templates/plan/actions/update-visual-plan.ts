@@ -538,7 +538,7 @@ const updateVisualPlanSchema = z.object({
     .optional()
     .default([])
     .describe(
-      "Legacy comment array. Prefer reply-to-plan-comment / resolve-plan-comment for new comments.",
+      "Legacy comment array. Comment messages support inline Markdown for emphasis, inline code, links, and line breaks; headings are flattened. Prefer reply-to-plan-comment / resolve-plan-comment for new comments.",
     ),
   consumedCommentIds: z
     .array(z.string())

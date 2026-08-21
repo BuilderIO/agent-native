@@ -64,6 +64,19 @@ interface ThreadMessage {
   createdAt?: number;
 }
 
+function unwrapPersistedThreadMessage(
+  value: unknown,
+): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  const nested = record.message;
+  return nested && typeof nested === "object" && !Array.isArray(nested)
+    ? (nested as Record<string, unknown>)
+    : record;
+}
+
 async function getThreadMessages(threadId: string): Promise<ThreadMessage[]> {
   await ensureObservabilityTables();
   const client = getDbExec();
@@ -83,26 +96,41 @@ async function getThreadMessages(threadId: string): Promise<ThreadMessage[]> {
     const messages: unknown[] = data.messages ?? data;
     if (!Array.isArray(messages)) return [];
 
-    return messages
-      .filter(
-        (m: any) =>
-          m &&
-          typeof m.role === "string" &&
-          (typeof m.content === "string" ||
-            (Array.isArray(m.content) &&
-              m.content.some((p: any) => p.type === "text"))),
-      )
-      .map((m: any) => ({
-        role: m.role as "user" | "assistant",
-        content:
-          typeof m.content === "string"
-            ? m.content
-            : (m.content as any[])
-                .filter((p: any) => p.type === "text")
-                .map((p: any) => p.text ?? "")
-                .join(""),
-        createdAt: m.createdAt ? Number(m.createdAt) : undefined,
-      }));
+    return messages.flatMap((value): ThreadMessage[] => {
+      const message = unwrapPersistedThreadMessage(value);
+      if (!message) return [];
+      const content = message.content;
+      if (
+        (message.role !== "user" && message.role !== "assistant") ||
+        (typeof content !== "string" && !Array.isArray(content))
+      ) {
+        return [];
+      }
+      const text =
+        typeof content === "string"
+          ? content
+          : content
+              .filter(
+                (part): part is { type: "text"; text?: unknown } =>
+                  Boolean(part) &&
+                  typeof part === "object" &&
+                  !Array.isArray(part) &&
+                  (part as Record<string, unknown>).type === "text",
+              )
+              .map((part) => (typeof part.text === "string" ? part.text : ""))
+              .join("");
+      if (!text) return [];
+      return [
+        {
+          role: message.role,
+          content: text,
+          createdAt:
+            typeof message.createdAt === "number"
+              ? message.createdAt
+              : undefined,
+        },
+      ];
+    });
   } catch {
     return [];
   }

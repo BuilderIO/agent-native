@@ -1,17 +1,19 @@
 import path from "path";
 
-import {
-  getSession,
-  readBody,
-  runWithRequestContext,
-} from "@agent-native/core/server";
+import { readBody, runWithRequestContext } from "@agent-native/core/server";
 import { defineEventHandler, setResponseStatus } from "h3";
 
 import exportHtmlAction from "../../../../actions/export-html.js";
+import { resolveSlidesRequestAuth } from "../../../handlers/request-auth-context.js";
 
 export default defineEventHandler(async (event) => {
-  const session = await getSession(event).catch(() => null);
-  if (!session?.email) {
+  const auth = await resolveSlidesRequestAuth(event);
+  if (!auth.ok) {
+    setResponseStatus(event, auth.statusCode);
+    return { error: auth.error };
+  }
+  const session = auth.context;
+  if (!session.email) {
     setResponseStatus(event, 401);
     return { error: "Unauthorized" };
   }

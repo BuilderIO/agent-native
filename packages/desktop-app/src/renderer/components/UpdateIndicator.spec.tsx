@@ -39,9 +39,9 @@ describe("UpdateIndicator", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders a restart action in the chat-first rail variant", async () => {
+  it("renders a restart action in the chat-first rail", async () => {
     await act(async () => {
-      root.render(<UpdateIndicator variant="rail" />);
+      root.render(<UpdateIndicator />);
       await Promise.resolve();
     });
 
@@ -55,5 +55,76 @@ describe("UpdateIndicator", () => {
 
     act(() => button?.click());
     expect(install).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    { state: "idle" },
+    { state: "unsupported", reason: "Local development build" },
+    { state: "checking" },
+    { state: "available", version: "1.2.0" },
+    { state: "not-available", currentVersion: "1.1.0" },
+    { state: "downloading", percent: 50 },
+    { state: "error", message: "Update check failed" },
+  ] satisfies UpdateStatus[])(
+    "does not render a rail action before an update is ready (%#)",
+    async (status) => {
+      Object.defineProperty(window, "electronAPI", {
+        configurable: true,
+        value: {
+          updater: {
+            getStatus: vi.fn().mockResolvedValue(status),
+            install,
+            onStatusChange: vi.fn(() => vi.fn()),
+          },
+        },
+      });
+
+      await act(async () => {
+        root.render(<UpdateIndicator />);
+        await Promise.resolve();
+      });
+
+      expect(container.querySelector("[data-update-indicator]")).toBeNull();
+    },
+  );
+
+  it("does not let the initial status read overwrite a newer live update", async () => {
+    let resolveStatus!: (status: UpdateStatus) => void;
+    let onStatusChange!: (status: UpdateStatus) => void;
+    const getStatus = vi.fn(
+      () =>
+        new Promise<UpdateStatus>((resolve) => {
+          resolveStatus = resolve;
+        }),
+    );
+
+    Object.defineProperty(window, "electronAPI", {
+      configurable: true,
+      value: {
+        updater: {
+          getStatus,
+          install,
+          onStatusChange: vi.fn((listener: (status: UpdateStatus) => void) => {
+            onStatusChange = listener;
+            return vi.fn();
+          }),
+        },
+      },
+    });
+
+    await act(async () => {
+      root.render(<UpdateIndicator />);
+      await Promise.resolve();
+    });
+
+    act(() => {
+      onStatusChange({ state: "downloaded", version: "1.2.0" });
+      resolveStatus({ state: "idle" });
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("Restart to update");
   });
 });

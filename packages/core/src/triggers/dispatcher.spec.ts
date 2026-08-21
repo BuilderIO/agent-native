@@ -11,6 +11,16 @@ const resourceGetByPathMock = vi.hoisted(() => vi.fn());
 const resourcePutMock = vi.hoisted(() => vi.fn());
 const resourcePutIfCurrentMock = vi.hoisted(() => vi.fn());
 const createThreadMock = vi.hoisted(() => vi.fn());
+const getThreadMock = vi.hoisted(() =>
+  vi.fn(async () => ({
+    id: "thread-1",
+    title: "Job: trigger",
+    preview: "",
+    threadData: "{}",
+    messageCount: 0,
+  })),
+);
+const updateThreadDataMock = vi.hoisted(() => vi.fn(async () => {}));
 const subscribeMock = vi.hoisted(() => vi.fn());
 const unsubscribeMock = vi.hoisted(() => vi.fn());
 const registerEventMock = vi.hoisted(() => vi.fn());
@@ -45,6 +55,10 @@ vi.mock("../event-bus/index.js", () => ({
 
 vi.mock("../chat-threads/store.js", () => ({
   createThread: createThreadMock,
+  getThread: getThreadMock,
+  updateThreadData: updateThreadDataMock,
+  withThreadDataLock: async (_threadId: string, fn: () => Promise<unknown>) =>
+    fn(),
 }));
 
 const actionsToEngineToolsMock = vi.hoisted(() => vi.fn(() => []));
@@ -88,6 +102,8 @@ vi.mock("../usage/store.js", () => ({
 
 vi.mock("../agent/run-manager.js", () => ({
   resolveRunSoftTimeoutMs: vi.fn(() => 0),
+  resolveBackgroundAutomationSoftTimeoutMs: vi.fn(() => 0),
+  resolveBackgroundRunHardTimeoutMs: vi.fn(() => 10 * 60_000),
   startRun: startRunMock,
 }));
 
@@ -702,10 +718,14 @@ Read the calendar.`,
         ]),
       }),
     );
-    // dispatch_mode is now set via the runner's own pre-claim (insertRun +
-    // claimBackgroundRun) before startRun is even called, not through
-    // startRun's options — see background-automation-runner.spec.ts.
-    expect(startRunMock.mock.calls[0]?.[4]).not.toHaveProperty("dispatchMode");
+    // dispatch_mode reaches the ROW through the runner's own pre-claim
+    // (insertRun + claimBackgroundRun) before startRun is called — see
+    // background-automation-runner.spec.ts. It is ALSO passed to startRun,
+    // which is what puts it on the terminal and boundary analytics events;
+    // without that every triggered run reported itself as `foreground`.
+    expect(startRunMock.mock.calls[0]?.[4]).toMatchObject({
+      dispatchMode: "background",
+    });
   });
 
   it("fails loudly before execution when a requested event MCP tool is unavailable", async () => {

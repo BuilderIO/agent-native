@@ -177,7 +177,7 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com
 ```
 
 - **设置** → 应用程序显示运行上述流程的**“使用 Agent-Native 登录”**选项。直接本地登录（电子邮件/密码、Google）仍然可以与它一起使用。
-- **取消设置（默认）** → **零行为改变。** 应用程序的身份验证与之前完全相同；联合代码路径处于休眠状态。没有架构更改，也没有任何需要迁移的内容，因此打开或关闭变量在任何时候都是完全可逆的。
+- **规范托管客户端** → 具有已注册来源的应用会显示**“使用 Agent-Native 登录”**选项；自托管应用仍需设置该变量。没有架构更改，也无需迁移。
 
 ## 安全 {#security}
 
@@ -187,7 +187,7 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com
 - **与应用绑定的严格 `redirect_uri` 允许列表。** 每个规范应用 ID 都映射到一个精确的生产源和回调路径；localhost 仍可用于开发。未知子域、不匹配的应用 ID、任意路径和跨源目标都会被拒绝。
 - **从经过验证的令牌仅通过电子邮件加入。** 跨越信任边界的*唯一*事物是签名令牌中经过验证的电子邮件。该应用程序不接受来自线路的用户 ID、角色、组织成员资格或任何特权状态 - 它从匹配的帐户在本地派生所有内容。
 - **仅添加身份写入。**链接可以不受影响地重复使用现有的同一电子邮件帐户，也可以插入一个新帐户。此路径上不会发生任何身份行的更新、重命名、重新指向或删除。
-- **默认情况下关闭。**如果取消设置 `AGENT_NATIVE_IDENTITY_HUB_URL`，则整个功能将处于惰性状态。
+- **规范托管客户端按来源启用。**具有已注册来源的规范托管应用会自动启用；自托管应用在未设置 `AGENT_NATIVE_IDENTITY_HUB_URL` 时保持停用。
 
 <Callout id="doc-block-spb3q0" tone="success">
 
@@ -324,5 +324,5 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com
 
 Dispatch 的 `desktop.workspace-sso` 标志默认关闭且只控制可用性；身份验证、签名、nonce、来源、回调、会话和撤销检查始终强制执行。标志关闭或无法读取时，Desktop 不会更改逐应用登录、退出或设置。
 User-Agent 中的 Canary 标记仅是可用性提示，不是远程证明；身份验证和授权均不信任该标记。
-规范托管应用无需为每个应用配置身份中心环境变量，即可识别打包版 Desktop SSO Canary 的请求。普通浏览器和自托管应用仍需设置 `AGENT_NATIVE_IDENTITY_HUB_URL`。稳定版 Desktop 在后续版本获得单独批准之前不会初始化代理。
+每个 Desktop 版本都可以在设备偏好 `desktopSsoEnabled` 为 true（默认值）时初始化代理；显式持久化的 `false` 仍表示用户选择退出。Dispatch 的 `desktop.workspace-sso` 标志也必须启用。Canary 用户代理标记不再控制代理初始化，只用于标识更新渠道。
 Canary 不会拦截匿名用户进入应用登录页的导航。用户必须在 Desktop 设置中为当前活动的已注册应用明确选择工作区登录；普通应用登录仍是默认路径。

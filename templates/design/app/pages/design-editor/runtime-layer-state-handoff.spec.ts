@@ -2,35 +2,18 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-const editorSource = readFileSync(
-  new URL("../DesignEditor.tsx", import.meta.url),
-  "utf8",
-);
-
-function sourceSection(start: string, end: string): string {
-  const startIndex = editorSource.indexOf(start);
-  const endIndex = editorSource.indexOf(end, startIndex + start.length);
-  expect(startIndex).toBeGreaterThanOrEqual(0);
-  expect(endIndex).toBeGreaterThan(startIndex);
-  return editorSource.slice(startIndex, endIndex);
+function commandSource(file: string): string {
+  return readFileSync(new URL(`./commands/${file}`, import.meta.url), "utf8");
 }
 
 describe("DesignEditor runtime layer state handoff", () => {
   it.each([
-    [
-      "locked",
-      "const handleToggleLayerLocked",
-      "const handleToggleLayerHidden",
-    ],
-    [
-      "hidden",
-      "const handleToggleLayerHidden",
-      "const handleToggleHiddenForSelection",
-    ],
+    ["locked", "toggle-layer-locked.ts"],
+    ["hidden", "toggle-layer-hidden.ts"],
   ] as const)(
     "routes runtime-only %s toggles through the semantic handoff before applying the optimistic state",
-    (state, start, end) => {
-      const section = sourceSection(start, end);
+    (state, file) => {
+      const section = commandSource(file);
       const handoffCall = `sendRuntimeLayerStateSemanticHandoff(layerId, "${state}", ${state})`;
       const previewCall = `applyLayerStatePreview(layerScreenId, layerId, "${state}", ${state})`;
 
@@ -55,9 +38,8 @@ describe("DesignEditor runtime layer state handoff", () => {
   );
 
   it("serializes the exact-anchor, consented CAS/HMR contract into the agent prompt", () => {
-    const section = sourceSection(
-      "const sendRuntimeLayerStateSemanticHandoff",
-      "// Wrap the current multi-layer selection",
+    const section = commandSource(
+      "send-runtime-layer-state-semantic-handoff.ts",
     );
 
     expect(section).toContain("buildRuntimeReactLayerStateHandoff");

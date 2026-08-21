@@ -1,58 +1,174 @@
 ---
 title: "开始使用"
-description: "创建 Chat 应用并配置智能体，然后通过动作和页面扩展它。"
+description: "创建一个 Agent-Native 应用，并从智能体和 UI 调用同一个动作。"
 ---
 
 # 开始使用
 
-Agent-Native 应用让智能体和 UI 共享相同的[动作](/docs/actions)、SQL 数据和应用状态。这条路径从 Chat 开始，Chat 已经创建所需的框架表，并默认将聊天记录存储在本地 SQLite 中。只有当应用需要持久化领域数据时，才添加自己的数据表。
+Agent-Native 是一个开源 TypeScript 框架，用于构建同时服务于人和 AI 智能体的应用。你只需将应用功能定义一次，作为[动作](/docs/actions-overview)——React UI 从代码中调用的类型化函数，智能体则将其用作工具。
 
-<Steps>
+本指南中，你将创建一个 Chat 应用，并从智能体和 UI 调用其中自带的 `hello` 动作。
 
-### 创建聊天应用并配置智能体
+## 前提条件
 
-搭建 Chat 模板、安装依赖、启动开发服务器并配置智能体。你将获得一个可以继续扩展的可用聊天应用。
-**你正在这里。**
+- [Node.js](https://nodejs.org) 22 或更高版本
+- [pnpm](https://pnpm.io)
+- 供智能体使用的 LLM 连接：Builder.io、Anthropic 或 OpenAI API 密钥，或本地 Ollama 模型
 
-### 添加动作
+## 创建应用
 
-定义一个有类型的文本分析器，并在聊天中将其结果渲染为图表。
-
-### 添加页面
-
-构建一个在聊天记录之外调用同一动作的 React 路由。
-
-</Steps>
-
-## 1. 创建聊天应用 {#create-your-app}
-
-你需要 [Node.js 22+](https://nodejs.org) 和 [pnpm](https://pnpm.io)。
-
-打开终端，进入你想要创建 Agent Native 应用的目录，然后运行：
+在一个新目录中，创建 Chat 应用：
 
 ```bash
-npx @agent-native/core@latest create my-app --template chat
+npx @agent-native/core@latest create my-app --standalone --template chat
 cd my-app
 pnpm install
+```
+
+该模板包含浏览器应用、身份验证、持久化对话、实时同步、应用上下文和 `actions/` 目录。它还包含一个小型 `hello` 动作，你将在本指南中一直使用它。
+
+## 启动开发服务器
+
+启动应用：
+
+```bash
 pnpm dev
 ```
 
-应用会在 `http://localhost:8080` 打开。如果看到登录界面，请使用虚构的登录信息注册。本地开发无需验证邮箱。
+应用将在 `http://localhost:8080` 打开。如果没有自动打开，请在浏览器中访问该 URL。
 
-Chat 模板包含持久化聊天线程、身份验证、实时同步、一个 `actions/` 目录，以及标准的 `view-screen` 和 `navigate` 动作。
+<Callout tone="info">
 
-### 选择其他起点
+在欢迎界面中，选择 **Continue as local dev**。本地开发不需要输入电子邮件地址或密码。
 
-如果 Chat 不是合适的起点，可以运行 `create` 而不使用 `--template`，并在 CLI 中选择其他选项。有关其他路径，请参阅[创建模板](/docs/creating-templates)。
+</Callout>
 
-## 2. 配置智能体 {#connect-ai}
+接下来，连接 LLM。选择 **Connect Builder.io** 以使用免费额度，或选择 **Custom keys**，选择提供商并输入所需的连接信息。
 
-Chat 模板会直接打开聊天界面。如果智能体还不能响应，请打开 **Settings > Manage agent**，或使用 **Cmd/Ctrl+K > Manage agent** 来配置模型和提供商。
+## 从智能体运行动作
 
-智能体开始响应后，继续阅读[添加动作](/docs/getting-started-actions)。
+动作是 React UI 可以从代码中调用、智能体可以作为工具使用的类型化函数。Chat 模板包含一个简单的 `hello` 动作，让你可以在自己编写动作前先体验这一模式。
 
-## 相关文档
+在应用中，输入：
 
-- [什么是 Agent-Native？](/docs/what-is-agent-native)：这条路径背后的架构。
-- [Chat 模板](/docs/template-chat)：起始应用包含的内容。
-- [FAQ](/docs/faq)：关于模型、托管和模板的解答。
+> Call the hello action for Alex.
+
+智能体通过描述和输入模式找到 `hello`，将 `Alex` 作为 `name` 输入传入，并响应：
+
+```text
+Hello, Alex!
+```
+
+## 查看动作
+
+打开 `actions/hello.ts`：
+
+```ts filename="actions/hello.ts"
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Return a friendly greeting.",
+  schema: z.object({
+    name: z.string().default("world").describe("Name to greet"),
+  }),
+  http: { method: "GET" },
+  run: async ({ name }) => {
+    return { message: `Hello, ${name}!` };
+  },
+});
+```
+
+现在先关注四个部分：
+
+- `description` 告诉智能体何时使用该动作。
+- `schema` 验证输入，并向智能体提供类型化的工具定义。
+- `http` 通过 `GET` 公开这个只读动作，让 `useActionQuery` 能够从 React 调用它。
+- `run` 包含由智能体和 UI 共享的应用逻辑。
+
+完整 API 请参阅[定义动作](/docs/actions-defining)。
+
+## 从 React 调用动作
+
+在 `app/routes/hello.tsx` 中添加路由：
+
+```tsx filename="app/routes/hello.tsx"
+import { useActionQuery } from "@agent-native/core/client/hooks";
+import { useState } from "react";
+
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+
+export default function HelloRoute() {
+  const [name, setName] = useState("Alex");
+  const { data } = useActionQuery("hello", { name });
+
+  return (
+    <main className="mx-auto grid w-full max-w-xl gap-6 p-6">
+      <h1 className="text-2xl font-semibold">Hello action</h1>
+      <div className="grid gap-2">
+        <Label htmlFor="name">Name</Label>
+        <Input
+          id="name"
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+        />
+      </div>
+      <p className="text-xl font-medium">{data?.message}</p>
+    </main>
+  );
+}
+```
+
+<Callout tone="warning">
+
+重启开发服务器，让它发现新路由，然后打开 `http://localhost:8080/hello`。
+
+</Callout>
+
+输入姓名时，`useActionQuery` 会调用 `hello` 并渲染结果。它会推断动作的输入和结果类型，因此该页面不需要自定义 API 路由或第二套问候语实现。
+
+## 修改动作
+
+在 `actions/hello.ts` 中，修改返回值：
+
+```ts
+return { message: `Welcome, ${name}.` };
+```
+
+刷新 `/hello`，然后让智能体再次调用 `hello`。两者都会返回更新后的问候语，因为它们调用的是同一个动作。
+
+## 以其他方式调用动作
+
+你已从智能体和 UI 调用了同一个动作。这个动作还可以通过以下方式调用：
+
+| 调用方                                  | 用途                                           |
+| --------------------------------------- | ---------------------------------------------- |
+| [HTTP API](/docs/http-api)              | 从脚本、后端或集成调用动作。                   |
+| [CLI](/docs/actions-other-surfaces#cli) | 在终端中运行或测试动作。                       |
+| [MCP](/docs/actions-other-surfaces#mcp) | 让外部 AI 客户端发现并以工具形式调用动作。     |
+| [A2A](/docs/actions-other-surfaces#a2a) | 让另一个 Agent-Native 应用请求此应用完成工作。 |
+
+每个调用方都使用相同的动作定义。你不需要为每一种调用方分别实现。这个共享动作模型是 Agent-Native 的核心：随着应用变化，UI、智能体和集成之间的行为、验证和权限始终保持一致。
+
+## 你构建了什么
+
+你创建了一个 Agent-Native 应用，从智能体和 React UI 调用了它的 `hello` 动作，然后只修改一次问候语，并看到两端都更新。之后编写的每个动作都遵循相同模式。
+
+## 后续步骤
+
+<Cards>
+
+### [什么是 Agent-Native？](/docs/what-is-agent-native)
+
+了解 UI 和智能体为何共享动作、数据和上下文。
+
+### [核心概念](/docs/key-concepts)
+
+了解动作、SQL 数据、应用上下文、访问控制和实时同步如何协同工作。
+
+### [动作](/docs/actions-overview)
+
+定义用于读取、写入和审批的动作，然后从 UI、智能体和外部客户端调用它们。
+
+</Cards>

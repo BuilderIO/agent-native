@@ -13,7 +13,6 @@ import { buildDeepLink } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import {
   getGenerationCreativeContext,
-  mergeCreativeContextReuseLabels,
   recordGenerationCreativeContext,
   replaceCreativeContextElementProvenance,
   resolveGenerationCreativeContext,
@@ -171,12 +170,15 @@ const reuseLabelSchema = z
     }
   });
 
-function hasBreakpointSet(value: unknown): boolean {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return false;
-  }
+function classifyBreakpointSet(
+  value: unknown,
+): "absent" | "malformed" | "present" {
+  if (value === null || value === undefined) return "absent";
+  if (typeof value !== "object" || Array.isArray(value)) return "malformed";
   const breakpoints = (value as { breakpoints?: unknown }).breakpoints;
-  return Array.isArray(breakpoints) && breakpoints.length > 0;
+  if (breakpoints === undefined) return "malformed";
+  if (!Array.isArray(breakpoints)) return "malformed";
+  return breakpoints.length > 0 ? "present" : "malformed";
 }
 
 function jsonValuesEqual(left: unknown, right: unknown): boolean {
@@ -1137,7 +1139,7 @@ const generateDesignAction = defineAction({
           mergedData.breakpointSetUpdatedAt = updatedAt;
         } else if (
           generatedBreakpointSet.length > 0 &&
-          !hasBreakpointSet(mergedData.breakpointSet)
+          classifyBreakpointSet(mergedData.breakpointSet) === "absent"
         ) {
           mergedData.breakpointSet = {
             id: "generated-responsive",
@@ -1200,7 +1202,7 @@ const generateDesignAction = defineAction({
           devices && devices.length > 0
             ? jsonValuesEqual(currentBreakpointWidths, expectedBreakpointWidths)
             : generatedBreakpointSet.length === 0 ||
-              hasBreakpointSet(current.breakpointSet);
+              classifyBreakpointSet(current.breakpointSet) !== "absent";
         return framesApplied && breakpointSetApplied;
       },
     });

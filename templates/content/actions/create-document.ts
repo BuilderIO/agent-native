@@ -172,7 +172,7 @@ export default defineAction({
     const db = getDb();
     let inheritedRole: "owner" | ShareRole = "owner";
     let inheritedShares: Array<{
-      principalType: "user" | "org";
+      principalType: "user" | "group" | "org";
       principalId: string;
       role: ShareRole;
     }> = [];

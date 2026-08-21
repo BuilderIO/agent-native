@@ -233,6 +233,12 @@ The scheduler is a framework plugin (the internal `processRecurringJobs()` routi
 
 </Callout>
 
+<Callout id="doc-block-rj3" tone="warning">
+
+**`AGENT_NATIVE_DISABLE_RECURRING_JOBS` is read in two scopes.** In the **build** environment it decides whether the platform's scheduled trigger is emitted at all — on Netlify that emitted function is the only durable driver, so a build with the switch on ships an app where no schedule can fire, whatever the deployed environment says. In the **runtime** environment it gates the in-process `setInterval` loop. Set it in the build environment to turn recurring jobs off for a deploy; the build records its decision so the **Automations** page can say schedules will never run instead of showing a next-run date nothing will honour.
+
+</Callout>
+
 ## Debugging a job {#debugging}
 
 - Open the automation's details in **Automations**, or inspect
@@ -277,7 +283,7 @@ Recurring jobs are "how do I make the agent act on its own?" The scheduling pack
 
 - [**Automations**](/docs/automations) — the primary Scheduled/Event product model and management workflow
 - [**Agent Resources**](/docs/agent-resources) — where jobs live alongside skills, memory, and custom agents
-- [**Actions**](/docs/actions) — the tools a job calls
+- [**Actions**](/docs/actions-overview) — the tools a job calls
 - [**MCP Clients**](/docs/mcp-clients) — connect remote or local MCP tools and OAuth grants
 - [**Agent Teams**](/docs/agent-teams) — jobs often spawn sub-agents to do parallel work
 - [**Toolkit piece: Toolkit Capability Modules**](/docs/toolkit-capability-packages) — how this differs from the installable Scheduling package

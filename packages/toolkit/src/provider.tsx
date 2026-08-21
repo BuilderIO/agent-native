@@ -70,6 +70,7 @@ export function ToolkitProvider({
       leadingIcon,
       trailingIcon,
       onPress,
+      onClick,
       elementRef,
       ...props
     }: ActionButtonProps) {
@@ -94,7 +95,14 @@ export function ToolkitProvider({
             size={legacySize}
             disabled={props.disabled || pending}
             aria-busy={pending || undefined}
-            onClick={(event) => onPress?.(event)}
+            onClick={(event) => {
+              onPress?.(event);
+              onClick?.(
+                event as Parameters<
+                  NonNullable<ActionButtonProps["onClick"]>
+                >[0],
+              );
+            }}
           >
             {leadingIcon}
             {children}

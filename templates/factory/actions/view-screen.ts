@@ -9,6 +9,7 @@
 
 import { defineAction } from "@agent-native/core/action";
 import { readAppState } from "@agent-native/core/application-state";
+import { dispatchActions } from "@agent-native/dispatch/actions";
 import { z } from "zod";
 
 import {
@@ -21,6 +22,12 @@ import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
+
+async function runDispatchAction(name: string, args: Record<string, unknown>) {
+  const action = dispatchActions[name];
+  if (!action) throw new Error(`Dispatch action not found: ${name}`);
+  return action.run(args);
+}
 
 export default defineAction({
   description:
@@ -44,25 +51,54 @@ export default defineAction({
         workspaceMemberIdentityFromContext(context),
       );
       const state = navigation as Record<string, unknown>;
-      const factoryId =
-        typeof state.factoryId === "string" && state.factoryId.trim()
-          ? state.factoryId
-          : DEFAULT_FACTORY_ID;
-      const row = await readFactoryDefinition(orgId, factoryId);
-      const fallback = defaultFactoryDefinition();
-      const graph = row ? parseFactoryGraph(row.graphJson) : fallback.graph;
-      const selectedNodeId =
-        typeof state.factoryNodeId === "string" ? state.factoryNodeId : null;
-      const selectedEdgeId =
-        typeof state.factoryEdgeId === "string" ? state.factoryEdgeId : null;
+      if (state.creatingFactory === true) {
+        screen.factory = { creating: true };
+      } else {
+        const factoryId =
+          typeof state.factoryId === "string" && state.factoryId.trim()
+            ? state.factoryId
+            : DEFAULT_FACTORY_ID;
+        const row = await readFactoryDefinition(orgId, factoryId);
+        const fallback = defaultFactoryDefinition();
+        const graph = row ? parseFactoryGraph(row.graphJson) : fallback.graph;
+        const selectedNodeId =
+          typeof state.factoryNodeId === "string" ? state.factoryNodeId : null;
+        const selectedEdgeId =
+          typeof state.factoryEdgeId === "string" ? state.factoryEdgeId : null;
 
-      screen.factory = {
-        id: factoryId,
-        name: row?.name ?? fallback.name,
-        graphVersion: row?.graphVersion ?? graph.version,
-        selectedNode: graph.nodes.find((node) => node.id === selectedNodeId),
-        selectedEdge: graph.edges.find((edge) => edge.id === selectedEdgeId),
-      };
+        screen.factory = {
+          id: factoryId,
+          name: row?.name ?? fallback.name,
+          graphVersion: row?.graphVersion ?? graph.version,
+          selectedNode: graph.nodes.find((node) => node.id === selectedNodeId),
+          selectedEdge: graph.edges.find((edge) => edge.id === selectedEdgeId),
+        };
+      }
+
+      if (state.factoryTab === "agents") {
+        const [apps, agents] = await Promise.all([
+          runDispatchAction("list-workspace-apps", {
+            includeAgentCards: false,
+          }),
+          runDispatchAction("list-workspace-resources", { kind: "agent" }),
+        ]);
+        screen.factoryAgents = { apps, agents };
+      }
+    }
+
+    if (
+      navigation &&
+      typeof navigation === "object" &&
+      "view" in navigation &&
+      navigation.view === "agents"
+    ) {
+      const [apps, agents] = await Promise.all([
+        runDispatchAction("list-workspace-apps", {
+          includeAgentCards: false,
+        }),
+        runDispatchAction("list-workspace-resources", { kind: "agent" }),
+      ]);
+      screen.agents = { apps, agents };
     }
 
     if (Object.keys(screen).length === 0) {

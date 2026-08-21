@@ -2,6 +2,10 @@ import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { emailToName } from "@agent-native/core/client/collab";
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  InlineMarkdown,
+  type InlineMarkdownProtectedSpan,
+} from "@agent-native/core/client/markdown";
+import {
   IconCheck,
   IconMessageCircle,
   IconArrowUp,
@@ -40,23 +44,28 @@ import { CommentComposer, type MentionEntry } from "./CommentComposer";
 
 /**
  * Render a comment body, styling any `@mention` tokens that match the comment's
- * stored mentions. Plain text otherwise — no HTML is interpreted.
+ * stored mentions. Raw HTML is never interpreted.
  */
-function renderCommentBody(content: string, mentions: CommentMention[]) {
+function commentMentionSpans(
+  mentions: CommentMention[],
+): InlineMarkdownProtectedSpan[] {
   const labels = Array.from(
     new Set(mentions.map((m) => m.name).filter((n): n is string => !!n)),
   ).sort((a, b) => b.length - a.length);
-  if (labels.length === 0) return content;
-  const escaped = labels.map((l) => l.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-  const re = new RegExp(`(@(?:${escaped.join("|")}))`, "g");
-  return content.split(re).map((seg, i) =>
-    seg.startsWith("@") && labels.includes(seg.slice(1)) ? (
-      <span key={i} className="comment-mention">
-        {seg}
-      </span>
-    ) : (
-      seg
-    ),
+  return labels.map((label) => ({
+    source: `@${label}`,
+    label: `@${label}`,
+    className: "comment-mention",
+  }));
+}
+
+function renderCommentBody(content: string, mentions: CommentMention[]) {
+  return (
+    <InlineMarkdown
+      content={content}
+      inline
+      protectedSpans={commentMentionSpans(mentions)}
+    />
   );
 }
 
@@ -942,9 +951,9 @@ function ThreadView({
                 {formatDate(c.created_at)}
               </span>
             </div>
-            <p className="text-[13px] text-foreground/90 pl-8 leading-relaxed whitespace-pre-wrap">
+            <div className="text-[13px] text-foreground/90 pl-8 leading-relaxed">
               {renderCommentBody(c.content, c.mentions)}
-            </p>
+            </div>
           </div>
         ))}
       </div>

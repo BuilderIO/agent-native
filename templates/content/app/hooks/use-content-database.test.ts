@@ -17,6 +17,7 @@ import {
   contentDatabaseResponseCanSeedQuery,
   contentDatabaseItemsPageQueryKey,
   contentDatabaseQueryKey,
+  fetchCompleteContentDatabaseList,
   invalidateBuilderBodyHydrationQueries,
   invalidateContentDatabaseSourceRefreshQueries,
   moveOptimisticContentDatabaseItem,
@@ -29,6 +30,59 @@ import {
 } from "./use-content-database";
 
 const createdAt = "2026-06-15T12:00:00.000Z";
+
+describe("complete Content database discovery", () => {
+  it("exhausts every bounded page before returning source-picker options", async () => {
+    const databases = Array.from({ length: 101 }, (_, index) => ({
+      databaseId: `database-${index}`,
+      documentId: `document-${index}`,
+      spaceId: null,
+      title: `Database ${index}`,
+      description: "",
+    }));
+    const offsets: number[] = [];
+
+    const result = await fetchCompleteContentDatabaseList(
+      async (offset, limit) => {
+        offsets.push(offset);
+        const page = databases.slice(offset, offset + limit);
+        const nextOffset = offset + page.length;
+        return {
+          databases: page,
+          pagination: {
+            offset,
+            limit,
+            totalItems: databases.length,
+            returnedItems: page.length,
+            hasMore: nextOffset < databases.length,
+            nextOffset: nextOffset < databases.length ? nextOffset : null,
+          },
+        };
+      },
+    );
+
+    expect(offsets).toEqual([0, 50, 100]);
+    expect(result.map((database) => database.databaseId)).toEqual(
+      databases.map((database) => database.databaseId),
+    );
+  });
+
+  it("rejects a non-advancing continuation instead of clipping silently", async () => {
+    await expect(
+      fetchCompleteContentDatabaseList(async (_offset, limit) => ({
+        databases: [],
+        pagination: {
+          offset: 0,
+          limit,
+          totalItems: 1,
+          returnedItems: 0,
+          hasMore: true,
+          nextOffset: 0,
+        },
+      })),
+    ).rejects.toThrow("non-advancing continuation");
+  });
+});
 
 describe("preserveScopedDatabasePlaceholder", () => {
   const previous = { database: "organization-files" };

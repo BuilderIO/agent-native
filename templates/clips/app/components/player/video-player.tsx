@@ -57,6 +57,11 @@ import {
   type PlaybackComment,
 } from "./playback-comment-overlay";
 import { PlayerControls, SPEED_OPTIONS } from "./player-controls";
+import type {
+  ReactionHandler,
+  ReactionHandlerResult,
+  ReactionSummary,
+} from "./reactions-tray";
 
 function resolveLocalUrl(url: string | null | undefined): string | undefined {
   if (!url) return undefined;
@@ -153,9 +158,17 @@ type WebkitFullscreenVideo = HTMLVideoElement & {
 
 export interface VideoPlayerHandle {
   video: HTMLVideoElement | null;
+  /**
+   * The player's own root element — the element the browser Fullscreen API
+   * actually paints when fullscreen. Callers portal fullscreen-only overlays
+   * (e.g. a comment composer) into this so they stay visible instead of
+   * exiting fullscreen.
+   */
+  container: HTMLDivElement | null;
   play: () => Promise<void> | void;
   pause: () => void;
   seek: (ms: number) => void;
+  getCurrentOriginalMs: () => number;
   setSpeed: (rate: number) => void;
   toggleMute: () => void;
   toggleCaptions: () => void;
@@ -183,6 +196,8 @@ export interface VideoPlayerProps {
   defaultSpeed?: number;
   /** Autoplay on mount. */
   autoPlay?: boolean;
+  /** Persist resume position for an authenticated viewer. */
+  persistPlaybackPosition?: boolean;
   /** Start time in ms. */
   startMs?: number;
   /** Comment + chapter overlays for the scrubber. */
@@ -233,6 +248,25 @@ export interface VideoPlayerProps {
   onVideoElementChange?: (video: HTMLVideoElement | null) => void;
   /** Called when the viewer clicks the timestamped-comment overlay. */
   onCommentClick?: () => void;
+  /**
+   * Reaction tray + comment-composer trigger to surface while fullscreen.
+   * The real Fullscreen API only paints this component's own subtree, so
+   * the parent route's normal reaction/comment row (rendered as a sibling of
+   * `VideoPlayer`) disappears on entering fullscreen. When these are
+   * provided, an equivalent control row renders inside the player itself,
+   * visible only while `isFullscreen` is true.
+   */
+  enableReactions?: boolean;
+  onReact?: ReactionHandler;
+  enableComments?: boolean;
+  /**
+   * Opens the existing comment composer/panel. While fullscreen, the caller
+   * should portal that composer into `VideoPlayerHandle.container` (via the
+   * player ref) instead of exiting fullscreen, so it stays visible.
+   */
+  onAddComment?: () => void;
+  /** Fires whenever the player enters or exits fullscreen. */
+  onFullscreenChange?: (isFullscreen: boolean) => void;
 }
 
 export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
@@ -247,6 +281,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       thumbnailUrl,
       defaultSpeed = 1.2,
       autoPlay,
+      persistPlaybackPosition = true,
       startMs,
       editsJson,
       comments,
@@ -272,6 +307,11 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       role,
       onVideoElementChange,
       onCommentClick,
+      enableReactions,
+      onReact,
+      enableComments,
+      onAddComment,
+      onFullscreenChange,
     } = props;
 
     const resolvedVideoSrc = useMemo(() => {
@@ -340,6 +380,10 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const [currentMs, setCurrentMs] = useState(startMs ?? 0);
     currentMsRef.current = currentMs;
     isPlayingRef.current = isPlaying;
+    const [optimisticReactions, setOptimisticReactions] = useState<
+      ReactionSummary[]
+    >([]);
+    const optimisticReactionIdRef = useRef(0);
     const [loomStartMs, setLoomStartMs] = useState<number | null>(null);
     const [volume, setVolume] = useState(1);
     // Autoplaying players (e.g. the Slack unfurl embed, `?autoplay=1`) must
@@ -353,8 +397,9 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const [captionsOn, setCaptionsOn] = useState(false);
     const [hasPlaybackStarted, setHasPlaybackStarted] = useState(false);
     const [isFullscreen, setIsFullscreen] = useState(false);
+    const nativeFullscreenRef = useRef(false);
     const [isPip, setIsPip] = useState(false);
-    const [canPlay, setCanPlay] = useState(false);
+    const [, setCanPlay] = useState(false);
     const [isPlayPending, setIsPlayPending] = useState(false);
     const [isBuffering, setIsBuffering] = useState(false);
     const [playError, setPlayError] = useState<string | null>(null);
@@ -422,7 +467,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     // first frame of a freshly-finalized clip so the user doesn't see a blank
     // black rectangle. Hidden on loadeddata / canplay / currentTime > 0, or
     // after a 10s safety timeout.
-    const [isPreparing, setIsPreparing] = useState<boolean>(!!videoUrl);
+    const [, setIsPreparing] = useState<boolean>(!!videoUrl);
     const edits = useMemo(() => parseEdits(editsJson), [editsJson]);
     const hasEditorThumbnail = Boolean(edits.thumbnail);
     const [shouldRefreshAutoThumbnail, setShouldRefreshAutoThumbnail] =
@@ -457,20 +502,101 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             ? []
             : [{ startMs: editedMs, title: chapter.title }];
         }),
-        reactions: (reactions ?? []).flatMap((reaction) => {
-          const editedMs = mapMarker(reaction.videoTimestampMs);
-          return editedMs === null
-            ? []
-            : [
-                {
-                  id: reaction.id,
-                  emoji: reaction.emoji,
-                  videoTimestampMs: editedMs,
-                },
-              ];
-        }),
+        reactions: [
+          ...(reactions ?? []).flatMap((reaction) => {
+            const editedMs = mapMarker(reaction.videoTimestampMs);
+            return editedMs === null
+              ? []
+              : [
+                  {
+                    id: reaction.id,
+                    emoji: reaction.emoji,
+                    videoTimestampMs: editedMs,
+                  },
+                ];
+          }),
+          ...optimisticReactions.flatMap((reaction) => {
+            const editedMs = mapMarker(reaction.videoTimestampMs);
+            return editedMs === null
+              ? []
+              : [
+                  {
+                    id: reaction.id,
+                    emoji: reaction.emoji,
+                    videoTimestampMs: editedMs,
+                  },
+                ];
+          }),
+        ],
       };
-    }, [chapters, comments, currentMs, edits, reactions, resolvedDurationMs]);
+    }, [
+      chapters,
+      comments,
+      currentMs,
+      edits,
+      optimisticReactions,
+      reactions,
+      resolvedDurationMs,
+    ]);
+
+    useEffect(() => {
+      if (!optimisticReactions.length || !reactions?.length) return;
+      setOptimisticReactions((current) => {
+        const next = current.filter(
+          (optimistic) =>
+            !reactions.some(
+              (persisted) =>
+                persisted.emoji === optimistic.emoji &&
+                Math.abs(
+                  persisted.videoTimestampMs - optimistic.videoTimestampMs,
+                ) < 1000,
+            ),
+        );
+        return next.length === current.length ? current : next;
+      });
+    }, [optimisticReactions.length, reactions]);
+
+    const handleReact = useCallback<ReactionHandler>(
+      (emoji) => {
+        const optimistic = {
+          id: `optimistic-reaction-${++optimisticReactionIdRef.current}`,
+          emoji,
+          videoTimestampMs: currentMsRef.current,
+        };
+        setOptimisticReactions((current) => [...current, optimistic]);
+
+        const removeOptimistic = () => {
+          setOptimisticReactions((current) =>
+            current.filter((reaction) => reaction.id !== optimistic.id),
+          );
+        };
+
+        let result: ReactionHandlerResult | undefined;
+        try {
+          result = onReact?.(emoji);
+        } catch {
+          removeOptimistic();
+          return false;
+        }
+
+        if (result && typeof result === "object" && "then" in result) {
+          return Promise.resolve(result).then(
+            (saved) => {
+              if (saved === false) removeOptimistic();
+              return saved !== false;
+            },
+            () => {
+              removeOptimistic();
+              return false;
+            },
+          );
+        }
+
+        if (result === false) removeOptimistic();
+        return result !== false;
+      },
+      [onReact],
+    );
     const activeVideoSourceIdentity = useMemo(
       () => videoSourceIdentity(activeVideoSrc),
       [activeVideoSrc],
@@ -519,6 +645,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       recordingId,
       videoEl: playbackVideoEl,
       durationMs,
+      enabled: persistPlaybackPosition,
       explicitStartMs: startMs,
       allowRestoreWhilePlaying: autoPlay,
       onRestore: restorePlaybackPosition,
@@ -1027,9 +1154,23 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         get video() {
           return videoRef.current;
         },
+        get container() {
+          return containerRef.current;
+        },
         play: requestPlay,
         pause: pauseVideo,
         seek: seekToVisibleMs,
+        getCurrentOriginalMs: () => {
+          const v = videoRef.current;
+          const liveOriginalMs =
+            v &&
+            Number.isFinite(v.currentTime) &&
+            v.currentTime >= 0 &&
+            v.currentTime < 1e7
+              ? Math.floor(v.currentTime * 1000)
+              : currentMsRef.current;
+          return liveOriginalMs;
+        },
         setSpeed: applySpeed,
         toggleMute: () => {
           if (videoRef.current) {
@@ -1043,6 +1184,10 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       }),
       [applySpeed, pauseVideo, requestPlay, seekToVisibleMs],
     );
+
+    useEffect(() => {
+      onFullscreenChange?.(isFullscreen);
+    }, [isFullscreen, onFullscreenChange]);
 
     // Apply initial playbackRate and start position.
     useEffect(() => {
@@ -1362,33 +1507,83 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       const el = containerRef.current;
       const video = videoRef.current as WebkitFullscreenVideo | null;
       if (!el) return;
+      const hasNativeVideoFullscreen =
+        typeof video?.webkitEnterFullscreen === "function";
+      let nativeFullscreenAttempted = false;
       try {
-        if (!document.fullscreenElement) {
-          if (
-            video?.webkitDisplayingFullscreen ||
-            (isFullscreen && video?.webkitExitFullscreen)
-          ) {
-            video?.webkitExitFullscreen?.();
-            setIsFullscreen(false);
-          } else if (typeof el.requestFullscreen === "function") {
-            await el.requestFullscreen();
-            setIsFullscreen(true);
-          } else if (video?.webkitEnterFullscreen) {
-            // iPhone Safari exposes fullscreen on the video element, not the
-            // containing div used by the custom player controls.
-            video.webkitEnterFullscreen();
-            setIsFullscreen(true);
-          } else {
-            console.warn("[clips] Fullscreen unavailable");
-          }
-        } else {
+        if (document.fullscreenElement) {
           await document.exitFullscreen();
           setIsFullscreen(false);
+          return;
         }
+
+        if (nativeFullscreenRef.current || video?.webkitDisplayingFullscreen) {
+          video?.webkitExitFullscreen?.();
+          nativeFullscreenRef.current = false;
+          setIsFullscreen(false);
+          return;
+        }
+
+        // iPhone Safari exposes fullscreen on the video element, not the
+        // containing div used by the custom player controls. Older versions
+        // can expose requestFullscreen on the div without supporting it.
+        const documentFullscreenUnavailable = !document.fullscreenEnabled;
+        if (
+          hasNativeVideoFullscreen &&
+          (documentFullscreenUnavailable ||
+            typeof el.requestFullscreen !== "function")
+        ) {
+          nativeFullscreenAttempted = true;
+          video.webkitEnterFullscreen?.();
+          nativeFullscreenRef.current = true;
+          setIsFullscreen(true);
+          return;
+        }
+
+        if (isFullscreen) {
+          // Keep the control reversible when neither browser fullscreen API
+          // is available and the player is using its fixed-viewport fallback.
+          setIsFullscreen(false);
+          return;
+        }
+
+        if (typeof el.requestFullscreen === "function") {
+          await el.requestFullscreen();
+          if (document.fullscreenElement || !hasNativeVideoFullscreen) {
+            setIsFullscreen(true);
+            return;
+          }
+
+          // A few mobile WebKit versions resolve the container request but do
+          // not enter fullscreen. Retry against the video before falling back
+          // to the in-app fixed viewport.
+          nativeFullscreenAttempted = true;
+          video.webkitEnterFullscreen?.();
+          nativeFullscreenRef.current = true;
+          setIsFullscreen(true);
+          return;
+        }
+
+        if (hasNativeVideoFullscreen) {
+          nativeFullscreenAttempted = true;
+          video.webkitEnterFullscreen?.();
+          nativeFullscreenRef.current = true;
+          setIsFullscreen(true);
+          return;
+        }
+
+        // Keep fullscreen usable in browsers that expose neither API.
+        setIsFullscreen(true);
       } catch (err) {
-        if (video?.webkitEnterFullscreen && !document.fullscreenElement) {
+        if (
+          !nativeFullscreenAttempted &&
+          hasNativeVideoFullscreen &&
+          !document.fullscreenElement
+        ) {
           try {
-            video.webkitEnterFullscreen();
+            nativeFullscreenAttempted = true;
+            video.webkitEnterFullscreen?.();
+            nativeFullscreenRef.current = true;
             setIsFullscreen(true);
             return;
           } catch (fallbackErr) {
@@ -1396,14 +1591,21 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           }
         }
         console.warn("[clips] Fullscreen failed", err);
+        setIsFullscreen(true);
       }
     }
 
     useEffect(() => {
       const video = videoRef.current as WebkitFullscreenVideo | null;
       const onFs = () => setIsFullscreen(!!document.fullscreenElement);
-      const onNativeFsEnter = () => setIsFullscreen(true);
-      const onNativeFsExit = () => setIsFullscreen(false);
+      const onNativeFsEnter = () => {
+        nativeFullscreenRef.current = true;
+        setIsFullscreen(true);
+      };
+      const onNativeFsExit = () => {
+        nativeFullscreenRef.current = false;
+        setIsFullscreen(false);
+      };
       document.addEventListener("fullscreenchange", onFs);
       video?.addEventListener("webkitbeginfullscreen", onNativeFsEnter);
       video?.addEventListener("webkitendfullscreen", onNativeFsExit);
@@ -1456,7 +1658,9 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           // width (see CenterPlaybackOverlay) so it isn't oversized inside
           // small embeds like the Slack unfurl iframe.
           "relative @container bg-black overflow-hidden select-none group",
-          theaterMode ? "fixed inset-0 z-40" : "rounded-xl",
+          theaterMode || isFullscreen
+            ? "fixed inset-0 z-40 h-dvh w-dvw"
+            : "rounded-xl",
           className,
         )}
         onMouseMove={bumpControls}
@@ -1912,6 +2116,11 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               onToggleFullscreen={() => void toggleFullscreenInternal()}
               onToggleTheater={onTheaterToggle}
               menuPortalContainer={fullscreenMenuContainer}
+              showReactionsAndComment={isFullscreen}
+              enableReactions={enableReactions}
+              onReact={handleReact}
+              enableComments={enableComments}
+              onAddComment={onAddComment}
             />
           </div>
         ) : null}
@@ -1971,7 +2180,7 @@ function CenterPlaybackOverlay({
               }}
               className="pointer-events-auto flex h-[clamp(3rem,13cqw,6rem)] w-[clamp(3rem,13cqw,6rem)] items-center justify-center rounded-full bg-white text-black shadow-2xl ring-1 ring-white/35 transition-transform duration-150 hover:scale-105 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black"
             >
-              <IconPlayerPlay className="ml-[6%] h-[clamp(1.5rem,6.5cqw,3rem)] w-[clamp(1.5rem,6.5cqw,3rem)] fill-current" />
+              <IconPlayerPlay className="h-[clamp(1.5rem,6.5cqw,3rem)] w-[clamp(1.5rem,6.5cqw,3rem)] fill-current" />
             </button>
 
             <div

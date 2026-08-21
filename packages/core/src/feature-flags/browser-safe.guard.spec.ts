@@ -175,6 +175,24 @@ describe("feature-flags/registry is a browser-safe leaf", () => {
   });
 });
 
+describe("feature-flags public barrel stays off the HMAC path", () => {
+  const entry = join(SRC_DIR, "feature-flags", "index.ts");
+
+  it("does not re-export plugin or A2A auth", () => {
+    const specs = staticSpecifiers(readFileSync(entry, "utf8"));
+    expect(specs).not.toContain("./plugin.js");
+    expect(specs).not.toContain("./a2a-action-route.js");
+  });
+
+  it("does not statically reach integrations/internal-token", () => {
+    const { visited } = walkGraph(entry);
+    expect(
+      [...visited].map(rel),
+      "the public barrel must not pull Node HMAC into Vite client graphs",
+    ).not.toContain("integrations/internal-token.ts");
+  });
+});
+
 describe("possibly-browser modules access Node builtins lazily", () => {
   const VALUE_IMPORT_RE =
     /(?:^|\n)[ \t]*import[ \t]+(?!type\b)[^;]*from[ \t\n]*["'](?:node:)?(?:async_hooks|events)["']/;

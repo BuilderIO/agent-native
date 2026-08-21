@@ -69,6 +69,9 @@ answers the question.
 -- Or for TIMESTAMP columns: WHERE event_time >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 DAY)
 ```
 
+For account health, verify the reporting period, as-of field, and freshness.
+Never label a current partial-month snapshot as last month's completed usage.
+
 ## Actions
 
 | Action                                  | Use                                                                 |

@@ -35,7 +35,7 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function ensureTables(): Promise<void> {
+export async function ensureTables(): Promise<void> {
   if (!initPromise) {
     initPromise = (async () => {
       const client = getDbExec();

@@ -1,70 +1,193 @@
 ---
 title: "शुरुआत करें"
-description: "एक Chat ऐप बनाएं और एक agent कॉन्फ़िगर करें, फिर उसे एक action और page के साथ विस्तार दें।"
+description: "एक Agent-Native ऐप बनाएं और agent व UI से एक ही action को call करें।"
 ---
 
 # शुरुआत करें
 
-Agent-Native ऐप agent और UI को समान [actions](/docs/actions), SQL data और
-application state देते हैं। यह रास्ता Chat से शुरू होता है, जो अपनी ज़रूरत की
-framework tables पहले से बनाता है और chat history को default रूप से local SQLite
-में store करता है। अपनी tables केवल तब जोड़ें जब आपके app को domain data persist
-करना हो।
+Agent-Native एक open-source TypeScript framework है, जो ऐसे ऐप बनाने के लिए है
+जो लोगों और AI agents, दोनों को सेवा देते हैं। आप अपने ऐप की functionality एक बार
+[actions](/docs/actions-overview)—typed functions के रूप में define करते हैं, जिन्हें
+आपका React UI code से call करता है और agents tools के रूप में उपयोग करते हैं।
 
-<Steps>
+इस guide में, आप एक Chat ऐप बनाएंगे और उसके शामिल `hello` action को agent और UI
+से call करेंगे।
 
-### Chat ऐप बनाएं और agent कॉन्फ़िगर करें
+## आवश्यकताएं
 
-Chat template को scaffold करें, dependencies install करें, dev server शुरू करें
-और एक agent कॉन्फ़िगर करें। आपके पास विस्तार करने के लिए एक काम करने वाला chat ऐप
-होगा। **आप यहाँ हैं।**
+- [Node.js](https://nodejs.org) 22 या बाद का संस्करण
+- [pnpm](https://pnpm.io)
+- Agent के लिए LLM connection: Builder.io, Anthropic या OpenAI API key, या local Ollama model
 
-### एक action जोड़ें
+## ऐप बनाएं
 
-एक typed text analyzer define करें और chat में उसके result को chart के रूप में render करें।
-
-### एक page जोड़ें
-
-एक React route बनाएं जो transcript के बाहर उसी action को call करे।
-
-</Steps>
-
-## 1. Chat ऐप बनाएं {#create-your-app}
-
-आपको [Node.js 22+](https://nodejs.org) और [pnpm](https://pnpm.io) चाहिए।
-
-एक terminal खोलें, उस directory में जाएं जहाँ आप अपना Agent Native ऐप रखना चाहते
-हैं, और चलाएं:
+नई directory में एक Chat ऐप बनाएं:
 
 ```bash
-npx @agent-native/core@latest create my-app --template chat
+npx @agent-native/core@latest create my-app --standalone --template chat
 cd my-app
 pnpm install
+```
+
+Template में browser ऐप, authentication, durable conversations, live sync,
+application context और `actions/` directory शामिल हैं। इसमें एक छोटा `hello`
+action भी है, जिसे आप इस guide में उपयोग करेंगे।
+
+## Development server शुरू करें
+
+ऐप शुरू करें:
+
+```bash
 pnpm dev
 ```
 
-ऐप `http://localhost:8080` पर खुलेगा। अगर login screen दिखाई दे, तो किसी नकली
-login से sign up करें। Local development में email verification की आवश्यकता नहीं है।
+ऐप `http://localhost:8080` पर खुलेगा। अगर वह अपने आप न खुले, तो browser में उस URL पर जाएं।
 
-Chat template में durable chat threads, auth, live sync, एक `actions/` directory,
-और standard `view-screen` तथा `navigate` actions शामिल हैं।
+<Callout tone="info">
 
-### कोई दूसरा starting point चुनें
+Welcome screen पर **Continue as local dev** चुनें। Local development के लिए email
+या password डालने की जरूरत नहीं है।
 
-अगर Chat सही starting point नहीं है, तो `--template` के बिना `create` चलाएं और
-CLI में कोई दूसरा विकल्प चुनें। दूसरे रास्तों के लिए [टेम्प्लेट बनाना](/docs/creating-templates)
-देखें।
+</Callout>
 
-## 2. Agent कॉन्फ़िगर करें {#connect-ai}
+फिर LLM connect करें। Free credits के लिए **Connect Builder.io** चुनें, या
+**Custom keys** चुनें, provider चुनें और मांगी गई connection details डालें।
 
-Chat template सीधे chat surface पर खुलता है। अगर agent जवाब देने के लिए तैयार नहीं
-है, तो model और provider कॉन्फ़िगर करने के लिए **Settings > Manage agent** खोलें या
-**Cmd/Ctrl+K > Manage agent** का उपयोग करें।
+## Agent से action चलाएं
 
-Agent के जवाब देने के बाद [एक action जोड़ें](/docs/getting-started-actions) पर आगे बढ़ें।
+Action एक typed function है, जिसे आपका React UI code से call कर सकता है और agents
+tool के रूप में उपयोग कर सकते हैं। Chat template में सरल `hello` action शामिल है,
+ताकि आप अपना action लिखने से पहले इस pattern को आजमा सकें।
 
-## संबंधित docs
+ऐप में पूछें:
 
-- [Agent-Native क्या है?](/docs/what-is-agent-native): इस रास्ते के पीछे की architecture।
-- [Chat Template](/docs/template-chat): starter app में क्या शामिल है।
-- [FAQ](/docs/faq): models, hosting और templates के बारे में answers।
+> Call the hello action for Alex.
+
+Agent को `hello` उसके description और input schema से मिलता है, वह `Alex` को
+`name` input के रूप में pass करता है और जवाब देता है:
+
+```text
+Hello, Alex!
+```
+
+## Action देखें
+
+`actions/hello.ts` खोलें:
+
+```ts filename="actions/hello.ts"
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Return a friendly greeting.",
+  schema: z.object({
+    name: z.string().default("world").describe("Name to greet"),
+  }),
+  http: { method: "GET" },
+  run: async ({ name }) => {
+    return { message: `Hello, ${name}!` };
+  },
+});
+```
+
+अभी इन चार भागों पर ध्यान दें:
+
+- `description` agent को बताता है कि action कब उपयोग करना है।
+- `schema` input validate करता है और agent को typed tool definition देता है।
+- `http` इस read-only action को `GET` के जरिए expose करता है, जिससे `useActionQuery` इसे React से call कर सकता है।
+- `run` में agent और UI द्वारा साझा application logic है।
+
+पूरा API जानने के लिए [Defining Actions](/docs/actions-defining) पढ़ें।
+
+## React से action call करें
+
+`app/routes/hello.tsx` पर route जोड़ें:
+
+```tsx filename="app/routes/hello.tsx"
+import { useActionQuery } from "@agent-native/core/client/hooks";
+import { useState } from "react";
+
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+
+export default function HelloRoute() {
+  const [name, setName] = useState("Alex");
+  const { data } = useActionQuery("hello", { name });
+
+  return (
+    <main className="mx-auto grid w-full max-w-xl gap-6 p-6">
+      <h1 className="text-2xl font-semibold">Hello action</h1>
+      <div className="grid gap-2">
+        <Label htmlFor="name">Name</Label>
+        <Input
+          id="name"
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+        />
+      </div>
+      <p className="text-xl font-medium">{data?.message}</p>
+    </main>
+  );
+}
+```
+
+<Callout tone="warning">
+
+नया route खोजने के लिए development server restart करें, फिर
+`http://localhost:8080/hello` खोलें।
+
+</Callout>
+
+नाम लिखते ही `useActionQuery`, `hello` को call करता है और result render करता है।
+यह action के input और result types infer करता है, इसलिए page को custom API route या
+greeting के दूसरे implementation की जरूरत नहीं होती।
+
+## Action बदलें
+
+`actions/hello.ts` में return value बदलें:
+
+```ts
+return { message: `Welcome, ${name}.` };
+```
+
+`/hello` refresh करें, फिर agent से `hello` फिर से call करने को कहें। दोनों updated
+greeting लौटाते हैं क्योंकि वे एक ही action को call करते हैं।
+
+## Actions को दूसरे तरीकों से call करें
+
+आपने एक ही action को agent और UI से call किया। वही action इनसे भी call किया जा सकता है:
+
+| कहाँ से call करें                       | उपयोग                                                                     |
+| --------------------------------------- | ------------------------------------------------------------------------- |
+| [HTTP API](/docs/http-api)              | Script, backend या integration से action call करें।                       |
+| [CLI](/docs/actions-other-surfaces#cli) | Terminal से action चलाएं या test करें।                                    |
+| [MCP](/docs/actions-other-surfaces#mcp) | External AI client को actions को tools के रूप में खोजने और call करने दें। |
+| [A2A](/docs/actions-other-surfaces#a2a) | किसी दूसरे Agent-Native ऐप को इस ऐप से काम करने को कहने दें।              |
+
+हर caller उसी action definition का उपयोग करता है। हर एक के लिए अलग implementation
+की जरूरत नहीं है। यह shared action model Agent-Native का केंद्र है: ऐप बदलने पर
+UI, agents और integrations में behavior, validation और permissions aligned रहते हैं।
+
+## आपने क्या बनाया
+
+आपने Agent-Native ऐप बनाया, उसके `hello` action को agent और React UI से call किया,
+फिर greeting को एक बार बदलकर दोनों को update होते देखा। आगे से लिखा हर action इसी
+pattern का पालन करता है।
+
+## अगले कदम
+
+<Cards>
+
+### [Agent-Native क्या है?](/docs/what-is-agent-native)
+
+समझें कि UI और agent actions, data और context को क्यों share करते हैं।
+
+### [मुख्य अवधारणाएं](/docs/key-concepts)
+
+जानें कि actions, SQL data, application context, access और live sync साथ में कैसे काम करते हैं।
+
+### [Actions](/docs/actions-overview)
+
+Reads, writes और approvals के लिए actions define करें, फिर उन्हें UI, agents और external clients से call करें।
+
+</Cards>

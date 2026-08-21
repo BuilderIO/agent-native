@@ -26,6 +26,7 @@ import {
 import type { ComponentType, ReactNode } from "react";
 import { Link } from "react-router";
 
+import { BuilderImage } from "../components/builder-image";
 import { sitePathForLocale } from "../components/docs-locale";
 import {
   featuredTemplates,
@@ -326,7 +327,7 @@ function HeroScreens() {
               index % 2 === 0 ? "translate-y-16" : "-translate-y-2"
             }`}
           >
-            <img
+            <BuilderImage
               src={template.screenshot}
               alt=""
               className="aspect-[4/3] w-full object-cover"
@@ -379,7 +380,7 @@ function ExampleAppCard({ app }: { app: ExampleApp }) {
   return (
     <article className="group flex min-w-0 flex-col overflow-hidden rounded-lg border border-[var(--docs-border)] bg-[var(--bg)]">
       <div className="relative border-b border-[var(--docs-border)] bg-[var(--bg-secondary)]">
-        <img
+        <BuilderImage
           src={app.template.screenshot}
           alt={`${displayName} app screenshot`}
           className="aspect-[16/10] w-full object-cover transition duration-300 group-hover:scale-[1.015]"
@@ -598,7 +599,7 @@ export default function HomepageNew() {
                 Read the framework guide
               </ArrowLink>
               <ArrowLink
-                to={localizedPath("/docs/actions")}
+                to={localizedPath("/docs/actions-overview")}
                 location="homepage_new_agentic_core"
                 variant="secondary"
               >

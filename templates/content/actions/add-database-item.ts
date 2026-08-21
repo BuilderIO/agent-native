@@ -26,6 +26,15 @@ const schema = databaseMutationEnvelopeSchema.extend({
 export default defineAction({
   description:
     "Create one row in an exact ordinary Content database using its discovered schema revision. Strictly validates every non-Blocks property, applies the side effect once per idempotency key, and returns a verified receipt with stable row identity.",
+  publicAgent: {
+    expose: true,
+    readOnly: false,
+    requiresAuth: true,
+    isConsequential: true,
+    title: "Add Content Database Item",
+    description:
+      "Delegate creation of one page item in an existing Content database.",
+  },
   schema,
   audit: {
     recordInputs: false,

@@ -45,6 +45,18 @@ describe("SettingsGroup / SettingsRow", () => {
     expect(container.querySelector("#notifications")).not.toBeNull();
     expect(container.textContent).toContain("Interface language");
     expect(container.textContent).toContain("Language used across the app.");
+    expect(
+      container.querySelector(".agent-native-settings-row"),
+    ).not.toBeNull();
+    expect(
+      container.querySelector(".agent-native-settings-row__layout"),
+    ).not.toBeNull();
+    expect(
+      container.querySelector(".agent-native-settings-row__main"),
+    ).not.toBeNull();
+    expect(
+      container.querySelector(".agent-native-settings-row__control"),
+    ).not.toBeNull();
     expect(container.querySelector("#language button")?.textContent).toBe(
       "English",
     );

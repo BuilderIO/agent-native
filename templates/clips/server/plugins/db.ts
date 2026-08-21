@@ -1154,6 +1154,11 @@ export const migrations = runMigrations(
       // re-derived by regex over the message.
       sql: `ALTER TABLE recording_transcripts ADD COLUMN failure_code TEXT`,
     },
+    {
+      version: 65,
+      name: "recording-media-updated-at",
+      sql: `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS media_updated_at TEXT NOT NULL DEFAULT (datetime('now'))`,
+    },
   ],
   { table: "clips_migrations" },
 );

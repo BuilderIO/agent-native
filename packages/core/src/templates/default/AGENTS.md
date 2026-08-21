@@ -52,6 +52,10 @@ cross-cutting work and `self-modifying-code` when changing app source.
   and focused-object context.
 - Never hardcode keys, tokens, webhook URLs, private data, or credential-like
   literals. Use secrets, OAuth, or obvious placeholders.
+- For external integrations, inspect the workspace/provider connection catalog
+  first. Reuse an existing connection and its scoped credential resolver; only
+  use app-local vault/OAuth/settings primitives when no reusable connection
+  exists. Keep custom setup UI provider-specific and never duplicate storage.
 - A missing or unreadable value must stay distinguishable from success. Throw or
   return an explicit error instead of silently falling back to an empty value.
 

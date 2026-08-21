@@ -28,6 +28,15 @@ import {
 
 export default defineAction({
   description: "Set a Notion-style property value on a document.",
+  publicAgent: {
+    expose: true,
+    readOnly: false,
+    requiresAuth: true,
+    isConsequential: true,
+    title: "Set Content Document Property",
+    description:
+      "Delegate one property update on an existing Content database document.",
+  },
   schema: z.object({
     documentId: z.string().describe("Document ID (required)"),
     databaseId: z

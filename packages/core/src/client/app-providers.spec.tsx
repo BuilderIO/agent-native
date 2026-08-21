@@ -10,11 +10,18 @@ vi.mock("./use-session.js", () => ({
   useSession: () => useSessionMock(),
 }));
 vi.mock("@agent-native/toolkit/ui/sonner", () => ({
-  Toaster: (props: { richColors?: boolean; position?: string }) => (
+  Toaster: (props: {
+    richColors?: boolean;
+    position?: string;
+    offset?: unknown;
+    mobileOffset?: unknown;
+  }) => (
     <div
       data-testid="toolkit-toaster"
       data-rich-colors={String(Boolean(props.richColors))}
       data-position={props.position}
+      data-offset={JSON.stringify(props.offset)}
+      data-mobile-offset={JSON.stringify(props.mobileOffset)}
     />
   ),
 }));
@@ -25,6 +32,7 @@ import { AppProviders } from "./app-providers.js";
 let container: HTMLDivElement;
 let root: Root;
 let originalLocation: Location;
+let originalParent: Window;
 let originalFetch: typeof window.fetch;
 let originalDocumentTitle: string;
 let replaceMock: ReturnType<typeof vi.fn>;
@@ -44,6 +52,7 @@ beforeEach(() => {
       .mockRejectedValue(new Error("configuration probe unavailable")),
   });
   originalLocation = window.location;
+  originalParent = window.parent;
   Object.defineProperty(window, "location", {
     configurable: true,
     value: {
@@ -63,6 +72,10 @@ afterEach(() => {
   Object.defineProperty(window, "location", {
     configurable: true,
     value: originalLocation,
+  });
+  Object.defineProperty(window, "parent", {
+    configurable: true,
+    value: originalParent,
   });
   Object.defineProperty(window, "fetch", {
     configurable: true,
@@ -114,6 +127,36 @@ describe("AppProviders session gate", () => {
     const toaster = container.querySelector('[data-testid="toolkit-toaster"]');
     expect(toaster?.getAttribute("data-rich-colors")).toBe("true");
     expect(toaster?.getAttribute("data-position")).toBe("bottom-left");
+    expect(toaster?.getAttribute("data-offset")).toBe(
+      JSON.stringify({ bottom: 44, left: 32 }),
+    );
+    expect(toaster?.getAttribute("data-mobile-offset")).toBe(
+      JSON.stringify({ bottom: 44, left: 16 }),
+    );
+  });
+
+  it("preserves a custom toaster without adding default offsets", () => {
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
+
+    act(() => {
+      root.render(
+        <AppProviders
+          queryClient={new QueryClient()}
+          i18n={false}
+          isPublicPath
+          toaster={<div data-testid="custom-toaster" />}
+        >
+          <div>content</div>
+        </AppProviders>,
+      );
+    });
+
+    expect(
+      container.querySelector('[data-testid="custom-toaster"]'),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('[data-testid="toolkit-toaster"]'),
+    ).toBeNull();
   });
 
   it("renders public paths directly without resolving or redirecting a session", () => {
@@ -150,6 +193,66 @@ describe("AppProviders session gate", () => {
     ).not.toBeNull();
     expect(useSessionMock).not.toHaveBeenCalled();
     expect(replaceMock).not.toHaveBeenCalled();
+  });
+
+  it("applies theme updates only when they come from the embedding parent", async () => {
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
+    const parent = {} as Window;
+    const unrelated = {} as Window;
+    Object.defineProperty(window, "parent", {
+      configurable: true,
+      value: parent,
+    });
+
+    renderProviders({ isPublicPath: true });
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agent-native-theme-update",
+            theme: "dark",
+          },
+          source: unrelated,
+        }),
+      );
+      await Promise.resolve();
+    });
+    expect(document.documentElement.classList.contains("dark")).toBe(false);
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agent-native-theme-update",
+            theme: "dark",
+          },
+          source: parent,
+        }),
+      );
+      await Promise.resolve();
+    });
+
+    expect(document.documentElement.classList.contains("dark")).toBe(true);
+    expect(document.documentElement.classList.contains("light")).toBe(false);
+    expect(document.documentElement.style.colorScheme).toBe("dark");
+    expect(window.localStorage.getItem("theme")).toBe("dark");
+
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("agent-native:theme-change", {
+          detail: {
+            type: "agent-native-theme-update",
+            theme: "light",
+          },
+        }),
+      );
+      await Promise.resolve();
+    });
+
+    expect(document.documentElement.classList.contains("dark")).toBe(false);
+    expect(document.documentElement.classList.contains("light")).toBe(true);
+    expect(window.localStorage.getItem("theme")).toBe("light");
   });
 
   it("repairs structured route titles before they reach the browser tab", async () => {

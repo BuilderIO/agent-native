@@ -1,11 +1,13 @@
 import { isStandaloneHttpUrl } from "@shared/html-content";
 
+import { trace } from "@/components/design/design-trace";
+
+import { normalizeDesignLeftPanel } from "./tool-state";
 import {
   type DesignFile,
   type DesignLeftPanel,
   type DesignTool,
   type EditorMode,
-  SHOW_DESIGN_CODE_LEFT_PANEL,
 } from "./types";
 
 // Definition moved to shared/ so the server write path and code-layer's
@@ -21,12 +23,21 @@ export { isStandaloneHttpUrl };
 export type PreviewContentReplaceResult =
   | "applied"
   | "skipped-live-route"
+  | "skipped-caller-owns-preview"
   | "unavailable";
 
+/**
+ * True when the in-place bridge patch could not run and the caller must fall
+ * back to rebuilding srcdoc — a real iframe reload that re-executes the editor
+ * bridge, Tailwind and Alpine. Traced because it is the one escalation a user
+ * perceives as "the frame refreshed", and it is otherwise invisible.
+ */
 export function previewContentReplaceNeedsRenderFallback(
   result: PreviewContentReplaceResult,
 ): boolean {
-  return result === "unavailable";
+  if (result !== "unavailable") return false;
+  trace("persist", "preview-bridge-unavailable-reload");
+  return true;
 }
 
 /**
@@ -127,10 +138,7 @@ export function getDesignEditorStateUrlSearch(args: {
   mode?: EditorMode | null;
 }) {
   const params = new URLSearchParams(args.currentSearch);
-  const leftPanel =
-    args.leftPanel === "code" && !SHOW_DESIGN_CODE_LEFT_PANEL
-      ? null
-      : args.leftPanel;
+  const leftPanel = normalizeDesignLeftPanel(args.leftPanel) ?? null;
   params.set("view", args.viewMode);
   if (leftPanel && leftPanel !== "file") {
     params.set("panel", leftPanel);
