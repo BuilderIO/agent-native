@@ -1,34 +1,34 @@
 ---
 title: "FAQ"
-description: "Perguntas comuns sobre agente nativo: o que é, para quem se destina, o que você pode criar e como funciona."
+description: "Perguntas comuns sobre Agent-Native: o que é, para quem se destina, o que você pode criar e como funciona."
 ---
 
 # FAQ
 
-Perguntas comuns sobre agente nativo, organizadas de "Estou apenas olhando" até "Estou conectando a autenticação agora".
+Perguntas comuns sobre Agent-Native, organizadas de "Estou apenas olhando" até "Estou conectando a autenticação agora".
 
 ## O básico {#general}
 
-### O que é agente nativo? {#what-is-agent-native}
+### O que é Agent-Native? {#what-is-agent-native}
 
-Agent-native é uma estrutura para criar aplicativos onde o agente de IA e a superfície do produto ao seu redor são parceiros iguais. O caminho comum começa com chat, adiciona actions tipadas, renderiza resultados estruturados inline e cresce para páginas duráveis sobre o mesmo estado SQL. A invariante é que agentes e humanos compartilham o mesmo actions, banco de dados e estado. Consulte [What Is Agent-Native?](/docs/what-is-agent-native) para obter a explicação completa.
+Agent-Native é uma estrutura para criar aplicativos onde o agente de IA e a superfície do produto ao seu redor são parceiros iguais. O caminho comum começa com chat, adiciona actions tipadas, renderiza resultados estruturados inline e cresce para páginas duráveis sobre o mesmo estado SQL. A invariante é que agentes e humanos compartilham o mesmo actions, banco de dados e estado. Consulte [O que é Agent-Native?](/docs/what-is-agent-native) para obter a explicação completa.
 
 ### Para quem é isso? {#who-is-this-for}
 
-Agente nativo é para pessoas que desejam que um aplicativo real e um agente de IA trabalhem a partir dos mesmos dados e actions. Os caminhos comuns são:
+Agent-Native é para pessoas que desejam que um aplicativo real e um agente de IA trabalhem a partir dos mesmos dados e actions. Os caminhos comuns são:
 
 - **Use um aplicativo hospedado** se quiser Mail, Calendário, Formulários, Plano ou outro modelo finalizado sem configuração. Comece no [template gallery](/templates).
 - **Comece com bate-papo** se quiser o caminho padrão do zero: usuários falam com o agent imediatamente, e você estende com actions, resultados nativos e telas — comece com [Getting Started](/docs/getting-started) ou [Chat](/docs/template-chat).
 - **Comece automation-first** se estiver criando tarefas agendadas, filas, scripts, integration workers ou fluxos de agents externos sem UI de navegador ainda — comece com [Automation-First Apps](/docs/pure-agent-apps).
 - **Bifurque e personalize um modelo** se desejar seu próprio produto SaaS com autenticação, banco de dados, UI e agente actions já conectados — consulte [Templates](/docs/cloneable-saas).
 - **Compile do zero** se quiser as primitivas da estrutura para um novo produto orientado por agente — comece com [Getting Started](/docs/getting-started).
-- **Conecte outro agente ou ferramenta de código** se desejar que Claude, ChatGPT, Codex, Cursor ou GitHub Copilot / VS Code usem um aplicativo nativo do agente — consulte [External Agents](/docs/external-agents) e [Skills Guide](/docs/skills-guide).
+- **Conecte outro agente ou ferramenta de código** se desejar que Claude, ChatGPT, Codex, Cursor ou GitHub Copilot / VS Code usem um app Agent-Native — consulte [External Agents](/docs/external-agents) e [Skills Guide](/docs/skills-guide).
 
 ### Qual a diferença entre isso e adicionar IA a um aplicativo existente? {#how-is-this-different}
 
-A maioria dos aplicativos utiliza a IA como uma reflexão tardia que não pode realmente _fazer_ coisas no aplicativo. Em um aplicativo nativo do agente, o agente é um cidadão de primeira classe que compartilha o mesmo actions, banco de dados e estado que o UI, portanto, pode fazer qualquer coisa que os botões puderem. Consulte [What Is Agent-Native?](/docs/what-is-agent-native#the-ladder).
+A maioria dos aplicativos utiliza a IA como uma reflexão tardia que não pode realmente _fazer_ coisas no aplicativo. Em um app Agent-Native, o agente é um cidadão de primeira classe que compartilha o mesmo actions, banco de dados e estado que a UI, portanto, pode fazer qualquer coisa que os botões puderem. Consulte [Por que criar apps dessa forma](/docs/what-is-agent-native#why-build-apps-this-way).
 
-<Diagram id="doc-block-gefzrm" title="IA aparafusada vs. agent-native" summary={"Uma barra lateral de bate-papo integrada vive em seu próprio mundo. Um agente agent-native compartilha as mesmas ações, banco de dados e estado que a UI."}>
+<Diagram id="doc-block-gefzrm" title="IA acoplada depois vs. Agent-Native" summary={"Uma barra lateral de chat acoplada depois vive em seu próprio mundo. Um agente Agent-Native compartilha as mesmas ações, banco de dados e estado que a UI."}>
 
 ```html
 <div class="diagram-vs">
@@ -45,7 +45,7 @@ A maioria dos aplicativos utiliza a IA como uma reflexão tardia que não pode r
   </div>
   <div class="diagram-divider" aria-hidden="true"></div>
   <div class="diagram-col">
-    <span class="diagram-pill ok">Agent-native</span>
+    <span class="diagram-pill ok">Agent-Native</span>
     <div class="diagram-row2">
       <div class="diagram-node">UI</div>
       <div class="diagram-node">Agent</div>
@@ -114,9 +114,9 @@ Anthropic Claude, OpenAI (família GPT-5), Google Gemini e qualquer fornecedor q
 
 Não. Você não treina modelos, não ajusta ou lida com incorporações. Você cria um aplicativo da web normal – e na versão hospedada, você quase não constrói nada. A estrutura lida com a integração do agente: roteamento de mensagens, execução de actions, sincronização de estado.
 
-### Posso migrar um aplicativo existente para agente nativo? {#can-i-use-existing-code}
+### Posso migrar um aplicativo existente para Agent-Native? {#can-i-use-existing-code}
 
-Você pode, mas o agente nativo funciona melhor quando construído do zero. A arquitetura – banco de dados compartilhado, sincronização de polling, actions, estado do aplicativo – precisa ser totalmente integrada. Começar a partir de um app e personalizá-lo é o caminho recomendado. Pense nisso como a mudança do desktop para o mobile: você _pode_ fazer o retrofit, mas construir nativo é melhor.
+Você pode, mas Agent-Native funciona melhor quando construído do zero. A arquitetura – banco de dados compartilhado, sincronização de polling, actions, estado do aplicativo – precisa ser totalmente integrada. Começar a partir de um app e personalizá-lo é o caminho recomendado. Pense nisso como a mudança do desktop para o mobile: você _pode_ fazer o retrofit, mas construir nativo é melhor.
 
 ## Modelos e o que você pode construir {#templates}
 
@@ -148,7 +148,7 @@ Sim. O mesmo agente é executado em seu web UI, em Slack, em Telegram, por e-mai
 
 ### Os agentes podem conversar entre si? {#can-agents-talk-to-each-other}
 
-Sim, através do [A2A (Agent-to-Agent) protocol](/docs/a2a-protocol). Cada aplicativo nativo do agente obtém automaticamente um endpoint A2A. No aplicativo de e-mail, você pode marcar o agente de análise para consultar dados. Um agente descobre quais outros agentes estão disponíveis, chama-os pelo protocolo e mostra os resultados no UI. Não é necessária configuração: o cartão do agente é gerado automaticamente a partir do actions do seu modelo.
+Sim, através do [protocolo A2A (Agent-to-Agent)](/docs/a2a-protocol). Cada app Agent-Native obtém automaticamente um endpoint A2A. No aplicativo de e-mail, você pode marcar o agente de análise para consultar dados. Um agente descobre quais outros agentes estão disponíveis, chama-os pelo protocolo e mostra os resultados na UI. Não é necessária configuração: o cartão do agente é gerado automaticamente a partir das actions do seu modelo.
 
 ### O que o agente pode ver no aplicativo? {#what-can-the-agent-see}
 
@@ -156,7 +156,7 @@ O agente sempre sabe o que o usuário está visualizando no momento. O UI grava 
 
 ## Perguntas de desenvolvimento {#development}
 
-### Quais ferramentas de codificação de IA funcionam com agentes nativos? {#which-ai-tools-work}
+### Quais ferramentas de codificação de IA funcionam com Agent-Native? {#which-ai-tools-work}
 
 Qualquer ferramenta de codificação de IA que leia instruções do projeto. A estrutura usa AGENTS.md como padrão universal e cria automaticamente links simbólicos para ferramentas específicas:
 
