@@ -163,6 +163,35 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(String(artifact.run), /GUARD_SSR_CACHE_ARTIFACT_DIR/);
   });
 
+  it("smoke-tests app health while keeping static docs on a shell-only probe", () => {
+    const workflow = readWorkflow(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+    );
+    const jobs = workflow.jobs as Record<string, Workflow>;
+    const steps = (jobs.deploy.steps as Array<Workflow>).filter(Boolean);
+    const appSmoke = steps.find(
+      (step) => step.name === "Smoke-test the uploaded deploy",
+    );
+    const docsSmoke = steps.find(
+      (step) => step.name === "Smoke-test the static docs deploy",
+    );
+
+    assert(appSmoke);
+    assert.equal(
+      appSmoke.if,
+      "inputs.deploy && inputs.smoke && steps.target.outputs.source_template != '@agent-native/docs'",
+    );
+    assert.match(String(appSmoke.run), /\/_agent-native\/health/);
+    assert.match(String(appSmoke.run), /--max-time 60/);
+
+    assert(docsSmoke);
+    assert.equal(
+      docsSmoke.if,
+      "inputs.deploy && inputs.smoke && steps.target.outputs.source_template == '@agent-native/docs'",
+    );
+    assert.doesNotMatch(String(docsSmoke.run), /\/_agent-native\/health/);
+  });
+
   it("gives the beta branch-deploy build release and warm-runtime ownership", () => {
     const workflow = readFileSync(
       ".github/workflows/deploy-netlify-prebuilt.yml",

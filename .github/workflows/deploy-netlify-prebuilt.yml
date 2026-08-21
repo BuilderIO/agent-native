@@ -716,7 +716,7 @@ jobs:
           NODE
 
       - name: Smoke-test the uploaded deploy
-        if: inputs.deploy && inputs.smoke
+        if: inputs.deploy && inputs.smoke && steps.target.outputs.source_template != '@agent-native/docs'
         env:
           DEPLOY_MODE: ${{ inputs.deploy_mode }}
           DEPLOY_URL: ${{ steps.deploy.outputs.deploy_url }}
@@ -729,6 +729,23 @@ jobs:
           fi
           curl --fail --silent --show-error --location --max-time 60 "${url%/}/" >/dev/null
           echo "Smoke check passed: ${url%/}/"
+          curl --fail --silent --show-error --location --max-time 60 "${url%/}/_agent-native/health" >/dev/null
+          echo "Health check passed: ${url%/}/_agent-native/health"
+
+      - name: Smoke-test the static docs deploy
+        if: inputs.deploy && inputs.smoke && steps.target.outputs.source_template == '@agent-native/docs'
+        env:
+          DEPLOY_MODE: ${{ inputs.deploy_mode }}
+          DEPLOY_URL: ${{ steps.deploy.outputs.deploy_url }}
+          HOST: ${{ steps.target.outputs.host }}
+        run: |
+          set -euo pipefail
+          url="$DEPLOY_URL"
+          if [[ "$DEPLOY_MODE" == "production" ]]; then
+            url="https://$HOST"
+          fi
+          curl --fail --silent --show-error --location --max-time 60 "${url%/}/" >/dev/null
+          echo "Static docs smoke check passed: ${url%/}/"
 
       - name: Purge the production Netlify cache
         if: inputs.target == 'production' && inputs.deploy && inputs.deploy_mode == 'production' && success()
