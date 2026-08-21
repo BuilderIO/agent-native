@@ -7,6 +7,10 @@ import { mockEvent } from "h3";
 import { describe, expect, it, vi } from "vitest";
 
 import { AgentActionStopError } from "../action.js";
+import {
+  MAX_BACKGROUND_RUN_CONTINUATIONS,
+  MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS,
+} from "../app-config/run-lifecycle-invariants.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import { __resetAgentsBundleCache } from "../server/agents-bundle.js";
 import {
@@ -45,8 +49,6 @@ import {
   filterActionsByAllowedNames,
   filterInitialEngineTools,
   findApprovedStructuredToolCall,
-  MAX_BACKGROUND_RUN_CONTINUATIONS,
-  MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS,
   backgroundNoProgressTerminalEvent,
   installBackgroundNoProgressTerminalEvent,
   resolveBackgroundNoProgressRepeat,

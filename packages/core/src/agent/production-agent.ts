@@ -19,6 +19,13 @@ import {
   type ActionCaller,
   stripUnsupportedSchemaKeywords,
 } from "../action.js";
+import {
+  ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS,
+  MAX_BACKGROUND_RUN_CONTINUATIONS,
+  MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS,
+  MAX_TURN_WALL_CLOCK_MS,
+  MODEL_STREAM_NO_PROGRESS_TIMEOUT_MS,
+} from "../app-config/run-lifecycle-invariants.js";
 import { readAppState } from "../application-state/script-helpers.js";
 import { isReadOnlyShellCommand } from "../coding-tools/index.js";
 import type { AgentNativeHarnessSetting } from "../config.js";
@@ -187,6 +194,7 @@ import {
   countRunsForTurn,
   RUN_DIAG_STAGE,
   UNCLAIMED_BACKGROUND_RUN_GRACE_MS,
+  turnRunLedgerExhausted,
 } from "./run-store.js";
 import { buildCurrentTimeUserContext } from "./runtime-context.js";
 import {
@@ -1416,9 +1424,7 @@ function maxRetriesForError(err: unknown): number {
   return MAX_RETRIES;
 }
 const TOOL_INPUT_ACTIVITY_INTERVAL_MS = 1500;
-const ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS = 90_000;
 const ACTION_PREPARATION_ZERO_BYTE_RESTART_LIMIT = 2;
-const MODEL_STREAM_NO_PROGRESS_TIMEOUT_MS = 90_000;
 /**
  * How long an attempt must have run before its retry is worth narrating.
  *
@@ -7327,30 +7333,10 @@ function endsAtContinuationBoundary(run: ActiveRun): boolean {
   );
 }
 
-/**
- * Hard cap on server-driven background→background continuation chunks for a
- * single logical turn. A `backgroundFunction` run gets a ~13-min soft timeout,
- * so reaching this boundary at all is the rare exception (most turns finish in
- * one chunk). The cap bounds a pathological turn that would otherwise chain
- * background invocations forever, mirroring `MAX_AGENT_TEAM_CONTINUATIONS`.
- */
-export const MAX_BACKGROUND_RUN_CONTINUATIONS = 20;
-
-/**
- * Consecutive chunks allowed to end on the SAME terminal error code having
- * produced nothing before the chain stops.
- *
- * Two, because two independent recovery layers multiply here and neither can
- * see the other: the engine already retried this identical request 3x with
- * backoff before the error was ever emitted, and a recoverable error is also a
- * continuation boundary, so every chunk that fails costs 4 gateway attempts
- * and dispatches a fresh one. A production turn spent 27 background runs and
- * 15 minutes on one message this way. The first repeat is the retry this path
- * exists for; a second identical failure that moved nothing is evidence the
- * retrying itself is what is broken, not the request.
- */
-export const MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS = 2;
-
+// Defined in `app-config/run-lifecycle-invariants.ts`, the neutral home for
+// lifecycle bounds that participate in a cross-module relationship: the durable
+// run ledger in `run-store.ts` derives its ceiling from this, and importing
+// back from there would be circular.
 /**
  * Forward progress inside ONE chunk, read from the events it actually emitted:
  * assistant text or tool activity. Same evidence the agent-teams no-progress
@@ -7695,15 +7681,6 @@ export async function claimBackgroundWorkerRunEarly(opts: {
   }
   return { claimed: true };
 }
-
-/**
- * Wall-clock ceiling on a single logical turn. The run-count ledger alone is
- * not a time bound: in durable mode each of the ~25 permitted chunks may burn
- * ~780s, so the ledger's real worst case is over five hours (production has an
- * observed 2h34m turn). Nobody is waiting that long, and every minute past
- * this point is spend on a request the user has abandoned.
- */
-export const MAX_TURN_WALL_CLOCK_MS = 90 * 60_000;
 
 /**
  * Request-body field carrying the turn's running input-token total across
@@ -8080,10 +8057,7 @@ export async function chainServerDrivenContinuation(opts: {
     }
   };
 
-  if (
-    turnRunCount !== null &&
-    turnRunCount > MAX_BACKGROUND_RUN_CONTINUATIONS + 5
-  ) {
+  if (turnRunCount !== null && turnRunLedgerExhausted(turnRunCount)) {
     await stopTurn(
       "turn_continuation_budget_exhausted",
       `turn ${effectiveTurnId} consumed ${turnRunCount} runs — refusing to chain further`,
@@ -10755,9 +10729,16 @@ export function createProductionAgentHandler(
         // client doesn't supply a turnId.
         turnId: effectiveTurnId,
         waitUntil: getRequestRunContext()?.waitUntil,
-        dispatchMode: foregroundSelfChainEligible
-          ? "foreground-self-chain"
-          : "foreground",
+        // A durable background worker reaches this same call site, so keying
+        // only on the foreground self-chain flag stamped every worker run
+        // `foreground` — the row says `background`, and the analytics said
+        // otherwise. That is the same defect this PR fixes for automations,
+        // one call site over.
+        dispatchMode: isBackgroundWorker
+          ? "background"
+          : foregroundSelfChainEligible
+            ? "foreground-self-chain"
+            : "foreground",
         // Resolved AFTER stored-model/experiment overrides — the same value
         // actually sent to the engine, not the raw client-requested model.
         // No userId here: `ownerEmail` is the only identity known at this

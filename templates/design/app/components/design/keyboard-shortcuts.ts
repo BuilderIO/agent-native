@@ -387,13 +387,6 @@ export const DESIGN_SHORTCUTS: readonly DesignShortcutDefinition[] = [
     handler: "onDelete",
   }),
   shortcut({
-    id: "rename",
-    category: "edit",
-    bindings: ["$mod+r"],
-    labelKey: "designEditor.keyboardShortcuts.commands.rename",
-    handler: "onRename",
-  }),
-  shortcut({
     id: "find",
     category: "edit",
     bindings: ["$mod+f"],

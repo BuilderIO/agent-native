@@ -21,6 +21,8 @@ import { createRequire } from "module";
 import path from "path";
 import { fileURLToPath } from "url";
 
+import { loadEnv } from "vite";
+
 import {
   AGENT_BACKGROUND_FUNCTION_NAME,
   AGENT_BACKGROUND_FUNCTION_URL_PATH,
@@ -43,6 +45,11 @@ import {
   RECURRING_JOBS_SWEEP_PATH,
   RECURRING_JOBS_SWEEP_TOKEN_SUBJECT,
 } from "../jobs/scheduler-dispatch.js";
+import { findWorkspaceRoot as findAgentNativeWorkspaceRoot } from "../scripts/utils.js";
+import {
+  RECURRING_JOBS_BUILD_MARKER_ENV_VAR,
+  resolveRecurringJobsBuildMarker,
+} from "../server/agent-chat/recurring-jobs-runtime.js";
 import { normalizeAppBasePath } from "../server/app-base-path.js";
 import {
   DEFAULT_SPECULATION_RULES_PATH,
@@ -72,6 +79,7 @@ import {
   IMMUTABLE_ASSET_CACHE_HEADERS,
   prefixAssetPath,
 } from "./immutable-assets.js";
+import { writeNetlifyStaticHeaders } from "./netlify-static-headers.js";
 import {
   discoverApiRoutes,
   discoverPlugins,
@@ -1658,7 +1666,7 @@ async function getHandler() {
         headers: {
           "Access-Control-Allow-Origin": "*",
           "Access-Control-Allow-Methods": "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF,X-User-Timezone,X-Agent-Native-Session-Id,X-Agent-Native-Client-Platform,X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id,X-Agent-Native-Embed-Target",
+          "Access-Control-Allow-Headers": "Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF,X-User-Timezone,X-Agent-Native-Session-Id,X-Agent-Native-Client-Platform,X-Agent-Native-Desktop-Verifier,X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id,X-Agent-Native-Embed-Target",
         },
       });
     }
@@ -2998,8 +3006,13 @@ function isDisabledByEnv(name: string): boolean {
   return isTruthyEnv(name);
 }
 
+/**
+ * Routed through the same resolver that produces the runtime marker, so the gate
+ * that emits the scheduled function and the value the deployed app reports
+ * cannot drift: a build that skips the emit always ships `"disabled"`.
+ */
 export function isRecurringJobsDeployEnabled(): boolean {
-  return !isDisabledByEnv("AGENT_NATIVE_DISABLE_RECURRING_JOBS");
+  return resolveRecurringJobsBuildMarker(process.env) === "enabled";
 }
 
 /**
@@ -4232,8 +4245,57 @@ export function writeSingleTemplateNetlifyRedirects(projectCwd: string): void {
   );
 }
 
+/**
+ * Whether the emitted bundle actually imports the `libsql` native addon.
+ *
+ * The `@libsql/client` node entry `require`s it; `@libsql/client/web` and
+ * `better-sqlite3` do not. Probing the emitted output is the only gate that
+ * cannot be wrong: `getDialect()` reads `DATABASE_URL` at RUNTIME, and neither
+ * the docs nor the beta deploy workflow sets it at build time, so build-time
+ * dialect is unknowable. This mirrors `findServerlessBrowserRuntimeConsumer`,
+ * which already gates the Chromium copy the same way — the asymmetry is why a
+ * 9.3MB Linux SQLite driver shipped in the docs function, a deployment that
+ * runs Postgres and can never load it.
+ */
+export function bundleImportsLibsqlNativeAddon(serverDir: string): boolean {
+  const bareImport = /(?:require\(|from\s*)["']libsql["']/;
+  const stack: string[] = [serverDir];
+  while (stack.length > 0) {
+    const dir = stack.pop() as string;
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        // The copied native package itself is the thing being gated; its own
+        // files must never count as a consumer.
+        if (entry.name === "node_modules" || entry.name === "@libsql") continue;
+        stack.push(full);
+        continue;
+      }
+      if (!/\.(?:mjs|cjs|js)$/.test(entry.name)) continue;
+      try {
+        if (bareImport.test(fs.readFileSync(full, "utf8"))) return true;
+      } catch {
+        continue;
+      }
+    }
+  }
+  return false;
+}
+
 function copyInstalledLibsqlNativePackages(serverDir: string | undefined) {
   if (!serverDir || !fs.existsSync(serverDir)) return;
+  if (!bundleImportsLibsqlNativeAddon(serverDir)) {
+    console.log(
+      "[deploy] Skipped the libsql native package: the emitted bundle never imports the `libsql` addon.",
+    );
+    return;
+  }
   const nodeModulesRoots = nodeModulesAncestors(cwd);
   const destScopeDir = path.join(serverDir, "node_modules", "@libsql");
   let copied = 0;
@@ -4853,8 +4915,18 @@ export function resolveNitroBuildReplacements(
     "process.env.AGENT_NATIVE_RELEASE_MIGRATIONS": JSON.stringify(
       env.AGENT_NATIVE_RELEASE_MIGRATIONS?.trim() || "",
     ),
+    "process.env.AGENT_NATIVE_BETA_SCHEMA_OWNER": JSON.stringify(
+      env.AGENT_NATIVE_BETA_SCHEMA_OWNER?.trim() || "",
+    ),
     "process.env.AGENT_NATIVE_BUILD_DEPLOY_CONTEXT": JSON.stringify(
       env.CONTEXT?.trim() || env.NETLIFY_CONTEXT?.trim() || "",
+    ),
+    // Whether the recurring-jobs scheduled function exists is decided HERE, by
+    // the build env. `scheduledTriggerAvailability` cannot re-derive it later —
+    // a pipeline that sets the kill switch only for the build leaves no runtime
+    // trace of it — so hand the decision to the runtime explicitly.
+    [`process.env.${RECURRING_JOBS_BUILD_MARKER_ENV_VAR}`]: JSON.stringify(
+      resolveRecurringJobsBuildMarker(env),
     ),
     ...(configuredDeploymentEnvironment
       ? {
@@ -4906,12 +4978,20 @@ async function buildWithNitro() {
   // own virtual module registration. Both paths reuse `readAgentsBundleFromFs`
   // from `server/agents-bundle.ts` to guarantee identical content.
   const { readAgentsBundleFromFs } = await import("../server/agents-bundle.js");
+  const nitroMode =
+    process.env.NODE_ENV === "development" ? "development" : "production";
+  const agentNativeWorkspaceRoot = findAgentNativeWorkspaceRoot(cwd);
+  const nitroEnvironment = {
+    ...(agentNativeWorkspaceRoot && agentNativeWorkspaceRoot !== cwd
+      ? loadEnv(nitroMode, agentNativeWorkspaceRoot, "")
+      : {}),
+    ...loadEnv(nitroMode, cwd, ""),
+    ...process.env,
+  };
   const nitroAgentConfig = await loadResolvedAgentNativeConfig(
     cwd,
-    createAgentNativeConfigContext(
-      "build",
-      process.env.NODE_ENV === "development" ? "development" : "production",
-    ),
+    createAgentNativeConfigContext("build", nitroMode),
+    { environment: nitroEnvironment },
   );
   // Resolve the workspace core (if present) up front so the bundle embeds
   // enterprise-wide AGENTS.md + skills alongside the template's.
@@ -5071,6 +5151,10 @@ export default bundle;
     }
 
     writeSingleTemplateNetlifyRedirects(cwd);
+    // React Router prerendered pages bypass the SSR function and are served
+    // directly from Netlify's static backing store. Keep that artifact on the
+    // same public SWR policy as runtime SSR and .data responses.
+    writeNetlifyStaticHeaders(path.join(cwd, "dist"));
     assertSingleTemplateNetlifyBuildOutput(cwd);
   }
 

@@ -427,6 +427,12 @@ const frFR = {
     source: "Code source",
     readDocs: "Lire la documentation",
     signIn: "Se connecter",
+    tryTemplateFree: "Essayer {{name}} gratuitement",
+    designForFree: "Concevoir gratuitement",
+    recordForFree: "Enregistrer gratuitement",
+    getStarted: "Commencer",
+    freeAndOpenSource: "100 % gratuit • open source",
+    viewAllApps: "Voir toutes les applications",
   },
   templatesPage: {
     title: "Applications open source natives pour agents que vous possédez",
@@ -441,7 +447,7 @@ const frFR = {
       "Des applications indépendantes maintenues par leurs auteurs. Installez-les depuis un dépôt GitHub public ou essayez une version hébergée lorsqu’elle existe.",
     submitCommunityTemplate: "Proposer votre modèle",
     communityEmpty:
-      "Les soumissions communautaires sont ouvertes. Publiez une application Agent Native ciblée dans un dépôt public et proposez-la au catalogue.",
+      "Les soumissions communautaires sont ouvertes. Publiez une application Agent-Native ciblée dans un dépôt public et proposez-la au catalogue.",
     publishGuide: "Lire le guide de publication",
     communityTrust:
       "Les modèles communautaires sont du code tiers. Vérifiez le dépôt, la licence, les dépendances et les scripts d’installation avant de l’exécuter.",
@@ -1426,6 +1432,9 @@ const frFR = {
         composerLabel: "Votre prompt",
         composerPlaceholder:
           "Décrivez la présentation que vous voulez, ou répondez aux questions ci-dessus.",
+        promptTip: "Astuce pour le prompt",
+        promptPlaceholder:
+          "Soyez précis. Dites à qui cela s'adresse, collez vos notes, ou référencez le design d'un site web...",
         submit: "Générer ma présentation",
         readyHint: "Votre prompt est prêt — envoyez-le à l'agent.",
         promptDeck: "Crée {{deck}}.",

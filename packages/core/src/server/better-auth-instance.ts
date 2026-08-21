@@ -66,8 +66,8 @@ import {
 import { flushTracking, identify, track } from "../tracking/index.js";
 import { getAppProductionUrl } from "./app-url.js";
 import {
-  readAnalyticsAnonymousId,
-  signupAttributionFromCookieHeader,
+  signupAttributionContextFromCookieHeader,
+  signupAttributionContextFromHeaders,
 } from "./attribution.js";
 import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
@@ -77,8 +77,15 @@ import {
   renderVerifySignupEmail,
 } from "./email-templates.js";
 import { getEmailReadiness, sendEmail } from "./email.js";
-import { resolveGoogleSignInCredentials } from "./google-oauth-credentials.js";
+import {
+  recordActiveGoogleSignInCredentials,
+  resolveGoogleSignInCredentials,
+} from "./google-oauth-credentials.js";
 import { readMagicLinkSignupAttribution } from "./magic-link-attribution.js";
+import {
+  getRequestContext,
+  hasContinuationLocalRequestContext,
+} from "./request-context.js";
 
 export {
   getAuthLoginMode,
@@ -1225,6 +1232,19 @@ async function createBetterAuthInstance(
   };
 
   const extraScopes = config?.googleScopes ?? [];
+  const configuredGoogleProvider =
+    typeof config?.socialProviders?.google === "function"
+      ? await config.socialProviders.google()
+      : config?.socialProviders?.google;
+  const configuredGoogleCredentials =
+    configuredGoogleProvider &&
+    typeof configuredGoogleProvider.clientId === "string" &&
+    typeof configuredGoogleProvider.clientSecret === "string"
+      ? {
+          clientId: configuredGoogleProvider.clientId,
+          clientSecret: configuredGoogleProvider.clientSecret,
+        }
+      : null;
   const googleCredentials =
     extraScopes.length > 0
       ? process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
@@ -1232,8 +1252,11 @@ async function createBetterAuthInstance(
             clientId: process.env.GOOGLE_CLIENT_ID,
             clientSecret: process.env.GOOGLE_CLIENT_SECRET,
           }
-        : null
-      : resolveGoogleSignInCredentials();
+        : configuredGoogleCredentials
+      : (resolveGoogleSignInCredentials() ?? configuredGoogleCredentials);
+  // Publish the pair actually wired to the provider so the credential
+  // self-check probes what the callback uses, not what it would prefer.
+  recordActiveGoogleSignInCredentials(googleCredentials);
   if (googleCredentials) {
     // When the template requests broader scopes (Gmail, Calendar, etc.)
     // ask for them on the primary sign-in flow so a separate "Connect
@@ -1245,6 +1268,7 @@ async function createBetterAuthInstance(
     const baseScopes = ["openid", "email", "profile"];
     const mergedScopes = Array.from(new Set([...baseScopes, ...extraScopes]));
     socialProviders.google = {
+      ...(configuredGoogleProvider ?? {}),
       clientId: googleCredentials.clientId,
       clientSecret: googleCredentials.clientSecret,
       ...(extraScopes.length > 0
@@ -1439,6 +1463,15 @@ async function createBetterAuthInstance(
                 context?.headers?.get("cookie") ??
                 context?.request?.headers?.get("cookie") ??
                 null;
+              const scopedSignupAttribution =
+                hasContinuationLocalRequestContext()
+                  ? getRequestContext()?.signupAttribution
+                  : undefined;
+              const requestSignupAttribution =
+                signupAttributionContextFromCookieHeader(cookieHeader);
+              const headerSignupAttribution =
+                signupAttributionContextFromHeaders(context?.headers) ??
+                signupAttributionContextFromHeaders(context?.request?.headers);
               const magicLinkAttribution = context?.request?.url?.includes(
                 "newUserCallbackURL",
               )
@@ -1447,11 +1480,16 @@ async function createBetterAuthInstance(
                     getAuthSecret(),
                   )
                 : undefined;
-              attribution = signupAttributionFromCookieHeader(cookieHeader);
-              attribution = magicLinkAttribution?.attribution ?? attribution;
+              attribution =
+                magicLinkAttribution?.attribution ??
+                scopedSignupAttribution?.attribution ??
+                headerSignupAttribution?.attribution ??
+                requestSignupAttribution.attribution;
               anonymousId =
                 magicLinkAttribution?.anonymousId ??
-                readAnalyticsAnonymousId(cookieHeader);
+                scopedSignupAttribution?.anonymousId ??
+                headerSignupAttribution?.anonymousId ??
+                requestSignupAttribution.anonymousId;
             } catch (err) {
               console.error("[auth] failed to derive signup attribution", err);
               attribution = undefined;

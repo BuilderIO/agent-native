@@ -5,12 +5,13 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const useSessionMock = vi.fn();
+const injectedAgentNativeConfigMock = vi.fn();
 
 vi.mock("./use-session.js", () => ({
   useSession: () => useSessionMock(),
 }));
 vi.mock("./app-config.js", () => ({
-  injectedAgentNativeConfig: () => ({}),
+  injectedAgentNativeConfig: () => injectedAgentNativeConfigMock(),
 }));
 
 import { EnvironmentBadge } from "./EnvironmentBadge.js";
@@ -25,6 +26,7 @@ describe("EnvironmentBadge render", () => {
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
+    injectedAgentNativeConfigMock.mockReturnValue({});
     originalLocation = window.location;
     originalUserAgent = window.navigator.userAgent;
     Object.defineProperty(window, "location", {
@@ -35,7 +37,7 @@ describe("EnvironmentBadge render", () => {
         replace: vi.fn(),
       },
     });
-    window.localStorage.removeItem("agent-native:beta-opt-out-until");
+    window.localStorage?.removeItem("agent-native:beta-opt-out-until");
   });
 
   afterEach(() => {
@@ -52,6 +54,54 @@ describe("EnvironmentBadge render", () => {
     vi.clearAllMocks();
   });
 
+  it("renders a non-navigating dev pill for configured local development", () => {
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: {
+        hostname: "localhost",
+        href: "http://localhost:3000/dispatch",
+        replace: vi.fn(),
+      },
+    });
+    injectedAgentNativeConfigMock.mockReturnValue({
+      deployment: { environment: "local" },
+    });
+    useSessionMock.mockReturnValue({
+      session: null,
+      status: "unauthenticated",
+    });
+
+    act(() => root.render(<EnvironmentBadge />));
+
+    const badge = container.querySelector('[role="status"]');
+    expect(badge?.textContent).toBe("dev");
+    expect(badge?.getAttribute("aria-label")).toBe(
+      "Local development environment",
+    );
+    expect(badge?.className).toContain("bottom-3");
+    expect(badge?.className).toContain("left-3");
+    expect(container.querySelector("button")).toBeNull();
+    expect(container.querySelector("a")).toBeNull();
+  });
+
+  it.each([
+    ["localhost", "http://localhost:3000/dispatch"],
+    ["preview.example.com", "https://preview.example.com/dispatch"],
+  ])("hides the badge on unconfigured host %s", (hostname, href) => {
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: { hostname, href, replace: vi.fn() },
+    });
+    useSessionMock.mockReturnValue({
+      session: null,
+      status: "unauthenticated",
+    });
+
+    act(() => root.render(<EnvironmentBadge />));
+
+    expect(container.innerHTML).toBe("");
+  });
+
   it("renders the beta chip for signed-out visitors", () => {
     useSessionMock.mockReturnValue({
       session: null,
@@ -60,7 +110,14 @@ describe("EnvironmentBadge render", () => {
 
     act(() => root.render(<EnvironmentBadge />));
 
-    expect(container.querySelector("button")?.textContent).toContain("beta");
+    const trigger = container.querySelector("button");
+    expect(trigger?.textContent).toContain("beta");
+    expect(trigger?.className).toContain("border-primary/80");
+    expect(trigger?.className).toContain("bottom-3");
+    expect(trigger?.className).toContain("left-3");
+    expect(trigger?.className).not.toContain("top-3");
+    expect(trigger?.className).not.toContain("right-3");
+    expect(trigger?.className).not.toContain("bg-background/95");
     expect(container.textContent).toContain("beta");
   });
 
@@ -92,6 +149,9 @@ describe("EnvironmentBadge render", () => {
       );
       trigger?.click();
     });
+
+    const popover = document.body.querySelector('[data-side="top"]');
+    expect(popover?.getAttribute("data-align")).toBe("start");
 
     const productionLink = [...document.body.querySelectorAll("a")].find(
       (link) => link.textContent?.includes("Switch to production"),

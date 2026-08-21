@@ -155,6 +155,11 @@ See the `authentication` skill for the full model and `guard:ssr-cache-shell`
 plus `ssr-handler.spec.ts` (`packages/core/src/server/ssr-handler.ts`) for the
 enforced contract.
 
+Netlify prerendered HTML/`.data` bypasses the SSR handler, so its build must
+emit the same public SWR policy in `_headers`; run `guard:ssr-cache-artifact`
+against Netlify-mode output. Styling-only work must not alter this cache,
+prerender, or deploy seam without explicit scope expansion.
+
 **Never route mutation-fresh reads through SSR loader data.** Data that changes
 when a user acts belongs in an action, read from the client with
 `useActionQuery` / `useActionMutation` and kept live by `useDbSync()` polling —

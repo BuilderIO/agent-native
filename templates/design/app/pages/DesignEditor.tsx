@@ -694,6 +694,7 @@ import {
   mergeAuthoredAndLiveRect,
   type ReflowCandidate,
 } from "./design-editor/layout-operations";
+import { measureFreeformGeometry } from "./design-editor/measure-child-rects";
 import {
   applyMotionAutoKeyframesForStyles,
   hydrateMotionDockTracks,
@@ -747,6 +748,7 @@ import {
   PngCaptureError,
   type PngCaptureScope,
 } from "./design-editor/png-export-render";
+import { openPreviewUrl } from "./design-editor/preview-navigation";
 import {
   computeInteractZoomToFit,
   DEFAULT_INTERACT_DEVICE_PRESET,
@@ -7319,6 +7321,7 @@ function DesignEditor() {
       baseContent: string;
       nextContent: string;
       origin: ClipboardContentMutationOrigin;
+      baseSource?: "lineage" | "document";
     }): ClipboardContentMutationPublication | null => {
       const current = latestClipboardMutationContentRef.current.get(
         args.fileId,
@@ -7329,6 +7332,7 @@ function DesignEditor() {
         nextContent: args.nextContent,
         nextContentHash: sourceContentHash(args.nextContent),
         origin: args.origin,
+        baseSource: args.baseSource,
       });
       if (!nextLineage) return null;
       latestClipboardMutationContentRef.current.set(args.fileId, nextLineage);
@@ -11274,10 +11278,45 @@ function DesignEditor() {
         appliedAny = true;
       }
       if (!appliedAny) return false;
-      applyLocalContentUpdate(content, { skipPreview: true });
+      applyLocalContentUpdate(content, { forcePreviewFullDocument: true });
       return true;
     },
     [applyLocalContentUpdate],
+  );
+
+  // Figma parity: turning auto layout off must leave a freeform container.
+  // display:block alone re-stacks the children and they stop being draggable.
+  const handleDisableAutoLayout = useCallback(
+    (nodeId: string) => {
+      if (!canEditDesign) return;
+      const baseContent = getFreshActiveContent();
+      if (!baseContent) {
+        trace("structure", "freeform-abandoned", {
+          reason: "no active content",
+          nodeId,
+        });
+        return;
+      }
+      const geometry = measureFreeformGeometry(nodeId);
+      const patch = applyVisualEdit(baseContent, {
+        kind: "autoLayout",
+        targetId: nodeId,
+        enabled: false,
+        childRects: geometry.children,
+        ...(geometry.container ? { containerRect: geometry.container } : {}),
+      });
+      trace("structure", "freeform", {
+        nodeId,
+        measuredChildren: Object.keys(geometry.children).length,
+        measuredContainer: geometry.container !== null,
+        status: patch.result.status,
+      });
+      if (patch.result.status !== "applied") return;
+      applyLocalContentUpdate(patch.content, {
+        forcePreviewFullDocument: true,
+      });
+    },
+    [applyLocalContentUpdate, canEditDesign, getFreshActiveContent],
   );
 
   // Item 3: Figma's Alignment row — moves the selection itself. Wired to
@@ -11603,7 +11642,9 @@ function DesignEditor() {
     }
     // One persistence call = one content-history entry, even though the pure
     // proposal compiler performed ordering + layout + sizing internally.
-    applyLocalContentUpdate(result.content, { skipPreview: true });
+    applyLocalContentUpdate(result.content, {
+      forcePreviewFullDocument: true,
+    });
     setAutoLayoutSuggestionPreview(null);
   }, [
     applyLocalContentUpdate,
@@ -13156,7 +13197,6 @@ function DesignEditor() {
         activeBreakpointWidthStateRef,
         activeTool,
         cancelActiveEditorDrag,
-        codeLayerOwnerByNodeIdRef,
         drawMode,
         enterOverviewFromZoom,
         focusedAnnotationSending,
@@ -13169,11 +13209,8 @@ function DesignEditor() {
         overviewAnnotationSending,
         pinMode,
         selectedElement,
-        selectedLayerIdsState,
-        setActiveFileId,
         setActiveTool,
         setDrawMode,
-        setExpandedLayerIds,
         setHoveredElement,
         setMode,
         setOverviewClearSelectionRequest,
@@ -13198,7 +13235,6 @@ function DesignEditor() {
       overviewAnnotationSending,
       pinMode,
       selectedElement,
-      selectedLayerIdsState,
       viewMode,
     ],
   );
@@ -13455,12 +13491,8 @@ function DesignEditor() {
       owner.node.parentId,
     );
     if (!parentOwner || parentOwner.fileId !== owner.fileId) return;
-    // BUG-ESCAPE-SHELL (same mechanism as handleEscapeHotkey's pop walk): the
-    // flat ownership map still resolves a top-level layer's parentId to the
-    // collapsed <html>/<body> shell node, which the layers panel never shows
-    // as selectable. Without this guard, Shift+Enter/"\\" on a top-level
-    // layer would select <body> instead of no-op'ing like the comment above
-    // already documents.
+    // The flat ownership map still resolves a top-level layer's parentId to
+    // the collapsed <html>/<body> shell node the layers panel never shows.
     if (!hasSelectableCodeLayerParent({ parentNode: parentOwner.node })) {
       return;
     }
@@ -13502,7 +13534,7 @@ function DesignEditor() {
     setOverviewSelectAllRequest((request) => request + 1);
   }, [activeFile, getFreshActiveContent, overviewScreens]);
 
-  // L12: shared by Cmd+R and the canvas context-menu Rename item — the single
+  // Shared by the canvas context-menu Rename item — the single
   // currently-selected layer id eligible for the layers-panel inline rename,
   // or null when zero or more-than-one layers are selected (screen/file rows
   // are excluded; renaming those is a separate flow). `__`-prefixed and file
@@ -13598,14 +13630,9 @@ function DesignEditor() {
           handleDeleteOverviewSelection(selectedLayerIdsState);
         }
       : undefined,
-    // L12: Cmd+R (and the context-menu Rename item, both routed through
-    // useDesignHotkeys' onRename) previously always renamed the DESIGN
-    // TITLE, even while a layer was selected — surprising when the user's
-    // focus is clearly on a specific layer. Route to the layer's real inline
-    // rename editor (LayersPanel ref's beginRename) when exactly one
-    // selectable (non-file-row) layer is selected; only fall back to
-    // renaming the design title when nothing (or more than one layer) is
-    // selected.
+    // The context-menu Rename item routes to the layer's real inline rename
+    // editor (LayersPanel ref's beginRename) when exactly one selectable
+    // (non-file-row) layer is selected.
     onRename: () => {
       if (!canEditDesign) return;
       const layerId = getSingleSelectedRenamableLayerId();
@@ -15606,6 +15633,20 @@ function DesignEditor() {
     selectedLayerTargetsRef.current = selectedLayerTargets;
   }, [selectedLayerTargets]);
 
+  /** The overview canvas keeps a layer's owning screen in `selectedScreenIds`
+   *  (z-order and "topmost screen" read it), so without this the screen's own
+   *  full-bleed SelectionBox stays mounted over the element and its drag
+   *  surface swallows the gesture — the frame moves instead of the layer. */
+  const selectedElementScreenId = useMemo(() => {
+    const first = selectedLayerTargets[0];
+    if (!first) return null;
+    return selectedLayerTargets.every(
+      (target) => target.fileId === first.fileId,
+    )
+      ? first.fileId
+      : null;
+  }, [selectedLayerTargets]);
+
   const selectedLayerSelectorGroupsByScreen = useMemo(() => {
     const groupsByScreen: Record<string, string[][]> = {};
     selectedLayerTargets.forEach((target) => {
@@ -15995,19 +16036,24 @@ function DesignEditor() {
 
   // ── Preview, publish waitlist, gradient, interaction states ────────────────
   const handleOpenDesignPreview = useCallback(() => {
-    if (activeScreenPreviewUrl) {
-      window.open(activeScreenPreviewUrl, "_blank", "noopener,noreferrer");
-      return;
+    let previewUrl = activeScreenPreviewUrl;
+    let blobUrl: string | null = null;
+    if (!previewUrl) {
+      if (!activeContent.trim()) return;
+      blobUrl = URL.createObjectURL(
+        new Blob([fullPreviewHtml(activeContent)], { type: "text/html" }),
+      );
+      previewUrl = blobUrl;
     }
 
-    const content = activeContent.trim();
-    if (!content) return;
-
-    const blobUrl = URL.createObjectURL(
-      new Blob([fullPreviewHtml(activeContent)], { type: "text/html" }),
+    openPreviewUrl(
+      previewUrl,
+      (url, target) => window.open(url, target),
+      (url) => window.location.assign(url),
     );
-    window.open(blobUrl, "_blank", "noopener,noreferrer");
-    window.setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+    if (blobUrl) {
+      window.setTimeout(() => URL.revokeObjectURL(blobUrl!), 60_000);
+    }
   }, [activeContent, activeScreenPreviewUrl]);
 
   const handleJoinPublishWaitlist = useCallback(async () => {
@@ -19008,6 +19054,7 @@ function DesignEditor() {
     reviewCommentsPanelProps,
     reviewCommentsCount: reviewOpenCount,
     onAlignSelection: canEditDesign ? handleAlignSelection : undefined,
+    onDisableAutoLayout: canEditDesign ? handleDisableAutoLayout : undefined,
     onInteractionStateChange: handleInteractionStateChange,
     onEditCode: handleShaderEditCode,
   };
@@ -19436,9 +19483,8 @@ function DesignEditor() {
                 (selectedScreenIds.length > 0 && files.length > 1)),
             )}
             canReorder={canEditDesign && Boolean(selectedElement)}
-            // L12: rename is only offered for a single selectable layer
-            // target (matching Cmd+R's routing) — the design-title rename
-            // flow lives elsewhere (the title control), not this menu.
+            // Rename is only offered for a single selectable layer target;
+            // design-title rename lives in the title control, not this menu.
             canRename={
               canEditDesign && Boolean(getSingleSelectedRenamableLayerId())
             }
@@ -19791,6 +19837,7 @@ function DesignEditor() {
                         cameraCommand={cameraCommand}
                         activeId={activeFileId}
                         selectedScreenIds={overviewSelectedScreenIds}
+                        selectedElementScreenId={selectedElementScreenId}
                         hiddenScreenIds={hiddenLayerIds}
                         lockedScreenIds={lockedLayerIds}
                         fullViewScreenIds={fullViewScreenIds}

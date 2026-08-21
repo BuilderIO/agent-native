@@ -66,7 +66,7 @@ for (const site of sites) {
 
       await page.goto(`${origin}/`, {
         waitUntil: "domcontentloaded",
-        timeout: 90_000,
+        timeout: 45_000,
       });
       await page.waitForTimeout(5_000);
 

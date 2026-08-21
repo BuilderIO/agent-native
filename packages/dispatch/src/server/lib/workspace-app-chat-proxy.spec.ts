@@ -48,6 +48,19 @@ function proxyEvent(path: string, init: RequestInit = {}) {
   return { url, req: new Request(url, init) };
 }
 
+function mountedProxyEvent(
+  mountedPath: string,
+  strippedPath: string,
+  init: RequestInit = {},
+) {
+  const url = new URL(`https://dispatch.agent-native.com${strippedPath}`);
+  return {
+    url,
+    req: new Request(url, init),
+    context: { _mountedPathname: mountedPath },
+  };
+}
+
 /** Upstream stub: the embed-start redirect plus whatever the chat route returns. */
 function stubFetch(
   chatResponse: (
@@ -130,6 +143,23 @@ describe("workspace app chat proxy", () => {
     expect(chatCall[0]).toBe(
       `${APP_ORIGIN}/_agent-native/agent-chat/runs/active?threadId=t-1`,
     );
+  });
+
+  it("parses the full path preserved by the framework mount middleware", async () => {
+    const fetchImpl = stubFetch(() => new Response("ok", { status: 200 }));
+    const handler = createWorkspaceAppChatProxyHandler({ fetchImpl });
+
+    const response = await handler(
+      mountedProxyEvent(
+        "/_agent-native/workspace-app-chat/analytics/mode",
+        "/mode",
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    const chatCall = (fetchImpl as unknown as ReturnType<typeof vi.fn>).mock
+      .calls[1];
+    expect(chatCall[0]).toBe(`${APP_ORIGIN}/_agent-native/agent-chat/mode`);
   });
 
   it("streams the app's response through instead of buffering it", async () => {

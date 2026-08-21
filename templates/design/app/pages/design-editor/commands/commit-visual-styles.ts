@@ -25,6 +25,7 @@ import {
   resolveCodeLayerTargetFromBridge,
   resolveCodeLayerTargetFromElementInfo,
 } from "@/pages/design-editor/code-layer-state";
+import { writeCollabText } from "@/pages/design-editor/collab-sync";
 import type {
   LiveScreenSnapshot,
   PatchProofState,
@@ -660,17 +661,16 @@ export function runCommitVisualStyles(
       const ytext = ydoc.getText("content");
       if (ytext.toString() !== resolvedNextContent) {
         if (!yjsHistoryAvailable) {
-          // Untracked full rewrite (overview mode with a still-live
+          // Untracked write (overview mode with a still-live
           // single-mode UndoManager, or history-suppressed replay) —
           // see U1 note: clear the undo stack so a stale tracked delta
           // can't be replayed against content it no longer matches.
           undoManagerRef.current?.clear(true, false);
         }
-        ydoc.transact(
-          () => {
-            ytext.delete(0, ytext.length);
-            ytext.insert(0, resolvedNextContent);
-          },
+        writeCollabText(
+          ydoc,
+          ytext,
+          resolvedNextContent,
           yjsHistoryAvailable ? LOCAL_EDIT_ORIGIN : TAB_ID,
         );
       }

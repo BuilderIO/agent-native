@@ -1,4 +1,9 @@
 import { getAppConfig } from "../app-config/index.js";
+import {
+  BACKGROUND_AUTOMATION_SOFT_TIMEOUT_HEADROOM_MS,
+  BACKGROUND_SOFT_TIMEOUT_CEILING_MS,
+  RUN_NO_PROGRESS_HARD_TIMEOUT_MS,
+} from "../app-config/run-lifecycle-invariants.js";
 import { captureError } from "../server/capture-error.js";
 import {
   isLlmCredentialError,
@@ -38,6 +43,8 @@ import {
   setRunError,
   setRunTerminalReason,
   persistRunCheckpointEvent,
+  recordRunDiagnostic,
+  RUN_DIAG_STAGE,
   terminalEventForAbortReason,
 } from "./run-store.js";
 import { isContinuationTerminalReason } from "./types.js";
@@ -120,71 +127,7 @@ export const DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS = 40_000;
  */
 export const HOSTED_SOFT_TIMEOUT_CEILING_MS = 40_000;
 
-/**
- * Hard ceiling for the soft timeout when a run executes inside a Netlify
- * background function (any deployed function whose name ends in `-background`).
- * Background functions return 202 immediately and run detached for up to 15
- * minutes, so the ~60s synchronous function wall that 40s defends against does
- * NOT apply. 13 minutes leaves ~2 min of headroom under Netlify's 15-min hard
- * kill to abort, persist the partial turn, write the terminal event, and (for
- * the rare >13-min turn) self-fire another background continuation.
- *
- * This ceiling is used ONLY when a caller explicitly opts in with
- * `backgroundFunction: true`. It does not change the foreground/interactive
- * ceiling and does not fire unless the durable-background path dispatched the
- * run into a background function. Per the design doc Guardrail, the 40s
- * interactive clamp stays correct for every non-background run.
- */
-export const BACKGROUND_SOFT_TIMEOUT_CEILING_MS = 13 * 60_000; // 780_000
-
-/**
- * Default soft-timeout budget for a background-function run when the caller
- * does not pass an explicit `softTimeoutMs`. Same value as the ceiling — we
- * want a background turn to use nearly its whole 15-min budget before handing
- * off to a chained background continuation.
- */
-export const DEFAULT_BACKGROUND_RUN_SOFT_TIMEOUT_MS =
-  BACKGROUND_SOFT_TIMEOUT_CEILING_MS;
-
-/**
- * AUTHORITATIVE no-progress backstop for a run, enforced by the run manager
- * itself (timer-driven, independent of any layer below).
- *
- * The finer-grained watchdogs inside the agent loop (model-stream and
- * action-preparation no-progress, both 90s) only guard the model event stream
- * — a stall in any segment OUTSIDE that guarded loop (engine-call
- * establishment, worker setup between continuation chunks, a wedged transport
- * that emits keepalives while the loop never runs) previously hung forever
- * with the client watching keepalives. This backstop covers every segment by
- * construction: if no REAL progress event (see `shouldBumpProgressForEvent`;
- * keepalives and zero-byte prep activity don't count) lands for this long —
- * and no unit of work is in flight (see `inFlightWorkDelta`: tool calls,
- * cross-app calls, and the model stream all legitimately emit nothing for
- * minutes and each carry a bound of their own) — the run manager emits
- * `auto_continue { reason: "no_progress" }` and aborts the chunk, exactly
- * like the soft timeout, so the normal continuation machinery recovers it.
- *
- * Being numerically larger than the in-loop watchdogs is NOT what keeps this
- * from killing a healthy run, and treating it that way is what made it do so:
- * this clock and the loop's `lastModelStreamProgressAt` measure DIFFERENT
- * events. An extended-thinking phase bumps the inner clock on every engine
- * frame while forwarding nothing, so the inner watchdog correctly stayed quiet
- * and this one saw pure silence — runs whose worst gap crossed 150s died while
- * still streaming, some by a single second. Ordering between two clocks only
- * means something when they watch the same events; suspending on in-flight
- * work is what actually makes the two agree.
- *
- * This is now only the CEILING, not the value: `resolveRunNoProgressTimeoutMs`
- * clamps the foreground backstop to a fraction of the chunk's soft timeout
- * (~30s at a 40s chunk), which is BELOW the 90s in-loop watchdogs rather than
- * above them. That ordering is deliberate — the in-loop watchdogs could never
- * fire inside a hosted foreground chunk anyway, since the serverless wall
- * (~57-59s) arrives first. Proven durable-background chunks keep the full
- * `DEFAULT_BACKGROUND_NO_PROGRESS_TIMEOUT_MS` so large outputs can use the
- * background budget. Only armed when a soft-timeout regime is active (hosted
- * runs); local dev stays unbounded.
- */
-export const RUN_NO_PROGRESS_HARD_TIMEOUT_MS = 150_000;
+// 780_000
 
 /**
  * Default no-progress window for a run executing inside a proven durable
@@ -249,21 +192,43 @@ export function resolveRunNoProgressTimeoutMs(params: {
       ? value
       : undefined;
 
+  // Per-call override wins, then configuration, then the shipped default —
+  // the same ladder `resolveRunSoftTimeoutMs` implements.
+  const configured = getAppConfig().agent;
+
+  // Largest window that can still fire inside the chunk it is guarding. A
+  // backstop at or above the chunk budget is not a loose backstop, it is an
+  // absent one.
+  const budgetCeilingMs = Math.floor(
+    softTimeoutMs * FOREGROUND_NO_PROGRESS_SOFT_TIMEOUT_FRACTION,
+  );
+
   if (backgroundFunction === true) {
+    // The background override exists to RAISE this window, so it is honoured
+    // as given — a caller asking for a longer one is making an explicit choice
+    // and stays bounded by its own hard abort.
     const override =
       explicit(params.backgroundOverrideMs) ?? explicit(params.overrideMs);
-    if (override !== undefined) return override;
-    return softTimeoutMs > 0 ? DEFAULT_BACKGROUND_NO_PROGRESS_TIMEOUT_MS : 0;
+    if (!(softTimeoutMs > 0)) return override ?? 0;
+    // Honoured as given, because this override exists to RAISE the window —
+    // but still bounded by the chunk it guards. A backstop at or above the
+    // chunk budget is not a longer backstop, it is an absent one, so a caller
+    // asking for one was disabling recovery without meaning to.
+    if (override !== undefined) {
+      return override === 0 ? 0 : Math.min(override, budgetCeilingMs);
+    }
+    // Clamped: returned flat, a deployment that lowered the GLOBAL
+    // `runSoftTimeoutMs` shrank the chunk without shrinking the backstop, and
+    // the backstop silently stopped being reachable. Nothing changes at the
+    // shipped values — min(150s, 0.75 x 13min) is still 150s.
+    return Math.min(configured.backgroundNoProgressTimeoutMs, budgetCeilingMs);
   }
 
   const override = explicit(params.overrideMs);
   // Local dev keeps runs unbounded unless a caller explicitly asks otherwise.
   if (!(softTimeoutMs > 0)) return override ?? 0;
 
-  const ceiling = Math.min(
-    RUN_NO_PROGRESS_HARD_TIMEOUT_MS,
-    Math.floor(softTimeoutMs * FOREGROUND_NO_PROGRESS_SOFT_TIMEOUT_FRACTION),
-  );
+  const ceiling = Math.min(RUN_NO_PROGRESS_HARD_TIMEOUT_MS, budgetCeilingMs);
   if (override === undefined) return ceiling;
   return override === 0 ? 0 : Math.min(override, ceiling);
 }
@@ -564,9 +529,18 @@ export interface StartRunOptions {
    */
   backgroundNoProgressTimeoutMs?: number;
   /**
-   * Lifecycle metadata persisted to `agent_runs.dispatch_mode` and surfaced to
-   * clients through `/runs/active`. This does not change run-manager behavior;
-   * callers use it to describe who owns continuation at hosted chunk boundaries.
+   * Lifecycle metadata persisted to `agent_runs.dispatch_mode`, surfaced to
+   * clients through `/runs/active`, and carried on the terminal/boundary
+   * analytics events. This does not change run-manager behavior; callers use it
+   * to describe who owns continuation at hosted chunk boundaries.
+   *
+   * Unset is reported as ABSENT, never as `"foreground"`. The analytics events
+   * used to default it, and the default was wrong every single time it applied:
+   * the interactive handler is the one caller that passes this, so the default
+   * only ever labelled the callers that are NOT foreground — automations, agent
+   * teams, webhooks, harness runs. It made a 6-of-7 no-progress failure rate on
+   * the automation path indistinguishable from chat in the one place anybody
+   * would have looked.
    */
   dispatchMode?: "foreground" | "foreground-self-chain" | "background";
   /**
@@ -583,6 +557,54 @@ export interface StartRunOptions {
   /** Continuation/redispatch attempt number for this logical turn, if the
    *  caller is tracking one. */
   attemptCount?: number;
+  /**
+   * The `runFn` recovers chunk boundaries INSIDE this invocation — it threads
+   * the `RunChunkControl` it is handed into
+   * `runAgentLoopDirectWithSoftTimeout`.
+   *
+   * When true a checkpoint aborts only the current CHUNK; the turn-scoped
+   * controller (what a user Stop, a hard timeout, and the cross-isolate abort
+   * check use) is left alone so the loop can append its continuation context
+   * and keep going. Off by default, and it must stay off for every caller that
+   * hands continuation to a FRESH invocation: those need the turn to end here
+   * so the next invocation can pick it up.
+   *
+   * This is the fix for the in-process automation runner, whose checkpoints
+   * were aborting the turn for a continuation nobody was going to run.
+   */
+  recoverChunkBoundaries?: boolean;
+}
+
+/**
+ * Handed to `runFn` so an in-invocation runner can tell a recoverable CHUNK
+ * boundary from a turn-ending abort.
+ *
+ * Without this distinction there is only one signal, and a checkpoint fired
+ * from above the agent loop is indistinguishable from a user pressing Stop —
+ * which is why `no_progress` was an accepted continuation reason with a
+ * 20-round budget that could never be reached.
+ */
+export interface RunChunkControl {
+  /**
+   * Aborted only when the TURN must end: user Stop, cross-isolate abort, the
+   * caller's own hard timeout, or a checkpoint on a run that did not opt into
+   * `recoverChunkBoundaries`. Never fires for a recoverable chunk boundary.
+   */
+  readonly turnSignal: AbortSignal;
+  /** Signal for the chunk currently executing. Replaced by `beginChunk()`. */
+  readonly chunkSignal: AbortSignal;
+  /**
+   * Reason the CURRENT chunk was checkpointed, or `null` while it is live.
+   * Distinct from "the turn was aborted": a caller that cannot tell them apart
+   * turns every planned boundary into a terminal failure.
+   */
+  chunkBoundaryReason(): string | null;
+  /**
+   * Open a fresh chunk after a recoverable boundary and return its signal.
+   * Returns the already-aborted turn signal when the turn is over, so a caller
+   * that races a Stop cannot accidentally start another chunk.
+   */
+  beginChunk(): AbortSignal;
 }
 
 export interface ResolveRunSoftTimeoutOptions {
@@ -591,8 +613,9 @@ export interface ResolveRunSoftTimeoutOptions {
    * Resolve the soft timeout for a run executing inside a Netlify background
    * function. Lifts the hosted clamp to `BACKGROUND_SOFT_TIMEOUT_CEILING_MS`
    * (~13min) for this invocation only and, when no override/env is supplied,
-   * defaults to `DEFAULT_BACKGROUND_RUN_SOFT_TIMEOUT_MS`. Does NOT change the
-   * foreground ceiling. Off by default.
+   * defaults to that same ceiling — a background turn should use nearly its
+   * whole budget before handing off to a chained continuation. Does NOT change
+   * the foreground ceiling. Off by default.
    */
   backgroundFunction?: boolean;
 }
@@ -661,7 +684,7 @@ export function resolveRunSoftTimeoutMs(
   // A background-function run uses the full background budget by default; the
   // foreground default (40s) is unchanged.
   if (background) {
-    return hosted ? DEFAULT_BACKGROUND_RUN_SOFT_TIMEOUT_MS : 0;
+    return hosted ? BACKGROUND_SOFT_TIMEOUT_CEILING_MS : 0;
   }
   return options?.useHostedDefault && hosted
     ? DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS
@@ -680,6 +703,44 @@ export function resolveErroredRunRetentionMs(): number {
     getAppConfig().agent.erroredRunRetentionMs ??
     DEFAULT_ERRORED_RUN_RETENTION_MS
   );
+}
+
+/**
+ * Hard abort for one in-process background automation run.
+ *
+ * This is the host's real function budget for scheduled work, which is exactly
+ * the kind of number that differs between deployments — so it is configuration,
+ * not a module constant nobody outside this package can see.
+ */
+export function resolveBackgroundRunHardTimeoutMs(): number {
+  return getAppConfig().agent.backgroundRunHardTimeoutMs;
+}
+
+/**
+ * Chunk budget for a background automation, derived from the runner's OWN hard
+ * abort rather than from the durable-chat background ceiling.
+ *
+ * The shipped build took the 13-minute chat ceiling for a path whose process is
+ * killed at 10 minutes, which made the recoverable soft-timeout boundary dead
+ * code and left the terminal no-progress backstop as the only boundary an
+ * automation could ever reach. Deriving from the hard abort keeps
+ * `soft timeout < hard abort` true by construction; the invariant check asserts
+ * the headroom still fits.
+ */
+export function resolveBackgroundAutomationSoftTimeoutMs(
+  overrideMs?: number,
+): number {
+  const budget = Math.max(
+    1_000,
+    resolveBackgroundRunHardTimeoutMs() -
+      BACKGROUND_AUTOMATION_SOFT_TIMEOUT_HEADROOM_MS,
+  );
+  const resolved = resolveRunSoftTimeoutMs(overrideMs, {
+    useHostedDefault: true,
+    backgroundFunction: true,
+  });
+  // `0` means "no soft-timeout regime" (local dev) and is never clamped up.
+  return resolved > 0 ? Math.min(resolved, budget) : 0;
 }
 
 function isTerminalRunEvent(event: AgentChatEvent): boolean {
@@ -759,6 +820,62 @@ function terminalReasonForRun(
 const MAX_RUN_ERROR_DETAIL_LENGTH = 500;
 
 /**
+ * One counter per chunk boundary, dimensioned by reason and by whether the
+ * turn continued past it.
+ *
+ * Boundaries are normal; boundaries that TERMINATE a run are not, and before
+ * this the two were indistinguishable from outside — which is how a 37%
+ * automation failure rate stayed invisible. The ratio between `recovered:true`
+ * and `recovered:false` is the number that belongs on a dashboard.
+ *
+ * Same swallow-everything mechanism as `emitRunTerminalTrackingEvent`: a
+ * missing or broken tracking provider can never affect the run.
+ */
+function emitRunBoundaryTrackingEvent(args: {
+  runId: string;
+  threadId: string;
+  reason: string;
+  recovered: boolean;
+  boundaryIndex: number;
+  dispatchMode?: string;
+  model?: string;
+  engineName?: string;
+  userId?: string;
+}): void {
+  const properties: Record<string, unknown> = {
+    source: "agent_run_manager",
+    run_id: args.runId,
+    thread_id: args.threadId,
+    reason: args.reason,
+    recovered: args.recovered,
+    boundary_index: args.boundaryIndex,
+    dispatch_mode: args.dispatchMode,
+    model: args.model,
+    engine: args.engineName,
+  };
+  for (const key of Object.keys(properties)) {
+    if (properties[key] === undefined) delete properties[key];
+  }
+  try {
+    void Promise.all([
+      import("../tracking/registry.js"),
+      import("../observability/tracking-identity.js"),
+    ])
+      .then(([{ track }, { trackingIdentityProperties }]) => {
+        track(
+          "agent_run_boundary",
+          { ...properties, ...trackingIdentityProperties() },
+          { userId: args.userId },
+        );
+      })
+      .catch(() => {});
+    // coercion-ok: a boundary counter must never affect the run it counts.
+  } catch {
+    // Tracking must never affect the agent run or its persisted status.
+  }
+}
+
+/**
  * Emit one analytics event per terminal run — the seam that makes cutoffs
  * (`run_budget_exhausted`, `loop_limit`, aborts, `truncated` continuation
  * boundaries) queryable in the same pipeline as `$ai_generation`
@@ -801,7 +918,7 @@ function emitRunTerminalTrackingEvent(args: {
         ? `${args.errorDetail.slice(0, MAX_RUN_ERROR_DETAIL_LENGTH)}…`
         : args.errorDetail
       : undefined,
-    dispatch_mode: args.dispatchMode ?? "foreground",
+    dispatch_mode: args.dispatchMode,
     abort_reason: args.abortReason,
     duration_ms: args.durationMs,
     model: args.model,
@@ -875,6 +992,7 @@ export function startRun(
   runFn: (
     send: (event: AgentChatEvent) => void,
     signal: AbortSignal,
+    control: RunChunkControl,
   ) => Promise<void>,
   onComplete?: (run: ActiveRun) => void | Promise<void>,
   options?: StartRunOptions,
@@ -886,6 +1004,72 @@ export function startRun(
   }
 
   const abort = new AbortController();
+  // Chunk-scoped controller, only for a runFn that recovers boundaries in this
+  // invocation. `abort` stays the turn: a Stop, the cross-isolate abort check,
+  // and a caller's hard timeout all still end the run through it, and it always
+  // ends whichever chunk is executing under it.
+  const recoverChunkBoundaries = options?.recoverChunkBoundaries === true;
+  let chunkAbort: AbortController | null = recoverChunkBoundaries
+    ? new AbortController()
+    : null;
+  let chunkBoundaryReason: string | null = null;
+  let recoveredChunkBoundaries = 0;
+  /** A boundary that has been reached but not yet proven recovered. */
+  let pendingBoundary: {
+    reason: "no_progress" | "run_timeout";
+    diagnostic: { silentForMs?: number; lastEventType?: string };
+    index: number;
+  } | null = null;
+  /**
+   * Resolve the outstanding boundary once its fate is known: `true` when the
+   * caller actually opened another round, `false` when the run ended first.
+   */
+  const settleBoundary = (recovered: boolean) => {
+    const boundary = pendingBoundary;
+    if (!boundary) return;
+    pendingBoundary = null;
+    recordRunBoundaryDiagnostic(
+      boundary.reason,
+      boundary.diagnostic,
+      recovered ? "recovered" : "terminal",
+    );
+    emitRunBoundaryTrackingEvent({
+      runId,
+      threadId,
+      reason: boundary.reason,
+      recovered,
+      boundaryIndex: boundary.index,
+      dispatchMode: options?.dispatchMode,
+      model: options?.model,
+      engineName: options?.engineName,
+      userId: options?.userId,
+    });
+  };
+  if (chunkAbort) {
+    abort.signal.addEventListener("abort", () => {
+      chunkAbort?.abort(abort.signal.reason);
+    });
+  }
+  const runControl: RunChunkControl = {
+    get turnSignal() {
+      return abort.signal;
+    },
+    get chunkSignal() {
+      return chunkAbort?.signal ?? abort.signal;
+    },
+    chunkBoundaryReason: () => chunkBoundaryReason,
+    beginChunk: () => {
+      if (abort.signal.aborted || !chunkAbort) return abort.signal;
+      settleBoundary(true);
+      chunkBoundaryReason = null;
+      chunkAbort = new AbortController();
+      // The boundary is behind us; the silence clock restarts with the chunk,
+      // or the backstop fires again on the elapsed time of the chunk it just
+      // ended and every recovery round dies instantly.
+      lastRealProgressAt = Date.now();
+      return chunkAbort.signal;
+    },
+  };
   let softTimedOut = false;
   let resolveFinalized: () => void = () => {};
   let rejectFinalized: (reason?: unknown) => void = () => {};
@@ -1276,28 +1460,135 @@ export function startRun(
     }
   };
 
-  const checkNoProgressBackstop = () => {
-    if (noProgressTimeoutMs <= 0) return;
-    if (run.status !== "running" || abort.signal.aborted) return;
-    if (inFlightWorkCount > 0) return;
-    if (Date.now() - lastRealProgressAt < noProgressTimeoutMs) return;
-    console.error(
-      `[run-manager] no real progress for ${noProgressTimeoutMs}ms with no tool ` +
-        `or model stream in flight — ` +
-        `checkpointing run for continuation`,
+  /**
+   * Localise the stall. `RUN_DIAG_STAGE`/`recordRunDiagnostic` existed for
+   * exactly this and were wired only into the `_process-run` HTTP path, which
+   * is why a 37%-failure-rate backstop could not name the segment it killed.
+   */
+  const recordRunBoundaryDiagnostic = (
+    reason: string,
+    diagnostic: { silentForMs?: number; lastEventType?: string },
+    disposition: "recovered" | "terminal",
+  ) => {
+    void recordRunDiagnostic(
       runId,
-    );
+      RUN_DIAG_STAGE.runBoundaryReached,
+      JSON.stringify({
+        reason,
+        disposition,
+        silentForMs: diagnostic.silentForMs,
+        lastEventType: diagnostic.lastEventType,
+        inFlightWorkCount,
+        eventCount: run.events.length,
+        elapsedMs: Date.now() - run.startedAt,
+      }),
+      // coercion-ok: recordRunDiagnostic already swallows its own failures;
+      // this guards only against an unhandled rejection.
+    ).catch(() => {});
+  };
+
+  /**
+   * Reach a server-owned chunk boundary.
+   *
+   * Two outcomes, and the difference is the whole point: a runFn that recovers
+   * boundaries in this invocation gets its CHUNK aborted and keeps the turn;
+   * every other caller gets the turn ended so a fresh invocation can continue
+   * it. The recoverable case deliberately does NOT emit `auto_continue` or
+   * write a checkpoint terminal event — both describe a turn that stopped here,
+   * and this one has not: the checkpoint row is written at a reserved seq that
+   * outranks the real `done` this run is still going to emit, so persisting it
+   * would relabel a recovered run as truncated.
+   */
+  const reachRunBoundary = (
+    reason: "no_progress" | "run_timeout",
+    diagnostic: { silentForMs?: number; lastEventType?: string } = {},
+  ) => {
+    if (run.status !== "running" || abort.signal.aborted) return;
+    if (chunkAbort) {
+      if (chunkAbort.signal.aborted) return;
+      recoveredChunkBoundaries += 1;
+      console.warn(
+        `[run-manager] chunk boundary (${reason}) — recovering in-invocation`,
+        runId,
+        diagnostic,
+      );
+      // NOT counted as recovered yet. `recovered` is the whole point of this
+      // counter — it answers "is the recovery working?" — so it has to mean a
+      // round actually started, not that one was invited to. The caller can
+      // still exhaust its budget or fail to build continuation context, and
+      // counting the invitation would over-report recovery, which is the
+      // direction that hides the failure.
+      pendingBoundary = { reason, diagnostic, index: recoveredChunkBoundaries };
+      chunkBoundaryReason = reason;
+      chunkAbort.abort(reason);
+      return;
+    }
     // Mirror the soft-timeout semantics exactly: the chunk completes (not
     // aborts) at an auto_continue boundary, so the continuation machinery —
     // server-chained for background workers, client-driven for foreground —
     // recovers the turn.
     softTimedOut = true;
-    const event: AgentChatEvent = {
-      type: "auto_continue",
-      reason: "no_progress",
-    };
+    recordRunBoundaryDiagnostic(reason, diagnostic, "terminal");
+    emitRunBoundaryTrackingEvent({
+      runId,
+      threadId,
+      reason,
+      recovered: false,
+      boundaryIndex: recoveredChunkBoundaries + 1,
+      dispatchMode: options?.dispatchMode,
+      model: options?.model,
+      engineName: options?.engineName,
+      userId: options?.userId,
+    });
+    const event: AgentChatEvent = { type: "auto_continue", reason };
     send(event);
-    void checkpointRunBoundary(event, "no_progress");
+    void checkpointRunBoundary(event, reason);
+  };
+
+  const checkNoProgressBackstop = () => {
+    if (noProgressTimeoutMs <= 0) return;
+    if (run.status !== "running" || abort.signal.aborted) return;
+    if (inFlightWorkCount > 0) return;
+    const silentForMs = Date.now() - lastRealProgressAt;
+    if (silentForMs < noProgressTimeoutMs) return;
+    const lastEventType = run.events.at(-1)?.event.type;
+    if (!chunkAbort) {
+      // This backstop ends the TURN here; whether a successor invocation picks
+      // it up is decided later and elsewhere, so from this vantage it is a run
+      // that died on silence. It reached production for two releases as one
+      // console line nobody read. A boundary recovered in THIS invocation stays
+      // a log line — that distinction is the point.
+      console.error(
+        `[run-manager] no real progress for ${noProgressTimeoutMs}ms with no tool ` +
+          `or model stream in flight — ` +
+          `checkpointing run for continuation`,
+        runId,
+      );
+      captureError(
+        new Error(
+          `Agent run checkpointed after ${silentForMs}ms of silence (no_progress)`,
+        ),
+        {
+          route: "/_agent-native/agent-chat",
+          aiTraceId: runId,
+          tags: {
+            source: "agent-run-manager",
+            phase: "no-progress-backstop",
+            terminalReason: "no_progress",
+            lastEventType,
+          },
+          extra: {
+            runId,
+            threadId,
+            silentForMs,
+            noProgressTimeoutMs,
+            lastEventType,
+            eventCount: run.events.length,
+          },
+        },
+      );
+    }
+    reachRunBoundary("no_progress", { silentForMs, lastEventType });
   };
 
   // Periodic SQL abort check interval (for cross-isolate abort on Workers).
@@ -1422,17 +1713,18 @@ export function startRun(
     overrideMs: options?.noProgressTimeoutMs,
     backgroundOverrideMs: options?.backgroundNoProgressTimeoutMs,
   });
+  // Not armed for a runFn that recovers boundaries in this invocation. That
+  // runFn already races the SAME wall with its own per-round timer, budgeted
+  // against cumulative elapsed time — so this timer fires at the moment the
+  // wrapper has nothing left to continue with, producing a boundary that is
+  // recoverable in name only and burning the tail of the budget on nothing.
+  // One wall, one clock; the caller's hard abort still backstops it.
   const softTimeoutTimer =
-    softTimeoutMs > 0
+    softTimeoutMs > 0 && !recoverChunkBoundaries
       ? setTimeout(() => {
-          if (run.status !== "running" || abort.signal.aborted) return;
-          softTimedOut = true;
-          const event: AgentChatEvent = {
-            type: "auto_continue",
-            reason: "run_timeout",
-          };
-          send(event);
-          void checkpointRunBoundary(event, "run_timeout");
+          reachRunBoundary("run_timeout", {
+            lastEventType: run.events.at(-1)?.event.type,
+          });
         }, softTimeoutMs)
       : null;
   let pendingTerminalEvent: RunEvent | null = null;
@@ -1553,8 +1845,13 @@ export function startRun(
   };
 
   // Run in background — intentionally detached from any HTTP connection
-  const runPromise = runFn(send, abort.signal)
+  const runPromise = runFn(send, runControl.chunkSignal, runControl)
     .then(() => {
+      // Settled inside the existing handlers rather than a `.finally()`: that
+      // would add a microtask tick to a chain whose ordering callers depend on.
+      // The runFn is done and never opened another round, so an outstanding
+      // boundary ended the run rather than being recovered from.
+      settleBoundary(false);
       if (abort.signal.aborted) {
         run.status = softTimedOut ? "completed" : "aborted";
         return;
@@ -1562,6 +1859,7 @@ export function startRun(
       run.status = "completed";
     })
     .catch((err) => {
+      settleBoundary(false);
       // Don't surface abort errors — the run was intentionally stopped
       if (abort.signal.aborted) {
         run.status = softTimedOut ? "completed" : "aborted";

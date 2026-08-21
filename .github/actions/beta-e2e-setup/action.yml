@@ -1,0 +1,39 @@
+name: Beta E2E setup
+description: >-
+  Toolchain, dependencies, and Chromium for a beta E2E lane. Shared because the
+  public lane is sharded one host per runner, so this preamble runs in every
+  shard plus the fleet, authenticated, and advisory lanes.
+
+  Callers must run actions/checkout first: a local composite action cannot
+  check out the repository that contains it, because it is not on disk until
+  checkout has run.
+
+runs:
+  using: composite
+  steps:
+    - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+
+    - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      with:
+        node-version: "22"
+        cache: "pnpm"
+
+    - run: pnpm install --frozen-lockfile
+      shell: bash
+
+    - name: Restore Playwright browser cache
+      uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+      with:
+        path: ~/.cache/ms-playwright
+        key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+        restore-keys: playwright-${{ runner.os }}-
+
+    - name: Typecheck the suite
+      # Fail before the browser starts and before any token is spent: `e2e/` is
+      # not a workspace package, so the repo-wide typecheck never sees it.
+      run: pnpm typecheck:e2e
+      shell: bash
+
+    - name: Install Playwright Chromium
+      run: pnpm exec playwright install --only-shell chromium
+      shell: bash

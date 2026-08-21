@@ -289,6 +289,74 @@ describe("ConnectBuilderCard", () => {
     expect(container.textContent).toContain("Send to Builder");
   });
 
+  it("includes staged chat context in the Builder handoff request", async () => {
+    mocks.useBuilderConnectFlow.mockReturnValue({
+      hasFetchedStatus: true,
+      statusResolved: true,
+      configured: true,
+      codeChangeConfigured: true,
+      builderEnabled: true,
+      orgName: "Builder space",
+      envManaged: false,
+      connecting: false,
+      error: null,
+      start: mocks.start,
+    });
+    const requests: Array<{ input: RequestInfo | URL; init?: RequestInit }> =
+      [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        requests.push({ input, init });
+        return new Response(
+          JSON.stringify({
+            branchName: "analytics-context",
+            projectId: "project-123",
+            url: "https://builder.io/app/projects/project-123/branch/analytics-context",
+            status: "processing",
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        );
+      }),
+    );
+
+    await act(async () => {
+      root.render(
+        <ConnectBuilderCard
+          configured
+          builderEnabled
+          connectUrl=""
+          prompt="Add an organization filter"
+          context={
+            "## Dashboard: Customer Credit Usage Review\nDashboard id: dash-123"
+          }
+        />,
+      );
+    });
+
+    const button = Array.from(container.querySelectorAll("button")).find(
+      (element) => element.textContent?.includes("Send to Builder"),
+    );
+    expect(button).toBeTruthy();
+
+    await act(async () => {
+      button?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+      await Promise.resolve();
+    });
+
+    expect(requests).toHaveLength(1);
+    expect(JSON.parse(String(requests[0]?.init?.body))).toEqual({
+      prompt: "Add an organization filter",
+      context:
+        "## Dashboard: Customer Credit Usage Review\nDashboard id: dash-123",
+    });
+  });
+
   it("sends the background-coding use case when joining the waitlist", async () => {
     setLocation("https://agent-native.test/");
     const requests: Array<{ input: RequestInfo | URL; init?: RequestInit }> =

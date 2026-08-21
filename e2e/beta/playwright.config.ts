@@ -23,6 +23,16 @@ import { defineConfig, devices } from "@playwright/test";
 const isCi = Boolean(process.env.CI);
 
 /**
+ * Names this invocation's report directory.
+ *
+ * Set by the workflow per lane; falls back to a generic slot for a local run.
+ */
+const REPORT_SLOT = (process.env.BETA_E2E_REPORT_SLOT || "local").replace(
+  /[^a-z0-9._-]/gi,
+  "-",
+);
+
+/**
  * Artifact settings for the lanes that run signed in.
  *
  * A Playwright trace records real request headers, so a trace of an
@@ -47,34 +57,57 @@ export default defineConfig({
   // distinguishes a slow host from a broken one. It cannot mask a broken one:
   // every assertion here is deterministic given a responsive host.
   retries: isCi ? 2 : 1,
-  // Enough concurrency to sweep 16 hosts quickly, low enough that the sweep is
-  // not itself the reason a host looks slow.
-  workers: isCi ? 6 : 4,
+  // Two constraints, both measured. GitHub's ubuntu-latest has 4 vCPUs, so
+  // more Chromium instances than that thrash. And the fleet sits behind one
+  // CDN that throttles a bursty datacenter caller, which shows up as stalled
+  // navigations rather than refusals. Fewer workers is faster here.
+  workers: isCi ? 3 : 4,
   timeout: 240_000,
   expect: { timeout: 30_000 },
+  // Per-lane report paths. The workflow invokes this config once per lane, and
+  // a shared output path meant each run overwrote the last — the uploaded
+  // artifact then contained only the final lane's results while looking like a
+  // complete report, which is worse than having no report at all.
   reporter: isCi
     ? [
         ["github"],
         ["list"],
-        ["html", { open: "never", outputFolder: "playwright-report" }],
-        ["json", { outputFile: "playwright-report/results.json" }],
+        [
+          "html",
+          { open: "never", outputFolder: `playwright-report/${REPORT_SLOT}` },
+        ],
+        [
+          "json",
+          { outputFile: `playwright-report/${REPORT_SLOT}/results.json` },
+        ],
       ]
     : [["list"]],
-  outputDir: "test-results",
+  outputDir: `test-results/${REPORT_SLOT}`,
   use: {
     ...devices["Desktop Chrome"],
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
     video: "retain-on-failure",
-    actionTimeout: 30_000,
-    navigationTimeout: 90_000,
-    userAgent: `agent-native-beta-e2e (+https://github.com/BuilderIO/agent-native) Chrome/${devices["Desktop Chrome"].userAgent?.match(/Chrome\/([\d.]+)/)?.[1] ?? "latest"}`,
+    actionTimeout: 20_000,
+    // A dead host should be cheap to discover. These hosts sit behind
+    // Cloudflare and stall rather than refuse when they throttle a caller, so
+    // every timeout is paid in full — at 90s, times retries, times sixteen
+    // hosts, that dominated the run. Anything that cannot answer in 45s after
+    // the warm-up is broken for a user too.
+    navigationTimeout: 45_000,
   },
   projects: [
     // Gating lanes: a red here is a reason not to promote.
     {
       name: "public",
       testMatch: /specs\/(fleet-public|auth-surface)\.spec\.ts$/,
+    },
+    // Cross-host comparisons. Separate from `public` because that lane is
+    // sharded one host per runner, where a fleet-wide check would compare a
+    // set of one and pass having checked nothing.
+    {
+      name: "fleet",
+      testMatch: /specs\/fleet-wide\.spec\.ts$/,
     },
     {
       name: "authed",

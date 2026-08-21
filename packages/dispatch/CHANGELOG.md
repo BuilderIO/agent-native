@@ -1,5 +1,86 @@
 # @agent-native/dispatch
 
+## 0.31.14
+
+### Patch Changes
+
+- 4de4af3: Expose workspace monthly per-user credit usage and workspace app creation breakdowns through the Dispatch agent action.
+- 4de4af3: Keep Dispatch workspace-app URLs shareable by seeding embedded apps from deep links and reflecting child route changes in the Dispatch URL.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/toolkit@0.16.10
+
+## 0.31.13
+
+### Patch Changes
+
+- f2f60b9: Move the environment badge to the bottom-left, show a truthful dev badge during configured local development, raise Dispatch controls above it, and give default notifications enough clearance to avoid overlap.
+
+## 0.31.12
+
+### Patch Changes
+
+- dc0978d: Fix action request context to use the forwarded workspace gateway origin instead of the internal dev proxy host.
+
+## 0.31.11
+
+### Patch Changes
+
+- e5e6934: Fix embedded workspace-app chat routes when the framework mount middleware strips the proxy prefix before dispatching the request.
+- dd80d09: Keep the full workspace credential workflow reachable from the redesigned integrations catalog.
+- e5e6934: Refresh integration and Dispatch app surfaces with connected-first layouts and two-column cards.
+
+## 0.31.10
+
+### Patch Changes
+
+- a1d24db: Fix embedded workspace-app chat routes when the framework mount middleware strips the proxy prefix before dispatching the request.
+
+## 0.31.9
+
+### Patch Changes
+
+- 4ebc74f: Fix Clips, Forms, and Design apps sharing the same fallback icon in the Dispatch "Your apps" list.
+
+## 0.31.8
+
+### Patch Changes
+
+- 4e1ce88: Fix embedded workspace-app chat routes when the framework mount middleware strips the proxy prefix before dispatching the request.
+
+## 0.31.7
+
+### Patch Changes
+
+- 97e8cea: Fix embedded workspace-app chat routes when the framework mount middleware strips the proxy prefix before dispatching the request.
+
+## 0.31.6
+
+### Patch Changes
+
+- 8b73951: Isolate workspace app chat history and keep short chat-tab titles clear of the close target.
+
+## 0.31.5
+
+### Patch Changes
+
+- d30d701: Move workspace-app sharing into each app's settings menu so cards keep their primary open action focused.
+
+## 0.31.4
+
+### Patch Changes
+
+- 10de7b9: Remove unused imports and unreachable declarations. Dispatch drops unused
+  imports from its layout, transactional email pages, and MCP gateway;
+  creative-context drops unused type imports and an unread `headingStyle`;
+  recap-cli drops the `node:os` import and two unread locals; skills drops the
+  unreferenced `maybeUpdateInstructions` helper; toolkit drops unused imports and
+  an unread `REALTIME_VOICE_REQUEST_SOURCE`. No runtime behavior changes.
+  `eslint/no-unused-vars` is now an oxlint error instead of a warning, so CI
+  blocks new ones.
+- Updated dependencies [10de7b9]
+  - @agent-native/toolkit@0.16.9
+
 ## 0.31.3
 
 ### Patch Changes
@@ -925,15 +1006,5 @@
 - 2254362: Make Dispatch messaging setup and destination workflows progressively disclose advanced details.
 - Updated dependencies [2254362]
   - @agent-native/toolkit@0.10.2
-
-## 0.15.13
-
-### Patch Changes
-
-- c15d20f: Pin Slack delivery to the app that received the event and reject legacy bot tokens from a different Slack app.
-- Updated dependencies [c15d20f]
-- Updated dependencies [c15d20f]
-- Updated dependencies [c15d20f]
-  - @agent-native/toolkit@0.10.1
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

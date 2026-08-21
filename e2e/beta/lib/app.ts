@@ -148,9 +148,12 @@ export async function readSignInAffordances(
 ): Promise<SignInAffordances> {
   await page.goto(`${origin}/sign-in`, {
     waitUntil: "domcontentloaded",
-    timeout: 90_000,
+    timeout: 45_000,
   });
-  await page.waitForTimeout(3_000);
+  // Waits for the document to render rather than sleeping a fixed amount:
+  // this runs once per host, and a flat pause is dead time multiplied by the
+  // size of the fleet.
+  await renderedText(page, `${origin}/sign-in`);
 
   // `isVisible()` already answers false for an element that is absent, so
   // these are left to throw: the only rejections left are a dead page or a

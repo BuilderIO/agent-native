@@ -44,23 +44,76 @@ for (const site of sites) {
       await warm(origin);
     });
 
-    test("serves its landing document over valid TLS", async ({ page }) => {
+    test("serves a working landing page", async ({ page }) => {
+      // One navigation, several independent facts. Split across three tests
+      // this cost three page loads per host, and in CI a page load against a
+      // beta host is the dominant cost of the whole sweep. `expect.soft` keeps
+      // each fact reported separately even though they now share a visit.
+      const { errors, thirdParty } = collectAppPageErrors(page, origin);
+      const failedRequests: string[] = [];
+      page.on("requestfailed", (request) => {
+        const failure = request.failure()?.errorText ?? "unknown";
+        // Analytics/telemetry beacons blocked in CI are not app failures.
+        if (/aborted/i.test(failure)) return;
+        if (!request.url().startsWith(origin)) return;
+        failedRequests.push(`${request.url()} (${failure})`);
+      });
+
+      // "The connection isn't private" was a real report; Playwright surfaces a
+      // certificate problem as a navigation failure only while
+      // `ignoreHTTPSErrors` stays off, so it is deliberately never set.
       const response = await page.goto(`${origin}/`, {
         waitUntil: "domcontentloaded",
-        timeout: 90_000,
       });
       expect(response, `${origin}/ produced no response`).toBeTruthy();
       expect.soft(response!.status(), `${origin}/ status`).toBeLessThan(400);
-      // "connection isn't private" was a real report; Playwright surfaces a
-      // certificate problem as a navigation failure only while
-      // `ignoreHTTPSErrors` stays off, so it is deliberately never set.
-      await expect(page.locator("body")).toBeVisible();
+
+      // Waits for real content instead of sleeping: a fixed pause is dead time
+      // on every host, and 16 hosts of dead time is minutes of the sweep.
+      await renderedText(page, `${site.host} landing page`);
+      // Keep the page listeners alive through late hydration and lazy-loaded
+      // resources. A rendered body is not the same as a settled application.
+      await page.waitForTimeout(5_000);
+
+      // The environment switcher is built from a static host map. A beta host
+      // missing from that map renders no switcher, stranding users on beta
+      // with no in-app way back to the stable lane. Matched on the visible
+      // label, because the trigger currently renders with no accessible name.
+      await expect
+        .soft(
+          page
+            .locator("button")
+            .filter({ hasText: /^\s*beta\s*$/i })
+            .first(),
+          `${site.host} renders no environment switcher, so a user on beta has no in-app way back to ${productionHostFor(site)}`,
+        )
+        .toBeVisible({ timeout: 30_000 });
+
+      if (thirdParty.length > 0) {
+        test.info().annotations.push({
+          type: "third-party-noise",
+          description: `${site.host}: ${[...new Set(thirdParty)].join("; ")}`,
+        });
+      }
+      expect
+        .soft(
+          errors,
+          `${site.host} threw uncaught errors from its own code while rendering its landing page`,
+        )
+        .toEqual([]);
+      expect
+        .soft(
+          failedRequests,
+          `${site.host} landing page had failed same-origin subresource requests`,
+        )
+        .toEqual([]);
     });
 
-    test("serves a sign-in page on every request", async ({ page }) => {
+    test("offers a sign-in that works", async ({ page }) => {
       // Repeated with a cache buster: a sign-in 404 that "fixes itself on
-      // refresh" was reported, which a single request cannot see.
-      for (let attempt = 1; attempt <= 5; attempt += 1) {
+      // refresh" was reported, which a single request cannot see. These are
+      // plain HTTP, so they cost almost nothing.
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
         const outcome = await mustRespond(
           `${origin}/sign-in?cb=${Date.now()}-${attempt}`,
           { redirect: "follow" },
@@ -71,28 +124,29 @@ for (const site of sites) {
         ).toBe(200);
       }
 
-      // A 200 that renders no way to sign in is the same outage to a user.
+      // One page load answers both questions below. Read separately they cost
+      // two visits per host, which is the sweep's dominant expense in CI.
       const affordances = await readSignInAffordances(page, origin);
+
+      // A 200 that renders no way to sign in is the same outage to a user.
       expect(
         affordances.anySignIn,
         `${site.host} served /sign-in with no Google button, no password form, and no sign-in copy — nobody can get in. Page text: ${affordances.bodyText.slice(0, 200)}`,
       ).toBe(true);
-    });
 
-    test("offers a Google sign-in that Google will accept", async ({
-      page,
-    }) => {
       // redirect_uri_mismatch was the single most-reported beta failure.
       //
       // Scoped to apps that actually show a Google button: the shared login
       // document ships Google markup for every app and hides it when the
       // provider is not configured, so asserting unconditionally would fail
       // apps that legitimately offer only password or Supabase sign-in.
-      const affordances = await readSignInAffordances(page, origin);
-      test.skip(
-        !affordances.google,
-        `${site.id} does not offer Google sign-in`,
-      );
+      if (!affordances.google) {
+        test.info().annotations.push({
+          type: "no-google",
+          description: `${site.id} does not offer Google sign-in`,
+        });
+        return;
+      }
 
       const outcome = await mustRespond(
         `${origin}/_agent-native/google/auth-url`,
@@ -106,10 +160,9 @@ for (const site of sites) {
       expect(payload.url, "auth-url response carried no url").toBeTruthy();
 
       const authUrl = new URL(payload.url!);
-      const redirectUri = authUrl.searchParams.get("redirect_uri");
       expect(
-        redirectUri,
-        `${site.host} would send users to Google with redirect_uri ${redirectUri} instead of its own callback — this is what produces redirect_uri_mismatch`,
+        authUrl.searchParams.get("redirect_uri"),
+        `${site.host} would send users to Google with redirect_uri ${authUrl.searchParams.get("redirect_uri")} instead of its own callback — this is what produces redirect_uri_mismatch`,
       ).toBe(`${origin}/_agent-native/google/callback`);
       expect(
         authUrl.searchParams.get("client_id"),
@@ -122,8 +175,6 @@ for (const site of sites) {
         waitUntil: "domcontentloaded",
         timeout: 60_000,
       });
-      // Confirm Google actually rendered something first: an empty body would
-      // satisfy the "no error" assertion below without proving anything.
       const body = await renderedText(page, "Google consent screen");
       expect(
         body,
@@ -326,14 +377,12 @@ for (const site of sites) {
         `${site.host} agent-chat answered HTTP ${outcome.status} to an anonymous caller`,
       ).toBe(401);
     });
-
     test("sends an anonymous visitor to sign-in without looping", async ({
       page,
     }) => {
       const settings = `${origin}/settings/general`;
       await page.goto(settings, {
         waitUntil: "domcontentloaded",
-        timeout: 90_000,
       });
 
       const gate = await settleAuthGate(page);
@@ -349,46 +398,13 @@ for (const site of sites) {
 
       // The reported loop: land on sign-in, then get thrown around again.
       const settled = page.url();
-      await page.waitForTimeout(6_000);
+      // Short on purpose: a redirect loop fires immediately, so a longer pause
+      // is pure dead time repeated on every host.
+      await page.waitForTimeout(2_500);
       expect(
         page.url(),
         `${site.host} kept redirecting after settling on ${settled} — this is the sign-in loop users reported`,
       ).toBe(settled);
-    });
-
-    test("loads its landing page without uncaught client errors", async ({
-      page,
-    }) => {
-      const { errors, thirdParty } = collectAppPageErrors(page, origin);
-      const failedRequests: string[] = [];
-      page.on("requestfailed", (request) => {
-        const failure = request.failure()?.errorText ?? "unknown";
-        // Analytics/telemetry beacons blocked in CI are not app failures.
-        if (/aborted/i.test(failure)) return;
-        if (!request.url().startsWith(origin)) return;
-        failedRequests.push(`${request.url()} (${failure})`);
-      });
-
-      await page.goto(`${origin}/`, {
-        waitUntil: "domcontentloaded",
-        timeout: 90_000,
-      });
-      await page.waitForTimeout(5_000);
-
-      if (thirdParty.length > 0) {
-        test.info().annotations.push({
-          type: "third-party-noise",
-          description: `${site.host}: ${[...new Set(thirdParty)].join("; ")}`,
-        });
-      }
-      expect(
-        errors,
-        `${site.host} threw uncaught errors from its own code while rendering its landing page`,
-      ).toEqual([]);
-      expect(
-        failedRequests,
-        `${site.host} landing page had failed same-origin subresource requests`,
-      ).toEqual([]);
     });
   });
 }

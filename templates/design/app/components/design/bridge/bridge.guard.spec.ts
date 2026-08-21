@@ -82,7 +82,8 @@ function hydratedEditorChromeBridgeScript(
     .replace(
       "__RUNTIME_LAYER_SNAPSHOT_ENABLED__",
       runtimeLayerSnapshotEnabled ? "true" : "false",
-    );
+    )
+    .replace(/__INITIAL_SOURCE_HEAD__/g, '""');
 }
 
 function hydratedReadOnlyEditorChromeBridgeScript(): string {
@@ -9863,7 +9864,6 @@ const PRIMARY_HOTKEY_FORWARDING_CASES: Array<{
   { name: "Cmd/Ctrl+Alt+V paste properties", key: "v", alt: true },
   { name: "Cmd/Ctrl+Shift+V paste over", key: "v", shift: true },
   { name: "Cmd/Ctrl+D duplicate", key: "d" },
-  { name: "Cmd/Ctrl+R rename", key: "r" },
   { name: "Cmd/Ctrl+Shift+R paste to replace", key: "r", shift: true },
   { name: "Cmd/Ctrl+Shift+H toggle hidden", key: "h", shift: true },
   { name: "Cmd/Ctrl+Shift+L toggle locked", key: "l", shift: true },
@@ -10044,6 +10044,26 @@ it(
       await page.evaluate(() => {
         (window as any).__bridgeMessages = [];
       });
+
+      // Bare Cmd+R is the browser's refresh shortcut and must stay native;
+      // dispatch it synthetically so this guard does not reload the test page.
+      await page.evaluate(() => {
+        document.body.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "r",
+            code: "KeyR",
+            metaKey: true,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      });
+      await page.waitForTimeout(60);
+      expect(
+        (await readBridgeMessages(page)).some(
+          (message) => message.type === "design-hotkey",
+        ),
+      ).toBe(false);
 
       // Bare Cmd+T has no host binding — only the literal Ctrl+Alt+T "tidy
       // up" combo does (see useDesignHotkeys.ts). Forwarding bare Cmd+T

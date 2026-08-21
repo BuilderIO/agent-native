@@ -14,7 +14,7 @@ import {
   putSetting,
   deleteSetting,
   deleteSettingsByPrefix,
-  getAllSettings,
+  listSettingsByPrefix,
   type StoreWriteOptions,
 } from "./store.js";
 
@@ -79,9 +79,13 @@ export async function listOrgSettings(
   orgId: string,
   subPrefix?: string,
 ): Promise<Record<string, Record<string, unknown>>> {
-  const all = await getAllSettings();
+  // Narrow in SQL, then apply the same checks as before. Reading this with
+  // `getAllSettings()` pulled and JSON-parsed every org's rows into the caller
+  // to keep one org's, putting the whole deployment's settings table on the
+  // critical path of any org-scoped list read.
+  const scoped = await listSettingsByPrefix(`o:${orgId}:${subPrefix ?? ""}`);
   const out: Record<string, Record<string, unknown>> = {};
-  for (const [fullKey, value] of Object.entries(all)) {
+  for (const { key: fullKey, value } of scoped) {
     const m = ORG_PREFIX_RE.exec(fullKey);
     if (!m || m[1] !== orgId) continue;
     const key = m[2];

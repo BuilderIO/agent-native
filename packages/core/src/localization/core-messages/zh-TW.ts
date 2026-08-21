@@ -27,6 +27,12 @@ const messages: AgentChatTranslation = {
   "commands.mention": "提及檔案、代理或資源",
   "commands.new": "與 /clear 相同",
   "commands.plan": "切換到唯讀規劃模式",
+  "aboutAgentNative.title": "關於 Agent Native",
+  "aboutAgentNative.version": "版本",
+  "aboutAgentNative.environment": "環境",
+  "aboutAgentNative.build": "建置",
+  "aboutAgentNative.copyDiagnostics": "複製診斷資訊",
+  "aboutAgentNative.unknown": "未知",
   "common.agent": "代理",
   "common.cancel": "取消",
   "common.collapse": "收合",
@@ -271,7 +277,7 @@ const messages: AgentChatTranslation = {
   "errorMessages.invalidToolSchema":
     "工具結構描述無效，因此模型在要求開始前便拒絕了要求。您可以略過無效工具並重試要求。",
   "errorMessages.noProviderConnected":
-    "尚未連接任何 LLM 提供商。開啟此應用程式的「管理代理程式」→「LLM」，然後連接 Builder.io 或新增提供商金鑰。",
+    "尚未連接任何 LLM 提供商。開啟設定 > 代理程式 > AI 提供商，然後連接 Builder.io（提供免費方案）或新增提供商金鑰。",
   "errorMessages.openBuilderSpaceSettings": "開啟 Builder 空間設定",
   "errorMessages.providerAuthentication":
     "模型供應商拒絕了已儲存的 API 金鑰。請在設定 → 整合 → API 金鑰中更新金鑰，然後重試。",

@@ -8,9 +8,11 @@ import {
   DEFAULT_CANVAS_MIN_ZOOM,
   DEFAULT_SNAP_THRESHOLD_SCREEN_PX,
   canvasToScreenPoint,
-  computeEqualGapGuides,
+  computeDragSnap,
   computeMoveSnap,
   computeResizeSnap,
+  type DistanceGuideBand,
+  type ProximityMeasurement,
   type EqualGapGuide,
   getCameraForBounds,
   getFrameGroupBounds,
@@ -143,9 +145,6 @@ const SCREEN_CARD_HEIGHT = SCREEN_HEIGHT + 26;
 const SCREEN_GAP = 56;
 const DUPLICATE_DRAG_THRESHOLD = 6;
 const DRAG_THRESHOLD = 3;
-/** How close two gaps must be (in screen px, converted to canvas px at the
- *  live zoom) to count as "equal" for the smart-spacing guides (CV11). */
-const EQUAL_GAP_TOLERANCE_SCREEN_PX = 2;
 const FRAME_LABEL_HEIGHT = 28;
 const FRAME_HEADER_BUTTON_COMPACT_WIDTH = 260;
 const FRAME_HEADER_BUTTON_RESERVE = 116;
@@ -285,6 +284,7 @@ import {
   altHoverMeasurementEqual,
   computeAltHoverMeasurement,
   equalGapGuidesEqual,
+  proximityMeasurementsEqual,
 } from "./multi-screen/alt-hover-measurement";
 import {
   boardPointToScreenLocalPoint,
@@ -307,6 +307,8 @@ import {
   computeBoundedScreenCullState,
   getScreenContentCullState,
   getOverscannedViewportCanvasBounds,
+  isFrameWithinOverscannedViewport,
+  type OverscannedViewportBounds,
   type ScreenCullTier,
 } from "./multi-screen/culling";
 import {
@@ -836,6 +838,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     [],
   );
   const [equalGapGuides, setEqualGapGuidesRaw] = useState<EqualGapGuide[]>([]);
+  const [proximityMeasurements, setProximityMeasurementsRaw] = useState<
+    ProximityMeasurement[]
+  >([]);
   // Guides are recomputed into a brand-new array on every rAF-coalesced
   // mousemove during a drag; without a value-equality bail, React commits a
   // state update (and a re-render) every frame even when the guides drawn on
@@ -845,6 +850,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       alignmentGuidesEqual(current, next) ? current : next,
     );
   }, []);
+  const setProximityMeasurements = useCallback(
+    (next: ProximityMeasurement[]) => {
+      setProximityMeasurementsRaw((current) =>
+        proximityMeasurementsEqual(current, next) ? current : next,
+      );
+    },
+    [],
+  );
   const setEqualGapGuides = useCallback((next: EqualGapGuide[]) => {
     setEqualGapGuidesRaw((current) =>
       equalGapGuidesEqual(current, next) ? current : next,
@@ -1753,6 +1766,47 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     [getCurrentDraftEntries, getCurrentFrameEntries],
   );
 
+  /** Snap candidates are the entries on screen right now, matching Figma and
+   *  tldraw: a frame parked off in the corner of an infinite canvas is not
+   *  something the user is aligning to, and a guide drawn to it would stretch
+   *  across empty space. Falls back to every entry before first layout. */
+  const snapViewportRef = useRef<OverscannedViewportBounds | null>(null);
+
+  /** Reads the surface box once per gesture. Called per rAF it would force a
+   *  synchronous layout of the host document — which holds every live screen
+   *  iframe — on the hottest path there is. Pan/zoom cannot change mid-drag. */
+  const beginSnapGesture = useCallback(() => {
+    const size = surfaceSizeRef.current;
+    snapViewportRef.current = size
+      ? getOverscannedViewportCanvasBounds(
+          size,
+          panRef.current,
+          zoomRef.current,
+          0,
+        )
+      : null;
+  }, []);
+
+  /** Wheel pan/zoom is not blocked during a drag, so the cached viewport can
+   *  go stale mid-gesture; drop it and fall back to every candidate rather
+   *  than filter against a rect that no longer describes the screen. */
+  const invalidateSnapGesture = useCallback(() => {
+    snapViewportRef.current = null;
+  }, []);
+
+  const getSnapCandidateEntries = useCallback(
+    (excludeIds: string[], entries = getCurrentCanvasEntries()) => {
+      const viewport = snapViewportRef.current;
+      return entries.filter(
+        (entry) =>
+          !excludeIds.includes(entry.id) &&
+          (!viewport ||
+            isFrameWithinOverscannedViewport(entry.geometry, viewport)),
+      );
+    },
+    [getCurrentCanvasEntries],
+  );
+
   const getFrameEntryAtPoint = useCallback(
     (point: Point) =>
       findTopFrameEntryAtPoint(getSelectableFrameEntries(), point, {
@@ -2259,7 +2313,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         sourceScreenId !== boardFileId &&
         boardFileId &&
         boardFrameGeometry &&
-        geometryContainsPoint(boardFrameGeometry, boardPoint)
+        boardSurfaceRenderGeometry &&
+        // boardFrameGeometry is a 131,072px square centred on the origin, so
+        // testing against it makes every pointer a board hit and silently
+        // relocates the layer into an invisible file.
+        geometryContainsPoint(boardSurfaceRenderGeometry, boardPoint)
       ) {
         const nextTarget = { id: boardFileId, geometry: boardFrameGeometry };
         if (crossScreenTargetRef.current?.id !== boardFileId) {
@@ -2324,14 +2382,27 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           ? "discarded — pointer never left the source screen"
           : candidate
             ? "moving into candidate"
-            : "no candidate; falling back to the board",
+            : "no candidate — refused unless over the board surface",
       });
+      const boardSurfaceHit =
+        !!boardFileId &&
+        sourceScreenId !== boardFileId &&
+        !!boardFrameGeometry &&
+        !!boardSurfaceRenderGeometry &&
+        geometryContainsPoint(boardSurfaceRenderGeometry, lastBoardPoint);
       const targetCandidate =
         candidate ??
-        (boardFileId && sourceScreenId !== boardFileId && boardFrameGeometry
+        (boardSurfaceHit && boardFileId && boardFrameGeometry
           ? { id: boardFileId, geometry: boardFrameGeometry }
           : null);
-      if (!targetCandidate) return;
+      if (!targetCandidate) {
+        trace("drop", "refused", {
+          reason: "no screen under the pointer and not over the board surface",
+          sourceScreen: sourceScreenId,
+          lastBoardPoint,
+        });
+        return;
+      }
 
       if (targetCandidate.id === boardFileId) {
         void runHitTest(targetCandidate, lastBoardPoint).then(
@@ -3054,6 +3125,53 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     ],
   );
 
+  /** Selects the layer under a client point inside one screen. Shared by the
+   *  double-click drill-in and by a click on an already-selected frame's body,
+   *  so both resolve the same candidate and keep the same repeat-click walk. */
+  const drillIntoScreenAtPoint = useCallback(
+    (id: string, clientX: number, clientY: number) => {
+      const point = getCanvasPoint(clientX, clientY);
+      const previousKey =
+        drillInTargetRef.current?.screenId === id
+          ? drillInTargetRef.current.key
+          : null;
+      const requestId = drillInRequestRef.current + 1;
+      drillInRequestRef.current = requestId;
+      void collectLayerMarqueeCandidates(new Set([id])).then((candidates) => {
+        if (drillInRequestRef.current !== requestId) return;
+        const target = resolveDrillInTarget({
+          candidates,
+          screenId: id,
+          point,
+          previousKey,
+        });
+        if (!target) {
+          // Nothing selectable under the pointer (e.g. an empty frame). Leave
+          // the frame itself selected rather than falling back to Interact.
+          drillInTargetRef.current = null;
+          return;
+        }
+        drillInTargetRef.current = {
+          screenId: id,
+          key: drillInCandidateKey(target),
+        };
+        updateSelectedDraftIds(() => []);
+        updateSelectedIds(() => []);
+        onLayerMarqueeSelectionChange?.(
+          [{ screenId: target.screenId, info: target.info }],
+          { source: "pointer" },
+        );
+      });
+    },
+    [
+      collectLayerMarqueeCandidates,
+      getCanvasPoint,
+      onLayerMarqueeSelectionChange,
+      updateSelectedDraftIds,
+      updateSelectedIds,
+    ],
+  );
+
   const scheduleFeedbackClear = useCallback(() => {
     if (feedbackTimerRef.current !== null) {
       window.clearTimeout(feedbackTimerRef.current);
@@ -3216,6 +3334,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     setCreationPreview(null);
     setAlignmentGuides([]);
     setEqualGapGuides([]);
+    setProximityMeasurements([]);
     setTransformBadge(null);
     setDragCursor(null);
     primitiveDropTargetRef.current = null;
@@ -4646,6 +4765,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         current.includes(id) ? current : [id],
       );
 
+      beginSnapGesture();
       dragState.current = {
         type: "draft-move",
         originClient: { x: e.clientX, y: e.clientY },
@@ -4721,13 +4841,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             },
           };
         });
-        const stationaryEntries = getCurrentCanvasEntries().filter(
-          (entry) => !state.targetIds.includes(entry.id),
-        );
-        const snap = computeMoveSnap(movingEntries, stationaryEntries, {
+        const stationaryEntries = getSnapCandidateEntries(state.targetIds);
+        const snap = computeDragSnap(movingEntries, stationaryEntries, {
           thresholdScreenPx: DEFAULT_SNAP_THRESHOLD_SCREEN_PX,
           zoom: zoomRef.current,
           bypass: ev.metaKey || ev.ctrlKey,
+          pixelGrid: true,
+          lockedAxes: ev.shiftKey ? { x: dx === 0, y: dy === 0 } : undefined,
         });
 
         // PERF9: ref-only geometry write (no setDraftPrimitives) + direct DOM
@@ -4784,6 +4904,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           }
         }
         setAlignmentGuides(snap.guides);
+        setEqualGapGuides(snap.spacingGuides);
+        setProximityMeasurements(snap.measurements);
 
         // Primitive drop-into-container detection: check if the dragged draft
         // is hovering over a committed container primitive on any screen.
@@ -5402,6 +5524,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       const targetIds = currentSelectedIds.includes(id)
         ? currentSelectedIds
         : [id];
+      // Figma parity: this surface covers the frame body, so a press that
+      // never becomes a drag has to hand the click back to the content
+      // underneath — otherwise selecting a screen makes it unclickable.
+      const wasAlreadySelected = currentSelectedIds.includes(id);
       if (activeId !== id) {
         onPick(id);
       }
@@ -5418,6 +5544,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       ) as FrameGeometryById;
       if (!originFrames[id]) return;
 
+      beginSnapGesture();
       dragState.current = {
         type: "move",
         originClient: { x: e.clientX, y: e.clientY },
@@ -5519,13 +5646,18 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             y: state.originFrames[targetId].y + dy,
           },
         }));
-        const stationaryEntries = getCurrentFrameEntries().filter(
-          (entry) => !state.targetIds.includes(entry.id),
+        // Frames align to frames: a draft primitive is transient content and
+        // must not anchor a persisted screen move.
+        const stationaryEntries = getSnapCandidateEntries(
+          state.targetIds,
+          getCurrentFrameEntries(),
         );
-        const snap = computeMoveSnap(movingEntries, stationaryEntries, {
+        const snap = computeDragSnap(movingEntries, stationaryEntries, {
           thresholdScreenPx: DEFAULT_SNAP_THRESHOLD_SCREEN_PX,
           zoom: zoomRef.current,
           bypass: ev.metaKey || ev.ctrlKey,
+          pixelGrid: true,
+          lockedAxes: ev.shiftKey ? { x: dx === 0, y: dy === 0 } : undefined,
         });
 
         // PERF9: mutate the dragged frame(s)' DOM position directly (ref-only
@@ -5615,37 +5747,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           }
         }
         setAlignmentGuides(snap.guides);
-
-        // Smart-spacing guides (CV11) — only meaningful for a single moving
-        // frame (matches Figma, which only shows equal-gap guides while
-        // dragging one object, not a multi-select group).
-        if (state.targetIds.length === 1) {
-          const primaryId = state.targetIds[0];
-          const movedGeometry = movingEntries.find(
-            (entry) => entry.id === primaryId,
-          )?.geometry;
-          if (movedGeometry) {
-            // Same screen-px-to-canvas-px conversion computeMoveSnap uses
-            // for its own threshold, so the equal-gap tolerance also stays
-            // a constant few screen pixels regardless of zoom level.
-            const tolerance =
-              EQUAL_GAP_TOLERANCE_SCREEN_PX /
-              Math.max(0.01, zoomRef.current / 100);
-            setEqualGapGuides(
-              computeEqualGapGuides(
-                {
-                  ...movedGeometry,
-                  x: movedGeometry.x + snap.dx,
-                  y: movedGeometry.y + snap.dy,
-                },
-                stationaryEntries,
-                { toleranceCanvasPx: tolerance },
-              ),
-            );
-          }
-        } else {
-          setEqualGapGuides([]);
-        }
+        setEqualGapGuides(snap.spacingGuides);
+        setProximityMeasurements(snap.measurements);
 
         // Resize shows a W x H badge and rotate shows a degrees badge — move
         // was the one transform with no live feedback at all. Show the
@@ -5678,17 +5781,19 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         }
       };
 
-      const handleMouseUp = () => {
+      const handleMouseUp = (ev: MouseEvent) => {
         const state = dragState.current;
         const dropTarget = primitiveDropTargetRef.current;
         if (state?.type === "move" && !state.hasMoved) {
-          // Belt-and-braces: the live transform above already skips committing
-          // until hasMoved, but restore origin here too in case any geometry
-          // slipped through (e.g. a future code path that writes frameGeometry
-          // directly) so a below-threshold click never leaves a phantom nudge.
+          // Belt-and-braces against a below-threshold click leaving a phantom
+          // nudge, in case any geometry slipped past the live transform's own
+          // hasMoved guard.
           updateFrameGeometry((current) =>
             frameGeometryWithOverrides(current, state.originFrames),
           );
+          if (wasAlreadySelected) {
+            drillIntoScreenAtPoint(id, ev.clientX, ev.clientY);
+          }
         }
         if (state?.type === "move" && state.hasMoved) {
           // If all dragged ids are committed primitive nodeIds (not screen
@@ -5742,6 +5847,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     [
       activeId,
       beginDuplicateGesture,
+      drillIntoScreenAtPoint,
       findPrimitiveDropTarget,
       finishDrag,
       getCanvasPoint,
@@ -6553,48 +6659,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         onEdit?.(id);
         return;
       }
-      const point = getCanvasPoint(e.clientX, e.clientY);
-      const previousKey =
-        drillInTargetRef.current?.screenId === id
-          ? drillInTargetRef.current.key
-          : null;
-      const requestId = drillInRequestRef.current + 1;
-      drillInRequestRef.current = requestId;
-      void collectLayerMarqueeCandidates(new Set([id])).then((candidates) => {
-        if (drillInRequestRef.current !== requestId) return;
-        const target = resolveDrillInTarget({
-          candidates,
-          screenId: id,
-          point,
-          previousKey,
-        });
-        if (!target) {
-          // Nothing selectable under the pointer (e.g. an empty frame). Leave
-          // the frame itself selected rather than falling back to Interact.
-          drillInTargetRef.current = null;
-          return;
-        }
-        drillInTargetRef.current = {
-          screenId: id,
-          key: drillInCandidateKey(target),
-        };
-        updateSelectedDraftIds(() => []);
-        updateSelectedIds(() => []);
-        onLayerMarqueeSelectionChange?.(
-          [{ screenId: target.screenId, info: target.info }],
-          { source: "pointer" },
-        );
-      });
+      drillIntoScreenAtPoint(id, e.clientX, e.clientY);
     },
-    [
-      collectLayerMarqueeCandidates,
-      getCanvasPoint,
-      lockedScreenIdSet,
-      onEdit,
-      onLayerMarqueeSelectionChange,
-      updateSelectedDraftIds,
-      updateSelectedIds,
-    ],
+    [drillIntoScreenAtPoint, lockedScreenIdSet, onEdit],
   );
 
   const handleMouseDown = useCallback(
@@ -7220,6 +7287,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       // Real user wheel input is always isTrusted, so this only filters out
       // the synthetic replay.
       if (!event.isTrusted) return;
+      // Pan/zoom mid-drag invalidates the gesture's cached snap viewport.
+      invalidateSnapGesture();
       event.preventDefault();
       event.stopPropagation();
       enqueueWheelGestureFromClient({
@@ -8397,9 +8466,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               beginRotate(singleSelectedFrame.id, event)
             }
             onStartDrag={
-              // A running app's frame is dragged by its label. Blanketing its
-              // content with a drag surface would make the app unclickable the
-              // moment it is selected, which is most of the time.
+              // A running app's frame is dragged by its label: its content
+              // wants the raw click, not a layer selection, so the drag
+              // surface must never cover it.
               singleSelectedFrameIsRunningApp
                 ? undefined
                 : (event) => beginFrameDrag(singleSelectedFrame.id, event)
@@ -8451,7 +8520,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         {alignmentGuides.map((guide, index) => (
           <span
             key={`${guide.orientation}-${guide.position}-${index}`}
-            className="pointer-events-none absolute z-30 bg-destructive/90"
+            data-canvas-guide="alignment"
+            className="pointer-events-none absolute z-30 bg-[var(--design-editor-measure-color)]"
             style={
               guide.orientation === "vertical"
                 ? {
@@ -8470,32 +8540,25 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           />
         ))}
 
-        {/* Smart-spacing guides (CV11): highlight both equal-sized gaps
-            around the moving frame, with one label showing the shared
-            distance. */}
         {equalGapGuides.map((guide, index) =>
           guide.bands.map((band, bandIndex) => (
-            <span
+            <SpacingGuideMark
               key={`equal-gap-${guide.orientation}-${index}-${bandIndex}`}
-              className="pointer-events-none absolute z-30 bg-[var(--design-editor-accent-color)]/25"
-              style={
-                guide.orientation === "vertical"
-                  ? {
-                      left: SURFACE_PADDING + band.gapStart,
-                      top: SURFACE_PADDING + band.crossStart,
-                      width: Math.max(1, band.gapEnd - band.gapStart),
-                      height: Math.max(1, band.crossEnd - band.crossStart),
-                    }
-                  : {
-                      left: SURFACE_PADDING + band.crossStart,
-                      top: SURFACE_PADDING + band.gapStart,
-                      width: Math.max(1, band.crossEnd - band.crossStart),
-                      height: Math.max(1, band.gapEnd - band.gapStart),
-                    }
-              }
+              band={band}
+              orientation={guide.orientation}
+              chromeScale={chromeScale}
             />
           )),
         )}
+
+        {proximityMeasurements.map((measurement) => (
+          <SpacingGuideMark
+            key={`proximity-${measurement.orientation}`}
+            band={measurement.band}
+            orientation={measurement.orientation}
+            chromeScale={chromeScale}
+          />
+        ))}
 
         {/* Figma-parity alt-hover measurement: orange edge-to-edge distance
             lines between the current selection and whatever frame/draft is
@@ -8601,13 +8664,35 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         return (
           <span
             key={`equal-gap-label-${guide.orientation}-${index}`}
-            className="pointer-events-none absolute z-40 -translate-x-1/2 -translate-y-1/2 rounded bg-[var(--design-editor-accent-color)] px-1 py-0.5 text-[10px] font-medium leading-none text-[var(--design-editor-accent-contrast-color)] shadow-sm"
+            className="pointer-events-none absolute z-40 -translate-x-1/2 -translate-y-1/2 rounded bg-[var(--design-editor-measure-color)] px-1 py-0.5 text-[10px] font-medium leading-none text-[var(--design-editor-accent-contrast-color)] shadow-sm"
             style={{
               left: pan.x + (SURFACE_PADDING + labelCanvasPoint.x) * scale,
               top: pan.y + (SURFACE_PADDING + labelCanvasPoint.y) * scale,
             }}
           >
             {Math.round(guide.gap)}
+          </span>
+        );
+      })}
+
+      {proximityMeasurements.map((measurement) => {
+        const { band } = measurement;
+        const crossMid = (band.crossStart + band.crossEnd) / 2;
+        const gapMid = (band.gapStart + band.gapEnd) / 2;
+        const point =
+          measurement.orientation === "vertical"
+            ? { x: gapMid, y: crossMid }
+            : { x: crossMid, y: gapMid };
+        return (
+          <span
+            key={`proximity-label-${measurement.orientation}`}
+            className="pointer-events-none absolute z-40 -translate-x-1/2 -translate-y-1/2 rounded bg-[var(--design-editor-measure-color)] px-1 py-0.5 text-[10px] font-medium leading-none text-[var(--design-editor-accent-contrast-color)] shadow-sm"
+            style={{
+              left: pan.x + (SURFACE_PADDING + point.x) * scale,
+              top: pan.y + (SURFACE_PADDING + point.y) * scale,
+            }}
+          >
+            {Math.round(measurement.gap)}
           </span>
         );
       })}
@@ -10838,6 +10923,78 @@ function BreakpointPreviewRow({
         </div>
       ) : null}
     </>
+  );
+}
+
+/** Figma's spacing indicator: a thin line down the middle of the gap with a
+ *  serif at each end, drawn in the same red as the alignment guides. Lives in
+ *  the pan/zoom-transformed world, so every screen-constant dimension is
+ *  multiplied by `chromeScale`. */
+function SpacingGuideMark({
+  band,
+  orientation,
+  chromeScale,
+}: {
+  band: DistanceGuideBand;
+  orientation: EqualGapGuide["orientation"];
+  chromeScale: number;
+}) {
+  const line = chromeScale;
+  const serif = 5 * chromeScale;
+  const crossMid = (band.crossStart + band.crossEnd) / 2;
+  const length = Math.max(0, band.gapEnd - band.gapStart);
+  const alongAxis = orientation === "vertical";
+
+  return (
+    <span
+      data-canvas-guide="spacing"
+      className="pointer-events-none absolute z-30"
+      style={
+        alongAxis
+          ? {
+              left: SURFACE_PADDING + band.gapStart,
+              top: SURFACE_PADDING + crossMid - serif,
+              width: length,
+              height: serif * 2,
+            }
+          : {
+              left: SURFACE_PADDING + crossMid - serif,
+              top: SURFACE_PADDING + band.gapStart,
+              width: serif * 2,
+              height: length,
+            }
+      }
+    >
+      <span
+        className="absolute bg-[var(--design-editor-measure-color)]"
+        style={
+          alongAxis
+            ? { left: 0, top: serif - line / 2, width: length, height: line }
+            : { left: serif - line / 2, top: 0, width: line, height: length }
+        }
+      />
+      {[0, length].map((offset, index) => (
+        <span
+          key={index}
+          className="absolute bg-[var(--design-editor-measure-color)]"
+          style={
+            alongAxis
+              ? {
+                  left: offset - line / 2,
+                  top: 0,
+                  width: line,
+                  height: serif * 2,
+                }
+              : {
+                  left: 0,
+                  top: offset - line / 2,
+                  width: serif * 2,
+                  height: line,
+                }
+          }
+        />
+      ))}
+    </span>
   );
 }
 

@@ -1383,7 +1383,7 @@ export function shouldShowMissingFinalResponse({
  * still alive server-side. Requiring the shape to hold for a beat keeps the
  * notice off the screen for those gaps without hiding a real stop for long.
  */
-const MISSING_FINAL_RESPONSE_SETTLE_MS = 250;
+export const MISSING_FINAL_RESPONSE_SETTLE_MS = 3_000;
 
 export function useSettledFlag(active: boolean, delayMs: number): boolean {
   const [settled, setSettled] = useState(false);

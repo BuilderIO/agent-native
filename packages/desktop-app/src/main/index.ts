@@ -39,6 +39,7 @@ import {
 } from "@shared/code-agents";
 import {
   formatDesktopShortcutAccelerator,
+  isDesktopChatToggleShortcut,
   normalizeDesktopShortcutAccelerator,
   shortcutOpenPathForBinding,
   type DesktopShortcutBinding,
@@ -231,6 +232,7 @@ import {
 } from "./computer-control";
 import { contentFilesWebviewDenialReason } from "./content-files-webview-access.js";
 import { deriveContentFilesRepositoryIdentity } from "./content-files/local-identity";
+import { readCookieHeaderForUrl } from "./cookie-header.js";
 import { DesktopDesignPreviewManager } from "./design-preview-manager";
 import {
   DESKTOP_IDENTITY_PARTITION,
@@ -253,13 +255,19 @@ import {
   resolveDesktopSsoBrokerStatePath,
   runDesktopStartupStep,
 } from "./desktop-startup.js";
-import { HIDE_EMBEDDED_IDENTITY_SSO_SCRIPT } from "./embedded-auth-ui";
+import {
+  HIDE_EMBEDDED_IDENTITY_SSO_SCRIPT,
+  isEmbeddedIdentitySsoHiddenForLoad,
+} from "./embedded-auth-ui";
 import {
   isAllowedEnvironmentNavigation,
   resolveEnvironmentLaneOrigins,
 } from "./environment-navigation";
 import { registerAppsIpc } from "./ipc/apps";
-import { registerChatFirstMcpIpc } from "./ipc/chat-first-mcp.js";
+import {
+  registerChatFirstMcpIpc,
+  resolveMcpOAuthReturnPath,
+} from "./ipc/chat-first-mcp.js";
 import { registerCodeAgentsIpc } from "./ipc/code-agents";
 import { registerContentFilesIpc } from "./ipc/content-files";
 import { registerDesktopChatIpc } from "./ipc/desktop-chat";
@@ -277,6 +285,11 @@ import {
   registerUpdatesIpc,
 } from "./ipc/updates";
 import { registerWindowIpc } from "./ipc/window";
+import {
+  classifyMcpOAuthNavigation,
+  createMcpOAuthNavigationGate,
+  restoreMcpOAuthNavigationTarget,
+} from "./mcp-oauth-navigation.js";
 import {
   createMultiFrontierQuitGuard,
   initializeMultiFrontierAppIntegration,
@@ -3454,9 +3467,7 @@ async function cookieHeaderForRelay(
   relaySession: Electron.Session,
   relayUrl: string,
 ): Promise<string> {
-  const origin = new URL(relayUrl).origin;
-  const cookies = await relaySession.cookies.get({ url: origin });
-  return cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join("; ");
+  return readCookieHeaderForUrl(relaySession, relayUrl);
 }
 
 async function pairRemoteCodeAgentConnector(
@@ -12234,6 +12245,7 @@ registerDesktopChatIpc();
 
 registerChatFirstMcpIpc({
   resolveMcpHost: resolveDesktopMcpHost,
+  navigateMcpOAuth: navigateMcpOAuthInDispatchWebview,
   codeAgentWorkspaceRoot: () => resolveCodeAgentsTerminalCwd({}),
 });
 
@@ -12846,6 +12858,7 @@ function openOAuthWindow(
 
 const webviewOAuthNavigationHandlers = new WeakSet<Electron.WebContents>();
 const webviewReloadGuardHandlers = new WeakSet<Electron.WebContents>();
+const mcpOAuthNavigationGate = createMcpOAuthNavigationGate();
 const routeChunkReloadBlockedUntil = new WeakMap<
   Electron.WebContents,
   number
@@ -12918,6 +12931,140 @@ function openOAuthFromWebviewNavigation(
   } catch {
     return false;
   }
+}
+
+async function navigateMcpOAuthInDispatchWebview(
+  url: string,
+  host: { baseUrl: string; session: Electron.Session },
+  webContentsId: number,
+): Promise<void> {
+  const origin = new URL(host.baseUrl).origin;
+  const target = webContents.fromId(webContentsId);
+  if (
+    !target ||
+    target.isDestroyed() ||
+    target.getType() !== "webview" ||
+    target.session !== host.session
+  ) {
+    throw new Error(
+      "The signed-in Dispatch integrations tab is no longer available.",
+    );
+  }
+  try {
+    if (new URL(target.getURL()).origin !== origin) {
+      throw new Error(
+        "The signed-in Dispatch integrations tab is no longer available.",
+      );
+    }
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("no longer")) {
+      throw error;
+    }
+    throw new Error(
+      "The signed-in Dispatch integrations tab is no longer available.",
+    );
+  }
+
+  const normalizedReturnPath = resolveMcpOAuthReturnPath(url, host.baseUrl);
+  if (!normalizedReturnPath) {
+    throw new Error("MCP OAuth return path is invalid.");
+  }
+  await new Promise<void>((resolve, reject) => {
+    // MCP OAuth must follow the provider and hosted callback inside this
+    // partition. The normal handler externalizes cross-origin redirects,
+    // which would drop the partition cookie needed to validate MCP state.
+    const releaseMcpOAuthNavigation = mcpOAuthNavigationGate.begin(target.id);
+    let settled = false;
+    const timeout = setTimeout(
+      () => {
+        finish(new Error("MCP OAuth did not return to the integrations page."));
+      },
+      5 * 60 * 1000,
+    );
+    const clearNavigationWatchers = () => {
+      clearTimeout(timeout);
+      target.removeListener("did-navigate", onNavigate);
+      target.removeListener("did-navigate-in-page", onNavigateInPage);
+      target.removeListener("did-fail-load", onFailLoad);
+    };
+    const finish = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      clearNavigationWatchers();
+      if (!error) {
+        releaseMcpOAuthNavigation();
+        resolve();
+        return;
+      }
+
+      // Keep the target gate active until the failed provider/callback page is
+      // replaced, so the restored integrations UI can safely start another flow.
+      void restoreMcpOAuthNavigationTarget(target, origin, normalizedReturnPath)
+        .catch((restoreError: unknown) => {
+          console.warn("[main] failed to restore MCP OAuth webview", {
+            reason:
+              restoreError instanceof Error
+                ? restoreError.message
+                : restoreError,
+          });
+        })
+        .finally(() => {
+          releaseMcpOAuthNavigation();
+          reject(error);
+        });
+    };
+    const onNavigate = (
+      _event: Electron.Event,
+      navigationUrl?: string,
+      httpResponseCode?: number,
+      httpStatusText?: string,
+    ) => {
+      const outcome = classifyMcpOAuthNavigation({
+        candidateUrl: navigationUrl || target.getURL(),
+        origin,
+        returnPath: normalizedReturnPath,
+        httpResponseCode,
+      });
+      if (outcome === "success") finish();
+      else if (outcome === "error") {
+        const status = httpResponseCode ? ` (${httpResponseCode})` : "";
+        finish(
+          new Error(
+            `MCP OAuth callback failed${status}${httpStatusText ? `: ${httpStatusText}` : "."}`,
+          ),
+        );
+      }
+    };
+    const onNavigateInPage = (
+      _event: Electron.Event,
+      navigationUrl?: string,
+    ) => {
+      onNavigate(_event, navigationUrl);
+    };
+    const onFailLoad = (
+      _event: Electron.Event,
+      errorCode: number,
+      errorDescription: string,
+      _validatedURL: string,
+      isMainFrame: boolean,
+    ) => {
+      if (!isMainFrame) return;
+      finish(
+        new Error(
+          `MCP OAuth navigation failed (${errorCode}): ${errorDescription || "the page could not be loaded."}`,
+        ),
+      );
+    };
+
+    target.on("did-navigate", onNavigate);
+    target.on("did-navigate-in-page", onNavigateInPage);
+    target.on("did-fail-load", onFailLoad);
+    void target
+      .loadURL(url)
+      .catch((error: unknown) =>
+        finish(error instanceof Error ? error : new Error(String(error))),
+      );
+  });
 }
 
 function normalizedNavigationHost(hostname: string): string {
@@ -13016,6 +13163,7 @@ function installWebviewOAuthNavigationHandler(contents: Electron.WebContents) {
     url: string,
     options: { isMainFrame: boolean },
   ) => {
+    if (mcpOAuthNavigationGate.isActive(contents.id)) return;
     if (handleDesktopProtocolUrl(url)) {
       event.preventDefault();
       return;
@@ -13138,21 +13286,17 @@ app.on("web-contents-created", (_event, contents) => {
       return;
     }
 
-    const isAgentSidebarToggleShortcut =
-      !input.alt &&
-      !input.shift &&
-      (key === "\\" || input.code === "Backslash");
+    if (forwardDesktopNavigationShortcut(event, input)) return;
 
-    // Forward other Cmd+ shortcuts: F, L, R, T, Shift+T, 1-9, [, ], \
+    const isAgentSidebarToggleShortcut = isDesktopChatToggleShortcut(input);
+
+    // Forward other Cmd+ shortcuts: F, L, R, T, Shift+T, \
     const isShortcut =
       key === "f" ||
       key === "l" ||
       key === "r" ||
       key === "t" ||
-      key === "[" ||
-      key === "]" ||
-      isAgentSidebarToggleShortcut ||
-      (key >= "1" && key <= "9");
+      isAgentSidebarToggleShortcut;
 
     if (isShortcut) {
       event.preventDefault();
@@ -13703,13 +13847,19 @@ app.whenReady().then(async () => {
 
   app.on("web-contents-created", (_event, wc) => {
     if (wc.getType() !== "webview") return;
-    wc.on("before-input-event", (event, input) => {
-      forwardDesktopNavigationShortcut(event, input);
-    });
     let id = resolveDesktopWebviewAppId(wc);
     configureWebviewSession(wc.session, id);
     if (id) desktopWebviewAppIds.set(wc, id);
     let identitySyncAttemptedForApp: string | null = null;
+    let hiddenIdentitySsoState: {
+      url: string;
+      loadGeneration: number;
+    } | null = null;
+    let identitySsoLoadGeneration = 0;
+    let hideIdentitySsoInFlight: {
+      loadGeneration: number;
+      promise: Promise<void>;
+    } | null = null;
 
     const syncLoadedApp = () => {
       id = resolveDesktopWebviewAppId(wc);
@@ -13718,9 +13868,55 @@ app.whenReady().then(async () => {
       configureWebviewSession(wc.session, appId);
       desktopWebviewAppIds.set(wc, appId);
       if (isDesktopSsoEnabled() && resolveDesktopIdentityApp(appId)) {
-        void wc
-          .executeJavaScript(HIDE_EMBEDDED_IDENTITY_SSO_SCRIPT, false)
-          .catch(() => {});
+        const currentUrl = wc.getURL();
+        const currentLoadGeneration = identitySsoLoadGeneration;
+        if (
+          !isEmbeddedIdentitySsoHiddenForLoad(
+            hiddenIdentitySsoState,
+            currentUrl,
+            currentLoadGeneration,
+          ) &&
+          hideIdentitySsoInFlight?.loadGeneration !== currentLoadGeneration
+        ) {
+          const previousHide =
+            hideIdentitySsoInFlight?.promise ?? Promise.resolve();
+          const hidePromise = previousHide
+            .catch(() => undefined)
+            .then(async () => {
+              if (identitySsoLoadGeneration !== currentLoadGeneration) return;
+              await wc.executeJavaScript(
+                HIDE_EMBEDDED_IDENTITY_SSO_SCRIPT,
+                false,
+              );
+              if (
+                identitySsoLoadGeneration === currentLoadGeneration &&
+                wc.getURL() === currentUrl
+              ) {
+                hiddenIdentitySsoState = {
+                  url: currentUrl,
+                  loadGeneration: currentLoadGeneration,
+                };
+              }
+            })
+            .catch((error) => {
+              console.debug(
+                "[main] unable to hide embedded identity SSO:",
+                error instanceof Error ? error.message : error,
+              );
+            })
+            .then(() => {
+              if (
+                hideIdentitySsoInFlight?.loadGeneration ===
+                currentLoadGeneration
+              ) {
+                hideIdentitySsoInFlight = null;
+              }
+            });
+          hideIdentitySsoInFlight = {
+            loadGeneration: currentLoadGeneration,
+            promise: hidePromise,
+          };
+        }
       }
       // Ordinary navigation only synchronizes an app after the identity
       // authority is already signed in. Adoption is reserved for an explicit
@@ -13736,10 +13932,15 @@ app.whenReady().then(async () => {
         void broker.ensureAppSession(appId).catch(() => undefined);
       }
     };
+    const beginIdentitySsoLoad = () => {
+      identitySsoLoadGeneration += 1;
+      hiddenIdentitySsoState = null;
+    };
+    const syncIdentitySsoAfterNavigation = () => syncLoadedApp();
     wc.on("dom-ready", syncLoadedApp);
-    wc.on("did-navigate", syncLoadedApp);
+    wc.on("did-start-loading", beginIdentitySsoLoad);
+    wc.on("did-navigate", syncIdentitySsoAfterNavigation);
     wc.on("did-navigate-in-page", syncLoadedApp);
-    wc.on("did-stop-loading", syncLoadedApp);
     wc.on("did-finish-load", syncLoadedApp);
 
     // Capture renderer console messages to the log file so they survive
@@ -13821,12 +14022,8 @@ app.whenReady().then(async () => {
       return;
     }
 
-    // Cmd+\ — toggle the agent sidebar for the active webview
-    if (
-      !input.alt &&
-      !input.shift &&
-      (key === "\\" || input.code === "Backslash")
-    ) {
+    // Cmd+\\ — toggle the agent sidebar for the active webview
+    if (isDesktopChatToggleShortcut(input)) {
       _event.preventDefault();
       win.webContents.send("shortcut:keydown", {
         key: "\\",

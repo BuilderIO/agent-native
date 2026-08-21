@@ -9,6 +9,7 @@ import type {
 } from "@agent-native/core/client/resources";
 import {
   CHAT_FIRST_MCP_IPC,
+  type ChatFirstMcpOAuthRequest,
   type ChatFirstMcpPluginImportResult,
 } from "@shared/chat-first-mcp";
 import {
@@ -18,6 +19,8 @@ import {
   type Session,
 } from "electron";
 
+import { readCookieHeaderForUrl } from "../cookie-header.js";
+
 export interface McpHost {
   baseUrl: string;
   session: Session;
@@ -25,6 +28,11 @@ export interface McpHost {
 
 export interface ChatFirstMcpIpcDeps {
   resolveMcpHost: () => Promise<McpHost | null>;
+  navigateMcpOAuth: (
+    url: string,
+    host: McpHost,
+    webContentsId: number,
+  ) => void | Promise<void>;
   codeAgentWorkspaceRoot: () => string;
 }
 
@@ -74,6 +82,67 @@ function errorFromBody(
     : fallback;
 }
 
+export function resolveMcpOAuthUrl(rawUrl: string, baseUrl: string): string {
+  let base: URL;
+  let target: URL;
+  try {
+    base = new URL(baseUrl);
+    target = new URL(rawUrl, base);
+  } catch {
+    throw new Error("MCP OAuth URL is invalid.");
+  }
+  const basePath = base.pathname.replace(/\/+$/, "");
+  if (
+    basePath &&
+    target.pathname.startsWith("/_agent-native/") &&
+    !target.pathname.startsWith(`${basePath}/`)
+  ) {
+    target.pathname = `${basePath}${target.pathname}`;
+  }
+  if (
+    target.origin !== base.origin ||
+    !target.pathname.endsWith("/_agent-native/mcp/servers/oauth/start")
+  ) {
+    throw new Error("MCP OAuth must start inside the signed-in workspace app.");
+  }
+  return target.toString();
+}
+
+export function resolveMcpOAuthReturnPath(
+  rawUrl: string,
+  baseUrl: string,
+): string | null {
+  let base: URL;
+  let target: URL;
+  try {
+    base = new URL(baseUrl);
+    target = new URL(rawUrl, base);
+  } catch {
+    // coercion-ok: malformed OAuth URLs are an explicit absent return path.
+    return null;
+  }
+  const returnUrl = target.searchParams.get("return");
+  if (!returnUrl) return null;
+  let returnTarget: URL;
+  try {
+    returnTarget = new URL(returnUrl, base);
+  } catch {
+    // coercion-ok: malformed OAuth return paths are an explicit absent value.
+    return null;
+  }
+  if (returnTarget.origin !== base.origin) return null;
+  const basePath = base.pathname.replace(/\/+$/, "");
+  if (
+    basePath &&
+    returnTarget.pathname.startsWith("/") &&
+    !returnTarget.pathname.startsWith(`${basePath}/`) &&
+    returnTarget.pathname !== basePath
+  ) {
+    returnTarget.pathname = `${basePath}${returnTarget.pathname}`;
+  }
+  return returnTarget.pathname;
+}
+
 function abortError(): DOMException {
   return new DOMException("The operation was aborted.", "AbortError");
 }
@@ -101,7 +170,6 @@ export async function requestMcpHost(
   route: string,
   init: RequestInit = {},
 ): Promise<Record<string, unknown>> {
-  const origin = new URL(host.baseUrl).origin;
   const controller = new AbortController();
   let timedOut = false;
   const timeout = setTimeout(() => {
@@ -117,17 +185,15 @@ export async function requestMcpHost(
   }
 
   try {
+    const targetUrl = routeUrl(host.baseUrl, route);
     const cookies = await withAbort(
-      host.session.cookies.get({ url: origin }),
+      readCookieHeaderForUrl(host.session, targetUrl),
       controller.signal,
     );
-    const cookieHeader = cookies
-      .map((cookie) => `${cookie.name}=${cookie.value}`)
-      .join("; ");
     const headers = new Headers(init.headers);
-    if (cookieHeader) headers.set("cookie", cookieHeader);
+    if (cookies) headers.set("cookie", cookies);
     const response = await withAbort(
-      fetch(routeUrl(host.baseUrl, route), {
+      fetch(targetUrl, {
         ...init,
         headers,
         signal: controller.signal,
@@ -253,6 +319,38 @@ export function registerChatFirstMcpIpc(deps: ChatFirstMcpIpcDeps): void {
         { method: "POST" },
       );
       return body as unknown as TestMcpUrlResult;
+    },
+  );
+
+  ipcMain.handle(
+    CHAT_FIRST_MCP_IPC.START_OAUTH,
+    async (_event: IpcMainInvokeEvent, request: unknown): Promise<void> => {
+      const host = await deps.resolveMcpHost();
+      if (!host) {
+        throw new Error(
+          "Open a signed-in workspace app before connecting an OAuth integration.",
+        );
+      }
+      if (!request || typeof request !== "object" || Array.isArray(request)) {
+        throw new Error("MCP OAuth URL is invalid.");
+      }
+      const { url: rawUrl, webContentsId } =
+        request as Partial<ChatFirstMcpOAuthRequest>;
+      if (
+        typeof rawUrl !== "string" ||
+        typeof webContentsId !== "number" ||
+        !Number.isInteger(webContentsId) ||
+        webContentsId <= 0
+      ) {
+        throw new Error(
+          "The signed-in Dispatch integrations tab is not ready for OAuth.",
+        );
+      }
+      await deps.navigateMcpOAuth(
+        resolveMcpOAuthUrl(rawUrl, host.baseUrl),
+        host,
+        webContentsId,
+      );
     },
   );
 

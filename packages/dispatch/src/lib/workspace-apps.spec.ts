@@ -8,6 +8,8 @@ import {
   isWorkspaceSsoApp,
   mergeChatFirstWorkspaceApps,
   workspaceAppIdFromRoute,
+  workspaceAppInitialPathFromSplat,
+  workspaceAppRouteForChildPath,
   workspaceAppDirectHref,
   workspaceAppRoute,
 } from "./workspace-apps";
@@ -27,6 +29,44 @@ describe("workspace app routes", () => {
 
   it("accepts nested app routes while preserving the app id", () => {
     expect(workspaceAppIdFromRoute("/apps/mail/inbox")).toBe("mail");
+  });
+
+  it("preserves the initial app suffix for a standalone deep link", () => {
+    expect(
+      workspaceAppInitialPathFromSplat("inbox", "?view=unread", "#top"),
+    ).toBe("/inbox?view=unread#top");
+    expect(workspaceAppInitialPathFromSplat(undefined, "", "")).toBeUndefined();
+  });
+
+  it("maps child routes to shareable Dispatch app routes", () => {
+    expect(
+      workspaceAppRouteForChildPath(
+        { id: "design", path: "/", url: "https://design.example.test" },
+        "/foobar?mode=edit#canvas",
+      ),
+    ).toBe("/apps/design/foobar?mode=edit#canvas");
+    expect(
+      workspaceAppRouteForChildPath(
+        {
+          id: "internal-design",
+          path: "/design",
+          url: "https://workspace.example.test/design",
+        },
+        "/design/foobar",
+      ),
+    ).toBe("/apps/internal-design/foobar");
+    expect(
+      workspaceAppRouteForChildPath(
+        { id: "design", path: "/", url: "https://design.example.test" },
+        "//evil.example/route",
+      ),
+    ).toBeNull();
+    expect(
+      workspaceAppDirectHref(
+        { path: "/", url: "https://design.example.test" },
+        "/foobar?mode=edit#canvas",
+      ),
+    ).toBe("https://design.example.test/foobar?mode=edit#canvas");
   });
 
   it("identifies Dispatch regardless of casing or surrounding whitespace", () => {

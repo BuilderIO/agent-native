@@ -277,7 +277,18 @@ export function createWorkspaceAppChatProxyHandler(
   const fetchImpl = options.fetchImpl ?? fetch;
   return async (event: WorkspaceAppChatProxyEvent): Promise<Response> => {
     const url = event.url;
-    const parsed = parseWorkspaceAppChatProxyPath(url.pathname);
+    // The framework's `.use(prefix, handler)` contract strips the mount prefix
+    // from `url.pathname` before invoking us. Parse the preserved full path so
+    // the app id is not lost in production while keeping direct handler calls
+    // and tests compatible.
+    const mountedPathname = (
+      event as WorkspaceAppChatProxyEvent & {
+        context?: { _mountedPathname?: string };
+      }
+    ).context?._mountedPathname;
+    const parsed = parseWorkspaceAppChatProxyPath(
+      mountedPathname ?? url.pathname,
+    );
     if (!parsed) {
       return proxyErrorResponse(404, "Workspace app chat route not found.");
     }

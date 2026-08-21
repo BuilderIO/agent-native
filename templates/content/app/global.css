@@ -729,6 +729,11 @@
   background: hsl(var(--muted));
   border-radius: 0 0 6px 6px;
 }
+.notion-editor .notion-code-block {
+  background: hsl(var(--muted));
+  border-radius: 6px;
+  margin: 0.6em 0;
+}
 .notion-editor pre code {
   font-family: inherit;
   background: none;

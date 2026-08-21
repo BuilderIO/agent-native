@@ -2,6 +2,7 @@ use std::{
     ffi::OsString,
     path::{Path, PathBuf},
     process::{Command, Stdio},
+    sync::atomic::{AtomicU64, Ordering},
 };
 
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
@@ -13,6 +14,7 @@ use crate::state::{
 };
 
 const POPOVER_SHADOW_GUTTER_LOGICAL: f64 = 24.0;
+static OAUTH_WINDOW_COUNTER: AtomicU64 = AtomicU64::new(0);
 const POPOVER_DEFAULT_WIDTH_LOGICAL: f64 = 320.0;
 const POPOVER_DEFAULT_HEIGHT_LOGICAL: f64 = 520.0;
 
@@ -109,6 +111,7 @@ pub fn set_capture_included(window: &WebviewWindow) {
 
 pub fn build_popover_window(app: &mut tauri::App) -> Result<WebviewWindow, tauri::Error> {
     let gutter = POPOVER_SHADOW_GUTTER_LOGICAL * 2.0;
+    let app_handle = app.handle().clone();
     WebviewWindowBuilder::new(app, "popover", WebviewUrl::App("index.html".into()))
         .title("Clips")
         .inner_size(
@@ -126,6 +129,35 @@ pub fn build_popover_window(app: &mut tauri::App) -> Result<WebviewWindow, tauri
         .focused(true)
         .shadow(false)
         .accept_first_mouse(true)
+        // Tauri does not create a native child for window.open by default.
+        // Create it here with the opener's webview configuration so Google
+        // OAuth stays in a visible child window and shares the binding cookie.
+        .on_new_window(move |url, features| {
+            let label = format!(
+                "google-oauth-{}",
+                OAUTH_WINDOW_COUNTER.fetch_add(1, Ordering::Relaxed)
+            );
+            let popup = WebviewWindowBuilder::new(&app_handle, label, WebviewUrl::External(url))
+                .title("Sign in to Clips")
+                .inner_size(520.0, 720.0)
+                .resizable(true)
+                .always_on_top(false)
+                .focused(true)
+                .window_features(features)
+                .build();
+
+            match popup {
+                Ok(window) => {
+                    set_capture_excluded(&window);
+                    configure_overlay_behavior(&window);
+                    tauri::webview::NewWindowResponse::Create { window }
+                }
+                Err(error) => {
+                    eprintln!("[clips-tray] failed to create OAuth popup: {error}");
+                    tauri::webview::NewWindowResponse::Deny
+                }
+            }
+        })
         .build()
 }
 

@@ -9,6 +9,10 @@ import { z } from "zod";
 import { getDb } from "../server/db/index.js";
 import { factoryAuditEvents } from "../server/db/schema.js";
 import {
+  factoryIdSchema,
+  readAutomationFactoryId,
+} from "../server/lib/factory-scope.js";
+import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
@@ -18,13 +22,13 @@ export default defineAction({
     "List recent Factory automation runs with the bounded source observations, decisions, and external actions recorded for each run.",
   agentTool: false,
   schema: z.object({
-    factoryId: z.string().trim().min(1).optional(),
+    factoryId: factoryIdSchema,
     automation: z.string().trim().min(1).optional(),
     limit: z.coerce.number().int().min(1).max(50).default(20),
   }),
   http: { method: "GET" },
   readOnly: true,
-  run: async ({ automation, limit }, context) => {
+  run: async ({ factoryId, automation, limit }, context) => {
     const { userEmail, orgId } = await requireWorkspaceMember(
       workspaceMemberIdentityFromContext(context),
     );
@@ -33,8 +37,10 @@ export default defineAction({
       "organization",
     );
     const factoryDefinitions = definitions.filter(
-      ({ meta, name }) =>
-        meta.domain === "factory" && (!automation || name === automation),
+      ({ meta, name, resource }) =>
+        meta.domain === "factory" &&
+        readAutomationFactoryId(meta, resource.content) === factoryId &&
+        (!automation || name === automation),
     );
     const runGroups = await Promise.all(
       factoryDefinitions.map(async ({ name, resource }) =>
@@ -60,6 +66,7 @@ export default defineAction({
           .where(
             and(
               eq(factoryAuditEvents.orgId, orgId),
+              eq(factoryAuditEvents.factoryId, factoryId),
               inArray(factoryAuditEvents.automationRunId, runIds),
             ),
           )

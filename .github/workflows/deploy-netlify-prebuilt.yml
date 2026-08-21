@@ -226,9 +226,25 @@ jobs:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
           SOURCE_TEMPLATE: ${{ steps.target.outputs.source_template }}
+          TARGET: ${{ inputs.target }}
         run: |
           set -euo pipefail
           : "${NETLIFY_AUTH_TOKEN:?NETLIFY_AUTH_TOKEN secret is required}"
+          if [[ "$TARGET" == "beta" ]]; then
+            # Beta is built from the release commit with branch-deploy context,
+            # so production-scoped Netlify variables are not applied. Export
+            # the release owner explicitly for this lane instead of widening
+            # the flag to every ordinary preview build.
+            if [[ "$SOURCE_TEMPLATE" != "clips" ]]; then
+              export AGENT_NATIVE_RELEASE_MIGRATIONS=1
+              export AGENT_NATIVE_RUN_RELEASE_MIGRATIONS=1
+            else
+              export AGENT_NATIVE_BETA_SCHEMA_OWNER=production
+            fi
+            export AGENT_NATIVE_ENABLE_KEEP_WARM=1
+            export AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND=1
+            export AGENT_NATIVE_HOSTED_HARNESS=true
+          fi
           if [[ "$SOURCE_TEMPLATE" == "clips" ]]; then
             # Netlify's local CLI receives masked site secrets. Clips only needs
             # valid build-time shapes here; the uploaded Functions read the real
@@ -253,6 +269,14 @@ jobs:
             fi
           done
           du -sh "$PUBLISH_DIRECTORY" "$FUNCTIONS_DIRECTORY"
+
+      - name: Verify static SSR cache artifact
+        if: steps.target.outputs.source_template == 'clips' || steps.target.outputs.source_template == '@agent-native/docs'
+        env:
+          PUBLISH_DIRECTORY: ${{ steps.target.outputs.publish_directory }}
+        run: |
+          set -euo pipefail
+          GUARD_SSR_CACHE_ARTIFACT_DIR="$PUBLISH_DIRECTORY" pnpm guard:ssr-cache-artifact
 
       - name: Pause automatic Netlify builds for production cutover
         id: pause
@@ -452,6 +476,10 @@ jobs:
             );
           }
 
+          // Netlify has no terminal state for an upload that dies mid-flight, so
+          // a deploy can sit in `uploading` forever. Well past any real upload.
+          const ABANDONED_DEPLOY_MS = 30 * 60 * 1000;
+
           async function drainPendingDeploys(publishedId, preexistingDeployIds) {
             const deadline = Date.now() + 5 * 60 * 1000;
             const states = [...ACTIVE_PRODUCTION_DEPLOY_STATES, "ready"];
@@ -461,9 +489,26 @@ jobs:
                 publishedId,
                 preexistingDeployIds,
               );
-              const cancelable = pending.filter((candidate) =>
-                ["new", "enqueued"].includes(candidate.state),
-              );
+              // A deploy that has not moved in ABANDONED_DEPLOY_MS is dead, and
+              // no amount of waiting drains it. slides carried one stuck in
+              // `uploading` since 2026-07-30 that blocked every production
+              // promotion for three weeks: `uploading` is neither `new` nor
+              // `enqueued`, so it was never cancelable and the wait always timed
+              // out. Cancel it on its age rather than widening the state list,
+              // which would kill real in-flight uploads.
+              const cancelable = pending.filter((candidate) => {
+                if (["new", "enqueued"].includes(candidate.state)) return true;
+                const lastMoved = Date.parse(
+                  candidate.updated_at || candidate.created_at || "",
+                );
+                if (!Number.isFinite(lastMoved)) return false;
+                const idleMinutes = Math.round((Date.now() - lastMoved) / 60000);
+                if (Date.now() - lastMoved < ABANDONED_DEPLOY_MS) return false;
+                console.log(
+                  `Production deploy ${candidate.id} has been ${candidate.state} for ${idleMinutes} minutes; treating it as abandoned.`,
+                );
+                return true;
+              });
               for (const candidate of cancelable) {
                 await readJson(
                   await request(`${api}/deploys/${candidate.id}/cancel`, {
@@ -692,7 +737,7 @@ jobs:
           NODE
 
       - name: Smoke-test the uploaded deploy
-        if: inputs.deploy && inputs.smoke
+        if: inputs.deploy && inputs.smoke && steps.target.outputs.source_template != '@agent-native/docs'
         env:
           DEPLOY_MODE: ${{ inputs.deploy_mode }}
           DEPLOY_URL: ${{ steps.deploy.outputs.deploy_url }}
@@ -705,6 +750,34 @@ jobs:
           fi
           curl --fail --silent --show-error --location --max-time 60 "${url%/}/" >/dev/null
           echo "Smoke check passed: ${url%/}/"
+          curl --fail --silent --show-error --location --max-time 60 "${url%/}/_agent-native/health" >/dev/null
+          echo "Health check passed: ${url%/}/_agent-native/health"
+
+      # An unknown URL must still be storable. When it is not, every dead link
+      # and crawler miss re-invokes the render function, and Netlify runs one
+      # request per container — so a single site's regression drains the
+      # concurrency pool the whole account shares. Source review and green
+      # builds both missed this; only the live response shows it.
+      - name: Verify the deployed site still caches a miss
+        if: inputs.deploy && inputs.smoke && inputs.deploy_mode == 'production'
+        env:
+          HOST: ${{ steps.target.outputs.host }}
+        run: node scripts/check-production-cache-contract.mjs --host "$HOST"
+
+      - name: Smoke-test the static docs deploy
+        if: inputs.deploy && inputs.smoke && steps.target.outputs.source_template == '@agent-native/docs'
+        env:
+          DEPLOY_MODE: ${{ inputs.deploy_mode }}
+          DEPLOY_URL: ${{ steps.deploy.outputs.deploy_url }}
+          HOST: ${{ steps.target.outputs.host }}
+        run: |
+          set -euo pipefail
+          url="$DEPLOY_URL"
+          if [[ "$DEPLOY_MODE" == "production" ]]; then
+            url="https://$HOST"
+          fi
+          curl --fail --silent --show-error --location --max-time 60 "${url%/}/" >/dev/null
+          echo "Static docs smoke check passed: ${url%/}/"
 
       - name: Purge the production Netlify cache
         if: inputs.target == 'production' && inputs.deploy && inputs.deploy_mode == 'production' && success()

@@ -61,6 +61,8 @@ type OtherSource =
   | "existing"
   | "notes";
 
+type BuilderIndexInputSource = "figma" | "github" | "design-md";
+
 interface BuilderIndexResult {
   ok: boolean;
   source: "builder";
@@ -151,6 +153,8 @@ export default function DesignSystemSetup() {
   const [builderIndexing, setBuilderIndexing] = useState(false);
   const [builderIndexResult, setBuilderIndexResult] =
     useState<BuilderIndexResult | null>(null);
+  const [builderIndexInputSource, setBuilderIndexInputSource] =
+    useState<BuilderIndexInputSource | null>(null);
   const [builderIndexError, setBuilderIndexError] = useState<string | null>(
     null,
   );
@@ -222,6 +226,7 @@ export default function DesignSystemSetup() {
       }
       setBuilderIndexError(null);
       setBuilderIndexResult(null);
+      setBuilderIndexInputSource("figma");
       stopDecodePolling();
       setDecodeStatus(null);
       setBuilderIndexing(true);
@@ -550,7 +555,7 @@ export default function DesignSystemSetup() {
     if (isGithubOnlySource) {
       setValidationError(null);
       try {
-        await indexSystemMutation.mutateAsync({
+        const result = await indexSystemMutation.mutateAsync({
           projectName: companyInfo.trim() || undefined,
           description:
             [notes.trim(), customInstructions.trim()]
@@ -562,8 +567,9 @@ export default function DesignSystemSetup() {
             ...(link.include?.length ? { include: link.include } : {}),
           })),
         });
+        setBuilderIndexInputSource("github");
+        setBuilderIndexResult(result);
         toast.success(t("designSystemSetup.githubIndexStarted"));
-        navigate("/design-systems");
       } catch (error) {
         setValidationError(
           error instanceof Error
@@ -603,7 +609,7 @@ export default function DesignSystemSetup() {
     if (isDesignMdOnlySource) {
       setValidationError(null);
       try {
-        await indexSystemMutation.mutateAsync({
+        const result = await indexSystemMutation.mutateAsync({
           projectName: companyInfo.trim() || undefined,
           description:
             [notes.trim(), customInstructions.trim()]
@@ -611,8 +617,9 @@ export default function DesignSystemSetup() {
               .join("\n\n") || undefined,
           designMd: readableDesignMdFiles[0]?.textContent,
         });
+        setBuilderIndexInputSource("design-md");
+        setBuilderIndexResult(result);
         toast.success(t("designSystemSetup.designMdIndexStarted"));
-        navigate("/design-systems");
       } catch (error) {
         setValidationError(
           error instanceof Error
@@ -861,6 +868,23 @@ export default function DesignSystemSetup() {
             </div>
           )}
 
+          {builderIndexResult && builderIndexInputSource !== "figma" ? (
+            <div className="mb-6">
+              <BuilderIndexPreview
+                result={builderIndexResult}
+                decodeStatus={null}
+                source={builderIndexInputSource ?? "design-md"}
+                displayTitle={companyInfo.trim()}
+                onReset={() => {
+                  setDecodeStatus(null);
+                  setBuilderIndexResult(null);
+                  setBuilderIndexInputSource(null);
+                  setBuilderIndexError(null);
+                }}
+              />
+            </div>
+          ) : null}
+
           <div className="space-y-5">
             <section className="rounded-lg border border-border bg-card p-4">
               <div className="mb-3">
@@ -990,6 +1014,7 @@ export default function DesignSystemSetup() {
                     stopDecodePolling();
                     setDecodeStatus(null);
                     setBuilderIndexResult(null);
+                    setBuilderIndexInputSource(null);
                     setBuilderIndexError(null);
                   }}
                 />
@@ -1596,32 +1621,38 @@ function FileList({
 function BuilderIndexPreview({
   result,
   decodeStatus,
+  source = "figma",
   displayTitle,
   onReset,
 }: {
   result: BuilderIndexResult;
   decodeStatus: DecodeJobStatus | null;
+  source?: BuilderIndexInputSource;
   displayTitle?: string;
   onReset: () => void;
 }) {
   const t = useT();
   const decodeError =
     decodeStatus?.status === "error" ? decodeStatus.error : null;
+  const SourceIcon =
+    source === "figma"
+      ? IconBrandFigma
+      : source === "github"
+        ? IconBrandGithub
+        : IconFileDescription;
 
   return (
     <div className="space-y-4 rounded-xl border border-border bg-card p-4">
       <div className="flex items-start gap-3">
         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#609FF8]/10">
-          <IconBrandFigma className="h-5 w-5 text-[#609FF8]" />
+          <SourceIcon className="h-5 w-5 text-[var(--design-editor-accent-color)]" />
         </div>
         <div className="min-w-0 flex-1">
           <h3 className="text-sm font-semibold text-foreground">
             {displayTitle || result.suggestedTitle}
           </h3>
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-            {
-              "Builder is indexing this Figma file into a reusable design system." /* i18n-ignore Builder indexing status */
-            }
+            {t("designSystemSetup.figmaParsingDescription")}
           </p>
         </div>
       </div>

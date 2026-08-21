@@ -26,6 +26,12 @@ const messages = {
   "commands.mention": "Mention files, agents, or resources",
   "commands.new": "Same as /clear",
   "commands.plan": "Switch to read-only planning",
+  "aboutAgentNative.title": "About Agent Native",
+  "aboutAgentNative.version": "Version",
+  "aboutAgentNative.environment": "Environment",
+  "aboutAgentNative.build": "Build",
+  "aboutAgentNative.copyDiagnostics": "Copy diagnostics",
+  "aboutAgentNative.unknown": "Unknown",
   "common.agent": "Agent",
   "common.cancel": "Cancel",
   "common.collapse": "Collapse",
@@ -284,7 +290,7 @@ const messages = {
   "errorMessages.invalidToolSchema":
     "A tool schema was invalid, so the model rejected the request before it started. The invalid tool can be skipped and the request retried.",
   "errorMessages.noProviderConnected":
-    "No LLM provider is connected. Open this app's Manage agent > LLM, then connect Builder.io or add a provider key.",
+    "No LLM provider is connected. Open Settings > Agent > AI providers, then connect Builder.io (free tier available) or add a provider key.",
   "errorMessages.openBuilderSpaceSettings": "Open Builder space settings",
   "errorMessages.providerAuthentication":
     "The model provider rejected the saved API key. Update the key in Settings → Integrations → API keys, then retry.",

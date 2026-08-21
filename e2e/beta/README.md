@@ -3,8 +3,42 @@
 Answers one question before a promotion: **would a user hitting the beta fleet
 right now be able to sign in, load the app, and get a working agent turn?**
 
-Run it from the Actions tab — **Beta E2E (browser)** → _Run workflow_. Green
-means promote; red means look before you promote.
+## Running it
+
+GitHub → **Actions** → **Beta E2E (browser)** → **Run workflow**. Green means
+promote; red means look before you promote.
+
+Or from a terminal:
+
+```bash
+gh workflow run beta-e2e.yml --ref main -f apps=all -f lane=public
+```
+
+| Input        | Default         | What it does                                                                                                                           |
+| ------------ | --------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps`       | `all`           | Restrict to specific beta apps, e.g. `slides,analytics`. An unknown or empty value fails the run rather than silently testing nothing. |
+| `lane`       | `public+authed` | `public` skips everything needing credentials or spend.                                                                                |
+| `key_source` | `dedicated`     | Which OpenAI credential the agent turns bill — see below.                                                                              |
+| `grep`       | none            | Only run tests whose title matches.                                                                                                    |
+
+The `public` lane needs no secrets, so it works today with no setup.
+
+It is sharded one host per runner. A page load against a beta host costs 1-2s
+from a laptop and 20-40s from a GitHub runner, because the fleet sits behind one
+CDN that throttles bursty datacenter traffic — on a single runner the sweep took
+~28 minutes. Sharding makes the fleet cost the slowest single host and spreads
+the requests over sixteen source addresses: measured 1704s to 437s. Cross-host
+comparisons live in a separate `fleet` lane, because inside a shard they would
+compare a set of one host and pass having checked nothing.
+
+The same suite also runs automatically from **Beta E2E (scheduled)** every six
+hours (`0 */6 * * *`) with the public, authenticated, journey, and advisory
+lanes. A failed or cancelled run creates the exact-title issue
+`[beta-e2e] Scheduled beta health check failing`, or comments on the existing
+open issue instead of creating a duplicate. The first successful run comments
+with its recovery link and closes that issue. The scheduled workflow also has
+a manual dispatch entrypoint for checking the reporter without waiting for the
+next cadence.
 
 The assertions come from what people actually reported breaking in
 `#product-agent-native-feedback`: Google sign-in failures, sign-in loops, apps
@@ -66,23 +100,32 @@ values for `BETA_E2E_EMAIL` and `BETA_E2E_SESSION_TOKENS`. These are live
 sessions for that account: treat them as credentials, and re-run the command
 every 30 days when they expire.
 
-**2. A dedicated OpenAI key.** Create a new key with its own spend limit and
-set it as `BETA_E2E_OPENAI_API_KEY`. The suite installs it at **user** scope
-against the e2e account only, so every turn it runs bills a credential nobody
-else uses and the spend is attributable.
+**2. An OpenAI key.** Two options, and the run says out loud which one it used.
 
+_Dedicated_ (default, recommended). Create a key with its own spend limit at
+<https://platform.openai.com/api-keys> and add it as `BETA_E2E_OPENAI_API_KEY`.
+Every turn then bills a credential nobody else uses, so this suite's cost is
+separately visible and separately capped — the whole point of a second key.
+
+_Shared_. The repository already has an `OPENAI_API_KEY`. Dispatch with
+`key_source=shared` to bill it. That needs no new secret, but pools this
+suite's spend with every other consumer of that key, so the attribution is
+lost. It is never picked up implicitly: a run has to ask for it, and global
+setup logs a warning when it does.
+
+Either way the key is installed at **user** scope against the e2e account only.
 It must not be a site-level `OPENAI_API_KEY` on a beta Netlify site — that
-would bill every visitor's turns to this key, and the repo's Netlify env guard
+would bill every visitor's turns to it, and the repo's Netlify env guard
 rejects it anyway. It must not be written at org scope either, which would
 change the default for everyone in the org.
 
 ### Repository secrets
 
-| Secret                    | Purpose                                                                  |
-| ------------------------- | ------------------------------------------------------------------------ |
-| `BETA_E2E_EMAIL`          | The identity every authenticated spec asserts it is running as           |
-| `BETA_E2E_SESSION_TOKENS` | Per-app map from `e2e:beta:capture`, e.g. `{"slides": "…", "chat": "…"}` |
-| `BETA_E2E_OPENAI_API_KEY` | Dedicated, separately-limited key for agent turns                        |
+| Secret                    | Purpose                                                                                                |
+| ------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `BETA_E2E_EMAIL`          | The identity every authenticated spec asserts it is running as                                         |
+| `BETA_E2E_SESSION_TOKENS` | Per-app map from `e2e:beta:capture`, e.g. `{"slides": "…", "chat": "…"}`                               |
+| `BETA_E2E_OPENAI_API_KEY` | Dedicated, separately-limited key for agent turns. Omit only if you dispatch with `key_source=shared`. |
 
 ## Things that behave the way they do on purpose
 
@@ -167,4 +210,5 @@ someone makes.
 
 `pnpm guard:beta-e2e-suite` enforces the parts the suite cannot check itself:
 the fleet stays derived rather than duplicated, non-beta hosts stay refused,
-the budget model stays luna, and the workflow stays manual.
+the budget model stays luna, the promotion workflow stays manually invokable,
+and the scheduled wrapper keeps its six-hour issue lifecycle.

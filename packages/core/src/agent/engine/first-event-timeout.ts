@@ -6,6 +6,14 @@
  * thinking ones) emit their first event within seconds. Bounding this window
  * separately from any total-request deadline turns a silent multi-minute hang
  * into a fast abort-and-retry.
+ *
+ * AUDIENCE: direct `engine.stream()` callers — `completeText`, voice
+ * transcription, sentiment, evals, observational memory. It is EXPECTED to be
+ * shadowed inside `runAgentLoop`, whose own `MODEL_STREAM_NO_PROGRESS_TIMEOUT_MS`
+ * (90s) races the same first frame and always wins. That does not make it
+ * redundant: `completeText` takes `timeoutMs` as optional, so a caller that
+ * omits one has no other bound between it and an unbounded hang. Do not
+ * "clean it up" as unreachable — check the non-loop callers first.
  */
 export const FIRST_STREAM_EVENT_TIMEOUT_MS = 120_000;
 

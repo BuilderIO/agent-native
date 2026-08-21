@@ -1003,6 +1003,19 @@ describe("Brain knowledge quality gates", () => {
     ]);
   });
 
+  it("includes canonical health for sources in the source listing", async () => {
+    seedSource({
+      provider: "granola",
+      configJson: JSON.stringify({ autoSync: true }),
+    });
+
+    const result = await listSourcesAction.run({ includeArchived: false });
+
+    expect(result.sources).toEqual([
+      expect.objectContaining({ id: "source-1", health: "needs_sync" }),
+    ]);
+  });
+
   it("lists captures with redacted review previews", async () => {
     seedSource({
       title: "Slack source alice@example.com",
@@ -1650,6 +1663,27 @@ describe("Brain knowledge quality gates", () => {
     });
 
     expect(capture.id).toBe("capture-from-race");
+    expect(mocks.rows.captures).toHaveLength(1);
+  });
+
+  it("recognizes PostgreSQL unique-violation codes when the message is generic", async () => {
+    seedSource();
+    mocks.insertControls.error = Object.assign(new Error("insert failed"), {
+      code: "23505",
+    });
+    mocks.insertControls.beforeThrow = (_tableRef, row) => {
+      mocks.rows.captures.push({ ...row, id: "capture-from-postgres-race" });
+    };
+
+    const capture = await createCapture({
+      sourceId: "source-1",
+      externalId: "external-1",
+      title: "Planning note",
+      kind: "note",
+      content: "Decision: ship the beta on May 20.",
+    });
+
+    expect(capture.id).toBe("capture-from-postgres-race");
     expect(mocks.rows.captures).toHaveLength(1);
   });
 

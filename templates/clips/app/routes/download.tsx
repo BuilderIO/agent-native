@@ -4,20 +4,12 @@ import {
   IconBrandChrome,
   IconBrandApple,
   IconBrandWindows,
-  IconChevronDown,
-  IconDeviceDesktop,
   IconExternalLink,
+  IconTerminal2,
 } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import enMessages from "@/i18n/en-US";
 import {
@@ -45,7 +37,6 @@ type PlatformId = "mac" | "windows" | "linux";
 interface PlatformVariant {
   id: PlatformId;
   label: string;
-  sublabel: string;
   assetKinds: readonly (
     | "mac-universal"
     | "mac-arm64"
@@ -64,23 +55,20 @@ const VARIANTS: PlatformVariant[] = [
   {
     id: "mac",
     label: "macOS",
-    sublabel: "Universal (Apple Silicon + Intel)",
     assetKinds: ["mac-universal", "mac-arm64", "mac-x64"],
     icon: IconBrandApple,
   },
   {
     id: "windows",
     label: "Windows",
-    sublabel: "64-bit MSI installer",
     assetKinds: ["windows-msi"],
     icon: IconBrandWindows,
   },
   {
     id: "linux",
     label: "Linux",
-    sublabel: "AppImage, Debian, and RPM packages",
     assetKinds: ["linux-appimage", "linux-deb", "linux-rpm"],
-    icon: IconDeviceDesktop,
+    icon: IconTerminal2,
   },
 ];
 
@@ -171,47 +159,6 @@ function primaryDownloadButton(
   );
 }
 
-function secondaryDownloadButton(
-  variant: PlatformVariant,
-  manifest: Manifest | null,
-  manifestError: boolean,
-  downloadLabel: string,
-  retryLabel: string,
-  onRetry: () => void,
-) {
-  const asset = pickAsset(manifest, variant);
-  const Icon = variant.icon;
-  const className =
-    "h-auto gap-1.5 px-2 py-1 text-sm font-normal text-muted-foreground hover:bg-transparent hover:text-foreground";
-  if (asset) {
-    return (
-      <Button asChild variant="ghost" className={className}>
-        <a href={asset.url} download onClick={markDesktopAppDownloaded}>
-          <Icon className="h-4 w-4" />
-          {downloadLabel}
-        </a>
-      </Button>
-    );
-  }
-  if (manifest === null && !manifestError) {
-    return <Skeleton className="h-7 w-[208px] rounded-md" />;
-  }
-  if (manifestError) {
-    return (
-      <Button variant="ghost" className={className} onClick={onRetry}>
-        <Icon className="h-4 w-4" />
-        {retryLabel}
-      </Button>
-    );
-  }
-  return (
-    <Button variant="ghost" className={className} disabled>
-      <Icon className="h-4 w-4" />
-      {downloadLabel}
-    </Button>
-  );
-}
-
 export default function DownloadPage() {
   const chromeExtensionEnabled = useClipsChromeExtensionEnabled();
   const t = useT();
@@ -267,7 +214,11 @@ export default function DownloadPage() {
   };
 
   const primary = VARIANTS.find((v) => v.id === detected) ?? VARIANTS[0];
-  const secondary = VARIANTS.filter((v) => v.id !== primary.id);
+
+  const handlePlatformChange = (nextPlatform: PlatformId) => {
+    if (nextPlatform === detected) return;
+    setDetected(nextPlatform);
+  };
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -317,87 +268,83 @@ export default function DownloadPage() {
             {t("downloadRoute.heroDescription")}
           </p>
 
-          <div className="mt-10 flex flex-col items-center gap-3">
-            {primaryDownloadButton(
-              primary,
-              manifest,
-              manifestError,
-              t("downloadRoute.downloadFor", { platform: primary.label }),
-              t("downloadRoute.retry"),
-              retryManifest,
-            )}
-            {secondary.map((variant) => (
-              <div key={variant.id}>
-                {secondaryDownloadButton(
-                  variant,
-                  manifest,
-                  manifestError,
-                  t("downloadRoute.alsoFor", { platform: variant.label }),
-                  t("downloadRoute.retry"),
-                  retryManifest,
-                )}
-              </div>
-            ))}
-            <div className="text-xs text-muted-foreground">
-              {manifest ? (
-                <>
-                  {manifest.pub_date
-                    ? t("downloadRoute.versionReleased", {
-                        version: manifest.version,
-                        date: new Date(manifest.pub_date).toLocaleDateString(),
-                      })
-                    : t("downloadRoute.version", {
-                        version: manifest.version,
-                      })}
-                </>
-              ) : manifestError ? (
-                <>{t("downloadRoute.manifestError")}</>
-              ) : (
-                <>{t("downloadRoute.loadingRelease")}</>
-              )}
-            </div>
-            <div className="mt-2 flex items-center justify-center text-xs text-muted-foreground">
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
+          <div className="mt-10 flex flex-col items-center">
+            <div className="mb-2 flex justify-center gap-2">
+              {VARIANTS.map((variant) => {
+                const Icon = variant.icon;
+                const active = primary.id === variant.id;
+                return (
+                  <button
+                    key={variant.id}
                     type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 gap-1.5 px-2 font-normal text-muted-foreground hover:bg-muted/50 hover:text-foreground"
-                    data-release-channel={channel}
+                    aria-label={variant.label}
+                    aria-pressed={active}
+                    onClick={() => handlePlatformChange(variant.id)}
+                    className={`group flex items-center justify-center rounded-lg p-4 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
+                      active
+                        ? "text-foreground"
+                        : "text-muted-foreground opacity-40 hover:opacity-65"
+                    }`}
+                  >
+                    <Icon className="size-6" aria-hidden="true" />
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="mx-auto mt-8 max-w-2xl text-center">
+              {primaryDownloadButton(
+                primary,
+                manifest,
+                manifestError,
+                t("downloadRoute.downloadFor", { platform: primary.label }),
+                t("downloadRoute.retry"),
+                retryManifest,
+              )}
+
+              <div className="mt-5 flex justify-center">
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <span>{t("downloadRoute.stable")}</span>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={channel === "nightly"}
+                    aria-label={t(
+                      channel === "nightly"
+                        ? "downloadRoute.switchToStable"
+                        : "downloadRoute.switchToNightly",
+                    )}
+                    onClick={() =>
+                      handleChannelChange(
+                        channel === "nightly" ? "production" : "nightly",
+                      )
+                    }
+                    className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border border-border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
+                      channel === "nightly"
+                        ? "bg-foreground"
+                        : "bg-muted-foreground/20"
+                    }`}
                   >
                     <span
-                      className={
+                      aria-hidden="true"
+                      className={`block size-3.5 rounded-full bg-primary-foreground shadow-sm transition-transform ${
                         channel === "nightly"
-                          ? "font-medium text-foreground"
-                          : undefined
-                      }
-                    >
-                      {channel === "nightly"
-                        ? t("downloadRoute.nightly")
-                        : t("downloadRoute.stable")}
-                    </span>
-                    <IconChevronDown className="size-3.5" aria-hidden="true" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="center" className="w-44">
-                  <DropdownMenuRadioGroup
-                    value={channel}
-                    onValueChange={(value) => {
-                      if (value === "production" || value === "nightly") {
-                        handleChannelChange(value);
-                      }
-                    }}
+                          ? "translate-x-[18px]"
+                          : "translate-x-[2px]"
+                      }`}
+                    />
+                  </button>
+                  <span
+                    className={
+                      channel === "nightly"
+                        ? "font-medium text-foreground"
+                        : "text-muted-foreground"
+                    }
                   >
-                    <DropdownMenuRadioItem value="production">
-                      {t("downloadRoute.stable")}
-                    </DropdownMenuRadioItem>
-                    <DropdownMenuRadioItem value="nightly">
-                      {t("downloadRoute.nightly")}
-                    </DropdownMenuRadioItem>
-                  </DropdownMenuRadioGroup>
-                </DropdownMenuContent>
-              </DropdownMenu>
+                    {t("downloadRoute.nightly")}
+                  </span>
+                </div>
+              </div>
             </div>
           </div>
 

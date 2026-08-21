@@ -28,17 +28,21 @@ for (const site of sites) {
       const target = "/settings/general";
       await page.goto(`${origin}${target}`, {
         waitUntil: "domcontentloaded",
-        timeout: 90_000,
       });
 
       const gate = await settleAuthGate(page);
 
-      // Only meaningful if we were actually sent to sign-in; an app that
-      // renders the route for anonymous visitors has nothing to continue to.
-      test.skip(
-        !gate.gated,
-        `${site.id} served ${target} without a sign-in gate`,
-      );
+      // A protected route that renders anonymously is an authorization
+      // regression, not a reason to skip the test. The gate must also remain
+      // on the app's own origin so a sign-in cannot be redirected elsewhere.
+      expect(
+        gate.gated,
+        `${site.id} served ${target} without a sign-in surface`,
+      ).toBe(true);
+      expect(
+        new URL(gate.url).origin,
+        `${site.host} bounced an anonymous visitor off its own origin to ${gate.url}`,
+      ).toBe(origin);
 
       const url = new URL(gate.url);
       const continuation = [...url.searchParams.entries()].find(([key]) =>
@@ -65,50 +69,61 @@ for (const site of sites) {
         decoded,
         `${site.host} carried continuation "${continuation![1]}", which does not resolve to ${target}`,
       ).toContain(target);
-    });
 
-    test("does not bounce a visitor who lands on sign-in directly", async ({
-      page,
-    }) => {
-      await page.goto(`${origin}/sign-in`, {
-        waitUntil: "domcontentloaded",
-        timeout: 90_000,
-      });
-      const first = page.url();
-      await page.waitForTimeout(5_000);
+      // Same visit, second fact: having settled on sign-in it must stay there.
+      // Checked here rather than in its own test because the page load is the
+      // expensive part — against these hosts from CI it dominates everything
+      // else the assertion does.
+      const settled = page.url();
+      await page.waitForTimeout(2_500);
       expect(
         page.url(),
-        `${site.host} moved a visitor off ${first} after settling — the sign-in loop shape`,
-      ).toBe(first);
+        `${site.host} kept redirecting after settling on ${settled} — this is the sign-in loop users reported`,
+      ).toBe(settled);
     });
 
-    test("does not follow a continuation that points off-origin", async ({
+    test("holds still on sign-in and refuses an off-origin continuation", async ({
       page,
     }) => {
+      // Two facts, one page load each previously. The hostile-continuation
+      // visit has to be its own navigation (it carries a different URL), but
+      // the plain visit and the settle check share one.
+      await page.goto(`${origin}/sign-in`, {
+        waitUntil: "domcontentloaded",
+      });
+      await settleAuthGate(page);
+      const settled = page.url();
+      // A short confirmation window rather than a long sleep: a redirect loop
+      // fires immediately, so waiting longer only adds dead time per host.
+      await page.waitForTimeout(2_500);
+      expect
+        .soft(
+          page.url(),
+          `${site.host} moved a visitor off ${settled} after settling — the sign-in loop shape`,
+        )
+        .toBe(settled);
+
       // The continuation the app mints is opaque, so a raw URL here is not the
       // format it would normally consume. That is the point: whatever the app
       // does with an unrecognised value, it must not navigate off its own
-      // origin, and it must not still be carrying the hostile target once the
-      // client has settled.
+      // origin.
       const hostile = "https://example.com/phish";
       await page.goto(`${origin}/sign-in?c=${encodeURIComponent(hostile)}`, {
         waitUntil: "domcontentloaded",
-        timeout: 90_000,
       });
-      await page.waitForTimeout(6_000);
-
-      expect(
-        new URL(page.url()).origin,
-        `${site.host} followed an off-origin continuation to ${page.url()}`,
-      ).toBe(origin);
-
-      const links = await page
-        .locator('a[href^="https://example.com"]')
-        .count();
-      expect(
-        links,
-        `${site.host} rendered a link to the hostile continuation target on its sign-in page`,
-      ).toBe(0);
+      await settleAuthGate(page);
+      expect
+        .soft(
+          new URL(page.url()).origin,
+          `${site.host} followed an off-origin continuation to ${page.url()}`,
+        )
+        .toBe(origin);
+      expect
+        .soft(
+          await page.locator('a[href^="https://example.com"]').count(),
+          `${site.host} rendered a link to the hostile continuation target on its sign-in page`,
+        )
+        .toBe(0);
     });
 
     test("serves an impersonal, cacheable shell", async () => {
@@ -152,74 +167,5 @@ for (const site of sites) {
         )
         .toBeTruthy();
     });
-
-    test("offers a way back to production", async ({ page }) => {
-      // The environment switcher is built from a static host map. A beta host
-      // missing from that map renders no switcher, stranding users on beta with
-      // no way to get back to the stable lane.
-      //
-      // Asserting on the rendered control, not on the HTML containing the
-      // production hostname: every beta host contains its production host as a
-      // substring of its own name, so a text search is true by construction.
-      const production = productionHostFor(site);
-      await page.goto(`${origin}/`, {
-        waitUntil: "domcontentloaded",
-        timeout: 90_000,
-      });
-      // Matched on the visible label rather than an accessible name: the
-      // trigger currently renders without an aria-label, so a name-based
-      // locator finds nothing on any host and the assertion would be red
-      // everywhere for a reason unrelated to what it checks.
-      const badge = page.locator("button").filter({ hasText: /^\s*beta\s*$/i });
-
-      // Waited for rather than sampled after a fixed sleep: this control is
-      // client-rendered, and a sleep long enough for the slowest host on a
-      // good day is still a race on a slow one.
-      await expect(
-        badge.first(),
-        `${site.host} renders no environment switcher, so a user on beta has no in-app way back to ${production}`,
-      ).toBeVisible({ timeout: 30_000 });
-    });
   });
 }
-
-test.describe("fleet-wide auth configuration", () => {
-  test("every beta host uses a distinct Google callback", async () => {
-    // Two hosts sharing one redirect_uri means one of them is misconfigured and
-    // will fail OAuth for real users.
-    const seen = new Map<string, string>();
-    const problems: string[] = [];
-
-    for (const site of sites) {
-      const origin = originFor(site);
-      const outcome = await mustRespond(
-        `${origin}/_agent-native/google/auth-url`,
-      );
-      // Apps that do not offer Google sign-in have no callback to collide.
-      if (outcome.status === 404) continue;
-      if (outcome.status !== 200) {
-        problems.push(
-          `${site.id}: auth-url returned HTTP ${outcome.status}: ${outcome.body.slice(0, 160)}`,
-        );
-        continue;
-      }
-      const payload = parseJson<{ url?: string }>(outcome, "google auth-url");
-      const redirectUri = payload.url
-        ? new URL(payload.url).searchParams.get("redirect_uri")
-        : null;
-      if (!redirectUri) {
-        problems.push(`${site.id}: auth-url carried no redirect_uri`);
-        continue;
-      }
-      const owner = seen.get(redirectUri);
-      if (owner) {
-        problems.push(
-          `${site.id} and ${owner} both claim redirect_uri ${redirectUri}`,
-        );
-      }
-      seen.set(redirectUri, site.id);
-    }
-
-    expect(problems, problems.join("\n")).toEqual([]);
-  });
-});

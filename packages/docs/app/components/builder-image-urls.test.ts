@@ -50,11 +50,15 @@ describe("Builder image URLs", () => {
     );
   });
 
-  it("uses the capped default candidate ladder", () => {
+  it("uses the expanded default candidate ladder", () => {
+    expect(BUILDER_IMAGE_WIDTHS).toEqual([
+      240, 320, 400, 600, 800, 1200, 1600, 2000, 2400,
+    ]);
     expect(getBuilderImageSrcSet(cdnImage)).toContain(
       `${cdnImage}?format=webp&width=${BUILDER_IMAGE_WIDTHS.at(-1)} ${BUILDER_IMAGE_WIDTHS.at(-1)}w`,
     );
-    expect(getBuilderImageSrcSet(cdnImage)).not.toContain("width=2400");
+    expect(getBuilderImageSrcSet(cdnImage)).toContain("width=1200 1200w");
+    expect(getBuilderImageSrcSet(cdnImage)).toContain("width=2400 2400w");
   });
 
   it("does not create srcset for non-Builder URLs", () => {

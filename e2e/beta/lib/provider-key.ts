@@ -17,8 +17,40 @@ import type { BrowserContext } from "@playwright/test";
 
 const KEY_ROUTE = "/_agent-native/agent-engine/api-key";
 
-export function dedicatedOpenAiKey(): string | undefined {
-  return process.env.BETA_E2E_OPENAI_API_KEY?.trim() || undefined;
+export type KeySource = "dedicated" | "shared";
+
+export interface ResolvedOpenAiKey {
+  key: string;
+  source: KeySource;
+}
+
+/**
+ * Which OpenAI credential this run will bill.
+ *
+ * `BETA_E2E_OPENAI_API_KEY` is the intended one: created for this suite, with
+ * its own spend limit, so agent-turn cost is separately attributable. The
+ * repository's shared `OPENAI_API_KEY` also works, but pools this suite's spend
+ * with everything else that uses it — which is the thing a dedicated key
+ * exists to avoid. It is therefore never picked up implicitly: a run must ask
+ * for it, and every caller reports which source it got.
+ */
+export function resolveOpenAiKey(): ResolvedOpenAiKey | undefined {
+  const allowShared = /^(1|true)$/i.test(
+    process.env.BETA_E2E_ALLOW_SHARED_KEY?.trim() ?? "",
+  );
+
+  // Resolve the explicitly selected source first. A shared dispatch must not
+  // silently fall back to the dedicated key, or the run will bill the wrong
+  // credential while reporting a successful setup.
+  if (allowShared) {
+    const shared = process.env.BETA_E2E_SHARED_OPENAI_API_KEY?.trim();
+    return shared ? { key: shared, source: "shared" } : undefined;
+  }
+
+  const dedicated = process.env.BETA_E2E_OPENAI_API_KEY?.trim();
+  if (dedicated) return { key: dedicated, source: "dedicated" };
+
+  return undefined;
 }
 
 export interface KeyInstallResult {
@@ -40,7 +72,7 @@ export async function installOpenAiKey(
   try {
     await page.goto(`${origin}/`, {
       waitUntil: "domcontentloaded",
-      timeout: 90_000,
+      timeout: 45_000,
     });
     const result = await page.evaluate(
       async ([route, key]) => {

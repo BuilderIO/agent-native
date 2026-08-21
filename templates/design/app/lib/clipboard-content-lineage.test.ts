@@ -73,6 +73,25 @@ describe("clipboard content lineage", () => {
     ).toBeNull();
   });
 
+  it("supersedes a lineage the document has already moved past", () => {
+    const beforeDelete = lineage("base + rect", "pre-delete-hash", 3);
+    expect(
+      publishClipboardContentMutation({
+        current: beforeDelete,
+        baseContentHash: "post-delete-hash",
+        nextContent: "base + pasted copy",
+        nextContentHash: "pasted-hash",
+        origin: "clipboard-paste",
+        baseSource: "document",
+      }),
+    ).toEqual({
+      content: "base + pasted copy",
+      contentHash: "pasted-hash",
+      mutationId: 4,
+      origin: "clipboard-paste",
+    });
+  });
+
   it("accepts a matching explicit acknowledgement without regressing ids", () => {
     const current = lineage("base", "base-hash", 3);
     expect(

@@ -7,9 +7,11 @@ import {
 import type { FileUploadInput } from "../file-upload/index.js";
 import type { PrivateBlobProvider } from "./types.js";
 
+const deleteUploadedFileMock = vi.hoisted(() => vi.fn());
 const uploadFileMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../file-upload/index.js", () => ({
+  deleteUploadedFile: deleteUploadedFileMock,
   uploadFile: uploadFileMock,
 }));
 
@@ -26,6 +28,7 @@ describe("private blob registry", () => {
       ...originalEnv,
       SECRETS_ENCRYPTION_KEY: "private-blob-test",
     };
+    deleteUploadedFileMock.mockReset();
     uploadFileMock.mockReset();
     resetAppConfigForTests();
   });
@@ -90,6 +93,7 @@ describe("private blob registry", () => {
       vi.fn(async () => new Response(uploadedInput?.data ?? new Uint8Array())),
     );
 
+    deleteUploadedFileMock.mockResolvedValue(true);
     const original = new TextEncoder().encode("secret replay payload");
     const handle = await registry.putPrivateBlob({
       data: original,
@@ -116,10 +120,13 @@ describe("private blob registry", () => {
 
     const read = await registry.readPrivateBlob(handle!);
     expect(new TextDecoder().decode(read.data)).toBe("secret replay payload");
-    await expect(registry.deletePrivateBlob(handle!)).resolves.toMatchObject({
-      deleted: false,
+    await expect(registry.deletePrivateBlob(handle!)).resolves.toEqual({
+      deleted: true,
       provider: "public-upload:builder",
-      reason: expect.stringContaining("not supported"),
+    });
+    expect(deleteUploadedFileMock).toHaveBeenCalledWith("builder", {
+      url: "https://cdn.example.test/private/replay.bin?token=public",
+      id: "asset-1",
     });
   });
 
@@ -235,6 +242,28 @@ describe("private blob registry", () => {
     await expect(
       registry.putPrivateBlob({ data: new TextEncoder().encode("hello") }),
     ).resolves.toBe(handle);
+  });
+
+  it("fails loudly when the selected provider is unavailable", async () => {
+    const registry = await freshRegistry();
+    resetAppConfigForTests();
+    registry.registerPrivateBlobProvider({
+      id: "offline",
+      name: "Offline",
+      isConfigured: () => false,
+      put: vi.fn(),
+      read: vi.fn(),
+      delete: vi.fn(),
+    });
+    defineAppConfig({ privateBlob: { provider: "offline" } });
+
+    expect(() => registry.getActivePrivateBlobProvider()).toThrow(
+      "selected but not configured",
+    );
+    await expect(
+      registry.putPrivateBlob({ data: new Uint8Array([1]) }),
+    ).rejects.toThrow("selected but not configured");
+    expect(uploadFileMock).not.toHaveBeenCalled();
   });
 
   it("fails loudly when the configured provider is not registered", async () => {

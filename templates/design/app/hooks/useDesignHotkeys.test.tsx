@@ -103,6 +103,18 @@ async function withNavigatorPlatform(
 }
 
 describe("useDesignHotkeys — current Figma tool bindings", () => {
+  it("leaves bare Cmd/Ctrl+R native but keeps Shift+Cmd/Ctrl+R paste-to-replace", async () => {
+    const onRename = vi.fn();
+    const onPasteToReplace = vi.fn();
+    await withHotkeys({ onRename, onPasteToReplace }, () => {
+      const refreshEvent = dispatchKey("r", { metaKey: true });
+      dispatchKey("r", { metaKey: true, shiftKey: true });
+      expect(refreshEvent.defaultPrevented).toBe(false);
+    });
+    expect(onRename).not.toHaveBeenCalled();
+    expect(onPasteToReplace).toHaveBeenCalledTimes(1);
+  });
+
   it("routes standard canvas commands through their existing callbacks", async () => {
     const onCopy = vi.fn();
     const onDuplicate = vi.fn();

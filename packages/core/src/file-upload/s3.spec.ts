@@ -74,6 +74,7 @@ describe("s3FileUploadProvider", () => {
     });
 
     expect(result.provider).toBe("s3");
+    expect(result.id).toMatch(/^uploads\/\d+-[a-z0-9]+-hero_image\.png$/);
     expect(result.url).toMatch(
       /^https:\/\/cdn\.example\.com\/assets\/uploads\/\d+-[a-z0-9]+-hero_image\.png$/,
     );
@@ -87,6 +88,19 @@ describe("s3FileUploadProvider", () => {
       headers: expect.objectContaining({
         Authorization: expect.stringContaining("Credential=access-example/"),
         "content-type": "image/png",
+      }),
+    });
+
+    await expect(
+      s3FileUploadProvider.delete!({ url: result.url, id: result.id }),
+    ).resolves.toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const [deleteUrl, deleteInit] = fetchMock.mock.calls[1] ?? [];
+    expect(deleteUrl).toContain(`/uploads-example/${result.id}`);
+    expect(deleteInit).toMatchObject({
+      method: "DELETE",
+      headers: expect.objectContaining({
+        Authorization: expect.stringContaining("Credential=access-example/"),
       }),
     });
   });

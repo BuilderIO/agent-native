@@ -24,7 +24,7 @@ export function TemplateHero({
   titleClassName = "",
 }: TemplateHeroProps) {
   return (
-    <section className={`pt-3 sm:pt-4 lg:pt-5 ${className}`}>
+    <section className={className}>
       <div className="relative overflow-hidden border-x border-[var(--docs-border)]">
         <div
           aria-hidden="true"
@@ -38,7 +38,7 @@ export function TemplateHero({
         <div
           className={`relative grid gap-3 px-6 pb-10 pt-12 sm:gap-4 sm:px-10 sm:pb-14 sm:pt-16 lg:grid-cols-3 lg:gap-6 lg:pb-20 lg:pt-24 ${headerClassName}`}
         >
-          <div className="font-mono text-sm font-semibold uppercase tracking-[0.14em] lg:col-start-1 lg:row-start-1">
+          <div className="font-mono text-[15px] font-bold tracking-[0.14em] lg:col-start-1 lg:row-start-1">
             {eyebrow}
           </div>
 

@@ -7,6 +7,7 @@ import * as Y from "yjs";
 
 import { trace } from "@/components/design/design-trace";
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
+import { writeCollabText } from "@/pages/design-editor/collab-sync";
 import {
   LOCAL_EDIT_ORIGIN,
   TAB_ID,
@@ -104,6 +105,12 @@ export function runApplyLocalContentUpdate(
   nextContent: string,
   options: {
     refreshPreview?: boolean;
+    /**
+     * Requires the caller to own the preview: it already patched the live
+     * iframe, or its target is not the rendered document. Set on a
+     * host-computed edit to the active screen and the canvas renders stale
+     * content until a reload.
+     */
     skipPreview?: boolean;
     forcePreviewFullDocument?: boolean;
     immediateSave?: boolean;
@@ -258,7 +265,7 @@ export function runApplyLocalContentUpdate(
   // couldn't run (bridge not registered for this surface yet, or an
   // explicit forceRefresh request).
   const replacedPreview = options.skipPreview
-    ? "applied"
+    ? "skipped-caller-owns-preview"
     : forceRefresh
       ? "unavailable"
       : replacePreviewContent(
@@ -268,27 +275,31 @@ export function runApplyLocalContentUpdate(
             ? { forceFullDocument: true }
             : undefined,
         );
-  if (
-    forceRefresh ||
-    previewContentReplaceNeedsRenderFallback(replacedPreview)
-  ) {
+  const renderFallback =
+    forceRefresh || previewContentReplaceNeedsRenderFallback(replacedPreview);
+  trace("persist", "preview", {
+    outcome: replacedPreview,
+    forceFullDocument: options.forcePreviewFullDocument === true,
+    renderFallback,
+    bytes: nextContent.length,
+  });
+  if (renderFallback) {
     setContentRenderRevision((revision) => revision + 1);
   }
   if (ydoc && isSynced) {
     const ytext = ydoc.getText("content");
     if (ytext.toString() !== nextContent) {
       if (!yjsHistoryAvailable) {
-        // Untracked full rewrite (recordHistory:false callers such as the
+        // Untracked write (recordHistory:false callers such as the
         // code-layer id-stamping effect, or history-suppressed replays) —
         // see U1 note above: clear the undo stack so a stale tracked
         // delta can't be replayed against content it no longer matches.
         undoManagerRef.current?.clear(true, false);
       }
-      ydoc.transact(
-        () => {
-          ytext.delete(0, ytext.length);
-          ytext.insert(0, nextContent);
-        },
+      writeCollabText(
+        ydoc,
+        ytext,
+        nextContent,
         yjsHistoryAvailable ? LOCAL_EDIT_ORIGIN : TAB_ID,
       );
     }
