@@ -3,8 +3,10 @@ import {
   IconBrain,
   IconBrandChrome,
   IconBrandJira,
+  IconBrush,
   IconCalendar,
   IconChartBar,
+  IconClipboardList,
   IconCode,
   IconFileText,
   IconFolder,
@@ -15,9 +17,11 @@ import {
   IconPhoto,
   IconPresentation,
   IconRoute,
+  IconScreenShare,
   IconSettings,
   IconStack2,
   IconUsers,
+  IconVideoPlus,
 } from "@tabler/icons-react";
 import type { CSSProperties } from "react";
 
@@ -39,6 +43,10 @@ const APP_ICON_MAP: Record<string, typeof IconStack2> = {
   ListCheck: IconListCheck,
   Folder: IconFolder,
   Settings: IconSettings,
+  Brush: IconBrush,
+  ScreenShare: IconScreenShare,
+  ClipboardList: IconClipboardList,
+  VideoPlus: IconVideoPlus,
 };
 
 export default function CodeAgentsAppIcon({

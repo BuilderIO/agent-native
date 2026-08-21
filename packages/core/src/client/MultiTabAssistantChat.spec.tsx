@@ -38,6 +38,10 @@ const chatHandleMocks = vi.hoisted(() => ({
   exportThreadSnapshot: vi.fn(() => null),
 }));
 
+const assistantChatMockState = vi.hoisted(() => ({
+  onThreadRestoreNotFound: undefined as (() => void) | undefined,
+}));
+
 const threadMocks = vi.hoisted(() => ({
   activeThreadId: "thread-1",
   threads: [
@@ -224,7 +228,10 @@ vi.mock("./AssistantChat.js", async () => {
         availableModels?: Array<{ engine: string; configured: boolean }>;
         contextScope?: ChatThreadScope | null;
         contextNamespace?: string;
+        onThreadRestoreNotFound?: () => void;
       };
+      assistantChatMockState.onThreadRestoreNotFound =
+        props.onThreadRestoreNotFound;
       React.useImperativeHandle(ref, () => ({
         sendMessage: chatHandleMocks.sendMessage,
         prefillMessage: chatHandleMocks.prefillMessage,
@@ -262,6 +269,7 @@ vi.mock("./AssistantChat.js", async () => {
 });
 
 function resetThreadMocks() {
+  assistantChatMockState.onThreadRestoreNotFound = undefined;
   threadMocks.activeThreadId = "thread-1";
   threadMocks.threads = [
     {
@@ -1883,6 +1891,60 @@ describe("MultiTabAssistantChat tab close/open lifecycle", () => {
       "thread-1",
       "thread-2",
     ]);
+  });
+
+  it("replaces an active missing thread with a fresh chat", async () => {
+    const replacementId = "thread-replacement";
+    threadMocks.createThread.mockImplementationOnce(async () => {
+      threadMocks.activeThreadId = replacementId;
+      threadMocks.threads = [makeThread(replacementId), ...threadMocks.threads];
+      return replacementId;
+    });
+
+    let headerProps: MultiTabAssistantChatHeaderProps | null = null;
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="missing-thread-test"
+          renderHeader={(props) => {
+            headerProps = props;
+            return null;
+          }}
+        />,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(assistantChatMockState.onThreadRestoreNotFound).toEqual(
+      expect.any(Function),
+    );
+
+    await act(async () => {
+      assistantChatMockState.onThreadRestoreNotFound?.();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(headerProps?.tabs.map((tab) => tab.id)).toEqual([replacementId]);
+  });
+
+  it("does not replace a desktop thread before identity restore settles", async () => {
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          agentChatSurface="desktop"
+          desktopIdentityAuthenticated={false}
+          storageKey="desktop-missing-thread-test"
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(assistantChatMockState.onThreadRestoreNotFound).toBeUndefined();
   });
 
   it("gives short chat titles enough room before the close target", async () => {

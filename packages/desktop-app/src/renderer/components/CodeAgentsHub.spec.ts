@@ -22,6 +22,7 @@ import {
   isNativeDesktopIntegrationsPath,
   shouldShowNativeDesktopIntegrations,
   shouldShowNativeDesktopIntegrationsGuest,
+  shouldUseDesktopAppChatShell,
   isChatFirstSurfaceTabActive,
   updateAppAuthStateByTab,
   updateWebContentsIdByTab,
@@ -275,11 +276,19 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
 
     expect(hubSource).toContain("desktop-chat-first-rail-footer-actions");
     expect(hubSource).toContain(
-      'desktop-chat-first-rail-settings"\n                    onClick',
+      'import { FeedbackButton } from "@agent-native/core/client/ui";',
     );
+    expect(hubSource).toContain("desktop-chat-first-rail-feedback");
+    expect(hubSource).toContain(
+      "https://forms.agent-native.com/f/agent-native-feedback/_16ewV",
+    );
+    expect(hubSource).not.toContain("desktop-chat-first-rail-settings");
+    expect(hubSource).not.toContain('<DesktopRailTooltip label="Settings">');
+    expect(hubSource).toContain("<TooltipProvider delayDuration={0}>");
     expect(hubSource).toContain("IconLayoutSidebarLeftCollapse");
     expect(hubSource).toContain("desktop-chat-first-rail-collapse");
     expect(hubSource).toContain("data-chat-first-rail-collapse");
+    expect(hubSource).toContain("<DesktopRailTooltip");
     expect(hubSource).toContain("setChatFirstRailCollapsed(true)");
     expect(hubSource).not.toContain(
       '{chatFirstRailCollapsed ? "Expand" : "Collapse"}',
@@ -295,7 +304,7 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     );
     expect(shellCss).toContain("border-bottom: 0;");
     expect(shellCss).toMatch(
-      /\.desktop-chat-first-rail-footer-actions\s*>\s*\.desktop-chat-first-rail-settings\s*\{[\s\S]*?flex: 1 1 auto;/,
+      /\.desktop-chat-first-rail-footer-actions\s*>\s*\.desktop-chat-first-rail-feedback\s*\{[\s\S]*?flex: 1 1 auto;/,
     );
     expect(shellCss).toContain("visibility: hidden;");
     expect(shellCss).toContain("margin-top: auto;");
@@ -303,6 +312,26 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(shellCss).toContain("min-height: 0;");
     expect(shellCss).toContain("z-index: 1;");
     expect(shellCss).toContain("[data-chat-first-rail-collapse]");
+  });
+
+  it("routes Electron-forwarded Cmd+backslash to the chat sidebar", () => {
+    const hubSource = readFileSync(
+      "src/renderer/components/CodeAgentsHub.tsx",
+      "utf8",
+    );
+    const mainSource = readFileSync("src/main/index.ts", "utf8");
+
+    expect(hubSource).toContain("isDesktopChatToggleShortcut");
+    expect(hubSource).toContain(
+      'window.dispatchEvent(new Event("agent-panel:toggle"))',
+    );
+    expect(mainSource).toContain(
+      "const isAgentSidebarToggleShortcut = isDesktopChatToggleShortcut(input);",
+    );
+    expect(mainSource).toContain(
+      "if (forwardDesktopNavigationShortcut(event, input)) return;",
+    );
+    expect(mainSource).toContain("if (isDesktopChatToggleShortcut(input)) {");
   });
 
   it("orders pinned desktop apps ahead of unpinned apps and filters by name or description", () => {
@@ -560,6 +589,12 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     ).toBe(false);
   });
 
+  it("keeps the primary Integrations surface out of per-app chat", () => {
+    expect(shouldUseDesktopAppChatShell("/integrations")).toBe(false);
+    expect(shouldUseDesktopAppChatShell("/admin/integrations")).toBe(false);
+    expect(shouldUseDesktopAppChatShell("/calendar")).toBe(true);
+  });
+
   it("shows the authenticated guest during native MCP OAuth", () => {
     expect(
       shouldShowNativeDesktopIntegrationsGuest({
@@ -757,5 +792,26 @@ describe("CodeAgentsHub app auth state", () => {
       "dispatch-tab-1": "authenticated",
       "dispatch-tab-2": "authenticated",
     });
+  });
+
+  it("does not demote a confirmed state while a navigation probe is pending", () => {
+    const authenticated = updateAppAuthStateByTab(
+      {},
+      "dispatch-tab",
+      "authenticated",
+    );
+    expect(
+      updateAppAuthStateByTab(authenticated, "dispatch-tab", "unknown"),
+    ).toBe(authenticated);
+
+    const unauthenticated = updateAppAuthStateByTab(
+      authenticated,
+      "dispatch-tab",
+      "unauthenticated",
+    );
+    expect(unauthenticated).toEqual({ "dispatch-tab": "unauthenticated" });
+    expect(
+      updateAppAuthStateByTab(unauthenticated, "dispatch-tab", "unknown"),
+    ).toBe(unauthenticated);
   });
 });

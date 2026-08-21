@@ -3,6 +3,7 @@ import { notify } from "@agent-native/core/notifications";
 import { resolveOrgIdForEmail } from "@agent-native/core/org";
 import {
   organizationResourceOwner,
+  resourceDeleteByPath,
   resourceGetByPath,
   resourcePut,
   resourcePutIfCurrent,
@@ -12,10 +13,21 @@ import {
   defineNitroPlugin,
   runWithRequestContext,
 } from "@agent-native/core/server";
+import { listAutomationDefinitions } from "@agent-native/core/triggers";
 import { and, eq, isNull, lt, ne, or } from "drizzle-orm";
 
 import { getDb } from "../db/index.js";
 import { triageConfig } from "../db/schema.js";
+import { repairFactoryAutomationsFromConfig } from "../lib/factory-automation-repair.js";
+import {
+  DEFAULT_FACTORY_ID,
+  factoryAutomationJobPath,
+  factoryConfigRowId,
+  patchAutomationResource,
+  readAutomationFactoryId,
+  readFactoryIdFromAutomationPath,
+  readTriageConfigRow,
+} from "../lib/factory-scope.js";
 import {
   repairSlackFeedbackPrompt,
   SLACK_HANDOFF_INSTRUCTION,
@@ -57,31 +69,23 @@ async function notifyFactoryAutomationFailure(
   if (
     (event.status !== "error" && event.status !== "interrupted") ||
     !event.orgId ||
-    !event.path.startsWith("jobs/factory-")
+    (!event.path.startsWith("jobs/factory-") &&
+      !event.path.startsWith("jobs/factories/"))
   ) {
     return;
   }
 
   const db = getDb();
-  const config = (
-    await db
-      .select({
-        ownerEmail: triageConfig.ownerEmail,
-        alertsEnabled: triageConfig.automationFailureAlertsEnabled,
-        alertEmail: triageConfig.automationFailureAlertEmail,
-      })
-      .from(triageConfig)
-      .where(
-        and(
-          eq(triageConfig.id, event.orgId),
-          eq(triageConfig.orgId, event.orgId),
-        ),
-      )
-      .limit(1)
-  )[0];
-  if (!config || config.alertsEnabled !== 1) return;
+  const factoryId =
+    readFactoryIdFromAutomationPath(event.path) ?? DEFAULT_FACTORY_ID;
+  const config = await readTriageConfigRow(db, event.orgId, factoryId);
+  if (!config || config.automationFailureAlertsEnabled !== 1) return;
 
-  const recipient = (config.alertEmail || config.ownerEmail || "")
+  const recipient = (
+    config.automationFailureAlertEmail ||
+    config.ownerEmail ||
+    ""
+  )
     .trim()
     .toLowerCase();
   if (!recipient) return;
@@ -92,6 +96,7 @@ async function notifyFactoryAutomationFailure(
   const alertKey = `${event.automation}\n${error}`.slice(0, 700);
   const now = new Date();
   const cutoff = new Date(now.getTime() - FAILURE_ALERT_COOLDOWN_MS);
+  const configRowId = factoryConfigRowId(event.orgId, factoryId);
   const claimed = await db
     .update(triageConfig)
     .set({
@@ -100,7 +105,7 @@ async function notifyFactoryAutomationFailure(
     })
     .where(
       and(
-        eq(triageConfig.id, event.orgId),
+        eq(triageConfig.id, configRowId),
         eq(triageConfig.orgId, event.orgId),
         eq(triageConfig.automationFailureAlertsEnabled, 1),
         or(
@@ -116,7 +121,7 @@ async function notifyFactoryAutomationFailure(
 
   const url = factoryPublicUrl();
   const debugTarget = url
-    ? `${url}/factory?tab=automations`
+    ? `${url}/factory?factoryId=${encodeURIComponent(factoryId)}&tab=automations`
     : "Factory > Automations";
   const details = [
     `Automation: ${event.automation}`,
@@ -440,10 +445,31 @@ function frontmatterField(content: string, key: string): string | undefined {
   return value.replace(/^(\"|')|((\"|')$)/g, "");
 }
 
+function automationFactoryScopeInstruction(factoryId: string): string {
+  return `This automation runs for factory \`${factoryId}\`. Pass \`factoryId: "${factoryId}"\` on every Factory triage, poll, and config action in this run.`;
+}
+
+function repairAutomationFactoryScopeInstruction(
+  content: string,
+  factoryId: string,
+): string {
+  if (content.includes(`Pass \`factoryId: "${factoryId}"\``)) {
+    return content;
+  }
+  const end = content.indexOf("\n---", 4);
+  if (end === -1) {
+    return `${automationFactoryScopeInstruction(factoryId)}\n\n${content.trim()}\n`;
+  }
+  const insertAt = end + 4;
+  return `${content.slice(0, insertAt)}\n\n${automationFactoryScopeInstruction(factoryId)}\n${content.slice(insertAt)}`;
+}
+
 function automationContent(
   ownerEmail: string,
   orgId: string,
+  factoryId: string,
   seed: AutomationSeed,
+  enabled = true,
 ): string {
   const body = syncManagedReviewSkillAlignment(
     seed.body.trim(),
@@ -451,17 +477,20 @@ function automationContent(
   );
   return `---
 schedule: "${seed.schedule}"
-${seed.timezone ? `timezone: ${seed.timezone}\n` : ""}enabled: true
+${seed.timezone ? `timezone: ${seed.timezone}\n` : ""}enabled: ${enabled ? "true" : "false"}
 triggerType: schedule
 domain: factory
 appId: factory
 orgId: ${orgId}
+factoryId: ${factoryId}
 createdBy: ${ownerEmail}
 runAs: creator
 model: ${seed.model}
 maxIterations: ${seed.maxIterations}
 maxRunInputTokens: ${seed.maxRunInputTokens}
 ---
+${automationFactoryScopeInstruction(factoryId)}
+
 ${body.trim()}
 `;
 }
@@ -480,20 +509,26 @@ async function disableLegacyObserver(): Promise<void> {
   }
 }
 
-async function ensureOrganizationAutomations(
+export async function ensureFactoryAutomations(
   ownerEmail: string,
   orgId: string,
+  factoryId: string,
+  options?: { enabled?: boolean; enabledNames?: ReadonlySet<string> },
 ): Promise<void> {
   const owner = organizationResourceOwner(orgId);
+  const defaultEnabled = options?.enabled ?? false;
   await Promise.all(
     AUTOMATION_SEEDS.map(async (seed) => {
-      const path = `jobs/${seed.name}.md`;
+      const enabled = options?.enabledNames
+        ? options.enabledNames.has(seed.name)
+        : defaultEnabled;
+      const path = factoryAutomationJobPath(factoryId, seed.name);
       const existing = await resourceGetByPath(owner, path);
       if (!existing) {
         await resourcePut(
           owner,
           path,
-          automationContent(ownerEmail, orgId, seed),
+          automationContent(ownerEmail, orgId, factoryId, seed, enabled),
           "text/markdown",
         );
         return;
@@ -507,6 +542,7 @@ async function ensureOrganizationAutomations(
       repaired = setFrontmatterField(repaired, "domain", "factory");
       repaired = setFrontmatterField(repaired, "appId", "factory");
       repaired = setFrontmatterField(repaired, "orgId", orgId);
+      repaired = setFrontmatterField(repaired, "factoryId", factoryId);
       repaired = setFrontmatterField(repaired, "createdBy", ownerEmail);
       repaired = setFrontmatterField(repaired, "runAs", "creator");
       if (!frontmatterField(repaired, "model")) {
@@ -552,6 +588,7 @@ async function ensureOrganizationAutomations(
       if (seed.name === "factory-slack-feedback") {
         repaired = repairSlackFeedbackPrompt(repaired);
       }
+      repaired = repairAutomationFactoryScopeInstruction(repaired, factoryId);
       if (repaired === existing.content) return;
 
       const updated = await resourcePutIfCurrent({
@@ -572,33 +609,95 @@ async function ensureOrganizationAutomations(
   );
 }
 
+export async function syncFactoryAutomationEnabledStates(
+  ownerEmail: string,
+  orgId: string,
+  factoryId: string,
+  enabledNames: readonly string[],
+): Promise<void> {
+  const enabledSet = new Set(enabledNames);
+  const definitions = await listAutomationDefinitions(
+    { userEmail: ownerEmail, orgId, appId: "factory" },
+    "organization",
+  );
+  await Promise.all(
+    definitions
+      .filter(
+        (definition) =>
+          readAutomationFactoryId(
+            definition.meta,
+            definition.resource.content,
+          ) === factoryId,
+      )
+      .map(async (definition) => {
+        const resource = await resourceGetByPath(
+          definition.resource.owner,
+          definition.resource.path,
+        );
+        if (!resource) return;
+        const leafName =
+          definition.resource.path.match(/([^/]+)\.md$/)?.[1] ??
+          definition.name;
+        const enabled = enabledSet.has(leafName);
+        const content = patchAutomationResource(resource.content, { enabled });
+        if (content === resource.content) return;
+        const updated = await resourcePutIfCurrent({
+          owner: definition.resource.owner,
+          path: definition.resource.path,
+          content,
+          mimeType: "text/markdown",
+          expectedId: resource.id,
+          expectedUpdatedAt: resource.updatedAt,
+          expectedContent: resource.content,
+        });
+        if (!updated) {
+          console.warn(
+            `[factory-scheduler-job] skipped enabled-state sync for ${definition.resource.path}: the resource changed concurrently`,
+          );
+        }
+      }),
+  );
+}
+
+export async function removeFactoryAutomationResources(
+  orgId: string,
+  factoryId: string,
+): Promise<void> {
+  const owner = organizationResourceOwner(orgId);
+  await Promise.all(
+    AUTOMATION_SEEDS.map(async (seed) => {
+      await resourceDeleteByPath(
+        owner,
+        factoryAutomationJobPath(factoryId, seed.name),
+      );
+    }),
+  );
+}
+
 async function ensureDefaultTriageConfig(
   ownerEmail: string,
   orgId: string,
 ): Promise<void> {
   const db = getDb();
-  const existing = (
-    await db
-      .select({
-        id: triageConfig.id,
-      })
-      .from(triageConfig)
-      .where(and(eq(triageConfig.id, orgId), eq(triageConfig.orgId, orgId)))
-      .limit(1)
-  )[0];
-  const repository = defaultRepository();
-  // Existing rows are operator-owned. An empty repository plus disabled
-  // polling can be an intentional choice, so do not infer bootstrap state.
-  if (existing) return;
+  const factoryId = DEFAULT_FACTORY_ID;
+  const existing = await readTriageConfigRow(db, orgId, factoryId);
+  if (existing) {
+    await repairFactoryAutomationsFromConfig(ownerEmail, orgId, factoryId);
+    return;
+  }
   const now = new Date().toISOString();
+  const repository = defaultRepository();
+  const pollingEnabled = 1;
+  const githubPollingEnabled = defaultGithubPollingEnabled() ? 1 : 0;
   await db.insert(triageConfig).values({
-    id: orgId,
+    id: factoryConfigRowId(orgId, factoryId),
+    factoryId,
     slackWorkspace: "primary",
     slackChannelId: DEFAULT_SLACK_CHANNEL_ID,
     slackChannelName: DEFAULT_SLACK_CHANNEL_NAME,
     builderSlackUserId: null,
-    pollingEnabled: 1,
-    githubPollingEnabled: defaultGithubPollingEnabled(),
+    pollingEnabled,
+    githubPollingEnabled,
     sentryPollingEnabled: 0,
     lastSlackTs: null,
     slackHistoryCursor: null,
@@ -612,6 +711,7 @@ async function ensureDefaultTriageConfig(
     ownerEmail,
     orgId,
   });
+  await repairFactoryAutomationsFromConfig(ownerEmail, orgId, factoryId);
 }
 
 async function ensureSchedulerJobs(): Promise<void> {
@@ -636,7 +736,6 @@ async function ensureSchedulerJobs(): Promise<void> {
     orgId = existingConfig.orgId?.trim() || existingConfig.id;
   }
   await ensureDefaultTriageConfig(ownerEmail, orgId);
-  await ensureOrganizationAutomations(ownerEmail, orgId);
   await disableLegacyObserver();
 }
 

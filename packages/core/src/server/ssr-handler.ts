@@ -221,12 +221,30 @@ function injectDefaultSocialImageMeta(html: string, imageUrl: string): string {
   return html.slice(0, headCloseIdx) + tags.join("") + html.slice(headCloseIdx);
 }
 
+/**
+ * A "not found" shell is exactly as impersonal as a 200 shell, and leaving it
+ * uncached is expensive in a way that is invisible until it is not: every dead
+ * link, stale bookmark, renamed slug and crawler miss re-invoked the render
+ * function, and Netlify runs one request per container. Measured on
+ * www.agent-native.com, `/docs/<anything>` cost ~5s and cost the SAME ~5s on
+ * the very next identical request, because `no-cache` meant nothing was ever
+ * stored. Those invocations draw from the account-wide concurrency pool every
+ * other site shares, so one crawler walking dead links slowed unrelated apps.
+ *
+ * Only 404/410 join the shared policy. A 5xx is transient and must stay
+ * uncacheable — pinning one at the edge for the SWR window would turn a blip
+ * into an outage. 401/403 stay out because an auth-shaped response is the one
+ * error that could carry viewer-specific meaning.
+ */
+const CACHEABLE_ERROR_STATUSES = new Set([404, 410]);
+
 function isSsrHtmlOrDataResponse(
   headers: Headers,
   status: number,
   pathname: string,
 ): boolean {
-  if (status < 200 || status >= 400) return false;
+  if (status < 200) return false;
+  if (status >= 400 && !CACHEABLE_ERROR_STATUSES.has(status)) return false;
   const contentType = headers.get("content-type")?.toLowerCase() ?? "";
   if (contentType.includes("text/html")) return true;
   return pathname.endsWith(".data") && contentType.includes("text/x-script");

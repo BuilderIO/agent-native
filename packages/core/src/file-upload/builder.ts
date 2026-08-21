@@ -300,6 +300,33 @@ export const builderFileUploadProvider: FileUploadProvider = {
     return { url: json.url, id: json.id, provider: "builder" };
   },
 
+  delete: async ({ url }) => {
+    const assetUrl = new URL(url);
+    if (assetUrl.hostname !== "cdn.builder.io") return false;
+    assetUrl.search = "";
+    assetUrl.hash = "";
+
+    const { resolveBuilderCredentials } =
+      await import("../server/credential-provider.js");
+    const credentials = await resolveBuilderCredentials();
+    if (!credentials.privateKey || !credentials.publicKey) return false;
+
+    const deleteUrl = new URL(
+      "/api/v1/assets/by-url",
+      "https://cdn.builder.io",
+    );
+    deleteUrl.searchParams.set("url", assetUrl.toString());
+    deleteUrl.searchParams.set("apiKey", credentials.publicKey);
+    const response = await fetchWithTimeout(deleteUrl.toString(), {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${credentials.privateKey}` },
+    });
+    if (response.ok) return true;
+    if (response.status === 404) return false;
+    await assertOk(response, "Builder.io asset delete failed");
+    return false;
+  },
+
   resumable: {
     async startSession(filename, mimeType, maxBytes) {
       const { resolveBuilderPrivateKey } =

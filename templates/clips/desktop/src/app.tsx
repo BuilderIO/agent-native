@@ -102,7 +102,6 @@ import {
   startBubbleWebrtc,
   type BubbleWebrtcHandle,
 } from "./lib/bubble-webrtc";
-import { openBoundOAuthWindow } from "./lib/desktop-oauth-window";
 import {
   getCameraStreamWithFallback,
   isMediaConstraintFailure,
@@ -2313,17 +2312,15 @@ export function App({
     void tick();
   }
 
-  // Google verification stays in a child of the bound Tauri WebView so the
-  // callback sees the same browser-binding cookie. Magic-link verification
-  // still completes in the system browser through its own exchange flow.
+  // Google verification opens in the system browser so the user's Google
+  // cookies are available. The client-held verifier still gates the exchange
+  // back into this Tauri app.
   async function signInExternal() {
     if (signInInflightRef.current) return;
     signInInflightRef.current = true;
-    let oauthWindow: ReturnType<typeof openBoundOAuthWindow> | null = null;
 
     try {
       setSignInError(null);
-      oauthWindow = openBoundOAuthWindow();
       const flowId = crypto.randomUUID?.() ?? null;
       const verifier = (() => {
         const randomUuid = crypto.randomUUID;
@@ -2382,12 +2379,11 @@ export function App({
               : "Could not start Google sign-in.";
         throw new Error(message);
       }
-      oauthWindow.location.href = authPayload.url;
+      await openExternal(authPayload.url);
       setSignInPending("google");
       startDesktopAuthExchange(flowId, "google", verifier);
     } catch (err) {
       console.error("[clips-tray] signInExternal failed:", err);
-      oauthWindow?.close();
       signInInflightRef.current = false;
       setSignInPending(null);
       setSignInError(

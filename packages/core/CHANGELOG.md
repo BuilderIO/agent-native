@@ -1,5 +1,96 @@
 # @agent-native/core
 
+## 0.168.9
+
+### Patch Changes
+
+- e5e6934: Automatically replace a missing saved chat thread with a fresh chat in multi-tab hosts.
+- e5e6934: Cache 404 and 410 SSR shells with the same public CDN policy as 200 shells. They previously carried `no-cache`, so every dead link, stale bookmark, renamed slug and crawler miss re-invoked the render function — the same URL cost a full cold render on every request. Netlify runs one request per container, so those invocations drew from the account-wide concurrency pool other sites share. 5xx stays uncacheable, and 401/403 are deliberately excluded.
+- e5e6934: Add a Google sign-in credential self-check at `/_agent-native/health/google`.
+
+  The callback returns an identical error page for a wrong client secret and a
+  stale authorization code, so a broken credential is invisible from outside
+  while `/_agent-native/health` keeps reporting `ok:true`. The new route asks
+  Google directly and reports `valid`, `invalid`, `unconfigured`, or `unknown` —
+  a transport failure is never reported as valid — plus whether the deploy
+  carries two credential pairs naming different Google clients.
+
+- e5e6934: Keep desktop app chat immediately available while app tabs load, and allow hosts to start fresh chat threads without restoring history on mount.
+- dd80d09: Keep the full workspace credential workflow reachable from the redesigned integrations catalog.
+- 127606d: Sync localized overview documentation with the current English guides.
+- e5e6934: Refresh integration and Dispatch app surfaces with connected-first layouts and two-column cards.
+- e5e6934: Read org-scoped settings with a prefix-scoped query instead of loading the whole settings table. `listOrgSettings` pulled and JSON-parsed every organization's rows into the caller to keep one org's, putting the entire deployment's settings table on the critical path of any org-scoped list read. `listSettingsByPrefix` is now exported from `@agent-native/core/settings` so apps can do the same for their own scoped reads.
+
+## 0.168.8
+
+### Patch Changes
+
+- 81fa180: Show immediate tooltips for apps and navigation controls in the collapsed chat-first rail.
+
+## 0.168.7
+
+### Patch Changes
+
+- a1d24db: Automatically replace a missing saved chat thread with a fresh chat in multi-tab hosts.
+- a1d24db: Cache 404 and 410 SSR shells with the same public CDN policy as 200 shells. They previously carried `no-cache`, so every dead link, stale bookmark, renamed slug and crawler miss re-invoked the render function — the same URL cost a full cold render on every request. Netlify runs one request per container, so those invocations drew from the account-wide concurrency pool other sites share. 5xx stays uncacheable, and 401/403 are deliberately excluded.
+- a1d24db: Add a Google sign-in credential self-check at `/_agent-native/health/google`.
+
+  The callback returns an identical error page for a wrong client secret and a
+  stale authorization code, so a broken credential is invisible from outside
+  while `/_agent-native/health` keeps reporting `ok:true`. The new route asks
+  Google directly and reports `valid`, `invalid`, `unconfigured`, or `unknown` —
+  a transport failure is never reported as valid — plus whether the deploy
+  carries two credential pairs naming different Google clients.
+
+- a1d24db: Read org-scoped settings with a prefix-scoped query instead of loading the whole settings table. `listOrgSettings` pulled and JSON-parsed every organization's rows into the caller to keep one org's, putting the entire deployment's settings table on the critical path of any org-scoped list read. `listSettingsByPrefix` is now exported from `@agent-native/core/settings` so apps can do the same for their own scoped reads.
+
+## 0.168.6
+
+### Patch Changes
+
+- 186d913: Allow encrypted public-upload fallback blobs to delete their backing Builder or S3 assets, and fail closed when an explicitly selected private blob provider is unavailable.
+
+## 0.168.5
+
+### Patch Changes
+
+- 60aaea8: Keep app surfaces mounted when a host temporarily disables the chat sidebar.
+
+## 0.168.4
+
+### Patch Changes
+
+- 4e1ce88: Automatically replace a missing saved chat thread with a fresh chat in multi-tab hosts.
+- 4e1ce88: Add a Google sign-in credential self-check at `/_agent-native/health/google`.
+
+  The callback returns an identical error page for a wrong client secret and a
+  stale authorization code, so a broken credential is invisible from outside
+  while `/_agent-native/health` keeps reporting `ok:true`. The new route asks
+  Google directly and reports `valid`, `invalid`, `unconfigured`, or `unknown` —
+  a transport failure is never reported as valid — plus whether the deploy
+  carries two credential pairs naming different Google clients.
+
+- 4e1ce88: Read org-scoped settings with a prefix-scoped query instead of loading the whole settings table. `listOrgSettings` pulled and JSON-parsed every organization's rows into the caller to keep one org's, putting the entire deployment's settings table on the critical path of any org-scoped list read. `listSettingsByPrefix` is now exported from `@agent-native/core/settings` so apps can do the same for their own scoped reads.
+
+## 0.168.3
+
+### Patch Changes
+
+- 97e8cea: Read org-scoped settings with a prefix-scoped query instead of loading the whole settings table. `listOrgSettings` pulled and JSON-parsed every organization's rows into the caller to keep one org's, putting the entire deployment's settings table on the critical path of any org-scoped list read. `listSettingsByPrefix` is now exported from `@agent-native/core/settings` so apps can do the same for their own scoped reads.
+
+## 0.168.2
+
+### Patch Changes
+
+- 8617890: Generate the canonical public stale-while-revalidate headers for Netlify static build artifacts and guard prerendered apps against the platform default cache policy.
+
+## 0.168.1
+
+### Patch Changes
+
+- 07e0de3: Show the personal or workspace scope choice before connecting an integration in an organization, including a clear owner/admin requirement for members.
+- 68265a5: Forward hosted provider setup callbacks through `AgentSidebar` so Electron chat can show its native AI connection action after sign-in, and allow the native integrations surface to route OAuth through the authenticated app webview.
+
 ## 0.168.0
 
 ### Minor Changes

@@ -9,6 +9,7 @@ import { defaultFactoryGraph } from "../server/factory-graph/contracts.js";
 const getDbMock = vi.hoisted(() => vi.fn());
 const requireWorkspaceMemberMock = vi.hoisted(() => vi.fn());
 const workspaceMemberIdentityFromContextMock = vi.hoisted(() => vi.fn());
+const ensureFactoryAutomationsMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (definition: unknown) => definition,
@@ -20,6 +21,10 @@ vi.mock("@agent-native/core/server", () => ({
 
 vi.mock("../server/db/index.js", () => ({
   getDb: getDbMock,
+}));
+
+vi.mock("../server/plugins/factory-scheduler-job.js", () => ({
+  ensureFactoryAutomations: ensureFactoryAutomationsMock,
 }));
 
 vi.mock("../server/lib/require-workspace-member.js", () => ({
@@ -36,6 +41,7 @@ const graph = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  ensureFactoryAutomationsMock.mockResolvedValue(undefined);
   requireWorkspaceMemberMock.mockResolvedValue({
     userEmail: "owner@example.com",
     orgId: "org-1",

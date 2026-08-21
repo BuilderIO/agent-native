@@ -3140,7 +3140,16 @@ function createAuthGuardFn(
     // health exposes only aggregate readiness and a trivial `SELECT 1`.
     // Without this bypass the gate below 401s anonymous /_agent-native/*
     // requests before either probe can run.
-    if (p === "/_agent-native/ping" || p === "/_agent-native/health") return;
+    if (
+      p === "/_agent-native/ping" ||
+      p === "/_agent-native/health" ||
+      // The credential self-check is read by an unauthenticated monitor. Without
+      // this the gate 401s it, the monitor reads a non-JSON body as "route not
+      // deployed", and the check silently never runs.
+      p === "/_agent-native/health/google"
+    ) {
+      return;
+    }
     if (getMethod(event) === "GET" && p.startsWith("/_agent-native/avatar/")) {
       return;
     }

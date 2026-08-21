@@ -191,6 +191,7 @@ import {
   trackPluginInit,
 } from "./framework-request-handler.js";
 import { createGatewayAccessCheckHandler } from "./gateway-access-check.js";
+import { checkGoogleSignInCredential } from "./google-credential-check.js";
 import { getAppBasePath, getOrigin } from "./google-oauth.js";
 import { createGoogleRealtimeSessionHandler } from "./google-realtime-session.js";
 import {
@@ -1567,6 +1568,19 @@ export function createCoreRoutesPlugin(
       }
 
       if (!options.disableHealth) {
+        // Registered before `/health` because h3 matches by prefix, and the
+        // health handler would otherwise swallow this path.
+        getH3App(nitroApp).use(
+          `${P}/health/google`,
+          defineEventHandler(async (event) => {
+            setResponseHeader(event, "cache-control", "no-store");
+            const result = await checkGoogleSignInCredential();
+            // `invalid` is the fleet-wide outage shape: the deploy is up and
+            // healthy while nobody can sign in. Page on it.
+            if (result.status === "invalid") setResponseStatus(event, 503);
+            return result;
+          }),
+        );
         getH3App(nitroApp).use(
           `${P}/health`,
           defineEventHandler(async (event) => {

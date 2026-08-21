@@ -1,6 +1,6 @@
 [build]
 ignore = "node ./scripts/netlify-ignore-build.mjs brain"
-command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter brain build && pnpm exec tsx templates/brain/jobs/emit-netlify-brain-queue-cron.ts && if [ \"${CONTEXT:-}\" = \"production\" ]; then pnpm --filter brain migrate:production; fi"
+command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter brain build && pnpm exec tsx templates/brain/jobs/emit-netlify-brain-queue-cron.ts && if [ \"${CONTEXT:-}\" = \"production\" ] || [ \"${AGENT_NATIVE_RUN_RELEASE_MIGRATIONS:-}\" = \"1\" ]; then pnpm --filter brain migrate:production; fi"
 publish = "templates/brain/dist"
 functions = "templates/brain/.netlify/functions-internal"
 
@@ -14,6 +14,9 @@ NPM_CONFIG_PRODUCTION = "false"
 AGENT_NATIVE_HOSTED_HARNESS = "true"
 AGENT_NATIVE_ENABLE_KEEP_WARM = "1"
 AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND = "1"
+# Production release migrations own schema setup; request functions must skip
+# migration probes on every serverless invocation.
+AGENT_NATIVE_RELEASE_MIGRATIONS = "1"
 
 # A2A delegation calls run a full agent loop (LLM + tool calls + DB queries).
 # The framework does not impose a default agent-run timeout; if a template sets

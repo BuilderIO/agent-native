@@ -39,6 +39,7 @@ import {
 } from "@shared/code-agents";
 import {
   formatDesktopShortcutAccelerator,
+  isDesktopChatToggleShortcut,
   normalizeDesktopShortcutAccelerator,
   shortcutOpenPathForBinding,
   type DesktopShortcutBinding,
@@ -231,6 +232,7 @@ import {
 } from "./computer-control";
 import { contentFilesWebviewDenialReason } from "./content-files-webview-access.js";
 import { deriveContentFilesRepositoryIdentity } from "./content-files/local-identity";
+import { readCookieHeaderForUrl } from "./cookie-header.js";
 import { DesktopDesignPreviewManager } from "./design-preview-manager";
 import {
   DESKTOP_IDENTITY_PARTITION,
@@ -3465,9 +3467,7 @@ async function cookieHeaderForRelay(
   relaySession: Electron.Session,
   relayUrl: string,
 ): Promise<string> {
-  const origin = new URL(relayUrl).origin;
-  const cookies = await relaySession.cookies.get({ url: origin });
-  return cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join("; ");
+  return readCookieHeaderForUrl(relaySession, relayUrl);
 }
 
 async function pairRemoteCodeAgentConnector(
@@ -13286,21 +13286,17 @@ app.on("web-contents-created", (_event, contents) => {
       return;
     }
 
-    const isAgentSidebarToggleShortcut =
-      !input.alt &&
-      !input.shift &&
-      (key === "\\" || input.code === "Backslash");
+    if (forwardDesktopNavigationShortcut(event, input)) return;
 
-    // Forward other Cmd+ shortcuts: F, L, R, T, Shift+T, 1-9, [, ], \
+    const isAgentSidebarToggleShortcut = isDesktopChatToggleShortcut(input);
+
+    // Forward other Cmd+ shortcuts: F, L, R, T, Shift+T, \
     const isShortcut =
       key === "f" ||
       key === "l" ||
       key === "r" ||
       key === "t" ||
-      key === "[" ||
-      key === "]" ||
-      isAgentSidebarToggleShortcut ||
-      (key >= "1" && key <= "9");
+      isAgentSidebarToggleShortcut;
 
     if (isShortcut) {
       event.preventDefault();
@@ -13851,9 +13847,6 @@ app.whenReady().then(async () => {
 
   app.on("web-contents-created", (_event, wc) => {
     if (wc.getType() !== "webview") return;
-    wc.on("before-input-event", (event, input) => {
-      forwardDesktopNavigationShortcut(event, input);
-    });
     let id = resolveDesktopWebviewAppId(wc);
     configureWebviewSession(wc.session, id);
     if (id) desktopWebviewAppIds.set(wc, id);
@@ -14029,12 +14022,8 @@ app.whenReady().then(async () => {
       return;
     }
 
-    // Cmd+\ — toggle the agent sidebar for the active webview
-    if (
-      !input.alt &&
-      !input.shift &&
-      (key === "\\" || input.code === "Backslash")
-    ) {
+    // Cmd+\\ — toggle the agent sidebar for the active webview
+    if (isDesktopChatToggleShortcut(input)) {
       _event.preventDefault();
       win.webContents.send("shortcut:keydown", {
         key: "\\",

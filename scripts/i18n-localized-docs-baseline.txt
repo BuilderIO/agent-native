@@ -26,7 +26,6 @@ packages/core/docs/content/locales/ar-SA/template-slides.mdx|"10-slide pitch dec
 packages/core/docs/content/locales/ar-SA/toolkit-capability-packages.mdx|Creative Context
 packages/core/docs/content/locales/ar-SA/toolkit-context-knowledge.mdx|Context X-Ray
 packages/core/docs/content/locales/ar-SA/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
-packages/core/docs/content/locales/ar-SA/what-is-agent-native.mdx|Agent Surfaces
 packages/core/docs/content/locales/de-DE/actions-access-control.mdx|Needs approval
 packages/core/docs/content/locales/de-DE/actions-access-control.mdx|subject: Following up on the proposal
 packages/core/docs/content/locales/de-DE/agent-surfaces.mdx|Agent-Native routes
@@ -109,7 +108,6 @@ packages/core/docs/content/locales/fr-FR/template-slides.mdx|"10-slide pitch dec
 packages/core/docs/content/locales/fr-FR/toolkit-capability-packages.mdx|Creative Context
 packages/core/docs/content/locales/fr-FR/toolkit-context-knowledge.mdx|Context X-Ray
 packages/core/docs/content/locales/fr-FR/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
-packages/core/docs/content/locales/fr-FR/what-is-agent-native.mdx|Agent Surfaces
 packages/core/docs/content/locales/hi-IN/actions-access-control.mdx|Needs approval
 packages/core/docs/content/locales/hi-IN/actions-access-control.mdx|subject: Following up on the proposal
 packages/core/docs/content/locales/hi-IN/agent-surfaces.mdx|A2A Protocol
@@ -154,8 +152,6 @@ packages/core/docs/content/locales/hi-IN/toolkit-capability-packages.mdx|Creativ
 packages/core/docs/content/locales/hi-IN/toolkit-context-knowledge.mdx|Context X-Ray
 packages/core/docs/content/locales/hi-IN/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
 packages/core/docs/content/locales/hi-IN/what-is-agent-native.mdx|Agent Surfaces
-packages/core/docs/content/locales/hi-IN/what-is-agent-native.mdx|Getting Started
-packages/core/docs/content/locales/hi-IN/what-is-agent-native.mdx|Key Concepts
 packages/core/docs/content/locales/ja-JP/actions-access-control.mdx|Needs approval
 packages/core/docs/content/locales/ja-JP/actions-access-control.mdx|subject: Following up on the proposal
 packages/core/docs/content/locales/ja-JP/agent-surfaces.mdx|Generative UI

@@ -1,58 +1,177 @@
 ---
 title: "시작하기"
-description: "Chat 앱을 만들고 에이전트를 구성한 다음, 액션과 페이지를 추가해 확장하세요."
+description: "Agent-Native 앱을 만들고 에이전트와 UI에서 같은 액션을 호출합니다."
 ---
 
 # 시작하기
 
-Agent-Native 앱에서는 에이전트와 UI가 동일한 [액션](/docs/actions-overview), SQL 데이터, 애플리케이션 상태를 사용합니다. 이 경로는 필요한 프레임워크 테이블을 이미 만들고 채팅 기록을 기본적으로 로컬 SQLite에 저장하는 Chat에서 시작합니다. 앱에서 도메인 데이터를 저장해야 할 때만 자체 테이블을 추가하세요.
+Agent-Native는 사람과 AI 에이전트 모두를 지원하는 앱을 만들기 위한 오픈 소스
+TypeScript 프레임워크입니다. 앱의 기능을 한 번만 [액션](/docs/actions-overview)으로
+정의합니다. 액션은 React UI가 코드에서 호출하고 에이전트가 도구로 사용하는 타입이 지정된 함수입니다.
 
-<Steps>
+이 가이드에서는 Chat 앱을 만들고, 포함된 `hello` 액션을 에이전트와 UI에서 호출합니다.
 
-### 채팅 앱을 만들고 에이전트 구성하기
+## 사전 요구 사항
 
-Chat 템플릿을 스캐폴딩하고 종속 항목을 설치한 뒤 개발 서버를 시작하고 에이전트를 구성합니다. 확장할 수 있는 작동하는 채팅 앱이 만들어집니다.
-**현재 단계입니다.**
+- [Node.js](https://nodejs.org) 22 이상
+- [pnpm](https://pnpm.io)
+- 에이전트용 LLM 연결: Builder.io, Anthropic 또는 OpenAI API 키, 또는 로컬 Ollama 모델
 
-### 액션 추가하기
+## 앱 만들기
 
-타입이 지정된 텍스트 분석을 정의하고 그 결과를 채팅에서 차트로 렌더링합니다.
-
-### 페이지 추가하기
-
-트랜스크립트 밖에서 동일한 액션을 호출하는 React 라우트를 만듭니다.
-
-</Steps>
-
-## 1. 채팅 앱 만들기 {#create-your-app}
-
-[Node.js 22+](https://nodejs.org)와 [pnpm](https://pnpm.io)이 필요합니다.
-
-터미널을 열고 Agent Native 앱을 만들 디렉터리로 이동한 다음 다음 명령을 실행하세요.
+새 디렉터리에서 Chat 앱을 만드세요.
 
 ```bash
-npx @agent-native/core@latest create my-app --template chat
+npx @agent-native/core@latest create my-app --standalone --template chat
 cd my-app
 pnpm install
+```
+
+템플릿에는 브라우저 앱, 인증, 지속되는 대화, 라이브 동기화, 애플리케이션 컨텍스트,
+`actions/` 디렉터리가 포함됩니다. 이 가이드 전체에서 사용할 작은 `hello` 액션도 들어 있습니다.
+
+## 개발 서버 시작하기
+
+앱을 시작하세요.
+
+```bash
 pnpm dev
 ```
 
-앱은 `http://localhost:8080`에서 열립니다. 로그인 화면이 보이면 실제로 존재하지 않는 로그인 정보로 가입하세요. 로컬 개발에서는 이메일 인증이 필요하지 않습니다.
+앱은 `http://localhost:8080`에서 열립니다. 자동으로 열리지 않으면 브라우저에서 해당 URL로 이동하세요.
 
-Chat 템플릿에는 지속적인 채팅 스레드, 인증, 라이브 동기화, `actions/` 디렉터리, 표준 `view-screen` 및 `navigate` 액션이 포함되어 있습니다.
+<Callout tone="info">
 
-### 다른 시작점 선택하기
+Welcome 화면에서 **Continue as local dev**를 선택하세요. 로컬 개발에서는 이메일이나 비밀번호를 입력할 필요가 없습니다.
 
-Chat이 적합한 시작점이 아니라면 `--template` 없이 `create`를 실행하고 CLI에서 다른 옵션을 선택하세요. 다른 경로는 [템플릿 만들기](/docs/creating-templates)에서 확인할 수 있습니다.
+</Callout>
 
-## 2. 에이전트 구성하기 {#connect-ai}
+다음으로 LLM을 연결합니다. 무료 크레딧을 사용하려면 **Connect Builder.io**를 선택하세요. 또는 **Custom keys**를 선택하고, 프로바이더를 고른 뒤 필요한 연결 정보를 입력하세요.
 
-Chat 템플릿은 채팅 화면을 바로 엽니다. 에이전트가 응답할 준비가 되지 않았다면 **Settings > Manage agent**를 열거나 **Cmd/Ctrl+K > Manage agent**를 사용해 모델과 프로바이더를 구성하세요.
+## 에이전트에서 액션 실행하기
 
-에이전트가 응답하면 [액션 추가하기](/docs/getting-started-actions)로 계속 진행하세요.
+액션은 React UI가 코드에서 호출하고 에이전트가 도구로 사용할 수 있는 타입이 지정된 함수입니다. Chat 템플릿에는 간단한 `hello` 액션이 있어 직접 작성하기 전에 이 패턴을 시험할 수 있습니다.
 
-## 관련 문서
+앱에서 다음과 같이 요청하세요.
 
-- [Agent-Native란?](/docs/what-is-agent-native): 이 경로의 기반이 되는 아키텍처를 설명합니다.
-- [Chat 템플릿](/docs/template-chat): 시작 앱에 포함된 기능을 설명합니다.
-- [FAQ](/docs/faq): 모델, 호스팅, 템플릿에 관한 답변입니다.
+> Call the hello action for Alex.
+
+에이전트는 설명과 입력 스키마에서 `hello`를 찾아 `Alex`를 `name` 입력으로 전달하고 다음과 같이 응답합니다.
+
+```text
+Hello, Alex!
+```
+
+## 액션 살펴보기
+
+`actions/hello.ts`를 여세요.
+
+```ts filename="actions/hello.ts"
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Return a friendly greeting.",
+  schema: z.object({
+    name: z.string().default("world").describe("Name to greet"),
+  }),
+  http: { method: "GET" },
+  run: async ({ name }) => {
+    return { message: `Hello, ${name}!` };
+  },
+});
+```
+
+우선 다음 네 부분에 집중하세요.
+
+- `description`은 에이전트에게 액션을 언제 사용할지 알려 줍니다.
+- `schema`는 입력을 검증하고 에이전트에 타입이 지정된 도구 정의를 제공합니다.
+- `http`는 이 읽기 전용 액션을 `GET`으로 노출하여 `useActionQuery`가 React에서 호출할 수 있게 합니다.
+- `run`에는 에이전트와 UI가 공유하는 애플리케이션 로직이 들어 있습니다.
+
+전체 API는 [액션 정의하기](/docs/actions-defining)에서 확인하세요.
+
+## React에서 액션 호출하기
+
+`app/routes/hello.tsx`에 라우트를 추가하세요.
+
+```tsx filename="app/routes/hello.tsx"
+import { useActionQuery } from "@agent-native/core/client/hooks";
+import { useState } from "react";
+
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+
+export default function HelloRoute() {
+  const [name, setName] = useState("Alex");
+  const { data } = useActionQuery("hello", { name });
+
+  return (
+    <main className="mx-auto grid w-full max-w-xl gap-6 p-6">
+      <h1 className="text-2xl font-semibold">Hello action</h1>
+      <div className="grid gap-2">
+        <Label htmlFor="name">Name</Label>
+        <Input
+          id="name"
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+        />
+      </div>
+      <p className="text-xl font-medium">{data?.message}</p>
+    </main>
+  );
+}
+```
+
+<Callout tone="warning">
+
+새 라우트를 찾을 수 있도록 개발 서버를 다시 시작한 다음 `http://localhost:8080/hello`를 여세요.
+
+</Callout>
+
+이름을 입력하면 `useActionQuery`가 `hello`를 호출하고 결과를 렌더링합니다. 액션의 입력 및 결과 타입을 추론하므로 페이지에 맞춤 API 라우트나 인사말의 두 번째 구현이 필요하지 않습니다.
+
+## 액션 변경하기
+
+`actions/hello.ts`에서 반환 값을 변경하세요.
+
+```ts
+return { message: `Welcome, ${name}.` };
+```
+
+`/hello`를 새로 고친 다음 에이전트에게 `hello`를 다시 호출하도록 요청하세요. 같은 액션을 호출하므로 둘 다 업데이트된 인사말을 반환합니다.
+
+## 다른 방법으로 액션 호출하기
+
+같은 액션을 에이전트와 UI에서 호출했습니다. 이 액션은 다음에서도 호출할 수 있습니다.
+
+| 호출 위치 | 용도 |
+| --- | --- |
+| [HTTP API](/docs/http-api) | 스크립트, 백엔드 또는 통합에서 액션을 호출합니다. |
+| [CLI](/docs/actions-other-surfaces#cli) | 터미널에서 액션을 실행하거나 테스트합니다. |
+| [MCP](/docs/actions-other-surfaces#mcp) | 외부 AI 클라이언트가 액션을 도구로 검색하고 호출하게 합니다. |
+| [A2A](/docs/actions-other-surfaces#a2a) | 다른 Agent-Native 앱이 이 앱에 작업을 요청하게 합니다. |
+
+모든 호출자가 같은 액션 정의를 사용합니다. 호출자별로 별도 구현이 필요하지 않습니다. 이 공유 액션 모델은 Agent-Native의 핵심입니다. 앱이 바뀌어도 UI, 에이전트, 통합 전반에서 동작, 검증, 권한이 일관되게 유지됩니다.
+
+## 만든 것
+
+Agent-Native 앱을 만들고 `hello` 액션을 에이전트와 React UI에서 호출했으며, 인사말을 한 번 바꿔 두 곳 모두 업데이트되는 것을 확인했습니다. 앞으로 작성하는 모든 액션도 같은 패턴을 따릅니다.
+
+## 다음 단계
+
+<Cards>
+
+### [Agent-Native란?](/docs/what-is-agent-native)
+
+UI와 에이전트가 액션, 데이터, 컨텍스트를 공유하는 이유를 알아봅니다.
+
+### [핵심 개념](/docs/key-concepts)
+
+액션, SQL 데이터, 애플리케이션 컨텍스트, 접근 권한, 라이브 동기화가 어떻게 함께 작동하는지 알아봅니다.
+
+### [액션](/docs/actions-overview)
+
+읽기, 쓰기, 승인을 위한 액션을 정의하고 UI, 에이전트, 외부 클라이언트에서 호출합니다.
+
+</Cards>

@@ -1,4 +1,5 @@
 export type {
+  FileUploadDeleteInput,
   FileUploadInput,
   FileUploadProvider,
   FileUploadResult,
@@ -11,6 +12,7 @@ export {
   listFileUploadProviders,
   getActiveFileUploadProvider,
   getActiveFileUploadProviderForRequest,
+  deleteUploadedFile,
   uploadFile,
 } from "./registry.js";
 export { builderFileUploadProvider } from "./builder.js";
