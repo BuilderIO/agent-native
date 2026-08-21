@@ -404,11 +404,10 @@ const CAM_ON_KEY = "clips:camera-on";
 const MIC_ON_KEY = "clips:mic-on";
 const SYSTEM_AUDIO_KEY = "clips:system-audio";
 const READINESS_REVIEWED_KEY = "clips:readiness-reviewed";
-// The tray's rolling buffer, which the docs publish under its internal name.
-// Not `#rewind-quick-save`: that section describes pulling a pre-roll from the
-// third-party rewind.ai app, which this app does not integrate with at all.
+// The docs section for the tray's rolling buffer, published under the same
+// Rewind name the settings tab uses.
 const REWIND_DOCS_URL =
-  "https://www.agent-native.com/docs/template-clips-capture-everywhere#screen-memory";
+  "https://www.agent-native.com/docs/template-clips-capture-everywhere#rewind";
 
 // Sensible defaults so the user never has to type a URL on first launch.
 // Dev builds point at the local dev server; production builds point at the
