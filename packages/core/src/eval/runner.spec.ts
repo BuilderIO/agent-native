@@ -299,6 +299,7 @@ describe("createAgentRunner over a mocked runAgentLoop (no real model)", () => {
     const out = await runner.runAgent({ prompt: "hi" });
     expect(out.text).toBe("Hello world");
     expect(out.toolCalls).toEqual(["search"]);
+    expect(out.toolCallDetails).toEqual([{ name: "search", input: {} }]);
     expect(out.ok).toBe(true);
 
     // End-to-end: a contains scorer over the real collected text.

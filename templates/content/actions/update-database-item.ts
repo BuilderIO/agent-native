@@ -20,7 +20,7 @@ const schema = databaseMutationEnvelopeSchema.extend({
     .record(z.string(), z.unknown())
     .optional()
     .describe(
-      "Sparse strict patch keyed by property definition ID; omitted fields are preserved and explicit null clears a value",
+      "Sparse strict patch keyed by property definition ID; omitted fields are preserved and explicit null clears a value. Use exact property definition IDs as keys. Include every schema-valid writable property value the user explicitly requested; when the request contains at least one such value, never pass an empty object. Do not invent or clear unmentioned properties.",
     ),
 });
 

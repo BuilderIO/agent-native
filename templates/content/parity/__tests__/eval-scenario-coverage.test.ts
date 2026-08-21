@@ -37,10 +37,11 @@ describe("Content parity eval scenarios", () => {
     expect(invalid).toEqual([]);
   });
 
-  it("keeps PR 2.5 capped to the five bundled gated scenarios", () => {
+  it("keeps the bundled gated scenarios explicit", () => {
     expect(parityEvalScenarios.map((scenario) => scenario.id).sort()).toEqual([
       "builder-source-review-readonly",
       "database-bulk-row-reliability",
+      "database-create-property-preservation",
       "database-source-scope",
       "document-search-edit",
       "local-file-source-truth",
@@ -83,14 +84,16 @@ describe("Content parity eval scenarios", () => {
     );
 
     expect(report.failed).toBe(0);
-    expect(report.skipped).toBe(5);
+    expect(report.skipped).toBe(6);
     expect(report.results.every((row) => row.status === "skipped")).toBe(true);
   });
 
   it("runs scorer-backed evals when the gate is set", async () => {
     process.env.CONTENT_PARITY_EVALS = "1";
 
-    const scenario = parityEvalScenarios[0];
+    const scenario = parityEvalScenarios.find(
+      (candidate) => candidate.id === "database-source-scope",
+    )!;
     const evalCase = scenarioToEval(scenario);
     const row = await scoreEval(evalCase, {
       runAgent: vi.fn(async () => ({
@@ -140,5 +143,64 @@ describe("Content parity eval scenarios", () => {
     });
     expect(expectedToolsScore?.reason).toContain("remove-database-items");
     expect(row.status).toBe("failed");
+  });
+
+  it("fails when database creation drops explicitly requested properties", async () => {
+    process.env.CONTENT_PARITY_EVALS = "1";
+    const scenario = parityEvalScenarios.find(
+      (candidate) => candidate.id === "database-create-property-preservation",
+    )!;
+    const evalCase = scenarioToEval(scenario);
+    const row = await scoreEval(evalCase, {
+      runAgent: vi.fn(async () => ({
+        text: scenario.successSignals.join("\n"),
+        toolCalls: ["add-database-item"],
+        toolCallDetails: [
+          { name: "add-database-item", input: { propertyValues: {} } },
+        ],
+        ok: true,
+        runId: "content-parity:empty-property-values",
+        durationMs: 1,
+      })),
+      engine: {} as never,
+      model: "test-model",
+      analyzeContext: vi.fn(),
+    });
+
+    expect(
+      row.scores.find((score) => score.scorer === "expected_property_values"),
+    ).toMatchObject({ passed: false, score: 0 });
+    expect(row.status).toBe("failed");
+  });
+
+  it("accepts exact database creation properties without extras", async () => {
+    process.env.CONTENT_PARITY_EVALS = "1";
+    const scenario = parityEvalScenarios.find(
+      (candidate) => candidate.id === "database-create-property-preservation",
+    )!;
+    const evalCase = scenarioToEval(scenario);
+    const row = await scoreEval(evalCase, {
+      runAgent: vi.fn(async () => ({
+        text: scenario.successSignals.join("\n"),
+        toolCalls: ["add-database-item"],
+        toolCallDetails: [
+          {
+            name: "add-database-item",
+            input: { propertyValues: scenario.expectedPropertyValues },
+          },
+        ],
+        ok: true,
+        runId: "content-parity:exact-property-values",
+        durationMs: 1,
+      })),
+      engine: {} as never,
+      model: "test-model",
+      analyzeContext: vi.fn(),
+    });
+
+    expect(
+      row.scores.find((score) => score.scorer === "expected_property_values"),
+    ).toMatchObject({ passed: true, score: 1 });
+    expect(row.status).toBe("passed");
   });
 });

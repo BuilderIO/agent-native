@@ -120,6 +120,7 @@ export async function createAgentRunner(
 
     let text = "";
     const toolCalls: string[] = [];
+    const toolCallDetails: Array<{ name: string; input: unknown }> = [];
     let ok = true;
     let error: string | undefined;
 
@@ -134,6 +135,7 @@ export async function createAgentRunner(
           break;
         case "tool_start":
           toolCalls.push(event.tool);
+          toolCallDetails.push({ name: event.tool, input: event.input });
           break;
         case "error":
           ok = false;
@@ -165,6 +167,7 @@ export async function createAgentRunner(
     return {
       text,
       toolCalls,
+      toolCallDetails,
       ok,
       error,
       runId,

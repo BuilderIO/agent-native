@@ -8,9 +8,31 @@ export interface ParityEvalScenario {
   prompt: string;
   successSignals: string[];
   expectedTools?: string[];
+  expectedPropertyValues?: Record<string, unknown>;
 }
 
 export const parityEvalScenarios: ParityEvalScenario[] = [
+  {
+    id: "database-create-property-preservation",
+    title: "Database create property preservation",
+    capabilityIds: ["database.rows"],
+    gateEnv: "CONTENT_PARITY_EVALS",
+    defaultState: "skipped",
+    requiresPrivateCredentials: false,
+    prompt:
+      "Create exactly one row in the already-verified fixture Content database. Do not rediscover or alter the target. Use target spaceId fixture_personal_space, databaseId fixture_feedback_database, and documentId fixture_feedback_document; expectedSchemaRevision fixture_schema_revision; title [FIXTURE] preserve explicit properties; idempotencyKey fixture-create-property-preservation-v1. Set property fixture_status_property to status-cannot-verify and property fixture_evidence_property to Baseline fixture preserve-me. No Blocks value was requested. Call add-database-item once with every exact target constraint and both property values, then report its result truthfully.",
+    successSignals: [
+      "Uses add-database-item once for the exact fixture target.",
+      "Preserves both explicitly requested writable property values.",
+      "Does not invent a Blocks value or another property.",
+      "Reports an action failure rather than claiming a row was created if the fixture is unavailable.",
+    ],
+    expectedTools: ["add-database-item"],
+    expectedPropertyValues: {
+      fixture_status_property: "status-cannot-verify",
+      fixture_evidence_property: "Baseline fixture preserve-me",
+    },
+  },
   {
     id: "database-bulk-row-reliability",
     title: "Bulk database row reliability",

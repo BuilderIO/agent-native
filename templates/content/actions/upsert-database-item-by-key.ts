@@ -21,7 +21,9 @@ const schema = databaseMutationEnvelopeSchema.extend({
   propertyValues: z
     .record(z.string(), z.unknown())
     .optional()
-    .describe("Sparse strict values keyed by property definition ID"),
+    .describe(
+      "Sparse strict values keyed by property definition ID. Use exact property definition IDs as keys. Include every schema-valid writable property value the user explicitly requested; when the request contains at least one such value, never pass an empty object. Do not invent or clear unmentioned properties.",
+    ),
 });
 
 export default defineAction({
