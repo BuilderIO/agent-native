@@ -372,6 +372,7 @@ export default defineAction({
               await recordCalendarFetchError(
                 account,
                 new Error("Token refresh failed"),
+                { needsReauth: true },
               ),
             );
             continue;
