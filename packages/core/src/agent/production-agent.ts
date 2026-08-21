@@ -166,6 +166,11 @@ import {
   isHostedRuntime,
   resolveRunSoftTimeoutMs,
   resolveRunToolTimeoutCeilingMs,
+  resolveActionPreparationNoProgressTimeoutMs,
+  resolveModelStreamNoProgressTimeoutMs,
+  resolveMaxBackgroundRunContinuations,
+  resolveMaxConsecutiveNoProgressContinuations,
+  resolveMaxTurnWallClockMs,
   endsAfterCompletedToolWithoutAssistantFinal,
 } from "./run-manager.js";
 import type { ActiveRun } from "./run-manager.js";
@@ -1416,9 +1421,18 @@ function maxRetriesForError(err: unknown): number {
   return MAX_RETRIES;
 }
 const TOOL_INPUT_ACTIVITY_INTERVAL_MS = 1500;
-const ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS = 90_000;
+/**
+ * Default in-loop watchdog for silence while an action's arguments stream in.
+ * Read through `resolveActionPreparationNoProgressTimeoutMs`, never directly:
+ * a host diagnosing a timeout has to be able to see and change this number.
+ */
+export const ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS = 90_000;
 const ACTION_PREPARATION_ZERO_BYTE_RESTART_LIMIT = 2;
-const MODEL_STREAM_NO_PROGRESS_TIMEOUT_MS = 90_000;
+/**
+ * Default in-loop watchdog for silence between engine stream frames. Read
+ * through `resolveModelStreamNoProgressTimeoutMs`, never directly.
+ */
+export const MODEL_STREAM_NO_PROGRESS_TIMEOUT_MS = 90_000;
 /**
  * How long an attempt must have run before its retry is worth narrating.
  *
@@ -5049,7 +5063,7 @@ export async function runAgentLoop(opts: {
             deadlineAt = Math.min(
               deadlineAt,
               zeroByteToolInputRestart.firstStartedAt +
-                ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS,
+                resolveActionPreparationNoProgressTimeoutMs(),
             );
           }
           let earliestStartedAt = Number.POSITIVE_INFINITY;
@@ -5072,14 +5086,14 @@ export async function runAgentLoop(opts: {
           if (Number.isFinite(progressAt)) {
             deadlineAt = Math.min(
               deadlineAt,
-              progressAt + ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS,
+              progressAt + resolveActionPreparationNoProgressTimeoutMs(),
             );
           }
           return Number.isFinite(deadlineAt) ? deadlineAt : undefined;
         };
         const modelStreamNoProgressDeadlineAt = () => {
           const baseDeadlineAt =
-            lastModelStreamProgressAt + MODEL_STREAM_NO_PROGRESS_TIMEOUT_MS;
+            lastModelStreamProgressAt + resolveModelStreamNoProgressTimeoutMs();
           // FIX 2: cap the FIRST event's deadline tighter on the clamped
           // foreground runtime — see FOREGROUND_FIRST_MODEL_EVENT_TIMEOUT_MS
           // for the ordering invariant this protects.
@@ -5204,7 +5218,7 @@ export async function runAgentLoop(opts: {
             zeroByteToolInputRestart.count >=
               ACTION_PREPARATION_ZERO_BYTE_RESTART_LIMIT &&
             now - zeroByteToolInputRestart.firstStartedAt >=
-              ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS
+              resolveActionPreparationNoProgressTimeoutMs()
           );
         };
         const eventIterator = eventStream[Symbol.asyncIterator]();
@@ -7405,7 +7419,7 @@ export function resolveBackgroundNoProgressRepeat(opts: {
   return {
     errorCode,
     count,
-    tripped: count >= MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS,
+    tripped: count >= resolveMaxConsecutiveNoProgressContinuations(),
   };
 }
 
@@ -7495,7 +7509,7 @@ export function shouldChainBackgroundContinuation(opts: {
     eligible &&
     opts.run.status !== "aborted" &&
     endsAtContinuationBoundary(opts.run) &&
-    opts.continuationCount < MAX_BACKGROUND_RUN_CONTINUATIONS &&
+    opts.continuationCount < resolveMaxBackgroundRunContinuations() &&
     !resolveBackgroundNoProgressRepeat({
       run: opts.run,
       priorErrorCode: opts.priorNoProgressErrorCode,
@@ -8082,7 +8096,7 @@ export async function chainServerDrivenContinuation(opts: {
 
   if (
     turnRunCount !== null &&
-    turnRunCount > MAX_BACKGROUND_RUN_CONTINUATIONS + 5
+    turnRunCount > resolveMaxBackgroundRunContinuations() + 5
   ) {
     await stopTurn(
       "turn_continuation_budget_exhausted",
@@ -8100,12 +8114,13 @@ export async function chainServerDrivenContinuation(opts: {
     .readTurnStartedAt(effectiveThreadId, effectiveTurnId)
     .catch(() => null);
   const turnElapsedMs = turnStartedAt === null ? 0 : Date.now() - turnStartedAt;
-  if (turnElapsedMs > MAX_TURN_WALL_CLOCK_MS) {
+  const turnWallClockMs = resolveMaxTurnWallClockMs();
+  if (turnElapsedMs > turnWallClockMs) {
     const elapsedMinutes = Math.round(turnElapsedMs / 60_000);
     await stopTurn(
       "turn_wall_clock_budget_exhausted",
       `turn ${effectiveTurnId} ran ${elapsedMinutes}min (limit ${Math.round(
-        MAX_TURN_WALL_CLOCK_MS / 60_000,
+        turnWallClockMs / 60_000,
       )}min) — refusing to chain further`,
       `I stopped after ${elapsedMinutes} minutes without finishing this request.`,
     );
@@ -10593,7 +10608,7 @@ export function createProductionAgentHandler(
           ...(runsInBackgroundFunction
             ? {
                 resumeResumableErrorsInProcess: true,
-                maxContinuations: MAX_BACKGROUND_RUN_CONTINUATIONS,
+                maxContinuations: resolveMaxBackgroundRunContinuations(),
               }
             : {}),
         };

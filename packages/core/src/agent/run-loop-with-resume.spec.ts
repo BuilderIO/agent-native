@@ -1569,3 +1569,135 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     expect(continuationNote).toBeDefined();
   });
 });
+
+describe("chunk-boundary recovery", () => {
+  /**
+   * Minimal stand-in for the run manager's `RunChunkControl`: a turn signal
+   * that only a Stop touches, and a chunk signal the harness can end the way a
+   * checkpoint does.
+   */
+  function makeControl(turnSignal: AbortSignal) {
+    let chunk = new AbortController();
+    let reason: string | null = null;
+    turnSignal.addEventListener("abort", () => chunk.abort(turnSignal.reason));
+    return {
+      control: {
+        get turnSignal() {
+          return turnSignal;
+        },
+        get chunkSignal() {
+          return chunk.signal;
+        },
+        chunkBoundaryReason: () => reason,
+        beginChunk: () => {
+          if (turnSignal.aborted) return turnSignal;
+          reason = null;
+          chunk = new AbortController();
+          return chunk.signal;
+        },
+      },
+      checkpoint: (nextReason: string) => {
+        reason = nextReason;
+        chunk.abort(nextReason);
+      },
+    };
+  }
+
+  /** Resolves immediately when the signal is ALREADY aborted — which it is
+   *  whenever the boundary was decided before the listener was attached. */
+  function waitForAbort(signal: AbortSignal): Promise<void> {
+    if (signal.aborted) return Promise.resolve();
+    return new Promise<void>((resolve) =>
+      signal.addEventListener("abort", () => resolve(), { once: true }),
+    );
+  }
+
+  beforeEach(() => {
+    mockRunAgentLoop.mockReset();
+    mockGetCurrentTurnEventsForThread.mockReset();
+    mockGetCurrentTurnEventsForThread.mockResolvedValue([]);
+  });
+
+  it("continues the turn after a no-progress checkpoint from above the loop", async () => {
+    const turn = new AbortController();
+    const { control, checkpoint } = makeControl(turn.signal);
+    const messages: EngineMessage[] = [
+      { role: "user", content: [{ type: "text", text: "go" }] },
+    ];
+    let attempts = 0;
+    mockRunAgentLoop.mockImplementation(async (opts: any) => {
+      attempts++;
+      if (attempts === 1) {
+        // The run manager decides the boundary while this round is in flight.
+        checkpoint("no_progress");
+        await waitForAbort(opts.signal);
+        throw Object.assign(new Error("aborted"), { name: "AbortError" });
+      }
+      return {
+        inputTokens: 1,
+        outputTokens: 1,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: "test-model",
+      };
+    });
+
+    const outcomes: AgentLoopOutcome[] = [];
+    await runAgentLoopDirectWithSoftTimeout(
+      makeOpts(
+        messages,
+        control.chunkSignal,
+        undefined,
+        "thread-chunk",
+        outcomes,
+      ),
+      60_000,
+      { backgroundFunction: true },
+      control,
+    );
+
+    expect(attempts).toBe(2);
+    expect(outcomes.at(-1)).toEqual({ state: "completed" });
+    const continuationNote = messages
+      .map((m) => (m.content[0]?.type === "text" ? m.content[0].text : ""))
+      .find((t) => t.startsWith(AGENT_INTERNAL_CONTINUE_PROMPT));
+    expect(continuationNote).toBeDefined();
+  });
+
+  it("treats a Stop as a Stop even when a chunk control is present", async () => {
+    const turn = new AbortController();
+    const { control } = makeControl(turn.signal);
+    const messages: EngineMessage[] = [
+      { role: "user", content: [{ type: "text", text: "go" }] },
+    ];
+    let attempts = 0;
+    mockRunAgentLoop.mockImplementation(async (opts: any) => {
+      attempts++;
+      turn.abort("user_stop");
+      await waitForAbort(opts.signal);
+      throw Object.assign(new Error("aborted"), { name: "AbortError" });
+    });
+
+    const outcomes: AgentLoopOutcome[] = [];
+    await expect(
+      runAgentLoopDirectWithSoftTimeout(
+        makeOpts(
+          messages,
+          control.chunkSignal,
+          undefined,
+          "thread-chunk-stop",
+          outcomes,
+        ),
+        60_000,
+        { backgroundFunction: true },
+        control,
+      ),
+    ).rejects.toThrow();
+
+    expect(attempts).toBe(1);
+    expect(outcomes.at(-1)).toEqual({
+      state: "canceled",
+      message: "Agent run was aborted.",
+    });
+  });
+});

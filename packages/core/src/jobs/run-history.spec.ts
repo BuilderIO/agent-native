@@ -13,7 +13,11 @@ vi.mock("../db/ddl-guard.js", () => ({
   ensureIndexExists: vi.fn(),
 }));
 
-import { listAutomationRuns, startAutomationRun } from "./run-history.js";
+import {
+  finishAutomationRun,
+  listAutomationRuns,
+  startAutomationRun,
+} from "./run-history.js";
 
 const MINUTE = 60_000;
 
@@ -99,6 +103,40 @@ describe("automation run history", () => {
     });
 
     expect(run.status).toBe("success");
+  });
+
+  // The failure taxonomy already existed in code and survived only as English
+  // prose in a text column, so "how often are runs cut off?" was a LIKE.
+  it("persists the failure code alongside the message", async () => {
+    await finishAutomationRun(
+      "run-1",
+      "error",
+      "Background automation was cut off before finishing (no_progress).",
+      "background_automation_cut_off",
+    );
+
+    const update = executeMock.mock.calls
+      .map(([input]) => input)
+      .find(
+        (input) =>
+          typeof input === "object" && /UPDATE .* SET status/.test(input.sql),
+      );
+    expect(update.sql).toContain("error_code = ?");
+    expect(update.args).toContain("background_automation_cut_off");
+  });
+
+  it("reports an interrupted run with a code, not only a sentence", async () => {
+    executeMock.mockResolvedValue({
+      rows: [row({ started_at: Date.now() - 60 * MINUTE })],
+    });
+
+    const [run] = await listAutomationRuns({
+      owners: ["alice@example.com"],
+      automation: "digest",
+    });
+
+    expect(run.status).toBe("interrupted");
+    expect(run.errorCode).toBe("background_automation_interrupted");
   });
 
   it("prunes older rows for the same automation when recording a run", async () => {

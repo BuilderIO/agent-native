@@ -38,6 +38,33 @@ function costUsdFromCenticents(value: number): number {
   return Math.round((value / 10_000) * 1_000_000) / 1_000_000;
 }
 
+/**
+ * Project run metadata onto flat PostHog trace properties.
+ *
+ * Prefixed and shallow on purpose: this is operational context (which
+ * automation, which trigger, which terminal state), never message content, and
+ * nested objects in an analytics property are unqueryable anyway. Values are
+ * bounded so a caller cannot turn a metadata bag into a payload channel.
+ */
+function aiTraceMetadataProperties(
+  metadata: Record<string, unknown> | null,
+): Record<string, unknown> {
+  if (!metadata) return {};
+  const properties: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(metadata)) {
+    if (value === undefined || value === null) continue;
+    const scalar =
+      typeof value === "string"
+        ? value.slice(0, 200)
+        : typeof value === "number" || typeof value === "boolean"
+          ? value
+          : undefined;
+    if (scalar === undefined) continue;
+    properties[`run_${key}`] = scalar;
+  }
+  return properties;
+}
+
 const MAX_TRACKED_GENERATION_TOOL_CALLS = 50;
 
 /**
@@ -452,6 +479,19 @@ export async function instrumentAgentLoop(opts: {
    *  reads. */
   userId: string | null;
   config: ObservabilityConfig;
+  /**
+   * Name for this run's root span, in the local trace store and in PostHog LLM
+   * analytics. Defaults to `"agent_run"`. Without it every path emits the same
+   * name and a scheduled automation is indistinguishable from a chat turn in
+   * the one view where telling them apart is the whole question.
+   */
+  spanName?: string;
+  /**
+   * Free-form run context. Persisted onto the local store's parent span AND
+   * forwarded to PostHog as trace properties — a channel that reached only the
+   * SQL store was a channel that could not answer "which automation was this?"
+   * in LLM analytics.
+   */
   metadata?: Record<string, unknown> | null;
   experimentAssignments?: Array<{
     experimentId: string;
@@ -486,6 +526,7 @@ export async function instrumentAgentLoop(opts: {
     | undefined;
 }): Promise<AgentLoopUsage> {
   const { runAgentLoop, loopOpts, runId, threadId, userId, config } = opts;
+  const spanName = opts.spanName?.trim() || "agent_run";
   const runStart = Date.now();
   const parentSpanId = spanId();
   const precedingResponsePromise =
@@ -1019,7 +1060,7 @@ export async function instrumentAgentLoop(opts: {
       userId,
       parentSpanId: null,
       spanType: "agent_run",
-      name: "agent_run",
+      name: spanName,
       inputTokens: usage?.inputTokens ?? 0,
       outputTokens: usage?.outputTokens ?? 0,
       cacheReadTokens: usage?.cacheReadTokens ?? 0,
@@ -1070,7 +1111,7 @@ export async function instrumentAgentLoop(opts: {
         runId,
         threadId,
         userId,
-        spanName: "agent_run",
+        spanName,
         model: usage?.model ?? loopOpts.model,
         provider,
         latencySeconds: Math.round(totalDurationMs) / 1000,
@@ -1088,6 +1129,7 @@ export async function instrumentAgentLoop(opts: {
           source: "agent_observability",
           run_id: runId,
           thread_id: threadId,
+          ...aiTraceMetadataProperties(runMetadata),
           // Present for planned boundaries too, which are not errors: the ratio
           // of run_timeout to no_progress is the signal, and it is unreadable
           // if only one side of it is recorded.

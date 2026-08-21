@@ -78,6 +78,8 @@ vi.mock("./run-store.js", () => ({
   setRunError: vi.fn(() => Promise.resolve()),
   setRunTerminalReason: vi.fn(() => Promise.resolve()),
   persistRunCheckpointEvent: vi.fn(() => Promise.resolve()),
+  recordRunDiagnostic: vi.fn(() => Promise.resolve()),
+  RUN_DIAG_STAGE: { runBoundaryReached: "run_boundary_reached" },
   // Faithful copy of the real pure mapping so the run-manager abort paths can
   // be exercised without the real DB module.
   terminalEventForAbortReason: (reason: string | undefined) => {
@@ -4289,6 +4291,198 @@ describe("run manager soft timeout", () => {
     });
   });
 
+  // ─── Chunk-scoped checkpoints (recoverChunkBoundaries) ─────────────────────
+  //
+  // The property most at risk from scoping the checkpoint to the chunk is that
+  // a user Stop still ends the turn, so both abort sources are exercised here
+  // against the same runFn.
+  describe("chunk-scoped checkpoints", () => {
+    it("ends only the chunk on a no-progress boundary, leaving the turn alive", async () => {
+      const chunkAborts: unknown[] = [];
+      let turnAborted = false;
+      let boundaryReason: string | null = null;
+      let finish: (() => void) | undefined;
+
+      const run = startRun(
+        "run-chunk-no-progress",
+        "thread-chunk-no-progress",
+        async (send, signal, control) => {
+          control.turnSignal.addEventListener("abort", () => {
+            turnAborted = true;
+          });
+          const keepaliveTimer = setInterval(() => {
+            send({ type: "stream_keepalive" });
+          }, 1500);
+          await new Promise<void>((resolve) => {
+            signal.addEventListener("abort", () => resolve(), { once: true });
+          });
+          clearInterval(keepaliveTimer);
+          chunkAborts.push(signal.reason);
+          boundaryReason = control.chunkBoundaryReason();
+          // Recover exactly the way the agent-loop wrapper does.
+          const next = control.beginChunk();
+          send({ type: "text", text: "recovered" });
+          await new Promise<void>((resolve) => {
+            finish = resolve;
+            next.addEventListener("abort", () => resolve(), { once: true });
+          });
+        },
+        undefined,
+        {
+          softTimeoutMs: BACKGROUND_SOFT_TIMEOUT_CEILING_MS,
+          backgroundFunction: true,
+          recoverChunkBoundaries: true,
+        },
+      );
+      run.subscribers.add(() => {});
+
+      await vi.advanceTimersByTimeAsync(
+        DEFAULT_BACKGROUND_NO_PROGRESS_TIMEOUT_MS + 1,
+      );
+
+      expect(chunkAborts).toEqual(["no_progress"]);
+      expect(boundaryReason).toBe("no_progress");
+      expect(turnAborted).toBe(false);
+      expect(run.abort.signal.aborted).toBe(false);
+      expect(run.status).toBe("running");
+      // No `auto_continue` reaches the stream: the turn did not stop here, and
+      // a trailing auto_continue is exactly what a caller reads as a cut-off.
+      expect(run.events.some((e) => e.event.type === "auto_continue")).toBe(
+        false,
+      );
+      expect(run.events.some((e) => e.event.type === "text")).toBe(true);
+
+      finish?.();
+      await run.finalized;
+      expect(run.status).toBe("completed");
+    });
+
+    it("re-arms the backstop for each recovered chunk instead of firing on the previous chunk's silence", async () => {
+      const chunkAborts: unknown[] = [];
+
+      const run = startRun(
+        "run-chunk-rearm",
+        "thread-chunk-rearm",
+        async (send, signal, control) => {
+          let current = signal;
+          for (let i = 0; i < 2; i++) {
+            await new Promise<void>((resolve) => {
+              current.addEventListener("abort", () => resolve(), {
+                once: true,
+              });
+            });
+            chunkAborts.push(current.reason);
+            current = control.beginChunk();
+          }
+          await new Promise<void>((resolve) => {
+            current.addEventListener("abort", () => resolve(), { once: true });
+          });
+        },
+        undefined,
+        {
+          softTimeoutMs: BACKGROUND_SOFT_TIMEOUT_CEILING_MS,
+          backgroundFunction: true,
+          recoverChunkBoundaries: true,
+        },
+      );
+      run.subscribers.add(() => {});
+
+      await vi.advanceTimersByTimeAsync(
+        DEFAULT_BACKGROUND_NO_PROGRESS_TIMEOUT_MS + 1,
+      );
+      expect(chunkAborts).toEqual(["no_progress"]);
+
+      // Only a full second window later, measured from the recovery — not
+      // immediately, which is what a shared clock would have produced.
+      await vi.advanceTimersByTimeAsync(
+        DEFAULT_BACKGROUND_NO_PROGRESS_TIMEOUT_MS - 5_000,
+      );
+      expect(chunkAborts).toEqual(["no_progress"]);
+      await vi.advanceTimersByTimeAsync(5_001);
+      expect(chunkAborts).toEqual(["no_progress", "no_progress"]);
+
+      expect(abortRun("run-chunk-rearm")).toBe(true);
+      await run.finalized;
+    });
+
+    it("still ends the turn immediately on a user Stop", async () => {
+      let turnAborted = false;
+      let boundaryReason: string | null = "unset";
+
+      const run = startRun(
+        "run-chunk-user-stop",
+        "thread-chunk-user-stop",
+        async (send, signal, control) => {
+          await new Promise<void>((resolve) => {
+            signal.addEventListener("abort", () => resolve(), { once: true });
+          });
+          turnAborted = control.turnSignal.aborted;
+          boundaryReason = control.chunkBoundaryReason();
+          // A caller that tries to keep going after a Stop gets the aborted
+          // turn signal back, not a fresh chunk.
+          expect(control.beginChunk().aborted).toBe(true);
+        },
+        undefined,
+        {
+          softTimeoutMs: BACKGROUND_SOFT_TIMEOUT_CEILING_MS,
+          backgroundFunction: true,
+          recoverChunkBoundaries: true,
+        },
+      );
+      run.subscribers.add(() => {});
+
+      expect(abortRun("run-chunk-user-stop")).toBe(true);
+      await run.finalized;
+
+      expect(turnAborted).toBe(true);
+      // A Stop is not a chunk boundary. Reading it as one is the bug.
+      expect(boundaryReason).toBeNull();
+      expect(run.status).toBe("aborted");
+    });
+
+    it("keeps the terminal turn-ending checkpoint for a run that did not opt in", async () => {
+      let abortReason: unknown;
+
+      const run = startRun(
+        "run-chunk-not-opted-in",
+        "thread-chunk-not-opted-in",
+        async (send, signal) => {
+          const keepaliveTimer = setInterval(() => {
+            send({ type: "stream_keepalive" });
+          }, 1500);
+          await new Promise<void>((resolve) => {
+            signal.addEventListener("abort", () => {
+              clearInterval(keepaliveTimer);
+              abortReason = signal.reason;
+              resolve();
+            });
+          });
+        },
+        undefined,
+        {
+          softTimeoutMs: BACKGROUND_SOFT_TIMEOUT_CEILING_MS,
+          backgroundFunction: true,
+        },
+      );
+      run.subscribers.add(() => {});
+
+      await vi.advanceTimersByTimeAsync(
+        DEFAULT_BACKGROUND_NO_PROGRESS_TIMEOUT_MS + 1,
+      );
+
+      expect(abortReason).toBe("no_progress");
+      expect(run.events.at(-1)?.event).toMatchObject({
+        type: "auto_continue",
+        reason: "no_progress",
+      });
+      expect(vi.mocked(persistRunCheckpointEvent)).toHaveBeenCalledWith(
+        "run-chunk-not-opted-in",
+        { type: "auto_continue", reason: "no_progress" },
+        "no_progress",
+      );
+    });
+  });
+
   describe("terminal tracking event", () => {
     it("does not emit when status persistence and reconciliation both fail", async () => {
       vi.mocked(updateRunStatusIfRunning).mockRejectedValueOnce(
@@ -4447,8 +4641,20 @@ describe("run manager soft timeout", () => {
       );
 
       await vi.advanceTimersByTimeAsync(1_001);
-      await vi.waitFor(() => expect(track).toHaveBeenCalledTimes(1));
+      // Two events: the boundary counter fires when the boundary is reached,
+      // the terminal event when the run finalizes. They answer different
+      // questions and must both be emitted.
+      await vi.waitFor(() => expect(track).toHaveBeenCalledTimes(2));
 
+      expect(track).toHaveBeenCalledWith(
+        "agent_run_boundary",
+        expect.objectContaining({
+          run_id: "run-tracking-truncated",
+          reason: "run_timeout",
+          recovered: false,
+        }),
+        expect.anything(),
+      );
       expect(track).toHaveBeenCalledWith(
         "agent_run_terminal",
         expect.objectContaining({
