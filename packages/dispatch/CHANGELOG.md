@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.31.13
+
+### Patch Changes
+
+- f2f60b9: Move the environment badge to the bottom-left, show a truthful dev badge during configured local development, raise Dispatch controls above it, and give default notifications enough clearance to avoid overlap.
+
 ## 0.31.12
 
 ### Patch Changes
