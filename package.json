@@ -117,6 +117,8 @@
     "guard:help-icon-scale": "node scripts/guard-help-icon-scale.mjs",
     "guard:no-default-chrome": "node scripts/guard-no-default-chrome.mjs",
     "guard:no-boot-data-work": "node scripts/guard-no-boot-data-work.mjs",
+    "guard:no-untracked-imports": "node scripts/guard-no-untracked-imports.mjs",
+    "check:production-cache-contract": "node scripts/check-production-cache-contract.mjs",
     "guard:dead-settings-keys": "node scripts/guard-dead-settings-keys.mjs",
     "guard:serverless-function-payload": "node scripts/guard-serverless-function-payload.mjs",
     "guard:doc-budgets": "node scripts/guard-doc-budgets.mjs",

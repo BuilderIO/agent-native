@@ -183,7 +183,9 @@ export function resolveAppWebviewAuthStateFromProbe(
   result: unknown,
   fallbackState: AppWebviewAuthState,
 ): AppWebviewAuthState {
-  if (!result || typeof result !== "object") return fallbackState;
+  // A missing probe result is a failed read, not evidence that the route is
+  // authenticated. The fallback is reserved for a known-unsupported 404.
+  if (!result || typeof result !== "object") return "unknown";
   const probe = result as {
     authenticated?: unknown;
     invalidJson?: unknown;
@@ -389,6 +391,11 @@ interface AppWebviewProps {
   onTitleChange?: (title: string) => void;
   /** Emits the guest page's coarse session state for host-owned UI. */
   onAuthStateChange?: (state: AppWebviewAuthState) => void;
+  /** Emits terminal main-frame failures so host-owned overlays can recover. */
+  onMainFrameLoadFailure?: (details: {
+    errorCode?: number;
+    errorDescription: string;
+  }) => void;
   /** Emits the native desktop identity state for sibling host surfaces. */
   onDesktopIdentityStatusChange?: (
     status: DesktopIdentityStatus | "checking",
@@ -624,6 +631,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       refreshKey = 0,
       onTitleChange,
       onAuthStateChange,
+      onMainFrameLoadFailure,
       onDesktopIdentityStatusChange,
       onWebContentsIdChange,
       onAppsChanged,
@@ -635,6 +643,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     const [isLoading, setIsLoading] = useState(true);
     const [slowLoad, setSlowLoad] = useState(false);
     const [isFullscreen, setIsFullscreen] = useState(false);
+    const hasLoadedGuestPageRef = useRef(false);
     const loadFailureRef = useRef(false);
     const rawUrl = sourceUrl?.trim()
       ? withUrlParams(sourceUrl.trim(), urlParams)
@@ -699,6 +708,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     const prevIsActiveRef = useRef(isActive);
     const onTitleChangeRef = useRef(onTitleChange);
     const onAuthStateChangeRef = useRef(onAuthStateChange);
+    const onMainFrameLoadFailureRef = useRef(onMainFrameLoadFailure);
     const onDesktopIdentityStatusChangeRef = useRef(
       onDesktopIdentityStatusChange,
     );
@@ -785,6 +795,10 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     }, [onAuthStateChange]);
 
     useEffect(() => {
+      onMainFrameLoadFailureRef.current = onMainFrameLoadFailure;
+    }, [onMainFrameLoadFailure]);
+
+    useEffect(() => {
       onDesktopIdentityStatusChangeRef.current = onDesktopIdentityStatusChange;
     }, [onDesktopIdentityStatusChange]);
 
@@ -812,6 +826,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         return;
       }
       if (!isActive) {
+        if (hasLoadedGuestPageRef.current) return;
         const rememberedSignedIn = shouldReuseRememberedDesktopIdentitySession(
           rememberedDesktopIdentityStatus,
           undefined,
@@ -1168,6 +1183,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         setError(false);
         setIsLoading(false);
         setSlowLoad(false);
+        hasLoadedGuestPageRef.current = true;
         optimizeDepRecoveryRef.current = false;
         reportActiveWebview();
         emitCurrentTitleSoon();
@@ -1201,8 +1217,13 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
           return;
         }
         loadFailureRef.current = true;
+        authProbeSequenceRef.current += 1;
         setError(true);
         setIsLoading(false);
+        onMainFrameLoadFailureRef.current?.({
+          errorCode,
+          errorDescription: description,
+        });
       };
       const onConsoleMessage = (e: Event) => {
         const message = String((e as WebviewConsoleMessageEvent).message || "");
@@ -1358,6 +1379,14 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       if (deferDesktopWebviewLoad) return;
       const urlChanged = prevUrlRef.current !== url;
       const openNonceChanged = prevUrlOpenNonceRef.current !== urlOpenNonce;
+      if (
+        wasDeferred &&
+        hasLoadedGuestPageRef.current &&
+        !urlChanged &&
+        !openNonceChanged
+      ) {
+        return;
+      }
       if (!wasDeferred && !urlChanged && !openNonceChanged) return;
 
       prevUrlRef.current = url;
@@ -1415,8 +1444,12 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         () => {
           if (isLoading) {
             loadFailureRef.current = true;
+            authProbeSequenceRef.current += 1;
             setError(true);
             setIsLoading(false);
+            onMainFrameLoadFailureRef.current?.({
+              errorDescription: "Timed out while loading the app.",
+            });
           }
         },
         isDevMode ? DEV_APP_LOAD_TIMEOUT_MS : APP_LOAD_TIMEOUT_MS,

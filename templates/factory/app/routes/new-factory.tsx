@@ -1,17 +1,14 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { IconArrowLeft } from "@tabler/icons-react";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 
-import { FactorySettingsView } from "@/components/factory/FactorySettingsView";
 import { FactoryWorkspaceActions } from "@/components/factory/FactoryWorkspaceActions";
+import { NewFactoryForm } from "@/components/factory/NewFactoryForm";
 import { Button } from "@/components/ui/button";
 
-export function meta() {
-  return [{ title: "Factory" }];
-}
-
-export default function FactorySettingsRoute() {
+export default function NewFactoryRoute() {
   const t = useT();
+  const navigate = useNavigate();
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-background">
@@ -22,13 +19,19 @@ export default function FactorySettingsRoute() {
           </Link>
         </Button>
         <h1 className="text-sm font-medium sm:text-base">
-          {t("factoryRoute.factorySettings")}
+          {t("factoryRoute.createFactoryTitle")}
         </h1>
         <div className="ms-auto">
           <FactoryWorkspaceActions />
         </div>
       </div>
-      <FactorySettingsView />
+      <section className="flex flex-1 flex-col px-4 pb-8 lg:px-6">
+        <NewFactoryForm
+          onCreated={(factoryId) =>
+            navigate(`/factory?factoryId=${encodeURIComponent(factoryId)}`)
+          }
+        />
+      </section>
     </div>
   );
 }

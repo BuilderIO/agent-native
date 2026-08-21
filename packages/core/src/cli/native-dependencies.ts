@@ -111,7 +111,11 @@ function probeBetterSqlite3(packageDir: string): unknown | null {
 export function checkNativeDependencies(
   fromDirectory = corePackageDirectory(),
 ): NativeDependencyCheck {
-  const packageDir = resolvePackageDirectory(BETTER_SQLITE3, fromDirectory);
+  const packageDir =
+    resolvePackageDirectory(BETTER_SQLITE3, fromDirectory) ??
+    (path.resolve(fromDirectory) === corePackageDirectory()
+      ? null
+      : resolvePackageDirectory(BETTER_SQLITE3, corePackageDirectory()));
   if (!packageDir) {
     return { status: "absent", packageName: BETTER_SQLITE3 };
   }

@@ -248,6 +248,81 @@ describe("Desktop identity activation", () => {
     }
   });
 
+  it("reveals a loaded tab without reloading it after switching away", async () => {
+    root = createRoot(container);
+    const app = {
+      id: "custom-mail",
+      name: "Mail",
+      icon: "mail",
+      description: "",
+      devPort: 3000,
+    };
+    const appConfig = {
+      ...app,
+      url: "https://mail.agent-native.com",
+      isBuiltIn: false,
+      enabled: true,
+      mode: "prod" as const,
+    };
+
+    act(() => {
+      root.render(
+        React.createElement(AppWebview, {
+          app,
+          appConfig,
+          isActive: true,
+          theme: "dark" as const,
+        }),
+      );
+    });
+
+    const webview = container.querySelector("webview");
+    expect(webview).not.toBeNull();
+    Object.defineProperties(webview!, {
+      getTitle: { configurable: true, value: () => "" },
+      getURL: {
+        configurable: true,
+        value: () => webview!.getAttribute("src") ?? "",
+      },
+    });
+    const sourceAssignments = vi
+      .spyOn(webview!, "setAttribute")
+      .mockImplementation(HTMLElement.prototype.setAttribute);
+
+    await act(async () => {
+      webview?.dispatchEvent(new Event("dom-ready"));
+      await Promise.resolve();
+    });
+    const initialSourceAssignmentCount = sourceAssignments.mock.calls.filter(
+      ([name]) => name === "src",
+    ).length;
+
+    act(() => {
+      root.render(
+        React.createElement(AppWebview, {
+          app,
+          appConfig,
+          isActive: false,
+          theme: "dark" as const,
+        }),
+      );
+    });
+    act(() => {
+      root.render(
+        React.createElement(AppWebview, {
+          app,
+          appConfig,
+          isActive: true,
+          theme: "dark" as const,
+        }),
+      );
+    });
+
+    expect(
+      sourceAssignments.mock.calls.filter(([name]) => name === "src"),
+    ).toHaveLength(initialSourceAssignmentCount);
+  });
+
   it("keeps a remembered session gated until child synchronization completes", async () => {
     let resolveSynchronization!: (synchronized: boolean) => void;
     const ensureAppSession = vi.fn(
@@ -651,6 +726,12 @@ describe("AppWebview auth state", () => {
   });
 
   it("falls back only when the app does not expose the session endpoint", () => {
+    expect(
+      resolveAppWebviewAuthStateFromProbe(undefined, "authenticated"),
+    ).toBe("unknown");
+    expect(
+      resolveAppWebviewAuthStateFromProbe("not-an-object", "authenticated"),
+    ).toBe("unknown");
     expect(
       resolveAppWebviewAuthStateFromProbe({ status: 404 }, "authenticated"),
     ).toBe("authenticated");

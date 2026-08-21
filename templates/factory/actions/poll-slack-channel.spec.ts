@@ -38,6 +38,10 @@ vi.mock("../server/lib/require-factory-automation.js", () => ({
   requireFactoryAutomation: requireFactoryAutomationMock,
 }));
 
+vi.mock("../server/lib/factory-automation-repair.js", () => ({
+  repairFactoryAutomationsFromConfig: vi.fn().mockResolvedValue(undefined),
+}));
+
 const mockedGetRequestOrgId = vi.mocked(getRequestOrgId);
 const mockedGetRequestUserEmail = vi.mocked(getRequestUserEmail);
 
@@ -89,7 +93,7 @@ describe("poll-slack-channel action", () => {
 
     await expect(
       action.run(
-        {},
+        { factoryId: "product-feedback" },
         {
           caller: "automation",
           userEmail: "Owner@Example.com",
@@ -112,6 +116,7 @@ describe("poll-slack-channel action", () => {
       },
       { userEmail: "owner@example.com", orgId: "org-1" },
       "sourcePolling",
+      "product-feedback",
     );
     expect(pollSlackChannelMock).toHaveBeenCalledWith({
       workspace: "primary",

@@ -2002,6 +2002,8 @@ export interface AssistantChatProps {
   composerDisabledPlaceholder?: string;
   /** When true, skip the restore skeleton (used for freshly created threads with no messages) */
   isNewThread?: boolean;
+  /** Replace an active tab when its saved thread no longer exists. */
+  onThreadRestoreNotFound?: () => void;
   /** Defer restore until the owning thread list has reconciled the active id. */
   isThreadStateLoading?: boolean;
   /** Called when a slash command (e.g. /clear, /help) is executed */
@@ -2458,6 +2460,7 @@ const AssistantChatInner = forwardRef<
     agentChatSurface = "app",
     desktopIdentityUnauthenticated = false,
     desktopIdentityAuthenticated = false,
+    onThreadRestoreNotFound,
     suppressInlineOpenApp = false,
   },
   ref,
@@ -3033,6 +3036,10 @@ const AssistantChatInner = forwardRef<
     setRestoreAttempt((attempt) => attempt + 1);
   }, [isNewThread, threadId]);
 
+  const missingThreadNotifiedRef = useRef<string | null>(null);
+  const desktopIdentityAuthenticatedRef = useRef(desktopIdentityAuthenticated);
+  const desktopIdentityRestoreRetryPendingRef = useRef(false);
+
   // The desktop identity gate and chat restore run in sibling surfaces. If the
   // gate wins the race after a masked 404 has already rendered, clear the
   // transient not-found card and leave the user at a fresh composer.
@@ -3043,7 +3050,6 @@ const AssistantChatInner = forwardRef<
     );
   }, [desktopIdentityUnauthenticated]);
 
-  const desktopIdentityAuthenticatedRef = useRef(desktopIdentityAuthenticated);
   useEffect(() => {
     const becameAuthenticated =
       desktopIdentityAuthenticated && !desktopIdentityAuthenticatedRef.current;
@@ -3059,6 +3065,7 @@ const AssistantChatInner = forwardRef<
     // A saved-thread request can race the identity handoff and be masked as a
     // 404/401/403. Retry once the host confirms the authenticated session so
     // the thread is restored without requiring a remount or manual retry.
+    desktopIdentityRestoreRetryPendingRef.current = true;
     retryThreadRestore();
   }, [
     agentChatSurface,
@@ -3066,6 +3073,33 @@ const AssistantChatInner = forwardRef<
     isNewThread,
     retryThreadRestore,
     threadId,
+  ]);
+
+  useEffect(() => {
+    if (threadRestoreError !== "not-found") {
+      desktopIdentityRestoreRetryPendingRef.current = false;
+      return;
+    }
+    if (
+      !threadId ||
+      !onThreadRestoreNotFound ||
+      missingThreadNotifiedRef.current === threadId ||
+      (agentChatSurface === "desktop" &&
+        (!desktopIdentityAuthenticated ||
+          desktopIdentityUnauthenticated ||
+          desktopIdentityRestoreRetryPendingRef.current))
+    ) {
+      return;
+    }
+    missingThreadNotifiedRef.current = threadId;
+    onThreadRestoreNotFound();
+  }, [
+    agentChatSurface,
+    desktopIdentityAuthenticated,
+    desktopIdentityUnauthenticated,
+    onThreadRestoreNotFound,
+    threadId,
+    threadRestoreError,
   ]);
   const onSaveThreadRef = useRef(onSaveThread);
   onSaveThreadRef.current = onSaveThread;

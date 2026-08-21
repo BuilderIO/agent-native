@@ -429,7 +429,7 @@ const messages = {
       "由作者獨立維護的應用程式。可從公開 GitHub 儲存庫安裝；如有託管版本，也可以先線上體驗。",
     submitCommunityTemplate: "提交你的範本",
     communityEmpty:
-      "社群目錄現已開放。請將專注於明確情境的 Agent Native 應用程式發佈到公開儲存庫並提交收錄。",
+      "社群目錄現已開放。請將專注於明確情境的 Agent-Native 應用程式發佈到公開儲存庫並提交收錄。",
     publishGuide: "閱讀發佈指南",
     communityTrust:
       "社群範本屬於第三方程式碼。執行前請檢查儲存庫、授權、相依套件和安裝指令碼。",
@@ -1381,6 +1381,9 @@ const messages = {
         answerAction: "加入提示詞",
         composerLabel: "你的提示詞",
         composerPlaceholder: "描述你想要的簡報，或者回答上面的問題。",
+        promptTip: "提示詞小提示",
+        promptPlaceholder:
+          "要具體。說明這是給誰的，貼上你的筆記，或參考一個你想要的網站設計……",
         submit: "產生我的簡報",
         readyHint: "提示詞已就緒 —— 發送給代理吧。",
         promptDeck: "建立{{deck}}。",

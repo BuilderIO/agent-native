@@ -431,7 +431,7 @@ const zhCN = {
       "由作者独立维护的应用。可从公开 GitHub 仓库安装；如有托管版本，也可以先在线体验。",
     submitCommunityTemplate: "提交你的模板",
     communityEmpty:
-      "社区目录现已开放。请将专注于明确场景的 Agent Native 应用发布到公开仓库并提交收录。",
+      "社区目录现已开放。请将专注于明确场景的 Agent-Native 应用发布到公开仓库并提交收录。",
     publishGuide: "阅读发布指南",
     communityTrust:
       "社区模板属于第三方代码。运行前请检查仓库、许可证、依赖项和安装脚本。",
@@ -1382,6 +1382,9 @@ const zhCN = {
         answerAction: "添加到提示词",
         composerLabel: "你的提示词",
         composerPlaceholder: "描述你想要的演示文稿，或者回答上面的问题。",
+        promptTip: "提示词小贴士",
+        promptPlaceholder:
+          "要具体。说明这是给谁的，粘贴你的笔记，或者参考一个你想要的网站设计……",
         submit: "生成我的演示文稿",
         readyHint: "提示词已就绪 —— 发送给代理吧。",
         promptDeck: "创建{{deck}}。",

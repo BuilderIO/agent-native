@@ -119,6 +119,25 @@ export function OtherAppsSection({
 
   if (!isLoading && !hasError && entries.length === 0) return null;
 
+  const entryCards = entries.map((entry) =>
+    entry.kind === "template" ? (
+      <WorkspaceTemplateCard
+        key={`template:${templateKey(entry.template)}`}
+        template={entry.template}
+        labels={templateLabels}
+        catalog
+        className={APP_LIST_GRID_ROW_CLASS}
+        onRemixSuccess={onRemixSuccess}
+      />
+    ) : (
+      <ConnectedAppCard
+        key={`connected:${entry.app.id}`}
+        app={entry.app}
+        className={APP_LIST_GRID_ROW_CLASS}
+      />
+    ),
+  );
+
   const content = (
     <>
       {heading ? (
@@ -149,23 +168,10 @@ export function OtherAppsSection({
           <OtherAppsSkeletonList />
         )
       ) : entries.length > 0 ? (
-        entries.map((entry) =>
-          entry.kind === "template" ? (
-            <WorkspaceTemplateCard
-              key={`template:${templateKey(entry.template)}`}
-              template={entry.template}
-              labels={templateLabels}
-              catalog
-              className={APP_LIST_GRID_ROW_CLASS}
-              onRemixSuccess={onRemixSuccess}
-            />
-          ) : (
-            <ConnectedAppCard
-              key={`connected:${entry.app.id}`}
-              app={entry.app}
-              className={APP_LIST_GRID_ROW_CLASS}
-            />
-          ),
+        embeddedInList ? (
+          entryCards
+        ) : (
+          <AppList className={APP_LIST_GRID_CLASS}>{entryCards}</AppList>
         )
       ) : null}
     </>

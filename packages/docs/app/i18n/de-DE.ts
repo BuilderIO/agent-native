@@ -1428,6 +1428,9 @@ const deDE = {
         composerLabel: "Ihr Prompt",
         composerPlaceholder:
           "Beschreiben Sie die gewünschte Präsentation oder beantworten Sie die Fragen oben.",
+        promptTip: "Prompt-Tipp",
+        promptPlaceholder:
+          "Seien Sie konkret. Sagen Sie, für wen es ist, fügen Sie Ihre Notizen ein oder verweisen Sie auf ein Website-Design...",
         submit: "Meine Präsentation generieren",
         readyHint: "Ihr Prompt ist fertig — senden Sie ihn an den Agenten.",
         promptDeck: "Erstelle {{deck}}.",

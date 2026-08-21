@@ -7,7 +7,7 @@ description: "Monte o chat do agente + recursos do agente em qualquer aplicativo
 
 > **Página do desenvolvedor.** Esta página é para desenvolvedores que incorporam o agente em um aplicativo React. Para conhecer a experiência do usuário final ao trabalhar com o agente, consulte [Using Your Agent](/docs/using-your-agent).
 
-Você não precisa criar um agente nativo do zero. O bate-papo do agente, a guia Recursos do Agente, o terminal CLI, a entrada de voz e toda a infraestrutura relacionada são fornecidos como um punhado de componentes React que você coloca em qualquer aplicativo.
+Você não precisa criar o Agent-Native do zero. O bate-papo do agente, a guia Recursos do Agente, o terminal CLI, a entrada de voz e toda a infraestrutura relacionada são fornecidos como um punhado de componentes React que você coloca em qualquer aplicativo.
 
 > **Pré-requisito:** o servidor deve estar executando o `agent-chat-plugin` (ele é montado automaticamente em cada modelo). Se você está começando do zero, consulte [Server](/docs/server-overview).
 >
@@ -178,7 +178,7 @@ Acessórios completos: `AgentPanelProps` em `@agent-native/core/client`.
 
 ## Mensagens programáticas: `sendToAgentChat()` {#send}
 
-Um botão que transfere o trabalho para o agente (em vez de executar uma chamada `llm()` em linha — o antipadrão do [ladder](/docs/what-is-agent-native#the-ladder)):
+Um botão que transfere o trabalho para o agente em vez de criar um caminho de IA separado com uma chamada `llm()` em linha. Consulte [Por que criar apps dessa forma](/docs/what-is-agent-native#why-build-apps-this-way) para entender por que essa distinção importa. Para trabalho de IA visível iniciado pelo usuário, abra explicitamente a barra lateral para que ele possa ver, conduzir e continuar na mesma conversa:
 
 ```tsx
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
@@ -268,7 +268,7 @@ Use `useActionQuery` ou `useActionMutation` diretamente para operações locais 
 
 ## Typesafe actions do UI: `useActionMutation()` {#use-action-mutation}
 
-Quando o UI precisar executar a mesma operação que uma ferramenta de agente executaria — linha 3 do [ladder](/docs/what-is-agent-native#rung-three) — use `useActionMutation`:
+Quando a UI precisar executar a mesma operação que uma ferramenta de agente executaria, use [`useActionMutation`](/docs/client-data#use-action-mutation):
 
 ```tsx
 import { useActionMutation } from "@agent-native/core/client/hooks";
@@ -283,7 +283,7 @@ Argumentos de tipo seguro vêm do esquema zod em seu `defineAction()`. Consulte 
 
 <Callout id="doc-block-1757zi5" tone="decision">
 
-**`useActionMutation` vs `sendToAgentChat`.** Run the operation directly with `useActionMutation` when the user clicked a deterministic button ("Send reply"). Hand it to `sendToAgentChat` when the work needs the agent's reasoning, tools, or multi-step planning. Never call an inline `llm()` from UI — that is rung 1 of the [ladder](/docs/what-is-agent-native#the-ladder).
+**`useActionMutation` vs `sendToAgentChat`.** Execute a operação diretamente com `useActionMutation` quando o usuário clicar em um botão determinístico ("Send reply"). Entregue-a a `sendToAgentChat` quando o trabalho precisar do raciocínio, das ferramentas ou do planejamento em várias etapas do agente. Nunca chame um `llm()` em linha pela UI; isso cria um caminho de IA separado em vez de usar o loop compartilhado do agente.
 
 </Callout>
 

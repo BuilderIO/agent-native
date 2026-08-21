@@ -439,7 +439,7 @@ const koKR = {
       "작성자가 직접 관리하는 독립 앱입니다. 공개 GitHub 저장소에서 설치하거나 호스팅 버전이 있으면 먼저 사용해 보세요.",
     submitCommunityTemplate: "템플릿 제출",
     communityEmpty:
-      "커뮤니티 등록을 받고 있습니다. 명확한 목적의 Agent Native 앱을 공개 저장소에 게시하고 카탈로그에 제출하세요.",
+      "커뮤니티 등록을 받고 있습니다. 명확한 목적의 Agent-Native 앱을 공개 저장소에 게시하고 카탈로그에 제출하세요.",
     publishGuide: "게시 가이드 읽기",
     communityTrust:
       "커뮤니티 템플릿은 타사 코드입니다. 실행하기 전에 저장소, 라이선스, 종속성 및 설치 스크립트를 검토하세요.",
@@ -1400,6 +1400,9 @@ const koKR = {
         answerAction: "프롬프트에 추가",
         composerLabel: "내 프롬프트",
         composerPlaceholder: "원하는 덱을 설명하거나 위의 질문에 답해 주세요.",
+        promptTip: "프롬프트 팁",
+        promptPlaceholder:
+          "구체적으로 작성하세요. 누구를 위한 것인지 말하고, 노트를 붙여넣거나, 참고할 웹사이트 디자인을 알려주세요...",
         submit: "덱 생성하기",
         readyHint: "프롬프트가 준비되었습니다. 에이전트에게 보내세요.",
         promptDeck: "{{deck}}을(를) 만들어 주세요.",

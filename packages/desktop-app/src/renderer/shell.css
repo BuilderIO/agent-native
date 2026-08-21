@@ -975,7 +975,7 @@ body {
   height: 32px;
 }
 
-.desktop-chat-first-rail-footer-actions > .desktop-chat-first-rail-settings {
+.desktop-chat-first-rail-footer-actions > .desktop-chat-first-rail-feedback {
   flex: 1 1 auto;
 }
 

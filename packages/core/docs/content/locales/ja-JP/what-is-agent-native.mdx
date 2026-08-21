@@ -1,400 +1,83 @@
 ---
 title: "Agent-Nativeとは？"
-description: "多くのAIアプリが半完成に感じられる理由、真にagent-nativeなアプリとは何か、そしてその結果として日々の体験がどう変わるか。"
+description: "Agent-Nativeとは何か、共有アクションのアーキテクチャがどのように機能するか、いつこの方法でアプリを構築するかを説明します。"
 ---
 
 # Agent-Nativeとは？
 
-Agent-nativeとは、AIエージェントとその周囲のプロダクトサーフェスが**対等なパートナー**として機能するソフトウェアの構築方法です。一般的な道筋はチャットから始まり、型付きアクションを追加し、構造化された結果をインラインでレンダリングし、同じSQLステートを中心とした永続的なアプリページへと成長していきます。重要なのは、エージェントと人間が同じアクション、データベース、ステートを共有することです。
-
-このページから一つだけ覚えておくとすれば、これです：今日の多くのAIアプリは「使えるもの」になる一歩手前で止まっており、そのギャップが現在この分野における最大の誤りです。
-
-## ユーザーとしての体験 {#what-it-looks-like}
-
-バックグラウンドワーカー、受信トレイ、カレンダー、フォームビルダー、分析ダッシュボードを想像してください。最初の画面がチャットであることが多く、必要なことを尋ねると、エージェントがセットアップを案内し、テーブルやチャートを表示し、適切なアプリビューを開きます。チャットがフルアプリケーションの右側にドッキングされていることもあります。ワークフローがスケジュールジョブ、キュー、スクリプト、または外部エージェント連携である場合は、カスタム画面がまだない場合もあります。これらのどの形であっても、あなたは次のことができます：
-
-- **実際のオペレーションから始める。** 一つの永続的なアクションを、CLI、HTTP、MCP、A2A、アプリ-エージェントループ、そして後からUIから実行できます。
-- **UIがある場合は通常通りクリックする。** すべてのボタン、リスト、ダッシュボード、キーボードショートカット — それらすべてがエージェントが呼び出せる同じオペレーションを実行します。
-- **または、ただ尋ねる。** エージェントに「Saraからのメールに3時までに行くと返信して」と入力する。エージェントは適切なスレッドを開き、返信を下書きし、あなたが手動でやったように承認のために表示します。
-- **エージェントが見ているものを見る。** メールを開くと、エージェントはどれかわかります。チャートを選択すると、エージェントはどのチャートかわかります。段落をハイライトしてCmd+Iを押すと、エージェントはその段落だけに対して動作します。
-- **作業の様子を見る。** エージェントが作業する — ビューを開く、下書きを編集する、レポートを実行する — につれて、UIがリアルタイムで更新されます。いつでも止めたり、方向を変えたり、マウスで引き継ぐことができます。
-- **チームメイトのように操る。** フィードバックを与え、次のタスクをキューに入れ、指示を編集し、昨日の作業を監査します。
-
-それがagent-nativeが目指す体験です。では、なぜ多くのプロダクトがそこに到達できないのかを見ていきます。
-
-## 多くの「AIアプリ」が不十分な理由（ラダーの原則） {#the-ladder}
-
-ほとんどのチームが梯子のように上っていく段階があり、ほとんどが一段手前で止まります。
-
-### 段1 — 単一のLLM呼び出し（アンチパターン） {#rung-one}
-
-テキストボックスがプロンプトを送り、AIが文字列を返し、それを表示する。スピナー付きかもしれません。ユーザーが軌道修正する方法もなく、AIがアクションを取る方法もなく、何が起きたかや理由を確認する方法もありません。
-
-これはどこでも見られます：SaaSプロダクトに「要約」ボタンが付け足されただけの「AI機能」。デモでは印象的で、現実が複雑になった瞬間に壊れます。それはプロダクトではなく、おもちゃです。
-
-### 段2 — ツールを持つチャット {#rung-two}
-
-AIが*何かを実行*できるようになります。ツール — 「メール下書き」、「連絡先検索」、「クエリ実行」 — とチャットインターフェースで、ツール呼び出しと結果を表示しながら目の前で作業します。これがClaude、ChatGPT、Cursorの内部的な仕組みです。
-
-これは大きな進歩です。しかしそれだけでは、まだチャットウィンドウです。適切なUIがありません。ダッシュボード、リスト、フォーム、キーボードショートカット、チームコラボレーションがありません。AIが混乱した場合、正しいボタンをクリックするのではなく、再入力するしかありません。非開発者はこの形式で実際の作業を行うのに苦労します。
-
-### 段3 — エージェント + UIが対等なパートナー {#rung-three}
-
-これがagent-nativeです。エージェントの周りに本物のフル機能アプリを追加します — そして重要なのは、エージェントが取れるすべてのアクションがUIのボタンにもなっており、ユーザーがクリックするすべてのボタンがエージェントが使用するのと同じロジックを実行します。一つの実装、二つの入り口。
-
-段3に到達すると三つのことが変わります：
-
-- **チャットボットにボタンを追加するのをやめ、アプリにエージェントを追加した。** 両面でより高品質なプロダクトです。
-- **エージェントに本物のコンテキストがある。** 何を見ているか、何を選択したか、何をしたばかりかを把握しています。UIが読み込むのと同じデータベースに書き込むため、作業が即座に反映されます。
-- **外部エージェントも使える。** 他のagent-nativeアプリがこのアプリのアクションを[A2Aプロトコル](/docs/a2a-protocol)経由で呼び出せます。Claude Code、Codex、ChatGPTカスタムMCPアプリ、Cursor、その他のMCPホストが[MCPサーバー](/docs/mcp-protocol)として操作できます。一つのアプリ、多くのエントリポイント。
-
-それが段3。それがagent-nativeです。
-
-<Diagram id="doc-block-19ku4da" title="ラダーの原則" summary={"ほとんどのチームは段1または段2で止まります。Agent-nativeは段3 — 一つの共有アクションサーフェスを持つ本物のアプリと本物のエージェント。"}>
-
-```html
-<div class="diagram-ladder">
-  <div class="diagram-card rung rung-3">
-    <span class="diagram-pill accent">段3 · agent-native</span
-    ><strong>エージェント + UIが対等なパートナー</strong
-    ><small class="diagram-muted"
-      >一つのアクションサーフェス。すべてのエージェントツールはボタンでもあり、すべてのボタンはエージェントが使用するのと同じロジックを実行する。</small
-    >
-  </div>
-  <div class="diagram-card rung rung-2">
-    <span class="diagram-pill">段2</span><strong>ツールを持つチャット</strong
-    ><small class="diagram-muted"
-      >エージェントは動作できる —
-      しかしまだただのチャットウィンドウ。ダッシュボード、リスト、ショートカットなし。</small
-    >
-  </div>
-  <div class="diagram-card rung rung-1">
-    <span class="diagram-pill warn">段1</span><strong>単一のLLM呼び出し</strong
-    ><small class="diagram-muted"
-      >プロンプト入力、文字列出力。デモでは印象的だが、現実が複雑になった瞬間に壊れる。</small
-    >
-  </div>
-</div>
-```
-
-```css
-.diagram-ladder {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-.diagram-ladder .rung {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 16px 18px;
-}
-.diagram-ladder .rung-2 {
-  margin-inline-end: 48px;
-}
-.diagram-ladder .rung-1 {
-  margin-inline-end: 96px;
-}
-```
-
-</Diagram>
-
-すべてがどのように同じアクション定義に紐付くかは、[主要概念 — プロトコル](/docs/key-concepts#protocols)を参照してください。
-
-## すべてのエージェントにUIが必要な理由 {#why-every-agent-needs-a-ui}
-
-エージェントが重労働のすべてを担う場合でも、人間は依然として次のことが必要です：
-
-- **何をしているか見る** — 進捗、中間出力、何に触れたか
-- **操る** — フィードバックを与え、中断し、次のタスクをキューに入れる
-- **管理する** — 指示、スキル、メモリ、スケジュールジョブ、連携アカウントを編集する
-- **作業を確認する** — 下書きをレビューし、履歴を監査し、ミスをロールバックする
-- **出力を共有する** — ダッシュボード、レポート、フォーム、チームメイトに送るリンク
-
-最低限、「エージェントのためのUI」は可観測性と管理ダッシュボードです。最大限には、エージェントがコパイロットとして組み込まれたフルSaaSアプリです。両端ともagent-nativeとして数えられ、サーフェスは書き直しなしに一方から成長できます。
-
-すべてのサーフェスを最初から選ぶ必要はありません。エージェントはリッチなチャットから始め、ネイティブなインラインUIをレンダリングし、フルアプリケーションの中に住み、同じアクションサーフェスを通じた自動化と外部エージェントチャンネルから実行できます — 具体的な形とAPIは[エージェントサーフェス](/docs/agent-surfaces)を参照してください。
-
-## すべてのアプリがエージェントから恩恵を受ける理由 {#why-every-app-benefits-from-an-agent}
-
-裏側も同様に重要です。既存のSaaSプロダクトは同じ壁に繰り返しぶつかります：必要なものの80%は素晴らしく機能し、20%はどうしても変えられない。チャットサイドバーを追加してもたいてい解決しません — チャットは通常、UIができることを実際に*実行*できません。
-
-Agent-nativeはそれを逆転させます。アプリのすべてのアクションが一度定義され、ボタンとエージェントツールの両方として公開されるため、エージェントはボタンができることすべてを — それ以上も — 別の「AIワールド」を維持することなく実行できます。自然言語がクリックと並ぶファーストクラスの入力になります。
-
-主張は「エージェントがUIを置き換える」ではありません。「**エージェントはアプリケーションの中に、UIを上に持ち、対等なパートナーとして属する**」です。自動化ファーストのアプリでも、人間が監督、設定、操作するためのサーフェスは必要です — 通常はチャット、ジョブ履歴、または小さなステータスページです。[エージェントサーフェス — 自動化ファーストアプリ](/docs/agent-surfaces#headless)を参照してください。
-
-## エージェント + UIのパリティ {#agent-ui-parity}
-
-これが定義的な原則です。
-
-- **UIから** — ボタンをクリックし、フォームを入力し、ビューをナビゲートする。UIがデータベースに書き込み、エージェントが結果を確認する。
-- **エージェントから** — 自然言語、A2A経由の他のエージェント、Slack、Telegram。エージェントがデータベースに書き込み、UIが自動的に更新される。
-
-良いメンタルモデルは共有ステートマシンです。ユーザーサーフェスとエージェントサーフェスはどちらも型付きアクションを送信します。それらのアクションはスキーマとパーミッション境界を持つリデューサーイベントのように振る舞います：入力を検証し、アクターを認可し、ステート更新を適用し、結果をブロードキャスト/レンダリングします。UIは主にその結果ステートのプロジェクションです。エージェントはDOMから推測したり、プライベートなコンポーネントステートを直接変更したりしません。UIが使用するのと同じ型付きアクションレイヤーを通じてインタラクションします。
-
-<Diagram id="doc-block-1n18itc" title="共有ステートマシン" summary={"ユーザーとエージェントはどちらも型付きアクションを送信します。アクションは検証、認可、SQLバックドステート更新を適用し、新しいステートをブロードキャスト/レンダリングします。"}>
-
-```html
-<div class="diagram-machine">
-  <div class="diagram-card surface user" data-rough>
-    <span class="diagram-pill">ユーザーサーフェス</span>
-    <div class="diagram-node diagram-accent">
-      デザインタブを開く<br /><small class="diagram-muted"
-        >navigate.panel</small
-      >
-    </div>
-    <div class="diagram-node">
-      テキストブロックを追加<br /><small class="diagram-muted"
-        >plan.addBlock</small
-      >
-    </div>
-    <div class="diagram-node">
-      サマリーを削除<br /><small class="diagram-muted">plan.removeBlock</small>
-    </div>
-  </div>
-  <div class="core">
-    <div class="lane-row">
-      <span class="diagram-pill">intent -&gt; action</span
-      ><span class="diagram-pill">action &lt;- intent</span>
-    </div>
-    <div class="diagram-panel action" data-rough>
-      <span class="diagram-pill accent">型付きアクション</span
-      ><strong>navigate</strong
-      ><small class="diagram-muted"
-        >actor: user or agent &middot; input: panel = Design</small
-      >
-      <div class="steps">
-        <span class="diagram-pill">validate</span
-        ><span class="diagram-pill">authorize</span
-        ><span class="diagram-pill">apply update</span>
-      </div>
-    </div>
-    <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
-    <div class="diagram-panel state" data-rough>
-      <span class="diagram-pill ok">共有ステート</span
-      ><strong>SQL + アプリステート</strong
-      ><code>{ panel: "Design", lastActor: "user" }</code
-      ><small class="diagram-muted">ライブ同期でブロードキャスト</small>
-    </div>
-    <div class="lane-row bottom">
-      <span class="diagram-pill ok">state -&gt; UI</span
-      ><span class="diagram-pill ok">context -&gt; agent</span>
-    </div>
-  </div>
-  <div class="diagram-card surface agent" data-rough>
-    <span class="diagram-pill">エージェントサーフェス</span>
-    <div class="diagram-node">
-      ダイアグラムブロックを追加<br /><small class="diagram-muted"
-        >plan.addBlock</small
-      >
-    </div>
-    <div class="diagram-node">
-      古いブロックを削除<br /><small class="diagram-muted"
-        >plan.removeBlock</small
-      >
-    </div>
-    <div class="diagram-node diagram-accent">
-      レビュービューにフォーカス<br /><small class="diagram-muted"
-        >navigate.review</small
-      >
-    </div>
-  </div>
-</div>
-```
-
-```css
-.diagram-machine {
-  display: grid;
-  grid-template-columns: minmax(150px, 1fr) minmax(300px, 1.45fr) minmax(
-      150px,
-      1fr
-    );
-  gap: 12px;
-  align-items: stretch;
-}
-.diagram-machine .surface {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 14px;
-}
-.diagram-machine .surface .diagram-pill {
-  align-self: flex-start;
-}
-.diagram-machine .diagram-node {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 10px 12px;
-}
-.diagram-machine .core {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 8px;
-  min-width: 0;
-}
-.diagram-machine .lane-row {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.diagram-machine .lane-row.bottom {
-  justify-content: center;
-}
-.diagram-machine .diagram-arrow {
-  font-size: 22px;
-  line-height: 1;
-  text-align: center;
-}
-.diagram-machine .diagram-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-width: 0;
-  padding: 14px;
-}
-.diagram-machine .steps {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-.diagram-machine code {
-  align-self: flex-start;
-  max-width: 100%;
-  white-space: normal;
-}
-@media (max-width: 760px) {
-  .diagram-machine {
-    grid-template-columns: 1fr;
-  }
-  .diagram-machine .lane-row {
-    justify-content: flex-start;
-  }
-  .diagram-machine .lane-row.bottom {
-    justify-content: flex-start;
-  }
-}
-```
-
-</Diagram>
-
-エージェントがメールの下書きを作成すると、UIに表示されます。「送信」をクリックすると、エージェントはそれが送信されたことを知ります。別の「エージェントワールド」と「UIワールド」はありません — 一つのシステムです。これを機能させるアーキテクチャについては[主要概念](/docs/key-concepts)を参照してください。
-
-## パワーツール専用だったカスタマイズ {#workspace-customization}
-
-Claude Codeのようなツールが強力に感じられる理由はモデルではなく — **カスタマイズレイヤー**です：プロジェクトごとの指示、スキル、メモリ、サブエージェント、連携サービス。エージェントをあなたのコードベース、好み、チームに合わせて形作れます。
-
-Agent-nativeはすべてのユーザーにそれと同じカスタマイズレイヤーを — アプリを離れることなく — 提供します。各アプリには個人の**エージェントリソース**が付属しており、あなた（またはチームの誰でも）が次のことに使えます：
-
-- 全員のエージェントが読むチーム全体のルールを編集する
-- エージェントが修正されるにつれて自動的に好みを記憶させる
-- 再利用可能なハウツーガイドを`/スラッシュ`コマンドとして書く
-- 特定のタスク用のカスタムサブエージェントを保持する（`@メンション`で呼び出し）
-- cronでジョブをスケジュールする（例：「毎月曜の朝、先週を要約する」）
-- ユーザーごとのMCPサーバー経由で外部サービス（Gmail、Stripe、Slack、内部API）を連携する
-
-ポイントは：すべてがファイルシステムではなくデータベースに保存されていることです。スピンアップする開発環境も、ユーザーごとのコンテナも不要です。すべてがテーブルの行であるため、すべてのユーザーが自分のエージェントリソースの完全なセット — 個人メモリ、個人接続、個人スキル — を事実上無料で持てます。それが本物のマルチテナントSaaSプロダクト内でClaude Codeレベルの柔軟性を実現可能にするものです。
-
-詳細は[エージェントリソース](/docs/agent-resources)を参照してください。
-
-## 何が違うのか {#what-makes-it-different}
-
-| アプローチ                                        | 説明                                                                                                                                  |
-| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| **AIを後付けした従来のアプリ**                    | AIは後付け。オートコンプリート、サマリー、またはアプリで実際に何もできないチャットサイドバーに限定される。                            |
-| **純粋なチャット / エージェントインターフェース** | 強力だがアクセシブルでない。ダッシュボード、ワークフロー、永続性なし。非開発者は効果的に使えない。                                    |
-| **SaaS向けClaude Code / Codex**                   | 自分のマシン上の開発者には最適。マルチテナントSaaSには転用できない — ユーザーごとに開発ボックス上のコードベース一つはスケールしない。 |
-| **Agent-nativeアプリ**                            | エージェントはファーストクラスのシチズン。同じデータベース、同じステートを共有し、UIができることすべてを実行できる — そして逆も同様。 |
-
-## チーム全体での開発 {#whole-team-development}
-
-Agent-nativeは開発者だけのものではありません。組み込みエージェントはチーム全体にアプリを操作するための共通の方法を提供し、ソースコードの変更はアプリの通常の開発ワークフローの一部であり続け、ワークスペースと書き込みツールを意図的に付与されたフレームに委任できます：
-
-- **デザイナー**はエージェントを通じて直接アプリデータとワークフローを更新する
-- **プロダクトマネージャー**はワークフローを設定し、開発チームへの変更を説明する
-- **QA**はアプリをテストし、エージェントを通じて壊れている部分を報告する
-- **チームの誰でも**自然言語で貢献できる
-
-ビジョン：引き継ぎを減らし、一人が小さなチームの仕事をこなす。
-
-## テンプレートから始めてカスタマイズ {#fork-and-customize}
-
-Agent-nativeアプリは動作するアプリから始めるモデルに従います。**テンプレート** — Calendar、Content、Slides、Analytics、Mail、Clips、Design、Forms、Dispatch — から始め、自分のものにします。それぞれが完全な動作するSaaSプロダクトであり、空白のスキャフォールドではありません：
-
-1. [agent-native.com/templates](/templates)でテンプレートを選ぶ
-2. 多くのファーストパーティテンプレートはホスト型アプリとして利用できます（例：mail.agent-native.com）
-3. カスタマイズしたいときにテンプレートから自分のアプリを作成する — 「Stripeアカウントを連携する」「コホートチャートを追加する」
-4. 自分のリポジトリと開発ワークフローでソースをカスタマイズする
-5. アプリを自分のドメインにデプロイする — またはagent-native.comに留まる
-
-*自分の*アプリなので、共有インフラではなく、ソースを所有し、共有フレームワークを変更せずに進化させられます。組み込みエージェントはデフォルトでそのアクションとデータサーフェスを通じてデプロイされたアプリを操作し、フレームが明示的にコード有効化されている場合はソースを変更できます。詳細は[テンプレート](/docs/cloneable-saas)を参照してください。
-
-テンプレート全体から始める準備ができていませんか？すでに使用しているコーディングエージェントに**スキル**を追加することでagent-nativeを試すこともできます — `npx @agent-native/core@latest skills add visual-plan`でPlansスキルをインストールしてください。[スキルガイド](/docs/skills-guide#app-backed-skills)を参照してください。
-
-## コンポーザブルエージェント {#composable-agents}
-
-Agent-nativeアプリはお互いに通信できます。メールアプリの中から、分析エージェントにデータをクエリして結果を下書きメールに含めるようタグ付けできます。エージェントは他のどのエージェントが利用可能かを発見し、相互に作業を引き渡し、あなたがすでにいるUIに結果を表示します。
-
-これは内部的に[A2A](/docs/a2a-protocol)と[MCP](/docs/mcp-protocol)によって動作します — 同じ定義、複数のサーフェス — しかしユーザーとして知っておくべきことは「どのアプリにも、それらのいずれかができることについて何でも助けを求められる」ということだけです。
-
-## コードではどう見える？ {#what-does-it-look-like-in-code}
-
-agent-nativeアプリを構築または拡張している場合、中心的なパターンはこれです：アプリのすべてのオペレーションは**アクション** — 一度定義され、エージェントとUIの両方で利用可能です。
-
-<AnnotatedCode
-  id="doc-block-n4jy5o"
-  title="一つのアクション、一度の定義"
-  filename="actions/reply-to-email.ts"
-  language="ts"
-  code={
-    'import { defineAction } from "@agent-native/core/action";\nimport { z } from "zod";\n\nimport { getDb, schema } from "../server/db/index.js";\n\nexport default defineAction({\n  description: "Reply to an email thread",\n  schema: z.object({ emailId: z.string(), body: z.string() }),\n  run: async ({ emailId, body }) => {\n    const db = getDb();\n    await db.insert(schema.replies).values({ emailId, body });\n  },\n});'
-  }
-  annotations={[
-    {
-      lines: "7",
-      label: "ツールサーフェス",
-      note: "`description`はエージェントがこれをツールとして呼び出すタイミングを判断するために読むものです。",
-    },
-    {
-      lines: "8",
-      label: "型付きコントラクト",
-      note: "一つのzod `schema`が**すべての**サーフェス — エージェント、UI、HTTP、MCP、A2A — からの入力を検証します。",
-    },
-    {
-      lines: "9-12",
-      label: "一つの実装",
-      note: "`run`ボディが唯一の真実のソースです。UIボタンとエージェントツールはどちらも正確にこれを実行します。`getDb()`と`schema`はアプリの`server/db/index.ts`から来ます — [データベース](/docs/server-database)を参照してください。",
-    },
-  ]}
+Agent-Nativeは、人とAIエージェントの両方に対応するアプリを構築するための
+オープンソースのTypeScriptフレームワークです。アプリの機能を一度だけ
+[アクション](/docs/actions-overview)として定義します。アクションは型付き関数で、
+React UIはコードから呼び出し、エージェントはツールとして使います。
+
+## なぜこの方法でアプリを構築するのか
+
+ほとんどのアプリケーションは、人がUIを通じて作業することを前提に設計されています。
+エージェントを追加すると、製品を使うもう一つの方法が生まれます。両者が一つの製品として機能するには、次の3つが必要です。
+
+- **エージェントが製品にアクセスできること。** より小さな別のツールセットしか受け取らなければ、エージェントは制約されたままです。また、アプリケーションの変化とともにずれていく2つの実装を保守することになります。
+- **人には依然としてアプリケーションUIが必要なこと。** チャットは作業を委任するには適していますが、情報の閲覧、選択肢の比較、変更の確認、チームとの結果共有には必ずしも適していません。
+- **作業が両者の間を移動できること。** 人はエージェントの作業を確認または変更でき、エージェントは最初からやり直すことなく、そこから続けられるべきです。
+
+Agent-Nativeアーキテクチャは、これらの要件を中心に作られています。人はUIで直接作業することも、成果をエージェントに委任することもでき、進行を失わずに両者の間を行き来できます。
+
+<Video
+  src="https://cdn.builder.io/o/assets%2Fc5b47d20f6a943e485717e5895739988%2Fc88d506c160142ae9b8618616ceedcea%2Fcompressed?apiKey=c5b47d20f6a943e485717e5895739988&token=c88d506c160142ae9b8618616ceedcea&alt=media&optimized=true"
+  alt="同じアプリケーションで、人が直接利用する場合とAIエージェントを介して利用する場合の比較。"
+  align="full"
+  caption="Agent-Nativeアーキテクチャの4分間の紹介をご覧ください。"
 />
 
-```tsx
-// 任意のReactコンポーネントで — 同じアクション、ボタンから呼び出す
-const { mutate } = useActionMutation("reply-to-email");
+## Agent-Nativeの仕組み
 
-<Button onClick={() => mutate({ emailId, body: "Thanks!" })}>
-  Send Reply
-</Button>;
+Agent-Nativeアプリケーションは、人とエージェントに同じ製品を操作する2つの方法を提供します。
+
+- **UI**は、人が作業を閲覧、編集、確認、共有するための親しみやすい方法を提供します。
+- **エージェント**は、人が委任した作業を処理します。
+
+これを可能にする3つの共有基盤があります。
+
+- **共有操作。** 人はUIを通じて操作を実行し、エージェントは直接呼び出します。Agent-Nativeは各操作を一度だけ[アクション](/docs/actions-overview)として定義します。
+- **[共有データ](/docs/server-database)**は、アプリケーションが保存する必要がある作業や情報を保持します。アプリケーションによっては、顧客レコード、プロジェクト計画、会話、レポートなどです。UIとエージェントの両方がこの共有データを読み取り、更新します。
+- **[共有アプリケーション状態](/docs/context-awareness)**は、現在のページ、選択中のレコード、アクティブなビューなど、今起きていることを表します。フレームワークは関連する状態をコンテキストとしてエージェントに渡すため、人が何に取り組んでいるかを把握できます。
+
+```mermaid
+graph TD
+  UI[UI] --> App[1つのアプリケーション]
+  Agent[エージェント] --> App
+  App --- Operations[共有操作]
+  App --- Data[共有データ]
+  App --- State[共有アプリケーション状態]
 ```
 
-```tsx
-// アプリのどこにでもマウントできるエージェントパネル
-import { AgentSidebar } from "@agent-native/core/client/agent-chat";
-<AgentSidebar />;
-```
+エージェントはUIをクリックして操作するわけではありません。UIと同じアクションを、同じ検証、権限、実装で呼び出します。
 
-一つのアクション、多くのサーフェス：エージェントはツールとして呼び出し、UIはタイプセーフなミューテーションとして呼び出し、[ネイティブチャット](/docs/native-chat-ui)は明示的なウィジェット結果をレンダリングでき、外部エージェントは[A2A](/docs/a2a-protocol)経由でアクセスし、MCPホストはアプリの[MCPサーバー](/docs/mcp-protocol)を通じて呼び出します。オプションでMCP Apps UIリソースとフレームワークが処理する標準リモートMCP OAuthも利用できます。詳細は[アクション](/docs/actions-overview)を参照してください。
+たとえば、人はUIからサポートチケットを担当者に割り当てることも、エージェントに依頼することもできます。どちらの経路でも同じアクションが実行され、同じチケットが更新されます。人はUIで結果を確認または変更してから、エージェントにそこから作業を続けさせられます。
 
-## 次のステップ {#whats-next}
+## Agent-Nativeを使うべきとき
 
-- [**はじめに**](/docs/getting-started) — チャットから始め、アクションを追加し、ネイティブな結果をレンダリングし、ページへと成長する
-- [**エージェントサーフェス**](/docs/agent-surfaces) — チャット、ネイティブインラインUI、フルアプリページ、組み込みサイドカー、自動化、または外部エージェントアクセスを選ぶ
-- [**主要概念**](/docs/key-concepts) — アーキテクチャ：SQL、アクション、ポーリング同期、コンテキスト認識、ポータビリティ
-- [**テンプレート**](/docs/cloneable-saas) — あなたが所有する完全なプロダクトとしてのテンプレート
-- [**エージェントリソース**](/docs/agent-resources) — SQLバックド、ファイルではないユーザーごとのカスタマイズレイヤー（スキル、メモリ、指示、MCP）
-- [**Dispatch**](/docs/dispatch) — ワークスペースコントロールプレーン：シークレットボールト、Slack/メール受信トレイ、クロスアプリデリゲーション
-- [**拡張機能**](/docs/extensions) — エージェントがコード変更なしに即座に作成するサンドボックス化ミニアプリ
-- [**ドロップインエージェント**](/docs/drop-in-agent) — 任意のReactアプリに`<AgentPanel>`をマウント
-- [**FAQ**](/docs/faq) — コスト、ホスティング、モデル、テンプレートへのクイック回答
+次の場合、Agent-Nativeは適しています。
+
+- エージェントに、質問への回答だけでなくアプリで実際の作業をさせたい。
+- 人が作業を確認、編集、承認、共有するためのUIが必要である。
+- UIとエージェントの間で、進行やコンテキストを失わずに作業を移動させたい。
+
+生成された応答が1つだけ必要なら、モデルを直接呼び出してください。ワークフローが固定された予測可能な手順に従うなら、通常のアプリケーションロジックまたは自動化の方がシンプルです。UIとエージェントの両方が同じ作業で継続的な役割を持つ場合に、Agent-Nativeを使ってください。
+
+## 次のステップ
+
+<Cards>
+
+### [はじめに](/docs/getting-started)
+
+アプリを作成し、同じアクションをエージェントとUIから呼び出します。
+
+### [主要な概念](/docs/key-concepts)
+
+アクション、SQLデータ、アプリケーションコンテキスト、アクセス、ライブ同期がどのように連携するかを学びます。
+
+### [エージェントサーフェス](/docs/agent-surfaces)
+
+同じモデルが、UI、チャット、自動化、別のエージェント主導のアプリをどのように支えるかを確認します。
+
+</Cards>
