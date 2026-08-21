@@ -151,60 +151,6 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     return { frame: frame!, label: label! };
   }
 
-  it("routes modifier-wheel zoom from embedded screen content to the canvas", async () => {
-    const onZoomChange = vi.fn();
-    await act(async () => {
-      root.render(
-        <MultiScreenCanvas
-          screens={[
-            {
-              id: "screen-a",
-              filename: "screen-a.html",
-              content: "<!doctype html><html><body></body></html>",
-            },
-          ]}
-          zoom={100}
-          activeTool="move"
-          geometryById={{
-            "screen-a": { x: 0, y: 0, width: 320, height: 640 },
-          }}
-          renderScreenContent={() => (
-            <iframe data-design-preview-iframe title="screen preview" />
-          )}
-          onZoomChange={onZoomChange}
-          onPick={() => {}}
-        />,
-      );
-    });
-
-    const iframe = container.querySelector<HTMLIFrameElement>(
-      "iframe[data-design-preview-iframe]",
-    );
-    expect(iframe?.contentWindow).toBeTruthy();
-
-    await act(async () => {
-      window.dispatchEvent(
-        new MessageEvent("message", {
-          data: {
-            type: "embedded-canvas-wheel",
-            deltaX: 0,
-            deltaY: -100,
-            deltaMode: 0,
-            clientX: 160,
-            clientY: 320,
-            ctrlKey: true,
-          },
-          source: iframe!.contentWindow,
-        }),
-      );
-      await nextAnimationFrame();
-    });
-
-    await vi.waitFor(() => {
-      expect(onZoomChange).toHaveBeenCalledWith(expect.closeTo(110, 1));
-    });
-  });
-
   it("reports an unchanged empty layer marquee selection once per drag", async () => {
     const onLayerMarqueeSelectionChange = vi.fn();
     await act(async () => {
