@@ -201,7 +201,7 @@ if (workflow) {
     );
   }
   const hasAuthSelectionCommandWithStatus =
-    /BETA_E2E_AUTHED=0 pnpm e2e:beta[\s\\]+--project=authed --project=journeys[\s\\]+--grep "\$BETA_E2E_GREP" --list >"\$selection_file" 2>&1\s+selection_status="\$\?"\s+set -e/.test(
+    /set \+e[\s\\]+BETA_E2E_AUTHED=0 pnpm e2e:beta[\s\\]+--project=authed --project=journeys[\s\\]+--grep "\$BETA_E2E_GREP" --list >"\$selection_file" 2>&1\s+selection_status="\$\?"\s+set -e/.test(
       workflow,
     );
   const selectionStatusCapture = workflow.indexOf('selection_status="$?"');
