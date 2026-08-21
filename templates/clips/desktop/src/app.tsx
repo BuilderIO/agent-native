@@ -8006,7 +8006,7 @@ function Setup({
         </nav>
         <main
           data-popover-scroll-region
-          className="min-h-0 min-w-0 overflow-y-auto overscroll-contain px-5 pb-6 pt-5"
+          className="settings-scroll-shadows min-h-0 min-w-0 overflow-y-auto overscroll-contain px-5 pb-6 pt-5"
           tabIndex={-1}
         >
           {/* Title only, and the title deliberately repeats the nav item —
