@@ -10,7 +10,10 @@ import {
   waitForShaderWriteToSettle,
 } from "@/components/design/inspector/GlslShaderPanel";
 import type { ClipboardContentMutationPublication } from "@/lib/clipboard-content-lineage";
-import { resolveScreenCollabSyncTarget } from "@/pages/design-editor/collab-sync";
+import {
+  resolveScreenCollabSyncTarget,
+  writeCollabText,
+} from "@/pages/design-editor/collab-sync";
 import { TAB_ID } from "@/pages/design-editor/editor-session";
 import type { FileContentSaveRequest } from "@/pages/design-editor/editor-state";
 import type { ContentHistoryEntry } from "@/pages/design-editor/history";
@@ -218,13 +221,12 @@ export function runApplyFileContentUpdate(
     overviewDocConnected: !!(overviewYdoc && overviewIsSynced),
   });
   if (writeLiveDoc && overviewYdoc) {
-    const ytext = overviewYdoc.getText("content");
-    if (ytext.toString() !== nextContent) {
-      overviewYdoc.transact(() => {
-        ytext.delete(0, ytext.length);
-        ytext.insert(0, nextContent);
-      }, TAB_ID);
-    }
+    writeCollabText(
+      overviewYdoc,
+      overviewYdoc.getText("content"),
+      nextContent,
+      TAB_ID,
+    );
   }
   if (options.persist === false) {
     cancelQueuedFileContentSave(fileId);

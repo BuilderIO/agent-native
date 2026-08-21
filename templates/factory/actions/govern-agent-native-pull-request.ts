@@ -6,10 +6,17 @@ import { resolveConnectorSecret } from "../server/connectors/credentials.js";
 import { getDb } from "../server/db/index.js";
 import {
   triageDecisions,
-  triageConfig,
   triageItems,
   triageRuns,
 } from "../server/db/schema.js";
+import { DEFAULT_FACTORY_ID } from "../server/factory-graph/store.js";
+import {
+  factoryIdSchema,
+  orgFactoryItemFilter,
+  orgFactoryRunFilter,
+  orgFactoryScopedItemWhere,
+  readTriageConfigRow,
+} from "../server/lib/factory-scope.js";
 import { requireFactoryAutomation } from "../server/lib/require-factory-automation.js";
 import {
   requireWorkspaceMember,
@@ -50,11 +57,12 @@ function requiredAiServicesEnv(
 async function hasVerifiedFactoryRun(input: {
   itemId: string | undefined;
   orgId: string;
+  factoryId: string;
   pullRequestBody: string | null;
   headRef: string;
 }): Promise<boolean> {
   const db = getDb();
-  const runConditions = [eq(triageRuns.orgId, input.orgId)];
+  const runConditions = [orgFactoryRunFilter(input.orgId, input.factoryId)];
   if (input.itemId) {
     runConditions.push(eq(triageRuns.itemId, input.itemId));
   }
@@ -91,7 +99,7 @@ async function hasVerifiedFactoryRun(input: {
   const items = await db
     .select({ id: triageItems.id, sourceUrl: triageItems.sourceUrl })
     .from(triageItems)
-    .where(eq(triageItems.orgId, input.orgId))
+    .where(orgFactoryItemFilter(input.orgId, input.factoryId))
     .orderBy(desc(triageItems.updatedAt))
     .limit(100);
   return items.some((item) => {
@@ -108,6 +116,7 @@ export default defineAction({
   description:
     "Govern one agent-native pull request after fetching bounded GitHub and ai-services evidence. Auto-approve only under the current review-prs membership, owner, evidence, and ultra-scary gates. Never auto-merge. Clips, Design, and Content feedback remains owner-managed while their verified PR-owner exceptions still apply.",
   schema: z.object({
+    factoryId: factoryIdSchema.default(DEFAULT_FACTORY_ID),
     repo: z.string().trim().min(1).max(256),
     pullRequestNumber: z.number().int().positive(),
     itemId: z.string().min(1).optional(),
@@ -118,6 +127,7 @@ export default defineAction({
   http: false,
   run: async (
     {
+      factoryId,
       repo,
       pullRequestNumber,
       itemId,
@@ -130,15 +140,16 @@ export default defineAction({
     const { userEmail, orgId } = await requireWorkspaceMember(
       workspaceMemberIdentityFromContext(context),
     );
-    await requireFactoryAutomation(context, { userEmail, orgId }, "governance");
+    await requireFactoryAutomation(
+      context,
+      { userEmail, orgId },
+      "governance",
+      factoryId,
+    );
     const repository = repositoryRef(repo);
     const configuredRepository = (
-      await getDb()
-        .select({ repository: triageConfig.repository })
-        .from(triageConfig)
-        .where(and(eq(triageConfig.id, orgId), eq(triageConfig.orgId, orgId)))
-        .limit(1)
-    )[0]?.repository;
+      await readTriageConfigRow(getDb(), orgId, factoryId)
+    )?.repository;
     if (!configuredRepository || configuredRepository.trim() !== repo.trim()) {
       throw new Error(
         "PR governance is restricted to the configured Factory repository.",
@@ -152,7 +163,7 @@ export default defineAction({
             pullRequestNumber: triageItems.pullRequestNumber,
           })
           .from(triageItems)
-          .where(and(eq(triageItems.id, itemId), eq(triageItems.orgId, orgId)))
+          .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId))
           .limit(1)
       )[0];
       if (
@@ -178,7 +189,7 @@ export default defineAction({
             status: "pr_observed",
             updatedAt: new Date().toISOString(),
           })
-          .where(and(eq(triageItems.id, itemId), eq(triageItems.orgId, orgId)));
+          .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId));
       }
       return {
         ok: true,
@@ -222,6 +233,7 @@ export default defineAction({
             "Skipped the pull request because it already has a current non-dismissed approval.",
           details: { repo, pullRequestNumber },
         },
+        factoryId,
       );
       if (itemId) {
         await getDb()
@@ -230,7 +242,7 @@ export default defineAction({
             status: "pr_observed",
             updatedAt: new Date().toISOString(),
           })
-          .where(and(eq(triageItems.id, itemId), eq(triageItems.orgId, orgId)));
+          .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId));
       }
       return {
         ok: true,
@@ -267,6 +279,7 @@ export default defineAction({
     const factoryTriggered = await hasVerifiedFactoryRun({
       itemId,
       orgId,
+      factoryId,
       pullRequestBody: pullRequest.body,
       headRef: pullRequest.headRef,
     });
@@ -312,6 +325,7 @@ export default defineAction({
           guardResults: governance.guardResults,
         },
       },
+      factoryId,
     );
 
     if (itemId) {
@@ -319,7 +333,7 @@ export default defineAction({
         await getDb()
           .select()
           .from(triageItems)
-          .where(and(eq(triageItems.id, itemId), eq(triageItems.orgId, orgId)))
+          .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId))
           .limit(1)
       )[0];
       if (!item) throw new Error("Factory item not found for PR governance.");
@@ -348,6 +362,7 @@ export default defineAction({
           createdAt: new Date().toISOString(),
           ownerEmail: userEmail,
           orgId,
+          factoryId,
         })
         .onConflictDoNothing();
     }
@@ -360,7 +375,7 @@ export default defineAction({
             status: governance.ownerOwnedArea ? "needs_manual" : "pr_observed",
             updatedAt: new Date().toISOString(),
           })
-          .where(and(eq(triageItems.id, itemId), eq(triageItems.orgId, orgId)));
+          .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId));
       }
       return {
         ok: true,
@@ -381,7 +396,7 @@ export default defineAction({
             status: triageItems.status,
           })
           .from(triageItems)
-          .where(and(eq(triageItems.id, itemId), eq(triageItems.orgId, orgId)))
+          .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId))
           .limit(1)
       )[0];
       if (!item) throw new Error("Factory item disappeared after PR approval.");
@@ -410,7 +425,7 @@ export default defineAction({
             status: "auto_approved",
             updatedAt: new Date().toISOString(),
           })
-          .where(and(eq(triageItems.id, itemId), eq(triageItems.orgId, orgId)));
+          .where(orgFactoryScopedItemWhere(itemId, orgId, factoryId));
       }
     } else {
       approvalUrl = (
@@ -437,6 +452,7 @@ export default defineAction({
           "Approved the pull request under the current review-prs policy.",
         details: { repo, pullRequestNumber, approvalUrl },
       },
+      factoryId,
     );
     return {
       ok: true,

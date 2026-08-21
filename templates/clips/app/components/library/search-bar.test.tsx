@@ -45,7 +45,7 @@ vi.mock("@/hooks/use-library", () => ({
 vi.mock("@/lib/utils", () => ({
   cn: (...values: Array<string | undefined>) =>
     values.filter(Boolean).join(" "),
-  shortcutLabel: () => "⌘K",
+  shortcutLabel: (shortcut: string) => shortcut,
 }));
 
 import { SearchBar } from "./search-bar";
@@ -105,5 +105,12 @@ describe("SearchBar command-menu handoff", () => {
 
     expect(document.activeElement).not.toBe(input);
     expect(mocks.setSearchParams).not.toHaveBeenCalled();
+  });
+
+  it("shows the slash shortcut for inline recording search", () => {
+    act(() => root.render(<SearchBar />));
+
+    expect(container.textContent).toContain("/");
+    expect(container.textContent).not.toContain("cmd+k");
   });
 });

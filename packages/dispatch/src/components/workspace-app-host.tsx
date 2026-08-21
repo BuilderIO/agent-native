@@ -11,6 +11,7 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { AGENT_NATIVE_WORKSPACE_APP_ROUTE_MESSAGE_TYPE } from "@agent-native/core/client/navigation";
 import { withBuilderUtmTrackingParams } from "@agent-native/core/shared/builder-link-tracking";
 import {
   IconAlertTriangle,
@@ -34,6 +35,7 @@ import {
   isWorkspaceSsoApp,
   navigateToWorkspaceApp,
   shouldOpenWorkspaceAppInTopWindow,
+  workspaceAppRouteForChildPath,
   workspaceAppDirectHref,
   workspaceAppEmbedTarget,
   workspaceAppHref,
@@ -251,6 +253,10 @@ interface WorkspaceAppFrameProps {
   navigateToTopWindow?: (href: string) => boolean | void;
   /** Chat-first app tabs use their own route while standalone hosts use app metadata. */
   embedPath?: string;
+  /** Standalone Dispatch routes seed the iframe once from their initial suffix. */
+  initialPath?: string;
+  /** Standalone Dispatch hosts mirror child route changes into the shell URL. */
+  onChildRouteChange?: (path: string) => void;
   /** Chat-first app surfaces own the parent chat rail around the iframe. */
   chatSidebar?: boolean;
   copy?: ChatFirstCopy;
@@ -260,6 +266,8 @@ export function WorkspaceAppFrame({
   app,
   navigateToTopWindow = navigateToWorkspaceApp,
   embedPath,
+  initialPath,
+  onChildRouteChange,
   chatSidebar = false,
   copy = defaultChatFirstCopy,
 }: WorkspaceAppFrameProps) {
@@ -315,19 +323,28 @@ export function WorkspaceAppFrame({
         embedPath,
       );
     }
+    if (initialPath !== undefined) {
+      return workspaceAppDirectHref(
+        { path: app.path, url: app.url },
+        initialPath,
+      );
+    }
 
     const target = workspaceAppEmbedTarget({
       path: app.path ?? "",
       url: app.url,
     });
     return target.url ?? target.path ?? null;
-  }, [app.path, app.url, embedPath]);
+  }, [app.path, app.url, embedPath, initialPath]);
   const openInTopWindow = shouldOpenWorkspaceAppInTopWindow();
-  const topWindowSsoAttemptKey = `${app.id}\u0000${app.path ?? ""}\u0000${app.url ?? ""}\u0000${embedPath ?? ""}\u0000${embedAttempt}`;
+  const topWindowSsoAttemptKey = `${app.id}\u0000${app.path ?? ""}\u0000${app.url ?? ""}\u0000${embedPath ?? ""}\u0000${initialPath ?? ""}\u0000${embedAttempt}`;
   const topWindowSsoAttemptedRef = useRef<string | null>(null);
   const embedInput = useMemo<EmbedSessionInput | null>(() => {
     if (embedPath !== undefined) {
       return buildChatFirstEmbedSessionInput(app.id, embedPath);
+    }
+    if (initialPath !== undefined) {
+      return buildChatFirstEmbedSessionInput(app.id, initialPath);
     }
     if (!appHref) return null;
     return {
@@ -335,7 +352,7 @@ export function WorkspaceAppFrame({
       ...workspaceAppEmbedTarget({ path: app.path ?? "", url: app.url }),
       chrome: "minimal",
     };
-  }, [app.id, app.path, app.url, appHref, embedPath]);
+  }, [app.id, app.path, app.url, appHref, embedPath, initialPath]);
 
   useEffect(() => {
     if (openInTopWindow && useWorkspaceSso && embedInput) {
@@ -425,7 +442,7 @@ export function WorkspaceAppFrame({
         setEmbedUrl(
           workspaceAppDirectHref(
             { path: app.path ?? "", url: app.url },
-            embedPath ?? "/",
+            initialPath ?? embedPath ?? "/",
           ),
         );
         setEmbedError(error);
@@ -441,6 +458,7 @@ export function WorkspaceAppFrame({
     createWorkspaceSsoEmbedSession.mutateAsync,
     embedInput,
     embedPath,
+    initialPath,
     embedAttempt,
     openInTopWindow,
     navigateToTopWindow,
@@ -463,6 +481,48 @@ export function WorkspaceAppFrame({
     return () =>
       window.removeEventListener("message", handleEmbedSessionExpired);
   }, [embedUrl]);
+
+  useEffect(() => {
+    if (!onChildRouteChange || !embedUrl) return;
+
+    const frame = embedFrameRef.current;
+    if (!frame) return;
+
+    let expectedOrigin: string;
+    try {
+      expectedOrigin = new URL(embedUrl, window.location.href).origin;
+    } catch {
+      return;
+    }
+
+    const handleWorkspaceAppRoute = (event: MessageEvent) => {
+      if (
+        event.source !== frame.contentWindow ||
+        event.origin !== expectedOrigin
+      ) {
+        return;
+      }
+      const message = event.data as {
+        type?: unknown;
+        path?: unknown;
+      } | null;
+      if (
+        message?.type !== AGENT_NATIVE_WORKSPACE_APP_ROUTE_MESSAGE_TYPE ||
+        typeof message.path !== "string"
+      ) {
+        return;
+      }
+
+      const route = workspaceAppRouteForChildPath(
+        { id: app.id, path: app.path ?? "", url: app.url },
+        message.path,
+      );
+      if (route) onChildRouteChange(route);
+    };
+
+    window.addEventListener("message", handleWorkspaceAppRoute);
+    return () => window.removeEventListener("message", handleWorkspaceAppRoute);
+  }, [app.id, app.path, app.url, embedUrl, onChildRouteChange]);
 
   useEffect(() => {
     postThemeToFrame();
@@ -514,9 +574,13 @@ export function WorkspaceAppFrame({
 export function WorkspaceAppHost({
   appId,
   navigateToTopWindow = navigateToWorkspaceApp,
+  initialPath,
+  onChildRouteChange,
 }: {
   appId?: string;
   navigateToTopWindow?: (href: string) => boolean | void;
+  initialPath?: string;
+  onChildRouteChange?: (path: string) => void;
 }) {
   const t = useT();
   const workspaceAppsQuery = useActionQuery<WorkspaceAppSummary[]>(
@@ -702,6 +766,8 @@ export function WorkspaceAppHost({
         <WorkspaceAppFrame
           app={app}
           navigateToTopWindow={navigateToTopWindow}
+          initialPath={initialPath}
+          onChildRouteChange={onChildRouteChange}
         />
       </div>
     </div>

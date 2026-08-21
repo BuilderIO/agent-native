@@ -183,7 +183,9 @@ export function resolveAppWebviewAuthStateFromProbe(
   result: unknown,
   fallbackState: AppWebviewAuthState,
 ): AppWebviewAuthState {
-  if (!result || typeof result !== "object") return fallbackState;
+  // A missing probe result is a failed read, not evidence that the route is
+  // authenticated. The fallback is reserved for a known-unsupported 404.
+  if (!result || typeof result !== "object") return "unknown";
   const probe = result as {
     authenticated?: unknown;
     invalidJson?: unknown;
@@ -389,6 +391,11 @@ interface AppWebviewProps {
   onTitleChange?: (title: string) => void;
   /** Emits the guest page's coarse session state for host-owned UI. */
   onAuthStateChange?: (state: AppWebviewAuthState) => void;
+  /** Emits terminal main-frame failures so host-owned overlays can recover. */
+  onMainFrameLoadFailure?: (details: {
+    errorCode?: number;
+    errorDescription: string;
+  }) => void;
   /** Emits the native desktop identity state for sibling host surfaces. */
   onDesktopIdentityStatusChange?: (
     status: DesktopIdentityStatus | "checking",
@@ -624,6 +631,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       refreshKey = 0,
       onTitleChange,
       onAuthStateChange,
+      onMainFrameLoadFailure,
       onDesktopIdentityStatusChange,
       onWebContentsIdChange,
       onAppsChanged,
@@ -635,6 +643,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     const [isLoading, setIsLoading] = useState(true);
     const [slowLoad, setSlowLoad] = useState(false);
     const [isFullscreen, setIsFullscreen] = useState(false);
+    const hasLoadedGuestPageRef = useRef(false);
     const loadFailureRef = useRef(false);
     const rawUrl = sourceUrl?.trim()
       ? withUrlParams(sourceUrl.trim(), urlParams)
@@ -662,6 +671,11 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     >(() => (desktopIdentityGateEligible ? null : false));
     const [desktopIdentitySessionReady, setDesktopIdentitySessionReady] =
       useState(() => !desktopIdentityGateEligible);
+    const desktopIdentitySessionReadyRef = useRef(!desktopIdentityGateEligible);
+    const updateDesktopIdentitySessionReady = useCallback((ready: boolean) => {
+      desktopIdentitySessionReadyRef.current = ready;
+      setDesktopIdentitySessionReady(ready);
+    }, []);
     const completeDesktopIdentitySignIn = useCallback(async () => {
       const identity = window.electronAPI?.identity;
       if (!identity) return false;
@@ -670,7 +684,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         if (!(await identity.ensureAppSession(app.id))) return false;
         rememberDesktopIdentityStatus("signed-in");
         setDesktopIdentityEnabled(true);
-        setDesktopIdentitySessionReady(true);
+        updateDesktopIdentitySessionReady(true);
         setDesktopIdentityStatus("signed-in");
         return true;
       } catch (error) {
@@ -680,7 +694,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         });
         return false;
       }
-    }, [app.id]);
+    }, [app.id, updateDesktopIdentitySessionReady]);
     const desktopIdentityGateActive = shouldUseDesktopIdentityGate({
       eligible: desktopIdentityGateEligible,
       active: isActive,
@@ -699,6 +713,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     const prevIsActiveRef = useRef(isActive);
     const onTitleChangeRef = useRef(onTitleChange);
     const onAuthStateChangeRef = useRef(onAuthStateChange);
+    const onMainFrameLoadFailureRef = useRef(onMainFrameLoadFailure);
     const onDesktopIdentityStatusChangeRef = useRef(
       onDesktopIdentityStatusChange,
     );
@@ -785,6 +800,10 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     }, [onAuthStateChange]);
 
     useEffect(() => {
+      onMainFrameLoadFailureRef.current = onMainFrameLoadFailure;
+    }, [onMainFrameLoadFailure]);
+
+    useEffect(() => {
       onDesktopIdentityStatusChangeRef.current = onDesktopIdentityStatusChange;
     }, [onDesktopIdentityStatusChange]);
 
@@ -808,10 +827,11 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       if (!identity || !desktopIdentityGateEligible) {
         setDesktopIdentityEnabled(false);
         setDesktopIdentityStatus("idle");
-        setDesktopIdentitySessionReady(true);
+        updateDesktopIdentitySessionReady(true);
         return;
       }
       if (!isActive) {
+        if (hasLoadedGuestPageRef.current) return;
         const rememberedSignedIn = shouldReuseRememberedDesktopIdentitySession(
           rememberedDesktopIdentityStatus,
           undefined,
@@ -819,7 +839,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         );
         setDesktopIdentityEnabled(null);
         setDesktopIdentityStatus(rememberedSignedIn ? "signed-in" : "idle");
-        setDesktopIdentitySessionReady(false);
+        updateDesktopIdentitySessionReady(false);
         return;
       }
       let active = true;
@@ -831,7 +851,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       );
       setDesktopIdentityEnabled(rememberedSignedIn ? true : null);
       setDesktopIdentityStatus(rememberedSignedIn ? "signed-in" : "idle");
-      setDesktopIdentitySessionReady(false);
+      updateDesktopIdentitySessionReady(false);
 
       const applyStatus = async (
         status: DesktopIdentityStatus,
@@ -842,7 +862,15 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         if (!fromRememberedSession) rememberDesktopIdentityStatus(status);
         setDesktopIdentityStatus(status);
         if (status === "signed-in") {
-          setDesktopIdentitySessionReady(false);
+          // A child-session event can repeat this check after the guest has
+          // loaded. Keep the verified page usable while the broker confirms
+          // the same session; only gate the initial load or a real transition.
+          const preserveLoadedSession =
+            hasLoadedGuestPageRef.current &&
+            desktopIdentitySessionReadyRef.current;
+          if (!preserveLoadedSession) {
+            updateDesktopIdentitySessionReady(false);
+          }
           let synchronized: boolean | null;
           try {
             synchronized = await identity.ensureAppSession(app.id);
@@ -862,13 +890,13 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
             // authoritative sign-out status or the next activation rechecks.
             invalidateRememberedDesktopIdentityStatus();
           }
-          setDesktopIdentitySessionReady(true);
+          updateDesktopIdentitySessionReady(true);
           setDesktopIdentityStatus(
             resolveDesktopIdentityLazySyncStatus(status, synchronized === true),
           );
           return;
         }
-        setDesktopIdentitySessionReady(status !== "signing-in");
+        updateDesktopIdentitySessionReady(status !== "signing-in");
       };
 
       const applySettingAndStatus = async (
@@ -888,7 +916,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
             rememberDesktopIdentityStatus("idle");
             setDesktopIdentityEnabled(false);
             setDesktopIdentityStatus("idle");
-            setDesktopIdentitySessionReady(true);
+            updateDesktopIdentitySessionReady(true);
             return;
           }
           setDesktopIdentityEnabled(true);
@@ -896,7 +924,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
             nextStatus === undefined && !reuseRememberedSession;
           if (needsRemoteStatus) {
             setDesktopIdentityStatus("checking");
-            setDesktopIdentitySessionReady(false);
+            updateDesktopIdentitySessionReady(false);
           }
           const status =
             nextStatus ??
@@ -919,7 +947,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
             }
             setDesktopIdentityEnabled(false);
             setDesktopIdentityStatus("idle");
-            setDesktopIdentitySessionReady(true);
+            updateDesktopIdentitySessionReady(true);
           }
         }
       };
@@ -932,7 +960,12 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         active = false;
         unsubscribe();
       };
-    }, [app.id, desktopIdentityGateEligible, isActive]);
+    }, [
+      app.id,
+      desktopIdentityGateEligible,
+      isActive,
+      updateDesktopIdentitySessionReady,
+    ]);
 
     useEffect(() => {
       const identity = window.electronAPI?.identity;
@@ -960,12 +993,12 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
             if (active && synchronized) {
               rememberDesktopIdentityStatus("signed-in");
               setDesktopIdentityEnabled(true);
-              setDesktopIdentitySessionReady(true);
+              updateDesktopIdentitySessionReady(true);
               setDesktopIdentityStatus("signed-in");
               return;
             }
           } else {
-            setDesktopIdentitySessionReady(true);
+            updateDesktopIdentitySessionReady(true);
             setDesktopIdentityStatus(status);
             return;
           }
@@ -991,7 +1024,13 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         active = false;
         window.clearInterval(timer);
       };
-    }, [app.id, desktopIdentityGateEligible, desktopIdentityStatus, isActive]);
+    }, [
+      app.id,
+      desktopIdentityGateEligible,
+      desktopIdentityStatus,
+      isActive,
+      updateDesktopIdentitySessionReady,
+    ]);
 
     useImperativeHandle(
       ref,
@@ -1168,6 +1207,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         setError(false);
         setIsLoading(false);
         setSlowLoad(false);
+        hasLoadedGuestPageRef.current = true;
         optimizeDepRecoveryRef.current = false;
         reportActiveWebview();
         emitCurrentTitleSoon();
@@ -1201,8 +1241,13 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
           return;
         }
         loadFailureRef.current = true;
+        authProbeSequenceRef.current += 1;
         setError(true);
         setIsLoading(false);
+        onMainFrameLoadFailureRef.current?.({
+          errorCode,
+          errorDescription: description,
+        });
       };
       const onConsoleMessage = (e: Event) => {
         const message = String((e as WebviewConsoleMessageEvent).message || "");
@@ -1358,6 +1403,14 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       if (deferDesktopWebviewLoad) return;
       const urlChanged = prevUrlRef.current !== url;
       const openNonceChanged = prevUrlOpenNonceRef.current !== urlOpenNonce;
+      if (
+        wasDeferred &&
+        hasLoadedGuestPageRef.current &&
+        !urlChanged &&
+        !openNonceChanged
+      ) {
+        return;
+      }
       if (!wasDeferred && !urlChanged && !openNonceChanged) return;
 
       prevUrlRef.current = url;
@@ -1415,8 +1468,12 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         () => {
           if (isLoading) {
             loadFailureRef.current = true;
+            authProbeSequenceRef.current += 1;
             setError(true);
             setIsLoading(false);
+            onMainFrameLoadFailureRef.current?.({
+              errorDescription: "Timed out while loading the app.",
+            });
           }
         },
         isDevMode ? DEV_APP_LOAD_TIMEOUT_MS : APP_LOAD_TIMEOUT_MS,

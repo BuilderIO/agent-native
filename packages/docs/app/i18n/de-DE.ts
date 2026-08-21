@@ -427,6 +427,12 @@ const deDE = {
     source: "Quelle",
     readDocs: "Lesen Sie die Dokumente",
     signIn: "Anmelden",
+    tryTemplateFree: "{{name}} kostenlos testen",
+    designForFree: "Kostenlos designen",
+    recordForFree: "Kostenlos aufnehmen",
+    getStarted: "Loslegen",
+    freeAndOpenSource: "100 % kostenlos • Open Source",
+    viewAllApps: "Alle Apps anzeigen",
   },
   templatesPage: {
     title: "Open-Source-Agent-native Apps, die Sie besitzen",
@@ -1428,6 +1434,9 @@ const deDE = {
         composerLabel: "Ihr Prompt",
         composerPlaceholder:
           "Beschreiben Sie die gewünschte Präsentation oder beantworten Sie die Fragen oben.",
+        promptTip: "Prompt-Tipp",
+        promptPlaceholder:
+          "Seien Sie konkret. Sagen Sie, für wen es ist, fügen Sie Ihre Notizen ein oder verweisen Sie auf ein Website-Design...",
         submit: "Meine Präsentation generieren",
         readyHint: "Ihr Prompt ist fertig — senden Sie ihn an den Agenten.",
         promptDeck: "Erstelle {{deck}}.",

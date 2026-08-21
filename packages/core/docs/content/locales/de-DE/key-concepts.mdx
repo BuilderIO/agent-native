@@ -1,15 +1,15 @@
 ---
 title: "Kernkonzepte"
-description: "Wie agentennative Apps über drei Ebenen hinweg funktionieren: das Core-Framework, optionale Toolkit-Bausteine und optionale Templates, sowie die gemeinsamen Aktionen, die SQL-Datenbank, die App-Agent-Schleife und die Portabilitätsregeln."
+description: "Wie Agent-Native-Apps über drei Ebenen hinweg funktionieren: das Core-Framework, optionale Toolkit-Bausteine und optionale Templates, sowie die gemeinsamen Aktionen, die SQL-Datenbank, die App-Agent-Schleife und die Portabilitätsregeln."
 ---
 
 # Kernkonzepte
 
-Wie agentennative Apps im Detail funktionieren: die Prinzipien und die Architektur. Diese Seite ist der Vertrag: die festen Regeln, denen eine App folgen muss, um als agentennativ zu gelten. Für die Vision und die Begründung, warum man so baut, siehe [Was ist Agent-Native?](/docs/what-is-agent-native).
+Wie Agent-Native-Apps im Detail funktionieren: die Prinzipien und die Architektur. Diese Seite ist der Vertrag: die festen Regeln, denen eine App folgen muss, um als Agent-Native zu gelten. Für die Vision und die Begründung, warum man so baut, siehe [Was ist Agent-Native?](/docs/what-is-agent-native).
 
 ## Die drei Ebenen {#three-layers}
 
-Agent Native ist ein Framework mit drei Ebenen:
+Agent-Native ist ein Framework mit drei Ebenen:
 
 | Ebene                                              | Was es ist                                                                                                                                                                                                                                  |
 | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -21,7 +21,7 @@ Core ist die Grundlage. Toolkit und Templates sind optional: Ein Template kann T
 
 ## Die Architektur {#the-architecture}
 
-Zur Laufzeit ist jede agentennative App drei Dinge, die zusammenarbeiten:
+Zur Laufzeit ist jede Agent-Native-App drei Dinge, die zusammenarbeiten:
 
 - **Agent:** Die autonome KI. Sie liest Daten, schreibt Daten, führt Aktionen aus und verwendet alle konfigurierten Tools. Wenn ihrem Frame absichtlich Workspace-Zugriff und Schreib-Tooling gewährt wird, kann sie auch den eigenen Quellcode der App ändern. Anpassbar mit Skills und Anweisungen.
 - **Anwendung:** Die Produktoberfläche rund um den Agenten. Sie kann als Chat beginnen, native Inline-Ergebnisse hinzufügen, zu einer kleinen Steuerzentrale heranwachsen oder zu einer vollständigen React-UI mit Dashboards, Abläufen und Visualisierungen werden.
@@ -96,7 +96,7 @@ Dieselbe Agent-Anwendung-Computer-Schleife läuft lokal und in Produktion. Autom
 
 ## Bausteine des Agenten {#agent-building-blocks}
 
-Jede agentennative App hat dieselben Bausteine des Agenten, unabhängig davon, ob
+Jede Agent-Native-App hat dieselben Bausteine des Agenten, unabhängig davon, ob
 die Produktoberfläche Chat-first, Automation-first oder eine vollständige UI ist. Jeder Baustein
 lebt in seiner eigenen Datei:
 
@@ -143,7 +143,7 @@ Fünf Regeln bestimmen die Architektur:
 
 ## Die Vier-Bereiche-Checkliste {#four-area-checklist}
 
-Jedes benutzerseitige Feature sollte alle zutreffenden Bereiche aktualisieren. Einen zutreffenden Bereich auszulassen bricht den agentennativen Vertrag; einer Automatisierung, die kein Mensch durchsuchen muss, einen Bildschirm aufzuzwingen, ist ebenfalls ein Smell.
+Jedes benutzerseitige Feature sollte alle zutreffenden Bereiche aktualisieren. Einen zutreffenden Bereich auszulassen bricht den Agent-Native-Vertrag; einer Automatisierung, die kein Mensch durchsuchen muss, einen Bildschirm aufzuzwingen, ist ebenfalls ein Smell.
 
 - **1. UI:** Seite, Komponente oder Dialog, mit der/dem der Benutzer interagiert.
 - **2. Aktion:** Agentenaufrufbare Aktion in `actions/` für denselben Vorgang.
@@ -152,23 +152,23 @@ Jedes benutzerseitige Feature sollte alle zutreffenden Bereiche aktualisieren. E
 
 Ein Feature mit nur UI ist für den Agenten unsichtbar. Ein vollständiges UI-Feature mit nur Aktionen ist für den Benutzer unsichtbar. Ein Feature ohne App-State bedeutet, dass der Agent nicht sieht, was der Benutzer tut. Ein Automation-first-Vorgang kann legitim mit Aktion + Anweisungen beginnen und später Chat, UI oder App-State hinzufügen, wenn Menschen ihn durchsuchen, genehmigen, konfigurieren oder teilen müssen.
 
-## Was Agent Native enthält {#what-you-get-for-free}
+## Was Agent-Native enthält {#what-you-get-for-free}
 
 Das Framework zu übernehmen ist vor allem deshalb wertvoll, weil man dadurch vieles nicht mehr selbst bauen muss. Sobald Ihre App den fünf obigen Regeln folgt, erben Sie:
 
-| Feature                                    | Was es Ihnen gibt                                                                                                                                                                                                                                                                                                                                                                                                |
-| ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Eine Aktion = jede Oberfläche              | Jede mit `defineAction()` definierte Aktion ist gleichzeitig ein Agenten-Tool, ein typsicherer Frontend-Hook (`useActionQuery` / `useActionMutation`), ein Framework-eigener HTTP-Transport, ein CLI-Befehl, ein MCP-Tool für externe Clients und ein A2A-Tool für andere agentennative Apps. Optionale `link`- und `mcpApp`-Metadaten fügen Deep Links und MCP-Apps-UI hinzu, ohne eine zweite Implementierung. |
-| Vollständige Agent-Ressourcen pro Benutzer | Skills, gemeinsame `LEARNINGS.md`, persönliche `memory/MEMORY.md`, `AGENTS.md`, benutzerdefinierte Sub-Agenten, geplante Jobs und verbundene MCP-Server. Alles SQL-basiert, keine Dev-Box erforderlich. Siehe [Agent Resources](/docs/agent-resources).                                                                                                                                                          |
-| Drop-in React-Komponenten                  | `<AgentPanel />` und `<AgentSidebar />` rendern Chat + Ressourcen überall in Ihrer App. Siehe [Drop-in Agent](/docs/drop-in-agent).                                                                                                                                                                                                                                                                              |
-| BYO Agent-Chat-Runtimes                    | Dieselbe Chat-UI kann auf OpenAI Agents, OpenAI Responses, Claude Agent SDK, Vercel AI SDK, AG-UI oder Ihrem eigenen normalisierten HTTP-Stream aufsetzen. Siehe [Nativer Chat-Oberfläche](/docs/native-chat-ui#byo-agent-runtimes).                                                                                                                                                                             |
-| Live Sync zwischen Agent und UI            | Schreibvorgänge im selben Prozess werden sofort über `/_agent-native/events` gestreamt; ein leichtgewichtiges Polling hält serverlose, Cron- und prozessübergreifende Schreibvorgänge konvergent. Mutierende Aktionen invalidieren aktionsbasierte Queries automatisch, sodass vom Agenten erstellte Datensätze ohne manuelles Neuladen erscheinen. Siehe [Live Sync](#polling-sync) weiter unten.               |
-| Auth, Orgs, RBAC                           | Better Auth mit Orgs/Mitgliedern/Rollen ist in jedes Template fest verdrahtet. Siehe [Authentication](/docs/authentication). Für mehr als einen Benutzer beginnen Sie mit [Organizations, Teams & Permissions](/docs/organizations-teams-permissions).                                                                                                                                                           |
-| Kontextbewusstsein                         | Der Agent weiß über den App-State-Key `navigation` immer, was der Benutzer gerade betrachtet. Siehe [Kontextbewusstsein](/docs/context-awareness).                                                                                                                                                                                                                                                               |
-| MCP-Client + -Server, beide Richtungen     | Die App nimmt MCP-Server auf (lokal, remote, Hub-geteilt) _und_ stellt ihre eigenen Aktionen als MCP-Server bereit. Siehe [MCP Clients](/docs/mcp-clients) und [MCP Protocol](/docs/mcp-protocol).                                                                                                                                                                                                               |
-| App-übergreifende Delegation               | Agenten in unterschiedlichen Apps kommunizieren über [A2A](/docs/a2a-protocol). Same-Origin-Deployments überspringen JWT; Cross-Origin verwendet ein gemeinsames `A2A_SECRET`.                                                                                                                                                                                                                                   |
-| Sub-Agent-Teams                            | Erzeugen Sie einen Sub-Agenten mit eigenem Thread und eigenen Tools, dargestellt als Chip inline im Chat. Siehe [Agent Teams](/docs/agent-teams).                                                                                                                                                                                                                                                                |
-| Portabilität                               | Jede von Drizzle unterstützte SQL-Datenbank, jeder Nitro-kompatible Host (Node, Workers, Netlify, Vercel, Deno, Lambda, Bun).                                                                                                                                                                                                                                                                                    |
+| Feature                                    | Was es Ihnen gibt                                                                                                                                                                                                                                                                                                                                                                                               |
+| ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Eine Aktion = jede Oberfläche              | Jede mit `defineAction()` definierte Aktion ist gleichzeitig ein Agenten-Tool, ein typsicherer Frontend-Hook (`useActionQuery` / `useActionMutation`), ein Framework-eigener HTTP-Transport, ein CLI-Befehl, ein MCP-Tool für externe Clients und ein A2A-Tool für andere Agent-Native-Apps. Optionale `link`- und `mcpApp`-Metadaten fügen Deep Links und MCP-Apps-UI hinzu, ohne eine zweite Implementierung. |
+| Vollständige Agent-Ressourcen pro Benutzer | Skills, gemeinsame `LEARNINGS.md`, persönliche `memory/MEMORY.md`, `AGENTS.md`, benutzerdefinierte Sub-Agenten, geplante Jobs und verbundene MCP-Server. Alles SQL-basiert, keine Dev-Box erforderlich. Siehe [Agent Resources](/docs/agent-resources).                                                                                                                                                         |
+| Drop-in React-Komponenten                  | `<AgentPanel />` und `<AgentSidebar />` rendern Chat + Ressourcen überall in Ihrer App. Siehe [Drop-in Agent](/docs/drop-in-agent).                                                                                                                                                                                                                                                                             |
+| BYO Agent-Chat-Runtimes                    | Dieselbe Chat-UI kann auf OpenAI Agents, OpenAI Responses, Claude Agent SDK, Vercel AI SDK, AG-UI oder Ihrem eigenen normalisierten HTTP-Stream aufsetzen. Siehe [Nativer Chat-Oberfläche](/docs/native-chat-ui#byo-agent-runtimes).                                                                                                                                                                            |
+| Live Sync zwischen Agent und UI            | Schreibvorgänge im selben Prozess werden sofort über `/_agent-native/events` gestreamt; ein leichtgewichtiges Polling hält serverlose, Cron- und prozessübergreifende Schreibvorgänge konvergent. Mutierende Aktionen invalidieren aktionsbasierte Queries automatisch, sodass vom Agenten erstellte Datensätze ohne manuelles Neuladen erscheinen. Siehe [Live Sync](#polling-sync) weiter unten.              |
+| Auth, Orgs, RBAC                           | Better Auth mit Orgs/Mitgliedern/Rollen ist in jedes Template fest verdrahtet. Siehe [Authentication](/docs/authentication). Für mehr als einen Benutzer beginnen Sie mit [Organizations, Teams & Permissions](/docs/organizations-teams-permissions).                                                                                                                                                          |
+| Kontextbewusstsein                         | Der Agent weiß über den App-State-Key `navigation` immer, was der Benutzer gerade betrachtet. Siehe [Kontextbewusstsein](/docs/context-awareness).                                                                                                                                                                                                                                                              |
+| MCP-Client + -Server, beide Richtungen     | Die App nimmt MCP-Server auf (lokal, remote, Hub-geteilt) _und_ stellt ihre eigenen Aktionen als MCP-Server bereit. Siehe [MCP Clients](/docs/mcp-clients) und [MCP Protocol](/docs/mcp-protocol).                                                                                                                                                                                                              |
+| App-übergreifende Delegation               | Agenten in unterschiedlichen Apps kommunizieren über [A2A](/docs/a2a-protocol). Same-Origin-Deployments überspringen JWT; Cross-Origin verwendet ein gemeinsames `A2A_SECRET`.                                                                                                                                                                                                                                  |
+| Sub-Agent-Teams                            | Erzeugen Sie einen Sub-Agenten mit eigenem Thread und eigenen Tools, dargestellt als Chip inline im Chat. Siehe [Agent Teams](/docs/agent-teams).                                                                                                                                                                                                                                                               |
+| Portabilität                               | Jede von Drizzle unterstützte SQL-Datenbank, jeder Nitro-kompatible Host (Node, Workers, Netlify, Vercel, Deno, Lambda, Bun).                                                                                                                                                                                                                                                                                   |
 
 ## Daten in SQL {#data-in-sql}
 
@@ -434,7 +434,7 @@ Das funktioniert in allen Deployment-Umgebungen, einschließlich serverlos und E
 
 Ein _Frame_ ist die Umgebung, die den Agenten neben Ihrer App hostet. Lokal ist das embedded Panel; in der Cloud ist es die verwaltete Oberfläche von Builder.io. Siehe [Frames](/docs/frames).
 
-Agentennative Apps enthalten ein eingebettetes Agent-Panel, das den KI-Agenten neben der App-UI bereitstellt. Das ist es, was die Architektur funktionieren lässt: Der Agent braucht einen Computer (Datenbank, Browser, Codeausführung), und die App braucht den Agenten für KI-Arbeit.
+Agent-Native-Apps enthalten ein eingebettetes Agent-Panel, das den KI-Agenten neben der App-UI bereitstellt. Das ist es, was die Architektur funktionieren lässt: Der Agent braucht einen Computer (Datenbank, Browser, Codeausführung), und die App braucht den Agenten für KI-Arbeit.
 
 - **Embedded Agent Panel:** Chat und optionales CLI-Terminal, in jede App eingebaut. Unterstützt Claude Code, Codex, Gemini, OpenCode und Builder.io. Läuft lokal, kostenlos und Open Source.
 - **Cloud:** In jeder Cloud bereitstellen, mit Echtzeit-Zusammenarbeit, visuellem Bearbeiten, Rollen und Berechtigungen. Am besten für Teams.

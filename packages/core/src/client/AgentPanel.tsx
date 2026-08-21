@@ -76,11 +76,16 @@ import { ShareButton } from "./sharing/ShareButton.js";
 // assistant-ui + zod block schemas) so it is NOT in the static import closure of
 // every page. The header/tab chrome renders immediately; chat streams in once the
 // chunk lands (~650-700 KB gzip saved from the critical path).
-const MultiTabAssistantChatLazy = lazy(() =>
+const loadMultiTabAssistantChat = () =>
   import("./MultiTabAssistantChat.js").then((m) => ({
     default: m.MultiTabAssistantChat,
-  })),
-);
+  }));
+const MultiTabAssistantChatLazy = lazy(loadMultiTabAssistantChat);
+
+/** Start loading the desktop chat surface before a sidebar is opened. */
+export function preloadAgentChatSurface(): Promise<void> {
+  return loadMultiTabAssistantChat().then(() => undefined);
+}
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate } from "react-router";
 
@@ -3022,6 +3027,8 @@ export function AgentChatSurface({
 
 export interface AgentSidebarProps {
   children: React.ReactNode;
+  /** Keep the app surface mounted while temporarily disabling the chat panel. */
+  enabled?: boolean;
   /** Placeholder text for the empty chat state */
   emptyStateText?: string;
   /** Suggestion prompts shown when no messages */
@@ -3082,6 +3089,8 @@ export interface AgentSidebarProps {
   chatViewTransitionHandoff?: boolean;
   /** Namespace for persisted chat state. Use the same key as AgentChatHome. */
   storageKey?: string;
+  /** Restore the previously active chat thread on mount. Default: true. */
+  restoreActiveThread?: boolean;
   /** Namespace for the persisted open/closed preference. Defaults to storageKey. */
   openStorageKey?: string;
   /** API base URL used by the chat surface. */
@@ -3129,6 +3138,7 @@ interface HostedHarnessStatus {
  */
 export function AgentSidebar({
   children,
+  enabled = true,
   emptyStateText = "How can I help you?",
   suggestions,
   dynamicSuggestions,
@@ -3156,6 +3166,7 @@ export function AgentSidebar({
   chatViewTransitionHandoff = false,
   storageKey,
   openStorageKey,
+  restoreActiveThread = true,
   apiUrl,
   agentChatSurface,
   desktopIdentityUnauthenticated,
@@ -3382,6 +3393,7 @@ export function AgentSidebar({
     () => new Set(),
   );
   const shouldMountPanel =
+    enabled &&
     !isPerAppChatHosted &&
     !presentationMode &&
     (!frameCodeMode || !shouldParentFrameOwnAgentPanel()) &&
@@ -3399,9 +3411,11 @@ export function AgentSidebar({
     // dispatches the correct value.
     if (frameOwned && !hasFrameSidebarState && !isPerAppChatHosted) return;
     dispatchAgentSidebarStateChange({
-      open: isPerAppChatHosted
-        ? perAppChatState.open
-        : !presentationMode && (frameOwned ? frameSidebarOpen : open),
+      open:
+        enabled &&
+        (isPerAppChatHosted
+          ? perAppChatState.open
+          : !presentationMode && (frameOwned ? frameSidebarOpen : open)),
       source: frameOwned ? "frame" : "app",
       mode: frameOwned ? "code" : "app",
     });
@@ -3413,6 +3427,7 @@ export function AgentSidebar({
     hasFrameSidebarState,
     isPerAppChatHosted,
     perAppChatState.open,
+    enabled,
   ]);
 
   useEffect(() => {
@@ -3422,7 +3437,7 @@ export function AgentSidebar({
     if (frameOwned && !hasFrameSidebarState) return;
 
     const openState =
-      !presentationMode && (frameOwned ? frameSidebarOpen : open);
+      enabled && !presentationMode && (frameOwned ? frameSidebarOpen : open);
     const message = buildAppChatSidebarStateMessage(openState);
 
     window.dispatchEvent(
@@ -3450,6 +3465,7 @@ export function AgentSidebar({
     isPerAppChatSidebar,
     open,
     presentationMode,
+    enabled,
   ]);
 
   useEffect(() => {
@@ -3813,10 +3829,10 @@ export function AgentSidebar({
     };
   }, [shouldMountPanel, sidebarAnimationEnabled]);
 
-  const shouldRenderPanel = sidebarAnimationEnabled
-    ? renderAnimatedPanel
-    : shouldMountPanel;
-  const panelOpen = open && shouldMountPanel;
+  const shouldRenderPanel =
+    enabled &&
+    (sidebarAnimationEnabled ? renderAnimatedPanel : shouldMountPanel);
+  const panelOpen = enabled && open && shouldMountPanel;
   const panelLayout = isMobile
     ? "mobile"
     : wideDrawerEnabled
@@ -3980,6 +3996,7 @@ export function AgentSidebar({
             onExitWideDrawer={isMobile ? undefined : exitWideDrawer}
             onFullViewRequest={onFullscreenRequest}
             storageKey={storageKey}
+            restoreActiveThread={restoreActiveThread}
             scope={scope}
             isolateHistoryByScope={isolateHistoryByScope}
             showScopeBadge={showScopeBadge}
@@ -4035,6 +4052,7 @@ export function AgentSidebar({
           {isMobile &&
             !isPerAppChatHosted &&
             !presentationMode &&
+            enabled &&
             (mobileAnimationEnabled ? shouldRenderPanel : open) && (
               <div
                 className={cn(

@@ -1,34 +1,34 @@
 ---
 title: "FAQ"
-description: "एजेंट-नेटिव के बारे में सामान्य प्रश्न - यह क्या है, यह किसके लिए है, आप क्या बना सकते हैं और यह कैसे काम करता है।"
+description: "Agent-Native के बारे में सामान्य प्रश्न - यह क्या है, यह किसके लिए है, आप क्या बना सकते हैं और यह कैसे काम करता है।"
 ---
 
 # FAQ
 
-एजेंट-नेटिव के बारे में सामान्य प्रश्न, "मैं बस देख रहा हूं" से लेकर "मैं अभी प्रमाणीकरण कर रहा हूं" तक व्यवस्थित।
+Agent-Native के बारे में सामान्य प्रश्न, "मैं बस देख रहा हूं" से लेकर "मैं अभी प्रमाणीकरण कर रहा हूं" तक व्यवस्थित।
 
 ## बुनियादी बातें {#general}
 
-### एजेंट-नेटिव क्या है? {#what-is-agent-native}
+### Agent-Native क्या है? {#what-is-agent-native}
 
-Agent-native ऐप्स बनाने के लिए एक framework है जहां AI agent और उसके आसपास की product surface समान भागीदार हैं. सामान्य रास्ता chat से शुरू होता है, typed actions जोड़ता है, structured results inline render करता है, और उसी SQL state के ऊपर durable pages तक बढ़ता है. अपरिवर्तनीय यह है कि agent और मनुष्य समान actions, database और state साझा करते हैं. संपूर्ण स्पष्टीकरण के लिए [What Is Agent-Native?](/docs/what-is-agent-native) देखें।
+Agent-Native ऐप्स बनाने के लिए एक framework है जहां AI agent और उसके आसपास की product surface समान भागीदार हैं. सामान्य रास्ता chat से शुरू होता है, typed actions जोड़ता है, structured results inline render करता है, और उसी SQL state के ऊपर durable pages तक बढ़ता है. अपरिवर्तनीय यह है कि agent और मनुष्य समान actions, database और state साझा करते हैं. संपूर्ण स्पष्टीकरण के लिए [Agent-Native क्या है?](/docs/what-is-agent-native) देखें।
 
 ### यह किसके लिए है? {#who-is-this-for}
 
-एजेंट-नेटिव उन लोगों के लिए है जो एक ही डेटा और actions से काम करने के लिए एक वास्तविक ऐप और एक AI एजेंट चाहते हैं। सामान्य पथ हैं:
+Agent-Native उन लोगों के लिए है जो एक ही डेटा और actions से काम करने के लिए एक वास्तविक ऐप और एक AI agent चाहते हैं। सामान्य पथ हैं:
 
 - **अगर आप मेल, कैलेंडर, फॉर्म, प्लान या बिना किसी सेटअप वाला कोई अन्य तैयार टेम्पलेट चाहते हैं तो होस्टेड ऐप का उपयोग करें** - [template gallery](/templates) से शुरू करें।
 - **Chat से शुरू करें** यदि आप default from-scratch path चाहते हैं: users तुरंत agent से बात करें और आप actions, native results और screens से विस्तार करें - [Getting Started](/docs/getting-started) या [Chat](/docs/template-chat) से शुरू करें।
 - **automation-first से शुरू करें** यदि आप scheduled jobs, queues, scripts, integration workers या external agent workflows बना रहे हैं जिन्हें अभी browser UI नहीं चाहिए - [Automation-First Apps](/docs/pure-agent-apps) से शुरू करें।
 - \*\*यदि आप अपना स्वयं का SaaS उत्पाद ऑथ, डेटाबेस, UI और एजेंट actions के साथ पहले से ही वायर्ड चाहते हैं, तो टेम्पलेट को फोर्क और कस्टमाइज़ करें - [Templates](/docs/cloneable-saas) देखें।
 - **शुरुआत से निर्माण** यदि आप नए एजेंट-संचालित उत्पाद के लिए फ्रेमवर्क प्रिमिटिव चाहते हैं - [Getting Started](/docs/getting-started) से शुरू करें।
-- \*\*यदि आप एजेंट-नेटिव ऐप का उपयोग करने के लिए Claude, ChatGPT, Codex, कर्सर, या GitHub कोपायलट / VS कोड चाहते हैं तो किसी अन्य एजेंट या कोड टूल को कनेक्ट करें - [External Agents](/docs/external-agents) और [Skills Guide](/docs/skills-guide) देखें।
+- \*\*यदि आप Agent-Native ऐप का उपयोग करने के लिए Claude, ChatGPT, Codex, कर्सर, या GitHub कोपायलट / VS कोड चाहते हैं तो किसी अन्य agent या code tool को connect करें - [External Agents](/docs/external-agents) और [Skills Guide](/docs/skills-guide) देखें।
 
 ### यह किसी मौजूदा ऐप में AI जोड़ने से किस प्रकार भिन्न है? {#how-is-this-different}
 
-ज्यादातर ऐप्स एआई को एक विचार के रूप में लागू करते हैं जो वास्तव में ऐप में काम नहीं कर सकता है। एजेंट-नेटिव ऐप में एजेंट एक प्रथम श्रेणी का नागरिक होता है जो actions, डेटाबेस और स्थिति को UI के समान साझा करता है, इसलिए यह बटन द्वारा किया जा सकने वाला कुछ भी कर सकता है। [What Is Agent-Native?](/docs/what-is-agent-native#the-ladder) देखें.
+ज्यादातर ऐप्स एआई को एक विचार के रूप में लागू करते हैं जो वास्तव में ऐप में काम नहीं कर सकता है। Agent-Native ऐप में एजेंट एक प्रथम श्रेणी का नागरिक होता है जो actions, डेटाबेस और स्थिति को UI के समान साझा करता है, इसलिए यह बटन द्वारा किया जा सकने वाला कुछ भी कर सकता है। [ऐप्स इस तरह क्यों बनाएं](/docs/what-is-agent-native#why-build-apps-this-way) देखें।
 
-<Diagram id="doc-block-1wutpuf" title={"बोल्टेड-ऑन AI बनाम agent-native"} summary={"बोल्ट-ऑन चैट साइडबार अपनी ही दुनिया में रहता है। एक agent-native एजेंट UI के समान क्रियाएँ, डेटाबेस और स्थिति साझा करता है।"}>
+<Diagram id="doc-block-1wutpuf" title={"बोल्टेड-ऑन AI बनाम Agent-Native"} summary={"बोल्ट-ऑन चैट साइडबार अपनी ही दुनिया में रहता है। एक Agent-Native एजेंट UI के समान क्रियाएँ, डेटाबेस और स्थिति साझा करता है।"}>
 
 ```html
 <div class="diagram-vs">
@@ -43,7 +43,7 @@ Agent-native ऐप्स बनाने के लिए एक framework ह�
   </div>
   <div class="diagram-divider" aria-hidden="true"></div>
   <div class="diagram-col">
-    <span class="diagram-pill ok">Agent-native</span>
+    <span class="diagram-pill ok">Agent-Native</span>
     <div class="diagram-row2">
       <div class="diagram-node">UI</div>
       <div class="diagram-node">Agent</div>
@@ -112,9 +112,9 @@ Agent-native ऐप्स बनाने के लिए एक framework ह�
 
 नहीं. आप मॉडलों को प्रशिक्षित नहीं करते, फाइन-ट्यून नहीं करते, या एम्बेडिंग से नहीं निपटते। आप एक नियमित वेब ऐप बनाते हैं - और होस्ट किए गए संस्करण पर, आप मुश्किल से कुछ भी बनाते हैं। फ्रेमवर्क एजेंट एकीकरण को संभालता है: संदेशों को रूट करना, actions चलाना, सिंकिंग स्थिति।
 
-### क्या मैं किसी मौजूदा ऐप को एजेंट-नेटिव में स्थानांतरित कर सकता हूं? {#can-i-use-existing-code}
+### क्या मैं किसी मौजूदा ऐप को Agent-Native में स्थानांतरित कर सकता हूं? {#can-i-use-existing-code}
 
-आप कर सकते हैं, लेकिन एजेंट-नेटिव सबसे अच्छा तब काम करता है जब उसे ज़मीन से ऊपर बनाया जाता है। आर्किटेक्चर - साझा डेटाबेस, पोलिंग सिंक, actions, एप्लिकेशन स्थिति - को संपूर्ण रूप से एकीकृत करने की आवश्यकता है। एक ऐप से शुरू करना और उसे अनुकूलित करना अनुशंसित पथ है। इसे डेस्कटॉप-फर्स्ट से मोबाइल-फर्स्ट में बदलाव की तरह समझें: आप रेट्रोफिट कर सकते हैं, लेकिन देशी निर्माण करना बेहतर है।
+आप कर सकते हैं, लेकिन Agent-Native सबसे अच्छा तब काम करता है जब उसे ज़मीन से ऊपर बनाया जाता है। आर्किटेक्चर - shared database, polling sync, actions, application state - को संपूर्ण रूप से integrate करने की आवश्यकता है। एक ऐप से शुरू करना और उसे customize करना अनुशंसित path है। इसे desktop-first से mobile-first में बदलाव की तरह समझें: आप retrofit कर सकते हैं, लेकिन native निर्माण करना बेहतर है।
 
 ## टेम्प्लेट और आप क्या बना सकते हैं {#templates}
 
@@ -146,7 +146,7 @@ Agent-native ऐप्स बनाने के लिए एक framework ह�
 
 ### क्या एजेंट एक दूसरे से बात कर सकते हैं? {#can-agents-talk-to-each-other}
 
-हां, [A2A (Agent-to-Agent) protocol](/docs/a2a-protocol) के माध्यम से। प्रत्येक एजेंट-नेटिव ऐप को स्वचालित रूप से एक A2A एंडपॉइंट मिलता है। मेल ऐप से, आप डेटा क्वेरी करने के लिए एनालिटिक्स एजेंट को टैग कर सकते हैं। एक एजेंट पता लगाता है कि अन्य एजेंट क्या उपलब्ध हैं, उन्हें प्रोटोकॉल पर कॉल करता है, और UI में परिणाम दिखाता है। किसी कॉन्फ़िगरेशन की आवश्यकता नहीं है - एजेंट कार्ड आपके टेम्पलेट के actions से स्वतः उत्पन्न होता है।
+हां, [A2A (Agent-to-Agent) protocol](/docs/a2a-protocol) के माध्यम से। प्रत्येक Agent-Native ऐप को स्वचालित रूप से एक A2A एंडपॉइंट मिलता है। मेल ऐप से, आप डेटा क्वेरी करने के लिए एनालिटिक्स एजेंट को टैग कर सकते हैं। एक एजेंट पता लगाता है कि अन्य एजेंट क्या उपलब्ध हैं, उन्हें protocol पर call करता है, और UI में results दिखाता है। किसी configuration की आवश्यकता नहीं है - agent card आपके template के actions से स्वतः उत्पन्न होता है।
 
 ### एजेंट ऐप में क्या देख सकता है? {#what-can-the-agent-see}
 
@@ -154,7 +154,7 @@ Agent-native ऐप्स बनाने के लिए एक framework ह�
 
 ## विकास प्रश्न {#development}
 
-### कौन से AI कोडिंग टूल एजेंट-नेटिव के साथ काम करते हैं? {#which-ai-tools-work}
+### कौन से AI coding tools Agent-Native के साथ काम करते हैं? {#which-ai-tools-work}
 
 कोई भी एआई कोडिंग टूल जो प्रोजेक्ट निर्देश पढ़ता है। फ्रेमवर्क AGENTS.md को सार्वभौमिक मानक के रूप में उपयोग करता है और विशिष्ट उपकरणों के लिए स्वचालित रूप से सिम्लिंक बनाता है:
 

@@ -220,6 +220,81 @@ describe("Dispatch NavContent", () => {
     expect(lists[0].querySelector("a")?.className).toContain("size-9");
   });
 
+  it.each([
+    { mode: "standard", chatFirstMode: false, collapsed: false },
+    { mode: "standard", chatFirstMode: false, collapsed: true },
+    { mode: "chat-first", chatFirstMode: true, collapsed: false },
+    { mode: "chat-first", chatFirstMode: true, collapsed: true },
+  ])(
+    "reserves environment pill space in the $mode desktop footer when collapsed is $collapsed",
+    async ({ mode, chatFirstMode, collapsed }) => {
+      await act(async () => {
+        root.render(
+          <MemoryRouter
+            initialEntries={[chatFirstMode ? "/chat" : "/overview"]}
+          >
+            <TooltipProvider>
+              <NavContent
+                chatFirstMode={chatFirstMode}
+                collapsed={collapsed}
+                reserveEnvironmentBadgeSpace
+              />
+            </TooltipProvider>
+          </MemoryRouter>,
+        );
+      });
+
+      const footer = container.querySelector(
+        `[data-dispatch-sidebar-footer="${mode}"]`,
+      );
+      const adminLink = footer?.querySelector('a[href="/admin"]');
+      const settingsLink = footer?.querySelector('a[href="/settings"]');
+      const organization = [...(footer?.querySelectorAll("div") ?? [])].find(
+        (element) => element.textContent?.trim() === "Organization",
+      );
+      const footerActions = footer?.querySelector(
+        "[data-sidebar-footer-actions]",
+      );
+
+      expect(footer?.className).toContain("mt-auto");
+      expect(footer?.className).toContain("shrink-0");
+      expect(footer?.className).toContain("pb-10");
+      if (mode === "standard") {
+        expect(footer?.closest(".overflow-y-auto")).toBeNull();
+      }
+      expect(adminLink).not.toBeNull();
+      expect(settingsLink).not.toBeNull();
+      expect(organization).toBeDefined();
+      expect(footerActions).not.toBeNull();
+      expect(adminLink!.compareDocumentPosition(settingsLink!)).toBe(
+        Node.DOCUMENT_POSITION_FOLLOWING,
+      );
+      expect(settingsLink!.compareDocumentPosition(organization!)).toBe(
+        Node.DOCUMENT_POSITION_FOLLOWING,
+      );
+      expect(organization!.compareDocumentPosition(footerActions!)).toBe(
+        Node.DOCUMENT_POSITION_FOLLOWING,
+      );
+    },
+  );
+
+  it("reserves environment pill space in the mobile footer", async () => {
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/overview"]}>
+          <TooltipProvider>
+            <NavContent reserveEnvironmentBadgeSpace />
+          </TooltipProvider>
+        </MemoryRouter>,
+      );
+    });
+
+    expect(
+      container.querySelector('[data-dispatch-sidebar-footer="standard"]')
+        ?.className,
+    ).toContain("pb-10");
+  });
+
   it("keeps chat-first primary actions in the collapsed sidebar", async () => {
     await act(async () => {
       root.render(

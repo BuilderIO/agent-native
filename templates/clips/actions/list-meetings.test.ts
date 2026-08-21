@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
   rows: [] as Array<Record<string, unknown>>,
+  calendarAccounts: [] as Array<Record<string, unknown>>,
   // The action now issues two `.where()` calls per run — the meetings query
   // and, when persisted rows come back, a second batched participants fetch —
   // so both must be captured rather than one overwriting the other.
@@ -73,14 +74,21 @@ vi.mock("../server/db/index.js", () => {
     meetings,
     meetingParticipants,
     meetingShares: "meetingShares",
-    calendarAccounts: {},
+    calendarAccounts: {
+      id: "calendarAccounts.id",
+      status: "calendarAccounts.status",
+    },
     calendarAccountShares: {},
     calendarEvents: {},
   };
   const db = {
     select: vi.fn(() => {
       const builder: Record<string, (...args: any[]) => any> = {};
-      builder.from = vi.fn(() => builder);
+      let selectedTable: unknown;
+      builder.from = vi.fn((table: unknown) => {
+        selectedTable = table;
+        return builder;
+      });
       builder.where = vi.fn((condition: unknown) => {
         state.whereCalls.push(condition);
         return builder;
@@ -99,7 +107,12 @@ vi.mock("../server/db/index.js", () => {
       // resolves to no participants here since these tests don't exercise
       // that path; `.offset()` above (a real async function) still governs
       // the meetings query's own resolution.
-      builder.then = (resolve: (value: unknown[]) => void) => resolve([]);
+      builder.then = (resolve: (value: unknown[]) => void) =>
+        resolve(
+          selectedTable === schema.calendarAccounts
+            ? state.calendarAccounts
+            : [],
+        );
       return builder;
     }),
   };
@@ -120,6 +133,10 @@ vi.mock("../server/lib/google-calendar-client.js", () => ({
   listEvents: vi.fn(),
 }));
 
+import {
+  recordCalendarFetchError,
+  resolveCalendarAccessToken,
+} from "../server/lib/calendar-event-meetings";
 import action from "./list-meetings";
 
 const meeting = (id: string) => ({
@@ -143,9 +160,36 @@ const meeting = (id: string) => ({
 describe("list-meetings history", () => {
   beforeEach(() => {
     state.rows = [];
+    state.calendarAccounts = [];
     state.whereCalls = [];
+    vi.mocked(recordCalendarFetchError).mockReset();
+    vi.mocked(resolveCalendarAccessToken).mockReset();
     state.limit = null;
     state.offset = null;
+  });
+
+  it("marks a null calendar token as an explicit reauthentication failure", async () => {
+    const calendarAccount = {
+      id: "calendar-1",
+      provider: "google",
+      ownerEmail: "owner@example.com",
+    };
+    state.calendarAccounts = [calendarAccount];
+    vi.mocked(resolveCalendarAccessToken).mockResolvedValue(null);
+    vi.mocked(recordCalendarFetchError).mockResolvedValue({
+      accountId: calendarAccount.id,
+      error: "Token refresh failed",
+      needsReauth: true,
+    });
+    const parsed = action.schema.parse({ view: "upcoming" });
+
+    await action.run(parsed);
+
+    expect(recordCalendarFetchError).toHaveBeenCalledWith(
+      calendarAccount,
+      expect.objectContaining({ message: "Token refresh failed" }),
+      { needsReauth: true },
+    );
   });
 
   it("accepts content-aware history queries without recordedOnly", () => {

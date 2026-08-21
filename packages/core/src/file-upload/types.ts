@@ -31,6 +31,11 @@ export interface FileUploadResult {
   provider: string;
 }
 
+export interface FileUploadDeleteInput {
+  url: string;
+  id?: string;
+}
+
 /** Opaque session handle returned by {@link FileUploadProvider.resumable.startSession}.
  * `sessionId` is provider-specific (GCS Location URI, S3 UploadId, etc.).
  * `meta` holds any provider state needed for subsequent relay and complete calls. */
@@ -61,6 +66,8 @@ export interface FileUploadProvider {
   isConfiguredForRequest?: () => Promise<boolean>;
   /** Upload a file and return a URL. Throw on failure. */
   upload: (input: FileUploadInput) => Promise<FileUploadResult>;
+  /** Delete a previously uploaded file when the provider supports it. */
+  delete?: (input: FileUploadDeleteInput) => Promise<boolean>;
   /**
    * Optional resumable/streaming upload capability.
    * When present, create-recording will initialise a session and stream chunks

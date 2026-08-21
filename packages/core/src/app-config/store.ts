@@ -1,4 +1,5 @@
 import { readEnvConfigLayer } from "./env-layer.js";
+import { assertRunLifecycleInvariants } from "./run-lifecycle-invariants.js";
 import {
   appConfigSchema,
   type AppConfig,
@@ -72,7 +73,35 @@ function resolve(envLayer: Record<string, unknown>): AppConfig {
     const value = state.layers[layer];
     if (value) merged = mergeLayers(merged, value as Record<string, unknown>);
   }
-  return appConfigSchema.parse(merged);
+  const parsed = appConfigSchema.parse(merged);
+  // Checked on the MERGED result, not per layer: a deployment may legitimately
+  // set one half of a relationship in the environment and the other in a
+  // plugin, and a per-layer check would reject that pairing before it exists.
+  // Defaults go through here too — the pair that shipped violated was a pair of
+  // defaults.
+  assertRunLifecycleInvariants(parsed.agent);
+  return parsed;
+}
+
+/**
+ * Nitro embeds build-only deployment markers into direct env reads. Netlify's
+ * prebuilt beta lane has those markers while building, but does not copy them
+ * into the deployed Function environment. Keep the embedded values as the
+ * fallback for this one config boundary so a later dynamic `env[key]` read
+ * cannot erase the build decision from the server bundle.
+ */
+export function readConfigEnvironment(
+  embedded: Record<string, string | undefined> = {
+    AGENT_NATIVE_RELEASE_MIGRATIONS:
+      process.env.AGENT_NATIVE_RELEASE_MIGRATIONS,
+    AGENT_NATIVE_BETA_SCHEMA_OWNER: process.env.AGENT_NATIVE_BETA_SCHEMA_OWNER,
+  },
+): Record<string, string | undefined> {
+  const env = { ...process.env };
+  for (const [key, value] of Object.entries(embedded)) {
+    if (!env[key] && value) env[key] = value;
+  }
+  return env;
 }
 
 /**
@@ -119,7 +148,7 @@ export function defineAppConfig(config: AppConfigInput): void {
  * remove.
  */
 export function getAppConfig(): AppConfig {
-  const envLayer = readEnvConfigLayer(appConfigSchema, process.env);
+  const envLayer = readEnvConfigLayer(appConfigSchema, readConfigEnvironment());
   const signature = JSON.stringify(envLayer);
   if (state.resolved && state.envSignature === signature) return state.resolved;
   state.envSignature = signature;

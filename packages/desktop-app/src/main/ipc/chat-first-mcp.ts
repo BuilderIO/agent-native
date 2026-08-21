@@ -19,6 +19,8 @@ import {
   type Session,
 } from "electron";
 
+import { readCookieHeaderForUrl } from "../cookie-header.js";
+
 export interface McpHost {
   baseUrl: string;
   session: Session;
@@ -168,7 +170,6 @@ export async function requestMcpHost(
   route: string,
   init: RequestInit = {},
 ): Promise<Record<string, unknown>> {
-  const origin = new URL(host.baseUrl).origin;
   const controller = new AbortController();
   let timedOut = false;
   const timeout = setTimeout(() => {
@@ -184,17 +185,15 @@ export async function requestMcpHost(
   }
 
   try {
+    const targetUrl = routeUrl(host.baseUrl, route);
     const cookies = await withAbort(
-      host.session.cookies.get({ url: origin }),
+      readCookieHeaderForUrl(host.session, targetUrl),
       controller.signal,
     );
-    const cookieHeader = cookies
-      .map((cookie) => `${cookie.name}=${cookie.value}`)
-      .join("; ");
     const headers = new Headers(init.headers);
-    if (cookieHeader) headers.set("cookie", cookieHeader);
+    if (cookies) headers.set("cookie", cookies);
     const response = await withAbort(
-      fetch(routeUrl(host.baseUrl, route), {
+      fetch(targetUrl, {
         ...init,
         headers,
         signal: controller.signal,

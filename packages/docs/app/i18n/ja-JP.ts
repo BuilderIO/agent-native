@@ -426,6 +426,12 @@ const jaJP = {
     source: "ソース",
     readDocs: "ドキュメントを読む",
     signIn: "サインイン",
+    tryTemplateFree: "{{name}}を無料で試す",
+    designForFree: "無料でデザイン",
+    recordForFree: "無料で録画",
+    getStarted: "始める",
+    freeAndOpenSource: "100%無料 • オープンソース",
+    viewAllApps: "すべてのアプリを見る",
   },
   templatesPage: {
     title: "あなたが所有するオープンソースのエージェントネイティブ アプリ",
@@ -439,7 +445,7 @@ const jaJP = {
       "作者が管理する独立したアプリです。公開 GitHub リポジトリからインストールし、ホスト版がある場合は事前に試せます。",
     submitCommunityTemplate: "テンプレートを申請",
     communityEmpty:
-      "コミュニティ掲載を受け付けています。目的を絞った Agent Native アプリを公開リポジトリで公開し、カタログに申請してください。",
+      "コミュニティ掲載を受け付けています。目的を絞った Agent-Native アプリを公開リポジトリで公開し、カタログに申請してください。",
     publishGuide: "公開ガイドを読む",
     communityTrust:
       "コミュニティテンプレートは第三者のコードです。実行前にリポジトリ、ライセンス、依存関係、インストールスクリプトを確認してください。",
@@ -1406,6 +1412,9 @@ const jaJP = {
         composerLabel: "あなたのプロンプト",
         composerPlaceholder:
           "作りたいデッキを説明するか、上の質問に答えてください。",
+        promptTip: "プロンプトのヒント",
+        promptPlaceholder:
+          "具体的にしてください。誰のためか、メモを貼り付けるか、参考にしたいウェブサイトのデザインを挙げてください...",
         submit: "デッキを生成",
         readyHint:
           "プロンプトの準備ができました。エージェントに送信してください。",

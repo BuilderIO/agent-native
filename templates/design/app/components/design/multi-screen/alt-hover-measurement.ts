@@ -2,6 +2,7 @@ import type {
   DistanceGuideBand,
   EqualGapGuide,
   FrameBounds,
+  ProximityMeasurement,
 } from "@shared/canvas-math";
 
 import type {
@@ -54,13 +55,29 @@ export function equalGapGuidesEqual(a: EqualGapGuide[], b: EqualGapGuide[]) {
     if (
       x.orientation !== y.orientation ||
       x.gap !== y.gap ||
-      !distanceGuideBandEqual(x.bands[0], y.bands[0]) ||
-      !distanceGuideBandEqual(x.bands[1], y.bands[1])
+      x.bands.length !== y.bands.length ||
+      x.bands.some(
+        (band, index) => !distanceGuideBandEqual(band, y.bands[index]),
+      )
     ) {
       return false;
     }
   }
   return true;
+}
+
+export function proximityMeasurementsEqual(
+  a: ProximityMeasurement[],
+  b: ProximityMeasurement[],
+) {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  return a.every(
+    (measurement, index) =>
+      measurement.orientation === b[index].orientation &&
+      measurement.gap === b[index].gap &&
+      distanceGuideBandEqual(measurement.band, b[index].band),
+  );
 }
 
 export function altHoverMeasurementLineEqual(

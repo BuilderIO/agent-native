@@ -1134,6 +1134,16 @@ export function removeEmptyGeneratedGroupWrappers(
   candidateParentAttrIds: ReadonlySet<string>,
 ): string {
   if (candidateParentAttrIds.size === 0) return content;
+  // Both are necessary conditions for isGeneratedGroupWrapperNode to ever
+  // match. Checking them on the raw string first keeps a document with no
+  // generated groups — the common case — from paying for a full projection of
+  // post-edit content on every structural edit.
+  if (
+    !content.includes("data-agent-native-layer-name") ||
+    !content.includes("Group")
+  ) {
+    return content;
+  }
   let next = content;
   // Loop: removing one empty wrapper can itself empty out ITS parent (e.g.
   // ungrouping down a chain of nested generated groups), so keep sweeping

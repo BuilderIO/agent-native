@@ -6,6 +6,10 @@ import {
 import { z } from "zod";
 
 import {
+  factoryIdSchema,
+  readAutomationFactoryId,
+} from "../server/lib/factory-scope.js";
+import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
 } from "../server/lib/require-workspace-member.js";
@@ -15,11 +19,11 @@ export default defineAction({
     "Queue one organization-scoped Factory automation for an immediate run and return its durable run id.",
   agentTool: false,
   schema: z.object({
-    factoryId: z.string().trim().min(1).optional(),
+    factoryId: factoryIdSchema,
     automationId: z.string().trim().min(1),
   }),
   http: { method: "POST" },
-  run: async ({ automationId }, context) => {
+  run: async ({ factoryId, automationId }, context) => {
     const { userEmail, orgId } = await requireWorkspaceMember(
       workspaceMemberIdentityFromContext(context),
     );
@@ -32,6 +36,12 @@ export default defineAction({
         entry.meta.domain === "factory" && entry.resource.id === automationId,
     );
     if (!definition) throw new Error("Factory automation not found.");
+    if (
+      readAutomationFactoryId(definition.meta, definition.resource.content) !==
+      factoryId
+    ) {
+      throw new Error("Factory automation not found.");
+    }
     return queueAutomationRunNow({
       userEmail,
       orgId,

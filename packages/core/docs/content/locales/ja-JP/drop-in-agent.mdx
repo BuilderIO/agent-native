@@ -178,7 +178,7 @@ export default function AgentRoute() {
 
 ## プログラムメッセージ: `sendToAgentChat()` {#send}
 
-エージェントに作業を引き渡すボタン (インライン `llm()` 呼び出しを実行する代わりに - [ladder](/docs/what-is-agent-native#the-ladder) からのアンチパターン):
+インライン`llm()`呼び出しで別のAI経路を作る代わりに、エージェントへ作業を引き渡すボタンです。この違いが重要な理由は、[なぜこの方法でアプリを構築するのか](/docs/what-is-agent-native#why-build-apps-this-way)を参照してください。
 
 ```tsx
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
@@ -268,7 +268,7 @@ CRUD、検証、プロバイダーの読み取り、永続化などの決定的�
 
 ## UI からのタイプセーフ actions: `useActionMutation()` {#use-action-mutation}
 
-UI がエージェント ツールが実行するのと同じ操作を実行する必要がある場合 ([ladder](/docs/what-is-agent-native#rung-three) の行 3)、`useActionMutation` を使用します。
+UIがエージェントツールと同じ操作を実行する必要がある場合は、[`useActionMutation`](/docs/client-data#use-action-mutation)を使用します。
 
 ```tsx
 import { useActionMutation } from "@agent-native/core/client/hooks";
@@ -283,7 +283,7 @@ const { mutate, isPending } = useActionMutation("reply-to-email");
 
 <Callout id="doc-block-1757zi5" tone="decision">
 
-**`useActionMutation` vs `sendToAgentChat`.** Run the operation directly with `useActionMutation` when the user clicked a deterministic button ("Send reply"). Hand it to `sendToAgentChat` when the work needs the agent's reasoning, tools, or multi-step planning. Never call an inline `llm()` from UI — that is rung 1 of the [ladder](/docs/what-is-agent-native#the-ladder).
+**`useActionMutation` と `sendToAgentChat`。** ユーザーが決定的なボタン（"Send reply"）をクリックした場合は、`useActionMutation`で操作を直接実行します。作業にエージェントの推論、ツール、または複数ステップの計画が必要な場合は、`sendToAgentChat`に渡します。UIからインライン`llm()`を呼び出さないでください。共有エージェントループを使わない別のAI経路が作られてしまいます。
 
 </Callout>
 
