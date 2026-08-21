@@ -2431,6 +2431,14 @@ function DatabaseTable({
                 : nextViewConfig,
             );
           },
+          onError: (err) => {
+            toast.error(dbText("failedToSaveView"), {
+              description:
+                err instanceof Error
+                  ? err.message
+                  : dbText("somethingWentWrong"),
+            });
+          },
         },
       );
     }, 350);
