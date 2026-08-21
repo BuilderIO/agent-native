@@ -146,15 +146,6 @@ export function resolveBackgroundSoftTimeoutCeilingMs(): number {
 }
 
 /**
- * Default soft-timeout budget for a background-function run when the caller
- * does not pass an explicit `softTimeoutMs`. Same value as the ceiling — we
- * want a background turn to use nearly its whole 15-min budget before handing
- * off to a chained background continuation.
- */
-export const DEFAULT_BACKGROUND_RUN_SOFT_TIMEOUT_MS =
-  BACKGROUND_SOFT_TIMEOUT_CEILING_MS;
-
-/**
  * AUTHORITATIVE no-progress backstop for a run, enforced by the run manager
  * itself (timer-driven, independent of any layer below).
  *
@@ -651,8 +642,9 @@ export interface ResolveRunSoftTimeoutOptions {
    * Resolve the soft timeout for a run executing inside a Netlify background
    * function. Lifts the hosted clamp to `BACKGROUND_SOFT_TIMEOUT_CEILING_MS`
    * (~13min) for this invocation only and, when no override/env is supplied,
-   * defaults to `DEFAULT_BACKGROUND_RUN_SOFT_TIMEOUT_MS`. Does NOT change the
-   * foreground ceiling. Off by default.
+   * defaults to that same ceiling — a background turn should use nearly its
+   * whole budget before handing off to a chained continuation. Does NOT change
+   * the foreground ceiling. Off by default.
    */
   backgroundFunction?: boolean;
 }
