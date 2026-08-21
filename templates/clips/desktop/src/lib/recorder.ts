@@ -1163,7 +1163,12 @@ async function getBrowserRecordingUploadResume(
       credentials: "include",
       signal,
     });
-    const body = await res.text().catch(() => "");
+    let body: string;
+    try {
+      body = await res.text();
+    } catch {
+      throw new Error("Upload resume check response could not be read");
+    }
     let parsed: UploadResumeResponse;
     try {
       parsed = JSON.parse(body) as UploadResumeResponse;
