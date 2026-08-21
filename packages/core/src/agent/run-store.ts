@@ -4,6 +4,7 @@
  * reliable reconnection after page refreshes.
  */
 import { getAppConfig } from "../app-config/index.js";
+import { TURN_RUN_LEDGER_SLACK } from "../app-config/run-lifecycle-invariants.js";
 import type { DbExec } from "../db/client.js";
 import { getDbExec, intType, isPostgres } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
@@ -221,18 +222,10 @@ async function hasRunningRuns(): Promise<boolean> {
   return false;
 }
 
-/**
- * Slack between the CHAIN bound (`agent.maxBackgroundRunContinuations`) and the
- * per-turn LEDGER bound below.
- *
- * They count different things. The chain bound counts handoffs a chunk decided
- * to make; the ledger counts every run ROW the turn produced, which also
- * includes sweep redispatches and stale-run recoveries no chunk ever decided.
- * Without slack the ledger would refuse a turn before the chain bound it is
- * meant to sit above, so a turn recovered once would die holding unused chain
- * budget.
- */
-export const TURN_RUN_LEDGER_SLACK = 5;
+// Re-exported from its home in `app-config/run-lifecycle-invariants.ts`, which
+// is where the client-above-server check needs it — importing back from here
+// would be circular.
+export { TURN_RUN_LEDGER_SLACK };
 
 /**
  * Ceiling on run ROWS for one logical turn — the number the continuation-chain

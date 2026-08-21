@@ -272,11 +272,39 @@ describe("run-lifecycle invariants", () => {
     ).toThrow(RunLifecycleInvariantError);
   });
 
+  // The ceiling is checked at chunk boundaries, so a turn that passes one chunk
+  // short of it still gets a whole further chunk. Comparing the configured
+  // number alone hid a real inversion in the shipped values.
+  it("counts the chunk a turn can still start after passing the ceiling check", () => {
+    const agent = base();
+    const nominallyUnder =
+      MAX_BACKGROUND_FOLLOW_WALL_TIME_MS - agent.backgroundSoftTimeoutCeilingMs;
+    expect(nominallyUnder).toBeLessThan(MAX_BACKGROUND_FOLLOW_WALL_TIME_MS);
+    expect(() =>
+      assertRunLifecycleInvariants({
+        ...agent,
+        maxTurnWallClockMs: nominallyUnder + 60_000,
+      }),
+    ).toThrow(RunLifecycleInvariantError);
+  });
+
   it("refuses a chain bound the shipped client would stop following", () => {
     expect(() =>
       assertRunLifecycleInvariants({
         ...base(),
         maxBackgroundRunContinuations: MAX_FOLLOWED_BACKGROUND_RUNS,
+      }),
+    ).toThrow(RunLifecycleInvariantError);
+  });
+
+  // The durable ledger allows the chain bound PLUS the recovery slack in run
+  // ROWS, and the client counts rows.
+  it("counts the ledger's recovery slack against the client's run budget", () => {
+    expect(() =>
+      assertRunLifecycleInvariants({
+        ...base(),
+        maxBackgroundRunContinuations:
+          MAX_FOLLOWED_BACKGROUND_RUNS - TURN_RUN_LEDGER_SLACK,
       }),
     ).toThrow(RunLifecycleInvariantError);
   });

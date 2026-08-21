@@ -41,6 +41,19 @@ export const BACKGROUND_FUNCTION_WALL_MS = 15 * 60_000;
 export const BACKGROUND_FUNCTION_WALL_HEADROOM_MS = 2 * 60_000;
 
 /**
+ * Slack between the CHAIN bound (`agent.maxBackgroundRunContinuations`) and the
+ * per-turn LEDGER bound below.
+ *
+ * They count different things. The chain bound counts handoffs a chunk decided
+ * to make; the ledger counts every run ROW the turn produced, which also
+ * includes sweep redispatches and stale-run recoveries no chunk ever decided.
+ * Without slack the ledger would refuse a turn before the chain bound it is
+ * meant to sit above, so a turn recovered once would die holding unused chain
+ * budget.
+ */
+export const TURN_RUN_LEDGER_SLACK = 5;
+
+/**
  * Per-TURN follow budgets the browser applies while reading a background turn.
  *
  * They live here, not in `client/agent-chat-adapter.ts`, because they are one
@@ -64,8 +77,8 @@ export const BACKGROUND_FUNCTION_WALL_HEADROOM_MS = 2 * 60_000;
  * `BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS` and the repeated-terminal-reason
  * detector.
  */
-export const MAX_FOLLOWED_BACKGROUND_RUNS = 24;
-export const MAX_BACKGROUND_FOLLOW_WALL_TIME_MS = 95 * 60_000;
+export const MAX_FOLLOWED_BACKGROUND_RUNS = 30;
+export const MAX_BACKGROUND_FOLLOW_WALL_TIME_MS = 110 * 60_000;
 
 /**
  * Ordering relationships between the run-lifecycle bounds.
@@ -248,16 +261,25 @@ export function assertRunLifecycleInvariants(agent: AppConfig["agent"]): void {
   }, "a whole-turn client budget below two full-length chunks kills a healthy turn mid-stream — the exact inversion that shipped");
 
   require("server turn ceiling below the client's follow budget", {
-    key: "agent.maxTurnWallClockMs",
-    value: maxTurnWallClockMs,
+    // EFFECTIVE, not nominal: the ceiling is checked at chunk boundaries, so a
+    // turn passing the check one chunk short of it still gets a whole further
+    // chunk. Comparing the configured number alone hid a real inversion in the
+    // shipped values — 90min + a 13min chunk against a client that stopped
+    // following at 95min.
+    key: "agent.maxTurnWallClockMs + agent.backgroundSoftTimeoutCeilingMs",
+    value: maxTurnWallClockMs + backgroundSoftTimeoutCeilingMs,
   }, {
     key: "MAX_BACKGROUND_FOLLOW_WALL_TIME_MS",
     value: MAX_BACKGROUND_FOLLOW_WALL_TIME_MS,
   }, "the server must end the turn first, because it is the side that can tell progress from a loop and write a truthful terminal reason");
 
   require("server chain bound below the client's follow-run budget", {
-    key: "agent.maxBackgroundRunContinuations",
-    value: maxBackgroundRunContinuations,
+    // EFFECTIVE, not nominal: the durable ledger allows the chain bound PLUS
+    // the recovery slack in run ROWS, and the client counts rows. 20 + 5 = 25
+    // against a client that stopped at 24 — the same inversion, hidden the
+    // same way.
+    key: "agent.maxBackgroundRunContinuations + TURN_RUN_LEDGER_SLACK",
+    value: maxBackgroundRunContinuations + TURN_RUN_LEDGER_SLACK,
   }, {
     key: "MAX_FOLLOWED_BACKGROUND_RUNS",
     value: MAX_FOLLOWED_BACKGROUND_RUNS,
