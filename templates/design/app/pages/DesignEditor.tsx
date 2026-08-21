@@ -13179,7 +13179,6 @@ function DesignEditor() {
         activeBreakpointWidthStateRef,
         activeTool,
         cancelActiveEditorDrag,
-        codeLayerOwnerByNodeIdRef,
         drawMode,
         enterOverviewFromZoom,
         focusedAnnotationSending,
@@ -13192,11 +13191,8 @@ function DesignEditor() {
         overviewAnnotationSending,
         pinMode,
         selectedElement,
-        selectedLayerIdsState,
-        setActiveFileId,
         setActiveTool,
         setDrawMode,
-        setExpandedLayerIds,
         setHoveredElement,
         setMode,
         setOverviewClearSelectionRequest,
@@ -13221,7 +13217,6 @@ function DesignEditor() {
       overviewAnnotationSending,
       pinMode,
       selectedElement,
-      selectedLayerIdsState,
       viewMode,
     ],
   );
@@ -13478,12 +13473,8 @@ function DesignEditor() {
       owner.node.parentId,
     );
     if (!parentOwner || parentOwner.fileId !== owner.fileId) return;
-    // BUG-ESCAPE-SHELL (same mechanism as handleEscapeHotkey's pop walk): the
-    // flat ownership map still resolves a top-level layer's parentId to the
-    // collapsed <html>/<body> shell node, which the layers panel never shows
-    // as selectable. Without this guard, Shift+Enter/"\\" on a top-level
-    // layer would select <body> instead of no-op'ing like the comment above
-    // already documents.
+    // The flat ownership map still resolves a top-level layer's parentId to
+    // the collapsed <html>/<body> shell node the layers panel never shows.
     if (!hasSelectableCodeLayerParent({ parentNode: parentOwner.node })) {
       return;
     }
@@ -15622,6 +15613,20 @@ function DesignEditor() {
 
   useLayoutEffect(() => {
     selectedLayerTargetsRef.current = selectedLayerTargets;
+  }, [selectedLayerTargets]);
+
+  /** The overview canvas keeps a layer's owning screen in `selectedScreenIds`
+   *  (z-order and "topmost screen" read it), so without this the screen's own
+   *  full-bleed SelectionBox stays mounted over the element and its drag
+   *  surface swallows the gesture — the frame moves instead of the layer. */
+  const selectedElementScreenId = useMemo(() => {
+    const first = selectedLayerTargets[0];
+    if (!first) return null;
+    return selectedLayerTargets.every(
+      (target) => target.fileId === first.fileId,
+    )
+      ? first.fileId
+      : null;
   }, [selectedLayerTargets]);
 
   const selectedLayerSelectorGroupsByScreen = useMemo(() => {
@@ -19813,6 +19818,7 @@ function DesignEditor() {
                         cameraCommand={cameraCommand}
                         activeId={activeFileId}
                         selectedScreenIds={overviewSelectedScreenIds}
+                        selectedElementScreenId={selectedElementScreenId}
                         hiddenScreenIds={hiddenLayerIds}
                         lockedScreenIds={lockedLayerIds}
                         fullViewScreenIds={fullViewScreenIds}
