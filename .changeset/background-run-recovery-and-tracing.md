@@ -30,11 +30,14 @@ terminal `no_progress` failure.
   failure taxonomy already computed, and `BackgroundAutomationDeps` gained an
   `onRunOutcome` callback that fires for success, cut-off, hard timeout, and
   dispatch failure alike.
-- The run-lifecycle bounds that can terminate a run are configurable under
-  `agent.*` with today's values as defaults, each behind one resolver, and their
-  ordering relationships are asserted when configuration resolves. The
-  background no-progress default is clamped to the chunk it guards, so lowering
-  the global soft timeout cannot leave it unreachable.
+- The run-lifecycle bounds live in one place each, beside the ordering
+  relationships that constrain them, and those relationships are asserted. Two
+  are configuration — `agent.backgroundRunHardTimeoutMs` and
+  `agent.backgroundNoProgressTimeoutMs` — because those are facts about the host
+  and the deployment; the rest stay constants, because a number with two homes
+  needs a test to keep them in step and that test is the tell that it should
+  have had one home. The background no-progress default is clamped to the chunk
+  it guards, so lowering the global soft timeout cannot leave it unreachable.
 - On a run that recovers boundaries in-invocation the run manager no longer arms
   its own soft-timeout timer: the agent-loop wrapper already races that same
   wall with a cumulative per-round budget, so a second timer fired exactly when

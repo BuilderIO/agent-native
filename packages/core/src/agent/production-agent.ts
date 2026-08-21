@@ -19,6 +19,23 @@ import {
   type ActionCaller,
   stripUnsupportedSchemaKeywords,
 } from "../action.js";
+import {
+  ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS,
+  MAX_BACKGROUND_RUN_CONTINUATIONS,
+  MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS,
+  MAX_TURN_WALL_CLOCK_MS,
+  MODEL_STREAM_NO_PROGRESS_TIMEOUT_MS,
+} from "../app-config/run-lifecycle-invariants.js";
+
+// Re-exported from `app-config/run-lifecycle-invariants.ts`, where the bound
+// lives beside the relationships that constrain it.
+export {
+  ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS,
+  MODEL_STREAM_NO_PROGRESS_TIMEOUT_MS,
+  MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS,
+  MAX_TURN_WALL_CLOCK_MS,
+};
+
 import { readAppState } from "../application-state/script-helpers.js";
 import { isReadOnlyShellCommand } from "../coding-tools/index.js";
 import type { AgentNativeHarnessSetting } from "../config.js";
@@ -166,11 +183,6 @@ import {
   isHostedRuntime,
   resolveRunSoftTimeoutMs,
   resolveRunToolTimeoutCeilingMs,
-  resolveActionPreparationNoProgressTimeoutMs,
-  resolveModelStreamNoProgressTimeoutMs,
-  resolveMaxBackgroundRunContinuations,
-  resolveMaxConsecutiveNoProgressContinuations,
-  resolveMaxTurnWallClockMs,
   endsAfterCompletedToolWithoutAssistantFinal,
 } from "./run-manager.js";
 import type { ActiveRun } from "./run-manager.js";
@@ -1422,18 +1434,7 @@ function maxRetriesForError(err: unknown): number {
   return MAX_RETRIES;
 }
 const TOOL_INPUT_ACTIVITY_INTERVAL_MS = 1500;
-/**
- * Default in-loop watchdog for silence while an action's arguments stream in.
- * Read through `resolveActionPreparationNoProgressTimeoutMs`, never directly:
- * a host diagnosing a timeout has to be able to see and change this number.
- */
-export const ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS = 90_000;
 const ACTION_PREPARATION_ZERO_BYTE_RESTART_LIMIT = 2;
-/**
- * Default in-loop watchdog for silence between engine stream frames. Read
- * through `resolveModelStreamNoProgressTimeoutMs`, never directly.
- */
-export const MODEL_STREAM_NO_PROGRESS_TIMEOUT_MS = 90_000;
 /**
  * How long an attempt must have run before its retry is worth narrating.
  *
@@ -5064,7 +5065,7 @@ export async function runAgentLoop(opts: {
             deadlineAt = Math.min(
               deadlineAt,
               zeroByteToolInputRestart.firstStartedAt +
-                resolveActionPreparationNoProgressTimeoutMs(),
+                ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS,
             );
           }
           let earliestStartedAt = Number.POSITIVE_INFINITY;
@@ -5087,14 +5088,14 @@ export async function runAgentLoop(opts: {
           if (Number.isFinite(progressAt)) {
             deadlineAt = Math.min(
               deadlineAt,
-              progressAt + resolveActionPreparationNoProgressTimeoutMs(),
+              progressAt + ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS,
             );
           }
           return Number.isFinite(deadlineAt) ? deadlineAt : undefined;
         };
         const modelStreamNoProgressDeadlineAt = () => {
           const baseDeadlineAt =
-            lastModelStreamProgressAt + resolveModelStreamNoProgressTimeoutMs();
+            lastModelStreamProgressAt + MODEL_STREAM_NO_PROGRESS_TIMEOUT_MS;
           // FIX 2: cap the FIRST event's deadline tighter on the clamped
           // foreground runtime — see FOREGROUND_FIRST_MODEL_EVENT_TIMEOUT_MS
           // for the ordering invariant this protects.
@@ -5219,7 +5220,7 @@ export async function runAgentLoop(opts: {
             zeroByteToolInputRestart.count >=
               ACTION_PREPARATION_ZERO_BYTE_RESTART_LIMIT &&
             now - zeroByteToolInputRestart.firstStartedAt >=
-              resolveActionPreparationNoProgressTimeoutMs()
+              ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS
           );
         };
         const eventIterator = eventStream[Symbol.asyncIterator]();
@@ -7342,30 +7343,11 @@ function endsAtContinuationBoundary(run: ActiveRun): boolean {
   );
 }
 
-/**
- * Hard cap on server-driven background→background continuation chunks for a
- * single logical turn. A `backgroundFunction` run gets a ~13-min soft timeout,
- * so reaching this boundary at all is the rare exception (most turns finish in
- * one chunk). The cap bounds a pathological turn that would otherwise chain
- * background invocations forever, mirroring `MAX_AGENT_TEAM_CONTINUATIONS`.
- */
-export const MAX_BACKGROUND_RUN_CONTINUATIONS = 20;
-
-/**
- * Consecutive chunks allowed to end on the SAME terminal error code having
- * produced nothing before the chain stops.
- *
- * Two, because two independent recovery layers multiply here and neither can
- * see the other: the engine already retried this identical request 3x with
- * backoff before the error was ever emitted, and a recoverable error is also a
- * continuation boundary, so every chunk that fails costs 4 gateway attempts
- * and dispatches a fresh one. A production turn spent 27 background runs and
- * 15 minutes on one message this way. The first repeat is the retry this path
- * exists for; a second identical failure that moved nothing is evidence the
- * retrying itself is what is broken, not the request.
- */
-export const MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS = 2;
-
+// Defined in `app-config/run-lifecycle-invariants.ts`, the neutral home for
+// lifecycle bounds that participate in a cross-module relationship: the durable
+// run ledger in `run-store.ts` derives its ceiling from this, and importing
+// back from there would be circular.
+export { MAX_BACKGROUND_RUN_CONTINUATIONS };
 /**
  * Forward progress inside ONE chunk, read from the events it actually emitted:
  * assistant text or tool activity. Same evidence the agent-teams no-progress
@@ -7420,7 +7402,7 @@ export function resolveBackgroundNoProgressRepeat(opts: {
   return {
     errorCode,
     count,
-    tripped: count >= resolveMaxConsecutiveNoProgressContinuations(),
+    tripped: count >= MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS,
   };
 }
 
@@ -7510,7 +7492,7 @@ export function shouldChainBackgroundContinuation(opts: {
     eligible &&
     opts.run.status !== "aborted" &&
     endsAtContinuationBoundary(opts.run) &&
-    opts.continuationCount < resolveMaxBackgroundRunContinuations() &&
+    opts.continuationCount < MAX_BACKGROUND_RUN_CONTINUATIONS &&
     !resolveBackgroundNoProgressRepeat({
       run: opts.run,
       priorErrorCode: opts.priorNoProgressErrorCode,
@@ -7710,15 +7692,6 @@ export async function claimBackgroundWorkerRunEarly(opts: {
   }
   return { claimed: true };
 }
-
-/**
- * Wall-clock ceiling on a single logical turn. The run-count ledger alone is
- * not a time bound: in durable mode each of the ~25 permitted chunks may burn
- * ~780s, so the ledger's real worst case is over five hours (production has an
- * observed 2h34m turn). Nobody is waiting that long, and every minute past
- * this point is spend on a request the user has abandoned.
- */
-export const MAX_TURN_WALL_CLOCK_MS = 90 * 60_000;
 
 /**
  * Request-body field carrying the turn's running input-token total across
@@ -8112,13 +8085,12 @@ export async function chainServerDrivenContinuation(opts: {
     .readTurnStartedAt(effectiveThreadId, effectiveTurnId)
     .catch(() => null);
   const turnElapsedMs = turnStartedAt === null ? 0 : Date.now() - turnStartedAt;
-  const turnWallClockMs = resolveMaxTurnWallClockMs();
-  if (turnElapsedMs > turnWallClockMs) {
+  if (turnElapsedMs > MAX_TURN_WALL_CLOCK_MS) {
     const elapsedMinutes = Math.round(turnElapsedMs / 60_000);
     await stopTurn(
       "turn_wall_clock_budget_exhausted",
       `turn ${effectiveTurnId} ran ${elapsedMinutes}min (limit ${Math.round(
-        turnWallClockMs / 60_000,
+        MAX_TURN_WALL_CLOCK_MS / 60_000,
       )}min) — refusing to chain further`,
       `I stopped after ${elapsedMinutes} minutes without finishing this request.`,
     );
@@ -10606,7 +10578,7 @@ export function createProductionAgentHandler(
           ...(runsInBackgroundFunction
             ? {
                 resumeResumableErrorsInProcess: true,
-                maxContinuations: resolveMaxBackgroundRunContinuations(),
+                maxContinuations: MAX_BACKGROUND_RUN_CONTINUATIONS,
               }
             : {}),
         };

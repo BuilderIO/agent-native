@@ -1,5 +1,14 @@
 import { getAppConfig } from "../app-config/index.js";
-import { BACKGROUND_AUTOMATION_SOFT_TIMEOUT_HEADROOM_MS } from "../app-config/run-lifecycle-invariants.js";
+import {
+  BACKGROUND_AUTOMATION_SOFT_TIMEOUT_HEADROOM_MS,
+  BACKGROUND_SOFT_TIMEOUT_CEILING_MS,
+  RUN_NO_PROGRESS_HARD_TIMEOUT_MS,
+} from "../app-config/run-lifecycle-invariants.js";
+
+// Re-exported from `app-config/run-lifecycle-invariants.ts`, where the bound
+// lives beside the relationships that constrain it.
+export { BACKGROUND_SOFT_TIMEOUT_CEILING_MS, RUN_NO_PROGRESS_HARD_TIMEOUT_MS };
+
 import { captureError } from "../server/capture-error.js";
 import {
   isLlmCredentialError,
@@ -123,67 +132,7 @@ export const DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS = 40_000;
  */
 export const HOSTED_SOFT_TIMEOUT_CEILING_MS = 40_000;
 
-/**
- * Hard ceiling for the soft timeout when a run executes inside a Netlify
- * background function (any deployed function whose name ends in `-background`).
- * Background functions return 202 immediately and run detached for up to 15
- * minutes, so the ~60s synchronous function wall that 40s defends against does
- * NOT apply. 13 minutes leaves ~2 min of headroom under Netlify's 15-min hard
- * kill to abort, persist the partial turn, write the terminal event, and (for
- * the rare >13-min turn) self-fire another background continuation.
- *
- * This ceiling is used ONLY when a caller explicitly opts in with
- * `backgroundFunction: true`. It does not change the foreground/interactive
- * ceiling and does not fire unless the durable-background path dispatched the
- * run into a background function. Per the design doc Guardrail, the 40s
- * interactive clamp stays correct for every non-background run.
- */
-export const BACKGROUND_SOFT_TIMEOUT_CEILING_MS = 13 * 60_000; // 780_000
-
-/** Configured background chunk ceiling, defaulting to the constant above. */
-export function resolveBackgroundSoftTimeoutCeilingMs(): number {
-  return getAppConfig().agent.backgroundSoftTimeoutCeilingMs;
-}
-
-/**
- * AUTHORITATIVE no-progress backstop for a run, enforced by the run manager
- * itself (timer-driven, independent of any layer below).
- *
- * The finer-grained watchdogs inside the agent loop (model-stream and
- * action-preparation no-progress, both 90s) only guard the model event stream
- * — a stall in any segment OUTSIDE that guarded loop (engine-call
- * establishment, worker setup between continuation chunks, a wedged transport
- * that emits keepalives while the loop never runs) previously hung forever
- * with the client watching keepalives. This backstop covers every segment by
- * construction: if no REAL progress event (see `shouldBumpProgressForEvent`;
- * keepalives and zero-byte prep activity don't count) lands for this long —
- * and no unit of work is in flight (see `inFlightWorkDelta`: tool calls,
- * cross-app calls, and the model stream all legitimately emit nothing for
- * minutes and each carry a bound of their own) — the run manager emits
- * `auto_continue { reason: "no_progress" }` and aborts the chunk, exactly
- * like the soft timeout, so the normal continuation machinery recovers it.
- *
- * Being numerically larger than the in-loop watchdogs is NOT what keeps this
- * from killing a healthy run, and treating it that way is what made it do so:
- * this clock and the loop's `lastModelStreamProgressAt` measure DIFFERENT
- * events. An extended-thinking phase bumps the inner clock on every engine
- * frame while forwarding nothing, so the inner watchdog correctly stayed quiet
- * and this one saw pure silence — runs whose worst gap crossed 150s died while
- * still streaming, some by a single second. Ordering between two clocks only
- * means something when they watch the same events; suspending on in-flight
- * work is what actually makes the two agree.
- *
- * This is now only the CEILING, not the value: `resolveRunNoProgressTimeoutMs`
- * clamps the foreground backstop to a fraction of the chunk's soft timeout
- * (~30s at a 40s chunk), which is BELOW the 90s in-loop watchdogs rather than
- * above them. That ordering is deliberate — the in-loop watchdogs could never
- * fire inside a hosted foreground chunk anyway, since the serverless wall
- * (~57-59s) arrives first. Proven durable-background chunks keep the full
- * `DEFAULT_BACKGROUND_NO_PROGRESS_TIMEOUT_MS` so large outputs can use the
- * background budget. Only armed when a soft-timeout regime is active (hosted
- * runs); local dev stays unbounded.
- */
-export const RUN_NO_PROGRESS_HARD_TIMEOUT_MS = 150_000;
+// 780_000
 
 /**
  * Default no-progress window for a run executing inside a proven durable
@@ -278,7 +227,7 @@ export function resolveRunNoProgressTimeoutMs(params: {
   // Local dev keeps runs unbounded unless a caller explicitly asks otherwise.
   if (!(softTimeoutMs > 0)) return override ?? 0;
 
-  const ceiling = Math.min(configured.runNoProgressTimeoutMs, budgetCeilingMs);
+  const ceiling = Math.min(RUN_NO_PROGRESS_HARD_TIMEOUT_MS, budgetCeilingMs);
   if (override === undefined) return ceiling;
   return override === 0 ? 0 : Math.min(override, ceiling);
 }
@@ -716,7 +665,7 @@ export function resolveRunSoftTimeoutMs(
   // it is allowed to outlast that and is clamped to the larger 13-min ceiling
   // instead. The 40s clamp for non-background hosted runs is unchanged.
   const ceiling = background
-    ? resolveBackgroundSoftTimeoutCeilingMs()
+    ? BACKGROUND_SOFT_TIMEOUT_CEILING_MS
     : HOSTED_SOFT_TIMEOUT_CEILING_MS;
   // A configured/env soft timeout that exceeds the upstream walls can never
   // actually fire (the gateway/function kills the run first), so clamp it down
@@ -734,7 +683,7 @@ export function resolveRunSoftTimeoutMs(
   // A background-function run uses the full background budget by default; the
   // foreground default (40s) is unchanged.
   if (background) {
-    return hosted ? resolveBackgroundSoftTimeoutCeilingMs() : 0;
+    return hosted ? BACKGROUND_SOFT_TIMEOUT_CEILING_MS : 0;
   }
   return options?.useHostedDefault && hosted
     ? DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS
@@ -791,41 +740,6 @@ export function resolveBackgroundAutomationSoftTimeoutMs(
   });
   // `0` means "no soft-timeout regime" (local dev) and is never clamped up.
   return resolved > 0 ? Math.min(resolved, budget) : 0;
-}
-
-/** In-loop watchdog for silence between engine stream frames. */
-export function resolveModelStreamNoProgressTimeoutMs(): number {
-  return getAppConfig().agent.modelStreamNoProgressTimeoutMs;
-}
-
-/** In-loop watchdog for silence while an action's arguments stream in. */
-export function resolveActionPreparationNoProgressTimeoutMs(): number {
-  return getAppConfig().agent.actionPreparationNoProgressTimeoutMs;
-}
-
-/** Continuation rounds allowed inside one foreground agent-loop invocation. */
-export function resolveMaxRunLoopContinuations(): number {
-  return getAppConfig().agent.maxRunLoopContinuations;
-}
-
-/** Continuation rounds allowed inside one background agent-loop invocation. */
-export function resolveMaxBackgroundRunLoopContinuations(): number {
-  return getAppConfig().agent.maxBackgroundRunLoopContinuations;
-}
-
-/** Server-driven background chunks a single logical turn may chain. */
-export function resolveMaxBackgroundRunContinuations(): number {
-  return getAppConfig().agent.maxBackgroundRunContinuations;
-}
-
-/** Consecutive no-progress chunks tolerated before the chain stops. */
-export function resolveMaxConsecutiveNoProgressContinuations(): number {
-  return getAppConfig().agent.maxConsecutiveNoProgressContinuations;
-}
-
-/** Absolute wall-clock ceiling on one logical turn across all its chunks. */
-export function resolveMaxTurnWallClockMs(): number {
-  return getAppConfig().agent.maxTurnWallClockMs;
 }
 
 function isTerminalRunEvent(event: AgentChatEvent): boolean {

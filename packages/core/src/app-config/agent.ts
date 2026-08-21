@@ -85,14 +85,6 @@ export const agentConfig = z.object({
   // constant still exists under its historical name where its reasoning is
   // written down. `agent-run-lifecycle-config.spec.ts` pins the two together so
   // editing one alone is a failing test, not a silent divergence.
-  runNoProgressTimeoutMs: z
-    .number()
-    .nonnegative()
-    .default(150_000)
-    .meta({
-      env: ["AGENT_RUN_NO_PROGRESS_TIMEOUT_MS"],
-      doc: "Ceiling for the foreground no-progress backstop, in milliseconds. The effective foreground value is still clamped to a fraction of the chunk's soft timeout. 0 disables it.",
-    }),
   backgroundNoProgressTimeoutMs: z
     .number()
     .nonnegative()
@@ -101,14 +93,6 @@ export const agentConfig = z.object({
       env: ["AGENT_BACKGROUND_NO_PROGRESS_TIMEOUT_MS"],
       doc: "No-progress backstop for a background-function run, in milliseconds. 0 disables it.",
     }),
-  backgroundSoftTimeoutCeilingMs: z
-    .number()
-    .positive()
-    .default(13 * 60_000)
-    .meta({
-      env: ["AGENT_BACKGROUND_SOFT_TIMEOUT_CEILING_MS"],
-      doc: "Largest chunk budget a background-function run may use, in milliseconds. Must stay under the host's real background-function wall.",
-    }),
   backgroundRunHardTimeoutMs: z
     .number()
     .positive()
@@ -116,65 +100,5 @@ export const agentConfig = z.object({
     .meta({
       env: ["AGENT_BACKGROUND_RUN_HARD_TIMEOUT_MS"],
       doc: "Hard abort for one in-process background automation run, in milliseconds. This is the host's real function budget for scheduled work.",
-    }),
-  modelStreamNoProgressTimeoutMs: z
-    .number()
-    .positive()
-    .default(90_000)
-    .meta({
-      env: ["AGENT_MODEL_STREAM_NO_PROGRESS_TIMEOUT_MS"],
-      doc: "In-loop watchdog for silence between engine stream frames, in milliseconds.",
-    }),
-  actionPreparationNoProgressTimeoutMs: z
-    .number()
-    .positive()
-    .default(90_000)
-    .meta({
-      env: ["AGENT_ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS"],
-      doc: "In-loop watchdog for silence while an action's arguments stream in, in milliseconds.",
-    }),
-  maxRunLoopContinuations: z
-    .number()
-    .int()
-    .positive()
-    .default(6)
-    .meta({
-      env: ["AGENT_MAX_RUN_LOOP_CONTINUATIONS"],
-      doc: "Continuation rounds allowed inside one foreground agent-loop invocation.",
-    }),
-  maxBackgroundRunLoopContinuations: z
-    .number()
-    .int()
-    .positive()
-    .default(20)
-    .meta({
-      env: ["AGENT_MAX_BACKGROUND_RUN_LOOP_CONTINUATIONS"],
-      doc: "Continuation rounds allowed inside one background agent-loop invocation.",
-    }),
-  maxBackgroundRunContinuations: z
-    .number()
-    .int()
-    .positive()
-    .default(20)
-    .meta({
-      env: ["AGENT_MAX_BACKGROUND_RUN_CONTINUATIONS"],
-      doc: "Server-driven background chunks a single logical turn may chain. A cost ceiling.",
-    }),
-  maxConsecutiveNoProgressContinuations: z
-    .number()
-    .int()
-    .positive()
-    .default(2)
-    .meta({
-      env: ["AGENT_MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS"],
-      doc: "Consecutive chunks allowed to end on the same terminal code having produced nothing before the chain stops.",
-    }),
-  maxTurnWallClockMs: z
-    .number()
-    .positive()
-    .default(90 * 60_000)
-    .meta({
-      env: ["AGENT_MAX_TURN_WALL_CLOCK_MS"],
-      doc: "Absolute wall-clock ceiling on one logical turn across all its chunks, in milliseconds.",
     }),
 });

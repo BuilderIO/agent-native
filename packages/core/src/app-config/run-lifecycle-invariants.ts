@@ -51,7 +51,143 @@ export const BACKGROUND_FUNCTION_WALL_HEADROOM_MS = 2 * 60_000;
  * meant to sit above, so a turn recovered once would die holding unused chain
  * budget.
  */
+/**
+ * Shipped run-lifecycle bounds.
+ *
+ * They live beside the relationships that constrain them so a change to one is
+ * checked against the others in the same file. `run-manager.ts` and
+ * `production-agent.ts` re-export them under their historical names; this
+ * module imports no agent code, so nothing here can become circular.
+ */
+/**
+ * Hard ceiling for the soft timeout when a run executes inside a Netlify
+ * background function (any deployed function whose name ends in `-background`).
+ * Background functions return 202 immediately and run detached for up to 15
+ * minutes, so the ~60s synchronous function wall that 40s defends against does
+ * NOT apply. 13 minutes leaves ~2 min of headroom under Netlify's 15-min hard
+ * kill to abort, persist the partial turn, write the terminal event, and (for
+ * the rare >13-min turn) self-fire another background continuation.
+ *
+ * This ceiling is used ONLY when a caller explicitly opts in with
+ * `backgroundFunction: true`. It does not change the foreground/interactive
+ * ceiling and does not fire unless the durable-background path dispatched the
+ * run into a background function. Per the design doc Guardrail, the 40s
+ * interactive clamp stays correct for every non-background run.
+ */
+export const BACKGROUND_SOFT_TIMEOUT_CEILING_MS = 13 * 60_000;
+
+/**
+ * AUTHORITATIVE no-progress backstop for a run, enforced by the run manager
+ * itself (timer-driven, independent of any layer below).
+ *
+ * The finer-grained watchdogs inside the agent loop (model-stream and
+ * action-preparation no-progress, both 90s) only guard the model event stream
+ * — a stall in any segment OUTSIDE that guarded loop (engine-call
+ * establishment, worker setup between continuation chunks, a wedged transport
+ * that emits keepalives while the loop never runs) previously hung forever
+ * with the client watching keepalives. This backstop covers every segment by
+ * construction: if no REAL progress event (see `shouldBumpProgressForEvent`;
+ * keepalives and zero-byte prep activity don't count) lands for this long —
+ * and no unit of work is in flight (see `inFlightWorkDelta`: tool calls,
+ * cross-app calls, and the model stream all legitimately emit nothing for
+ * minutes and each carry a bound of their own) — the run manager emits
+ * `auto_continue { reason: "no_progress" }` and aborts the chunk, exactly
+ * like the soft timeout, so the normal continuation machinery recovers it.
+ *
+ * Being numerically larger than the in-loop watchdogs is NOT what keeps this
+ * from killing a healthy run, and treating it that way is what made it do so:
+ * this clock and the loop's `lastModelStreamProgressAt` measure DIFFERENT
+ * events. An extended-thinking phase bumps the inner clock on every engine
+ * frame while forwarding nothing, so the inner watchdog correctly stayed quiet
+ * and this one saw pure silence — runs whose worst gap crossed 150s died while
+ * still streaming, some by a single second. Ordering between two clocks only
+ * means something when they watch the same events; suspending on in-flight
+ * work is what actually makes the two agree.
+ *
+ * This is now only the CEILING, not the value: `resolveRunNoProgressTimeoutMs`
+ * clamps the foreground backstop to a fraction of the chunk's soft timeout
+ * (~30s at a 40s chunk), which is BELOW the 90s in-loop watchdogs rather than
+ * above them. That ordering is deliberate — the in-loop watchdogs could never
+ * fire inside a hosted foreground chunk anyway, since the serverless wall
+ * (~57-59s) arrives first. Proven durable-background chunks keep the full
+ * `DEFAULT_BACKGROUND_NO_PROGRESS_TIMEOUT_MS` so large outputs can use the
+ * background budget. Only armed when a soft-timeout regime is active (hosted
+ * runs); local dev stays unbounded.
+ */
+export const RUN_NO_PROGRESS_HARD_TIMEOUT_MS = 150_000;
+
+/**
+ * Default in-loop watchdog for silence while an action's arguments stream in.
+ * Read through `resolveActionPreparationNoProgressTimeoutMs`, never directly:
+ * a host diagnosing a timeout has to be able to see and change this number.
+ */
+export const ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS = 90_000;
+
+/**
+ * Default in-loop watchdog for silence between engine stream frames. Read
+ * through `resolveModelStreamNoProgressTimeoutMs`, never directly.
+ */
+export const MODEL_STREAM_NO_PROGRESS_TIMEOUT_MS = 90_000;
+
+/**
+ * Consecutive chunks allowed to end on the SAME terminal error code having
+ * produced nothing before the chain stops.
+ *
+ * Two, because two independent recovery layers multiply here and neither can
+ * see the other: the engine already retried this identical request 3x with
+ * backoff before the error was ever emitted, and a recoverable error is also a
+ * continuation boundary, so every chunk that fails costs 4 gateway attempts
+ * and dispatches a fresh one. A production turn spent 27 background runs and
+ * 15 minutes on one message this way. The first repeat is the retry this path
+ * exists for; a second identical failure that moved nothing is evidence the
+ * retrying itself is what is broken, not the request.
+ */
+export const MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS = 2;
+
+/**
+ * Wall-clock ceiling on a single logical turn. The run-count ledger alone is
+ * not a time bound: in durable mode each of the ~25 permitted chunks may burn
+ * ~780s, so the ledger's real worst case is over five hours (production has an
+ * observed 2h34m turn). Nobody is waiting that long, and every minute past
+ * this point is spend on a request the user has abandoned.
+ */
+export const MAX_TURN_WALL_CLOCK_MS = 90 * 60_000;
+
+/**
+ * Cap on continuation iterations inside a single
+ * `runAgentLoopDirectWithSoftTimeout` invocation. The host's hard function
+ * timeout usually bounds this naturally — but a defensive cap prevents an
+ * instant-error spiral from looping forever inside hosting environments with a
+ * generous budget.
+ *
+ * 6 leaves room for: 1 normal completion + a few resume rounds for design
+ * generation (prompt + 3 variants ≈ 4 LLM calls), with a small safety margin.
+ */
+export const MAX_RUN_LOOP_CONTINUATIONS = 6;
+
+/**
+ * A delegated turn that is proven to be running inside a durable background
+ * function has the same 15-minute host budget as main chat, but this wrapper
+ * historically kept the foreground-sized six-continuation cap. A healthy
+ * child A2A call can consume several minutes and the receiving model may then
+ * need more than six recovery/model-stream boundaries to finish its own tool
+ * work. Keep a hard cap, but give the proven background path the same bounded
+ * continuation allowance as the durable main-chat runner. The cumulative
+ * soft-timeout below still prevents these rounds from exceeding the one real
+ * background-function wall-clock budget.
+ */
+export const MAX_BACKGROUND_RUN_LOOP_CONTINUATIONS = 20;
+
 export const TURN_RUN_LEDGER_SLACK = 5;
+
+/**
+ * Hard cap on server-driven background→background continuation chunks for a
+ * single logical turn. A `backgroundFunction` run gets a ~13-min soft timeout,
+ * so reaching this boundary at all is the rare exception (most turns finish in
+ * one chunk). The cap bounds a pathological turn that would otherwise chain
+ * background invocations forever, mirroring `MAX_AGENT_TEAM_CONTINUATIONS`.
+ */
+export const MAX_BACKGROUND_RUN_CONTINUATIONS = 20;
 
 /**
  * Per-TURN follow budgets the browser applies while reading a background turn.
@@ -132,17 +268,22 @@ export class RunLifecycleInvariantError extends Error {
  * window a mis-ordered pair opened.
  */
 export function assertRunLifecycleInvariants(agent: AppConfig["agent"]): void {
-  const {
-    runNoProgressTimeoutMs,
-    backgroundNoProgressTimeoutMs,
-    backgroundSoftTimeoutCeilingMs,
-    backgroundRunHardTimeoutMs,
-    modelStreamNoProgressTimeoutMs,
-    actionPreparationNoProgressTimeoutMs,
-    maxBackgroundRunContinuations,
-    maxConsecutiveNoProgressContinuations,
-    maxTurnWallClockMs,
-  } = agent;
+  // Only two of these are configuration. The rest are the shipped constants,
+  // read here rather than duplicated as config defaults — a number with two
+  // homes needs a test to keep them in step, and that test is the tell that it
+  // should have had one home to begin with. A deployment that wants to move a
+  // bound it cannot currently reach should get a field added deliberately, with
+  // the relationship below extended to cover it.
+  const { backgroundNoProgressTimeoutMs, backgroundRunHardTimeoutMs } = agent;
+  const runNoProgressTimeoutMs = RUN_NO_PROGRESS_HARD_TIMEOUT_MS;
+  const backgroundSoftTimeoutCeilingMs = BACKGROUND_SOFT_TIMEOUT_CEILING_MS;
+  const modelStreamNoProgressTimeoutMs = MODEL_STREAM_NO_PROGRESS_TIMEOUT_MS;
+  const actionPreparationNoProgressTimeoutMs =
+    ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS;
+  const maxBackgroundRunContinuations = MAX_BACKGROUND_RUN_CONTINUATIONS;
+  const maxConsecutiveNoProgressContinuations =
+    MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS;
+  const maxTurnWallClockMs = MAX_TURN_WALL_CLOCK_MS;
 
   const violations: Invariant[] = [];
   const require = (

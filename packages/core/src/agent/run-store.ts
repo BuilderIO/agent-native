@@ -3,8 +3,10 @@
  * Enables cross-isolate access on Cloudflare Workers and
  * reliable reconnection after page refreshes.
  */
-import { getAppConfig } from "../app-config/index.js";
-import { TURN_RUN_LEDGER_SLACK } from "../app-config/run-lifecycle-invariants.js";
+import {
+  MAX_BACKGROUND_RUN_CONTINUATIONS,
+  TURN_RUN_LEDGER_SLACK,
+} from "../app-config/run-lifecycle-invariants.js";
 import type { DbExec } from "../db/client.js";
 import { getDbExec, intType, isPostgres } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
@@ -238,9 +240,7 @@ export { TURN_RUN_LEDGER_SLACK };
  * imports no agent code, so both sites can read the same resolver.
  */
 export function resolveTurnRunLedgerBudget(): number {
-  return (
-    getAppConfig().agent.maxBackgroundRunContinuations + TURN_RUN_LEDGER_SLACK
-  );
+  return MAX_BACKGROUND_RUN_CONTINUATIONS + TURN_RUN_LEDGER_SLACK;
 }
 
 /**

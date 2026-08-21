@@ -21,6 +21,10 @@
  * uniform "continue" instruction regardless of which recovery fired.
  */
 
+import {
+  MAX_BACKGROUND_RUN_LOOP_CONTINUATIONS,
+  MAX_RUN_LOOP_CONTINUATIONS,
+} from "../app-config/run-lifecycle-invariants.js";
 import type { EngineMessage } from "./engine/types.js";
 import {
   runAgentLoop,
@@ -34,11 +38,12 @@ import {
   type AgentLoopContinuationReason,
   type AgentLoopOutcome,
 } from "./production-agent.js";
-import {
-  resolveMaxBackgroundRunLoopContinuations,
-  resolveMaxRunLoopContinuations,
-  resolveRunSoftTimeoutMs,
-} from "./run-manager.js";
+import { resolveRunSoftTimeoutMs } from "./run-manager.js";
+
+// Re-exported from `app-config/run-lifecycle-invariants.ts`, where the bound
+// lives beside the relationships that constrain it.
+export { MAX_RUN_LOOP_CONTINUATIONS, MAX_BACKGROUND_RUN_LOOP_CONTINUATIONS };
+
 import type {
   ResolveRunSoftTimeoutOptions,
   RunChunkControl,
@@ -252,31 +257,6 @@ function internalContinuationReasonForAttempt(
   }
   return undefined;
 }
-
-/**
- * Cap on continuation iterations inside a single
- * `runAgentLoopDirectWithSoftTimeout` invocation. The host's hard function
- * timeout usually bounds this naturally — but a defensive cap prevents an
- * instant-error spiral from looping forever inside hosting environments with a
- * generous budget.
- *
- * 6 leaves room for: 1 normal completion + a few resume rounds for design
- * generation (prompt + 3 variants ≈ 4 LLM calls), with a small safety margin.
- */
-export const MAX_RUN_LOOP_CONTINUATIONS = 6;
-
-/**
- * A delegated turn that is proven to be running inside a durable background
- * function has the same 15-minute host budget as main chat, but this wrapper
- * historically kept the foreground-sized six-continuation cap. A healthy
- * child A2A call can consume several minutes and the receiving model may then
- * need more than six recovery/model-stream boundaries to finish its own tool
- * work. Keep a hard cap, but give the proven background path the same bounded
- * continuation allowance as the durable main-chat runner. The cumulative
- * soft-timeout below still prevents these rounds from exceeding the one real
- * background-function wall-clock budget.
- */
-export const MAX_BACKGROUND_RUN_LOOP_CONTINUATIONS = 20;
 
 /**
  * The engine already performs its own short provider retries. After those are
@@ -563,8 +543,8 @@ export async function runAgentLoopDirectWithSoftTimeout(
   const loopEntryAt = Date.now();
   const maxRunLoopContinuations =
     timeoutOptions?.backgroundFunction === true
-      ? resolveMaxBackgroundRunLoopContinuations()
-      : resolveMaxRunLoopContinuations();
+      ? MAX_BACKGROUND_RUN_LOOP_CONTINUATIONS
+      : MAX_RUN_LOOP_CONTINUATIONS;
   let backgroundRateLimitContinuations = 0;
   // Tracks whether the most recent attempt ended by scheduling another
   // continuation (soft-timeout or resumable error → `continue`) rather than
