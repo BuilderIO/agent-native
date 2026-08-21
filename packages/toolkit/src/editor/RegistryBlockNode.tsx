@@ -80,6 +80,55 @@ function clickedInteractiveChild(target: HTMLElement) {
   return !!blockNode && !!editable && blockNode.contains(editable);
 }
 
+export function selectRegistryBlockNode({
+  editable,
+  allowInteractiveChild,
+  target,
+  getPos,
+  view,
+  preventDefault,
+  stopPropagation,
+}: {
+  editable: boolean;
+  allowInteractiveChild: boolean;
+  target: EventTarget | null;
+  getPos: (() => number | undefined) | boolean;
+  view: NodeViewProps["editor"]["view"];
+  preventDefault: () => void;
+  stopPropagation: () => void;
+}): boolean {
+  if (!editable) return false;
+  if (
+    !allowInteractiveChild &&
+    target instanceof HTMLElement &&
+    clickedInteractiveChild(target)
+  )
+    return false;
+  if (
+    allowInteractiveChild &&
+    target instanceof HTMLElement &&
+    target.closest("pre")
+  )
+    return false;
+  const pos = typeof getPos === "function" ? getPos() : null;
+  if (typeof pos !== "number") return false;
+  try {
+    preventDefault();
+    stopPropagation();
+    view.dispatch(
+      view.state.tr.setSelection(NodeSelection.create(view.state.doc, pos)),
+    );
+    view.focus();
+    return true;
+  } catch (error) {
+    // A node can disappear between the mousedown and selection dispatch during
+    // reconciliation. Keep that expected stale-position race recoverable, but
+    // do not hide unrelated editor failures.
+    if (error instanceof RangeError) return false;
+    throw error;
+  }
+}
+
 /* -------------------------------------------------------------------------- */
 /* B. RegistryBlockNodeView (React)                                           */
 /* -------------------------------------------------------------------------- */
@@ -139,6 +188,21 @@ export function RegistryBlockNodeView(props: NodeViewProps) {
     (sideMap?.notionSync ?? false) &&
     (sideMap?.isNotionIncompatibleType?.(blockType) ?? false);
 
+  const selectNode = (
+    event: ReactMouseEvent<HTMLElement>,
+    allowInteractiveChild = false,
+  ) => {
+    selectRegistryBlockNode({
+      editable,
+      allowInteractiveChild,
+      target: event.target,
+      getPos: props.getPos,
+      view: props.editor.view,
+      preventDefault: () => event.preventDefault(),
+      stopPropagation: () => event.stopPropagation(),
+    });
+  };
+
   // The block data isn't in the side-map yet (e.g. a freshly inserted node whose
   // store entry hasn't been seeded). Render a graceful placeholder.
   if (!block) {
@@ -155,25 +219,23 @@ export function RegistryBlockNodeView(props: NodeViewProps) {
     );
   }
 
-  const selectNode = (event: ReactMouseEvent<HTMLElement>) => {
-    if (!editable) return;
-    const target = event.target;
-    if (target instanceof HTMLElement && clickedInteractiveChild(target))
-      return;
-    const pos = typeof props.getPos === "function" ? props.getPos() : null;
-    if (typeof pos !== "number") return;
-    try {
-      event.preventDefault();
-      event.stopPropagation();
-      const { view } = props.editor;
-      view.dispatch(
-        view.state.tr.setSelection(NodeSelection.create(view.state.doc, pos)),
-      );
-      view.focus();
-    } catch {
-      // Ignore stale positions during React/ProseMirror reconciliation.
-    }
-  };
+  if (block.loadError) {
+    return (
+      <NodeViewWrapper
+        className="plan-block-node"
+        data-block-id={blockId}
+        onMouseDownCapture={(event: ReactMouseEvent<HTMLElement>) =>
+          selectNode(event, true)
+        }
+      >
+        <RegistryBlockLoadErrorView
+          message={block.loadError.message}
+          rawSource={block.loadError.rawSource}
+        />
+      </NodeViewWrapper>
+    );
+  }
+
   const updateShellHover = (event: ReactMouseEvent<HTMLElement>) => {
     const target = event.target;
     setShellHovered(
@@ -274,6 +336,31 @@ export function RegistryBlockNodeView(props: NodeViewProps) {
         )}
       </div>
     </NodeViewWrapper>
+  );
+}
+
+export function RegistryBlockLoadErrorView({
+  message,
+  rawSource,
+}: {
+  message: string;
+  rawSource?: string;
+}) {
+  return (
+    <div
+      contentEditable={false}
+      data-plan-interactive
+      className="plan-block-node__load-error space-y-2 rounded-md border border-border px-3 py-2 text-sm"
+    >
+      {rawSource ? (
+        <pre className="overflow-auto whitespace-pre-wrap font-mono text-xs text-foreground">
+          {rawSource}
+        </pre>
+      ) : null}
+      <p role="alert" className="text-muted-foreground">
+        {message}
+      </p>
+    </div>
   );
 }
 
