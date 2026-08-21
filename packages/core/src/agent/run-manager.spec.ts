@@ -4440,6 +4440,91 @@ describe("run manager soft timeout", () => {
       expect(run.status).toBe("aborted");
     });
 
+    it("still cancels the chunk opened AFTER a recovery when the turn aborts", async () => {
+      // The turn-abort listener is registered once and reads `chunkAbort`
+      // through the closure, so replacing the controller must not orphan it.
+      // If it did, Stop, the cross-isolate abort and a caller's hard timeout
+      // would all stop reaching a post-boundary chunk — the run would keep
+      // going after the user asked it not to.
+      let recoveredChunk: AbortSignal | undefined;
+      let recoveredChunkAbortReason: unknown;
+
+      const run = startRun(
+        "run-chunk-abort-after-recovery",
+        "thread-chunk-abort-after-recovery",
+        async (send, signal, control) => {
+          const keepaliveTimer = setInterval(() => {
+            send({ type: "stream_keepalive" });
+          }, 1500);
+          await new Promise<void>((resolve) => {
+            signal.addEventListener("abort", () => resolve(), { once: true });
+          });
+          clearInterval(keepaliveTimer);
+          recoveredChunk = control.beginChunk();
+          await new Promise<void>((resolve) => {
+            recoveredChunk!.addEventListener(
+              "abort",
+              () => {
+                recoveredChunkAbortReason = recoveredChunk!.reason;
+                resolve();
+              },
+              { once: true },
+            );
+          });
+        },
+        undefined,
+        {
+          softTimeoutMs: BACKGROUND_SOFT_TIMEOUT_CEILING_MS,
+          backgroundFunction: true,
+          recoverChunkBoundaries: true,
+        },
+      );
+      run.subscribers.add(() => {});
+
+      await vi.advanceTimersByTimeAsync(
+        DEFAULT_BACKGROUND_NO_PROGRESS_TIMEOUT_MS + 1,
+      );
+      expect(recoveredChunk).toBeDefined();
+      expect(recoveredChunk!.aborted).toBe(false);
+
+      expect(abortRun("run-chunk-abort-after-recovery", "user")).toBe(true);
+      await run.finalized;
+
+      expect(recoveredChunkAbortReason).toBe("user");
+      expect(run.status).toBe("aborted");
+    });
+
+    it("reports a run that ends on a terminal error event as errored, not completed", async () => {
+      // The agent-loop wrapper emits its give-up terminal through `send` and
+      // then RETURNS normally rather than throwing. If the stashed terminal
+      // event did not promote the status, every caller reading `run.status`
+      // would record a run that gave up as a success — and the background
+      // automation runner reads exactly that.
+      const completions: string[] = [];
+
+      const run = startRun(
+        "run-terminal-error-return",
+        "thread-terminal-error-return",
+        async (send) => {
+          send({ type: "text", text: "partial" });
+          send({
+            type: "error",
+            error: "I ran out of time before finishing this step.",
+            errorCode: "run_budget_exhausted",
+            recoverable: false,
+          });
+        },
+        (completed) => {
+          completions.push(completed.status);
+        },
+        { softTimeoutMs: 0 },
+      );
+
+      await run.finalized;
+
+      expect(completions).toEqual(["errored"]);
+    });
+
     it("keeps the terminal turn-ending checkpoint for a run that did not opt in", async () => {
       let abortReason: unknown;
 
