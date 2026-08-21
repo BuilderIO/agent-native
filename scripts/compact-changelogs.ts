@@ -15,10 +15,12 @@ import {
 } from "../packages/core/src/changelog/parse.ts";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
-const legacyPackageArchiveNote =
-  "Older releases are archived in [changelog/archive/](./changelog/archive/).";
 const packageArchiveNote =
-  "Older releases are archived in [changelog/archive/CHANGELOG.md](./changelog/archive/CHANGELOG.md).";
+  "For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).";
+const legacyPackageArchiveNotes = [
+  "Older releases are archived in [changelog/archive/](./changelog/archive/).",
+  "Older releases are archived in [changelog/archive/CHANGELOG.md](./changelog/archive/CHANGELOG.md).",
+];
 
 type Mode = "check" | "write";
 
@@ -65,11 +67,127 @@ function splitReleaseSections(markdown: string): {
   return { header, sections };
 }
 
+function stripPackageArchiveNotes(markdown: string): string {
+  return [packageArchiveNote, ...legacyPackageArchiveNotes]
+    .reduce((value, note) => value.replaceAll(note, ""), markdown)
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/\s+$/, "");
+}
+
+function releaseSectionTitle(section: string): string | undefined {
+  return section.match(/^##\s+(?!#)(.+?)\s*$/m)?.[1]?.trim();
+}
+
+function releaseSectionDate(section: string): string | undefined {
+  return releaseSectionTitle(section)?.match(/\d{4}-\d{2}-\d{2}/)?.[0];
+}
+
+function releaseSectionIsUnreleased(section: string): boolean {
+  return releaseSectionTitle(section)?.toLowerCase() === "unreleased";
+}
+
+type ReleaseVersion = {
+  major: number;
+  minor: number;
+  patch: number;
+  prerelease?: string;
+};
+
+function releaseSectionVersion(section: string): ReleaseVersion | undefined {
+  const title = releaseSectionTitle(section);
+  const match = title?.match(/^\[?v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?/);
+  if (!match) return undefined;
+  return {
+    major: Number(match[1]),
+    minor: Number(match[2]),
+    patch: Number(match[3]),
+    prerelease: match[4],
+  };
+}
+
+function comparePrerelease(
+  a: string | undefined,
+  b: string | undefined,
+): number {
+  if (a === b) return 0;
+  if (!a) return 1;
+  if (!b) return -1;
+
+  const aParts = a.split(".");
+  const bParts = b.split(".");
+  for (let index = 0; index < Math.max(aParts.length, bParts.length); index++) {
+    const aPart = aParts[index];
+    const bPart = bParts[index];
+    if (aPart === undefined) return -1;
+    if (bPart === undefined) return 1;
+    if (aPart === bPart) continue;
+
+    const aNumber = /^\d+$/.test(aPart) ? Number(aPart) : undefined;
+    const bNumber = /^\d+$/.test(bPart) ? Number(bPart) : undefined;
+    if (aNumber !== undefined && bNumber !== undefined) {
+      return aNumber > bNumber ? 1 : -1;
+    }
+    if (aNumber !== undefined) return -1;
+    if (bNumber !== undefined) return 1;
+    return aPart.localeCompare(bPart);
+  }
+  return 0;
+}
+
+function compareReleaseVersions(a: ReleaseVersion, b: ReleaseVersion): number {
+  if (a.major !== b.major) return a.major > b.major ? 1 : -1;
+  if (a.minor !== b.minor) return a.minor > b.minor ? 1 : -1;
+  if (a.patch !== b.patch) return a.patch > b.patch ? 1 : -1;
+  return comparePrerelease(a.prerelease, b.prerelease);
+}
+
+export function uniqueNewestFirst(sections: string[]): string[] {
+  const seen = new Set<string>();
+  return sections
+    .map((section, index) => ({
+      section,
+      index,
+      title: releaseSectionTitle(section),
+      date: releaseSectionDate(section),
+      version: releaseSectionVersion(section),
+      unreleased: releaseSectionIsUnreleased(section),
+    }))
+    .filter(({ title }) => {
+      if (!title || seen.has(title)) return false;
+      seen.add(title);
+      return true;
+    })
+    .sort((a, b) => {
+      if (a.unreleased && !b.unreleased) return -1;
+      if (!a.unreleased && b.unreleased) return 1;
+      if (a.version && b.version) {
+        const versionOrder = compareReleaseVersions(b.version, a.version);
+        if (versionOrder !== 0) return versionOrder;
+      }
+      if (a.version && !b.version) return -1;
+      if (!a.version && b.version) return 1;
+      if (a.date && b.date && a.date !== b.date) {
+        return b.date.localeCompare(a.date);
+      }
+      if (a.date && !b.date) return -1;
+      if (!a.date && b.date) return 1;
+      return (a.title ?? "").localeCompare(b.title ?? "") || a.index - b.index;
+    })
+    .map(({ section }) => section);
+}
+
 function compactApp(root: string, mode: Mode): boolean {
   const changelogPath = path.join(root, "CHANGELOG.md");
-  const existing = existsSync(changelogPath)
+  const rawExisting = existsSync(changelogPath)
     ? readFileSync(changelogPath, "utf8")
     : CHANGELOG_HEADER;
+  const hasPackageArchiveNote = [
+    packageArchiveNote,
+    ...legacyPackageArchiveNotes,
+  ].some((note) => rawExisting.includes(note));
+  const existing = hasPackageArchiveNote
+    ? stripPackageArchiveNotes(rawExisting)
+    : rawExisting;
   const next = compactChangelog(
     existing,
     readFolderEntries(path.join(root, "changelog")),
@@ -85,44 +203,34 @@ function compactPackage(root: string, mode: Mode): boolean {
   if (!existsSync(changelogPath)) return false;
 
   const existing = readFileSync(changelogPath, "utf8");
-  const normalizedExisting = existing.replace(
-    legacyPackageArchiveNote,
-    packageArchiveNote,
-  );
+  const normalizedExisting = stripPackageArchiveNotes(existing);
   const { header, sections } = splitReleaseSections(normalizedExisting);
-  if (sections.length <= DEFAULT_CHANGELOG_RELEASE_LIMIT) {
-    if (mode === "write" && normalizedExisting !== existing) {
-      writeFileSync(changelogPath, normalizedExisting, "utf8");
-    }
-    return normalizedExisting !== existing;
-  }
-
-  const recent = sections.slice(0, DEFAULT_CHANGELOG_RELEASE_LIMIT);
-  const older = sections.slice(DEFAULT_CHANGELOG_RELEASE_LIMIT);
-  const cleanHeader = header
-    .replace(packageArchiveNote, "")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-  const next = `${cleanHeader}\n\n${packageArchiveNote}\n\n${recent.join("\n\n")}\n`;
+  const cleanHeader = header.replace(/\n{3,}/g, "\n\n").trim();
   const archiveDir = path.join(root, "changelog", "archive");
   const archiveFile = path.join(archiveDir, "CHANGELOG.md");
-  const existingArchive = existsSync(archiveFile)
-    ? splitReleaseSections(readFileSync(archiveFile, "utf8")).sections
-    : [];
-  const archiveTitles = new Set<string>();
-  const archiveSections = [...older, ...existingArchive].filter((section) => {
-    const title = section.match(/^##\s+(.+?)\s*$/m)?.[1]?.trim();
-    if (!title || archiveTitles.has(title)) return false;
-    archiveTitles.add(title);
-    return true;
-  });
+  const existingArchiveText = existsSync(archiveFile)
+    ? readFileSync(archiveFile, "utf8")
+    : "";
+  const existingArchive = splitReleaseSections(
+    stripPackageArchiveNotes(existingArchiveText),
+  ).sections;
+  const allSections = uniqueNewestFirst([...sections, ...existingArchive]);
+  const recent = allSections.slice(0, DEFAULT_CHANGELOG_RELEASE_LIMIT);
+  const older = allSections.slice(DEFAULT_CHANGELOG_RELEASE_LIMIT);
+  const archiveReminder = older.length > 0 ? `\n\n${packageArchiveNote}` : "";
+  const next = `${cleanHeader || "# Changelog"}\n\n${recent.join("\n\n")}${archiveReminder}\n`;
+  const nextArchive = older.length > 0 ? `${older.join("\n\n")}\n` : "";
+  const archiveChanged = nextArchive !== existingArchiveText;
+  const rootChanged = next !== existing;
 
   if (mode === "write") {
-    mkdirSync(archiveDir, { recursive: true });
     writeFileSync(changelogPath, next, "utf8");
-    writeFileSync(archiveFile, `${archiveSections.join("\n\n")}\n`, "utf8");
+    if (older.length > 0 || existsSync(archiveFile)) {
+      mkdirSync(archiveDir, { recursive: true });
+      writeFileSync(archiveFile, nextArchive, "utf8");
+    }
   }
-  return true;
+  return rootChanged || archiveChanged;
 }
 
 function run(mode: Mode): string[] {
@@ -131,27 +239,32 @@ function run(mode: Mode): string[] {
     ...["templates", "examples", "apps"].flatMap(listRoots),
     path.join(rootDir, "packages", "docs"),
   ];
+  const appRootSet = new Set(appRoots);
   for (const root of appRoots) {
     if (existsSync(path.join(root, "changelog"))) {
       if (compactApp(root, mode)) changed.push(path.relative(rootDir, root));
     }
   }
-  for (const root of listRoots("packages")) {
+  for (const root of listRoots("packages").filter(
+    (packageRoot) => !appRootSet.has(packageRoot),
+  )) {
     if (compactPackage(root, mode)) changed.push(path.relative(rootDir, root));
   }
   return changed;
 }
 
-const mode: Mode = process.argv.includes("--write") ? "write" : "check";
-const changed = run(mode);
+if (import.meta.main) {
+  const mode: Mode = process.argv.includes("--write") ? "write" : "check";
+  const changed = run(mode);
 
-if (changed.length > 0) {
-  const verb = mode === "write" ? "Updated" : "Would update";
-  console.log(
-    `${verb} changelogs:\n${changed.map((item) => `- ${item}`).join("\n")}`,
-  );
-}
+  if (changed.length > 0) {
+    const verb = mode === "write" ? "Updated" : "Would update";
+    console.log(
+      `${verb} changelogs:\n${changed.map((item) => `- ${item}`).join("\n")}`,
+    );
+  }
 
-if (mode === "check" && changed.length > 0) {
-  process.exitCode = 1;
+  if (mode === "check" && changed.length > 0) {
+    process.exitCode = 1;
+  }
 }

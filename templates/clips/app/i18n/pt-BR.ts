@@ -629,12 +629,17 @@ const messages = {
     alsoFor: "Também disponível para {{platform}}",
     backToLibrary: "Voltar à biblioteca",
     clipsDesktop: "Clips Desktop",
+    stable: "Estável",
+    nightly: "Nightly",
+    switchToNightly: "Mudar para builds Nightly",
+    switchToStable: "Mudar para builds estáveis",
+    retry: "Tentar novamente",
     heroDescription:
       "Um gravador de barra de menu para tela, câmera e tela + câmera. Iniciar com um clique, bolha de câmera arrastável, link de compartilhamento instantâneo quando você parar.",
     versionReleased: "Versão {{version}} — lançada {{date}}",
     version: "Versão {{version}}",
     manifestError:
-      "Não foi possível carregar o manifesto de lançamento — escolha um instalador na página de lançamentos.",
+      "Não foi possível carregar o manifesto de lançamento. Tente novamente.",
     loadingRelease: "Carregando a versão mais recente…",
     chromeTitle: "Extensão Chrome para logs do navegador",
     chromeDescription:

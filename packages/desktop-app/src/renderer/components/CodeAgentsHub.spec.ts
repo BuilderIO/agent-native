@@ -19,7 +19,12 @@ import {
   filterDesktopApps,
   mergeDesktopAppLists,
   isDispatchControlPlanePath,
+  isNativeDesktopIntegrationsPath,
+  shouldShowNativeDesktopIntegrations,
+  shouldShowNativeDesktopIntegrationsGuest,
   isChatFirstSurfaceTabActive,
+  updateAppAuthStateByTab,
+  updateWebContentsIdByTab,
   updateDesktopIdentityStatusByTab,
   orderDesktopApps,
   MultiFrontierModeControl,
@@ -300,6 +305,26 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(shellCss).toContain("[data-chat-first-rail-collapse]");
   });
 
+  it("routes Electron-forwarded Cmd+backslash to the chat sidebar", () => {
+    const hubSource = readFileSync(
+      "src/renderer/components/CodeAgentsHub.tsx",
+      "utf8",
+    );
+    const mainSource = readFileSync("src/main/index.ts", "utf8");
+
+    expect(hubSource).toContain("isDesktopChatToggleShortcut");
+    expect(hubSource).toContain(
+      'window.dispatchEvent(new Event("agent-panel:toggle"))',
+    );
+    expect(mainSource).toContain(
+      "const isAgentSidebarToggleShortcut = isDesktopChatToggleShortcut(input);",
+    );
+    expect(mainSource).toContain(
+      "if (forwardDesktopNavigationShortcut(event, input)) return;",
+    );
+    expect(mainSource).toContain("if (isDesktopChatToggleShortcut(input)) {");
+  });
+
   it("orders pinned desktop apps ahead of unpinned apps and filters by name or description", () => {
     const apps = [
       {
@@ -388,6 +413,7 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     );
     expect(hubSource).toContain("AppOpenActions");
     expect(hubSource).toContain("desktop-app-card__actions");
+    expect(hubSource).not.toContain("ShareButton");
     expect(hubSource).toContain("Open in browser");
     expect(hubSource).toContain("Pin this app");
     expect(hubSource).toContain("Unpin this app");
@@ -516,6 +542,74 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(dispatchControlPlaneTitle("/admin/automations?view=all")).toBe(
       "Automations",
     );
+    expect(isNativeDesktopIntegrationsPath("/integrations")).toBe(true);
+    expect(isNativeDesktopIntegrationsPath("/admin/integrations")).toBe(true);
+    expect(isNativeDesktopIntegrationsPath("/integrations/slack")).toBe(false);
+  });
+
+  it("only exposes native integrations after both app and desktop auth are ready", () => {
+    expect(
+      shouldShowNativeDesktopIntegrations({
+        appId: "dispatch",
+        path: "/integrations",
+        appAuthState: "authenticated",
+        desktopIdentityStatus: "signed-in",
+      }),
+    ).toBe(true);
+    for (const desktopIdentityStatus of [
+      undefined,
+      "idle",
+      "checking",
+    ] as const) {
+      expect(
+        shouldShowNativeDesktopIntegrations({
+          appId: "dispatch",
+          path: "/integrations",
+          appAuthState: "authenticated",
+          desktopIdentityStatus,
+        }),
+      ).toBe(false);
+    }
+    expect(
+      shouldShowNativeDesktopIntegrations({
+        appId: "dispatch",
+        path: "/integrations",
+        appAuthState: "unauthenticated",
+        desktopIdentityStatus: "signed-in",
+      }),
+    ).toBe(false);
+  });
+
+  it("shows the authenticated guest during native MCP OAuth", () => {
+    expect(
+      shouldShowNativeDesktopIntegrationsGuest({
+        showNativeIntegrations: true,
+        nativeOAuthActive: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldShowNativeDesktopIntegrationsGuest({
+        showNativeIntegrations: true,
+        nativeOAuthActive: true,
+      }),
+    ).toBe(true);
+    expect(
+      shouldShowNativeDesktopIntegrationsGuest({
+        showNativeIntegrations: false,
+        nativeOAuthActive: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps OAuth scoped to the current guest webview id", () => {
+    const current = updateWebContentsIdByTab({}, "dispatch-tab", 42);
+    expect(current).toEqual({ "dispatch-tab": 42 });
+    expect(updateWebContentsIdByTab(current, "dispatch-tab", 43)).toEqual({
+      "dispatch-tab": 43,
+    });
+    expect(
+      updateWebContentsIdByTab(current, "dispatch-tab", undefined),
+    ).toEqual({});
   });
 
   it("keeps Dispatch internal while excluding it from Electron app discovery", () => {
@@ -658,5 +752,51 @@ describe("CodeAgentsHub desktop identity status", () => {
     expect(source).toContain("const openTabIds = new Set");
     expect(source).toContain("staleTabIds");
     expect(source).toContain("delete next[tabId]");
+  });
+});
+
+describe("CodeAgentsHub app auth state", () => {
+  it("keeps auth state isolated across app tabs", () => {
+    let stateByTab = updateAppAuthStateByTab(
+      {},
+      "dispatch-tab-1",
+      "unauthenticated",
+    );
+    stateByTab = updateAppAuthStateByTab(
+      stateByTab,
+      "dispatch-tab-2",
+      "authenticated",
+    );
+    stateByTab = updateAppAuthStateByTab(
+      stateByTab,
+      "dispatch-tab-1",
+      "authenticated",
+    );
+
+    expect(stateByTab).toEqual({
+      "dispatch-tab-1": "authenticated",
+      "dispatch-tab-2": "authenticated",
+    });
+  });
+
+  it("does not demote a confirmed state while a navigation probe is pending", () => {
+    const authenticated = updateAppAuthStateByTab(
+      {},
+      "dispatch-tab",
+      "authenticated",
+    );
+    expect(
+      updateAppAuthStateByTab(authenticated, "dispatch-tab", "unknown"),
+    ).toBe(authenticated);
+
+    const unauthenticated = updateAppAuthStateByTab(
+      authenticated,
+      "dispatch-tab",
+      "unauthenticated",
+    );
+    expect(unauthenticated).toEqual({ "dispatch-tab": "unauthenticated" });
+    expect(
+      updateAppAuthStateByTab(unauthenticated, "dispatch-tab", "unknown"),
+    ).toBe(unauthenticated);
   });
 });

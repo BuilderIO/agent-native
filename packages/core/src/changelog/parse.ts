@@ -44,9 +44,12 @@ export type ChangelogChangeType =
   | "removed"
   | "security";
 
-export const DEFAULT_CHANGELOG_RELEASE_LIMIT = 5;
+export const DEFAULT_CHANGELOG_RELEASE_LIMIT = 100;
 
 export const CHANGELOG_ARCHIVE_NOTE =
+  "For the full list of updates, see the [changelog folder](./changelog/).";
+
+const LEGACY_CHANGELOG_ARCHIVE_NOTE =
   'Older updates live in [the changelog folder](./changelog/) and are included in the in-app "What\'s new" view.';
 
 /**
@@ -72,6 +75,10 @@ const GROUP_LABELS: Record<ChangelogChangeType, string> = {
 };
 
 const ISO_DATE = /(\d{4}-\d{2}-\d{2})/;
+
+function cleanChangelogBody(value: string): string {
+  return value.trim();
+}
 
 /** Lowercase, hyphenate, and strip to a URL/id-safe slug. */
 export function changelogSlug(value: string): string {
@@ -198,7 +205,7 @@ export function parsePendingEntry(
 export function renderReleaseBody(entries: PendingChangelogEntry[]): string {
   const groups = new Map<ChangelogChangeType, string[]>();
   for (const entry of entries) {
-    const text = entry.text.trim();
+    const text = cleanChangelogBody(entry.text);
     if (!text) continue;
     const bullet = text.includes("\n")
       ? // Preserve multi-line bodies, indenting continuation lines.
@@ -263,6 +270,14 @@ function changelogHeader(markdown: string): string {
   return header;
 }
 
+function stripChangelogArchiveNotes(markdown: string): string {
+  return markdown
+    .replace(CHANGELOG_ARCHIVE_NOTE, "")
+    .replace(LEGACY_CHANGELOG_ARCHIVE_NOTE, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/\s+$/, "");
+}
+
 function pendingSectionTitle(entry: PendingChangelogEntry): string {
   return entry.date?.match(ISO_DATE)?.[1] ?? "Unreleased";
 }
@@ -283,6 +298,283 @@ function normalizedChangelogText(value: string): string {
     .trim();
 }
 
+type ChangelogBodyGroup = {
+  title: string;
+  body: string;
+  headingComments: string[];
+  index: number;
+};
+
+function stripHtmlComments(
+  line: string,
+  inComment: boolean,
+  initialInlineCodeMarker?: string,
+): {
+  line: string;
+  inComment: boolean;
+  inlineCodeMarker?: string;
+  comments: string[];
+} {
+  let cursor = 0;
+  let visibleLine = "";
+  const comments: string[] = [];
+  let inlineCodeMarker = initialInlineCodeMarker;
+  while (cursor < line.length) {
+    if (inComment) {
+      const commentEnd = line.indexOf("-->", cursor);
+      if (commentEnd === -1) {
+        return {
+          line: visibleLine,
+          inComment: true,
+          inlineCodeMarker,
+          comments,
+        };
+      }
+      cursor = commentEnd + 3;
+      inComment = false;
+      continue;
+    }
+
+    if (inlineCodeMarker) {
+      const codeEnd = line.indexOf(inlineCodeMarker, cursor);
+      if (codeEnd === -1) {
+        visibleLine += line.slice(cursor);
+        break;
+      }
+      visibleLine += line.slice(cursor, codeEnd + inlineCodeMarker.length);
+      cursor = codeEnd + inlineCodeMarker.length;
+      inlineCodeMarker = undefined;
+      continue;
+    }
+
+    const commentStart = line.indexOf("<!--", cursor);
+    const codeStartIndex = line.indexOf("`", cursor);
+    if (
+      codeStartIndex !== -1 &&
+      (commentStart === -1 || codeStartIndex < commentStart)
+    ) {
+      visibleLine += line.slice(cursor, codeStartIndex);
+      const codeStart = /^`+/.exec(line.slice(codeStartIndex))?.[0] ?? "`";
+      visibleLine += codeStart;
+      cursor = codeStartIndex + codeStart.length;
+      inlineCodeMarker = codeStart;
+      continue;
+    }
+
+    if (commentStart === -1) {
+      visibleLine += line.slice(cursor);
+      break;
+    }
+
+    visibleLine += line.slice(cursor, commentStart);
+    const commentEnd = line.indexOf("-->", commentStart + 4);
+    if (commentEnd !== -1) {
+      comments.push(line.slice(commentStart, commentEnd + 3));
+    }
+    cursor = commentStart + 4;
+    inComment = true;
+  }
+  return { line: visibleLine, inComment, inlineCodeMarker, comments };
+}
+
+function splitChangelogBodyGroups(body: string): {
+  prefix: string;
+  groups: ChangelogBodyGroup[];
+} {
+  const matches: Array<{
+    title: string;
+    headingComments: string[];
+    start: number;
+    headingEnd: number;
+  }> = [];
+  let offset = 0;
+  let fenceMarker: { character: string; length: number } | undefined;
+  let htmlComment = false;
+  let inlineCodeMarker: string | undefined;
+  for (const line of body.split(/\r?\n/)) {
+    const lineEnd = offset + line.length;
+    if (fenceMarker) {
+      const fence = /^\s*(`{3,}|~{3,})(.*)$/.exec(line)?.[1];
+      const closingFence = /^\s*(`{3,}|~{3,})\s*$/.exec(line)?.[1];
+      if (
+        fence &&
+        closingFence &&
+        fenceMarker.character === fence[0] &&
+        closingFence.length >= fenceMarker.length
+      ) {
+        fenceMarker = undefined;
+      }
+    } else {
+      let visibleLine: string | undefined;
+      let headingComments: string[] = [];
+      if (!htmlComment && !inlineCodeMarker) {
+        const fence = /^\s*(`{3,}|~{3,})(.*)$/.exec(line)?.[1];
+        if (fence) {
+          fenceMarker = { character: fence[0], length: fence.length };
+        } else {
+          const commentResult = stripHtmlComments(
+            line,
+            false,
+            inlineCodeMarker,
+          );
+          htmlComment = commentResult.inComment;
+          inlineCodeMarker = commentResult.inlineCodeMarker;
+          visibleLine = commentResult.line;
+          headingComments = commentResult.comments;
+        }
+      } else {
+        const commentResult = stripHtmlComments(
+          line,
+          htmlComment,
+          inlineCodeMarker,
+        );
+        htmlComment = commentResult.inComment;
+        inlineCodeMarker = commentResult.inlineCodeMarker;
+        visibleLine = commentResult.line;
+        headingComments = commentResult.comments;
+      }
+
+      if (visibleLine !== undefined && !fenceMarker) {
+        const fence = /^\s*(`{3,}|~{3,})(.*)$/.exec(visibleLine)?.[1];
+        if (fence) {
+          fenceMarker = { character: fence[0], length: fence.length };
+        } else {
+          const heading = /^ {0,3}###\s+(.+?)(?:\s+#+)?\s*$/.exec(visibleLine);
+          if (
+            heading &&
+            CHANGELOG_GROUP_ORDER.some(
+              (type) =>
+                GROUP_LABELS[type].toLowerCase() ===
+                heading[1].trim().toLowerCase(),
+            )
+          ) {
+            matches.push({
+              title: heading[1].trim(),
+              headingComments,
+              start: offset,
+              headingEnd: lineEnd,
+            });
+          }
+        }
+      }
+    }
+    const newlineLength = body.startsWith("\r\n", lineEnd)
+      ? 2
+      : lineEnd < body.length
+        ? 1
+        : 0;
+    offset = lineEnd + newlineLength;
+  }
+  if (matches.length === 0) return { prefix: body.trim(), groups: [] };
+
+  const prefix = body.slice(0, matches[0].start).trim();
+  const groups = matches.map((match, index) => {
+    const end = matches[index + 1]?.start ?? body.length;
+    return {
+      title: match.title,
+      headingComments: match.headingComments,
+      body: body.slice(match.headingEnd, end).trim(),
+      index,
+    };
+  });
+  return { prefix, groups };
+}
+
+function changelogBodyGroupOrder(title: string): number {
+  const normalizedTitle = title.toLowerCase();
+  const index = CHANGELOG_GROUP_ORDER.findIndex(
+    (type) => GROUP_LABELS[type].toLowerCase() === normalizedTitle,
+  );
+  return index === -1 ? CHANGELOG_GROUP_ORDER.length : index;
+}
+
+function normalizeChangelogBody(body: string): string {
+  const { prefix, groups } = splitChangelogBodyGroups(body);
+  if (groups.length < 2) return body.trim();
+
+  const uniqueGroups = new Map<string, ChangelogBodyGroup>();
+  for (const group of groups) {
+    const key = group.title.toLowerCase();
+    const current = uniqueGroups.get(key);
+    const headingComments = current
+      ? [
+          ...current.headingComments,
+          ...group.headingComments.filter(
+            (comment) => !current.headingComments.includes(comment),
+          ),
+        ]
+      : group.headingComments;
+    uniqueGroups.set(key, {
+      title: current?.title ?? group.title,
+      headingComments,
+      body: [current?.body, group.body].filter(Boolean).join("\n"),
+      index: current?.index ?? group.index,
+    });
+  }
+
+  const renderedGroups = [...uniqueGroups.values()]
+    .sort(
+      (a, b) =>
+        changelogBodyGroupOrder(a.title) - changelogBodyGroupOrder(b.title) ||
+        a.index - b.index,
+    )
+    .map(
+      (group) =>
+        `### ${group.title}${group.headingComments.length ? ` ${group.headingComments.join(" ")}` : ""}\n\n${group.body}`,
+    );
+  return [prefix, ...renderedGroups].filter(Boolean).join("\n\n");
+}
+
+function mergeChangelogBodies(
+  pendingBody: string,
+  existingBody: string,
+): string {
+  const pending = splitChangelogBodyGroups(pendingBody);
+  const existing = splitChangelogBodyGroups(existingBody);
+  if (pending.groups.length === 0) {
+    return normalizeChangelogBody(existingBody);
+  }
+  if (existing.groups.length === 0) {
+    return [pendingBody, existingBody]
+      .map((body) => body.trim())
+      .filter(Boolean)
+      .join("\n\n");
+  }
+
+  const groups = new Map<string, ChangelogBodyGroup>();
+  for (const group of [...pending.groups, ...existing.groups]) {
+    const key = group.title.toLowerCase();
+    const current = groups.get(key);
+    const headingComments = current
+      ? [
+          ...current.headingComments,
+          ...group.headingComments.filter(
+            (comment) => !current.headingComments.includes(comment),
+          ),
+        ]
+      : group.headingComments;
+    groups.set(key, {
+      title: current?.title ?? group.title,
+      headingComments,
+      body: [current?.body, group.body].filter(Boolean).join("\n"),
+      index: current?.index ?? group.index,
+    });
+  }
+
+  const prefix = [pending.prefix, existing.prefix].filter(Boolean).join("\n\n");
+  return normalizeChangelogBody(
+    [
+      prefix,
+      ...[...groups.values()].map(
+        (group) =>
+          `### ${group.title}${group.headingComments.length ? ` ${group.headingComments.join(" ")}` : ""}\n\n${group.body}`,
+      ),
+    ]
+      .filter(Boolean)
+      .join("\n\n"),
+  );
+}
+
 /**
  * Render an app-facing changelog that includes both released CHANGELOG.md
  * sections and adjacent folder-backed `changelog/*.md` entries. This is pure
@@ -293,10 +585,19 @@ export function mergePendingChangelog(
   existing: string,
   pending: PendingChangelogEntry[],
 ): string {
-  const existingEntries = parseChangelog(existing);
+  const cleanExisting = stripChangelogArchiveNotes(existing);
+  const existingEntries = parseChangelog(cleanExisting);
+  const pendingSeen = new Set<string>();
   const pendingWithText = pending.filter((entry) => {
     const text = entry.text.trim();
     if (!text) return false;
+    const pendingKey = [
+      entry.date ?? "",
+      entry.type,
+      normalizedChangelogText(text),
+    ].join("\u0000");
+    if (pendingSeen.has(pendingKey)) return false;
+    pendingSeen.add(pendingKey);
     return !existingEntries.some((existingEntry) => {
       if (
         entry.date &&
@@ -310,7 +611,15 @@ export function mergePendingChangelog(
       );
     });
   });
-  if (pendingWithText.length === 0) return existing || CHANGELOG_HEADER;
+  if (pendingWithText.length === 0) {
+    const sections = existingEntries
+      .map(
+        (entry) =>
+          `## ${entry.title}\n\n${normalizeChangelogBody(cleanChangelogBody(entry.body))}`,
+      )
+      .join("\n\n");
+    return `${changelogHeader(cleanExisting)}${sections ? `\n\n${sections}` : ""}\n\n${CHANGELOG_ARCHIVE_NOTE}\n`;
+  }
 
   const pendingByTitle = new Map<string, PendingChangelogEntry[]>();
 
@@ -322,7 +631,7 @@ export function mergePendingChangelog(
   const sections = existingEntries.map((entry) => ({
     title: entry.title,
     date: entry.date,
-    body: entry.body,
+    body: normalizeChangelogBody(cleanChangelogBody(entry.body)),
   }));
   for (const title of [...pendingByTitle.keys()].sort(pendingSectionSort)) {
     const body = renderReleaseBody(pendingByTitle.get(title) ?? []);
@@ -333,9 +642,10 @@ export function mergePendingChangelog(
     });
 
     if (existingIndex !== -1) {
-      sections[existingIndex].body = [body, sections[existingIndex].body]
-        .filter(Boolean)
-        .join("\n\n");
+      sections[existingIndex].body = mergeChangelogBodies(
+        body,
+        cleanChangelogBody(sections[existingIndex].body),
+      );
       continue;
     }
 
@@ -352,13 +662,13 @@ export function mergePendingChangelog(
     );
   }
 
-  return `${changelogHeader(existing)}\n\n${sections
-    .map((entry) => `## ${entry.title}\n\n${entry.body}`)
-    .join("\n\n")}\n`;
+  return `${changelogHeader(cleanExisting)}\n\n${sections
+    .map((entry) => `## ${entry.title}\n\n${cleanChangelogBody(entry.body)}`)
+    .join("\n\n")}\n\n${CHANGELOG_ARCHIVE_NOTE}\n`;
 }
 
 /**
- * Keep a short, human-readable release window in `CHANGELOG.md` while the
+ * Keep a bounded, human-readable release window in `CHANGELOG.md` while the
  * dated `changelog/*.md` files remain the complete source for app history.
  * The Vite raw-import path can still expand the full folder-backed history.
  */
@@ -368,9 +678,12 @@ export function compactChangelog(
   releaseLimit = DEFAULT_CHANGELOG_RELEASE_LIMIT,
 ): string {
   const merged = mergePendingChangelog(existing, folderEntries);
-  const entries = parseChangelog(merged).slice(0, Math.max(1, releaseLimit));
-  const header = changelogHeader(merged)
-    .replace(CHANGELOG_ARCHIVE_NOTE, "")
+  const cleanMerged = stripChangelogArchiveNotes(merged);
+  const entries = parseChangelog(cleanMerged).slice(
+    0,
+    Math.max(1, releaseLimit),
+  );
+  const header = changelogHeader(cleanMerged)
     .replace(/\n{3,}/g, "\n\n")
     .trim();
   const sections = entries.map((entry) => `## ${entry.title}\n\n${entry.body}`);
@@ -379,7 +692,7 @@ export function compactChangelog(
     return `${header || CHANGELOG_HEADER.trim()}\n\n${CHANGELOG_ARCHIVE_NOTE}\n`;
   }
 
-  return `${header || CHANGELOG_HEADER.trim()}\n\n${CHANGELOG_ARCHIVE_NOTE}\n\n${sections.join("\n\n")}\n`;
+  return `${header || CHANGELOG_HEADER.trim()}\n\n${sections.join("\n\n")}\n\n${CHANGELOG_ARCHIVE_NOTE}\n`;
 }
 
 export { CHANGELOG_HEADER, GROUP_LABELS };

@@ -14,7 +14,11 @@ const state = vi.hoisted(() => ({
 vi.mock("@agent-native/core/db", () => ({ isPostgres: () => false }));
 vi.mock("@agent-native/core/server", () => ({ recordChange: () => undefined }));
 vi.mock("@agent-native/core/settings", () => ({
-  getAllSettings: vi.fn(async () => state.legacySettings),
+  listSettingsByPrefix: vi.fn(async (prefix: string) =>
+    Object.entries(state.legacySettings)
+      .filter(([key]) => key.startsWith(prefix))
+      .map(([key, value]) => ({ key, value })),
+  ),
   getOrgSetting: vi.fn(),
   getUserSetting: vi.fn(),
   deleteOrgSetting: vi.fn(),

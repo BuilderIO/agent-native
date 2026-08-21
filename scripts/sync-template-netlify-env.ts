@@ -113,14 +113,12 @@ const HOSTED_TEMPLATE_ENV_ALLOWLIST_EXACT = new Set([
   "GA4_PROPERTY_ID",
   "GA_MEASUREMENT_ID",
   "GTM_CONTAINER_ID",
-  "GOOGLE_CLIENT_ID",
-  "GOOGLE_CLIENT_SECRET",
-  "GOOGLE_LEGACY_CLIENT_ID",
-  "GOOGLE_LEGACY_CLIENT_SECRET",
+  // Google OAuth credentials are deliberately NOT synced. A template's local
+  // .env holds a developer's dev-tier client, while hosted sites run the shared
+  // production client; syncing overwrote live secrets with dev ones and took
+  // beta sign-in down fleet-wide. Manage these in Netlify only.
   "GOOGLE_PICKER_API_KEY",
   "GOOGLE_PICKER_APP_ID",
-  "GOOGLE_SIGN_IN_CLIENT_ID",
-  "GOOGLE_SIGN_IN_CLIENT_SECRET",
   "NEON_AUTH_BASE_URL",
   "NETLIFY_DATABASE_AUTH_TOKEN",
   "NETLIFY_DATABASE_URL",
@@ -138,9 +136,6 @@ const HOSTED_TEMPLATE_ALLOWED_SECRET_EXACT = new Set([
   "DATABASE_AUTH_TOKEN",
   "DATABASE_URL",
   "FIGMA_ACCESS_TOKEN",
-  "GOOGLE_CLIENT_SECRET",
-  "GOOGLE_LEGACY_CLIENT_SECRET",
-  "GOOGLE_SIGN_IN_CLIENT_SECRET",
   "NETLIFY_DATABASE_AUTH_TOKEN",
   "NETLIFY_DATABASE_URL",
   "NETLIFY_DATABASE_URL_UNPOOLED",
@@ -165,9 +160,7 @@ const PUBLIC_KEY_EXACT = new Set([
   "GA4_PROPERTY_ID",
   "GA_MEASUREMENT_ID",
   "GTM_CONTAINER_ID",
-  "GOOGLE_CLIENT_ID",
   "GOOGLE_PICKER_API_KEY",
-  "GOOGLE_SIGN_IN_CLIENT_ID",
   "GOOGLE_PICKER_APP_ID",
   "NEON_AUTH_BASE_URL",
   "NITRO_PRESET",

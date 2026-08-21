@@ -24,7 +24,6 @@ import { FactoryAgentsView } from "@/components/factory/FactoryAgentsView";
 import { FactoryAuditView } from "@/components/factory/FactoryAuditView";
 import {
   FactoryCanvas,
-  type FactoryCanvasEdge,
   type FactoryCanvasGraph,
   type FactoryCanvasNode,
 } from "@/components/factory/FactoryCanvas";

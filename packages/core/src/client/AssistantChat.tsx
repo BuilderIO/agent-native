@@ -212,9 +212,10 @@ import {
   settleInterruptedToolCalls,
 } from "./sse-event-processor.js";
 import { useAgentEngineConfigured } from "./use-agent-engine-configured.js";
-import type {
-  ChatThreadScope,
-  ChatThreadSnapshot,
+import {
+  appendChatThreadScopeParams,
+  type ChatThreadScope,
+  type ChatThreadSnapshot,
 } from "./use-chat-threads.js";
 import { useDevMode } from "./use-dev-mode.js";
 import { useRunStuckDetection } from "./use-run-stuck-detection.js";
@@ -1922,6 +1923,8 @@ export interface AssistantChatProps {
   threadId?: string;
   /** Resource scope to include with chat requests for server-side context. */
   contextScope?: ChatThreadScope | null;
+  /** Restrict server-side thread restores to the supplied app scope. */
+  isolateHistoryByScope?: boolean;
   /** Namespace used to hide ambient composer context from other host surfaces. */
   contextNamespace?: string;
   /** Whether this chat owns the active visible composer context snapshot. */
@@ -1999,6 +2002,8 @@ export interface AssistantChatProps {
   composerDisabledPlaceholder?: string;
   /** When true, skip the restore skeleton (used for freshly created threads with no messages) */
   isNewThread?: boolean;
+  /** Replace an active tab when its saved thread no longer exists. */
+  onThreadRestoreNotFound?: () => void;
   /** Defer restore until the owning thread list has reconciled the active id. */
   isThreadStateLoading?: boolean;
   /** Called when a slash command (e.g. /clear, /help) is executed */
@@ -2404,6 +2409,7 @@ const AssistantChatInner = forwardRef<
     browserTabId,
     threadId,
     contextScope,
+    isolateHistoryByScope = false,
     contextNamespace,
     isActiveComposer = true,
     onMessageCountChange,
@@ -2454,6 +2460,7 @@ const AssistantChatInner = forwardRef<
     agentChatSurface = "app",
     desktopIdentityUnauthenticated = false,
     desktopIdentityAuthenticated = false,
+    onThreadRestoreNotFound,
     suppressInlineOpenApp = false,
   },
   ref,
@@ -2494,6 +2501,13 @@ const AssistantChatInner = forwardRef<
     () => assistantUiMessageListStructureKey(messages),
     [messages],
   );
+  const threadScopeQuery = useMemo(() => {
+    if (!isolateHistoryByScope || !contextScope) return "";
+    const params = new URLSearchParams();
+    appendChatThreadScopeParams(params, contextScope);
+    const query = params.toString();
+    return query ? `?${query}` : "";
+  }, [contextScope?.id, contextScope?.type, isolateHistoryByScope]);
 
   // Chat-wide drag-and-drop: users expect to drop a file anywhere on the agent
   // sidebar (thread, header, composer) and have it attach — same as ChatGPT,
@@ -3022,6 +3036,10 @@ const AssistantChatInner = forwardRef<
     setRestoreAttempt((attempt) => attempt + 1);
   }, [isNewThread, threadId]);
 
+  const missingThreadNotifiedRef = useRef<string | null>(null);
+  const desktopIdentityAuthenticatedRef = useRef(desktopIdentityAuthenticated);
+  const desktopIdentityRestoreRetryPendingRef = useRef(false);
+
   // The desktop identity gate and chat restore run in sibling surfaces. If the
   // gate wins the race after a masked 404 has already rendered, clear the
   // transient not-found card and leave the user at a fresh composer.
@@ -3032,7 +3050,6 @@ const AssistantChatInner = forwardRef<
     );
   }, [desktopIdentityUnauthenticated]);
 
-  const desktopIdentityAuthenticatedRef = useRef(desktopIdentityAuthenticated);
   useEffect(() => {
     const becameAuthenticated =
       desktopIdentityAuthenticated && !desktopIdentityAuthenticatedRef.current;
@@ -3048,6 +3065,7 @@ const AssistantChatInner = forwardRef<
     // A saved-thread request can race the identity handoff and be masked as a
     // 404/401/403. Retry once the host confirms the authenticated session so
     // the thread is restored without requiring a remount or manual retry.
+    desktopIdentityRestoreRetryPendingRef.current = true;
     retryThreadRestore();
   }, [
     agentChatSurface,
@@ -3055,6 +3073,33 @@ const AssistantChatInner = forwardRef<
     isNewThread,
     retryThreadRestore,
     threadId,
+  ]);
+
+  useEffect(() => {
+    if (threadRestoreError !== "not-found") {
+      desktopIdentityRestoreRetryPendingRef.current = false;
+      return;
+    }
+    if (
+      !threadId ||
+      !onThreadRestoreNotFound ||
+      missingThreadNotifiedRef.current === threadId ||
+      (agentChatSurface === "desktop" &&
+        (!desktopIdentityAuthenticated ||
+          desktopIdentityUnauthenticated ||
+          desktopIdentityRestoreRetryPendingRef.current))
+    ) {
+      return;
+    }
+    missingThreadNotifiedRef.current = threadId;
+    onThreadRestoreNotFound();
+  }, [
+    agentChatSurface,
+    desktopIdentityAuthenticated,
+    desktopIdentityUnauthenticated,
+    onThreadRestoreNotFound,
+    threadId,
+    threadRestoreError,
   ]);
   const onSaveThreadRef = useRef(onSaveThread);
   onSaveThreadRef.current = onSaveThread;
@@ -3181,7 +3226,7 @@ const AssistantChatInner = forwardRef<
         : null;
       try {
         const refreshRes = await fetch(
-          `${apiUrl}/threads/${encodeURIComponent(threadId)}`,
+          `${apiUrl}/threads/${encodeURIComponent(threadId)}${threadScopeQuery}`,
           { signal: signal ?? ownAbort?.signal },
         );
         if (!refreshRes.ok) return null;
@@ -3196,7 +3241,13 @@ const AssistantChatInner = forwardRef<
         if (ownAbortTimer) clearTimeout(ownAbortTimer);
       }
     },
-    [apiUrl, importThreadData, loadHistoryRepository, threadId],
+    [
+      apiUrl,
+      importThreadData,
+      loadHistoryRepository,
+      threadId,
+      threadScopeQuery,
+    ],
   );
 
   const exportCleanThreadRepo = useCallback(
@@ -3969,7 +4020,7 @@ const AssistantChatInner = forwardRef<
         let canReconnect = false;
         try {
           const res = await fetch(
-            `${apiUrl}/threads/${encodeURIComponent(threadId)}`,
+            `${apiUrl}/threads/${encodeURIComponent(threadId)}${threadScopeQuery}`,
           );
           if (!res.ok) {
             if (!cancelled) {
@@ -4085,6 +4136,7 @@ const AssistantChatInner = forwardRef<
     isThreadStateLoading,
     desktopIdentityUnauthenticated,
     restoreAttempt,
+    threadScopeQuery,
   ]);
 
   useEffect(() => {
@@ -4269,7 +4321,7 @@ const AssistantChatInner = forwardRef<
       (async () => {
         try {
           const res = await fetch(
-            `${apiUrl}/threads/${encodeURIComponent(threadId)}/queued`,
+            `${apiUrl}/threads/${encodeURIComponent(threadId)}/queued${threadScopeQuery}`,
             {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -4288,7 +4340,7 @@ const AssistantChatInner = forwardRef<
       })();
     }, 300);
     return () => clearTimeout(timer);
-  }, [queuedMessages, threadId, apiUrl]);
+  }, [queuedMessages, threadId, apiUrl, threadScopeQuery]);
 
   // Nudge the shared hook to re-check after a Builder connect.
   const handleBuilderConnected = useCallback(() => {

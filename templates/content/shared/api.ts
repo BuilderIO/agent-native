@@ -1,7 +1,6 @@
 import type { BlocksFieldIdentity } from "./blocks-field-identity";
 import type {
   DocumentPropertyOptions,
-  DocumentPropertyOption,
   DocumentPropertyType,
   DocumentPropertyValue,
   DocumentPropertyVisibility,

@@ -17,7 +17,6 @@ import {
   compareEvaluatedSourcePolicies,
   evaluateSourceAnswerPolicy,
   loadAccessibleSourcePolicySnapshots,
-  type EvaluatedSourceAnswerPolicy,
   type SourcePolicySnapshot,
 } from "../server/lib/source-policy.js";
 

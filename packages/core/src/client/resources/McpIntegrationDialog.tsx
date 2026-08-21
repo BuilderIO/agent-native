@@ -31,11 +31,13 @@ import {
   resolveMcpIntegrationScope,
   shouldOfferMcpIntegrationOrganizationScope,
   shouldOfferMcpOrganizationScope,
+  supportsMcpIntegrationOrganizationScope,
   type DefaultMcpIntegration,
 } from "./mcp-integration-catalog.js";
 import { McpIntegrationLogo } from "./McpIntegrationLogo.js";
 import {
   formatMcpServerError,
+  formatMcpServersLoadError,
   getMcpUrlValidationError,
   useMcpServersApi,
   useMcpServers,
@@ -55,6 +57,8 @@ export interface McpIntegrationDialogProps {
   canCreateOrgMcp: boolean;
   hasOrg: boolean;
   onCreateMcpServer: (args: CreateMcpServerArgs) => Promise<unknown>;
+  onOAuthStart?: (url: string) => void | Promise<void>;
+  oauthReturnPath?: string;
   onCreated?: () => void;
   integrations?: DefaultMcpIntegration[];
 }
@@ -126,6 +130,8 @@ export function McpIntegrationDialog({
   canCreateOrgMcp,
   hasOrg,
   onCreateMcpServer,
+  onOAuthStart,
+  oauthReturnPath,
   onCreated,
   integrations,
 }: McpIntegrationDialogProps) {
@@ -192,6 +198,7 @@ export function McpIntegrationDialog({
 
   useEffect(() => {
     if (!open) return;
+    if (initialIntegrationId && !mcpServersQuery.isSuccess) return;
     const initialIntegration = initialIntegrationId
       ? defaultIntegrations.find(
           (integration) => integration.id === initialIntegrationId,
@@ -199,7 +206,19 @@ export function McpIntegrationDialog({
       : null;
     const initialDefaults =
       createMcpIntegrationFormDefaults(initialIntegration);
-    setMode(initialIntegration || !showCatalog ? "form" : "catalog");
+    const initialNeedsScopeChoice = Boolean(
+      initialIntegration &&
+      hasOrg &&
+      requiresMcpIntegrationSetup(initialIntegration) &&
+      supportsMcpIntegrationOrganizationScope(initialIntegration),
+    );
+    setMode(
+      initialNeedsScopeChoice
+        ? "choice"
+        : initialIntegration || !showCatalog
+          ? "form"
+          : "catalog",
+    );
     setQuery("");
     setSelected(initialIntegration ?? null);
     setScope(
@@ -227,6 +246,7 @@ export function McpIntegrationDialog({
     open,
     safeDefaultScope,
     showCatalog,
+    mcpServersQuery.isSuccess,
   ]);
 
   useEffect(() => {
@@ -281,23 +301,33 @@ export function McpIntegrationDialog({
       return;
     }
     setBusy(true);
-    const returnUrl =
-      typeof window === "undefined"
+    const returnUrl = oauthReturnPath?.startsWith("/")
+      ? oauthReturnPath
+      : typeof window === "undefined"
         ? "/"
         : window.location.pathname +
           window.location.search +
           window.location.hash;
-    navigateToMcpOAuthStart(
-      agentNativePath(
-        buildMcpOAuthStartUrl({
-          name: args.name,
-          url: args.url,
-          description: args.description,
-          scope: options?.scope ?? scope,
-          returnUrl,
-        }),
-      ),
+    const oauthUrl = agentNativePath(
+      buildMcpOAuthStartUrl({
+        name: args.name,
+        url: args.url,
+        description: args.description,
+        scope: options?.scope ?? scope,
+        returnUrl,
+      }),
     );
+    if (!onOAuthStart) {
+      navigateToMcpOAuthStart(oauthUrl);
+      return;
+    }
+    void Promise.resolve()
+      .then(() => onOAuthStart(oauthUrl))
+      .then(() => onOpenChange(false))
+      .catch((cause: unknown) => {
+        setBusy(false);
+        setError(formatMcpServerError(cause));
+      });
   };
 
   const connectWithOAuth = (
@@ -368,6 +398,11 @@ export function McpIntegrationDialog({
   };
 
   const quickConnect = (integration: DefaultMcpIntegration) => {
+    if (hasOrg) {
+      setSelected(integration);
+      setMode("choice");
+      return;
+    }
     if (requiresMcpIntegrationSetup(integration)) {
       openForm(integration);
       return;
@@ -391,6 +426,12 @@ export function McpIntegrationDialog({
   };
 
   const selectCatalogConnection = (integration: DefaultMcpIntegration) => {
+    if (!mcpServersQuery.isSuccess) return;
+    if (hasOrg) {
+      setSelected(integration);
+      setMode("choice");
+      return;
+    }
     if (requiresMcpIntegrationSetup(integration)) {
       const apiFallback = getMcpIntegrationApiFallback(integration);
       if (apiFallback) {
@@ -398,17 +439,6 @@ export function McpIntegrationDialog({
       } else {
         openForm(integration);
       }
-      return;
-    }
-    if (
-      shouldOfferMcpIntegrationOrganizationScope(
-        integration,
-        hasOrg,
-        canCreateOrgMcp,
-      )
-    ) {
-      setSelected(integration);
-      setMode("choice");
       return;
     }
     quickConnect(integration);
@@ -427,16 +457,27 @@ export function McpIntegrationDialog({
     ) {
       return;
     }
+    if (mcpServersQuery.isError) return;
+    if (!mcpServersQuery.isSuccess) return;
     const integration = defaultIntegrations.find(
       (candidate) => candidate.id === quickConnectIntegrationId,
     );
     if (!integration) return;
     quickConnectAttemptedRef.current = quickConnectIntegrationId;
     quickConnectRef.current?.(integration);
-  }, [defaultIntegrations, open, quickConnectIntegrationId]);
+  }, [
+    defaultIntegrations,
+    hasOrg,
+    mcpServersQuery.isError,
+    mcpServersQuery.isSuccess,
+    open,
+    quickConnectIntegrationId,
+  ]);
 
   useEffect(() => {
     if (!open || !connectIntegrationId) return;
+    if (mcpServersQuery.isError) return;
+    if (!mcpServersQuery.isSuccess) return;
     const integration = defaultIntegrations.find(
       (candidate) => candidate.id === connectIntegrationId,
     );
@@ -444,29 +485,36 @@ export function McpIntegrationDialog({
     const attemptKey = `connect:${connectIntegrationId}`;
     if (quickConnectAttemptedRef.current === attemptKey) return;
     quickConnectAttemptedRef.current = attemptKey;
+    if (hasOrg) {
+      setSelected(integration);
+      setMode("choice");
+      return;
+    }
     if (requiresMcpIntegrationSetup(integration)) {
       openForm(integration);
       return;
     }
-    const showWorkspaceChoice = shouldOfferMcpIntegrationOrganizationScope(
-      integration,
-      hasOrg,
-      canCreateOrgMcp,
-    );
-    if (!showWorkspaceChoice) {
-      quickConnectRef.current?.(integration);
-    } else {
-      setMode("choice");
-    }
+    quickConnectRef.current?.(integration);
   }, [
     canCreateOrgMcp,
     connectIntegrationId,
     defaultIntegrations,
     hasOrg,
+    mcpServersQuery.isError,
+    mcpServersQuery.isSuccess,
     open,
   ]);
 
   const connectPersonal = (integration: DefaultMcpIntegration) => {
+    if (requiresMcpIntegrationSetup(integration)) {
+      const apiFallback = getMcpIntegrationApiFallback(integration);
+      if (apiFallback) {
+        openAgentSettings(`secrets:${apiFallback.secretKey}`);
+      } else {
+        openForm(integration, { scope: "user" });
+      }
+      return;
+    }
     if (integration.authMode === "oauth") {
       connectWithOAuth(integration, { scope: "user" });
       return;
@@ -487,6 +535,11 @@ export function McpIntegrationDialog({
   };
 
   const connectWorkspace = (integration: DefaultMcpIntegration) => {
+    if (!canCreateOrgMcp) return;
+    if (requiresMcpIntegrationSetup(integration)) {
+      openForm(integration, { scope: "org" });
+      return;
+    }
     if (integration.authMode === "oauth") {
       connectWithOAuth(integration, { scope: "org" });
       return;
@@ -600,10 +653,30 @@ export function McpIntegrationDialog({
         aria-describedby={undefined}
         className="inset-0 flex h-[100dvh] max-h-none w-full max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none p-0"
       >
+        {mcpServersQuery.isError ? (
+          <div
+            role="alert"
+            className="mx-7 mt-4 shrink-0 rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs text-destructive sm:mx-10"
+          >
+            <p>{formatMcpServersLoadError(mcpServersQuery.error)}</p>
+            <button
+              type="button"
+              onClick={() => void mcpServersQuery.refetch()}
+              disabled={mcpServersQuery.isFetching}
+              className="mt-2 font-medium underline underline-offset-2 hover:text-foreground disabled:cursor-wait disabled:opacity-60"
+            >
+              {mcpServersQuery.isFetching
+                ? t("mcpIntegrations.retrying")
+                : t("mcpIntegrations.retry")}
+            </button>
+          </div>
+        ) : null}
         {mode === "choice" && selected ? (
           <>
             <DialogHeader className="sr-only">
-              <DialogTitle>Connect {selected.name}</DialogTitle>
+              <DialogTitle>
+                {t("mcpIntegrations.connect")} {selected.name}
+              </DialogTitle>
             </DialogHeader>
             <IntegrationConnectionChoice
               name={selected.name}
@@ -616,11 +689,20 @@ export function McpIntegrationDialog({
                   imageClassName="size-full p-1"
                 />
               }
-              showWorkspaceOption={shouldOfferMcpIntegrationOrganizationScope(
+              showWorkspaceOption={supportsMcpIntegrationOrganizationScope(
                 selected,
-                hasOrg,
-                canCreateOrgMcp,
               )}
+              workspaceOptionDisabled={!canCreateOrgMcp}
+              workspaceOptionDisabledReason={
+                !canCreateOrgMcp
+                  ? t("mcpIntegrations.workspaceAdminRequired")
+                  : undefined
+              }
+              personalOnlyReason={
+                !supportsMcpIntegrationOrganizationScope(selected)
+                  ? t("mcpIntegrations.personalOnlyDescription")
+                  : undefined
+              }
               busy={busy}
               onPersonal={() => connectPersonal(selected)}
               onWorkspace={() => connectWorkspace(selected)}
@@ -666,6 +748,14 @@ export function McpIntegrationDialog({
                     {error}
                   </div>
                 )}
+                {!mcpServersQuery.isSuccess && !mcpServersQuery.isError ? (
+                  <div
+                    role="status"
+                    className="mb-3 rounded-md border border-border bg-muted/30 px-3 py-2 text-[12px] leading-relaxed text-muted-foreground"
+                  >
+                    {t("mcpIntegrations.loadingScopeMetadata")}
+                  </div>
+                ) : null}
                 <IntegrationGrid
                   items={filteredIntegrations.map((integration) => {
                     const connected = connectedUrls.has(
@@ -702,7 +792,7 @@ export function McpIntegrationDialog({
                           : setupOnly
                             ? t("mcpIntegrations.viewSetup")
                             : t("mcpIntegrations.connect"),
-                      disabled: connected || busy,
+                      disabled: connected || busy || !mcpServersQuery.isSuccess,
                       onAction: () => {
                         if (connected) {
                           openForm(integration);

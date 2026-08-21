@@ -48,9 +48,9 @@ import {
   useBulkToggleStar,
   useBulkMarkRead,
   useLabels,
+  EMPTY_LABELS,
   useMoveEmail,
   unsuppressThread,
-  type BulkEmailTarget,
 } from "@/hooks/use-emails";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import {
@@ -436,7 +436,8 @@ export function EmailList({
   const bulkTrashEmails = useBulkTrashEmails();
   const bulkToggleStar = useBulkToggleStar();
   const bulkMarkRead = useBulkMarkRead();
-  const { data: labels = [] } = useLabels();
+  const { data: labelsData } = useLabels();
+  const labels = labelsData ?? EMPTY_LABELS;
   const moveEmail = useMoveEmail();
   const cancelScheduledJob = useDeleteScheduledJob();
   const sendScheduledJobNow = useSendScheduledJobNow();

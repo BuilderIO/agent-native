@@ -55,7 +55,10 @@ Preview before `--apply`, commit `agent-native.ejections.json`, and never edit
   ZIPs, screenshots, thumbnails, session replay chunks) in configured file/blob
   storage and persist only URLs, ids, or handles.
 - Store shared runtime configuration in the workspace root `.env`; use
-  `apps/<app>/.env` only for app-specific overrides. Never hardcode API keys,
+  `apps/<app>/.env` only for app-specific overrides. For public app behavior,
+  prefer the default in `agent-native.config.ts` and use the deterministic
+  `AGENT_NATIVE_CONFIG_<UPPER_SNAKE_PATH>` alias only when a non-secret value
+  needs a deployment override. Never hardcode API keys,
   tokens, webhook URLs, signing secrets, private Builder/internal data, customer
   data, or credential-looking literals in source, docs, prompts, fixtures,
   application state, action responses, or generated app content. Use

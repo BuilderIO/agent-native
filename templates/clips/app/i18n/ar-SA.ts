@@ -618,12 +618,16 @@ const messages = {
     alsoFor: "متاح أيضًا لـ {{platform}}",
     backToLibrary: "العودة إلى المكتبة",
     clipsDesktop: "Clips Desktop",
+    stable: "مستقر",
+    nightly: "Nightly",
+    switchToNightly: "التبديل إلى إصدارات Nightly",
+    switchToStable: "التبديل إلى الإصدارات المستقرة",
+    retry: "إعادة المحاولة",
     heroDescription:
       "مسجل شريط القوائم للشاشة والكاميرا والشاشة + الكاميرا. البدء بنقرة واحدة، فقاعة الكاميرا القابلة للسحب، رابط المشاركة الفورية عند التوقف.",
     versionReleased: "الإصدار {{version}} — صدر {{date}}",
     version: "النسخة {{version}}",
-    manifestError:
-      "تعذر تحميل بيان الإصدار — اختر أداة التثبيت من صفحة الإصدارات.",
+    manifestError: "تعذر تحميل بيان الإصدار - حاول مرة أخرى.",
     loadingRelease: "جارٍ تحميل الإصدار الأخير…",
     chromeTitle: "ملحق Chrome لسجلات المتصفح",
     chromeDescription:

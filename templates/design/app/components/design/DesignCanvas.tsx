@@ -1312,7 +1312,7 @@ export function DesignCanvas({
   // twice from the same drawing.
   const [annotationCaptureBusy, setAnnotationCaptureBusy] = useState(false);
   const annotationCaptureBusyRef = useRef(false);
-  const [fetchedExternalSnapshot, setFetchedExternalSnapshot] = useState<{
+  const [, setFetchedExternalSnapshot] = useState<{
     url: string;
     html: string;
   } | null>(null);
@@ -1433,11 +1433,7 @@ export function DesignCanvas({
     (sourceType === "localhost" || sourceType === "fusion") &&
     Boolean(rawExternalPreviewUrl) &&
     Boolean(onRuntimeLayerSnapshot);
-  const activeExternalSnapshotHtml =
-    externalSnapshotHtml ??
-    (fetchedExternalSnapshot?.url === rawExternalPreviewUrl
-      ? fetchedExternalSnapshot.html
-      : undefined);
+
   // Bake a neutral scale of 1 here (not the zoom-folded scale): this script is
   // registered with the localhost bridge via a large POST, so folding live zoom
   // in would re-fire the registration effect on every zoom tick. Live scale is
@@ -4076,8 +4072,17 @@ export function DesignCanvas({
         preserveTextEditingSession?: boolean;
       },
     ) => {
+      // Raw content here drops the injected offset/background styles, moving a
+      // frame authored at a negative offset off screen. Both channels push the
+      // same shape.
       const replaced = replacePreviewContent(
-        nextContent,
+        getEmbeddedFrameDocumentContent({
+          content: withLocalRuntimes(nextContent),
+          embeddedFrameBackground,
+          transparentBackground,
+          contentOffsetX: embeddedFrame?.contentOffsetX ?? 0,
+          contentOffsetY: embeddedFrame?.contentOffsetY ?? 0,
+        }),
         selector,
         candidates,
         options,
@@ -4091,7 +4096,13 @@ export function DesignCanvas({
       }
       return replaced;
     },
-    [replacePreviewContent],
+    [
+      embeddedFrame?.contentOffsetX,
+      embeddedFrame?.contentOffsetY,
+      embeddedFrameBackground,
+      replacePreviewContent,
+      transparentBackground,
+    ],
   );
 
   const replaceRuntimeContentInPlace = useCallback(

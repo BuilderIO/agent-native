@@ -104,6 +104,12 @@ export function runApplyLocalContentUpdate(
   nextContent: string,
   options: {
     refreshPreview?: boolean;
+    /**
+     * Requires the caller to own the preview: it already patched the live
+     * iframe, or its target is not the rendered document. Set on a
+     * host-computed edit to the active screen and the canvas renders stale
+     * content until a reload.
+     */
     skipPreview?: boolean;
     forcePreviewFullDocument?: boolean;
     immediateSave?: boolean;
@@ -258,7 +264,7 @@ export function runApplyLocalContentUpdate(
   // couldn't run (bridge not registered for this surface yet, or an
   // explicit forceRefresh request).
   const replacedPreview = options.skipPreview
-    ? "applied"
+    ? "skipped-caller-owns-preview"
     : forceRefresh
       ? "unavailable"
       : replacePreviewContent(
@@ -268,10 +274,15 @@ export function runApplyLocalContentUpdate(
             ? { forceFullDocument: true }
             : undefined,
         );
-  if (
-    forceRefresh ||
-    previewContentReplaceNeedsRenderFallback(replacedPreview)
-  ) {
+  const renderFallback =
+    forceRefresh || previewContentReplaceNeedsRenderFallback(replacedPreview);
+  trace("persist", "preview", {
+    outcome: replacedPreview,
+    forceFullDocument: options.forcePreviewFullDocument === true,
+    renderFallback,
+    bytes: nextContent.length,
+  });
+  if (renderFallback) {
     setContentRenderRevision((revision) => revision + 1);
   }
   if (ydoc && isSynced) {

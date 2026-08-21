@@ -238,7 +238,12 @@ function ServerStatus({ server }: { server: McpServer }) {
 
 export function ConnectionsTab({
   canManageOrg,
-}: Partial<AgentPageTabProps> = {}) {
+  onOAuthStart,
+  oauthReturnPath,
+}: Partial<AgentPageTabProps> & {
+  onOAuthStart?: (url: string) => void | Promise<void>;
+  oauthReturnPath?: string;
+} = {}) {
   const t = useT();
   const serversQuery = useMcpServers();
   const createServer = useCreateMcpServer();
@@ -453,6 +458,8 @@ export function ConnectionsTab({
           canCreateOrgMcp={canCreateOrgMcp}
           hasOrg={hasOrg}
           onCreateMcpServer={onCreateMcpServer}
+          onOAuthStart={onOAuthStart}
+          oauthReturnPath={oauthReturnPath}
         />
       </section>
     </AgentTabFrame>

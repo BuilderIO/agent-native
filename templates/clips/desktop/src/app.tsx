@@ -345,17 +345,6 @@ const DEFAULT_SCREEN_MEMORY_CONFIG = {
   excludePrivateWindows: false,
 };
 
-function parseExcludedBundleIds(value: string): string[] {
-  return [
-    ...new Set(
-      value
-        .split(/[\n,]/)
-        .map((id) => id.trim())
-        .filter(Boolean),
-    ),
-  ];
-}
-
 function isStorageSetupFailureMessage(message: string | null | undefined) {
   return STORAGE_SETUP_FAILURE_RE.test(message ?? "");
 }
@@ -997,9 +986,9 @@ export function App() {
     setPopoverView("settings");
   }
 
-  const [rewindSettingsReturnView, setRewindSettingsReturnView] = useState<
-    "recorder" | "settings"
-  >("recorder");
+  const [rewindSettingsReturnView] = useState<"recorder" | "settings">(
+    "recorder",
+  );
   const [rewindAgentPromptCopied, setRewindAgentPromptCopied] = useState(false);
   const [agentHandoff, setAgentHandoff] =
     useState<RewindAgentHandoffRequest | null>(null);
@@ -1037,7 +1026,7 @@ export function App() {
   // popover auto-hide during the macOS screen-picker focus dance.
   const [recordingFlowActive, setRecordingFlowActive] = useState(false);
   const [recordingStopFinalizing, setRecordingStopFinalizing] = useState(false);
-  const [lastRecordingId, setLastRecordingId] = useState<string | null>(null);
+  const [, setLastRecordingId] = useState<string | null>(null);
   const [authStatus, setAuthStatus] = useState<"unknown" | "authed" | "anon">(
     "unknown",
   );
@@ -1071,7 +1060,6 @@ export function App() {
   const {
     cameraId,
     setCameraId,
-    micId,
     setMicId,
     cameraLabel,
     setCameraLabel,
@@ -2138,9 +2126,9 @@ export function App() {
     void tick();
   }
 
-  // Google verification stays in the bound Tauri WebView so the callback sees
-  // the same browser-binding cookie. Magic-link verification still completes
-  // in the system browser through its own exchange flow.
+  // Google verification opens in the system browser so the user's Google
+  // cookies are available. The client-held verifier still gates the exchange
+  // back into this Tauri app.
   async function signInExternal() {
     if (signInInflightRef.current) return;
     signInInflightRef.current = true;
@@ -2175,7 +2163,6 @@ export function App() {
       const authParams = new URLSearchParams({
         desktop: "1",
         flow_id: flowId,
-        webview: "1",
       });
       const authResponse = await fetch(
         `${base}/_agent-native/google/auth-url?${authParams.toString()}`,
@@ -2206,11 +2193,9 @@ export function App() {
               : "Could not start Google sign-in.";
         throw new Error(message);
       }
+      await openExternal(authPayload.url);
       setSignInPending("google");
-      // Stay in this exact WebView: the auth bootstrap set the HttpOnly
-      // browser-binding cookie here, and the callback returns this page with
-      // the staged session cookie after Google completes.
-      window.location.href = authPayload.url;
+      startDesktopAuthExchange(flowId, "google", verifier);
     } catch (err) {
       console.error("[clips-tray] signInExternal failed:", err);
       signInInflightRef.current = false;
@@ -3974,8 +3959,8 @@ export function App() {
   // (not a separate Tauri window). This avoids Tauri 2's separate-WebKit-
   // data-store-per-WebviewWindow cookie-jar issue — the cookie is set in
   // the same webview that reads it on the next /auth/session poll.
-  // Google verification uses the bound WebView, while magic-link verification
-  // uses the system browser and password stays inline here.
+  // Google verification uses a popup in the bound WebView, while magic-link
+  // verification uses the system browser and password stays inline here.
   if (authStatus === "anon") {
     return (
       <div className="app" ref={appRef}>
@@ -4387,7 +4372,7 @@ function PendingUploadBanner({
 
   const retrying = retryingUploadId === latest.recordingId;
   const storageSetupFailure = isStorageSetupFailureMessage(latest.lastError);
-  const exporting = exportingUploadId === latest.recordingId;
+
   const canOpenFolder = latest.kind === "native" && !!latest.folderPath;
   const canExport = latest.kind === "browser";
   const actionsDisabled =
@@ -5516,7 +5501,7 @@ function Setup({
   const [rewindLocalBusy, setRewindLocalBusy] = useState(false);
   const [rewindLocalError, setRewindLocalError] = useState<string | null>(null);
   const [rewindReplayId, setRewindReplayId] = useState<string | null>(null);
-  const [excludedBundleIdsInput, setExcludedBundleIdsInput] = useState("");
+  const [, setExcludedBundleIdsInput] = useState("");
   const [excludedApps, setExcludedApps] = useState<RewindExcludedApplication[]>(
     [],
   );

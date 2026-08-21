@@ -180,7 +180,7 @@ export function runNudgeSelection(
       placement: intent.placement,
     } satisfies MoveNodeEditIntent);
     if (patch.result.status !== "applied") return;
-    applyLocalContentUpdate(patch.content, { skipPreview: true });
+    applyLocalContentUpdate(patch.content, { forcePreviewFullDocument: true });
     // A node with no stable `data-agent-native-node-id` has its id derived
     // from path/offset, and the move changes both — so the pre-move id
     // finds nothing and the selection has to be re-resolved by identity.

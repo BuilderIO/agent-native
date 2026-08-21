@@ -134,3 +134,14 @@ hand-duplicating framework logic.
   `agent-surfaces`.
 - Do not copy framework runtime internals when a public API or narrow UI copy
   will do; read `customizing-agent-native` for the supported override ladder.
+
+## Authoring visual docs blocks
+
+Treat the shared `Diagram` block as a renderer, not as a reason to style every
+docs UI as a sketch. Use the hand-drawn font and Rough.js only for actual
+diagrams or wireframes that communicate structure, flow, or a design draft.
+For polished UI-like content - cards, logo walls, tables, controls, or product
+shells — set `renderMode="design"` (and usually `frame="hide"` when the block
+is the content itself). Design mode preserves normal docs typography and
+disables the Rough.js overlay. Keep `data-rough` only on elements intentionally
+sketched inside a real diagram.

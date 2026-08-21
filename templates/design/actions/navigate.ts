@@ -29,7 +29,7 @@
  */
 
 import { defineAction } from "@agent-native/core";
-import { writeAppState } from "@agent-native/core/application-state";
+import { writeAppStateForCurrentTab } from "@agent-native/core/application-state";
 import { z } from "zod";
 
 const designEditorToolSchema = z.enum([
@@ -176,7 +176,7 @@ export default defineAction({
     if (args.designSystemId) nav.designSystemId = args.designSystemId;
     if (args.templateId) nav.templateId = args.templateId;
     if (args.path) nav.path = args.path;
-    await writeAppState("navigate", nav);
+    await writeAppStateForCurrentTab("navigate", nav);
     return `Navigating to ${args.view || args.path}${
       args.designId ? ` (design: ${args.designId})` : ""
     }${editorView ? ` (${editorView} view)` : ""}${

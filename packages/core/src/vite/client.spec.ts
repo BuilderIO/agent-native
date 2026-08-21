@@ -865,6 +865,15 @@ describe("route warmup config", () => {
       expect(config.define?.__AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__).toBe(
         JSON.stringify("content-spaces-v1"),
       );
+      const packageVersions = JSON.parse(
+        String(config.define?.__AGENT_NATIVE_PACKAGE_VERSIONS__),
+      );
+      expect(packageVersions).toEqual(
+        expect.objectContaining({
+          "@agent-native/core": expect.any(String),
+          "@agent-native/toolkit": expect.any(String),
+        }),
+      );
     } finally {
       if (previousDeployId === undefined) delete process.env.DEPLOY_ID;
       else process.env.DEPLOY_ID = previousDeployId;
@@ -942,7 +951,9 @@ describe("route warmup config", () => {
 
   it("embeds release migration ownership into the server bundle", () => {
     const previous = process.env.AGENT_NATIVE_RELEASE_MIGRATIONS;
+    const previousBetaOwner = process.env.AGENT_NATIVE_BETA_SCHEMA_OWNER;
     process.env.AGENT_NATIVE_RELEASE_MIGRATIONS = " 1 ";
+    process.env.AGENT_NATIVE_BETA_SCHEMA_OWNER = " production ";
 
     try {
       const config = defineConfig();
@@ -950,11 +961,19 @@ describe("route warmup config", () => {
       expect(
         config.define?.["process.env.AGENT_NATIVE_RELEASE_MIGRATIONS"],
       ).toBe(JSON.stringify("1"));
+      expect(
+        config.define?.["process.env.AGENT_NATIVE_BETA_SCHEMA_OWNER"],
+      ).toBe(JSON.stringify("production"));
     } finally {
       if (previous === undefined) {
         delete process.env.AGENT_NATIVE_RELEASE_MIGRATIONS;
       } else {
         process.env.AGENT_NATIVE_RELEASE_MIGRATIONS = previous;
+      }
+      if (previousBetaOwner === undefined) {
+        delete process.env.AGENT_NATIVE_BETA_SCHEMA_OWNER;
+      } else {
+        process.env.AGENT_NATIVE_BETA_SCHEMA_OWNER = previousBetaOwner;
       }
     }
   });
@@ -993,6 +1012,119 @@ describe("route warmup config", () => {
 });
 
 describe("agent-native app config", () => {
+  it("lets JSON config fragments from environment paths override typed config", () => {
+    const previousRuntime = process.env.AGENT_NATIVE_CONFIG_RUNTIME;
+    const previousAuth = process.env.AGENT_NATIVE_CONFIG_RUNTIME_AUTH_ENABLED;
+    const previousLocales =
+      process.env.AGENT_NATIVE_CONFIG_TRANSLATIONS_LOCALES;
+    const previousHarness = process.env.AGENT_NATIVE_CONFIG_HARNESS_RUNTIMES;
+    process.env.AGENT_NATIVE_CONFIG_RUNTIME = JSON.stringify({
+      auth: { enabled: false },
+      database: { required: false },
+      environment: { required: ["PUBLIC_API_ORIGIN"] },
+    });
+    process.env.AGENT_NATIVE_CONFIG_RUNTIME_AUTH_ENABLED = "false";
+    process.env.AGENT_NATIVE_CONFIG_TRANSLATIONS_LOCALES = JSON.stringify([
+      "en-US",
+      "es-ES",
+    ]);
+    process.env.AGENT_NATIVE_CONFIG_HARNESS_RUNTIMES = JSON.stringify([
+      "codex",
+    ]);
+
+    try {
+      const config = defineConfig({
+        agentNativeConfig: {
+          runtime: {
+            auth: { enabled: true },
+            environment: { required: ["NOTION_API_KEY"] },
+          },
+          translations: { locales: ["fr-FR"] },
+          harness: { runtimes: ["claude-code", "codex"] },
+        },
+      });
+
+      expect(
+        JSON.parse(String(config.define?.__AGENT_NATIVE_APP_CONFIG__)),
+      ).toMatchObject({
+        runtime: {
+          auth: { enabled: false },
+          database: { required: false },
+          environment: { required: ["PUBLIC_API_ORIGIN"] },
+        },
+        translations: { locales: ["en-US", "es-ES"] },
+        harness: { runtimes: ["codex"] },
+      });
+    } finally {
+      if (previousRuntime === undefined) {
+        delete process.env.AGENT_NATIVE_CONFIG_RUNTIME;
+      } else {
+        process.env.AGENT_NATIVE_CONFIG_RUNTIME = previousRuntime;
+      }
+      if (previousAuth === undefined) {
+        delete process.env.AGENT_NATIVE_CONFIG_RUNTIME_AUTH_ENABLED;
+      } else {
+        process.env.AGENT_NATIVE_CONFIG_RUNTIME_AUTH_ENABLED = previousAuth;
+      }
+      if (previousLocales === undefined) {
+        delete process.env.AGENT_NATIVE_CONFIG_TRANSLATIONS_LOCALES;
+      } else {
+        process.env.AGENT_NATIVE_CONFIG_TRANSLATIONS_LOCALES = previousLocales;
+      }
+      if (previousHarness === undefined) {
+        delete process.env.AGENT_NATIVE_CONFIG_HARNESS_RUNTIMES;
+      } else {
+        process.env.AGENT_NATIVE_CONFIG_HARNESS_RUNTIMES = previousHarness;
+      }
+    }
+  });
+
+  it("keeps workspace config before app JSON in the Vite client path", async () => {
+    const previousCwd = process.cwd();
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "an-workspace-config-"),
+    );
+    const appDir = path.join(workspaceRoot, "apps", "mail");
+    fs.mkdirSync(appDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(workspaceRoot, "package.json"),
+      JSON.stringify({
+        name: "workspace",
+        "agent-native": { workspaceCore: "@workspace/shared" },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(workspaceRoot, "agent-native.config.ts"),
+      `export default {
+  runtime: { auth: { enabled: false } },
+};\n`,
+    );
+    fs.writeFileSync(
+      path.join(appDir, "agent-native.json"),
+      JSON.stringify({ runtime: { auth: { enabled: true } } }),
+    );
+
+    try {
+      process.chdir(appDir);
+      const configPlugin = flatPlugins(agentNative()).find(
+        (plugin) => plugin?.name === "agent-native-config",
+      );
+      const config = (await configPlugin.config(
+        {},
+        { command: "serve", mode: "development" },
+      )) as any;
+
+      expect(
+        JSON.parse(String(config.define.__AGENT_NATIVE_APP_CONFIG__)),
+      ).toMatchObject({
+        runtime: { auth: { enabled: true } },
+      });
+    } finally {
+      process.chdir(previousCwd);
+      fs.rmSync(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
   it("serializes the resolved onboarding mode into the client config", () => {
     const config = defineConfig({
       agentNativeConfig: {
@@ -1220,7 +1352,7 @@ describe("agent-native app config", () => {
     );
     fs.writeFileSync(
       path.join(tmpDir, ".env.production"),
-      "NOTION_API_KEY=local-test\n",
+      'NOTION_API_KEY=local-test\nAGENT_NATIVE_CONFIG_TRANSLATIONS_LOCALES=["en-US","es-ES"]\n',
     );
 
     try {
@@ -1228,9 +1360,17 @@ describe("agent-native app config", () => {
       const configPlugin = flatPlugins(agentNative()).find(
         (plugin) => plugin?.name === "agent-native-config",
       );
-      await configPlugin.config({}, { command: "build", mode: "production" });
+      const config = (await configPlugin.config(
+        {},
+        { command: "build", mode: "production" },
+      )) as any;
 
       expect(warn).not.toHaveBeenCalled();
+      expect(
+        JSON.parse(String(config.define.__AGENT_NATIVE_APP_CONFIG__)),
+      ).toMatchObject({
+        translations: { locales: ["en-US", "es-ES"] },
+      });
     } finally {
       warn.mockRestore();
       process.chdir(previousCwd);

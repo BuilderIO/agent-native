@@ -66,8 +66,11 @@ export function runAlignSelection(
   }: AlignSelectionArgs,
   edge: DesignHotkeyAlignEdge,
 ) {
+  const abandon = (reason: string, data?: Record<string, unknown>) => {
+    trace("structure", "align-abandoned", { reason, edge, ...data });
+  };
   trace("structure", "align", { layers: selectedLayerIdsState.length });
-  if (!canEditDesign) return;
+  if (!canEditDesign) return abandon("read-only");
 
   // Overview, 2+ selected SCREENS: align each screen's frame geometry to
   // the selection's combined bounding box through the same
@@ -82,7 +85,11 @@ export function runAlignSelection(
       fileIds: files.map((file) => file.id),
     })
   ) {
-    if (overviewSelectedScreenIds.length < 2) return;
+    if (overviewSelectedScreenIds.length < 2) {
+      return abandon("overview: needs 2+ screens", {
+        selected: overviewSelectedScreenIds.length,
+      });
+    }
     const before = getCanvasFrameGeometry(designDataJsonRef.current);
     const screenRects: AlignableRect[] = [];
     overviewSelectedScreenIds.forEach((screenId) => {
@@ -100,7 +107,10 @@ export function runAlignSelection(
           : boardFileId === screenId
             ? boardFrameGeometry
             : undefined;
-      if (!fallbackGeometry) return;
+      if (!fallbackGeometry) {
+        abandon("overview: screen has no geometry", { screenId });
+        return;
+      }
       const geometry = { ...fallbackGeometry, ...before[screenId] };
       screenRects.push({
         id: screenId,
@@ -110,9 +120,13 @@ export function runAlignSelection(
         height: geometry.height,
       });
     });
-    if (screenRects.length < 2) return;
+    if (screenRects.length < 2) {
+      return abandon("overview: fewer than 2 measurable screens", {
+        measured: screenRects.length,
+      });
+    }
     const bounds = getFrameGroupBounds(screenRects);
-    if (!bounds) return;
+    if (!bounds) return abandon("no combined bounds for selection");
     const positions = computeAlignedPositions(
       screenRects,
       {
@@ -123,7 +137,9 @@ export function runAlignSelection(
       },
       edge,
     );
-    if (positions.size === 0) return;
+    if (positions.size === 0) {
+      return abandon("already aligned; nothing to move", { edge });
+    }
     const after = cloneCanvasFrameGeometry(before);
     positions.forEach((position, screenId) => {
       after[screenId] = { ...after[screenId]!, ...position };
@@ -133,22 +149,28 @@ export function runAlignSelection(
   }
 
   // Single-screen mode: in-screen DOM-node layers.
-  if (!activeFile) return;
+  if (!activeFile) return abandon("no active file");
   const baseContent = getFreshActiveContent();
   const nodeIds = getActiveFileSelectedNodeIds(baseContent);
-  if (nodeIds.length === 0) return;
+  if (nodeIds.length === 0) {
+    return abandon("selection has no nodes in the active file", {
+      selectedLayerIds: selectedLayerIdsState.length,
+    });
+  }
   const projection = buildCodeLayerProjection(baseContent);
   const nodesById = new Map(projection.nodes.map((node) => [node.id, node]));
   const selectedNodes = nodeIds
     .map((nodeId) => nodesById.get(nodeId))
     .filter((node): node is CodeLayerNode => Boolean(node));
-  if (selectedNodes.length === 0) return;
+  if (selectedNodes.length === 0) {
+    return abandon("selected ids resolve to no projection nodes", { nodeIds });
+  }
   const selectedRects = selectedNodes.map(rectFromCodeLayerNode);
 
   if (selectedRects.length >= 2) {
     // Multi-selection: align to the selection's own combined bbox.
     const bounds = getFrameGroupBounds(selectedRects);
-    if (!bounds) return;
+    if (!bounds) return abandon("no combined bounds for selection");
     const positions = computeAlignedPositions(
       selectedRects,
       {
@@ -159,7 +181,9 @@ export function runAlignSelection(
       },
       edge,
     );
-    if (positions.size === 0) return;
+    if (positions.size === 0) {
+      return abandon("already aligned; nothing to move", { edge });
+    }
     commitNodePositions(baseContent, positions);
     return;
   }
@@ -169,15 +193,21 @@ export function runAlignSelection(
   // Figma (there's nothing to align a lone top-level frame against).
   const soleNode = selectedNodes[0]!;
   const parentId = soleNode.parentId;
-  if (!parentId) return;
+  if (!parentId) {
+    return abandon("single selection has no parent to align against", {
+      nodeId: soleNode.id,
+    });
+  }
   const parentNode = nodesById.get(parentId);
-  if (!parentNode) return;
+  if (!parentNode) return abandon("parent id not in projection", { parentId });
   const parentRect = rectFromCodeLayerNode(parentNode);
   const positions = computeAlignedPositions(
     [selectedRects[0]!],
     { x: 0, y: 0, width: parentRect.width, height: parentRect.height },
     edge,
   );
-  if (positions.size === 0) return;
+  if (positions.size === 0) {
+    return abandon("already aligned; nothing to move", { edge });
+  }
   commitNodePositions(baseContent, positions);
 }

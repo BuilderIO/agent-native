@@ -632,12 +632,16 @@ const messages = {
     alsoFor: "Également disponible pour {{platform}}",
     backToLibrary: "Retour à la bibliothèque",
     clipsDesktop: "Clips Desktop",
+    stable: "Stable",
+    nightly: "Nightly",
+    switchToNightly: "Passer aux versions Nightly",
+    switchToStable: "Passer aux versions stables",
+    retry: "Réessayer",
     heroDescription:
       "Un enregistreur de barre de menus pour l’écran, la caméra et écran + caméra. Démarrage en un clic, bulle caméra déplaçable et lien de partage instantané à l’arrêt.",
     versionReleased: "Version {{version}} — publiée {{date}}",
     version: "Traduit: Version {{version}}",
-    manifestError:
-      "Impossible de charger le manifeste de version : choisissez un programme d'installation sur la page des versions.",
+    manifestError: "Impossible de charger le manifeste de version. Réessayez.",
     loadingRelease: "Chargement de la dernière version…",
     chromeTitle: "Extension Chrome pour les journaux du navigateur",
     chromeDescription:

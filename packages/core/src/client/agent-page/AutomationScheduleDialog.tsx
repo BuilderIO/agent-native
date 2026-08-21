@@ -12,6 +12,8 @@ import {
   DialogTitle,
 } from "../components/ui/dialog.js";
 import { useT } from "../i18n.js";
+import type { ScheduledTriggerState } from "./scheduled-trigger-state.js";
+import { ScheduledTriggerNotice } from "./ScheduledTriggerNotice.js";
 import { TimezoneSelect, browserTimezone } from "./TimezoneSelect.js";
 
 const PRESETS: { label: string; cron: string }[] = [
@@ -34,6 +36,14 @@ export interface AutomationScheduleDialogProps {
   timezone: string | null;
   saving: boolean;
   error?: string | null;
+  /**
+   * Passed in rather than queried here so this dialog stays presentational, the
+   * way the rest of its props already are. Carries the whole query state so a
+   * failed check is distinguishable from a healthy one — this dialog is where
+   * someone is actively picking a cadence, so an unverified scheduler is exactly
+   * what they need told.
+   */
+  scheduledTriggerState: ScheduledTriggerState;
   onCancel: () => void;
   onSave: (next: { schedule: string; timezone: string }) => void;
 }
@@ -45,6 +55,7 @@ export function AutomationScheduleDialog({
   timezone,
   saving,
   error,
+  scheduledTriggerState,
   onCancel,
   onSave,
 }: AutomationScheduleDialogProps) {
@@ -87,6 +98,10 @@ export function AutomationScheduleDialog({
         </DialogHeader>
 
         <div className="space-y-3">
+          <ScheduledTriggerNotice
+            state={scheduledTriggerState}
+            variant="inline"
+          />
           <div>
             <label
               className="text-xs font-medium text-foreground"

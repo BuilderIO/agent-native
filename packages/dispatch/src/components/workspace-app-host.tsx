@@ -220,6 +220,7 @@ export function WorkspaceAppChatRail({
         label: appName,
         contextKey: `workspace-app:${appId}`,
       }}
+      isolateHistoryByScope
       // The app's own server answers this chat, so its tools, AGENTS.md,
       // skills, app-scoped resources, and dev-mode surface are the real ones
       // rather than a copy maintained inside Dispatch.

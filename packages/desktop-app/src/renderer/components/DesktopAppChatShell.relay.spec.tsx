@@ -42,6 +42,13 @@ function RelayProbe({ appId }: { appId: string }) {
   return null;
 }
 
+function MountProbe({ onMount }: { onMount: () => void }) {
+  useEffect(() => {
+    onMount();
+  }, [onMount]);
+  return null;
+}
+
 describe("desktop app chat shell relay attribution", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -66,13 +73,24 @@ describe("desktop app chat shell relay attribution", () => {
     vi.unstubAllGlobals();
   });
 
-  async function mountShells(appIds: readonly string[]) {
+  async function mountShells(
+    appIds: readonly string[],
+    activeAppId: string | null = appIds[0] ?? null,
+    appAuthState: "authenticated" | "unauthenticated" = "unauthenticated",
+    childrenForApp?: (appId: string) => React.ReactNode,
+  ) {
     await act(async () => {
       root.render(
         <>
           {appIds.map((appId) => (
-            <DesktopAppChatShell key={appId} appId={appId} appName={appId}>
-              <RelayProbe appId={appId} />
+            <DesktopAppChatShell
+              key={appId}
+              appId={appId}
+              appName={appId}
+              isActive={activeAppId === appId}
+              appAuthState={appAuthState}
+            >
+              {childrenForApp?.(appId) ?? <RelayProbe appId={appId} />}
             </DesktopAppChatShell>
           ))}
         </>,
@@ -94,8 +112,20 @@ describe("desktop app chat shell relay attribution", () => {
     ]);
   });
 
-  it("refuses to guess an app for an unattributed framework request", async () => {
-    await mountShells(["mail", "calendar"]);
+  it("relays unattributed framework requests through the active shell", async () => {
+    await mountShells(["mail", "calendar"], "calendar");
+
+    await act(async () => {
+      await window.fetch("/_agent-native/poll");
+    });
+
+    expect(requested).toEqual([
+      "http://127.0.0.1:43102/desktop-chat/calendar-secret/calendar/_agent-native/poll",
+    ]);
+  });
+
+  it("refuses to guess an app when mounted shells have no active relay owner", async () => {
+    await mountShells(["mail", "calendar"], null);
 
     expect(() => window.fetch("/_agent-native/poll")).toThrow(
       /Unattributed .*mail, calendar/,
@@ -113,5 +143,21 @@ describe("desktop app chat shell relay attribution", () => {
     expect(requested).toEqual([
       "http://127.0.0.1:43101/desktop-chat/mail-secret/mail/_agent-native/poll",
     ]);
+  });
+
+  it("keeps the app surface mounted while the chat relay becomes available", async () => {
+    let mounts = 0;
+    const onMount = () => mounts++;
+
+    await mountShells(["mail"], "mail", "authenticated", () => (
+      <MountProbe onMount={onMount} />
+    ));
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mounts).toBe(1);
   });
 });

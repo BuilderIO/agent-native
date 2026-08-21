@@ -201,7 +201,7 @@ export default function ExplorerDashboardPage() {
   );
   const [archivedAt, setArchivedAt] = useState<string | null>(null);
   const [hiddenAt, setHiddenAt] = useState<string | null>(null);
-  const [hiddenBy, setHiddenBy] = useState<string | null>(null);
+  const [, setHiddenBy] = useState<string | null>(null);
   const [resourceAccess, setResourceAccess] = useState<ResourceAccess | null>(
     null,
   );

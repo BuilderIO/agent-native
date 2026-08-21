@@ -28,7 +28,7 @@
  */
 
 import { defineAction } from "@agent-native/core/action";
-import { writeAppState } from "@agent-native/core/application-state";
+import { writeAppStateForCurrentTab } from "@agent-native/core/application-state";
 import { getText, hasCollabState } from "@agent-native/core/collab";
 import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
@@ -223,7 +223,7 @@ export default defineAction({
       };
     }
 
-    await writeAppState("navigate", {
+    await writeAppStateForCurrentTab("navigate", {
       view: "editor",
       designId,
       editorView: "single",

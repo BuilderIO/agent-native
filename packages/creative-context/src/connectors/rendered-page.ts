@@ -1148,7 +1148,7 @@ function captureRenderedWebsiteContext(): WebsiteExtraction {
   const bodyBackground = bodyStyle
     ? opaqueValue(bodyStyle.backgroundColor)
     : undefined;
-  const headingStyle = styleFor("h1, h2, h3", "heading");
+
   const textStyle = styleFor("p, li, label, body", "body");
   const buttonStyle = styleFor(
     'button, [role="button"], input[type="submit"], a[class*="button" i], a[class*="cta" i]',
