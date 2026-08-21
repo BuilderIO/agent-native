@@ -54,6 +54,21 @@ to = "/:locale/apps/:splat"
 status = 301
 force = true
 
+# `getting-started` is served at /docs, so /docs/getting-started is a duplicate
+# that no sitemap or prerender path covers — it fell through to the SSR function
+# and cost ~5s per CDN miss. Redirect it at the edge like the renamed slugs.
+[[redirects]]
+from = "/docs/getting-started"
+to = "/docs/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/:locale/docs/getting-started"
+to = "/:locale/docs/"
+status = 301
+force = true
+
 # Slug redirects for renamed docs — keep in sync with SLUG_REDIRECTS in app/routes/docs.$slug.tsx.
 [[redirects]]
 from = "/docs/resources"
