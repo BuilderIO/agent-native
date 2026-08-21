@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockRenewUploadLease = vi.hoisted(() => vi.fn());
 const mockGetResumableSession = vi.hoisted(() => vi.fn());
+const mockDeleteResumableSession = vi.hoisted(() => vi.fn());
+const mockAbortResumableUploadSession = vi.hoisted(() => vi.fn());
 const mockListRecordingChunkKeys = vi.hoisted(() => vi.fn());
 const mockSumRecordingChunkBytes = vi.hoisted(() => vi.fn());
 const mockReadAppState = vi.hoisted(() => vi.fn());
@@ -90,7 +92,14 @@ vi.mock("../../../../lib/recording-upload-state.js", () => ({
 }));
 
 vi.mock("../../../../lib/resumable-session.js", () => ({
+  deleteResumableSession: (...args: unknown[]) =>
+    mockDeleteResumableSession(...args),
   getResumableSession: (...args: unknown[]) => mockGetResumableSession(...args),
+}));
+
+vi.mock("../../../../lib/resumable-upload-cleanup.js", () => ({
+  abortResumableUploadSession: (...args: unknown[]) =>
+    mockAbortResumableUploadSession(...args),
 }));
 
 vi.mock("../../../../lib/upload-lease.js", () => ({
@@ -108,6 +117,8 @@ describe("/api/uploads/:recordingId/resume route", () => {
     mockGetQuery.mockReturnValue({ attemptId: "client-attempt-0001" });
     mockRenewUploadLease.mockResolvedValue({ held: true });
     mockGetResumableSession.mockResolvedValue(null);
+    mockAbortResumableUploadSession.mockResolvedValue(true);
+    mockDeleteResumableSession.mockResolvedValue(undefined);
     mockListRecordingChunkKeys.mockResolvedValue([]);
     mockSumRecordingChunkBytes.mockResolvedValue(0);
     mockReadAppState.mockResolvedValue({ progress: 50 });
@@ -412,7 +423,7 @@ describe("/api/uploads/:recordingId/resume route", () => {
     expect(mockDb.update).not.toHaveBeenCalled();
   });
 
-  it("atomically reclaims an expired different retry claim without changing its generation or provider offset", async () => {
+  it("invalidates an expired claim's provider session before restarting it", async () => {
     mockSelectRows.rows = [
       {
         id: "rec-1",
@@ -432,8 +443,9 @@ describe("/api/uploads/:recordingId/resume route", () => {
         resumable: true,
         attemptId: "client-attempt-0001",
         uploadGenerationId: "generation-1",
-        bytesReceived: 7_864_320,
-        nextChunkIndex: 2,
+        uploadMode: "buffered",
+        bytesReceived: 0,
+        nextChunkIndex: 0,
       }),
     );
     expect(mockCompareAndSetAppState).toHaveBeenCalledWith(
@@ -442,8 +454,12 @@ describe("/api/uploads/:recordingId/resume route", () => {
       expect.objectContaining({
         uploadAttemptId: "client-attempt-0001",
         uploadGenerationId: "generation-1",
-        bytesReceived: 7_864_320,
       }),
+    );
+    expect(mockAbortResumableUploadSession).toHaveBeenCalledOnce();
+    expect(mockDeleteResumableSession).toHaveBeenCalledWith(
+      "rec-1",
+      "generation-1",
     );
   });
 

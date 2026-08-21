@@ -3772,35 +3772,37 @@ pub async fn native_fullscreen_recording_retry_upload(
                     None,
                     Some(0.0),
                 );
-                let reset = match tokio::select! {
-                    reset = reset_upload_chunks(
-                        &saved.server_url,
-                        &saved.recording_id,
-                        &prepared.mime_type,
-                        attempt_id.as_deref(),
-                        upload_generation_id.as_deref(),
-                        &auth_token,
-                        &cookie,
-                    ) => reset,
-                    _ = wait_for_native_upload_retry_cancel(&saved.recording_id) => {
-                        Err(NATIVE_UPLOAD_RETRY_CANCELLED.to_string())
-                    }
-                } {
+                let reset = match reset_upload_chunks(
+                    &saved.server_url,
+                    &saved.recording_id,
+                    &prepared.mime_type,
+                    attempt_id.as_deref(),
+                    upload_generation_id.as_deref(),
+                    &auth_token,
+                    &cookie,
+                )
+                .await
+                {
                     Ok(reset) => reset,
                     Err(err) => {
-                        interrupt_native_retry_upload(
-                            &saved.server_url,
-                            &saved.recording_id,
-                            &err,
-                            active_attempt_id.as_deref(),
-                            active_upload_generation_id.as_deref(),
-                            &auth_token,
-                            &cookie,
-                        )
-                        .await;
+                        if err != NATIVE_UPLOAD_RETRY_CANCELLED {
+                            interrupt_native_retry_upload(
+                                &saved.server_url,
+                                &saved.recording_id,
+                                &err,
+                                active_attempt_id.as_deref(),
+                                active_upload_generation_id.as_deref(),
+                                &auth_token,
+                                &cookie,
+                            )
+                            .await;
+                        }
                         return Err(err);
                     }
                 };
+                if native_upload_retry_cancelled(&saved.recording_id) {
+                    return Err(NATIVE_UPLOAD_RETRY_CANCELLED.to_string());
+                }
                 (reset.mode(), None, reset.upload_generation_id)
             }
             NativeRetryUploadPlan::Reconcile => unreachable!("handled above"),
@@ -3836,22 +3838,22 @@ pub async fn native_fullscreen_recording_retry_upload(
             eprintln!(
                 "[clips-tray] native retry replaying from byte zero after the provider requested a restart"
             );
-            match tokio::select! {
-                reset = reset_upload_chunks(
-                    &saved.server_url,
-                    &saved.recording_id,
-                    &prepared.mime_type,
-                    replay_attempt_id.as_deref(),
-                    replay_upload_generation_id.as_deref(),
-                    &auth_token,
-                    &cookie,
-                ) => reset,
-                _ = wait_for_native_upload_retry_cancel(&saved.recording_id) => {
-                    Err(NATIVE_UPLOAD_RETRY_CANCELLED.to_string())
-                }
-            } {
+            match reset_upload_chunks(
+                &saved.server_url,
+                &saved.recording_id,
+                &prepared.mime_type,
+                replay_attempt_id.as_deref(),
+                replay_upload_generation_id.as_deref(),
+                &auth_token,
+                &cookie,
+            )
+            .await
+            {
                 Ok(reset) => {
                     interruption_upload_generation_id = reset.upload_generation_id.clone();
+                    if native_upload_retry_cancelled(&saved.recording_id) {
+                        return Err(NATIVE_UPLOAD_RETRY_CANCELLED.to_string());
+                    }
                     upload_prepared_recording_file(
                         &app,
                         &prepared,
@@ -3877,16 +3879,18 @@ pub async fn native_fullscreen_recording_retry_upload(
             upload_result
         };
         if let Err(err) = &upload_result {
-            interrupt_native_retry_upload(
-                &saved.server_url,
-                &saved.recording_id,
-                err,
-                replay_attempt_id.as_deref(),
-                interruption_upload_generation_id.as_deref(),
-                &auth_token,
-                &cookie,
-            )
-            .await;
+            if err != NATIVE_UPLOAD_RETRY_CANCELLED {
+                interrupt_native_retry_upload(
+                    &saved.server_url,
+                    &saved.recording_id,
+                    err,
+                    replay_attempt_id.as_deref(),
+                    interruption_upload_generation_id.as_deref(),
+                    &auth_token,
+                    &cookie,
+                )
+                .await;
+            }
         }
         cleanup_prepared_saved_recording_files(&prepared, retry_combined_path);
         upload_result
@@ -5862,11 +5866,12 @@ async fn get_native_retry_upload_plan(
             );
         }
         let recovery_enabled = response.recovery_enabled;
+        let rollback_attempt_id = response.attempt_id.clone();
         let rollback_generation_id = response.upload_generation_id.clone();
         return Ok(preserve_native_retry_fence_during_rollback(
             plan_native_retry_upload(response, local_bytes, exact_local_stream),
             recovery_enabled,
-            claimed_attempt_id,
+            rollback_attempt_id,
             rollback_generation_id,
         ));
     }
@@ -5875,7 +5880,7 @@ async fn get_native_retry_upload_plan(
 fn preserve_native_retry_fence_during_rollback(
     mut plan: NativeRetryUploadPlan,
     recovery_enabled: bool,
-    claimed_attempt_id: &str,
+    acknowledged_attempt_id: Option<String>,
     upload_generation_id: Option<String>,
 ) -> NativeRetryUploadPlan {
     if !recovery_enabled {
@@ -5884,9 +5889,7 @@ fn preserve_native_retry_fence_during_rollback(
             upload_generation_id: planned_generation_id,
         } = &mut plan
         {
-            *attempt_id = upload_generation_id
-                .as_ref()
-                .map(|_| claimed_attempt_id.to_string());
+            *attempt_id = acknowledged_attempt_id;
             *planned_generation_id = upload_generation_id;
         }
     }
@@ -6184,7 +6187,7 @@ mod native_retry_upload_plan_tests {
                 upload_generation_id: None,
             },
             false,
-            "attempt-1",
+            Some("attempt-1".to_string()),
             Some("generation-1".to_string()),
         );
         assert!(matches!(
@@ -6197,14 +6200,14 @@ mod native_retry_upload_plan_tests {
     }
 
     #[test]
-    fn keeps_a_legacy_restart_unfenced_when_resumable_retry_is_disabled() {
+    fn keeps_an_unacknowledged_legacy_restart_unfenced_when_resumable_retry_is_disabled() {
         let plan = preserve_native_retry_fence_during_rollback(
             NativeRetryUploadPlan::Restart {
                 attempt_id: None,
                 upload_generation_id: None,
             },
             false,
-            "attempt-1",
+            None,
             None,
         );
         assert!(matches!(
@@ -6213,6 +6216,26 @@ mod native_retry_upload_plan_tests {
                 attempt_id: None,
                 upload_generation_id: None,
             }
+        ));
+    }
+
+    #[test]
+    fn preserves_an_acknowledged_legacy_attempt_without_a_generation() {
+        let plan = preserve_native_retry_fence_during_rollback(
+            NativeRetryUploadPlan::Restart {
+                attempt_id: None,
+                upload_generation_id: None,
+            },
+            false,
+            Some("attempt-1".to_string()),
+            None,
+        );
+        assert!(matches!(
+            plan,
+            NativeRetryUploadPlan::Restart {
+                attempt_id: Some(attempt_id),
+                upload_generation_id: None,
+            } if attempt_id == "attempt-1"
         ));
     }
 

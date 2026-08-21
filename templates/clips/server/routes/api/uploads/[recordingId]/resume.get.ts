@@ -40,7 +40,11 @@ import {
   getEventOwnerContext,
   ownerEmailMatches,
 } from "../../../../lib/recordings.js";
-import { getResumableSession } from "../../../../lib/resumable-session.js";
+import {
+  deleteResumableSession,
+  getResumableSession,
+} from "../../../../lib/resumable-session.js";
+import { abortResumableUploadSession } from "../../../../lib/resumable-upload-cleanup.js";
 import { isRetryableUploadInterruption } from "../../../../lib/upload-interruption.js";
 import {
   UPLOAD_LEASE_MS,
@@ -177,7 +181,7 @@ export default defineEventHandler(async (event: H3Event) => {
     // upgrades them by installing a fresh generation before it deletes data.
     const existingGenerationId = recording.uploadGenerationId ?? null;
     const generationId = existingGenerationId;
-    const session = generationId
+    let session = generationId
       ? await getResumableSession(recordingId, generationId)
       : await getResumableSession(recordingId);
     const retryableFailure =
@@ -277,6 +281,24 @@ export default defineEventHandler(async (event: H3Event) => {
         reason: "retry_already_active",
         retryAfterMs: 250,
       };
+    }
+
+    if (takingOverStaleRetryClaim && session) {
+      const invalidated = await abortResumableUploadSession(session, {
+        label: `upload-resume-takeover-${recordingId}`,
+      });
+      if (!invalidated) {
+        setResponseStatus(event, 409);
+        return {
+          resumable: false,
+          recoveryEnabled: true,
+          recordingId,
+          status: "uploading",
+          reason: "stale_provider_session_invalidation_failed",
+        };
+      }
+      await deleteResumableSession(recordingId, generationId);
+      session = null;
     }
 
     const uploadStateUpdated = await compareAndSetAppState(
