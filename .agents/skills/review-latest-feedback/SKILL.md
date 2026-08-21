@@ -20,6 +20,14 @@ looked at. When several reports clearly describe the same underlying symptom,
 treat them as one similar-feedback cluster and leave one Builder thread for the
 cluster, with the representative report as its cursor anchor.
 
+A disposition is not completion by itself. For every actionable repo-owned bug
+with sufficient evidence, implement the smallest safe fix at the owning
+boundary and verify it before ending the run. Do not stop at triage, diagnosis,
+or a proposed patch. Leave an item unfixed only when evidence is insufficient,
+ownership is external, the source is already fixed but deployment or live
+recovery is pending, or a destructive action or user decision is required; name
+that reason explicitly in the recap.
+
 This is a reply-producing workflow, not a reaction-only workflow. Apply the
 reply rules in `address-feedback-with-replies` to every actionable Slack item.
 The moment this skill adds `👀` to a Slack parent, that parent enters a

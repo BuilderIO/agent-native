@@ -22,6 +22,7 @@ import {
   isNativeDesktopIntegrationsPath,
   shouldShowNativeDesktopIntegrations,
   shouldShowNativeDesktopIntegrationsGuest,
+  shouldUseDesktopAppChatShell,
   isChatFirstSurfaceTabActive,
   updateAppAuthStateByTab,
   updateWebContentsIdByTab,
@@ -275,8 +276,13 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
 
     expect(hubSource).toContain("desktop-chat-first-rail-footer-actions");
     expect(hubSource).toContain(
-      'desktop-chat-first-rail-settings"\n                    onClick',
+      'import { FeedbackButton } from "@agent-native/core/client/ui";',
     );
+    expect(hubSource).toContain("desktop-chat-first-rail-feedback");
+    expect(hubSource).toContain(
+      "https://forms.agent-native.com/f/agent-native-feedback/_16ewV",
+    );
+    expect(hubSource).not.toContain("desktop-chat-first-rail-settings");
     expect(hubSource).toContain("IconLayoutSidebarLeftCollapse");
     expect(hubSource).toContain("desktop-chat-first-rail-collapse");
     expect(hubSource).toContain("data-chat-first-rail-collapse");
@@ -295,7 +301,7 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     );
     expect(shellCss).toContain("border-bottom: 0;");
     expect(shellCss).toMatch(
-      /\.desktop-chat-first-rail-footer-actions\s*>\s*\.desktop-chat-first-rail-settings\s*\{[\s\S]*?flex: 1 1 auto;/,
+      /\.desktop-chat-first-rail-footer-actions\s*>\s*\.desktop-chat-first-rail-feedback\s*\{[\s\S]*?flex: 1 1 auto;/,
     );
     expect(shellCss).toContain("visibility: hidden;");
     expect(shellCss).toContain("margin-top: auto;");
@@ -578,6 +584,12 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
         desktopIdentityStatus: "signed-in",
       }),
     ).toBe(false);
+  });
+
+  it("keeps the primary Integrations surface out of per-app chat", () => {
+    expect(shouldUseDesktopAppChatShell("/integrations")).toBe(false);
+    expect(shouldUseDesktopAppChatShell("/admin/integrations")).toBe(false);
+    expect(shouldUseDesktopAppChatShell("/calendar")).toBe(true);
   });
 
   it("shows the authenticated guest during native MCP OAuth", () => {
