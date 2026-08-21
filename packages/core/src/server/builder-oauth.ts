@@ -48,9 +48,9 @@ export type BuilderOAuthRequestAccess = BuilderOAuthSession & {
 };
 
 // The Builder connection is shared by everyone in the caller's org: the
-// credential is scoped to the org so every member reads the same token.
-// Personal context (no org membership / active Personal) falls back to a
-// per-user scope so solo users still get their own connection.
+// credential is scoped to the org so every member reads the same token. Every
+// user belongs to an org, so a missing org is a broken invariant, not a case
+// to fall back on.
 function normalizeOwnerEmail(ownerEmail: string): string {
   const email = ownerEmail.trim().toLowerCase();
   if (!email) throw new Error("Builder OAuth owner email is required");
@@ -60,25 +60,24 @@ function normalizeOwnerEmail(ownerEmail: string): string {
 async function ownerOptions(ownerEmail: string) {
   const email = normalizeOwnerEmail(ownerEmail);
   const orgId = await resolveOrgIdForEmail(email);
-  if (orgId) {
-    return {
-      key: builderOAuthKey("org", orgId),
-      scope: "org" as const,
-      scopeId: orgId,
-      serverUrl: BUILDER_OAUTH_RESOURCE,
-    };
+  if (!orgId) {
+    throw new Error(`Builder OAuth requires an organization for ${email}`);
   }
+  return orgOwnerOptions(orgId);
+}
+
+function orgOwnerOptions(orgId: string) {
   return {
-    key: builderOAuthKey("user", email),
-    scope: "user" as const,
-    scopeId: email,
+    key: builderOAuthKey(orgId),
+    scope: "org" as const,
+    scopeId: orgId,
     serverUrl: BUILDER_OAUTH_RESOURCE,
   };
 }
 
-function builderOAuthKey(scope: "user" | "org", id: string): string {
-  const digest = createHash("sha256").update(id).digest("hex");
-  return `${BUILDER_OAUTH_KEY}:${scope === "org" ? "o" : "u"}:${digest}`;
+function builderOAuthKey(orgId: string): string {
+  const digest = createHash("sha256").update(orgId).digest("hex");
+  return `${BUILDER_OAUTH_KEY}:o:${digest}`;
 }
 
 function scopesFrom(credentials: McpOAuthCredentialBundle): string[] {
@@ -148,6 +147,7 @@ export async function startBuilderOAuthAuthorization(input: {
 
 export async function finishBuilderOAuthAuthorization(input: {
   ownerEmail: string;
+  orgId?: string;
   code: string;
   iss?: string;
   pending: BuilderOAuthPendingFlow;
@@ -172,7 +172,9 @@ export async function finishBuilderOAuthAuthorization(input: {
     );
   }
   await saveMcpOAuthCredentials({
-    ...(await ownerOptions(input.ownerEmail)),
+    ...(input.orgId
+      ? orgOwnerOptions(input.orgId)
+      : await ownerOptions(input.ownerEmail)),
     credentials: result.credentials,
   });
 }

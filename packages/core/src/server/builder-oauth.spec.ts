@@ -47,14 +47,9 @@ import {
 } from "./builder-oauth.js";
 
 const ownerEmail = "alice@example.com";
+const DEFAULT_ORG = "org-default";
 
 const BASE_KEY = "builder-general-resource-v1";
-function perUserKey(email: string): string {
-  const digest = createHash("sha256")
-    .update(email.trim().toLowerCase())
-    .digest("hex");
-  return `${BASE_KEY}:u:${digest}`;
-}
 function perOrgKey(orgId: string): string {
   const digest = createHash("sha256").update(orgId).digest("hex");
   return `${BASE_KEY}:o:${digest}`;
@@ -97,8 +92,8 @@ beforeEach(() => {
   validateIssuerMock.mockReset();
   getRawTokensMock.mockReset();
   resolveOrgMock.mockReset();
-  // Default to Personal context; org-scoped behavior is exercised explicitly.
-  resolveOrgMock.mockResolvedValue(null);
+  // Every user belongs to an org; individual tests override the org id.
+  resolveOrgMock.mockResolvedValue(DEFAULT_ORG);
 });
 
 describe("Builder hosted user OAuth", () => {
@@ -167,9 +162,9 @@ describe("Builder hosted user OAuth", () => {
     });
 
     expect(saveMock).toHaveBeenCalledWith({
-      key: perUserKey(ownerEmail),
-      scope: "user",
-      scopeId: ownerEmail,
+      key: perOrgKey(DEFAULT_ORG),
+      scope: "org",
+      scopeId: DEFAULT_ORG,
       serverUrl: BUILDER_OAUTH_RESOURCE,
       credentials: finished,
     });
@@ -224,13 +219,14 @@ describe("Builder hosted user OAuth", () => {
     expect(finishMock).not.toHaveBeenCalled();
   });
 
-  it("keeps users isolated in every token-store operation", async () => {
+  it("keys token-store lookups by the caller's org", async () => {
+    resolveOrgMock.mockResolvedValue("org-acme");
     getRawTokensMock.mockResolvedValue(null);
     await hasBuilderOAuthSession("Bob@Example.com");
     expect(getRawTokensMock).toHaveBeenCalledWith(
       "mcp",
-      perUserKey("bob@example.com"),
-      "user:bob@example.com",
+      perOrgKey("org-acme"),
+      "org:org-acme",
     );
   });
 
@@ -275,6 +271,35 @@ describe("Builder hosted user OAuth", () => {
     });
   });
 
+  it("stores under the org captured at start, not the active org at callback", async () => {
+    // A switched active org must not win over the org authorized at start.
+    resolveOrgMock.mockResolvedValue("org-switched");
+    const finished = credentials();
+    finishMock.mockResolvedValue({ credentials: finished });
+
+    await finishBuilderOAuthAuthorization({
+      ownerEmail,
+      orgId: "org-started",
+      code: "<AUTHORIZATION_CODE_EXAMPLE>",
+      iss: BUILDER_OAUTH_ISSUER,
+      pending: {
+        codeVerifier: "<PKCE_VERIFIER_EXAMPLE>",
+        clientInformation: { client_id: "<CLIENT_ID_EXAMPLE>" },
+        discoveryState: finished.discoveryState,
+        redirectUri: "https://app.example.com/_agent-native/builder/callback",
+      },
+    });
+
+    expect(saveMock).toHaveBeenCalledWith({
+      key: perOrgKey("org-started"),
+      scope: "org",
+      scopeId: "org-started",
+      serverUrl: BUILDER_OAUTH_RESOURCE,
+      credentials: finished,
+    });
+    expect(resolveOrgMock).not.toHaveBeenCalled();
+  });
+
   it("reports the requesting user's email even when the token is org-scoped", async () => {
     resolveOrgMock.mockResolvedValue("org-acme");
     getAccessTokenMock.mockResolvedValue("<ACCESS_TOKEN_EXAMPLE>");
@@ -300,9 +325,9 @@ describe("Builder hosted user OAuth", () => {
   it("marks reconnect required for a revoked OAuth grant", async () => {
     await markBuilderOAuthReconnectRequired(ownerEmail);
     expect(markReconnectMock).toHaveBeenCalledWith({
-      key: perUserKey(ownerEmail),
-      scope: "user",
-      scopeId: ownerEmail,
+      key: perOrgKey(DEFAULT_ORG),
+      scope: "org",
+      scopeId: DEFAULT_ORG,
       serverUrl: BUILDER_OAUTH_RESOURCE,
     });
   });
@@ -391,9 +416,9 @@ describe("Builder hosted user OAuth", () => {
       scopes: [BUILDER_OAUTH_SCOPE],
     });
     expect(getAccessTokenMock).toHaveBeenCalledWith({
-      key: perUserKey(ownerEmail),
-      scope: "user",
-      scopeId: ownerEmail,
+      key: perOrgKey(DEFAULT_ORG),
+      scope: "org",
+      scopeId: DEFAULT_ORG,
       serverUrl: BUILDER_OAUTH_RESOURCE,
     });
   });
@@ -421,9 +446,9 @@ describe("Builder hosted user OAuth", () => {
       remoteRevoked: true,
     });
     expect(revokeMock).toHaveBeenCalledWith({
-      key: perUserKey(ownerEmail),
-      scope: "user",
-      scopeId: ownerEmail,
+      key: perOrgKey(DEFAULT_ORG),
+      scope: "org",
+      scopeId: DEFAULT_ORG,
       serverUrl: BUILDER_OAUTH_RESOURCE,
     });
   });

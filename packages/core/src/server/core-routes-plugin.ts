@@ -437,6 +437,35 @@ async function resolveAgentEngineStatusIdentity(
   }
 }
 
+/**
+ * A Builder grant is shared by everyone in the caller's org, so establishing,
+ * overwriting, or revoking one requires org owner/admin authority. Returns the
+ * authorized org id and a denial message (null when allowed). The org id is
+ * captured at connect start so the grant is stored under the org that was
+ * authorized, not one re-resolved after the OAuth round trip. Fails closed: an
+ * unreadable owner/admin role is denied.
+ */
+async function resolveBuilderOrgMutation(
+  event: H3Event,
+): Promise<{ orgId: string | null; deny: string | null }> {
+  let orgId: string | null = null;
+  let role: string | null = null;
+  try {
+    const orgCtx = await getOrgContext(event);
+    orgId = orgCtx.orgId ?? null;
+    role = orgCtx.role ?? null;
+  } catch {
+    // org context unreadable — fail closed.
+  }
+  if (role !== "owner" && role !== "admin") {
+    return {
+      orgId,
+      deny: "Only an organization owner or admin can change the shared Builder connection.",
+    };
+  }
+  return { orgId, deny: null };
+}
+
 export function getFrameworkEnvKeys(): EnvKeyConfig[] {
   return [
     { key: "ENABLE_BUILDER", label: "Enable Builder.io features" },
@@ -2616,6 +2645,31 @@ export function createCoreRoutesPlugin(
               parentOrigin: getBuilderBrowserOriginForEvent(event),
             });
           }
+          const { orgId: connectOrgId, deny: orgConnectDenied } =
+            await resolveBuilderOrgMutation(event);
+          if (orgConnectDenied) {
+            await trackBuilderLifecycle(
+              event,
+              "builder connect failed",
+              ownerEmail,
+              {
+                ...builderConnectTrackingProperties(connectTracking),
+                reason: "org_authorization_required",
+                stage: "connect",
+              },
+            );
+            setResponseStatus(event, 403);
+            setResponseHeader(
+              event,
+              "Content-Type",
+              "text/html; charset=utf-8",
+            );
+            return createBuilderBrowserCallbackErrorPage(orgConnectDenied, {
+              title: "Not allowed to connect Builder for this organization",
+              body: "Ask an organization owner or admin to connect Builder.",
+              parentOrigin: getBuilderBrowserOriginForEvent(event),
+            });
+          }
           const state = createBuilderConnectState();
 
           // The standard OAuth client discovers Builder's protected-resource
@@ -2633,7 +2687,7 @@ export function createCoreRoutesPlugin(
             authorizationUrl = started.authorizationUrl;
             await putSetting(`builder-connect-pending:${state}`, {
               ownerEmail,
-              orgId: null,
+              orgId: connectOrgId,
               role: null,
               encryptedOAuthFlow: encryptSecretValue(JSON.stringify(oauthFlow)),
               redirectUri: callbackUrl,
@@ -3160,6 +3214,8 @@ export function createCoreRoutesPlugin(
             ) as BuilderOAuthPendingFlow;
             await finishBuilderOAuthAuthorization({
               ownerEmail,
+              orgId:
+                typeof consumed.orgId === "string" ? consumed.orgId : undefined,
               code,
               iss,
               pending: oauthFlow,
@@ -3228,6 +3284,15 @@ export function createCoreRoutesPlugin(
 
           try {
             const hadOAuth = await hasBuilderOAuthSession(session.email);
+            // Revoking an org-scoped grant takes the connection offline for
+            // every member, so require org owner/admin before doing so.
+            if (hadOAuth) {
+              const { deny } = await resolveBuilderOrgMutation(event);
+              if (deny) {
+                setResponseStatus(event, 403);
+                return { error: deny };
+              }
+            }
             const oauthResult = hadOAuth
               ? await deleteBuilderOAuthSession(session.email)
               : { localDeleted: false, remoteRevoked: false };
