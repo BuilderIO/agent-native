@@ -496,7 +496,10 @@ interface DesignCanvasProps {
     selector: string,
     styles: Record<string, string>,
     info?: ElementInfo,
-    metadata?: { originalStyles?: Record<string, string> },
+    metadata?: {
+      originalStyles?: Record<string, string>;
+      preserveSelection?: boolean;
+    },
   ) => void;
   onTextContentChange?: (
     selector: string,
@@ -2732,6 +2735,7 @@ export function DesignCanvas({
             isElementInfoPayload(e.data.payload) ? e.data.payload : undefined,
             {
               originalStyles,
+              preserveSelection: e.data.preserveSelection === true,
             },
           );
         }

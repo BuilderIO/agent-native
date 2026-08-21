@@ -9397,6 +9397,7 @@ function DesignEditor() {
         elementInfo?: ElementInfo;
         /** Pre-gesture values, for the pending-edit revert stack. */
         originalStyles?: Record<string, string>;
+        preserveSelection?: boolean;
       } = {},
     ) =>
       runCommitVisualStyles(
@@ -9895,7 +9896,10 @@ function DesignEditor() {
       selector: string,
       styles: Record<string, string>,
       elementInfo?: ElementInfo,
-      metadata?: { originalStyles?: Record<string, string> },
+      metadata?: {
+        originalStyles?: Record<string, string>;
+        preserveSelection?: boolean;
+      },
     ) => {
       if (!activeFile?.id) return;
       // The gesture already moved the live DOM, so this never needs the
@@ -9907,6 +9911,7 @@ function DesignEditor() {
         runtimeApplied: true,
         elementInfo,
         originalStyles: metadata?.originalStyles,
+        preserveSelection: metadata?.preserveSelection,
       });
     },
     [activeFile?.id, commitVisualStyles],
@@ -10054,7 +10059,10 @@ function DesignEditor() {
       selector: string,
       styles: Record<string, string>,
       elementInfo?: ElementInfo,
-      metadata?: { originalStyles?: Record<string, string> },
+      metadata?: {
+        originalStyles?: Record<string, string>;
+        preserveSelection?: boolean;
+      },
     ) =>
       runScreenVisualStyleChange(
         {

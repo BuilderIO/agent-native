@@ -10407,6 +10407,9 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       }
       var originFontSize = readPx(inlineFontSize || cs.fontSize);
       if (!(originFontSize > 0)) continue;
+      // The revert baseline is recorded on first sight, and the commit is too
+      // late: by then the preview has already written the scaled size.
+      rememberLiveVisualEditOriginalStyles(el);
       targets.push({
         el: el,
         originFontSize: originFontSize,
@@ -10786,6 +10789,7 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
                 textStyles,
               ),
               payload: getElementInfo(target.el),
+              preserveSelection: true,
             },
             "*",
           );
@@ -10800,10 +10804,9 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
 
   /**
    * Scales a multi-selection as one box: the drag resizes the group's bounds
-   * and every member keeps its position and size relative to them. Per-member
-   * rotation is not projected here, unlike startResize — whose single-element
-   * invariants (rotation, Alt-from-center, per-axis touch tracking) have no
-   * group analogue, so the two paths stay separate.
+   * and every member keeps its position and size relative to them. Separate
+   * from startResize, whose single-element invariants (Alt-from-center,
+   * per-axis touch tracking) have no group analogue.
    */
   function startGroupResize(handle, e) {
     if (readOnly) return;
@@ -10818,14 +10821,9 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     var groupBottom = -Infinity;
     var memberStates = members.map(function (member) {
       var el = member as HTMLElement;
-      ensurePositionable(el);
-      var cs = window.getComputedStyle(el);
-      var rect = el.getBoundingClientRect();
-      groupLeft = Math.min(groupLeft, rect.left);
-      groupTop = Math.min(groupTop, rect.top);
-      groupRight = Math.max(groupRight, rect.right);
-      groupBottom = Math.max(groupBottom, rect.bottom);
-      return {
+      // Snapshot before ensurePositionable, or Escape restores the position
+      // it just wrote onto a static member instead of the authored one.
+      var snapshot = {
         el: el,
         originalInlinePosition: el.style.position,
         originalInlineLeft: el.style.left,
@@ -10834,16 +10832,38 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         originalInlineHeight: el.style.height,
         originalInlineBorderWidth: el.style.borderWidth,
         originalInlineFontSize: el.style.fontSize,
-        originLeft: readPx(el.style.left || cs.left),
-        originTop: readPx(el.style.top || cs.top),
-        originWidth: readPx(cs.width),
-        originHeight: readPx(cs.height),
-        originClientLeft: rect.left,
-        originClientTop: rect.top,
-        originBorderWidth: readPx(el.style.borderWidth || cs.borderWidth),
-        originFontSize: readPx(el.style.fontSize || cs.fontSize),
+        originLeft: 0,
+        originTop: 0,
+        originWidth: 0,
+        originHeight: 0,
+        // The center is the one point rotation leaves alone: a rotated
+        // member's client rect is its inflated axis-aligned box, so corners
+        // would scale it to the wrong place.
+        originCenterX: 0,
+        originCenterY: 0,
+        originBorderWidth: 0,
+        originFontSize: 0,
         textTargets: null as ReturnType<typeof collectScaleFontTargets> | null,
       };
+      rememberLiveVisualEditOriginalStyles(el);
+      ensurePositionable(el);
+      var cs = window.getComputedStyle(el);
+      var rect = el.getBoundingClientRect();
+      groupLeft = Math.min(groupLeft, rect.left);
+      groupTop = Math.min(groupTop, rect.top);
+      groupRight = Math.max(groupRight, rect.right);
+      groupBottom = Math.max(groupBottom, rect.bottom);
+      snapshot.originLeft = readPx(el.style.left || cs.left);
+      snapshot.originTop = readPx(el.style.top || cs.top);
+      snapshot.originWidth = readPx(cs.width);
+      snapshot.originHeight = readPx(cs.height);
+      snapshot.originCenterX = rect.left + rect.width / 2;
+      snapshot.originCenterY = rect.top + rect.height / 2;
+      snapshot.originBorderWidth = readPx(
+        el.style.borderWidth || cs.borderWidth,
+      );
+      snapshot.originFontSize = readPx(el.style.fontSize || cs.fontSize);
+      return snapshot;
     });
     var groupWidth = Math.max(1, groupRight - groupLeft);
     var groupHeight = Math.max(1, groupBottom - groupTop);
@@ -10922,9 +10942,13 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       var factorX = nextWidth / groupWidth;
       var factorY = nextHeight / groupHeight;
       if (ev.shiftKey || scaleToolEnabled) {
-        var uniform = Math.abs(dx) > Math.abs(dy) ? factorX : factorY;
-        factorX = uniform;
-        factorY = uniform;
+        // Clamping the axes separately against their own minimums would
+        // break the very lock this branch applies.
+        var uniform = Math.max(
+          Math.max(minFactorX, minFactorY),
+          Math.abs(dx) > Math.abs(dy) ? factorX : factorY,
+        );
+        return { x: uniform, y: uniform };
       }
       return {
         x: Math.max(minFactorX, factorX),
@@ -10946,21 +10970,24 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       if (controllerMove.phase !== "active") return;
       var factor = groupFactors(ev);
       memberStates.forEach(function (state) {
-        var nextClientLeft =
-          anchorX + (state.originClientLeft - anchorX) * factor.x;
-        var nextClientTop =
-          anchorY + (state.originClientTop - anchorY) * factor.y;
+        var nextCenterX = anchorX + (state.originCenterX - anchorX) * factor.x;
+        var nextCenterY = anchorY + (state.originCenterY - anchorY) * factor.y;
+        var nextWidth = state.originWidth * factor.x;
+        var nextHeight = state.originHeight * factor.y;
         state.el.style.left =
           Math.round(
-            state.originLeft + (nextClientLeft - state.originClientLeft),
+            state.originLeft +
+              (nextCenterX - state.originCenterX) -
+              (nextWidth - state.originWidth) / 2,
           ) + "px";
         state.el.style.top =
           Math.round(
-            state.originTop + (nextClientTop - state.originClientTop),
+            state.originTop +
+              (nextCenterY - state.originCenterY) -
+              (nextHeight - state.originHeight) / 2,
           ) + "px";
-        state.el.style.width = Math.round(state.originWidth * factor.x) + "px";
-        state.el.style.height =
-          Math.round(state.originHeight * factor.y) + "px";
+        state.el.style.width = Math.round(nextWidth) + "px";
+        state.el.style.height = Math.round(nextHeight) + "px";
         if (!scaleToolEnabled) return;
         if (state.originBorderWidth > 0) {
           state.el.style.borderWidth =
@@ -11077,6 +11104,9 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
                 textStyles,
               ),
               payload: getElementInfo(target.el),
+              // A scaled descendant is a side effect of the gesture, not the
+              // object the user is holding.
+              preserveSelection: true,
             },
             "*",
           );

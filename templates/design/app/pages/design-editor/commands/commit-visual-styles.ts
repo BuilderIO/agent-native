@@ -176,6 +176,9 @@ export function runCommitVisualStyles(
     elementInfo?: ElementInfo;
     /** Pre-gesture values, for the pending-edit revert stack. */
     originalStyles?: Record<string, string>;
+    /** The write is a side effect of a gesture on another element, so it must
+     *  not move the selection onto the element it touched. */
+    preserveSelection?: boolean;
   } = {},
 ) {
   trace("persist", "commit-styles", {
@@ -687,6 +690,7 @@ export function runCommitVisualStyles(
       setContentRenderRevision((revision) => revision + 1);
     }
   }
+  if (options.preserveSelection) return;
   // A commit must never shrink the selection: a group transform commits one
   // style change per member, so selecting the committed node keeps only the
   // member that happened to commit last.

@@ -15,7 +15,7 @@ const SCREEN_HTML = `<!doctype html>
 <body style="margin:0;min-height:900px">
 <main data-agent-native-node-id="main" style="position:relative;min-height:900px">
   <p data-agent-native-node-id="text" style="position:absolute;left:96px;top:253px;margin:0;font-size:16px">hello bud</p>
-  <div data-agent-native-node-id="rect" style="position:absolute;left:260px;top:240px;width:100px;height:34px;background:#dadada;border:1px solid #ababab"></div>
+  <div data-agent-native-node-id="rect" style="position:absolute;left:260px;top:240px;width:100px;height:34px;background:#dadada;border:1px solid #ababab"><p data-agent-native-node-id="label" style="margin:0;font-size:12px">label</p></div>
 </main></body></html>`;
 
 async function action(
@@ -162,7 +162,9 @@ test("the scale tool scales a whole multi-selection and keeps it selected", asyn
     expect(after.text.fontSize).toBeLessThan(before.text.fontSize);
     expect(after.text.left).toBe(before.text.left);
     expect(after.rect.left).toBeLessThan(before.rect.left);
-    // Still a multi-selection, so the next gesture can scale it again.
+    // Still a multi-selection, so the next gesture can scale it again — the
+    // independently sized child commits its own scaled size and must not
+    // become the selection.
     await expect(page.getByText("2 selected")).toBeVisible();
     expect(after.groupBoundsVisible).toBe(true);
   } finally {
