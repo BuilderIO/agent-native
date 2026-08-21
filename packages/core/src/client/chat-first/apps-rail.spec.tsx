@@ -131,6 +131,71 @@ describe("ChatFirstAppsRail", () => {
     ).toBe("false");
   });
 
+  it("shows a collapsed app name immediately on hover", async () => {
+    act(() => {
+      root.render(
+        <ChatFirstAppsRail
+          apps={[{ id: "calendar", name: "Calendar" }]}
+          collapsed
+          onOpenApp={vi.fn()}
+          renderIcon={(app) => <span>{app.name}</span>}
+        />,
+      );
+    });
+
+    const appButton = container.querySelector<HTMLButtonElement>(
+      '[data-app-id="calendar"]',
+    );
+    expect(appButton).not.toBeNull();
+
+    await act(async () => {
+      appButton?.dispatchEvent(
+        new PointerEvent("pointermove", {
+          bubbles: true,
+          pointerType: "mouse",
+        }),
+      );
+      await new Promise((resolve) => window.setTimeout(resolve));
+    });
+
+    expect(
+      document.querySelector('[data-agent-native-tooltip="true"]')?.textContent,
+    ).toContain("Calendar");
+  });
+
+  it("shows the all-apps label immediately on hover", async () => {
+    act(() => {
+      root.render(
+        <ChatFirstAppsRail
+          apps={[]}
+          collapsed
+          onOpenAllApps={vi.fn()}
+          onOpenApp={vi.fn()}
+          renderIcon={() => null}
+        />,
+      );
+    });
+
+    const allApps = container.querySelector<HTMLButtonElement>(
+      "[data-chat-first-all-apps]",
+    );
+    expect(allApps).not.toBeNull();
+
+    await act(async () => {
+      allApps?.dispatchEvent(
+        new PointerEvent("pointermove", {
+          bubbles: true,
+          pointerType: "mouse",
+        }),
+      );
+      await new Promise((resolve) => window.setTimeout(resolve));
+    });
+
+    expect(
+      document.querySelector('[data-agent-native-tooltip="true"]')?.textContent,
+    ).toContain("All apps");
+  });
+
   it("hides the create-app trigger when the rail is collapsed", () => {
     act(() => {
       root.render(
