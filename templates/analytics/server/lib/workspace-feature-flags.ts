@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 
 import { signA2AToken } from "@agent-native/core/a2a";
+import {
+  ActionContractError,
+  AgentActionStopError,
+} from "@agent-native/core/action";
 import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import { fetchOrgApps, type OrgApp } from "@agent-native/core/mcp";
 import { getOrgDomain } from "@agent-native/core/org";
@@ -9,6 +13,7 @@ import { VERIFIED_FLEET_FLAG_MUTATIONS } from "../../shared/feature-flags.js";
 import type { AnalyticsAdminContext } from "./db-admin-connections.js";
 
 const TARGET_TIMEOUT_MS = 3_000;
+const VERIFICATION_ATTEMPTS = 2;
 const CONCURRENCY = 4;
 
 export type FleetFlagState =
@@ -197,6 +202,8 @@ export type WorkspaceFeatureFlagFailurePhase =
   | "unsupported-target"
   | "target-action"
   | "persistence"
+  | "verification-timeout"
+  | "verification-network"
   | "verification";
 
 const FAILURE_MESSAGES: Record<WorkspaceFeatureFlagFailurePhase, string> = {
@@ -211,13 +218,39 @@ const FAILURE_MESSAGES: Record<WorkspaceFeatureFlagFailurePhase, string> = {
   "target-action": "The target app could not complete the feature flag action.",
   persistence:
     "The target app did not persist the requested feature flag rules.",
+  "verification-timeout":
+    "The feature flag change persisted, but the target app timed out during verification.",
+  "verification-network":
+    "The feature flag change persisted, but Analytics could not reach the target app during verification.",
   verification: "Analytics could not verify the persisted feature flag change.",
 };
 
-export class WorkspaceFeatureFlagFailure extends Error {
+export class WorkspaceFeatureFlagFailure extends AgentActionStopError {
   constructor(readonly phase: WorkspaceFeatureFlagFailurePhase) {
-    super(`[${phase}] ${FAILURE_MESSAGES[phase]}`);
+    const message = `[${phase}] ${FAILURE_MESSAGES[phase]}`;
+    const errorCode = `workspace_feature_flag_${phase.replace("-", "_")}`;
+    super(message, {
+      errorCode,
+      details: { phase },
+      toolResult: JSON.stringify({ error: errorCode, phase, message }),
+    });
     this.name = "WorkspaceFeatureFlagFailure";
+  }
+}
+
+class WorkspaceFeatureFlagSetupFailure extends ActionContractError {
+  readonly phase: "directory" | "token-generation";
+
+  constructor(phase: "directory" | "token-generation") {
+    const message = `[${phase}] ${FAILURE_MESSAGES[phase]}`;
+    const errorCode = `workspace_feature_flag_${phase.replace("-", "_")}`;
+    super(message, {
+      errorCode,
+      details: { phase },
+      statusCode: 503,
+    });
+    this.name = "WorkspaceFeatureFlagSetupFailure";
+    this.phase = phase;
   }
 }
 
@@ -242,6 +275,16 @@ export function classifyWorkspaceFeatureFlagTargetFailure(
   return "network";
 }
 
+function isSyntaxError(error: unknown): boolean {
+  return (
+    error instanceof SyntaxError ||
+    (!!error &&
+      typeof error === "object" &&
+      "name" in error &&
+      error.name === "SyntaxError")
+  );
+}
+
 function targetFailure(error: unknown): WorkspaceFeatureFlagFailure {
   const reason = classifyWorkspaceFeatureFlagTargetFailure(error);
   return new WorkspaceFeatureFlagFailure(reason);
@@ -259,10 +302,10 @@ async function resolveTargetApp(
       serviceOrgId: admin.orgId,
     });
   } catch {
-    throw new WorkspaceFeatureFlagFailure("directory");
+    throw new WorkspaceFeatureFlagSetupFailure("directory");
   }
   const app = apps.find((candidate) => candidate.id === appId);
-  if (!app) throw new WorkspaceFeatureFlagFailure("directory");
+  if (!app) throw new WorkspaceFeatureFlagSetupFailure("directory");
   return app;
 }
 
@@ -302,10 +345,39 @@ async function callTarget(
   let parsed: unknown = null;
   try {
     parsed = await response.json();
-  } catch {
-    // A legacy/non-action endpoint is classified below without reflecting body.
+  } catch (error) {
+    const successfulResponse = response.status >= 200 && response.status < 300;
+    if (successfulResponse && !isSyntaxError(error))
+      throw new TargetCallFailure(
+        classifyWorkspaceFeatureFlagTargetFailure(error),
+      );
+    // Invalid legacy payloads and non-success statuses are classified below.
   }
   return { status: response.status, body: parsed };
+}
+
+async function readBackTarget(
+  app: OrgApp,
+  admin: AnalyticsAdminContext,
+  orgDomain: string,
+): Promise<{ status: number; body: unknown }> {
+  for (let attempt = 1; attempt <= VERIFICATION_ATTEMPTS; attempt += 1) {
+    try {
+      return await callTarget(app, admin, "list-feature-flags", {}, orgDomain);
+    } catch (error) {
+      const reason = classifyWorkspaceFeatureFlagTargetFailure(error);
+      const retryable = reason === "timeout" || reason === "network";
+      if (retryable && attempt < VERIFICATION_ATTEMPTS) continue;
+      throw new WorkspaceFeatureFlagFailure(
+        reason === "timeout"
+          ? "verification-timeout"
+          : reason === "network"
+            ? "verification-network"
+            : reason,
+      );
+    }
+  }
+  throw new WorkspaceFeatureFlagFailure("verification");
 }
 
 export function classifyWorkspaceFeatureFlagList(
@@ -404,9 +476,10 @@ export async function setWorkspaceFeatureFlag(
   try {
     orgDomain = (await getOrgDomain(admin.orgId))?.trim().toLowerCase();
   } catch {
-    throw new WorkspaceFeatureFlagFailure("token-generation");
+    throw new WorkspaceFeatureFlagSetupFailure("token-generation");
   }
-  if (!orgDomain) throw new WorkspaceFeatureFlagFailure("token-generation");
+  if (!orgDomain)
+    throw new WorkspaceFeatureFlagSetupFailure("token-generation");
   let result: Awaited<ReturnType<typeof callTarget>>;
   try {
     result = await callTarget(
@@ -465,18 +538,7 @@ export async function setWorkspaceFeatureFlag(
     return mutation;
   }
 
-  let readBack: Awaited<ReturnType<typeof callTarget>>;
-  try {
-    readBack = await callTarget(
-      app,
-      admin,
-      "list-feature-flags",
-      {},
-      orgDomain,
-    );
-  } catch (error) {
-    throw targetFailure(error);
-  }
+  const readBack = await readBackTarget(app, admin, orgDomain);
   if (readBack.status === 401 || readBack.status === 403)
     throw new WorkspaceFeatureFlagFailure("authorization");
   if (readBack.status === 404 || readBack.status === 405)

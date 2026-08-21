@@ -487,6 +487,16 @@ async function performActionFetch<T>(
 
     const error = new Error(`Action ${name} failed: ${message}`);
     (error as any).status = res.status;
+    if (typeof data?.errorCode === "string") {
+      (error as any).errorCode = data.errorCode;
+    }
+    if (
+      data?.details &&
+      typeof data.details === "object" &&
+      !Array.isArray(data.details)
+    ) {
+      (error as any).details = data.details;
+    }
     throw error;
   }
 

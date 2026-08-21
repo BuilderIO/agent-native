@@ -155,8 +155,10 @@ export type ActionAuthorize<TArgs> = (
 ) => void | boolean | Promise<void | boolean>;
 
 export interface AgentActionStopOptions {
-  /** Optional stable code surfaced in run metadata and tests. */
+  /** Optional stable code safe to surface in run metadata and action transports. */
   errorCode?: string;
+  /** Safe structured context for callers. Never include secrets or raw driver errors. */
+  details?: Record<string, unknown>;
   /** Optional short tool-result text. Defaults to the user-facing message. */
   toolResult?: string;
 }
@@ -211,12 +213,14 @@ export function isActionContractError(
 export class AgentActionStopError extends Error {
   readonly agentNativeStop = true;
   readonly errorCode?: string;
+  readonly details?: Record<string, unknown>;
   readonly toolResult?: string;
 
   constructor(message: string, options: AgentActionStopOptions = {}) {
     super(message);
     this.name = "AgentActionStopError";
     this.errorCode = options.errorCode;
+    this.details = options.details;
     this.toolResult = options.toolResult;
   }
 }
