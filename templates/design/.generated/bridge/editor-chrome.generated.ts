@@ -584,7 +584,38 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       renderRuntimeInteractionStatePreviews();
     }
-    var lastSourceHeadHtml = null;
+    var lastSourceHeadHtml = typeof __INITIAL_SOURCE_HEAD__ === "string" ? __INITIAL_SOURCE_HEAD__ || null : null;
+    function headNodeSignature(node) {
+      var tag = node.tagName.toLowerCase();
+      if (tag === "title" || tag === "base") return tag;
+      if (tag === "style") {
+        var attrs = node.attributes;
+        for (var i = 0; i < attrs.length; i += 1) {
+          var name = attrs[i].name;
+          if (name.indexOf("data-agent-native-") === 0) return "style:" + name;
+        }
+        return "";
+      }
+      if (tag === "meta") {
+        var meta = ["name", "property", "http-equiv", "charset"];
+        for (var m = 0; m < meta.length; m += 1) {
+          if (node.hasAttribute(meta[m])) {
+            return "meta:" + meta[m] + "=" + node.getAttribute(meta[m]);
+          }
+        }
+        return "";
+      }
+      return "";
+    }
+    function findHeadNodeBySignature(signature) {
+      var children = document.head ? document.head.children : null;
+      if (!children) return null;
+      for (var i = 0; i < children.length; i += 1) {
+        var candidate = children[i];
+        if (headNodeSignature(candidate) === signature) return candidate;
+      }
+      return null;
+    }
     function replaceSourceHeadNodes(previousSourceHtml, nextSourceHtml) {
       if (!document.head) return;
       var stale = document.createElement("head");
@@ -594,6 +625,12 @@ export const editorChromeBridgeScript: string = `"use strict";
         var key = node.outerHTML;
         staleCounts[key] = (staleCounts[key] || 0) + 1;
       });
+      var retained = document.createElement("head");
+      retained.innerHTML = nextSourceHtml || "";
+      Array.prototype.forEach.call(retained.children, function(node) {
+        var key = node.outerHTML;
+        if (staleCounts[key]) staleCounts[key] -= 1;
+      });
       Array.prototype.slice.call(document.head.children).forEach(function(node) {
         var key = node.outerHTML;
         if (!staleCounts[key]) return;
@@ -602,8 +639,29 @@ export const editorChromeBridgeScript: string = `"use strict";
       });
       var next = document.createElement("head");
       next.innerHTML = nextSourceHtml || "";
+      var present = {};
+      Array.prototype.forEach.call(
+        document.head.children,
+        function(node) {
+          var key = node.outerHTML;
+          present[key] = (present[key] || 0) + 1;
+        }
+      );
       var anchor = document.head.firstChild;
       Array.prototype.slice.call(next.children).forEach(function(node) {
+        var key = node.outerHTML;
+        if (present[key]) {
+          present[key] -= 1;
+          return;
+        }
+        var signature = previousSourceHtml === null ? headNodeSignature(node) : "";
+        if (signature) {
+          var existing = findHeadNodeBySignature(signature);
+          if (existing) {
+            document.head.replaceChild(document.importNode(node, true), existing);
+            return;
+          }
+        }
         document.head.insertBefore(document.importNode(node, true), anchor);
       });
     }
@@ -2527,6 +2585,320 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
       });
     }
+    function sourceMetaFor(element) {
+      return element.__anSourceMeta;
+    }
+    function isSourceOwned(node) {
+      return node.__anSource === true;
+    }
+    function recordSourceOwnership(node) {
+      node.__anSource = true;
+      if (node.nodeType !== 1) return;
+      var element = node;
+      var names = [];
+      for (var i = 0; i < element.attributes.length; i += 1) {
+        names.push(element.attributes[i].name);
+      }
+      element.__anSourceMeta = {
+        attrs: names,
+        className: element.getAttribute("class") ?? "",
+        style: element.getAttribute("style") ?? ""
+      };
+    }
+    function recordSourceSubtree(root) {
+      if (root.nodeType === 1 && root.hasAttribute("data-agent-native-edit-overlay")) {
+        return;
+      }
+      recordSourceOwnership(root);
+      if (root.nodeType !== 1) return;
+      var template = templateContentOf(root);
+      if (template) {
+        var held = template.childNodes;
+        for (var t = 0; t < held.length; t += 1) recordSourceSubtree(held[t]);
+        return;
+      }
+      var children = root.childNodes;
+      for (var i = 0; i < children.length; i += 1) {
+        recordSourceSubtree(children[i]);
+      }
+    }
+    function templateContentOf(element) {
+      if (element.nodeName !== "TEMPLATE") return null;
+      return element.content ?? null;
+    }
+    function scopedMorphContext(liveRoot, nextRoot) {
+      var keyed = /* @__PURE__ */ new Map();
+      liveRoot.querySelectorAll("[data-agent-native-node-id]").forEach(function(element) {
+        if (!isSourceOwned(element)) return;
+        var key = element.getAttribute("data-agent-native-node-id");
+        if (key && !keyed.has(key)) keyed.set(key, element);
+      });
+      var nextKeys = /* @__PURE__ */ new Set();
+      nextRoot.querySelectorAll("[data-agent-native-node-id]").forEach(function(element) {
+        var key = element.getAttribute("data-agent-native-node-id");
+        if (key) nextKeys.add(key);
+      });
+      return { keyed, nextKeys, obsolete: /* @__PURE__ */ new Set() };
+    }
+    function captureInitialSourceOwnership() {
+      if (document.body) recordSourceSubtree(document.body);
+    }
+    function classTokens(value) {
+      return value.split(/\\s+/).filter(function(token) {
+        return token.length > 0;
+      });
+    }
+    function applyClassAttribute(live, previousSource, nextSource) {
+      var previous = classTokens(previousSource);
+      var current = classTokens(live.getAttribute("class") ?? "");
+      var result = classTokens(nextSource);
+      for (var i = 0; i < current.length; i += 1) {
+        var token = current[i];
+        if (previous.indexOf(token) !== -1) continue;
+        if (result.indexOf(token) === -1) result.push(token);
+      }
+      var value = result.join(" ");
+      if ((live.getAttribute("class") ?? "") === value) return;
+      if (value) live.setAttribute("class", value);
+      else live.removeAttribute("class");
+    }
+    var styleProbe = null;
+    function styleDeclarations(value) {
+      var probe = styleProbe || (styleProbe = document.createElement("div"));
+      probe.style.cssText = value || "";
+      var out = [];
+      for (var i = 0; i < probe.style.length; i += 1) {
+        var property = probe.style.item(i);
+        out.push([
+          property,
+          probe.style.getPropertyValue(property),
+          probe.style.getPropertyPriority(property)
+        ]);
+      }
+      return out;
+    }
+    function applyStyleAttribute(live, previousSource, nextSource) {
+      var previousOwned = {};
+      styleDeclarations(previousSource).forEach(function(entry) {
+        previousOwned[entry[0]] = entry[1];
+      });
+      var nextOwned = {};
+      styleDeclarations(nextSource).forEach(function(entry) {
+        nextOwned[entry[0]] = true;
+      });
+      var target = document.createElement("div");
+      target.style.cssText = nextSource || "";
+      styleDeclarations(live.getAttribute("style") ?? "").forEach(
+        function(entry) {
+          if (nextOwned[entry[0]]) return;
+          var wasSource = Object.prototype.hasOwnProperty.call(
+            previousOwned,
+            entry[0]
+          );
+          if (wasSource && previousOwned[entry[0]] === entry[1]) return;
+          target.style.setProperty(entry[0], entry[1], entry[2]);
+        }
+      );
+      var value = target.style.cssText;
+      if ((live.getAttribute("style") ?? "") === value) return;
+      if (value) live.setAttribute("style", value);
+      else live.removeAttribute("style");
+    }
+    function morphFormState(live, next) {
+      if (live.nodeName === "INPUT") {
+        var input = live;
+        var nextChecked = next.hasAttribute("checked");
+        if (input.defaultChecked !== nextChecked) {
+          input.defaultChecked = nextChecked;
+          input.checked = nextChecked;
+        }
+        var nextValue = next.getAttribute("value");
+        if (nextValue !== null && input.defaultValue !== nextValue) {
+          input.defaultValue = nextValue;
+          input.value = nextValue;
+        }
+        return;
+      }
+      if (live.nodeName === "TEXTAREA") {
+        var area = live;
+        var nextText = next.textContent ?? "";
+        if (area.defaultValue !== nextText) {
+          area.defaultValue = nextText;
+          area.value = nextText;
+        }
+        return;
+      }
+      if (live.nodeName === "OPTION") {
+        var option = live;
+        var nextSelected = next.hasAttribute("selected");
+        if (option.defaultSelected !== nextSelected) {
+          option.defaultSelected = nextSelected;
+          option.selected = nextSelected;
+        }
+      }
+    }
+    function declaresRuntimeChildren(element) {
+      return element.hasAttribute("x-text") || element.hasAttribute("x-html") || element.hasAttribute("v-text") || element.hasAttribute("v-html");
+    }
+    function scopeDirectiveChanged(live, next) {
+      return (live.getAttribute("x-data") ?? "") !== (next.getAttribute("x-data") ?? "");
+    }
+    function morphNodeKey(node) {
+      if (node.nodeType !== 1) return null;
+      return node.getAttribute("data-agent-native-node-id");
+    }
+    function morphAttributes(live, next) {
+      var meta = sourceMetaFor(live);
+      var previousAttrs = meta ? meta.attrs : [];
+      var previousClass = meta ? meta.className : "";
+      var previousStyle = meta ? meta.style : "";
+      var nextNames = [];
+      var nextAttrs = next.attributes;
+      for (var i = 0; i < nextAttrs.length; i += 1) {
+        var attr = nextAttrs[i];
+        nextNames.push(attr.name);
+        if (attr.name === "class") {
+          applyClassAttribute(live, previousClass, attr.value);
+          continue;
+        }
+        if (attr.name === "style") {
+          applyStyleAttribute(live, previousStyle, attr.value);
+          continue;
+        }
+        if (attr.name === "x-cloak" && !live.hasAttribute("x-cloak")) continue;
+        if (live.getAttribute(attr.name) === attr.value) continue;
+        if (attr.namespaceURI) {
+          live.setAttributeNS(attr.namespaceURI, attr.name, attr.value);
+        } else {
+          live.setAttribute(attr.name, attr.value);
+        }
+      }
+      for (var j = 0; j < previousAttrs.length; j += 1) {
+        var name = previousAttrs[j];
+        if (nextNames.indexOf(name) !== -1) continue;
+        if (name === "class") {
+          applyClassAttribute(live, previousClass, "");
+          continue;
+        }
+        if (name === "style") {
+          applyStyleAttribute(live, previousStyle, "");
+          continue;
+        }
+        live.removeAttribute(name);
+      }
+      live.__anSourceMeta = {
+        attrs: nextNames,
+        className: next.getAttribute("class") ?? "",
+        style: next.getAttribute("style") ?? ""
+      };
+    }
+    function morphChildren(live, next, context) {
+      var cursor = live.firstChild;
+      var nextChild = next.firstChild;
+      while (nextChild) {
+        var key = morphNodeKey(nextChild);
+        var reuse = null;
+        if (key) {
+          var candidate = context.keyed.get(key) ?? null;
+          if (candidate && !candidate.contains(live) && candidate.nodeName === nextChild.nodeName && candidate.namespaceURI === nextChild.namespaceURI) {
+            reuse = candidate;
+            context.keyed.delete(key);
+          } else if (candidate) {
+            context.obsolete.add(key);
+          }
+        } else {
+          var probe = cursor;
+          while (probe) {
+            var probeKey = morphNodeKey(probe);
+            if (probeKey) {
+              if (context.nextKeys.has(probeKey) && !context.obsolete.has(probeKey)) {
+                break;
+              }
+              probe = probe.nextSibling;
+              continue;
+            }
+            if (!isSourceOwned(probe)) {
+              probe = probe.nextSibling;
+              continue;
+            }
+            if (probe.nodeType === nextChild.nodeType && probe.nodeName === nextChild.nodeName) {
+              reuse = probe;
+            }
+            break;
+          }
+        }
+        if (reuse && reuse.nodeType === 1 && scopeDirectiveChanged(reuse, nextChild)) {
+          var rebuilt = document.importNode(nextChild, true);
+          live.insertBefore(rebuilt, cursor);
+          if (reuse.parentNode) reuse.parentNode.removeChild(reuse);
+          recordSourceSubtree(rebuilt);
+          cursor = rebuilt.nextSibling;
+          nextChild = nextChild.nextSibling;
+          continue;
+        }
+        if (reuse) {
+          if (reuse !== cursor) live.insertBefore(reuse, cursor);
+          if (reuse.nodeType === 1) {
+            morphElement(reuse, nextChild, context);
+          } else if (reuse.nodeValue !== nextChild.nodeValue) {
+            reuse.nodeValue = nextChild.nodeValue;
+          }
+          cursor = reuse.nextSibling;
+        } else if (nextChild.nodeType === 1) {
+          var shell = document.importNode(nextChild, false);
+          live.insertBefore(shell, cursor);
+          recordSourceOwnership(shell);
+          morphElement(shell, nextChild, context);
+          cursor = shell.nextSibling;
+        } else {
+          var imported = document.importNode(nextChild, true);
+          live.insertBefore(imported, cursor);
+          recordSourceSubtree(imported);
+        }
+        nextChild = nextChild.nextSibling;
+      }
+      while (cursor) {
+        var stale = cursor;
+        cursor = cursor.nextSibling;
+        if (stale.parentNode !== live) continue;
+        if (!isSourceOwned(stale)) continue;
+        live.removeChild(stale);
+      }
+    }
+    function morphElement(live, next, context) {
+      morphFormState(live, next);
+      morphAttributes(live, next);
+      if (declaresRuntimeChildren(next) || declaresRuntimeChildren(live)) return;
+      var liveTemplate = templateContentOf(live);
+      var nextTemplate = templateContentOf(next);
+      if (liveTemplate && nextTemplate) {
+        morphChildren(
+          liveTemplate,
+          nextTemplate,
+          scopedMorphContext(liveTemplate, nextTemplate)
+        );
+        return;
+      }
+      morphChildren(live, next, context);
+    }
+    function morphRuntimeBody(nextBody) {
+      var keyed = /* @__PURE__ */ new Map();
+      document.querySelectorAll("[data-agent-native-node-id]").forEach(function(element) {
+        if (!isSourceOwned(element)) return;
+        var key = element.getAttribute("data-agent-native-node-id");
+        if (key && !keyed.has(key)) keyed.set(key, element);
+      });
+      var nextKeys = /* @__PURE__ */ new Set();
+      nextBody.querySelectorAll("[data-agent-native-node-id]").forEach(function(element) {
+        var key = element.getAttribute("data-agent-native-node-id");
+        if (key) nextKeys.add(key);
+      });
+      morphElement(document.body, nextBody, {
+        keyed,
+        nextKeys,
+        obsolete: /* @__PURE__ */ new Set()
+      });
+    }
     function replaceRuntimeDocument(html, preferredSelector, selectorCandidates, forceFullDocument, preserveTextEditingSession) {
       if (typeof html !== "string") return;
       exitStaleTextEditSession();
@@ -2571,6 +2943,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var nextHeadHtml = nextDoc.head ? nextDoc.head.innerHTML : "";
       ensureEditorChromeStyle();
       if (lastSourceHeadHtml === null) {
+        replaceSourceHeadNodes(null, nextHeadHtml);
         lastSourceHeadHtml = nextHeadHtml;
       }
       var currentHeadHtml = lastSourceHeadHtml;
@@ -2639,13 +3012,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         ensureEditorChromeStyle();
         lastSourceHeadHtml = nextHeadHtml;
       }
-      Array.prototype.slice.call(document.body.attributes).forEach(function(attribute) {
-        document.body.removeAttribute(attribute.name);
+      persistentNodes.forEach(function(node) {
+        if (node.parentNode) node.parentNode.removeChild(node);
       });
-      Array.prototype.slice.call(nextDoc.body.attributes).forEach(function(attribute) {
-        document.body.setAttribute(attribute.name, attribute.value);
-      });
-      document.body.innerHTML = nextDoc.body.innerHTML;
+      morphRuntimeBody(nextDoc.body);
       persistentNodes.forEach(function(node) {
         document.body.appendChild(node);
       });
@@ -9398,6 +9768,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         ]
       });
     }
+    captureInitialSourceOwnership();
     if (runtimeLayerSnapshotEnabled) scheduleRuntimeLayerSnapshot();
     window.parent.postMessage(
       { type: "agent-native:editor-chrome-ready" },

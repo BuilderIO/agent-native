@@ -40,6 +40,11 @@ declare var __DESIGN_CANVAS_CONTENT_OFFSET_Y__: number;
 declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
 declare var __LIVE_REFLOW_ENABLED__: boolean;
 declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
+/** Head inner HTML of the document this srcdoc was built from. The live head
+ *  cannot supply it: a blocking script src (the Tailwind runtime) has already
+ *  injected into it by the time this bridge runs, and adopting that as the
+ *  source baseline makes the first diff delete the compiled stylesheet. */
+declare var __INITIAL_SOURCE_HEAD__: string;
 
 (function () {
   // Idempotency guard: replace-document-content / srcdoc rebuilds can end up
@@ -323,7 +328,10 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
    * it, and the re-inserted `<script src>` cannot rebuild it because innerHTML
    * never executes scripts. The screen then renders unstyled for good.
    */
-  var lastSourceHeadHtml: string | null = null;
+  var lastSourceHeadHtml: string | null =
+    typeof __INITIAL_SOURCE_HEAD__ === "string"
+      ? __INITIAL_SOURCE_HEAD__ || null
+      : null;
 
   /**
    * Swaps only the nodes the previous source head contributed. Assigning
@@ -332,6 +340,45 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
    * `<script src>` re-inserted in its place can never rebuild it, because
    * innerHTML does not execute scripts.
    */
+  /**
+   * Stable identity for the head nodes a source document owns and can change
+   * in place. Deliberately narrow: anything without a signature is only ever
+   * matched by exact `outerHTML`, so a runtime-injected node is never a
+   * replacement target.
+   */
+  function headNodeSignature(node: Element): string {
+    var tag = node.tagName.toLowerCase();
+    if (tag === "title" || tag === "base") return tag;
+    if (tag === "style") {
+      var attrs = node.attributes;
+      for (var i = 0; i < attrs.length; i += 1) {
+        var name = attrs[i]!.name;
+        if (name.indexOf("data-agent-native-") === 0) return "style:" + name;
+      }
+      return "";
+    }
+    if (tag === "meta") {
+      var meta = ["name", "property", "http-equiv", "charset"];
+      for (var m = 0; m < meta.length; m += 1) {
+        if (node.hasAttribute(meta[m]!)) {
+          return "meta:" + meta[m] + "=" + node.getAttribute(meta[m]!);
+        }
+      }
+      return "";
+    }
+    return "";
+  }
+
+  function findHeadNodeBySignature(signature: string): Element | null {
+    var children = document.head ? document.head.children : null;
+    if (!children) return null;
+    for (var i = 0; i < children.length; i += 1) {
+      var candidate = children[i]!;
+      if (headNodeSignature(candidate) === signature) return candidate;
+    }
+    return null;
+  }
+
   function replaceSourceHeadNodes(
     previousSourceHtml: string | null,
     nextSourceHtml: string,
@@ -344,6 +391,15 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       var key = node.outerHTML;
       staleCounts[key] = (staleCounts[key] || 0) + 1;
     });
+    // A node the next head still carries is not stale. Removing and
+    // re-inserting it cancels an async script that has not finished loading,
+    // and the replacement is inert — innerHTML-built scripts never execute.
+    var retained = document.createElement("head");
+    retained.innerHTML = nextSourceHtml || "";
+    Array.prototype.forEach.call(retained.children, function (node: Element) {
+      var key = node.outerHTML;
+      if (staleCounts[key]) staleCounts[key] -= 1;
+    });
     Array.prototype.slice.call(document.head.children).forEach(function (
       node: Element,
     ) {
@@ -354,8 +410,39 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     });
     var next = document.createElement("head");
     next.innerHTML = nextSourceHtml || "";
+    var present: Record<string, number> = {};
+    Array.prototype.forEach.call(
+      document.head.children,
+      function (node: Element) {
+        var key = node.outerHTML;
+        present[key] = (present[key] || 0) + 1;
+      },
+    );
     var anchor = document.head.firstChild;
     Array.prototype.slice.call(next.children).forEach(function (node: Element) {
+      // The seed pass below passes a null previous head, so every node it
+      // carries would otherwise be inserted on top of the identical one the
+      // srcdoc already rendered — two copies of the managed stylesheet.
+      var key = node.outerHTML;
+      if (present[key]) {
+        present[key] -= 1;
+        return;
+      }
+      // Still the seed pass: with no previous head to diff against, an
+      // existing node whose CONTENT changed cannot be matched by outerHTML.
+      // Left alone it survives alongside its replacement, and because new
+      // nodes are prepended the stale one wins the cascade. Match it by
+      // identity instead and swap in place. Unmatched live nodes stay put —
+      // they are what the page's own runtime injected.
+      var signature =
+        previousSourceHtml === null ? headNodeSignature(node) : "";
+      if (signature) {
+        var existing = findHeadNodeBySignature(signature);
+        if (existing) {
+          document.head.replaceChild(document.importNode(node, true), existing);
+          return;
+        }
+      }
       document.head.insertBefore(document.importNode(node, true), anchor);
     });
   }
@@ -3200,6 +3287,513 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     });
   }
 
+  interface MorphContext {
+    keyed: Map<string, Element>;
+    nextKeys: Set<string>;
+    /** Keys whose live element cannot be reused because its tag changed, so
+     *  the unkeyed probe must treat it as doomed even though the key lives on
+     *  in the next document. */
+    obsolete: Set<string>;
+  }
+
+  /**
+   * What the SOURCE document declared for one element, as of the last time the
+   * source was applied to it.
+   *
+   * The morph needs this because the live DOM is authored by two writers: the
+   * design source, and whatever runtime the prototype loads (Alpine above all).
+   * Only the source's own contributions may be reconciled away — an x-show
+   * `display:none`, an `:class` token or an x-for clone has no counterpart in
+   * source and must survive an unrelated edit. Inferring that from directive
+   * names cannot work: it misses plugins, and it cannot tell an authored class
+   * the user just deleted from a class Alpine computed.
+   */
+  interface SourceMeta {
+    attrs: string[];
+    className: string;
+    style: string;
+  }
+
+  function sourceMetaFor(element: Element): SourceMeta | undefined {
+    return (element as Element & { __anSourceMeta?: SourceMeta })
+      .__anSourceMeta;
+  }
+
+  function isSourceOwned(node: Node): boolean {
+    return (node as Node & { __anSource?: boolean }).__anSource === true;
+  }
+
+  function recordSourceOwnership(node: Node): void {
+    (node as Node & { __anSource?: boolean }).__anSource = true;
+    if (node.nodeType !== 1) return;
+    var element = node as Element;
+    var names: string[] = [];
+    for (var i = 0; i < element.attributes.length; i += 1) {
+      names.push(element.attributes[i]!.name);
+    }
+    (element as Element & { __anSourceMeta?: SourceMeta }).__anSourceMeta = {
+      attrs: names,
+      className: element.getAttribute("class") ?? "",
+      style: element.getAttribute("style") ?? "",
+    };
+  }
+
+  function recordSourceSubtree(root: Node): void {
+    if (
+      root.nodeType === 1 &&
+      (root as Element).hasAttribute("data-agent-native-edit-overlay")
+    ) {
+      return;
+    }
+    recordSourceOwnership(root);
+    if (root.nodeType !== 1) return;
+    var template = templateContentOf(root as Element);
+    if (template) {
+      var held = template.childNodes;
+      for (var t = 0; t < held.length; t += 1) recordSourceSubtree(held[t]!);
+      return;
+    }
+    var children = (root as Element).childNodes;
+    for (var i = 0; i < children.length; i += 1) {
+      recordSourceSubtree(children[i]!);
+    }
+  }
+
+  /** A template's authored children live in `.content`, not as child nodes, so
+   *  a walk over childNodes silently ignores every edit inside an x-if/x-for
+   *  template until Alpine instantiates the stale markup. */
+  function templateContentOf(element: Element): DocumentFragment | null {
+    if (element.nodeName !== "TEMPLATE") return null;
+    return (element as HTMLTemplateElement).content ?? null;
+  }
+
+  function scopedMorphContext(
+    liveRoot: ParentNode,
+    nextRoot: ParentNode,
+  ): MorphContext {
+    var keyed = new Map<string, Element>();
+    liveRoot.querySelectorAll("[data-agent-native-node-id]").forEach(function (
+      element: Element,
+    ) {
+      if (!isSourceOwned(element)) return;
+      var key = element.getAttribute("data-agent-native-node-id");
+      if (key && !keyed.has(key)) keyed.set(key, element);
+    });
+    var nextKeys = new Set<string>();
+    nextRoot.querySelectorAll("[data-agent-native-node-id]").forEach(function (
+      element: Element,
+    ) {
+      var key = element.getAttribute("data-agent-native-node-id");
+      if (key) nextKeys.add(key);
+    });
+    return { keyed: keyed, nextKeys: nextKeys, obsolete: new Set<string>() };
+  }
+
+  /**
+   * Seeds ownership from the document the srcdoc was built from: this runs
+   * inline at the end of body during parsing, before any deferred script, so
+   * Alpine and every other deferred runtime has yet to render.
+   *
+   * Two things it cannot see. The head is already contaminated — a blocking
+   * script src such as the Tailwind runtime has injected there — which is why
+   * the head baseline is baked in at build time instead. And DOM appended by
+   * the design's OWN synchronous body scripts, which ran before this point, is
+   * indistinguishable from authored markup and will be treated as source. Our
+   * injected bridges are exempt: everything they add carries
+   * data-agent-native-edit-overlay, which recordSourceSubtree skips.
+   */
+  function captureInitialSourceOwnership(): void {
+    if (document.body) recordSourceSubtree(document.body);
+  }
+
+  function classTokens(value: string): string[] {
+    return value.split(/\s+/).filter(function (token) {
+      return token.length > 0;
+    });
+  }
+
+  /** Keeps class tokens the runtime added while applying the source's edit. */
+  function applyClassAttribute(
+    live: Element,
+    previousSource: string,
+    nextSource: string,
+  ): void {
+    var previous = classTokens(previousSource);
+    var current = classTokens(live.getAttribute("class") ?? "");
+    var result = classTokens(nextSource);
+    for (var i = 0; i < current.length; i += 1) {
+      var token = current[i]!;
+      if (previous.indexOf(token) !== -1) continue;
+      if (result.indexOf(token) === -1) result.push(token);
+    }
+    var value = result.join(" ");
+    if ((live.getAttribute("class") ?? "") === value) return;
+    if (value) live.setAttribute("class", value);
+    else live.removeAttribute("class");
+  }
+
+  /** Parsed through a real CSSStyleDeclaration so quoted values and
+   *  `!important` survive a round trip that a split on ";" would corrupt. */
+  var styleProbe: HTMLElement | null = null;
+
+  function styleDeclarations(value: string): Array<[string, string, string]> {
+    var probe = styleProbe || (styleProbe = document.createElement("div"));
+    probe.style.cssText = value || "";
+    var out: Array<[string, string, string]> = [];
+    for (var i = 0; i < probe.style.length; i += 1) {
+      var property = probe.style.item(i);
+      out.push([
+        property,
+        probe.style.getPropertyValue(property),
+        probe.style.getPropertyPriority(property),
+      ]);
+    }
+    return out;
+  }
+
+  /** Property-level counterpart to applyClassAttribute: a property the source
+   *  never declared belongs to the runtime (x-show writes display). */
+  function applyStyleAttribute(
+    live: Element,
+    previousSource: string,
+    nextSource: string,
+  ): void {
+    var previousOwned: Record<string, string> = {};
+    styleDeclarations(previousSource).forEach(function (entry) {
+      previousOwned[entry[0]] = entry[1];
+    });
+    var nextOwned: Record<string, true> = {};
+    styleDeclarations(nextSource).forEach(function (entry) {
+      nextOwned[entry[0]] = true;
+    });
+    var target = document.createElement("div");
+    target.style.cssText = nextSource || "";
+    styleDeclarations(live.getAttribute("style") ?? "").forEach(
+      function (entry) {
+        if (nextOwned[entry[0]]) return;
+        var wasSource = Object.prototype.hasOwnProperty.call(
+          previousOwned,
+          entry[0],
+        );
+        // Source declared this property and the live value still matches, so
+        // it is the source's to drop. A live value that has diverged is the
+        // runtime's — x-show writing display over an authored one — and
+        // dropping it un-hides the element.
+        if (wasSource && previousOwned[entry[0]] === entry[1]) return;
+        target.style.setProperty(entry[0], entry[1], entry[2]);
+      },
+    );
+    var value = target.style.cssText;
+    if ((live.getAttribute("style") ?? "") === value) return;
+    if (value) live.setAttribute("style", value);
+    else live.removeAttribute("style");
+  }
+
+  /** Form controls carry live state in properties the attributes do not
+   *  mirror. Gated on the DEFAULT changing, so a value the user typed is never
+   *  overwritten by an unrelated edit. */
+  function morphFormState(live: Element, next: Element): void {
+    if (live.nodeName === "INPUT") {
+      var input = live as HTMLInputElement;
+      var nextChecked = next.hasAttribute("checked");
+      if (input.defaultChecked !== nextChecked) {
+        input.defaultChecked = nextChecked;
+        input.checked = nextChecked;
+      }
+      var nextValue = next.getAttribute("value");
+      if (nextValue !== null && input.defaultValue !== nextValue) {
+        input.defaultValue = nextValue;
+        input.value = nextValue;
+      }
+      return;
+    }
+    if (live.nodeName === "TEXTAREA") {
+      var area = live as HTMLTextAreaElement;
+      var nextText = next.textContent ?? "";
+      if (area.defaultValue !== nextText) {
+        area.defaultValue = nextText;
+        area.value = nextText;
+      }
+      return;
+    }
+    if (live.nodeName === "OPTION") {
+      var option = live as HTMLOptionElement;
+      var nextSelected = next.hasAttribute("selected");
+      if (option.defaultSelected !== nextSelected) {
+        option.defaultSelected = nextSelected;
+        option.selected = nextSelected;
+      }
+    }
+  }
+
+  /** x-text and x-html hand their entire child list to the runtime; whatever
+   *  the source still carries inside them is pre-hydration fallback, not
+   *  content to reconcile. */
+  function declaresRuntimeChildren(element: Element): boolean {
+    return (
+      element.hasAttribute("x-text") ||
+      element.hasAttribute("x-html") ||
+      element.hasAttribute("v-text") ||
+      element.hasAttribute("v-html")
+    );
+  }
+
+  function scopeDirectiveChanged(live: Element, next: Element): boolean {
+    return (
+      (live.getAttribute("x-data") ?? "") !==
+      (next.getAttribute("x-data") ?? "")
+    );
+  }
+
+  function morphNodeKey(node: Node): string | null {
+    if (node.nodeType !== 1) return null;
+    return (node as Element).getAttribute("data-agent-native-node-id");
+  }
+
+  function morphAttributes(live: Element, next: Element): void {
+    var meta = sourceMetaFor(live);
+    var previousAttrs = meta ? meta.attrs : [];
+    var previousClass = meta ? meta.className : "";
+    var previousStyle = meta ? meta.style : "";
+    var nextNames: string[] = [];
+
+    var nextAttrs = next.attributes;
+    for (var i = 0; i < nextAttrs.length; i += 1) {
+      var attr = nextAttrs[i]!;
+      nextNames.push(attr.name);
+      if (attr.name === "class") {
+        applyClassAttribute(live, previousClass, attr.value);
+        continue;
+      }
+      if (attr.name === "style") {
+        applyStyleAttribute(live, previousStyle, attr.value);
+        continue;
+      }
+      // Alpine strips x-cloak the moment it initialises a tree. Source still
+      // carries it, and putting it back re-hides an element that is running.
+      if (attr.name === "x-cloak" && !live.hasAttribute("x-cloak")) continue;
+      if (live.getAttribute(attr.name) === attr.value) continue;
+      // A namespaced attribute (xlink:href inside an SVG) set through the
+      // plain setter becomes an inert same-named attribute the renderer
+      // ignores.
+      if (attr.namespaceURI) {
+        live.setAttributeNS(attr.namespaceURI, attr.name, attr.value);
+      } else {
+        live.setAttribute(attr.name, attr.value);
+      }
+    }
+
+    for (var j = 0; j < previousAttrs.length; j += 1) {
+      var name = previousAttrs[j]!;
+      if (nextNames.indexOf(name) !== -1) continue;
+      if (name === "class") {
+        applyClassAttribute(live, previousClass, "");
+        continue;
+      }
+      if (name === "style") {
+        applyStyleAttribute(live, previousStyle, "");
+        continue;
+      }
+      live.removeAttribute(name);
+    }
+
+    (live as Element & { __anSourceMeta?: SourceMeta }).__anSourceMeta = {
+      attrs: nextNames,
+      className: next.getAttribute("class") ?? "",
+      style: next.getAttribute("style") ?? "",
+    };
+  }
+
+  function morphChildren(
+    live: Element | DocumentFragment,
+    next: Element | DocumentFragment,
+    context: MorphContext,
+  ): void {
+    var cursor = live.firstChild;
+    var nextChild = next.firstChild;
+    while (nextChild) {
+      var key = morphNodeKey(nextChild);
+      var reuse: Node | null = null;
+      if (key) {
+        var candidate = context.keyed.get(key) ?? null;
+        // A keyed node that already contains this parent cannot be moved
+        // inside itself; recreate it instead of building a cycle. A candidate
+        // whose tag changed cannot be morphed into the new one either — the
+        // iframe would keep a div where source now says button.
+        if (
+          candidate &&
+          !candidate.contains(live) &&
+          candidate.nodeName === nextChild.nodeName &&
+          candidate.namespaceURI === (nextChild as Element).namespaceURI
+        ) {
+          reuse = candidate;
+          // Claim it: authored markup can repeat an id, and reusing one live
+          // element for both would move the same node twice and drop one.
+          context.keyed.delete(key);
+        } else if (candidate) {
+          context.obsolete.add(key);
+        }
+      } else {
+        // Skip live siblings that cannot be this source child: runtime output,
+        // and keyed nodes already destined to disappear. Stopping at one would
+        // import a fresh copy of the unchanged node behind it and destroy the
+        // original's listeners and state.
+        var probe: Node | null = cursor;
+        while (probe) {
+          var probeKey = morphNodeKey(probe);
+          if (probeKey) {
+            if (
+              context.nextKeys.has(probeKey) &&
+              !context.obsolete.has(probeKey)
+            ) {
+              break;
+            }
+            probe = probe.nextSibling;
+            continue;
+          }
+          if (!isSourceOwned(probe)) {
+            probe = probe.nextSibling;
+            continue;
+          }
+          if (
+            probe.nodeType === nextChild.nodeType &&
+            probe.nodeName === nextChild.nodeName
+          ) {
+            reuse = probe;
+          }
+          break;
+        }
+      }
+      if (
+        reuse &&
+        reuse.nodeType === 1 &&
+        scopeDirectiveChanged(reuse as Element, nextChild as Element)
+      ) {
+        // Rebuild just this component rather than the frame: Alpine evaluates
+        // x-data once at init, so patching it in place leaves every binding
+        // underneath reading the previous scope. Alpine's own observer
+        // initialises the replacement.
+        var rebuilt = document.importNode(nextChild as Element, true);
+        // Anchor on `cursor`, not on `reuse`: a keyed candidate can live
+        // anywhere in the document, so when this parent is itself newly
+        // inserted the old node is not its child and insertBefore throws.
+        live.insertBefore(rebuilt, cursor);
+        if (reuse.parentNode) reuse.parentNode.removeChild(reuse);
+        recordSourceSubtree(rebuilt);
+        cursor = rebuilt.nextSibling;
+        nextChild = nextChild.nextSibling;
+        continue;
+      }
+      if (reuse) {
+        if (reuse !== cursor) live.insertBefore(reuse, cursor);
+        if (reuse.nodeType === 1) {
+          morphElement(reuse as Element, nextChild as Element, context);
+        } else if (reuse.nodeValue !== nextChild.nodeValue) {
+          reuse.nodeValue = nextChild.nodeValue;
+        }
+        cursor = reuse.nextSibling;
+      } else if (nextChild.nodeType === 1) {
+        // Shell first, then reconcile: a deep import would clone keyed
+        // descendants that already exist live, and the originals would be
+        // swept as stale right after. Wrapping a component in a new parent
+        // (the Group action) has to move the existing child, not rebuild it.
+        var shell = document.importNode(nextChild as Element, false) as Element;
+        live.insertBefore(shell, cursor);
+        recordSourceOwnership(shell);
+        morphElement(shell, nextChild as Element, context);
+        // That reconcile can pull `cursor` itself into the shell, leaving the
+        // outer walk holding a node this parent no longer owns.
+        cursor = shell.nextSibling;
+      } else {
+        var imported = document.importNode(nextChild, true);
+        live.insertBefore(imported, cursor);
+        recordSourceSubtree(imported);
+      }
+      nextChild = nextChild.nextSibling;
+    }
+    while (cursor) {
+      var stale = cursor;
+      cursor = cursor.nextSibling;
+      // A keyed node can have been moved into a subtree inserted earlier in
+      // this same pass; it is no longer this parent's to remove.
+      if (stale.parentNode !== live) continue;
+      // Only the source's own children are the source's to delete. What is
+      // left is runtime output — an x-for clone, x-text's text node — and the
+      // runtime holds the same parent element, so it never re-renders it.
+      if (!isSourceOwned(stale)) continue;
+      live.removeChild(stale);
+    }
+  }
+
+  function morphElement(
+    live: Element,
+    next: Element,
+    context: MorphContext,
+  ): void {
+    // Before morphAttributes: writing the `value` attribute moves
+    // defaultValue, and the guard inside morphFormState reads defaultValue to
+    // decide whether the SOURCE default changed. Run it after and a dirty
+    // input never sees an explicit source edit.
+    morphFormState(live, next);
+    morphAttributes(live, next);
+    if (declaresRuntimeChildren(next) || declaresRuntimeChildren(live)) return;
+    var liveTemplate = templateContentOf(live);
+    var nextTemplate = templateContentOf(next);
+    if (liveTemplate && nextTemplate) {
+      // Its own key scope: a node id can legitimately appear both inside a
+      // template and in the instantiated body, and the outer map must not
+      // hand the live one over to the template.
+      morphChildren(
+        liveTemplate,
+        nextTemplate,
+        scopedMorphContext(liveTemplate, nextTemplate),
+      );
+      return;
+    }
+    morphChildren(live, next, context);
+  }
+
+  /**
+   * Reconcile the live body against the parsed next document, reusing every
+   * node whose `data-agent-native-node-id` is unchanged.
+   *
+   * Never `body.innerHTML = next`. That rebuilds every node in the screen, so
+   * editing one element restarts Alpine components, CSS transitions and media,
+   * drops focus and inner scroll positions, and re-decodes every image — the
+   * "the frame refreshed" report. This walk touches only what differs.
+   *
+   * Like innerHTML it does not execute an inserted script, so a changed script
+   * is still the caller's cue to rebuild the document — see
+   * `runtimeDocumentNeedsReload` in DesignCanvas.tsx.
+   */
+  function morphRuntimeBody(nextBody: Element): void {
+    var keyed = new Map<string, Element>();
+    document.querySelectorAll("[data-agent-native-node-id]").forEach(function (
+      element: Element,
+    ) {
+      // An x-for clone copies the template's markup, node id and all. Indexing
+      // one would let the morph adopt a runtime clone as the source node and
+      // move it out of the list it belongs to.
+      if (!isSourceOwned(element)) return;
+      var key = element.getAttribute("data-agent-native-node-id");
+      // First occurrence wins: a duplicated id in authored markup must not
+      // let a later node steal an earlier node's identity.
+      if (key && !keyed.has(key)) keyed.set(key, element);
+    });
+    var nextKeys = new Set<string>();
+    nextBody.querySelectorAll("[data-agent-native-node-id]").forEach(function (
+      element: Element,
+    ) {
+      var key = element.getAttribute("data-agent-native-node-id");
+      if (key) nextKeys.add(key);
+    });
+    morphElement(document.body, nextBody, {
+      keyed: keyed,
+      nextKeys: nextKeys,
+      obsolete: new Set<string>(),
+    });
+  }
+
   function replaceRuntimeDocument(
     html: string,
     preferredSelector: string,
@@ -3283,9 +3877,15 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     var nextHeadHtml = nextDoc.head ? nextDoc.head.innerHTML : "";
     ensureEditorChromeStyle();
     if (lastSourceHeadHtml === null) {
-      // First patch after a srcdoc build, so the document already carries this
-      // source head. Forced replacements adopt too: treating the live head as
-      // the baseline is what wipes the runtime's own nodes.
+      // First patch after a srcdoc build. The document already carries the
+      // head it was built from, so this seeds the baseline — but it cannot
+      // just adopt: when the first patch is itself a head edit (a breakpoint,
+      // motion or token write, none of which reload the frame any more),
+      // adopting means that stylesheet never reaches the live document and
+      // every later diff is measured against a head that was never applied.
+      // Insert only what is genuinely new; replaceSourceHeadNodes skips nodes
+      // already present.
+      replaceSourceHeadNodes(null, nextHeadHtml);
       lastSourceHeadHtml = nextHeadHtml;
     }
     var currentHeadHtml = lastSourceHeadHtml;
@@ -3376,17 +3976,12 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       ensureEditorChromeStyle();
       lastSourceHeadHtml = nextHeadHtml;
     }
-    Array.prototype.slice.call(document.body.attributes).forEach(function (
-      attribute: Attr,
-    ) {
-      document.body.removeAttribute(attribute.name);
+    // Detached first so the keyed walk below never sees editor chrome as a
+    // stale child of the source document and removes it.
+    persistentNodes.forEach(function (node) {
+      if (node.parentNode) node.parentNode.removeChild(node);
     });
-    Array.prototype.slice.call(nextDoc.body.attributes).forEach(function (
-      attribute: Attr,
-    ) {
-      document.body.setAttribute(attribute.name, attribute.value);
-    });
-    document.body.innerHTML = nextDoc.body.innerHTML;
+    morphRuntimeBody(nextDoc.body);
     persistentNodes.forEach(function (node) {
       document.body.appendChild(node);
     });
@@ -13300,6 +13895,7 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       ],
     });
   }
+  captureInitialSourceOwnership();
   if (runtimeLayerSnapshotEnabled) scheduleRuntimeLayerSnapshot();
 
   // One-time ready signal: tells the host that every message listener above is

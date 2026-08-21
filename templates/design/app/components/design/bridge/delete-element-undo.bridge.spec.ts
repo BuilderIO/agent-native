@@ -24,7 +24,8 @@ function hydratedEditorChromeBridgeScript(): string {
     .replace("__DESIGN_CANVAS_BOARD_SURFACE__", "false")
     .replace("__DESIGN_CANVAS_CONTENT_OFFSET_X__", "0")
     .replace("__DESIGN_CANVAS_CONTENT_OFFSET_Y__", "0")
-    .replace("__RUNTIME_LAYER_SNAPSHOT_ENABLED__", "false");
+    .replace("__RUNTIME_LAYER_SNAPSHOT_ENABLED__", "false")
+    .replace(/__INITIAL_SOURCE_HEAD__/g, '""');
 }
 
 const FIXTURE = `<!doctype html><html><body>

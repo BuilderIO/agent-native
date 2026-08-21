@@ -82,7 +82,8 @@ function hydratedEditorChromeBridgeScript(
     .replace(
       "__RUNTIME_LAYER_SNAPSHOT_ENABLED__",
       runtimeLayerSnapshotEnabled ? "true" : "false",
-    );
+    )
+    .replace(/__INITIAL_SOURCE_HEAD__/g, '""');
 }
 
 function hydratedReadOnlyEditorChromeBridgeScript(): string {
