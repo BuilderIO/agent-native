@@ -143,6 +143,7 @@ import {
   getBuilderBrowserStatusForEvent,
   isBuilderConnectCallbackUrlAllowed,
   isSignedBuilderConnectState,
+  normalizeBuilderAgentContext,
   resolveBuilderBranchProjectId,
   resolveBuilderConnectCallbackUrl,
   resolveBuilderPreviewRelayParentOrigin,
@@ -2713,11 +2714,21 @@ export function createCoreRoutesPlugin(
             setResponseStatus(event, 405);
             return { error: "Method not allowed" };
           }
+          await assertBodySize(event, 64 * 1024);
           const body = await readBody(event).catch(() => ({}) as any);
           const prompt = typeof body?.prompt === "string" ? body.prompt : "";
           if (!prompt.trim()) {
             setResponseStatus(event, 400);
             return { error: "prompt is required" };
+          }
+          let context: string | undefined;
+          try {
+            context = normalizeBuilderAgentContext(body?.context);
+          } catch (error) {
+            setResponseStatus(event, 400);
+            return {
+              error: error instanceof Error ? error.message : "Invalid context",
+            };
           }
           const session = await getSession(event).catch(() => null);
           if (!session?.email) {
@@ -2763,6 +2774,7 @@ export function createCoreRoutesPlugin(
               try {
                 const result = await runBuilderAgent({
                   prompt,
+                  context,
                   projectId,
                   branchName:
                     typeof body?.branchName === "string"

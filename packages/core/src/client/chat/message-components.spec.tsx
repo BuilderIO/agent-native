@@ -34,6 +34,7 @@ import {
   assistantMessageTurnId,
   assistantMessageWasUserStopped,
   ChatImageAttachmentPreview,
+  MISSING_FINAL_RESPONSE_SETTLE_MS,
   resolveAssistantRequestId,
 } from "./message-components.js";
 import { runErrorKey } from "./run-recovery.js";
@@ -509,13 +510,14 @@ describe("useSettledFlag", () => {
   });
 
   it("holds the flag back until the condition has lasted the delay", () => {
+    expect(MISSING_FINAL_RESPONSE_SETTLE_MS).toBe(3_000);
     act(() => {
-      root.render(<Probe active delayMs={3000} />);
+      root.render(<Probe active delayMs={MISSING_FINAL_RESPONSE_SETTLE_MS} />);
     });
     expect(container.textContent).toBe("hidden");
 
     act(() => {
-      vi.advanceTimersByTime(2999);
+      vi.advanceTimersByTime(MISSING_FINAL_RESPONSE_SETTLE_MS - 1);
     });
     expect(container.textContent).toBe("hidden");
 
@@ -527,13 +529,15 @@ describe("useSettledFlag", () => {
 
   it("never shows when the condition clears inside the delay, and re-arms after", () => {
     act(() => {
-      root.render(<Probe active delayMs={3000} />);
+      root.render(<Probe active delayMs={MISSING_FINAL_RESPONSE_SETTLE_MS} />);
     });
     act(() => {
       vi.advanceTimersByTime(2000);
     });
     act(() => {
-      root.render(<Probe active={false} delayMs={3000} />);
+      root.render(
+        <Probe active={false} delayMs={MISSING_FINAL_RESPONSE_SETTLE_MS} />,
+      );
     });
     act(() => {
       vi.advanceTimersByTime(5000);
@@ -541,11 +545,11 @@ describe("useSettledFlag", () => {
     expect(container.textContent).toBe("hidden");
 
     act(() => {
-      root.render(<Probe active delayMs={3000} />);
+      root.render(<Probe active delayMs={MISSING_FINAL_RESPONSE_SETTLE_MS} />);
     });
     expect(container.textContent).toBe("hidden");
     act(() => {
-      vi.advanceTimersByTime(3000);
+      vi.advanceTimersByTime(MISSING_FINAL_RESPONSE_SETTLE_MS);
     });
     expect(container.textContent).toBe("shown");
   });

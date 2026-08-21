@@ -46,6 +46,11 @@ import { toast } from "sonner";
 
 import { useAuth } from "@/components/auth/AuthProvider";
 import { ANALYTICS_CHAT_STORAGE_KEY } from "@/lib/chat-handoff";
+import {
+  matchesDashboardVisibilityFilter,
+  type DashboardVisibility,
+  type DashboardVisibilityFilter,
+} from "@/lib/dashboard-visibility";
 import { cn, shortcutModifierLabel } from "@/lib/utils";
 import {
   dashboards,
@@ -63,6 +68,7 @@ type SidebarDashboard = {
   source: "static" | "sql" | "analysis";
   resourceId?: string;
   visibility?: Visibility;
+  ownerEmail?: string | null;
   /** Id of the dashboard this one nests under in the sidebar, if any. */
   parentId?: string;
 };
@@ -162,7 +168,7 @@ const SIDEBAR_SKELETON_CLASS =
   "bg-sidebar-foreground/12 dark:bg-sidebar-foreground/10";
 
 type SidebarSortMode = "most-used" | "alphabetical" | "manual";
-type SidebarVisibilityFilter = "all" | "private" | "shared";
+type SidebarVisibilityFilter = DashboardVisibilityFilter;
 
 import {
   DndContext,
@@ -258,14 +264,11 @@ function isVisibility(value: unknown): value is Visibility {
 }
 
 export function matchesVisibilityFilter(
-  item: { visibility?: Visibility },
+  item: { visibility?: Visibility; ownerEmail?: string | null },
   filter: SidebarVisibilityFilter,
+  currentUserEmail?: string | null,
 ): boolean {
-  if (filter === "all") return true;
-  if (filter === "private") {
-    return item.visibility !== "org" && item.visibility !== "public";
-  }
-  return item.visibility === "org" || item.visibility === "public";
+  return matchesDashboardVisibilityFilter(item, filter, currentUserEmail);
 }
 
 export function threadMatchesVisibilityFilter(
@@ -447,7 +450,7 @@ function SidebarSectionSettingsPopover({
 
 // --- Visibility types and helpers ---
 
-type Visibility = "private" | "org" | "public";
+type Visibility = DashboardVisibility;
 
 // --- Shared sortable row (used by both dashboards and analyses) ---
 
@@ -1143,6 +1146,7 @@ type SqlDashboardListItem = {
   id: string;
   name: string;
   visibility?: Visibility;
+  ownerEmail?: string | null;
   parentId?: string;
 };
 
@@ -1167,6 +1171,7 @@ async function fetchSqlDashboards(
           ? d.name
           : t("sidebar.untitledDashboard"),
       visibility: d.visibility as Visibility,
+      ownerEmail: typeof d.ownerEmail === "string" ? d.ownerEmail : null,
       parentId:
         typeof d.parentId === "string" && d.parentId.trim().length > 0
           ? d.parentId
@@ -1525,7 +1530,8 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       activeDashboardId !== null,
   );
   const [dashShowAll, setDashShowAll] = useState(false);
-  const [dashFilter, setDashFilter] = useState<SidebarVisibilityFilter>("all");
+  const [dashFilter, setDashFilter] =
+    useState<SidebarVisibilityFilter>("private");
   const [dashboardSortMode, setDashboardSortModeState] =
     useState<SidebarSortMode>(() => getStoredSortMode(DASHBOARD_SORT_MODE_KEY));
   const { data: popularity, isReady: popularityReady } = usePopularity();
@@ -1749,6 +1755,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       name: d.name,
       source: "sql",
       visibility: d.visibility,
+      ownerEmail: d.ownerEmail,
       parentId: d.parentId,
     }));
     const analysisItems: SidebarDashboard[] = analysesList.map((a) => ({
@@ -1802,9 +1809,9 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const filteredDashboards = useMemo(
     () =>
       visibleDashboards.filter((dashboard) =>
-        matchesVisibilityFilter(dashboard, dashFilter),
+        matchesVisibilityFilter(dashboard, dashFilter, auth?.email),
       ),
-    [visibleDashboards, dashFilter],
+    [auth?.email, visibleDashboards, dashFilter],
   );
 
   // Group dashboards that declare a parentId beneath their parent. Nesting is

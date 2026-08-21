@@ -15,8 +15,8 @@ name: Auto-merge Version Packages PR
 # with `bypass_mode: always`, so `gh pr merge --admin` skips the
 # in-progress required checks.
 #
-# The merge to main then fires auto-publish.yml, which runs
-# `changeset publish` and pushes the new versions to npm.
+# The merge to main fires auto-publish.yml only for a marked, manually
+# requested stable release. Ordinary main pushes remain nightly-only.
 
 on:
   pull_request:

@@ -119,7 +119,7 @@ export default function DesignTemplate() {
         }
         media={
           <BuilderImage
-            src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fac64659497d24eacad0777227843535f"
+            src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F91a780695c114be6b4686d04385b982e"
             crossOrigin="anonymous"
             alt={t("templateLanding.design.s001")}
             loading="lazy"

@@ -15,6 +15,11 @@ export {
   type UseSemanticNavigationStateResult,
 } from "../route-state.js";
 export {
+  AGENT_NATIVE_WORKSPACE_APP_ROUTE_MESSAGE_TYPE,
+  postAgentNativeWorkspaceAppRoute,
+  type AgentNativeWorkspaceAppRouteMessage,
+} from "../workspace-app-navigation.js";
+export {
   COMMAND_MENU_OPEN_EVENT,
   CommandMenu,
   openAgentSidebar,

@@ -88,19 +88,27 @@ export function fetchThreadMessages(
 }
 
 let externalRefreshAt = 0;
+let externalRefreshGeneration = 0;
+const externalRefreshConsumers = new Map<string, number>();
 
 export function markExternalEmailRefresh() {
   externalRefreshAt = Date.now();
+  externalRefreshGeneration += 1;
 }
 
-export function consumeExternalEmailRefresh(): number | undefined {
+export function consumeExternalEmailRefresh(
+  scope = "default",
+): number | undefined {
   const refreshAt = externalRefreshAt;
   if (!refreshAt) return undefined;
   if (Date.now() - refreshAt >= 5000) {
     externalRefreshAt = 0;
+    externalRefreshConsumers.clear();
     return undefined;
   }
-  externalRefreshAt = 0;
+  if (externalRefreshConsumers.get(scope) === externalRefreshGeneration)
+    return undefined;
+  externalRefreshConsumers.set(scope, externalRefreshGeneration);
   return refreshAt;
 }
 
@@ -516,7 +524,9 @@ export function useEmails(
       if (label) params.set("label", label);
       if (pageParam) params.set("pageToken", pageParam);
       const forceRefreshAt = !pageParam
-        ? consumeExternalEmailRefresh()
+        ? consumeExternalEmailRefresh(
+            JSON.stringify([view, search ?? null, label ?? null]),
+          )
         : undefined;
       if (forceRefreshAt) {
         params.set("forceRefresh", String(forceRefreshAt));

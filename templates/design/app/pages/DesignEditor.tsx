@@ -748,6 +748,7 @@ import {
   PngCaptureError,
   type PngCaptureScope,
 } from "./design-editor/png-export-render";
+import { openPreviewUrl } from "./design-editor/preview-navigation";
 import {
   computeInteractZoomToFit,
   DEFAULT_INTERACT_DEVICE_PRESET,
@@ -13524,7 +13525,7 @@ function DesignEditor() {
     setOverviewSelectAllRequest((request) => request + 1);
   }, [activeFile, getFreshActiveContent, overviewScreens]);
 
-  // L12: shared by Cmd+R and the canvas context-menu Rename item — the single
+  // Shared by the canvas context-menu Rename item — the single
   // currently-selected layer id eligible for the layers-panel inline rename,
   // or null when zero or more-than-one layers are selected (screen/file rows
   // are excluded; renaming those is a separate flow). `__`-prefixed and file
@@ -13620,14 +13621,9 @@ function DesignEditor() {
           handleDeleteOverviewSelection(selectedLayerIdsState);
         }
       : undefined,
-    // L12: Cmd+R (and the context-menu Rename item, both routed through
-    // useDesignHotkeys' onRename) previously always renamed the DESIGN
-    // TITLE, even while a layer was selected — surprising when the user's
-    // focus is clearly on a specific layer. Route to the layer's real inline
-    // rename editor (LayersPanel ref's beginRename) when exactly one
-    // selectable (non-file-row) layer is selected; only fall back to
-    // renaming the design title when nothing (or more than one layer) is
-    // selected.
+    // The context-menu Rename item routes to the layer's real inline rename
+    // editor (LayersPanel ref's beginRename) when exactly one selectable
+    // (non-file-row) layer is selected.
     onRename: () => {
       if (!canEditDesign) return;
       const layerId = getSingleSelectedRenamableLayerId();
@@ -16017,19 +16013,24 @@ function DesignEditor() {
 
   // ── Preview, publish waitlist, gradient, interaction states ────────────────
   const handleOpenDesignPreview = useCallback(() => {
-    if (activeScreenPreviewUrl) {
-      window.open(activeScreenPreviewUrl, "_blank", "noopener,noreferrer");
-      return;
+    let previewUrl = activeScreenPreviewUrl;
+    let blobUrl: string | null = null;
+    if (!previewUrl) {
+      if (!activeContent.trim()) return;
+      blobUrl = URL.createObjectURL(
+        new Blob([fullPreviewHtml(activeContent)], { type: "text/html" }),
+      );
+      previewUrl = blobUrl;
     }
 
-    const content = activeContent.trim();
-    if (!content) return;
-
-    const blobUrl = URL.createObjectURL(
-      new Blob([fullPreviewHtml(activeContent)], { type: "text/html" }),
+    openPreviewUrl(
+      previewUrl,
+      (url, target) => window.open(url, target),
+      (url) => window.location.assign(url),
     );
-    window.open(blobUrl, "_blank", "noopener,noreferrer");
-    window.setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+    if (blobUrl) {
+      window.setTimeout(() => URL.revokeObjectURL(blobUrl!), 60_000);
+    }
   }, [activeContent, activeScreenPreviewUrl]);
 
   const handleJoinPublishWaitlist = useCallback(async () => {
@@ -19458,9 +19459,8 @@ function DesignEditor() {
                 (selectedScreenIds.length > 0 && files.length > 1)),
             )}
             canReorder={canEditDesign && Boolean(selectedElement)}
-            // L12: rename is only offered for a single selectable layer
-            // target (matching Cmd+R's routing) — the design-title rename
-            // flow lives elsewhere (the title control), not this menu.
+            // Rename is only offered for a single selectable layer target;
+            // design-title rename lives in the title control, not this menu.
             canRename={
               canEditDesign && Boolean(getSingleSelectedRenamableLayerId())
             }

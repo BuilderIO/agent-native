@@ -10,6 +10,7 @@ import { getDbExec } from "@agent-native/core/db";
 import { getSetting } from "@agent-native/core/settings";
 import { ForbiddenError } from "@agent-native/core/sharing";
 import {
+  builderCreditsFromCostCents,
   getUsageSummary,
   usageBillingForEngine,
   type UsageBillingMode,
@@ -73,6 +74,26 @@ export interface DailyUsageMetric {
   activeUsers: number;
 }
 
+export interface MonthlyUserUsageMetric {
+  month: string;
+  ownerEmail: string;
+  costCents: number;
+  credits: number;
+  calls: number;
+  chatCalls: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+}
+
+export interface WorkspaceAppCreationMetric {
+  month: string;
+  ownerEmail: string;
+  count: number;
+  appIds: string[];
+}
+
 export interface RecentUsageMetric {
   id: number;
   createdAt: number;
@@ -134,6 +155,8 @@ export interface DispatchUsageMetrics {
   byLabel: UsageMetricBucket[];
   byModel: UsageMetricBucket[];
   daily: DailyUsageMetric[];
+  monthlyByUser: MonthlyUserUsageMetric[];
+  workspaceAppCreationsByUserMonth: WorkspaceAppCreationMetric[];
   appAccess: AppAccessMetric[];
   recent: RecentUsageMetric[];
 }
@@ -497,6 +520,28 @@ function ownerThreadScope(
   };
 }
 
+function workspaceAppCreationScope(
+  sinceMs: number,
+  orgId: string | null,
+  memberEmails: string[],
+): { where: string; args: unknown[] } {
+  const filters = ["created_at >= ?", "action = ?"];
+  const args: unknown[] = [sinceMs, "workspace-app.pending"];
+
+  if (orgId) {
+    filters.push("org_id = ?");
+    args.push(orgId);
+  }
+  if (memberEmails.length > 0) {
+    filters.push(
+      `LOWER(owner_email) IN (${memberEmails.map(() => "?").join(", ")})`,
+    );
+    args.push(...memberEmails.map((email) => email.toLowerCase()));
+  }
+
+  return { where: filters.join(" AND "), args };
+}
+
 function bucketFromRow(row: Record<string, unknown>): UsageMetricBucket {
   const key = stringField(row, "k");
   return {
@@ -645,11 +690,25 @@ export async function listDispatchUsageMetrics(input: {
     ? ownerThreadScope(sinceMs, selectedUserEmail)
     : threadScope(sinceMs, memberEmails);
 
-  const [apps, totalsRows, byApp, byUserBase, byLabel, byModel, chatStats] =
-    await Promise.all([
-      listWorkspaceApps({ includeAgentCards: false }),
-      queryRows<Record<string, unknown>>(
-        `SELECT
+  const workspaceAppCreation = workspaceAppCreationScope(
+    sinceMs,
+    orgId,
+    memberEmails,
+  );
+
+  const [
+    apps,
+    totalsRows,
+    byApp,
+    byUserBase,
+    byLabel,
+    byModel,
+    chatStats,
+    workspaceAppCreationRows,
+  ] = await Promise.all([
+    listWorkspaceApps({ includeAgentCards: false }),
+    queryRows<Record<string, unknown>>(
+      `SELECT
             COALESCE(SUM(cost_cents_x100), 0) AS cost_x100,
             COUNT(*) AS calls,
             SUM(CASE WHEN label = 'chat' THEN 1 ELSE 0 END) AS chat_calls,
@@ -660,29 +719,36 @@ export async function listDispatchUsageMetrics(input: {
             COUNT(DISTINCT owner_email) AS active_users
           FROM token_usage
           WHERE ${usage.where}`,
-        usage.args,
-      ),
-      usageBuckets(
-        `COALESCE(NULLIF(app, ''), 'unattributed')`,
-        usage.where,
-        usage.args,
-        20,
-      ),
-      usageBuckets("owner_email", usage.where, usage.args, 50),
-      usageBuckets(
-        `COALESCE(NULLIF(label, ''), 'chat')`,
-        usage.where,
-        usage.args,
-        20,
-      ),
-      usageBuckets(
-        `COALESCE(NULLIF(model, ''), 'unknown')`,
-        usage.where,
-        usage.args,
-        20,
-      ),
-      loadChatStats(threads.where, threads.args),
-    ]);
+      usage.args,
+    ),
+    usageBuckets(
+      `COALESCE(NULLIF(app, ''), 'unattributed')`,
+      usage.where,
+      usage.args,
+      20,
+    ),
+    usageBuckets("owner_email", usage.where, usage.args, 50),
+    usageBuckets(
+      `COALESCE(NULLIF(label, ''), 'chat')`,
+      usage.where,
+      usage.args,
+      20,
+    ),
+    usageBuckets(
+      `COALESCE(NULLIF(model, ''), 'unknown')`,
+      usage.where,
+      usage.args,
+      20,
+    ),
+    loadChatStats(threads.where, threads.args),
+    queryRows<Record<string, unknown>>(
+      `SELECT owner_email, actor, target_id, created_at
+          FROM dispatch_audit_events
+          WHERE ${workspaceAppCreation.where}
+          ORDER BY created_at ASC`,
+      workspaceAppCreation.args,
+    ),
+  ]);
 
   const topAppRows = await queryRows<Record<string, unknown>>(
     `SELECT owner_email AS owner_email,
@@ -746,7 +812,8 @@ export async function listDispatchUsageMetrics(input: {
   }
 
   const dayRows = await queryRows<Record<string, unknown>>(
-    `SELECT created_at, owner_email, label, cost_cents_x100
+    `SELECT created_at, owner_email, label, input_tokens, output_tokens,
+        cache_read_tokens, cache_write_tokens, cost_cents_x100
       FROM token_usage
       WHERE ${usage.where}
       ORDER BY created_at ASC`,
@@ -756,10 +823,16 @@ export async function listDispatchUsageMetrics(input: {
     string,
     { costX100: number; calls: number; chatCalls: number; users: Set<string> }
   >();
+  const monthlyByUserMap = new Map<
+    string,
+    Omit<MonthlyUserUsageMetric, "credits">
+  >();
   for (const row of dayRows) {
     const date = new Date(numberField(row, "created_at"))
       .toISOString()
       .slice(0, 10);
+    const month = date.slice(0, 7);
+    const ownerEmail = stringField(row, "owner_email");
     const current = dailyMap.get(date) ?? {
       costX100: 0,
       calls: 0,
@@ -769,8 +842,29 @@ export async function listDispatchUsageMetrics(input: {
     current.costX100 += numberField(row, "cost_cents_x100");
     current.calls += 1;
     if (stringField(row, "label") === "chat") current.chatCalls += 1;
-    current.users.add(stringField(row, "owner_email"));
+    current.users.add(ownerEmail);
     dailyMap.set(date, current);
+
+    const monthlyKey = `${ownerEmail}\u0000${month}`;
+    const monthly = monthlyByUserMap.get(monthlyKey) ?? {
+      month,
+      ownerEmail,
+      costCents: 0,
+      calls: 0,
+      chatCalls: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+    };
+    monthly.costCents += numberField(row, "cost_cents_x100") / 100;
+    monthly.calls += 1;
+    if (stringField(row, "label") === "chat") monthly.chatCalls += 1;
+    monthly.inputTokens += numberField(row, "input_tokens");
+    monthly.outputTokens += numberField(row, "output_tokens");
+    monthly.cacheReadTokens += numberField(row, "cache_read_tokens");
+    monthly.cacheWriteTokens += numberField(row, "cache_write_tokens");
+    monthlyByUserMap.set(monthlyKey, monthly);
   }
   const daily = [...dailyMap.entries()]
     .map(([date, value]) => ({
@@ -781,6 +875,51 @@ export async function listDispatchUsageMetrics(input: {
       activeUsers: value.users.size,
     }))
     .sort((a, b) => a.date.localeCompare(b.date));
+
+  const monthlyByUser = [...monthlyByUserMap.values()]
+    .map((row) => ({
+      ...row,
+      credits: builderCreditsFromCostCents(row.costCents),
+    }))
+    .sort(
+      (a, b) =>
+        a.month.localeCompare(b.month) ||
+        a.ownerEmail.localeCompare(b.ownerEmail),
+    );
+
+  const workspaceAppCreationMap = new Map<
+    string,
+    { month: string; ownerEmail: string; count: number; appIds: Set<string> }
+  >();
+  for (const row of workspaceAppCreationRows) {
+    const month = new Date(numberField(row, "created_at"))
+      .toISOString()
+      .slice(0, 7);
+    const ownerEmail =
+      stringField(row, "owner_email") || stringField(row, "actor");
+    if (!ownerEmail) continue;
+    const key = `${ownerEmail}\u0000${month}`;
+    const current = workspaceAppCreationMap.get(key) ?? {
+      month,
+      ownerEmail,
+      count: 0,
+      appIds: new Set<string>(),
+    };
+    current.count += 1;
+    const appId = stringField(row, "target_id");
+    if (appId) current.appIds.add(appId);
+    workspaceAppCreationMap.set(key, current);
+  }
+  const workspaceAppCreationsByUserMonth = [...workspaceAppCreationMap.values()]
+    .map(({ appIds, ...row }) => ({
+      ...row,
+      appIds: [...appIds].sort(),
+    }))
+    .sort(
+      (a, b) =>
+        a.month.localeCompare(b.month) ||
+        a.ownerEmail.localeCompare(b.ownerEmail),
+    );
 
   const recentRows = await queryRows<Record<string, unknown>>(
     `SELECT id, created_at, owner_email, app, label, model,
@@ -873,6 +1012,8 @@ export async function listDispatchUsageMetrics(input: {
     byLabel,
     byModel,
     daily,
+    monthlyByUser,
+    workspaceAppCreationsByUserMonth,
     appAccess,
     recent,
   };

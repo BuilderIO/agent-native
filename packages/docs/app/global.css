@@ -218,6 +218,14 @@ body {
   text-align: center;
 }
 
+.template-detail-cta-actions > .secondary-button {
+  min-height: 40px;
+  background-color: var(--bg);
+  padding: 0 20px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
 .template-detail-cta-actions {
   background-color: var(--bg);
   background-image:

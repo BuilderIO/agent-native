@@ -286,10 +286,13 @@ function looksLikeWorkflowOrAutomationRequest(lower: string): boolean {
 }
 
 const ANALYTICS_RESULT_TERMS =
-  /\b(conversion|conversions|funnel|revenue|payment|payments|traffic|pageviews?|signups?|events?|active users?|sessions?|retention|churn|pipeline|deals?|calls?|transcripts?|sentiment|themes?|objections?|cohorts?|segments?|accounts?|customers?|tickets?|issues?|leads?|opportunities|mrr|arr|ctr|cvr|cac|ltv)\b/;
+  /\b(conversion|conversions|funnel|revenue|payment|payments|traffic|pageviews?|signups?|events?|active users?|sessions?|retention|churn|pipeline|deals?|calls?|transcripts?|sentiment|themes?|objections?|cohorts?|segments?|accounts?|customers?|tickets?|issues?|leads?|opportunities|usage|adoption|ai credits?|credit consumption|credits? consumed|allowance|quota|mrr|arr|ctr|cvr|cac|ltv)\b/;
+
+const ANALYTICS_DOMAIN_ENTITY_TERMS =
+  /\b(?:branch(?:es)?|branch creation|created by|creator identity)\b/;
 
 const ANALYTICS_INTENT_TERMS =
-  /\b(analy[sz]e|measure|calculate|query|report|summari[sz]e|break ?down|compare|rank|segment|forecast|trend|count|total|average|median|percent(?:age)?|rate|top|bottom|highest|lowest|how many|how much|what (?:is|are|was|were)|which|why)\b/;
+  /\b(analy[sz]e|measure|calculate|query|report|summari[sz]e|break ?down|compare|rank|segment|forecast|trend|count|total|average|median|percent(?:age)?|rate|top|bottom|highest|lowest|pull|fetch|retrieve|export|show|how many|how much|what (?:is|are|was|were)|which|why)\b/;
 
 const SOURCE_SEARCH_INTENT_TERMS =
   /\b(find|surface|search|scan|grep|review|inspect|check|look through|go find)\b/;
@@ -350,6 +353,14 @@ export function looksLikeAnalyticsDataRequest(text: string): boolean {
   if (METADATA_ONLY_TERMS.test(lower)) return false;
 
   if (ANALYTICS_RESULT_TERMS.test(lower)) return true;
+  if (
+    ANALYTICS_DOMAIN_ENTITY_TERMS.test(lower) &&
+    (ANALYTICS_INTENT_TERMS.test(lower) ||
+      SOURCE_SEARCH_INTENT_TERMS.test(lower) ||
+      /\bdata\b/.test(lower))
+  ) {
+    return true;
+  }
   if (
     ANALYTICS_INTENT_TERMS.test(lower) &&
     /\b(data|source|table|sql)\b/.test(lower)

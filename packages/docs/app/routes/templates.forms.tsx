@@ -130,7 +130,7 @@ export default function FormsTemplate() {
         }
         media={
           <BuilderImage
-            src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F90cd8fab274242b1a78c3c4d1ddadb78"
+            src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F1c982cfd9f9e44c69e513df5284f3940"
             crossOrigin="anonymous"
             alt={t("templateLanding.forms.s001")}
             loading="lazy"

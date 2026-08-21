@@ -33,6 +33,7 @@ vi.mock("@agent-native/core/settings", () => ({
 }));
 
 vi.mock("@agent-native/core/usage", () => ({
+  builderCreditsFromCostCents: (cents: number) => cents / 4,
   getUsageSummary: (...args: any[]) => mocks.getUsageSummary(...args),
   usageBillingForEngine: () => ({
     unit: "usd",
@@ -236,5 +237,106 @@ describe("listDispatchUsageMetrics", () => {
         );
       }),
     ).toBe(true);
+  });
+
+  it("returns monthly credits and workspace app creation rows from shared tables", async () => {
+    const firstUsageAt = Date.UTC(2026, 6, 1, 12);
+    const secondUsageAt = Date.UTC(2026, 6, 15, 12);
+    const firstCreationAt = Date.UTC(2026, 6, 2, 12);
+    const secondCreationAt = Date.UTC(2026, 6, 20, 12);
+
+    mocks.currentOrgId.mockReturnValue("org-a");
+    mocks.currentOwnerEmail.mockReturnValue("owner@example.test");
+    mocks.getUsageSummary.mockResolvedValue(null);
+    mocks.listWorkspaceApps.mockResolvedValue([]);
+    mocks.execute.mockImplementation(async ({ sql }: { sql: string }) => {
+      if (sql.includes("SELECT role FROM org_members")) {
+        return { rows: [{ role: "owner" }] };
+      }
+      if (sql.includes("SELECT email, role, joined_at")) {
+        return {
+          rows: [
+            { email: "owner@example.test", role: "owner", joined_at: null },
+            { email: "member@example.test", role: "member", joined_at: null },
+          ],
+        };
+      }
+      if (
+        sql.includes("FROM token_usage") &&
+        sql.includes("ORDER BY created_at ASC")
+      ) {
+        return {
+          rows: [
+            {
+              created_at: firstUsageAt,
+              owner_email: "member@example.test",
+              label: "chat",
+              input_tokens: 10,
+              output_tokens: 20,
+              cache_read_tokens: 0,
+              cache_write_tokens: 0,
+              cost_cents_x100: 10000,
+            },
+            {
+              created_at: secondUsageAt,
+              owner_email: "member@example.test",
+              label: "tool",
+              input_tokens: 30,
+              output_tokens: 40,
+              cache_read_tokens: 5,
+              cache_write_tokens: 2,
+              cost_cents_x100: 20000,
+            },
+          ],
+        };
+      }
+      if (sql.includes("FROM dispatch_audit_events")) {
+        return {
+          rows: [
+            {
+              created_at: firstCreationAt,
+              owner_email: "member@example.test",
+              actor: "member@example.test",
+              target_id: "app-one",
+            },
+            {
+              created_at: secondCreationAt,
+              owner_email: "member@example.test",
+              actor: "member@example.test",
+              target_id: "app-two",
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+
+    const metrics = await listDispatchUsageMetrics({
+      sinceDays: 365,
+      scope: "workspace",
+    });
+
+    expect(metrics.monthlyByUser).toEqual([
+      {
+        month: "2026-07",
+        ownerEmail: "member@example.test",
+        costCents: 300,
+        credits: 75,
+        calls: 2,
+        chatCalls: 1,
+        inputTokens: 40,
+        outputTokens: 60,
+        cacheReadTokens: 5,
+        cacheWriteTokens: 2,
+      },
+    ]);
+    expect(metrics.workspaceAppCreationsByUserMonth).toEqual([
+      {
+        month: "2026-07",
+        ownerEmail: "member@example.test",
+        count: 2,
+        appIds: ["app-one", "app-two"],
+      },
+    ]);
   });
 });
