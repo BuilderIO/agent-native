@@ -139,7 +139,6 @@ import {
   engineRequestShapeTags,
   BACKGROUND_SOFT_TIMEOUT_CEILING_MS,
   DEFAULT_BACKGROUND_NO_PROGRESS_TIMEOUT_MS,
-  DEFAULT_BACKGROUND_RUN_SOFT_TIMEOUT_MS,
   DEFAULT_COMPLETED_RUN_RETENTION_MS,
   DEFAULT_ERRORED_RUN_RETENTION_MS,
   DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS,
@@ -680,11 +679,8 @@ describe("run manager soft timeout", () => {
     process.env.NETLIFY = "true";
     expect(
       resolveRunSoftTimeoutMs(undefined, { backgroundFunction: true }),
-    ).toBe(DEFAULT_BACKGROUND_RUN_SOFT_TIMEOUT_MS);
+    ).toBe(BACKGROUND_SOFT_TIMEOUT_CEILING_MS);
     // Sanity: that default is well above the 40s interactive clamp.
-    expect(DEFAULT_BACKGROUND_RUN_SOFT_TIMEOUT_MS).toBe(
-      BACKGROUND_SOFT_TIMEOUT_CEILING_MS,
-    );
     expect(BACKGROUND_SOFT_TIMEOUT_CEILING_MS).toBeGreaterThan(
       HOSTED_SOFT_TIMEOUT_CEILING_MS,
     );
@@ -772,7 +768,7 @@ describe("run manager soft timeout", () => {
     process.env.AWS_LAMBDA_FUNCTION_NAME = "server-agent-background";
     expect(isInBackgroundFunctionRuntime()).toBe(true);
     expect(resolveForWorker({ isBackgroundWorker: true })).toBe(
-      DEFAULT_BACKGROUND_RUN_SOFT_TIMEOUT_MS,
+      BACKGROUND_SOFT_TIMEOUT_CEILING_MS,
     );
   });
 

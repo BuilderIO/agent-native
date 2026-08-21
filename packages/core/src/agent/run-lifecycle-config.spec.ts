@@ -39,6 +39,10 @@ import {
   resolveRunNoProgressTimeoutMs,
   resolveRunSoftTimeoutMs,
 } from "./run-manager.js";
+import {
+  TURN_RUN_LEDGER_SLACK,
+  resolveTurnRunLedgerBudget,
+} from "./run-store.js";
 
 afterEach(() => {
   resetAppConfigForTests();
@@ -133,6 +137,25 @@ describe("run-lifecycle configuration", () => {
     // Local dev has no soft-timeout regime at all; hosted derives from the
     // hard abort. Either way it can never exceed the hard abort.
     expect(budget).toBeLessThan(BACKGROUND_RUN_HARD_TIMEOUT_MS);
+  });
+
+  // The chain guard and stale-run recovery used to hold this number twice, kept
+  // in step by a comment asking the next editor to remember. One resolver now,
+  // and this test is what makes a drift a failure rather than a surprise.
+  it("gives the chain guard and stale-run recovery one turn-run budget", () => {
+    expect(resolveTurnRunLedgerBudget()).toBe(
+      resolveMaxBackgroundRunContinuations() + TURN_RUN_LEDGER_SLACK,
+    );
+    // The ledger counts run ROWS — chain handoffs plus sweep redispatches and
+    // recoveries — so it must sit strictly above the chain bound.
+    expect(resolveTurnRunLedgerBudget()).toBeGreaterThan(
+      resolveMaxBackgroundRunContinuations(),
+    );
+  });
+
+  it("moves the turn-run budget with the configured chain bound", () => {
+    defineAppConfig({ agent: { maxBackgroundRunContinuations: 8 } });
+    expect(resolveTurnRunLedgerBudget()).toBe(8 + TURN_RUN_LEDGER_SLACK);
   });
 
   it("clamps the derived automation budget when the hard abort is lowered", () => {

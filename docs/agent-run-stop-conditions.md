@@ -170,7 +170,7 @@ Columns: **Fires when** · **Effect** · **Who recovers it** · **Verdict**.
 | Stop | Fires when | Effect | Verdict |
 | --- | --- | --- | --- |
 | Builder gateway timeout (45s fg / 14 min bg) | request deadline | resumable error | **Keep.** |
-| `FIRST_STREAM_EVENT_TIMEOUT_MS` (120s) | no first frame | abort | **DELETE or lower** — unreachable, §6.2. |
+| `FIRST_STREAM_EVENT_TIMEOUT_MS` (120s) | no first frame | abort | **Keep.** Shadowed inside the loop; the only first-event bound for direct `engine.stream()` callers, §6.2. |
 
 ---
 
@@ -295,26 +295,61 @@ the liveness signal; the timer is only the bound on a bracket that never closes,
 and each bracket already has its own tighter bound. The backstop then becomes a
 bound on *unbracketed* time, which is a small and enumerable set.
 
-### 6.2 `FIRST_STREAM_EVENT_TIMEOUT_MS` (120s) is unreachable
+### 6.2 `FIRST_STREAM_EVENT_TIMEOUT_MS` (120s) is shadowed on the loop path — and load-bearing off it
 
-All three engines wrap their stream in a 120s first-event deadline. Every one of
-them is called from `runAgentLoop`, whose own `MODEL_STREAM_NO_PROGRESS_TIMEOUT_MS`
-(90s) watches the same event and fires first — and on the hosted foreground lane
-`FOREGROUND_FIRST_MODEL_EVENT_TIMEOUT_MS` (25s) and the Builder gateway timeout
-(45s) both fire before that. The 120s bound cannot fire on any current path.
+*(Corrected after verification. The first draft of this section called the
+constant dead code and proposed deleting it. That was wrong, and the way it was
+wrong is the point of the whole document, so it stays on the record.)*
 
-**Action:** delete it, or lower it below 90s and delete the loop-level one. Two
-bounds on the identical event is one bound plus a maintenance cost.
+On the agent-loop path it never fires. `nextEngineEventWithNoProgressTimeout`
+races `iterator.next()` against a real timer (`production-agent.ts:5150`), so
+the loop's 90s `MODEL_STREAM_NO_PROGRESS_TIMEOUT_MS` fires with zero frames
+received, cancels the iterator, and clears the engine's timer — 90 < 120, on
+every runtime, because the loop watchdog is ungated. On hosted foreground the
+25s first-model-event cap and the 45s gateway timeout fire earlier still.
 
-### 6.3 Two bounds on one quantity: chunks per turn
+**But `runAgentLoop` is not the only caller of `engine.stream()`.** Six others
+exist — `completeText`, `transcribe-voice`, `sentiment`, `evals`,
+`eval/agent-runner`, `observational-memory/internal-run` — and for them the
+engine's 120s deadline is the *only* thing bounding a gateway that accepts a
+connection and streams nothing. Five of the six happen to set a tighter total
+timeout (5s, 30s, 45s, 60s, 120s). `completeText` takes `timeoutMs` as
+**optional**: a caller that omits it has no total deadline at all, and this
+constant is the only backstop between it and an unbounded hang.
 
-`MAX_BACKGROUND_RUN_CONTINUATIONS` (20) gates chaining, and five lines of
-different code checks `turnRunCount > MAX_BACKGROUND_RUN_CONTINUATIONS + 5`.
-The `+ 5` is slack for redispatches the first bound does not see.
-`STALE_RUN_RECOVERY_MAX_TURN_RUNS` (25) is a third spelling of the same number.
+**Verdict: keep it, unchanged.** It is a floor for callers that set no bound of
+their own, and it is doing that job for at least one live caller shape today.
 
-**Action:** one function, `resolveTurnRunBudget()`, returning both the chain
-bound and the ledger bound, with the slack named.
+**The real finding is what the first draft got wrong.** Reading the constant
+list, "120s is above 90s so it can never fire" looked obvious and was obviously
+wrong — because the ordering only holds for one of seven callers, and nothing in
+the code says which callers a bound is for. That is the same defect as §6.4 in a
+different key: a bound whose *audience* is undocumented reads as redundant to
+the next person, and the next person deletes it.
+
+**Action:** no code change. Document the audience — one line on the constant
+saying it is the floor for direct `engine.stream()` callers and is expected to
+be shadowed inside the agent loop.
+
+### 6.3 Three spellings of one quantity: run rows per turn — FIXED
+
+`MAX_BACKGROUND_RUN_CONTINUATIONS` (20) gated chaining; a different line checked
+`turnRunCount > MAX_BACKGROUND_RUN_CONTINUATIONS + 5`; and
+`STALE_RUN_RECOVERY_MAX_TURN_RUNS = 25` in `run-store.ts` was a hand-maintained
+third copy whose own comment said so:
+
+> *Duplicated as a literal rather than imported: production-agent.ts already
+> imports run-manager.ts, which imports this file, so a runtime import back from
+> here would be circular. Keep this numerically in sync if that constant ever
+> changes.*
+
+The cycle was real, and it is gone: the base value is configuration now, and
+`app-config` imports no agent code. Both sites read
+`resolveTurnRunLedgerBudget()` (`run-store.ts`), with the slack named
+`TURN_RUN_LEDGER_SLACK` and its reason written down — the two bounds count
+different things (handoffs vs. run rows), which is why the slack exists and why
+the ledger must sit strictly above the chain bound. A spec pins the
+relationship, so drift is a failing test rather than a surprise.
 
 ### 6.4 The ordering invariants were prose until this branch
 
@@ -341,14 +376,17 @@ come from the same resolver the server uses, projected into the bundle.
 
 ### 6.6 Deletion candidates, ranked
 
-1. `FIRST_STREAM_EVENT_TIMEOUT_MS` — unreachable (§6.2).
-2. The `+ 5` ledger bound — fold into one turn-run budget (§6.3).
-3. `DEFAULT_BACKGROUND_RUN_SOFT_TIMEOUT_MS` — an alias for
-   `BACKGROUND_SOFT_TIMEOUT_CEILING_MS`; two names, one number.
-4. `BACKGROUND_RUN_STUCK_MS` — was a third copy of the 10-minute automation
-   abort; already folded into `resolveBackgroundRunHardTimeoutMs()` on this branch.
+1. ~~`FIRST_STREAM_EVENT_TIMEOUT_MS`~~ — **withdrawn**, it is live off the loop
+   path (§6.2).
+2. ~~The `+ 5` ledger bound and its two duplicate spellings~~ — **done**, one
+   `resolveTurnRunLedgerBudget()` (§6.3).
+3. ~~`DEFAULT_BACKGROUND_RUN_SOFT_TIMEOUT_MS`~~ — **done**, it was an alias for
+   `BACKGROUND_SOFT_TIMEOUT_CEILING_MS`; two names, one number, no source caller.
+4. ~~`BACKGROUND_RUN_STUCK_MS`~~ — **done**, a third copy of the 10-minute
+   automation abort, folded into `resolveBackgroundRunHardTimeoutMs()`.
 5. The five exclusion branches in `shouldBumpProgressForEvent` — deletable *if*
-   §6.1 lands, because bracketed liveness subsumes all of them.
+   §6.1 lands, because bracketed liveness subsumes all of them. **The remaining
+   prize, and the only one that changes behaviour.**
 
 ---
 
@@ -360,7 +398,7 @@ Ordered so each step makes the next one measurable.
 | --- | --- | --- |
 | 1 | **Ship the current branch** (chunk-scoped checkpoints, automation tracing, boundary counters, config + invariants) | Stops the bleeding and, critically, makes boundaries countable. Nothing below is verifiable without that. |
 | 2 | **Put `agent_run_boundary` on a dashboard**, split by `recovered` | One number — recovered vs terminal — answers "is any of this working?" |
-| 3 | **Delete §6.2 and §6.3** | Pure removal, no behaviour change, shrinks the surface before restructuring it. |
+| 3 | ~~**Delete §6.2 and §6.3**~~ → **§6.3 done; §6.2 withdrawn on verification** | Pure removal, no behaviour change, shrinks the surface before restructuring it. |
 | 4 | **Invert the backstop to bracketed liveness (§6.1)** | The structural fix. Do it after (2) so the boundary rate proves it. |
 | 5 | **Delete the exclusion branches the inversion subsumes** | The point of (4). Skipping this leaves both mechanisms and doubles the confusion. |
 | 6 | **Project the client bounds from the server resolver (§6.4)** | Closes the last unasserted invariant chain. |
