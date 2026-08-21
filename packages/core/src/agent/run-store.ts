@@ -224,11 +224,6 @@ async function hasRunningRuns(): Promise<boolean> {
   return false;
 }
 
-// Re-exported from its home in `app-config/run-lifecycle-invariants.ts`, which
-// is where the client-above-server check needs it — importing back from here
-// would be circular.
-export { TURN_RUN_LEDGER_SLACK };
-
 /**
  * Ceiling on run ROWS for one logical turn — the number the continuation-chain
  * guard and stale-run recovery must agree on.

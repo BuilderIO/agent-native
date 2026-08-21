@@ -1,5 +1,9 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
+import {
+  MAX_BACKGROUND_RUN_LOOP_CONTINUATIONS,
+  MAX_RUN_LOOP_CONTINUATIONS,
+} from "../app-config/run-lifecycle-invariants.js";
 import { EngineError } from "./engine/types.js";
 import type { EngineMessage } from "./engine/types.js";
 import {
@@ -17,8 +21,6 @@ import {
   runAgentLoopDirectWithSoftTimeout,
   BACKGROUND_RATE_LIMIT_CONTINUATION_DELAY_MS,
   MAX_BACKGROUND_RATE_LIMIT_CONTINUATIONS,
-  MAX_BACKGROUND_RUN_LOOP_CONTINUATIONS,
-  MAX_RUN_LOOP_CONTINUATIONS,
   RUN_BUDGET_EXHAUSTED_ERROR_CODE,
   RUN_BUDGET_EXHAUSTED_MESSAGE,
 } from "./run-loop-with-resume.js";

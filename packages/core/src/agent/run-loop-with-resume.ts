@@ -39,11 +39,6 @@ import {
   type AgentLoopOutcome,
 } from "./production-agent.js";
 import { resolveRunSoftTimeoutMs } from "./run-manager.js";
-
-// Re-exported from `app-config/run-lifecycle-invariants.ts`, where the bound
-// lives beside the relationships that constrain it.
-export { MAX_RUN_LOOP_CONTINUATIONS, MAX_BACKGROUND_RUN_LOOP_CONTINUATIONS };
-
 import type {
   ResolveRunSoftTimeoutOptions,
   RunChunkControl,

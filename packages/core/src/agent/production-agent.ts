@@ -26,16 +26,6 @@ import {
   MAX_TURN_WALL_CLOCK_MS,
   MODEL_STREAM_NO_PROGRESS_TIMEOUT_MS,
 } from "../app-config/run-lifecycle-invariants.js";
-
-// Re-exported from `app-config/run-lifecycle-invariants.ts`, where the bound
-// lives beside the relationships that constrain it.
-export {
-  ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS,
-  MODEL_STREAM_NO_PROGRESS_TIMEOUT_MS,
-  MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS,
-  MAX_TURN_WALL_CLOCK_MS,
-};
-
 import { readAppState } from "../application-state/script-helpers.js";
 import { isReadOnlyShellCommand } from "../coding-tools/index.js";
 import type { AgentNativeHarnessSetting } from "../config.js";
@@ -7347,7 +7337,6 @@ function endsAtContinuationBoundary(run: ActiveRun): boolean {
 // lifecycle bounds that participate in a cross-module relationship: the durable
 // run ledger in `run-store.ts` derives its ceiling from this, and importing
 // back from there would be circular.
-export { MAX_BACKGROUND_RUN_CONTINUATIONS };
 /**
  * Forward progress inside ONE chunk, read from the events it actually emitted:
  * assistant text or tool activity. Same evidence the agent-teams no-progress

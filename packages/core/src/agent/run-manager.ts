@@ -4,11 +4,6 @@ import {
   BACKGROUND_SOFT_TIMEOUT_CEILING_MS,
   RUN_NO_PROGRESS_HARD_TIMEOUT_MS,
 } from "../app-config/run-lifecycle-invariants.js";
-
-// Re-exported from `app-config/run-lifecycle-invariants.ts`, where the bound
-// lives beside the relationships that constrain it.
-export { BACKGROUND_SOFT_TIMEOUT_CEILING_MS, RUN_NO_PROGRESS_HARD_TIMEOUT_MS };
-
 import { captureError } from "../server/capture-error.js";
 import {
   isLlmCredentialError,

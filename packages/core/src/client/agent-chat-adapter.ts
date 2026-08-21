@@ -268,8 +268,6 @@ import {
   MAX_BACKGROUND_FOLLOW_WALL_TIME_MS,
   MAX_FOLLOWED_BACKGROUND_RUNS,
 } from "../app-config/run-lifecycle-invariants.js";
-
-export { MAX_BACKGROUND_FOLLOW_WALL_TIME_MS, MAX_FOLLOWED_BACKGROUND_RUNS };
 const MAX_REPEATED_BACKGROUND_TERMINAL_REASONS = 3;
 
 // A re-observed terminal run whose outcome would be an ERROR (never a
