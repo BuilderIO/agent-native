@@ -1406,6 +1406,9 @@ const jaJP = {
         composerLabel: "あなたのプロンプト",
         composerPlaceholder:
           "作りたいデッキを説明するか、上の質問に答えてください。",
+        promptTip: "プロンプトのヒント",
+        promptPlaceholder:
+          "具体的にしてください。誰のためか、メモを貼り付けるか、参考にしたいウェブサイトのデザインを挙げてください...",
         submit: "デッキを生成",
         readyHint:
           "プロンプトの準備ができました。エージェントに送信してください。",

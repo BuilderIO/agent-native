@@ -3022,6 +3022,8 @@ export function AgentChatSurface({
 
 export interface AgentSidebarProps {
   children: React.ReactNode;
+  /** Keep the app surface mounted while temporarily disabling the chat panel. */
+  enabled?: boolean;
   /** Placeholder text for the empty chat state */
   emptyStateText?: string;
   /** Suggestion prompts shown when no messages */
@@ -3129,6 +3131,7 @@ interface HostedHarnessStatus {
  */
 export function AgentSidebar({
   children,
+  enabled = true,
   emptyStateText = "How can I help you?",
   suggestions,
   dynamicSuggestions,
@@ -3382,6 +3385,7 @@ export function AgentSidebar({
     () => new Set(),
   );
   const shouldMountPanel =
+    enabled &&
     !isPerAppChatHosted &&
     !presentationMode &&
     (!frameCodeMode || !shouldParentFrameOwnAgentPanel()) &&
@@ -3399,9 +3403,11 @@ export function AgentSidebar({
     // dispatches the correct value.
     if (frameOwned && !hasFrameSidebarState && !isPerAppChatHosted) return;
     dispatchAgentSidebarStateChange({
-      open: isPerAppChatHosted
-        ? perAppChatState.open
-        : !presentationMode && (frameOwned ? frameSidebarOpen : open),
+      open:
+        enabled &&
+        (isPerAppChatHosted
+          ? perAppChatState.open
+          : !presentationMode && (frameOwned ? frameSidebarOpen : open)),
       source: frameOwned ? "frame" : "app",
       mode: frameOwned ? "code" : "app",
     });
@@ -3413,6 +3419,7 @@ export function AgentSidebar({
     hasFrameSidebarState,
     isPerAppChatHosted,
     perAppChatState.open,
+    enabled,
   ]);
 
   useEffect(() => {
@@ -3422,7 +3429,7 @@ export function AgentSidebar({
     if (frameOwned && !hasFrameSidebarState) return;
 
     const openState =
-      !presentationMode && (frameOwned ? frameSidebarOpen : open);
+      enabled && !presentationMode && (frameOwned ? frameSidebarOpen : open);
     const message = buildAppChatSidebarStateMessage(openState);
 
     window.dispatchEvent(
@@ -3450,6 +3457,7 @@ export function AgentSidebar({
     isPerAppChatSidebar,
     open,
     presentationMode,
+    enabled,
   ]);
 
   useEffect(() => {
@@ -3813,10 +3821,10 @@ export function AgentSidebar({
     };
   }, [shouldMountPanel, sidebarAnimationEnabled]);
 
-  const shouldRenderPanel = sidebarAnimationEnabled
-    ? renderAnimatedPanel
-    : shouldMountPanel;
-  const panelOpen = open && shouldMountPanel;
+  const shouldRenderPanel =
+    enabled &&
+    (sidebarAnimationEnabled ? renderAnimatedPanel : shouldMountPanel);
+  const panelOpen = enabled && open && shouldMountPanel;
   const panelLayout = isMobile
     ? "mobile"
     : wideDrawerEnabled
@@ -4035,6 +4043,7 @@ export function AgentSidebar({
           {isMobile &&
             !isPerAppChatHosted &&
             !presentationMode &&
+            enabled &&
             (mobileAnimationEnabled ? shouldRenderPanel : open) && (
               <div
                 className={cn(

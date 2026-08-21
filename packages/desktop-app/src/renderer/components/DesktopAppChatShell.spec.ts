@@ -46,6 +46,10 @@ describe("desktop app chat shell", () => {
     expect(source).toContain("storageKey={`desktop-app-chat:${appId}`}");
     expect(source).toContain('position="left"');
     expect(source).toContain('agentChatSurface="desktop"');
+    expect(source).toContain("enabled={showChatSidebar}");
+    expect(source).not.toContain(
+      "{showChatSidebar ? (\n          <MemoryRouter>",
+    );
     expect(source).not.toContain("Sign in on the right");
     expect(source).not.toContain("data-desktop-app-sign-in");
   });

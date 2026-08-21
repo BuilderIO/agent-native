@@ -20,10 +20,10 @@ describe("direct recording route shell cue", () => {
       route.indexOf('<div className="flex-1 min-w-0">', headerStart),
     );
 
-    expect(header).toContain("<BackToLibraryButton />");
+    expect(header).toContain("<BackButton");
     expect(header).not.toContain('className="hidden sm:inline"');
 
-    const controlStart = route.indexOf("export function BackToLibraryButton()");
+    const controlStart = route.indexOf("export function BackButton(");
     const control = route.slice(
       controlStart,
       route.indexOf("function parseTimeParam", controlStart),

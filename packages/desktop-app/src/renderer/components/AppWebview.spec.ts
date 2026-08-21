@@ -652,6 +652,12 @@ describe("AppWebview auth state", () => {
 
   it("falls back only when the app does not expose the session endpoint", () => {
     expect(
+      resolveAppWebviewAuthStateFromProbe(undefined, "authenticated"),
+    ).toBe("unknown");
+    expect(
+      resolveAppWebviewAuthStateFromProbe("not-an-object", "authenticated"),
+    ).toBe("unknown");
+    expect(
       resolveAppWebviewAuthStateFromProbe({ status: 404 }, "authenticated"),
     ).toBe("authenticated");
     expect(

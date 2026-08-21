@@ -1421,6 +1421,9 @@ const ptBR = {
         composerLabel: "Seu prompt",
         composerPlaceholder:
           "Descreva a apresentação que você quer, ou responda às perguntas acima.",
+        promptTip: "Dica de prompt",
+        promptPlaceholder:
+          "Seja específico. Diga para quem é, cole suas notas ou faça referência a um design de site...",
         submit: "Gerar minha apresentação",
         readyHint: "Seu prompt está pronto — envie para o agente.",
         promptDeck: "Crie {{deck}}.",
