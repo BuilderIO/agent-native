@@ -8,9 +8,10 @@ import {
   DEFAULT_CANVAS_MIN_ZOOM,
   DEFAULT_SNAP_THRESHOLD_SCREEN_PX,
   canvasToScreenPoint,
-  computeEqualGapGuides,
+  computeDragSnap,
   computeMoveSnap,
   computeResizeSnap,
+  type DistanceGuideBand,
   type EqualGapGuide,
   getCameraForBounds,
   getFrameGroupBounds,
@@ -142,9 +143,6 @@ const SCREEN_CARD_HEIGHT = SCREEN_HEIGHT + 26;
 const SCREEN_GAP = 56;
 const DUPLICATE_DRAG_THRESHOLD = 6;
 const DRAG_THRESHOLD = 3;
-/** How close two gaps must be (in screen px, converted to canvas px at the
- *  live zoom) to count as "equal" for the smart-spacing guides (CV11). */
-const EQUAL_GAP_TOLERANCE_SCREEN_PX = 2;
 const FRAME_LABEL_HEIGHT = 28;
 const FRAME_HEADER_BUTTON_COMPACT_WIDTH = 260;
 const FRAME_HEADER_BUTTON_RESERVE = 116;
@@ -306,6 +304,7 @@ import {
   computeBoundedScreenCullState,
   getScreenContentCullState,
   getOverscannedViewportCanvasBounds,
+  isFrameWithinOverscannedViewport,
   type ScreenCullTier,
 } from "./multi-screen/culling";
 import {
@@ -1750,6 +1749,32 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const getCurrentCanvasEntries = useCallback(
     () => [...getCurrentFrameEntries(), ...getCurrentDraftEntries()],
     [getCurrentDraftEntries, getCurrentFrameEntries],
+  );
+
+  /** Snap candidates are the entries on screen right now, matching Figma and
+   *  tldraw: a frame parked off in the corner of an infinite canvas is not
+   *  something the user is aligning to, and a guide drawn to it would stretch
+   *  across empty space. Falls back to every entry before first layout. */
+  const getSnapCandidateEntries = useCallback(
+    (excludeIds: string[]) => {
+      const entries = getCurrentCanvasEntries().filter(
+        (entry) => !excludeIds.includes(entry.id),
+      );
+      const surfaceRect = surfaceRef.current?.getBoundingClientRect();
+      const viewport = surfaceRect
+        ? getOverscannedViewportCanvasBounds(
+            { width: surfaceRect.width, height: surfaceRect.height },
+            panRef.current,
+            zoomRef.current,
+            0,
+          )
+        : null;
+      if (!viewport) return entries;
+      return entries.filter((entry) =>
+        isFrameWithinOverscannedViewport(entry.geometry, viewport),
+      );
+    },
+    [getCurrentCanvasEntries],
   );
 
   const getFrameEntryAtPoint = useCallback(
@@ -4713,13 +4738,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             },
           };
         });
-        const stationaryEntries = getCurrentCanvasEntries().filter(
-          (entry) => !state.targetIds.includes(entry.id),
-        );
-        const snap = computeMoveSnap(movingEntries, stationaryEntries, {
+        const stationaryEntries = getSnapCandidateEntries(state.targetIds);
+        const snap = computeDragSnap(movingEntries, stationaryEntries, {
           thresholdScreenPx: DEFAULT_SNAP_THRESHOLD_SCREEN_PX,
           zoom: zoomRef.current,
           bypass: ev.metaKey || ev.ctrlKey,
+          pixelGrid: true,
         });
 
         // PERF9: ref-only geometry write (no setDraftPrimitives) + direct DOM
@@ -4776,6 +4800,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           }
         }
         setAlignmentGuides(snap.guides);
+        setEqualGapGuides(snap.spacingGuides);
 
         // Primitive drop-into-container detection: check if the dragged draft
         // is hovering over a committed container primitive on any screen.
@@ -5511,13 +5536,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             y: state.originFrames[targetId].y + dy,
           },
         }));
-        const stationaryEntries = getCurrentFrameEntries().filter(
-          (entry) => !state.targetIds.includes(entry.id),
-        );
-        const snap = computeMoveSnap(movingEntries, stationaryEntries, {
+        const stationaryEntries = getSnapCandidateEntries(state.targetIds);
+        const snap = computeDragSnap(movingEntries, stationaryEntries, {
           thresholdScreenPx: DEFAULT_SNAP_THRESHOLD_SCREEN_PX,
           zoom: zoomRef.current,
           bypass: ev.metaKey || ev.ctrlKey,
+          pixelGrid: true,
         });
 
         // PERF9: mutate the dragged frame(s)' DOM position directly (ref-only
@@ -5607,37 +5631,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           }
         }
         setAlignmentGuides(snap.guides);
-
-        // Smart-spacing guides (CV11) — only meaningful for a single moving
-        // frame (matches Figma, which only shows equal-gap guides while
-        // dragging one object, not a multi-select group).
-        if (state.targetIds.length === 1) {
-          const primaryId = state.targetIds[0];
-          const movedGeometry = movingEntries.find(
-            (entry) => entry.id === primaryId,
-          )?.geometry;
-          if (movedGeometry) {
-            // Same screen-px-to-canvas-px conversion computeMoveSnap uses
-            // for its own threshold, so the equal-gap tolerance also stays
-            // a constant few screen pixels regardless of zoom level.
-            const tolerance =
-              EQUAL_GAP_TOLERANCE_SCREEN_PX /
-              Math.max(0.01, zoomRef.current / 100);
-            setEqualGapGuides(
-              computeEqualGapGuides(
-                {
-                  ...movedGeometry,
-                  x: movedGeometry.x + snap.dx,
-                  y: movedGeometry.y + snap.dy,
-                },
-                stationaryEntries,
-                { toleranceCanvasPx: tolerance },
-              ),
-            );
-          }
-        } else {
-          setEqualGapGuides([]);
-        }
+        setEqualGapGuides(snap.spacingGuides);
 
         // Resize shows a W x H badge and rotate shows a degrees badge — move
         // was the one transform with no live feedback at all. Show the
@@ -8443,6 +8437,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         {alignmentGuides.map((guide, index) => (
           <span
             key={`${guide.orientation}-${guide.position}-${index}`}
+            data-canvas-guide="alignment"
             className="pointer-events-none absolute z-30 bg-destructive/90"
             style={
               guide.orientation === "vertical"
@@ -8462,29 +8457,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           />
         ))}
 
-        {/* Smart-spacing guides (CV11): highlight both equal-sized gaps
-            around the moving frame, with one label showing the shared
-            distance. */}
         {equalGapGuides.map((guide, index) =>
           guide.bands.map((band, bandIndex) => (
-            <span
+            <SpacingGuideMark
               key={`equal-gap-${guide.orientation}-${index}-${bandIndex}`}
-              className="pointer-events-none absolute z-30 bg-[var(--design-editor-accent-color)]/25"
-              style={
-                guide.orientation === "vertical"
-                  ? {
-                      left: SURFACE_PADDING + band.gapStart,
-                      top: SURFACE_PADDING + band.crossStart,
-                      width: Math.max(1, band.gapEnd - band.gapStart),
-                      height: Math.max(1, band.crossEnd - band.crossStart),
-                    }
-                  : {
-                      left: SURFACE_PADDING + band.crossStart,
-                      top: SURFACE_PADDING + band.gapStart,
-                      width: Math.max(1, band.crossEnd - band.crossStart),
-                      height: Math.max(1, band.gapEnd - band.gapStart),
-                    }
-              }
+              band={band}
+              orientation={guide.orientation}
+              chromeScale={chromeScale}
             />
           )),
         )}
@@ -10830,6 +10809,78 @@ function BreakpointPreviewRow({
         </div>
       ) : null}
     </>
+  );
+}
+
+/** Figma's spacing indicator: a thin line down the middle of the gap with a
+ *  serif at each end, drawn in the same red as the alignment guides. Lives in
+ *  the pan/zoom-transformed world, so every screen-constant dimension is
+ *  multiplied by `chromeScale`. */
+function SpacingGuideMark({
+  band,
+  orientation,
+  chromeScale,
+}: {
+  band: DistanceGuideBand;
+  orientation: EqualGapGuide["orientation"];
+  chromeScale: number;
+}) {
+  const line = chromeScale;
+  const serif = 5 * chromeScale;
+  const crossMid = (band.crossStart + band.crossEnd) / 2;
+  const length = Math.max(0, band.gapEnd - band.gapStart);
+  const alongAxis = orientation === "vertical";
+
+  return (
+    <span
+      data-canvas-guide="spacing"
+      className="pointer-events-none absolute z-30"
+      style={
+        alongAxis
+          ? {
+              left: SURFACE_PADDING + band.gapStart,
+              top: SURFACE_PADDING + crossMid - serif,
+              width: length,
+              height: serif * 2,
+            }
+          : {
+              left: SURFACE_PADDING + crossMid - serif,
+              top: SURFACE_PADDING + band.gapStart,
+              width: serif * 2,
+              height: length,
+            }
+      }
+    >
+      <span
+        className="absolute bg-destructive/90"
+        style={
+          alongAxis
+            ? { left: 0, top: serif - line / 2, width: length, height: line }
+            : { left: serif - line / 2, top: 0, width: line, height: length }
+        }
+      />
+      {[0, length].map((offset, index) => (
+        <span
+          key={index}
+          className="absolute bg-destructive/90"
+          style={
+            alongAxis
+              ? {
+                  left: offset - line / 2,
+                  top: 0,
+                  width: line,
+                  height: serif * 2,
+                }
+              : {
+                  left: 0,
+                  top: offset - line / 2,
+                  width: serif * 2,
+                  height: line,
+                }
+          }
+        />
+      ))}
+    </span>
   );
 }
 

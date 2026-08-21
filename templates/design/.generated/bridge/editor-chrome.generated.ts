@@ -2117,6 +2117,17 @@ export const editorChromeBridgeScript: string = `"use strict";
     spacingBadge.setAttribute("data-agent-native-edit-overlay", "spacing-badge");
     spacingBadge.style.cssText = "position:fixed;z-index:100000;display:none;pointer-events:none;border-radius:3px;color:white;font:10px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700;padding:2px 4px;box-shadow:0 4px 14px rgba(0,0,0,0.18);";
     document.body.appendChild(spacingBadge);
+    var constraintGuideLayer = document.createElement("div");
+    constraintGuideLayer.setAttribute(
+      "data-agent-native-edit-overlay",
+      "constraint-guide"
+    );
+    constraintGuideLayer.style.cssText = "position:fixed;inset:0;z-index:99999;display:none;pointer-events:none;";
+    document.body.appendChild(constraintGuideLayer);
+    var sizeBadge = document.createElement("div");
+    sizeBadge.setAttribute("data-agent-native-edit-overlay", "size-badge");
+    sizeBadge.style.cssText = "position:fixed;z-index:100000;display:none;pointer-events:none;border-radius:3px;background:var(--design-editor-accent-color);color:var(--design-editor-accent-contrast-color);font:10px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;padding:2px 4px;white-space:nowrap;";
+    document.body.appendChild(sizeBadge);
     var insertionGuide = document.createElement("div");
     insertionGuide.setAttribute("data-agent-native-insertion-guide", "");
     insertionGuide.setAttribute(
@@ -2125,14 +2136,10 @@ export const editorChromeBridgeScript: string = `"use strict";
     );
     insertionGuide.style.cssText = "position:fixed;z-index:100000;display:none;pointer-events:none;background:var(--design-editor-accent-color);border-radius:999px;box-shadow:0 0 0 1px var(--design-editor-accent-color);";
     document.body.appendChild(insertionGuide);
-    var snapGuideV = document.createElement("div");
-    snapGuideV.setAttribute("data-agent-native-edit-overlay", "snap-guide");
-    snapGuideV.style.cssText = "position:fixed;z-index:100000;display:none;pointer-events:none;width:1px;background:hsl(var(--destructive) / 0.9);";
-    document.body.appendChild(snapGuideV);
-    var snapGuideH = document.createElement("div");
-    snapGuideH.setAttribute("data-agent-native-edit-overlay", "snap-guide");
-    snapGuideH.style.cssText = "position:fixed;z-index:100000;display:none;pointer-events:none;height:1px;background:hsl(var(--destructive) / 0.9);";
-    document.body.appendChild(snapGuideH);
+    var snapGuideLayer = document.createElement("div");
+    snapGuideLayer.setAttribute("data-agent-native-edit-overlay", "snap-guide");
+    snapGuideLayer.style.cssText = "position:fixed;inset:0;z-index:100000;display:none;pointer-events:none;";
+    document.body.appendChild(snapGuideLayer);
     var measurementOverlay = document.createElement("div");
     measurementOverlay.setAttribute("data-agent-native-measurement-overlay", "");
     measurementOverlay.setAttribute(
@@ -6368,89 +6375,468 @@ export const editorChromeBridgeScript: string = `"use strict";
           if (cs.display === "none" || cs.visibility === "hidden") continue;
           var rect = sibling.getBoundingClientRect();
           if (rect.width <= 0 || rect.height <= 0) continue;
+          if (rect.right < 0 || rect.bottom < 0 || rect.left > window.innerWidth || rect.top > window.innerHeight) {
+            continue;
+          }
           rects.push(rectBounds(rect));
         }
       }
       return rects;
     }
-    function computeMoveSnapOffset(movingRect, candidates, threshold) {
-      var moving = rectBounds(movingRect);
-      var bestX = null;
-      var bestY = null;
-      for (var i = 0; i < candidates.length; i += 1) {
-        var candidate = candidates[i];
-        var xValues = [moving.left, moving.centerX, moving.right];
-        var xTargets = [candidate.left, candidate.centerX, candidate.right];
-        for (var xi = 0; xi < xValues.length; xi += 1) {
-          for (var xj = 0; xj < xTargets.length; xj += 1) {
-            var offsetX = xTargets[xj] - xValues[xi];
-            var distanceX = Math.abs(offsetX);
-            if (distanceX > threshold) continue;
-            if (!bestX || distanceX < bestX.distance) {
-              bestX = {
-                distance: distanceX,
-                offset: offsetX,
-                guide: {
-                  position: xTargets[xj],
-                  start: Math.min(moving.top, candidate.top),
-                  end: Math.max(moving.bottom, candidate.bottom)
-                }
-              };
-            }
-          }
-        }
-        var yValues = [moving.top, moving.centerY, moving.bottom];
-        var yTargets = [candidate.top, candidate.centerY, candidate.bottom];
-        for (var yi = 0; yi < yValues.length; yi += 1) {
-          for (var yj = 0; yj < yTargets.length; yj += 1) {
-            var offsetY = yTargets[yj] - yValues[yi];
-            var distanceY = Math.abs(offsetY);
-            if (distanceY > threshold) continue;
-            if (!bestY || distanceY < bestY.distance) {
-              bestY = {
-                distance: distanceY,
-                offset: offsetY,
-                guide: {
-                  position: yTargets[yj],
-                  start: Math.min(moving.left, candidate.left),
-                  end: Math.max(moving.right, candidate.right)
-                }
-              };
-            }
-          }
-        }
-      }
+    var SNAP_ALIGN_EPSILON = 1e-6;
+    var SPACING_MATCH_EPSILON = 0.5;
+    function axisSnapValues(bounds, axis) {
+      return axis === "x" ? [bounds.left, bounds.centerX, bounds.right] : [bounds.top, bounds.centerY, bounds.bottom];
+    }
+    function axisStart(bounds, axis) {
+      return axis === "x" ? bounds.left : bounds.top;
+    }
+    function axisEnd(bounds, axis) {
+      return axis === "x" ? bounds.right : bounds.bottom;
+    }
+    function crossStart(bounds, axis) {
+      return axis === "x" ? bounds.top : bounds.left;
+    }
+    function crossEnd(bounds, axis) {
+      return axis === "x" ? bounds.bottom : bounds.right;
+    }
+    function crossAxisOverlaps(axis, a, b) {
+      return crossStart(a, axis) < crossEnd(b, axis) && crossEnd(a, axis) > crossStart(b, axis);
+    }
+    function translateRectBounds(bounds, dx, dy) {
       return {
-        dx: bestX ? bestX.offset : 0,
-        dy: bestY ? bestY.offset : 0,
-        guideV: bestX ? bestX.guide : null,
-        guideH: bestY ? bestY.guide : null
+        left: bounds.left + dx,
+        right: bounds.right + dx,
+        centerX: bounds.centerX + dx,
+        top: bounds.top + dy,
+        bottom: bounds.bottom + dy,
+        centerY: bounds.centerY + dy
       };
     }
-    function showSnapGuides(guideV, guideH) {
-      var line = 1 * chromeLineScale();
-      if (guideV) {
-        snapGuideV.style.display = "block";
-        snapGuideV.style.width = line + "px";
-        snapGuideV.style.left = Math.round(guideV.position) + "px";
-        snapGuideV.style.top = Math.round(guideV.start) + "px";
-        snapGuideV.style.height = Math.max(1, guideV.end - guideV.start) + "px";
-      } else {
-        snapGuideV.style.display = "none";
+    function findAxisSnapOffset(axis, moving, candidates, threshold) {
+      var offset = null;
+      var bestDistance = Infinity;
+      var movingValues = axisSnapValues(moving, axis);
+      for (var i = 0; i < candidates.length; i += 1) {
+        var targets = axisSnapValues(candidates[i], axis);
+        for (var mi = 0; mi < movingValues.length; mi += 1) {
+          for (var ti = 0; ti < targets.length; ti += 1) {
+            var candidate = targets[ti] - movingValues[mi];
+            var distance = Math.abs(candidate);
+            if (distance > threshold || distance >= bestDistance) continue;
+            bestDistance = distance;
+            offset = candidate;
+          }
+        }
       }
-      if (guideH) {
-        snapGuideH.style.display = "block";
-        snapGuideH.style.height = line + "px";
-        snapGuideH.style.top = Math.round(guideH.position) + "px";
-        snapGuideH.style.left = Math.round(guideH.start) + "px";
-        snapGuideH.style.width = Math.max(1, guideH.end - guideH.start) + "px";
-      } else {
-        snapGuideH.style.display = "none";
+      return offset;
+    }
+    function buildAxisGuides(axis, moving, candidates) {
+      var positions = [];
+      var spans = [];
+      var movingValues = axisSnapValues(moving, axis);
+      for (var i = 0; i < candidates.length; i += 1) {
+        var candidate = candidates[i];
+        var targets = axisSnapValues(candidate, axis);
+        for (var mi = 0; mi < movingValues.length; mi += 1) {
+          for (var ti = 0; ti < targets.length; ti += 1) {
+            if (Math.abs(targets[ti] - movingValues[mi]) > SNAP_ALIGN_EPSILON) {
+              continue;
+            }
+            var slot = positions.indexOf(targets[ti]);
+            if (slot === -1) {
+              positions.push(targets[ti]);
+              spans.push({
+                start: Math.min(
+                  crossStart(moving, axis),
+                  crossStart(candidate, axis)
+                ),
+                end: Math.max(crossEnd(moving, axis), crossEnd(candidate, axis))
+              });
+            } else {
+              spans[slot].start = Math.min(
+                spans[slot].start,
+                crossStart(candidate, axis)
+              );
+              spans[slot].end = Math.max(
+                spans[slot].end,
+                crossEnd(candidate, axis)
+              );
+            }
+          }
+        }
+      }
+      var guides = [];
+      for (var g = 0; g < positions.length; g += 1) {
+        guides.push({
+          orientation: axis === "x" ? "vertical" : "horizontal",
+          position: positions[g],
+          start: spans[g].start,
+          end: spans[g].end
+        });
+      }
+      return guides;
+    }
+    function collectAxisGapCandidates(axis, moving, candidates) {
+      var gaps = [];
+      for (var i = 0; i < candidates.length; i += 1) {
+        var bounds = candidates[i];
+        if (!crossAxisOverlaps(axis, bounds, moving)) continue;
+        var band = {
+          crossStart: Math.max(
+            crossStart(bounds, axis),
+            crossStart(moving, axis)
+          ),
+          crossEnd: Math.min(crossEnd(bounds, axis), crossEnd(moving, axis))
+        };
+        if (axisEnd(bounds, axis) <= axisStart(moving, axis)) {
+          gaps.push({
+            side: "before",
+            gap: axisStart(moving, axis) - axisEnd(bounds, axis),
+            gapStart: axisEnd(bounds, axis),
+            gapEnd: axisStart(moving, axis),
+            crossStart: band.crossStart,
+            crossEnd: band.crossEnd
+          });
+        } else if (axisStart(bounds, axis) >= axisEnd(moving, axis)) {
+          gaps.push({
+            side: "after",
+            gap: axisStart(bounds, axis) - axisEnd(moving, axis),
+            gapStart: axisEnd(moving, axis),
+            gapEnd: axisStart(bounds, axis),
+            crossStart: band.crossStart,
+            crossEnd: band.crossEnd
+          });
+        }
+      }
+      return gaps;
+    }
+    function closestGapCandidate(gaps, side) {
+      var best = null;
+      for (var i = 0; i < gaps.length; i += 1) {
+        if (gaps[i].side !== side) continue;
+        if (!best || gaps[i].gap < best.gap) best = gaps[i];
+      }
+      return best;
+    }
+    function collectRhythmGaps(axis, moving, candidates) {
+      var row = [];
+      for (var i = 0; i < candidates.length; i += 1) {
+        var entry = candidates[i];
+        if (!crossAxisOverlaps(axis, entry, moving)) continue;
+        if (axisStart(entry, axis) <= axisStart(moving, axis) && axisEnd(entry, axis) >= axisEnd(moving, axis)) {
+          continue;
+        }
+        row.push(entry);
+      }
+      row.sort(function(a, b) {
+        return axisStart(a, axis) - axisStart(b, axis);
+      });
+      var gaps = [];
+      var previous = null;
+      for (var r = 0; r < row.length; r += 1) {
+        var bounds = row[r];
+        var gap = previous ? axisStart(bounds, axis) - axisEnd(previous, axis) : 0;
+        if (previous && gap > 0 && crossAxisOverlaps(axis, previous, bounds)) {
+          gaps.push({
+            gap,
+            band: {
+              gapStart: axisEnd(previous, axis),
+              gapEnd: axisStart(bounds, axis),
+              crossStart: Math.max(
+                crossStart(previous, axis),
+                crossStart(bounds, axis)
+              ),
+              crossEnd: Math.min(
+                crossEnd(previous, axis),
+                crossEnd(bounds, axis)
+              )
+            }
+          });
+        }
+        if (!previous || axisEnd(bounds, axis) > axisEnd(previous, axis)) {
+          previous = bounds;
+        }
+      }
+      return gaps;
+    }
+    function findSpacingSnapOffset(axis, moving, candidates, tolerance) {
+      var gaps = collectAxisGapCandidates(axis, moving, candidates);
+      var before = closestGapCandidate(gaps, "before");
+      var after = closestGapCandidate(gaps, "after");
+      if (!before && !after) return 0;
+      var offset = 0;
+      var bestDistance = Infinity;
+      function consider(value) {
+        var distance = Math.abs(value);
+        if (distance > tolerance || distance >= bestDistance) return;
+        bestDistance = distance;
+        offset = value;
+      }
+      if (before && after) consider((after.gap - before.gap) / 2);
+      var rhythms = collectRhythmGaps(axis, moving, candidates);
+      for (var i = 0; i < rhythms.length; i += 1) {
+        if (before) consider(rhythms[i].gap - before.gap);
+        if (after) consider(after.gap - rhythms[i].gap);
+      }
+      return offset;
+    }
+    function gapCandidateBand(candidate) {
+      return {
+        gapStart: candidate.gapStart,
+        gapEnd: candidate.gapEnd,
+        crossStart: candidate.crossStart,
+        crossEnd: candidate.crossEnd
+      };
+    }
+    function matchingRhythmBands(rhythms, gap, tolerance) {
+      var bands = [];
+      for (var i = 0; i < rhythms.length; i += 1) {
+        if (Math.abs(rhythms[i].gap - gap) <= tolerance)
+          bands.push(rhythms[i].band);
+      }
+      return bands;
+    }
+    function buildSpacingGuides(axis, moving, candidates, tolerance) {
+      var gaps = collectAxisGapCandidates(axis, moving, candidates);
+      var before = closestGapCandidate(gaps, "before");
+      var after = closestGapCandidate(gaps, "after");
+      var orientation = axis === "x" ? "vertical" : "horizontal";
+      var rhythms = collectRhythmGaps(axis, moving, candidates);
+      if (before && after && Math.abs(before.gap - after.gap) <= tolerance) {
+        var pairGap = (before.gap + after.gap) / 2;
+        return [
+          {
+            orientation,
+            gap: pairGap,
+            bands: [gapCandidateBand(before), gapCandidateBand(after)].concat(
+              matchingRhythmBands(rhythms, pairGap, tolerance)
+            )
+          }
+        ];
+      }
+      var neighbor = before || after;
+      if (!neighbor) return [];
+      var matched = matchingRhythmBands(rhythms, neighbor.gap, tolerance);
+      if (!matched.length) return [];
+      return [
+        {
+          orientation,
+          gap: neighbor.gap,
+          bands: [gapCandidateBand(neighbor)].concat(matched)
+        }
+      ];
+    }
+    function computeMoveSnapOffset(movingRect, candidates, threshold) {
+      var moving = rectBounds(movingRect);
+      var dx = findAxisSnapOffset("x", moving, candidates, threshold);
+      var dy = findAxisSnapOffset("y", moving, candidates, threshold);
+      var snapped = translateRectBounds(moving, dx || 0, dy || 0);
+      var guides = buildAxisGuides("x", snapped, candidates).concat(
+        buildAxisGuides("y", snapped, candidates)
+      );
+      var spacingX = guides.some(function(guide) {
+        return guide.orientation === "vertical";
+      }) ? 0 : findSpacingSnapOffset("x", snapped, candidates, threshold);
+      var spacingY = guides.some(function(guide) {
+        return guide.orientation === "horizontal";
+      }) ? 0 : findSpacingSnapOffset("y", snapped, candidates, threshold);
+      var spaced = translateRectBounds(snapped, spacingX, spacingY);
+      var spacingGuides = buildSpacingGuides(
+        "x",
+        spaced,
+        candidates,
+        SPACING_MATCH_EPSILON
+      ).concat(
+        buildSpacingGuides("y", spaced, candidates, SPACING_MATCH_EPSILON)
+      );
+      return {
+        dx: (dx || 0) + spacingX,
+        dy: (dy || 0) + spacingY,
+        guides,
+        spacingGuides
+      };
+    }
+    function appendSnapGuideNode(cssText) {
+      var node = document.createElement("div");
+      node.style.cssText = "position:fixed;" + cssText;
+      snapGuideLayer.appendChild(node);
+      return node;
+    }
+    function showSnapGuides(guides, spacingGuides) {
+      snapGuideLayer.innerHTML = "";
+      if (!guides.length && !spacingGuides.length) {
+        snapGuideLayer.style.display = "none";
+        return;
+      }
+      snapGuideLayer.style.display = "block";
+      var scale = chromeLineScale();
+      var line = 1 * scale;
+      var fill = "background:hsl(var(--destructive) / 0.9);";
+      for (var i = 0; i < guides.length; i += 1) {
+        var guide = guides[i];
+        var span = Math.max(1, guide.end - guide.start);
+        appendSnapGuideNode(
+          guide.orientation === "vertical" ? "left:" + guide.position + "px;top:" + guide.start + "px;width:" + line + "px;height:" + span + "px;" + fill : "top:" + guide.position + "px;left:" + guide.start + "px;height:" + line + "px;width:" + span + "px;" + fill
+        );
+      }
+      for (var s = 0; s < spacingGuides.length; s += 1) {
+        var spacing = spacingGuides[s];
+        for (var b = 0; b < spacing.bands.length; b += 1) {
+          appendSnapGuideNode(
+            spacingBandCss(
+              spacing.orientation,
+              spacing.bands[b],
+              line,
+              5 * scale,
+              fill
+            )
+          );
+          appendSnapGuideNode(
+            spacingSerifCss(
+              spacing.orientation,
+              spacing.bands[b],
+              line,
+              5 * scale,
+              fill,
+              true
+            )
+          );
+          appendSnapGuideNode(
+            spacingSerifCss(
+              spacing.orientation,
+              spacing.bands[b],
+              line,
+              5 * scale,
+              fill,
+              false
+            )
+          );
+        }
+        var label = appendSnapGuideNode(
+          spacingLabelCss(spacing.orientation, spacing.bands[0], scale)
+        );
+        label.textContent = String(Math.round(spacing.gap));
       }
     }
+    function spacingBandCss(orientation, band, line, serif, fill) {
+      var crossMid = (band.crossStart + band.crossEnd) / 2;
+      var length = Math.max(0, band.gapEnd - band.gapStart);
+      return orientation === "vertical" ? "left:" + band.gapStart + "px;top:" + (crossMid - line / 2) + "px;width:" + length + "px;height:" + line + "px;" + fill : "top:" + band.gapStart + "px;left:" + (crossMid - line / 2) + "px;height:" + length + "px;width:" + line + "px;" + fill;
+    }
+    function spacingSerifCss(orientation, band, line, serif, fill, atStart) {
+      var crossMid = (band.crossStart + band.crossEnd) / 2;
+      var along = atStart ? band.gapStart : band.gapEnd;
+      return orientation === "vertical" ? "left:" + (along - line / 2) + "px;top:" + (crossMid - serif) + "px;width:" + line + "px;height:" + serif * 2 + "px;" + fill : "top:" + (along - line / 2) + "px;left:" + (crossMid - serif) + "px;height:" + line + "px;width:" + serif * 2 + "px;" + fill;
+    }
+    function spacingLabelCss(orientation, band, scale) {
+      var crossMid = (band.crossStart + band.crossEnd) / 2;
+      var alongMid = (band.gapStart + band.gapEnd) / 2;
+      return (orientation === "vertical" ? "left:" + alongMid + "px;top:" + crossMid + "px;" : "left:" + crossMid + "px;top:" + alongMid + "px;") + "transform:translate(-50%,-50%);border-radius:" + 3 * scale + "px;padding:" + 1 * scale + "px " + 4 * scale + "px;font:" + 10 * scale + "px/1 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:nowrap;background:hsl(var(--destructive) / 0.9);color:white;";
+    }
+    function authoredOffset(value) {
+      if (!value || value === "auto") return "";
+      return value;
+    }
+    function elementConstraints(el) {
+      var style = el.style;
+      var left = authoredOffset(style.left);
+      var right = authoredOffset(style.right);
+      var top = authoredOffset(style.top);
+      var bottom = authoredOffset(style.bottom);
+      var transform = style.transform || "";
+      return {
+        horizontal: style.width === "100%" ? "scale" : left && right ? "left-right" : right && !left ? "right" : transform.indexOf("translateX(-50%)") !== -1 ? "center" : "left",
+        vertical: style.height === "100%" ? "scale" : top && bottom ? "top-bottom" : bottom && !top ? "bottom" : transform.indexOf("translateY(-50%)") !== -1 ? "center" : "top"
+      };
+    }
+    function appendConstraintLine(from, to, crossPosition, horizontal, thickness) {
+      var start = Math.min(from, to);
+      var length = Math.max(1, Math.abs(to - from));
+      var node = document.createElement("div");
+      node.style.cssText = "position:fixed;" + (horizontal ? "left:" + start + "px;top:" + (crossPosition - thickness / 2) + "px;width:" + length + "px;height:0;border-top:" : "top:" + start + "px;left:" + (crossPosition - thickness / 2) + "px;height:" + length + "px;width:0;border-left:") + thickness + "px dashed var(--design-editor-accent-color);";
+      constraintGuideLayer.appendChild(node);
+    }
+    function showConstraintGuides(el) {
+      if (!el) return hideConstraintGuides();
+      var parent = el.offsetParent || el.parentElement;
+      if (!parent) return hideConstraintGuides();
+      var rect = el.getBoundingClientRect();
+      var frame = parent.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return hideConstraintGuides();
+      if (!constraintGuideLayer.isConnected) {
+        document.body.appendChild(constraintGuideLayer);
+      }
+      constraintGuideLayer.innerHTML = "";
+      constraintGuideLayer.style.display = "block";
+      var thickness = chromeLineScale();
+      var midY = rect.top + rect.height / 2;
+      var midX = rect.left + rect.width / 2;
+      var constraints = elementConstraints(el);
+      if (constraints.horizontal === "scale") {
+        appendConstraintLine(frame.left, frame.right, midY, true, thickness);
+      } else {
+        if (constraints.horizontal !== "right" && constraints.horizontal !== "center") {
+          appendConstraintLine(frame.left, rect.left, midY, true, thickness);
+        }
+        if (constraints.horizontal === "right" || constraints.horizontal === "left-right") {
+          appendConstraintLine(rect.right, frame.right, midY, true, thickness);
+        }
+        if (constraints.horizontal === "center") {
+          appendConstraintLine(
+            frame.left + frame.width / 2,
+            midX,
+            midY,
+            true,
+            thickness
+          );
+        }
+      }
+      if (constraints.vertical === "scale") {
+        appendConstraintLine(frame.top, frame.bottom, midX, false, thickness);
+      } else {
+        if (constraints.vertical !== "bottom" && constraints.vertical !== "center") {
+          appendConstraintLine(frame.top, rect.top, midX, false, thickness);
+        }
+        if (constraints.vertical === "bottom" || constraints.vertical === "top-bottom") {
+          appendConstraintLine(rect.bottom, frame.bottom, midX, false, thickness);
+        }
+        if (constraints.vertical === "center") {
+          appendConstraintLine(
+            frame.top + frame.height / 2,
+            midY,
+            midX,
+            false,
+            thickness
+          );
+        }
+      }
+    }
+    function hideConstraintGuides() {
+      constraintGuideLayer.style.display = "none";
+      constraintGuideLayer.innerHTML = "";
+    }
+    function showSizeBadge(el) {
+      if (!el) return hideSizeBadge();
+      var rect = el.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return hideSizeBadge();
+      if (!sizeBadge.isConnected) document.body.appendChild(sizeBadge);
+      var scale = chromeLineScale();
+      sizeBadge.textContent = Math.round(rect.width) + " \\xD7 " + Math.round(rect.height);
+      sizeBadge.style.display = "block";
+      sizeBadge.style.borderRadius = 3 * scale + "px";
+      sizeBadge.style.padding = 2 * scale + "px " + 4 * scale + "px";
+      sizeBadge.style.fontSize = 10 * scale + "px";
+      sizeBadge.style.left = rect.left + rect.width / 2 + "px";
+      sizeBadge.style.top = rect.bottom + 6 * scale + "px";
+      sizeBadge.style.transform = "translateX(-50%)";
+    }
+    function hideSizeBadge() {
+      sizeBadge.style.display = "none";
+    }
     function hideSnapGuides() {
-      snapGuideV.style.display = "none";
-      snapGuideH.style.display = "none";
+      snapGuideLayer.style.display = "none";
+      snapGuideLayer.innerHTML = "";
     }
     function startMove(e, gestureElParam, pointerStartParam) {
       if (readOnly) return;
@@ -7129,7 +7515,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           snapCandidateRects,
           // Convert the screen-space base to content px (1/zoom).
           SNAP_THRESHOLD_PX * chromeLineScale()
-        ) : { dx: 0, dy: 0, guideV: null, guideH: null };
+        ) : { dx: 0, dy: 0, guides: [], spacingGuides: [] };
         nextLeft += snapResult.dx;
         nextTop += snapResult.dy;
         var appliedDx = nextLeft - originLeft;
@@ -7167,14 +7553,18 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         if (currentAutoLayoutTarget || !duplicatedForDrag && isOutsideIframeViewport(ev.clientX, ev.clientY)) {
           hideSnapGuides();
+          hideSizeBadge();
+          hideConstraintGuides();
         } else {
-          showSnapGuides(snapResult.guideV, snapResult.guideH);
+          showSnapGuides(snapResult.guides, snapResult.spacingGuides);
         }
         showTransformBadge(
           Math.round(nextLeft) + ", " + Math.round(nextTop),
           ev.clientX,
           ev.clientY
         );
+        showSizeBadge(dragEl);
+        showConstraintGuides(dragEl);
         refreshOverlays();
       }
       function restoreSourceDragPosition() {
@@ -7201,6 +7591,8 @@ export const editorChromeBridgeScript: string = `"use strict";
         hideTransformBadge();
         hideInsertionGuide();
         hideSnapGuides();
+        hideSizeBadge();
+        hideConstraintGuides();
         currentAutoLayoutTarget = null;
         if (duplicatedForDrag) {
           if (dragEl && dragEl.parentElement) {
@@ -7231,12 +7623,16 @@ export const editorChromeBridgeScript: string = `"use strict";
           hideTransformBadge();
           hideInsertionGuide();
           hideSnapGuides();
+          hideSizeBadge();
+          hideConstraintGuides();
           return;
         }
         cleanupMoveDrag();
         hideTransformBadge();
         hideInsertionGuide();
         hideSnapGuides();
+        hideSizeBadge();
+        hideConstraintGuides();
         if (!dragEl) return;
         var outsideOnDrop = ev ? isOutsideIframeViewport(ev.clientX, ev.clientY) : false;
         if (ev && !duplicatedForDrag && !isGroupDrag && (outsideOnDrop || designCanvasBoardSurface)) {

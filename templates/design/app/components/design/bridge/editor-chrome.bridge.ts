@@ -2484,6 +2484,25 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     "position:fixed;z-index:100000;display:none;pointer-events:none;border-radius:3px;color:white;font:10px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:700;padding:2px 4px;box-shadow:0 4px 14px rgba(0,0,0,0.18);";
   document.body.appendChild(spacingBadge);
 
+  // Figma's constraint indicator: dashed lines running from the dragged
+  // element to the frame edges it is pinned to. Distinct from the snap
+  // guides above — this shows how the element will REFLOW when its parent
+  // resizes, not what it is currently aligned with.
+  var constraintGuideLayer = document.createElement("div");
+  constraintGuideLayer.setAttribute(
+    "data-agent-native-edit-overlay",
+    "constraint-guide",
+  );
+  constraintGuideLayer.style.cssText =
+    "position:fixed;inset:0;z-index:99999;display:none;pointer-events:none;";
+  document.body.appendChild(constraintGuideLayer);
+
+  var sizeBadge = document.createElement("div");
+  sizeBadge.setAttribute("data-agent-native-edit-overlay", "size-badge");
+  sizeBadge.style.cssText =
+    "position:fixed;z-index:100000;display:none;pointer-events:none;border-radius:3px;background:var(--design-editor-accent-color);color:var(--design-editor-accent-contrast-color);font:10px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;padding:2px 4px;white-space:nowrap;";
+  document.body.appendChild(sizeBadge);
+
   var insertionGuide = document.createElement("div");
   insertionGuide.setAttribute("data-agent-native-insertion-guide", "");
   insertionGuide.setAttribute(
@@ -2494,24 +2513,18 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     "position:fixed;z-index:100000;display:none;pointer-events:none;background:var(--design-editor-accent-color);border-radius:999px;box-shadow:0 0 0 1px var(--design-editor-accent-color);";
   document.body.appendChild(insertionGuide);
 
-  // Alignment/smart-guide lines shown while dragging (and resizing) an
-  // element inside the iframe — Figma-style snap-to-sibling guides. Two
-  // shared singleton divs (one per axis) are repositioned per-frame rather
-  // than pooled, matching the insertionGuide convention above. Tagged as an
+  // Alignment and spacing guides shown while dragging (and resizing) an
+  // element inside the iframe — Figma-style snap-to-sibling guides. One
+  // container whose children are rebuilt per drag tick, since a snapped
+  // position can sit on any number of guide lines at once. Tagged as an
   // edit-overlay so elementFromEditorPoint/isOverlayElement never treat a
   // guide line as a hit-test or drop target. Color matches the overview
   // canvas's alignment guides (bg-destructive/90) translated to raw CSS.
-  var snapGuideV = document.createElement("div");
-  snapGuideV.setAttribute("data-agent-native-edit-overlay", "snap-guide");
-  snapGuideV.style.cssText =
-    "position:fixed;z-index:100000;display:none;pointer-events:none;width:1px;background:hsl(var(--destructive) / 0.9);";
-  document.body.appendChild(snapGuideV);
-
-  var snapGuideH = document.createElement("div");
-  snapGuideH.setAttribute("data-agent-native-edit-overlay", "snap-guide");
-  snapGuideH.style.cssText =
-    "position:fixed;z-index:100000;display:none;pointer-events:none;height:1px;background:hsl(var(--destructive) / 0.9);";
-  document.body.appendChild(snapGuideH);
+  var snapGuideLayer = document.createElement("div");
+  snapGuideLayer.setAttribute("data-agent-native-edit-overlay", "snap-guide");
+  snapGuideLayer.style.cssText =
+    "position:fixed;inset:0;z-index:100000;display:none;pointer-events:none;";
+  document.body.appendChild(snapGuideLayer);
 
   var measurementOverlay = document.createElement("div");
   measurementOverlay.setAttribute("data-agent-native-measurement-overlay", "");
@@ -9035,103 +9048,698 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         if (cs.display === "none" || cs.visibility === "hidden") continue;
         var rect = sibling.getBoundingClientRect();
         if (rect.width <= 0 || rect.height <= 0) continue;
+        // Only what is on screen, matching Figma and tldraw: an element
+        // scrolled far out of view is not something the user is aligning to,
+        // and a guide drawn to it would stretch off the visible screen.
+        if (
+          rect.right < 0 ||
+          rect.bottom < 0 ||
+          rect.left > window.innerWidth ||
+          rect.top > window.innerHeight
+        ) {
+          continue;
+        }
         rects.push(rectBounds(rect));
       }
     }
     return rects;
   }
 
-  // Mirrors getAxisSnapCandidates/getBestCandidate/getVerticalGuide/
-  // getHorizontalGuide from shared/canvas-math.ts: for each axis, compare the
-  // moving rect's left/center/right (or top/center/bottom) against every
-  // candidate's same three values and keep the closest match within
-  // threshold. Exported off the IIFE closure via the return-value shape below
-  // so tests can exercise it directly (see the "extractable pure logic"
-  // convention used by motion-preview.bridge.ts).
-  function computeMoveSnapOffset(movingRect, candidates, threshold) {
-    var moving = rectBounds(movingRect);
-    var bestX = null;
-    var bestY = null;
-    for (var i = 0; i < candidates.length; i += 1) {
-      var candidate = candidates[i];
-      var xValues = [moving.left, moving.centerX, moving.right];
-      var xTargets = [candidate.left, candidate.centerX, candidate.right];
-      for (var xi = 0; xi < xValues.length; xi += 1) {
-        for (var xj = 0; xj < xTargets.length; xj += 1) {
-          var offsetX = xTargets[xj] - xValues[xi];
-          var distanceX = Math.abs(offsetX);
-          if (distanceX > threshold) continue;
-          if (!bestX || distanceX < bestX.distance) {
-            bestX = {
-              distance: distanceX,
-              offset: offsetX,
-              guide: {
-                position: xTargets[xj],
-                start: Math.min(moving.top, candidate.top),
-                end: Math.max(moving.bottom, candidate.bottom),
-              },
-            };
-          }
-        }
-      }
-      var yValues = [moving.top, moving.centerY, moving.bottom];
-      var yTargets = [candidate.top, candidate.centerY, candidate.bottom];
-      for (var yi = 0; yi < yValues.length; yi += 1) {
-        for (var yj = 0; yj < yTargets.length; yj += 1) {
-          var offsetY = yTargets[yj] - yValues[yi];
-          var distanceY = Math.abs(offsetY);
-          if (distanceY > threshold) continue;
-          if (!bestY || distanceY < bestY.distance) {
-            bestY = {
-              distance: distanceY,
-              offset: offsetY,
-              guide: {
-                position: yTargets[yj],
-                start: Math.min(moving.left, candidate.left),
-                end: Math.max(moving.right, candidate.right),
-              },
-            };
-          }
-        }
-      }
-    }
+  // Hand-port of shared/canvas-math.ts computeDragSnap and its helpers:
+  // alignment offset per axis, then every guide line the snapped position
+  // actually sits on, then a spacing snap on whichever axes alignment left
+  // free. Keep the two in sync — canvas-math is the reference implementation
+  // and editor-chrome-bridge.snap.test.ts proves this copy against it.
+  var SNAP_ALIGN_EPSILON = 1e-6;
+  // Guides are drawn at this tight tolerance, not the snap pull: on an axis
+  // locked by an alignment guide the element never moved, so a near-equal
+  // pair would otherwise get labelled as an equal gap it does not have.
+  var SPACING_MATCH_EPSILON = 0.5;
+
+  function axisSnapValues(bounds, axis) {
+    return axis === "x"
+      ? [bounds.left, bounds.centerX, bounds.right]
+      : [bounds.top, bounds.centerY, bounds.bottom];
+  }
+
+  function axisStart(bounds, axis) {
+    return axis === "x" ? bounds.left : bounds.top;
+  }
+
+  function axisEnd(bounds, axis) {
+    return axis === "x" ? bounds.right : bounds.bottom;
+  }
+
+  function crossStart(bounds, axis) {
+    return axis === "x" ? bounds.top : bounds.left;
+  }
+
+  function crossEnd(bounds, axis) {
+    return axis === "x" ? bounds.bottom : bounds.right;
+  }
+
+  function crossAxisOverlaps(axis, a, b) {
+    return (
+      crossStart(a, axis) < crossEnd(b, axis) &&
+      crossEnd(a, axis) > crossStart(b, axis)
+    );
+  }
+
+  function translateRectBounds(bounds, dx, dy) {
     return {
-      dx: bestX ? bestX.offset : 0,
-      dy: bestY ? bestY.offset : 0,
-      guideV: bestX ? bestX.guide : null,
-      guideH: bestY ? bestY.guide : null,
+      left: bounds.left + dx,
+      right: bounds.right + dx,
+      centerX: bounds.centerX + dx,
+      top: bounds.top + dy,
+      bottom: bounds.bottom + dy,
+      centerY: bounds.centerY + dy,
     };
   }
 
-  function showSnapGuides(guideV, guideH) {
-    // Constant-screen-size chrome: guide THICKNESS compensates for the
-    // host's iframe scale (chromeLineScale) so the line stays a crisp 1px
-    // on screen at any zoom; the guide's span/position stays in content
-    // coordinates.
-    var line = 1 * chromeLineScale();
-    if (guideV) {
-      snapGuideV.style.display = "block";
-      snapGuideV.style.width = line + "px";
-      snapGuideV.style.left = Math.round(guideV.position) + "px";
-      snapGuideV.style.top = Math.round(guideV.start) + "px";
-      snapGuideV.style.height = Math.max(1, guideV.end - guideV.start) + "px";
-    } else {
-      snapGuideV.style.display = "none";
+  function findAxisSnapOffset(axis, moving, candidates, threshold) {
+    var offset = null;
+    var bestDistance = Infinity;
+    var movingValues = axisSnapValues(moving, axis);
+    for (var i = 0; i < candidates.length; i += 1) {
+      var targets = axisSnapValues(candidates[i], axis);
+      for (var mi = 0; mi < movingValues.length; mi += 1) {
+        for (var ti = 0; ti < targets.length; ti += 1) {
+          var candidate = targets[ti] - movingValues[mi];
+          var distance = Math.abs(candidate);
+          if (distance > threshold || distance >= bestDistance) continue;
+          bestDistance = distance;
+          offset = candidate;
+        }
+      }
     }
-    if (guideH) {
-      snapGuideH.style.display = "block";
-      snapGuideH.style.height = line + "px";
-      snapGuideH.style.top = Math.round(guideH.position) + "px";
-      snapGuideH.style.left = Math.round(guideH.start) + "px";
-      snapGuideH.style.width = Math.max(1, guideH.end - guideH.start) + "px";
-    } else {
-      snapGuideH.style.display = "none";
+    return offset;
+  }
+
+  function buildAxisGuides(axis, moving, candidates) {
+    var positions: number[] = [];
+    var spans: { start: number; end: number }[] = [];
+    var movingValues = axisSnapValues(moving, axis);
+    for (var i = 0; i < candidates.length; i += 1) {
+      var candidate = candidates[i];
+      var targets = axisSnapValues(candidate, axis);
+      for (var mi = 0; mi < movingValues.length; mi += 1) {
+        for (var ti = 0; ti < targets.length; ti += 1) {
+          if (Math.abs(targets[ti] - movingValues[mi]) > SNAP_ALIGN_EPSILON) {
+            continue;
+          }
+          var slot = positions.indexOf(targets[ti]);
+          if (slot === -1) {
+            positions.push(targets[ti]);
+            spans.push({
+              start: Math.min(
+                crossStart(moving, axis),
+                crossStart(candidate, axis),
+              ),
+              end: Math.max(crossEnd(moving, axis), crossEnd(candidate, axis)),
+            });
+          } else {
+            spans[slot].start = Math.min(
+              spans[slot].start,
+              crossStart(candidate, axis),
+            );
+            spans[slot].end = Math.max(
+              spans[slot].end,
+              crossEnd(candidate, axis),
+            );
+          }
+        }
+      }
+    }
+    var guides: {
+      orientation: string;
+      position: number;
+      start: number;
+      end: number;
+    }[] = [];
+    for (var g = 0; g < positions.length; g += 1) {
+      guides.push({
+        orientation: axis === "x" ? "vertical" : "horizontal",
+        position: positions[g],
+        start: spans[g].start,
+        end: spans[g].end,
+      });
+    }
+    return guides;
+  }
+
+  function collectAxisGapCandidates(axis, moving, candidates) {
+    var gaps: {
+      side: string;
+      gap: number;
+      gapStart: number;
+      gapEnd: number;
+      crossStart: number;
+      crossEnd: number;
+    }[] = [];
+    for (var i = 0; i < candidates.length; i += 1) {
+      var bounds = candidates[i];
+      if (!crossAxisOverlaps(axis, bounds, moving)) continue;
+      var band = {
+        crossStart: Math.max(
+          crossStart(bounds, axis),
+          crossStart(moving, axis),
+        ),
+        crossEnd: Math.min(crossEnd(bounds, axis), crossEnd(moving, axis)),
+      };
+      if (axisEnd(bounds, axis) <= axisStart(moving, axis)) {
+        gaps.push({
+          side: "before",
+          gap: axisStart(moving, axis) - axisEnd(bounds, axis),
+          gapStart: axisEnd(bounds, axis),
+          gapEnd: axisStart(moving, axis),
+          crossStart: band.crossStart,
+          crossEnd: band.crossEnd,
+        });
+      } else if (axisStart(bounds, axis) >= axisEnd(moving, axis)) {
+        gaps.push({
+          side: "after",
+          gap: axisStart(bounds, axis) - axisEnd(moving, axis),
+          gapStart: axisEnd(moving, axis),
+          gapEnd: axisStart(bounds, axis),
+          crossStart: band.crossStart,
+          crossEnd: band.crossEnd,
+        });
+      }
+    }
+    return gaps;
+  }
+
+  function closestGapCandidate(gaps, side) {
+    var best = null;
+    for (var i = 0; i < gaps.length; i += 1) {
+      if (gaps[i].side !== side) continue;
+      if (!best || gaps[i].gap < best.gap) best = gaps[i];
+    }
+    return best;
+  }
+
+  function collectRhythmGaps(axis, moving, candidates) {
+    var row: any[] = [];
+    for (var i = 0; i < candidates.length; i += 1) {
+      var entry = candidates[i];
+      if (!crossAxisOverlaps(axis, entry, moving)) continue;
+      // A candidate that spans the whole moving element — the parent content
+      // box — is a wrapper, not a neighbour in the rhythm, and its span would
+      // swallow every real gap in the row.
+      if (
+        axisStart(entry, axis) <= axisStart(moving, axis) &&
+        axisEnd(entry, axis) >= axisEnd(moving, axis)
+      ) {
+        continue;
+      }
+      row.push(entry);
+    }
+    row.sort(function (a, b) {
+      return axisStart(a, axis) - axisStart(b, axis);
+    });
+    var gaps: { gap: number; band: any }[] = [];
+    var previous: any = null;
+    for (var r = 0; r < row.length; r += 1) {
+      var bounds = row[r];
+      var gap = previous
+        ? axisStart(bounds, axis) - axisEnd(previous, axis)
+        : 0;
+      if (previous && gap > 0 && crossAxisOverlaps(axis, previous, bounds)) {
+        gaps.push({
+          gap: gap,
+          band: {
+            gapStart: axisEnd(previous, axis),
+            gapEnd: axisStart(bounds, axis),
+            crossStart: Math.max(
+              crossStart(previous, axis),
+              crossStart(bounds, axis),
+            ),
+            crossEnd: Math.min(
+              crossEnd(previous, axis),
+              crossEnd(bounds, axis),
+            ),
+          },
+        });
+      }
+      if (!previous || axisEnd(bounds, axis) > axisEnd(previous, axis)) {
+        previous = bounds;
+      }
+    }
+    return gaps;
+  }
+
+  function findSpacingSnapOffset(axis, moving, candidates, tolerance) {
+    var gaps = collectAxisGapCandidates(axis, moving, candidates);
+    var before = closestGapCandidate(gaps, "before");
+    var after = closestGapCandidate(gaps, "after");
+    if (!before && !after) return 0;
+
+    var offset = 0;
+    var bestDistance = Infinity;
+    function consider(value) {
+      var distance = Math.abs(value);
+      if (distance > tolerance || distance >= bestDistance) return;
+      bestDistance = distance;
+      offset = value;
+    }
+    if (before && after) consider((after.gap - before.gap) / 2);
+    var rhythms = collectRhythmGaps(axis, moving, candidates);
+    for (var i = 0; i < rhythms.length; i += 1) {
+      if (before) consider(rhythms[i].gap - before.gap);
+      if (after) consider(after.gap - rhythms[i].gap);
+    }
+    return offset;
+  }
+
+  function gapCandidateBand(candidate) {
+    return {
+      gapStart: candidate.gapStart,
+      gapEnd: candidate.gapEnd,
+      crossStart: candidate.crossStart,
+      crossEnd: candidate.crossEnd,
+    };
+  }
+
+  // Every gap already in the row/column that matches: Figma and tldraw both
+  // light the whole run, not only the pair the snap landed on.
+  function matchingRhythmBands(rhythms, gap, tolerance) {
+    var bands: any[] = [];
+    for (var i = 0; i < rhythms.length; i += 1) {
+      if (Math.abs(rhythms[i].gap - gap) <= tolerance)
+        bands.push(rhythms[i].band);
+    }
+    return bands;
+  }
+
+  function buildSpacingGuides(axis, moving, candidates, tolerance) {
+    var gaps = collectAxisGapCandidates(axis, moving, candidates);
+    var before = closestGapCandidate(gaps, "before");
+    var after = closestGapCandidate(gaps, "after");
+    var orientation = axis === "x" ? "vertical" : "horizontal";
+    var rhythms = collectRhythmGaps(axis, moving, candidates);
+    if (before && after && Math.abs(before.gap - after.gap) <= tolerance) {
+      var pairGap = (before.gap + after.gap) / 2;
+      return [
+        {
+          orientation: orientation,
+          gap: pairGap,
+          bands: [gapCandidateBand(before), gapCandidateBand(after)].concat(
+            matchingRhythmBands(rhythms, pairGap, tolerance),
+          ),
+        },
+      ];
+    }
+    var neighbor = before || after;
+    if (!neighbor) return [];
+    var matched = matchingRhythmBands(rhythms, neighbor.gap, tolerance);
+    if (!matched.length) return [];
+    return [
+      {
+        orientation: orientation,
+        gap: neighbor.gap,
+        bands: [gapCandidateBand(neighbor)].concat(matched),
+      },
+    ];
+  }
+
+  function computeMoveSnapOffset(movingRect, candidates, threshold) {
+    var moving = rectBounds(movingRect);
+    var dx = findAxisSnapOffset("x", moving, candidates, threshold);
+    var dy = findAxisSnapOffset("y", moving, candidates, threshold);
+    var snapped = translateRectBounds(moving, dx || 0, dy || 0);
+    var guides = buildAxisGuides("x", snapped, candidates).concat(
+      buildAxisGuides("y", snapped, candidates),
+    );
+
+    // Spacing only gets the axes alignment left free — moving a claimed axis
+    // would pull the element off the guide line the user can already see.
+    var spacingX = guides.some(function (guide) {
+      return guide.orientation === "vertical";
+    })
+      ? 0
+      : findSpacingSnapOffset("x", snapped, candidates, threshold);
+    var spacingY = guides.some(function (guide) {
+      return guide.orientation === "horizontal";
+    })
+      ? 0
+      : findSpacingSnapOffset("y", snapped, candidates, threshold);
+    var spaced = translateRectBounds(snapped, spacingX, spacingY);
+    var spacingGuides = buildSpacingGuides(
+      "x",
+      spaced,
+      candidates,
+      SPACING_MATCH_EPSILON,
+    ).concat(
+      buildSpacingGuides("y", spaced, candidates, SPACING_MATCH_EPSILON),
+    );
+
+    return {
+      dx: (dx || 0) + spacingX,
+      dy: (dy || 0) + spacingY,
+      guides: guides,
+      spacingGuides: spacingGuides,
+    };
+  }
+
+  function appendSnapGuideNode(cssText) {
+    var node = document.createElement("div");
+    node.style.cssText = "position:fixed;" + cssText;
+    snapGuideLayer.appendChild(node);
+    return node;
+  }
+
+  // Constant-screen-size chrome: guide THICKNESS and the spacing serifs
+  // compensate for the host's iframe scale (chromeLineScale) so they stay
+  // crisp at any zoom; positions and spans stay in content coordinates.
+  function showSnapGuides(guides, spacingGuides) {
+    snapGuideLayer.innerHTML = "";
+    if (!guides.length && !spacingGuides.length) {
+      snapGuideLayer.style.display = "none";
+      return;
+    }
+    snapGuideLayer.style.display = "block";
+    var scale = chromeLineScale();
+    var line = 1 * scale;
+    var fill = "background:hsl(var(--destructive) / 0.9);";
+
+    for (var i = 0; i < guides.length; i += 1) {
+      var guide = guides[i];
+      var span = Math.max(1, guide.end - guide.start);
+      appendSnapGuideNode(
+        guide.orientation === "vertical"
+          ? "left:" +
+              guide.position +
+              "px;top:" +
+              guide.start +
+              "px;width:" +
+              line +
+              "px;height:" +
+              span +
+              "px;" +
+              fill
+          : "top:" +
+              guide.position +
+              "px;left:" +
+              guide.start +
+              "px;height:" +
+              line +
+              "px;width:" +
+              span +
+              "px;" +
+              fill,
+      );
+    }
+
+    for (var s = 0; s < spacingGuides.length; s += 1) {
+      var spacing = spacingGuides[s];
+      for (var b = 0; b < spacing.bands.length; b += 1) {
+        appendSnapGuideNode(
+          spacingBandCss(
+            spacing.orientation,
+            spacing.bands[b],
+            line,
+            5 * scale,
+            fill,
+          ),
+        );
+        appendSnapGuideNode(
+          spacingSerifCss(
+            spacing.orientation,
+            spacing.bands[b],
+            line,
+            5 * scale,
+            fill,
+            true,
+          ),
+        );
+        appendSnapGuideNode(
+          spacingSerifCss(
+            spacing.orientation,
+            spacing.bands[b],
+            line,
+            5 * scale,
+            fill,
+            false,
+          ),
+        );
+      }
+      var label = appendSnapGuideNode(
+        spacingLabelCss(spacing.orientation, spacing.bands[0], scale),
+      );
+      label.textContent = String(Math.round(spacing.gap));
     }
   }
 
+  function spacingBandCss(orientation, band, line, serif, fill) {
+    var crossMid = (band.crossStart + band.crossEnd) / 2;
+    var length = Math.max(0, band.gapEnd - band.gapStart);
+    return orientation === "vertical"
+      ? "left:" +
+          band.gapStart +
+          "px;top:" +
+          (crossMid - line / 2) +
+          "px;width:" +
+          length +
+          "px;height:" +
+          line +
+          "px;" +
+          fill
+      : "top:" +
+          band.gapStart +
+          "px;left:" +
+          (crossMid - line / 2) +
+          "px;height:" +
+          length +
+          "px;width:" +
+          line +
+          "px;" +
+          fill;
+  }
+
+  function spacingSerifCss(orientation, band, line, serif, fill, atStart) {
+    var crossMid = (band.crossStart + band.crossEnd) / 2;
+    var along = atStart ? band.gapStart : band.gapEnd;
+    return orientation === "vertical"
+      ? "left:" +
+          (along - line / 2) +
+          "px;top:" +
+          (crossMid - serif) +
+          "px;width:" +
+          line +
+          "px;height:" +
+          serif * 2 +
+          "px;" +
+          fill
+      : "top:" +
+          (along - line / 2) +
+          "px;left:" +
+          (crossMid - serif) +
+          "px;height:" +
+          line +
+          "px;width:" +
+          serif * 2 +
+          "px;" +
+          fill;
+  }
+
+  function spacingLabelCss(orientation, band, scale) {
+    var crossMid = (band.crossStart + band.crossEnd) / 2;
+    var alongMid = (band.gapStart + band.gapEnd) / 2;
+    return (
+      (orientation === "vertical"
+        ? "left:" + alongMid + "px;top:" + crossMid + "px;"
+        : "left:" + crossMid + "px;top:" + alongMid + "px;") +
+      "transform:translate(-50%,-50%);border-radius:" +
+      3 * scale +
+      "px;padding:" +
+      1 * scale +
+      "px " +
+      4 * scale +
+      "px;font:" +
+      10 * scale +
+      "px/1 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:nowrap;" +
+      "background:hsl(var(--destructive) / 0.9);color:white;"
+    );
+  }
+
+  // Hand-port of deriveConstraintsValue in edit-panel/position-layout-
+  // properties.tsx — the bridge cannot import. Reads AUTHORED inline offsets
+  // only: an absolutely positioned left-only element still has a computed
+  // `right`, and treating that as a pin would draw a line that lies.
+  function authoredOffset(value) {
+    if (!value || value === "auto") return "";
+    return value;
+  }
+
+  function elementConstraints(el) {
+    var style = (el as HTMLElement).style;
+    var left = authoredOffset(style.left);
+    var right = authoredOffset(style.right);
+    var top = authoredOffset(style.top);
+    var bottom = authoredOffset(style.bottom);
+    var transform = style.transform || "";
+    return {
+      horizontal:
+        style.width === "100%"
+          ? "scale"
+          : left && right
+            ? "left-right"
+            : right && !left
+              ? "right"
+              : transform.indexOf("translateX(-50%)") !== -1
+                ? "center"
+                : "left",
+      vertical:
+        style.height === "100%"
+          ? "scale"
+          : top && bottom
+            ? "top-bottom"
+            : bottom && !top
+              ? "bottom"
+              : transform.indexOf("translateY(-50%)") !== -1
+                ? "center"
+                : "top",
+    };
+  }
+
+  function appendConstraintLine(
+    from,
+    to,
+    crossPosition,
+    horizontal,
+    thickness,
+  ) {
+    var start = Math.min(from, to);
+    var length = Math.max(1, Math.abs(to - from));
+    var node = document.createElement("div");
+    node.style.cssText =
+      "position:fixed;" +
+      (horizontal
+        ? "left:" +
+          start +
+          "px;top:" +
+          (crossPosition - thickness / 2) +
+          "px;width:" +
+          length +
+          "px;height:0;border-top:"
+        : "top:" +
+          start +
+          "px;left:" +
+          (crossPosition - thickness / 2) +
+          "px;height:" +
+          length +
+          "px;width:0;border-left:") +
+      thickness +
+      "px dashed var(--design-editor-accent-color);";
+    constraintGuideLayer.appendChild(node);
+  }
+
+  function showConstraintGuides(el) {
+    if (!el) return hideConstraintGuides();
+    // body counts here: it is the screen root, which is exactly the frame an
+    // element's offsets are resolved against. (Auto-layout nesting excludes
+    // body for the opposite reason — it is not a drop target.)
+    var parent =
+      (el as HTMLElement).offsetParent || (el as HTMLElement).parentElement;
+    if (!parent) return hideConstraintGuides();
+    var rect = el.getBoundingClientRect();
+    var frame = parent.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return hideConstraintGuides();
+    if (!constraintGuideLayer.isConnected) {
+      document.body.appendChild(constraintGuideLayer);
+    }
+    constraintGuideLayer.innerHTML = "";
+    constraintGuideLayer.style.display = "block";
+
+    var thickness = chromeLineScale();
+    var midY = rect.top + rect.height / 2;
+    var midX = rect.left + rect.width / 2;
+    var constraints = elementConstraints(el);
+
+    if (constraints.horizontal === "scale") {
+      appendConstraintLine(frame.left, frame.right, midY, true, thickness);
+    } else {
+      if (
+        constraints.horizontal !== "right" &&
+        constraints.horizontal !== "center"
+      ) {
+        appendConstraintLine(frame.left, rect.left, midY, true, thickness);
+      }
+      if (
+        constraints.horizontal === "right" ||
+        constraints.horizontal === "left-right"
+      ) {
+        appendConstraintLine(rect.right, frame.right, midY, true, thickness);
+      }
+      if (constraints.horizontal === "center") {
+        appendConstraintLine(
+          frame.left + frame.width / 2,
+          midX,
+          midY,
+          true,
+          thickness,
+        );
+      }
+    }
+
+    if (constraints.vertical === "scale") {
+      appendConstraintLine(frame.top, frame.bottom, midX, false, thickness);
+    } else {
+      if (
+        constraints.vertical !== "bottom" &&
+        constraints.vertical !== "center"
+      ) {
+        appendConstraintLine(frame.top, rect.top, midX, false, thickness);
+      }
+      if (
+        constraints.vertical === "bottom" ||
+        constraints.vertical === "top-bottom"
+      ) {
+        appendConstraintLine(rect.bottom, frame.bottom, midX, false, thickness);
+      }
+      if (constraints.vertical === "center") {
+        appendConstraintLine(
+          frame.top + frame.height / 2,
+          midY,
+          midX,
+          false,
+          thickness,
+        );
+      }
+    }
+  }
+
+  function hideConstraintGuides() {
+    constraintGuideLayer.style.display = "none";
+    constraintGuideLayer.innerHTML = "";
+  }
+
+  // Figma pins the dragged object's dimensions just under it, in canvas
+  // space — unlike the transform badge, which tracks the cursor.
+  function showSizeBadge(el) {
+    if (!el) return hideSizeBadge();
+    var rect = el.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return hideSizeBadge();
+    if (!sizeBadge.isConnected) document.body.appendChild(sizeBadge);
+    var scale = chromeLineScale();
+    sizeBadge.textContent =
+      Math.round(rect.width) + " × " + Math.round(rect.height);
+    sizeBadge.style.display = "block";
+    sizeBadge.style.borderRadius = 3 * scale + "px";
+    sizeBadge.style.padding = 2 * scale + "px " + 4 * scale + "px";
+    sizeBadge.style.fontSize = 10 * scale + "px";
+    sizeBadge.style.left = rect.left + rect.width / 2 + "px";
+    sizeBadge.style.top = rect.bottom + 6 * scale + "px";
+    sizeBadge.style.transform = "translateX(-50%)";
+  }
+
+  function hideSizeBadge() {
+    sizeBadge.style.display = "none";
+  }
+
   function hideSnapGuides() {
-    snapGuideV.style.display = "none";
-    snapGuideH.style.display = "none";
+    snapGuideLayer.style.display = "none";
+    snapGuideLayer.innerHTML = "";
   }
 
   // `gestureElParam` (optional): the specific multi-selection member the
@@ -10100,7 +10708,7 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
               // Convert the screen-space base to content px (1/zoom).
               SNAP_THRESHOLD_PX * chromeLineScale(),
             )
-          : { dx: 0, dy: 0, guideV: null, guideH: null };
+          : { dx: 0, dy: 0, guides: [], spacingGuides: [] };
       nextLeft += snapResult.dx;
       nextTop += snapResult.dy;
       // Apply the SAME delta to every member (one entry for single drags)
@@ -10156,14 +10764,18 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         (!duplicatedForDrag && isOutsideIframeViewport(ev.clientX, ev.clientY))
       ) {
         hideSnapGuides();
+        hideSizeBadge();
+        hideConstraintGuides();
       } else {
-        showSnapGuides(snapResult.guideV, snapResult.guideH);
+        showSnapGuides(snapResult.guides, snapResult.spacingGuides);
       }
       showTransformBadge(
         Math.round(nextLeft) + ", " + Math.round(nextTop),
         ev.clientX,
         ev.clientY,
       );
+      showSizeBadge(dragEl);
+      showConstraintGuides(dragEl);
       refreshOverlays();
     }
     function restoreSourceDragPosition(): void {
@@ -10192,6 +10804,8 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       hideTransformBadge();
       hideInsertionGuide();
       hideSnapGuides();
+      hideSizeBadge();
+      hideConstraintGuides();
       currentAutoLayoutTarget = null;
       if (duplicatedForDrag) {
         if (dragEl && dragEl.parentElement) {
@@ -10222,12 +10836,16 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         hideTransformBadge();
         hideInsertionGuide();
         hideSnapGuides();
+        hideSizeBadge();
+        hideConstraintGuides();
         return;
       }
       cleanupMoveDrag();
       hideTransformBadge();
       hideInsertionGuide();
       hideSnapGuides();
+      hideSizeBadge();
+      hideConstraintGuides();
       if (!dragEl) return;
       var outsideOnDrop = ev
         ? isOutsideIframeViewport(ev.clientX, ev.clientY)

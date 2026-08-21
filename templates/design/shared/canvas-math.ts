@@ -65,6 +65,22 @@ export interface CanvasSnapOptions {
   bypass?: boolean;
 }
 
+export interface SpacingSnapOptions extends CanvasSnapOptions {
+  lockedAxes?: { x?: boolean; y?: boolean };
+}
+
+export interface DragSnapOptions extends CanvasSnapOptions {
+  /** Figma's "snap to pixel grid": land on whole canvas pixels. */
+  pixelGrid?: boolean;
+}
+
+export interface DragSnapResult {
+  dx: number;
+  dy: number;
+  guides: AlignmentGuide[];
+  spacingGuides: EqualGapGuide[];
+}
+
 export interface ResizeSnapOptions extends CanvasSnapOptions {
   /** When set, only the single closest-matching axis snap is applied and the
    *  other axis is rescaled to match, so a shift-held aspect-ratio resize
@@ -134,9 +150,12 @@ export interface DistanceGuideBand {
  *  highlights both gaps with the shared distance. */
 export interface EqualGapGuide {
   orientation: "vertical" | "horizontal";
-  /** The shared gap size, in canvas units, both bands agree on. */
+  /** The shared gap size, in canvas units, every band agrees on. */
   gap: number;
-  bands: [DistanceGuideBand, DistanceGuideBand];
+  /** At least two: the gap(s) around the moving frame, plus every other gap
+   *  in the same row/column that matches, so a run of evenly spaced frames
+   *  lights up as one rhythm instead of just the pair being snapped. */
+  bands: DistanceGuideBand[];
 }
 
 export interface EqualGapOptions {
@@ -638,46 +657,136 @@ export function computeMoveSnap(
     return { dx: 0, dy: 0, guides: [] as AlignmentGuide[] };
   }
 
-  let bestX: SnapCandidate | null = null;
-  let bestY: SnapCandidate | null = null;
   const threshold = getCanvasSnapThreshold(options);
   // Use the rotated (world-space) AABB rather than the unrotated local
   // bounds, so a rotated frame snaps by its visual silhouette instead of an
   // AABB that doesn't match anything on screen.
-  const stationaryBounds = stationary.map((entry) => ({
-    ...entry,
-    bounds: getRotatedFrameAABB(entry.geometry),
-  }));
+  const movingBounds = moving.map((entry) =>
+    getRotatedFrameAABB(entry.geometry),
+  );
+  const stationaryBounds = stationary.map((entry) =>
+    getRotatedFrameAABB(entry.geometry),
+  );
 
-  for (const entry of moving) {
-    const movingBounds = getRotatedFrameAABB(entry.geometry);
-    for (const stationaryEntry of stationaryBounds) {
-      bestX = getBestCandidate(
-        bestX,
-        getAxisSnapCandidates(
-          "x",
-          movingBounds,
-          stationaryEntry.bounds,
-          threshold,
-        ),
-      );
-      bestY = getBestCandidate(
-        bestY,
-        getAxisSnapCandidates(
-          "y",
-          movingBounds,
-          stationaryEntry.bounds,
-          threshold,
-        ),
-      );
-    }
-  }
+  const dx = findAxisSnapOffset("x", movingBounds, stationaryBounds, threshold);
+  const dy = findAxisSnapOffset("y", movingBounds, stationaryBounds, threshold);
+
+  const snappedBounds = movingBounds.map((bounds) =>
+    translateBounds(bounds, dx ?? 0, dy ?? 0),
+  );
 
   return {
-    dx: bestX?.offset ?? 0,
-    dy: bestY?.offset ?? 0,
-    guides: [bestX?.guide, bestY?.guide].filter(Boolean) as AlignmentGuide[],
+    dx: dx ?? 0,
+    dy: dy ?? 0,
+    guides: [
+      ...buildAxisGuides("x", snappedBounds, stationaryBounds),
+      ...buildAxisGuides("y", snappedBounds, stationaryBounds),
+    ],
   };
+}
+
+/**
+ * Figma-style "smart spacing" snap: centers the frame between two neighbors,
+ * or matches an existing gap in the same row/column. `lockedAxes` are the
+ * axes computeMoveSnap already claimed — moving one would pull the frame off
+ * the alignment guide the user can already see.
+ */
+export function computeSpacingSnap(
+  moving: FrameGeometry,
+  stationary: FrameEntry[],
+  options: SpacingSnapOptions,
+): { dx: number; dy: number; guides: EqualGapGuide[] } {
+  if (options.bypass) return { dx: 0, dy: 0, guides: [] };
+
+  const tolerance = getCanvasSnapThreshold(options);
+  const bounds = getRotatedFrameAABB(moving);
+  const stationaryBounds = stationary.map((entry) =>
+    getRotatedFrameAABB(entry.geometry),
+  );
+
+  const dx = options.lockedAxes?.x
+    ? 0
+    : findSpacingSnapOffset("x", bounds, stationaryBounds, tolerance);
+  const dy = options.lockedAxes?.y
+    ? 0
+    : findSpacingSnapOffset("y", bounds, stationaryBounds, tolerance);
+
+  // Guides are drawn at the tight tolerance, not the snap pull: on an axis
+  // locked by an alignment guide the frame never moved, so a near-equal pair
+  // would otherwise get labelled as an equal gap it does not actually have.
+  const snapped = translateBounds(bounds, dx, dy);
+  return {
+    dx,
+    dy,
+    guides: [
+      ...buildSpacingGuides(
+        "x",
+        snapped,
+        stationaryBounds,
+        SPACING_MATCH_EPSILON,
+      ),
+      ...buildSpacingGuides(
+        "y",
+        snapped,
+        stationaryBounds,
+        SPACING_MATCH_EPSILON,
+      ),
+    ],
+  };
+}
+
+/**
+ * The whole Figma move-snap stack in one call, in precedence order: an
+ * edge/center alignment wins, spacing only gets the axes alignment left free,
+ * and the pixel grid only gets the axes with no guide drawn on them at all —
+ * rounding an axis that has a visible guide would move the frame off the line
+ * the user is looking at.
+ */
+export function computeDragSnap(
+  moving: FrameEntry[],
+  stationary: FrameEntry[],
+  options: DragSnapOptions,
+): DragSnapResult {
+  const alignment = computeMoveSnap(moving, stationary, options);
+  const claimedX = alignment.guides.some((g) => g.orientation === "vertical");
+  const claimedY = alignment.guides.some((g) => g.orientation === "horizontal");
+
+  // Figma drops spacing guides for a multi-select drag; so do we.
+  const single = moving.length === 1 ? moving[0] : null;
+  const spacing = single
+    ? computeSpacingSnap(
+        {
+          ...single.geometry,
+          x: single.geometry.x + alignment.dx,
+          y: single.geometry.y + alignment.dy,
+        },
+        stationary,
+        {
+          zoom: options.zoom,
+          bypass: options.bypass,
+          thresholdScreenPx: options.thresholdScreenPx,
+          lockedAxes: { x: claimedX, y: claimedY },
+        },
+      )
+    : { dx: 0, dy: 0, guides: [] as EqualGapGuide[] };
+
+  let dx = alignment.dx + spacing.dx;
+  let dy = alignment.dy + spacing.dy;
+
+  const anchor = moving[0];
+  if (options.pixelGrid && anchor && !options.bypass) {
+    const guided = (orientation: "vertical" | "horizontal") =>
+      alignment.guides.some((g) => g.orientation === orientation) ||
+      spacing.guides.some((g) => g.orientation === orientation);
+    // Only the anchor rounds; the rest of a multi-select rides the same
+    // delta, so a group keeps its internal fractional offsets.
+    if (!guided("vertical"))
+      dx = Math.round(anchor.geometry.x + dx) - anchor.geometry.x;
+    if (!guided("horizontal"))
+      dy = Math.round(anchor.geometry.y + dy) - anchor.geometry.y;
+  }
+
+  return { dx, dy, guides: alignment.guides, spacingGuides: spacing.guides };
 }
 
 /**
@@ -699,15 +808,23 @@ export function computeEqualGapGuides(
   { toleranceCanvasPx = 1 }: EqualGapOptions = {},
 ): EqualGapGuide[] {
   const movingBounds = getRotatedFrameAABB(moving);
-  const guides: EqualGapGuide[] = [];
-
-  const horizontal = collectAxisGapCandidates("x", movingBounds, stationary);
-  guides.push(...pairUpEqualGaps("vertical", horizontal, toleranceCanvasPx));
-
-  const vertical = collectAxisGapCandidates("y", movingBounds, stationary);
-  guides.push(...pairUpEqualGaps("horizontal", vertical, toleranceCanvasPx));
-
-  return guides;
+  const stationaryBounds = stationary.map((entry) =>
+    getRotatedFrameAABB(entry.geometry),
+  );
+  return [
+    ...buildEqualGapPair(
+      "x",
+      movingBounds,
+      stationaryBounds,
+      toleranceCanvasPx,
+    ),
+    ...buildEqualGapPair(
+      "y",
+      movingBounds,
+      stationaryBounds,
+      toleranceCanvasPx,
+    ),
+  ];
 }
 
 interface GapCandidate {
@@ -724,122 +841,102 @@ interface GapCandidate {
 function collectAxisGapCandidates(
   axis: "x" | "y",
   movingBounds: FrameBounds,
-  stationary: FrameEntry[],
+  stationary: FrameBounds[],
 ): GapCandidate[] {
   const candidates: GapCandidate[] = [];
-  for (const entry of stationary) {
-    const bounds = getRotatedFrameAABB(entry.geometry);
+  for (const bounds of stationary) {
     // Only frames that overlap the moving frame's extent on the OTHER axis
     // produce a meaningful "gap between them" — otherwise the empty space
     // isn't really a corridor connecting the two shapes.
-    const crossOverlaps =
-      axis === "x"
-        ? bounds.top < movingBounds.bottom && bounds.bottom > movingBounds.top
-        : bounds.left < movingBounds.right && bounds.right > movingBounds.left;
-    if (!crossOverlaps) continue;
+    if (!crossAxisOverlaps(axis, bounds, movingBounds)) continue;
 
-    const crossStart =
-      axis === "x"
-        ? Math.max(bounds.top, movingBounds.top)
-        : Math.max(bounds.left, movingBounds.left);
-    const crossEnd =
-      axis === "x"
-        ? Math.min(bounds.bottom, movingBounds.bottom)
-        : Math.min(bounds.right, movingBounds.right);
+    const crossStart = Math.max(
+      getCrossStart(bounds, axis),
+      getCrossStart(movingBounds, axis),
+    );
+    const crossEnd = Math.min(
+      getCrossEnd(bounds, axis),
+      getCrossEnd(movingBounds, axis),
+    );
 
-    if (axis === "x") {
-      if (bounds.right <= movingBounds.left) {
-        candidates.push({
-          side: "before",
-          gap: movingBounds.left - bounds.right,
-          gapStart: bounds.right,
-          gapEnd: movingBounds.left,
-          crossStart,
-          crossEnd,
-        });
-      } else if (bounds.left >= movingBounds.right) {
-        candidates.push({
-          side: "after",
-          gap: bounds.left - movingBounds.right,
-          gapStart: movingBounds.right,
-          gapEnd: bounds.left,
-          crossStart,
-          crossEnd,
-        });
-      }
-    } else {
-      if (bounds.bottom <= movingBounds.top) {
-        candidates.push({
-          side: "before",
-          gap: movingBounds.top - bounds.bottom,
-          gapStart: bounds.bottom,
-          gapEnd: movingBounds.top,
-          crossStart,
-          crossEnd,
-        });
-      } else if (bounds.top >= movingBounds.bottom) {
-        candidates.push({
-          side: "after",
-          gap: bounds.top - movingBounds.bottom,
-          gapStart: movingBounds.bottom,
-          gapEnd: bounds.top,
-          crossStart,
-          crossEnd,
-        });
-      }
+    if (getAxisEnd(bounds, axis) <= getAxisStart(movingBounds, axis)) {
+      candidates.push({
+        side: "before",
+        gap: getAxisStart(movingBounds, axis) - getAxisEnd(bounds, axis),
+        gapStart: getAxisEnd(bounds, axis),
+        gapEnd: getAxisStart(movingBounds, axis),
+        crossStart,
+        crossEnd,
+      });
+    } else if (getAxisStart(bounds, axis) >= getAxisEnd(movingBounds, axis)) {
+      candidates.push({
+        side: "after",
+        gap: getAxisStart(bounds, axis) - getAxisEnd(movingBounds, axis),
+        gapStart: getAxisEnd(movingBounds, axis),
+        gapEnd: getAxisStart(bounds, axis),
+        crossStart,
+        crossEnd,
+      });
     }
   }
   return candidates;
 }
 
-function pairUpEqualGaps(
-  orientation: "vertical" | "horizontal",
+// Closest gap on each side is the one a user is most likely dragging toward,
+// so only the single closest candidate per side is ever paired — otherwise a
+// busy canvas surfaces every combinatorial pair of same-ish gaps at once.
+function closestGapCandidate(
   candidates: GapCandidate[],
+  side: "before" | "after",
+): GapCandidate | null {
+  return candidates.reduce<GapCandidate | null>(
+    (best, candidate) =>
+      candidate.side === side && (!best || candidate.gap < best.gap)
+        ? candidate
+        : best,
+    null,
+  );
+}
+
+function gapCandidateBand(candidate: GapCandidate): DistanceGuideBand {
+  return {
+    gapStart: candidate.gapStart,
+    gapEnd: candidate.gapEnd,
+    crossStart: candidate.crossStart,
+    crossEnd: candidate.crossEnd,
+  };
+}
+
+function buildEqualGapPair(
+  axis: "x" | "y",
+  movingBounds: FrameBounds,
+  stationary: FrameBounds[],
   toleranceCanvasPx: number,
 ): EqualGapGuide[] {
-  const before = candidates.filter((c) => c.side === "before");
-  const after = candidates.filter((c) => c.side === "after");
-  const guides: EqualGapGuide[] = [];
+  const candidates = collectAxisGapCandidates(axis, movingBounds, stationary);
+  const before = closestGapCandidate(candidates, "before");
+  const after = closestGapCandidate(candidates, "after");
+  if (!before || !after) return [];
+  if (Math.abs(before.gap - after.gap) > toleranceCanvasPx) return [];
+  return [
+    {
+      orientation: axis === "x" ? "vertical" : "horizontal",
+      gap: (before.gap + after.gap) / 2,
+      bands: [gapCandidateBand(before), gapCandidateBand(after)],
+    },
+  ];
+}
 
-  // Closest gap on each side is the one a user is most likely dragging
-  // toward, so only pair the single closest "before" candidate against the
-  // single closest "after" candidate — otherwise a busy canvas would surface
-  // every combinatorial pair of same-ish gaps at once.
-  const closestBefore = before.reduce<GapCandidate | null>(
-    (best, c) => (!best || c.gap < best.gap ? c : best),
-    null,
-  );
-  const closestAfter = after.reduce<GapCandidate | null>(
-    (best, c) => (!best || c.gap < best.gap ? c : best),
-    null,
-  );
-
-  if (
-    closestBefore &&
-    closestAfter &&
-    Math.abs(closestBefore.gap - closestAfter.gap) <= toleranceCanvasPx
-  ) {
-    guides.push({
-      orientation,
-      gap: (closestBefore.gap + closestAfter.gap) / 2,
-      bands: [
-        {
-          gapStart: closestBefore.gapStart,
-          gapEnd: closestBefore.gapEnd,
-          crossStart: closestBefore.crossStart,
-          crossEnd: closestBefore.crossEnd,
-        },
-        {
-          gapStart: closestAfter.gapStart,
-          gapEnd: closestAfter.gapEnd,
-          crossStart: closestAfter.crossStart,
-          crossEnd: closestAfter.crossEnd,
-        },
-      ],
-    });
-  }
-
-  return guides;
+/** Every gap already in the row/column that matches `gap`. Figma and tldraw
+ *  both light the whole run, not only the pair the snap landed on. */
+function matchingRhythmBands(
+  rhythms: { gap: number; band: DistanceGuideBand }[],
+  gap: number,
+  tolerance: number,
+): DistanceGuideBand[] {
+  return rhythms
+    .filter((rhythm) => Math.abs(rhythm.gap - gap) <= tolerance)
+    .map((rhythm) => rhythm.band);
 }
 
 export function resizeFrameFromDelta(
@@ -2001,54 +2098,251 @@ function getCanvasSnapThreshold({
   return thresholdScreenPx / scale;
 }
 
-function getAxisSnapCandidates(
+const SNAP_ALIGN_EPSILON = 1e-6;
+const SPACING_MATCH_EPSILON = 0.5;
+
+function getAxisSnapValues(bounds: FrameBounds, axis: "x" | "y") {
+  return axis === "x"
+    ? [bounds.left, bounds.centerX, bounds.right]
+    : [bounds.top, bounds.centerY, bounds.bottom];
+}
+
+function getAxisStart(bounds: FrameBounds, axis: "x" | "y") {
+  return axis === "x" ? bounds.left : bounds.top;
+}
+
+function getAxisEnd(bounds: FrameBounds, axis: "x" | "y") {
+  return axis === "x" ? bounds.right : bounds.bottom;
+}
+
+function getCrossStart(bounds: FrameBounds, axis: "x" | "y") {
+  return axis === "x" ? bounds.top : bounds.left;
+}
+
+function getCrossEnd(bounds: FrameBounds, axis: "x" | "y") {
+  return axis === "x" ? bounds.bottom : bounds.right;
+}
+
+function crossAxisOverlaps(
+  axis: "x" | "y",
+  a: FrameBounds,
+  b: FrameBounds,
+): boolean {
+  return (
+    getCrossStart(a, axis) < getCrossEnd(b, axis) &&
+    getCrossEnd(a, axis) > getCrossStart(b, axis)
+  );
+}
+
+function translateBounds(
+  bounds: FrameBounds,
+  dx: number,
+  dy: number,
+): FrameBounds {
+  return {
+    left: bounds.left + dx,
+    right: bounds.right + dx,
+    centerX: bounds.centerX + dx,
+    top: bounds.top + dy,
+    bottom: bounds.bottom + dy,
+    centerY: bounds.centerY + dy,
+    width: bounds.width,
+    height: bounds.height,
+  };
+}
+
+function findAxisSnapOffset(
+  axis: "x" | "y",
+  moving: FrameBounds[],
+  stationary: FrameBounds[],
+  threshold: number,
+): number | null {
+  let offset: number | null = null;
+  let bestDistance = Infinity;
+  for (const movingBounds of moving) {
+    for (const movingValue of getAxisSnapValues(movingBounds, axis)) {
+      for (const stationaryBounds of stationary) {
+        for (const stationaryValue of getAxisSnapValues(
+          stationaryBounds,
+          axis,
+        )) {
+          const candidate = stationaryValue - movingValue;
+          const distance = Math.abs(candidate);
+          if (distance > threshold || distance >= bestDistance) continue;
+          bestDistance = distance;
+          offset = candidate;
+        }
+      }
+    }
+  }
+  return offset;
+}
+
+/** Every guide line the snapped position actually sits on, not just the one
+ *  that won the snap: three frames sharing a left edge draw one line through
+ *  all three, and an edge match plus a center match on the same axis draw
+ *  both, matching Figma. Call with post-snap bounds — the line's extent is
+ *  the union of the frames it connects. */
+function buildAxisGuides(
+  axis: "x" | "y",
+  moving: FrameBounds[],
+  stationary: FrameBounds[],
+): AlignmentGuide[] {
+  const spans = new Map<number, { start: number; end: number }>();
+  for (const movingBounds of moving) {
+    for (const movingValue of getAxisSnapValues(movingBounds, axis)) {
+      for (const stationaryBounds of stationary) {
+        for (const stationaryValue of getAxisSnapValues(
+          stationaryBounds,
+          axis,
+        )) {
+          if (Math.abs(stationaryValue - movingValue) > SNAP_ALIGN_EPSILON) {
+            continue;
+          }
+          const existing = spans.get(stationaryValue);
+          const start = Math.min(
+            existing?.start ?? Infinity,
+            getCrossStart(movingBounds, axis),
+            getCrossStart(stationaryBounds, axis),
+          );
+          const end = Math.max(
+            existing?.end ?? -Infinity,
+            getCrossEnd(movingBounds, axis),
+            getCrossEnd(stationaryBounds, axis),
+          );
+          spans.set(stationaryValue, { start, end });
+        }
+      }
+    }
+  }
+
+  const orientation = axis === "x" ? "vertical" : "horizontal";
+  return Array.from(spans, ([position, span]) => ({
+    orientation,
+    position,
+    start: span.start,
+    end: span.end,
+  })) as AlignmentGuide[];
+}
+
+/** Gaps that already exist between two side-by-side stationary frames in the
+ *  moving frame's own row/column — the rhythm a Figma spacing snap matches. */
+function collectRhythmGaps(
   axis: "x" | "y",
   movingBounds: FrameBounds,
-  stationaryBounds: FrameBounds,
-  threshold: number,
-): SnapCandidate[] {
-  const movingValues =
-    axis === "x"
-      ? [movingBounds.left, movingBounds.centerX, movingBounds.right]
-      : [movingBounds.top, movingBounds.centerY, movingBounds.bottom];
-  const stationaryValues =
-    axis === "x"
-      ? [
-          stationaryBounds.left,
-          stationaryBounds.centerX,
-          stationaryBounds.right,
-        ]
-      : [
-          stationaryBounds.top,
-          stationaryBounds.centerY,
-          stationaryBounds.bottom,
-        ];
+  stationary: FrameBounds[],
+): { gap: number; band: DistanceGuideBand }[] {
+  const row = stationary
+    .filter(
+      (bounds) =>
+        crossAxisOverlaps(axis, bounds, movingBounds) &&
+        // A frame that spans the whole moving frame — a parent content box,
+        // a backdrop — is a wrapper, not a neighbour in the rhythm, and its
+        // span would swallow every real gap in the row.
+        !(
+          getAxisStart(bounds, axis) <= getAxisStart(movingBounds, axis) &&
+          getAxisEnd(bounds, axis) >= getAxisEnd(movingBounds, axis)
+        ),
+    )
+    .sort((a, b) => getAxisStart(a, axis) - getAxisStart(b, axis));
 
-  return movingValues.flatMap((movingValue) =>
-    stationaryValues
-      .map((stationaryValue) => {
-        const offset = stationaryValue - movingValue;
-        const distance = Math.abs(offset);
-        if (distance > threshold) return null;
-        return {
-          distance,
-          offset,
-          guide:
-            axis === "x"
-              ? getVerticalGuide(
-                  stationaryValue,
-                  movingBounds,
-                  stationaryBounds,
-                )
-              : getHorizontalGuide(
-                  stationaryValue,
-                  movingBounds,
-                  stationaryBounds,
-                ),
-        };
-      })
-      .filter(Boolean),
-  ) as SnapCandidate[];
+  const gaps: { gap: number; band: DistanceGuideBand }[] = [];
+  let previous: FrameBounds | null = null;
+  for (const bounds of row) {
+    const gap = previous
+      ? getAxisStart(bounds, axis) - getAxisEnd(previous, axis)
+      : 0;
+    if (previous && gap > 0 && crossAxisOverlaps(axis, previous, bounds)) {
+      gaps.push({
+        gap,
+        band: {
+          gapStart: getAxisEnd(previous, axis),
+          gapEnd: getAxisStart(bounds, axis),
+          crossStart: Math.max(
+            getCrossStart(previous, axis),
+            getCrossStart(bounds, axis),
+          ),
+          crossEnd: Math.min(
+            getCrossEnd(previous, axis),
+            getCrossEnd(bounds, axis),
+          ),
+        },
+      });
+    }
+    if (!previous || getAxisEnd(bounds, axis) > getAxisEnd(previous, axis)) {
+      previous = bounds;
+    }
+  }
+  return gaps;
+}
+
+function findSpacingSnapOffset(
+  axis: "x" | "y",
+  movingBounds: FrameBounds,
+  stationary: FrameBounds[],
+  tolerance: number,
+): number {
+  const candidates = collectAxisGapCandidates(axis, movingBounds, stationary);
+  const before = closestGapCandidate(candidates, "before");
+  const after = closestGapCandidate(candidates, "after");
+  if (!before && !after) return 0;
+
+  let offset = 0;
+  let bestDistance = Infinity;
+  const consider = (value: number) => {
+    const distance = Math.abs(value);
+    if (distance > tolerance || distance >= bestDistance) return;
+    bestDistance = distance;
+    offset = value;
+  };
+
+  if (before && after) consider((after.gap - before.gap) / 2);
+  for (const rhythm of collectRhythmGaps(axis, movingBounds, stationary)) {
+    if (before) consider(rhythm.gap - before.gap);
+    if (after) consider(after.gap - rhythm.gap);
+  }
+  return offset;
+}
+
+/** The pair of gap bands to draw once `findSpacingSnapOffset` has landed:
+ *  the two equal gaps around the frame, or the frame's gap plus the existing
+ *  gap it matched. Call with post-snap bounds. */
+function buildSpacingGuides(
+  axis: "x" | "y",
+  movingBounds: FrameBounds,
+  stationary: FrameBounds[],
+  tolerance: number,
+): EqualGapGuide[] {
+  const rhythms = collectRhythmGaps(axis, movingBounds, stationary);
+  const pair = buildEqualGapPair(axis, movingBounds, stationary, tolerance);
+  if (pair.length) {
+    const guide = pair[0];
+    return [
+      {
+        ...guide,
+        bands: [
+          ...guide.bands,
+          ...matchingRhythmBands(rhythms, guide.gap, tolerance),
+        ],
+      },
+    ];
+  }
+
+  const candidates = collectAxisGapCandidates(axis, movingBounds, stationary);
+  const neighbor =
+    closestGapCandidate(candidates, "before") ??
+    closestGapCandidate(candidates, "after");
+  if (!neighbor) return [];
+
+  const matched = matchingRhythmBands(rhythms, neighbor.gap, tolerance);
+  if (!matched.length) return [];
+  return [
+    {
+      orientation: axis === "x" ? "vertical" : "horizontal",
+      gap: neighbor.gap,
+      bands: [gapCandidateBand(neighbor), ...matched],
+    },
+  ];
 }
 
 function getBestCandidate(

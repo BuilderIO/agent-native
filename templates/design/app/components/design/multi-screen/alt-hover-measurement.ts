@@ -54,8 +54,10 @@ export function equalGapGuidesEqual(a: EqualGapGuide[], b: EqualGapGuide[]) {
     if (
       x.orientation !== y.orientation ||
       x.gap !== y.gap ||
-      !distanceGuideBandEqual(x.bands[0], y.bands[0]) ||
-      !distanceGuideBandEqual(x.bands[1], y.bands[1])
+      x.bands.length !== y.bands.length ||
+      x.bands.some(
+        (band, index) => !distanceGuideBandEqual(band, y.bands[index]),
+      )
     ) {
       return false;
     }
