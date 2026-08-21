@@ -1,4 +1,51 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const calendarMocks = vi.hoisted(() => ({
+  readAppSecret: vi.fn(),
+  refreshAccessTokenWithFallback: vi.fn(),
+  resolveGoogleOAuthCredentialCandidates: vi.fn(),
+  writeAppSecret: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/secrets", () => ({
+  readAppSecret: calendarMocks.readAppSecret,
+  writeAppSecret: calendarMocks.writeAppSecret,
+}));
+
+vi.mock("@agent-native/core/sharing", () => ({
+  resolveAccess: vi.fn(),
+}));
+
+vi.mock("../db/index.js", () => ({
+  getDb: vi.fn(),
+  schema: {},
+}));
+
+vi.mock("./google-calendar-client.js", () => ({
+  detectPlatform: vi.fn(),
+  getEvent: vi.fn(),
+  isPermanentRefreshFailure: (error: unknown) => {
+    const message =
+      error instanceof Error ? error.message : String(error || "");
+    const lower = message.toLowerCase();
+    return (
+      lower.includes("invalid_grant") ||
+      lower.includes("unauthorized_client") ||
+      lower.includes("invalid_client")
+    );
+  },
+  pickJoinUrl: vi.fn(),
+  refreshAccessTokenWithFallback: calendarMocks.refreshAccessTokenWithFallback,
+  resolveGoogleOAuthCredentialCandidates:
+    calendarMocks.resolveGoogleOAuthCredentialCandidates,
+}));
+
+vi.mock("./recordings.js", () => ({
+  getActiveOrganizationId: vi.fn(),
+  getCurrentOwnerEmail: vi.fn(),
+  getDefaultRecordingVisibility: vi.fn(),
+  nanoid: vi.fn(),
+}));
 
 import {
   isDeclinedCalendarEvent,
@@ -6,6 +53,10 @@ import {
   isPersonalSoloCalendarEvent,
   isSoloCalendarEvent,
 } from "./calendar-event-classification";
+import {
+  resolveCalendarAccessToken,
+  shouldMarkNeedsReauth,
+} from "./calendar-event-meetings";
 import type { CalendarEvent } from "./google-calendar-client";
 
 const account: CalendarAccountForEventClassification = {
@@ -123,6 +174,92 @@ describe("calendar solo event detection", () => {
         }),
       }),
     ).toBe(false);
+  });
+});
+
+describe("calendar reconnect classification", () => {
+  it("keeps transient token refresh failures connected", () => {
+    expect(
+      shouldMarkNeedsReauth(
+        "Google token refresh failed (503): backend unavailable",
+      ),
+    ).toBe(false);
+    expect(
+      shouldMarkNeedsReauth("Google token refresh failed (429): rate limited"),
+    ).toBe(false);
+  });
+
+  it("requires reconnect for confirmed authorization failures", () => {
+    expect(shouldMarkNeedsReauth("invalid_grant: token revoked")).toBe(true);
+    expect(
+      shouldMarkNeedsReauth("Google Calendar list failed (401): nope"),
+    ).toBe(true);
+    expect(
+      shouldMarkNeedsReauth("Google Calendar event failed (401): nope"),
+    ).toBe(true);
+  });
+});
+
+describe("calendar access token refresh", () => {
+  const calendarAccount = {
+    id: "calendar_1",
+    provider: "google",
+    ownerEmail: "user@example.com",
+    accessTokenSecretRef: "calendar-access-token",
+    refreshTokenSecretRef: "calendar-refresh-token",
+  };
+
+  beforeEach(() => {
+    calendarMocks.readAppSecret.mockReset();
+    calendarMocks.refreshAccessTokenWithFallback.mockReset();
+    calendarMocks.resolveGoogleOAuthCredentialCandidates.mockReset();
+    calendarMocks.writeAppSecret.mockReset();
+    calendarMocks.resolveGoogleOAuthCredentialCandidates.mockResolvedValue([
+      { clientId: "client-id", clientSecret: "client-secret" },
+    ]);
+  });
+
+  function mockStoredTokens(expiresAt: number) {
+    calendarMocks.readAppSecret
+      .mockResolvedValueOnce({
+        value: JSON.stringify({
+          accessToken: "existing-access-token",
+          expiresAt,
+        }),
+      })
+      .mockResolvedValueOnce({ value: "refresh-token" });
+  }
+
+  it("reuses an unexpired access token when refresh fails transiently", async () => {
+    mockStoredTokens(Date.now() + 60_000);
+    calendarMocks.refreshAccessTokenWithFallback.mockRejectedValue(
+      new Error("Google token refresh failed (503): backend unavailable"),
+    );
+
+    await expect(resolveCalendarAccessToken(calendarAccount)).resolves.toBe(
+      "existing-access-token",
+    );
+  });
+
+  it("throws a transient refresh failure when the access token is expired", async () => {
+    mockStoredTokens(Date.now() - 1);
+    const error = new Error("Google token refresh failed (429): rate limited");
+    calendarMocks.refreshAccessTokenWithFallback.mockRejectedValue(error);
+
+    await expect(resolveCalendarAccessToken(calendarAccount)).rejects.toBe(
+      error,
+    );
+  });
+
+  it("returns null for a permanent refresh failure", async () => {
+    mockStoredTokens(Date.now() + 60_000);
+    calendarMocks.refreshAccessTokenWithFallback.mockRejectedValue(
+      new Error("Google token refresh failed (400): invalid_grant"),
+    );
+
+    await expect(
+      resolveCalendarAccessToken(calendarAccount),
+    ).resolves.toBeNull();
   });
 });
 

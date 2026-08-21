@@ -74,8 +74,7 @@ export function shouldMarkNeedsReauth(message: string): boolean {
     lower.includes("google calendar event failed (401)") ||
     lower.includes("invalid_grant") ||
     lower.includes("invalid_token") ||
-    lower.includes("insufficient_scope") ||
-    lower.includes("token refresh failed")
+    lower.includes("insufficient_scope")
   );
 }
 
@@ -122,10 +121,16 @@ export async function resolveCalendarAccessToken(
     });
   } catch (err) {
     // Only a permanent failure (dead refresh token / bad OAuth client) means
-    // "needs-reauth" — collapse those to `null` as before. A transient
-    // failure (network error, 429, 5xx, timeout) is rethrown so callers can
-    // record it as a soft sync error without flipping account status.
+    // "needs-reauth" — collapse those to `null` as before. During the refresh
+    // buffer, a transient failure can safely reuse the still-valid token.
     if (isPermanentRefreshFailure(err)) return null;
+    if (
+      bundle?.accessToken &&
+      bundle.expiresAt &&
+      bundle.expiresAt > Date.now()
+    ) {
+      return bundle.accessToken;
+    }
     throw err;
   }
   if (!refreshed.access_token) return null;
