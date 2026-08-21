@@ -1880,7 +1880,7 @@ ${
   /* guard:allow-raw-color - standalone auth HTML has no app theme token layer */
   .environment-switcher {
     position: fixed;
-    right: max(0.75rem, env(safe-area-inset-right));
+    left: max(0.75rem, env(safe-area-inset-left));
     bottom: max(0.75rem, env(safe-area-inset-bottom));
     z-index: 100;
   }
@@ -1915,9 +1915,10 @@ ${
   }
   .environment-popover {
     position: absolute;
-    right: 0;
+    left: 0;
     bottom: calc(100% + 0.5rem);
     width: min(17.5rem, calc(100vw - 1.5rem));
+    box-sizing: border-box;
     padding: 1.25rem;
     background: #141414;
     color: #fff;

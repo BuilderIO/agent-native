@@ -219,8 +219,8 @@ export function Finalizing() {
       ? "Uploaded"
       : progress.stage === "failed"
         ? progress.savedLocally
-          ? "Upload paused — clip saved locally"
-          : "Upload paused — open Clips to recover"
+          ? "Upload paused. Clip saved locally."
+          : "Upload paused. Open Clips to recover."
         : progress.stage === "uploading" ||
             progress.stage === "processing" ||
             progress.stage === "opening"

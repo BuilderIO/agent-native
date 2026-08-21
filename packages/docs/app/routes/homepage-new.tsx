@@ -329,7 +329,6 @@ function HeroScreens() {
           >
             <BuilderImage
               src={template.screenshot}
-              sizes="(max-width: 768px) 50vw, 300px"
               alt=""
               className="aspect-[4/3] w-full object-cover"
               loading="lazy"
@@ -383,7 +382,6 @@ function ExampleAppCard({ app }: { app: ExampleApp }) {
       <div className="relative border-b border-[var(--docs-border)] bg-[var(--bg-secondary)]">
         <BuilderImage
           src={app.template.screenshot}
-          sizes="(max-width: 768px) 100vw, 400px"
           alt={`${displayName} app screenshot`}
           className="aspect-[16/10] w-full object-cover transition duration-300 group-hover:scale-[1.015]"
           loading="lazy"

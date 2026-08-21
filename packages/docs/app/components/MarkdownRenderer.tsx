@@ -39,9 +39,8 @@ interface ImageDimensions {
 const DEFAULT_CODE_MAX_LINES = 17;
 const MAX_CONFIGURED_CODE_LINES = 2000;
 const MAX_RENDERED_MARKDOWN_CACHE_ENTRIES = 64;
-const DOCS_BUILDER_IMAGE_SIZES = "(max-width: 900px) 100vw, 900px";
 const DOCS_BUILDER_IMAGE_FALLBACK_WIDTH =
-  BUILDER_IMAGE_WIDTHS[BUILDER_IMAGE_WIDTHS.length - 1] ?? 800;
+  BUILDER_IMAGE_WIDTHS[BUILDER_IMAGE_WIDTHS.length - 1] ?? 2400;
 
 const DOCS_IMAGE_DIMENSIONS: Record<string, ImageDimensions> = {
   "/screenshots/analytics.png": { width: 1400, height: 710 },
@@ -344,7 +343,6 @@ function createRenderer(locale: DocsLocale) {
       ? [
           `src="${escapeHtml(getBuilderImageUrl(token.href, DOCS_BUILDER_IMAGE_FALLBACK_WIDTH))}"`,
           `srcset="${escapeHtml(getBuilderImageSrcSet(token.href) ?? "")}"`,
-          `sizes="${escapeHtml(DOCS_BUILDER_IMAGE_SIZES)}"`,
         ].join(" ")
       : `src="${escapeHtml(token.href)}"`;
     const image = `<img ${builderImageAttributes} alt="${escapeHtml(token.text)}"${title} class="docs-image" loading="lazy" decoding="async"${sizeAttributes}>`;

@@ -427,6 +427,12 @@ const esES = {
     source: "Fuente",
     readDocs: "Lea los documentos",
     signIn: "Iniciar sesión",
+    tryTemplateFree: "Prueba {{name}} gratis",
+    designForFree: "Diseña gratis",
+    recordForFree: "Graba gratis",
+    getStarted: "Comenzar",
+    freeAndOpenSource: "100 % gratis • código abierto",
+    viewAllApps: "Ver todas las aplicaciones",
   },
   templatesPage: {
     title: "Aplicaciones nativas del agente de código abierto de su propiedad",
