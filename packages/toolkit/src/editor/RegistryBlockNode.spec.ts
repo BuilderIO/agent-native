@@ -121,7 +121,7 @@ afterEach(() => {
 describe("RegistryBlockNode keyboard guard", () => {
   it("selects and removes an errored registry atom from its interactive error surface", () => {
     const editor = createEditor();
-    const target = document.createElement("pre");
+    const target = document.createElement("div");
     target.setAttribute("data-plan-interactive", "true");
 
     try {
@@ -140,6 +140,34 @@ describe("RegistryBlockNode keyboard guard", () => {
 
       expect(editor.commands.deleteSelection()).toBe(true);
       expect(() => findPlanBlockPos(editor)).toThrow("Expected planBlock node");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("preserves native raw-source selection inside an errored registry atom", () => {
+    const editor = createEditor();
+    const errorSurface = document.createElement("div");
+    const rawSource = document.createElement("pre");
+    errorSurface.appendChild(rawSource);
+    const preventDefault = vi.fn();
+    const stopPropagation = vi.fn();
+
+    try {
+      expect(
+        selectRegistryBlockNode({
+          editable: true,
+          allowInteractiveChild: true,
+          target: rawSource,
+          getPos: () => findPlanBlockPos(editor),
+          view: editor.view,
+          preventDefault,
+          stopPropagation,
+        }),
+      ).toBe(false);
+      expect(preventDefault).not.toHaveBeenCalled();
+      expect(stopPropagation).not.toHaveBeenCalled();
+      expect(editor.state.selection).not.toBeInstanceOf(NodeSelection);
     } finally {
       editor.destroy();
     }

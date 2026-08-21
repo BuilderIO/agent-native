@@ -104,6 +104,12 @@ export function selectRegistryBlockNode({
     clickedInteractiveChild(target)
   )
     return false;
+  if (
+    allowInteractiveChild &&
+    target instanceof HTMLElement &&
+    target.closest("pre")
+  )
+    return false;
   const pos = typeof getPos === "function" ? getPos() : null;
   if (typeof pos !== "number") return false;
   try {
@@ -114,9 +120,12 @@ export function selectRegistryBlockNode({
     );
     view.focus();
     return true;
-  } catch { // coercion-ok: false is the explicit failure result for a stale node position.
-    // Ignore stale positions during React/ProseMirror reconciliation.
-    return false;
+  } catch (error) {
+    // A node can disappear between the mousedown and selection dispatch during
+    // reconciliation. Keep that expected stale-position race recoverable, but
+    // do not hide unrelated editor failures.
+    if (error instanceof RangeError) return false;
+    throw error;
   }
 }
 
