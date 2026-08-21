@@ -3,6 +3,7 @@ import { sourceContentHash } from "@shared/source-workspace";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import * as Y from "yjs";
 
+import { writeCollabText } from "@/pages/design-editor/collab-sync";
 import {
   TAB_ID,
   shouldAdoptExternalReconcileContent,
@@ -103,16 +104,13 @@ export function runAdoptDbFileContent({
     if (isLeadClient && ydoc) {
       const ytext = ydoc.getText("content");
       if (ytext.toString() !== dbContent) {
-        // Untracked full rewrite (agent edit / external DB content
-        // replacing a live doc that diverged) — clear the undo stack so a
-        // stale tracked delta can't be replayed against content it no
-        // longer matches (see U1: this is the primary corruption path —
-        // agent edits, motion autosave, and id-stamping all land here).
+        // Untracked write (agent edit / external DB content replacing a
+        // live doc that diverged) — clear the undo stack so a stale
+        // tracked delta can't be replayed against content it no longer
+        // matches (see U1: this is the primary corruption path — agent
+        // edits, motion autosave, and id-stamping all land here).
         undoManagerRef.current?.clear(true, false);
-        ydoc.transact(() => {
-          ytext.delete(0, ytext.length);
-          ytext.insert(0, dbContent);
-        }, TAB_ID);
+        writeCollabText(ydoc, ytext, dbContent, TAB_ID);
       }
     }
     return;
@@ -182,12 +180,9 @@ export function runAdoptDbFileContent({
           if (isLeadClient && ydoc) {
             const ytext = ydoc.getText("content");
             if (ytext.toString() !== expectedContent) {
-              // Untracked full rewrite — see U1 note above.
+              // Untracked write — see U1 note above.
               undoManagerRef.current?.clear(true, false);
-              ydoc.transact(() => {
-                ytext.delete(0, ytext.length);
-                ytext.insert(0, expectedContent);
-              }, TAB_ID);
+              writeCollabText(ydoc, ytext, expectedContent, TAB_ID);
             }
           }
         }, 1200);
@@ -258,13 +253,10 @@ export function runAdoptDbFileContent({
   if (isLeadClient && ydoc) {
     const ytext = ydoc.getText("content");
     if (ytext.toString() !== dbContent) {
-      // Untracked full rewrite — see U1 note above. The view-appropriate
+      // Untracked write — see U1 note above. The view-appropriate
       // checkpoint recorded above (U21) is what Cmd+Z now falls back to.
       undoManagerRef.current?.clear(true, false);
-      ydoc.transact(() => {
-        ytext.delete(0, ytext.length);
-        ytext.insert(0, dbContent);
-      }, TAB_ID);
+      writeCollabText(ydoc, ytext, dbContent, TAB_ID);
     }
   }
 }

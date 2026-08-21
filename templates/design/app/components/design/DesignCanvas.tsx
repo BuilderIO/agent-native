@@ -1015,10 +1015,15 @@ function contentHash(value: string): string {
 const SCRIPT_ELEMENT_RE = /<script\b[^>]*>[\s\S]*?<\/script\s*>/gi; // i18n-ignore non-UI regex
 
 /**
- * Runtime document replacement uses `head.innerHTML` / `body.innerHTML`, which
- * intentionally preserves the iframe browsing context but cannot execute
- * newly inserted or changed scripts. Reload only when source script elements
- * change; ordinary markup/style edits continue through the no-flash bridge.
+ * Runtime document replacement morphs the live DOM, which preserves the iframe
+ * browsing context but cannot execute newly inserted or changed scripts.
+ * Reload only when source script elements change.
+ *
+ * A changed `<head>` is NOT a reload trigger: the bridge swaps only the nodes
+ * the previous source head contributed (replaceSourceHeadNodes), leaving what
+ * the page's own runtime injected in place. Treating any head edit as a reload
+ * meant every breakpoint override, motion track and token write — all of which
+ * persist into a managed `<style>` in the head — reloaded the whole frame.
  */
 function runtimeDocumentNeedsReload(
   previousContent: string,
@@ -1028,14 +1033,7 @@ function runtimeDocumentNeedsReload(
     Array.from(html.matchAll(SCRIPT_ELEMENT_RE), (match) => match[0]).join(
       "\n",
     );
-  // A changed <head> is replaced wholesale, which drops whatever the page's own
-  // runtime injected there and cannot re-run the scripts that produced it.
-  const headSignature = (html: string) =>
-    /<head\b[^>]*>([\s\S]*?)<\/head\s*>/i.exec(html)?.[1] ?? "";
-  return (
-    scriptSignature(previousContent) !== scriptSignature(nextContent) ||
-    headSignature(previousContent) !== headSignature(nextContent)
-  );
+  return scriptSignature(previousContent) !== scriptSignature(nextContent);
 }
 
 /**

@@ -2529,6 +2529,72 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
       });
     }
+    function morphNodeKey(node) {
+      if (node.nodeType !== 1) return null;
+      return node.getAttribute("data-agent-native-node-id");
+    }
+    function morphAttributes(live, next) {
+      var nextAttrs = next.attributes;
+      for (var i = 0; i < nextAttrs.length; i += 1) {
+        var attr = nextAttrs[i];
+        if (live.getAttribute(attr.name) === attr.value) continue;
+        if (attr.namespaceURI) {
+          live.setAttributeNS(attr.namespaceURI, attr.name, attr.value);
+        } else {
+          live.setAttribute(attr.name, attr.value);
+        }
+      }
+      var liveAttrs = Array.prototype.slice.call(live.attributes);
+      for (var j = 0; j < liveAttrs.length; j += 1) {
+        var name = liveAttrs[j].name;
+        if (name === "data-an-state-preview-key") continue;
+        if (!next.hasAttribute(name)) live.removeAttribute(name);
+      }
+    }
+    function morphChildren(live, next, keyed) {
+      var cursor = live.firstChild;
+      var nextChild = next.firstChild;
+      while (nextChild) {
+        var key = morphNodeKey(nextChild);
+        var reuse = null;
+        if (key) {
+          var candidate = keyed.get(key) ?? null;
+          if (candidate && !candidate.contains(live)) {
+            reuse = candidate;
+            keyed.delete(key);
+          }
+        } else if (cursor && !morphNodeKey(cursor) && cursor.nodeType === nextChild.nodeType && cursor.nodeName === nextChild.nodeName) {
+          reuse = cursor;
+        }
+        if (reuse) {
+          if (reuse !== cursor) live.insertBefore(reuse, cursor);
+          if (reuse.nodeType === 1) {
+            morphAttributes(reuse, nextChild);
+            morphChildren(reuse, nextChild, keyed);
+          } else if (reuse.nodeValue !== nextChild.nodeValue) {
+            reuse.nodeValue = nextChild.nodeValue;
+          }
+          cursor = reuse.nextSibling;
+        } else {
+          live.insertBefore(document.importNode(nextChild, true), cursor);
+        }
+        nextChild = nextChild.nextSibling;
+      }
+      while (cursor) {
+        var stale = cursor;
+        cursor = cursor.nextSibling;
+        live.removeChild(stale);
+      }
+    }
+    function morphRuntimeBody(nextBody) {
+      var keyed = /* @__PURE__ */ new Map();
+      document.querySelectorAll("[data-agent-native-node-id]").forEach(function(element) {
+        var key = element.getAttribute("data-agent-native-node-id");
+        if (key && !keyed.has(key)) keyed.set(key, element);
+      });
+      morphAttributes(document.body, nextBody);
+      morphChildren(document.body, nextBody, keyed);
+    }
     function replaceRuntimeDocument(html, preferredSelector, selectorCandidates, forceFullDocument, preserveTextEditingSession) {
       if (typeof html !== "string") return;
       exitStaleTextEditSession();
@@ -2641,13 +2707,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         ensureEditorChromeStyle();
         lastSourceHeadHtml = nextHeadHtml;
       }
-      Array.prototype.slice.call(document.body.attributes).forEach(function(attribute) {
-        document.body.removeAttribute(attribute.name);
+      persistentNodes.forEach(function(node) {
+        if (node.parentNode) node.parentNode.removeChild(node);
       });
-      Array.prototype.slice.call(nextDoc.body.attributes).forEach(function(attribute) {
-        document.body.setAttribute(attribute.name, attribute.value);
-      });
-      document.body.innerHTML = nextDoc.body.innerHTML;
+      morphRuntimeBody(nextDoc.body);
       persistentNodes.forEach(function(node) {
         document.body.appendChild(node);
       });

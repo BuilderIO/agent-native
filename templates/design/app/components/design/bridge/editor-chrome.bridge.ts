@@ -3202,6 +3202,112 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     });
   }
 
+  function morphNodeKey(node: Node): string | null {
+    if (node.nodeType !== 1) return null;
+    return (node as Element).getAttribute("data-agent-native-node-id");
+  }
+
+  function morphAttributes(live: Element, next: Element): void {
+    var nextAttrs = next.attributes;
+    for (var i = 0; i < nextAttrs.length; i += 1) {
+      var attr = nextAttrs[i]!;
+      if (live.getAttribute(attr.name) === attr.value) continue;
+      // A namespaced attribute (xlink:href inside an SVG) set through the
+      // plain setter becomes an inert same-named attribute the renderer
+      // ignores.
+      if (attr.namespaceURI) {
+        live.setAttributeNS(attr.namespaceURI, attr.name, attr.value);
+      } else {
+        live.setAttribute(attr.name, attr.value);
+      }
+    }
+    var liveAttrs = Array.prototype.slice.call(live.attributes) as Attr[];
+    for (var j = 0; j < liveAttrs.length; j += 1) {
+      var name = liveAttrs[j]!.name;
+      // runtimeInteractionStatePreviews keys off the element reference, which
+      // a morph keeps alive. Dropping its marker here would leave the array
+      // pointing at elements the preview renderer can no longer find.
+      if (name === "data-an-state-preview-key") continue;
+      if (!next.hasAttribute(name)) live.removeAttribute(name);
+    }
+  }
+
+  function morphChildren(
+    live: Element,
+    next: Element,
+    keyed: Map<string, Element>,
+  ): void {
+    var cursor = live.firstChild;
+    var nextChild = next.firstChild;
+    while (nextChild) {
+      var key = morphNodeKey(nextChild);
+      var reuse: Node | null = null;
+      if (key) {
+        var candidate = keyed.get(key) ?? null;
+        // A keyed node that already contains this parent cannot be moved
+        // inside itself; recreate it instead of building a cycle.
+        if (candidate && !candidate.contains(live)) {
+          reuse = candidate;
+          // Claim it: authored markup can repeat an id, and reusing one live
+          // element for both would move the same node twice and drop one.
+          keyed.delete(key);
+        }
+      } else if (
+        cursor &&
+        !morphNodeKey(cursor) &&
+        cursor.nodeType === nextChild.nodeType &&
+        cursor.nodeName === nextChild.nodeName
+      ) {
+        reuse = cursor;
+      }
+      if (reuse) {
+        if (reuse !== cursor) live.insertBefore(reuse, cursor);
+        if (reuse.nodeType === 1) {
+          morphAttributes(reuse as Element, nextChild as Element);
+          morphChildren(reuse as Element, nextChild as Element, keyed);
+        } else if (reuse.nodeValue !== nextChild.nodeValue) {
+          reuse.nodeValue = nextChild.nodeValue;
+        }
+        cursor = reuse.nextSibling;
+      } else {
+        live.insertBefore(document.importNode(nextChild, true), cursor);
+      }
+      nextChild = nextChild.nextSibling;
+    }
+    while (cursor) {
+      var stale = cursor;
+      cursor = cursor.nextSibling;
+      live.removeChild(stale);
+    }
+  }
+
+  /**
+   * Reconcile the live body against the parsed next document, reusing every
+   * node whose `data-agent-native-node-id` is unchanged.
+   *
+   * Never `body.innerHTML = next`. That rebuilds every node in the screen, so
+   * editing one element restarts Alpine components, CSS transitions and media,
+   * drops focus and inner scroll positions, and re-decodes every image — the
+   * "the frame refreshed" report. This walk touches only what differs.
+   *
+   * Like innerHTML it does not execute an inserted script, so a changed script
+   * is still the caller's cue to rebuild the document — see
+   * `runtimeDocumentNeedsReload` in DesignCanvas.tsx.
+   */
+  function morphRuntimeBody(nextBody: Element): void {
+    var keyed = new Map<string, Element>();
+    document.querySelectorAll("[data-agent-native-node-id]").forEach(function (
+      element: Element,
+    ) {
+      var key = element.getAttribute("data-agent-native-node-id");
+      // First occurrence wins: a duplicated id in authored markup must not
+      // let a later node steal an earlier node's identity.
+      if (key && !keyed.has(key)) keyed.set(key, element);
+    });
+    morphAttributes(document.body, nextBody);
+    morphChildren(document.body, nextBody, keyed);
+  }
+
   function replaceRuntimeDocument(
     html: string,
     preferredSelector: string,
@@ -3372,17 +3478,12 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       ensureEditorChromeStyle();
       lastSourceHeadHtml = nextHeadHtml;
     }
-    Array.prototype.slice.call(document.body.attributes).forEach(function (
-      attribute: Attr,
-    ) {
-      document.body.removeAttribute(attribute.name);
+    // Detached first so the keyed walk below never sees editor chrome as a
+    // stale child of the source document and removes it.
+    persistentNodes.forEach(function (node) {
+      if (node.parentNode) node.parentNode.removeChild(node);
     });
-    Array.prototype.slice.call(nextDoc.body.attributes).forEach(function (
-      attribute: Attr,
-    ) {
-      document.body.setAttribute(attribute.name, attribute.value);
-    });
-    document.body.innerHTML = nextDoc.body.innerHTML;
+    morphRuntimeBody(nextDoc.body);
     persistentNodes.forEach(function (node) {
       document.body.appendChild(node);
     });
