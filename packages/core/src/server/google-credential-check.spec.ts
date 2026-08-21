@@ -4,6 +4,10 @@ import {
   checkGoogleSignInCredential,
   resetGoogleCredentialCheckCache,
 } from "./google-credential-check.js";
+import {
+  recordActiveGoogleSignInCredentials,
+  resetActiveGoogleSignInCredentials,
+} from "./google-oauth-credentials.js";
 
 const ENV_KEYS = [
   "GOOGLE_SIGN_IN_CLIENT_ID",
@@ -25,6 +29,7 @@ describe("checkGoogleSignInCredential", () => {
       delete process.env[key];
     }
     resetGoogleCredentialCheckCache();
+    resetActiveGoogleSignInCredentials();
   });
 
   afterEach(() => {
@@ -34,6 +39,7 @@ describe("checkGoogleSignInCredential", () => {
     }
     vi.unstubAllGlobals();
     resetGoogleCredentialCheckCache();
+    resetActiveGoogleSignInCredentials();
   });
 
   it("reads invalid_grant as a working secret", async () => {
@@ -137,5 +143,44 @@ describe("checkGoogleSignInCredential", () => {
 
     expect(result.mismatchedPairs).toBe(false);
     expect(result.clientId).toBe("client-b");
+  });
+  it("probes the pair Better Auth actually wired, not the preferred one", async () => {
+    // A scoped template (mail/calendar) runs on GOOGLE_CLIENT_*, so probing the
+    // preferred GOOGLE_SIGN_IN_* pair would verify a credential the callback
+    // never uses and report healthy while sign-in is broken.
+    process.env.GOOGLE_SIGN_IN_CLIENT_ID = "preferred-client";
+    process.env.GOOGLE_SIGN_IN_CLIENT_SECRET = "preferred-secret";
+    process.env.GOOGLE_CLIENT_ID = "scoped-client";
+    process.env.GOOGLE_CLIENT_SECRET = "scoped-secret";
+    recordActiveGoogleSignInCredentials({
+      clientId: "scoped-client",
+      clientSecret: "scoped-secret",
+    });
+    const fetchMock = googleAnswers("invalid_grant");
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await checkGoogleSignInCredential();
+
+    expect(result.clientId).toBe("scoped-client");
+    expect(result.credentialSource).toBe("active");
+    const sent = String(
+      (fetchMock.mock.calls[0] as unknown[])[1] &&
+        ((fetchMock.mock.calls[0] as unknown[])[1] as { body: unknown }).body,
+    );
+    expect(sent).toContain("scoped-secret");
+    expect(sent).not.toContain("preferred-secret");
+  });
+
+  it("reports unconfigured when the wired provider had no credentials", async () => {
+    process.env.GOOGLE_SIGN_IN_CLIENT_ID = "preferred-client";
+    process.env.GOOGLE_SIGN_IN_CLIENT_SECRET = "preferred-secret";
+    recordActiveGoogleSignInCredentials(null);
+    const fetchMock = googleAnswers("invalid_grant");
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await checkGoogleSignInCredential();
+
+    expect(result.status).toBe("unconfigured");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

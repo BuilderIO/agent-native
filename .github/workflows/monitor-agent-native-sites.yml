@@ -333,48 +333,89 @@ jobs:
               ...manifest.workspace.map((host) => ({ environment: "workspace", host })),
             ];
 
+            // The whole step must finish inside the job timeout even when the
+            // fleet is degraded, so probes run concurrently under one deadline
+            // rather than serially per host.
+            const CONCURRENCY = 6;
+            const ATTEMPT_TIMEOUT_MS = 15_000;
+            const TOTAL_BUDGET_MS = 150_000;
+            const deadline = Date.now() + TOTAL_BUDGET_MS;
+
             async function probe(host) {
-              // Two attempts: a cold function can exceed the first budget, and a
-              // timeout must never be reported as a credential failure.
               let last = "no attempt";
               for (let attempt = 1; attempt <= 2; attempt += 1) {
+                if (Date.now() >= deadline) return { inconclusive: "probe budget exhausted" };
                 try {
                   const response = await fetch(
                     `https://${host}/_agent-native/health/google`,
-                    { signal: AbortSignal.timeout(30_000) },
+                    { signal: AbortSignal.timeout(ATTEMPT_TIMEOUT_MS) },
                   );
-                  if (response.status === 404) return { skip: "route not deployed" };
+                  if (response.status === 404) return { absent: "route not deployed" };
                   const body = await response.json();
-                  if (typeof body?.status !== "string") return { skip: "unrecognised body" };
+                  if (typeof body?.status !== "string") {
+                    return { inconclusive: `unrecognised body (http ${response.status})` };
+                  }
                   return { body };
                 } catch (error) {
                   last = error instanceof Error ? error.message : String(error);
                 }
               }
-              return { skip: `unreachable: ${last}` };
+              return { inconclusive: `unreachable: ${last}` };
             }
 
             const broken = [];
+            const inconclusive = [];
+            const absent = [];
             const mismatched = [];
-            for (const { environment, host } of hosts) {
-              const result = await probe(host);
-              if (result.skip) {
-                console.log(`SKIP\t${environment}\t${host}\t${result.skip}`);
-                continue;
+            let checked = 0;
+
+            const queue = [...hosts];
+            async function worker() {
+              for (;;) {
+                const next = queue.shift();
+                if (!next) return;
+                const { environment, host } = next;
+                const result = await probe(host);
+                if (result.absent) {
+                  absent.push(`${environment} ${host}`);
+                  console.log(`ABSENT\t${environment}\t${host}\t${result.absent}`);
+                  continue;
+                }
+                if (result.inconclusive) {
+                  inconclusive.push(`${environment} ${host} (${result.inconclusive})`);
+                  console.log(`INCONCLUSIVE\t${environment}\t${host}\t${result.inconclusive}`);
+                  continue;
+                }
+                const { status, reason, mismatchedPairs, clientId, credentialSource } = result.body;
+                if (status === "invalid") broken.push(`${environment} ${host} (${reason})`);
+                // `unknown` means Google did not answer. It is not a pass.
+                if (status === "unknown") {
+                  inconclusive.push(`${environment} ${host} (${reason ?? "unknown"})`);
+                }
+                if (mismatchedPairs) mismatched.push(`${environment} ${host}`);
+                checked += 1;
+                const label =
+                  status === "invalid" ? "FAIL" : status === "valid" ? "PASS" : "INFO";
+                console.log(
+                  `${label}\t${environment}\t${host}\t${status}\t${clientId ?? "-"}\t${credentialSource ?? "-"}`,
+                );
               }
-              const { status, reason, mismatchedPairs, clientId } = result.body;
-              if (status === "invalid") broken.push(`${environment} ${host} (${reason})`);
-              if (mismatchedPairs) mismatched.push(`${environment} ${host}`);
-              const label = status === "invalid" ? "FAIL" : status === "valid" ? "PASS" : "INFO";
-              console.log(`${label}\t${environment}\t${host}\t${status}\t${clientId ?? "-"}`);
             }
+            await Promise.all(
+              Array.from({ length: Math.min(CONCURRENCY, hosts.length) }, worker),
+            );
 
             if (mismatched.length > 0) {
               // Latent, not an outage: two credential pairs naming different
-              // clients means repairs can land on the pair nobody reads. Report
-              // it loudly; do not page for pre-existing config debt.
+              // clients means a repair can land on the pair nobody reads.
+              // Report it loudly; do not page for pre-existing config debt.
               console.log(
                 `\nWARN: ${mismatched.length} host(s) carry two Google credential pairs for different clients:\n  ${mismatched.join("\n  ")}`,
+              );
+            }
+            if (absent.length > 0) {
+              console.log(
+                `\nNOTE: ${absent.length} host(s) have not deployed the check yet:\n  ${absent.join("\n  ")}`,
               );
             }
             if (broken.length > 0) {
@@ -384,7 +425,27 @@ jobs:
               process.exitCode = 1;
               return;
             }
-            console.log("\nGoogle sign-in credentials accepted on every reachable host.");
+            if (inconclusive.length > 0) {
+              // Never let "we could not tell" print as acceptance — that is the
+              // blind spot this check exists to remove.
+              console.error(
+                `\nINCONCLUSIVE on ${inconclusive.length} host(s); the credential was not verified:\n  ${inconclusive.join("\n  ")}`,
+              );
+              process.exitCode = 1;
+              return;
+            }
+            if (checked === 0) {
+              // Rollout exception: before the route ships fleet-wide every
+              // host 404s. Say plainly that nothing was verified rather than
+              // paging, and never let this path print acceptance.
+              console.log(
+                "\nNOT VERIFIED: no host answered the credential check yet (route not deployed).",
+              );
+              return;
+            }
+            console.log(
+              `\nGoogle accepted the sign-in credentials on all ${checked} host(s) that answered.`,
+            );
           })().catch((error) => {
             console.error(error instanceof Error ? error.message : error);
             process.exitCode = 1;

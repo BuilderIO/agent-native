@@ -77,7 +77,10 @@ import {
   renderVerifySignupEmail,
 } from "./email-templates.js";
 import { getEmailReadiness, sendEmail } from "./email.js";
-import { resolveGoogleSignInCredentials } from "./google-oauth-credentials.js";
+import {
+  recordActiveGoogleSignInCredentials,
+  resolveGoogleSignInCredentials,
+} from "./google-oauth-credentials.js";
 import { readMagicLinkSignupAttribution } from "./magic-link-attribution.js";
 import {
   getRequestContext,
@@ -1238,6 +1241,9 @@ async function createBetterAuthInstance(
           }
         : null
       : resolveGoogleSignInCredentials();
+  // Publish the pair actually wired to the provider so the credential
+  // self-check probes what the callback uses, not what it would prefer.
+  recordActiveGoogleSignInCredentials(googleCredentials);
   if (googleCredentials) {
     // When the template requests broader scopes (Gmail, Calendar, etc.)
     // ask for them on the primary sign-in flow so a separate "Connect

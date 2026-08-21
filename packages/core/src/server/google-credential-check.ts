@@ -1,5 +1,6 @@
 import {
   describeGoogleSignInCredentialPairs,
+  getActiveGoogleSignInCredentials,
   resolveGoogleSignInCredentials,
 } from "./google-oauth-credentials.js";
 
@@ -32,6 +33,12 @@ export interface GoogleCredentialCheck {
   clientId: string | null;
   /** Both credential pairs are set to different Google clients. */
   mismatchedPairs: boolean;
+  /**
+   * Where the probed pair came from. `active` is the pair Better Auth wired to
+   * the provider; `preferred` means auth had not initialised yet and this fell
+   * back to the preferred pair, which a scoped template may not use.
+   */
+  credentialSource: "active" | "preferred";
   /** Google's `error` field, or the transport failure, when there was one. */
   reason: string | null;
   checkedAt: number;
@@ -106,19 +113,30 @@ export async function checkGoogleSignInCredential(options?: {
   if (cached && cached.expiresAt > at) return cached.value;
 
   const pairs = describeGoogleSignInCredentialPairs();
-  const credentials = resolveGoogleSignInCredentials();
+  // Prefer what Better Auth actually wired up. A template requesting broader
+  // scopes runs on GOOGLE_CLIENT_*, so re-deriving the preferred pair here
+  // would test a credential the callback never touches.
+  const active = getActiveGoogleSignInCredentials();
+  const credentials = active.recorded
+    ? active.credentials
+    : resolveGoogleSignInCredentials();
+  const credentialSource: "active" | "preferred" = active.recorded
+    ? "active"
+    : "preferred";
 
   const value: GoogleCredentialCheck = credentials
     ? {
         ...(await probeGoogle(credentials.clientId, credentials.clientSecret)),
         clientId: credentials.clientId,
         mismatchedPairs: pairs.mismatched,
+        credentialSource,
         checkedAt: at,
       }
     : {
         status: "unconfigured",
         clientId: null,
         mismatchedPairs: pairs.mismatched,
+        credentialSource,
         reason: null,
         checkedAt: at,
       };

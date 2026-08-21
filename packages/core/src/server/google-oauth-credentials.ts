@@ -123,6 +123,40 @@ export function hasGoogleSignInCredentials(): boolean {
   return resolveGoogleSignInCredentials() !== null;
 }
 
+let activeSignInCredentials: GoogleOAuthCredentials | null = null;
+let activeSignInCredentialsRecorded = false;
+
+/**
+ * Record the pair Better Auth actually handed to the Google provider.
+ *
+ * The effective pair is not always the preferred one: a template asking for
+ * broader scopes is wired to GOOGLE_CLIENT_ID/SECRET instead. Anything testing
+ * "the credential the callback will use" must read this rather than
+ * re-deriving it, or it will verify a pair nothing reads and report healthy.
+ */
+export function recordActiveGoogleSignInCredentials(
+  credentials: GoogleOAuthCredentials | null,
+): void {
+  activeSignInCredentials = credentials;
+  activeSignInCredentialsRecorded = true;
+}
+
+/** Test seam: forget what Better Auth wired, as if it had not initialised. */
+export function resetActiveGoogleSignInCredentials(): void {
+  activeSignInCredentials = null;
+  activeSignInCredentialsRecorded = false;
+}
+
+export function getActiveGoogleSignInCredentials(): {
+  credentials: GoogleOAuthCredentials | null;
+  recorded: boolean;
+} {
+  return {
+    credentials: activeSignInCredentials,
+    recorded: activeSignInCredentialsRecorded,
+  };
+}
+
 /**
  * Which sign-in credential pairs are configured, and whether they disagree.
  *
