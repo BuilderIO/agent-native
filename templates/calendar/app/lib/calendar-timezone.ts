@@ -118,6 +118,25 @@ export function getDateTimePartsInTimezone(
   return dateTimeParts(value, normalizeTimezone(timezone));
 }
 
+/**
+ * Build a local Date carrying an event's wall-clock fields so date-fns can
+ * format those fields without converting them through the browser timezone.
+ * The result is for display only; it must not be used for date arithmetic.
+ */
+export function getDisplayDateInTimezone(
+  value: Date | string,
+  timezone?: string | null,
+): Date {
+  const parsed = value instanceof Date ? value : new Date(value);
+  if (!timezone) return parsed;
+
+  const parts = getDateTimePartsInTimezone(value, timezone);
+  if (!parts) return parsed;
+
+  const [year, month, day] = parts.date.split("-").map(Number);
+  return new Date(year, month - 1, day, parts.hour, parts.minute, parts.second);
+}
+
 export function getDateKeyInTimezone(
   value: Date | string,
   timezone: string,

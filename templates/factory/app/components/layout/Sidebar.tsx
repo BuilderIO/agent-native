@@ -445,7 +445,8 @@ export function Sidebar({
               item.href === "/"
                 ? isChatRoute
                 : item.href === "/factory"
-                  ? location.pathname === "/factory"
+                  ? location.pathname === "/factory" ||
+                    location.pathname === "/new-factory"
                   : location.pathname.startsWith(item.href);
             const link = (
               <Link

@@ -49,6 +49,13 @@ const mutationTargetSchema = {
     .describe("Where in rowNumber to place the panel. Defaults to end."),
 };
 
+const insertPanelSchema = z
+  .record(z.string(), z.unknown())
+  .refine(
+    (panel) => typeof panel.id === "string" && panel.id.trim().length > 0,
+    { message: "panel.id must be a non-empty string" },
+  );
+
 const mutationOperationSchema = z.discriminatedUnion("op", [
   z.object({
     op: z.literal("movePanels"),
@@ -72,7 +79,7 @@ const mutationOperationSchema = z.discriminatedUnion("op", [
   }),
   z.object({
     op: z.literal("insertPanel"),
-    panel: z.record(z.string(), z.unknown()),
+    panel: insertPanelSchema,
     ...mutationTargetSchema,
   }),
   z.object({

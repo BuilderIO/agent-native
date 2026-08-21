@@ -284,6 +284,35 @@ describe("delete-events", () => {
     );
   });
 
+  it("reports an already-absent Google event without retrying it as a failure", async () => {
+    listGoogleEventsMock.mockResolvedValue({
+      events: [googleEvent({ id: "gone", start: "2026-04-12T18:00:00.000Z" })],
+      errors: [],
+    });
+    deleteEventMock.mockRejectedValue(
+      new Error("Google API error (404): Not Found"),
+    );
+
+    const result = await run({
+      from: "2026-04-06",
+      to: "2026-04-20",
+      daysOfWeek: "weekend",
+      scope: "single",
+      sendUpdates: "none",
+    });
+
+    expect(result.deleted).toBe(0);
+    expect(result.alreadyAbsent).toBe(1);
+    expect(result.failed).toBe(0);
+    expect(result.events).toEqual([
+      expect.objectContaining({
+        id: "google-gone",
+        outcome: "already_absent",
+        reason: "Already absent from Google Calendar",
+      }),
+    ]);
+  });
+
   it("refuses to delete from an incomplete provider read", async () => {
     listGoogleEventsMock.mockResolvedValue({
       events: [googleEvent({ id: "sat", start: "2026-04-11T18:00:00.000Z" })],

@@ -270,6 +270,19 @@ for (const target of selectedTargets) {
 }
 
 const filters = selectedTargets.flatMap((target) => ["--filter", target.name]);
+const nativeRepairSource = path.resolve(
+  "packages/core/src/cli/native-dependencies.ts",
+);
+if (!existsSync(nativeRepairSource)) {
+  throw new Error(
+    `[prebuild-workspace-packages] Missing native dependency repair source at ${nativeRepairSource}`,
+  );
+}
+execFileSync(process.execPath, [nativeRepairSource, "--repair"], {
+  cwd: process.cwd(),
+  stdio: "inherit",
+});
+
 console.log(
   `[prebuild-workspace-packages] Building ${selectedTargets
     .map((target) => target.name)

@@ -11,8 +11,11 @@ export default function AdminRoute() {
   const isAutomationsRoute =
     location.pathname === "/admin/automations" ||
     location.pathname.startsWith("/admin/automations/");
+  const isIntegrationsRoute =
+    location.pathname === "/admin/integrations" ||
+    location.pathname.startsWith("/admin/integrations/");
 
-  if (isAutomationsRoute) return <Outlet />;
+  if (isAutomationsRoute || isIntegrationsRoute) return <Outlet />;
 
   return (
     <AdminShell>
