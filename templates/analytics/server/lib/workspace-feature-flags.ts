@@ -1,7 +1,10 @@
 import { randomUUID } from "node:crypto";
 
 import { signA2AToken } from "@agent-native/core/a2a";
-import { AgentActionStopError } from "@agent-native/core/action";
+import {
+  ActionContractError,
+  AgentActionStopError,
+} from "@agent-native/core/action";
 import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import { fetchOrgApps, type OrgApp } from "@agent-native/core/mcp";
 import { getOrgDomain } from "@agent-native/core/org";
@@ -235,6 +238,22 @@ export class WorkspaceFeatureFlagFailure extends AgentActionStopError {
   }
 }
 
+class WorkspaceFeatureFlagSetupFailure extends ActionContractError {
+  readonly phase: "directory" | "token-generation";
+
+  constructor(phase: "directory" | "token-generation") {
+    const message = `[${phase}] ${FAILURE_MESSAGES[phase]}`;
+    const errorCode = `workspace_feature_flag_${phase.replace("-", "_")}`;
+    super(message, {
+      errorCode,
+      details: { phase },
+      statusCode: 503,
+    });
+    this.name = "WorkspaceFeatureFlagSetupFailure";
+    this.phase = phase;
+  }
+}
+
 type TargetFailureReason = "token-generation" | "timeout" | "network";
 
 class TargetCallFailure extends Error {
@@ -273,10 +292,10 @@ async function resolveTargetApp(
       serviceOrgId: admin.orgId,
     });
   } catch {
-    throw new WorkspaceFeatureFlagFailure("directory");
+    throw new WorkspaceFeatureFlagSetupFailure("directory");
   }
   const app = apps.find((candidate) => candidate.id === appId);
-  if (!app) throw new WorkspaceFeatureFlagFailure("directory");
+  if (!app) throw new WorkspaceFeatureFlagSetupFailure("directory");
   return app;
 }
 
@@ -442,9 +461,10 @@ export async function setWorkspaceFeatureFlag(
   try {
     orgDomain = (await getOrgDomain(admin.orgId))?.trim().toLowerCase();
   } catch {
-    throw new WorkspaceFeatureFlagFailure("token-generation");
+    throw new WorkspaceFeatureFlagSetupFailure("token-generation");
   }
-  if (!orgDomain) throw new WorkspaceFeatureFlagFailure("token-generation");
+  if (!orgDomain)
+    throw new WorkspaceFeatureFlagSetupFailure("token-generation");
   let result: Awaited<ReturnType<typeof callTarget>>;
   try {
     result = await callTarget(

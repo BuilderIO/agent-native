@@ -257,13 +257,19 @@ describe("verified fleet feature flag transaction", () => {
     ],
   ] as const)("preserves the %s failure boundary", async (phase, arrange) => {
     await arrange();
-    await expect(
-      setWorkspaceFeatureFlag(admin, {
-        appId: "mail",
-        key: "new-editor",
-        operation: "off",
-      }),
-    ).rejects.toMatchObject({ phase });
+    const failure = setWorkspaceFeatureFlag(admin, {
+      appId: "mail",
+      key: "new-editor",
+      operation: "off",
+    });
+    await expect(failure).rejects.toMatchObject({
+      phase,
+      errorCode: `workspace_feature_flag_${phase.replace("-", "_")}`,
+      statusCode: 503,
+    });
+    await expect(failure).rejects.toSatisfy(
+      (error: unknown) => !isAgentActionStopError(error),
+    );
   });
 
   it.each([
