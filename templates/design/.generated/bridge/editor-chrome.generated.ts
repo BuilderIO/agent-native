@@ -2680,13 +2680,22 @@ export const editorChromeBridgeScript: string = `"use strict";
     function applyStyleAttribute(live, previousSource, nextSource) {
       var previousOwned = {};
       styleDeclarations(previousSource).forEach(function(entry) {
-        previousOwned[entry[0]] = true;
+        previousOwned[entry[0]] = entry[1];
+      });
+      var nextOwned = {};
+      styleDeclarations(nextSource).forEach(function(entry) {
+        nextOwned[entry[0]] = true;
       });
       var target = document.createElement("div");
       target.style.cssText = nextSource || "";
       styleDeclarations(live.getAttribute("style") ?? "").forEach(
         function(entry) {
-          if (previousOwned[entry[0]]) return;
+          if (nextOwned[entry[0]]) return;
+          var wasSource = Object.prototype.hasOwnProperty.call(
+            previousOwned,
+            entry[0]
+          );
+          if (wasSource && previousOwned[entry[0]] === entry[1]) return;
           target.style.setProperty(entry[0], entry[1], entry[2]);
         }
       );
@@ -2727,6 +2736,12 @@ export const editorChromeBridgeScript: string = `"use strict";
           option.selected = nextSelected;
         }
       }
+    }
+    function declaresRuntimeChildren(element) {
+      return element.hasAttribute("x-text") || element.hasAttribute("x-html") || element.hasAttribute("v-text") || element.hasAttribute("v-html");
+    }
+    function scopeDirectiveChanged(live, next) {
+      return (live.getAttribute("x-data") ?? "") !== (next.getAttribute("x-data") ?? "");
     }
     function morphNodeKey(node) {
       if (node.nodeType !== 1) return null;
@@ -2812,6 +2827,15 @@ export const editorChromeBridgeScript: string = `"use strict";
             break;
           }
         }
+        if (reuse && reuse.nodeType === 1 && scopeDirectiveChanged(reuse, nextChild)) {
+          var rebuilt = document.importNode(nextChild, true);
+          live.insertBefore(rebuilt, cursor);
+          if (reuse.parentNode) reuse.parentNode.removeChild(reuse);
+          recordSourceSubtree(rebuilt);
+          cursor = rebuilt.nextSibling;
+          nextChild = nextChild.nextSibling;
+          continue;
+        }
         if (reuse) {
           if (reuse !== cursor) live.insertBefore(reuse, cursor);
           if (reuse.nodeType === 1) {
@@ -2844,6 +2868,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     function morphElement(live, next, context) {
       morphFormState(live, next);
       morphAttributes(live, next);
+      if (declaresRuntimeChildren(next) || declaresRuntimeChildren(live)) return;
       var liveTemplate = templateContentOf(live);
       var nextTemplate = templateContentOf(next);
       if (liveTemplate && nextTemplate) {

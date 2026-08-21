@@ -3458,15 +3458,28 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     previousSource: string,
     nextSource: string,
   ): void {
-    var previousOwned: Record<string, true> = {};
+    var previousOwned: Record<string, string> = {};
     styleDeclarations(previousSource).forEach(function (entry) {
-      previousOwned[entry[0]] = true;
+      previousOwned[entry[0]] = entry[1];
+    });
+    var nextOwned: Record<string, true> = {};
+    styleDeclarations(nextSource).forEach(function (entry) {
+      nextOwned[entry[0]] = true;
     });
     var target = document.createElement("div");
     target.style.cssText = nextSource || "";
     styleDeclarations(live.getAttribute("style") ?? "").forEach(
       function (entry) {
-        if (previousOwned[entry[0]]) return;
+        if (nextOwned[entry[0]]) return;
+        var wasSource = Object.prototype.hasOwnProperty.call(
+          previousOwned,
+          entry[0],
+        );
+        // Source declared this property and the live value still matches, so
+        // it is the source's to drop. A live value that has diverged is the
+        // runtime's — x-show writing display over an authored one — and
+        // dropping it un-hides the element.
+        if (wasSource && previousOwned[entry[0]] === entry[1]) return;
         target.style.setProperty(entry[0], entry[1], entry[2]);
       },
     );
@@ -3511,6 +3524,25 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         option.selected = nextSelected;
       }
     }
+  }
+
+  /** x-text and x-html hand their entire child list to the runtime; whatever
+   *  the source still carries inside them is pre-hydration fallback, not
+   *  content to reconcile. */
+  function declaresRuntimeChildren(element: Element): boolean {
+    return (
+      element.hasAttribute("x-text") ||
+      element.hasAttribute("x-html") ||
+      element.hasAttribute("v-text") ||
+      element.hasAttribute("v-html")
+    );
+  }
+
+  function scopeDirectiveChanged(live: Element, next: Element): boolean {
+    return (
+      (live.getAttribute("x-data") ?? "") !==
+      (next.getAttribute("x-data") ?? "")
+    );
   }
 
   function morphNodeKey(node: Node): string | null {
@@ -3632,6 +3664,26 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           break;
         }
       }
+      if (
+        reuse &&
+        reuse.nodeType === 1 &&
+        scopeDirectiveChanged(reuse as Element, nextChild as Element)
+      ) {
+        // Rebuild just this component rather than the frame: Alpine evaluates
+        // x-data once at init, so patching it in place leaves every binding
+        // underneath reading the previous scope. Alpine's own observer
+        // initialises the replacement.
+        var rebuilt = document.importNode(nextChild as Element, true);
+        // Anchor on `cursor`, not on `reuse`: a keyed candidate can live
+        // anywhere in the document, so when this parent is itself newly
+        // inserted the old node is not its child and insertBefore throws.
+        live.insertBefore(rebuilt, cursor);
+        if (reuse.parentNode) reuse.parentNode.removeChild(reuse);
+        recordSourceSubtree(rebuilt);
+        cursor = rebuilt.nextSibling;
+        nextChild = nextChild.nextSibling;
+        continue;
+      }
       if (reuse) {
         if (reuse !== cursor) live.insertBefore(reuse, cursor);
         if (reuse.nodeType === 1) {
@@ -3684,6 +3736,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     // input never sees an explicit source edit.
     morphFormState(live, next);
     morphAttributes(live, next);
+    if (declaresRuntimeChildren(next) || declaresRuntimeChildren(live)) return;
     var liveTemplate = templateContentOf(live);
     var nextTemplate = templateContentOf(next);
     if (liveTemplate && nextTemplate) {

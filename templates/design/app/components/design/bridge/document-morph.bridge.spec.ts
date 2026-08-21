@@ -956,3 +956,93 @@ describe("morph findings from the fifth review round", () => {
     },
   );
 });
+
+describe("morph findings from the sixth review round", () => {
+  it(
+    "keeps a runtime style override when source drops the same property",
+    { timeout: 30_000 },
+    async () => {
+      const body = (style: string) =>
+        `<div data-agent-native-node-id="an-root" x-data="{ open: false }"><p data-agent-native-node-id="an-p"${style} x-show="open">hi</p></div>`;
+      await withAlpinePage(
+        body(' style="display:block;color:red"'),
+        async (page) => {
+          const read = () =>
+            page.evaluate(
+              () =>
+                (
+                  document.querySelector(
+                    '[data-agent-native-node-id="an-p"]',
+                  ) as HTMLElement
+                ).style.display,
+            );
+          expect(await read()).toBe("none");
+
+          await replaceDocument(page, documentHtml(body("")));
+
+          // display was authored AND overridden by x-show. Treating the name as
+          // source-owned drops the override and un-hides the element.
+          expect(await read()).toBe("none");
+        },
+      );
+    },
+  );
+
+  it(
+    "rebuilds a component whose x-data expression changed",
+    { timeout: 30_000 },
+    async () => {
+      const body = (state: string) =>
+        `<div data-agent-native-node-id="an-root" x-data="{ n: ${state} }"><span data-agent-native-node-id="an-n" x-text="n"></span></div>`;
+      await withAlpinePage(body("1"), async (page) => {
+        expect(
+          await page.evaluate(
+            () =>
+              document.querySelector('[data-agent-native-node-id="an-n"]')
+                ?.textContent,
+          ),
+        ).toBe("1");
+
+        await replaceDocument(page, documentHtml(body("99")));
+
+        // Alpine evaluates x-data once, so patching the attribute in place
+        // leaves every binding underneath on the old scope. Polled because
+        // Alpine re-initialises the replacement on its own observer tick.
+        await expect
+          .poll(
+            async () =>
+              page.evaluate(
+                () =>
+                  document.querySelector('[data-agent-native-node-id="an-n"]')
+                    ?.textContent,
+              ),
+            { timeout: 10_000 },
+          )
+          .toBe("99");
+      });
+    },
+  );
+
+  it(
+    "does not duplicate rendered output when x-text fallback copy changes",
+    { timeout: 30_000 },
+    async () => {
+      const body = (fallback: string) =>
+        `<div data-agent-native-node-id="an-root" x-data="{ name: 'RUNTIME' }"><span data-agent-native-node-id="an-s" x-text="name">${fallback}</span></div>`;
+      await withAlpinePage(body("oldfallback"), async (page) => {
+        await replaceDocument(page, documentHtml(body("newfallback")));
+        await page.waitForTimeout(200);
+
+        // The fallback is pre-hydration content; Alpine owns the child list,
+        // so reconciling it in appends beside the rendered value.
+        expect(
+          await page.evaluate(
+            () =>
+              document.querySelector('[data-agent-native-node-id="an-s"]')
+                ?.textContent,
+          ),
+        ).toBe("RUNTIME");
+      });
+    },
+  );
+});
