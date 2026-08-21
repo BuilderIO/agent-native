@@ -7,15 +7,22 @@ import { gmailGetMessage } from "../server/lib/google-api.js";
 import { isConnected, gmailToEmailMessage } from "../server/lib/google-auth.js";
 import { getAccessTokens, fetchLabelMap } from "./helpers.js";
 
+const accountCoordinate = z.union([z.string().email(), z.literal("local")]);
+
 export default defineAction({
   description:
-    "Get a single email by ID, including its full body and metadata.",
+    "Read one exact email, including its full body and metadata, without changing UNREAD or any other mailbox label.",
   schema: z.object({
-    id: z.string().optional().describe("Email message ID"),
+    accountEmail: accountCoordinate.describe(
+      'Connected account email, or "local" for the synthetic mailbox',
+    ),
+    id: z.string().min(1).describe("Provider-scoped email message ID"),
   }),
   http: { method: "GET" },
-  run: async (args) => {
-    if (!args.id) throw new Error("--id is required");
+  readOnly: true,
+  publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+  run: async (args, ctx) => {
+    const requestedAccount = args.accountEmail.toLowerCase();
 
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
@@ -23,25 +30,64 @@ export default defineAction({
       const data = await getUserSetting(ownerEmail, "local-emails");
       const emails =
         data && Array.isArray((data as any).emails) ? (data as any).emails : [];
-      const found = emails.find((e: any) => e.id === args.id);
+      const localAccounts = new Set(
+        emails.map(
+          (email: any) => email.accountEmail?.toLowerCase() ?? "local",
+        ),
+      );
+      if (!localAccounts.has(requestedAccount)) {
+        throw new Error("Requested local account is not connected.");
+      }
+      const found = emails.find(
+        (e: any) =>
+          e.id === args.id &&
+          (e.accountEmail?.toLowerCase() ?? "local") === requestedAccount,
+      );
       if (!found) throw new Error("Email not found.");
-      return JSON.stringify(found, null, 2);
+      const email = { ...found, accountEmail: args.accountEmail };
+      return JSON.stringify(
+        ctx?.caller === "mcp"
+          ? {
+              accountEmail: args.accountEmail,
+              email,
+              readOnlyGuarantee: {
+                mailboxLabels: "preserved",
+                gmailModifyOperations: 0,
+              },
+            }
+          : email,
+        null,
+        2,
+      );
     }
 
     const accounts = await getAccessTokens();
-    if (accounts.length === 0) throw new Error("No Google account connected.");
+    const account = accounts.find(
+      ({ email }) => email.toLowerCase() === requestedAccount,
+    );
+    if (!account) throw new Error("Requested Google account is not connected.");
 
-    for (const { email, accessToken } of accounts) {
-      try {
-        const labelMap = await fetchLabelMap(accessToken);
-        const msg = await gmailGetMessage(accessToken, args.id, "full");
-        const parsed = gmailToEmailMessage(msg, email, labelMap);
-        return JSON.stringify(parsed, null, 2);
-      } catch (err: any) {
-        if (err?.message?.includes("404")) continue;
-        throw new Error(err?.message ?? "Gmail API error");
-      }
+    try {
+      const labelMap = await fetchLabelMap(account.accessToken);
+      const msg = await gmailGetMessage(account.accessToken, args.id, "full");
+      const email = gmailToEmailMessage(msg, account.email, labelMap);
+      return JSON.stringify(
+        ctx?.caller === "mcp"
+          ? {
+              accountEmail: account.email,
+              email,
+              readOnlyGuarantee: {
+                mailboxLabels: "preserved",
+                gmailModifyOperations: 0,
+              },
+            }
+          : email,
+        null,
+        2,
+      );
+    } catch (err: any) {
+      if (err?.message?.includes("404")) throw new Error("Email not found.");
+      throw new Error(err?.message ?? "Gmail API error");
     }
-    throw new Error("Email not found in any connected account.");
   },
 });
