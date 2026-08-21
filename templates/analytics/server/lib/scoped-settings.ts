@@ -11,6 +11,7 @@ import {
   getOrgSetting,
   getUserSetting,
   listOrgSettings,
+  listSettingsByPrefix,
   putOrgSetting,
   putUserSetting,
 } from "@agent-native/core/settings";
@@ -35,11 +36,9 @@ async function listUserSettings(
   email: string,
   prefix: string,
 ): Promise<Record<string, Record<string, unknown>>> {
-  const all = await getAllSettings();
   const scopedPrefix = `${userPrefix(email)}${prefix}`;
   const out: Record<string, Record<string, unknown>> = {};
-  for (const [key, value] of Object.entries(all)) {
-    if (!key.startsWith(scopedPrefix)) continue;
+  for (const { key, value } of await listSettingsByPrefix(scopedPrefix)) {
     out[key.slice(userPrefix(email).length)] = value;
   }
   return out;
