@@ -7,6 +7,12 @@ const REPO_ROOT = path.resolve(
   "..",
 );
 const BETA_PREBUILT_WORKFLOW = ".github/workflows/deploy-netlify-prebuilt.yml";
+const BETA_SCHEMA_OWNER_RUNTIME_FILES = [
+  "packages/core/src/db/migrations.ts",
+  "packages/core/src/vite/client.ts",
+  "packages/core/src/deploy/build.ts",
+] as const;
+const BETA_SCHEMA_OWNER_MARKER = "AGENT_NATIVE_BETA_SCHEMA_OWNER";
 const RELEASE_COMMAND = /\bmigrate:production\b/;
 const RELEASE_FLAG =
   /^\s*AGENT_NATIVE_RELEASE_MIGRATIONS\s*=\s*["']1["']\s*(?:#.*)?$/m;
@@ -138,6 +144,28 @@ export function validateBetaPrebuiltReleaseEnvironment(
   return issues;
 }
 
+export function validateBetaSchemaOwnerRuntimeContract(
+  repoRoot = REPO_ROOT,
+): string[] {
+  const issues: string[] = [];
+  for (const relativeFile of BETA_SCHEMA_OWNER_RUNTIME_FILES) {
+    const file = path.join(repoRoot, relativeFile);
+    if (!existsSync(file)) {
+      issues.push(
+        `${relativeFile}: production-owned beta schema marker has no runtime/build integration file`,
+      );
+      continue;
+    }
+    const source = readFileSync(file, "utf8");
+    if (!source.includes(BETA_SCHEMA_OWNER_MARKER)) {
+      issues.push(
+        `${relativeFile}: must consume or embed ${BETA_SCHEMA_OWNER_MARKER} instead of treating it as a config-only marker`,
+      );
+    }
+  }
+  return issues;
+}
+
 function readTomlSection(source: string, header: string): string | null {
   const lines = source.split(/\r?\n/);
   const start = lines.findIndex((line) => line.trim() === `[${header}]`);
@@ -181,6 +209,7 @@ export function findNetlifyReleaseMigrationIssues(
       ...validateBetaPrebuiltReleaseEnvironment(readFileSync(workflow, "utf8")),
     );
   }
+  issues.push(...validateBetaSchemaOwnerRuntimeContract(repoRoot));
   return issues;
 }
 

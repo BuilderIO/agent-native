@@ -112,10 +112,14 @@ describe("resolveNitroBuildReplacements", () => {
   it("embeds release migration ownership into the Nitro server bundle", () => {
     const replacements = resolveNitroBuildReplacements({
       AGENT_NATIVE_RELEASE_MIGRATIONS: " 1 ",
+      AGENT_NATIVE_BETA_SCHEMA_OWNER: " production ",
     });
 
     expect(replacements["process.env.AGENT_NATIVE_RELEASE_MIGRATIONS"]).toBe(
       JSON.stringify("1"),
+    );
+    expect(replacements["process.env.AGENT_NATIVE_BETA_SCHEMA_OWNER"]).toBe(
+      JSON.stringify("production"),
     );
   });
 

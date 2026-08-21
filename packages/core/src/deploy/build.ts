@@ -4866,6 +4866,9 @@ export function resolveNitroBuildReplacements(
     "process.env.AGENT_NATIVE_RELEASE_MIGRATIONS": JSON.stringify(
       env.AGENT_NATIVE_RELEASE_MIGRATIONS?.trim() || "",
     ),
+    "process.env.AGENT_NATIVE_BETA_SCHEMA_OWNER": JSON.stringify(
+      env.AGENT_NATIVE_BETA_SCHEMA_OWNER?.trim() || "",
+    ),
     "process.env.AGENT_NATIVE_BUILD_DEPLOY_CONTEXT": JSON.stringify(
       env.CONTEXT?.trim() || env.NETLIFY_CONTEXT?.trim() || "",
     ),

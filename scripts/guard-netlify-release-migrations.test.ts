@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 import {
   findNetlifyReleaseMigrationIssues,
   validateBetaPrebuiltReleaseEnvironment,
+  validateBetaSchemaOwnerRuntimeContract,
   validateNetlifyReleaseMigrationConfig,
   validatePublishedNetlifyReleaseMigrationConfig,
 } from "./guard-netlify-release-migrations.ts";
@@ -131,5 +132,9 @@ if [[ "$SOURCE_TEMPLATE" == "clips" ]]; then`;
 
   it("passes for every checked repository Netlify project", () => {
     assert.deepEqual(findNetlifyReleaseMigrationIssues(), []);
+  });
+
+  it("requires the beta schema owner marker to reach runtime", () => {
+    assert.deepEqual(validateBetaSchemaOwnerRuntimeContract(), []);
   });
 });

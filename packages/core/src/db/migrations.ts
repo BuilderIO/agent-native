@@ -354,7 +354,19 @@ function isServerlessRequestRuntime(): boolean {
  */
 function appMigratesAtRelease(): boolean {
   const raw = process.env.AGENT_NATIVE_RELEASE_MIGRATIONS?.trim();
-  return !!raw && ["1", "true", "yes", "on"].includes(raw.toLowerCase());
+  if (raw && ["1", "true", "yes", "on"].includes(raw.toLowerCase())) {
+    return true;
+  }
+
+  // Clips beta uses the production-owned schema but its masked prebuilt build
+  // must not run migrate:production against the fake build database. The
+  // owner marker is embedded into the deployed server bundle and therefore
+  // carries the same request-path skip decision without pretending the masked
+  // build performed the release migration.
+  return (
+    process.env.AGENT_NATIVE_BETA_SCHEMA_OWNER?.trim().toLowerCase() ===
+    "production"
+  );
 }
 
 /**

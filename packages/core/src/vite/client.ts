@@ -3241,6 +3241,9 @@ function createNitroDevPlugin(
       "process.env.AGENT_NATIVE_RELEASE_MIGRATIONS": JSON.stringify(
         process.env.AGENT_NATIVE_RELEASE_MIGRATIONS?.trim() || "",
       ),
+      "process.env.AGENT_NATIVE_BETA_SCHEMA_OWNER": JSON.stringify(
+        process.env.AGENT_NATIVE_BETA_SCHEMA_OWNER?.trim() || "",
+      ),
       // Same reason as the release owner above: the recurring-jobs decision
       // belongs to the build env, and Nitro is a separate server build with its
       // own replacement map.
@@ -3688,6 +3691,9 @@ function createAgentNativeConfig(
       // into deployed Functions, so embed the decision in the server bundle.
       "process.env.AGENT_NATIVE_RELEASE_MIGRATIONS": JSON.stringify(
         process.env.AGENT_NATIVE_RELEASE_MIGRATIONS?.trim() || "",
+      ),
+      "process.env.AGENT_NATIVE_BETA_SCHEMA_OWNER": JSON.stringify(
+        process.env.AGENT_NATIVE_BETA_SCHEMA_OWNER?.trim() || "",
       ),
       // Recurring jobs are turned off (and their platform scheduled trigger
       // omitted) by the BUILD environment, which a deployed serverless runtime

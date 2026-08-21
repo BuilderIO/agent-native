@@ -25,8 +25,9 @@ AGENT_NATIVE_RELEASE_MIGRATIONS = "1"
 [context.branch-deploy.environment]
 # The prebuilt beta lane receives masked site secrets and uses a build-only
 # database for Clips. Its beta database is production-owned, so this explicit
-# declaration keeps the request-path skip honest instead of pretending the
-# masked prebuilt build ran a release migration.
+# declaration is embedded into the deployed server bundle. The runtime uses it
+# to skip request-path migration probes without pretending the masked prebuilt
+# build ran a release migration.
 AGENT_NATIVE_BETA_SCHEMA_OWNER = "production"
 
 # Netlify Functions run on linux/x64 (AWS Lambda). This tells the deploy build
