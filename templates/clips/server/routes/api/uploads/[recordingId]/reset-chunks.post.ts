@@ -513,8 +513,9 @@ export default defineEventHandler(async (event: H3Event) => {
       }
     }
 
+    const preservedAttemptId = existingAttemptId;
     const resetLease = await renewUploadLease(recordingId, {
-      attemptId: recoveryEnabled ? existingAttemptId : null,
+      attemptId: preservedAttemptId,
       generationId: nextGenerationId,
     });
     if (!resetLease.held) {
@@ -538,7 +539,7 @@ export default defineEventHandler(async (event: H3Event) => {
         progress: 0,
         chunksReceived: 0,
         bytesReceived: 0,
-        uploadAttemptId: recoveryEnabled ? existingAttemptId : null,
+        uploadAttemptId: preservedAttemptId,
         uploadGenerationId: nextGenerationId,
         maxBytes: MAX_RECORDING_UPLOAD_BYTES,
         updatedAt: now,
@@ -560,8 +561,7 @@ export default defineEventHandler(async (event: H3Event) => {
         );
       if (
         current?.status !== "uploading" ||
-        (current.uploadAttemptId ?? null) !==
-          (recoveryEnabled ? existingAttemptId : null) ||
+        (current.uploadAttemptId ?? null) !== preservedAttemptId ||
         (current.uploadGenerationId ?? null) !== nextGenerationId
       ) {
         setResponseStatus(event, 409);

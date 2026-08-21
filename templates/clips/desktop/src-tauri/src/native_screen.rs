@@ -5862,7 +5862,9 @@ fn preserve_native_retry_fence_during_rollback(
             upload_generation_id: planned_generation_id,
         } = &mut plan
         {
-            *attempt_id = Some(claimed_attempt_id.to_string());
+            *attempt_id = upload_generation_id
+                .as_ref()
+                .map(|_| claimed_attempt_id.to_string());
             *planned_generation_id = upload_generation_id;
         }
     }
@@ -6169,6 +6171,26 @@ mod native_retry_upload_plan_tests {
                 attempt_id: Some(attempt_id),
                 upload_generation_id: Some(generation_id),
             } if attempt_id == "attempt-1" && generation_id == "generation-1"
+        ));
+    }
+
+    #[test]
+    fn keeps_a_legacy_restart_unfenced_when_resumable_retry_is_disabled() {
+        let plan = preserve_native_retry_fence_during_rollback(
+            NativeRetryUploadPlan::Restart {
+                attempt_id: None,
+                upload_generation_id: None,
+            },
+            false,
+            "attempt-1",
+            None,
+        );
+        assert!(matches!(
+            plan,
+            NativeRetryUploadPlan::Restart {
+                attempt_id: None,
+                upload_generation_id: None,
+            }
         ));
     }
 

@@ -42,17 +42,23 @@ import {
 } from "../../../../lib/recordings.js";
 import { getResumableSession } from "../../../../lib/resumable-session.js";
 import { isRetryableUploadInterruption } from "../../../../lib/upload-interruption.js";
-import { uploadLeaseExpiry } from "../../../../lib/upload-lease.js";
+import {
+  UPLOAD_LEASE_MS,
+  uploadLeaseExpiry,
+} from "../../../../lib/upload-lease.js";
 
 const RETRY_CLAIM_LIVENESS_MS = 30 * 1000;
 const RETRY_CLAIM_RETRY_AFTER_MIN_MS = 250;
 
-function retryClaimRetryAfterMs(updatedAtMs: number, nowMs: number): number {
+function retryClaimRetryAfterMs(
+  lastHeartbeatMs: number,
+  nowMs: number,
+): number {
   return Math.max(
     RETRY_CLAIM_RETRY_AFTER_MIN_MS,
     Math.min(
       RETRY_CLAIM_LIVENESS_MS,
-      updatedAtMs + RETRY_CLAIM_LIVENESS_MS - nowMs,
+      lastHeartbeatMs + RETRY_CLAIM_LIVENESS_MS - nowMs,
     ),
   );
 }
@@ -152,7 +158,7 @@ export default defineEventHandler(async (event: H3Event) => {
         uploadProgress: schema.recordings.uploadProgress,
         uploadAttemptId: schema.recordings.uploadAttemptId,
         uploadGenerationId: schema.recordings.uploadGenerationId,
-        updatedAt: schema.recordings.updatedAt,
+        uploadLeaseExpiresAt: schema.recordings.uploadLeaseExpiresAt,
       })
       .from(schema.recordings)
       .where(
@@ -180,15 +186,16 @@ export default defineEventHandler(async (event: H3Event) => {
     const existingAttemptId = recording.uploadAttemptId ?? null;
     const nowMs = Date.now();
     const now = new Date(nowMs).toISOString();
-    const staleThreshold = new Date(
-      nowMs - RETRY_CLAIM_LIVENESS_MS,
+    const staleLeaseThreshold = new Date(
+      nowMs + UPLOAD_LEASE_MS - RETRY_CLAIM_LIVENESS_MS,
     ).toISOString();
-    const claimUpdatedAtMs = Date.parse(recording.updatedAt);
+    const claimLeaseExpiryMs = Date.parse(recording.uploadLeaseExpiresAt ?? "");
+    const claimHeartbeatMs = claimLeaseExpiryMs - UPLOAD_LEASE_MS;
     const differentRetryClaim =
       recording.status === "uploading" &&
       existingAttemptId !== null &&
       existingAttemptId !== requestedAttemptId;
-    if (differentRetryClaim && !Number.isFinite(claimUpdatedAtMs)) {
+    if (differentRetryClaim && !Number.isFinite(claimHeartbeatMs)) {
       setResponseStatus(event, 409);
       return {
         resumable: false,
@@ -199,7 +206,7 @@ export default defineEventHandler(async (event: H3Event) => {
       };
     }
     const differentLiveRetryClaim =
-      differentRetryClaim && claimUpdatedAtMs > nowMs - RETRY_CLAIM_LIVENESS_MS;
+      differentRetryClaim && claimHeartbeatMs > nowMs - RETRY_CLAIM_LIVENESS_MS;
     if (differentLiveRetryClaim) {
       setResponseStatus(event, 409);
       return {
@@ -208,7 +215,7 @@ export default defineEventHandler(async (event: H3Event) => {
         recordingId,
         status: "uploading",
         reason: "retry_already_active",
-        retryAfterMs: retryClaimRetryAfterMs(claimUpdatedAtMs, nowMs),
+        retryAfterMs: retryClaimRetryAfterMs(claimHeartbeatMs, nowMs),
       };
     }
     if (recording.status !== "uploading" && !retryableFailure) {
@@ -254,7 +261,7 @@ export default defineEventHandler(async (event: H3Event) => {
             ? isNull(schema.recordings.uploadGenerationId)
             : eq(schema.recordings.uploadGenerationId, existingGenerationId),
           takingOverStaleRetryClaim
-            ? lte(schema.recordings.updatedAt, staleThreshold)
+            ? lte(schema.recordings.uploadLeaseExpiresAt, staleLeaseThreshold)
             : undefined,
         ),
       )

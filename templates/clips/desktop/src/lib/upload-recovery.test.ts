@@ -93,7 +93,7 @@ describe("retryAttemptIdAfterResumeResponse", () => {
     ).toBeUndefined();
   });
 
-  it("preserves a local claim while the flag is rolled back", () => {
+  it("preserves a server-acknowledged claim while the flag is rolled back", () => {
     expect(
       retryAttemptIdAfterResumeResponse("attempt-1", {
         resumable: false,
@@ -104,6 +104,17 @@ describe("retryAttemptIdAfterResumeResponse", () => {
         uploadGenerationId: "generation-1",
       }),
     ).toBe("attempt-1");
+  });
+
+  it("drops an unacknowledged legacy claim while the flag is rolled back", () => {
+    expect(
+      retryAttemptIdAfterResumeResponse("attempt-1", {
+        resumable: false,
+        recoveryEnabled: false,
+        status: "uploading",
+        reason: "feature_disabled",
+      }),
+    ).toBeUndefined();
   });
 });
 

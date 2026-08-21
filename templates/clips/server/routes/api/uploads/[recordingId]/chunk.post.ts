@@ -924,11 +924,27 @@ async function handleResumableChunk(
     // to close the session before handing off to finalize-recording.
     let closeRes;
     try {
-      closeRes = await uploadProvider.resumable.relayChunk(
-        { sessionId: session.sessionId, meta: session.meta },
-        `bytes */${session.bytesUploaded}`,
-        new Uint8Array(0),
+      const relayed = await relayWithRetryOwnershipHeartbeat(
+        recordingId,
+        attemptId,
+        uploadGenerationId,
+        () =>
+          uploadProvider.resumable!.relayChunk(
+            { sessionId: session.sessionId, meta: session.meta },
+            `bytes */${session.bytesUploaded}`,
+            new Uint8Array(0),
+          ),
       );
+      if (relayed.ownershipFailure) {
+        setResponseStatus(event, 409);
+        return {
+          ok: false,
+          error:
+            "Upload retry ownership was lost while the provider was responding.",
+          staleAttempt: true,
+        };
+      }
+      closeRes = relayed.result;
     } catch (error) {
       const cleanupFailed = await cleanupFailedFinalSession();
       const detail = error instanceof Error ? error.message : String(error);

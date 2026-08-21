@@ -1062,6 +1062,7 @@ async function postBackupChunk(
   url: string,
   blob: Blob,
   authToken?: string,
+  signal?: AbortSignal,
 ): Promise<FinalizeReceipt | null> {
   const res = await fetch(url, {
     method: "POST",
@@ -1071,6 +1072,7 @@ async function postBackupChunk(
     ),
     credentials: "include",
     body: blob,
+    signal,
   });
   const body = await res.text().catch(() => "");
   if (!res.ok) {
@@ -1104,6 +1106,7 @@ async function resetBrowserRecordingBackupUpload(
   authToken?: string,
   attemptId?: string,
   uploadGenerationId?: string,
+  signal?: AbortSignal,
 ): Promise<{ uploadMode: UploadMode; uploadGenerationId?: string }> {
   const res = await fetch(
     `${meta.serverUrl.replace(/\/+$/, "")}/api/uploads/${meta.recordingId}/reset-chunks`,
@@ -1121,6 +1124,7 @@ async function resetBrowserRecordingBackupUpload(
         ...(attemptId ? { attemptId } : {}),
         ...(uploadGenerationId ? { uploadGenerationId } : {}),
       }),
+      signal,
     },
   );
   if (!res.ok) {
@@ -1214,6 +1218,7 @@ async function replayBrowserBackupToResumableSession(
     bytesReceived: 0,
     nextChunkIndex: 0,
   },
+  signal?: AbortSignal,
 ): Promise<FinalizeReceipt | null> {
   // The backup is stored in raw MediaRecorder blobs, which have arbitrary
   // boundaries. A resumable provider needs every non-final request aligned,
@@ -1246,6 +1251,7 @@ async function replayBrowserBackupToResumableSession(
       }),
       body,
       authToken,
+      signal,
     );
   }
 
@@ -1272,6 +1278,7 @@ async function replayBrowserBackupToResumableSession(
     }),
     finalBody,
     authToken,
+    signal,
   );
 }
 
@@ -1375,6 +1382,7 @@ export async function retryBrowserRecordingBackup(input: {
         input.authToken,
         activeAttemptId,
         activeUploadGenerationId,
+        input.signal,
       );
       uploadMode = reset.uploadMode;
       activeUploadGenerationId = reset.uploadGenerationId;
@@ -1390,6 +1398,7 @@ export async function retryBrowserRecordingBackup(input: {
           activeAttemptId,
           activeUploadGenerationId,
           resumeFrom,
+          input.signal,
         );
       } catch (err) {
         if (err instanceof UploadRestartRequiredError) {
@@ -1397,9 +1406,6 @@ export async function retryBrowserRecordingBackup(input: {
             activeAttemptId,
             err.recoveryEnabled,
           );
-          if (err.recoveryEnabled === false) {
-            activeUploadGenerationId = undefined;
-          }
           input.onRecoveryDecision?.({ action: "restart", progress: 0 });
           console.info("[clips-recorder] restarting expired upload session", {
             recordingId: meta.recordingId,
@@ -1410,6 +1416,7 @@ export async function retryBrowserRecordingBackup(input: {
             input.authToken,
             activeAttemptId,
             activeUploadGenerationId,
+            input.signal,
           );
           uploadMode = reset.uploadMode;
           activeUploadGenerationId = reset.uploadGenerationId;
@@ -1420,6 +1427,8 @@ export async function retryBrowserRecordingBackup(input: {
               input.authToken,
               activeAttemptId,
               activeUploadGenerationId,
+              undefined,
+              input.signal,
             );
           }
         } else if (

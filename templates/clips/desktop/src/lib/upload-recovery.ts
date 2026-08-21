@@ -64,7 +64,7 @@ export function retryAttemptIdAfterResumeResponse(
   attemptId: string | undefined,
   response: UploadResumeResponse,
 ): string | undefined {
-  if (response.recoveryEnabled === false) return attemptId;
+  if (response.recoveryEnabled === false) return response.attemptId;
   return response.resumable && response.attemptId === attemptId
     ? attemptId
     : undefined;

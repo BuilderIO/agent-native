@@ -94,6 +94,7 @@ vi.mock("../../../../lib/resumable-session.js", () => ({
 }));
 
 vi.mock("../../../../lib/upload-lease.js", () => ({
+  UPLOAD_LEASE_MS: 60 * 60 * 1000,
   renewUploadLease: (...args: unknown[]) => mockRenewUploadLease(...args),
   uploadLeaseExpiry: () => "2099-01-01T00:00:00.000Z",
 }));
@@ -371,7 +372,7 @@ describe("/api/uploads/:recordingId/resume route", () => {
           id: "rec-1",
           status: "uploading",
           uploadAttemptId: "active-attempt-0001",
-          updatedAt: "2026-08-21T11:59:59.000Z",
+          uploadLeaseExpiresAt: "2026-08-21T12:59:59.000Z",
         },
       ];
 
@@ -396,7 +397,7 @@ describe("/api/uploads/:recordingId/resume route", () => {
         id: "rec-1",
         status: "uploading",
         uploadAttemptId: "active-attempt-0001",
-        updatedAt: "not-a-timestamp",
+        uploadLeaseExpiresAt: "not-a-timestamp",
       },
     ];
 
@@ -418,7 +419,7 @@ describe("/api/uploads/:recordingId/resume route", () => {
         status: "uploading",
         uploadAttemptId: "stale-attempt-0001",
         uploadGenerationId: "generation-1",
-        updatedAt: "2000-01-01T00:00:00.000Z",
+        uploadLeaseExpiresAt: "2000-01-01T00:00:00.000Z",
       },
     ];
     mockGetResumableSession.mockResolvedValue({
@@ -452,7 +453,7 @@ describe("/api/uploads/:recordingId/resume route", () => {
         id: "rec-1",
         status: "uploading",
         uploadAttemptId: "stale-attempt-0001",
-        updatedAt: "2000-01-01T00:00:00.000Z",
+        uploadLeaseExpiresAt: "2000-01-01T00:00:00.000Z",
       },
     ];
     mockUpdateRows.rows = [];
