@@ -157,12 +157,12 @@ greeting लौटाते हैं क्योंकि वे एक ही
 
 आपने एक ही action को agent और UI से call किया। वही action इनसे भी call किया जा सकता है:
 
-| कहाँ से call करें | उपयोग |
-| --- | --- |
-| [HTTP API](/docs/http-api) | Script, backend या integration से action call करें। |
-| [CLI](/docs/actions-other-surfaces#cli) | Terminal से action चलाएं या test करें। |
+| कहाँ से call करें                       | उपयोग                                                                     |
+| --------------------------------------- | ------------------------------------------------------------------------- |
+| [HTTP API](/docs/http-api)              | Script, backend या integration से action call करें।                       |
+| [CLI](/docs/actions-other-surfaces#cli) | Terminal से action चलाएं या test करें।                                    |
 | [MCP](/docs/actions-other-surfaces#mcp) | External AI client को actions को tools के रूप में खोजने और call करने दें। |
-| [A2A](/docs/actions-other-surfaces#a2a) | किसी दूसरे Agent-Native ऐप को इस ऐप से काम करने को कहने दें। |
+| [A2A](/docs/actions-other-surfaces#a2a) | किसी दूसरे Agent-Native ऐप को इस ऐप से काम करने को कहने दें।              |
 
 हर caller उसी action definition का उपयोग करता है। हर एक के लिए अलग implementation
 की जरूरत नहीं है। यह shared action model Agent-Native का केंद्र है: ऐप बदलने पर
