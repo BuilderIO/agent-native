@@ -11,6 +11,7 @@ import {
 } from "../server/lib/event-weekday.js";
 import { zonedDateTimeToUtcIso } from "../server/lib/find-time.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
+import { isGoogleNotFoundError } from "../server/lib/google-api.js";
 import type { CalendarEvent } from "../shared/api.js";
 import {
   cliBoolean,
@@ -36,7 +37,12 @@ const MAX_MATCHED_EVENTS = 200;
  *  firing every delete at once and turning a clean batch into retries. */
 const DELETE_CONCURRENCY = 4;
 
-type Outcome = "deleted" | "matched" | "skipped" | "failed";
+type Outcome =
+  | "deleted"
+  | "already_absent"
+  | "matched"
+  | "skipped"
+  | "failed";
 
 interface EventResult {
   id: string;
@@ -449,6 +455,7 @@ export default defineAction({
         ...summaryBase,
         dryRun: true,
         deleted: 0,
+        alreadyAbsent: 0,
         failed: 0,
         skipped: results.length,
         events: [...targets.map((target) => target.display), ...results],
@@ -483,6 +490,13 @@ export default defineAction({
           }
           return { ...target.display, outcome: "deleted" };
         } catch (error) {
+          if (isGoogleNotFoundError(error)) {
+            return {
+              ...target.display,
+              outcome: "already_absent",
+              reason: "Already absent from Google Calendar",
+            };
+          }
           return {
             ...target.display,
             outcome: "failed",
@@ -498,6 +512,9 @@ export default defineAction({
       dryRun: false,
       deleted: deleteResults.filter((entry) => entry.outcome === "deleted")
         .length,
+      alreadyAbsent: deleteResults.filter(
+        (entry) => entry.outcome === "already_absent",
+      ).length,
       failed: deleteResults.filter((entry) => entry.outcome === "failed")
         .length,
       skipped: results.length,
