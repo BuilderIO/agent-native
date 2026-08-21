@@ -26,6 +26,10 @@ registerEvent({
     status: z.enum(["success", "error", "interrupted"]),
     error: z.string().nullable(),
     errorCode: z.string().nullable(),
+    /** Wall-clock from `started_at` to now. Null when the row predates the
+     *  start timestamp being readable, so "not measured" stays distinct from
+     *  "took no time". */
+    durationMs: z.number().nullable(),
   }),
 });
 
@@ -400,21 +404,24 @@ export async function finishAutomationRun(
 ): Promise<void> {
   await ensureTable();
   const existing = await getDbExec().execute({
-    sql: `SELECT owner, automation, path, org_id, run_id, thread_id FROM ${TABLE} WHERE id = ? LIMIT 1`,
+    sql: `SELECT owner, automation, path, org_id, run_id, thread_id, started_at FROM ${TABLE} WHERE id = ? LIMIT 1`,
     args: [id],
   });
   const row = existing.rows?.[0] as Record<string, unknown> | undefined;
+  const finishedAt = Date.now();
   await getDbExec().execute({
     sql: `UPDATE ${TABLE} SET status = ?, finished_at = ?, error = ?, error_code = ? WHERE id = ?`,
     args: [
       status,
-      Date.now(),
+      finishedAt,
       error?.slice(0, MAX_ERROR_LENGTH) ?? null,
       errorCode?.slice(0, MAX_ERROR_CODE_LENGTH) ?? null,
       id,
     ],
   });
   if (!row) return;
+  const rawStartedAt = Number(row.started_at);
+  const startedAt = Number.isFinite(rawStartedAt) ? rawStartedAt : null;
   try {
     emitBusEvent(
       "automation.run.finished",
@@ -429,6 +436,8 @@ export async function finishAutomationRun(
         status,
         error: error?.slice(0, MAX_ERROR_LENGTH) ?? null,
         errorCode: errorCode?.slice(0, MAX_ERROR_CODE_LENGTH) ?? null,
+        durationMs:
+          startedAt === null ? null : Math.max(0, finishedAt - startedAt),
       },
       { owner: String(row.owner) },
     );

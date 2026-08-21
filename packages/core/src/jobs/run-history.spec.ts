@@ -13,6 +13,12 @@ vi.mock("../db/ddl-guard.js", () => ({
   ensureIndexExists: vi.fn(),
 }));
 
+const emitMock = vi.hoisted(() => vi.fn());
+vi.mock("../event-bus/index.js", () => ({
+  emit: emitMock,
+  registerEvent: vi.fn(),
+}));
+
 import {
   finishAutomationRun,
   listAutomationRuns,
@@ -137,6 +143,38 @@ describe("automation run history", () => {
 
     expect(run.status).toBe("interrupted");
     expect(run.errorCode).toBe("background_automation_interrupted");
+  });
+
+  // This is the framework's terminal hook for automations, and it fires from
+  // every path that records an outcome — the runner, the scheduler's dispatch
+  // failures, remote execution — not just the one the runner owns.
+  it("announces the terminal outcome with its code and duration", async () => {
+    const startedAt = Date.now() - 4_000;
+    executeMock.mockResolvedValue({
+      rows: [row({ id: "run-1", started_at: startedAt })],
+    });
+
+    await finishAutomationRun(
+      "run-1",
+      "error",
+      "Background automation was cut off before finishing (no_progress).",
+      "background_automation_cut_off",
+    );
+
+    expect(emitMock).toHaveBeenCalledWith(
+      "automation.run.finished",
+      expect.objectContaining({
+        automationRunId: "run-1",
+        status: "error",
+        errorCode: "background_automation_cut_off",
+        durationMs: expect.any(Number),
+      }),
+      expect.anything(),
+    );
+    const [, payload] = emitMock.mock.calls.at(-1) ?? [];
+    expect(
+      (payload as { durationMs: number }).durationMs,
+    ).toBeGreaterThanOrEqual(4_000);
   });
 
   it("prunes older rows for the same automation when recording a run", async () => {

@@ -80,22 +80,6 @@ export class BackgroundAutomationRunError extends Error {
   }
 }
 
-/** Terminal state of one background automation run, for `onRunOutcome`. */
-export interface BackgroundAutomationOutcome {
-  automation: string;
-  path: string;
-  ownerEmail: string;
-  orgId?: string;
-  historyId: string | null;
-  runId: string | null;
-  threadId: string | null;
-  status: "success" | "error";
-  /** Present on every failure: the taxonomy code, not the prose. */
-  errorCode?: string;
-  error?: string;
-  durationMs: number;
-}
-
 export interface BackgroundAutomationContext {
   name: string;
   meta: JobFrontmatter;
@@ -115,17 +99,6 @@ export interface BackgroundAutomationDeps {
   apiKey?: string;
   model?: string;
   appId?: string;
-  /**
-   * Fired once per run with its terminal state — success, cut-off, hard
-   * timeout, and dispatch failure alike.
-   *
-   * An application that dispatches an automation otherwise has no way to learn
-   * how it ended short of polling `automation_runs`, which is how a queue row
-   * sat `claimed` for fifteen minutes after its run had already been recorded
-   * dead. Best-effort and awaited-with-catch: a subscriber cannot turn a
-   * completed automation into a failed one.
-   */
-  onRunOutcome?: (outcome: BackgroundAutomationOutcome) => void | Promise<void>;
 }
 
 export interface BackgroundAutomationRunOptions {
@@ -368,48 +341,12 @@ export async function runBackgroundAutomation(
   // Populated as soon as the run id exists, so a failure that never returns a
   // result can still be joined to its LLM trace (`aiTraceId` -> $ai_trace_id).
   const runIdRef: { current: string | null } = { current: null };
-  const threadIdRef: { current: string | null } = { current: null };
-  const startedAt = Date.now();
-  const reportOutcome = async (
-    outcome: Omit<
-      BackgroundAutomationOutcome,
-      | "automation"
-      | "path"
-      | "ownerEmail"
-      | "orgId"
-      | "historyId"
-      | "runId"
-      | "threadId"
-      | "durationMs"
-    >,
-  ): Promise<void> => {
-    if (!deps.onRunOutcome) return;
-    try {
-      await deps.onRunOutcome({
-        automation: automation.name,
-        path: automation.resource.path,
-        ownerEmail: options.ownerEmail,
-        orgId: options.orgId,
-        historyId,
-        runId: runIdRef.current,
-        threadId: threadIdRef.current,
-        durationMs: Date.now() - startedAt,
-        ...outcome,
-      });
-    } catch (err) {
-      console.error(
-        `[automations] onRunOutcome subscriber threw for "${automation.name}":`,
-        err,
-      );
-    }
-  };
   try {
     result = await executeBackgroundAutomation(
       options,
       deps,
       historyId,
       runIdRef,
-      threadIdRef,
     );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -441,17 +378,11 @@ export async function runBackgroundAutomation(
       `${message}. No delivery was confirmed.`,
       errorCode,
     );
-    await reportOutcome({
-      status: "error",
-      errorCode,
-      error: `${message}. No delivery was confirmed.`,
-    });
     throw err;
   }
   // Outside the try: history is bookkeeping about the run, so a failure to
   // write it must not turn a completed automation into a reported failure.
   await recordRunOutcome(historyId, "success");
-  await reportOutcome({ status: "success" });
   return result;
 }
 
@@ -603,7 +534,6 @@ async function executeBackgroundAutomation(
   deps: BackgroundAutomationDeps,
   historyId: string | null,
   runIdRef?: { current: string | null },
-  threadIdRef?: { current: string | null },
 ): Promise<BackgroundAutomationRunResult> {
   const { automation, ownerEmail, orgId, prompt, threadTitle, usageLabel } =
     options;
@@ -659,7 +589,6 @@ async function executeBackgroundAutomation(
       });
       const runId = createRunId(options.runIdPrefix);
       if (runIdRef) runIdRef.current = runId;
-      if (threadIdRef) threadIdRef.current = thread.id;
       await recordRunThread(historyId, thread.id, runId);
 
       // Scheduled work is background work: it has no synchronous serverless

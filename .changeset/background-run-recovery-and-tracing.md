@@ -27,9 +27,11 @@ terminal `no_progress` failure.
   by reason and by whether a continuation followed, and a `captureError` for a
   checkpoint that terminates a run.
 - `automation_runs` gained an `error_code` column, written from the code the
-  failure taxonomy already computed, and `BackgroundAutomationDeps` gained an
-  `onRunOutcome` callback that fires for success, cut-off, hard timeout, and
-  dispatch failure alike.
+  failure taxonomy already computed. That code, and the run's duration, now ride
+  the existing `automation.run.finished` event — which already fires from every
+  path that records a terminal outcome (the runner, the scheduler's dispatch
+  failures, remote execution), and is therefore the terminal hook an application
+  needs.
 - The run-lifecycle bounds live in one place each, beside the ordering
   relationships that constrain them, and those relationships are asserted. Two
   are configuration — `agent.backgroundRunHardTimeoutMs` and

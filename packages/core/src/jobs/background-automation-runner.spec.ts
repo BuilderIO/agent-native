@@ -206,44 +206,6 @@ describe("runBackgroundAutomation — background-run self-claim", () => {
     expect(call?.[1]).toBeLessThan(BACKGROUND_RUN_HARD_TIMEOUT_MS);
   });
 
-  it("reports its terminal outcome to the dispatching application", async () => {
-    const outcomes: unknown[] = [];
-
-    await runBackgroundAutomation(
-      {
-        automation: {
-          name: "outcome-report",
-          meta: { schedule: "* * * * *", enabled: true, model: "test-model" },
-          body: "Do the thing.",
-          resource: {
-            owner: "alice@agent-native.test",
-            path: "jobs/outcome-report.md",
-          } as any,
-        },
-        ownerEmail: "alice@agent-native.test",
-        prompt: "Do the thing.",
-        threadTitle: "Job: outcome-report",
-        runIdPrefix: "job-outcome-report",
-        usageLabel: "recurring-job:outcome-report",
-      },
-      {
-        getActions: () => ({}),
-        getSystemPrompt: async () => "system",
-        engine: testEngine,
-        onRunOutcome: (outcome) => {
-          outcomes.push(outcome);
-        },
-      },
-    );
-
-    expect(outcomes).toHaveLength(1);
-    expect(outcomes[0]).toMatchObject({
-      automation: "outcome-report",
-      ownerEmail: "alice@agent-native.test",
-      status: "success",
-      threadId: "thread-1",
-    });
-  });
   // History is a record ABOUT the run. If the history table is unwritable the
   // correct outcome is a missing record, not a scheduled automation that never
   // executed and gets reported as a failure.
