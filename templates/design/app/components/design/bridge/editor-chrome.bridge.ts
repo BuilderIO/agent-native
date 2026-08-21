@@ -9384,7 +9384,7 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     return measurements;
   }
 
-  function computeMoveSnapOffset(movingRect, candidates, threshold) {
+  function computeMoveSnapOffset(movingRect, candidates, threshold, isGroup) {
     var moving = rectBounds(movingRect);
     var dx = findAxisSnapOffset("x", moving, candidates, threshold);
     var dy = findAxisSnapOffset("y", moving, candidates, threshold);
@@ -9392,6 +9392,18 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     var guides = buildAxisGuides("x", snapped, candidates).concat(
       buildAxisGuides("y", snapped, candidates),
     );
+
+    // Figma drops spacing guides for a multi-select drag, and so does the
+    // overview canvas; a grouped iframe drag must not diverge from either.
+    if (isGroup) {
+      return {
+        dx: dx || 0,
+        dy: dy || 0,
+        guides: guides,
+        spacingGuides: [],
+        measurements: [],
+      };
+    }
 
     // Spacing only gets the axes alignment left free — moving a claimed axis
     // would pull the element off the guide line the user can already see.
@@ -9758,7 +9770,7 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
   }
 
   function showConstraintGuides(el) {
-    if (!el) return hideConstraintGuides();
+    if (!el || dragChromeSuppressed) return hideConstraintGuides();
     // body counts here: it is the screen root, which is exactly the frame an
     // element's offsets are resolved against. (Auto-layout nesting excludes
     // body for the opposite reason — it is not a drop target.)
@@ -9851,9 +9863,14 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
   // Figma pins the dragged object's dimensions just under it, in canvas
   // space — unlike the transform badge, which tracks the cursor.
   var sizeBadgeKey = "";
+  // Set while a drag is in a state that suppresses free-placement chrome (an
+  // auto-layout insert, or the pointer outside the iframe). refreshOverlays
+  // runs on the same pointer event and would otherwise re-show the badge and
+  // constraint lines the drag just hid.
+  var dragChromeSuppressed = false;
 
   function showSizeBadge(el) {
-    if (!el) return hideSizeBadge();
+    if (!el || dragChromeSuppressed) return hideSizeBadge();
     var rect = el.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return hideSizeBadge();
     var scale = chromeLineScale();
@@ -9890,6 +9907,7 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
   }
 
   function hideSnapGuides() {
+    dragChromeSuppressed = false;
     if (snapGuideLayer.style.display === "none") return;
     snapGuideLayer.style.display = "none";
     snapGuideLayer.innerHTML = "";
@@ -10795,6 +10813,16 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     var dragElStartRect = (dragEl as HTMLElement).getBoundingClientRect();
     var dragElStartWidth = dragElStartRect.width;
     var dragElStartHeight = dragElStartRect.height;
+    // Client px per CSS px for this element. 1 unless an ancestor between it
+    // and the viewport is CSS-scaled; offsetWidth is the untransformed box.
+    var dragElOffsetScaleX =
+      (dragEl as HTMLElement).offsetWidth > 0
+        ? dragElStartRect.width / (dragEl as HTMLElement).offsetWidth
+        : 1;
+    var dragElOffsetScaleY =
+      (dragEl as HTMLElement).offsetHeight > 0
+        ? dragElStartRect.height / (dragEl as HTMLElement).offsetHeight
+        : 1;
     if (!duplicatedForDrag && !isGroupDrag) {
       postCrossScreenDrag("start", dragEl, e);
     }
@@ -10858,15 +10886,21 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
                 // on a board that parent sits thousands of px into an
                 // 8192-square surface, so mixing the two put the moving rect
                 // nowhere near its own neighbours and nothing ever matched.
-                // A pure translation, so the returned delta is valid in both.
-                left: dragElStartRect.left + (nextLeft - originLeft),
-                top: dragElStartRect.top + (nextTop - originTop),
+                // dragElOffsetScale carries any transform between the two
+                // spaces, so a scaled container converts correctly too.
+                left:
+                  dragElStartRect.left +
+                  (nextLeft - originLeft) * dragElOffsetScaleX,
+                top:
+                  dragElStartRect.top +
+                  (nextTop - originTop) * dragElOffsetScaleY,
                 width: dragElStartWidth,
                 height: dragElStartHeight,
               },
               snapCandidateRects,
               // Convert the screen-space base to content px (1/zoom).
               SNAP_THRESHOLD_PX * chromeLineScale(),
+              isGroupDrag,
             )
           : { dx: 0, dy: 0, guides: [], spacingGuides: [], measurements: [] };
       dndLog("snap:tick", {
@@ -10886,8 +10920,9 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
           ? currentAutoLayoutTarget.dropMode || "(none)"
           : "no-target",
       });
-      nextLeft += snapResult.dx;
-      nextTop += snapResult.dy;
+      // Back to CSS space before it is written to style.left/top.
+      nextLeft += snapResult.dx / dragElOffsetScaleX;
+      nextTop += snapResult.dy / dragElOffsetScaleY;
       // Apply the SAME delta to every member (one entry for single drags)
       // so relative offsets within a multi-selection are preserved. For the
       // gesture member this reduces exactly to the previous
@@ -10950,21 +10985,23 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         (!duplicatedForDrag && isOutsideIframeViewport(ev.clientX, ev.clientY))
       ) {
         hideSnapGuides();
+        dragChromeSuppressed = true;
         hideSizeBadge();
         hideConstraintGuides();
       } else {
+        dragChromeSuppressed = false;
         showSnapGuides(
           snapResult.guides,
           snapResult.spacingGuides,
           snapResult.measurements,
         );
+        showConstraintGuides(dragEl);
       }
       showTransformBadge(
         Math.round(nextLeft) + ", " + Math.round(nextTop),
         ev.clientX,
         ev.clientY,
       );
-      showConstraintGuides(dragEl);
       refreshOverlays();
     }
     function restoreSourceDragPosition(): void {

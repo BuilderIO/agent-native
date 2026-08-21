@@ -6647,7 +6647,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return measurements;
     }
-    function computeMoveSnapOffset(movingRect, candidates, threshold) {
+    function computeMoveSnapOffset(movingRect, candidates, threshold, isGroup) {
       var moving = rectBounds(movingRect);
       var dx = findAxisSnapOffset("x", moving, candidates, threshold);
       var dy = findAxisSnapOffset("y", moving, candidates, threshold);
@@ -6655,6 +6655,15 @@ export const editorChromeBridgeScript: string = `"use strict";
       var guides = buildAxisGuides("x", snapped, candidates).concat(
         buildAxisGuides("y", snapped, candidates)
       );
+      if (isGroup) {
+        return {
+          dx: dx || 0,
+          dy: dy || 0,
+          guides,
+          spacingGuides: [],
+          measurements: []
+        };
+      }
       var spacingX = guides.some(function(guide) {
         return guide.orientation === "vertical";
       }) ? 0 : findSpacingSnapOffset("x", snapped, candidates, threshold);
@@ -6859,7 +6868,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       node.style.cssText = "position:fixed;" + (horizontal ? "left:" + start + "px;top:" + (crossPosition - thickness / 2) + "px;width:" + length + "px;height:0;border-top:" : "top:" + start + "px;left:" + (crossPosition - thickness / 2) + "px;height:" + length + "px;width:0;border-left:") + thickness + "px dashed var(--design-editor-accent-color);";
     }
     function showConstraintGuides(el) {
-      if (!el) return hideConstraintGuides();
+      if (!el || dragChromeSuppressed) return hideConstraintGuides();
       var parent = el.offsetParent || el.parentElement;
       if (!parent) return hideConstraintGuides();
       var rect = el.getBoundingClientRect();
@@ -6928,8 +6937,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       constraintNodeCount = 0;
     }
     var sizeBadgeKey = "";
+    var dragChromeSuppressed = false;
     function showSizeBadge(el) {
-      if (!el) return hideSizeBadge();
+      if (!el || dragChromeSuppressed) return hideSizeBadge();
       var rect = el.getBoundingClientRect();
       if (rect.width <= 0 || rect.height <= 0) return hideSizeBadge();
       var scale = chromeLineScale();
@@ -6952,6 +6962,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       sizeBadgeKey = "";
     }
     function hideSnapGuides() {
+      dragChromeSuppressed = false;
       if (snapGuideLayer.style.display === "none") return;
       snapGuideLayer.style.display = "none";
       snapGuideLayer.innerHTML = "";
@@ -7591,6 +7602,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       var dragElStartRect = dragEl.getBoundingClientRect();
       var dragElStartWidth = dragElStartRect.width;
       var dragElStartHeight = dragElStartRect.height;
+      var dragElOffsetScaleX = dragEl.offsetWidth > 0 ? dragElStartRect.width / dragEl.offsetWidth : 1;
+      var dragElOffsetScaleY = dragEl.offsetHeight > 0 ? dragElStartRect.height / dragEl.offsetHeight : 1;
       if (!duplicatedForDrag && !isGroupDrag) {
         postCrossScreenDrag("start", dragEl, e);
       }
@@ -7631,15 +7644,17 @@ export const editorChromeBridgeScript: string = `"use strict";
             // on a board that parent sits thousands of px into an
             // 8192-square surface, so mixing the two put the moving rect
             // nowhere near its own neighbours and nothing ever matched.
-            // A pure translation, so the returned delta is valid in both.
-            left: dragElStartRect.left + (nextLeft - originLeft),
-            top: dragElStartRect.top + (nextTop - originTop),
+            // dragElOffsetScale carries any transform between the two
+            // spaces, so a scaled container converts correctly too.
+            left: dragElStartRect.left + (nextLeft - originLeft) * dragElOffsetScaleX,
+            top: dragElStartRect.top + (nextTop - originTop) * dragElOffsetScaleY,
             width: dragElStartWidth,
             height: dragElStartHeight
           },
           snapCandidateRects,
           // Convert the screen-space base to content px (1/zoom).
-          SNAP_THRESHOLD_PX * chromeLineScale()
+          SNAP_THRESHOLD_PX * chromeLineScale(),
+          isGroupDrag
         ) : { dx: 0, dy: 0, guides: [], spacingGuides: [], measurements: [] };
         dndLog("snap:tick", {
           // Ordered so the fields that decide whether snapping ran at all come
@@ -7652,8 +7667,8 @@ export const editorChromeBridgeScript: string = `"use strict";
           candidates: snapCandidateRects.length,
           dropMode: currentAutoLayoutTarget ? currentAutoLayoutTarget.dropMode || "(none)" : "no-target"
         });
-        nextLeft += snapResult.dx;
-        nextTop += snapResult.dy;
+        nextLeft += snapResult.dx / dragElOffsetScaleX;
+        nextTop += snapResult.dy / dragElOffsetScaleY;
         var appliedDx = nextLeft - originLeft;
         var appliedDy = nextTop - originTop;
         memberStates.forEach(function(state) {
@@ -7690,21 +7705,23 @@ export const editorChromeBridgeScript: string = `"use strict";
         var flowInsertPending = !!currentAutoLayoutTarget && currentAutoLayoutTarget.dropMode !== "absolute-container";
         if (flowInsertPending || !duplicatedForDrag && isOutsideIframeViewport(ev.clientX, ev.clientY)) {
           hideSnapGuides();
+          dragChromeSuppressed = true;
           hideSizeBadge();
           hideConstraintGuides();
         } else {
+          dragChromeSuppressed = false;
           showSnapGuides(
             snapResult.guides,
             snapResult.spacingGuides,
             snapResult.measurements
           );
+          showConstraintGuides(dragEl);
         }
         showTransformBadge(
           Math.round(nextLeft) + ", " + Math.round(nextTop),
           ev.clientX,
           ev.clientY
         );
-        showConstraintGuides(dragEl);
         refreshOverlays();
       }
       function restoreSourceDragPosition() {

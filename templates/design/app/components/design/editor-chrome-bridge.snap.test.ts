@@ -109,6 +109,7 @@ function loadSnapMath(): {
     movingRect: MovingRect,
     candidates: RectBounds[],
     threshold: number,
+    isGroup?: boolean,
   ) => SnapResult;
 } {
   const editorChromeBridgeScript = loadEditorChromeBridgeScript();
@@ -573,5 +574,33 @@ describe("editor-chrome bridge — spacing snap", () => {
       6,
     );
     expect(result.dx).toBe(-2);
+  });
+});
+
+describe("editor-chrome bridge — group drags", () => {
+  const row = (...lefts: number[]) =>
+    lefts.map((left) => rectBounds({ left, top: 0, width: 100, height: 100 }));
+
+  it("drops spacing and proximity chrome for a group drag, like the overview", () => {
+    const moving = { left: 205, top: 0, width: 100, height: 100 };
+    const single = computeMoveSnapOffset(moving, row(0, 400), 6, false);
+    expect(
+      single.spacingGuides.length + single.measurements.length,
+    ).toBeGreaterThan(0);
+
+    const group = computeMoveSnapOffset(moving, row(0, 400), 6, true);
+    expect(group.spacingGuides).toEqual([]);
+    expect(group.measurements).toEqual([]);
+  });
+
+  it("still snaps a group to alignment", () => {
+    const group = computeMoveSnapOffset(
+      { left: 3, top: 0, width: 100, height: 100 },
+      row(0),
+      6,
+      true,
+    );
+    expect(group.dx).toBe(-3);
+    expect(group.guides.length).toBeGreaterThan(0);
   });
 });

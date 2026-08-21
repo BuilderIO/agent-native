@@ -72,6 +72,10 @@ export interface SpacingSnapOptions extends CanvasSnapOptions {
 export interface DragSnapOptions extends CanvasSnapOptions {
   /** Figma's "snap to pixel grid": land on whole canvas pixels. */
   pixelGrid?: boolean;
+  /** Axes the caller has already pinned — a Shift dominant-axis drag zeroes
+   *  one axis before calling, and pixel-grid rounding would otherwise hand it
+   *  back up to half a pixel of movement. */
+  lockedAxes?: { x?: boolean; y?: boolean };
   /** How far a neighbour can be, in screen px, and still get a distance
    *  readout. Beyond this the measurement is noise stretched across empty
    *  canvas rather than something the user is positioning against. */
@@ -731,19 +735,25 @@ export function computeSpacingSnap(
   return {
     dx,
     dy,
+    // No chrome on an axis spacing was not allowed to move: alignment already
+    // owns that axis, and a second, contradictory readout on it is noise.
     guides: [
-      ...buildSpacingGuides(
-        "x",
-        snapped,
-        stationaryBounds,
-        SPACING_MATCH_EPSILON,
-      ),
-      ...buildSpacingGuides(
-        "y",
-        snapped,
-        stationaryBounds,
-        SPACING_MATCH_EPSILON,
-      ),
+      ...(options.lockedAxes?.x
+        ? []
+        : buildSpacingGuides(
+            "x",
+            snapped,
+            stationaryBounds,
+            SPACING_MATCH_EPSILON,
+          )),
+      ...(options.lockedAxes?.y
+        ? []
+        : buildSpacingGuides(
+            "y",
+            snapped,
+            stationaryBounds,
+            SPACING_MATCH_EPSILON,
+          )),
     ],
   };
 }
@@ -800,6 +810,8 @@ export function computeDragSnap(
   options: DragSnapOptions,
 ): DragSnapResult {
   const alignment = computeMoveSnap(moving, stationary, options);
+  if (options.lockedAxes?.x) alignment.dx = 0;
+  if (options.lockedAxes?.y) alignment.dy = 0;
   const claimedX = alignment.guides.some((g) => g.orientation === "vertical");
   const claimedY = alignment.guides.some((g) => g.orientation === "horizontal");
 
@@ -817,7 +829,10 @@ export function computeDragSnap(
           zoom: options.zoom,
           bypass: options.bypass,
           thresholdScreenPx: options.thresholdScreenPx,
-          lockedAxes: { x: claimedX, y: claimedY },
+          lockedAxes: {
+            x: claimedX || options.lockedAxes?.x,
+            y: claimedY || options.lockedAxes?.y,
+          },
         },
       )
     : { dx: 0, dy: 0, guides: [] as EqualGapGuide[] };
@@ -832,10 +847,12 @@ export function computeDragSnap(
       spacing.guides.some((g) => g.orientation === orientation);
     // Only the anchor rounds; the rest of a multi-select rides the same
     // delta, so a group keeps its internal fractional offsets.
-    if (!guided("vertical"))
+    if (!guided("vertical") && !options.lockedAxes?.x) {
       dx = Math.round(anchor.geometry.x + dx) - anchor.geometry.x;
-    if (!guided("horizontal"))
+    }
+    if (!guided("horizontal") && !options.lockedAxes?.y) {
       dy = Math.round(anchor.geometry.y + dy) - anchor.geometry.y;
+    }
   }
 
   // An axis whose spacing guide already prints the gap does not also need a

@@ -831,6 +831,58 @@ describe("computeDragSnap precedence", () => {
   });
 });
 
+describe("computeDragSnap respects a Shift-locked axis", () => {
+  const stationary = [
+    { id: "far", geometry: { x: 5000, y: 5000, width: 100, height: 100 } },
+  ];
+
+  it("does not let the pixel grid reintroduce motion on the locked axis", () => {
+    const snap = computeDragSnap(
+      [
+        {
+          id: "moving",
+          geometry: { x: 10.3, y: 20.8, width: 100, height: 100 },
+        },
+      ],
+      stationary,
+      {
+        thresholdScreenPx: 6,
+        zoom: 100,
+        pixelGrid: true,
+        lockedAxes: { y: true },
+      },
+    );
+    expect(snap.dx).toBeCloseTo(-0.3);
+    expect(snap.dy, "Shift pinned y, so nothing may move it").toBe(0);
+  });
+
+  it("does not let an alignment snap move the locked axis either", () => {
+    const snap = computeDragSnap(
+      [{ id: "moving", geometry: { x: 0, y: 102, width: 100, height: 100 } }],
+      [{ id: "target", geometry: { x: 0, y: 100, width: 100, height: 100 } }],
+      { thresholdScreenPx: 6, zoom: 100, lockedAxes: { y: true } },
+    );
+    expect(snap.dy).toBe(0);
+  });
+
+  it("emits no spacing chrome on an axis it was not allowed to move", () => {
+    const row = [
+      { id: "a", geometry: { x: 0, y: 0, width: 100, height: 100 } },
+      { id: "b", geometry: { x: 400, y: 0, width: 100, height: 100 } },
+    ];
+    const snap = computeSpacingSnap(
+      { x: 200, y: 0, width: 100, height: 100 },
+      row,
+      { thresholdScreenPx: 6, zoom: 100, lockedAxes: { x: true } },
+    );
+    expect(snap.dx).toBe(0);
+    expect(
+      snap.guides,
+      "the gaps are genuinely equal, but alignment owns this axis",
+    ).toEqual([]);
+  });
+});
+
 describe("computeProximityMeasurements", () => {
   const near = [
     { id: "right", geometry: { x: 220, y: 0, width: 100, height: 100 } },

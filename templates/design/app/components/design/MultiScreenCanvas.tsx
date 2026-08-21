@@ -4768,6 +4768,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           zoom: zoomRef.current,
           bypass: ev.metaKey || ev.ctrlKey,
           pixelGrid: true,
+          lockedAxes: ev.shiftKey ? { x: dx === 0, y: dy === 0 } : undefined,
         });
 
         // PERF9: ref-only geometry write (no setDraftPrimitives) + direct DOM
@@ -5568,6 +5569,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           zoom: zoomRef.current,
           bypass: ev.metaKey || ev.ctrlKey,
           pixelGrid: true,
+          lockedAxes: ev.shiftKey ? { x: dx === 0, y: dy === 0 } : undefined,
         });
 
         // PERF9: mutate the dragged frame(s)' DOM position directly (ref-only
