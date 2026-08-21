@@ -7,14 +7,15 @@ import { gmailGetMessage } from "../server/lib/google-api.js";
 import { isConnected, gmailToEmailMessage } from "../server/lib/google-auth.js";
 import { getAccessTokens, fetchLabelMap } from "./helpers.js";
 
+const accountCoordinate = z.union([z.string().email(), z.literal("local")]);
+
 export default defineAction({
   description:
     "Read one exact email, including its full body and metadata, without changing UNREAD or any other mailbox label.",
   schema: z.object({
-    accountEmail: z
-      .string()
-      .email()
-      .describe("Connected account that owns the provider-scoped message ID"),
+    accountEmail: accountCoordinate.describe(
+      'Connected account email, or "local" for the synthetic mailbox',
+    ),
     id: z.string().min(1).describe("Provider-scoped email message ID"),
   }),
   http: { method: "GET" },
@@ -30,19 +31,17 @@ export default defineAction({
       const emails =
         data && Array.isArray((data as any).emails) ? (data as any).emails : [];
       const localAccounts = new Set(
-        emails
-          .map((email: any) => email.accountEmail?.toLowerCase())
-          .filter(Boolean),
+        emails.map(
+          (email: any) => email.accountEmail?.toLowerCase() ?? "local",
+        ),
       );
-      if (localAccounts.size === 0) localAccounts.add(ownerEmail.toLowerCase());
       if (!localAccounts.has(requestedAccount)) {
         throw new Error("Requested local account is not connected.");
       }
       const found = emails.find(
         (e: any) =>
           e.id === args.id &&
-          (!e.accountEmail ||
-            e.accountEmail.toLowerCase() === requestedAccount),
+          (e.accountEmail?.toLowerCase() ?? "local") === requestedAccount,
       );
       if (!found) throw new Error("Email not found.");
       const email = { ...found, accountEmail: args.accountEmail };
@@ -51,7 +50,7 @@ export default defineAction({
           ? {
               accountEmail: args.accountEmail,
               email,
-              preservation: {
+              readOnlyGuarantee: {
                 mailboxLabels: "preserved",
                 gmailModifyOperations: 0,
               },
@@ -77,7 +76,7 @@ export default defineAction({
           ? {
               accountEmail: account.email,
               email,
-              preservation: {
+              readOnlyGuarantee: {
                 mailboxLabels: "preserved",
                 gmailModifyOperations: 0,
               },

@@ -11,14 +11,15 @@ const cliBoolean = z
   .union([z.boolean(), z.enum(["true", "false"])])
   .transform((value) => value === true || value === "true");
 
+const accountCoordinate = z.union([z.string().email(), z.literal("local")]);
+
 export default defineAction({
   description:
     "Read one exact email thread without changing UNREAD or any other mailbox label.",
   schema: z.object({
-    accountEmail: z
-      .string()
-      .email()
-      .describe("Connected account that owns the provider-scoped thread ID"),
+    accountEmail: accountCoordinate.describe(
+      'Connected account email, or "local" for the synthetic mailbox',
+    ),
     id: z.string().min(1).describe("Provider-scoped email thread ID"),
     compact: cliBoolean.optional().describe("Set to true for compact summary"),
   }),
@@ -49,11 +50,10 @@ export default defineAction({
       const emails =
         data && Array.isArray((data as any).emails) ? (data as any).emails : [];
       const localAccounts = new Set(
-        emails
-          .map((email: any) => email.accountEmail?.toLowerCase())
-          .filter(Boolean),
+        emails.map(
+          (email: any) => email.accountEmail?.toLowerCase() ?? "local",
+        ),
       );
-      if (localAccounts.size === 0) localAccounts.add(ownerEmail.toLowerCase());
       if (!localAccounts.has(requestedAccount)) {
         throw new Error("Requested local account is not connected.");
       }
@@ -61,8 +61,7 @@ export default defineAction({
         .filter(
           (e: any) =>
             e.threadId === args.id &&
-            (!e.accountEmail ||
-              e.accountEmail.toLowerCase() === requestedAccount),
+            (e.accountEmail?.toLowerCase() ?? "local") === requestedAccount,
         )
         .sort(
           (a: any, b: any) =>
@@ -85,7 +84,7 @@ export default defineAction({
           ? {
               accountEmail: args.accountEmail,
               messages: result,
-              preservation: {
+              readOnlyGuarantee: {
                 mailboxLabels: "preserved",
                 gmailModifyOperations: 0,
               },
@@ -140,7 +139,7 @@ export default defineAction({
           ? {
               accountEmail: account.email,
               messages: result,
-              preservation: {
+              readOnlyGuarantee: {
                 mailboxLabels: "preserved",
                 gmailModifyOperations: 0,
               },

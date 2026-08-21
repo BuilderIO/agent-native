@@ -83,6 +83,14 @@ describe("exact Mail body reads", () => {
       getThread.schema.safeParse({ accountEmail: OWNER, id: "thread-1" })
         .success,
     ).toBe(true);
+    expect(
+      getEmail.schema.safeParse({ accountEmail: "local", id: "message-1" })
+        .success,
+    ).toBe(true);
+    expect(
+      getThread.schema.safeParse({ accountEmail: "local", id: "thread-1" })
+        .success,
+    ).toBe(true);
   });
 
   it("reads one message from only the requested account and preserves all labels", async () => {
@@ -109,7 +117,7 @@ describe("exact Mail body reads", () => {
     expect(result).toMatchObject({
       accountEmail: OWNER,
       email: { id: message.id, accountEmail: OWNER },
-      preservation: {
+      readOnlyGuarantee: {
         mailboxLabels: "preserved",
         gmailModifyOperations: 0,
       },
@@ -148,7 +156,7 @@ describe("exact Mail body reads", () => {
         { id: "message-1", accountEmail: OTHER },
         { id: "message-2", accountEmail: OTHER },
       ],
-      preservation: {
+      readOnlyGuarantee: {
         mailboxLabels: "preserved",
         gmailModifyOperations: 0,
       },
@@ -178,18 +186,53 @@ describe("exact Mail body reads", () => {
     expect(mocks.gmailModifyThread).not.toHaveBeenCalled();
   });
 
-  it("does not expose a synthetic mailbox under an arbitrary account", async () => {
+  it("uses the inventory-compatible local coordinate for unscoped synthetic mail", async () => {
     mocks.isConnected.mockResolvedValue(false);
     mocks.getUserSetting.mockResolvedValue({
       emails: [rawMessage("message-1", "thread-1")],
     });
 
+    const email = JSON.parse(
+      await getEmail.run(
+        { accountEmail: "local", id: "message-1" },
+        { caller: "mcp", userEmail: OWNER },
+      ),
+    );
+    const thread = JSON.parse(
+      await getThread.run(
+        { accountEmail: "local", id: "thread-1" },
+        { caller: "mcp", userEmail: OWNER },
+      ),
+    );
+
+    expect(email).toMatchObject({
+      accountEmail: "local",
+      email: { id: "message-1", accountEmail: "local" },
+    });
+    expect(thread).toMatchObject({
+      accountEmail: "local",
+      messages: [{ id: "message-1" }],
+    });
+  });
+
+  it("does not let unscoped synthetic mail match a scoped account", async () => {
+    mocks.isConnected.mockResolvedValue(false);
+    mocks.getUserSetting.mockResolvedValue({
+      emails: [
+        rawMessage("local-message", "local-thread"),
+        {
+          ...rawMessage("other-message", "other-thread"),
+          accountEmail: OTHER,
+        },
+      ],
+    });
+
     await expect(
-      getEmail.run({ accountEmail: OTHER, id: "message-1" }),
-    ).rejects.toThrow("Requested local account is not connected.");
+      getEmail.run({ accountEmail: OTHER, id: "local-message" }),
+    ).rejects.toThrow("Email not found.");
     await expect(
-      getThread.run({ accountEmail: OTHER, id: "thread-1" }),
-    ).rejects.toThrow("Requested local account is not connected.");
+      getThread.run({ accountEmail: OTHER, id: "local-thread" }),
+    ).rejects.toThrow("Thread not found.");
 
     expect(mocks.getAccessTokens).not.toHaveBeenCalled();
     expect(mocks.gmailGetMessage).not.toHaveBeenCalled();
