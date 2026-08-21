@@ -4429,8 +4429,8 @@ function PendingUploadBanner({
   if (!latest) return null;
 
   const retrying = retryingUploadId === latest.recordingId;
-  const retryWaiting =
-    retrying && retryingUploadStatus === "Waiting for prior retry";
+  const retryCancelling =
+    retrying && retryingUploadStatus === "Cancelling retry";
   const storageSetupFailure = isStorageSetupFailureMessage(latest.lastError);
 
   const canOpenFolder = latest.kind === "native" && !!latest.folderPath;
@@ -4537,23 +4537,21 @@ function PendingUploadBanner({
             <button
               type="button"
               className={`pending-upload-retry${retrying ? " pending-upload-retry-spinning" : ""}`}
-              disabled={retrying ? !retryWaiting : actionsDisabled}
+              disabled={retrying ? retryCancelling : actionsDisabled}
               onClick={() =>
-                retryWaiting ? onCancelRetry(latest) : onRetry(latest)
+                retrying ? onCancelRetry(latest) : onRetry(latest)
               }
               aria-busy={retrying}
             >
-              {retryWaiting ? (
+              {retrying ? (
                 <IconX size={14} stroke={2} />
               ) : (
                 <IconRefresh size={14} stroke={2} />
               )}
-              {retryWaiting
-                ? "Cancel retry"
+              {retryCancelling
+                ? "Cancelling retry"
                 : retrying
-                  ? retryingUploadStatus === "Cancelling retry"
-                    ? retryingUploadStatus
-                    : (retryingUploadStatus ?? "Retrying")
+                  ? "Cancel retry"
                   : "Retry"}
             </button>
           </>

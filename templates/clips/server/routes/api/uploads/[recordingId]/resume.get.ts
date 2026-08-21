@@ -238,6 +238,7 @@ export default defineEventHandler(async (event: H3Event) => {
     const uploadState = uploadStateRaw ?? {};
     const attemptId = requestedAttemptId;
     const takingOverStaleRetryClaim = differentRetryClaim;
+    const claimedLeaseExpiry = uploadLeaseExpiry(nowMs);
     const claimed = await getDb()
       .update(schema.recordings)
       .set({
@@ -245,7 +246,7 @@ export default defineEventHandler(async (event: H3Event) => {
         failureReason: null,
         uploadAttemptId: attemptId,
         ...(generationId ? { uploadGenerationId: generationId } : {}),
-        uploadLeaseExpiresAt: uploadLeaseExpiry(nowMs),
+        uploadLeaseExpiresAt: claimedLeaseExpiry,
         updatedAt: now,
       })
       .where(
@@ -288,6 +289,25 @@ export default defineEventHandler(async (event: H3Event) => {
         label: `upload-resume-takeover-${recordingId}`,
       });
       if (!invalidated) {
+        await getDb()
+          .update(schema.recordings)
+          .set({
+            uploadAttemptId: existingAttemptId,
+            uploadLeaseExpiresAt: recording.uploadLeaseExpiresAt,
+            updatedAt: new Date(claimHeartbeatMs).toISOString(),
+          })
+          .where(
+            and(
+              eq(schema.recordings.id, recordingId),
+              ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+              eq(schema.recordings.status, "uploading"),
+              eq(schema.recordings.uploadAttemptId, attemptId),
+              generationId === null
+                ? isNull(schema.recordings.uploadGenerationId)
+                : eq(schema.recordings.uploadGenerationId, generationId),
+              eq(schema.recordings.uploadLeaseExpiresAt, claimedLeaseExpiry),
+            ),
+          );
         setResponseStatus(event, 409);
         return {
           resumable: false,

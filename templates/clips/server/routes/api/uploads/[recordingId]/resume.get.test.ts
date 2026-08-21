@@ -13,6 +13,7 @@ const mockSetResponseStatus = vi.hoisted(() => vi.fn());
 const mockGetQuery = vi.hoisted(() => vi.fn());
 const mockIsFeatureFlagEnabled = vi.hoisted(() => vi.fn());
 const mockUpdateRows = vi.hoisted(() => ({ rows: [{ id: "rec-1" }] }));
+const mockUpdateSets = vi.hoisted(() => [] as Array<Record<string, unknown>>);
 const mockSelectRows = vi.hoisted(() => ({
   rows: [] as Array<Record<string, unknown>>,
 }));
@@ -26,7 +27,10 @@ const mockDb = vi.hoisted(() => ({
   }),
   update: vi.fn(() => {
     const builder = {
-      set: vi.fn(() => builder),
+      set: vi.fn((values: Record<string, unknown>) => {
+        mockUpdateSets.push(values);
+        return builder;
+      }),
       where: vi.fn(() => builder),
       returning: vi.fn(async () => mockUpdateRows.rows),
     };
@@ -125,6 +129,7 @@ describe("/api/uploads/:recordingId/resume route", () => {
     mockWriteAppState.mockResolvedValue(undefined);
     mockCompareAndSetAppState.mockResolvedValue(true);
     mockUpdateRows.rows = [{ id: "rec-1" }];
+    mockUpdateSets.length = 0;
     mockIsFeatureFlagEnabled.mockResolvedValue(true);
   });
 
@@ -461,6 +466,40 @@ describe("/api/uploads/:recordingId/resume route", () => {
       "rec-1",
       "generation-1",
     );
+  });
+
+  it("restores an expired claim when its provider session cannot be invalidated", async () => {
+    mockSelectRows.rows = [
+      {
+        id: "rec-1",
+        status: "uploading",
+        uploadAttemptId: "stale-attempt-0001",
+        uploadGenerationId: "generation-1",
+        uploadLeaseExpiresAt: "2000-01-01T00:00:00.000Z",
+      },
+    ];
+    mockGetResumableSession.mockResolvedValue({
+      bytesUploaded: 7_864_320,
+      lastCommittedIndex: 1,
+    });
+    mockAbortResumableUploadSession.mockResolvedValue(false);
+
+    await expect(handler({} as any)).resolves.toEqual({
+      resumable: false,
+      recoveryEnabled: true,
+      recordingId: "rec-1",
+      status: "uploading",
+      reason: "stale_provider_session_invalidation_failed",
+    });
+    expect(mockUpdateSets).toHaveLength(2);
+    expect(mockUpdateSets[1]).toEqual(
+      expect.objectContaining({
+        uploadAttemptId: "stale-attempt-0001",
+        uploadLeaseExpiresAt: "2000-01-01T00:00:00.000Z",
+      }),
+    );
+    expect(mockDeleteResumableSession).not.toHaveBeenCalled();
+    expect(mockCompareAndSetAppState).not.toHaveBeenCalled();
   });
 
   it("loses a stale-claim takeover race without publishing resume state", async () => {
