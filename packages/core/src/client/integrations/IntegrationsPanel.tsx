@@ -1082,7 +1082,7 @@ export function McpIntegrationsSection({
 
       {filteredCatalog.length === 0 && normalizedQuery && (
         <p className="border-y border-border/60 py-4 text-xs text-muted-foreground">
-          No agent integrations match “{query}”.
+          No agent integrations match “{activeQuery}”.
         </p>
       )}
 
