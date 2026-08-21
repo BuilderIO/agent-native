@@ -741,10 +741,12 @@ export function mountActionRoutes(
                 isAgentActionStopError(err) ||
                 (explicitStatus !== undefined && explicitStatus < 500);
               if (isUserFacing) {
-                return isActionContractError(err)
+                return isActionContractError(err) || isAgentActionStopError(err)
                   ? {
                       error: msg,
-                      errorCode: err.errorCode,
+                      ...(typeof err.errorCode === "string"
+                        ? { errorCode: err.errorCode }
+                        : {}),
                       ...(err.details === undefined
                         ? {}
                         : { details: err.details }),

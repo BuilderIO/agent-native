@@ -1,3 +1,4 @@
+import { isAgentActionStopError } from "@agent-native/core/action";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -60,6 +61,7 @@ function mutationBody(rules: Record<string, unknown>) {
 describe("verified fleet feature flag transaction", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    vi.clearAllMocks();
     mocks.fetchOrgApps.mockResolvedValue([app]);
     mocks.getOrgDomain.mockResolvedValue("example.test");
     mocks.isFeatureFlagEnabled.mockResolvedValue(true);
@@ -142,6 +144,79 @@ describe("verified fleet feature flag transaction", () => {
       expect.objectContaining({ enabledForCurrentUser: false }),
     );
   });
+
+  it.each([
+    Object.assign(new Error("private timeout"), { name: "TimeoutError" }),
+    new Error("private network detail"),
+  ])("retries one transient verification transport failure", async (error) => {
+    const rules = {
+      mode: "off",
+      emails: [],
+      orgIds: [],
+      percentage: 0,
+    };
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(response(200, mutationBody(rules)))
+      .mockRejectedValueOnce(error)
+      .mockResolvedValueOnce(
+        response(200, {
+          contractVersion: 1,
+          status: "ready",
+          flags: [{ key: "new-editor", rules, enabledForCurrentUser: false }],
+          canManage: true,
+        }),
+      );
+
+    await expect(
+      setWorkspaceFeatureFlag(admin, {
+        appId: "mail",
+        key: "new-editor",
+        operation: "off",
+      }),
+    ).resolves.toMatchObject({
+      contractVersion: 3,
+      status: "verified",
+      enabledForCurrentUser: false,
+    });
+    expect(globalThis.fetch).toHaveBeenCalledTimes(3);
+    expect(mocks.signA2AToken).toHaveBeenCalledTimes(3);
+  });
+
+  it.each([
+    [
+      "verification-timeout",
+      "workspace_feature_flag_verification_timeout",
+      Object.assign(new Error("private timeout"), { name: "TimeoutError" }),
+    ],
+    [
+      "verification-network",
+      "workspace_feature_flag_verification_network",
+      new Error("private network detail"),
+    ],
+  ] as const)(
+    "fails with the exact %s phase after verification retries are exhausted",
+    async (phase, errorCode, error) => {
+      const rules = {
+        mode: "off",
+        emails: [],
+        orgIds: [],
+        percentage: 0,
+      };
+      vi.spyOn(globalThis, "fetch")
+        .mockResolvedValueOnce(response(200, mutationBody(rules)))
+        .mockRejectedValueOnce(error)
+        .mockRejectedValueOnce(error);
+
+      await expect(
+        setWorkspaceFeatureFlag(admin, {
+          appId: "mail",
+          key: "new-editor",
+          operation: "off",
+        }),
+      ).rejects.toMatchObject({ phase, errorCode, agentNativeStop: true });
+      expect(globalThis.fetch).toHaveBeenCalledTimes(3);
+    },
+  );
 
   it("accepts replacement rules independently read back for another audience", async () => {
     const rules = {
@@ -313,9 +388,17 @@ describe("verified fleet feature flag transaction", () => {
   });
 
   it("uses safe phase messages without reflecting target details", () => {
-    expect(new WorkspaceFeatureFlagFailure("network").message).toBe(
+    const error = new WorkspaceFeatureFlagFailure("network");
+    expect(error.message).toBe(
       "[network] Analytics could not reach the target app.",
     );
+    expect(isAgentActionStopError(error)).toBe(true);
+    expect(error).toMatchObject({
+      details: { phase: "network" },
+      errorCode: "workspace_feature_flag_network",
+      phase: "network",
+    });
+    expect(error.toolResult).not.toContain("private");
   });
 });
 
