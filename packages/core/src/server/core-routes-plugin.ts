@@ -455,7 +455,7 @@ async function resolveBuilderOrgMutation(
     orgId = orgCtx.orgId ?? null;
     role = orgCtx.role ?? null;
   } catch {
-    // org context unreadable — fail closed.
+    // coercion-ok: org is missing, it will fail closed
   }
   if (role !== "owner" && role !== "admin") {
     return {
