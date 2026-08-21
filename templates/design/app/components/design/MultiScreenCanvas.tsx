@@ -33,7 +33,8 @@ import {
   closePenPath,
   constrainPointTo45Degrees,
   createCornerNode,
-  createSmoothNode,
+  createPenCuspLatch,
+  createPenDragNode,
   getPenPathGeometry,
   hitTestPenAnchor,
   hitTestPenHandle,
@@ -3864,6 +3865,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     (
       draft: DraftPrimitive,
       preferredFrameId?: string,
+      options?: { nextTool?: "move" | "pen" },
     ): PersistedDraftPrimitive | null => {
       const targetFrame = getTargetFrameForDraft(draft, preferredFrameId);
 
@@ -3881,7 +3883,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             width: 1,
             height: 1,
           });
-          const persisted = handler(boardPrimitive);
+          const persisted = handler(boardPrimitive, options);
           if (!persisted) return null;
           // Return the board file id so the caller can run the same selection
           // and text-edit activation path used by regular screen primitives.
@@ -3958,7 +3960,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       preferredFrameId?: string,
       options?: { nextTool?: "move" | "pen" },
     ) => {
-      const persisted = persistDraftPrimitive(nextDraft, preferredFrameId);
+      const persisted = persistDraftPrimitive(
+        nextDraft,
+        preferredFrameId,
+        options,
+      );
       if (persisted) {
         updateDraftPrimitives((current) =>
           current.filter((draft) => draft.id !== nextDraft.id),
@@ -4049,10 +4055,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
 
   const finishPenPath = useCallback(
     (path = activePenPathRef.current) => {
-      if (!path || path.nodes.length < 2) {
-        clearActivePenPath();
-        return;
-      }
+      // Clear before committing: the commit flushes React synchronously, and
+      // an effect it wakes can re-enter here and commit the same path twice.
+      clearActivePenPath();
+      if (!path || path.nodes.length < 2) return;
 
       commitDraftPrimitive(
         createPenDraftPrimitive(path, {
@@ -4068,7 +4074,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       // asynchronous selection reconciliation can otherwise paint Move for a
       // frame. Drive the controlled tool explicitly at the commit boundary.
       onActiveToolChange?.("pen");
-      clearActivePenPath();
     },
     [clearActivePenPath, commitDraftPrimitive, onActiveToolChange, toolProps],
   );
@@ -4198,6 +4203,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         pathBefore: pathSnapshot,
         hasMoved: false,
         closing,
+        cuspLatch: createPenCuspLatch(),
       };
       const initialPath = closing
         ? (pathSnapshot as PenPath)
@@ -4244,13 +4250,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         }
 
         const node = state.hasMoved
-          ? createSmoothNode(state.anchor, handleOut, {
-              // Alt/Option while dragging a new anchor's handle breaks
-              // symmetry into a cusp (P8): read the live event's altKey on
-              // every move so toggling Alt mid-drag updates immediately,
-              // rather than latching whatever it was when the drag started.
-              breakSymmetry: ev.altKey,
-            })
+          ? createPenDragNode(
+              state.anchor,
+              handleOut,
+              state.cuspLatch,
+              ev.altKey,
+            )
           : createCornerNode(state.anchor);
         const nextPath = appendPenNode(state.pathBefore, node);
         activePenPathRef.current = nextPath;
@@ -4284,9 +4289,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         }
 
         const node: PenNode = state.hasMoved
-          ? createSmoothNode(state.anchor, handleOut, {
-              breakSymmetry: ev.altKey,
-            })
+          ? createPenDragNode(
+              state.anchor,
+              handleOut,
+              state.cuspLatch,
+              ev.altKey,
+            )
           : createCornerNode(state.anchor);
         const nextPath = appendPenNode(state.pathBefore, node);
         activePenPathRef.current = nextPath;
@@ -4433,6 +4441,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         which,
         pathBefore,
         hasMoved: false,
+        symmetryBroken: false,
       };
       setIsDragging(true);
       setDragCursor("crosshair");
@@ -4456,15 +4465,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           canvasPoint,
           active.originCanvas,
         );
-        // Alt/Option held mid-drag breaks handle symmetry into a cusp,
-        // matching the pen tool's own alt behavior (read live on every move
-        // so toggling Alt mid-drag updates immediately).
+        if (ev.altKey) state.symmetryBroken = true;
         const nextPath = movePenHandle(
           state.pathBefore,
           state.nodeIndex,
           state.which,
           localPoint,
-          { breakSymmetry: ev.altKey },
+          { breakSymmetry: state.symmetryBroken },
         );
         active.onChange(nextPath, "preview");
       };
@@ -4485,13 +4492,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           canvasPoint,
           active.originCanvas,
         );
+        if (ev.altKey) state.symmetryBroken = true;
         const nextPath = state.hasMoved
           ? movePenHandle(
               state.pathBefore,
               state.nodeIndex,
               state.which,
               localPoint,
-              { breakSymmetry: ev.altKey },
+              { breakSymmetry: state.symmetryBroken },
             )
           : state.pathBefore;
         active.onChange(nextPath, "commit");

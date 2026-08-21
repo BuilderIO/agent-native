@@ -15,6 +15,7 @@ import {
   isScreenRootElementInfo,
   shouldClearBridgeSelectionOnEmptyMarquee,
 } from "@/pages/design-editor/selection-state";
+import { resolveToolAfterSelection } from "@/pages/design-editor/tool-state";
 import type { DesignTool, EditorMode } from "@/pages/design-editor/types";
 
 export interface LayerMarqueeSelectionChangeArgs {
@@ -158,6 +159,6 @@ export function runLayerMarqueeSelectionChange(
     setOverviewClearSelectionRequest((request) => request + 1);
   }
 
-  setActiveTool("move");
+  setActiveTool(resolveToolAfterSelection);
   setMode("edit");
 }

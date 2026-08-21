@@ -809,6 +809,7 @@ const enUS = {
         penTool: "Pen tool",
         handTool: "Hand tool",
         scaleTool: "Scale tool",
+        eyedropper: "Eyedropper", // i18n-copy-ignore every keyboardShortcuts.commands.* translation lives in i18n-keyboard-shortcuts.ts
         commentTool: "Comment tool",
         drawTool: "Draw tool",
         showLayers: "Show layers",
