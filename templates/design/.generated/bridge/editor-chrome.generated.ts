@@ -6565,22 +6565,24 @@ export const editorChromeBridgeScript: string = `"use strict";
       var gaps = collectAxisGapCandidates(axis, moving, candidates);
       var before = closestGapCandidate(gaps, "before");
       var after = closestGapCandidate(gaps, "after");
-      if (!before && !after) return 0;
+      if (!before && !after) return { offset: 0, side: null };
       var offset = 0;
+      var side = null;
       var bestDistance = Infinity;
-      function consider(value) {
+      function consider(value, matched) {
         var distance = Math.abs(value);
         if (distance > tolerance || distance >= bestDistance) return;
         bestDistance = distance;
         offset = value;
+        side = matched;
       }
-      if (before && after) consider((after.gap - before.gap) / 2);
+      if (before && after) consider((after.gap - before.gap) / 2, "both");
       var rhythms = collectRhythmGaps(axis, moving, candidates);
       for (var i = 0; i < rhythms.length; i += 1) {
-        if (before) consider(rhythms[i].gap - before.gap);
-        if (after) consider(after.gap - rhythms[i].gap);
+        if (before) consider(rhythms[i].gap - before.gap, "before");
+        if (after) consider(after.gap - rhythms[i].gap, "after");
       }
-      return offset;
+      return { offset, side };
     }
     function gapCandidateBand(candidate) {
       return {
@@ -6598,7 +6600,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return bands;
     }
-    function buildSpacingGuides(axis, moving, candidates, tolerance, gaps) {
+    function buildSpacingGuides(axis, moving, candidates, tolerance, gaps, matchedSide) {
       gaps = gaps || collectAxisGapCandidates(axis, moving, candidates);
       var before = closestGapCandidate(gaps, "before");
       var after = closestGapCandidate(gaps, "after");
@@ -6616,7 +6618,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           }
         ];
       }
-      var neighbor = before || after;
+      var neighbor = matchedSide === "after" ? after : matchedSide === "before" ? before : before || after;
       if (!neighbor) return [];
       var matched = matchingRhythmBands(rhythms, neighbor.gap, tolerance);
       if (!matched.length) return [];
@@ -6664,12 +6666,15 @@ export const editorChromeBridgeScript: string = `"use strict";
           measurements: []
         };
       }
-      var spacingX = guides.some(function(guide) {
+      var idle = { offset: 0, side: null };
+      var spacingXResult = guides.some(function(guide) {
         return guide.orientation === "vertical";
-      }) ? 0 : findSpacingSnapOffset("x", snapped, candidates, threshold);
-      var spacingY = guides.some(function(guide) {
+      }) ? idle : findSpacingSnapOffset("x", snapped, candidates, threshold);
+      var spacingYResult = guides.some(function(guide) {
         return guide.orientation === "horizontal";
-      }) ? 0 : findSpacingSnapOffset("y", snapped, candidates, threshold);
+      }) ? idle : findSpacingSnapOffset("y", snapped, candidates, threshold);
+      var spacingX = spacingXResult.offset;
+      var spacingY = spacingYResult.offset;
       var spaced = translateRectBounds(snapped, spacingX, spacingY);
       var settledGaps = {
         x: collectAxisGapCandidates("x", spaced, candidates),
@@ -6680,14 +6685,16 @@ export const editorChromeBridgeScript: string = `"use strict";
         spaced,
         candidates,
         SPACING_MATCH_EPSILON,
-        settledGaps.x
+        settledGaps.x,
+        spacingXResult.side
       ).concat(
         buildSpacingGuides(
           "y",
           spaced,
           candidates,
           SPACING_MATCH_EPSILON,
-          settledGaps.y
+          settledGaps.y,
+          spacingYResult.side
         )
       );
       var measurements = computeProximityMeasurements(
@@ -6824,7 +6831,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       endSnapGuideNodes();
     }
-    function spacingBandCss(orientation, band, line, serif, fill) {
+    function spacingBandCss(orientation, band, line, fill) {
       var crossMid = (band.crossStart + band.crossEnd) / 2;
       var length = Math.max(0, band.gapEnd - band.gapStart);
       return orientation === "vertical" ? "left:" + band.gapStart + "px;top:" + (crossMid - line / 2) + "px;width:" + length + "px;height:" + line + "px;" + fill : "top:" + band.gapStart + "px;left:" + (crossMid - line / 2) + "px;height:" + length + "px;width:" + line + "px;" + fill;
@@ -7602,8 +7609,19 @@ export const editorChromeBridgeScript: string = `"use strict";
       var dragElStartRect = dragEl.getBoundingClientRect();
       var dragElStartWidth = dragElStartRect.width;
       var dragElStartHeight = dragElStartRect.height;
-      var dragElOffsetScaleX = dragEl.offsetWidth > 0 ? dragElStartRect.width / dragEl.offsetWidth : 1;
-      var dragElOffsetScaleY = dragEl.offsetHeight > 0 ? dragElStartRect.height / dragEl.offsetHeight : 1;
+      function offsetScale(clientExtent, layoutExtent) {
+        if (!(layoutExtent > 0)) return 1;
+        var scale = clientExtent / layoutExtent;
+        return scale > 0 && Number.isFinite(scale) ? scale : 1;
+      }
+      var dragElOffsetScaleX = offsetScale(
+        dragElStartRect.width,
+        dragEl.offsetWidth
+      );
+      var dragElOffsetScaleY = offsetScale(
+        dragElStartRect.height,
+        dragEl.offsetHeight
+      );
       if (!duplicatedForDrag && !isGroupDrag) {
         postCrossScreenDrag("start", dragEl, e);
       }
@@ -7639,13 +7657,8 @@ export const editorChromeBridgeScript: string = `"use strict";
         var snapBypass = Boolean(ev.metaKey || ev.ctrlKey);
         var snapResult = !snapBypass && !duplicatedForDrag ? computeMoveSnapOffset(
           {
-            // Client space, because snapCandidateRects is client space.
-            // nextLeft/nextTop are CSS offsets against the offset parent;
-            // on a board that parent sits thousands of px into an
-            // 8192-square surface, so mixing the two put the moving rect
-            // nowhere near its own neighbours and nothing ever matched.
-            // dragElOffsetScale carries any transform between the two
-            // spaces, so a scaled container converts correctly too.
+            // snapCandidateRects are client space; nextLeft/nextTop are
+            // offset-parent CSS space. Convert, or nothing ever matches.
             left: dragElStartRect.left + (nextLeft - originLeft) * dragElOffsetScaleX,
             top: dragElStartRect.top + (nextTop - originTop) * dragElOffsetScaleY,
             width: dragElStartWidth,
@@ -7656,17 +7669,18 @@ export const editorChromeBridgeScript: string = `"use strict";
           SNAP_THRESHOLD_PX * chromeLineScale(),
           isGroupDrag
         ) : { dx: 0, dy: 0, guides: [], spacingGuides: [], measurements: [] };
-        dndLog("snap:tick", {
-          // Ordered so the fields that decide whether snapping ran at all come
-          // first: the console collapses long objects behind an ellipsis.
-          bypass: snapBypass,
-          duplicated: duplicatedForDrag,
-          mods: (ev.metaKey ? "M" : "") + (ev.ctrlKey ? "C" : "") + (ev.altKey ? "A" : "") + (ev.shiftKey ? "S" : "") || "none",
-          guides: snapResult.guides.length,
-          measurements: snapResult.measurements.length,
-          candidates: snapCandidateRects.length,
-          dropMode: currentAutoLayoutTarget ? currentAutoLayoutTarget.dropMode || "(none)" : "no-target"
-        });
+        if (window.__DND_DEBUG)
+          dndLog("snap:tick", {
+            // Ordered so the fields that decide whether snapping ran at all come
+            // first: the console collapses long objects behind an ellipsis.
+            bypass: snapBypass,
+            duplicated: duplicatedForDrag,
+            mods: (ev.metaKey ? "M" : "") + (ev.ctrlKey ? "C" : "") + (ev.altKey ? "A" : "") + (ev.shiftKey ? "S" : "") || "none",
+            guides: snapResult.guides.length,
+            measurements: snapResult.measurements.length,
+            candidates: snapCandidateRects.length,
+            dropMode: currentAutoLayoutTarget ? currentAutoLayoutTarget.dropMode || "(none)" : "no-target"
+          });
         nextLeft += snapResult.dx / dragElOffsetScaleX;
         nextTop += snapResult.dy / dragElOffsetScaleY;
         var appliedDx = nextLeft - originLeft;
@@ -8274,14 +8288,15 @@ export const editorChromeBridgeScript: string = `"use strict";
         preferSelected: selectedLayerDragPriorityEnabled
       });
       var clickTarget = hitTarget;
-      dndLog("shield:down", {
-        hit: getSelector(hit),
-        dragTarget: getSelector(dragTarget),
-        board: designCanvasBoardSurface,
-        readOnly,
-        position: dragTarget ? window.getComputedStyle(dragTarget).position : null,
-        flowCandidate: dragTarget ? isFlowReorderCandidate(dragTarget) : null
-      });
+      if (window.__DND_DEBUG)
+        dndLog("shield:down", {
+          hit: getSelector(hit),
+          dragTarget: getSelector(dragTarget),
+          board: designCanvasBoardSurface,
+          readOnly,
+          position: dragTarget ? window.getComputedStyle(dragTarget).position : null,
+          flowCandidate: dragTarget ? isFlowReorderCandidate(dragTarget) : null
+        });
       if (!dragTarget || dragTarget === document.body || dragTarget === document.documentElement || isLayerInteractionBlocked(dragTarget)) {
         dndLog("shield:reject", { reason: "no-drag-target" });
         return;

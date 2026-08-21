@@ -44,11 +44,18 @@ interface SpacingGuide {
   bands: [SpacingBand, SpacingBand];
 }
 
+interface ProximityMeasurement {
+  orientation: "vertical" | "horizontal";
+  gap: number;
+  band: SpacingBand;
+}
+
 interface SnapResult {
   dx: number;
   dy: number;
   guides: SnapGuide[];
   spacingGuides: SpacingGuide[];
+  measurements: ProximityMeasurement[];
 }
 
 interface RectBounds {

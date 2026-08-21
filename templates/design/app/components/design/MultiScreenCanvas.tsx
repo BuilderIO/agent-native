@@ -1775,15 +1775,22 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
    *  synchronous layout of the host document — which holds every live screen
    *  iframe — on the hottest path there is. Pan/zoom cannot change mid-drag. */
   const beginSnapGesture = useCallback(() => {
-    const surfaceRect = surfaceRef.current?.getBoundingClientRect();
-    snapViewportRef.current = surfaceRect
+    const size = surfaceSizeRef.current;
+    snapViewportRef.current = size
       ? getOverscannedViewportCanvasBounds(
-          { width: surfaceRect.width, height: surfaceRect.height },
+          size,
           panRef.current,
           zoomRef.current,
           0,
         )
       : null;
+  }, []);
+
+  /** Wheel pan/zoom is not blocked during a drag, so the cached viewport can
+   *  go stale mid-gesture; drop it and fall back to every candidate rather
+   *  than filter against a rect that no longer describes the screen. */
+  const invalidateSnapGesture = useCallback(() => {
+    snapViewportRef.current = null;
   }, []);
 
   const getSnapCandidateEntries = useCallback(
@@ -7235,6 +7242,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       // Real user wheel input is always isTrusted, so this only filters out
       // the synthetic replay.
       if (!event.isTrusted) return;
+      // Pan/zoom mid-drag invalidates the gesture's cached snap viewport.
+      invalidateSnapGesture();
       event.preventDefault();
       event.stopPropagation();
       enqueueWheelGestureFromClient({
@@ -8610,7 +8619,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         return (
           <span
             key={`equal-gap-label-${guide.orientation}-${index}`}
-            className="pointer-events-none absolute z-40 -translate-x-1/2 -translate-y-1/2 rounded bg-[var(--design-editor-accent-color)] px-1 py-0.5 text-[10px] font-medium leading-none text-[var(--design-editor-accent-contrast-color)] shadow-sm"
+            className="pointer-events-none absolute z-40 -translate-x-1/2 -translate-y-1/2 rounded bg-[var(--design-editor-measure-color)] px-1 py-0.5 text-[10px] font-medium leading-none text-[var(--design-editor-accent-contrast-color)] shadow-sm"
             style={{
               left: pan.x + (SURFACE_PADDING + labelCanvasPoint.x) * scale,
               top: pan.y + (SURFACE_PADDING + labelCanvasPoint.y) * scale,

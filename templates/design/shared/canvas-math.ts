@@ -63,19 +63,20 @@ export interface CanvasSnapOptions {
   thresholdScreenPx?: number;
   zoom: number;
   bypass?: boolean;
+  /** Axes the caller has already pinned (a Shift dominant-axis drag). Both the
+   *  offset and the guides skip these, so the chrome never describes a
+   *  position the object is not at. */
+  lockedAxes?: { x?: boolean; y?: boolean };
+  /** Pre-resolved AABBs, so a per-rAF caller does not rebuild them for each
+   *  stage of the drag-snap stack. */
+  stationaryBounds?: FrameBounds[];
 }
 
-export interface SpacingSnapOptions extends CanvasSnapOptions {
-  lockedAxes?: { x?: boolean; y?: boolean };
-}
+export type SpacingSnapOptions = CanvasSnapOptions;
 
 export interface DragSnapOptions extends CanvasSnapOptions {
   /** Figma's "snap to pixel grid": land on whole canvas pixels. */
   pixelGrid?: boolean;
-  /** Axes the caller has already pinned — a Shift dominant-axis drag zeroes
-   *  one axis before calling, and pixel-grid rounding would otherwise hand it
-   *  back up to half a pixel of movement. */
-  lockedAxes?: { x?: boolean; y?: boolean };
   /** How far a neighbour can be, in screen px, and still get a distance
    *  readout. Beyond this the measurement is noise stretched across empty
    *  canvas rather than something the user is positioning against. */
@@ -172,11 +173,6 @@ export interface EqualGapGuide {
    *  in the same row/column that matches, so a run of evenly spaced frames
    *  lights up as one rhythm instead of just the pair being snapped. */
   bands: DistanceGuideBand[];
-}
-
-export interface EqualGapOptions {
-  /** How close two gaps must be (in canvas units) to count as "equal". */
-  toleranceCanvasPx?: number;
 }
 
 export interface RotateFrameMetadata {
@@ -685,8 +681,15 @@ export function computeMoveSnap(
     getRotatedFrameAABB(entry.geometry),
   );
 
-  const dx = findAxisSnapOffset("x", movingBounds, stationaryBounds, threshold);
-  const dy = findAxisSnapOffset("y", movingBounds, stationaryBounds, threshold);
+  // A locked axis must be locked before the guides are built: derive both the
+  // offset and the guides from the same position, or the lines describe a
+  // place the frame is not.
+  const dx = options.lockedAxes?.x
+    ? null
+    : findAxisSnapOffset("x", movingBounds, stationaryBounds, threshold);
+  const dy = options.lockedAxes?.y
+    ? null
+    : findAxisSnapOffset("y", movingBounds, stationaryBounds, threshold);
 
   const snappedBounds = movingBounds.map((bounds) =>
     translateBounds(bounds, dx ?? 0, dy ?? 0),
@@ -696,8 +699,12 @@ export function computeMoveSnap(
     dx: dx ?? 0,
     dy: dy ?? 0,
     guides: [
-      ...buildAxisGuides("x", snappedBounds, stationaryBounds),
-      ...buildAxisGuides("y", snappedBounds, stationaryBounds),
+      ...(options.lockedAxes?.x
+        ? []
+        : buildAxisGuides("x", snappedBounds, stationaryBounds)),
+      ...(options.lockedAxes?.y
+        ? []
+        : buildAxisGuides("y", snappedBounds, stationaryBounds)),
     ],
   };
 }
@@ -712,31 +719,38 @@ export function computeSpacingSnap(
   moving: FrameGeometry,
   stationary: FrameEntry[],
   options: SpacingSnapOptions,
-): { dx: number; dy: number; guides: EqualGapGuide[] } {
+): {
+  dx: number;
+  dy: number;
+  guides: EqualGapGuide[];
+  movedAxes?: { x: boolean; y: boolean };
+} {
   if (options.bypass) return { dx: 0, dy: 0, guides: [] };
 
   const tolerance = getCanvasSnapThreshold(options);
+  const spacingMatchTolerance = getCanvasSnapThreshold({
+    ...options,
+    thresholdScreenPx: SPACING_MATCH_SCREEN_PX,
+  });
   const bounds = getRotatedFrameAABB(moving);
-  const stationaryBounds = stationary.map((entry) =>
-    getRotatedFrameAABB(entry.geometry),
-  );
+  const stationaryBounds =
+    options.stationaryBounds ??
+    stationary.map((entry) => getRotatedFrameAABB(entry.geometry));
 
-  const dx = options.lockedAxes?.x
-    ? 0
+  const idle = { offset: 0, side: null } as const;
+  const x = options.lockedAxes?.x
+    ? idle
     : findSpacingSnapOffset("x", bounds, stationaryBounds, tolerance);
-  const dy = options.lockedAxes?.y
-    ? 0
+  const y = options.lockedAxes?.y
+    ? idle
     : findSpacingSnapOffset("y", bounds, stationaryBounds, tolerance);
 
-  // Guides are drawn at the tight tolerance, not the snap pull: on an axis
-  // locked by an alignment guide the frame never moved, so a near-equal pair
-  // would otherwise get labelled as an equal gap it does not actually have.
-  const snapped = translateBounds(bounds, dx, dy);
+  // Guides are drawn at the tight tolerance, not the snap pull: a near-equal
+  // pair must not get labelled as an equal gap it does not actually have.
+  const snapped = translateBounds(bounds, x.offset, y.offset);
   return {
-    dx,
-    dy,
-    // No chrome on an axis spacing was not allowed to move: alignment already
-    // owns that axis, and a second, contradictory readout on it is noise.
+    dx: x.offset,
+    dy: y.offset,
     guides: [
       ...(options.lockedAxes?.x
         ? []
@@ -744,7 +758,8 @@ export function computeSpacingSnap(
             "x",
             snapped,
             stationaryBounds,
-            SPACING_MATCH_EPSILON,
+            spacingMatchTolerance,
+            x.side,
           )),
       ...(options.lockedAxes?.y
         ? []
@@ -752,9 +767,11 @@ export function computeSpacingSnap(
             "y",
             snapped,
             stationaryBounds,
-            SPACING_MATCH_EPSILON,
+            spacingMatchTolerance,
+            y.side,
           )),
     ],
+    movedAxes: { x: x.offset !== 0, y: y.offset !== 0 },
   };
 }
 
@@ -768,16 +785,21 @@ export function computeSpacingSnap(
 export function computeProximityMeasurements(
   moving: FrameGeometry,
   stationary: FrameEntry[],
-  options: { zoom: number; rangeScreenPx?: number; bypass?: boolean },
+  options: {
+    zoom: number;
+    rangeScreenPx?: number;
+    bypass?: boolean;
+    stationaryBounds?: FrameBounds[];
+  },
 ): ProximityMeasurement[] {
   if (options.bypass) return [];
   const range =
     (options.rangeScreenPx ?? DEFAULT_PROXIMITY_RANGE_SCREEN_PX) /
     getCameraScale(options.zoom);
   const bounds = getRotatedFrameAABB(moving);
-  const stationaryBounds = stationary.map((entry) =>
-    getRotatedFrameAABB(entry.geometry),
-  );
+  const stationaryBounds =
+    options.stationaryBounds ??
+    stationary.map((entry) => getRotatedFrameAABB(entry.geometry));
 
   const measurements: ProximityMeasurement[] = [];
   for (const axis of ["x", "y"] as const) {
@@ -809,9 +831,14 @@ export function computeDragSnap(
   stationary: FrameEntry[],
   options: DragSnapOptions,
 ): DragSnapResult {
-  const alignment = computeMoveSnap(moving, stationary, options);
-  if (options.lockedAxes?.x) alignment.dx = 0;
-  if (options.lockedAxes?.y) alignment.dy = 0;
+  // One AABB pass feeds all three stages; this runs every rAF of a drag.
+  const stationaryBounds = stationary.map((entry) =>
+    getRotatedFrameAABB(entry.geometry),
+  );
+  const alignment = computeMoveSnap(moving, stationary, {
+    ...options,
+    stationaryBounds,
+  });
   const claimedX = alignment.guides.some((g) => g.orientation === "vertical");
   const claimedY = alignment.guides.some((g) => g.orientation === "horizontal");
 
@@ -829,28 +856,40 @@ export function computeDragSnap(
           zoom: options.zoom,
           bypass: options.bypass,
           thresholdScreenPx: options.thresholdScreenPx,
+          stationaryBounds,
           lockedAxes: {
             x: claimedX || options.lockedAxes?.x,
             y: claimedY || options.lockedAxes?.y,
           },
         },
       )
-    : { dx: 0, dy: 0, guides: [] as EqualGapGuide[] };
+    : {
+        dx: 0,
+        dy: 0,
+        guides: [] as EqualGapGuide[],
+        movedAxes: { x: false, y: false },
+      };
 
   let dx = alignment.dx + spacing.dx;
   let dy = alignment.dy + spacing.dy;
 
   const anchor = moving[0];
   if (options.pixelGrid && anchor && !options.bypass) {
-    const guided = (orientation: "vertical" | "horizontal") =>
+    // Keyed on what actually moved the frame, not on what got drawn: a
+    // spacing snap that produced no chrome is still a position the user
+    // chose, and rounding it away undoes the snap they just felt.
+    const claimed = (orientation: "vertical" | "horizontal") =>
       alignment.guides.some((g) => g.orientation === orientation) ||
-      spacing.guides.some((g) => g.orientation === orientation);
+      spacing.guides.some((g) => g.orientation === orientation) ||
+      (orientation === "vertical"
+        ? spacing.movedAxes?.x
+        : spacing.movedAxes?.y);
     // Only the anchor rounds; the rest of a multi-select rides the same
     // delta, so a group keeps its internal fractional offsets.
-    if (!guided("vertical") && !options.lockedAxes?.x) {
+    if (!claimed("vertical") && !options.lockedAxes?.x) {
       dx = Math.round(anchor.geometry.x + dx) - anchor.geometry.x;
     }
-    if (!guided("horizontal") && !options.lockedAxes?.y) {
+    if (!claimed("horizontal") && !options.lockedAxes?.y) {
       dy = Math.round(anchor.geometry.y + dy) - anchor.geometry.y;
     }
   }
@@ -869,6 +908,7 @@ export function computeDragSnap(
         zoom: options.zoom,
         rangeScreenPx: options.proximityRangeScreenPx,
         bypass: options.bypass,
+        stationaryBounds,
       }).filter(
         (measurement) =>
           !spacing.guides.some(
@@ -884,44 +924,6 @@ export function computeDragSnap(
     spacingGuides: spacing.guides,
     measurements,
   };
-}
-
-/**
- * Figma-style "smart spacing" guides (CV11): when a single moving frame sits
- * between two stationary neighbors with matching gaps on either side — or
- * continues that same gap on just one side — highlight both gaps with their
- * shared distance. This is purely a *display* aid (unlike computeMoveSnap,
- * it never adjusts the frame's position) so callers should compute it
- * independently of, and after, any snap offset has already been applied to
- * the moving frame's geometry.
- *
- * Only single-frame moves are supported (matching how Figma's own equal-gap
- * guides only appear while dragging one object) — pass the already-resolved
- * single moving frame, not a multi-select group.
- */
-export function computeEqualGapGuides(
-  moving: FrameGeometry,
-  stationary: FrameEntry[],
-  { toleranceCanvasPx = 1 }: EqualGapOptions = {},
-): EqualGapGuide[] {
-  const movingBounds = getRotatedFrameAABB(moving);
-  const stationaryBounds = stationary.map((entry) =>
-    getRotatedFrameAABB(entry.geometry),
-  );
-  return [
-    ...buildEqualGapPair(
-      "x",
-      movingBounds,
-      stationaryBounds,
-      toleranceCanvasPx,
-    ),
-    ...buildEqualGapPair(
-      "y",
-      movingBounds,
-      stationaryBounds,
-      toleranceCanvasPx,
-    ),
-  ];
 }
 
 interface GapCandidate {
@@ -2196,7 +2198,10 @@ function getCanvasSnapThreshold({
 }
 
 const SNAP_ALIGN_EPSILON = 1e-6;
-const SPACING_MATCH_EPSILON = 0.5;
+/** Screen px. Every other tolerance in this module is screen-constant via
+ *  getCanvasSnapThreshold; a fixed canvas-px value would make the equal-gap
+ *  claim 16x stricter at 25% zoom than at 400%. */
+const SPACING_MATCH_SCREEN_PX = 0.5;
 
 function getAxisSnapValues(bounds: FrameBounds, axis: "x" | "y") {
   return axis === "x"
@@ -2373,32 +2378,37 @@ function collectRhythmGaps(
   return gaps;
 }
 
+/** The offset plus which neighbour it was measured against, so the guide is
+ *  drawn on the side the snap actually used. Picking a side independently
+ *  builds chrome for a gap that was never matched. */
 function findSpacingSnapOffset(
   axis: "x" | "y",
   movingBounds: FrameBounds,
   stationary: FrameBounds[],
   tolerance: number,
-): number {
+): { offset: number; side: "before" | "after" | "both" | null } {
   const candidates = collectAxisGapCandidates(axis, movingBounds, stationary);
   const before = closestGapCandidate(candidates, "before");
   const after = closestGapCandidate(candidates, "after");
-  if (!before && !after) return 0;
+  if (!before && !after) return { offset: 0, side: null };
 
   let offset = 0;
+  let side: "before" | "after" | "both" | null = null;
   let bestDistance = Infinity;
-  const consider = (value: number) => {
+  const consider = (value: number, matched: "before" | "after" | "both") => {
     const distance = Math.abs(value);
     if (distance > tolerance || distance >= bestDistance) return;
     bestDistance = distance;
     offset = value;
+    side = matched;
   };
 
-  if (before && after) consider((after.gap - before.gap) / 2);
+  if (before && after) consider((after.gap - before.gap) / 2, "both");
   for (const rhythm of collectRhythmGaps(axis, movingBounds, stationary)) {
-    if (before) consider(rhythm.gap - before.gap);
-    if (after) consider(after.gap - rhythm.gap);
+    if (before) consider(rhythm.gap - before.gap, "before");
+    if (after) consider(after.gap - rhythm.gap, "after");
   }
-  return offset;
+  return { offset, side };
 }
 
 /** The pair of gap bands to draw once `findSpacingSnapOffset` has landed:
@@ -2409,6 +2419,7 @@ function buildSpacingGuides(
   movingBounds: FrameBounds,
   stationary: FrameBounds[],
   tolerance: number,
+  matchedSide?: "before" | "after" | "both" | null,
 ): EqualGapGuide[] {
   const rhythms = collectRhythmGaps(axis, movingBounds, stationary);
   const pair = buildEqualGapPair(axis, movingBounds, stationary, tolerance);
@@ -2427,8 +2438,12 @@ function buildSpacingGuides(
 
   const candidates = collectAxisGapCandidates(axis, movingBounds, stationary);
   const neighbor =
-    closestGapCandidate(candidates, "before") ??
-    closestGapCandidate(candidates, "after");
+    matchedSide === "after"
+      ? closestGapCandidate(candidates, "after")
+      : matchedSide === "before"
+        ? closestGapCandidate(candidates, "before")
+        : (closestGapCandidate(candidates, "before") ??
+          closestGapCandidate(candidates, "after"));
   if (!neighbor) return [];
 
   const matched = matchingRhythmBands(rhythms, neighbor.gap, tolerance);

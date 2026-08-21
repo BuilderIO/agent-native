@@ -368,8 +368,10 @@ async function dragInsideScreen(
         );
       }
       const rect = box.getBoundingClientRect();
-      // The bridge converts client deltas to content px by the host's inverse
-      // zoom, which it already publishes for its own chrome sizing.
+      // Measured, not assumed: dispatching a client delta of D moves the
+      // element D * lineScale content px, so a content-space target must be
+      // divided by it. A review flagged this as an identity conversion; the
+      // "snaps to the 100px gap" test lands 9px short without the division.
       const lineScale =
         Number.parseFloat(
           getComputedStyle(document.documentElement).getPropertyValue(

@@ -9285,27 +9285,31 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     return gaps;
   }
 
+  // Returns the matched side with the offset: picking a side independently
+  // builds chrome for a gap the snap never used.
   function findSpacingSnapOffset(axis, moving, candidates, tolerance) {
     var gaps = collectAxisGapCandidates(axis, moving, candidates);
     var before = closestGapCandidate(gaps, "before");
     var after = closestGapCandidate(gaps, "after");
-    if (!before && !after) return 0;
+    if (!before && !after) return { offset: 0, side: null };
 
     var offset = 0;
+    var side = null;
     var bestDistance = Infinity;
-    function consider(value) {
+    function consider(value, matched) {
       var distance = Math.abs(value);
       if (distance > tolerance || distance >= bestDistance) return;
       bestDistance = distance;
       offset = value;
+      side = matched;
     }
-    if (before && after) consider((after.gap - before.gap) / 2);
+    if (before && after) consider((after.gap - before.gap) / 2, "both");
     var rhythms = collectRhythmGaps(axis, moving, candidates);
     for (var i = 0; i < rhythms.length; i += 1) {
-      if (before) consider(rhythms[i].gap - before.gap);
-      if (after) consider(after.gap - rhythms[i].gap);
+      if (before) consider(rhythms[i].gap - before.gap, "before");
+      if (after) consider(after.gap - rhythms[i].gap, "after");
     }
-    return offset;
+    return { offset: offset, side: side };
   }
 
   function gapCandidateBand(candidate) {
@@ -9328,7 +9332,14 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     return bands;
   }
 
-  function buildSpacingGuides(axis, moving, candidates, tolerance, gaps) {
+  function buildSpacingGuides(
+    axis,
+    moving,
+    candidates,
+    tolerance,
+    gaps,
+    matchedSide,
+  ) {
     gaps = gaps || collectAxisGapCandidates(axis, moving, candidates);
     var before = closestGapCandidate(gaps, "before");
     var after = closestGapCandidate(gaps, "after");
@@ -9346,7 +9357,12 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         },
       ];
     }
-    var neighbor = before || after;
+    var neighbor =
+      matchedSide === "after"
+        ? after
+        : matchedSide === "before"
+          ? before
+          : before || after;
     if (!neighbor) return [];
     var matched = matchingRhythmBands(rhythms, neighbor.gap, tolerance);
     if (!matched.length) return [];
@@ -9407,16 +9423,19 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
 
     // Spacing only gets the axes alignment left free — moving a claimed axis
     // would pull the element off the guide line the user can already see.
-    var spacingX = guides.some(function (guide) {
+    var idle = { offset: 0, side: null };
+    var spacingXResult = guides.some(function (guide) {
       return guide.orientation === "vertical";
     })
-      ? 0
+      ? idle
       : findSpacingSnapOffset("x", snapped, candidates, threshold);
-    var spacingY = guides.some(function (guide) {
+    var spacingYResult = guides.some(function (guide) {
       return guide.orientation === "horizontal";
     })
-      ? 0
+      ? idle
       : findSpacingSnapOffset("y", snapped, candidates, threshold);
+    var spacingX = spacingXResult.offset;
+    var spacingY = spacingYResult.offset;
     var spaced = translateRectBounds(snapped, spacingX, spacingY);
     // Spacing and proximity ask the same question of the same bounds; one
     // scan per axis feeds both instead of four scans per drag tick.
@@ -9430,6 +9449,7 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       candidates,
       SPACING_MATCH_EPSILON,
       settledGaps.x,
+      spacingXResult.side,
     ).concat(
       buildSpacingGuides(
         "y",
@@ -9437,6 +9457,7 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         candidates,
         SPACING_MATCH_EPSILON,
         settledGaps.y,
+        spacingYResult.side,
       ),
     );
 
@@ -9615,7 +9636,7 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     endSnapGuideNodes();
   }
 
-  function spacingBandCss(orientation, band, line, serif, fill) {
+  function spacingBandCss(orientation, band, line, fill) {
     var crossMid = (band.crossStart + band.crossEnd) / 2;
     var length = Math.max(0, band.gapEnd - band.gapStart);
     return orientation === "vertical"
@@ -10815,14 +10836,21 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     var dragElStartHeight = dragElStartRect.height;
     // Client px per CSS px for this element. 1 unless an ancestor between it
     // and the viewport is CSS-scaled; offsetWidth is the untransformed box.
-    var dragElOffsetScaleX =
-      (dragEl as HTMLElement).offsetWidth > 0
-        ? dragElStartRect.width / (dragEl as HTMLElement).offsetWidth
-        : 1;
-    var dragElOffsetScaleY =
-      (dragEl as HTMLElement).offsetHeight > 0
-        ? dragElStartRect.height / (dragEl as HTMLElement).offsetHeight
-        : 1;
+    function offsetScale(clientExtent, layoutExtent) {
+      if (!(layoutExtent > 0)) return 1;
+      var scale = clientExtent / layoutExtent;
+      // A collapsed visual box (transform: scale(0)) yields 0, and dividing
+      // the snap offset by it writes Infinity into style.left.
+      return scale > 0 && Number.isFinite(scale) ? scale : 1;
+    }
+    var dragElOffsetScaleX = offsetScale(
+      dragElStartRect.width,
+      (dragEl as HTMLElement).offsetWidth,
+    );
+    var dragElOffsetScaleY = offsetScale(
+      dragElStartRect.height,
+      (dragEl as HTMLElement).offsetHeight,
+    );
     if (!duplicatedForDrag && !isGroupDrag) {
       postCrossScreenDrag("start", dragEl, e);
     }
@@ -10881,13 +10909,8 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         !snapBypass && !duplicatedForDrag
           ? computeMoveSnapOffset(
               {
-                // Client space, because snapCandidateRects is client space.
-                // nextLeft/nextTop are CSS offsets against the offset parent;
-                // on a board that parent sits thousands of px into an
-                // 8192-square surface, so mixing the two put the moving rect
-                // nowhere near its own neighbours and nothing ever matched.
-                // dragElOffsetScale carries any transform between the two
-                // spaces, so a scaled container converts correctly too.
+                // snapCandidateRects are client space; nextLeft/nextTop are
+                // offset-parent CSS space. Convert, or nothing ever matches.
                 left:
                   dragElStartRect.left +
                   (nextLeft - originLeft) * dragElOffsetScaleX,
@@ -10903,23 +10926,24 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
               isGroupDrag,
             )
           : { dx: 0, dy: 0, guides: [], spacingGuides: [], measurements: [] };
-      dndLog("snap:tick", {
-        // Ordered so the fields that decide whether snapping ran at all come
-        // first: the console collapses long objects behind an ellipsis.
-        bypass: snapBypass,
-        duplicated: duplicatedForDrag,
-        mods:
-          (ev.metaKey ? "M" : "") +
-            (ev.ctrlKey ? "C" : "") +
-            (ev.altKey ? "A" : "") +
-            (ev.shiftKey ? "S" : "") || "none",
-        guides: snapResult.guides.length,
-        measurements: snapResult.measurements.length,
-        candidates: snapCandidateRects.length,
-        dropMode: currentAutoLayoutTarget
-          ? currentAutoLayoutTarget.dropMode || "(none)"
-          : "no-target",
-      });
+      if ((window as any).__DND_DEBUG)
+        dndLog("snap:tick", {
+          // Ordered so the fields that decide whether snapping ran at all come
+          // first: the console collapses long objects behind an ellipsis.
+          bypass: snapBypass,
+          duplicated: duplicatedForDrag,
+          mods:
+            (ev.metaKey ? "M" : "") +
+              (ev.ctrlKey ? "C" : "") +
+              (ev.altKey ? "A" : "") +
+              (ev.shiftKey ? "S" : "") || "none",
+          guides: snapResult.guides.length,
+          measurements: snapResult.measurements.length,
+          candidates: snapCandidateRects.length,
+          dropMode: currentAutoLayoutTarget
+            ? currentAutoLayoutTarget.dropMode || "(none)"
+            : "no-target",
+        });
       // Back to CSS space before it is written to style.left/top.
       nextLeft += snapResult.dx / dragElOffsetScaleX;
       nextTop += snapResult.dy / dragElOffsetScaleY;
@@ -11735,16 +11759,17 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       preferSelected: selectedLayerDragPriorityEnabled,
     });
     var clickTarget = hitTarget;
-    dndLog("shield:down", {
-      hit: getSelector(hit),
-      dragTarget: getSelector(dragTarget),
-      board: designCanvasBoardSurface,
-      readOnly: readOnly,
-      position: dragTarget
-        ? window.getComputedStyle(dragTarget as Element).position
-        : null,
-      flowCandidate: dragTarget ? isFlowReorderCandidate(dragTarget) : null,
-    });
+    if ((window as any).__DND_DEBUG)
+      dndLog("shield:down", {
+        hit: getSelector(hit),
+        dragTarget: getSelector(dragTarget),
+        board: designCanvasBoardSurface,
+        readOnly: readOnly,
+        position: dragTarget
+          ? window.getComputedStyle(dragTarget as Element).position
+          : null,
+        flowCandidate: dragTarget ? isFlowReorderCandidate(dragTarget) : null,
+      });
     if (
       !dragTarget ||
       dragTarget === document.body ||

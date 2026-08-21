@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import {
   assignRegions,
   canvasToScreenPoint,
-  computeEqualGapGuides,
   computeMoveSnap,
   computeProximityMeasurements,
   computeResizeSnap,
@@ -594,95 +593,6 @@ describe("canvas snap and resize math", () => {
   });
 });
 
-describe("computeEqualGapGuides (smart spacing, CV11)", () => {
-  it("detects a moving frame evenly spaced between two horizontal neighbors", () => {
-    // left sibling ends at x=100, moving frame spans 140-240 (gap 40 before),
-    // right sibling starts at x=280 (gap 40 after). All share the same y
-    // range so they cross-overlap on the y axis.
-    const moving = { x: 140, y: 0, width: 100, height: 100 };
-    const stationary = [
-      { id: "left", geometry: { x: 0, y: 0, width: 100, height: 100 } },
-      { id: "right", geometry: { x: 280, y: 0, width: 100, height: 100 } },
-    ];
-    const guides = computeEqualGapGuides(moving, stationary);
-    expect(guides).toHaveLength(1);
-    expect(guides[0].orientation).toBe("vertical");
-    expect(guides[0].gap).toBeCloseTo(40);
-    expect(guides[0].bands[0].gapStart).toBeCloseTo(100);
-    expect(guides[0].bands[0].gapEnd).toBeCloseTo(140);
-    expect(guides[0].bands[1].gapStart).toBeCloseTo(240);
-    expect(guides[0].bands[1].gapEnd).toBeCloseTo(280);
-  });
-
-  it("detects vertical (above/below) equal spacing symmetrically", () => {
-    const moving = { x: 0, y: 150, width: 100, height: 100 };
-    const stationary = [
-      { id: "above", geometry: { x: 0, y: 0, width: 100, height: 100 } },
-      { id: "below", geometry: { x: 0, y: 300, width: 100, height: 100 } },
-    ];
-    const guides = computeEqualGapGuides(moving, stationary);
-    expect(guides).toHaveLength(1);
-    expect(guides[0].orientation).toBe("horizontal");
-    expect(guides[0].gap).toBeCloseTo(50);
-  });
-
-  it("returns no guide when the two gaps clearly differ", () => {
-    const moving = { x: 140, y: 0, width: 100, height: 100 };
-    const stationary = [
-      { id: "left", geometry: { x: 0, y: 0, width: 100, height: 100 } },
-      { id: "right", geometry: { x: 400, y: 0, width: 100, height: 100 } }, // gap 160, not 40
-    ];
-    expect(computeEqualGapGuides(moving, stationary)).toEqual([]);
-  });
-
-  it("respects a custom tolerance", () => {
-    const moving = { x: 140, y: 0, width: 100, height: 100 };
-    const stationary = [
-      { id: "left", geometry: { x: 0, y: 0, width: 100, height: 100 } }, // gap 40
-      { id: "right", geometry: { x: 283, y: 0, width: 100, height: 100 } }, // gap 43
-    ];
-    expect(computeEqualGapGuides(moving, stationary)).toEqual([]);
-    expect(
-      computeEqualGapGuides(moving, stationary, { toleranceCanvasPx: 5 }),
-    ).toHaveLength(1);
-  });
-
-  it("ignores stationary frames that don't cross-overlap the moving frame's extent", () => {
-    // "left" is entirely above the moving frame's y-range on the x-axis
-    // gap-detection pass, so it shouldn't produce a horizontal-axis gap
-    // candidate at all — this guards against treating a diagonal neighbor
-    // as if it were directly beside the moving frame.
-    const moving = { x: 140, y: 200, width: 100, height: 100 };
-    const stationary = [
-      { id: "diagonal", geometry: { x: 0, y: 0, width: 100, height: 100 } },
-    ];
-    expect(computeEqualGapGuides(moving, stationary)).toEqual([]);
-  });
-
-  it("only pairs the closest gap on each side, not every combinatorial match", () => {
-    // Two candidates on the "before" side (gap 40 and gap 90) and one on
-    // "after" (gap 40) — should pair with the CLOSER before-candidate (40),
-    // not emit a guide for the farther one too.
-    const moving = { x: 140, y: 0, width: 100, height: 100 };
-    const stationary = [
-      { id: "near-left", geometry: { x: 0, y: 0, width: 100, height: 100 } }, // gap 40
-      { id: "far-left", geometry: { x: -150, y: 0, width: 100, height: 100 } }, // gap 90 (still "before", further)
-      { id: "right", geometry: { x: 280, y: 0, width: 100, height: 100 } }, // gap 40
-    ];
-    const guides = computeEqualGapGuides(moving, stationary);
-    expect(guides).toHaveLength(1);
-    expect(guides[0].gap).toBeCloseTo(40);
-  });
-
-  it("produces no guide for a lone neighbor with nothing to pair against", () => {
-    const moving = { x: 140, y: 0, width: 100, height: 100 };
-    const stationary = [
-      { id: "left", geometry: { x: 0, y: 0, width: 100, height: 100 } },
-    ];
-    expect(computeEqualGapGuides(moving, stationary)).toEqual([]);
-  });
-});
-
 describe("computeMoveSnap guide fan-out", () => {
   const square = (id: string, x: number, y: number) => ({
     id,
@@ -880,6 +790,52 @@ describe("computeDragSnap respects a Shift-locked axis", () => {
       snap.guides,
       "the gaps are genuinely equal, but alignment owns this axis",
     ).toEqual([]);
+  });
+});
+
+describe("review regressions", () => {
+  const f = (x: number, y: number, w = 100, h = 100) => ({
+    id: `${x}-${y}`,
+    geometry: { x, y, width: w, height: h },
+  });
+
+  it("draws no guide on a Shift-locked axis the frame was not moved onto", () => {
+    const snap = computeDragSnap([f(500, 203)], [f(0, 200)], {
+      zoom: 100,
+      thresholdScreenPx: 6,
+      pixelGrid: true,
+      lockedAxes: { y: true },
+    });
+    expect(snap.dy).toBe(0);
+    expect(
+      snap.guides.filter((guide) => guide.orientation === "horizontal"),
+      "the frame sits at 203/253/303; guides at 200/250/300 describe nowhere",
+    ).toEqual([]);
+  });
+
+  it("draws the spacing guide on the side the snap actually matched", () => {
+    // The rhythm (100) matches on the AFTER side; picking "before" by default
+    // built the guide for an untouched gap and returned nothing.
+    const snap = computeSpacingSnap(
+      { x: 380, y: 0, width: 100, height: 100 },
+      [f(0, 0), f(200, 0), f(575, 0)],
+      { zoom: 100, thresholdScreenPx: 6 },
+    );
+    expect(snap.dx).toBeCloseTo(-5);
+    expect(snap.guides).toHaveLength(1);
+    expect(snap.guides[0].gap).toBeCloseTo(100);
+  });
+
+  it("does not let the pixel grid round away a spacing snap", () => {
+    const snap = computeDragSnap(
+      [f(380, 0)],
+      [f(0, 0), f(200.3, 0), f(575, 0)],
+      { zoom: 100, thresholdScreenPx: 6, pixelGrid: true },
+    );
+    expect(
+      snap.dx,
+      "rounding to -5 undoes the fractional rhythm the user just snapped to",
+    ).toBeCloseTo(-5.3);
   });
 });
 
