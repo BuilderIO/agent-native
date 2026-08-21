@@ -36,6 +36,7 @@ export interface AgentRunOutput {
     readonly name: string;
     readonly input: unknown;
     readonly completed?: boolean;
+    readonly completedSideEffect?: boolean;
     readonly isError?: boolean;
     readonly result?: string;
   }[];

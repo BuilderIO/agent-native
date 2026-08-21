@@ -125,6 +125,7 @@ export async function createAgentRunner(
       id?: string;
       input: unknown;
       completed?: boolean;
+      completedSideEffect?: boolean;
       isError?: boolean;
       result?: string;
     }> = [];
@@ -156,6 +157,7 @@ export async function createAgentRunner(
               );
           if (detail) {
             detail.completed = true;
+            detail.completedSideEffect = event.completedSideEffect;
             detail.isError = event.isError === true;
             detail.result = event.result;
           }

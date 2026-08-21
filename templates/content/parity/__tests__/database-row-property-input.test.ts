@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   canonicalizeDatabasePropertyInput,
+  databasePropertyEntriesSchema,
   normalizeDatabasePropertyInput,
 } from "../../actions/_database-property-input";
 import { digest } from "../../actions/_database-row-mutation";
@@ -72,6 +73,23 @@ describe("database row property inputs", () => {
     ).toThrow(/not both/);
   });
 
+  it("preserves __proto__ as an ordinary property definition ID", () => {
+    const propertyEntries = databasePropertyEntriesSchema.parse([
+      { propertyId: "__proto__", value: "preserve me" },
+    ]);
+    const normalized = normalizeDatabasePropertyInput({
+      propertyEntries,
+    });
+
+    expect(normalized).toBeDefined();
+    expect(Object.getPrototypeOf(normalized)).toBeNull();
+    expect(Object.keys(normalized!)).toEqual(["__proto__"]);
+    expect(Object.prototype.hasOwnProperty.call(normalized, "__proto__")).toBe(
+      true,
+    );
+    expect(normalized?.["__proto__"]).toBe("preserve me");
+  });
+
   it("removes the model-only representation before canonical hashing", () => {
     const canonical = canonicalizeDatabasePropertyInput({
       idempotencyKey: "same-intent",
@@ -108,5 +126,20 @@ describe("database row property inputs", () => {
     });
 
     expect(digest(fromEntries)).toBe(digest(fromRecord));
+  });
+
+  it("includes __proto__ property values in the canonical digest", () => {
+    const withPrototypeNamedProperty = canonicalizeDatabasePropertyInput({
+      idempotencyKey: "same-intent",
+      propertyEntries: [{ propertyId: "__proto__", value: "preserve me" }],
+    });
+    const withoutProperty = canonicalizeDatabasePropertyInput({
+      idempotencyKey: "same-intent",
+      propertyValues: {},
+    });
+
+    expect(digest(withPrototypeNamedProperty)).not.toBe(
+      digest(withoutProperty),
+    );
   });
 });

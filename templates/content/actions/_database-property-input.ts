@@ -36,7 +36,10 @@ export function normalizeDatabasePropertyInput(input: {
   }
   if (!input.propertyEntries) return input.propertyValues;
 
-  const values: Record<string, unknown> = {};
+  const values: Record<string, unknown> = Object.create(null) as Record<
+    string,
+    unknown
+  >;
   for (const entry of input.propertyEntries) {
     if (Object.prototype.hasOwnProperty.call(values, entry.propertyId)) {
       throw new ActionContractError(

@@ -18,6 +18,7 @@ function successfulCreateCall(
       ...propertyInput,
     },
     completed: true,
+    completedSideEffect: true,
     isError: false,
     result: '{"fixtureOnly":true}',
   };
@@ -315,6 +316,80 @@ describe("Content parity eval scenarios", () => {
       name: "failed execution",
       mutate(call: ReturnType<typeof successfulCreateCall>) {
         return { ...call, isError: true, result: "fixture rejected" };
+      },
+    },
+    {
+      name: "skipped side effect",
+      mutate(call: ReturnType<typeof successfulCreateCall>) {
+        return { ...call, completedSideEffect: false };
+      },
+    },
+    {
+      name: "an extra top-level field",
+      mutate(call: ReturnType<typeof successfulCreateCall>) {
+        return {
+          ...call,
+          input: {
+            ...(call.input as Record<string, unknown>),
+            hallucinated: true,
+          },
+        };
+      },
+    },
+    {
+      name: "an extra target field",
+      mutate(call: ReturnType<typeof successfulCreateCall>) {
+        const input = call.input as Record<string, unknown>;
+        return {
+          ...call,
+          input: {
+            ...input,
+            target: {
+              ...(input.target as Record<string, unknown>),
+              hallucinated: true,
+            },
+          },
+        };
+      },
+    },
+    {
+      name: "an extra authority field",
+      mutate(call: ReturnType<typeof successfulCreateCall>) {
+        const input = call.input as Record<string, unknown>;
+        const target = input.target as Record<string, unknown>;
+        return {
+          ...call,
+          input: {
+            ...input,
+            target: {
+              ...target,
+              authorityScope: {
+                ...(target.authorityScope as Record<string, unknown>),
+                hallucinated: true,
+              },
+            },
+          },
+        };
+      },
+    },
+    {
+      name: "an extra property-entry field",
+      mutate(call: ReturnType<typeof successfulCreateCall>) {
+        const input = call.input as Record<string, unknown>;
+        const { propertyValues, ...withoutPropertyValues } = input;
+        return {
+          ...call,
+          input: {
+            ...withoutPropertyValues,
+            propertyEntries: Object.entries(
+              propertyValues as Record<string, unknown>,
+            ).map(([propertyId, value]) => ({
+              propertyId,
+              value,
+              hallucinated: true,
+            })),
+          },
+        };
       },
     },
   ])("rejects $name", async ({ mutate }) => {

@@ -30,6 +30,18 @@ function expectedToolScorer(expectedTools: string[]) {
   });
 }
 
+function hasExactKeys(
+  record: Record<string, unknown>,
+  expectedKeys: readonly string[],
+): boolean {
+  const actualKeys = Object.keys(record).sort();
+  const sortedExpectedKeys = [...expectedKeys].sort();
+  return (
+    actualKeys.length === sortedExpectedKeys.length &&
+    actualKeys.every((key, index) => key === sortedExpectedKeys[index])
+  );
+}
+
 function analyzePropertyValues(input: unknown): {
   received: Record<string, unknown>;
   invalid: string[];
@@ -63,7 +75,10 @@ function analyzePropertyValues(input: unknown): {
     return { received: {}, invalid: ["propertyEntries is not an array"] };
   }
 
-  const received: Record<string, unknown> = {};
+  const received: Record<string, unknown> = Object.create(null) as Record<
+    string,
+    unknown
+  >;
   const invalid: string[] = [];
   for (const entry of record.propertyEntries) {
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
@@ -71,6 +86,14 @@ function analyzePropertyValues(input: unknown): {
       continue;
     }
     const { propertyId, value } = entry as Record<string, unknown>;
+    if (
+      !hasExactKeys(entry as Record<string, unknown>, ["propertyId", "value"])
+    ) {
+      invalid.push(
+        "propertyEntries contains an entry with unrecognized fields",
+      );
+      continue;
+    }
     if (typeof propertyId !== "string" || propertyId.length === 0) {
       invalid.push("propertyEntries contains an invalid propertyId");
       continue;
@@ -111,6 +134,22 @@ function matchesCreateEnvelope(
   }
   const actualAuthority = authorityScope as Record<string, unknown>;
   return (
+    hasExactKeys(input, [
+      "target",
+      "expectedSchemaRevision",
+      "idempotencyKey",
+      "title",
+      input.propertyEntries === undefined
+        ? "propertyValues"
+        : "propertyEntries",
+    ]) &&
+    hasExactKeys(actualTarget, [
+      "authorityScope",
+      "spaceId",
+      "databaseId",
+      "databaseDocumentId",
+    ]) &&
+    hasExactKeys(actualAuthority, ["kind", "id"]) &&
     actualAuthority.kind === expected.target.authorityScope.kind &&
     actualAuthority.id === expected.target.authorityScope.id &&
     actualTarget.spaceId === expected.target.spaceId &&
@@ -171,7 +210,11 @@ function expectedPropertyValuesScorer(
           "create target, schema revision, idempotency key, or title did not match the fixture",
         );
       }
-      if (!createCalls[0]?.completed || createCalls[0]?.isError) {
+      if (
+        !createCalls[0]?.completed ||
+        createCalls[0]?.completedSideEffect !== true ||
+        createCalls[0]?.isError
+      ) {
         invalid.push("add-database-item did not complete successfully");
       }
       if (!run.ok) {
@@ -182,7 +225,8 @@ function expectedPropertyValuesScorer(
         .filter(([propertyId, value]) => received[propertyId] !== value)
         .map(([propertyId]) => propertyId);
       const unexpected = Object.keys(received).filter(
-        (propertyId) => !(propertyId in expected),
+        (propertyId) =>
+          !Object.prototype.hasOwnProperty.call(expected, propertyId),
       );
       return { received, missing, unexpected, invalid, mutationCalls };
     },
