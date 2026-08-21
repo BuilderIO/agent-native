@@ -143,7 +143,7 @@ export default function GenericTemplatePage() {
       <TemplateHero
         eyebrow={
           <span style={{ color: template.color }}>
-            {t("templateDetail.badge", { name: template.name })}
+            {t("common.freeAndOpenSource")}
           </span>
         }
         title={t("templateDetail.title", { name: template.name })}
@@ -163,7 +163,7 @@ export default function GenericTemplatePage() {
                 });
               }}
             >
-              {t("common.tryIt")}
+              {t("common.getStarted")}
             </a>
           ) : undefined
         }
@@ -172,20 +172,10 @@ export default function GenericTemplatePage() {
 
       <SectionDivider showOnSmallScreens={false} />
 
-      {!["assets", "chat"].includes(template.slug) ? (
-        <TemplateFinalCta
-          title={t("templateDetail.allTemplates")}
-          actions={
-            <Link
-              data-an-prefetch="viewport"
-              to={sitePathForLocale("/apps", locale)}
-              className="secondary-button"
-            >
-              {t("templateDetail.allTemplates")}
-            </Link>
-          }
-        />
-      ) : null}
+      <TemplateFinalCta
+        title={t("templateDetail.allTemplates")}
+        template={template}
+      />
 
       {faqItems.length > 0 ? (
         <>

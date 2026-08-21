@@ -1,4 +1,4 @@
-import { useLocale, useT } from "@agent-native/core/client/i18n";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconChartBar,
   IconCheck,
@@ -9,10 +9,8 @@ import {
   IconPlugConnected,
   IconSearch,
 } from "@tabler/icons-react";
-import { Link } from "react-router";
 
 import { BuilderImage } from "../components/builder-image";
-import { sitePathForLocale } from "../components/docs-locale";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { SectionDivider } from "../components/SectionDivider";
 import {
@@ -66,7 +64,6 @@ const primaryLinkClassName = "primary-button";
 
 export default function AnalyticsTemplate() {
   const t = useT();
-  const { locale } = useLocale();
   const capabilities = [
     {
       icon: IconMessage,
@@ -139,7 +136,7 @@ export default function AnalyticsTemplate() {
       <TemplateHero
         eyebrow={
           <span style={{ color: template.color }}>
-            Agent-Native {template.name}
+            {t("common.freeAndOpenSource")}
           </span>
         }
         title={
@@ -169,7 +166,7 @@ export default function AnalyticsTemplate() {
               });
             }}
           >
-            Talk to Your Data
+            {t("common.getStarted")}
           </a>
         }
         media={
@@ -428,32 +425,14 @@ export default function AnalyticsTemplate() {
       <TemplateFinalCta
         eyebrow={
           <span
-            className="font-mono text-sm font-semibold uppercase tracking-[0.14em]"
+            className="font-mono text-sm font-semibold tracking-[0.14em]"
             style={{ color: template.color }}
           >
-            Agent-Native {template.name}
+            {t("common.freeAndOpenSource")}
           </span>
         }
         title={t("templateLanding.analytics.s061")}
-        actions={
-          <>
-            <a
-              href={`${template.demoUrl}/_agent-native/sign-in`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={primaryLinkClassName}
-            >
-              {t("common.signIn")}
-            </a>
-            <Link
-              data-an-prefetch="viewport"
-              to={sitePathForLocale("/apps", locale)}
-              className="inline-flex items-center gap-2 rounded-xl border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
-            >
-              View more apps
-            </Link>
-          </>
-        }
+        template={template}
       >
         <p className="m-0 max-w-2xl px-6 text-lg leading-[1.4] text-[var(--fg-secondary)] sm:px-8">
           {t("templateLanding.analytics.s062")}

@@ -67,7 +67,7 @@ export function TemplateComparisonTable({
                       loading="lazy"
                       decoding="async"
                     />
-                    <span className="font-semibold uppercase tracking-tight">
+                    <span className="font-semibold tracking-tight">
                       Agent-Native{" "}
                       <span style={{ color: column.agentNative.color }}>
                         {column.agentNative.name}

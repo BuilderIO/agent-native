@@ -8,6 +8,7 @@ import { TemplateDocsLink } from "../components/template-docs";
 import {
   TemplateComparisonTable,
   TemplateHero,
+  TemplateLandingActions,
   TemplateLandingFaq,
   TemplateLandingShell,
 } from "../components/template-landing";
@@ -225,7 +226,7 @@ export default function ClipsTemplate() {
       <TemplateHero
         eyebrow={
           <span style={{ color: template.color }}>
-            Agent-Native {template.name}
+            {t("common.freeAndOpenSource")}
           </span>
         }
         title={
@@ -252,7 +253,7 @@ export default function ClipsTemplate() {
               });
             }}
           >
-            Try Clips now
+            {t("common.recordForFree")}
           </a>
         }
         description={<p>{t("templateLanding.clips.s008")}</p>}
@@ -779,37 +780,8 @@ export default function ClipsTemplate() {
           <ClipPreviewSlider ref={sliderHandleRef} />
         </div>
 
-        <div className="template-detail-cta-actions flex flex-col items-stretch justify-center gap-3 border-x border-t border-[var(--docs-border)] bg-[var(--bg)] px-6 py-10 sm:flex-row sm:items-center sm:gap-[120px] sm:px-8">
-          <a
-            href={template.demoUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={(event) => {
-              applyFirstTouchAttributionToLink(event.currentTarget);
-              trackEvent("try live demo", {
-                template: template.slug,
-                location: "landing_page_cta",
-              });
-            }}
-            className="primary-button"
-          >
-            Try Clips Now
-          </a>
-          <TemplateDocsLink template={template} location="landing_page_cta">
-            {t("templateLanding.clips.s061")}
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 18 18"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <path
-                d="M13.3125 12C13.3125 12.3107 13.0606 12.5625 12.75 12.5625C12.4393 12.5625 12.1875 12.3107 12.1875 12V6.60791L5.64766 13.1477C5.42799 13.3674 5.07192 13.3674 4.85225 13.1477C4.63258 12.928 4.63258 12.572 4.85225 12.3523L11.392 5.8125H5.99996C5.6893 5.8125 5.43746 5.56066 5.43746 5.25C5.43746 4.93934 5.6893 4.6875 5.99996 4.6875H12.75C13.0606 4.6875 13.3125 4.93934 13.3125 5.25V12Z"
-                fill="currentColor"
-              />
-            </svg>
-          </TemplateDocsLink>
+        <div className="template-detail-cta-actions flex flex-col items-stretch justify-center gap-3 border-x border-t border-[var(--docs-border)] px-6 py-10 sm:flex-row sm:items-center sm:gap-[120px] sm:px-8">
+          <TemplateLandingActions template={template} />
         </div>
       </section>
 

@@ -218,6 +218,22 @@ body {
   text-align: center;
 }
 
+.template-detail-cta-actions {
+  background-color: var(--bg);
+  background-image:
+    linear-gradient(
+      to right,
+      color-mix(in srgb, var(--docs-border) 70%, transparent) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      to bottom,
+      color-mix(in srgb, var(--docs-border) 70%, transparent) 1px,
+      transparent 1px
+    );
+  background-size: 48px 48px;
+}
+
 [data-template-cli-copy] {
   width: 100%;
   max-width: 100%;
@@ -2174,6 +2190,13 @@ html.dark .shiki span {
   border-color: var(--fg-secondary);
   color: var(--fg);
   text-decoration: none;
+}
+
+.template-detail-page button,
+.template-detail-page .primary-button,
+.template-detail-page .secondary-button,
+.template-detail-page .template-detail-cta-actions a {
+  text-transform: uppercase;
 }
 
 .template-card-primary-button {
