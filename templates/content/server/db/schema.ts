@@ -277,6 +277,12 @@ export const contentDatabaseItems = table(
     bodyHydrationAttemptedAt: text("body_hydration_attempted_at"),
     bodyHydrationError: text("body_hydration_error"),
     bodyHydrationVersion: text("body_hydration_version"),
+    bodyHydrationReason: text("body_hydration_reason"),
+    bodyHydrationProviderStatus: text("body_hydration_provider_status"),
+    bodyHydrationAttemptCount: integer("body_hydration_attempt_count")
+      .notNull()
+      .default(0),
+    bodyHydrationRetryable: integer("body_hydration_retryable"),
     createdAt: text("created_at").notNull().default(now()),
     updatedAt: text("updated_at").notNull().default(now()),
   },
@@ -331,6 +337,7 @@ export const contentDatabaseBodyHydrationQueue = table(
     attempts: integer("attempts").notNull().default(0),
     lastAttemptedAt: text("last_attempted_at"),
     lastError: text("last_error"),
+    nextAttemptAt: text("next_attempt_at"),
     createdAt: text("created_at").notNull().default(now()),
     updatedAt: text("updated_at").notNull().default(now()),
   },

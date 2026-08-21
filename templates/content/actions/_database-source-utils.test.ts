@@ -23,6 +23,7 @@ import {
   builderBodyChangeForUnsourcedLocalCreate,
   builderBodyHydrationPriorityForRequest,
   builderBodyHydrationAttemptIsTerminal,
+  builderBodyHydrationNextAttemptAt,
   builderBodyNeedsSourceComponentWrite,
   knownBuilderReviewDocumentIds,
   builderSourcePropertyAssignments,
@@ -873,6 +874,16 @@ describe("database source helpers", () => {
   it("caps Builder body hydration retries on the fifth failed attempt", () => {
     expect(builderBodyHydrationAttemptIsTerminal(4)).toBe(false);
     expect(builderBodyHydrationAttemptIsTerminal(5)).toBe(true);
+  });
+
+  it("backs Builder body retries off without exceeding five minutes", () => {
+    const attemptedAt = "2026-08-21T12:00:00.000Z";
+    expect(builderBodyHydrationNextAttemptAt(1, attemptedAt)).toBe(
+      "2026-08-21T12:00:30.000Z",
+    );
+    expect(builderBodyHydrationNextAttemptAt(5, attemptedAt)).toBe(
+      "2026-08-21T12:05:00.000Z",
+    );
   });
 
   it("prioritizes opened Builder body hydration ahead of background work", () => {

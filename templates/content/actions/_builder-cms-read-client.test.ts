@@ -4,8 +4,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { builderBlocksHash, builderEntryBlocks } from "../shared/builder-mdx";
 import {
   builderCmsListEntryFields,
+  BuilderCmsContentEntryReadError,
   listBuilderCmsModels,
   readBuilderCmsContentEntry,
+  readBuilderCmsContentEntryResult,
   readBuilderCmsContentEntries,
   readBuilderCmsEntryLiveState,
   readBuilderCmsModelFields,
@@ -914,6 +916,60 @@ describe("Builder CMS read client", () => {
       expect(input.searchParams.get("fields")).toContain("data.blocks");
       expect(input.searchParams.get("fields")).toContain("data.blocksString");
     }
+  });
+
+  it("distinguishes a provider-confirmed empty entry from a missing entry", async () => {
+    process.env.BUILDER_CONTENT_API_HOST = "https://cdn.test.builder.io";
+    resolveBuilderCredentialMock.mockResolvedValue("public-key");
+
+    const found = await readBuilderCmsContentEntryResult({
+      model: "blog_article",
+      entryId: "empty-entry",
+      fetchImpl: vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              id: "empty-entry",
+              data: { title: "Intentionally empty", blocks: [] },
+            }),
+            { status: 200 },
+          ),
+      ) as unknown as typeof fetch,
+    });
+    const missing = await readBuilderCmsContentEntryResult({
+      model: "blog_article",
+      entryId: "missing-entry",
+      fetchImpl: vi.fn(
+        async () => new Response(null, { status: 404 }),
+      ) as unknown as typeof fetch,
+    });
+
+    expect(found).toMatchObject({ state: "found", providerStatus: "http_200" });
+    expect(found.entry?.rawEntry?.data?.blocks).toEqual([]);
+    expect(missing).toEqual({
+      state: "not_found",
+      entry: null,
+      providerStatus: "http_404",
+    });
+  });
+
+  it("preserves actionable retry evidence for Builder read failures", async () => {
+    process.env.BUILDER_CONTENT_API_HOST = "https://cdn.test.builder.io";
+    resolveBuilderCredentialMock.mockResolvedValue("public-key");
+
+    await expect(
+      readBuilderCmsContentEntryResult({
+        model: "blog_article",
+        entryId: "rate-limited-entry",
+        fetchImpl: vi.fn(
+          async () => new Response(null, { status: 429 }),
+        ) as unknown as typeof fetch,
+      }),
+    ).rejects.toMatchObject<Partial<BuilderCmsContentEntryReadError>>({
+      reason: "transient_read_failure",
+      providerStatus: "http_429",
+      retryable: true,
+    });
   });
 
   it("can return an initial partial Builder Content API page for fast refresh", async () => {

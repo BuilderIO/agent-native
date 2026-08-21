@@ -764,6 +764,7 @@ function DocumentEditorBody({
     ) {
       return;
     }
+    if (hydration.status === "error" && hydration.retryable === false) return;
     const promotionKey = `${hydrationContext.sourceId}:${documentId}:${hydration.status}:${hydration.version ?? ""}`;
     if (promotedBuilderBodyRef.current === promotionKey) return;
     promotedBuilderBodyRef.current = promotionKey;
@@ -847,6 +848,10 @@ function DocumentEditorBody({
     user: currentUser,
   });
   const bodyHydrationPending = documentBodyHydrationIsPending(document);
+  const bodyHydrationError =
+    document.bodyHydration?.hydration?.status === "error"
+      ? document.bodyHydration.hydration
+      : null;
   const editorCanEdit =
     canEdit &&
     !bodyHydrationPending &&
@@ -2260,6 +2265,18 @@ function DocumentEditorBody({
                                 ? "editor.builderBodySyncingDescription"
                                 : "editor.pageBodySyncingDescription",
                             )}
+                          />
+                        );
+                      }
+
+                      if (bodyHydrationError) {
+                        return (
+                          <BuilderBodySyncingNotice
+                            title={t("database.builderBodySyncFailedNotice")}
+                            description={
+                              bodyHydrationError.error ??
+                              t("database.builderBodySyncFailedDescription")
+                            }
                           />
                         );
                       }
