@@ -6,7 +6,6 @@ import {
   getMethod,
   getQuery,
   getHeader,
-  getRequestURL,
 } from "h3";
 
 import { verifyA2ATokenWithClaims } from "../a2a-claims.js";
@@ -41,6 +40,7 @@ import {
 } from "./embed-session.js";
 import { getHttpRequestTelemetryId } from "./http-response-telemetry.js";
 import { consumeOneTimeJti } from "./identity-sso-store.js";
+import { getForwardedRequestOrigin } from "./request-origin.js";
 
 declare const __AGENT_NATIVE_BUILD_ID__: string | undefined;
 declare const __AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__: string | undefined;
@@ -588,7 +588,7 @@ export function mountActionRoutes(
             timezone,
             browserSessionId,
             clientPlatform,
-            requestOrigin: getRequestURL(event).origin,
+            requestOrigin: getForwardedRequestOrigin(event),
             // Captured here because this is the last layer that still holds
             // the h3 event; everything below reads it off the request store.
             isLoopbackRequest: isLoopbackRequest(event),

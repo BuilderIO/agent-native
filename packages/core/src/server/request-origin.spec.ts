@@ -5,11 +5,35 @@ vi.mock("h3", () => ({
     event.headers?.[name] ?? event.headers?.[name.toLowerCase()],
 }));
 
-import { isSameOriginRequest } from "./request-origin.js";
+import {
+  getForwardedRequestOrigin,
+  isSameOriginRequest,
+} from "./request-origin.js";
 
 function fakeEvent(headers: Record<string, string> = {}) {
   return { headers } as any;
 }
+
+describe("getForwardedRequestOrigin", () => {
+  it.each([
+    {
+      name: "forwarded gateway host behind an internal dev proxy",
+      headers: {
+        host: "127.0.0.1:8092",
+        "x-forwarded-host": "127.0.0.1:8080",
+        "x-forwarded-proto": "http",
+      },
+      expected: "http://127.0.0.1:8080",
+    },
+    {
+      name: "direct host when no proxy forwarded headers are present",
+      headers: { host: "dispatch.agent-native.com" },
+      expected: "http://dispatch.agent-native.com",
+    },
+  ])("handles $name", ({ headers, expected }) => {
+    expect(getForwardedRequestOrigin(fakeEvent(headers))).toBe(expected);
+  });
+});
 
 describe("isSameOriginRequest", () => {
   it.each([
