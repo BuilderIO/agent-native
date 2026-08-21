@@ -211,6 +211,8 @@ struct NativeUploadResumeResponse {
     next_chunk_index: Option<u64>,
     attempt_id: Option<String>,
     upload_generation_id: Option<String>,
+    reason: Option<String>,
+    retry_after_ms: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -956,6 +958,8 @@ fn clear_recording_active(app: &AppHandle) {
 static LAST_NATIVE_UPLOAD_FINISHED: OnceLock<Mutex<Option<NativeUploadFinishedPayload>>> =
     OnceLock::new();
 static CLAIMED_NATIVE_UPLOAD_OPEN: OnceLock<Mutex<Option<String>>> = OnceLock::new();
+static CANCELLED_NATIVE_UPLOAD_RETRIES: OnceLock<Mutex<BTreeSet<String>>> = OnceLock::new();
+const NATIVE_UPLOAD_RETRY_CANCELLED: &str = "native recording upload retry cancelled";
 
 fn last_native_upload_finished() -> &'static Mutex<Option<NativeUploadFinishedPayload>> {
     LAST_NATIVE_UPLOAD_FINISHED.get_or_init(|| Mutex::new(None))
@@ -963,6 +967,29 @@ fn last_native_upload_finished() -> &'static Mutex<Option<NativeUploadFinishedPa
 
 fn claimed_native_upload_open() -> &'static Mutex<Option<String>> {
     CLAIMED_NATIVE_UPLOAD_OPEN.get_or_init(|| Mutex::new(None))
+}
+
+fn cancelled_native_upload_retries() -> &'static Mutex<BTreeSet<String>> {
+    CANCELLED_NATIVE_UPLOAD_RETRIES.get_or_init(|| Mutex::new(BTreeSet::new()))
+}
+
+fn native_upload_retry_cancelled(recording_id: &str) -> bool {
+    cancelled_native_upload_retries()
+        .lock()
+        .map(|cancelled| cancelled.contains(recording_id))
+        .unwrap_or(true)
+}
+
+fn clear_native_upload_retry_cancelled(recording_id: &str) {
+    if let Ok(mut cancelled) = cancelled_native_upload_retries().lock() {
+        cancelled.remove(recording_id);
+    }
+}
+
+async fn wait_for_native_upload_retry_cancel(recording_id: &str) {
+    while !native_upload_retry_cancelled(recording_id) {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
 }
 
 fn reset_native_upload_completion_state() {
@@ -2130,6 +2157,7 @@ pub async fn native_fullscreen_recording_stop_and_upload(
 
     match result {
         Ok(result) => {
+            clear_native_upload_retry_cancelled(&recording_id);
             if !result.verification_pending {
                 clear_saved_recording_after_success(&app, &saved);
             }
@@ -3636,6 +3664,7 @@ pub async fn native_fullscreen_recording_retry_upload(
     auth_token: Option<String>,
     cookie: Option<String>,
 ) -> Result<NativeFullscreenUploadResult, String> {
+    clear_native_upload_retry_cancelled(&recording_id);
     let mut saved = read_saved_recording_metadata(&app, &recording_id)?;
     saved.server_url = server_url.trim_end_matches('/').to_string();
     saved.last_attempt_at = Some(now_iso());
@@ -3658,6 +3687,7 @@ pub async fn native_fullscreen_recording_retry_upload(
         // second click cannot steal an upload session already owned by this
         // local recording.
         let retry_plan = match get_native_retry_upload_plan(
+            &app,
             &saved.server_url,
             &saved.recording_id,
             prepared.bytes,
@@ -3670,16 +3700,18 @@ pub async fn native_fullscreen_recording_retry_upload(
         {
             Ok(plan) => plan,
             Err(err) => {
-                interrupt_native_retry_upload(
-                    &saved.server_url,
-                    &saved.recording_id,
-                    &err,
-                    Some(&claimed_attempt_id),
-                    None,
-                    &auth_token,
-                    &cookie,
-                )
-                .await;
+                if err != NATIVE_UPLOAD_RETRY_CANCELLED {
+                    interrupt_native_retry_upload(
+                        &saved.server_url,
+                        &saved.recording_id,
+                        &err,
+                        Some(&claimed_attempt_id),
+                        None,
+                        &auth_token,
+                        &cookie,
+                    )
+                    .await;
+                }
                 cleanup_prepared_saved_recording_files(&prepared, retry_combined_path);
                 return Err(err);
             }
@@ -3863,6 +3895,11 @@ pub async fn native_fullscreen_recording_retry_upload(
             Ok(result)
         }
         Err(err) => {
+            clear_native_upload_retry_cancelled(&recording_id);
+            if err == NATIVE_UPLOAD_RETRY_CANCELLED {
+                emit_native_upload_progress(&app, "paused", "Retry cancelled", None, None);
+                return Err(err);
+            }
             if is_moov_corrupt_error(&err) {
                 saved.corrupt = true;
             }
@@ -3876,6 +3913,15 @@ pub async fn native_fullscreen_recording_retry_upload(
             Err(format!("{err}. {suffix}"))
         }
     }
+}
+
+#[tauri::command]
+pub fn native_fullscreen_recording_cancel_retry(recording_id: String) -> Result<(), String> {
+    cancelled_native_upload_retries()
+        .lock()
+        .map_err(|_| "native upload retry cancellation state is unavailable".to_string())?
+        .insert(recording_id);
+    Ok(())
 }
 
 #[tauri::command]
@@ -5708,6 +5754,7 @@ async fn upload_prepared_recording_file(
 }
 
 async fn get_native_retry_upload_plan(
+    app: &AppHandle,
     server_url: &str,
     recording_id: &str,
     local_bytes: u64,
@@ -5735,30 +5782,103 @@ async fn get_native_retry_upload_plan(
     if !cookie.trim().is_empty() {
         request = request.header("Cookie", cookie.trim());
     }
-    let response = request
-        .send()
-        .await
-        .map_err(|e| format!("native recording resume check failed: {e}"))?;
-    let status = response.status();
-    let body = response.text().await.unwrap_or_default();
-    if !status.is_success() {
-        return Err(format!(
-            "native recording resume check returned {status}: {}",
-            body.chars().take(400).collect::<String>()
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5 * 60);
+    loop {
+        if native_upload_retry_cancelled(recording_id) {
+            return Err(NATIVE_UPLOAD_RETRY_CANCELLED.to_string());
+        }
+        let response = tokio::select! {
+            response = request
+                .try_clone()
+                .ok_or_else(|| "native recording resume request could not be retried".to_string())?
+                .send() => response.map_err(|e| format!("native recording resume check failed: {e}"))?,
+            _ = wait_for_native_upload_retry_cancel(recording_id) => {
+                return Err(NATIVE_UPLOAD_RETRY_CANCELLED.to_string());
+            }
+        };
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        let parsed = serde_json::from_str::<NativeUploadResumeResponse>(&body);
+        if !status.is_success() {
+            if let Ok(conflict) = &parsed {
+                if let Some(delay) = native_retry_conflict_delay(conflict) {
+                    if tokio::time::Instant::now() + delay <= deadline {
+                        emit_native_upload_progress(
+                            app,
+                            "uploading",
+                            "Waiting for prior retry",
+                            None,
+                            None,
+                        );
+                        tokio::select! {
+                            _ = tokio::time::sleep(delay) => {}
+                            _ = wait_for_native_upload_retry_cancel(recording_id) => {
+                                return Err(NATIVE_UPLOAD_RETRY_CANCELLED.to_string());
+                            }
+                        }
+                        continue;
+                    }
+                    return Err(
+                        "Another upload retry is still active. Wait a moment and try again"
+                            .to_string(),
+                    );
+                }
+                if conflict.reason.as_deref() == Some("retry_claim_liveness_unavailable") {
+                    return Err(
+                        "Clips could not verify whether another retry is active".to_string()
+                    );
+                }
+            }
+            return Err(format!("native recording resume check failed ({status})"));
+        }
+        let response = parsed.map_err(|_| {
+            "native recording resume check returned an unreadable response".to_string()
+        })?;
+        if response.resumable && response.attempt_id.as_deref() != Some(claimed_attempt_id) {
+            return Err(
+                "native recording resume check did not acknowledge its attempt claim".to_string(),
+            );
+        }
+        let recovery_enabled = response.recovery_enabled;
+        let rollback_generation_id = response.upload_generation_id.clone();
+        return Ok(preserve_native_retry_fence_during_rollback(
+            plan_native_retry_upload(response, local_bytes, exact_local_stream),
+            recovery_enabled,
+            claimed_attempt_id,
+            rollback_generation_id,
         ));
     }
-    let response: NativeUploadResumeResponse = serde_json::from_str(&body)
-        .map_err(|_| "native recording resume check returned an unreadable response".to_string())?;
-    if response.resumable && response.attempt_id.as_deref() != Some(claimed_attempt_id) {
-        return Err(
-            "native recording resume check did not acknowledge its attempt claim".to_string(),
-        );
+}
+
+fn preserve_native_retry_fence_during_rollback(
+    mut plan: NativeRetryUploadPlan,
+    recovery_enabled: bool,
+    claimed_attempt_id: &str,
+    upload_generation_id: Option<String>,
+) -> NativeRetryUploadPlan {
+    if !recovery_enabled {
+        if let NativeRetryUploadPlan::Restart {
+            attempt_id,
+            upload_generation_id: planned_generation_id,
+        } = &mut plan
+        {
+            *attempt_id = Some(claimed_attempt_id.to_string());
+            *planned_generation_id = upload_generation_id;
+        }
     }
-    Ok(plan_native_retry_upload(
-        response,
-        local_bytes,
-        exact_local_stream,
-    ))
+    plan
+}
+
+fn native_retry_conflict_delay(response: &NativeUploadResumeResponse) -> Option<Duration> {
+    if response.resumable
+        || !response.recovery_enabled
+        || response.reason.as_deref() != Some("retry_already_active")
+    {
+        return None;
+    }
+    response
+        .retry_after_ms
+        .map(|delay| Duration::from_millis(delay.clamp(250, 30_000)))
 }
 
 #[derive(Deserialize)]
@@ -5945,8 +6065,9 @@ fn native_retry_interruption_payload(
 mod native_retry_upload_plan_tests {
     use super::{
         is_native_upload_restart_required, is_native_upload_unfenced_restart_required,
-        native_replay_attempt_id, native_retry_attempt_id, native_retry_interruption_payload,
-        plan_native_retry_upload, saved_native_retry_attempt_id, upload_url,
+        native_replay_attempt_id, native_retry_attempt_id, native_retry_conflict_delay,
+        native_retry_interruption_payload, plan_native_retry_upload,
+        preserve_native_retry_fence_during_rollback, saved_native_retry_attempt_id, upload_url,
         NativeFullscreenUploadResult, NativeRetryUploadPlan, NativeUploadResumeResponse,
         NATIVE_UPLOAD_RESTART_REQUIRED, NATIVE_UPLOAD_UNFENCED_RESTART_REQUIRED,
         UPLOAD_CHUNK_BYTES,
@@ -5962,6 +6083,8 @@ mod native_retry_upload_plan_tests {
             next_chunk_index: Some(next_chunk_index),
             attempt_id: Some("attempt-1".to_string()),
             upload_generation_id: Some("generation-1".to_string()),
+            reason: None,
+            retry_after_ms: None,
         }
     }
 
@@ -6013,6 +6136,8 @@ mod native_retry_upload_plan_tests {
                 next_chunk_index: None,
                 attempt_id: Some("ignored-attempt".to_string()),
                 upload_generation_id: Some("ignored-generation".to_string()),
+                reason: Some("feature_disabled".to_string()),
+                retry_after_ms: None,
             },
             UPLOAD_CHUNK_BYTES as u64,
             true,
@@ -6028,6 +6153,26 @@ mod native_retry_upload_plan_tests {
     }
 
     #[test]
+    fn preserves_an_existing_fence_when_resumable_retry_is_disabled() {
+        let plan = preserve_native_retry_fence_during_rollback(
+            NativeRetryUploadPlan::Restart {
+                attempt_id: None,
+                upload_generation_id: None,
+            },
+            false,
+            "attempt-1",
+            Some("generation-1".to_string()),
+        );
+        assert!(matches!(
+            plan,
+            NativeRetryUploadPlan::Restart {
+                attempt_id: Some(attempt_id),
+                upload_generation_id: Some(generation_id),
+            } if attempt_id == "attempt-1" && generation_id == "generation-1"
+        ));
+    }
+
+    #[test]
     fn reconciles_terminal_resume_without_an_attempt_echo() {
         let terminal = plan_native_retry_upload(
             NativeUploadResumeResponse {
@@ -6039,6 +6184,8 @@ mod native_retry_upload_plan_tests {
                 next_chunk_index: None,
                 attempt_id: None,
                 upload_generation_id: None,
+                reason: None,
+                retry_after_ms: None,
             },
             UPLOAD_CHUNK_BYTES as u64,
             true,
@@ -6064,6 +6211,8 @@ mod native_retry_upload_plan_tests {
                 next_chunk_index: Some(0),
                 attempt_id: Some(claimed_attempt_id.clone()),
                 upload_generation_id: Some("generation-1".to_string()),
+                reason: None,
+                retry_after_ms: None,
             },
             UPLOAD_CHUNK_BYTES as u64,
             true,
@@ -6106,6 +6255,30 @@ mod native_retry_upload_plan_tests {
         let later = saved_native_retry_attempt_id(&mut saved_attempt_id);
         assert_eq!(first, later);
         assert_eq!(saved_attempt_id.as_deref(), Some(first.as_str()));
+    }
+
+    #[test]
+    fn waits_only_for_a_typed_bounded_retry_conflict() {
+        let conflict = NativeUploadResumeResponse {
+            resumable: false,
+            recovery_enabled: true,
+            status: Some("uploading".to_string()),
+            upload_mode: None,
+            bytes_received: None,
+            next_chunk_index: None,
+            attempt_id: None,
+            upload_generation_id: None,
+            reason: Some("retry_already_active".to_string()),
+            retry_after_ms: Some(60_000),
+        };
+        assert_eq!(
+            native_retry_conflict_delay(&conflict),
+            Some(std::time::Duration::from_secs(30))
+        );
+
+        let mut untyped = conflict;
+        untyped.retry_after_ms = None;
+        assert_eq!(native_retry_conflict_delay(&untyped), None);
     }
 
     #[test]

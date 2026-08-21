@@ -17,7 +17,6 @@ import {
   readAppState,
   writeAppState,
 } from "@agent-native/core/application-state";
-import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { track } from "@agent-native/core/tracking";
 import { normalizeChunkUploadNumber } from "@shared/recording-core.js";
@@ -35,7 +34,6 @@ import {
 } from "h3";
 
 import finalizeRecording from "../../../../../actions/finalize-recording.js";
-import { UPLOAD_RETRY_RESUME_FLAG } from "../../../../../shared/feature-flags.js";
 import { getDb, schema } from "../../../../db/index.js";
 import { debugLog } from "../../../../lib/debug.js";
 import {
@@ -55,7 +53,10 @@ import {
 import { abortResumableUploadSession } from "../../../../lib/resumable-upload-cleanup.js";
 import { resolveResumableUploadProvider } from "../../../../lib/resumable-upload-provider.js";
 import { isStreamingUploadDisabled } from "../../../../lib/streaming-upload-mode.js";
-import { renewUploadLease } from "../../../../lib/upload-lease.js";
+import {
+  renewUploadLease,
+  type UploadLeaseResult,
+} from "../../../../lib/upload-lease.js";
 import {
   allowsSqlRecordingChunkScratch,
   shouldRejectVideoUploadWithoutStorage,
@@ -68,6 +69,42 @@ const RECORDING_TOO_LARGE_REASON = `Recording exceeds the ${Math.round(MAX_RECOR
 // are base64 encoded by the gateway and effectively cap out around 4.5 MB.
 // Keep our own cap lower so dev/local failures match production.
 const MAX_CHUNK_BYTES = 4 * 1024 * 1024;
+const RETRY_OWNERSHIP_HEARTBEAT_MS = 10 * 1000;
+
+async function relayWithRetryOwnershipHeartbeat<T>(
+  recordingId: string,
+  attemptId: string | null,
+  generationId: string | null,
+  relay: () => Promise<T>,
+): Promise<{ result: T; ownershipFailure: UploadLeaseResult | Error | null }> {
+  if (attemptId === null)
+    return { result: await relay(), ownershipFailure: null };
+  let ownershipFailure: UploadLeaseResult | Error | null = null;
+  let pending: Promise<void> | null = null;
+  const heartbeat = () => {
+    if (pending || ownershipFailure) return;
+    pending = renewUploadLease(recordingId, { attemptId, generationId })
+      .then((lease) => {
+        if (!lease.held) ownershipFailure = lease;
+      })
+      .catch((error) => {
+        ownershipFailure =
+          error instanceof Error ? error : new Error(String(error));
+      })
+      .finally(() => {
+        pending = null;
+      });
+  };
+  const timer = setInterval(heartbeat, RETRY_OWNERSHIP_HEARTBEAT_MS);
+  let result: T;
+  try {
+    result = await relay();
+  } finally {
+    clearInterval(timer);
+    await pending;
+  }
+  return { result: result!, ownershipFailure };
+}
 
 const ALLOWED_RECORDING_MIME_TYPES = new Set([
   "video/webm",
@@ -238,23 +275,6 @@ export default defineEventHandler(async (event: H3Event) => {
     throw createError({ statusCode: 401, message: "Unauthorized" });
   }
   debugLog("[chunk] resolved owner:", ownerEmail);
-
-  if (
-    attemptId !== null &&
-    !(await isFeatureFlagEnabled(UPLOAD_RETRY_RESUME_FLAG, {
-      userEmail: ownerEmail,
-      userKey: ownerEmail,
-      orgId,
-    }))
-  ) {
-    setResponseStatus(event, 409);
-    return {
-      ok: false,
-      error: "Resumable upload retry is disabled.",
-      restartRequired: true,
-      recoveryEnabled: false,
-    };
-  }
 
   return runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
     const db = getDb();
@@ -1002,12 +1022,28 @@ async function handleResumableChunk(
       const putT0 = Date.now();
       let putResult;
       try {
-        putResult = await uploadProvider.resumable.relayChunk(
-          { sessionId: session.sessionId, meta: session.meta },
-          contentRange,
-          bytes,
-          { mimeType: mimeType.split(";")[0].trim() },
+        const relayed = await relayWithRetryOwnershipHeartbeat(
+          recordingId,
+          attemptId,
+          uploadGenerationId,
+          () =>
+            uploadProvider.resumable!.relayChunk(
+              { sessionId: session.sessionId, meta: session.meta },
+              contentRange,
+              bytes,
+              { mimeType: mimeType.split(";")[0].trim() },
+            ),
         );
+        if (relayed.ownershipFailure) {
+          setResponseStatus(event, 409);
+          return {
+            ok: false,
+            error:
+              "Upload retry ownership was lost while the provider was responding.",
+            staleAttempt: true,
+          };
+        }
+        putResult = relayed.result;
       } catch (error) {
         if (isFinal) {
           const cleanupFailed = await cleanupFailedFinalSession();

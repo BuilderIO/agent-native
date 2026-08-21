@@ -52,6 +52,7 @@ vi.mock("drizzle-orm", () => ({
   and: vi.fn(() => "and"),
   eq: vi.fn(() => "eq"),
   isNull: vi.fn(() => "is-null"),
+  lte: vi.fn(() => "lte"),
 }));
 
 vi.mock("h3", () => ({
@@ -115,19 +116,42 @@ describe("/api/uploads/:recordingId/resume route", () => {
     mockIsFeatureFlagEnabled.mockResolvedValue(true);
   });
 
-  it("leaves upload state untouched when resumable retry is disabled", async () => {
+  it("leaves legacy upload state untouched when resumable retry is disabled", async () => {
     mockIsFeatureFlagEnabled.mockResolvedValue(false);
 
     await expect(handler({} as any)).resolves.toEqual({
       recoveryEnabled: false,
       resumable: false,
       recordingId: "rec-1",
-      status: null,
+      status: "uploading",
       reason: "feature_disabled",
     });
-    expect(mockDb.select).not.toHaveBeenCalled();
+    expect(mockDb.select).toHaveBeenCalledOnce();
     expect(mockDb.update).not.toHaveBeenCalled();
     expect(mockWriteAppState).not.toHaveBeenCalled();
+  });
+
+  it("returns an existing fence when the flag is disabled", async () => {
+    mockIsFeatureFlagEnabled.mockResolvedValue(false);
+    mockSelectRows.rows = [
+      {
+        id: "rec-1",
+        status: "uploading",
+        uploadAttemptId: "client-attempt-0001",
+        uploadGenerationId: "generation-1",
+      },
+    ];
+
+    await expect(handler({} as any)).resolves.toEqual({
+      recoveryEnabled: false,
+      resumable: false,
+      recordingId: "rec-1",
+      status: "uploading",
+      reason: "feature_disabled",
+      attemptId: "client-attempt-0001",
+      uploadGenerationId: "generation-1",
+    });
+    expect(mockDb.update).not.toHaveBeenCalled();
   });
 
   it("reports the provider's committed offset for a streaming upload", async () => {
@@ -223,6 +247,22 @@ describe("/api/uploads/:recordingId/resume route", () => {
     expect(mockDb.update).toHaveBeenCalledOnce();
   });
 
+  it("accepts an interruption with its detailed retryable reason", async () => {
+    mockSelectRows.rows = [
+      {
+        id: "rec-1",
+        status: "failed",
+        failureReason:
+          "Upload was interrupted. The local recording is safe; retry from the Clips desktop app. Last error: network changed",
+      },
+    ];
+
+    await expect(handler({} as any)).resolves.toEqual(
+      expect.objectContaining({ resumable: true, status: "uploading" }),
+    );
+    expect(mockDb.update).toHaveBeenCalledOnce();
+  });
+
   it("claims a restart token when the prior provider session is gone", async () => {
     mockSelectRows.rows = [
       {
@@ -254,6 +294,7 @@ describe("/api/uploads/:recordingId/resume route", () => {
       recordingId: "rec-1",
       status: "uploading",
       reason: "retry_already_active",
+      retryAfterMs: 250,
     });
     expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 409);
     expect(mockWriteAppState).not.toHaveBeenCalled();
@@ -321,12 +362,41 @@ describe("/api/uploads/:recordingId/resume route", () => {
     });
   });
 
-  it("does not let a different claim steal an active retry", async () => {
+  it("returns a bounded typed conflict for a live different retry claim", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-21T12:00:00.000Z"));
+    try {
+      mockSelectRows.rows = [
+        {
+          id: "rec-1",
+          status: "uploading",
+          uploadAttemptId: "active-attempt-0001",
+          updatedAt: "2026-08-21T11:59:59.000Z",
+        },
+      ];
+
+      await expect(handler({} as any)).resolves.toEqual({
+        resumable: false,
+        recoveryEnabled: true,
+        recordingId: "rec-1",
+        status: "uploading",
+        reason: "retry_already_active",
+        retryAfterMs: 29_000,
+      });
+      expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 409);
+      expect(mockDb.update).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("fails loudly when a different retry claim has unreadable liveness", async () => {
     mockSelectRows.rows = [
       {
         id: "rec-1",
         status: "uploading",
         uploadAttemptId: "active-attempt-0001",
+        updatedAt: "not-a-timestamp",
       },
     ];
 
@@ -335,10 +405,67 @@ describe("/api/uploads/:recordingId/resume route", () => {
       recoveryEnabled: true,
       recordingId: "rec-1",
       status: "uploading",
-      reason: "retry_already_active",
+      reason: "retry_claim_liveness_unavailable",
     });
     expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 409);
     expect(mockDb.update).not.toHaveBeenCalled();
+  });
+
+  it("atomically reclaims an expired different retry claim without changing its generation or provider offset", async () => {
+    mockSelectRows.rows = [
+      {
+        id: "rec-1",
+        status: "uploading",
+        uploadAttemptId: "stale-attempt-0001",
+        uploadGenerationId: "generation-1",
+        updatedAt: "2000-01-01T00:00:00.000Z",
+      },
+    ];
+    mockGetResumableSession.mockResolvedValue({
+      bytesUploaded: 7_864_320,
+      lastCommittedIndex: 1,
+    });
+
+    await expect(handler({} as any)).resolves.toEqual(
+      expect.objectContaining({
+        resumable: true,
+        attemptId: "client-attempt-0001",
+        uploadGenerationId: "generation-1",
+        bytesReceived: 7_864_320,
+        nextChunkIndex: 2,
+      }),
+    );
+    expect(mockCompareAndSetAppState).toHaveBeenCalledWith(
+      "recording-upload-rec-1",
+      expect.anything(),
+      expect.objectContaining({
+        uploadAttemptId: "client-attempt-0001",
+        uploadGenerationId: "generation-1",
+        bytesReceived: 7_864_320,
+      }),
+    );
+  });
+
+  it("loses a stale-claim takeover race without publishing resume state", async () => {
+    mockSelectRows.rows = [
+      {
+        id: "rec-1",
+        status: "uploading",
+        uploadAttemptId: "stale-attempt-0001",
+        updatedAt: "2000-01-01T00:00:00.000Z",
+      },
+    ];
+    mockUpdateRows.rows = [];
+
+    await expect(handler({} as any)).resolves.toEqual({
+      resumable: false,
+      recoveryEnabled: true,
+      recordingId: "rec-1",
+      status: "uploading",
+      reason: "retry_already_active",
+      retryAfterMs: 250,
+    });
+    expect(mockWriteAppState).not.toHaveBeenCalled();
   });
 
   it("lets the same claim re-read its offset after a lost response", async () => {

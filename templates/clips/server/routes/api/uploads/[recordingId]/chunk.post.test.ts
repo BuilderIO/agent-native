@@ -311,7 +311,7 @@ describe("/api/uploads/:recordingId/chunk route", () => {
     expect(mockWriteAppState).not.toHaveBeenCalled();
   });
 
-  it("forces a full restart when the retry flag switches off between chunks", async () => {
+  it("preserves a fenced retry when the retry flag switches off between chunks", async () => {
     mockGetResumableSession.mockResolvedValue({
       providerId: "s3",
       sessionId: "sess-1",
@@ -349,15 +349,95 @@ describe("/api/uploads/:recordingId/chunk route", () => {
       body: new Uint8Array([4, 5, 6]),
     });
     await expect(handler({} as any)).resolves.toEqual({
-      ok: false,
-      error: "Resumable upload retry is disabled.",
-      restartRequired: true,
-      recoveryEnabled: false,
+      ok: true,
+      finalized: false,
+      index: 1,
+      bytes: 3,
     });
-    expect(mockSetResponseStatus).toHaveBeenLastCalledWith({}, 409);
-    expect(mockReadRawBody).toHaveBeenCalledOnce();
-    expect(mockRelayChunk).toHaveBeenCalledOnce();
-    expect(mockRenewUploadLease).toHaveBeenCalledTimes(3);
+    expect(mockReadRawBody).toHaveBeenCalledTimes(2);
+    expect(mockRelayChunk).toHaveBeenCalledTimes(2);
+    expect(mockRenewUploadLease).toHaveBeenCalledTimes(6);
+  });
+
+  it("heartbeats a fenced retry while a provider relay is still in flight", async () => {
+    vi.useFakeTimers();
+    try {
+      mockGetResumableSession.mockResolvedValue({
+        providerId: "s3",
+        sessionId: "sess-1",
+        meta: { objectKey: "clips/rec-1.webm" },
+        bytesUploaded: 0,
+        lastCommittedIndex: -1,
+      });
+      let finishRelay!: (value: { ok: boolean; status: number }) => void;
+      mockRelayChunk.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishRelay = resolve;
+          }),
+      );
+      setRequest({
+        query: {
+          index: "0",
+          mimeType: "video/webm",
+          attemptId: "retry-attempt",
+        },
+        body: new Uint8Array([1]),
+      });
+
+      const pending = handler({} as any);
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(mockRenewUploadLease).toHaveBeenCalledTimes(3);
+      finishRelay({ ok: true, status: 308 });
+      await expect(pending).resolves.toEqual(
+        expect.objectContaining({ ok: true, finalized: false }),
+      );
+      const renewalsAfterRelay = mockRenewUploadLease.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(mockRenewUploadLease).toHaveBeenCalledTimes(renewalsAfterRelay);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("fails loudly when a provider relay loses its fenced retry claim", async () => {
+    mockGetResumableSession.mockResolvedValue({
+      providerId: "s3",
+      sessionId: "sess-1",
+      meta: { objectKey: "clips/rec-1.webm" },
+      bytesUploaded: 0,
+      lastCommittedIndex: -1,
+    });
+    mockRenewUploadLease
+      .mockResolvedValueOnce({ held: true })
+      .mockResolvedValueOnce({ held: true })
+      .mockResolvedValueOnce({ held: false, staleAttempt: true });
+    let finishRelay!: (value: { ok: boolean; status: number }) => void;
+    mockRelayChunk.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishRelay = resolve;
+        }),
+    );
+    vi.useFakeTimers();
+    try {
+      setRequest({
+        query: {
+          index: "0",
+          mimeType: "video/webm",
+          attemptId: "retry-attempt",
+        },
+        body: new Uint8Array([1]),
+      });
+      const pending = handler({} as any);
+      await vi.advanceTimersByTimeAsync(10_000);
+      finishRelay({ ok: true, status: 308 });
+      await expect(pending).resolves.toEqual(
+        expect.objectContaining({ staleAttempt: true }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("stores in-order chunks and advances upload progress state", async () => {

@@ -160,6 +160,10 @@ interface PendingNativeUpload {
 
 type PendingDesktopUpload = PendingNativeUpload | PendingBrowserRecordingUpload;
 
+type NativeUploadProgress = {
+  message?: string;
+};
+
 type PopoverView =
   | "recorder"
   | "memory"
@@ -967,6 +971,26 @@ export function App() {
   const [retryingUploadStatus, setRetryingUploadStatus] = useState<
     string | null
   >(null);
+  const retryUploadAbortRef = useRef<AbortController | null>(null);
+  const retryingUploadKindRef = useRef<PendingDesktopUpload["kind"] | null>(
+    null,
+  );
+  useEffect(() => {
+    if (!retryingUploadId) return;
+    let disposed = false;
+    let unlisten: (() => void) | null = null;
+    listen<NativeUploadProgress>("clips:native-upload-progress", (event) => {
+      const message = event.payload?.message?.trim();
+      if (message) setRetryingUploadStatus(message);
+    }).then((cleanup) => {
+      if (disposed) cleanup();
+      else unlisten = cleanup;
+    });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [retryingUploadId]);
   const [exportingUploadId, setExportingUploadId] = useState<string | null>(
     null,
   );
@@ -2873,6 +2897,9 @@ export function App() {
     const targetServerUrl = serverUrlForPendingUpload(upload, serverUrl);
     setRecError(null);
     setRetryingUploadId(upload.recordingId);
+    const abortController = new AbortController();
+    retryUploadAbortRef.current = abortController;
+    retryingUploadKindRef.current = upload.kind;
     try {
       const authToken = loadDesktopAuthToken(targetServerUrl);
       if (upload.kind === "native") {
@@ -2898,13 +2925,16 @@ export function App() {
           recordingId: upload.recordingId,
           serverUrl: targetServerUrl,
           authToken,
+          signal: abortController.signal,
           onRecoveryDecision: ({ action, progress }) => {
             setRetryingUploadStatus(
               action === "resume"
                 ? `Resuming · ${Math.round(progress * 100)}% already uploaded`
-                : action === "restart"
-                  ? "Restarting upload"
-                  : "Finishing upload",
+                : action === "wait"
+                  ? "Waiting for prior retry"
+                  : action === "restart"
+                    ? "Restarting upload"
+                    : "Finishing upload",
             );
           },
         });
@@ -2918,6 +2948,14 @@ export function App() {
       emit("clips:popover-visible", false).catch(() => {});
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      if (
+        abortController.signal.aborted ||
+        (err instanceof DOMException && err.name === "AbortError") ||
+        message === "native recording upload retry cancelled"
+      ) {
+        await loadPendingUploads();
+        return;
+      }
       console.error("[clips-tray] retry saved upload failed:", err);
       setRecError(
         isStorageSetupFailureMessage(message)
@@ -2926,9 +2964,26 @@ export function App() {
       );
       await loadPendingUploads();
     } finally {
+      if (retryUploadAbortRef.current === abortController) {
+        retryUploadAbortRef.current = null;
+        retryingUploadKindRef.current = null;
+      }
       setRetryingUploadId(null);
       setRetryingUploadStatus(null);
     }
+  }
+
+  function cancelPendingUploadRetry(upload: PendingDesktopUpload) {
+    if (retryingUploadId !== upload.recordingId) return;
+    retryUploadAbortRef.current?.abort();
+    if (retryingUploadKindRef.current === "native") {
+      invoke("native_fullscreen_recording_cancel_retry", {
+        recordingId: upload.recordingId,
+      }).catch((err) => {
+        console.error("[clips-tray] cancel saved upload retry failed:", err);
+      });
+    }
+    setRetryingUploadStatus("Cancelling retry");
   }
 
   async function exportPendingUpload(upload: PendingDesktopUpload) {
@@ -3648,6 +3703,7 @@ export function App() {
       dismissingUploadId={dismissingUploadId}
       onExport={exportPendingUpload}
       onRetry={retryPendingUpload}
+      onCancelRetry={cancelPendingUploadRetry}
       onDismiss={dismissPendingUpload}
       onOpenFolder={openPendingUploadFolder}
       onConnectStorage={(upload) => openVideoStorageSetup(upload.serverUrl)}
@@ -4352,6 +4408,7 @@ function PendingUploadBanner({
   dismissingUploadId,
   onExport,
   onRetry,
+  onCancelRetry,
   onDismiss,
   onOpenFolder,
   onConnectStorage,
@@ -4363,6 +4420,7 @@ function PendingUploadBanner({
   dismissingUploadId: string | null;
   onExport: (upload: PendingDesktopUpload) => void;
   onRetry: (upload: PendingDesktopUpload) => void;
+  onCancelRetry: (upload: PendingDesktopUpload) => void;
   onDismiss: (upload: PendingDesktopUpload) => void;
   onOpenFolder: (upload: PendingDesktopUpload) => void;
   onConnectStorage: (upload: PendingDesktopUpload) => void;
@@ -4371,6 +4429,8 @@ function PendingUploadBanner({
   if (!latest) return null;
 
   const retrying = retryingUploadId === latest.recordingId;
+  const retryWaiting =
+    retrying && retryingUploadStatus === "Waiting for prior retry";
   const storageSetupFailure = isStorageSetupFailureMessage(latest.lastError);
 
   const canOpenFolder = latest.kind === "native" && !!latest.folderPath;
@@ -4477,12 +4537,24 @@ function PendingUploadBanner({
             <button
               type="button"
               className={`pending-upload-retry${retrying ? " pending-upload-retry-spinning" : ""}`}
-              disabled={actionsDisabled}
-              onClick={() => onRetry(latest)}
+              disabled={retrying ? !retryWaiting : actionsDisabled}
+              onClick={() =>
+                retryWaiting ? onCancelRetry(latest) : onRetry(latest)
+              }
               aria-busy={retrying}
             >
-              <IconRefresh size={14} stroke={2} />
-              {retrying ? (retryingUploadStatus ?? "Retrying") : "Retry"}
+              {retryWaiting ? (
+                <IconX size={14} stroke={2} />
+              ) : (
+                <IconRefresh size={14} stroke={2} />
+              )}
+              {retryWaiting
+                ? "Cancel retry"
+                : retrying
+                  ? retryingUploadStatus === "Cancelling retry"
+                    ? retryingUploadStatus
+                    : (retryingUploadStatus ?? "Retrying")
+                  : "Retry"}
             </button>
           </>
         )}

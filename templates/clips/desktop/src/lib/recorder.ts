@@ -104,6 +104,7 @@ import {
   planStreamingRecovery,
   retryAttemptIdAfterRestartSignal,
   retryAttemptIdAfterResumeResponse,
+  retryConflictDelay,
   type UploadResumeResponse,
 } from "./upload-recovery";
 import {
@@ -1147,32 +1148,55 @@ async function getBrowserRecordingUploadResume(
   meta: BrowserRecordingBackupMeta,
   attemptId: string,
   authToken?: string,
+  onWaiting?: (delayMs: number) => void,
+  signal?: AbortSignal,
 ): Promise<UploadResumeResponse> {
   const resumeUrl = new URL(
     `${meta.serverUrl.replace(/\/+$/, "")}/api/uploads/${meta.recordingId}/resume`,
   );
   resumeUrl.searchParams.set("attemptId", attemptId);
-  const res = await fetch(resumeUrl, {
-    method: "GET",
-    headers: buildRetryHeaders("application/json", authToken),
-    credentials: "include",
-  });
-  const body = await res.text().catch(() => "");
-  if (!res.ok) {
-    throw new Error(
-      `Upload resume check failed (${res.status}): ${body.slice(0, 200)}`,
-    );
+  const deadline = Date.now() + 5 * 60_000;
+  for (;;) {
+    const res = await fetch(resumeUrl, {
+      method: "GET",
+      headers: buildRetryHeaders("application/json", authToken),
+      credentials: "include",
+      signal,
+    });
+    const body = await res.text().catch(() => "");
+    let parsed: UploadResumeResponse;
+    try {
+      parsed = JSON.parse(body) as UploadResumeResponse;
+    } catch {
+      throw new Error("Upload resume check returned an unreadable response");
+    }
+    if (!res.ok) {
+      const delayMs = retryConflictDelay(parsed);
+      if (delayMs !== null && Date.now() + delayMs <= deadline) {
+        onWaiting?.(delayMs);
+        await abortableWait(delayMs, signal);
+        continue;
+      }
+      if (!parsed.resumable && parsed.reason === "retry_already_active") {
+        throw new Error(
+          "Another upload retry is still active. Wait a moment and try again.",
+        );
+      }
+      if (
+        !parsed.resumable &&
+        parsed.reason === "retry_claim_liveness_unavailable"
+      ) {
+        throw new Error(
+          "Clips could not verify whether another retry is active. Your local clip is safe; try again.",
+        );
+      }
+      throw new Error(`Upload resume check failed (${res.status})`);
+    }
+    if (parsed.resumable && parsed.attemptId !== attemptId) {
+      throw new Error("Upload resume check returned a mismatched retry token");
+    }
+    return parsed;
   }
-  let parsed: UploadResumeResponse;
-  try {
-    parsed = JSON.parse(body) as UploadResumeResponse;
-  } catch {
-    throw new Error("Upload resume check returned an unreadable response");
-  }
-  if (parsed.resumable && parsed.attemptId !== attemptId) {
-    throw new Error("Upload resume check returned a mismatched retry token");
-  }
-  return parsed;
 }
 
 async function replayBrowserBackupToResumableSession(
@@ -1250,8 +1274,9 @@ export async function retryBrowserRecordingBackup(input: {
   recordingId: string;
   serverUrl?: string;
   authToken?: string;
+  signal?: AbortSignal;
   onRecoveryDecision?: (decision: {
-    action: "resume" | "restart" | "reconcile";
+    action: "wait" | "resume" | "restart" | "reconcile";
     progress: number;
   }) => void;
 }): Promise<{ recordingId: string; viewUrl: string }> {
@@ -1284,6 +1309,8 @@ export async function retryBrowserRecordingBackup(input: {
       meta,
       activeAttemptId,
       input.authToken,
+      () => input.onRecoveryDecision?.({ action: "wait", progress: 0 }),
+      input.signal,
     );
     const recoveryPlan = planStreamingRecovery({
       response: resumeResponse,
@@ -1294,7 +1321,7 @@ export async function retryBrowserRecordingBackup(input: {
       activeAttemptId,
       resumeResponse,
     );
-    activeUploadGenerationId = resumeResponse.resumable
+    activeUploadGenerationId = activeAttemptId
       ? resumeResponse.uploadGenerationId
       : undefined;
     if (recoveryPlan.action === "reconcile") {
@@ -1498,6 +1525,12 @@ export async function retryBrowserRecordingBackup(input: {
     await deleteBrowserRecordingBackup(meta.recordingId);
     return { recordingId: meta.recordingId, viewUrl: `/r/${meta.recordingId}` };
   } catch (err) {
+    if (
+      input.signal?.aborted ||
+      (err instanceof DOMException && err.name === "AbortError")
+    ) {
+      throw err;
+    }
     const message = err instanceof Error ? err.message : String(err);
     if (
       await recoverAcceptedRecordingAfterFinalizeError({
@@ -1636,6 +1669,23 @@ const COUNTDOWN_EVENT_TIMEOUT_MS = 5000;
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function abortableWait(ms: number, signal?: AbortSignal): Promise<void> {
+  if (!signal) return wait(ms);
+  if (signal.aborted)
+    return Promise.reject(new DOMException("Aborted", "AbortError"));
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      window.clearTimeout(timer);
+      reject(new DOMException("Aborted", "AbortError"));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 interface NativeFullscreenUploadResult {
