@@ -1,5 +1,8 @@
 import { shouldUseLiveFileContent } from "@shared/html-content";
+import DiffMatchPatch from "diff-match-patch";
 import type * as Y from "yjs";
+
+const { DIFF_DELETE, DIFF_EQUAL } = DiffMatchPatch;
 
 export function shouldRebaseCollabDocFromStoredContent({
   liveContent,
@@ -58,55 +61,23 @@ export function shouldApplyRemotePreviewContent({
   return !isLocalEdit && nextContent !== previousContent;
 }
 
-/** Byte range that turns `previous` into `next`, as one contiguous splice. */
-export interface TextSplice {
-  index: number;
-  removeLength: number;
-  insert: string;
-}
-
-const isHighSurrogate = (code: number) => code >= 0xd800 && code <= 0xdbff;
-const isLowSurrogate = (code: number) => code >= 0xdc00 && code <= 0xdfff;
+const diffMatchPatch = new DiffMatchPatch();
 
 /**
- * Y.Text indexes UTF-16 code units, so a prefix/suffix boundary landing
- * between a surrogate pair would splice half a code point and leave lone
- * surrogates in the document.
- */
-export function diffTextSplice(previous: string, next: string): TextSplice {
-  const max = Math.min(previous.length, next.length);
-  let start = 0;
-  while (start < max && previous[start] === next[start]) start += 1;
-  if (start > 0 && isHighSurrogate(previous.charCodeAt(start - 1))) start -= 1;
-
-  let end = 0;
-  while (
-    end < previous.length - start &&
-    end < next.length - start &&
-    previous[previous.length - 1 - end] === next[next.length - 1 - end]
-  ) {
-    end += 1;
-  }
-  if (end > 0 && isLowSurrogate(previous.charCodeAt(previous.length - end))) {
-    end -= 1;
-  }
-
-  return {
-    index: start,
-    removeLength: previous.length - start - end,
-    insert: next.slice(start, next.length - end),
-  };
-}
-
-/**
- * Replace the collab document's text with `next` as one minimal splice, and
- * report whether anything changed.
+ * Replace the collab document's text with `next` as the smallest set of
+ * disjoint splices, and report whether anything changed.
  *
  * Never `delete(0, length) + insert(0, next)`. That shape ships the whole
  * document on every edit, the UndoManager pins every replaced copy so the doc
  * grows without bound within a session, and it is wrong under concurrency:
  * two peers each rewriting the whole text merge into a duplicated document
  * instead of both edits.
+ *
+ * Disjoint rather than one prefix/suffix splice, because a single splice spans
+ * everything between the first and last changed character. An agent rewrite
+ * touching two ends of a screen would delete the untouched middle and take a
+ * concurrent edit inside it with it. This mirrors the server's own
+ * `applyTextToYDoc`, which has always diffed this way.
  */
 export function writeCollabText(
   ydoc: Y.Doc,
@@ -116,10 +87,20 @@ export function writeCollabText(
 ): boolean {
   const current = ytext.toString();
   if (current === next) return false;
-  const { index, removeLength, insert } = diffTextSplice(current, next);
+  const diffs = diffMatchPatch.diff_main(current, next);
+  diffMatchPatch.diff_cleanupEfficiency(diffs);
   ydoc.transact(() => {
-    if (removeLength > 0) ytext.delete(index, removeLength);
-    if (insert) ytext.insert(index, insert);
+    let cursor = 0;
+    for (const [operation, text] of diffs) {
+      if (operation === DIFF_EQUAL) {
+        cursor += text.length;
+      } else if (operation === DIFF_DELETE) {
+        ytext.delete(cursor, text.length);
+      } else {
+        ytext.insert(cursor, text);
+        cursor += text.length;
+      }
+    }
   }, origin);
   return true;
 }

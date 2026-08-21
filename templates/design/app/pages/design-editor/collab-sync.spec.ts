@@ -1,55 +1,7 @@
 import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
 
-import { diffTextSplice, writeCollabText } from "./collab-sync";
-
-const applyBoth = (previous: string, next: string) => {
-  const { index, removeLength, insert } = diffTextSplice(previous, next);
-  return (
-    previous.slice(0, index) + insert + previous.slice(index + removeLength)
-  );
-};
-
-describe("diffTextSplice", () => {
-  it("reduces a mid-document deletion to the removed range", () => {
-    const previous = "<a></a><b>gone</b><c></c>";
-    const next = "<a></a><c></c>";
-    expect(diffTextSplice(previous, next)).toEqual({
-      index: 8,
-      removeLength: 11,
-      insert: "",
-    });
-    expect(applyBoth(previous, next)).toBe(next);
-  });
-
-  it("reduces an attribute edit to the changed characters", () => {
-    const previous = '<div class="p-4 text-sm">x</div>';
-    const next = '<div class="p-8 text-sm">x</div>';
-    const splice = diffTextSplice(previous, next);
-    expect(splice.removeLength).toBe(1);
-    expect(splice.insert).toBe("8");
-    expect(applyBoth(previous, next)).toBe(next);
-  });
-
-  it("never splits a surrogate pair", () => {
-    const previous = "<p>🎨🎯</p>";
-    const next = "<p>🎨</p>";
-    const splice = diffTextSplice(previous, next);
-    expect(splice.index % 1).toBe(0);
-    expect(applyBoth(previous, next)).toBe(next);
-    expect(Array.from(applyBoth(previous, next))).not.toContain("\ud83c");
-  });
-
-  it("round-trips arbitrary edits", () => {
-    const base = "0123456789abcdefghij";
-    for (let start = 0; start < base.length; start += 1) {
-      for (let length = 0; length <= base.length - start; length += 1) {
-        const next = `${base.slice(0, start)}ZZ${base.slice(start + length)}`;
-        expect(applyBoth(base, next)).toBe(next);
-      }
-    }
-  });
-});
+import { writeCollabText } from "./collab-sync";
 
 describe("writeCollabText", () => {
   const html = `<main>${Array.from({ length: 200 }, (_, i) => `<div id="n${i}">row ${i}</div>`).join("")}</main>`;
@@ -127,5 +79,81 @@ describe("writeCollabText", () => {
     expect(ytext.toString()).not.toContain('id="n5"');
     undo.undo();
     expect(ytext.toString()).toBe(html);
+  });
+});
+
+describe("writeCollabText multi-region diffs", () => {
+  it("leaves the untouched middle alone when both ends change", () => {
+    const doc = new Y.Doc();
+    const ytext = doc.getText("content");
+    ytext.insert(0, "abcdef");
+
+    const seen: Array<[number, string]> = [];
+    ytext.observe((event) => {
+      let at = 0;
+      for (const change of event.changes.delta) {
+        if (change.retain) at += change.retain;
+        else if (change.insert) seen.push([at, String(change.insert)]);
+        else if (change.delete) seen.push([at, `-${change.delete}`]);
+      }
+    });
+
+    writeCollabText(doc, ytext, "XbcdeY", "local");
+
+    expect(ytext.toString()).toBe("XbcdeY");
+    // One splice would have spanned all six characters and taken "bcde" with it.
+    expect(seen.every(([, text]) => text.length <= 2)).toBe(true);
+  });
+
+  it("keeps a peer's edit inside the untouched gap", () => {
+    const seed = new Y.Doc();
+    seed.getText("content").insert(0, "<a>one</a><b>two</b><c>three</c>");
+    const state = Y.encodeStateAsUpdate(seed);
+    const left = new Y.Doc();
+    Y.applyUpdate(left, state);
+    const right = new Y.Doc();
+    Y.applyUpdate(right, state);
+
+    // Left rewrites both ends; right edits the middle nobody touched.
+    writeCollabText(
+      left,
+      left.getText("content"),
+      "<a>ONE</a><b>two</b><c>THREE</c>",
+      "local",
+    );
+    const middle = right.getText("content").toString().indexOf("two");
+    right.getText("content").insert(middle + 3, "!");
+
+    Y.applyUpdate(left, Y.encodeStateAsUpdate(right));
+    Y.applyUpdate(right, Y.encodeStateAsUpdate(left));
+
+    expect(left.getText("content").toString()).toBe(
+      "<a>ONE</a><b>two!</b><c>THREE</c>",
+    );
+    expect(left.getText("content").toString()).toBe(
+      right.getText("content").toString(),
+    );
+  });
+
+  it("still ships only the changed range for a single edit", () => {
+    const html = `<main>${Array.from({ length: 300 }, (_, i) => `<div data-agent-native-node-id="n${i}" class="p-4">row ${i}</div>`).join("")}</main>`;
+    const doc = new Y.Doc();
+    const ytext = doc.getText("content");
+    ytext.insert(0, html);
+    new Y.UndoManager(ytext, { trackedOrigins: new Set(["local"]) });
+
+    let wireBytes = 0;
+    doc.on("update", (update: Uint8Array) => {
+      wireBytes += update.byteLength;
+    });
+    writeCollabText(
+      doc,
+      ytext,
+      html.replace('n150" class="p-4"', 'n150" class="p-8"'),
+      "local",
+    );
+
+    expect(ytext.toString()).toContain('n150" class="p-8"');
+    expect(wireBytes).toBeLessThan(200);
   });
 });

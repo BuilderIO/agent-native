@@ -966,6 +966,7 @@ function buildEditorChromeBridgeScript(args: {
   contentOffsetX: number;
   contentOffsetY: number;
   runtimeLayerSnapshotEnabled: boolean;
+  initialSourceHead: string;
 }) {
   return (
     createEditorBridgeThemeScript(readEditorBridgeThemeVars()) +
@@ -1001,7 +1002,17 @@ function buildEditorChromeBridgeScript(args: {
         "__SELECTED_LAYER_DRAG_PRIORITY__",
         SELECTED_LAYER_DRAG_PRIORITY_ENABLED ? "true" : "false",
       )
+      .replace(
+        "__INITIAL_SOURCE_HEAD__",
+        JSON.stringify(args.initialSourceHead),
+      )
   );
+}
+
+/** The `<head>` the bridge's own srcdoc will render, so its first in-place
+ *  patch diffs against what is actually in the document. */
+function sourceHeadInnerHtml(html: string): string {
+  return /<head\b[^>]*>([\s\S]*?)<\/head\s*>/i.exec(html)?.[1] ?? "";
 }
 
 function contentHash(value: string): string {
@@ -1463,6 +1474,9 @@ export function DesignCanvas({
         contentOffsetX: embeddedFrame?.contentOffsetX ?? 0,
         contentOffsetY: embeddedFrame?.contentOffsetY ?? 0,
         runtimeLayerSnapshotEnabled,
+        // A live/localhost screen's document is the running app, not content
+        // this canvas rendered, so there is no source head to diff against.
+        initialSourceHead: "",
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [boardSurface, contentKey, runtimeLayerSnapshotEnabled, screenId],
@@ -2327,6 +2341,7 @@ export function DesignCanvas({
     // keyed bridge registration is pending. The loading surface waits without
     // mounting an iframe, then mounts the real `src` exactly once.
     if (rawExternalPreviewUrl) return undefined;
+    const localizedContent = withLocalRuntimes(iframeRenderContent);
     const editorChromeBridge = interactMode
       ? ""
       : createEditorBridgeThemeScript(readEditorBridgeThemeVars()) +
@@ -2367,6 +2382,10 @@ export function DesignCanvas({
           .replace(
             "__SELECTED_LAYER_DRAG_PRIORITY__",
             SELECTED_LAYER_DRAG_PRIORITY_ENABLED ? "true" : "false",
+          )
+          .replace(
+            "__INITIAL_SOURCE_HEAD__",
+            JSON.stringify(sourceHeadInnerHtml(localizedContent)),
           );
     // ALWAYS injected (like the other always-on bridges above) so
     // MultiScreenCanvas's cross-screen drag hit-testing
@@ -2387,7 +2406,7 @@ export function DesignCanvas({
       editorChromeBridge +
       imageDiagBridge;
     const frameContent = getEmbeddedFrameDocumentContent({
-      content: withLocalRuntimes(iframeRenderContent),
+      content: localizedContent,
       embeddedFrameBackground,
       transparentBackground,
       contentOffsetX: embeddedFrame?.contentOffsetX ?? 0,
@@ -2408,7 +2427,7 @@ export function DesignCanvas({
           embeddedFrame?.contentOffsetY ?? 0,
         ),
       ].join("");
-      frameDocument = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${frameStyle}</head><body>${withLocalRuntimes(iframeRenderContent)}${bridgeToInject}</body></html>`;
+      frameDocument = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${frameStyle}</head><body>${localizedContent}${bridgeToInject}</body></html>`;
     }
     // Overview frames report their own content height so the canvas can
     // content-fit them (Framer-style). Embedded (overview) frames only — a

@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-chrome.generated";
 
-function hydratedEditorChromeBridgeScript(): string {
+function hydratedEditorChromeBridgeScript(initialSourceHead = ""): string {
   return editorChromeBridgeScript
     .replace("__READ_ONLY__", "false")
     .replace("__TEXT_EDITING_ENABLED__", "false")
@@ -17,7 +17,8 @@ function hydratedEditorChromeBridgeScript(): string {
     .replace("__DESIGN_CANVAS_CONTENT_OFFSET_Y__", "0")
     .replace("__RUNTIME_LAYER_SNAPSHOT_ENABLED__", "false")
     .replace("__LIVE_REFLOW_ENABLED__", "false")
-    .replace("__SELECTED_LAYER_DRAG_PRIORITY__", "false");
+    .replace("__SELECTED_LAYER_DRAG_PRIORITY__", "false")
+    .replace("__INITIAL_SOURCE_HEAD__", JSON.stringify(initialSourceHead));
 }
 
 const card = (id: string, label: string) =>
@@ -298,8 +299,13 @@ describe("replace-document-content morphs instead of rebuilding the body", () =>
 
 const ALPINE = readFileSync("node_modules/alpinejs/dist/cdn.min.js", "utf8");
 
-/** Boots a document with Alpine running before the bridge attaches, matching
- *  the srcdoc order: deferred Alpine, then the inline bridge. */
+/**
+ * Reproduces the srcdoc's own script order, which the bridge depends on: a
+ * deferred Alpine in `<head>` and the bridge inline at the end of `<body>`, so
+ * the bridge captures source ownership before Alpine renders anything.
+ * Attaching the bridge after Alpine (what `addScriptTag` would do) marks
+ * Alpine's own output as source-owned and is not a configuration that ships.
+ */
 async function withAlpinePage(
   body: string,
   run: (page: Page) => Promise<void>,
@@ -309,10 +315,23 @@ async function withAlpinePage(
     const page = await browser.newPage();
     const pageErrors: string[] = [];
     page.on("pageerror", (error) => pageErrors.push(error.message));
-    await page.setContent(documentHtml(body));
-    await page.addScriptTag({ content: ALPINE });
-    await page.waitForTimeout(300);
-    await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+    await page.route("**/alpine.js", (route) =>
+      route.fulfill({ contentType: "text/javascript", body: ALPINE }),
+    );
+    await page.route("**/bridge.js", (route) =>
+      route.fulfill({
+        contentType: "text/javascript",
+        body: hydratedEditorChromeBridgeScript(),
+      }),
+    );
+    await page.route("**/screen", (route) =>
+      route.fulfill({
+        contentType: "text/html",
+        body: `<!doctype html><html><head><script defer src="/alpine.js"></script></head><body data-agent-native-node-id="an-body">${body}<script src="/bridge.js"></script></body></html>`,
+      }),
+    );
+    await page.goto("http://localhost/screen");
+    await page.waitForTimeout(500);
     await run(page);
     expect(pageErrors).toEqual([]);
   } finally {
@@ -633,6 +652,132 @@ describe("morph findings from the second review round", () => {
           ).toEqual({ tag: "BUTTON", identity: 99 });
         },
       );
+    },
+  );
+});
+
+describe("morph findings from the third review round", () => {
+  const boundBody = (staticClass: string) =>
+    `<div data-agent-native-node-id="an-root" x-data="{ active: true, open: false }">
+       <p data-agent-native-node-id="an-bound" class="${staticClass}" :class="active ? 'is-active' : ''" x-show="open">bound</p>
+       <span data-agent-native-node-id="an-other">other</span>
+     </div>`;
+
+  it(
+    "applies an authored class edit while keeping Alpine's resolved class and style",
+    { timeout: 30_000 },
+    async () => {
+      await withAlpinePage(boundBody("p-4"), async (page) => {
+        expect(
+          await page.evaluate(() => {
+            const el = document.querySelector(
+              '[data-agent-native-node-id="an-bound"]',
+            ) as HTMLElement;
+            return { cls: el.className, display: el.style.display };
+          }),
+        ).toEqual({ cls: "p-4 is-active", display: "none" });
+
+        await replaceDocument(page, documentHtml(boundBody("p-8")));
+
+        // Two review comments pulled in opposite directions here — skip the
+        // attribute and the authored edit is lost, overwrite it and Alpine's
+        // output is. Merging is the only answer that satisfies both.
+        expect(
+          await page.evaluate(() => {
+            const el = document.querySelector(
+              '[data-agent-native-node-id="an-bound"]',
+            ) as HTMLElement;
+            return { cls: el.className, display: el.style.display };
+          }),
+        ).toEqual({ cls: "p-8 is-active", display: "none" });
+      });
+    },
+  );
+
+  it(
+    "still deletes an authored child removed from source inside an Alpine tree",
+    { timeout: 30_000 },
+    async () => {
+      await withAlpinePage(boundBody("p-4"), async (page) => {
+        await replaceDocument(
+          page,
+          documentHtml(
+            `<div data-agent-native-node-id="an-root" x-data="{ active: true, open: false }">
+               <p data-agent-native-node-id="an-bound" class="p-4" :class="active ? 'is-active' : ''" x-show="open">bound</p>
+             </div>`,
+          ),
+        );
+
+        // Preserving runtime output must not also preserve content the user
+        // deleted; Alpine never re-renders the element it still holds.
+        expect(
+          await page.locator('[data-agent-native-node-id="an-other"]').count(),
+        ).toBe(0);
+        expect(
+          await page.locator('[data-agent-native-node-id="an-bound"]').count(),
+        ).toBe(1);
+      });
+    },
+  );
+
+  it(
+    "initialises an Alpine node the morph inserts",
+    { timeout: 30_000 },
+    async () => {
+      await withAlpinePage(
+        '<div data-agent-native-node-id="an-root" x-data="{ n: 41 }"><span data-agent-native-node-id="an-keep">keep</span></div>',
+        async (page) => {
+          await replaceDocument(
+            page,
+            documentHtml(
+              '<div data-agent-native-node-id="an-root" x-data="{ n: 41 }"><span data-agent-native-node-id="an-keep">keep</span><b data-agent-native-node-id="an-new" x-text="n + 1"></b></div>',
+            ),
+          );
+          await page.waitForTimeout(300);
+
+          // Alpine's own MutationObserver initialises added nodes, so the
+          // morph does not need to call initTree itself.
+          expect(
+            await page.evaluate(
+              () =>
+                document.querySelector('[data-agent-native-node-id="an-new"]')
+                  ?.textContent,
+            ),
+          ).toBe("42");
+        },
+      );
+    },
+  );
+
+  it(
+    "replaces an ordinary authored style whose contents changed on the first patch",
+    { timeout: 30_000 },
+    async () => {
+      const head = (color: string) => `<style>.card{color:${color}}</style>`;
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const page = await browser.newPage();
+        await page.setContent(documentHtml(BASE_BODY, head("red")));
+        // The srcdoc build bakes the head it rendered, so the first in-place
+        // patch has a real baseline and can retire a changed unmarked node.
+        await page.addScriptTag({
+          content: hydratedEditorChromeBridgeScript(
+            `<style>.card{padding:4px}</style>${head("red")}`,
+          ),
+        });
+
+        await replaceDocument(page, documentHtml(BASE_BODY, head("blue")));
+
+        expect(
+          await page.evaluate(() =>
+            Array.from(document.querySelectorAll("head style"))
+              .map((node) => node.textContent ?? "")
+              .filter((text) => text.includes(".card{color:")),
+          ),
+        ).toEqual([".card{color:blue}"]);
+      } finally {
+        await browser.close();
+      }
     },
   );
 });
