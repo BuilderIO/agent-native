@@ -42,6 +42,13 @@ function RelayProbe({ appId }: { appId: string }) {
   return null;
 }
 
+function MountProbe({ onMount }: { onMount: () => void }) {
+  useEffect(() => {
+    onMount();
+  }, [onMount]);
+  return null;
+}
+
 describe("desktop app chat shell relay attribution", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -69,6 +76,8 @@ describe("desktop app chat shell relay attribution", () => {
   async function mountShells(
     appIds: readonly string[],
     activeAppId: string | null = appIds[0] ?? null,
+    appAuthState: "authenticated" | "unauthenticated" = "unauthenticated",
+    childrenForApp?: (appId: string) => React.ReactNode,
   ) {
     await act(async () => {
       root.render(
@@ -79,8 +88,9 @@ describe("desktop app chat shell relay attribution", () => {
               appId={appId}
               appName={appId}
               isActive={activeAppId === appId}
+              appAuthState={appAuthState}
             >
-              <RelayProbe appId={appId} />
+              {childrenForApp?.(appId) ?? <RelayProbe appId={appId} />}
             </DesktopAppChatShell>
           ))}
         </>,
@@ -133,5 +143,21 @@ describe("desktop app chat shell relay attribution", () => {
     expect(requested).toEqual([
       "http://127.0.0.1:43101/desktop-chat/mail-secret/mail/_agent-native/poll",
     ]);
+  });
+
+  it("keeps the app surface mounted while the chat relay becomes available", async () => {
+    let mounts = 0;
+    const onMount = () => mounts++;
+
+    await mountShells(["mail"], "mail", "authenticated", () => (
+      <MountProbe onMount={onMount} />
+    ));
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mounts).toBe(1);
   });
 });

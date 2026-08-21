@@ -508,53 +508,50 @@ export default function DesktopAppChatShell({
         ref={shellRootRef}
         className="relative flex h-full min-h-0 min-w-0 flex-1 overflow-hidden"
       >
-        {showChatSidebar ? (
-          <MemoryRouter>
-            <QueryClientProvider client={desktopChatQueryClient}>
-              <AgentSidebar
-                position="left"
-                defaultOpen
-                animateDesktop={animateDesktopChatSidebar}
-                openStorageKey="desktop-app-chat"
-                storageKey={`desktop-app-chat:${appId}`}
-                scope={{
-                  type: "desktop-app",
-                  id: appId,
-                  label: appName,
-                  contextKey: `desktop-app:${appId}`,
-                }}
-                apiUrl={apiUrl ?? undefined}
-                isolateHistoryByScope
-                agentChatSurface="desktop"
-                desktopIdentityUnauthenticated={desktopIdentityUnauthenticated}
-                desktopIdentityAuthenticated={desktopIdentityAuthenticated}
-                onConnectProvider={() => {
-                  void window.electronAPI?.codeAgents?.connectBuilderProvider?.();
-                }}
-                showTabBar
-                suppressInlineOpenApp
-                dynamicSuggestions={false}
-                suggestions={[]}
-                emptyStateText={`Ask about ${appName}`}
-                availableAgents={availableAgents}
-                selectedAgent={selectedAgent}
-                onAgentChange={handleAgentChange}
-                onConnectLocalRuntime={handleLocalRuntimeSetup}
-                availableModels={
-                  localAgentModelsLoading || localAgentModels.length > 0
-                    ? availableModels
-                    : undefined
-                }
-                modelListLoading={localAgentModelsLoading}
-                runtime={localRuntime}
-              >
-                {appSurface}
-              </AgentSidebar>
-            </QueryClientProvider>
-          </MemoryRouter>
-        ) : (
-          appSurface
-        )}
+        <MemoryRouter>
+          <QueryClientProvider client={desktopChatQueryClient}>
+            <AgentSidebar
+              enabled={showChatSidebar}
+              position="left"
+              defaultOpen
+              animateDesktop={animateDesktopChatSidebar}
+              openStorageKey="desktop-app-chat"
+              storageKey={`desktop-app-chat:${appId}`}
+              scope={{
+                type: "desktop-app",
+                id: appId,
+                label: appName,
+                contextKey: `desktop-app:${appId}`,
+              }}
+              apiUrl={showChatSidebar ? (apiUrl ?? undefined) : undefined}
+              isolateHistoryByScope
+              agentChatSurface="desktop"
+              desktopIdentityUnauthenticated={desktopIdentityUnauthenticated}
+              desktopIdentityAuthenticated={desktopIdentityAuthenticated}
+              onConnectProvider={() => {
+                void window.electronAPI?.codeAgents?.connectBuilderProvider?.();
+              }}
+              showTabBar
+              suppressInlineOpenApp
+              dynamicSuggestions={false}
+              suggestions={[]}
+              emptyStateText={`Ask about ${appName}`}
+              availableAgents={availableAgents}
+              selectedAgent={selectedAgent}
+              onAgentChange={handleAgentChange}
+              onConnectLocalRuntime={handleLocalRuntimeSetup}
+              availableModels={
+                localAgentModelsLoading || localAgentModels.length > 0
+                  ? availableModels
+                  : undefined
+              }
+              modelListLoading={localAgentModelsLoading}
+              runtime={localRuntime}
+            >
+              {appSurface}
+            </AgentSidebar>
+          </QueryClientProvider>
+        </MemoryRouter>
         {localCodeChangeDialog}
       </div>
     </DesktopChatRelayAppContext.Provider>

@@ -2680,6 +2680,14 @@ export default function CodeAgentsHub({
                       onAuthStateChange={(state) =>
                         handleAppAuthStateChange(tab.id, state)
                       }
+                      onMainFrameLoadFailure={() => {
+                        if (
+                          !nativeOAuthActive &&
+                          isNativeDesktopIntegrationsPath(tab.path)
+                        ) {
+                          handleAppAuthStateChange(tab.id, "unauthenticated");
+                        }
+                      }}
                       onDesktopIdentityStatusChange={(status) =>
                         handleDesktopIdentityStatusChange(tab.id, status)
                       }
