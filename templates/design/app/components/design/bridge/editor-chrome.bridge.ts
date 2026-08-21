@@ -40,10 +40,10 @@ declare var __DESIGN_CANVAS_CONTENT_OFFSET_Y__: number;
 declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
 declare var __LIVE_REFLOW_ENABLED__: boolean;
 declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
-/** `<head>` inner HTML of the document this srcdoc was built from. The live
- *  head cannot supply it: a blocking `<script src>` (the Tailwind runtime) has
- *  already injected into it by the time this bridge runs, and adopting that as
- *  the source baseline makes the first diff delete the compiled stylesheet. */
+/** Head inner HTML of the document this srcdoc was built from. The live head
+ *  cannot supply it: a blocking script src (the Tailwind runtime) has already
+ *  injected into it by the time this bridge runs, and adopting that as the
+ *  source baseline makes the first diff delete the compiled stylesheet. */
 declare var __INITIAL_SOURCE_HEAD__: string;
 
 (function () {
