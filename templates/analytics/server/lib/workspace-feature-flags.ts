@@ -335,8 +335,13 @@ async function callTarget(
   let parsed: unknown = null;
   try {
     parsed = await response.json();
-  } catch {
-    // A legacy/non-action endpoint is classified below without reflecting body.
+  } catch (error) {
+    const successfulResponse = response.status >= 200 && response.status < 300;
+    if (successfulResponse && !(error instanceof SyntaxError))
+      throw new TargetCallFailure(
+        classifyWorkspaceFeatureFlagTargetFailure(error),
+      );
+    // Invalid legacy payloads and non-success statuses are classified below.
   }
   return { status: response.status, body: parsed };
 }

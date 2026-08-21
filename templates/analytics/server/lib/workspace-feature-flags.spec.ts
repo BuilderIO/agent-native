@@ -48,6 +48,13 @@ function response(status: number, body: unknown) {
   } as unknown as Response;
 }
 
+function responseWithBodyFailure(status: number, error: unknown) {
+  return {
+    status,
+    json: vi.fn().mockRejectedValue(error),
+  } as unknown as Response;
+}
+
 function mutationBody(rules: Record<string, unknown>) {
   return {
     contractVersion: 2,
@@ -180,6 +187,128 @@ describe("verified fleet feature flag transaction", () => {
     });
     expect(globalThis.fetch).toHaveBeenCalledTimes(3);
     expect(mocks.signA2AToken).toHaveBeenCalledTimes(3);
+  });
+
+  it.each([
+    Object.assign(new Error("private body timeout"), { name: "TimeoutError" }),
+    new Error("private interrupted body detail"),
+  ])(
+    "retries one transient verification response-body failure",
+    async (error) => {
+      const rules = {
+        mode: "off",
+        emails: [],
+        orgIds: [],
+        percentage: 0,
+      };
+      const fetchSpy = vi
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValueOnce(response(200, mutationBody(rules)))
+        .mockResolvedValueOnce(responseWithBodyFailure(200, error))
+        .mockResolvedValueOnce(
+          response(200, {
+            contractVersion: 1,
+            status: "ready",
+            flags: [{ key: "new-editor", rules, enabledForCurrentUser: false }],
+            canManage: true,
+          }),
+        );
+
+      await expect(
+        setWorkspaceFeatureFlag(admin, {
+          appId: "mail",
+          key: "new-editor",
+          operation: "off",
+        }),
+      ).resolves.toMatchObject({
+        contractVersion: 3,
+        status: "verified",
+        enabledForCurrentUser: false,
+      });
+      expect(fetchSpy).toHaveBeenCalledTimes(3);
+      expect(fetchSpy.mock.calls.map(([url]) => String(url))).toEqual([
+        "https://mail.example.com/_agent-native/actions/set-feature-flag",
+        "https://mail.example.com/_agent-native/actions/list-feature-flags",
+        "https://mail.example.com/_agent-native/actions/list-feature-flags",
+      ]);
+      expect(mocks.signA2AToken).toHaveBeenCalledTimes(3);
+    },
+  );
+
+  it.each([
+    [
+      "verification-timeout",
+      Object.assign(new Error("private body timeout"), {
+        name: "TimeoutError",
+      }),
+    ],
+    ["verification-network", new Error("private interrupted body detail")],
+  ] as const)(
+    "preserves %s after response-body verification retries are exhausted",
+    async (phase, error) => {
+      const rules = {
+        mode: "off",
+        emails: [],
+        orgIds: [],
+        percentage: 0,
+      };
+      vi.spyOn(globalThis, "fetch")
+        .mockResolvedValueOnce(response(200, mutationBody(rules)))
+        .mockResolvedValueOnce(responseWithBodyFailure(200, error))
+        .mockResolvedValueOnce(responseWithBodyFailure(200, error));
+
+      await expect(
+        setWorkspaceFeatureFlag(admin, {
+          appId: "mail",
+          key: "new-editor",
+          operation: "off",
+        }),
+      ).rejects.toMatchObject({ phase, agentNativeStop: true });
+      expect(globalThis.fetch).toHaveBeenCalledTimes(3);
+    },
+  );
+
+  it("does not retry a mutation whose successful response body is interrupted", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      responseWithBodyFailure(
+        200,
+        Object.assign(new Error("private body timeout"), {
+          name: "TimeoutError",
+        }),
+      ),
+    );
+
+    await expect(
+      setWorkspaceFeatureFlag(admin, {
+        appId: "mail",
+        key: "new-editor",
+        operation: "off",
+      }),
+    ).rejects.toMatchObject({ phase: "timeout", agentNativeStop: true });
+    expect(globalThis.fetch).toHaveBeenCalledOnce();
+  });
+
+  it("keeps invalid JSON and non-success statuses on their existing boundaries", async () => {
+    const input = {
+      appId: "mail",
+      key: "new-editor",
+      operation: "off" as const,
+    };
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        responseWithBodyFailure(200, new SyntaxError("private invalid JSON")),
+      )
+      .mockResolvedValueOnce(
+        responseWithBodyFailure(403, new Error("private interrupted body")),
+      );
+
+    await expect(setWorkspaceFeatureFlag(admin, input)).rejects.toMatchObject({
+      phase: "persistence",
+    });
+    await expect(setWorkspaceFeatureFlag(admin, input)).rejects.toMatchObject({
+      phase: "authorization",
+    });
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
   });
 
   it.each([
