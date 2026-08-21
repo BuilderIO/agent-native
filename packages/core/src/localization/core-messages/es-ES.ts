@@ -478,7 +478,7 @@ const messages: AgentChatTranslation = {
   "errorMessages.invalidToolSchema":
     "El esquema de una herramienta no era válido, así que el modelo rechazó la solicitud antes de iniciarla. Puedes omitir la herramienta no válida y volver a intentarlo.",
   "errorMessages.noProviderConnected":
-    "No hay ningún proveedor de LLM conectado. Abre «Administrar agente» → «LLM» para esta aplicación y, a continuación, conecta Builder.io o añade una clave de proveedor.",
+    "No hay ningún proveedor de LLM conectado. Abre Configuración > Agente > Proveedores de IA y, a continuación, conecta Builder.io (nivel gratuito disponible) o añade una clave de proveedor.",
   "errorMessages.openBuilderSpaceSettings":
     "Abrir los ajustes del espacio de Builder",
   "errorMessages.providerAuthentication":

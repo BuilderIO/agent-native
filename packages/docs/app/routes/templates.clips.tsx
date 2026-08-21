@@ -259,7 +259,7 @@ export default function ClipsTemplate() {
         description={<p>{t("templateLanding.clips.s008")}</p>}
         media={
           <BuilderImage
-            src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff41728ef6fa644aaad100c96df09c1d6"
+            src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7a32fb5edffc4afa90e74e91b147b771"
             crossOrigin="anonymous"
             alt={t("templateLanding.clips.s001")}
             loading="lazy"

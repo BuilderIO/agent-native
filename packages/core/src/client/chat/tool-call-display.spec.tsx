@@ -34,6 +34,28 @@ import {
   resolveBuiltinFallbackToolRenderer,
 } from "./widgets/builtin-tool-renderers.js";
 
+const builderHandoffMocks = vi.hoisted(() => ({
+  useAgentChatContext: vi.fn(),
+}));
+
+vi.mock("../ConnectBuilderCard.js", () => ({
+  ConnectBuilderCard: ({
+    context,
+    prompt,
+  }: {
+    context?: string;
+    prompt?: string;
+  }) => (
+    <div data-context={context} data-testid="connect-builder-card">
+      {prompt}
+    </div>
+  ),
+}));
+
+vi.mock("../use-agent-chat-context.js", () => ({
+  useAgentChatContext: builderHandoffMocks.useAgentChatContext,
+}));
+
 vi.mock("../mcp-apps/McpAppRenderer.js", () => ({
   McpAppRenderer: () => <div data-testid="mcp-app">MCP APP</div>,
 }));
@@ -102,6 +124,7 @@ describe("ToolCallDisplay native renderers", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    builderHandoffMocks.useAgentChatContext.mockReturnValue({ items: [] });
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -130,6 +153,44 @@ describe("ToolCallDisplay native renderers", () => {
     const logo = container.querySelector("img");
     expect(logo?.getAttribute("src")).toMatch(/^data:image\//);
     expect(logo?.getAttribute("title")).toBe("Slack");
+  });
+
+  it("passes the current staged chat context to the Builder handoff card", () => {
+    builderHandoffMocks.useAgentChatContext.mockReturnValue({
+      items: [
+        {
+          key: "analytics-selected-dashboard",
+          title: "Dashboard: Customer Credit Usage Review",
+          context:
+            "The user currently has this Analytics dashboard selected: Customer Credit Usage Review.\nDashboard id: dash-123",
+        },
+      ],
+    });
+
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="connect-builder"
+          args={{}}
+          result={JSON.stringify({
+            kind: "connect-builder-card",
+            configured: true,
+            builderEnabled: true,
+            connectUrl: "",
+            prompt: "Add an organization filter",
+          })}
+          isRunning={false}
+        />,
+      );
+    });
+
+    expect(
+      container
+        .querySelector("[data-testid='connect-builder-card']")
+        ?.getAttribute("data-context"),
+    ).toBe(
+      "## Dashboard: Customer Credit Usage Review\nThe user currently has this Analytics dashboard selected: Customer Credit Usage Review.\nDashboard id: dash-123",
+    );
   });
 
   it("falls back to a generic icon for MCP tools with no catalog match", async () => {

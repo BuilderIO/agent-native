@@ -127,7 +127,7 @@ export default function DispatchTemplate() {
         }
         media={
           <BuilderImage
-            src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd0bd7821c20a41c59924a0cc5101a149"
+            src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F533287112de248b98b3d97dd8a918328"
             crossOrigin="anonymous"
             alt={t("templateLanding.dispatch.s001")}
             loading="lazy"
