@@ -192,7 +192,7 @@ import {
   countRunsForTurn,
   RUN_DIAG_STAGE,
   UNCLAIMED_BACKGROUND_RUN_GRACE_MS,
-  resolveTurnRunLedgerBudget,
+  turnRunLedgerExhausted,
 } from "./run-store.js";
 import { buildCurrentTimeUserContext } from "./runtime-context.js";
 import {
@@ -8095,7 +8095,7 @@ export async function chainServerDrivenContinuation(opts: {
     }
   };
 
-  if (turnRunCount !== null && turnRunCount > resolveTurnRunLedgerBudget()) {
+  if (turnRunCount !== null && turnRunLedgerExhausted(turnRunCount)) {
     await stopTurn(
       "turn_continuation_budget_exhausted",
       `turn ${effectiveTurnId} consumed ${turnRunCount} runs — refusing to chain further`,

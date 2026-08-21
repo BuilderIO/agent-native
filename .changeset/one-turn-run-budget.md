@@ -18,6 +18,12 @@ the turn produced, including sweep redispatches and recoveries — which is why
 the ledger must sit strictly above the chain bound. A spec pins the
 relationship.
 
+Both call sites compared `turnRunCount > budget` while the current run's row was
+already inserted and counted, and the successor's row is inserted after the
+check — so at equality they permitted one row past the documented ceiling. They
+now call a `turnRunLedgerExhausted()` predicate, so the two cannot disagree
+about the boundary again.
+
 Also removes `DEFAULT_BACKGROUND_RUN_SOFT_TIMEOUT_MS`, an exported alias for
 `BACKGROUND_SOFT_TIMEOUT_CEILING_MS` with no source caller; use the ceiling (or
 `resolveBackgroundSoftTimeoutCeilingMs()`) directly.
