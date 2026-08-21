@@ -16,6 +16,7 @@ import { canonicalizeNfm, docToNfm, nfmToDoc } from "@shared/nfm";
 import {
   serializeRegistryBlockToMdx,
   parseRegistryBlockData,
+  type ParsedRegistryBlock,
 } from "@shared/nfm-registry";
 import { IconMusic, IconPhoto, IconVideo } from "@tabler/icons-react";
 import {
@@ -1748,6 +1749,35 @@ interface RegistryBlockStoreEntry {
   };
   data: unknown;
   edited: boolean;
+  loadError?: {
+    message: string;
+    rawSource?: string;
+  };
+}
+
+export async function hydrateRegistryBlockRaw(
+  rawSource: string,
+): Promise<
+  | { status: "loaded"; block: ParsedRegistryBlock }
+  | { status: "error"; message: string; rawSource: string }
+> {
+  try {
+    const block = await parseRegistryBlockData(rawSource);
+    if (!block) {
+      return {
+        status: "error",
+        message: "unreadable",
+        rawSource,
+      };
+    }
+    return { status: "loaded", block };
+  } catch (error) {
+    return {
+      status: "error",
+      message: error instanceof Error ? error.message : "unreadable",
+      rawSource,
+    };
+  }
 }
 
 function serializeRegistryBlockRaw(
@@ -1803,6 +1833,7 @@ function isNotionIncompatibleBlockType(blockType: string): boolean {
  * serializes identically to before.
  */
 function useRegistryBlockStore(editor: CoreEditor | null) {
+  const t = useT();
   const cacheRef = useRef<Map<string, RegistryBlockStoreEntry>>(new Map());
   const pendingRef = useRef<Set<string>>(new Set());
   // Bumping this state forces the NodeViews to re-read the cache once async
@@ -1848,16 +1879,23 @@ function useRegistryBlockStore(editor: CoreEditor | null) {
 
       const cached = cacheRef.current.get(blockId);
       if (cached) {
-        return { id: blockId, title, summary, data: cached.data };
+        return {
+          id: blockId,
+          title,
+          summary,
+          data: cached.data,
+          loadError: cached.loadError,
+        };
       }
 
       // Not hydrated yet: kick off a one-shot async parse of the verbatim MDX.
       const raw = typeof node.attrs.__raw === "string" ? node.attrs.__raw : "";
-      if (raw && !pendingRef.current.has(blockId)) {
+      if (!pendingRef.current.has(blockId)) {
         pendingRef.current.add(blockId);
-        void parseRegistryBlockData(raw)
-          .then((parsed) => {
-            if (parsed) {
+        void hydrateRegistryBlockRaw(raw)
+          .then((result) => {
+            if (result.status === "loaded") {
+              const parsed = result.block;
               const existing = cacheRef.current.get(blockId);
               // A concurrent edit may have populated the cache first — don't
               // clobber it with the stale parse.
@@ -1909,10 +1947,30 @@ function useRegistryBlockStore(editor: CoreEditor | null) {
                 }
                 bump();
               }
+            } else if (!cacheRef.current.has(blockId)) {
+              cacheRef.current.set(blockId, {
+                type:
+                  typeof node.attrs.blockType === "string"
+                    ? node.attrs.blockType
+                    : "",
+                data: undefined,
+                edited: false,
+                loadError: {
+                  message: t("editor.registryBlockLoadError", {
+                    type:
+                      typeof node.attrs.blockType === "string"
+                        ? node.attrs.blockType
+                        : "registry",
+                    message:
+                      result.message === "unreadable"
+                        ? t("editor.registryBlockUnreadable")
+                        : result.message,
+                  }),
+                  rawSource: result.rawSource,
+                },
+              });
+              bump();
             }
-          })
-          .catch(() => {
-            /* Leave uncached; the NodeView keeps showing its placeholder. */
           })
           .finally(() => {
             pendingRef.current.delete(blockId);
@@ -1920,7 +1978,7 @@ function useRegistryBlockStore(editor: CoreEditor | null) {
       }
       return undefined;
     },
-    [editor, findNode, bump],
+    [editor, findNode, bump, t],
   );
 
   const onBlockDataChange = useCallback(

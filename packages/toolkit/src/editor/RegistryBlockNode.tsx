@@ -155,6 +155,17 @@ export function RegistryBlockNodeView(props: NodeViewProps) {
     );
   }
 
+  if (block.loadError) {
+    return (
+      <NodeViewWrapper className="plan-block-node" data-block-id={blockId}>
+        <RegistryBlockLoadErrorView
+          message={block.loadError.message}
+          rawSource={block.loadError.rawSource}
+        />
+      </NodeViewWrapper>
+    );
+  }
+
   const selectNode = (event: ReactMouseEvent<HTMLElement>) => {
     if (!editable) return;
     const target = event.target;
@@ -274,6 +285,31 @@ export function RegistryBlockNodeView(props: NodeViewProps) {
         )}
       </div>
     </NodeViewWrapper>
+  );
+}
+
+export function RegistryBlockLoadErrorView({
+  message,
+  rawSource,
+}: {
+  message: string;
+  rawSource?: string;
+}) {
+  return (
+    <div
+      contentEditable={false}
+      data-plan-interactive
+      className="plan-block-node__load-error space-y-2 rounded-md border border-border px-3 py-2 text-sm"
+    >
+      {rawSource ? (
+        <pre className="overflow-auto whitespace-pre-wrap font-mono text-xs text-foreground">
+          {rawSource}
+        </pre>
+      ) : null}
+      <p role="alert" className="text-muted-foreground">
+        {message}
+      </p>
+    </div>
   );
 }
 

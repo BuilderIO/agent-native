@@ -6,13 +6,36 @@ import { NodeSelection } from "@tiptap/pm/state";
 import StarterKit from "@tiptap/starter-kit";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   createRegistryBlockNode,
   LegacyJsonEditSurface,
+  RegistryBlockLoadErrorView,
   type RegistryBlockSideMapBlock,
 } from "./RegistryBlockNode.js";
+
+describe("RegistryBlockLoadErrorView", () => {
+  it("preserves unreadable source and reports a terminal load error", () => {
+    const rawSource = '<Mermaid id="broken" source={nope} />';
+    const markup = renderToStaticMarkup(
+      React.createElement(RegistryBlockLoadErrorView, {
+        message:
+          "Could not load mermaid block: Persisted block source is unreadable.",
+        rawSource,
+      }),
+    );
+
+    expect(markup).toContain(
+      "&lt;Mermaid id=&quot;broken&quot; source={nope} /&gt;",
+    );
+    expect(markup).toContain(
+      "Could not load mermaid block: Persisted block source is unreadable.",
+    );
+    expect(markup).not.toContain("Loading mermaid block");
+  });
+});
 
 const PlanBlockNode = createRegistryBlockNode({
   nodeName: "planBlock",
