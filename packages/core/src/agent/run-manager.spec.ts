@@ -4641,7 +4641,6 @@ describe("run manager soft timeout", () => {
           turn_id: "run-tracking-done",
           status: "completed",
           terminal_reason: "done",
-          dispatch_mode: "foreground",
           duration_ms: expect.any(Number),
           app: "test-app",
         }),
@@ -4651,6 +4650,9 @@ describe("run manager soft timeout", () => {
       expect(properties).not.toHaveProperty("error_code");
       expect(properties).not.toHaveProperty("error_detail");
       expect(properties).not.toHaveProperty("abort_reason");
+      // This run passed no dispatchMode. It used to be reported as
+      // "foreground" anyway — see the dispatch-mode tests below.
+      expect(properties).not.toHaveProperty("dispatch_mode");
     });
 
     it("emits an aborted event with the abort reason, not a false completion", async () => {
@@ -4744,6 +4746,51 @@ describe("run manager soft timeout", () => {
           terminal_reason: "run_timeout",
         }),
         expect.anything(),
+      );
+    });
+
+    // The default was wrong every time it applied: the interactive handler is the
+    // only caller that passes `dispatchMode`, so `?? "foreground"` only ever
+    // mislabelled the callers that are NOT foreground. A 6-of-7 no-progress rate
+    // on the automation path was indistinguishable from chat because of it.
+    it("omits dispatch_mode rather than calling an unlabelled run foreground", async () => {
+      startRun(
+        "run-dispatch-mode-absent",
+        "thread-dispatch-mode-absent",
+        async (send) => {
+          send({ type: "text", text: "answer" });
+        },
+        undefined,
+        { softTimeoutMs: 0 },
+      );
+
+      await vi.waitFor(() => expect(track).toHaveBeenCalled());
+      const [, properties] =
+        track.mock.calls.find(([name]) => name === "agent_run_terminal") ?? [];
+      expect(properties).toBeDefined();
+      expect(properties).not.toHaveProperty("dispatch_mode");
+    });
+
+    it("reports the caller's dispatch mode when it supplies one", async () => {
+      startRun(
+        "run-dispatch-mode-background",
+        "thread-dispatch-mode-background",
+        async (send) => {
+          send({ type: "text", text: "answer" });
+        },
+        undefined,
+        { softTimeoutMs: 0, dispatchMode: "background" },
+      );
+
+      await vi.waitFor(() =>
+        expect(
+          track.mock.calls.some(
+            ([name, properties]) =>
+              name === "agent_run_terminal" &&
+              (properties as Record<string, unknown>).dispatch_mode ===
+                "background",
+          ),
+        ).toBe(true),
       );
     });
 

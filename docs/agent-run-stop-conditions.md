@@ -425,6 +425,49 @@ come from the same resolver the server uses, projected into the bundle.
 
 ---
 
+## 6.7 Measured: the baseline, and why nobody could see it
+
+Run against the reporting deployment's PostHog on 2026-08-21, 21-day window,
+`agent_run_terminal` grouped by run-id prefix:
+
+| path | prefix | done | `no_progress` | `run_timeout` | total | **% no_progress** |
+| --- | --- | --- | --- | --- | --- | --- |
+| interactive chat | `run-*` | 169 | 2 | 17 | 190 | **1.1%** |
+| scheduled automations | `job-*` | 8 | 0 | 0 | 9 | **0%** |
+| manual analyst runs | `manual-*` | 1 | **6** | 0 | 7 | **85.7%** |
+
+Two things fall out.
+
+**The asymmetry the brief predicted is real, and larger than reported.** The
+brief measured 37% on `automation_runs`; the live rate on the in-process
+manual-dispatch path is 6 of 7. Interactive chat, which has a continuation owner,
+sits at 1.1% on 190 runs. That is the whole thesis in one table: the same
+backstop, the same 150s, and a 78× difference in outcome depending on whether
+anything downstream was going to recover the checkpoint.
+
+**And it was invisible, because every one of those runs reported itself as
+`foreground`.** `emitRunTerminalTrackingEvent` defaulted `dispatch_mode` to
+`"foreground"` when the caller passed none — and the interactive handler is the
+*only* caller that passes it. Five others (automations, agent teams, webhooks,
+harness runs, the docs poller) passed nothing, so the default was wrong 100% of
+the times it applied. An 85.7% failure rate on the automation path was sitting
+in the same bucket as healthy chat, labelled as chat.
+
+That is the flagship rule in `CLAUDE.md` — *"a default that returns a value
+callers cannot distinguish from success is a bug, not a guard"* — inside the
+telemetry that exists to find such bugs. `dispatch_mode` is now absent when
+unknown rather than confidently wrong, and the automation runner passes the
+`"background"` it already writes to its own row.
+
+**Caveat on `#3224`.** These runs are on `0.164.26`, which predates the
+`inFlightWorkDelta` fix (merged 2026-08-20, four minor versions later). So this
+is a clean *pre-fix* baseline: it confirms the defect is live and quantifies it,
+but it says nothing about whether `#3224` helped. Step 4 below is answered for
+the "is it real" half and still open for the "did the last fix already handle
+it" half — which now needs a post-upgrade re-read.
+
+---
+
 ## 7. Plan
 
 Ordered so each step makes the next one measurable.
@@ -432,9 +475,9 @@ Ordered so each step makes the next one measurable.
 | # | Step | Why now |
 | --- | --- | --- |
 | 1 | **Ship the current branch** (chunk-scoped checkpoints, automation tracing, boundary counters, config + invariants) | Stops the bleeding and, critically, makes boundaries countable. Nothing below is verifiable without that. |
-| 2 | **Put `agent_run_boundary` on a dashboard**, split by `recovered` | One number — recovered vs terminal — answers "is any of this working?" |
+| 2 | **Put `agent_run_boundary` on a dashboard**, split by `recovered` **and `dispatch_mode`** | One number — recovered vs terminal — answers "is any of this working?" The mode split is not optional: without it the automation path hides inside chat's volume, which is exactly what happened (§6.7). |
 | 3 | ~~**Delete §6.2 and §6.3**~~ → **§6.3 done; §6.2 withdrawn on verification** | Pure removal, no behaviour change, shrinks the surface before restructuring it. |
-| 4 | **Read the boundary rate before touching the backstop (§6.1)** | If terminal boundaries are near zero after `#3224`, steps 5-6 are unnecessary. Measure first. |
+| 4 | ~~**Read the boundary rate**~~ → **baseline measured (§6.7); re-read after upgrade** | 85.7% `no_progress` on the in-process path vs 1.1% on chat — the defect is real and larger than the brief reported. But that deployment predates `#3224`, so whether the last fix already helped is still unanswered and needs a post-upgrade read. |
 | 5 | *Conditional:* **split `shouldBumpProgressForEvent` by consumer (§6.1)** | Only when a divergence actually arrives. One predicate answering two questions is the coupling; adding the seam speculatively is not better. |
 | 6 | **Project the client bounds from the server resolver (§6.4)** | Closes the last unasserted invariant chain. |
 | 7 | **Bound spend in currency, not tokens (§6.5)** | The one genuine missing bound left. |

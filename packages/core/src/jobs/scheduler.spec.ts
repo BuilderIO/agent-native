@@ -1171,9 +1171,15 @@ Post the digest.`,
     // dispatch_mode NULL falls through to RUN_STALE_MS (15s) in
     // backgroundAwareStaleCutoffSql — a window sized for a foreground run a
     // browser is streaming. Nothing streams a job, so it gets reaped mid-run.
-    // dispatch_mode now gets there via the runner's own pre-claim, not via
-    // startRun's options — see background-automation-runner.spec.ts for the
-    // dedicated self-claim regression test.
+    //
+    // It reaches the ROW through the runner's own pre-claim (see
+    // background-automation-runner.spec.ts for the self-claim regression test),
+    // and it is ALSO passed to startRun, which is what puts it on the terminal
+    // and boundary analytics events. This assertion used to require its
+    // absence; that left every scheduled run reported as `foreground`, which is
+    // why a 6-of-7 no-progress rate on the automation path was invisible.
+    // Passing it cannot clobber the claim: `insertRun` is ON CONFLICT DO
+    // NOTHING, so startRun's insert is a no-op for an already-claimed row.
     await processRecurringJobs({
       getActions: () => ({}),
       getSystemPrompt: async () => "system",
@@ -1182,7 +1188,9 @@ Post the digest.`,
     });
 
     expect(startRunMock).toHaveBeenCalledOnce();
-    expect(startRunMock.mock.calls[0][4]).not.toHaveProperty("dispatchMode");
+    expect(startRunMock.mock.calls[0][4]).toMatchObject({
+      dispatchMode: "background",
+    });
   });
 
   it("runs the job through the resume wrapper instead of calling runAgentLoop raw", async () => {
