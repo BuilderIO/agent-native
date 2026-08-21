@@ -613,20 +613,19 @@ describe("editor-chrome bridge — group drags", () => {
 });
 
 describe("editor-chrome bridge — spacing band CSS", () => {
-  const spacingBandCss =
-    loadPureBridgeFn<
-      (
-        orientation: string,
-        band: {
-          gapStart: number;
-          gapEnd: number;
-          crossStart: number;
-          crossEnd: number;
-        },
-        line: number,
-        fill: string,
-      ) => string
-    >("spacingBandCss");
+  const spacingBandCss = loadPureBridgeFn<
+    (
+      orientation: string,
+      band: {
+        gapStart: number;
+        gapEnd: number;
+        crossStart: number;
+        crossEnd: number;
+      },
+      line: number,
+      fill: string,
+    ) => string
+  >("spacingBandCss");
 
   it("paints the band with the fill it was given", () => {
     // An arity mismatch at the call site silently bound `fill` to a number,
