@@ -602,8 +602,21 @@ export const editorChromeBridgeScript: string = `"use strict";
       });
       var next = document.createElement("head");
       next.innerHTML = nextSourceHtml || "";
+      var present = {};
+      Array.prototype.forEach.call(
+        document.head.children,
+        function(node) {
+          var key = node.outerHTML;
+          present[key] = (present[key] || 0) + 1;
+        }
+      );
       var anchor = document.head.firstChild;
       Array.prototype.slice.call(next.children).forEach(function(node) {
+        var key = node.outerHTML;
+        if (present[key]) {
+          present[key] -= 1;
+          return;
+        }
         document.head.insertBefore(document.importNode(node, true), anchor);
       });
     }
@@ -2531,7 +2544,17 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (node.nodeType !== 1) return null;
       return node.getAttribute("data-agent-native-node-id");
     }
-    function morphAttributes(live, next) {
+    function hasAlpineBinding(element) {
+      var attrs = element.attributes;
+      for (var i = 0; i < attrs.length; i += 1) {
+        var name = attrs[i].name;
+        if (name.charCodeAt(0) === 64 || name.charCodeAt(0) === 58 || name.indexOf("x-") === 0) {
+          return true;
+        }
+      }
+      return false;
+    }
+    function morphAttributes(live, next, alpineScoped) {
       var nextAttrs = next.attributes;
       for (var i = 0; i < nextAttrs.length; i += 1) {
         var attr = nextAttrs[i];
@@ -2542,6 +2565,9 @@ export const editorChromeBridgeScript: string = `"use strict";
           live.setAttribute(attr.name, attr.value);
         }
       }
+      if (alpineScoped && (hasAlpineBinding(next) || hasAlpineBinding(live))) {
+        return;
+      }
       var liveAttrs = Array.prototype.slice.call(live.attributes);
       for (var j = 0; j < liveAttrs.length; j += 1) {
         var name = liveAttrs[j].name;
@@ -2549,26 +2575,42 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (!next.hasAttribute(name)) live.removeAttribute(name);
       }
     }
-    function morphChildren(live, next, keyed) {
+    function morphChildren(live, next, context, alpineScoped) {
       var cursor = live.firstChild;
       var nextChild = next.firstChild;
       while (nextChild) {
         var key = morphNodeKey(nextChild);
         var reuse = null;
         if (key) {
-          var candidate = keyed.get(key) ?? null;
-          if (candidate && !candidate.contains(live)) {
+          var candidate = context.keyed.get(key) ?? null;
+          if (candidate && !candidate.contains(live) && candidate.nodeName === nextChild.nodeName && candidate.namespaceURI === nextChild.namespaceURI) {
             reuse = candidate;
-            keyed.delete(key);
+            context.keyed.delete(key);
           }
-        } else if (cursor && !morphNodeKey(cursor) && cursor.nodeType === nextChild.nodeType && cursor.nodeName === nextChild.nodeName) {
-          reuse = cursor;
+        } else {
+          var probe = cursor;
+          while (probe) {
+            var probeKey = morphNodeKey(probe);
+            if (probeKey) {
+              if (context.nextKeys.has(probeKey)) break;
+              probe = probe.nextSibling;
+              continue;
+            }
+            if (probe.nodeType === nextChild.nodeType && probe.nodeName === nextChild.nodeName) {
+              reuse = probe;
+            }
+            break;
+          }
         }
         if (reuse) {
           if (reuse !== cursor) live.insertBefore(reuse, cursor);
           if (reuse.nodeType === 1) {
-            morphAttributes(reuse, nextChild);
-            morphChildren(reuse, nextChild, keyed);
+            morphElement(
+              reuse,
+              nextChild,
+              context,
+              alpineScoped
+            );
           } else if (reuse.nodeValue !== nextChild.nodeValue) {
             reuse.nodeValue = nextChild.nodeValue;
           }
@@ -2581,8 +2623,14 @@ export const editorChromeBridgeScript: string = `"use strict";
       while (cursor) {
         var stale = cursor;
         cursor = cursor.nextSibling;
+        if (alpineScoped && !morphNodeKey(stale)) continue;
         live.removeChild(stale);
       }
+    }
+    function morphElement(live, next, context, alpineScoped) {
+      var scoped = alpineScoped || live.hasAttribute("x-data") || next.hasAttribute("x-data");
+      morphAttributes(live, next, scoped);
+      morphChildren(live, next, context, scoped);
     }
     function morphRuntimeBody(nextBody) {
       var keyed = /* @__PURE__ */ new Map();
@@ -2590,8 +2638,17 @@ export const editorChromeBridgeScript: string = `"use strict";
         var key = element.getAttribute("data-agent-native-node-id");
         if (key && !keyed.has(key)) keyed.set(key, element);
       });
-      morphAttributes(document.body, nextBody);
-      morphChildren(document.body, nextBody, keyed);
+      var nextKeys = /* @__PURE__ */ new Set();
+      nextBody.querySelectorAll("[data-agent-native-node-id]").forEach(function(element) {
+        var key = element.getAttribute("data-agent-native-node-id");
+        if (key) nextKeys.add(key);
+      });
+      morphElement(
+        document.body,
+        nextBody,
+        { keyed, nextKeys },
+        false
+      );
     }
     function replaceRuntimeDocument(html, preferredSelector, selectorCandidates, forceFullDocument, preserveTextEditingSession) {
       if (typeof html !== "string") return;
@@ -2637,6 +2694,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var nextHeadHtml = nextDoc.head ? nextDoc.head.innerHTML : "";
       ensureEditorChromeStyle();
       if (lastSourceHeadHtml === null) {
+        replaceSourceHeadNodes(null, nextHeadHtml);
         lastSourceHeadHtml = nextHeadHtml;
       }
       var currentHeadHtml = lastSourceHeadHtml;

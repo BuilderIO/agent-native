@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { chromium, type Page } from "@playwright/test";
 import { describe, expect, it } from "vitest";
 
@@ -289,6 +291,196 @@ describe("replace-document-content morphs instead of rebuilding the body", () =>
         expect(
           await page.locator('[data-agent-native-node-id="b"]').count(),
         ).toBe(0);
+      });
+    },
+  );
+});
+
+const ALPINE = readFileSync("node_modules/alpinejs/dist/cdn.min.js", "utf8");
+
+/** Boots a document with Alpine running before the bridge attaches, matching
+ *  the srcdoc order: deferred Alpine, then the inline bridge. */
+async function withAlpinePage(
+  body: string,
+  run: (page: Page) => Promise<void>,
+): Promise<void> {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage();
+    const pageErrors: string[] = [];
+    page.on("pageerror", (error) => pageErrors.push(error.message));
+    await page.setContent(documentHtml(body));
+    await page.addScriptTag({ content: ALPINE });
+    await page.waitForTimeout(300);
+    await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+    await run(page);
+    expect(pageErrors).toEqual([]);
+  } finally {
+    await browser.close();
+  }
+}
+
+const ALPINE_BODY = (headingClass: string) =>
+  `<div data-agent-native-node-id="an-root" x-data="{ count: 3, open: false, rows: ['a','b','c'] }">
+     <h1 data-agent-native-node-id="an-h1" class="${headingClass}">Title</h1>
+     <span data-agent-native-node-id="an-count" x-text="count"></span>
+     <p data-agent-native-node-id="an-panel" x-show="open">hidden</p>
+     <ul data-agent-native-node-id="an-list"><template x-for="r in rows"><li x-text="r"></li></template></ul>
+   </div>`;
+
+describe("morphing an Alpine-managed tree", () => {
+  it(
+    "keeps x-for clones, x-text output and x-show styling through an unrelated edit",
+    { timeout: 30_000 },
+    async () => {
+      await withAlpinePage(ALPINE_BODY("before"), async (page) => {
+        expect(
+          await page.evaluate(() => ({
+            count: document.querySelector(
+              '[data-agent-native-node-id="an-count"]',
+            )?.textContent,
+            rows: document.querySelectorAll(
+              '[data-agent-native-node-id="an-list"] li',
+            ).length,
+          })),
+        ).toEqual({ count: "3", rows: 3 });
+
+        await replaceDocument(page, documentHtml(ALPINE_BODY("after")));
+
+        // Alpine keeps the same element after a morph, so it never re-renders:
+        // anything the morph deletes here stays deleted.
+        expect(
+          await page.evaluate(() => ({
+            count: document.querySelector(
+              '[data-agent-native-node-id="an-count"]',
+            )?.textContent,
+            rows: document.querySelectorAll(
+              '[data-agent-native-node-id="an-list"] li',
+            ).length,
+            panelDisplay: (
+              document.querySelector(
+                '[data-agent-native-node-id="an-panel"]',
+              ) as HTMLElement
+            )?.style.display,
+            headingClass: document.querySelector(
+              '[data-agent-native-node-id="an-h1"]',
+            )?.className,
+          })),
+        ).toEqual({
+          count: "3",
+          rows: 3,
+          panelDisplay: "none",
+          headingClass: "after",
+        });
+      });
+    },
+  );
+});
+
+describe("morph edge cases", () => {
+  it(
+    "replaces a keyed node whose tag changed",
+    { timeout: 30_000 },
+    async () => {
+      await withBridgedPage(
+        '<div data-agent-native-node-id="k">hi</div>',
+        async (page) => {
+          await replaceDocument(
+            page,
+            documentHtml('<button data-agent-native-node-id="k">hi</button>'),
+          );
+          expect(
+            await page.evaluate(
+              () =>
+                document.querySelector('[data-agent-native-node-id="k"]')
+                  ?.tagName,
+            ),
+          ).toBe("BUTTON");
+        },
+      );
+    },
+  );
+
+  it(
+    "keeps an unkeyed stateful sibling that follows a deleted keyed node",
+    { timeout: 30_000 },
+    async () => {
+      await withBridgedPage(
+        '<div data-agent-native-node-id="gone">a</div><p id="keep">b</p>',
+        async (page) => {
+          await page.evaluate(() => {
+            (
+              document.getElementById("keep") as HTMLElement & {
+                __identity?: number;
+              }
+            ).__identity = 42;
+          });
+
+          await replaceDocument(page, documentHtml('<p id="keep">b</p>'));
+
+          expect(
+            await page.evaluate(
+              () =>
+                (
+                  document.getElementById("keep") as HTMLElement & {
+                    __identity?: number;
+                  }
+                )?.__identity ?? null,
+            ),
+          ).toBe(42);
+          expect(
+            await page.locator('[data-agent-native-node-id="gone"]').count(),
+          ).toBe(0);
+        },
+      );
+    },
+  );
+
+  it(
+    "applies a head-only edit that arrives as the very first patch",
+    { timeout: 30_000 },
+    async () => {
+      await withBridgedPage(BASE_BODY, async (page) => {
+        await replaceDocument(
+          page,
+          documentHtml(
+            BASE_BODY,
+            "<style data-agent-native-breakpoints>@media (max-width:640px){.card{display:none}}</style>",
+          ),
+        );
+
+        // The seed branch used to adopt the incoming head as its baseline, so
+        // the first breakpoint/motion/token write never reached the document
+        // and every later diff was measured against a head never applied.
+        expect(
+          await page
+            .locator("head style[data-agent-native-breakpoints]")
+            .count(),
+        ).toBe(1);
+      });
+    },
+  );
+
+  it(
+    "does not duplicate a head node the document already carries",
+    { timeout: 30_000 },
+    async () => {
+      await withBridgedPage(BASE_BODY, async (page) => {
+        await replaceDocument(page, documentHtml(BASE_BODY));
+        await replaceDocument(page, documentHtml(BASE_BODY));
+        expect(await page.locator("head style").count()).toBe(
+          await page.evaluate(
+            () => document.querySelectorAll("head style").length,
+          ),
+        );
+        expect(
+          await page.evaluate(
+            () =>
+              Array.from(document.querySelectorAll("head style")).filter(
+                (node) => node.textContent?.includes(".card{padding:4px}"),
+              ).length,
+          ),
+        ).toBe(1);
       });
     },
   );

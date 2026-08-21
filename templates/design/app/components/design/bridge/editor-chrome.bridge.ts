@@ -354,8 +354,24 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     });
     var next = document.createElement("head");
     next.innerHTML = nextSourceHtml || "";
+    var present: Record<string, number> = {};
+    Array.prototype.forEach.call(
+      document.head.children,
+      function (node: Element) {
+        var key = node.outerHTML;
+        present[key] = (present[key] || 0) + 1;
+      },
+    );
     var anchor = document.head.firstChild;
     Array.prototype.slice.call(next.children).forEach(function (node: Element) {
+      // The seed pass below passes a null previous head, so every node it
+      // carries would otherwise be inserted on top of the identical one the
+      // srcdoc already rendered — two copies of the managed stylesheet.
+      var key = node.outerHTML;
+      if (present[key]) {
+        present[key] -= 1;
+        return;
+      }
       document.head.insertBefore(document.importNode(node, true), anchor);
     });
   }
@@ -3200,12 +3216,39 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     });
   }
 
+  interface MorphContext {
+    keyed: Map<string, Element>;
+    nextKeys: Set<string>;
+  }
+
   function morphNodeKey(node: Node): string | null {
     if (node.nodeType !== 1) return null;
     return (node as Element).getAttribute("data-agent-native-node-id");
   }
 
-  function morphAttributes(live: Element, next: Element): void {
+  /** Carries an Alpine directive, so part of its live attribute set is written
+   *  by the runtime rather than by the source (x-show writes style, :class
+   *  writes class). */
+  function hasAlpineBinding(element: Element): boolean {
+    var attrs = element.attributes;
+    for (var i = 0; i < attrs.length; i += 1) {
+      var name = attrs[i]!.name;
+      if (
+        name.charCodeAt(0) === 64 /* @ */ ||
+        name.charCodeAt(0) === 58 /* : */ ||
+        name.indexOf("x-") === 0
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function morphAttributes(
+    live: Element,
+    next: Element,
+    alpineScoped: boolean,
+  ): void {
     var nextAttrs = next.attributes;
     for (var i = 0; i < nextAttrs.length; i += 1) {
       var attr = nextAttrs[i]!;
@@ -3218,6 +3261,12 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       } else {
         live.setAttribute(attr.name, attr.value);
       }
+    }
+    // An Alpine-bound element's style/class are runtime output, absent from
+    // source by design. Removing what source does not list un-hides every
+    // x-show="false" element on the screen.
+    if (alpineScoped && (hasAlpineBinding(next) || hasAlpineBinding(live))) {
+      return;
     }
     var liveAttrs = Array.prototype.slice.call(live.attributes) as Attr[];
     for (var j = 0; j < liveAttrs.length; j += 1) {
@@ -3233,7 +3282,8 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
   function morphChildren(
     live: Element,
     next: Element,
-    keyed: Map<string, Element>,
+    context: MorphContext,
+    alpineScoped: boolean,
   ): void {
     var cursor = live.firstChild;
     var nextChild = next.firstChild;
@@ -3241,28 +3291,53 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       var key = morphNodeKey(nextChild);
       var reuse: Node | null = null;
       if (key) {
-        var candidate = keyed.get(key) ?? null;
+        var candidate = context.keyed.get(key) ?? null;
         // A keyed node that already contains this parent cannot be moved
-        // inside itself; recreate it instead of building a cycle.
-        if (candidate && !candidate.contains(live)) {
+        // inside itself; recreate it instead of building a cycle. A candidate
+        // whose tag changed cannot be morphed into the new one either — the
+        // iframe would keep a div where source now says button.
+        if (
+          candidate &&
+          !candidate.contains(live) &&
+          candidate.nodeName === nextChild.nodeName &&
+          candidate.namespaceURI === (nextChild as Element).namespaceURI
+        ) {
           reuse = candidate;
           // Claim it: authored markup can repeat an id, and reusing one live
           // element for both would move the same node twice and drop one.
-          keyed.delete(key);
+          context.keyed.delete(key);
         }
-      } else if (
-        cursor &&
-        !morphNodeKey(cursor) &&
-        cursor.nodeType === nextChild.nodeType &&
-        cursor.nodeName === nextChild.nodeName
-      ) {
-        reuse = cursor;
+      } else {
+        // Skip past live siblings that are keyed but absent from the next
+        // document: they are already doomed, and stopping at one would import
+        // a fresh copy of the unchanged unkeyed node behind it and destroy
+        // the original's listeners and state.
+        var probe: Node | null = cursor;
+        while (probe) {
+          var probeKey = morphNodeKey(probe);
+          if (probeKey) {
+            if (context.nextKeys.has(probeKey)) break;
+            probe = probe.nextSibling;
+            continue;
+          }
+          if (
+            probe.nodeType === nextChild.nodeType &&
+            probe.nodeName === nextChild.nodeName
+          ) {
+            reuse = probe;
+          }
+          break;
+        }
       }
       if (reuse) {
         if (reuse !== cursor) live.insertBefore(reuse, cursor);
         if (reuse.nodeType === 1) {
-          morphAttributes(reuse as Element, nextChild as Element);
-          morphChildren(reuse as Element, nextChild as Element, keyed);
+          morphElement(
+            reuse as Element,
+            nextChild as Element,
+            context,
+            alpineScoped,
+          );
         } else if (reuse.nodeValue !== nextChild.nodeValue) {
           reuse.nodeValue = nextChild.nodeValue;
         }
@@ -3275,8 +3350,27 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     while (cursor) {
       var stale = cursor;
       cursor = cursor.nextSibling;
+      // Inside an Alpine tree an unkeyed live node is runtime output — an
+      // x-for clone or x-text's text node — that source never describes.
+      // Removing it wipes the rendered component and Alpine, holding the same
+      // element, never re-renders it.
+      if (alpineScoped && !morphNodeKey(stale)) continue;
       live.removeChild(stale);
     }
+  }
+
+  function morphElement(
+    live: Element,
+    next: Element,
+    context: MorphContext,
+    alpineScoped: boolean,
+  ): void {
+    var scoped =
+      alpineScoped ||
+      live.hasAttribute("x-data") ||
+      next.hasAttribute("x-data");
+    morphAttributes(live, next, scoped);
+    morphChildren(live, next, context, scoped);
   }
 
   /**
@@ -3302,8 +3396,19 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       // let a later node steal an earlier node's identity.
       if (key && !keyed.has(key)) keyed.set(key, element);
     });
-    morphAttributes(document.body, nextBody);
-    morphChildren(document.body, nextBody, keyed);
+    var nextKeys = new Set<string>();
+    nextBody.querySelectorAll("[data-agent-native-node-id]").forEach(function (
+      element: Element,
+    ) {
+      var key = element.getAttribute("data-agent-native-node-id");
+      if (key) nextKeys.add(key);
+    });
+    morphElement(
+      document.body,
+      nextBody,
+      { keyed: keyed, nextKeys: nextKeys },
+      false,
+    );
   }
 
   function replaceRuntimeDocument(
@@ -3389,9 +3494,15 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     var nextHeadHtml = nextDoc.head ? nextDoc.head.innerHTML : "";
     ensureEditorChromeStyle();
     if (lastSourceHeadHtml === null) {
-      // First patch after a srcdoc build, so the document already carries this
-      // source head. Forced replacements adopt too: treating the live head as
-      // the baseline is what wipes the runtime's own nodes.
+      // First patch after a srcdoc build. The document already carries the
+      // head it was built from, so this seeds the baseline — but it cannot
+      // just adopt: when the first patch is itself a head edit (a breakpoint,
+      // motion or token write, none of which reload the frame any more),
+      // adopting means that stylesheet never reaches the live document and
+      // every later diff is measured against a head that was never applied.
+      // Insert only what is genuinely new; replaceSourceHeadNodes skips nodes
+      // already present.
+      replaceSourceHeadNodes(null, nextHeadHtml);
       lastSourceHeadHtml = nextHeadHtml;
     }
     var currentHeadHtml = lastSourceHeadHtml;
