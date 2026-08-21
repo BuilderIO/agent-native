@@ -20,10 +20,12 @@ import {
   closePenPath,
   constrainPointTo45Degrees,
   createCornerNode,
-  createSmoothNode,
+  createPenCuspLatch,
+  createPenDragNode,
   isPenCloseTarget,
   serializePenPath,
   translatePenPath,
+  type PenCuspLatch,
   type PenPath,
   type PenPoint,
 } from "@shared/pen-path";
@@ -494,7 +496,10 @@ interface DesignCanvasProps {
     selector: string,
     styles: Record<string, string>,
     info?: ElementInfo,
-    metadata?: { originalStyles?: Record<string, string> },
+    metadata?: {
+      originalStyles?: Record<string, string>;
+      preserveSelection?: boolean;
+    },
   ) => void;
   onTextContentChange?: (
     selector: string,
@@ -2760,6 +2765,7 @@ export function DesignCanvas({
             isElementInfoPayload(e.data.payload) ? e.data.payload : undefined,
             {
               originalStyles,
+              preserveSelection: e.data.preserveSelection === true,
             },
           );
         }
@@ -5140,6 +5146,7 @@ interface SingleScreenPenGestureState {
   pathBefore: PenPath | null;
   moved: boolean;
   closing: boolean;
+  cuspLatch: PenCuspLatch;
 }
 
 const SINGLE_SCREEN_PEN_HIT_RADIUS_PX = 10;
@@ -5372,6 +5379,7 @@ function SingleScreenCreationOverlay({
           pathBefore,
           moved: false,
           closing,
+          cuspLatch: createPenCuspLatch(),
         };
         const initialPath = closing
           ? closePenPath(pathBefore!)
@@ -5430,9 +5438,12 @@ function SingleScreenCreationOverlay({
           : appendPenNode(
               gesture.pathBefore,
               moved
-                ? createSmoothNode(gesture.anchor, handleOut, {
-                    breakSymmetry: e.altKey,
-                  })
+                ? createPenDragNode(
+                    gesture.anchor,
+                    handleOut,
+                    gesture.cuspLatch,
+                    e.altKey,
+                  )
                 : createCornerNode(gesture.anchor),
             );
         updatePenPath(nextPath);
@@ -5484,9 +5495,12 @@ function SingleScreenCreationOverlay({
           : appendPenNode(
               gesture.pathBefore,
               moved
-                ? createSmoothNode(gesture.anchor, handleOut, {
-                    breakSymmetry: e.altKey,
-                  })
+                ? createPenDragNode(
+                    gesture.anchor,
+                    handleOut,
+                    gesture.cuspLatch,
+                    e.altKey,
+                  )
                 : createCornerNode(gesture.anchor),
             );
         penGestureRef.current = null;
