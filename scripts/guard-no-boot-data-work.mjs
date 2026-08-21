@@ -62,7 +62,7 @@ const PRAGMA = /(?:\/\/|\/\*)\s*guard:allow-boot-data-work\b/;
 
 /** Server startup code. A route handler is per-request and not this guard's business. */
 const IN_SCOPE =
-  /^(templates\/[^/]+\/server\/|packages\/[^/]+\/src\/server\/|apps\/[^/]+\/server\/)/;
+  /^(templates\/[^/]+\/server\/|packages\/[^/]+\/(?:src\/)?server\/|apps\/[^/]+\/server\/)/;
 const SKIPPED = /(\.spec\.|\.test\.|\/__tests__\/|\/dist\/|\/node_modules\/)/;
 
 /**
