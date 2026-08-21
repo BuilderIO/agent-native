@@ -3,4 +3,4 @@
 "@agent-native/dispatch": patch
 ---
 
-Move the beta/prod environment badge to the bottom-left, raise Dispatch controls above it, and give default notifications enough clearance to avoid overlap.
+Move the environment badge to the bottom-left, show a truthful dev badge during configured local development, raise Dispatch controls above it, and give default notifications enough clearance to avoid overlap.

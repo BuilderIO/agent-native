@@ -39,6 +39,12 @@ describe("EnvironmentBadge", () => {
     expect(resolveEnvironmentChannel({}, "beta.plan.agent-native.com")).toBe(
       "beta",
     );
+    expect(
+      resolveEnvironmentChannel(
+        { deployment: { environment: "local" } },
+        "localhost",
+      ),
+    ).toBe("local");
   });
 
   it("preserves the path, query, and hash while switching hosts", () => {

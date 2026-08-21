@@ -5,12 +5,13 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const useSessionMock = vi.fn();
+const injectedAgentNativeConfigMock = vi.fn();
 
 vi.mock("./use-session.js", () => ({
   useSession: () => useSessionMock(),
 }));
 vi.mock("./app-config.js", () => ({
-  injectedAgentNativeConfig: () => ({}),
+  injectedAgentNativeConfig: () => injectedAgentNativeConfigMock(),
 }));
 
 import { EnvironmentBadge } from "./EnvironmentBadge.js";
@@ -25,6 +26,7 @@ describe("EnvironmentBadge render", () => {
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
+    injectedAgentNativeConfigMock.mockReturnValue({});
     originalLocation = window.location;
     originalUserAgent = window.navigator.userAgent;
     Object.defineProperty(window, "location", {
@@ -50,6 +52,54 @@ describe("EnvironmentBadge render", () => {
       value: originalUserAgent,
     });
     vi.clearAllMocks();
+  });
+
+  it("renders a non-navigating dev pill for configured local development", () => {
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: {
+        hostname: "localhost",
+        href: "http://localhost:3000/dispatch",
+        replace: vi.fn(),
+      },
+    });
+    injectedAgentNativeConfigMock.mockReturnValue({
+      deployment: { environment: "local" },
+    });
+    useSessionMock.mockReturnValue({
+      session: null,
+      status: "unauthenticated",
+    });
+
+    act(() => root.render(<EnvironmentBadge />));
+
+    const badge = container.querySelector('[role="status"]');
+    expect(badge?.textContent).toBe("dev");
+    expect(badge?.getAttribute("aria-label")).toBe(
+      "Local development environment",
+    );
+    expect(badge?.className).toContain("bottom-3");
+    expect(badge?.className).toContain("left-3");
+    expect(container.querySelector("button")).toBeNull();
+    expect(container.querySelector("a")).toBeNull();
+  });
+
+  it.each([
+    ["localhost", "http://localhost:3000/dispatch"],
+    ["preview.example.com", "https://preview.example.com/dispatch"],
+  ])("hides the badge on unconfigured host %s", (hostname, href) => {
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: { hostname, href, replace: vi.fn() },
+    });
+    useSessionMock.mockReturnValue({
+      session: null,
+      status: "unauthenticated",
+    });
+
+    act(() => root.render(<EnvironmentBadge />));
+
+    expect(container.innerHTML).toBe("");
   });
 
   it("renders the beta chip for signed-out visitors", () => {
