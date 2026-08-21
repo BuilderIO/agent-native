@@ -1,5 +1,21 @@
 # @agent-native/core
 
+## 0.168.4
+
+### Patch Changes
+
+- 4e1ce88: Automatically replace a missing saved chat thread with a fresh chat in multi-tab hosts.
+- 4e1ce88: Add a Google sign-in credential self-check at `/_agent-native/health/google`.
+
+  The callback returns an identical error page for a wrong client secret and a
+  stale authorization code, so a broken credential is invisible from outside
+  while `/_agent-native/health` keeps reporting `ok:true`. The new route asks
+  Google directly and reports `valid`, `invalid`, `unconfigured`, or `unknown` —
+  a transport failure is never reported as valid — plus whether the deploy
+  carries two credential pairs naming different Google clients.
+
+- 4e1ce88: Read org-scoped settings with a prefix-scoped query instead of loading the whole settings table. `listOrgSettings` pulled and JSON-parsed every organization's rows into the caller to keep one org's, putting the entire deployment's settings table on the critical path of any org-scoped list read. `listSettingsByPrefix` is now exported from `@agent-native/core/settings` so apps can do the same for their own scoped reads.
+
 ## 0.168.3
 
 ### Patch Changes
