@@ -286,14 +286,48 @@ produce something new? — instead of a clock, and its comment records that it
 had a hole the next one patched." The server backstop is at exactly the stage
 those five were at.
 
-**Proposal.** Invert the backstop's default: rather than "no forwarded event for
-N seconds means dead unless one of five exclusions applies", make it "a run is
-alive while any *declared unit of work* is open." `inFlightWorkDelta` is already
-that declaration — the fix from yesterday is the right primitive applied as an
-exception. Promote it: work brackets (model stream, tool call, agent call) are
-the liveness signal; the timer is only the bound on a bracket that never closes,
-and each bracket already has its own tighter bound. The backstop then becomes a
-bound on *unbracketed* time, which is a small and enumerable set.
+**But the obvious fix — delete the exclusions, keep only bracketed liveness — is
+wrong, and this is the sharper finding.**
+
+`shouldBumpProgressForEvent` is one predicate wired to **two consumers with
+different jobs** (`run-manager.ts`, in `emitRunEvent`):
+
+```ts
+trackInFlightWork(runEvent.event);
+if (shouldBumpProgressForEvent(runEvent.event)) {
+  lastRealProgressAt = Date.now();   // consumer 1: the backstop's own clock
+  bumpProgressIfDue();               // consumer 2: agent_runs.last_progress_at
+}
+```
+
+Consumer 2 is not about the backstop at all. `last_progress_at` feeds
+`livenessBasisSql()` — which every stale reaper takes the max of against
+`heartbeat_at`, *granting a run more life* — plus `hasNoForwardProgress` (the
+stale-run recovery circuit breaker) and the client's stuck detector.
+
+The two want the same answer for keepalives today, for opposite reasons: the
+backstop must not let a wedged transport emitting keepalives be immortal, and
+the reaper does not need keepalives because `heartbeat_at` already covers
+process liveness. Delete the exclusion and a keepalive starts counting as
+*durable progress*, which makes a wedged run look alive to the reaper and to
+the client. That is a regression, not a cleanup.
+
+**So the real defect is not the exclusion list — it is that one predicate
+answers two questions.** Every future exclusion has to be right for both
+consumers simultaneously, and nothing says so; the coupling is invisible at both
+call sites. There are now **five** liveness signals for one run — `heartbeat_at`,
+`last_progress_at`, `in_flight_since`, in-memory `lastRealProgressAt`, in-memory
+`inFlightWorkCount` — and the exclusion list is shared between two of them by
+accident of implementation.
+
+**Proposal, revised.** Do not restructure the backstop yet. Split the predicate
+first — `countsAsBackstopProgress` and `countsAsDurableProgress`, identical
+today, each documented with its consumer — *only when the next divergence
+actually arrives*, so the seam is added by a change that needs it rather than
+speculatively. Until then, the highest-value action is measurement: the
+`agent_run_boundary` counter from layer 1 tells us whether the backstop still
+kills healthy runs after `inFlightWorkDelta`. **If the terminal-boundary rate is
+near zero, #3224 already fixed this and no restructuring is warranted at all.**
 
 ### 6.2 `FIRST_STREAM_EVENT_TIMEOUT_MS` (120s) is shadowed on the loop path — and load-bearing off it
 
@@ -370,7 +404,7 @@ come from the same resolver the server uses, projected into the bundle.
 | Gap | Why it matters |
 | --- | --- |
 | **Time spent inside the loop between frames** | The model-stream bound covers *waiting for the engine*, not a hang while the loop processes a frame it already has. `inFlightWorkDelta`'s own comment admits this. Only the chunk soft timeout covers it. |
-| **Wall clock for a non-chat turn** | `MAX_TURN_WALL_CLOCK_MS` is enforced on the chat continuation path. An automation is bounded only by its 10-minute hard abort — no equivalent per-turn ceiling across recovered chunks. |
+| ~~**Wall clock for a non-chat turn**~~ | **Withdrawn on verification.** An automation never spans invocations, so its 10-minute hard abort *is* its per-turn wall clock, and the wrapper's cumulative round budget sits inside it. `MAX_TURN_WALL_CLOCK_MS` exists because a chat turn spans many invocations and no single one can see the total; an automation has no such blind spot. |
 | **Cost, as opposed to tokens** | `maxRunInputTokens` bounds one turn's input. Nothing bounds spend across a chained turn in currency, which is the unit a deployment actually budgets. |
 | **Boundary rate** | Until this branch, nothing counted boundaries. A 37% terminal-boundary rate was invisible for two releases. Now emitted as `agent_run_boundary`; **it still needs a dashboard and an alert**, or it is invisible in a second way. |
 
@@ -384,9 +418,10 @@ come from the same resolver the server uses, projected into the bundle.
    `BACKGROUND_SOFT_TIMEOUT_CEILING_MS`; two names, one number, no source caller.
 4. ~~`BACKGROUND_RUN_STUCK_MS`~~ — **done**, a third copy of the 10-minute
    automation abort, folded into `resolveBackgroundRunHardTimeoutMs()`.
-5. The five exclusion branches in `shouldBumpProgressForEvent` — deletable *if*
-   §6.1 lands, because bracketed liveness subsumes all of them. **The remaining
-   prize, and the only one that changes behaviour.**
+5. ~~The five exclusion branches in `shouldBumpProgressForEvent`~~ —
+   **withdrawn**. They also define the durable `last_progress_at` signal, whose
+   consumers are the reapers and the client, not the backstop. Deleting them
+   would make a keepalive-emitting wedged run read as alive to both (§6.1).
 
 ---
 
@@ -399,10 +434,25 @@ Ordered so each step makes the next one measurable.
 | 1 | **Ship the current branch** (chunk-scoped checkpoints, automation tracing, boundary counters, config + invariants) | Stops the bleeding and, critically, makes boundaries countable. Nothing below is verifiable without that. |
 | 2 | **Put `agent_run_boundary` on a dashboard**, split by `recovered` | One number — recovered vs terminal — answers "is any of this working?" |
 | 3 | ~~**Delete §6.2 and §6.3**~~ → **§6.3 done; §6.2 withdrawn on verification** | Pure removal, no behaviour change, shrinks the surface before restructuring it. |
-| 4 | **Invert the backstop to bracketed liveness (§6.1)** | The structural fix. Do it after (2) so the boundary rate proves it. |
-| 5 | **Delete the exclusion branches the inversion subsumes** | The point of (4). Skipping this leaves both mechanisms and doubles the confusion. |
+| 4 | **Read the boundary rate before touching the backstop (§6.1)** | If terminal boundaries are near zero after `#3224`, steps 5-6 are unnecessary. Measure first. |
+| 5 | *Conditional:* **split `shouldBumpProgressForEvent` by consumer (§6.1)** | Only when a divergence actually arrives. One predicate answering two questions is the coupling; adding the seam speculatively is not better. |
 | 6 | **Project the client bounds from the server resolver (§6.4)** | Closes the last unasserted invariant chain. |
-| 7 | **Add a per-turn wall clock to the automation path (§6.5)** | The one genuine missing bound. |
+| 7 | **Bound spend in currency, not tokens (§6.5)** | The one genuine missing bound left. |
+
+### A note on what survived
+
+Four of this document's findings were withdrawn while implementing it: the
+"dead" 120s engine bound (§6.2), the missing automation wall clock (§6.5), and
+both halves of the backstop-exclusion deletion (§6.1, §6.6.5). Each looked
+obvious from the constant list and dissolved on contact with the callers.
+
+That result is worth stating plainly, because it changes the diagnosis: **this
+system is not over-guarded. Almost every bound is load-bearing and well
+argued.** The defects were never redundancy — they were (a) ordering
+relationships written in prose and enforced by nothing, (b) one number spelled
+three times, and (c) outcomes nobody counted. Layer 1 fixed (a) and (c); layer 2
+fixed (b). What is left is to look at the numbers (a) and (c) now produce before
+changing anything else.
 
 **Non-goal:** reducing the number of constants for its own sake. Most of them
 are load-bearing and well-argued. The win is not fewer numbers — it is fewer
