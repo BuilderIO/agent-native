@@ -1,4 +1,6 @@
-export const BUILDER_IMAGE_WIDTHS = [240, 320, 400, 600, 800];
+export const BUILDER_IMAGE_WIDTHS = [
+  240, 320, 400, 600, 800, 1200, 1600, 2000, 2400,
+];
 
 const BUILDER_IMAGE_HOSTS = new Set(["cdn.builder.io", "api.builder.io"]);
 

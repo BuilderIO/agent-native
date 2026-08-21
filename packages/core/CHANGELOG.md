@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.168.12
+
+### Patch Changes
+
+- 51b31ed: Format localized core documentation after the release sync.
+
 ## 0.168.11
 
 ### Patch Changes

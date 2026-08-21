@@ -419,6 +419,12 @@ const zhCN = {
     source: "来源",
     readDocs: "阅读文档",
     signIn: "登录",
+    tryTemplateFree: "免费试用 {{name}}",
+    designForFree: "免费设计",
+    recordForFree: "免费录制",
+    getStarted: "开始使用",
+    freeAndOpenSource: "100% 免费 • 开源",
+    viewAllApps: "查看所有应用",
   },
   templatesPage: {
     title: "您拥有的开源、代理本机应用程序",

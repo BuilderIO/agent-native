@@ -52,7 +52,9 @@ describe("renderMarkdownToHtml", () => {
 
     expect(html).toContain(`${source}?format=webp&amp;width=800`);
     expect(html).toContain(`${source}?format=webp&amp;width=240 240w`);
-    expect(html).toContain('sizes="(max-width: 900px) 100vw, 900px"');
+    expect(html).toContain(`${source}?format=webp&amp;width=1200 1200w`);
+    expect(html).toContain(`${source}?format=webp&amp;width=2400 2400w`);
+    expect(html).not.toContain(" sizes=");
     expect(html).not.toContain(`src="${source}"`);
   });
 

@@ -40,6 +40,18 @@ describe("Design editor mobile layout", () => {
     );
   });
 
+  it("keeps the app shell in non-Builder embedded routes", () => {
+    expect(layoutSource).toContain(
+      'type DesignLayoutMode = "host-bare" | "standalone-editor" | "app-shell";',
+    );
+    expect(layoutSource).toContain('if (layoutMode === "host-bare")');
+    expect(layoutSource).toContain('if (layoutMode === "standalone-editor")');
+    expect(layoutSource).toContain(
+      "!embedded && EDITOR_PREFIXES.some((p) => location.pathname.startsWith(p))",
+    );
+    expect(layoutSource).toContain("{!standaloneEditor && (\n");
+  });
+
   it("lets the compact workspace rail scroll on short screens", () => {
     expect(workspaceRailSource).toContain(
       "items-center overflow-y-auto overscroll-contain",

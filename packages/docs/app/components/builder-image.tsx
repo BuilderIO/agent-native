@@ -12,7 +12,7 @@ function getFallbackWidth(
   width: ImgHTMLAttributes<HTMLImageElement>["width"],
   widths: readonly number[],
 ) {
-  const maxWidth = widths[widths.length - 1] ?? 800;
+  const maxWidth = widths[widths.length - 1] ?? 2400;
 
   if (typeof width === "number") return Math.min(width, maxWidth);
   if (typeof width === "string") {
@@ -28,13 +28,11 @@ interface BuilderImageProps extends Omit<
   "src" | "srcSet" | "sizes"
 > {
   src: string;
-  sizes: string;
   widths?: readonly number[];
 }
 
 export function BuilderImage({
   src,
-  sizes,
   widths = BUILDER_IMAGE_WIDTHS,
   width,
   ...props
@@ -55,7 +53,6 @@ export function BuilderImage({
       decoding="async"
       {...props}
       width={width}
-      sizes={isBuilderImage ? sizes : undefined}
       srcSet={srcSet}
       src={optimizedSrc}
     />
