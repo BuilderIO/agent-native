@@ -120,7 +120,14 @@ export async function createAgentRunner(
 
     let text = "";
     const toolCalls: string[] = [];
-    const toolCallDetails: Array<{ name: string; input: unknown }> = [];
+    const toolCallDetails: Array<{
+      name: string;
+      id?: string;
+      input: unknown;
+      completed?: boolean;
+      isError?: boolean;
+      result?: string;
+    }> = [];
     let ok = true;
     let error: string | undefined;
 
@@ -135,8 +142,25 @@ export async function createAgentRunner(
           break;
         case "tool_start":
           toolCalls.push(event.tool);
-          toolCallDetails.push({ name: event.tool, input: event.input });
+          toolCallDetails.push({
+            name: event.tool,
+            id: event.id,
+            input: event.input,
+          });
           break;
+        case "tool_done": {
+          const detail = event.id
+            ? toolCallDetails.find((call) => call.id === event.id)
+            : toolCallDetails.find(
+                (call) => call.name === event.tool && !call.completed,
+              );
+          if (detail) {
+            detail.completed = true;
+            detail.isError = event.isError === true;
+            detail.result = event.result;
+          }
+          break;
+        }
         case "error":
           ok = false;
           error = event.error;
@@ -167,7 +191,7 @@ export async function createAgentRunner(
     return {
       text,
       toolCalls,
-      toolCallDetails,
+      toolCallDetails: toolCallDetails.map(({ id: _id, ...detail }) => detail),
       ok,
       error,
       runId,

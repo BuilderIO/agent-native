@@ -92,7 +92,40 @@ const databaseRowMutationTools = new Set([
   "remove-database-items",
 ]);
 
-function expectedPropertyValuesScorer(expected: Record<string, unknown>) {
+function matchesCreateEnvelope(
+  input: Record<string, unknown>,
+  expected: NonNullable<ParityEvalScenario["expectedCreateEnvelope"]>,
+): boolean {
+  const target = input.target;
+  if (!target || typeof target !== "object" || Array.isArray(target)) {
+    return false;
+  }
+  const actualTarget = target as Record<string, unknown>;
+  const authorityScope = actualTarget.authorityScope;
+  if (
+    !authorityScope ||
+    typeof authorityScope !== "object" ||
+    Array.isArray(authorityScope)
+  ) {
+    return false;
+  }
+  const actualAuthority = authorityScope as Record<string, unknown>;
+  return (
+    actualAuthority.kind === expected.target.authorityScope.kind &&
+    actualAuthority.id === expected.target.authorityScope.id &&
+    actualTarget.spaceId === expected.target.spaceId &&
+    actualTarget.databaseId === expected.target.databaseId &&
+    actualTarget.databaseDocumentId === expected.target.databaseDocumentId &&
+    input.expectedSchemaRevision === expected.expectedSchemaRevision &&
+    input.idempotencyKey === expected.idempotencyKey &&
+    input.title === expected.title
+  );
+}
+
+function expectedPropertyValuesScorer(
+  expected: Record<string, unknown>,
+  expectedEnvelope?: ParityEvalScenario["expectedCreateEnvelope"],
+) {
   return createScorer<
     AgentRunOutput,
     {
@@ -122,6 +155,27 @@ function expectedPropertyValuesScorer(expected: Record<string, unknown>) {
         invalid.push(
           `expected exactly one row mutation, received ${mutationCalls.length}`,
         );
+      }
+      const createInput = createCalls[0]?.input;
+      if (
+        expectedEnvelope &&
+        (!createInput ||
+          typeof createInput !== "object" ||
+          Array.isArray(createInput) ||
+          !matchesCreateEnvelope(
+            createInput as Record<string, unknown>,
+            expectedEnvelope,
+          ))
+      ) {
+        invalid.push(
+          "create target, schema revision, idempotency key, or title did not match the fixture",
+        );
+      }
+      if (!createCalls[0]?.completed || createCalls[0]?.isError) {
+        invalid.push("add-database-item did not complete successfully");
+      }
+      if (!run.ok) {
+        invalid.push("agent run did not complete successfully");
       }
       const received = analysis.received;
       const missing = Object.entries(expected)
@@ -177,7 +231,12 @@ export function scenarioToEval(scenario: ParityEvalScenario): Eval {
         ? [expectedToolScorer(scenario.expectedTools)]
         : []),
       ...(scenario.expectedPropertyValues
-        ? [expectedPropertyValuesScorer(scenario.expectedPropertyValues)]
+        ? [
+            expectedPropertyValuesScorer(
+              scenario.expectedPropertyValues,
+              scenario.expectedCreateEnvelope,
+            ),
+          ]
         : []),
     ],
   });
