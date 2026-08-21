@@ -11,6 +11,8 @@ import type { DocumentSourceInfo } from "@shared/api";
 import {
   IconArrowBarDown,
   IconArrowBarUp,
+  IconArrowBackUp,
+  IconArrowForwardUp,
   IconAlertTriangle,
   IconCheck,
   IconCopy,
@@ -476,6 +478,10 @@ interface DocumentToolbarProps {
   onUtilityPanelChange: (panel: "info" | "comments" | null) => void;
   showCommentsControl?: boolean;
   onOpenBreadcrumbItem?: (id: string) => void;
+  canUndo?: boolean;
+  canRedo?: boolean;
+  onUndo?: () => void;
+  onRedo?: () => void;
   databaseExportContext?: DatabaseExportContext | null;
 }
 
@@ -499,6 +505,10 @@ export function DocumentToolbar({
   onUtilityPanelChange,
   showCommentsControl = true,
   onOpenBreadcrumbItem,
+  canUndo = false,
+  canRedo = false,
+  onUndo,
+  onRedo,
   databaseExportContext,
 }: DocumentToolbarProps) {
   const t = useT();
@@ -979,6 +989,17 @@ export function DocumentToolbar({
             </Tooltip>
             <DropdownMenuContent align="end" className="w-60">
               <DropdownMenuGroup>
+                <DropdownMenuItem disabled={!canUndo} onSelect={onUndo}>
+                  <IconArrowBackUp className="me-2 h-4 w-4" />
+                  {t("editor.toolbar.undo")}
+                </DropdownMenuItem>
+                <DropdownMenuItem disabled={!canRedo} onSelect={onRedo}>
+                  <IconArrowForwardUp className="me-2 h-4 w-4" />
+                  {t("editor.toolbar.redo")}
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
+              <DropdownMenuSeparator />
+              <DropdownMenuGroup>
                 <DropdownMenuItem onSelect={() => void handleCopyPageLink()}>
                   <IconLink className="me-2 h-4 w-4" />
                   {t("editor.toolbar.copyPageLink")}
@@ -1025,7 +1046,7 @@ export function DocumentToolbar({
                     <span className="truncate">{source?.path}</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem
-                    disabled={revealLocalSource.isPending}
+                    disabled={!canEdit || revealLocalSource.isPending}
                     onSelect={() => void handleRevealLocalPath()}
                   >
                     <IconFolderOpen className="me-2 h-4 w-4" />
@@ -1036,6 +1057,7 @@ export function DocumentToolbar({
                     {t("editor.toolbar.copyRelativePath")}
                   </DropdownMenuItem>
                   <DropdownMenuItem
+                    disabled={!canEdit}
                     onSelect={() => void handleCopyLocalAbsolutePath()}
                   >
                     <IconCopy className="me-2 h-4 w-4" />
