@@ -1931,6 +1931,22 @@ describe("MultiTabAssistantChat tab close/open lifecycle", () => {
     expect(headerProps?.tabs.map((tab) => tab.id)).toEqual([replacementId]);
   });
 
+  it("does not replace a desktop thread before identity restore settles", async () => {
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          agentChatSurface="desktop"
+          desktopIdentityAuthenticated={false}
+          storageKey="desktop-missing-thread-test"
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(assistantChatMockState.onThreadRestoreNotFound).toBeUndefined();
+  });
+
   it("gives short chat titles enough room before the close target", async () => {
     threadMocks.activeThreadId = "short-title-thread";
     threadMocks.threads = [

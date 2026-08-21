@@ -2870,7 +2870,11 @@ export function MultiTabAssistantChat({
                     newThreadIds.current.has(tabId) || isNewThread(tabId)
                   }
                   onThreadRestoreNotFound={
-                    tabId === activeThreadId ? clearActiveTab : undefined
+                    tabId === activeThreadId &&
+                    (props.agentChatSurface !== "desktop" ||
+                      props.desktopIdentityAuthenticated === true)
+                      ? clearActiveTab
+                      : undefined
                   }
                   isThreadStateLoading={isLoading}
                   onMessageCountChange={(count) =>

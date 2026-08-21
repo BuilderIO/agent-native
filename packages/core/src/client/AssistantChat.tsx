@@ -3037,18 +3037,8 @@ const AssistantChatInner = forwardRef<
   }, [isNewThread, threadId]);
 
   const missingThreadNotifiedRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (
-      threadRestoreError !== "not-found" ||
-      !threadId ||
-      !onThreadRestoreNotFound ||
-      missingThreadNotifiedRef.current === threadId
-    ) {
-      return;
-    }
-    missingThreadNotifiedRef.current = threadId;
-    onThreadRestoreNotFound();
-  }, [onThreadRestoreNotFound, threadId, threadRestoreError]);
+  const desktopIdentityAuthenticatedRef = useRef(desktopIdentityAuthenticated);
+  const desktopIdentityRestoreRetryPendingRef = useRef(false);
 
   // The desktop identity gate and chat restore run in sibling surfaces. If the
   // gate wins the race after a masked 404 has already rendered, clear the
@@ -3060,7 +3050,6 @@ const AssistantChatInner = forwardRef<
     );
   }, [desktopIdentityUnauthenticated]);
 
-  const desktopIdentityAuthenticatedRef = useRef(desktopIdentityAuthenticated);
   useEffect(() => {
     const becameAuthenticated =
       desktopIdentityAuthenticated && !desktopIdentityAuthenticatedRef.current;
@@ -3076,6 +3065,7 @@ const AssistantChatInner = forwardRef<
     // A saved-thread request can race the identity handoff and be masked as a
     // 404/401/403. Retry once the host confirms the authenticated session so
     // the thread is restored without requiring a remount or manual retry.
+    desktopIdentityRestoreRetryPendingRef.current = true;
     retryThreadRestore();
   }, [
     agentChatSurface,
@@ -3083,6 +3073,33 @@ const AssistantChatInner = forwardRef<
     isNewThread,
     retryThreadRestore,
     threadId,
+  ]);
+
+  useEffect(() => {
+    if (threadRestoreError !== "not-found") {
+      desktopIdentityRestoreRetryPendingRef.current = false;
+      return;
+    }
+    if (
+      !threadId ||
+      !onThreadRestoreNotFound ||
+      missingThreadNotifiedRef.current === threadId ||
+      (agentChatSurface === "desktop" &&
+        (!desktopIdentityAuthenticated ||
+          desktopIdentityUnauthenticated ||
+          desktopIdentityRestoreRetryPendingRef.current))
+    ) {
+      return;
+    }
+    missingThreadNotifiedRef.current = threadId;
+    onThreadRestoreNotFound();
+  }, [
+    agentChatSurface,
+    desktopIdentityAuthenticated,
+    desktopIdentityUnauthenticated,
+    onThreadRestoreNotFound,
+    threadId,
+    threadRestoreError,
   ]);
   const onSaveThreadRef = useRef(onSaveThread);
   onSaveThreadRef.current = onSaveThread;

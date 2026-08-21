@@ -413,13 +413,21 @@ jobs:
                   );
                   continue;
                 }
+                if (status === "unconfigured") {
+                  const detail = reason ?? "credentials unconfigured";
+                  inconclusive.push(`${environment} ${host} (${detail})`);
+                  console.log(
+                    `INCONCLUSIVE\t${environment}\t${host}\t${status}\t${detail}`,
+                  );
+                  continue;
+                }
                 if (status === "invalid") broken.push(`${environment} ${host} (${reason})`);
                 // `unknown` means Google did not answer. It is not a pass.
                 if (status === "unknown") {
                   inconclusive.push(`${environment} ${host} (${reason ?? "unknown"})`);
                 }
                 if (mismatchedPairs) mismatched.push(`${environment} ${host}`);
-                checked += 1;
+                if (status === "valid") checked += 1;
                 const label =
                   status === "invalid" ? "FAIL" : status === "valid" ? "PASS" : "INFO";
                 console.log(

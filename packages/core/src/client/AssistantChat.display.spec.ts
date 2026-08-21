@@ -105,6 +105,8 @@ describe("AssistantChat thread restore and composer recovery", () => {
     expect(source).toContain('"not-found"');
     expect(source).toContain("onThreadRestoreNotFound");
     expect(source).toContain("missingThreadNotifiedRef");
+    expect(source).toContain("desktopIdentityRestoreRetryPendingRef");
+    expect(source).toContain("desktopIdentityAuthenticated");
     expect(source).toContain('t("agentChat.message.threadNotFound")');
     expect(source).toContain("retryThreadRestore");
     expect(source).toContain('t("agentChat.common.retry")');
