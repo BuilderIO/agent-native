@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.168.5
+
+### Patch Changes
+
+- 60aaea8: Keep app surfaces mounted when a host temporarily disables the chat sidebar.
+
 ## 0.168.4
 
 ### Patch Changes
