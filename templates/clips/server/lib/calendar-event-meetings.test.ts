@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const calendarMocks = vi.hoisted(() => ({
+  getDb: vi.fn(),
   readAppSecret: vi.fn(),
   refreshAccessTokenWithFallback: vi.fn(),
   resolveGoogleOAuthCredentialCandidates: vi.fn(),
@@ -16,9 +17,20 @@ vi.mock("@agent-native/core/sharing", () => ({
   resolveAccess: vi.fn(),
 }));
 
+vi.mock("drizzle-orm", () => ({
+  and: vi.fn(),
+  eq: vi.fn(),
+  isNull: vi.fn(),
+}));
+
 vi.mock("../db/index.js", () => ({
-  getDb: vi.fn(),
-  schema: {},
+  getDb: calendarMocks.getDb,
+  schema: {
+    calendarAccounts: {
+      id: "id",
+      ownerEmail: "ownerEmail",
+    },
+  },
 }));
 
 vi.mock("./google-calendar-client.js", () => ({
@@ -54,6 +66,7 @@ import {
   isSoloCalendarEvent,
 } from "./calendar-event-classification";
 import {
+  recordCalendarFetchError,
   resolveCalendarAccessToken,
   shouldMarkNeedsReauth,
 } from "./calendar-event-meetings";
@@ -200,6 +213,38 @@ describe("calendar reconnect classification", () => {
   });
 });
 
+describe("calendar fetch error recording", () => {
+  it("persists and returns an explicit reauthentication decision", async () => {
+    const where = vi.fn().mockResolvedValue(undefined);
+    const set = vi.fn(() => ({ where }));
+    calendarMocks.getDb.mockReturnValue({
+      update: vi.fn(() => ({ set })),
+    });
+
+    const result = await recordCalendarFetchError(
+      {
+        id: "calendar_1",
+        provider: "google",
+        ownerEmail: "user@example.com",
+      },
+      new Error("Token refresh failed"),
+      { needsReauth: true },
+    );
+
+    expect(set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "needs-reauth",
+        lastSyncError: "Google Calendar needs to be reconnected.",
+      }),
+    );
+    expect(result).toEqual({
+      accountId: "calendar_1",
+      error: "Token refresh failed",
+      needsReauth: true,
+    });
+  });
+});
+
 describe("calendar access token refresh", () => {
   const calendarAccount = {
     id: "calendar_1",
@@ -230,8 +275,8 @@ describe("calendar access token refresh", () => {
       .mockResolvedValueOnce({ value: "refresh-token" });
   }
 
-  it("reuses an unexpired access token when refresh fails transiently", async () => {
-    mockStoredTokens(Date.now() + 60_000);
+  it("reuses an access token above the request safety margin when refresh fails transiently", async () => {
+    mockStoredTokens(Date.now() + 2 * 60_000);
     calendarMocks.refreshAccessTokenWithFallback.mockRejectedValue(
       new Error("Google token refresh failed (503): backend unavailable"),
     );
@@ -251,8 +296,18 @@ describe("calendar access token refresh", () => {
     );
   });
 
+  it("throws a transient refresh failure inside the request safety margin", async () => {
+    mockStoredTokens(Date.now() + 30_000);
+    const error = new Error("Google token refresh failed (503): unavailable");
+    calendarMocks.refreshAccessTokenWithFallback.mockRejectedValue(error);
+
+    await expect(resolveCalendarAccessToken(calendarAccount)).rejects.toBe(
+      error,
+    );
+  });
+
   it("returns null for a permanent refresh failure", async () => {
-    mockStoredTokens(Date.now() + 60_000);
+    mockStoredTokens(Date.now() + 2 * 60_000);
     calendarMocks.refreshAccessTokenWithFallback.mockRejectedValue(
       new Error("Google token refresh failed (400): invalid_grant"),
     );

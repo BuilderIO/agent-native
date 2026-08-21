@@ -23,6 +23,8 @@ import {
 
 export const CALENDAR_MEETING_ID_PREFIX = "gcal";
 
+const CALENDAR_REQUEST_SAFETY_MARGIN_MS = 60 * 1000;
+
 export interface CalendarAccountForEvents {
   id: string;
   provider: string;
@@ -127,7 +129,7 @@ export async function resolveCalendarAccessToken(
     if (
       bundle?.accessToken &&
       bundle.expiresAt &&
-      bundle.expiresAt > Date.now()
+      bundle.expiresAt > Date.now() + CALENDAR_REQUEST_SAFETY_MARGIN_MS
     ) {
       return bundle.accessToken;
     }
@@ -177,10 +179,11 @@ export async function recordCalendarFetchSuccess(
 export async function recordCalendarFetchError(
   account: CalendarAccountForEvents,
   error: unknown,
+  options: { needsReauth?: boolean } = {},
 ): Promise<CalendarFetchError> {
   const message =
     error instanceof Error ? error.message : String(error || "Calendar failed");
-  const needsReauth = shouldMarkNeedsReauth(message);
+  const needsReauth = options.needsReauth ?? shouldMarkNeedsReauth(message);
   if (!account.ownerEmail) {
     return { accountId: account.id, error: message, needsReauth };
   }
@@ -325,7 +328,9 @@ export async function fetchLiveCalendarEventFromId(virtualId: string) {
     return null;
   }
   if (!accessToken) {
-    await recordCalendarFetchError(account, new Error("Token refresh failed"));
+    await recordCalendarFetchError(account, new Error("Token refresh failed"), {
+      needsReauth: true,
+    });
     return null;
   }
 
