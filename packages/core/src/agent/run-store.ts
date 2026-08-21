@@ -1427,6 +1427,14 @@ export const RUN_DIAG_STAGE = {
    * the per-turn budget is exhausted). See `attemptStaleRunRecovery`.
    */
   staleRunRecoveryAttempted: "stale_run_recovery_attempted",
+  /**
+   * The run manager reached a server-owned chunk boundary (`no_progress` or
+   * `run_timeout`). Detail carries the reason, whether it was recovered in the
+   * same invocation or terminated the turn, how long the run had been silent,
+   * and the last event type seen — the segment that went quiet, which is what
+   * no boundary previously recorded anywhere.
+   */
+  runBoundaryReached: "run_boundary_reached",
 } as const;
 
 export type RunDiagStage = (typeof RUN_DIAG_STAGE)[keyof typeof RUN_DIAG_STAGE];

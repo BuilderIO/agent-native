@@ -34,8 +34,15 @@ import {
   type AgentLoopContinuationReason,
   type AgentLoopOutcome,
 } from "./production-agent.js";
-import { resolveRunSoftTimeoutMs } from "./run-manager.js";
-import type { ResolveRunSoftTimeoutOptions } from "./run-manager.js";
+import {
+  resolveMaxBackgroundRunLoopContinuations,
+  resolveMaxRunLoopContinuations,
+  resolveRunSoftTimeoutMs,
+} from "./run-manager.js";
+import type {
+  ResolveRunSoftTimeoutOptions,
+  RunChunkControl,
+} from "./run-manager.js";
 import { getCurrentTurnEventsForThread } from "./run-store.js";
 import {
   classifyToolCallJournal,
@@ -330,6 +337,14 @@ export async function runAgentLoopDirectWithSoftTimeout(
   opts: Parameters<typeof runAgentLoop>[0],
   softTimeoutMs?: number,
   timeoutOptions?: ResolveRunSoftTimeoutOptions,
+  /**
+   * Chunk control from `startRun`, for a caller that owns continuation inside
+   * this invocation. Without it `opts.signal` is the only signal there is, so a
+   * checkpoint fired from ABOVE this loop reads as a Stop and the recovery
+   * below — which already accepts `no_progress` and already has a 20-round
+   * background budget — is unreachable.
+   */
+  control?: RunChunkControl,
 ): Promise<Awaited<ReturnType<typeof runAgentLoop>>> {
   const finalResponseGuardRequestText =
     opts.finalResponseGuardRequestText ??
@@ -404,7 +419,17 @@ export async function runAgentLoopDirectWithSoftTimeout(
     }
   }
 
-  const upstreamSignal = opts.signal;
+  // `turnSignal` answers "is this turn over?"; `chunkSignal` answers "is this
+  // ROUND over?". They are the same object for every caller that does not pass
+  // a control, which is what keeps the foreground/HTTP paths byte-for-byte
+  // unchanged.
+  const turnSignal = control?.turnSignal ?? opts.signal;
+  let chunkSignal = control?.chunkSignal ?? opts.signal;
+  const recoverableChunkBoundary = (): AgentLoopContinuationReason | null => {
+    if (!control || turnSignal.aborted) return null;
+    const reason = control.chunkBoundaryReason();
+    return reason === "no_progress" || reason === "run_timeout" ? reason : null;
+  };
   const usage: Awaited<ReturnType<typeof runAgentLoop>> = {
     inputTokens: 0,
     outputTokens: 0,
@@ -427,6 +452,39 @@ export async function runAgentLoopDirectWithSoftTimeout(
   };
 
   const localTurnEvents: AgentChatEvent[] = [];
+  /**
+   * Recover a boundary the run manager decided from OUTSIDE this loop.
+   *
+   * Same treatment the loop's own `auto_continue` gets: drop partial text the
+   * client already saw (unless a side effect landed, whose tool card is the
+   * user's only proof), append the continuation context and tool-call journal,
+   * then open a fresh chunk. Not opening one would leave every later round
+   * running under an already-aborted signal, which fails instantly and looks
+   * exactly like the bug this replaces.
+   */
+  const continueFromChunkBoundary = async (
+    reason: AgentLoopContinuationReason,
+    attemptEvents: readonly AgentChatEvent[],
+  ): Promise<void> => {
+    if (
+      (await completedSideEffectInCurrentTurn(
+        opts.threadId,
+        opts.turnId,
+        localTurnEvents,
+      )) === "none"
+    ) {
+      opts.send({ type: "clear" });
+    }
+    await appendContinuationAndJournal(
+      opts.messages,
+      reason,
+      opts.threadId,
+      opts.turnId,
+      localTurnEvents,
+      [...attemptEvents],
+    );
+    chunkSignal = control?.beginChunk() ?? chunkSignal;
+  };
   let attempts = 0;
   // Every current hosted caller of this function (A2A/MCP delegated turns)
   // runs inside ONE serverless invocation whose real platform hard-kill is
@@ -442,8 +500,8 @@ export async function runAgentLoopDirectWithSoftTimeout(
   const loopEntryAt = Date.now();
   const maxRunLoopContinuations =
     timeoutOptions?.backgroundFunction === true
-      ? MAX_BACKGROUND_RUN_LOOP_CONTINUATIONS
-      : MAX_RUN_LOOP_CONTINUATIONS;
+      ? resolveMaxBackgroundRunLoopContinuations()
+      : resolveMaxRunLoopContinuations();
   let backgroundRateLimitContinuations = 0;
   // Tracks whether the most recent attempt ended by scheduling another
   // continuation (soft-timeout or resumable error → `continue`) rather than
@@ -452,7 +510,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
   // this is the silent give-up case: emit a loud terminal so the user sees an
   // unambiguous "stopped before finishing" instead of a bare done/"…".
   let lastAttemptWasUnfinishedContinuation = false;
-  while (!upstreamSignal.aborted && attempts < maxRunLoopContinuations) {
+  while (!turnSignal.aborted && attempts < maxRunLoopContinuations) {
     const roundTimeoutMs =
       attempts === 0 ? timeoutMs : timeoutMs - (Date.now() - loopEntryAt);
     if (
@@ -470,10 +528,13 @@ export async function runAgentLoopDirectWithSoftTimeout(
     lastAttemptWasUnfinishedContinuation = false;
     const controller = new AbortController();
     const abortFromUpstream = () => controller.abort();
-    if (upstreamSignal.aborted) {
+    // Bound to the CURRENT chunk. A turn abort still reaches it — the run
+    // manager ends the live chunk whenever the turn ends.
+    const roundChunkSignal = chunkSignal;
+    if (roundChunkSignal.aborted) {
       controller.abort();
     } else {
-      upstreamSignal.addEventListener("abort", abortFromUpstream, {
+      roundChunkSignal.addEventListener("abort", abortFromUpstream, {
         once: true,
       });
     }
@@ -503,9 +564,15 @@ export async function runAgentLoopDirectWithSoftTimeout(
       });
       addUsage(nextUsage);
       const attemptEvents = localTurnEvents.slice(attemptStartIndex);
+      const chunkBoundaryReason = recoverableChunkBoundary();
+      if (chunkBoundaryReason) {
+        lastAttemptWasUnfinishedContinuation = true;
+        await continueFromChunkBoundary(chunkBoundaryReason, attemptEvents);
+        continue;
+      }
       const internalContinuationReason =
         internalContinuationReasonForAttempt(attemptEvents);
-      if (internalContinuationReason && !upstreamSignal.aborted) {
+      if (internalContinuationReason && !turnSignal.aborted) {
         lastAttemptWasUnfinishedContinuation = true;
         const continuationEvents = [...localTurnEvents];
         if (
@@ -527,7 +594,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
         );
         continue;
       }
-      if (softTimedOut && !upstreamSignal.aborted) {
+      if (softTimedOut && !turnSignal.aborted) {
         lastAttemptWasUnfinishedContinuation = true;
         await appendContinuationAndJournal(
           opts.messages,
@@ -540,13 +607,22 @@ export async function runAgentLoopDirectWithSoftTimeout(
         continue;
       }
       reportFinalOutcome(
-        upstreamSignal.aborted
+        turnSignal.aborted
           ? { state: "canceled", message: "Agent run was aborted." }
           : (attemptOutcome ?? { state: "completed" }),
       );
       return usage;
     } catch (err) {
-      if (softTimedOut && !upstreamSignal.aborted) {
+      const chunkBoundaryReason = recoverableChunkBoundary();
+      if (chunkBoundaryReason) {
+        lastAttemptWasUnfinishedContinuation = true;
+        await continueFromChunkBoundary(
+          chunkBoundaryReason,
+          localTurnEvents.slice(attemptStartIndex),
+        );
+        continue;
+      }
+      if (softTimedOut && !turnSignal.aborted) {
         // Clear partial text the client received before the abort so the
         // resumed model doesn't re-emit it and produce duplicated output.
         lastAttemptWasUnfinishedContinuation = true;
@@ -579,7 +655,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
           BACKGROUND_RATE_LIMIT_CONTINUATION_DELAY_MS >=
           SELF_CHAIN_MIN_CONTINUATION_BUDGET_MS;
       if (
-        !upstreamSignal.aborted &&
+        !turnSignal.aborted &&
         transientRateLimit &&
         rateLimitRetryFitsBudget
       ) {
@@ -602,7 +678,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
           localTurnEvents,
           localTurnEvents.slice(attemptStartIndex),
         );
-        await waitForBackgroundRateLimitCooldown(upstreamSignal);
+        await waitForBackgroundRateLimitCooldown(turnSignal);
         continue;
       }
       // Resumable transport / gateway interruptions: the LLM call was cut off
@@ -618,7 +694,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
       // from scratch and the fold produces duplicated text in one message
       // (the partial text was already sent to the client but is now retained
       // only as an internal checkpoint so the next attempt can finish it).
-      if (!upstreamSignal.aborted && isResumableEngineError(err)) {
+      if (!turnSignal.aborted && isResumableEngineError(err)) {
         lastAttemptWasUnfinishedContinuation = true;
         if (
           (await completedSideEffectInCurrentTurn(
@@ -639,7 +715,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
         );
         continue;
       }
-      if (upstreamSignal.aborted) {
+      if (turnSignal.aborted) {
         reportFinalOutcome({
           state: "canceled",
           message: "Agent run was aborted.",
@@ -662,7 +738,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
       throw err;
     } finally {
       clearTimeout(timer);
-      upstreamSignal.removeEventListener("abort", abortFromUpstream);
+      roundChunkSignal.removeEventListener("abort", abortFromUpstream);
     }
   }
 
@@ -673,7 +749,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
   // give-up the run-manager would otherwise report as a clean `done`: emit a
   // loud, non-auto-continuing terminal so the user knows the turn stopped
   // before finishing and nothing was partially saved by the run itself.
-  if (!upstreamSignal.aborted && lastAttemptWasUnfinishedContinuation) {
+  if (!turnSignal.aborted && lastAttemptWasUnfinishedContinuation) {
     // Discard any partial text already streamed for the unfinished attempt so
     // the terminal message stands alone instead of trailing a half sentence.
     // Preserve completed tool cards: they are the user's only durable proof
@@ -699,7 +775,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
       retryable: false,
       message: RUN_BUDGET_EXHAUSTED_MESSAGE,
     });
-  } else if (upstreamSignal.aborted) {
+  } else if (turnSignal.aborted) {
     reportFinalOutcome({
       state: "canceled",
       message: "Agent run was aborted.",

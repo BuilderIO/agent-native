@@ -101,6 +101,8 @@ vi.mock("../agent/production-agent.js", () => ({
 
 vi.mock("../agent/run-manager.js", () => ({
   resolveRunSoftTimeoutMs: vi.fn(() => 0),
+  resolveBackgroundAutomationSoftTimeoutMs: vi.fn(() => 0),
+  resolveBackgroundRunHardTimeoutMs: vi.fn(() => 10 * 60_000),
   startRun: startRunMock,
 }));
 
@@ -478,6 +480,8 @@ Process the feedback.`,
       }),
       expect.any(Number),
       expect.any(Object),
+      // Chunk control from startRun; undefined under this suite's fake.
+      undefined,
     );
   });
 

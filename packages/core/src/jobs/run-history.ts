@@ -25,6 +25,7 @@ registerEvent({
     threadId: z.string().nullable(),
     status: z.enum(["success", "error", "interrupted"]),
     error: z.string().nullable(),
+    errorCode: z.string().nullable(),
   }),
 });
 
@@ -54,6 +55,12 @@ export interface AutomationRun {
   startedAt: number;
   finishedAt: number | null;
   error: string | null;
+  /**
+   * Machine-readable failure code, so "how often are runs cut off?" is a
+   * GROUP BY instead of a LIKE over an English sentence. Null on success and
+   * on rows written before the column existed.
+   */
+  errorCode: string | null;
 }
 
 export interface StartAutomationRunInput {
@@ -71,6 +78,7 @@ export interface StartAutomationRunInput {
 
 const TABLE = "automation_runs";
 const MAX_ERROR_LENGTH = 500;
+const MAX_ERROR_CODE_LENGTH = 100;
 
 /**
  * Generous multiple of the runner's own 10 minute hard abort
@@ -79,6 +87,11 @@ const MAX_ERROR_LENGTH = 500;
 const RUN_LIVENESS_CEILING_MS = 15 * 60_000;
 const INTERRUPTED_RUN_MESSAGE =
   "Worker stopped before a terminal result was recorded. The serverless worker may have timed out or been recycled. No delivery was confirmed.";
+/**
+ * Derived at read time alongside `INTERRUPTED_RUN_MESSAGE`: a process killed
+ * mid-run cannot write its own code any more than it can write its own message.
+ */
+const INTERRUPTED_RUN_ERROR_CODE = "background_automation_interrupted";
 
 // The background worker has a shorter hard timeout than this lease. A worker
 // that dies after claiming can therefore be redelivered without overlapping a
@@ -131,6 +144,11 @@ export const AUTOMATION_RUN_MIGRATIONS: MigrationEntry[] = [
     name: "automation-runs-app-id",
     sql: `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS app_id TEXT`,
   },
+  {
+    version: 5,
+    name: "automation-runs-error-code",
+    sql: `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS error_code TEXT`,
+  },
 ];
 
 export async function runAutomationRunMigrations(
@@ -162,6 +180,7 @@ export async function ensureTable(): Promise<void> {
           started_at ${intType()} NOT NULL,
           finished_at ${intType()},
           error TEXT,
+          error_code TEXT,
           claimed_at ${intType()},
           dispatch_pending ${intType()} NOT NULL DEFAULT 0
         )
@@ -180,6 +199,11 @@ export async function ensureTable(): Promise<void> {
           "dispatch_pending",
           `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS dispatch_pending ${intType()} NOT NULL DEFAULT 0`,
         );
+        await ensureColumnExists(
+          TABLE,
+          "error_code",
+          `ALTER TABLE ${TABLE} ADD COLUMN IF NOT EXISTS error_code TEXT`,
+        );
         await ensureIndexExists(`idx_${TABLE}_owner_automation`, indexSql);
         return;
       }
@@ -193,6 +217,7 @@ export async function ensureTable(): Promise<void> {
         ["claimed_at", `${intType()}`],
         ["dispatch_pending", `${intType()} NOT NULL DEFAULT 0`],
         ["app_id", "TEXT"],
+        ["error_code", "TEXT"],
       ] as const) {
         if (columns.has(name)) continue;
         try {
@@ -246,6 +271,12 @@ function toRun(row: Record<string, unknown>, now: number): AutomationRun {
         : row.error == null
           ? null
           : String(row.error),
+    errorCode:
+      row.error_code == null && status === "interrupted"
+        ? INTERRUPTED_RUN_ERROR_CODE
+        : row.error_code == null
+          ? null
+          : String(row.error_code),
   };
 }
 
@@ -365,6 +396,7 @@ export async function finishAutomationRun(
   id: string,
   status: Exclude<AutomationRunStatus, "running">,
   error?: string,
+  errorCode?: string,
 ): Promise<void> {
   await ensureTable();
   const existing = await getDbExec().execute({
@@ -373,8 +405,14 @@ export async function finishAutomationRun(
   });
   const row = existing.rows?.[0] as Record<string, unknown> | undefined;
   await getDbExec().execute({
-    sql: `UPDATE ${TABLE} SET status = ?, finished_at = ?, error = ? WHERE id = ?`,
-    args: [status, Date.now(), error?.slice(0, MAX_ERROR_LENGTH) ?? null, id],
+    sql: `UPDATE ${TABLE} SET status = ?, finished_at = ?, error = ?, error_code = ? WHERE id = ?`,
+    args: [
+      status,
+      Date.now(),
+      error?.slice(0, MAX_ERROR_LENGTH) ?? null,
+      errorCode?.slice(0, MAX_ERROR_CODE_LENGTH) ?? null,
+      id,
+    ],
   });
   if (!row) return;
   try {
@@ -390,6 +428,7 @@ export async function finishAutomationRun(
         threadId: row.thread_id == null ? null : String(row.thread_id),
         status,
         error: error?.slice(0, MAX_ERROR_LENGTH) ?? null,
+        errorCode: errorCode?.slice(0, MAX_ERROR_CODE_LENGTH) ?? null,
       },
       { owner: String(row.owner) },
     );

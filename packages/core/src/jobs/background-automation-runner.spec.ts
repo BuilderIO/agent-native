@@ -197,6 +197,52 @@ describe("runBackgroundAutomation — background-run self-claim", () => {
       maxRunInputTokens: 123_456,
     });
     expect(call?.[2]).toMatchObject({ backgroundFunction: true });
+    // The chunk control is what makes a checkpoint recoverable here. Without
+    // it the run manager's boundary aborts the turn and the loop's own
+    // continuation budget — which already accepts `no_progress` — is dead.
+    expect(call?.[3]).toBeDefined();
+    // Derived from this runner's OWN 10-minute hard abort, not the 13-minute
+    // durable-chat ceiling that the process is killed three minutes before.
+    expect(call?.[1]).toBeLessThan(BACKGROUND_RUN_HARD_TIMEOUT_MS);
+  });
+
+  it("reports its terminal outcome to the dispatching application", async () => {
+    const outcomes: unknown[] = [];
+
+    await runBackgroundAutomation(
+      {
+        automation: {
+          name: "outcome-report",
+          meta: { schedule: "* * * * *", enabled: true, model: "test-model" },
+          body: "Do the thing.",
+          resource: {
+            owner: "alice@agent-native.test",
+            path: "jobs/outcome-report.md",
+          } as any,
+        },
+        ownerEmail: "alice@agent-native.test",
+        prompt: "Do the thing.",
+        threadTitle: "Job: outcome-report",
+        runIdPrefix: "job-outcome-report",
+        usageLabel: "recurring-job:outcome-report",
+      },
+      {
+        getActions: () => ({}),
+        getSystemPrompt: async () => "system",
+        engine: testEngine,
+        onRunOutcome: (outcome) => {
+          outcomes.push(outcome);
+        },
+      },
+    );
+
+    expect(outcomes).toHaveLength(1);
+    expect(outcomes[0]).toMatchObject({
+      automation: "outcome-report",
+      ownerEmail: "alice@agent-native.test",
+      status: "success",
+      threadId: "thread-1",
+    });
   });
   // History is a record ABOUT the run. If the history table is unwritable the
   // correct outcome is a missing record, not a scheduled automation that never
