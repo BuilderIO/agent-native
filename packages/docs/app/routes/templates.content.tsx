@@ -132,7 +132,6 @@ export default function ContentTemplate() {
         media={
           <BuilderImage
             src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F5cbd796ed40a43eb9e044c33d7d7fdea"
-            sizes="(max-width: 900px) 100vw, 800px"
             crossOrigin="anonymous"
             alt={t("templateLanding.content.s001")}
             loading="lazy"

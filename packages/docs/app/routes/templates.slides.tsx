@@ -175,7 +175,6 @@ export default function SlidesTemplate() {
         media={
           <BuilderImage
             src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F74bf2e432b544b848f2dd6255b570178"
-            sizes="(max-width: 900px) 100vw, 800px"
             crossOrigin="anonymous"
             alt={t("templateLanding.slides.s001")}
             loading="lazy"

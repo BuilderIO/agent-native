@@ -72,7 +72,6 @@ function TemplateFallbackArt({ template }: { template: Template }) {
     return (
       <BuilderImage
         src={screenshot}
-        sizes="(max-width: 900px) 100vw, 800px"
         crossOrigin="anonymous"
         alt={t("templateCard.screenshotAlt", { name: template.name })}
         loading="lazy"

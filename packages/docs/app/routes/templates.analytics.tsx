@@ -175,7 +175,6 @@ export default function AnalyticsTemplate() {
         media={
           <BuilderImage
             src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F816761dfcd484a79b71ba38379f7beda"
-            sizes="(max-width: 900px) 100vw, 800px"
             crossOrigin="anonymous"
             alt={t("templateLanding.analytics.s001")}
             loading="lazy"

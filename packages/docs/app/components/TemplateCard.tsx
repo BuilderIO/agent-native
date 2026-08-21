@@ -391,7 +391,6 @@ export function TemplateCard({ template }: { template: Template }) {
                 ? "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Febc2a7d837664382853cbfb481592b31?format=webp&width=800&height=1200"
                 : template.screenshot
             }
-            sizes="(max-width: 768px) 100vw, 400px"
             crossOrigin="anonymous"
             alt={t("templateCard.screenshotAlt", { name: template.name })}
             loading="lazy"

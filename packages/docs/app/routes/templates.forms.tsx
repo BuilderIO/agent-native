@@ -134,7 +134,6 @@ export default function FormsTemplate() {
         media={
           <BuilderImage
             src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F90cd8fab274242b1a78c3c4d1ddadb78"
-            sizes="(max-width: 900px) 100vw, 800px"
             crossOrigin="anonymous"
             alt={t("templateLanding.forms.s001")}
             loading="lazy"

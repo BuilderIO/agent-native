@@ -123,7 +123,6 @@ export default function DesignTemplate() {
         media={
           <BuilderImage
             src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fac64659497d24eacad0777227843535f"
-            sizes="(max-width: 900px) 100vw, 800px"
             crossOrigin="anonymous"
             alt={t("templateLanding.design.s001")}
             loading="lazy"

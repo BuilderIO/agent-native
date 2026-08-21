@@ -129,7 +129,6 @@ const PlanVideoCarousel = forwardRef<PlanVideoCarouselHandle>(
           >
             <BuilderImage
               src={video.thumbnail}
-              sizes="(max-width: 768px) 82vw, 300px"
               alt=""
               loading="lazy"
               decoding="async"
@@ -249,7 +248,6 @@ export default function PlanTemplate() {
         media={
           <BuilderImage
             src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fde31fbcbb81b4b799146d46dd4719eb0"
-            sizes="(max-width: 900px) 100vw, 800px"
             crossOrigin="anonymous"
             alt={t("templateLanding.plan.s001")}
             loading="lazy"
