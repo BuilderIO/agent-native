@@ -21,6 +21,9 @@ describe("injectBetaOptOutPersistence", () => {
     expect(html).toContain("__anInitEnvironmentBadge");
     expect(html).toContain("betaHosts");
     expect(html).toContain("agent-native-environment-switcher-style");
+    expect(html).toContain("left: max(0.75rem, env(safe-area-inset-left));");
+    expect(html).toContain("left: 0;");
+    expect(html).not.toContain("safe-area-inset-right");
     expect(html).toContain(
       "if (!productionHost || betaHosts[productionHost] !== hostname) return;",
     );

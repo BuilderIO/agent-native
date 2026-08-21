@@ -63,9 +63,10 @@ describe("EnvironmentBadge render", () => {
     const trigger = container.querySelector("button");
     expect(trigger?.textContent).toContain("beta");
     expect(trigger?.className).toContain("border-primary/80");
-    expect(trigger?.className).toContain("top-3");
-    expect(trigger?.className).toContain("right-3");
-    expect(trigger?.className).not.toContain("bottom-3");
+    expect(trigger?.className).toContain("bottom-3");
+    expect(trigger?.className).toContain("left-3");
+    expect(trigger?.className).not.toContain("top-3");
+    expect(trigger?.className).not.toContain("right-3");
     expect(trigger?.className).not.toContain("bg-background/95");
     expect(container.textContent).toContain("beta");
   });
@@ -98,6 +99,9 @@ describe("EnvironmentBadge render", () => {
       );
       trigger?.click();
     });
+
+    const popover = document.body.querySelector('[data-side="top"]');
+    expect(popover?.getAttribute("data-align")).toBe("start");
 
     const productionLink = [...document.body.querySelectorAll("a")].find(
       (link) => link.textContent?.includes("Switch to production"),

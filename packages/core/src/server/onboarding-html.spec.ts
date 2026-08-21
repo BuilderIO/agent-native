@@ -38,6 +38,8 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain("agent-native:beta-opt-out-until");
     expect(html).toContain("window.localStorage.setItem");
     expect(html).toContain("window.history.replaceState");
+    expect(html).toContain("left: max(0.75rem, env(safe-area-inset-left));");
+    expect(html).toContain("left: 0;");
     expect(html).toContain('id="environment-badge" aria-expanded="false"');
   });
 

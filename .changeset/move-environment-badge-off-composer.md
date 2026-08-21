@@ -1,5 +1,6 @@
 ---
 "@agent-native/core": patch
+"@agent-native/dispatch": patch
 ---
 
-Move the beta/prod environment switcher badge to the top-right corner so it no longer covers the chat composer's send button or the default bottom-left toast stack.
+Move the beta/prod environment badge to the bottom-left, raise Dispatch controls above it, and give default notifications enough clearance to avoid overlap.
