@@ -143,21 +143,10 @@ const electronAPI = {
   /** Window chrome controls */
   windowControls: {
     minimize: () => ipcRenderer.send(IPC.WINDOW_MINIMIZE),
-    maximize: () => ipcRenderer.send(IPC.WINDOW_MAXIMIZE),
+    toggleWindowMode: () => ipcRenderer.send(IPC.WINDOW_TOGGLE_WINDOW_MODE),
     close: () => ipcRenderer.send(IPC.WINDOW_CLOSE),
     setNativeTrafficLightsVisible: (visible: boolean): void =>
       ipcRenderer.send(IPC.WINDOW_NATIVE_BUTTONS_VISIBILITY, visible),
-    isMaximized: (): Promise<boolean> =>
-      ipcRenderer.invoke(IPC.WINDOW_IS_MAXIMIZED),
-
-    /** Subscribe to maximize/restore state changes. Returns an unsubscribe fn. */
-    onMaximizedChange: (cb: (isMaximized: boolean) => void): (() => void) => {
-      const handler = (_: Electron.IpcRendererEvent, value: boolean) =>
-        cb(value);
-      ipcRenderer.on(IPC.WINDOW_MAXIMIZED_CHANGED, handler);
-      return () =>
-        ipcRenderer.removeListener(IPC.WINDOW_MAXIMIZED_CHANGED, handler);
-    },
   },
 
   /** Shortcuts forwarded from the main process */

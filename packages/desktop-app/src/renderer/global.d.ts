@@ -838,11 +838,9 @@ interface ElectronAPI {
 
   windowControls: {
     minimize(): void;
-    maximize(): void;
+    toggleWindowMode(): void;
     close(): void;
     setNativeTrafficLightsVisible(visible: boolean): void;
-    isMaximized(): Promise<boolean>;
-    onMaximizedChange(cb: (isMaximized: boolean) => void): () => void;
   };
 
   shortcuts: {
