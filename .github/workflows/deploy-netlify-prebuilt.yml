@@ -753,6 +753,17 @@ jobs:
           curl --fail --silent --show-error --location --max-time 60 "${url%/}/_agent-native/health" >/dev/null
           echo "Health check passed: ${url%/}/_agent-native/health"
 
+      # An unknown URL must still be storable. When it is not, every dead link
+      # and crawler miss re-invokes the render function, and Netlify runs one
+      # request per container — so a single site's regression drains the
+      # concurrency pool the whole account shares. Source review and green
+      # builds both missed this; only the live response shows it.
+      - name: Verify the deployed site still caches a miss
+        if: inputs.deploy && inputs.smoke && inputs.deploy_mode == 'production'
+        env:
+          HOST: ${{ steps.target.outputs.host }}
+        run: node scripts/check-production-cache-contract.mjs --host "$HOST"
+
       - name: Smoke-test the static docs deploy
         if: inputs.deploy && inputs.smoke && steps.target.outputs.source_template == '@agent-native/docs'
         env:

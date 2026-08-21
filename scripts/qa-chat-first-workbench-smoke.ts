@@ -27,6 +27,8 @@ const baseUrl = process.env.CHAT_FIRST_BASE_URL ?? "http://localhost:8080";
 const screenshotDir = process.env.CHAT_FIRST_SCREENSHOT_DIR;
 const electronLane = process.env.CHAT_FIRST_ELECTRON === "1";
 const electronOnly = process.env.CHAT_FIRST_ELECTRON_ONLY === "1";
+const electronFeedbackOnly =
+  process.env.CHAT_FIRST_ELECTRON_FEEDBACK_ONLY === "1";
 const electronDispatchUrl =
   process.env.CHAT_FIRST_ELECTRON_DISPATCH_URL?.trim();
 const colorScheme =
@@ -849,6 +851,59 @@ async function runElectronSmoke(): Promise<void> {
     }
     await openElectronAgentSurface(page);
 
+    if (electronFeedbackOnly) {
+      const feedbackFooter = page.locator(".code-agents-rail-footer");
+      const feedbackButton = feedbackFooter.getByRole("button", {
+        name: "Feedback",
+        exact: true,
+      });
+      await feedbackButton.waitFor({ state: "visible" });
+      assert.deepEqual(
+        await feedbackFooter
+          .locator(".desktop-chat-first-rail-footer-actions button")
+          .evaluateAll((buttons) =>
+            buttons.map(
+              (button) =>
+                button.getAttribute("aria-label") ??
+                button.textContent?.trim() ??
+                "",
+            ),
+          ),
+        ["Feedback", "Collapse rail"],
+        "Electron chat-first rail should place Feedback left of the collapse toggle",
+      );
+      assert.equal(
+        await feedbackFooter
+          .getByRole("button", {
+            name: "Settings",
+            exact: true,
+          })
+          .count(),
+        0,
+        "Electron chat-first rail should replace Settings with Feedback",
+      );
+      await feedbackButton.click();
+      const feedbackTextarea = page.getByPlaceholder(
+        "What's working, what's broken, or what would you change?",
+      );
+      await feedbackTextarea.waitFor({ state: "visible" });
+      await saveElectronScreenshot(electronApp, "electron-02-feedback-popover");
+      await feedbackTextarea.fill("Desktop feedback smoke test");
+      await page
+        .getByRole("button", { name: "Send feedback", exact: true })
+        .click();
+      await page
+        .getByText("Thanks for the feedback!", { exact: true })
+        .waitFor({
+          state: "visible",
+        });
+      assert.deepEqual(feedbackSubmission?.data, {
+        message: "Desktop feedback smoke test",
+      });
+      await saveElectronScreenshot(electronApp, "electron-after-feedback");
+      return;
+    }
+
     const empty = await electronSnapshot(
       page,
       "electron-01-chat-first-no-tabs",
@@ -1337,10 +1392,11 @@ async function runElectronSmoke(): Promise<void> {
 async function main(): Promise<void> {
   const browser = await chromium.launch({ headless: true });
   try {
-    if (!electronOnly) await runSmoke(browser);
-    if (electronLane || electronOnly) await runElectronSmoke();
+    if (!electronOnly && !electronFeedbackOnly) await runSmoke(browser);
+    if (electronLane || electronOnly || electronFeedbackOnly)
+      await runElectronSmoke();
     console.log(
-      `qa-chat-first-workbench-smoke: clean (${baseUrl}; electron=${electronLane || electronOnly ? "on" : "off"}; screenshots=${screenshotDir ?? "disabled"})`,
+      `qa-chat-first-workbench-smoke: clean (${baseUrl}; electron=${electronLane || electronOnly || electronFeedbackOnly ? "on" : "off"}; screenshots=${screenshotDir ?? "disabled"})`,
     );
   } finally {
     await browser.close();

@@ -92,7 +92,6 @@ import {
   IconPlus,
   IconPin,
   IconSearch,
-  IconSettings,
   IconWorld,
 } from "@tabler/icons-react";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -2933,23 +2932,6 @@ export default function CodeAgentsHub({
                       chatFirstRailCollapsed ? "h-8 w-8" : "min-w-0",
                     )}
                   />
-                  {onOpenSettings ? (
-                    <DesktopRailTooltip label="Settings">
-                      <button
-                        type="button"
-                        className="code-agents-nav-link desktop-chat-first-rail-settings"
-                        onClick={() => onOpenSettings()}
-                        aria-label="Settings"
-                      >
-                        <IconSettings
-                          size={15}
-                          strokeWidth={1.8}
-                          aria-hidden="true"
-                        />
-                        <span>Settings</span>
-                      </button>
-                    </DesktopRailTooltip>
-                  ) : null}
                   <DesktopRailTooltip
                     label={
                       chatFirstRailCollapsed ? "Expand rail" : "Collapse rail"

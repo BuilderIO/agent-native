@@ -12,21 +12,12 @@ metadata:
 
 # Review Latest Feedback
 
-Run a bounded, evidence-first sweep across the Agent-Native feedback sources.
-The goal is to resolve clear repo-owned bugs at the right seam, not to encode
-one report as a new global instruction. This skill can run from a cron or a
-worktree, but every run must leave an auditable disposition for every item it
-looked at. When several reports clearly describe the same underlying symptom,
-treat them as one similar-feedback cluster and leave one Builder thread for the
-cluster, with the representative report as its cursor anchor.
-
-A disposition is not completion by itself. For every actionable repo-owned bug
-with sufficient evidence, implement the smallest safe fix at the owning
-boundary and verify it before ending the run. Do not stop at triage, diagnosis,
-or a proposed patch. Leave an item unfixed only when evidence is insufficient,
-ownership is external, the source is already fixed but deployment or live
-recovery is pending, or a destructive action or user decision is required; name
-that reason explicitly in the recap.
+Run a bounded, evidence-first sweep across Agent-Native feedback sources.
+Resolve and verify clear repo-owned bugs at their owning seam; do not encode a
+report as a global instruction or stop at triage. Every run leaves an auditable
+disposition for each item, including why any item remains open. Group reports
+with one underlying symptom into one cluster with one Builder thread and a
+representative cursor.
 
 This is a reply-producing workflow, not a reaction-only workflow. Apply the
 reply rules in `address-feedback-with-replies` to every actionable Slack item.

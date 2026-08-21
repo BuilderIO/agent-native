@@ -42,6 +42,17 @@ function parseEnvArg() {
   return value;
 }
 
+/** A single explicit host, so a deploy can check only the site it published. */
+function parseHostArg() {
+  const index = process.argv.indexOf("--host");
+  if (index === -1) return undefined;
+  const value = process.argv[index + 1];
+  if (!value || value.startsWith("--")) {
+    throw new Error("--host requires a hostname");
+  }
+  return value.replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+}
+
 function hostsFor(environment) {
   const manifest = JSON.parse(
     readFileSync(
@@ -115,8 +126,9 @@ async function mapWithLimit(items, limit, worker) {
   return results;
 }
 
-const environment = parseEnvArg();
-const hosts = hostsFor(environment);
+const explicitHost = parseHostArg();
+const environment = explicitHost ? undefined : parseEnvArg();
+const hosts = explicitHost ? [explicitHost] : hostsFor(environment);
 if (hosts.length === 0) {
   console.error(`No hosts found for --env ${environment}.`);
   process.exit(2);
