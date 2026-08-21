@@ -1,5 +1,18 @@
 # @agent-native/core
 
+## 0.168.2
+
+### Patch Changes
+
+- 8617890: Generate the canonical public stale-while-revalidate headers for Netlify static build artifacts and guard prerendered apps against the platform default cache policy.
+
+## 0.168.1
+
+### Patch Changes
+
+- 07e0de3: Show the personal or workspace scope choice before connecting an integration in an organization, including a clear owner/admin requirement for members.
+- 68265a5: Forward hosted provider setup callbacks through `AgentSidebar` so Electron chat can show its native AI connection action after sign-in, and allow the native integrations surface to route OAuth through the authenticated app webview.
+
 ## 0.168.0
 
 ### Minor Changes

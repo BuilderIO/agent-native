@@ -48,6 +48,7 @@ import {
   useBulkToggleStar,
   useBulkMarkRead,
   useLabels,
+  EMPTY_LABELS,
   useMoveEmail,
   unsuppressThread,
 } from "@/hooks/use-emails";
@@ -435,7 +436,8 @@ export function EmailList({
   const bulkTrashEmails = useBulkTrashEmails();
   const bulkToggleStar = useBulkToggleStar();
   const bulkMarkRead = useBulkMarkRead();
-  const { data: labels = [] } = useLabels();
+  const { data: labelsData } = useLabels();
+  const labels = labelsData ?? EMPTY_LABELS;
   const moveEmail = useMoveEmail();
   const cancelScheduledJob = useDeleteScheduledJob();
   const sendScheduledJobNow = useSendScheduledJobNow();

@@ -226,9 +226,25 @@ jobs:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
           SOURCE_TEMPLATE: ${{ steps.target.outputs.source_template }}
+          TARGET: ${{ inputs.target }}
         run: |
           set -euo pipefail
           : "${NETLIFY_AUTH_TOKEN:?NETLIFY_AUTH_TOKEN secret is required}"
+          if [[ "$TARGET" == "beta" ]]; then
+            # Beta is built from the release commit with branch-deploy context,
+            # so production-scoped Netlify variables are not applied. Export
+            # the release owner explicitly for this lane instead of widening
+            # the flag to every ordinary preview build.
+            if [[ "$SOURCE_TEMPLATE" != "clips" ]]; then
+              export AGENT_NATIVE_RELEASE_MIGRATIONS=1
+              export AGENT_NATIVE_RUN_RELEASE_MIGRATIONS=1
+            else
+              export AGENT_NATIVE_BETA_SCHEMA_OWNER=production
+            fi
+            export AGENT_NATIVE_ENABLE_KEEP_WARM=1
+            export AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND=1
+            export AGENT_NATIVE_HOSTED_HARNESS=true
+          fi
           if [[ "$SOURCE_TEMPLATE" == "clips" ]]; then
             # Netlify's local CLI receives masked site secrets. Clips only needs
             # valid build-time shapes here; the uploaded Functions read the real
@@ -253,6 +269,14 @@ jobs:
             fi
           done
           du -sh "$PUBLISH_DIRECTORY" "$FUNCTIONS_DIRECTORY"
+
+      - name: Verify static SSR cache artifact
+        if: steps.target.outputs.source_template == 'clips' || steps.target.outputs.source_template == '@agent-native/docs'
+        env:
+          PUBLISH_DIRECTORY: ${{ steps.target.outputs.publish_directory }}
+        run: |
+          set -euo pipefail
+          GUARD_SSR_CACHE_ARTIFACT_DIR="$PUBLISH_DIRECTORY" pnpm guard:ssr-cache-artifact
 
       - name: Pause automatic Netlify builds for production cutover
         id: pause
