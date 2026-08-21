@@ -643,6 +643,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     const [isLoading, setIsLoading] = useState(true);
     const [slowLoad, setSlowLoad] = useState(false);
     const [isFullscreen, setIsFullscreen] = useState(false);
+    const hasLoadedGuestPageRef = useRef(false);
     const loadFailureRef = useRef(false);
     const rawUrl = sourceUrl?.trim()
       ? withUrlParams(sourceUrl.trim(), urlParams)
@@ -825,6 +826,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         return;
       }
       if (!isActive) {
+        if (hasLoadedGuestPageRef.current) return;
         const rememberedSignedIn = shouldReuseRememberedDesktopIdentitySession(
           rememberedDesktopIdentityStatus,
           undefined,
@@ -1181,6 +1183,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         setError(false);
         setIsLoading(false);
         setSlowLoad(false);
+        hasLoadedGuestPageRef.current = true;
         optimizeDepRecoveryRef.current = false;
         reportActiveWebview();
         emitCurrentTitleSoon();
@@ -1376,6 +1379,14 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       if (deferDesktopWebviewLoad) return;
       const urlChanged = prevUrlRef.current !== url;
       const openNonceChanged = prevUrlOpenNonceRef.current !== urlOpenNonce;
+      if (
+        wasDeferred &&
+        hasLoadedGuestPageRef.current &&
+        !urlChanged &&
+        !openNonceChanged
+      ) {
+        return;
+      }
       if (!wasDeferred && !urlChanged && !openNonceChanged) return;
 
       prevUrlRef.current = url;

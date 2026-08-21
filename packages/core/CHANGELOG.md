@@ -1,5 +1,28 @@
 # @agent-native/core
 
+## 0.168.8
+
+### Patch Changes
+
+- 81fa180: Show immediate tooltips for apps and navigation controls in the collapsed chat-first rail.
+
+## 0.168.7
+
+### Patch Changes
+
+- a1d24db: Automatically replace a missing saved chat thread with a fresh chat in multi-tab hosts.
+- a1d24db: Cache 404 and 410 SSR shells with the same public CDN policy as 200 shells. They previously carried `no-cache`, so every dead link, stale bookmark, renamed slug and crawler miss re-invoked the render function — the same URL cost a full cold render on every request. Netlify runs one request per container, so those invocations drew from the account-wide concurrency pool other sites share. 5xx stays uncacheable, and 401/403 are deliberately excluded.
+- a1d24db: Add a Google sign-in credential self-check at `/_agent-native/health/google`.
+
+  The callback returns an identical error page for a wrong client secret and a
+  stale authorization code, so a broken credential is invisible from outside
+  while `/_agent-native/health` keeps reporting `ok:true`. The new route asks
+  Google directly and reports `valid`, `invalid`, `unconfigured`, or `unknown` —
+  a transport failure is never reported as valid — plus whether the deploy
+  carries two credential pairs naming different Google clients.
+
+- a1d24db: Read org-scoped settings with a prefix-scoped query instead of loading the whole settings table. `listOrgSettings` pulled and JSON-parsed every organization's rows into the caller to keep one org's, putting the entire deployment's settings table on the critical path of any org-scoped list read. `listSettingsByPrefix` is now exported from `@agent-native/core/settings` so apps can do the same for their own scoped reads.
+
 ## 0.168.6
 
 ### Patch Changes

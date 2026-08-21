@@ -45,43 +45,35 @@ export default defineAction({
       navigation &&
       typeof navigation === "object" &&
       "view" in navigation &&
-      navigation.view === "factory-settings"
-    ) {
-      screen.factorySettings = {
-        scope: "workspace",
-        path: "/factory-settings",
-      };
-    }
-
-    if (
-      navigation &&
-      typeof navigation === "object" &&
-      "view" in navigation &&
       navigation.view === "factory"
     ) {
       const { orgId } = await requireWorkspaceMember(
         workspaceMemberIdentityFromContext(context),
       );
       const state = navigation as Record<string, unknown>;
-      const factoryId =
-        typeof state.factoryId === "string" && state.factoryId.trim()
-          ? state.factoryId
-          : DEFAULT_FACTORY_ID;
-      const row = await readFactoryDefinition(orgId, factoryId);
-      const fallback = defaultFactoryDefinition();
-      const graph = row ? parseFactoryGraph(row.graphJson) : fallback.graph;
-      const selectedNodeId =
-        typeof state.factoryNodeId === "string" ? state.factoryNodeId : null;
-      const selectedEdgeId =
-        typeof state.factoryEdgeId === "string" ? state.factoryEdgeId : null;
+      if (state.creatingFactory === true) {
+        screen.factory = { creating: true };
+      } else {
+        const factoryId =
+          typeof state.factoryId === "string" && state.factoryId.trim()
+            ? state.factoryId
+            : DEFAULT_FACTORY_ID;
+        const row = await readFactoryDefinition(orgId, factoryId);
+        const fallback = defaultFactoryDefinition();
+        const graph = row ? parseFactoryGraph(row.graphJson) : fallback.graph;
+        const selectedNodeId =
+          typeof state.factoryNodeId === "string" ? state.factoryNodeId : null;
+        const selectedEdgeId =
+          typeof state.factoryEdgeId === "string" ? state.factoryEdgeId : null;
 
-      screen.factory = {
-        id: factoryId,
-        name: row?.name ?? fallback.name,
-        graphVersion: row?.graphVersion ?? graph.version,
-        selectedNode: graph.nodes.find((node) => node.id === selectedNodeId),
-        selectedEdge: graph.edges.find((edge) => edge.id === selectedEdgeId),
-      };
+        screen.factory = {
+          id: factoryId,
+          name: row?.name ?? fallback.name,
+          graphVersion: row?.graphVersion ?? graph.version,
+          selectedNode: graph.nodes.find((node) => node.id === selectedNodeId),
+          selectedEdge: graph.edges.find((edge) => edge.id === selectedEdgeId),
+        };
+      }
 
       if (state.factoryTab === "agents") {
         const [apps, agents] = await Promise.all([

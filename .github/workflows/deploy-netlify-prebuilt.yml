@@ -476,6 +476,10 @@ jobs:
             );
           }
 
+          // Netlify has no terminal state for an upload that dies mid-flight, so
+          // a deploy can sit in `uploading` forever. Well past any real upload.
+          const ABANDONED_DEPLOY_MS = 30 * 60 * 1000;
+
           async function drainPendingDeploys(publishedId, preexistingDeployIds) {
             const deadline = Date.now() + 5 * 60 * 1000;
             const states = [...ACTIVE_PRODUCTION_DEPLOY_STATES, "ready"];
@@ -485,9 +489,26 @@ jobs:
                 publishedId,
                 preexistingDeployIds,
               );
-              const cancelable = pending.filter((candidate) =>
-                ["new", "enqueued"].includes(candidate.state),
-              );
+              // A deploy that has not moved in ABANDONED_DEPLOY_MS is dead, and
+              // no amount of waiting drains it. slides carried one stuck in
+              // `uploading` since 2026-07-30 that blocked every production
+              // promotion for three weeks: `uploading` is neither `new` nor
+              // `enqueued`, so it was never cancelable and the wait always timed
+              // out. Cancel it on its age rather than widening the state list,
+              // which would kill real in-flight uploads.
+              const cancelable = pending.filter((candidate) => {
+                if (["new", "enqueued"].includes(candidate.state)) return true;
+                const lastMoved = Date.parse(
+                  candidate.updated_at || candidate.created_at || "",
+                );
+                if (!Number.isFinite(lastMoved)) return false;
+                const idleMinutes = Math.round((Date.now() - lastMoved) / 60000);
+                if (Date.now() - lastMoved < ABANDONED_DEPLOY_MS) return false;
+                console.log(
+                  `Production deploy ${candidate.id} has been ${candidate.state} for ${idleMinutes} minutes; treating it as abandoned.`,
+                );
+                return true;
+              });
               for (const candidate of cancelable) {
                 await readJson(
                   await request(`${api}/deploys/${candidate.id}/cancel`, {
@@ -731,6 +752,17 @@ jobs:
           echo "Smoke check passed: ${url%/}/"
           curl --fail --silent --show-error --location --max-time 60 "${url%/}/_agent-native/health" >/dev/null
           echo "Health check passed: ${url%/}/_agent-native/health"
+
+      # An unknown URL must still be storable. When it is not, every dead link
+      # and crawler miss re-invokes the render function, and Netlify runs one
+      # request per container — so a single site's regression drains the
+      # concurrency pool the whole account shares. Source review and green
+      # builds both missed this; only the live response shows it.
+      - name: Verify the deployed site still caches a miss
+        if: inputs.deploy && inputs.smoke && inputs.deploy_mode == 'production'
+        env:
+          HOST: ${{ steps.target.outputs.host }}
+        run: node scripts/check-production-cache-contract.mjs --host "$HOST"
 
       - name: Smoke-test the static docs deploy
         if: inputs.deploy && inputs.smoke && steps.target.outputs.source_template == '@agent-native/docs'

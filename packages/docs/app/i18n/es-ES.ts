@@ -441,7 +441,7 @@ const esES = {
       "Aplicaciones independientes mantenidas por sus autores. Instálalas desde un repositorio público de GitHub o prueba una versión alojada cuando esté disponible.",
     submitCommunityTemplate: "Enviar tu plantilla",
     communityEmpty:
-      "El catálogo de la comunidad está abierto. Publica una aplicación Agent Native enfocada en un repositorio público y envíala al catálogo.",
+      "El catálogo de la comunidad está abierto. Publica una aplicación Agent-Native enfocada en un repositorio público y envíala al catálogo.",
     publishGuide: "Leer la guía de publicación",
     communityTrust:
       "Las plantillas de la comunidad son código de terceros. Revisa el repositorio, la licencia, las dependencias y los scripts de instalación antes de ejecutarlo.",

@@ -178,7 +178,7 @@ Accessoires complets : `AgentPanelProps` dans `@agent-native/core/client`.
 
 ## Messages programmatiques : `sendToAgentChat()` {#send}
 
-Un bouton qui confie le travail à l'agent (au lieu d'exécuter un appel `llm()` en ligne — l'anti-modèle du [ladder](/docs/what-is-agent-native#the-ladder)) :
+Un bouton qui confie le travail à l’agent au lieu de créer un chemin IA séparé avec un appel `llm()` en ligne. Consultez [Pourquoi créer des applications ainsi](/docs/what-is-agent-native#why-build-apps-this-way) pour comprendre cette distinction :
 
 ```tsx
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
@@ -268,7 +268,7 @@ Utilisez directement `useActionQuery` ou `useActionMutation` pour les opération
 
 ## Typesafe actions du UI : `useActionMutation()` {#use-action-mutation}
 
-Lorsque le UI doit exécuter la même opération qu'un outil d'agent exécuterait (échelon 3 du [ladder](/docs/what-is-agent-native#rung-three)), utilisez `useActionMutation` :
+Lorsque l’UI doit exécuter la même opération qu’un outil d’agent exécuterait, utilisez [`useActionMutation`](/docs/client-data#use-action-mutation) :
 
 ```tsx
 import { useActionMutation } from "@agent-native/core/client/hooks";
@@ -283,7 +283,7 @@ Les arguments de type sécurisé proviennent du schéma zod de votre `defineActi
 
 <Callout id="doc-block-1757zi5" tone="decision">
 
-**`useActionMutation` vs `sendToAgentChat`.** Run the operation directly with `useActionMutation` when the user clicked a deterministic button ("Send reply"). Hand it to `sendToAgentChat` when the work needs the agent's reasoning, tools, or multi-step planning. Never call an inline `llm()` from UI — that is rung 1 of the [ladder](/docs/what-is-agent-native#the-ladder).
+**`useActionMutation` vs `sendToAgentChat`.** Run the operation directly with `useActionMutation` when the user clicked a deterministic button ("Send reply"). Hand it to `sendToAgentChat` when the work needs the agent's reasoning, tools, or multi-step planning. Never call an inline `llm()` from UI; that creates a separate AI path instead of using the shared agent loop.
 
 </Callout>
 
@@ -340,4 +340,4 @@ L'utilisateur voit un bouton de discussion dans l'en-tête, peut l'ouvrir et par
 - [**Actions**](/docs/actions-overview) — `defineAction()` et `useActionMutation()`
 - [**Context Awareness**](/docs/context-awareness) — sélection, navigation, écran d'affichage
 - [**Ressources de l'agent**](/docs/agent-resources) : ce que contient l'onglet Ressources de l'agent (skills, mémoire, serveurs MCP, tâches planifiées)
-- [**Voice Input**](/docs/voice-input) — le microphone dans l'éditeur de chat
+- [**Voice Input**](/docs/voice-input) — le microphone dans l’éditeur de chat

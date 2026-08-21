@@ -11,6 +11,7 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
   AgentChatMemoryRouter: ({ children }: { children: React.ReactNode }) => (
     <>{children}</>
   ),
+  preloadAgentChatSurface: vi.fn(() => Promise.resolve()),
   AgentSidebar: ({ children }: { children: React.ReactNode }) => (
     <>{children}</>
   ),

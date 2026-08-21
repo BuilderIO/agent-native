@@ -1,9 +1,11 @@
+import { format } from "date-fns";
 import { describe, expect, it } from "vitest";
 
 import {
   dateKeyToDate,
   eventOverlapsCalendarDay,
   getCalendarDayBounds,
+  getDisplayDateInTimezone,
   getDateKeyInTimezone,
   getEventSegmentForCalendarDay,
   getViewDateRange,
@@ -69,6 +71,15 @@ describe("calendar timezone helpers", () => {
       startsOnDay: true,
       endsOnDay: true,
     });
+  });
+
+  it("formats event wall-clock fields in the event timezone", () => {
+    const displayDate = getDisplayDateInTimezone(
+      "2026-08-14T12:00:00.000Z",
+      "America/Los_Angeles",
+    );
+
+    expect(format(displayDate, "yyyy-MM-dd h:mm a")).toBe("2026-08-14 5:00 AM");
   });
 
   it("moves an event by display date without changing its wall-clock time", () => {
