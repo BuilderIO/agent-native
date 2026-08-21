@@ -13,6 +13,7 @@ const BETA_SCHEMA_OWNER_RUNTIME_FILES = [
   "packages/core/src/deploy/build.ts",
 ] as const;
 const BETA_SCHEMA_OWNER_MARKER = "AGENT_NATIVE_BETA_SCHEMA_OWNER";
+const BETA_SCHEMA_OWNER_CONFIG_CONSUMER = "migration.betaSchemaOwner";
 const RELEASE_COMMAND = /\bmigrate:production\b/;
 const RELEASE_FLAG =
   /^\s*AGENT_NATIVE_RELEASE_MIGRATIONS\s*=\s*["']1["']\s*(?:#.*)?$/m;
@@ -157,7 +158,14 @@ export function validateBetaSchemaOwnerRuntimeContract(
       continue;
     }
     const source = readFileSync(file, "utf8");
-    if (!source.includes(BETA_SCHEMA_OWNER_MARKER)) {
+    const consumesConfigBackedMarker =
+      relativeFile === "packages/core/src/db/migrations.ts" &&
+      source.includes("getAppConfig") &&
+      source.includes(BETA_SCHEMA_OWNER_CONFIG_CONSUMER);
+    if (
+      !source.includes(BETA_SCHEMA_OWNER_MARKER) &&
+      !consumesConfigBackedMarker
+    ) {
       issues.push(
         `${relativeFile}: must consume or embed ${BETA_SCHEMA_OWNER_MARKER} instead of treating it as a config-only marker`,
       );

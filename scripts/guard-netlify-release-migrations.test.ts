@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { describe, it } from "node:test";
 
 import {
@@ -136,5 +139,55 @@ if [[ "$SOURCE_TEMPLATE" == "clips" ]]; then`;
 
   it("requires the beta schema owner marker to reach runtime", () => {
     assert.deepEqual(validateBetaSchemaOwnerRuntimeContract(), []);
+  });
+
+  it("accepts the config-backed migration consumer without a raw env read", () => {
+    const repoRoot = mkdtempSync(path.join(os.tmpdir(), "netlify-migration-"));
+    try {
+      for (const relativeFile of [
+        "packages/core/src/db/migrations.ts",
+        "packages/core/src/vite/client.ts",
+        "packages/core/src/deploy/build.ts",
+      ]) {
+        const file = path.join(repoRoot, relativeFile);
+        mkdirSync(path.dirname(file), { recursive: true });
+        writeFileSync(
+          file,
+          relativeFile.endsWith("migrations.ts")
+            ? 'import { getAppConfig } from "../app-config/index.js";\nreturn getAppConfig().migration.betaSchemaOwner;\n'
+            : "process.env.AGENT_NATIVE_BETA_SCHEMA_OWNER\n",
+        );
+      }
+
+      assert.deepEqual(validateBetaSchemaOwnerRuntimeContract(repoRoot), []);
+    } finally {
+      rmSync(repoRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a migration runtime that stops consuming the config marker", () => {
+    const repoRoot = mkdtempSync(path.join(os.tmpdir(), "netlify-migration-"));
+    try {
+      for (const relativeFile of [
+        "packages/core/src/db/migrations.ts",
+        "packages/core/src/vite/client.ts",
+        "packages/core/src/deploy/build.ts",
+      ]) {
+        const file = path.join(repoRoot, relativeFile);
+        mkdirSync(path.dirname(file), { recursive: true });
+        writeFileSync(
+          file,
+          relativeFile.endsWith("migrations.ts")
+            ? "export function runMigrations() {}\n"
+            : "process.env.AGENT_NATIVE_BETA_SCHEMA_OWNER\n",
+        );
+      }
+
+      assert.deepEqual(validateBetaSchemaOwnerRuntimeContract(repoRoot), [
+        "packages/core/src/db/migrations.ts: must consume or embed AGENT_NATIVE_BETA_SCHEMA_OWNER instead of treating it as a config-only marker",
+      ]);
+    } finally {
+      rmSync(repoRoot, { recursive: true, force: true });
+    }
   });
 });
