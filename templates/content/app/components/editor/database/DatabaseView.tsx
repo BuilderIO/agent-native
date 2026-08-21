@@ -224,7 +224,7 @@ import {
   databaseItemBodyHydrationIsPending,
   isEffectivelyEmptyDocumentContent,
   previewBodyHydrationIsPending,
-  previewBodyHydrationIsTerminalError,
+  previewBodyHydrationTerminalError,
   previewDraftConflictsWithHydratedBody,
   shouldIgnorePreviewEmptyNormalization,
 } from "../body-hydration";
@@ -4421,7 +4421,7 @@ function DatabaseItemPreview({
       item,
       document,
     });
-  const bodyHydrationError = previewBodyHydrationIsTerminalError({
+  const bodyHydrationError = previewBodyHydrationTerminalError({
     item,
     document,
   });
@@ -5324,7 +5324,10 @@ function DatabaseItemPreview({
                     {bodyHydrationError ? (
                       <BuilderBodySyncingNotice
                         title={dbText("builderBodySyncFailedNotice")}
-                        description={dbText("builderBodySyncFailedDescription")}
+                        description={
+                          bodyHydrationError.error ??
+                          dbText("builderBodySyncFailedDescription")
+                        }
                       />
                     ) : null}
                     {editor}
@@ -9876,7 +9879,10 @@ function BuilderBodyHydrationCard({
   const summary = source.bodyHydration;
   if (!summary || summary.total === 0) return null;
   const activeCount = summary.pending + summary.hydrating;
-  const needsWork = activeCount > 0 || summary.error > 0;
+  const hasErrors = summary.error > 0;
+  const needsWork = activeCount > 0 || hasErrors;
+  const canResume =
+    activeCount > 0 || (summary.retryableErrors ?? summary.error) > 0;
   const hydratedLabel = dbText("builderBodiesHydrated", {
     hydrated: summary.hydrated,
     total: summary.total,
@@ -9903,7 +9909,7 @@ function BuilderBodyHydrationCard({
             {hydratedLabel}
           </div>
         </div>
-        {needsWork ? (
+        {canResume ? (
           <Button
             type="button"
             size="sm"
@@ -9917,7 +9923,9 @@ function BuilderBodyHydrationCard({
             ) : (
               <IconRefresh className="mr-1 size-3.5" />
             )}
-            {summary.error > 0 ? dbText("retry") : dbText("resume")}
+            {(summary.retryableErrors ?? summary.error) > 0
+              ? dbText("retry")
+              : dbText("resume")}
           </Button>
         ) : null}
       </div>
