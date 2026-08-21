@@ -2281,6 +2281,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function hideSelectionOverlay() {
       selectionOverlay.style.display = "none";
+      hideSizeBadge();
       hideSpacingOverlay();
       hideParentAutoLayoutOverlay();
       clearComponentTag();
@@ -3516,6 +3517,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         updateSpacingOverlay(el);
         updateComponentTag(el, rect);
         updateParentAutoLayoutOverlay(el);
+        showSizeBadge(el);
       } else {
         applyElementOverlayChrome(overlay, el);
       }
@@ -3553,6 +3555,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         var overlay = passiveSelectionOverlays[index];
         if (overlay) positionOverlay(overlay, el);
       });
+      if (passiveSelectionEls.length > 0) hideSizeBadge();
       positionMultiSelectionBounds();
       positionGradientOverlay();
       syncOverlayObservers();
@@ -6375,9 +6378,6 @@ export const editorChromeBridgeScript: string = `"use strict";
           if (cs.display === "none" || cs.visibility === "hidden") continue;
           var rect = sibling.getBoundingClientRect();
           if (rect.width <= 0 || rect.height <= 0) continue;
-          if (rect.right < 0 || rect.bottom < 0 || rect.left > window.innerWidth || rect.top > window.innerHeight) {
-            continue;
-          }
           rects.push(rectBounds(rect));
         }
       }
@@ -6385,6 +6385,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     var SNAP_ALIGN_EPSILON = 1e-6;
     var SPACING_MATCH_EPSILON = 0.5;
+    var PROXIMITY_RANGE_PX = 160;
     function axisSnapValues(bounds, axis) {
       return axis === "x" ? [bounds.left, bounds.centerX, bounds.right] : [bounds.top, bounds.centerY, bounds.bottom];
     }
@@ -6597,8 +6598,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return bands;
     }
-    function buildSpacingGuides(axis, moving, candidates, tolerance) {
-      var gaps = collectAxisGapCandidates(axis, moving, candidates);
+    function buildSpacingGuides(axis, moving, candidates, tolerance, gaps) {
+      gaps = gaps || collectAxisGapCandidates(axis, moving, candidates);
       var before = closestGapCandidate(gaps, "before");
       var after = closestGapCandidate(gaps, "after");
       var orientation = axis === "x" ? "vertical" : "horizontal";
@@ -6627,6 +6628,25 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
       ];
     }
+    function computeProximityMeasurements(moving, candidates, range, gapsByAxis) {
+      var measurements = [];
+      var axes = ["x", "y"];
+      for (var a = 0; a < axes.length; a += 1) {
+        var axis = axes[a];
+        var gaps = gapsByAxis && gapsByAxis[axis] || collectAxisGapCandidates(axis, moving, candidates);
+        var nearest = null;
+        for (var i = 0; i < gaps.length; i += 1) {
+          if (!nearest || gaps[i].gap < nearest.gap) nearest = gaps[i];
+        }
+        if (!nearest || nearest.gap > range) continue;
+        measurements.push({
+          orientation: axis === "x" ? "vertical" : "horizontal",
+          gap: nearest.gap,
+          band: gapCandidateBand(nearest)
+        });
+      }
+      return measurements;
+    }
     function computeMoveSnapOffset(movingRect, candidates, threshold) {
       var moving = rectBounds(movingRect);
       var dx = findAxisSnapOffset("x", moving, candidates, threshold);
@@ -6642,37 +6662,76 @@ export const editorChromeBridgeScript: string = `"use strict";
         return guide.orientation === "horizontal";
       }) ? 0 : findSpacingSnapOffset("y", snapped, candidates, threshold);
       var spaced = translateRectBounds(snapped, spacingX, spacingY);
+      var settledGaps = {
+        x: collectAxisGapCandidates("x", spaced, candidates),
+        y: collectAxisGapCandidates("y", spaced, candidates)
+      };
       var spacingGuides = buildSpacingGuides(
         "x",
         spaced,
         candidates,
-        SPACING_MATCH_EPSILON
+        SPACING_MATCH_EPSILON,
+        settledGaps.x
       ).concat(
-        buildSpacingGuides("y", spaced, candidates, SPACING_MATCH_EPSILON)
+        buildSpacingGuides(
+          "y",
+          spaced,
+          candidates,
+          SPACING_MATCH_EPSILON,
+          settledGaps.y
+        )
       );
+      var measurements = computeProximityMeasurements(
+        spaced,
+        candidates,
+        PROXIMITY_RANGE_PX * threshold / SNAP_THRESHOLD_PX,
+        settledGaps
+      ).filter(function(measurement) {
+        return !spacingGuides.some(function(guide) {
+          return guide.orientation === measurement.orientation;
+        });
+      });
       return {
         dx: (dx || 0) + spacingX,
         dy: (dy || 0) + spacingY,
         guides,
-        spacingGuides
+        spacingGuides,
+        measurements
       };
     }
+    var snapGuideNodeCount = 0;
+    function beginSnapGuideNodes() {
+      snapGuideNodeCount = 0;
+    }
     function appendSnapGuideNode(cssText) {
-      var node = document.createElement("div");
+      var node = snapGuideLayer.children[snapGuideNodeCount];
+      if (!node) {
+        node = document.createElement("div");
+        snapGuideLayer.appendChild(node);
+      }
       node.style.cssText = "position:fixed;" + cssText;
-      snapGuideLayer.appendChild(node);
+      node.textContent = "";
+      snapGuideNodeCount += 1;
       return node;
     }
-    function showSnapGuides(guides, spacingGuides) {
-      snapGuideLayer.innerHTML = "";
-      if (!guides.length && !spacingGuides.length) {
-        snapGuideLayer.style.display = "none";
+    function endSnapGuideNodes() {
+      while (snapGuideLayer.children.length > snapGuideNodeCount) {
+        snapGuideLayer.removeChild(snapGuideLayer.lastChild);
+      }
+    }
+    function showSnapGuides(guides, spacingGuides, measurements) {
+      measurements = measurements || [];
+      if (!guides.length && !spacingGuides.length && !measurements.length) {
+        hideSnapGuides();
         return;
       }
-      snapGuideLayer.style.display = "block";
+      beginSnapGuideNodes();
+      if (snapGuideLayer.style.display !== "block") {
+        snapGuideLayer.style.display = "block";
+      }
       var scale = chromeLineScale();
       var line = 1 * scale;
-      var fill = "background:hsl(var(--destructive) / 0.9);";
+      var fill = "background:var(--design-editor-measure-color);";
       for (var i = 0; i < guides.length; i += 1) {
         var guide = guides[i];
         var span = Math.max(1, guide.end - guide.start);
@@ -6718,6 +6777,43 @@ export const editorChromeBridgeScript: string = `"use strict";
         );
         label.textContent = String(Math.round(spacing.gap));
       }
+      for (var m = 0; m < measurements.length; m += 1) {
+        var measurement = measurements[m];
+        appendSnapGuideNode(
+          spacingBandCss(
+            measurement.orientation,
+            measurement.band,
+            line,
+            5 * scale,
+            fill
+          )
+        );
+        appendSnapGuideNode(
+          spacingSerifCss(
+            measurement.orientation,
+            measurement.band,
+            line,
+            5 * scale,
+            fill,
+            true
+          )
+        );
+        appendSnapGuideNode(
+          spacingSerifCss(
+            measurement.orientation,
+            measurement.band,
+            line,
+            5 * scale,
+            fill,
+            false
+          )
+        );
+        var measureLabel = appendSnapGuideNode(
+          spacingLabelCss(measurement.orientation, measurement.band, scale)
+        );
+        measureLabel.textContent = String(Math.round(measurement.gap));
+      }
+      endSnapGuideNodes();
     }
     function spacingBandCss(orientation, band, line, serif, fill) {
       var crossMid = (band.crossStart + band.crossEnd) / 2;
@@ -6732,7 +6828,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     function spacingLabelCss(orientation, band, scale) {
       var crossMid = (band.crossStart + band.crossEnd) / 2;
       var alongMid = (band.gapStart + band.gapEnd) / 2;
-      return (orientation === "vertical" ? "left:" + alongMid + "px;top:" + crossMid + "px;" : "left:" + crossMid + "px;top:" + alongMid + "px;") + "transform:translate(-50%,-50%);border-radius:" + 3 * scale + "px;padding:" + 1 * scale + "px " + 4 * scale + "px;font:" + 10 * scale + "px/1 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:nowrap;background:hsl(var(--destructive) / 0.9);color:white;";
+      return (orientation === "vertical" ? "left:" + alongMid + "px;top:" + crossMid + "px;" : "left:" + crossMid + "px;top:" + alongMid + "px;") + "transform:translate(-50%,-50%);border-radius:" + 3 * scale + "px;padding:" + 1 * scale + "px " + 4 * scale + "px;font:" + 10 * scale + "px/1 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:nowrap;background:var(--design-editor-measure-color);color:white;";
     }
     function authoredOffset(value) {
       if (!value || value === "auto") return "";
@@ -6750,12 +6846,17 @@ export const editorChromeBridgeScript: string = `"use strict";
         vertical: style.height === "100%" ? "scale" : top && bottom ? "top-bottom" : bottom && !top ? "bottom" : transform.indexOf("translateY(-50%)") !== -1 ? "center" : "top"
       };
     }
+    var constraintNodeCount = 0;
     function appendConstraintLine(from, to, crossPosition, horizontal, thickness) {
       var start = Math.min(from, to);
       var length = Math.max(1, Math.abs(to - from));
-      var node = document.createElement("div");
+      var node = constraintGuideLayer.children[constraintNodeCount];
+      if (!node) {
+        node = document.createElement("div");
+        constraintGuideLayer.appendChild(node);
+      }
+      constraintNodeCount += 1;
       node.style.cssText = "position:fixed;" + (horizontal ? "left:" + start + "px;top:" + (crossPosition - thickness / 2) + "px;width:" + length + "px;height:0;border-top:" : "top:" + start + "px;left:" + (crossPosition - thickness / 2) + "px;height:" + length + "px;width:0;border-left:") + thickness + "px dashed var(--design-editor-accent-color);";
-      constraintGuideLayer.appendChild(node);
     }
     function showConstraintGuides(el) {
       if (!el) return hideConstraintGuides();
@@ -6767,8 +6868,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (!constraintGuideLayer.isConnected) {
         document.body.appendChild(constraintGuideLayer);
       }
-      constraintGuideLayer.innerHTML = "";
-      constraintGuideLayer.style.display = "block";
+      constraintNodeCount = 0;
+      if (constraintGuideLayer.style.display !== "block") {
+        constraintGuideLayer.style.display = "block";
+      }
       var thickness = chromeLineScale();
       var midY = rect.top + rect.height / 2;
       var midX = rect.left + rect.width / 2;
@@ -6811,17 +6914,29 @@ export const editorChromeBridgeScript: string = `"use strict";
           );
         }
       }
+      trimConstraintNodes();
+    }
+    function trimConstraintNodes() {
+      while (constraintGuideLayer.children.length > constraintNodeCount) {
+        constraintGuideLayer.removeChild(constraintGuideLayer.lastChild);
+      }
     }
     function hideConstraintGuides() {
+      if (constraintGuideLayer.style.display === "none") return;
       constraintGuideLayer.style.display = "none";
       constraintGuideLayer.innerHTML = "";
+      constraintNodeCount = 0;
     }
+    var sizeBadgeKey = "";
     function showSizeBadge(el) {
       if (!el) return hideSizeBadge();
       var rect = el.getBoundingClientRect();
       if (rect.width <= 0 || rect.height <= 0) return hideSizeBadge();
-      if (!sizeBadge.isConnected) document.body.appendChild(sizeBadge);
       var scale = chromeLineScale();
+      var key = rect.left + "|" + rect.bottom + "|" + rect.width + "|" + rect.height + "|" + scale;
+      if (key === sizeBadgeKey && sizeBadge.style.display === "block") return;
+      sizeBadgeKey = key;
+      if (!sizeBadge.isConnected) document.body.appendChild(sizeBadge);
       sizeBadge.textContent = Math.round(rect.width) + " \\xD7 " + Math.round(rect.height);
       sizeBadge.style.display = "block";
       sizeBadge.style.borderRadius = 3 * scale + "px";
@@ -6832,11 +6947,15 @@ export const editorChromeBridgeScript: string = `"use strict";
       sizeBadge.style.transform = "translateX(-50%)";
     }
     function hideSizeBadge() {
+      if (sizeBadge.style.display === "none") return;
       sizeBadge.style.display = "none";
+      sizeBadgeKey = "";
     }
     function hideSnapGuides() {
+      if (snapGuideLayer.style.display === "none") return;
       snapGuideLayer.style.display = "none";
       snapGuideLayer.innerHTML = "";
+      snapGuideNodeCount = 0;
     }
     function startMove(e, gestureElParam, pointerStartParam) {
       if (readOnly) return;
@@ -7507,15 +7626,32 @@ export const editorChromeBridgeScript: string = `"use strict";
         var snapBypass = Boolean(ev.metaKey || ev.ctrlKey);
         var snapResult = !snapBypass && !duplicatedForDrag ? computeMoveSnapOffset(
           {
-            left: nextLeft,
-            top: nextTop,
+            // Client space, because snapCandidateRects is client space.
+            // nextLeft/nextTop are CSS offsets against the offset parent;
+            // on a board that parent sits thousands of px into an
+            // 8192-square surface, so mixing the two put the moving rect
+            // nowhere near its own neighbours and nothing ever matched.
+            // A pure translation, so the returned delta is valid in both.
+            left: dragElStartRect.left + (nextLeft - originLeft),
+            top: dragElStartRect.top + (nextTop - originTop),
             width: dragElStartWidth,
             height: dragElStartHeight
           },
           snapCandidateRects,
           // Convert the screen-space base to content px (1/zoom).
           SNAP_THRESHOLD_PX * chromeLineScale()
-        ) : { dx: 0, dy: 0, guides: [], spacingGuides: [] };
+        ) : { dx: 0, dy: 0, guides: [], spacingGuides: [], measurements: [] };
+        dndLog("snap:tick", {
+          // Ordered so the fields that decide whether snapping ran at all come
+          // first: the console collapses long objects behind an ellipsis.
+          bypass: snapBypass,
+          duplicated: duplicatedForDrag,
+          mods: (ev.metaKey ? "M" : "") + (ev.ctrlKey ? "C" : "") + (ev.altKey ? "A" : "") + (ev.shiftKey ? "S" : "") || "none",
+          guides: snapResult.guides.length,
+          measurements: snapResult.measurements.length,
+          candidates: snapCandidateRects.length,
+          dropMode: currentAutoLayoutTarget ? currentAutoLayoutTarget.dropMode || "(none)" : "no-target"
+        });
         nextLeft += snapResult.dx;
         nextTop += snapResult.dy;
         var appliedDx = nextLeft - originLeft;
@@ -7551,19 +7687,23 @@ export const editorChromeBridgeScript: string = `"use strict";
             setMembersOpacity(null);
           }
         }
-        if (currentAutoLayoutTarget || !duplicatedForDrag && isOutsideIframeViewport(ev.clientX, ev.clientY)) {
+        var flowInsertPending = !!currentAutoLayoutTarget && currentAutoLayoutTarget.dropMode !== "absolute-container";
+        if (flowInsertPending || !duplicatedForDrag && isOutsideIframeViewport(ev.clientX, ev.clientY)) {
           hideSnapGuides();
           hideSizeBadge();
           hideConstraintGuides();
         } else {
-          showSnapGuides(snapResult.guides, snapResult.spacingGuides);
+          showSnapGuides(
+            snapResult.guides,
+            snapResult.spacingGuides,
+            snapResult.measurements
+          );
         }
         showTransformBadge(
           Math.round(nextLeft) + ", " + Math.round(nextTop),
           ev.clientX,
           ev.clientY
         );
-        showSizeBadge(dragEl);
         showConstraintGuides(dragEl);
         refreshOverlays();
       }
@@ -8117,7 +8257,16 @@ export const editorChromeBridgeScript: string = `"use strict";
         preferSelected: selectedLayerDragPriorityEnabled
       });
       var clickTarget = hitTarget;
+      dndLog("shield:down", {
+        hit: getSelector(hit),
+        dragTarget: getSelector(dragTarget),
+        board: designCanvasBoardSurface,
+        readOnly,
+        position: dragTarget ? window.getComputedStyle(dragTarget).position : null,
+        flowCandidate: dragTarget ? isFlowReorderCandidate(dragTarget) : null
+      });
       if (!dragTarget || dragTarget === document.body || dragTarget === document.documentElement || isLayerInteractionBlocked(dragTarget)) {
+        dndLog("shield:reject", { reason: "no-drag-target" });
         return;
       }
       if (e.pointerId !== void 0 && shieldOverlay.setPointerCapture && !e.altKey) {
@@ -8150,6 +8299,8 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (readOnly) return;
         if (Math.hypot(ev.clientX - startX, ev.clientY - startY) <= 3) return;
         clearPendingShieldDrag();
+        if (!didStartDrag)
+          dndLog("shield:drag-start", { board: designCanvasBoardSurface });
         didStartDrag = true;
         var groupGestureMember = !e.altKey ? groupMemberForGestureTarget(dragTarget) : null;
         if (groupGestureMember && collectMoveGroupMembers(groupGestureMember).length > 1) {

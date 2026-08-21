@@ -12,6 +12,7 @@ import {
   computeMoveSnap,
   computeResizeSnap,
   type DistanceGuideBand,
+  type ProximityMeasurement,
   type EqualGapGuide,
   getCameraForBounds,
   getFrameGroupBounds,
@@ -282,6 +283,7 @@ import {
   altHoverMeasurementEqual,
   computeAltHoverMeasurement,
   equalGapGuidesEqual,
+  proximityMeasurementsEqual,
 } from "./multi-screen/alt-hover-measurement";
 import {
   boardPointToScreenLocalPoint,
@@ -305,6 +307,7 @@ import {
   getScreenContentCullState,
   getOverscannedViewportCanvasBounds,
   isFrameWithinOverscannedViewport,
+  type OverscannedViewportBounds,
   type ScreenCullTier,
 } from "./multi-screen/culling";
 import {
@@ -834,6 +837,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     [],
   );
   const [equalGapGuides, setEqualGapGuidesRaw] = useState<EqualGapGuide[]>([]);
+  const [proximityMeasurements, setProximityMeasurementsRaw] = useState<
+    ProximityMeasurement[]
+  >([]);
   // Guides are recomputed into a brand-new array on every rAF-coalesced
   // mousemove during a drag; without a value-equality bail, React commits a
   // state update (and a re-render) every frame even when the guides drawn on
@@ -843,6 +849,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       alignmentGuidesEqual(current, next) ? current : next,
     );
   }, []);
+  const setProximityMeasurements = useCallback(
+    (next: ProximityMeasurement[]) => {
+      setProximityMeasurementsRaw((current) =>
+        proximityMeasurementsEqual(current, next) ? current : next,
+      );
+    },
+    [],
+  );
   const setEqualGapGuides = useCallback((next: EqualGapGuide[]) => {
     setEqualGapGuidesRaw((current) =>
       equalGapGuidesEqual(current, next) ? current : next,
@@ -1755,23 +1769,31 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
    *  tldraw: a frame parked off in the corner of an infinite canvas is not
    *  something the user is aligning to, and a guide drawn to it would stretch
    *  across empty space. Falls back to every entry before first layout. */
+  const snapViewportRef = useRef<OverscannedViewportBounds | null>(null);
+
+  /** Reads the surface box once per gesture. Called per rAF it would force a
+   *  synchronous layout of the host document — which holds every live screen
+   *  iframe — on the hottest path there is. Pan/zoom cannot change mid-drag. */
+  const beginSnapGesture = useCallback(() => {
+    const surfaceRect = surfaceRef.current?.getBoundingClientRect();
+    snapViewportRef.current = surfaceRect
+      ? getOverscannedViewportCanvasBounds(
+          { width: surfaceRect.width, height: surfaceRect.height },
+          panRef.current,
+          zoomRef.current,
+          0,
+        )
+      : null;
+  }, []);
+
   const getSnapCandidateEntries = useCallback(
     (excludeIds: string[]) => {
-      const entries = getCurrentCanvasEntries().filter(
-        (entry) => !excludeIds.includes(entry.id),
-      );
-      const surfaceRect = surfaceRef.current?.getBoundingClientRect();
-      const viewport = surfaceRect
-        ? getOverscannedViewportCanvasBounds(
-            { width: surfaceRect.width, height: surfaceRect.height },
-            panRef.current,
-            zoomRef.current,
-            0,
-          )
-        : null;
-      if (!viewport) return entries;
-      return entries.filter((entry) =>
-        isFrameWithinOverscannedViewport(entry.geometry, viewport),
+      const viewport = snapViewportRef.current;
+      return getCurrentCanvasEntries().filter(
+        (entry) =>
+          !excludeIds.includes(entry.id) &&
+          (!viewport ||
+            isFrameWithinOverscannedViewport(entry.geometry, viewport)),
       );
     },
     [getCurrentCanvasEntries],
@@ -3240,6 +3262,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     setCreationPreview(null);
     setAlignmentGuides([]);
     setEqualGapGuides([]);
+    setProximityMeasurements([]);
     setTransformBadge(null);
     setDragCursor(null);
     primitiveDropTargetRef.current = null;
@@ -4663,6 +4686,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         current.includes(id) ? current : [id],
       );
 
+      beginSnapGesture();
       dragState.current = {
         type: "draft-move",
         originClient: { x: e.clientX, y: e.clientY },
@@ -4801,6 +4825,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         }
         setAlignmentGuides(snap.guides);
         setEqualGapGuides(snap.spacingGuides);
+        setProximityMeasurements(snap.measurements);
 
         // Primitive drop-into-container detection: check if the dragged draft
         // is hovering over a committed container primitive on any screen.
@@ -5435,6 +5460,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       ) as FrameGeometryById;
       if (!originFrames[id]) return;
 
+      beginSnapGesture();
       dragState.current = {
         type: "move",
         originClient: { x: e.clientX, y: e.clientY },
@@ -5632,6 +5658,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         }
         setAlignmentGuides(snap.guides);
         setEqualGapGuides(snap.spacingGuides);
+        setProximityMeasurements(snap.measurements);
 
         // Resize shows a W x H badge and rotate shows a degrees badge — move
         // was the one transform with no live feedback at all. Show the
@@ -8438,7 +8465,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           <span
             key={`${guide.orientation}-${guide.position}-${index}`}
             data-canvas-guide="alignment"
-            className="pointer-events-none absolute z-30 bg-destructive/90"
+            className="pointer-events-none absolute z-30 bg-[var(--design-editor-measure-color)]"
             style={
               guide.orientation === "vertical"
                 ? {
@@ -8467,6 +8494,15 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             />
           )),
         )}
+
+        {proximityMeasurements.map((measurement) => (
+          <SpacingGuideMark
+            key={`proximity-${measurement.orientation}`}
+            band={measurement.band}
+            orientation={measurement.orientation}
+            chromeScale={chromeScale}
+          />
+        ))}
 
         {/* Figma-parity alt-hover measurement: orange edge-to-edge distance
             lines between the current selection and whatever frame/draft is
@@ -8579,6 +8615,28 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             }}
           >
             {Math.round(guide.gap)}
+          </span>
+        );
+      })}
+
+      {proximityMeasurements.map((measurement) => {
+        const { band } = measurement;
+        const crossMid = (band.crossStart + band.crossEnd) / 2;
+        const gapMid = (band.gapStart + band.gapEnd) / 2;
+        const point =
+          measurement.orientation === "vertical"
+            ? { x: gapMid, y: crossMid }
+            : { x: crossMid, y: gapMid };
+        return (
+          <span
+            key={`proximity-label-${measurement.orientation}`}
+            className="pointer-events-none absolute z-40 -translate-x-1/2 -translate-y-1/2 rounded bg-[var(--design-editor-measure-color)] px-1 py-0.5 text-[10px] font-medium leading-none text-[var(--design-editor-accent-contrast-color)] shadow-sm"
+            style={{
+              left: pan.x + (SURFACE_PADDING + point.x) * scale,
+              top: pan.y + (SURFACE_PADDING + point.y) * scale,
+            }}
+          >
+            {Math.round(measurement.gap)}
           </span>
         );
       })}
@@ -10852,7 +10910,7 @@ function SpacingGuideMark({
       }
     >
       <span
-        className="absolute bg-destructive/90"
+        className="absolute bg-[var(--design-editor-measure-color)]"
         style={
           alongAxis
             ? { left: 0, top: serif - line / 2, width: length, height: line }
@@ -10862,7 +10920,7 @@ function SpacingGuideMark({
       {[0, length].map((offset, index) => (
         <span
           key={index}
-          className="absolute bg-destructive/90"
+          className="absolute bg-[var(--design-editor-measure-color)]"
           style={
             alongAxis
               ? {

@@ -5,6 +5,7 @@ import {
   canvasToScreenPoint,
   computeEqualGapGuides,
   computeMoveSnap,
+  computeProximityMeasurements,
   computeResizeSnap,
   computeDragSnap,
   computeSpacingSnap,
@@ -827,6 +828,76 @@ describe("computeDragSnap precedence", () => {
       { thresholdScreenPx: 6, zoom: 100 },
     );
     expect(snap.spacingGuides).toEqual([]);
+  });
+});
+
+describe("computeProximityMeasurements", () => {
+  const near = [
+    { id: "right", geometry: { x: 220, y: 0, width: 100, height: 100 } },
+  ];
+
+  it("reports the gap to the nearest neighbour on an axis", () => {
+    const found = computeProximityMeasurements(
+      { x: 0, y: 0, width: 100, height: 100 },
+      near,
+      { zoom: 100 },
+    );
+    expect(found).toHaveLength(1);
+    expect(found[0].orientation).toBe("vertical");
+    expect(found[0].gap).toBeCloseTo(120);
+  });
+
+  it("stays quiet for a neighbour beyond the range", () => {
+    expect(
+      computeProximityMeasurements(
+        { x: 0, y: 0, width: 100, height: 100 },
+        [{ id: "far", geometry: { x: 900, y: 0, width: 100, height: 100 } }],
+        { zoom: 100 },
+      ),
+    ).toEqual([]);
+  });
+
+  it("scales the range with zoom so it stays a constant on-screen distance", () => {
+    const moving = { x: 0, y: 0, width: 100, height: 100 };
+    const target = [
+      { id: "right", geometry: { x: 340, y: 0, width: 100, height: 100 } },
+    ];
+    // 240 canvas px is inside 160 screen px at 50% zoom, outside it at 100%.
+    expect(
+      computeProximityMeasurements(moving, target, { zoom: 50 }),
+    ).toHaveLength(1);
+    expect(computeProximityMeasurements(moving, target, { zoom: 200 })).toEqual(
+      [],
+    );
+  });
+
+  it("reports one measurement per axis, nearest wins", () => {
+    const found = computeProximityMeasurements(
+      { x: 200, y: 200, width: 100, height: 100 },
+      [
+        { id: "closer", geometry: { x: 340, y: 200, width: 50, height: 100 } },
+        { id: "further", geometry: { x: 420, y: 200, width: 50, height: 100 } },
+        { id: "below", geometry: { x: 200, y: 360, width: 100, height: 50 } },
+      ],
+      { zoom: 100 },
+    );
+    expect(found.map((m) => m.orientation).sort()).toEqual([
+      "horizontal",
+      "vertical",
+    ]);
+    expect(found.find((m) => m.orientation === "vertical")?.gap).toBeCloseTo(
+      40,
+    );
+  });
+
+  it("goes quiet when snapping is bypassed", () => {
+    expect(
+      computeProximityMeasurements(
+        { x: 0, y: 0, width: 100, height: 100 },
+        near,
+        { zoom: 100, bypass: true },
+      ),
+    ).toEqual([]);
   });
 });
 

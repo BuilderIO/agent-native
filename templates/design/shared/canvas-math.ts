@@ -72,6 +72,17 @@ export interface SpacingSnapOptions extends CanvasSnapOptions {
 export interface DragSnapOptions extends CanvasSnapOptions {
   /** Figma's "snap to pixel grid": land on whole canvas pixels. */
   pixelGrid?: boolean;
+  /** How far a neighbour can be, in screen px, and still get a distance
+   *  readout. Beyond this the measurement is noise stretched across empty
+   *  canvas rather than something the user is positioning against. */
+  proximityRangeScreenPx?: number;
+}
+
+/** The distance from the moving frame to its nearest neighbour on one axis. */
+export interface ProximityMeasurement {
+  orientation: "vertical" | "horizontal";
+  gap: number;
+  band: DistanceGuideBand;
 }
 
 export interface DragSnapResult {
@@ -79,6 +90,7 @@ export interface DragSnapResult {
   dy: number;
   guides: AlignmentGuide[];
   spacingGuides: EqualGapGuide[];
+  measurements: ProximityMeasurement[];
 }
 
 export interface ResizeSnapOptions extends CanvasSnapOptions {
@@ -244,6 +256,7 @@ interface SnapCandidate {
 }
 
 export const DEFAULT_SNAP_THRESHOLD_SCREEN_PX = 6;
+export const DEFAULT_PROXIMITY_RANGE_SCREEN_PX = 160;
 export const DEFAULT_ROTATION_SNAP_DEGREES = 15;
 export const DEFAULT_PIXEL_GRID_MIN_ZOOM = 800;
 export const MIN_CANVAS_FRAME_WIDTH = 120;
@@ -736,6 +749,45 @@ export function computeSpacingSnap(
 }
 
 /**
+ * Distance to the nearest neighbour on each axis, for the frame's settled
+ * position. Stock Figma only surfaces a distance when it matches an existing
+ * gap; showing the nearest one unconditionally is a deliberate divergence,
+ * range-limited so a lone frame across the canvas does not draw a measurement
+ * over empty space.
+ */
+export function computeProximityMeasurements(
+  moving: FrameGeometry,
+  stationary: FrameEntry[],
+  options: { zoom: number; rangeScreenPx?: number; bypass?: boolean },
+): ProximityMeasurement[] {
+  if (options.bypass) return [];
+  const range =
+    (options.rangeScreenPx ?? DEFAULT_PROXIMITY_RANGE_SCREEN_PX) /
+    getCameraScale(options.zoom);
+  const bounds = getRotatedFrameAABB(moving);
+  const stationaryBounds = stationary.map((entry) =>
+    getRotatedFrameAABB(entry.geometry),
+  );
+
+  const measurements: ProximityMeasurement[] = [];
+  for (const axis of ["x", "y"] as const) {
+    const candidates = collectAxisGapCandidates(axis, bounds, stationaryBounds);
+    const nearest = candidates.reduce<GapCandidate | null>(
+      (best, candidate) =>
+        !best || candidate.gap < best.gap ? candidate : best,
+      null,
+    );
+    if (!nearest || nearest.gap > range) continue;
+    measurements.push({
+      orientation: axis === "x" ? "vertical" : "horizontal",
+      gap: nearest.gap,
+      band: gapCandidateBand(nearest),
+    });
+  }
+  return measurements;
+}
+
+/**
  * The whole Figma move-snap stack in one call, in precedence order: an
  * edge/center alignment wins, spacing only gets the axes alignment left free,
  * and the pixel grid only gets the axes with no guide drawn on them at all —
@@ -786,7 +838,35 @@ export function computeDragSnap(
       dy = Math.round(anchor.geometry.y + dy) - anchor.geometry.y;
   }
 
-  return { dx, dy, guides: alignment.guides, spacingGuides: spacing.guides };
+  // An axis whose spacing guide already prints the gap does not also need a
+  // proximity readout of the same number.
+  const settled = single
+    ? {
+        ...single.geometry,
+        x: single.geometry.x + dx,
+        y: single.geometry.y + dy,
+      }
+    : null;
+  const measurements = settled
+    ? computeProximityMeasurements(settled, stationary, {
+        zoom: options.zoom,
+        rangeScreenPx: options.proximityRangeScreenPx,
+        bypass: options.bypass,
+      }).filter(
+        (measurement) =>
+          !spacing.guides.some(
+            (guide) => guide.orientation === measurement.orientation,
+          ),
+      )
+    : [];
+
+  return {
+    dx,
+    dy,
+    guides: alignment.guides,
+    spacingGuides: spacing.guides,
+    measurements,
+  };
 }
 
 /**

@@ -22,6 +22,20 @@ const SCREEN_W = 1280;
 const SCREEN_H = 900;
 
 test.use({ viewport: { width: 1600, height: 1000 } });
+const OFFSET_ORIGIN_HTML = `<!doctype html>
+<html>
+  <head><meta charset="utf-8" /><title>Offset origin</title></head>
+  <body style="margin:0;min-height:900px;background:#0f1115;color:#fff">
+    <div data-agent-native-node-id="stage" data-agent-native-layer-name="Stage" data-an-primitive="frame"
+         style="position:absolute;left:300px;top:60px;width:600px;height:700px">
+      <div data-agent-native-node-id="box-a" data-agent-native-layer-name="Box A" data-an-primitive="rectangle"
+           style="position:absolute;left:30px;top:280px;width:120px;height:80px;background:#3b82f6"></div>
+      <div data-agent-native-node-id="box-b" data-agent-native-layer-name="Box B" data-an-primitive="rectangle"
+           style="position:absolute;left:30px;top:440px;width:120px;height:80px;background:#22c55e"></div>
+    </div>
+  </body>
+</html>`;
+
 const SCREEN_HTML = `<!doctype html>
 <html>
   <head><meta charset="utf-8" /><title>Snap guides</title></head>
@@ -114,6 +128,22 @@ async function createSingleScreenDesign(request: APIRequestContext) {
   return designId as string;
 }
 
+async function createOffsetOriginDesign(request: APIRequestContext) {
+  const created = await action(request, "create-design", {
+    title: `Offset origin QA ${Date.now()}`,
+    projectType: "prototype",
+  });
+  const designId = created.id ?? created.data?.id ?? created.design?.id;
+  if (!designId) throw new Error("create-design returned no id");
+  await action(request, "create-file", {
+    designId,
+    filename: "index.html",
+    content: OFFSET_ORIGIN_HTML,
+    fileType: "html",
+  });
+  return designId as string;
+}
+
 async function openOverview(page: Page, designId: string, screens: number) {
   await page.goto(appPath(`/design/${designId}?view=overview`), {
     waitUntil: "domcontentloaded",
@@ -165,10 +195,21 @@ async function guideBoxes(page: Page, kind: "alignment" | "spacing") {
     return Array.from(document.querySelectorAll<HTMLElement>(selector)).map(
       (node) => {
         const rect = node.getBoundingClientRect();
-        return { width: rect.width, height: rect.height };
+        const painted = node.children[0] ?? node;
+        return {
+          width: rect.width,
+          height: rect.height,
+          paint: getComputedStyle(painted).backgroundColor,
+        };
       },
     );
   }, `[data-canvas-guide="${kind}"]`);
+}
+
+/** A guide whose colour resolves to nothing has the right geometry and is
+ *  still invisible — the exact shape of the --destructive bug. */
+function isPainted(paint: string): boolean {
+  return paint !== "" && !/rgba\(0, 0, 0, 0\)|transparent/.test(paint);
 }
 
 async function selectFrame(page: Page, index: number) {
@@ -220,6 +261,10 @@ test("dragging a screen into line draws a guide through every screen it aligns w
         "edge, so Figma lights up every matching line, not just the closest one",
     ).toBeGreaterThan(1);
     expect(
+      verticalGuides.every((box) => isPainted(box.paint)),
+      `guides drew but painted nothing: ${verticalGuides.map((b) => b.paint).join(", ")}`,
+    ).toBe(true);
+    expect(
       Math.max(...verticalGuides.map((box) => box.height)),
     ).toBeGreaterThan(3000 * scale);
   } finally {
@@ -268,6 +313,10 @@ test("dragging a screen near an existing gap snaps the spacing to match it", asy
       spacingMarks.length,
       "Figma marks both the new gap and the gap it matched",
     ).toBeGreaterThanOrEqual(2);
+    expect(
+      spacingMarks.every((mark) => isPainted(mark.paint)),
+      `spacing marks drew but painted nothing: ${spacingMarks.map((m) => m.paint).join(", ")}`,
+    ).toBe(true);
   } finally {
     await action(request, "delete-design", { id: designId }).catch(() => {});
   }
@@ -374,6 +423,17 @@ async function dragInsideScreen(
         top: box.style.top,
         guidesVisible: layer ? layer.style.display !== "none" : false,
         guideNodes: layer ? layer.children.length : 0,
+        // Node count is blind to a guide painted with an undefined custom
+        // property: right geometry, transparent, invisible on screen.
+        guidePaint: layer?.children[0]
+          ? getComputedStyle(layer.children[0]).backgroundColor
+          : "",
+        // A distance readout is a guide node carrying a number.
+        distanceLabels: layer
+          ? Array.from(layer.children).filter(
+              (node) => (node.textContent ?? "").length > 0,
+            ).length
+          : 0,
         constraintLines:
           constraints && constraints.style.display !== "none"
             ? constraints.children.length
@@ -432,6 +492,11 @@ test("dragging an element inside a screen lights up every edge it lines up with"
       "the two boxes are the same width and share a left edge, so their " +
         "centres and right edges line up too — Figma draws all three",
     ).toBeGreaterThan(1);
+    expect(
+      isPainted(result.guidePaint),
+      `guide drew but painted "${result.guidePaint}" — --destructive is not ` +
+        "forwarded into the screen iframe, so it resolves to transparent",
+    ).toBe(true);
   } finally {
     await action(request, "delete-design", { id: designId }).catch(() => {});
   }
@@ -480,6 +545,49 @@ test("dragging an element shows its constraint lines and pixel size, Figma-style
       result.constraintLines,
       "Box A is pinned top-left, so a dashed line runs to each of those frame edges",
     ).toBe(2);
+  } finally {
+    await action(request, "delete-design", { id: designId }).catch(() => {});
+  }
+});
+
+test("dragging an element shows how far it is from its nearest neighbour", async ({
+  page,
+  request,
+}) => {
+  const designId = await createSingleScreenDesign(request);
+  try {
+    await openScreenEditor(page, designId);
+    // Box A ends up ~130px above Box B: no shared edge, no matching gap, so
+    // the only reason to draw anything is proximity itself.
+    const result = await dragInsideScreen(page, "box-a", 0, 30);
+
+    expect(result.top, "the element never moved").not.toBe("280px");
+    expect(
+      result.distanceLabels,
+      "Figma only prints a gap that matches another one; we print the nearest " +
+        "neighbour's distance so the user can see closeness while dragging",
+    ).toBeGreaterThan(0);
+  } finally {
+    await action(request, "delete-design", { id: designId }).catch(() => {});
+  }
+});
+
+test("a lone element far from anything stays quiet", async ({
+  page,
+  request,
+}) => {
+  const designId = await createSingleScreenDesign(request);
+  try {
+    await openScreenEditor(page, designId);
+    // Box C sits 620px down; dragging Box A up and away leaves every
+    // neighbour outside the proximity range.
+    const result = await dragInsideScreen(page, "box-a", 0, -240);
+
+    expect(result.top, "the element never moved").not.toBe("280px");
+    expect(
+      result.distanceLabels,
+      "a measurement stretched across empty canvas is noise, not feedback",
+    ).toBe(0);
   } finally {
     await action(request, "delete-design", { id: designId }).catch(() => {});
   }

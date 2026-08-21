@@ -133,12 +133,13 @@ function loadSnapMath(): {
     "gapCandidateBand",
     "matchingRhythmBands",
     "buildSpacingGuides",
+    "computeProximityMeasurements",
     "computeMoveSnapOffset",
   ].map((name) => extractFunction(editorChromeBridgeScript, name));
 
   // eslint-disable-next-line @typescript-eslint/no-implied-eval
   const factory = new Function(
-    `var SNAP_ALIGN_EPSILON = 1e-6;\nvar SPACING_MATCH_EPSILON = 0.5;\n${sources.join("\n")}\nreturn { rectBounds, computeMoveSnapOffset };`,
+    `var SNAP_ALIGN_EPSILON = 1e-6;\nvar SPACING_MATCH_EPSILON = 0.5;\nvar PROXIMITY_RANGE_PX = 160;\nvar SNAP_THRESHOLD_PX = 6;\n${sources.join("\n")}\nreturn { rectBounds, computeMoveSnapOffset };`,
   );
   return factory();
 }
@@ -426,7 +427,13 @@ describe("editor-chrome bridge — computeMoveSnapOffset", () => {
     const moving = { left: 500, top: 500, width: 100, height: 100 };
     const candidates = [rectBounds({ left: 0, top: 0, width: 50, height: 50 })];
     const result = computeMoveSnapOffset(moving, candidates, 6);
-    expect(result).toEqual({ dx: 0, dy: 0, guides: [], spacingGuides: [] });
+    expect(result).toEqual({
+      dx: 0,
+      dy: 0,
+      guides: [],
+      spacingGuides: [],
+      measurements: [],
+    });
   });
 
   it("snaps the moving rect's left edge to a candidate's left edge within threshold", () => {
