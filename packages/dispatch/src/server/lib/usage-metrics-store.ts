@@ -435,37 +435,6 @@ async function listOrgMembers(orgId: string | null): Promise<MemberRecord[]> {
     .filter((member) => member.email);
 }
 
-async function listSignedInUsers(): Promise<MemberRecord[]> {
-  const authRows = await queryRows<Record<string, unknown>>(
-    `SELECT email, created_at AS joined_at FROM "user" ORDER BY created_at ASC`,
-  );
-  if (authRows.length > 0) {
-    return authRows
-      .map((row) => ({
-        email: stringField(row, "email").trim(),
-        role: null,
-        joinedAt: nullableNumberField(row, "joined_at"),
-      }))
-      .filter((member) => member.email);
-  }
-
-  const usageRows = await queryRows<{ email?: string }>(
-    `SELECT DISTINCT owner_email AS email FROM token_usage`,
-  );
-  const threadRows = await queryRows<{ email?: string }>(
-    `SELECT DISTINCT owner_email AS email FROM chat_threads`,
-  );
-  const emails = new Set<string>();
-  for (const row of [...usageRows, ...threadRows]) {
-    if (row.email) emails.add(row.email);
-  }
-  return [...emails].sort().map((email) => ({
-    email,
-    role: null,
-    joinedAt: null,
-  }));
-}
-
 function usageScope(
   sinceMs: number,
   memberEmails: string[],
@@ -655,7 +624,7 @@ export async function listDispatchUsageMetrics(input: {
       ? [{ email: viewerEmail, role, joinedAt: null }]
       : orgId
         ? await listOrgMembers(orgId)
-        : await listSignedInUsers();
+        : [{ email: viewerEmail, role: null, joinedAt: null }];
   const members =
     viewScope === "workspace" && orgId && rawMembers.length === 0
       ? [{ email: viewerEmail, role, joinedAt: null }]
@@ -677,9 +646,7 @@ export async function listDispatchUsageMetrics(input: {
   }
   const memberEmails = selectedUserEmail
     ? [selectedUserEmail]
-    : orgId
-      ? members.map((member) => member.email)
-      : [];
+    : members.map((member) => member.email);
   const memberByEmail = new Map(
     members.map((member) => [member.email.toLowerCase(), member]),
   );

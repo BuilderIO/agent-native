@@ -82,7 +82,7 @@ describe("WorkspaceAppRoute", () => {
     expect(routeState.navigateToWorkspaceApp).toHaveBeenCalledWith("/mail");
   });
 
-  it("seeds the iframe from a standalone deep link and latches that path", async () => {
+  it("keeps the iframe synchronized with standalone deep-link navigation", async () => {
     routeState.routeSplat = "foobar";
     routeState.location = {
       pathname: "/apps/mail/foobar",
@@ -106,7 +106,7 @@ describe("WorkspaceAppRoute", () => {
       root.render(<WorkspaceAppRoute />);
     });
 
-    expect(routeState.hostProps?.initialPath).toBe("/foobar?view=all#top");
+    expect(routeState.hostProps?.initialPath).toBe("/sent");
     routeState.hostProps?.onChildRouteChange?.("/apps/mail/archive");
     expect(routeState.navigate).toHaveBeenCalledWith("/apps/mail/archive", {
       replace: true,

@@ -1,4 +1,4 @@
-import { useCallback, useRef } from "react";
+import { useCallback } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
 
 import { WorkspaceAppHost } from "../../components/workspace-app-host";
@@ -20,21 +20,11 @@ export default function WorkspaceAppRoute() {
   const { appId } = params;
   const location = useLocation();
   const navigate = useNavigate();
-  const initialRouteRef = useRef<{
-    appId: string | null;
-    path: string | undefined;
-  } | null>(null);
-  const normalizedAppId = appId?.trim().toLowerCase() || null;
-  if (initialRouteRef.current?.appId !== normalizedAppId) {
-    initialRouteRef.current = {
-      appId: normalizedAppId,
-      path: workspaceAppInitialPathFromSplat(
-        params["*"],
-        location.search,
-        location.hash,
-      ),
-    };
-  }
+  const initialPath = workspaceAppInitialPathFromSplat(
+    params["*"],
+    location.search,
+    location.hash,
+  );
   const onChildRouteChange = useCallback(
     (path: string) => {
       const currentPath = `${location.pathname}${location.search}${location.hash}`;
@@ -48,7 +38,7 @@ export default function WorkspaceAppRoute() {
     <WorkspaceAppHost
       appId={appId}
       navigateToTopWindow={navigateWorkspaceAppFromRoute}
-      initialPath={initialRouteRef.current?.path}
+      initialPath={initialPath}
       onChildRouteChange={onChildRouteChange}
     />
   );

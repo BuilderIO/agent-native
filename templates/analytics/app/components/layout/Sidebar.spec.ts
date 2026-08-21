@@ -61,6 +61,23 @@ describe("Sidebar visibility helpers", () => {
     ).toBe(false);
   });
 
+  it("keeps legacy private dashboards without ownership metadata in Mine", () => {
+    expect(
+      matchesVisibilityFilter(
+        { visibility: "private" },
+        "private",
+        "viewer@example.com",
+      ),
+    ).toBe(true);
+    expect(
+      matchesVisibilityFilter(
+        { visibility: "private" },
+        "shared",
+        "viewer@example.com",
+      ),
+    ).toBe(false);
+  });
+
   it("defaults chats without runtime visibility metadata to mine", () => {
     expect(threadMatchesVisibilityFilter(makeThread(), "private")).toBe(true);
     expect(threadMatchesVisibilityFilter(makeThread(), "shared")).toBe(false);

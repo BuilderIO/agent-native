@@ -102,7 +102,7 @@ describe("listDispatchUsageMetrics", () => {
       orgId: null,
       role: null,
       scope: "solo",
-      totalUsers: 0,
+      totalUsers: 1,
     });
     expect(metrics.totals).toEqual({
       costCents: 0,
@@ -192,6 +192,35 @@ describe("listDispatchUsageMetrics", () => {
         String((query as { sql?: string }).sql).includes(
           "LOWER(owner_email) = ?",
         ),
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps an unaffiliated workspace request scoped to the signed-in user", async () => {
+    mocks.getUsageSummary.mockResolvedValue(null);
+    mocks.listWorkspaceApps.mockResolvedValue([]);
+    mocks.execute.mockResolvedValue({ rows: [] });
+
+    const metrics = await listDispatchUsageMetrics({
+      sinceDays: 30,
+      scope: "workspace",
+    });
+
+    expect(metrics.access).toMatchObject({
+      viewerEmail: "owner@example.test",
+      orgId: null,
+      scope: "solo",
+      totalUsers: 1,
+    });
+    const scopedTokenQueries = mocks.execute.mock.calls
+      .map(([query]) => String((query as { sql?: string }).sql))
+      .filter(
+        (sql) => sql.includes("FROM token_usage") && sql.includes("WHERE"),
+      );
+    expect(scopedTokenQueries.length).toBeGreaterThan(0);
+    expect(
+      scopedTokenQueries.every((sql) =>
+        sql.includes("LOWER(owner_email) IN (?)"),
       ),
     ).toBe(true);
   });

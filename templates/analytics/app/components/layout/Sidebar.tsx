@@ -1164,19 +1164,25 @@ async function fetchSqlDashboards(
           d.visibility === "org" ||
           d.visibility === "public"),
     )
-    .map((d: any) => ({
-      id: d.id,
-      name:
-        typeof d.name === "string" && d.name.trim().length > 0
-          ? d.name
-          : t("sidebar.untitledDashboard"),
-      visibility: d.visibility as Visibility,
-      ownerEmail: typeof d.ownerEmail === "string" ? d.ownerEmail : null,
-      parentId:
-        typeof d.parentId === "string" && d.parentId.trim().length > 0
-          ? d.parentId
-          : undefined,
-    }));
+    .map((d: any) => {
+      const ownerEmail =
+        typeof d.ownerEmail === "string" && d.ownerEmail.trim().length > 0
+          ? d.ownerEmail
+          : undefined;
+      return {
+        id: d.id,
+        name:
+          typeof d.name === "string" && d.name.trim().length > 0
+            ? d.name
+            : t("sidebar.untitledDashboard"),
+        visibility: d.visibility as Visibility,
+        ...(ownerEmail ? { ownerEmail } : {}),
+        parentId:
+          typeof d.parentId === "string" && d.parentId.trim().length > 0
+            ? d.parentId
+            : undefined,
+      };
+    });
 }
 
 async function fetchSidebarAnalyses(t: (key: string) => string): Promise<

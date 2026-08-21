@@ -130,14 +130,15 @@ export default function DashboardOverview() {
         ) {
           continue;
         }
+        const ownerEmail =
+          typeof dashboard.ownerEmail === "string"
+            ? dashboard.ownerEmail
+            : undefined;
         validDashboards.push({
           id: dashboard.id,
           name: dashboard.name,
           visibility: dashboard.visibility,
-          ownerEmail:
-            typeof dashboard.ownerEmail === "string"
-              ? dashboard.ownerEmail
-              : null,
+          ...(ownerEmail ? { ownerEmail } : {}),
           folderId: dashboard.folderId ?? null,
         });
       }

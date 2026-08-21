@@ -4245,8 +4245,57 @@ export function writeSingleTemplateNetlifyRedirects(projectCwd: string): void {
   );
 }
 
+/**
+ * Whether the emitted bundle actually imports the `libsql` native addon.
+ *
+ * The `@libsql/client` node entry `require`s it; `@libsql/client/web` and
+ * `better-sqlite3` do not. Probing the emitted output is the only gate that
+ * cannot be wrong: `getDialect()` reads `DATABASE_URL` at RUNTIME, and neither
+ * the docs nor the beta deploy workflow sets it at build time, so build-time
+ * dialect is unknowable. This mirrors `findServerlessBrowserRuntimeConsumer`,
+ * which already gates the Chromium copy the same way — the asymmetry is why a
+ * 9.3MB Linux SQLite driver shipped in the docs function, a deployment that
+ * runs Postgres and can never load it.
+ */
+function bundleImportsLibsqlNativeAddon(serverDir: string): boolean {
+  const bareImport = /(?:require\(|from\s*)["']libsql["']/;
+  const stack: string[] = [serverDir];
+  while (stack.length > 0) {
+    const dir = stack.pop() as string;
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        // The copied native package itself is the thing being gated; its own
+        // files must never count as a consumer.
+        if (entry.name === "node_modules" || entry.name === "@libsql") continue;
+        stack.push(full);
+        continue;
+      }
+      if (!/\.(?:mjs|cjs|js)$/.test(entry.name)) continue;
+      try {
+        if (bareImport.test(fs.readFileSync(full, "utf8"))) return true;
+      } catch {
+        continue;
+      }
+    }
+  }
+  return false;
+}
+
 function copyInstalledLibsqlNativePackages(serverDir: string | undefined) {
   if (!serverDir || !fs.existsSync(serverDir)) return;
+  if (!bundleImportsLibsqlNativeAddon(serverDir)) {
+    console.log(
+      "[deploy] Skipped the libsql native package: the emitted bundle never imports the `libsql` addon.",
+    );
+    return;
+  }
   const nodeModulesRoots = nodeModulesAncestors(cwd);
   const destScopeDir = path.join(serverDir, "node_modules", "@libsql");
   let copied = 0;
