@@ -325,7 +325,7 @@ export default function DesktopAppChatShell({
       setDesktopChatRelayBase(appId, null);
       setDesktopChatRelayActive(appId, false);
     };
-  }, [appId]);
+  }, [appId, isActive]);
 
   useEffect(() => {
     void preloadAgentChatSurface();
