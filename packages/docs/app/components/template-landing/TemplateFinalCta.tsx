@@ -52,7 +52,7 @@ export function TemplateFinalCta({
       ) : null}
 
       {actions || template ? (
-        <div className="template-detail-cta-actions flex flex-col items-stretch justify-center gap-3 border-x border-t border-[var(--docs-border)] px-6 py-10 sm:flex-row sm:items-center sm:gap-[120px] sm:px-8">
+        <div className="template-detail-cta-actions flex flex-col items-stretch justify-center gap-3 border-x border-t border-[var(--docs-border)] px-6 py-10 sm:flex-row sm:flex-wrap sm:items-center sm:gap-4 sm:px-8 lg:gap-[120px]">
           {actions ??
             (template ? <TemplateLandingActions template={template} /> : null)}
         </div>
