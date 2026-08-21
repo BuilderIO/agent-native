@@ -31,6 +31,23 @@ describe("MCP embed headers", () => {
     expect(MCP_EMBED_CORS_ALLOW_HEADERS).toContain("X-Agent-Native-Build-Id");
   });
 
+  it("hands cookies to the desktop dev renderer only in development", () => {
+    vi.stubEnv("NODE_ENV", "development");
+    expect(shouldAllowMcpEmbedCredentials("http://localhost:1420")).toBe(true);
+    vi.stubEnv("NODE_ENV", "production");
+    expect(shouldAllowMcpEmbedCredentials("http://localhost:1420")).toBe(false);
+    expect(shouldAllowMcpEmbedCredentials("tauri://localhost")).toBe(true);
+  });
+
+  it("allows the desktop verifier header", () => {
+    // The Tauri dev renderer runs on http://localhost:1420, so the dev server
+    // answers its sign-in preflight from this list instead of the auth CORS
+    // handler. Dropping the header here breaks desktop login in local dev only.
+    expect(MCP_EMBED_CORS_ALLOW_HEADERS).toContain(
+      "X-Agent-Native-Desktop-Verifier",
+    );
+  });
+
   it("allows ChatGPT web-sandbox origins", () => {
     for (const origin of [
       "https://web-sandbox.oaiusercontent.com",

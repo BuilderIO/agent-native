@@ -1,5 +1,9 @@
 export const MCP_EMBED_CORS_ALLOW_HEADERS =
-  "Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF,X-Agent-Native-Frontend,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id,X-User-Timezone,X-Agent-Native-Session-Id,X-Agent-Native-Client-Platform,X-Agent-Native-Embed-Target,X-Agent-Native-Embed-Transplant";
+  // The desktop verifier header belongs here even though it is not an embed
+  // concern: dev servers and OPTIONS short-circuits answer preflights with this
+  // list before the auth CORS handler runs, and the Tauri dev renderer origin
+  // (http://localhost:1420) matches isLocalMcpEmbedOrigin.
+  "Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF,X-Agent-Native-Frontend,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id,X-User-Timezone,X-Agent-Native-Session-Id,X-Agent-Native-Client-Platform,X-Agent-Native-Desktop-Verifier,X-Agent-Native-Embed-Target,X-Agent-Native-Embed-Transplant";
 export const EMBED_TRANSPLANT_HEADER = "x-agent-native-embed-transplant";
 
 const CLAUDE_MCP_CONTENT_HOST_RE = /^[a-f0-9]{32}\.claudemcpcontent\.com$/i;
@@ -164,9 +168,19 @@ export function shouldAllowMcpEmbedCredentials(
   // Builder, localhost, and arbitrary origins use bearer/embed credentials;
   // only the configured browser allowlist and the framework's exact native
   // app origins may receive cookies.
-  return (
+  if (
     TRUSTED_NATIVE_APP_ORIGIN_RE.test(origin) ||
     isExplicitCorsAllowedOrigin(origin)
+  ) {
+    return true;
+  }
+
+  // Dev only: the desktop renderer runs on its own localhost port
+  // (http://localhost:1420 for Tauri) and calls the dev server with
+  // `credentials: "include"`. Production keeps the rule above — a deployed
+  // app must never hand cookies to an arbitrary process on the user's machine.
+  return (
+    process.env.NODE_ENV === "development" && isLocalMcpEmbedOrigin(origin)
   );
 }
 
