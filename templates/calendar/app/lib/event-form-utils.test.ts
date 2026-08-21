@@ -40,14 +40,6 @@ describe("buildEventTitleUpdate", () => {
   });
 });
 
-describe("dateTimeInTimezoneToIso", () => {
-  it("uses the first valid instant when a timezone skips local midnight", () => {
-    expect(
-      dateTimeInTimezoneToIso("2026-09-06", "00:00", "America/Santiago"),
-    ).toBe("2026-09-06T04:00:00.000Z");
-  });
-});
-
 describe("resolveEventTimezone", () => {
   it("uses the browser timezone when a new event has no explicit zone", () => {
     expect(resolveEventTimezone()).toBe(getLocalTimezone());

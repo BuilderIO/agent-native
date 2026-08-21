@@ -13,9 +13,16 @@ import { and, gte, inArray, lte, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { getCalendarTimezone } from "../server/lib/calendar-settings.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
 import { fetchICalEvents } from "../server/lib/ical-fetcher.js";
 import type { CalendarEvent, ExternalCalendar } from "../shared/api.js";
+import {
+  addDaysToDateKey,
+  dateKeyInTimezone,
+  dateTimeInTimezoneToIso,
+  isCalendarTimezone,
+} from "../shared/timezone.js";
 import { calendarEventMatchesQuery } from "./event-search.js";
 
 const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -74,6 +81,7 @@ interface ListCalendarEventsArgs {
 interface ListCalendarEventsOptions {
   ownedAccounts?: string[];
   range?: CalendarEventRange;
+  timezone?: string;
 }
 
 type CalendarInventorySource = "google" | "bookings" | "ics" | "overlays";
@@ -346,84 +354,9 @@ function compactInventoryEvent(event: CalendarEvent): CalendarInventoryItem {
   };
 }
 
-function normalizeTimezone(timezone?: string): string {
-  if (!timezone) return "UTC";
-  try {
-    new Intl.DateTimeFormat("en-US", { timeZone: timezone }).format();
-    return timezone;
-  } catch {
-    return "UTC";
-  }
-}
-
-function datePartsInTimezone(date: Date, timezone: string) {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: timezone,
-    hourCycle: "h23",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  }).formatToParts(date);
-  const get = (type: string) =>
-    Number(parts.find((part) => part.type === type)?.value ?? "0");
-  return {
-    year: get("year"),
-    month: get("month"),
-    day: get("day"),
-    hour: get("hour"),
-    minute: get("minute"),
-    second: get("second"),
-  };
-}
-
-function dateOnlyInTimezone(date: Date, timezone: string): string {
-  const parts = datePartsInTimezone(date, timezone);
-  return [
-    String(parts.year).padStart(4, "0"),
-    String(parts.month).padStart(2, "0"),
-    String(parts.day).padStart(2, "0"),
-  ].join("-");
-}
-
-function addDaysToDateOnly(dateOnly: string, days: number): string {
-  const [year, month, day] = dateOnly.split("-").map(Number);
-  const date = new Date(Date.UTC(year, month - 1, day + days));
-  return [
-    String(date.getUTCFullYear()).padStart(4, "0"),
-    String(date.getUTCMonth() + 1).padStart(2, "0"),
-    String(date.getUTCDate()).padStart(2, "0"),
-  ].join("-");
-}
-
-function offsetMsForTimezone(date: Date, timezone: string): number {
-  const parts = datePartsInTimezone(date, timezone);
-  const asUtc = Date.UTC(
-    parts.year,
-    parts.month - 1,
-    parts.day,
-    parts.hour,
-    parts.minute,
-    parts.second,
-  );
-  return asUtc - date.getTime();
-}
-
-function zonedDateOnlyToUtcIso(dateOnly: string, timezone: string): string {
-  const [year, month, day] = dateOnly.split("-").map(Number);
-  const wallClockUtc = Date.UTC(year, month - 1, day, 0, 0, 0);
-  const firstGuess = new Date(wallClockUtc);
-  const firstOffset = offsetMsForTimezone(firstGuess, timezone);
-  const secondGuess = new Date(wallClockUtc - firstOffset);
-  const secondOffset = offsetMsForTimezone(secondGuess, timezone);
-  return new Date(wallClockUtc - secondOffset).toISOString();
-}
-
 function normalizeDateBound(value: string, timezone: string): string {
   if (DATE_ONLY_RE.test(value)) {
-    return zonedDateOnlyToUtcIso(value, timezone);
+    return dateTimeInTimezoneToIso(value, "00:00", timezone);
   }
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) {
@@ -437,19 +370,20 @@ export function resolveCalendarEventRange(args: {
   to?: string;
   timezone?: string;
 }): CalendarEventRange {
-  const timezone = normalizeTimezone(args.timezone ?? getRequestTimezone());
-  const today = dateOnlyInTimezone(new Date(), timezone);
+  const requested = args.timezone ?? getRequestTimezone();
+  const timezone = isCalendarTimezone(requested) ? requested : "UTC";
+  const today = dateKeyInTimezone(new Date(), timezone);
   let from = args.from?.trim();
   let to = args.to?.trim();
   let defaulted = false;
 
   if (!from && !to) {
     from = today;
-    to = addDaysToDateOnly(today, 1);
+    to = addDaysToDateKey(today, 1);
     defaulted = true;
   } else if (from && !to) {
     if (DATE_ONLY_RE.test(from)) {
-      to = addDaysToDateOnly(from, 1);
+      to = addDaysToDateKey(from, 1);
     } else {
       const start = new Date(from);
       if (Number.isNaN(start.getTime())) {
@@ -631,11 +565,13 @@ export async function listCalendarEvents(
 ): Promise<CalendarEventsResult> {
   const email = getRequestUserEmail();
   if (!email) throw new Error("no authenticated user");
+  const timezone = options.timezone ?? (await getCalendarTimezone(email));
   const range =
     options.range ??
     resolveCalendarEventRange({
       from: args.from,
       to: args.to,
+      timezone,
     });
 
   const sources = resolveInventorySources(args.sources);
@@ -882,6 +818,9 @@ export default defineAction({
       args.format === "inventory" || (ctx?.caller === "mcp" && !args.format);
     const owner = inventory ? getRequestUserEmail() : undefined;
     if (inventory && !owner) throw new Error("no authenticated user");
+    const calendarTimezone = inventory
+      ? await getCalendarTimezone(owner!)
+      : undefined;
 
     // Reject invalid, expired, owner-bound, and query-bound cursors before any
     // provider call. Omitted account filters require the cheap owned-account
@@ -895,6 +834,7 @@ export default defineAction({
       preparedRange = resolveCalendarEventRange({
         from: args.from,
         to: args.to,
+        timezone: calendarTimezone,
       });
       preparedOwnedAccounts = args.accountEmails
         ? undefined
@@ -921,6 +861,7 @@ export default defineAction({
       {
         ownedAccounts: preparedOwnedAccounts,
         range: preparedRange,
+        timezone: calendarTimezone,
       },
     );
 

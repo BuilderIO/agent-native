@@ -1,5 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 import type { CalendarEvent } from "@shared/api";
+import { timezoneFormatter } from "@shared/timezone";
 import { IconAlertTriangleFilled, IconCalendarOff } from "@tabler/icons-react";
 
 import {
@@ -26,6 +27,7 @@ interface EventCardProps {
   onDragEnd?: () => void;
   dimmed?: boolean;
   colorPreferences?: CalendarColorPreferences;
+  timezone?: string;
 }
 
 export function EventCard({
@@ -37,6 +39,7 @@ export function EventCard({
   onDragEnd,
   dimmed = false,
   colorPreferences,
+  timezone,
 }: EventCardProps) {
   const t = useT();
   const workingLocationLabels = createWorkingLocationDisplayLabels(t);
@@ -164,10 +167,10 @@ export function EventCard({
       )}
       {!event.allDay && (
         <span className="text-foreground/70">
-          {new Date(event.start).toLocaleTimeString([], {
+          {timezoneFormatter(timezone, {
             hour: "numeric",
             minute: "2-digit",
-          })}
+          }).format(new Date(event.start))}
         </span>
       )}
       {event.ownerColor && (
