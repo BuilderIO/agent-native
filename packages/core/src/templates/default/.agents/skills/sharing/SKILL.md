@@ -215,10 +215,16 @@ All app share popovers should use the same compact surface contract:
   printing the raw URL.
 - Keep general access and individual people access in the standard Core sharing
   flow. The people flow supports email invites, roles, notifications, and
-  removal through the shared share actions.
-- Add `ShareAgentsSection` only when the resource has a real agent-readable
-  link or prompt. Keep it collapsed by default and supply domain-specific
-  content through the shared section shell.
+  removal through the shared share actions. Order matters: people with access
+  comes first, general (link) access comes after it, matching Google Docs.
+- The built-in `<ShareButton>` / `<ShareDialog>` agent row (`AgentShareSection`)
+  is always visible when the resource is agent-readable — title, expiry note,
+  and a Copy button, no disclosure toggle. It only mints the temporary
+  `agent_access` link when Copy is actually pressed, so opening the popover
+  never creates a token nobody asked for. Templates building their own bespoke
+  share surface (not `<ShareButton>`/`<ShareDialog>`) that want an expand/collapse
+  interaction instead can still use the toolkit's `ShareAgentsSection` shell
+  directly — keep that variant collapsed by default.
 - When `supportsGroupShares` is enabled, keep the existing people input as the
   only entry point and include organization groups in its autocomplete. Do not
   add a separate group-management surface to each resource.

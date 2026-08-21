@@ -441,45 +441,14 @@ function SharePanel(
       {showShareLinks ? (
         <div className="mb-4 h-9 rounded-md bg-muted animate-pulse" />
       ) : null}
-      <div className="mb-2 text-sm font-semibold">{generalAccessLabel}</div>
-      <div className="mb-4 h-9 rounded-md bg-muted animate-pulse" />
       <div className="mb-2 text-sm font-semibold">{peopleAccessLabel}</div>
       <div className="mb-4 h-7 rounded-md bg-muted animate-pulse" />
+      <div className="mb-2 text-sm font-semibold">{generalAccessLabel}</div>
+      <div className="mb-4 h-9 rounded-md bg-muted animate-pulse" />
     </div>
   ) : (
     <div>
       {showShareLinks && shareUrlPlacement === "top" ? shareLinks : null}
-
-      <div className="mb-4">
-        <div className="mb-2 text-sm font-semibold">{generalAccessLabel}</div>
-        <div className="flex items-center gap-3">
-          <span
-            aria-hidden
-            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"
-          >
-            <meta.Icon size={16} strokeWidth={1.75} />
-          </span>
-          <div className="min-w-0 flex-1">
-            <VisibilitySelect
-              value={visibility}
-              onChange={handleVisibility}
-              disabled={!canManage}
-              visibilityCopy={props.visibilityCopy}
-              allowPublic={policy.allowPublic}
-            />
-            <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-              <span className="sr-only">{meta.description}</span>
-              {visibility === "org" && props.hideInSearchControl ? (
-                <AdvancedAccessPopover
-                  control={props.hideInSearchControl}
-                  canManage={canManage}
-                  onToggle={handleHideInSearch}
-                />
-              ) : null}
-            </div>
-          </div>
-        </div>
-      </div>
 
       <div className="mb-4 space-y-4">
         <div className="text-sm font-semibold">{peopleAccessLabel}</div>
@@ -668,6 +637,37 @@ function SharePanel(
             </li>
           ) : null}
         </ul>
+      </div>
+
+      <div className="mb-4">
+        <div className="mb-2 text-sm font-semibold">{generalAccessLabel}</div>
+        <div className="flex items-center gap-3">
+          <span
+            aria-hidden
+            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"
+          >
+            <meta.Icon size={16} strokeWidth={1.75} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <VisibilitySelect
+              value={visibility}
+              onChange={handleVisibility}
+              disabled={!canManage}
+              visibilityCopy={props.visibilityCopy}
+              allowPublic={policy.allowPublic}
+            />
+            <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+              <span className="sr-only">{meta.description}</span>
+              {visibility === "org" && props.hideInSearchControl ? (
+                <AdvancedAccessPopover
+                  control={props.hideInSearchControl}
+                  canManage={canManage}
+                  onToggle={handleHideInSearch}
+                />
+              ) : null}
+            </div>
+          </div>
+        </div>
       </div>
 
       {shareError && !canManage ? (

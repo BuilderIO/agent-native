@@ -544,7 +544,7 @@ describe("ShareButton", () => {
     ).toHaveLength(2);
   });
 
-  it("keeps agent-readable sharing collapsed until requested", async () => {
+  it("only fetches the agent link when Copy is pressed", async () => {
     sharesData.current = {
       ...sharesData.current,
       agentReadable: true,
@@ -559,14 +559,15 @@ describe("ShareButton", () => {
     });
 
     expect(container.textContent).toContain("Share with agents");
-    expect(container.textContent).not.toContain("Agent context link");
+    expect(otherMutate).not.toHaveBeenCalled();
 
-    const disclosure = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.includes("Share with agents"),
+    const copyButtons = Array.from(container.querySelectorAll("button")).filter(
+      (button) => button.textContent === "Copy",
     );
-    if (!disclosure) throw new Error("Agent share disclosure not found");
+    const agentCopy = copyButtons.at(-1);
+    if (!agentCopy) throw new Error("Agent share copy button not found");
 
-    act(() => disclosure.click());
+    act(() => agentCopy.click());
 
     expect(otherMutate).toHaveBeenCalledWith(
       { resourceType: "deck", resourceId: "deck-1" },
@@ -600,9 +601,9 @@ describe("ShareButton", () => {
       ),
     ).toBe(false);
     expect(
-      (container.textContent ?? "").indexOf("General editing access"),
-    ).toBeLessThan(
       (container.textContent ?? "").indexOf("People with editing access"),
+    ).toBeLessThan(
+      (container.textContent ?? "").indexOf("General editing access"),
     );
   });
 

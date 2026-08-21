@@ -426,7 +426,7 @@ export function useShareDialogController({
       generalAccess: t("share.generalAccess"),
       shareLink: t("share.shareLink"),
       peopleWithAccess: t("share.peopleWithAccess"),
-      addPeopleByEmail: t("share.addPeopleByEmail"),
+      addPeopleByEmail: t("share.addPeopleEmail"),
       notifyPeople: t("share.notifyPeople"),
       addMessage: t("share.addMessage"),
       hideMessage: t("share.hideMessage"),

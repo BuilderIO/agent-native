@@ -204,37 +204,16 @@ function LinkTab({
   controller: ShareDialogController;
   extras?: ReactNode;
 }) {
-  const Icon = VIS_ICONS[controller.visibility.value];
   return (
     <div className="space-y-3">
+      <InviteTab controller={controller} showVisibility />
       <ShareCopyRow
         label={controller.labels.shareLink}
         value={controller.shareUrl!}
         copyLabel={controller.labels.copy}
         copiedLabel={controller.labels.copied}
         onCopy={(value) => controller.copy("share-link", value)}
-        className="mb-4"
       />
-      <div>
-        <div className="mb-2 text-xs font-medium text-muted-foreground">
-          {controller.labels.generalAccess}
-        </div>
-        <div className="flex items-center gap-3">
-          <span
-            aria-hidden
-            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"
-          >
-            <Icon size={16} strokeWidth={1.75} />
-          </span>
-          <div className="min-w-0 flex-1">
-            <VisibilitySelect controller={controller} />
-            <div className="sr-only text-xs text-muted-foreground">
-              {controller.visibility.description}
-            </div>
-          </div>
-        </div>
-      </div>
-      <InviteTab controller={controller} showVisibility={false} />
       {extras}
     </div>
   );
@@ -250,28 +229,6 @@ function InviteTab({
   const Icon = VIS_ICONS[controller.visibility.value];
   return (
     <div className="space-y-4">
-      {showVisibility ? (
-        <div>
-          <div className="mb-2 text-sm font-semibold">
-            {controller.labels.generalAccess}
-          </div>
-          <div className="flex items-center gap-3">
-            <span
-              aria-hidden
-              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"
-            >
-              <Icon size={16} strokeWidth={1.75} />
-            </span>
-            <div className="min-w-0 flex-1">
-              <VisibilitySelect controller={controller} />
-              <div className="sr-only text-xs text-muted-foreground">
-                {controller.visibility.description}
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
       <div className="space-y-4">
         <div className="text-sm font-semibold">
           {controller.labels.peopleWithAccess}
@@ -361,6 +318,28 @@ function InviteTab({
           ) : null}
         </ul>
       </div>
+
+      {showVisibility ? (
+        <div>
+          <div className="mb-2 text-sm font-semibold">
+            {controller.labels.generalAccess}
+          </div>
+          <div className="flex items-center gap-3">
+            <span
+              aria-hidden
+              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"
+            >
+              <Icon size={16} strokeWidth={1.75} />
+            </span>
+            <div className="min-w-0 flex-1">
+              <VisibilitySelect controller={controller} />
+              <div className="sr-only text-xs text-muted-foreground">
+                {controller.visibility.description}
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

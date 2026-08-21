@@ -129,14 +129,14 @@ describe("ShareDialog primitive normalization", () => {
     expect(text).not.toContain("share.invite");
   });
 
-  it("keeps general access above people with access", async () => {
+  it("keeps people with access above general access", async () => {
     await renderDialog();
 
     const text = document.body.textContent ?? "";
     expect(text.indexOf("share.generalAccess")).toBeGreaterThan(-1);
     expect(text.indexOf("share.peopleWithAccess")).toBeGreaterThan(-1);
-    expect(text.indexOf("share.generalAccess")).toBeLessThan(
-      text.indexOf("share.peopleWithAccess"),
+    expect(text.indexOf("share.peopleWithAccess")).toBeLessThan(
+      text.indexOf("share.generalAccess"),
     );
   });
 
