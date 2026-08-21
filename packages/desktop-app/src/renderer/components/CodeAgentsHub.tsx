@@ -592,6 +592,9 @@ export function updateAppAuthStateByTab(
   tabId: string,
   state: AppWebviewAuthState,
 ): Record<string, AppWebviewAuthState> {
+  // Navigation probes publish unknown while the guest session settles. Keep
+  // the last confirmed state so host-owned surfaces do not remount per route.
+  if (state === "unknown" && current[tabId] !== undefined) return current;
   return current[tabId] === state ? current : { ...current, [tabId]: state };
 }
 

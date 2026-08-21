@@ -778,4 +778,25 @@ describe("CodeAgentsHub app auth state", () => {
       "dispatch-tab-2": "authenticated",
     });
   });
+
+  it("does not demote a confirmed state while a navigation probe is pending", () => {
+    const authenticated = updateAppAuthStateByTab(
+      {},
+      "dispatch-tab",
+      "authenticated",
+    );
+    expect(
+      updateAppAuthStateByTab(authenticated, "dispatch-tab", "unknown"),
+    ).toBe(authenticated);
+
+    const unauthenticated = updateAppAuthStateByTab(
+      authenticated,
+      "dispatch-tab",
+      "unauthenticated",
+    );
+    expect(unauthenticated).toEqual({ "dispatch-tab": "unauthenticated" });
+    expect(
+      updateAppAuthStateByTab(unauthenticated, "dispatch-tab", "unknown"),
+    ).toBe(unauthenticated);
+  });
 });
