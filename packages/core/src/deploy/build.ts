@@ -4257,7 +4257,7 @@ export function writeSingleTemplateNetlifyRedirects(projectCwd: string): void {
  * 9.3MB Linux SQLite driver shipped in the docs function, a deployment that
  * runs Postgres and can never load it.
  */
-function bundleImportsLibsqlNativeAddon(serverDir: string): boolean {
+export function bundleImportsLibsqlNativeAddon(serverDir: string): boolean {
   const bareImport = /(?:require\(|from\s*)["']libsql["']/;
   const stack: string[] = [serverDir];
   while (stack.length > 0) {

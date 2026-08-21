@@ -1,4 +1,5 @@
 import fs from "fs";
+import os from "os";
 import path from "path";
 import { pathToFileURL } from "url";
 
@@ -57,6 +58,7 @@ import {
   resolveKeepWarmSchedule,
   NETLIFY_RECURRING_JOBS_FUNCTION_NAME,
   NITRO_RUNTIME_IGNORE_PATTERNS,
+  bundleImportsLibsqlNativeAddon,
   nitroNoExternalsForPreset,
   patchCloudflareModuleNitroEntry,
   pruneServerlessFunctionDeadWeight,
@@ -3390,5 +3392,55 @@ describe("durable-background Netlify function emit (single-template, default-on)
     prepareSingleTemplateNetlifyOutput(cwd);
 
     expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).not.toThrow();
+  });
+});
+
+describe("bundleImportsLibsqlNativeAddon", () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "libsql-probe-"));
+  });
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("detects a bare libsql import so the native package is still shipped", () => {
+    fs.mkdirSync(path.join(dir, "_libs"), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "_libs", "client.mjs"),
+      'import x from "libsql";\nexport default x;\n',
+    );
+
+    expect(bundleImportsLibsqlNativeAddon(dir)).toBe(true);
+  });
+
+  it("detects the CommonJS require form too", () => {
+    fs.writeFileSync(
+      path.join(dir, "index.cjs"),
+      'const db = require("libsql");\nmodule.exports = db;\n',
+    );
+
+    expect(bundleImportsLibsqlNativeAddon(dir)).toBe(true);
+  });
+
+  it("does not count @libsql/client/web, which needs no native addon", () => {
+    fs.writeFileSync(
+      path.join(dir, "index.mjs"),
+      'import { createClient } from "@libsql/client/web";\nexport { createClient };\n',
+    );
+
+    expect(bundleImportsLibsqlNativeAddon(dir)).toBe(false);
+  });
+
+  it("ignores the copied native package so the gate cannot justify itself", () => {
+    // Without this, a second build would see the package copied by the first
+    // and keep copying it forever.
+    const pkg = path.join(dir, "node_modules", "@libsql", "linux-x64-gnu");
+    fs.mkdirSync(pkg, { recursive: true });
+    fs.writeFileSync(path.join(pkg, "index.js"), 'require("libsql");\n');
+
+    expect(bundleImportsLibsqlNativeAddon(dir)).toBe(false);
   });
 });
