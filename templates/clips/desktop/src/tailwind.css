@@ -148,29 +148,6 @@
   }
 }
 
-/* Scroll shadows for the settings pane. The window is fixed-height and macOS
-   overlay scrollbars are invisible until touched, so without this a long tab
-   reads as complete — a user reported a bottom row as missing entirely. The
-   classic four-layer trick: background-attachment `local` covers slide with
-   the content and mask the `scroll` shadows away at the edges. */
-@layer theme {
-  .settings-scroll-shadows {
-    background:
-      linear-gradient(hsl(var(--ui-background)) 30%, transparent) center top,
-      linear-gradient(transparent, hsl(var(--ui-background)) 70%) center bottom,
-      linear-gradient(hsl(var(--ui-foreground) / 0.08), transparent) center top,
-      linear-gradient(transparent, hsl(var(--ui-foreground) / 0.08)) center
-        bottom;
-    background-repeat: no-repeat;
-    background-size:
-      100% 32px,
-      100% 32px,
-      100% 10px,
-      100% 10px;
-    background-attachment: local, local, scroll, scroll;
-  }
-}
-
 /* The tray follows the OS, so dark mode is a media query rather than the web
    app's `.dark` class. Both resolve the same token names. */
 @custom-variant dark (@media (prefers-color-scheme: dark));
