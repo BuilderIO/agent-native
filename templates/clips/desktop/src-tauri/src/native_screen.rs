@@ -215,7 +215,7 @@ struct NativeUploadResumeResponse {
     retry_after_ms: Option<u64>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 struct NativeUploadResetResponse {
     upload_mode: Option<String>,
@@ -226,6 +226,16 @@ impl NativeUploadResetResponse {
     fn mode(&self) -> NativeUploadMode {
         NativeUploadMode::from_option(self.upload_mode.clone())
     }
+}
+
+fn accept_native_retry_reset(
+    reset: NativeUploadResetResponse,
+    cancelled: bool,
+) -> Result<NativeUploadResetResponse, String> {
+    if cancelled {
+        return Err(NATIVE_UPLOAD_RETRY_CANCELLED.to_string());
+    }
+    Ok(reset)
 }
 
 impl NativeUploadMode {
@@ -3800,9 +3810,10 @@ pub async fn native_fullscreen_recording_retry_upload(
                         return Err(err);
                     }
                 };
-                if native_upload_retry_cancelled(&saved.recording_id) {
-                    return Err(NATIVE_UPLOAD_RETRY_CANCELLED.to_string());
-                }
+                let reset = accept_native_retry_reset(
+                    reset,
+                    native_upload_retry_cancelled(&saved.recording_id),
+                )?;
                 (reset.mode(), None, reset.upload_generation_id)
             }
             NativeRetryUploadPlan::Reconcile => unreachable!("handled above"),
@@ -3851,9 +3862,10 @@ pub async fn native_fullscreen_recording_retry_upload(
             {
                 Ok(reset) => {
                     interruption_upload_generation_id = reset.upload_generation_id.clone();
-                    if native_upload_retry_cancelled(&saved.recording_id) {
-                        return Err(NATIVE_UPLOAD_RETRY_CANCELLED.to_string());
-                    }
+                    let reset = accept_native_retry_reset(
+                        reset,
+                        native_upload_retry_cancelled(&saved.recording_id),
+                    )?;
                     upload_prepared_recording_file(
                         &app,
                         &prepared,
@@ -6091,14 +6103,41 @@ fn native_retry_interruption_payload(
 #[cfg(test)]
 mod native_retry_upload_plan_tests {
     use super::{
-        is_native_upload_restart_required, is_native_upload_unfenced_restart_required,
-        native_replay_attempt_id, native_retry_attempt_id, native_retry_conflict_delay,
-        native_retry_interruption_payload, plan_native_retry_upload,
-        preserve_native_retry_fence_during_rollback, saved_native_retry_attempt_id, upload_url,
-        NativeFullscreenUploadResult, NativeRetryUploadPlan, NativeUploadResumeResponse,
-        NATIVE_UPLOAD_RESTART_REQUIRED, NATIVE_UPLOAD_UNFENCED_RESTART_REQUIRED,
-        UPLOAD_CHUNK_BYTES,
+        accept_native_retry_reset, is_native_upload_restart_required,
+        is_native_upload_unfenced_restart_required, native_replay_attempt_id,
+        native_retry_attempt_id, native_retry_conflict_delay, native_retry_interruption_payload,
+        plan_native_retry_upload, preserve_native_retry_fence_during_rollback,
+        saved_native_retry_attempt_id, upload_url, NativeFullscreenUploadResult,
+        NativeRetryUploadPlan, NativeUploadResetResponse, NativeUploadResumeResponse,
+        NATIVE_UPLOAD_RESTART_REQUIRED, NATIVE_UPLOAD_RETRY_CANCELLED,
+        NATIVE_UPLOAD_UNFENCED_RESTART_REQUIRED, UPLOAD_CHUNK_BYTES,
     };
+
+    #[test]
+    fn cancellation_after_a_committed_reset_preserves_the_authoritative_response() {
+        let reset = NativeUploadResetResponse {
+            upload_mode: Some("streaming".to_string()),
+            upload_generation_id: Some("generation-after-reset".to_string()),
+        };
+
+        assert_eq!(
+            accept_native_retry_reset(reset, true),
+            Err(NATIVE_UPLOAD_RETRY_CANCELLED.to_string())
+        );
+        assert_eq!(
+            accept_native_retry_reset(
+                NativeUploadResetResponse {
+                    upload_mode: Some("streaming".to_string()),
+                    upload_generation_id: Some("generation-after-reset".to_string()),
+                },
+                false,
+            )
+            .expect("retry may re-enter the committed reset fence")
+            .upload_generation_id
+            .as_deref(),
+            Some("generation-after-reset")
+        );
+    }
 
     fn response(bytes_received: u64, next_chunk_index: u64) -> NativeUploadResumeResponse {
         NativeUploadResumeResponse {
