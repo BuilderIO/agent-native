@@ -213,6 +213,11 @@ describe("verified fleet feature flag transaction", () => {
             canManage: true,
           }),
         );
+      mocks.signA2AToken
+        .mockReset()
+        .mockResolvedValueOnce("mutation-token")
+        .mockResolvedValueOnce("verification-token-1")
+        .mockResolvedValueOnce("verification-token-2");
 
       await expect(
         setWorkspaceFeatureFlag(admin, {
@@ -230,6 +235,16 @@ describe("verified fleet feature flag transaction", () => {
         "https://mail.example.com/_agent-native/actions/set-feature-flag",
         "https://mail.example.com/_agent-native/actions/list-feature-flags",
         "https://mail.example.com/_agent-native/actions/list-feature-flags",
+      ]);
+      expect(
+        fetchSpy.mock.calls.map(
+          ([, options]) =>
+            (options?.headers as Record<string, string>).Authorization,
+        ),
+      ).toEqual([
+        "Bearer mutation-token",
+        "Bearer verification-token-1",
+        "Bearer verification-token-2",
       ]);
       expect(mocks.signA2AToken).toHaveBeenCalledTimes(3);
     },
@@ -296,7 +311,10 @@ describe("verified fleet feature flag transaction", () => {
     };
     vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(
-        responseWithBodyFailure(200, new SyntaxError("private invalid JSON")),
+        responseWithBodyFailure(200, {
+          name: "SyntaxError",
+          message: "private cross-realm invalid JSON",
+        }),
       )
       .mockResolvedValueOnce(
         responseWithBodyFailure(403, new Error("private interrupted body")),

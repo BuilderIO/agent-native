@@ -275,6 +275,16 @@ export function classifyWorkspaceFeatureFlagTargetFailure(
   return "network";
 }
 
+function isSyntaxError(error: unknown): boolean {
+  return (
+    error instanceof SyntaxError ||
+    (!!error &&
+      typeof error === "object" &&
+      "name" in error &&
+      error.name === "SyntaxError")
+  );
+}
+
 function targetFailure(error: unknown): WorkspaceFeatureFlagFailure {
   const reason = classifyWorkspaceFeatureFlagTargetFailure(error);
   return new WorkspaceFeatureFlagFailure(reason);
@@ -337,7 +347,7 @@ async function callTarget(
     parsed = await response.json();
   } catch (error) {
     const successfulResponse = response.status >= 200 && response.status < 300;
-    if (successfulResponse && !(error instanceof SyntaxError))
+    if (successfulResponse && !isSyntaxError(error))
       throw new TargetCallFailure(
         classifyWorkspaceFeatureFlagTargetFailure(error),
       );
