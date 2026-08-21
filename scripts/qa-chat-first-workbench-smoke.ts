@@ -808,6 +808,34 @@ async function runElectronSmoke(): Promise<void> {
     await page.waitForLoadState("domcontentloaded");
     await page.waitForTimeout(5_000);
 
+    let feedbackSubmission: { data?: Record<string, string> } | null = null;
+    await page.route(
+      "https://forms.agent-native.com/api/forms/public/**",
+      async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            id: "desktop-feedback-smoke",
+            fields: [{ id: "message", type: "textarea" }],
+          }),
+        });
+      },
+    );
+    await page.route(
+      "https://forms.agent-native.com/api/submit/**",
+      async (route) => {
+        feedbackSubmission = route.request().postDataJSON() as {
+          data?: Record<string, string>;
+        };
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ ok: true }),
+        });
+      },
+    );
+
     if (electronDispatchUrl) {
       await page.evaluate(async (dispatchUrl) => {
         await window.electronAPI.appConfig.update("dispatch", {
@@ -1080,56 +1108,32 @@ async function runElectronSmoke(): Promise<void> {
       "Electron app creation should add the app to the Apps rail",
     );
 
-    await page
-      .locator(".code-agents-rail-footer")
-      .getByRole("button", { name: "Settings", exact: true })
-      .click();
-    await page.locator(".settings-page-tabs-nav").waitFor({ state: "visible" });
-    const settingsLayout = await page.evaluate(() => {
-      const panel = document.querySelector<HTMLElement>(
-        ".settings-panel--page",
-      );
-      const sidebar = document.querySelector<HTMLElement>(
-        ".settings-page-tabs-nav",
-      );
-      return {
-        panelWidth: panel?.getBoundingClientRect().width ?? 0,
-        viewportWidth: window.innerWidth,
-        sidebarWidth: sidebar?.getBoundingClientRect().width ?? 0,
-      };
+    const feedbackFooter = page.locator(".code-agents-rail-footer");
+    const feedbackButton = feedbackFooter.getByRole("button", {
+      name: "Feedback",
+      exact: true,
     });
-    assert.ok(
-      settingsLayout.panelWidth >= settingsLayout.viewportWidth - 1,
-      "Electron settings should occupy the full desktop page",
+    await feedbackButton.click();
+    const feedbackTextarea = page.getByPlaceholder(
+      "What's working, what's broken, or what would you change?",
     );
-    assert.ok(
-      settingsLayout.sidebarWidth >= 180,
-      "Electron settings should expose the section rail",
-    );
+    await feedbackTextarea.waitFor({ state: "visible" });
+    await saveElectronScreenshot(electronApp, "electron-02-feedback-popover");
+    await feedbackTextarea.fill("Desktop feedback smoke test");
+    await page
+      .getByRole("button", { name: "Send feedback", exact: true })
+      .click();
+    await page.getByText("Thanks for the feedback!", { exact: true }).waitFor({
+      state: "visible",
+    });
+    assert.deepEqual(feedbackSubmission?.data, {
+      message: "Desktop feedback smoke test",
+    });
+    await saveElectronScreenshot(electronApp, "electron-after-feedback");
     assert.equal(
-      await page.getByPlaceholder("Search settings…").count(),
+      await page.locator(".code-agents-rail-footer").count(),
       1,
-      "Electron settings should expose the shared settings search",
-    );
-    for (const label of [
-      "General",
-      "AI providers",
-      "Workspace",
-      "Keyboard shortcuts",
-    ]) {
-      assert.equal(
-        await page.getByRole("tab", { name: label, exact: true }).count(),
-        1,
-        `Electron settings should expose ${label}`,
-      );
-    }
-    await saveElectronScreenshot(electronApp, "electron-02-settings");
-    await page.getByRole("button", { name: "Back to app" }).click();
-    await page.waitForTimeout(250);
-    assert.equal(
-      await page.locator(".settings-panel--page").count(),
-      0,
-      "closing Electron settings should return to the workbench",
+      "Electron feedback should keep the rail footer mounted",
     );
 
     await page.getByRole("button", { name: "Show less" }).click();

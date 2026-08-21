@@ -1,6 +1,7 @@
 import type { ActionRunContext } from "@agent-native/core/action";
 import { listAutomationDefinitions } from "@agent-native/core/triggers";
 
+import { readAutomationFactoryId } from "./factory-scope.js";
 import type { WorkspaceMemberIdentity } from "./require-workspace-member.js";
 
 const FACTORY_AUTOMATION_NAMES = {
@@ -31,6 +32,7 @@ export async function requireFactoryAutomation(
   context: ActionRunContext | undefined,
   identity: Pick<WorkspaceMemberIdentity, "userEmail" | "orgId">,
   role: FactoryAutomationRole,
+  expectedFactoryId?: string,
 ): Promise<void> {
   if (context?.caller !== "automation") {
     throw new Error("This action is only available to Factory automations.");
@@ -62,6 +64,15 @@ export async function requireFactoryAutomation(
     definition.meta.runAs !== "creator" ||
     !ownerEmail ||
     definition.meta.createdBy?.trim().toLowerCase() !== ownerEmail
+  ) {
+    throw new Error(
+      "The action was not invoked by a governed Factory automation.",
+    );
+  }
+  if (
+    expectedFactoryId &&
+    readAutomationFactoryId(definition.meta, definition.resource.content) !==
+      expectedFactoryId
   ) {
     throw new Error(
       "The action was not invoked by a governed Factory automation.",

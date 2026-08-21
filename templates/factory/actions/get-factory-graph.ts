@@ -28,7 +28,7 @@ export default defineAction({
     const row = await readFactoryDefinition(orgId, factoryId);
     const fallback = defaultFactoryDefinition();
     const graph = row ? parseFactoryGraph(row.graphJson) : fallback.graph;
-    const metrics = await readFactoryMetrics(orgId);
+    const metrics = await readFactoryMetrics(orgId, factoryId);
 
     const metricValues: Record<string, number> = {
       items: metrics.totalItems,

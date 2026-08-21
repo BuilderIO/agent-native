@@ -282,10 +282,15 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(hubSource).toContain(
       "https://forms.agent-native.com/f/agent-native-feedback/_16ewV",
     );
-    expect(hubSource).not.toContain("desktop-chat-first-rail-settings");
+    expect(hubSource).toContain(
+      'className="code-agents-nav-link desktop-chat-first-rail-settings"',
+    );
+    expect(hubSource).toContain('<DesktopRailTooltip label="Settings">');
+    expect(hubSource).toContain("<TooltipProvider delayDuration={0}>");
     expect(hubSource).toContain("IconLayoutSidebarLeftCollapse");
     expect(hubSource).toContain("desktop-chat-first-rail-collapse");
     expect(hubSource).toContain("data-chat-first-rail-collapse");
+    expect(hubSource).toContain("<DesktopRailTooltip");
     expect(hubSource).toContain("setChatFirstRailCollapsed(true)");
     expect(hubSource).not.toContain(
       '{chatFirstRailCollapsed ? "Expand" : "Collapse"}',
