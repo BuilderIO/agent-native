@@ -974,7 +974,8 @@ export class DesktopIdentityBroker {
     const timeoutFailure = new Promise<never>((_resolve, reject) => {
       timeoutController.signal.addEventListener(
         "abort",
-        () => reject(new Error("Desktop identity magic-link request timed out.")),
+        () =>
+          reject(new Error("Desktop identity magic-link request timed out.")),
         { once: true },
       );
     });

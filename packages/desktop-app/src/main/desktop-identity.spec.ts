@@ -416,7 +416,8 @@ describe("DesktopIdentityBroker", () => {
 
       await expect(request).resolves.toEqual({
         ok: false,
-        error: "The identity service did not respond in time. Please try again.",
+        error:
+          "The identity service did not respond in time. Please try again.",
       });
       expect(broker.getStatus()).toBe("failed");
     } finally {
