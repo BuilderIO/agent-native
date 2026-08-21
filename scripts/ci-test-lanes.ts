@@ -174,11 +174,6 @@ function resolveTestPackages(
     }),
   );
   const packages = all.filter((pkg) => selectedNames.has(pkg.name));
-  if (packages.length === 0) {
-    throw new Error(
-      `pnpm list returned no test packages for filters: ${filters.join(", ")}`,
-    );
-  }
 
   return { packages, targeted: true };
 }
@@ -269,12 +264,15 @@ function emit(key: string, value: string): void {
 }
 
 function summarize(lanes: Lane[], coreFiles: number): void {
+  const targeted = process.env.CI_WORKSPACE_FILTERS !== undefined;
   const lines = [
-    `## Fast tests — ${process.env.CI_WORKSPACE_FILTERS ? "targeted" : "full suite"}, sharded`,
+    `## Fast tests — ${targeted ? "targeted" : "full suite"}, sharded`,
     "",
-    process.env.CI_WORKSPACE_FILTERS
-      ? `Every affected test package runs exactly once across ${lanes.length} balanced lanes.`
-      : `Every test package runs. \`${CORE}\` runs on its own uncapped lane (${coreFiles} files); the rest are split across ${lanes.length} balanced lanes.`,
+    targeted && lanes.length === 0
+      ? "No affected workspace has a test script; targeted fast tests are skipped."
+      : targeted
+        ? `Every affected test package runs exactly once across ${lanes.length} balanced lanes.`
+        : `Every test package runs. \`${CORE}\` runs on its own uncapped lane (${coreFiles} files); the rest are split across ${lanes.length} balanced lanes.`,
     "",
     "| lane | test files | packages |",
     "| --- | ---: | --- |",
@@ -304,6 +302,7 @@ function main(): void {
   assertFullCoverage(lanes, rest);
 
   emit("matrix", JSON.stringify({ include: lanes }));
+  emit("has_tests", String(rest.length > 0));
   summarize(lanes, core ? countTestFiles(core.dir) : 0);
 }
 
