@@ -186,7 +186,7 @@ jobs:
             fi
             RELEASE_VERSION="$RELEASE_VERSION_INPUT"
           fi
-          npm version "$RELEASE_VERSION" --no-git-tag-version
+          npm version "$RELEASE_VERSION" --no-git-tag-version --allow-same-version
           node -e "
             const fs = require('fs');
             const tc = JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json','utf8'));
