@@ -86,6 +86,7 @@ import {
   type AgentLoopOutcome,
   type ResolvedOwnerApiKey,
 } from "../agent/production-agent.js";
+import { clientAbortReason } from "../agent/run-loop-with-resume.js";
 import {
   callerHasRunAccess,
   callerHasThreadAccess,
@@ -5307,12 +5308,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             let reason = "user";
             try {
               const body = await readBody(event);
-              if (
-                typeof body?.reason === "string" &&
-                /^[a-z0-9_-]{1,64}$/i.test(body.reason)
-              ) {
-                reason = body.reason;
-              }
+              reason = clientAbortReason(body?.reason);
             } catch {
               // Empty/invalid body — keep the default user abort reason.
             }
