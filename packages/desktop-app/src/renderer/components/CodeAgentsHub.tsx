@@ -75,6 +75,7 @@ import {
   toAppDefinition,
   type AppConfig,
 } from "@shared/app-registry";
+import { isDesktopChatToggleShortcut } from "@shared/desktop-shortcuts";
 import {
   IconArrowLeft,
   IconGripVertical,
@@ -1177,6 +1178,23 @@ export default function CodeAgentsHub({
       selectChatFirstAppFromKeyboard,
     ],
   );
+  useEffect(() => {
+    const shortcutApi = window.electronAPI?.shortcuts;
+    if (!shortcutApi?.onKeydown) return;
+    return shortcutApi.onKeydown((input) => {
+      if (
+        !isDesktopChatToggleShortcut({
+          key: input.key,
+          code: input.code,
+          shift: input.shiftKey,
+          alt: input.altKey,
+        })
+      ) {
+        return;
+      }
+      window.dispatchEvent(new Event("agent-panel:toggle"));
+    });
+  }, []);
   const openChatFirstAppInBrowser = useCallback((app: AppConfig) => {
     const url = resolveAppWebviewUrl(toAppDefinition(app), app);
     if (url === "about:blank") return;
