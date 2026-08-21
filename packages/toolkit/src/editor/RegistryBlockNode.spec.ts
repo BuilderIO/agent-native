@@ -13,6 +13,7 @@ import {
   createRegistryBlockNode,
   LegacyJsonEditSurface,
   RegistryBlockLoadErrorView,
+  selectRegistryBlockNode,
   type RegistryBlockSideMapBlock,
 } from "./RegistryBlockNode.js";
 
@@ -118,6 +119,32 @@ afterEach(() => {
 });
 
 describe("RegistryBlockNode keyboard guard", () => {
+  it("selects and removes an errored registry atom from its interactive error surface", () => {
+    const editor = createEditor();
+    const target = document.createElement("pre");
+    target.setAttribute("data-plan-interactive", "true");
+
+    try {
+      expect(
+        selectRegistryBlockNode({
+          editable: true,
+          allowInteractiveChild: true,
+          target,
+          getPos: () => findPlanBlockPos(editor),
+          view: editor.view,
+          preventDefault: vi.fn(),
+          stopPropagation: vi.fn(),
+        }),
+      ).toBe(true);
+      expect(editor.state.selection).toBeInstanceOf(NodeSelection);
+
+      expect(editor.commands.deleteSelection()).toBe(true);
+      expect(() => findPlanBlockPos(editor)).toThrow("Expected planBlock node");
+    } finally {
+      editor.destroy();
+    }
+  });
+
   it("keeps selected registry atoms immutable for text entry and preserves undo history", () => {
     const editor = createEditor();
 

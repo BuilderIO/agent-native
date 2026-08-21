@@ -80,6 +80,46 @@ function clickedInteractiveChild(target: HTMLElement) {
   return !!blockNode && !!editable && blockNode.contains(editable);
 }
 
+export function selectRegistryBlockNode({
+  editable,
+  allowInteractiveChild,
+  target,
+  getPos,
+  view,
+  preventDefault,
+  stopPropagation,
+}: {
+  editable: boolean;
+  allowInteractiveChild: boolean;
+  target: EventTarget | null;
+  getPos: (() => number | undefined) | boolean;
+  view: NodeViewProps["editor"]["view"];
+  preventDefault: () => void;
+  stopPropagation: () => void;
+}): boolean {
+  if (!editable) return false;
+  if (
+    !allowInteractiveChild &&
+    target instanceof HTMLElement &&
+    clickedInteractiveChild(target)
+  )
+    return false;
+  const pos = typeof getPos === "function" ? getPos() : null;
+  if (typeof pos !== "number") return false;
+  try {
+    preventDefault();
+    stopPropagation();
+    view.dispatch(
+      view.state.tr.setSelection(NodeSelection.create(view.state.doc, pos)),
+    );
+    view.focus();
+    return true;
+  } catch { // coercion-ok: false is the explicit failure result for a stale node position.
+    // Ignore stale positions during React/ProseMirror reconciliation.
+    return false;
+  }
+}
+
 /* -------------------------------------------------------------------------- */
 /* B. RegistryBlockNodeView (React)                                           */
 /* -------------------------------------------------------------------------- */
@@ -139,6 +179,21 @@ export function RegistryBlockNodeView(props: NodeViewProps) {
     (sideMap?.notionSync ?? false) &&
     (sideMap?.isNotionIncompatibleType?.(blockType) ?? false);
 
+  const selectNode = (
+    event: ReactMouseEvent<HTMLElement>,
+    allowInteractiveChild = false,
+  ) => {
+    selectRegistryBlockNode({
+      editable,
+      allowInteractiveChild,
+      target: event.target,
+      getPos: props.getPos,
+      view: props.editor.view,
+      preventDefault: () => event.preventDefault(),
+      stopPropagation: () => event.stopPropagation(),
+    });
+  };
+
   // The block data isn't in the side-map yet (e.g. a freshly inserted node whose
   // store entry hasn't been seeded). Render a graceful placeholder.
   if (!block) {
@@ -157,7 +212,13 @@ export function RegistryBlockNodeView(props: NodeViewProps) {
 
   if (block.loadError) {
     return (
-      <NodeViewWrapper className="plan-block-node" data-block-id={blockId}>
+      <NodeViewWrapper
+        className="plan-block-node"
+        data-block-id={blockId}
+        onMouseDownCapture={(event: ReactMouseEvent<HTMLElement>) =>
+          selectNode(event, true)
+        }
+      >
         <RegistryBlockLoadErrorView
           message={block.loadError.message}
           rawSource={block.loadError.rawSource}
@@ -166,25 +227,6 @@ export function RegistryBlockNodeView(props: NodeViewProps) {
     );
   }
 
-  const selectNode = (event: ReactMouseEvent<HTMLElement>) => {
-    if (!editable) return;
-    const target = event.target;
-    if (target instanceof HTMLElement && clickedInteractiveChild(target))
-      return;
-    const pos = typeof props.getPos === "function" ? props.getPos() : null;
-    if (typeof pos !== "number") return;
-    try {
-      event.preventDefault();
-      event.stopPropagation();
-      const { view } = props.editor;
-      view.dispatch(
-        view.state.tr.setSelection(NodeSelection.create(view.state.doc, pos)),
-      );
-      view.focus();
-    } catch {
-      // Ignore stale positions during React/ProseMirror reconciliation.
-    }
-  };
   const updateShellHover = (event: ReactMouseEvent<HTMLElement>) => {
     const target = event.target;
     setShellHovered(

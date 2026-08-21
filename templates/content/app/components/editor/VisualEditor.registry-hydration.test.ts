@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { hydrateRegistryBlockRaw } from "./VisualEditor";
+import {
+  hydrateRegistryBlockRaw,
+  isRegistryBlockHydrationCurrent,
+} from "./VisualEditor";
 
 describe("registry block hydration", () => {
   it("returns typed Mermaid data for valid persisted source", async () => {
@@ -35,5 +38,20 @@ describe("registry block hydration", () => {
       message: "unreadable",
       rawSource: "",
     });
+  });
+
+  it("rejects a hydration completion when the live or pending source changed", () => {
+    const original = '<Mermaid id="mermaid-1" source="graph TD; A --> B" />';
+    const replacement = '<Mermaid id="mermaid-1" source="graph TD; B --> C" />';
+
+    expect(isRegistryBlockHydrationCurrent(original, original, original)).toBe(
+      true,
+    );
+    expect(
+      isRegistryBlockHydrationCurrent(original, original, replacement),
+    ).toBe(false);
+    expect(
+      isRegistryBlockHydrationCurrent(original, replacement, replacement),
+    ).toBe(false);
   });
 });
