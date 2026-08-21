@@ -100,6 +100,13 @@ vi.mock("../secrets/storage.js", async (importOriginal) => ({
 const { BACKGROUND_RUN_HARD_TIMEOUT_MS, runBackgroundAutomation } =
   await import("./background-automation-runner.js");
 
+function abortReasonOf(runId: string): string | null {
+  const row = sqlite
+    .prepare(`SELECT abort_reason FROM agent_runs WHERE id = ?`)
+    .get(runId) as { abort_reason: string | null } | undefined;
+  return row?.abort_reason ?? null;
+}
+
 function dispatchModeOf(runId: string): string | null {
   const row = sqlite
     .prepare(`SELECT dispatch_mode FROM agent_runs WHERE id = ?`)
@@ -197,7 +204,15 @@ describe("runBackgroundAutomation — background-run self-claim", () => {
       maxRunInputTokens: 123_456,
     });
     expect(call?.[2]).toMatchObject({ backgroundFunction: true });
+    // The chunk control is what makes a checkpoint recoverable here. Without
+    // it the run manager's boundary aborts the turn and the loop's own
+    // continuation budget — which already accepts `no_progress` — is dead.
+    expect(call?.[3]).toBeDefined();
+    // Derived from this runner's OWN 10-minute hard abort, not the 13-minute
+    // durable-chat ceiling that the process is killed three minutes before.
+    expect(call?.[1]).toBeLessThan(BACKGROUND_RUN_HARD_TIMEOUT_MS);
   });
+
   // History is a record ABOUT the run. If the history table is unwritable the
   // correct outcome is a missing record, not a scheduled automation that never
   // executed and gets reported as a failure.
@@ -579,6 +594,19 @@ describe("runBackgroundAutomation — thread transcript", () => {
       pendingHardTimeouts[0]!();
 
       await expect(runPromise).rejects.toThrow(/timed out after 10 minutes/);
+      // Aborting the controller directly carries no reason the run manager can
+      // see, so finalization fell through to `aborted:user` and a hard timeout
+      // was filed as a person pressing Stop — in the analytics that exist to
+      // tell the two apart.
+      const hardTimedOutRunId = sqlite
+        .prepare(
+          `SELECT id FROM agent_runs WHERE id LIKE 'job-hard-timeout-digest%' ORDER BY started_at DESC LIMIT 1`,
+        )
+        .get() as { id: string } | undefined;
+      expect(hardTimedOutRunId?.id).toBeTruthy();
+      expect(abortReasonOf(hardTimedOutRunId!.id)).toBe(
+        "background_automation_hard_timeout",
+      );
       expect(updateThreadDataMock).toHaveBeenCalled();
       const [, , title] = updateThreadDataMock.mock.calls[0];
       expect(title).toBe("Job: hard-timeout-digest — Aug 18, 2026");
