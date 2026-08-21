@@ -477,12 +477,12 @@ interface DocumentToolbarProps {
   utilityPanel: "info" | "comments" | null;
   onUtilityPanelChange: (panel: "info" | "comments" | null) => void;
   showCommentsControl?: boolean;
+  databaseExportContext?: DatabaseExportContext | null;
   onOpenBreadcrumbItem?: (id: string) => void;
   canUndo?: boolean;
   canRedo?: boolean;
   onUndo?: () => void;
   onRedo?: () => void;
-  databaseExportContext?: DatabaseExportContext | null;
 }
 
 export function DocumentToolbar({
@@ -504,12 +504,12 @@ export function DocumentToolbar({
   utilityPanel,
   onUtilityPanelChange,
   showCommentsControl = true,
+  databaseExportContext,
   onOpenBreadcrumbItem,
   canUndo = false,
   canRedo = false,
   onUndo,
   onRedo,
-  databaseExportContext,
 }: DocumentToolbarProps) {
   const t = useT();
   const navigate = useNavigate();
