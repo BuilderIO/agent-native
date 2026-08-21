@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.31.12
+
+### Patch Changes
+
+- dc0978d: Fix action request context to use the forwarded workspace gateway origin instead of the internal dev proxy host.
+
 ## 0.31.11
 
 ### Patch Changes
