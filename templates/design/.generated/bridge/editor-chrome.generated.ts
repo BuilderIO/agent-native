@@ -585,6 +585,37 @@ export const editorChromeBridgeScript: string = `"use strict";
       renderRuntimeInteractionStatePreviews();
     }
     var lastSourceHeadHtml = null;
+    function headNodeSignature(node) {
+      var tag = node.tagName.toLowerCase();
+      if (tag === "title" || tag === "base") return tag;
+      if (tag === "style") {
+        var attrs = node.attributes;
+        for (var i = 0; i < attrs.length; i += 1) {
+          var name = attrs[i].name;
+          if (name.indexOf("data-agent-native-") === 0) return "style:" + name;
+        }
+        return "";
+      }
+      if (tag === "meta") {
+        var meta = ["name", "property", "http-equiv", "charset"];
+        for (var m = 0; m < meta.length; m += 1) {
+          if (node.hasAttribute(meta[m])) {
+            return "meta:" + meta[m] + "=" + node.getAttribute(meta[m]);
+          }
+        }
+        return "";
+      }
+      return "";
+    }
+    function findHeadNodeBySignature(signature) {
+      var children = document.head ? document.head.children : null;
+      if (!children) return null;
+      for (var i = 0; i < children.length; i += 1) {
+        var candidate = children[i];
+        if (headNodeSignature(candidate) === signature) return candidate;
+      }
+      return null;
+    }
     function replaceSourceHeadNodes(previousSourceHtml, nextSourceHtml) {
       if (!document.head) return;
       var stale = document.createElement("head");
@@ -616,6 +647,14 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (present[key]) {
           present[key] -= 1;
           return;
+        }
+        var signature = previousSourceHtml === null ? headNodeSignature(node) : "";
+        if (signature) {
+          var existing = findHeadNodeBySignature(signature);
+          if (existing) {
+            document.head.replaceChild(document.importNode(node, true), existing);
+            return;
+          }
         }
         document.head.insertBefore(document.importNode(node, true), anchor);
       });
@@ -2565,13 +2604,12 @@ export const editorChromeBridgeScript: string = `"use strict";
           live.setAttribute(attr.name, attr.value);
         }
       }
-      if (alpineScoped && (hasAlpineBinding(next) || hasAlpineBinding(live))) {
-        return;
-      }
+      var alpineOwned = alpineScoped && (hasAlpineBinding(next) || hasAlpineBinding(live));
       var liveAttrs = Array.prototype.slice.call(live.attributes);
       for (var j = 0; j < liveAttrs.length; j += 1) {
         var name = liveAttrs[j].name;
         if (name === "data-an-state-preview-key") continue;
+        if (alpineOwned && (name === "class" || name === "style")) continue;
         if (!next.hasAttribute(name)) live.removeAttribute(name);
       }
     }
@@ -2586,13 +2624,17 @@ export const editorChromeBridgeScript: string = `"use strict";
           if (candidate && !candidate.contains(live) && candidate.nodeName === nextChild.nodeName && candidate.namespaceURI === nextChild.namespaceURI) {
             reuse = candidate;
             context.keyed.delete(key);
+          } else if (candidate) {
+            context.obsolete.add(key);
           }
         } else {
           var probe = cursor;
           while (probe) {
             var probeKey = morphNodeKey(probe);
             if (probeKey) {
-              if (context.nextKeys.has(probeKey)) break;
+              if (context.nextKeys.has(probeKey) && !context.obsolete.has(probeKey)) {
+                break;
+              }
               probe = probe.nextSibling;
               continue;
             }
@@ -2615,6 +2657,11 @@ export const editorChromeBridgeScript: string = `"use strict";
             reuse.nodeValue = nextChild.nodeValue;
           }
           cursor = reuse.nextSibling;
+        } else if (nextChild.nodeType === 1) {
+          var shell = document.importNode(nextChild, false);
+          live.insertBefore(shell, cursor);
+          morphElement(shell, nextChild, context, alpineScoped);
+          cursor = shell.nextSibling;
         } else {
           live.insertBefore(document.importNode(nextChild, true), cursor);
         }
@@ -2623,6 +2670,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       while (cursor) {
         var stale = cursor;
         cursor = cursor.nextSibling;
+        if (stale.parentNode !== live) continue;
         if (alpineScoped && !morphNodeKey(stale)) continue;
         live.removeChild(stale);
       }
@@ -2646,7 +2694,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       morphElement(
         document.body,
         nextBody,
-        { keyed, nextKeys },
+        { keyed, nextKeys, obsolete: /* @__PURE__ */ new Set() },
         false
       );
     }

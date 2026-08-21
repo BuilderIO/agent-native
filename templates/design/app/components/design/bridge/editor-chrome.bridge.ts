@@ -332,6 +332,45 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
    * `<script src>` re-inserted in its place can never rebuild it, because
    * innerHTML does not execute scripts.
    */
+  /**
+   * Stable identity for the head nodes a source document owns and can change
+   * in place. Deliberately narrow: anything without a signature is only ever
+   * matched by exact `outerHTML`, so a runtime-injected node is never a
+   * replacement target.
+   */
+  function headNodeSignature(node: Element): string {
+    var tag = node.tagName.toLowerCase();
+    if (tag === "title" || tag === "base") return tag;
+    if (tag === "style") {
+      var attrs = node.attributes;
+      for (var i = 0; i < attrs.length; i += 1) {
+        var name = attrs[i]!.name;
+        if (name.indexOf("data-agent-native-") === 0) return "style:" + name;
+      }
+      return "";
+    }
+    if (tag === "meta") {
+      var meta = ["name", "property", "http-equiv", "charset"];
+      for (var m = 0; m < meta.length; m += 1) {
+        if (node.hasAttribute(meta[m]!)) {
+          return "meta:" + meta[m] + "=" + node.getAttribute(meta[m]!);
+        }
+      }
+      return "";
+    }
+    return "";
+  }
+
+  function findHeadNodeBySignature(signature: string): Element | null {
+    var children = document.head ? document.head.children : null;
+    if (!children) return null;
+    for (var i = 0; i < children.length; i += 1) {
+      var candidate = children[i]!;
+      if (headNodeSignature(candidate) === signature) return candidate;
+    }
+    return null;
+  }
+
   function replaceSourceHeadNodes(
     previousSourceHtml: string | null,
     nextSourceHtml: string,
@@ -371,6 +410,21 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       if (present[key]) {
         present[key] -= 1;
         return;
+      }
+      // Still the seed pass: with no previous head to diff against, an
+      // existing node whose CONTENT changed cannot be matched by outerHTML.
+      // Left alone it survives alongside its replacement, and because new
+      // nodes are prepended the stale one wins the cascade. Match it by
+      // identity instead and swap in place. Unmatched live nodes stay put —
+      // they are what the page's own runtime injected.
+      var signature =
+        previousSourceHtml === null ? headNodeSignature(node) : "";
+      if (signature) {
+        var existing = findHeadNodeBySignature(signature);
+        if (existing) {
+          document.head.replaceChild(document.importNode(node, true), existing);
+          return;
+        }
       }
       document.head.insertBefore(document.importNode(node, true), anchor);
     });
@@ -3219,6 +3273,10 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
   interface MorphContext {
     keyed: Map<string, Element>;
     nextKeys: Set<string>;
+    /** Keys whose live element cannot be reused because its tag changed, so
+     *  the unkeyed probe must treat it as doomed even though the key lives on
+     *  in the next document. */
+    obsolete: Set<string>;
   }
 
   function morphNodeKey(node: Node): string | null {
@@ -3262,12 +3320,11 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         live.setAttribute(attr.name, attr.value);
       }
     }
-    // An Alpine-bound element's style/class are runtime output, absent from
-    // source by design. Removing what source does not list un-hides every
-    // x-show="false" element on the screen.
-    if (alpineScoped && (hasAlpineBinding(next) || hasAlpineBinding(live))) {
-      return;
-    }
+    // Only class and style are Alpine's own output (x-show writes display,
+    // :class writes class). Skipping every attribute here instead would strand
+    // an authored href/id/aria-* that the source edit removed.
+    var alpineOwned =
+      alpineScoped && (hasAlpineBinding(next) || hasAlpineBinding(live));
     var liveAttrs = Array.prototype.slice.call(live.attributes) as Attr[];
     for (var j = 0; j < liveAttrs.length; j += 1) {
       var name = liveAttrs[j]!.name;
@@ -3275,6 +3332,7 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       // a morph keeps alive. Dropping its marker here would leave the array
       // pointing at elements the preview renderer can no longer find.
       if (name === "data-an-state-preview-key") continue;
+      if (alpineOwned && (name === "class" || name === "style")) continue;
       if (!next.hasAttribute(name)) live.removeAttribute(name);
     }
   }
@@ -3306,6 +3364,8 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
           // Claim it: authored markup can repeat an id, and reusing one live
           // element for both would move the same node twice and drop one.
           context.keyed.delete(key);
+        } else if (candidate) {
+          context.obsolete.add(key);
         }
       } else {
         // Skip past live siblings that are keyed but absent from the next
@@ -3316,7 +3376,12 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         while (probe) {
           var probeKey = morphNodeKey(probe);
           if (probeKey) {
-            if (context.nextKeys.has(probeKey)) break;
+            if (
+              context.nextKeys.has(probeKey) &&
+              !context.obsolete.has(probeKey)
+            ) {
+              break;
+            }
             probe = probe.nextSibling;
             continue;
           }
@@ -3342,6 +3407,17 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
           reuse.nodeValue = nextChild.nodeValue;
         }
         cursor = reuse.nextSibling;
+      } else if (nextChild.nodeType === 1) {
+        // Shell first, then reconcile: a deep import would clone keyed
+        // descendants that already exist live, and the originals would be
+        // swept as stale right after. Wrapping a component in a new parent
+        // (the Group action) has to move the existing child, not rebuild it.
+        var shell = document.importNode(nextChild as Element, false) as Element;
+        live.insertBefore(shell, cursor);
+        morphElement(shell, nextChild as Element, context, alpineScoped);
+        // That reconcile can pull `cursor` itself into the shell, leaving the
+        // outer walk holding a node this parent no longer owns.
+        cursor = shell.nextSibling;
       } else {
         live.insertBefore(document.importNode(nextChild, true), cursor);
       }
@@ -3350,6 +3426,9 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     while (cursor) {
       var stale = cursor;
       cursor = cursor.nextSibling;
+      // A keyed node can have been moved into a subtree inserted earlier in
+      // this same pass; it is no longer this parent's to remove.
+      if (stale.parentNode !== live) continue;
       // Inside an Alpine tree an unkeyed live node is runtime output — an
       // x-for clone or x-text's text node — that source never describes.
       // Removing it wipes the rendered component and Alpine, holding the same
@@ -3406,7 +3485,7 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     morphElement(
       document.body,
       nextBody,
-      { keyed: keyed, nextKeys: nextKeys },
+      { keyed: keyed, nextKeys: nextKeys, obsolete: new Set<string>() },
       false,
     );
   }

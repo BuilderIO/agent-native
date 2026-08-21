@@ -485,3 +485,154 @@ describe("morph edge cases", () => {
     },
   );
 });
+
+describe("morph findings from the second review round", () => {
+  it(
+    "still removes an authored attribute dropped from an Alpine-bound element",
+    { timeout: 30_000 },
+    async () => {
+      const bound = (extra: string) =>
+        `<div data-agent-native-node-id="an-root" x-data="{ o: false }"><a data-agent-native-node-id="an-link" :class="o ? 'x' : 'y'"${extra}>go</a></div>`;
+      await withAlpinePage(
+        bound(' href="/old" aria-label="L"'),
+        async (page) => {
+          await replaceDocument(page, documentHtml(bound("")));
+          expect(
+            await page.evaluate(() => {
+              const link = document.querySelector(
+                '[data-agent-native-node-id="an-link"]',
+              );
+              return {
+                href: link?.getAttribute("href"),
+                aria: link?.getAttribute("aria-label"),
+              };
+            }),
+          ).toEqual({ href: null, aria: null });
+        },
+      );
+    },
+  );
+
+  it(
+    "replaces a changed head node on the first patch instead of stacking a second copy",
+    { timeout: 30_000 },
+    async () => {
+      const managed = (color: string) =>
+        `<style data-agent-native-breakpoints>@media (max-width:640px){p{color:${color}}}</style>`;
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const page = await browser.newPage();
+        await page.setContent(documentHtml(BASE_BODY, managed("red")));
+        await page.addScriptTag({
+          content: hydratedEditorChromeBridgeScript(),
+        });
+
+        await replaceDocument(page, documentHtml(BASE_BODY, managed("blue")));
+
+        // New nodes are prepended, so a surviving stale block would win the
+        // cascade — a duplicate here is not cosmetic.
+        expect(
+          await page.evaluate(() =>
+            Array.from(
+              document.querySelectorAll(
+                "head style[data-agent-native-breakpoints]",
+              ),
+            ).map((node) =>
+              node.textContent?.includes("blue") ? "blue" : "red",
+            ),
+          ),
+        ).toEqual(["blue"]);
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+
+  it(
+    "moves an existing keyed child into a newly inserted wrapper",
+    { timeout: 30_000 },
+    async () => {
+      await withBridgedPage(
+        '<div data-agent-native-node-id="child">c</div>',
+        async (page) => {
+          await page.evaluate(() => {
+            (
+              document.querySelector(
+                '[data-agent-native-node-id="child"]',
+              ) as HTMLElement & {
+                __identity?: number;
+              }
+            ).__identity = 7;
+          });
+
+          // The Group action wraps the selection in a new parent.
+          await replaceDocument(
+            page,
+            documentHtml(
+              '<section data-agent-native-node-id="grp"><div data-agent-native-node-id="child">c</div></section>',
+            ),
+          );
+
+          expect(
+            await page.evaluate(
+              () =>
+                (
+                  document.querySelector(
+                    '[data-agent-native-node-id="child"]',
+                  ) as HTMLElement & {
+                    __identity?: number;
+                  }
+                )?.__identity ?? null,
+            ),
+          ).toBe(7);
+          expect(
+            await page.evaluate(() =>
+              document
+                .querySelector('[data-agent-native-node-id="grp"]')
+                ?.firstElementChild?.getAttribute("data-agent-native-node-id"),
+            ),
+          ).toBe("child");
+        },
+      );
+    },
+  );
+
+  it(
+    "keeps an unkeyed sibling that follows a keyed node whose tag changed",
+    { timeout: 30_000 },
+    async () => {
+      await withBridgedPage(
+        '<div data-agent-native-node-id="k">a</div><p id="keep">b</p>',
+        async (page) => {
+          await page.evaluate(() => {
+            (
+              document.getElementById("keep") as HTMLElement & {
+                __identity?: number;
+              }
+            ).__identity = 99;
+          });
+
+          await replaceDocument(
+            page,
+            documentHtml(
+              '<button data-agent-native-node-id="k">a</button><p id="keep">b</p>',
+            ),
+          );
+
+          expect(
+            await page.evaluate(() => ({
+              tag: document.querySelector('[data-agent-native-node-id="k"]')
+                ?.tagName,
+              identity:
+                (
+                  document.getElementById("keep") as HTMLElement & {
+                    __identity?: number;
+                  }
+                )?.__identity ?? null,
+            })),
+          ).toEqual({ tag: "BUTTON", identity: 99 });
+        },
+      );
+    },
+  );
+});
