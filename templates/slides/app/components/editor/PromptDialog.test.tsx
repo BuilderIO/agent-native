@@ -115,9 +115,20 @@ describe("uploadPromptFiles", () => {
   });
 
   it("uses the authenticated fetch boundary for reference uploads", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValue(new Response("[]", { status: 200 }));
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify([
+          {
+            path: "uploads/reference.pdf",
+            originalName: "reference.pdf",
+            filename: "reference.pdf",
+            type: "application/pdf",
+            size: 3,
+          },
+        ]),
+        { status: 200 },
+      ),
+    );
     vi.stubGlobal("fetch", fetchMock);
 
     await uploadPromptFiles([
@@ -132,6 +143,43 @@ describe("uploadPromptFiles", () => {
         method: "POST",
       }),
     );
+  });
+
+  it("preserves selection order across multipart and chunked uploads", async () => {
+    const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url.includes("/api/uploads-chunked/start")) {
+        return new Response(JSON.stringify({ uploadMode: "multipart" }), {
+          status: 200,
+        });
+      }
+      const formData = init?.body as FormData;
+      const file = formData.get("files") as File;
+      return new Response(
+        JSON.stringify([
+          {
+            path: `uploads/${file.name}`,
+            originalName: file.name,
+            filename: file.name,
+            type: file.type,
+            size: file.size,
+          },
+        ]),
+        { status: 200 },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const large = new File([new Uint8Array(4 * 1024 * 1024 + 1)], "large.pptx");
+    const small = new File(["pdf"], "small.pdf", {
+      type: "application/pdf",
+    });
+
+    const uploads = await uploadPromptFiles([large, small]);
+
+    expect(uploads.map((file) => file.originalName)).toEqual([
+      "large.pptx",
+      "small.pdf",
+    ]);
   });
 });
 
@@ -250,9 +298,24 @@ describe("PromptPopover import mode", () => {
     expect(screen.getByRole("status").textContent).toContain("Uploading...");
     expect((composer as HTMLButtonElement).disabled).toBe(true);
 
-    resolveUpload(new Response("[]", { status: 200 }));
+    resolveUpload(
+      new Response(
+        JSON.stringify([
+          {
+            path: "uploads/large.pdf",
+            originalName: "large.pdf",
+            filename: "large.pdf",
+            type: "application/pdf",
+            size: 3,
+          },
+        ]),
+        { status: 200 },
+      ),
+    );
     await waitFor(() => {
-      expect(onSubmit).toHaveBeenCalledWith("make a deck", []);
+      expect(onSubmit).toHaveBeenCalledWith("make a deck", [
+        expect.objectContaining({ originalName: "large.pdf" }),
+      ]);
     });
     expect(screen.queryByRole("status")).toBeNull();
   });

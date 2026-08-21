@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   getQuery: vi.fn(),
   getRouterParam: vi.fn(),
   getSession: vi.fn(),
+  isHosted: vi.fn(),
   listSessions: vi.fn(),
   putBlob: vi.fn(),
   readBody: vi.fn(),
@@ -31,6 +32,10 @@ vi.mock("@agent-native/core/private-blob", () => ({
   deletePrivateBlob: (...args: unknown[]) => mocks.deleteBlob(...args),
   putPrivateBlob: (...args: unknown[]) => mocks.putBlob(...args),
   readPrivateBlob: (...args: unknown[]) => mocks.readBlob(...args),
+}));
+
+vi.mock("../lib/tenant-files.js", () => ({
+  isHostedSlidesRuntime: () => mocks.isHosted(),
 }));
 
 vi.mock("../lib/chunked-upload-session.js", () => ({
@@ -61,7 +66,7 @@ vi.mock("./uploads.js", () => ({
   saveUploadedReferenceFile: (...args: unknown[]) => mocks.saveFile(...args),
 }));
 
-import { uploadChunkedChunk } from "./uploads-chunked";
+import { startChunkedUpload, uploadChunkedChunk } from "./uploads-chunked";
 
 function session(overrides: Record<string, unknown> = {}) {
   return {
@@ -81,6 +86,14 @@ describe("chunked reference uploads", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.getRouterParam.mockReturnValue("session-1");
+    mocks.isHosted.mockReturnValue(true);
+    mocks.listSessions.mockResolvedValue([]);
+    mocks.readBody.mockResolvedValue({
+      filename: "deck.pptx",
+      mimetype:
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      declaredSize: 8,
+    });
     mocks.getQuery.mockReturnValue({ index: "0", isFinal: "0" });
     mocks.getHeader.mockReturnValue("4");
     mocks.getSession.mockResolvedValue(session());
@@ -91,10 +104,51 @@ describe("chunked reference uploads", () => {
       opaque: true,
       encrypted: true,
     });
+    mocks.readBlob.mockResolvedValue({
+      data: new Uint8Array([0x50, 0x4b, 0x03, 0x04]),
+    });
+    mocks.saveFile.mockResolvedValue({ path: "slides-upload:v1:final" });
     mocks.deleteBlob.mockResolvedValue({
       deleted: true,
       provider: "public-upload:builder",
     });
+  });
+
+  it("keeps large local uploads on the multipart path", async () => {
+    mocks.isHosted.mockReturnValue(false);
+
+    await expect(startChunkedUpload({} as never)).resolves.toEqual({
+      uploadMode: "multipart",
+    });
+    expect(mocks.listSessions).not.toHaveBeenCalled();
+    expect(mocks.createSession).not.toHaveBeenCalled();
+  });
+
+  it("creates a new session when an expired-session cleanup fails", async () => {
+    mocks.listSessions.mockResolvedValue([
+      {
+        sessionId: "expired",
+        session: session({
+          expiresAt: new Date(0).toISOString(),
+          chunks: {
+            "0": {
+              id: "expired-blob",
+              provider: "public-upload:builder",
+              opaque: true,
+              encrypted: true,
+            },
+          },
+          chunkSizes: { "0": 4 },
+        }),
+      },
+    ]);
+    mocks.deleteBlob.mockRejectedValueOnce(new Error("storage unavailable"));
+
+    await expect(startChunkedUpload({} as never)).resolves.toEqual({
+      sessionId: expect.any(String),
+      maxChunkBytes: 4 * 1024 * 1024,
+    });
+    expect(mocks.createSession).toHaveBeenCalled();
   });
 
   it("rejects a missing Content-Length before buffering the body", async () => {
@@ -143,6 +197,17 @@ describe("chunked reference uploads", () => {
         chunks: { "0": expect.objectContaining({ id: "blob-1" }) },
       }),
     );
+  });
+
+  it("returns committed success when temporary cleanup fails", async () => {
+    mocks.getQuery.mockReturnValue({ index: "0", isFinal: "1" });
+    mocks.getSession.mockResolvedValue(session({ declaredSize: 4 }));
+    mocks.deleteBlob.mockRejectedValueOnce(new Error("cleanup failed"));
+
+    await expect(uploadChunkedChunk({} as never)).resolves.toEqual([
+      { path: "slides-upload:v1:final" },
+    ]);
+    expect(mocks.saveFile).toHaveBeenCalled();
   });
 
   it("rejects a final upload whose bytes do not equal declaredSize", async () => {

@@ -21,6 +21,7 @@ import {
   listChunkedUploadSessions,
   type ChunkedUploadSession,
 } from "../lib/chunked-upload-session.js";
+import { isHostedSlidesRuntime } from "../lib/tenant-files.js";
 import {
   resolveSlidesRequestAuth,
   withSlidesRequestContext,
@@ -64,9 +65,40 @@ async function reapExpiredChunkedUploads(): Promise<void> {
     sessions.map(async ({ sessionId, session }) => {
       const expiresAt = Date.parse(session.expiresAt);
       if (Number.isFinite(expiresAt) && expiresAt > now) return;
-      await discardSession(sessionId, session);
+      try {
+        const cleaned = await discardSession(sessionId, session);
+        if (!cleaned) {
+          console.warn("[slides-upload] expired session cleanup incomplete", {
+            sessionId,
+          });
+        }
+      } catch (error) {
+        console.warn("[slides-upload] expired session cleanup failed", {
+          sessionId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     }),
   );
+}
+
+async function cleanupCommittedSession(
+  sessionId: string,
+  session: ChunkedUploadSession,
+): Promise<void> {
+  try {
+    const cleaned = await discardSession(sessionId, session);
+    if (!cleaned) {
+      console.warn("[slides-upload] committed session cleanup incomplete", {
+        sessionId,
+      });
+    }
+  } catch (error) {
+    console.warn("[slides-upload] committed session cleanup failed", {
+      sessionId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 export const startChunkedUpload = defineEventHandler(async (event) => {
@@ -84,6 +116,9 @@ export const startChunkedUpload = defineEventHandler(async (event) => {
   return withSlidesRequestContext(
     event,
     async () => {
+      if (!isHostedSlidesRuntime()) {
+        return { uploadMode: "multipart" as const };
+      }
       await reapExpiredChunkedUploads();
       const body = (await readBody(event).catch(
         () => null,
@@ -274,7 +309,7 @@ export const uploadChunkedChunk = defineEventHandler(async (event) => {
         return { error: err instanceof Error ? err.message : "Invalid upload" };
       }
 
-      await discardSession(sessionId, session);
+      await cleanupCommittedSession(sessionId, session);
       return [result];
     },
     authContext,

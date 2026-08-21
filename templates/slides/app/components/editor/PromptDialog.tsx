@@ -97,15 +97,27 @@ async function uploadFileChunked(file: File): Promise<UploadedFile> {
     },
   );
   const startData = await readUploadJson(startResponse);
-  const sessionId =
-    startData && typeof startData === "object"
-      ? (startData as { sessionId?: unknown }).sessionId
-      : undefined;
-  if (!startResponse.ok || typeof sessionId !== "string" || !sessionId) {
+  if (!startResponse.ok) {
     throw new Error(
       extractErrorMessage(startData) ||
         `Upload failed (${startResponse.status})`,
     );
+  }
+  if (
+    startData &&
+    typeof startData === "object" &&
+    (startData as { uploadMode?: unknown }).uploadMode === "multipart"
+  ) {
+    const [uploaded] = await uploadFilesMultipart([file]);
+    if (!uploaded) throw new Error("Upload failed: no file returned");
+    return uploaded;
+  }
+  const sessionId =
+    startData && typeof startData === "object"
+      ? (startData as { sessionId?: unknown }).sessionId
+      : undefined;
+  if (typeof sessionId !== "string" || !sessionId) {
+    throw new Error("Upload failed: session ID missing");
   }
 
   const totalChunks = Math.max(1, Math.ceil(file.size / CHUNK_SIZE_BYTES));
@@ -150,17 +162,29 @@ export async function uploadPromptFiles(
     throw new Error(`Too many files (max ${MAX_REFERENCE_FILES})`);
   }
   ensureEmbedAuthFetchInterceptor();
-  const smallFiles = files.filter(
-    (file) => file.size <= CHUNK_UPLOAD_THRESHOLD_BYTES,
+  const smallIndices = files.flatMap((file, index) =>
+    file.size <= CHUNK_UPLOAD_THRESHOLD_BYTES ? [index] : [],
   );
-  const largeFiles = files.filter(
-    (file) => file.size > CHUNK_UPLOAD_THRESHOLD_BYTES,
+  const largeIndices = files.flatMap((file, index) =>
+    file.size > CHUNK_UPLOAD_THRESHOLD_BYTES ? [index] : [],
   );
   const [smallUploads, largeUploads] = await Promise.all([
-    smallFiles.length > 0 ? uploadFilesMultipart(smallFiles) : [],
-    Promise.all(largeFiles.map(uploadFileChunked)),
+    smallIndices.length > 0
+      ? uploadFilesMultipart(smallIndices.map((index) => files[index]))
+      : [],
+    Promise.all(largeIndices.map((index) => uploadFileChunked(files[index]))),
   ]);
-  return [...smallUploads, ...largeUploads];
+  if (smallUploads.length !== smallIndices.length) {
+    throw new Error("Upload failed: response file count did not match request");
+  }
+  const uploads = new Array<UploadedFile>(files.length);
+  smallIndices.forEach((fileIndex, resultIndex) => {
+    uploads[fileIndex] = smallUploads[resultIndex];
+  });
+  largeIndices.forEach((fileIndex, resultIndex) => {
+    uploads[fileIndex] = largeUploads[resultIndex];
+  });
+  return uploads;
 }
 
 /**

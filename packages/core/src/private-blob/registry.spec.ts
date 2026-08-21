@@ -244,6 +244,28 @@ describe("private blob registry", () => {
     ).resolves.toBe(handle);
   });
 
+  it("fails loudly when the selected provider is unavailable", async () => {
+    const registry = await freshRegistry();
+    resetAppConfigForTests();
+    registry.registerPrivateBlobProvider({
+      id: "offline",
+      name: "Offline",
+      isConfigured: () => false,
+      put: vi.fn(),
+      read: vi.fn(),
+      delete: vi.fn(),
+    });
+    defineAppConfig({ privateBlob: { provider: "offline" } });
+
+    expect(() => registry.getActivePrivateBlobProvider()).toThrow(
+      "selected but not configured",
+    );
+    await expect(
+      registry.putPrivateBlob({ data: new Uint8Array([1]) }),
+    ).rejects.toThrow("selected but not configured");
+    expect(uploadFileMock).not.toHaveBeenCalled();
+  });
+
   it("fails loudly when the configured provider is not registered", async () => {
     const registry = await freshRegistry();
     resetAppConfigForTests();

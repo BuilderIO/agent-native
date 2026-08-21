@@ -285,7 +285,12 @@ export function getActivePrivateBlobProvider(): PrivateBlobProvider | null {
         `Private blob config selects '${selectedId}', but no provider with that id is registered`,
       );
     }
-    return selected.isConfigured() ? selected : null;
+    if (!selected.isConfigured()) {
+      throw new Error(
+        `Private blob provider '${selectedId}' is selected but not configured`,
+      );
+    }
+    return selected;
   }
   for (const provider of providers.values()) {
     if (provider.isConfigured()) return provider;
