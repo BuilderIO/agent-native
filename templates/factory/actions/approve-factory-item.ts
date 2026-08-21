@@ -8,6 +8,13 @@ import {
   triageItems,
   triageRuns,
 } from "../server/db/schema.js";
+import { DEFAULT_FACTORY_ID } from "../server/factory-graph/store.js";
+import {
+  factoryIdSchema,
+  orgFactoryDecisionFilter,
+  orgFactoryItemFilter,
+  orgFactoryRunFilter,
+} from "../server/lib/factory-scope.js";
 import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
@@ -19,6 +26,7 @@ export default defineAction({
   description:
     "Explicitly approve one Factory item and start one deduplicated Builder coding run. The approver, decision, guard results, and callback state are recorded before provider work is considered successful.",
   schema: z.object({
+    factoryId: factoryIdSchema.default(DEFAULT_FACTORY_ID),
     itemId: z.string().min(1),
     decisionId: z.string().min(1).optional(),
     confirm: z.literal(true),
@@ -27,7 +35,7 @@ export default defineAction({
   // must remain paused until a human approves this exact agent tool call.
   needsApproval: true,
   http: { method: "POST" },
-  run: async ({ itemId, decisionId, confirm }, context) => {
+  run: async ({ factoryId, itemId, decisionId, confirm }, context) => {
     if (!confirm) throw new Error("Explicit confirmation is required.");
     const { userEmail, orgId } = await requireWorkspaceMember(
       workspaceMemberIdentityFromContext(context),
@@ -37,7 +45,12 @@ export default defineAction({
       await db
         .select()
         .from(triageItems)
-        .where(and(eq(triageItems.id, itemId), eq(triageItems.orgId, orgId)))
+        .where(
+          and(
+            eq(triageItems.id, itemId),
+            orgFactoryItemFilter(orgId, factoryId),
+          ),
+        )
         .limit(1)
     )[0];
     if (!item) throw new Error("Factory item not found.");
@@ -47,8 +60,8 @@ export default defineAction({
       .from(triageDecisions)
       .where(
         and(
-          eq(triageDecisions.orgId, orgId),
           eq(triageDecisions.itemId, itemId),
+          orgFactoryDecisionFilter(orgId, factoryId),
         ),
       )
       .orderBy(asc(triageDecisions.createdAt));
@@ -72,7 +85,9 @@ export default defineAction({
       await db
         .select()
         .from(triageRuns)
-        .where(and(eq(triageRuns.id, runId), eq(triageRuns.orgId, orgId)))
+        .where(
+          and(eq(triageRuns.id, runId), orgFactoryRunFilter(orgId, factoryId)),
+        )
         .limit(1)
     )[0];
     if (
@@ -110,6 +125,7 @@ export default defineAction({
         error: null,
         ownerEmail: item.ownerEmail,
         orgId,
+        factoryId,
       })
       .onConflictDoNothing();
 
@@ -117,7 +133,9 @@ export default defineAction({
       await db
         .select()
         .from(triageRuns)
-        .where(and(eq(triageRuns.id, runId), eq(triageRuns.orgId, orgId)))
+        .where(
+          and(eq(triageRuns.id, runId), orgFactoryRunFilter(orgId, factoryId)),
+        )
         .limit(1)
     )[0];
     if (!run) throw new Error("Factory run could not be recorded.");
@@ -155,11 +173,18 @@ export default defineAction({
           progressLogJson: JSON.stringify(progress),
           heartbeatAt: new Date().toISOString(),
         })
-        .where(and(eq(triageRuns.id, runId), eq(triageRuns.orgId, orgId)));
+        .where(
+          and(eq(triageRuns.id, runId), orgFactoryRunFilter(orgId, factoryId)),
+        );
       await db
         .update(triageItems)
         .set({ status: "classified", updatedAt: new Date().toISOString() })
-        .where(and(eq(triageItems.id, itemId), eq(triageItems.orgId, orgId)));
+        .where(
+          and(
+            eq(triageItems.id, itemId),
+            orgFactoryItemFilter(orgId, factoryId),
+          ),
+        );
       return {
         ok: true,
         deduplicated: false,
@@ -176,7 +201,9 @@ export default defineAction({
           completedAt: new Date().toISOString(),
           heartbeatAt: new Date().toISOString(),
         })
-        .where(and(eq(triageRuns.id, runId), eq(triageRuns.orgId, orgId)));
+        .where(
+          and(eq(triageRuns.id, runId), orgFactoryRunFilter(orgId, factoryId)),
+        );
       throw new Error(
         `Factory approval was recorded, but Builder dispatch failed: ${message}`,
       );
