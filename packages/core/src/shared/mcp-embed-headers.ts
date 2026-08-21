@@ -1,8 +1,4 @@
 export const MCP_EMBED_CORS_ALLOW_HEADERS =
-  // The desktop verifier header belongs here even though it is not an embed
-  // concern: dev servers and OPTIONS short-circuits answer preflights with this
-  // list before the auth CORS handler runs, and the Tauri dev renderer origin
-  // (http://localhost:1420) matches isLocalMcpEmbedOrigin.
   "Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF,X-Agent-Native-Frontend,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id,X-User-Timezone,X-Agent-Native-Session-Id,X-Agent-Native-Client-Platform,X-Agent-Native-Desktop-Verifier,X-Agent-Native-Embed-Target,X-Agent-Native-Embed-Transplant";
 export const EMBED_TRANSPLANT_HEADER = "x-agent-native-embed-transplant";
 
