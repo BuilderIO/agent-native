@@ -16,6 +16,7 @@ import { canonicalizeNfm, docToNfm, nfmToDoc } from "@shared/nfm";
 import {
   serializeRegistryBlockToMdx,
   parseRegistryBlockData,
+  type ParsedRegistryBlock,
 } from "@shared/nfm-registry";
 import { IconMusic, IconPhoto, IconVideo } from "@tabler/icons-react";
 import {
@@ -1741,6 +1742,7 @@ export function createVisualEditorExtensions({
  */
 interface RegistryBlockStoreEntry {
   type: string;
+  rawSource: string;
   base?: {
     title?: string;
     summary?: string;
@@ -1748,6 +1750,42 @@ interface RegistryBlockStoreEntry {
   };
   data: unknown;
   edited: boolean;
+  loadError?: {
+    reason: string;
+  };
+}
+
+export async function hydrateRegistryBlockRaw(
+  rawSource: string,
+): Promise<
+  | { status: "loaded"; block: ParsedRegistryBlock }
+  | { status: "error"; message: string; rawSource: string }
+> {
+  try {
+    const block = await parseRegistryBlockData(rawSource);
+    if (!block) {
+      return {
+        status: "error",
+        message: "unreadable",
+        rawSource,
+      };
+    }
+    return { status: "loaded", block };
+  } catch (error) {
+    return {
+      status: "error",
+      message: error instanceof Error ? error.message : "unreadable",
+      rawSource,
+    };
+  }
+}
+
+export function isRegistryBlockHydrationCurrent(
+  expectedRaw: string,
+  pendingRaw: string | undefined,
+  liveRaw: string,
+): boolean {
+  return pendingRaw === expectedRaw && liveRaw === expectedRaw;
 }
 
 function serializeRegistryBlockRaw(
@@ -1803,8 +1841,9 @@ function isNotionIncompatibleBlockType(blockType: string): boolean {
  * serializes identically to before.
  */
 function useRegistryBlockStore(editor: CoreEditor | null) {
+  const t = useT();
   const cacheRef = useRef<Map<string, RegistryBlockStoreEntry>>(new Map());
-  const pendingRef = useRef<Set<string>>(new Set());
+  const pendingRef = useRef<Map<string, string>>(new Map());
   // Bumping this state forces the NodeViews to re-read the cache once async
   // hydration (or an edit) lands. The `version` is surfaced to the side-map
   // value so the context reference changes on each bump — otherwise the Tiptap
@@ -1845,25 +1884,66 @@ function useRegistryBlockStore(editor: CoreEditor | null) {
         typeof node.attrs.title === "string" ? node.attrs.title : undefined;
       const summary =
         typeof node.attrs.summary === "string" ? node.attrs.summary : undefined;
+      const raw = typeof node.attrs.__raw === "string" ? node.attrs.__raw : "";
 
       const cached = cacheRef.current.get(blockId);
-      if (cached) {
-        return { id: blockId, title, summary, data: cached.data };
+      if (cached?.rawSource === raw) {
+        return {
+          id: blockId,
+          title,
+          summary,
+          data: cached.data,
+          loadError: cached.loadError
+            ? {
+                message: t("editor.registryBlockLoadError", {
+                  type:
+                    typeof node.attrs.blockType === "string"
+                      ? node.attrs.blockType
+                      : "registry",
+                  message:
+                    cached.loadError.reason === "unreadable"
+                      ? t("editor.registryBlockUnreadable")
+                      : cached.loadError.reason,
+                }),
+                rawSource: cached.rawSource,
+              }
+            : undefined,
+        };
       }
+      if (cached) cacheRef.current.delete(blockId);
 
       // Not hydrated yet: kick off a one-shot async parse of the verbatim MDX.
-      const raw = typeof node.attrs.__raw === "string" ? node.attrs.__raw : "";
-      if (raw && !pendingRef.current.has(blockId)) {
-        pendingRef.current.add(blockId);
-        void parseRegistryBlockData(raw)
-          .then((parsed) => {
-            if (parsed) {
+      if (pendingRef.current.get(blockId) !== raw) {
+        pendingRef.current.set(blockId, raw);
+        void hydrateRegistryBlockRaw(raw)
+          .then((result) => {
+            const live = findNode(blockId);
+            const liveRaw =
+              live && typeof live.node.attrs.__raw === "string"
+                ? live.node.attrs.__raw
+                : "";
+            if (
+              !isRegistryBlockHydrationCurrent(
+                raw,
+                pendingRef.current.get(blockId),
+                liveRaw,
+              )
+            ) {
+              if (pendingRef.current.get(blockId) === raw) {
+                pendingRef.current.delete(blockId);
+                bump();
+              }
+              return;
+            }
+            if (result.status === "loaded") {
+              const parsed = result.block;
               const existing = cacheRef.current.get(blockId);
               // A concurrent edit may have populated the cache first — don't
               // clobber it with the stale parse.
               if (!existing) {
                 cacheRef.current.set(blockId, {
                   type: parsed.type,
+                  rawSource: raw,
                   base: parsed.base,
                   data: parsed.data,
                   edited: false,
@@ -1902,6 +1982,8 @@ function useRegistryBlockStore(editor: CoreEditor | null) {
                         },
                       );
                       editor.view.dispatch(tr);
+                      const entry = cacheRef.current.get(blockId);
+                      if (entry) entry.rawSource = refreshedRaw;
                     } catch {
                       /* Keep the parsed cache; leave raw untouched if invalid. */
                     }
@@ -1909,18 +1991,31 @@ function useRegistryBlockStore(editor: CoreEditor | null) {
                 }
                 bump();
               }
+            } else if (!cacheRef.current.has(blockId)) {
+              cacheRef.current.set(blockId, {
+                type:
+                  typeof node.attrs.blockType === "string"
+                    ? node.attrs.blockType
+                    : "",
+                rawSource: result.rawSource,
+                data: undefined,
+                edited: false,
+                loadError: {
+                  reason: result.message,
+                },
+              });
+              bump();
             }
           })
-          .catch(() => {
-            /* Leave uncached; the NodeView keeps showing its placeholder. */
-          })
           .finally(() => {
-            pendingRef.current.delete(blockId);
+            if (pendingRef.current.get(blockId) === raw) {
+              pendingRef.current.delete(blockId);
+            }
           });
       }
       return undefined;
     },
-    [editor, findNode, bump],
+    [editor, findNode, bump, t],
   );
 
   const onBlockDataChange = useCallback(
@@ -1939,6 +2034,7 @@ function useRegistryBlockStore(editor: CoreEditor | null) {
       cacheRef.current.set(blockId, {
         type,
         base,
+        rawSource: typeof node.attrs.__raw === "string" ? node.attrs.__raw : "",
         data: nextData,
         edited: true,
       });
@@ -1954,6 +2050,8 @@ function useRegistryBlockStore(editor: CoreEditor | null) {
         bump();
         return;
       }
+      const updated = cacheRef.current.get(blockId);
+      if (updated) updated.rawSource = raw;
 
       const tr = editor.state.tr.setNodeMarkup(pos, undefined, {
         ...node.attrs,

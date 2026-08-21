@@ -6,13 +6,37 @@ import { NodeSelection } from "@tiptap/pm/state";
 import StarterKit from "@tiptap/starter-kit";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   createRegistryBlockNode,
   LegacyJsonEditSurface,
+  RegistryBlockLoadErrorView,
+  selectRegistryBlockNode,
   type RegistryBlockSideMapBlock,
 } from "./RegistryBlockNode.js";
+
+describe("RegistryBlockLoadErrorView", () => {
+  it("preserves unreadable source and reports a terminal load error", () => {
+    const rawSource = '<Mermaid id="broken" source={nope} />';
+    const markup = renderToStaticMarkup(
+      React.createElement(RegistryBlockLoadErrorView, {
+        message:
+          "Could not load mermaid block: Persisted block source is unreadable.",
+        rawSource,
+      }),
+    );
+
+    expect(markup).toContain(
+      "&lt;Mermaid id=&quot;broken&quot; source={nope} /&gt;",
+    );
+    expect(markup).toContain(
+      "Could not load mermaid block: Persisted block source is unreadable.",
+    );
+    expect(markup).not.toContain("Loading mermaid block");
+  });
+});
 
 const PlanBlockNode = createRegistryBlockNode({
   nodeName: "planBlock",
@@ -95,6 +119,60 @@ afterEach(() => {
 });
 
 describe("RegistryBlockNode keyboard guard", () => {
+  it("selects and removes an errored registry atom from its interactive error surface", () => {
+    const editor = createEditor();
+    const target = document.createElement("div");
+    target.setAttribute("data-plan-interactive", "true");
+
+    try {
+      expect(
+        selectRegistryBlockNode({
+          editable: true,
+          allowInteractiveChild: true,
+          target,
+          getPos: () => findPlanBlockPos(editor),
+          view: editor.view,
+          preventDefault: vi.fn(),
+          stopPropagation: vi.fn(),
+        }),
+      ).toBe(true);
+      expect(editor.state.selection).toBeInstanceOf(NodeSelection);
+
+      expect(editor.commands.deleteSelection()).toBe(true);
+      expect(() => findPlanBlockPos(editor)).toThrow("Expected planBlock node");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("preserves native raw-source selection inside an errored registry atom", () => {
+    const editor = createEditor();
+    const errorSurface = document.createElement("div");
+    const rawSource = document.createElement("pre");
+    errorSurface.appendChild(rawSource);
+    const preventDefault = vi.fn();
+    const stopPropagation = vi.fn();
+
+    try {
+      expect(
+        selectRegistryBlockNode({
+          editable: true,
+          allowInteractiveChild: true,
+          target: rawSource,
+          getPos: () => findPlanBlockPos(editor),
+          view: editor.view,
+          preventDefault,
+          stopPropagation,
+        }),
+      ).toBe(false);
+      expect(preventDefault).not.toHaveBeenCalled();
+      expect(stopPropagation).not.toHaveBeenCalled();
+      expect(editor.state.selection).not.toBeInstanceOf(NodeSelection);
+    } finally {
+      editor.destroy();
+    }
+  });
+
   it("keeps selected registry atoms immutable for text entry and preserves undo history", () => {
     const editor = createEditor();
 
