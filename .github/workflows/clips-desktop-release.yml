@@ -163,6 +163,7 @@ jobs:
         working-directory: ${{ env.TAURI_APP_PATH }}
         shell: bash
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_VERSION_INPUT: ${{ inputs.version }}
         run: |
           if [ "$RELEASE_CHANNEL" = "nightly" ]; then
@@ -185,8 +186,31 @@ jobs:
               exit 1
             fi
             RELEASE_VERSION="$RELEASE_VERSION_INPUT"
+
+            TAG="${RELEASE_TAG_PREFIX}${RELEASE_VERSION}"
+            RELEASE_ERROR=$(mktemp)
+            if RELEASE_JSON=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" 2>"$RELEASE_ERROR"); then
+              IS_DRAFT=$(printf '%s' "$RELEASE_JSON" | jq -r '.draft')
+              if [ "$IS_DRAFT" != "true" ]; then
+                echo "::error::Production release $TAG is already published. Choose a new version instead of rebuilding it."
+                rm -f "$RELEASE_ERROR"
+                exit 1
+              fi
+              echo "Existing production release $TAG is still a draft; resuming it."
+            elif grep -q 'HTTP 404' "$RELEASE_ERROR"; then
+              echo "No existing production release found for $TAG; creating it."
+            else
+              cat "$RELEASE_ERROR"
+              rm -f "$RELEASE_ERROR"
+              exit 1
+            fi
+            rm -f "$RELEASE_ERROR"
           fi
-          npm version "$RELEASE_VERSION" --no-git-tag-version --allow-same-version
+          if [ "$RELEASE_CHANNEL" = "production" ]; then
+            npm version "$RELEASE_VERSION" --no-git-tag-version --allow-same-version
+          else
+            npm version "$RELEASE_VERSION" --no-git-tag-version
+          fi
           node -e "
             const fs = require('fs');
             const tc = JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json','utf8'));
