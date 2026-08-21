@@ -87,6 +87,19 @@ async function probe(host) {
     };
   }
 
+  // A throttled or failing origin is a transient state, not a cache-policy
+  // regression, and both correctly carry no storable policy. Reporting them as
+  // violations would page on rate limits and blips — the noisy-guard failure
+  // mode that gets a check muted, which is worse than not having it.
+  if (response.status === 429 || response.status >= 500) {
+    return {
+      host,
+      outcome: "inconclusive",
+      status: response.status,
+      detail: `origin returned ${response.status}; cache policy not asserted`,
+    };
+  }
+
   const cacheControl = response.headers.get("cache-control");
   if (!cacheControl) {
     return {
@@ -136,7 +149,9 @@ if (hosts.length === 0) {
 
 const results = await mapWithLimit(hosts, HOST_CONCURRENCY, probe);
 const violations = results.filter((r) => r.outcome === "violation");
-const unreachable = results.filter((r) => r.outcome === "unreachable");
+const skipped = results.filter((r) =>
+  ["unreachable", "inconclusive"].includes(r.outcome),
+);
 
 for (const r of results) {
   const label =
@@ -144,9 +159,13 @@ for (const r of results) {
   console.log(`${label} ${r.host.padEnd(40)} ${r.status ?? "-"} ${r.detail}`);
 }
 
-if (unreachable.length > 0) {
+if (skipped.length > 0) {
+  // Named, never silently folded into the pass count: a host this could not
+  // assert is not a host that passed.
   console.log(
-    `\n${unreachable.length} host(s) unreachable; reported, not failed (availability is monitor-agent-native-sites.yml's job).`,
+    `\n${skipped.length} host(s) not asserted (unreachable or throttled): ${skipped
+      .map((r) => r.host)
+      .join(", ")}. Availability is monitor-agent-native-sites.yml's job.`,
   );
 }
 
@@ -165,5 +184,5 @@ if (violations.length > 0) {
 }
 
 console.log(
-  `\ncheck-production-cache-contract: clean (${results.length - unreachable.length} host(s) return a storable response for an unknown URL).`,
+  `\ncheck-production-cache-contract: clean (${results.length - skipped.length} host(s) return a storable response for an unknown URL).`,
 );
