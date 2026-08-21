@@ -625,6 +625,12 @@ export const editorChromeBridgeScript: string = `"use strict";
         var key = node.outerHTML;
         staleCounts[key] = (staleCounts[key] || 0) + 1;
       });
+      var retained = document.createElement("head");
+      retained.innerHTML = nextSourceHtml || "";
+      Array.prototype.forEach.call(retained.children, function(node) {
+        var key = node.outerHTML;
+        if (staleCounts[key]) staleCounts[key] -= 1;
+      });
       Array.prototype.slice.call(document.head.children).forEach(function(node) {
         var key = node.outerHTML;
         if (!staleCounts[key]) return;
@@ -2605,10 +2611,34 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       recordSourceOwnership(root);
       if (root.nodeType !== 1) return;
+      var template = templateContentOf(root);
+      if (template) {
+        var held = template.childNodes;
+        for (var t = 0; t < held.length; t += 1) recordSourceSubtree(held[t]);
+        return;
+      }
       var children = root.childNodes;
       for (var i = 0; i < children.length; i += 1) {
         recordSourceSubtree(children[i]);
       }
+    }
+    function templateContentOf(element) {
+      if (element.nodeName !== "TEMPLATE") return null;
+      return element.content ?? null;
+    }
+    function scopedMorphContext(liveRoot, nextRoot) {
+      var keyed = /* @__PURE__ */ new Map();
+      liveRoot.querySelectorAll("[data-agent-native-node-id]").forEach(function(element) {
+        if (!isSourceOwned(element)) return;
+        var key = element.getAttribute("data-agent-native-node-id");
+        if (key && !keyed.has(key)) keyed.set(key, element);
+      });
+      var nextKeys = /* @__PURE__ */ new Set();
+      nextRoot.querySelectorAll("[data-agent-native-node-id]").forEach(function(element) {
+        var key = element.getAttribute("data-agent-native-node-id");
+        if (key) nextKeys.add(key);
+      });
+      return { keyed, nextKeys, obsolete: /* @__PURE__ */ new Set() };
     }
     function captureInitialSourceOwnership() {
       if (document.body) recordSourceSubtree(document.body);
@@ -2814,6 +2844,16 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function morphElement(live, next, context) {
       morphAttributes(live, next);
+      var liveTemplate = templateContentOf(live);
+      var nextTemplate = templateContentOf(next);
+      if (liveTemplate && nextTemplate) {
+        morphChildren(
+          liveTemplate,
+          nextTemplate,
+          scopedMorphContext(liveTemplate, nextTemplate)
+        );
+        return;
+      }
       morphChildren(live, next, context);
     }
     function morphRuntimeBody(nextBody) {

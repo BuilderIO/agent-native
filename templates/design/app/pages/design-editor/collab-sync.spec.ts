@@ -157,3 +157,27 @@ describe("writeCollabText multi-region diffs", () => {
     expect(wireBytes).toBeLessThan(200);
   });
 });
+
+describe("writeCollabText preserves short untouched runs", () => {
+  it("does not delete a short equal gap between two edits", () => {
+    const doc = new Y.Doc();
+    const ytext = doc.getText("content");
+    ytext.insert(0, "A-x-B");
+
+    const deleted: string[] = [];
+    ytext.observe((event) => {
+      let at = 0;
+      for (const change of event.changes.delta) {
+        if (change.retain) at += change.retain;
+        else if (change.delete) deleted.push(String(change.delete));
+      }
+    });
+
+    writeCollabText(doc, ytext, "1-x-2", "local");
+
+    expect(ytext.toString()).toBe("1-x-2");
+    // diff_cleanupEfficiency merges edits across equal runs shorter than 4,
+    // which would delete the untouched "-x-" and any edit anchored in it.
+    expect(deleted.every((count) => Number(count) <= 1)).toBe(true);
+  });
+});

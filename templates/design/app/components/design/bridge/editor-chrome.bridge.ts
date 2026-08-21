@@ -388,6 +388,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var key = node.outerHTML;
       staleCounts[key] = (staleCounts[key] || 0) + 1;
     });
+    // A node the next head still carries is not stale. Removing and
+    // re-inserting it cancels an async script that has not finished loading,
+    // and the replacement is inert — innerHTML-built scripts never execute.
+    var retained = document.createElement("head");
+    retained.innerHTML = nextSourceHtml || "";
+    Array.prototype.forEach.call(retained.children, function (node: Element) {
+      var key = node.outerHTML;
+      if (staleCounts[key]) staleCounts[key] -= 1;
+    });
     Array.prototype.slice.call(document.head.children).forEach(function (
       node: Element,
     ) {
@@ -3335,10 +3344,46 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     recordSourceOwnership(root);
     if (root.nodeType !== 1) return;
+    var template = templateContentOf(root as Element);
+    if (template) {
+      var held = template.childNodes;
+      for (var t = 0; t < held.length; t += 1) recordSourceSubtree(held[t]!);
+      return;
+    }
     var children = (root as Element).childNodes;
     for (var i = 0; i < children.length; i += 1) {
       recordSourceSubtree(children[i]!);
     }
+  }
+
+  /** A template's authored children live in `.content`, not as child nodes, so
+   *  a walk over childNodes silently ignores every edit inside an x-if/x-for
+   *  template until Alpine instantiates the stale markup. */
+  function templateContentOf(element: Element): DocumentFragment | null {
+    if (element.nodeName !== "TEMPLATE") return null;
+    return (element as HTMLTemplateElement).content ?? null;
+  }
+
+  function scopedMorphContext(
+    liveRoot: ParentNode,
+    nextRoot: ParentNode,
+  ): MorphContext {
+    var keyed = new Map<string, Element>();
+    liveRoot.querySelectorAll("[data-agent-native-node-id]").forEach(function (
+      element: Element,
+    ) {
+      if (!isSourceOwned(element)) return;
+      var key = element.getAttribute("data-agent-native-node-id");
+      if (key && !keyed.has(key)) keyed.set(key, element);
+    });
+    var nextKeys = new Set<string>();
+    nextRoot.querySelectorAll("[data-agent-native-node-id]").forEach(function (
+      element: Element,
+    ) {
+      var key = element.getAttribute("data-agent-native-node-id");
+      if (key) nextKeys.add(key);
+    });
+    return { keyed: keyed, nextKeys: nextKeys, obsolete: new Set<string>() };
   }
 
   /**
@@ -3520,8 +3565,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   }
 
   function morphChildren(
-    live: Element,
-    next: Element,
+    live: Element | DocumentFragment,
+    next: Element | DocumentFragment,
     context: MorphContext,
   ): void {
     var cursor = live.firstChild;
@@ -3626,6 +3671,19 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     context: MorphContext,
   ): void {
     morphAttributes(live, next);
+    var liveTemplate = templateContentOf(live);
+    var nextTemplate = templateContentOf(next);
+    if (liveTemplate && nextTemplate) {
+      // Its own key scope: a node id can legitimately appear both inside a
+      // template and in the instantiated body, and the outer map must not
+      // hand the live one over to the template.
+      morphChildren(
+        liveTemplate,
+        nextTemplate,
+        scopedMorphContext(liveTemplate, nextTemplate),
+      );
+      return;
+    }
     morphChildren(live, next, context);
   }
 

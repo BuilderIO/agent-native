@@ -87,8 +87,10 @@ export function writeCollabText(
 ): boolean {
   const current = ytext.toString();
   if (current === next) return false;
+  // No cleanup pass: diff_cleanupEfficiency merges edits across equal runs
+  // shorter than Diff_EditCost (4), which deletes up to three untouched
+  // characters and takes any concurrent edit anchored in them along with it.
   const diffs = diffMatchPatch.diff_main(current, next);
-  diffMatchPatch.diff_cleanupEfficiency(diffs);
   ydoc.transact(() => {
     let cursor = 0;
     for (const [operation, text] of diffs) {

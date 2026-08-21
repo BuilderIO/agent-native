@@ -781,3 +781,68 @@ describe("morph findings from the third review round", () => {
     },
   );
 });
+
+describe("morph findings from the fourth review round", () => {
+  it(
+    "leaves an unchanged head script node in place across a head edit",
+    { timeout: 30_000 },
+    async () => {
+      const head = (color: string) =>
+        `<script id="keepme">window.__ran = 1;</script><style>.x{color:${color}}</style>`;
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const page = await browser.newPage();
+        await page.setContent(documentHtml(BASE_BODY, head("red")));
+        await page.addScriptTag({
+          content: hydratedEditorChromeBridgeScript(head("red")),
+        });
+        await page.evaluate(() => {
+          (
+            document.getElementById("keepme") as HTMLElement & {
+              __identity?: number;
+            }
+          ).__identity = 5;
+        });
+
+        await replaceDocument(page, documentHtml(BASE_BODY, head("blue")));
+
+        // Recreating it would cancel an async script still loading, and the
+        // innerHTML-built replacement never executes.
+        expect(
+          await page.evaluate(
+            () =>
+              (
+                document.getElementById("keepme") as HTMLElement & {
+                  __identity?: number;
+                }
+              )?.__identity ?? null,
+          ),
+        ).toBe(5);
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+
+  it(
+    "reconciles markup inside a template element",
+    { timeout: 30_000 },
+    async () => {
+      const body = (label: string) =>
+        `<ul data-agent-native-node-id="an-list"><template data-agent-native-node-id="an-tpl"><li>${label}</li></template></ul>`;
+      await withBridgedPage(body("old"), async (page) => {
+        await replaceDocument(page, documentHtml(body("new")));
+
+        // A template's children live in .content, so a childNodes walk sees an
+        // empty element and silently drops every edit inside an x-for body.
+        expect(
+          await page.evaluate(
+            () =>
+              (document.querySelector("template") as HTMLTemplateElement)
+                .content.textContent,
+          ),
+        ).toBe("new");
+      });
+    },
+  );
+});
