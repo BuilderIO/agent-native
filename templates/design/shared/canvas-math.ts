@@ -677,9 +677,9 @@ export function computeMoveSnap(
   const movingBounds = moving.map((entry) =>
     getRotatedFrameAABB(entry.geometry),
   );
-  const stationaryBounds = stationary.map((entry) =>
-    getRotatedFrameAABB(entry.geometry),
-  );
+  const stationaryBounds =
+    options.stationaryBounds ??
+    stationary.map((entry) => getRotatedFrameAABB(entry.geometry));
 
   // A locked axis must be locked before the guides are built: derive both the
   // offset and the guides from the same position, or the lines describe a

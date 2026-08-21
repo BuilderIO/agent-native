@@ -9400,14 +9400,25 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     return measurements;
   }
 
-  function computeMoveSnapOffset(movingRect, candidates, threshold, isGroup) {
+  function computeMoveSnapOffset(
+    movingRect,
+    candidates,
+    threshold,
+    isGroup,
+    locked,
+  ) {
     var moving = rectBounds(movingRect);
-    var dx = findAxisSnapOffset("x", moving, candidates, threshold);
-    var dy = findAxisSnapOffset("y", moving, candidates, threshold);
+    locked = locked || {};
+    var dx = locked.x
+      ? null
+      : findAxisSnapOffset("x", moving, candidates, threshold);
+    var dy = locked.y
+      ? null
+      : findAxisSnapOffset("y", moving, candidates, threshold);
     var snapped = translateRectBounds(moving, dx || 0, dy || 0);
-    var guides = buildAxisGuides("x", snapped, candidates).concat(
-      buildAxisGuides("y", snapped, candidates),
-    );
+    var guides = (
+      locked.x ? [] : buildAxisGuides("x", snapped, candidates)
+    ).concat(locked.y ? [] : buildAxisGuides("y", snapped, candidates));
 
     // Figma drops spacing guides for a multi-select drag, and so does the
     // overview canvas; a grouped iframe drag must not diverge from either.
@@ -9428,12 +9439,16 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       return guide.orientation === "vertical";
     })
       ? idle
-      : findSpacingSnapOffset("x", snapped, candidates, threshold);
+      : locked.x
+        ? idle
+        : findSpacingSnapOffset("x", snapped, candidates, threshold);
     var spacingYResult = guides.some(function (guide) {
       return guide.orientation === "horizontal";
     })
       ? idle
-      : findSpacingSnapOffset("y", snapped, candidates, threshold);
+      : locked.y
+        ? idle
+        : findSpacingSnapOffset("y", snapped, candidates, threshold);
     var spacingX = spacingXResult.offset;
     var spacingY = spacingYResult.offset;
     var spaced = translateRectBounds(snapped, spacingX, spacingY);
@@ -9562,13 +9577,7 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       var spacing = spacingGuides[s];
       for (var b = 0; b < spacing.bands.length; b += 1) {
         appendSnapGuideNode(
-          spacingBandCss(
-            spacing.orientation,
-            spacing.bands[b],
-            line,
-            5 * scale,
-            fill,
-          ),
+          spacingBandCss(spacing.orientation, spacing.bands[b], line, fill),
         );
         appendSnapGuideNode(
           spacingSerifCss(
@@ -9600,13 +9609,7 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     for (var m = 0; m < measurements.length; m += 1) {
       var measurement = measurements[m];
       appendSnapGuideNode(
-        spacingBandCss(
-          measurement.orientation,
-          measurement.band,
-          line,
-          5 * scale,
-          fill,
-        ),
+        spacingBandCss(measurement.orientation, measurement.band, line, fill),
       );
       appendSnapGuideNode(
         spacingSerifCss(
@@ -10836,21 +10839,26 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     var dragElStartHeight = dragElStartRect.height;
     // Client px per CSS px for this element. 1 unless an ancestor between it
     // and the viewport is CSS-scaled; offsetWidth is the untransformed box.
-    function offsetScale(clientExtent, layoutExtent) {
-      if (!(layoutExtent > 0)) return 1;
-      var scale = clientExtent / layoutExtent;
-      // A collapsed visual box (transform: scale(0)) yields 0, and dividing
-      // the snap offset by it writes Infinity into style.left.
+    // Client px per CSS px contributed by ANCESTORS. Measured on the offset
+    // parent, never on dragEl: its own rect already carries its own
+    // transform, so a rotated or scaled layer would report its local
+    // transform as if the parent were scaled. 1 means "no mapping known",
+    // which is the identity, not a measurement.
+    function ancestorScale(el, axis) {
+      var host = el && (el as HTMLElement).offsetParent;
+      if (!host) return 1;
+      var rect = (host as HTMLElement).getBoundingClientRect();
+      var layout =
+        axis === "x"
+          ? (host as HTMLElement).offsetWidth
+          : (host as HTMLElement).offsetHeight;
+      var client = axis === "x" ? rect.width : rect.height;
+      if (!(layout > 0)) return 1;
+      var scale = client / layout;
       return scale > 0 && Number.isFinite(scale) ? scale : 1;
     }
-    var dragElOffsetScaleX = offsetScale(
-      dragElStartRect.width,
-      (dragEl as HTMLElement).offsetWidth,
-    );
-    var dragElOffsetScaleY = offsetScale(
-      dragElStartRect.height,
-      (dragEl as HTMLElement).offsetHeight,
-    );
+    var dragElOffsetScaleX = ancestorScale(dragEl, "x");
+    var dragElOffsetScaleY = ancestorScale(dragEl, "y");
     if (!duplicatedForDrag && !isGroupDrag) {
       postCrossScreenDrag("start", dragEl, e);
     }
@@ -10924,6 +10932,7 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
               // Convert the screen-space base to content px (1/zoom).
               SNAP_THRESHOLD_PX * chromeLineScale(),
               isGroupDrag,
+              ev.shiftKey ? { x: rawDx === 0, y: rawDy === 0 } : null,
             )
           : { dx: 0, dy: 0, guides: [], spacingGuides: [], measurements: [] };
       if ((window as any).__DND_DEBUG)

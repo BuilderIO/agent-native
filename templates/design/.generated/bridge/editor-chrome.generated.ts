@@ -6649,14 +6649,13 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return measurements;
     }
-    function computeMoveSnapOffset(movingRect, candidates, threshold, isGroup) {
+    function computeMoveSnapOffset(movingRect, candidates, threshold, isGroup, locked) {
       var moving = rectBounds(movingRect);
-      var dx = findAxisSnapOffset("x", moving, candidates, threshold);
-      var dy = findAxisSnapOffset("y", moving, candidates, threshold);
+      locked = locked || {};
+      var dx = locked.x ? null : findAxisSnapOffset("x", moving, candidates, threshold);
+      var dy = locked.y ? null : findAxisSnapOffset("y", moving, candidates, threshold);
       var snapped = translateRectBounds(moving, dx || 0, dy || 0);
-      var guides = buildAxisGuides("x", snapped, candidates).concat(
-        buildAxisGuides("y", snapped, candidates)
-      );
+      var guides = (locked.x ? [] : buildAxisGuides("x", snapped, candidates)).concat(locked.y ? [] : buildAxisGuides("y", snapped, candidates));
       if (isGroup) {
         return {
           dx: dx || 0,
@@ -6669,10 +6668,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       var idle = { offset: 0, side: null };
       var spacingXResult = guides.some(function(guide) {
         return guide.orientation === "vertical";
-      }) ? idle : findSpacingSnapOffset("x", snapped, candidates, threshold);
+      }) ? idle : locked.x ? idle : findSpacingSnapOffset("x", snapped, candidates, threshold);
       var spacingYResult = guides.some(function(guide) {
         return guide.orientation === "horizontal";
-      }) ? idle : findSpacingSnapOffset("y", snapped, candidates, threshold);
+      }) ? idle : locked.y ? idle : findSpacingSnapOffset("y", snapped, candidates, threshold);
       var spacingX = spacingXResult.offset;
       var spacingY = spacingYResult.offset;
       var spaced = translateRectBounds(snapped, spacingX, spacingY);
@@ -6759,13 +6758,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         var spacing = spacingGuides[s];
         for (var b = 0; b < spacing.bands.length; b += 1) {
           appendSnapGuideNode(
-            spacingBandCss(
-              spacing.orientation,
-              spacing.bands[b],
-              line,
-              5 * scale,
-              fill
-            )
+            spacingBandCss(spacing.orientation, spacing.bands[b], line, fill)
           );
           appendSnapGuideNode(
             spacingSerifCss(
@@ -6796,13 +6789,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       for (var m = 0; m < measurements.length; m += 1) {
         var measurement = measurements[m];
         appendSnapGuideNode(
-          spacingBandCss(
-            measurement.orientation,
-            measurement.band,
-            line,
-            5 * scale,
-            fill
-          )
+          spacingBandCss(measurement.orientation, measurement.band, line, fill)
         );
         appendSnapGuideNode(
           spacingSerifCss(
@@ -7609,19 +7596,18 @@ export const editorChromeBridgeScript: string = `"use strict";
       var dragElStartRect = dragEl.getBoundingClientRect();
       var dragElStartWidth = dragElStartRect.width;
       var dragElStartHeight = dragElStartRect.height;
-      function offsetScale(clientExtent, layoutExtent) {
-        if (!(layoutExtent > 0)) return 1;
-        var scale = clientExtent / layoutExtent;
+      function ancestorScale(el, axis) {
+        var host = el && el.offsetParent;
+        if (!host) return 1;
+        var rect = host.getBoundingClientRect();
+        var layout = axis === "x" ? host.offsetWidth : host.offsetHeight;
+        var client = axis === "x" ? rect.width : rect.height;
+        if (!(layout > 0)) return 1;
+        var scale = client / layout;
         return scale > 0 && Number.isFinite(scale) ? scale : 1;
       }
-      var dragElOffsetScaleX = offsetScale(
-        dragElStartRect.width,
-        dragEl.offsetWidth
-      );
-      var dragElOffsetScaleY = offsetScale(
-        dragElStartRect.height,
-        dragEl.offsetHeight
-      );
+      var dragElOffsetScaleX = ancestorScale(dragEl, "x");
+      var dragElOffsetScaleY = ancestorScale(dragEl, "y");
       if (!duplicatedForDrag && !isGroupDrag) {
         postCrossScreenDrag("start", dragEl, e);
       }
@@ -7667,7 +7653,8 @@ export const editorChromeBridgeScript: string = `"use strict";
           snapCandidateRects,
           // Convert the screen-space base to content px (1/zoom).
           SNAP_THRESHOLD_PX * chromeLineScale(),
-          isGroupDrag
+          isGroupDrag,
+          ev.shiftKey ? { x: rawDx === 0, y: rawDy === 0 } : null
         ) : { dx: 0, dy: 0, guides: [], spacingGuides: [], measurements: [] };
         if (window.__DND_DEBUG)
           dndLog("snap:tick", {

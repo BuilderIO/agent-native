@@ -611,3 +611,33 @@ describe("editor-chrome bridge — group drags", () => {
     expect(group.guides.length).toBeGreaterThan(0);
   });
 });
+
+describe("editor-chrome bridge — spacing band CSS", () => {
+  const spacingBandCss =
+    loadPureBridgeFn<
+      (
+        orientation: string,
+        band: {
+          gapStart: number;
+          gapEnd: number;
+          crossStart: number;
+          crossEnd: number;
+        },
+        line: number,
+        fill: string,
+      ) => string
+    >("spacingBandCss");
+
+  it("paints the band with the fill it was given", () => {
+    // An arity mismatch at the call site silently bound `fill` to a number,
+    // leaving the main spacing line transparent while its serifs still drew.
+    const css = spacingBandCss(
+      "vertical",
+      { gapStart: 10, gapEnd: 40, crossStart: 0, crossEnd: 20 },
+      1,
+      "background:orange;",
+    );
+    expect(css).toContain("background:orange;");
+    expect(css).toContain("width:30px");
+  });
+});

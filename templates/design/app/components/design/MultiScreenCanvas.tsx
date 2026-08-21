@@ -1794,9 +1794,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   }, []);
 
   const getSnapCandidateEntries = useCallback(
-    (excludeIds: string[]) => {
+    (excludeIds: string[], entries = getCurrentCanvasEntries()) => {
       const viewport = snapViewportRef.current;
-      return getCurrentCanvasEntries().filter(
+      return entries.filter(
         (entry) =>
           !excludeIds.includes(entry.id) &&
           (!viewport ||
@@ -5570,7 +5570,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             y: state.originFrames[targetId].y + dy,
           },
         }));
-        const stationaryEntries = getSnapCandidateEntries(state.targetIds);
+        // Frames align to frames: a draft primitive is transient content and
+        // must not anchor a persisted screen move.
+        const stationaryEntries = getSnapCandidateEntries(
+          state.targetIds,
+          getCurrentFrameEntries(),
+        );
         const snap = computeDragSnap(movingEntries, stationaryEntries, {
           thresholdScreenPx: DEFAULT_SNAP_THRESHOLD_SCREEN_PX,
           zoom: zoomRef.current,
