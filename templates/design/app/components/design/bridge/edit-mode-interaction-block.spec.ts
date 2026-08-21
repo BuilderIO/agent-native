@@ -14,7 +14,7 @@ function hydratedEditorChromeBridgeScript(readOnly = false): string {
     .replace("__DESIGN_CANVAS_CONTENT_OFFSET_X__", "0")
     .replace("__DESIGN_CANVAS_CONTENT_OFFSET_Y__", "0")
     .replace("__RUNTIME_LAYER_SNAPSHOT_ENABLED__", "false")
-    .replace("__INITIAL_SOURCE_HEAD__", '""');
+    .replace(/__INITIAL_SOURCE_HEAD__/g, '""');
 }
 
 // Three non-overlapping elements each painted above the shield's z-index

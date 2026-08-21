@@ -956,6 +956,16 @@ function originFromUrl(value: string | undefined): string | null {
   }
 }
 
+/**
+ * JSON for embedding inside an inline `<script>`. A bare `JSON.stringify` keeps
+ * `</script>` verbatim, and the HTML parser closes the surrounding script the
+ * moment it sees that sequence — truncating the bridge for any design whose
+ * head legitimately contains one (JSON-LD, a templating snippet).
+ */
+function inlineScriptJson(value: string): string {
+  return JSON.stringify(value).replace(/</g, "\\u003c");
+}
+
 function buildEditorChromeBridgeScript(args: {
   readOnly: boolean;
   editMode: boolean;
@@ -1002,9 +1012,8 @@ function buildEditorChromeBridgeScript(args: {
         "__SELECTED_LAYER_DRAG_PRIORITY__",
         SELECTED_LAYER_DRAG_PRIORITY_ENABLED ? "true" : "false",
       )
-      .replace(
-        "__INITIAL_SOURCE_HEAD__",
-        JSON.stringify(args.initialSourceHead),
+      .replace(/__INITIAL_SOURCE_HEAD__/g, () =>
+        inlineScriptJson(args.initialSourceHead),
       )
   );
 }
@@ -1040,10 +1049,15 @@ function runtimeDocumentNeedsReload(
   previousContent: string,
   nextContent: string,
 ): boolean {
-  const scriptSignature = (html: string) =>
-    Array.from(html.matchAll(SCRIPT_ELEMENT_RE), (match) => match[0]).join(
-      "\n",
-    );
+  const scriptSignature = (html: string) => {
+    const headEnd = html.search(/<\/head\s*>/i);
+    const boundary = headEnd === -1 ? 0 : headEnd;
+    return Array.from(
+      html.matchAll(SCRIPT_ELEMENT_RE),
+      (match) =>
+        `${(match.index ?? 0) < boundary ? "head" : "body"}:${match[0]}`,
+    ).join("\n");
+  };
   return scriptSignature(previousContent) !== scriptSignature(nextContent);
 }
 
@@ -2383,9 +2397,8 @@ export function DesignCanvas({
             "__SELECTED_LAYER_DRAG_PRIORITY__",
             SELECTED_LAYER_DRAG_PRIORITY_ENABLED ? "true" : "false",
           )
-          .replace(
-            "__INITIAL_SOURCE_HEAD__",
-            JSON.stringify(sourceHeadInnerHtml(localizedContent)),
+          .replace(/__INITIAL_SOURCE_HEAD__/g, () =>
+            inlineScriptJson(sourceHeadInnerHtml(localizedContent)),
           );
     // ALWAYS injected (like the other always-on bridges above) so
     // MultiScreenCanvas's cross-screen drag hit-testing

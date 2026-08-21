@@ -6,19 +6,25 @@ import { describe, expect, it } from "vitest";
 import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-chrome.generated";
 
 function hydratedEditorChromeBridgeScript(initialSourceHead = ""): string {
-  return editorChromeBridgeScript
-    .replace("__READ_ONLY__", "false")
-    .replace("__TEXT_EDITING_ENABLED__", "false")
-    .replace("__EDITOR_CHROME_SCALE_X__", "1")
-    .replace("__EDITOR_CHROME_SCALE_Y__", "1")
-    .replace("__DESIGN_CANVAS_SCREEN_ID__", JSON.stringify("morph-test"))
-    .replace("__DESIGN_CANVAS_BOARD_SURFACE__", "false")
-    .replace("__DESIGN_CANVAS_CONTENT_OFFSET_X__", "0")
-    .replace("__DESIGN_CANVAS_CONTENT_OFFSET_Y__", "0")
-    .replace("__RUNTIME_LAYER_SNAPSHOT_ENABLED__", "false")
-    .replace("__LIVE_REFLOW_ENABLED__", "false")
-    .replace("__SELECTED_LAYER_DRAG_PRIORITY__", "false")
-    .replace("__INITIAL_SOURCE_HEAD__", JSON.stringify(initialSourceHead));
+  return (
+    editorChromeBridgeScript
+      .replace("__READ_ONLY__", "false")
+      .replace("__TEXT_EDITING_ENABLED__", "false")
+      .replace("__EDITOR_CHROME_SCALE_X__", "1")
+      .replace("__EDITOR_CHROME_SCALE_Y__", "1")
+      .replace("__DESIGN_CANVAS_SCREEN_ID__", JSON.stringify("morph-test"))
+      .replace("__DESIGN_CANVAS_BOARD_SURFACE__", "false")
+      .replace("__DESIGN_CANVAS_CONTENT_OFFSET_X__", "0")
+      .replace("__DESIGN_CANVAS_CONTENT_OFFSET_Y__", "0")
+      .replace("__RUNTIME_LAYER_SNAPSHOT_ENABLED__", "false")
+      .replace("__LIVE_REFLOW_ENABLED__", "false")
+      .replace("__SELECTED_LAYER_DRAG_PRIORITY__", "false")
+      // Mirrors DesignCanvas's inlineScriptJson: a bare JSON.stringify leaves
+      // "</script>" intact and the parser closes the injected bridge there.
+      .replace(/__INITIAL_SOURCE_HEAD__/g, () =>
+        JSON.stringify(initialSourceHead).replace(/</g, "\\u003c"),
+      )
+  );
 }
 
 const card = (id: string, label: string) =>
@@ -843,6 +849,110 @@ describe("morph findings from the fourth review round", () => {
           ),
         ).toBe("new");
       });
+    },
+  );
+});
+
+describe("morph findings from the fifth review round", () => {
+  it(
+    "survives a source head containing a literal script close tag",
+    { timeout: 30_000 },
+    async () => {
+      const nastyHead = `<script type="application/ld+json">{"a":"</script>"}</script>`;
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const page = await browser.newPage();
+        // Served as real HTML, not addScriptTag: the truncation only happens
+        // in the parser, which is exactly how the srcdoc injects the bridge.
+        await page.route("**/screen", (route) =>
+          route.fulfill({
+            contentType: "text/html",
+            body: `<!doctype html><html><head></head><body data-agent-native-node-id="an-body"><p data-agent-native-node-id="an-p">x</p><script>${hydratedEditorChromeBridgeScript(nastyHead)}</script></body></html>`,
+          }),
+        );
+        await page.goto("http://localhost/screen");
+        await page.waitForTimeout(200);
+
+        await replaceDocument(
+          page,
+          documentHtml('<p data-agent-native-node-id="an-p">changed</p>'),
+        );
+
+        // A truncated bridge installs no message listener at all.
+        expect(
+          await page.evaluate(
+            () =>
+              document.querySelector('[data-agent-native-node-id="an-p"]')
+                ?.textContent,
+          ),
+        ).toBe("changed");
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+
+  it(
+    "applies an explicit source value change to a dirty input",
+    { timeout: 30_000 },
+    async () => {
+      await withBridgedPage(
+        '<input data-agent-native-node-id="an-input" value="foo">',
+        async (page) => {
+          await page.evaluate(() => {
+            (document.querySelector("input") as HTMLInputElement).value =
+              "typed";
+          });
+
+          await replaceDocument(
+            page,
+            documentHtml(
+              '<input data-agent-native-node-id="an-input" value="bar">',
+            ),
+          );
+
+          // The attribute write moves defaultValue, so the form guard has to run
+          // before it or a dirty control silently ignores the source edit.
+          expect(
+            await page.evaluate(
+              () => (document.querySelector("input") as HTMLInputElement).value,
+            ),
+          ).toBe("bar");
+        },
+      );
+    },
+  );
+
+  it(
+    "boots without the source-head placeholder replaced",
+    { timeout: 30_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const page = await browser.newPage();
+        const pageErrors: string[] = [];
+        page.on("pageerror", (error) => pageErrors.push(error.message));
+        await page.setContent(documentHtml(BASE_BODY));
+        await page.addScriptTag({
+          content: editorChromeBridgeScript
+            .replace("__READ_ONLY__", "false")
+            .replace("__TEXT_EDITING_ENABLED__", "false")
+            .replace("__EDITOR_CHROME_SCALE_X__", "1")
+            .replace("__EDITOR_CHROME_SCALE_Y__", "1")
+            .replace("__DESIGN_CANVAS_SCREEN_ID__", '"morph-test"')
+            .replace("__DESIGN_CANVAS_BOARD_SURFACE__", "false")
+            .replace("__DESIGN_CANVAS_CONTENT_OFFSET_X__", "0")
+            .replace("__DESIGN_CANVAS_CONTENT_OFFSET_Y__", "0")
+            .replace("__RUNTIME_LAYER_SNAPSHOT_ENABLED__", "false")
+            .replace("__LIVE_REFLOW_ENABLED__", "false")
+            .replace("__SELECTED_LAYER_DRAG_PRIORITY__", "false"),
+        });
+        await page.waitForTimeout(200);
+
+        expect(pageErrors).toEqual([]);
+      } finally {
+        await browser.close();
+      }
     },
   );
 });

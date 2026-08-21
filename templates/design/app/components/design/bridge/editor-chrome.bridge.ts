@@ -328,7 +328,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
    * it, and the re-inserted `<script src>` cannot rebuild it because innerHTML
    * never executes scripts. The screen then renders unstyled for good.
    */
-  var lastSourceHeadHtml: string | null = __INITIAL_SOURCE_HEAD__ || null;
+  var lastSourceHeadHtml: string | null =
+    typeof __INITIAL_SOURCE_HEAD__ === "string"
+      ? __INITIAL_SOURCE_HEAD__ || null
+      : null;
 
   /**
    * Swaps only the nodes the previous source head contributed. Assigning
@@ -3387,11 +3390,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   }
 
   /**
-   * Seeds ownership from the document the srcdoc was built from. Safe to read
-   * the live body here and nowhere later: this runs inline at the end of body
-   * during parsing, before any deferred script, so nothing but the parser has
-   * touched it yet. (The head is NOT safe to read this way — a blocking
-   * `<script src>` such as the Tailwind runtime has already injected there.)
+   * Seeds ownership from the document the srcdoc was built from: this runs
+   * inline at the end of body during parsing, before any deferred script, so
+   * Alpine and every other deferred runtime has yet to render.
+   *
+   * Two things it cannot see. The head is already contaminated — a blocking
+   * script src such as the Tailwind runtime has injected there — which is why
+   * the head baseline is baked in at build time instead. And DOM appended by
+   * the design's OWN synchronous body scripts, which ran before this point, is
+   * indistinguishable from authored markup and will be treated as source. Our
+   * injected bridges are exempt: everything they add carries
+   * data-agent-native-edit-overlay, which recordSourceSubtree skips.
    */
   function captureInitialSourceOwnership(): void {
     if (document.body) recordSourceSubtree(document.body);
@@ -3556,7 +3565,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       live.removeAttribute(name);
     }
 
-    morphFormState(live, next);
     (live as Element & { __anSourceMeta?: SourceMeta }).__anSourceMeta = {
       attrs: nextNames,
       className: next.getAttribute("class") ?? "",
@@ -3670,6 +3678,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     next: Element,
     context: MorphContext,
   ): void {
+    // Before morphAttributes: writing the `value` attribute moves
+    // defaultValue, and the guard inside morphFormState reads defaultValue to
+    // decide whether the SOURCE default changed. Run it after and a dirty
+    // input never sees an explicit source edit.
+    morphFormState(live, next);
     morphAttributes(live, next);
     var liveTemplate = templateContentOf(live);
     var nextTemplate = templateContentOf(next);

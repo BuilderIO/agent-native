@@ -584,7 +584,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       renderRuntimeInteractionStatePreviews();
     }
-    var lastSourceHeadHtml = __INITIAL_SOURCE_HEAD__ || null;
+    var lastSourceHeadHtml = typeof __INITIAL_SOURCE_HEAD__ === "string" ? __INITIAL_SOURCE_HEAD__ || null : null;
     function headNodeSignature(node) {
       var tag = node.tagName.toLowerCase();
       if (tag === "title" || tag === "base") return tag;
@@ -2771,7 +2771,6 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         live.removeAttribute(name);
       }
-      morphFormState(live, next);
       live.__anSourceMeta = {
         attrs: nextNames,
         className: next.getAttribute("class") ?? "",
@@ -2843,6 +2842,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
     }
     function morphElement(live, next, context) {
+      morphFormState(live, next);
       morphAttributes(live, next);
       var liveTemplate = templateContentOf(live);
       var nextTemplate = templateContentOf(next);

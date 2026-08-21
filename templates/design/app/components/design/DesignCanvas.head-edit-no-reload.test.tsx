@@ -95,4 +95,23 @@ describe("DesignCanvas runtime replacement", () => {
       await canvas.cleanup();
     }
   });
+  it("rebuilds srcdoc when a source script moves between head and body", async () => {
+    const script = "<script>window.__x = 1;</script>";
+    const canvas = await renderCanvas(
+      documentWith(`<title>Screen</title>${script}`, BODY),
+    );
+    try {
+      const before = canvas.iframe()?.srcdoc;
+
+      await canvas.update(
+        documentWith("<title>Screen</title>", `${BODY}${script}`),
+      );
+
+      // Identical script text in a new region: the morph would strip it from
+      // the head and import an inert copy into the body that never executes.
+      expect(canvas.iframe()?.srcdoc).not.toBe(before);
+    } finally {
+      await canvas.cleanup();
+    }
+  });
 });
