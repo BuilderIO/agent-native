@@ -51,6 +51,10 @@ describe("AutomationScheduleDialog", () => {
           schedule={props.schedule ?? "0 8 * * *"}
           timezone={props.timezone ?? null}
           saving={false}
+          scheduledTriggerState={{
+            kind: "resolved",
+            status: { available: true, driver: "netlify-scheduled-function" },
+          }}
           onCancel={() => {}}
           onSave={onSave}
         />,

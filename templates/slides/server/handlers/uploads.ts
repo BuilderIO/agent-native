@@ -11,6 +11,7 @@ import { nanoid } from "nanoid";
 import {
   MAX_FIG_REFERENCE_FILE_BYTES,
   MAX_REFERENCE_FILE_BYTES,
+  MAX_REFERENCE_FILES,
   SLIDES_REFERENCE_FILE_ERROR_LABEL,
   isSlidesReferenceFileExtension,
 } from "../../shared/upload-types.js";
@@ -237,11 +238,9 @@ export const uploadFiles = defineEventHandler(async (event) => {
         return { error: "No files uploaded" };
       }
 
-      const MAX_FILES = 20;
-
-      if (fileParts.length > MAX_FILES) {
+      if (fileParts.length > MAX_REFERENCE_FILES) {
         setResponseStatus(event, 413);
-        return { error: `Too many files (max ${MAX_FILES})` };
+        return { error: `Too many files (max ${MAX_REFERENCE_FILES})` };
       }
 
       const oversized = fileParts.find(

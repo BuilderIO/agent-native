@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.165.1",
+  "version": "0.168.6",
   "description": "Framework for agent-native application development — where AI agents and UI share SQL state, actions, and context",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -173,6 +173,7 @@
     "./voice": "./dist/voice/index.js",
     "./scripts": "./dist/scripts/index.js",
     "./deploy/function-bundle": "./dist/deploy/function-bundle.js",
+    "./deploy/netlify-static-headers": "./dist/deploy/netlify-static-headers.js",
     "./guards": {
       "types": "./dist/guards/index.d.ts",
       "default": "./dist/guards/index.js"

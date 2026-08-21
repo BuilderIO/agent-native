@@ -18,7 +18,6 @@ import {
   IconArrowAutofitWidth,
   IconBorderRadius,
   IconBorderStyle,
-  IconBoxPadding,
   IconDots,
   IconGridDots,
   IconItalic,

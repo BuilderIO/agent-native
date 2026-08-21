@@ -426,6 +426,7 @@ const deDE = {
     viewDocs: "Docs ansehen",
     source: "Quelle",
     readDocs: "Lesen Sie die Dokumente",
+    signIn: "Anmelden",
   },
   templatesPage: {
     title: "Open-Source-Agent-native Apps, die Sie besitzen",
@@ -1427,6 +1428,9 @@ const deDE = {
         composerLabel: "Ihr Prompt",
         composerPlaceholder:
           "Beschreiben Sie die gewünschte Präsentation oder beantworten Sie die Fragen oben.",
+        promptTip: "Prompt-Tipp",
+        promptPlaceholder:
+          "Seien Sie konkret. Sagen Sie, für wen es ist, fügen Sie Ihre Notizen ein oder verweisen Sie auf ein Website-Design...",
         submit: "Meine Präsentation generieren",
         readyHint: "Ihr Prompt ist fertig — senden Sie ihn an den Agenten.",
         promptDeck: "Erstelle {{deck}}.",
@@ -1526,6 +1530,8 @@ const deDE = {
     body: "Alle agent-native Apps in einer Desktop-Shell. Produktions-Apps sind integriert, mit Dev-Modus für lokale Entwicklung.",
     openDesktop: "Agent Native öffnen",
     downloadInstaller: "Installer herunterladen",
+    downloadStarted: "Download gestartet",
+    downloadAgain: "Hat es nicht funktioniert? Erneut herunterladen",
     loadError: "Der neueste Desktop-Installer konnte nicht geladen werden.",
     checkingRelease: "Neueste Desktop-Version wird geprüft...",
     retry: "Erneut versuchen",

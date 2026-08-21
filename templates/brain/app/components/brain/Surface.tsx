@@ -117,7 +117,8 @@ export function StatusBadge({ status }: { status: string }) {
       ? IconCircleCheck
       : normalized.includes("review") ||
           normalized.includes("degraded") ||
-          normalized.includes("stale")
+          normalized.includes("stale") ||
+          normalized.includes("needs")
         ? IconClock
         : normalized.includes("error")
           ? IconAlertTriangle
@@ -132,7 +133,8 @@ export function StatusBadge({ status }: { status: string }) {
           "border-border bg-secondary text-secondary-foreground",
         (normalized.includes("review") ||
           normalized.includes("degraded") ||
-          normalized.includes("stale")) &&
+          normalized.includes("stale") ||
+          normalized.includes("needs")) &&
           "border-amber-500/35 bg-amber-500/10 text-amber-700 dark:text-amber-300",
         normalized.includes("error") &&
           "border-destructive/35 bg-destructive/10 text-destructive",

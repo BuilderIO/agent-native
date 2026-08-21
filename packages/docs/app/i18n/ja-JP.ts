@@ -425,6 +425,7 @@ const jaJP = {
     viewDocs: "ドキュメントを見る",
     source: "ソース",
     readDocs: "ドキュメントを読む",
+    signIn: "サインイン",
   },
   templatesPage: {
     title: "あなたが所有するオープンソースのエージェントネイティブ アプリ",
@@ -1405,6 +1406,9 @@ const jaJP = {
         composerLabel: "あなたのプロンプト",
         composerPlaceholder:
           "作りたいデッキを説明するか、上の質問に答えてください。",
+        promptTip: "プロンプトのヒント",
+        promptPlaceholder:
+          "具体的にしてください。誰のためか、メモを貼り付けるか、参考にしたいウェブサイトのデザインを挙げてください...",
         submit: "デッキを生成",
         readyHint:
           "プロンプトの準備ができました。エージェントに送信してください。",
@@ -1517,6 +1521,8 @@ const jaJP = {
     body: "すべての agent-native アプリを 1 つのデスクトップシェルに集約。プロダクションアプリを内蔵し、ローカル開発向けの dev モード切り替えも備えています。",
     openDesktop: "Agent Native を開く",
     downloadInstaller: "インストーラーをダウンロード",
+    downloadStarted: "ダウンロードを開始しました",
+    downloadAgain: "うまくいきませんでしたか？もう一度ダウンロード",
     loadError: "最新のデスクトップインストーラーを読み込めませんでした。",
     checkingRelease: "最新のデスクトップリリースを確認しています...",
     retry: "再試行",

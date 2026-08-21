@@ -1,5 +1,166 @@
 # @agent-native/mobile-app
 
+## 0.1.86
+
+### Patch Changes
+
+- Updated dependencies [186d913]
+  - @agent-native/core@0.168.6
+
+## 0.1.85
+
+### Patch Changes
+
+- Updated dependencies [60aaea8]
+  - @agent-native/core@0.168.5
+
+## 0.1.84
+
+### Patch Changes
+
+- Updated dependencies [4e1ce88]
+- Updated dependencies [4e1ce88]
+- Updated dependencies [4e1ce88]
+  - @agent-native/core@0.168.4
+
+## 0.1.83
+
+### Patch Changes
+
+- Updated dependencies [97e8cea]
+  - @agent-native/core@0.168.3
+
+## 0.1.82
+
+### Patch Changes
+
+- Updated dependencies [8617890]
+  - @agent-native/core@0.168.2
+
+## 0.1.81
+
+### Patch Changes
+
+- Updated dependencies [07e0de3]
+- Updated dependencies [68265a5]
+  - @agent-native/core@0.168.1
+
+## 0.1.80
+
+### Patch Changes
+
+- Updated dependencies [6203d5d]
+  - @agent-native/core@0.168.0
+
+## 0.1.79
+
+### Patch Changes
+
+- Updated dependencies [d3210d7]
+  - @agent-native/core@0.167.5
+
+## 0.1.78
+
+### Patch Changes
+
+- Updated dependencies [8b73951]
+  - @agent-native/core@0.167.4
+
+## 0.1.77
+
+### Patch Changes
+
+- Updated dependencies [1aafc1d]
+- Updated dependencies [40baf42]
+- Updated dependencies [1aafc1d]
+  - @agent-native/core@0.167.3
+
+## 0.1.76
+
+### Patch Changes
+
+- Updated dependencies [95d9d70]
+- Updated dependencies [7f22204]
+  - @agent-native/core@0.167.2
+
+## 0.1.75
+
+### Patch Changes
+
+- Updated dependencies [ca9ee7e]
+  - @agent-native/core@0.167.1
+
+## Unreleased
+
+### Added
+
+- A native companion Home for dictation, background meeting audio, camera video
+  and imports, plus remote agent sessions.
+- Restart-safe recovery for finalized captures with resumable Clips uploads,
+  automatic foreground retry, and completion notifications.
+- iOS and Android quick actions for dictation, audio, and video capture, plus
+  Siri/App Intents on iOS and a dictation Quick Settings tile on Android.
+- Native iOS Clips browsing, calendar readiness, Live Activities, widgets,
+  ReplayKit broadcast capture, Apple Watch actions, and configurable dictation.
+
+### Changed
+
+- Upgraded the mobile runtime to Expo SDK 57 and React Native 0.86.
+- Improved native capture lifecycle tracking and session-token storage so
+  uploads and companion actions recover cleanly across app restarts.
+
+## 0.1.74
+
+### Patch Changes
+
+- Updated dependencies [3a7a8f0]
+  - @agent-native/core@0.167.0
+
+## 0.1.73
+
+### Patch Changes
+
+- Updated dependencies [8fd035c]
+  - @agent-native/core@0.166.1
+
+## 0.1.72
+
+### Patch Changes
+
+- Updated dependencies [c50b009]
+  - @agent-native/core@0.166.0
+
+## 0.1.71
+
+### Patch Changes
+
+- Updated dependencies [8d56ed2]
+  - @agent-native/core@0.165.5
+
+## 0.1.70
+
+### Patch Changes
+
+- Updated dependencies [841f072]
+  - @agent-native/core@0.165.4
+
+## 0.1.69
+
+### Patch Changes
+
+- Updated dependencies [b6ca1a7]
+- Updated dependencies [b6ca1a7]
+- Updated dependencies [b6ca1a7]
+  - @agent-native/core@0.165.3
+
+## 0.1.68
+
+### Patch Changes
+
+- Updated dependencies [b130f4e]
+- Updated dependencies [ac3acfa]
+  - @agent-native/core@0.165.2
+
 ## 0.1.67
 
 ### Patch Changes
@@ -578,25 +739,6 @@
 - Updated dependencies [436340b]
 - Updated dependencies [436340b]
   - @agent-native/core@0.159.4
-
-## Unreleased
-
-### Added
-
-- A native companion Home for dictation, background meeting audio, camera video
-  and imports, plus remote agent sessions.
-- Restart-safe recovery for finalized captures with resumable Clips uploads,
-  automatic foreground retry, and completion notifications.
-- iOS and Android quick actions for dictation, audio, and video capture, plus
-  Siri/App Intents on iOS and a dictation Quick Settings tile on Android.
-- Native iOS Clips browsing, calendar readiness, Live Activities, widgets,
-  ReplayKit broadcast capture, Apple Watch actions, and configurable dictation.
-
-### Changed
-
-- Upgraded the mobile runtime to Expo SDK 57 and React Native 0.86.
-- Improved native capture lifecycle tracking and session-token storage so
-  uploads and companion actions recover cleanly across app restarts.
 
 ## 0.1.2
 

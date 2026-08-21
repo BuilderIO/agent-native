@@ -1155,7 +1155,7 @@ function AllAssetsBrowser({
   foldersByLibraryId?: Record<string, any[]>;
 }) {
   const t = useT();
-  const navigate = useNavigate();
+
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const searchParamsKey = searchParams.toString();

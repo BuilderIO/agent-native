@@ -5,6 +5,7 @@ import {
   createAgentNativeQueryClient,
   useDbSync,
 } from "@agent-native/core/client/hooks";
+import { isEmbedAuthActive } from "@agent-native/core/client/host";
 import {
   getLocaleInitScript,
   type LocaleCode,
@@ -278,6 +279,7 @@ export default function Root() {
       <AppProviders
         queryClient={queryClient}
         isPublicPath={isPublicPath}
+        sessionBypass={isEmbedAuthActive()}
         clientOnlyFallback={<DefaultSpinner />}
         toaster={<Toaster richColors position="bottom-center" />}
         i18n={{

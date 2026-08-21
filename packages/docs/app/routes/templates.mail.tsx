@@ -8,6 +8,7 @@ import {
 } from "@tabler/icons-react";
 import { Link } from "react-router";
 
+import { BuilderImage } from "../components/builder-image";
 import { sitePathForLocale } from "../components/docs-locale";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { SectionDivider } from "../components/SectionDivider";
@@ -146,8 +147,9 @@ export default function MailTemplate() {
           </a>
         }
         media={
-          <img
+          <BuilderImage
             src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fbcf3d06c52364153a913c15b77f2418d"
+            sizes="(max-width: 900px) 100vw, 800px"
             crossOrigin="anonymous"
             alt={t("templateLanding.mail.s001")}
             loading="lazy"

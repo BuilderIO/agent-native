@@ -1,5 +1,5 @@
 import { AgentPanel } from "@agent-native/core/client/agent-chat";
-import { appPath, agentNativePath } from "@agent-native/core/client/api-path";
+import { agentNativePath } from "@agent-native/core/client/api-path";
 import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import {
   useActionMutation,
@@ -16,7 +16,7 @@ import {
   isHumanReadableDocumentTitle,
   normalizeDocumentTitle,
 } from "@agent-native/core/shared";
-import { ShareCopyRow, ShareTrigger } from "@agent-native/toolkit/sharing";
+import { ShareCopyRow } from "@agent-native/toolkit/sharing";
 import {
   BUILDER_CREDITS_UPGRADE_URL,
   type BuilderCreditsStatus,
@@ -59,6 +59,7 @@ import { toast } from "sonner";
 
 import { EditableRecordingTitle } from "@/components/editable-recording-title";
 import { EditorLayout } from "@/components/editor/editor-layout";
+import { ClipsShareTrigger } from "@/components/player/clips-share-trigger";
 import { CommentsPanel } from "@/components/player/comments-panel";
 import { RecordingOptionsMenu } from "@/components/player/delete-recording-menu";
 import { InsightsPanel } from "@/components/player/insights-panel";
@@ -246,9 +247,8 @@ function nativeSaveFailureMessage(reason: string | null | undefined): string {
   return "The desktop recorder finished and saved a local copy, but Clips could not upload it. You can retry from the Clips menu without recording again.";
 }
 
-export function BackToLibraryButton() {
+export function BackButton({ onBack }: { onBack: () => void }) {
   const t = useT();
-  const navigate = useNavigate();
 
   return (
     <Tooltip>
@@ -257,7 +257,7 @@ export function BackToLibraryButton() {
           variant="ghost"
           size="icon"
           className="shrink-0"
-          onClick={() => navigate("/library", { replace: true })}
+          onClick={onBack}
           aria-label={t("recordingPage.backToLibrary")}
         >
           <IconArrowLeft className="h-4 w-4 rtl:-scale-x-100" />
@@ -1051,8 +1051,10 @@ export default function RecordingPage() {
     if (!showRecoveryState) {
       return (
         <div className="flex min-h-screen w-full flex-col bg-background">
-          <header className="flex min-w-0 shrink-0 items-center gap-3 border-b border-border px-3 py-2 sm:px-4 sm:py-3">
-            <BackToLibraryButton />
+          <header className="flex min-w-0 shrink-0 items-center gap-2 border-b border-border px-3 py-2 sm:px-4 sm:py-3">
+            <BackButton
+              onBack={() => navigate("/library", { replace: true })}
+            />
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-medium">{visibleTitle}</p>
               <p className="truncate text-xs text-muted-foreground">
@@ -1070,10 +1072,7 @@ export default function RecordingPage() {
               hasPassword={Boolean(recording.hasPassword)}
               viewerReshareOnly={viewerReshareOnly}
             >
-              <ShareTrigger
-                label={t("recordingPage.share")}
-                className="shrink-0"
-              />
+              <ClipsShareTrigger label={t("recordingPage.share")} />
             </ShareRecordingPopover>
           </header>
 
@@ -1370,8 +1369,14 @@ export default function RecordingPage() {
     <div className="flex min-h-screen w-full max-w-full flex-col overflow-x-hidden bg-background xl:h-screen xl:flex-row xl:overflow-hidden">
       {/* Main video column */}
       <div className="flex w-full min-w-0 flex-col xl:flex-1">
-        <header className="flex min-w-0 shrink-0 items-center gap-2 border-b border-border px-3 py-2 sm:gap-3 sm:px-4 sm:py-3">
-          <BackToLibraryButton />
+        <header className="flex min-w-0 shrink-0 items-center gap-2 border-b border-border px-3 py-2 sm:px-4 sm:py-3">
+          <BackButton
+            onBack={
+              editing
+                ? () => setEditing(false)
+                : () => navigate("/library", { replace: true })
+            }
+          />
           <div className="flex-1 min-w-0">
             <EditableRecordingTitle
               recordingId={recording.id}
@@ -1609,10 +1614,7 @@ export default function RecordingPage() {
               hasPassword={Boolean(recording.hasPassword)}
               viewerReshareOnly={viewerReshareOnly}
             >
-              <ShareTrigger
-                label={t("recordingPage.share")}
-                className="shrink-0"
-              />
+              <ClipsShareTrigger label={t("recordingPage.share")} />
             </ShareRecordingPopover>
           ) : null}
 

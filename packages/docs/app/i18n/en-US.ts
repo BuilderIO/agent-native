@@ -68,6 +68,7 @@ const enUS = {
     viewDocs: "View Docs",
     source: "Source",
     readDocs: "Read the docs",
+    signIn: "Sign in",
   },
   search: {
     dialogLabel: "Search documentation",
@@ -1410,6 +1411,9 @@ const enUS = {
         composerLabel: "Your prompt",
         composerPlaceholder:
           "Describe the deck you want, or answer the questions above.",
+        promptTip: "Prompt tip",
+        promptPlaceholder:
+          "Be specific. Say who it is for, paste your notes, or reference a website design...",
         submit: "Generate my deck",
         readyHint: "Your prompt is ready — send it to the agent.",
         promptDeck: "Create {{deck}}.",
@@ -1508,6 +1512,8 @@ const enUS = {
     body: "All your agent-native apps in one desktop shell. Production apps built-in, with a dev mode toggle for local development.",
     openDesktop: "Open Agent Native",
     downloadInstaller: "Download installer",
+    downloadStarted: "Download started",
+    downloadAgain: "Didn't work? Try downloading again",
     loadError: "Could not load the latest desktop installer.",
     checkingRelease: "Checking the latest desktop release...",
     retry: "Retry",

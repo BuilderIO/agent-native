@@ -25,6 +25,7 @@ export const SLIDES_REFERENCE_FILE_LABEL =
 export const SLIDES_REFERENCE_FILE_ERROR_LABEL =
   "pptx, docx, pdf, fig, text, Markdown, JSON, CSV, and images including SVG";
 
+export const MAX_REFERENCE_FILES = 20;
 export const MAX_REFERENCE_FILE_BYTES = 50 * 1024 * 1024;
 export const MAX_FIG_REFERENCE_FILE_BYTES = 200 * 1024 * 1024;
 

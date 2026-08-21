@@ -424,6 +424,7 @@ const ptBR = {
     viewDocs: "Ver docs",
     source: "Fonte",
     readDocs: "Leia os documentos",
+    signIn: "Entrar",
   },
   templatesPage: {
     title: "Aplicativos de código aberto e nativos do agente que você possui",
@@ -1420,6 +1421,9 @@ const ptBR = {
         composerLabel: "Seu prompt",
         composerPlaceholder:
           "Descreva a apresentação que você quer, ou responda às perguntas acima.",
+        promptTip: "Dica de prompt",
+        promptPlaceholder:
+          "Seja específico. Diga para quem é, cole suas notas ou faça referência a um design de site...",
         submit: "Gerar minha apresentação",
         readyHint: "Seu prompt está pronto — envie para o agente.",
         promptDeck: "Crie {{deck}}.",
@@ -1518,6 +1522,8 @@ const ptBR = {
     body: "Todos os seus apps agent-native em uma única shell de desktop. Apps de produção integrados, com alternância de modo dev para desenvolvimento local.",
     openDesktop: "Abrir Agent Native",
     downloadInstaller: "Baixar instalador",
+    downloadStarted: "Download iniciado",
+    downloadAgain: "Não funcionou? Tente baixar novamente",
     loadError: "Não foi possível carregar o instalador desktop mais recente.",
     checkingRelease: "Verificando a versão desktop mais recente...",
     retry: "Tentar novamente",

@@ -26,12 +26,25 @@ The focused user-facing guides remain authoritative for their areas:
   `templates/analytics/app/lib/data-sources.ts`
   - settings UI and provider-specific credential metadata
 
-For committed, non-secret app defaults such as first-run onboarding, prefer
-`agent-native.config.ts` and use the [Agent-Native app configuration
-guide](../packages/core/docs/content/agent-native-config.mdx) instead of adding
-another `VITE_*` flag. `agent-native.ts`, `agent-native.mts`,
-`agent-native.config.mts`, and `agent-native.json` remain supported. Keep credentials
-and deployment-specific values in the environment or scoped secret store.
+## Configuration-first rule
+
+For committed, non-secret public app defaults, `agent-native.config.ts` is the
+primary configuration API and the [Agent-Native app configuration
+guide](../packages/core/docs/content/agent-native-config.mdx) is the primary
+reference. Put the default in that file first. Use the deterministic
+`AGENT_NATIVE_CONFIG_<PATH>` alias only when a public value must vary by
+deployment; the alias is the final override of the typed/JSON config.
+`AGENT_NATIVE_CONFIG` supplies a complete JSON object, and every supported
+nested path accepts a JSON fragment. The resolved value is public browser
+configuration.
+
+The server-only `defineAppConfig()` schema is a deliberate exception for
+credential scoping, webhook trust, agent runtime controls, and workspace
+wiring that must not be serialized into the browser. Its declared aliases are
+listed in the generated section below. Platform facts, routing values,
+deployment adapters, and secrets remain environment-owned. The compatibility
+filenames `agent-native.ts`, `agent-native.mts`, `agent-native.config.mts`, and
+`agent-native.json` remain supported.
 
 `runtime.environment.required` records environment variable names only. The
 resolved config is public browser configuration, so set the corresponding
@@ -255,6 +268,29 @@ production deployment:
 | `CI_WORKSPACE_FILTERS`        | JSON-encoded pnpm workspace selectors emitted by the change-scope classifier.                                                                                           |
 | `PAGERDUTY_ROUTING_KEY`       | Optional GitHub Actions secret used to page the production health on-call when the keep-warm audit fails; GitHub issue reporting remains the fallback when it is unset. |
 
+### Beta E2E browser suite
+
+Read by the manual `Beta E2E (browser)` workflow and `e2e/beta/`, never by
+application runtime code. `BETA_E2E_SESSION_TOKENS` and
+`BETA_E2E_OPENAI_API_KEY` are live credentials: supply them as GitHub Actions
+secrets only. See `e2e/beta/README.md` for how they are minted.
+
+| Variable                         | Purpose                                                                                                                                            |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BETA_E2E_APPS`                  | Comma-separated beta app ids to test, or `all`. An unknown id fails the run rather than selecting nothing.                                         |
+| `BETA_E2E_AUTHED`                | `1`/`0` to force the authenticated lane on or off. Unset means "run it when a session credential was supplied".                                    |
+| `BETA_E2E_GREP`                  | Optional Playwright title filter from the workflow `grep` input. Passed through the environment so a dispatch input never reaches a shell line.    |
+| `BETA_E2E_REPORT_SLOT`           | Names this invocation's report directory. The workflow sets one per lane so three sequential runs do not overwrite each other's results.           |
+| `BETA_E2E_EMAIL`                 | The identity every authenticated spec asserts it is running as. Setup fails if the resolved session is anyone else.                                |
+| `BETA_E2E_SESSION_TOKENS`        | JSON map of app id to framework session token (`{"*": "…"}` applies fleet-wide), replayed through `?_session=`. Minted by `pnpm e2e:beta:capture`. |
+| `BETA_E2E_STORAGE_STATE`         | Alternative to the token map: a Playwright storageState JSON blob.                                                                                 |
+| `BETA_E2E_STORAGE_STATE_FILE`    | Path to a storageState file, for local runs.                                                                                                       |
+| `BETA_E2E_OPENAI_API_KEY`        | Dedicated, separately-limited OpenAI key installed at **user** scope on the e2e account so agent-turn spend is attributable to this suite.         |
+| `BETA_E2E_SHARED_OPENAI_API_KEY` | The repository's shared `OPENAI_API_KEY`, passed through by the workflow. Used only when `BETA_E2E_ALLOW_SHARED_KEY` is set, never implicitly.     |
+| `BETA_E2E_ALLOW_SHARED_KEY`      | Set by the workflow when the dispatch chooses `key_source=shared`. Opts a run into billing the shared key instead of the dedicated one.            |
+| `BETA_E2E_MODEL`                 | Overrides the luna model id. Rejected unless it is a luna model — the suite is budgeted for luna.                                                  |
+| `BETA_E2E_ENGINE`                | Engine for the model selection (`ai-sdk:openai` by default, or `builder`). Decides which luna spelling is used.                                    |
+
 GitHub Actions also creates short-lived step handoff variables such as
 `HEAD_SHA`, `MATRIX`, `PLAN_JSON`, `PLAN_URL`, `PR_NUMBER`, `RUN_URL`,
 `ROLLBACK_SHA`, `ASSERTIONS`, and `RECAP_*`. They are workflow plumbing, not
@@ -307,10 +343,12 @@ not represented by an existing namespace or suffix family.
 
 ## Declared app configuration
 
-Every field below is set with `defineAppConfig()` from server code. The
-environment variable is a declared alias for the same field, listed in the
-order it is consulted; app configuration wins over any of them. Fields with
-no alias are settable only in code.
+Every field below is server-only and set with `defineAppConfig()` from
+server code. The environment variable is a declared deployment alias for
+the same field, listed in the order it is consulted; app configuration
+wins over any of them. These fields are deliberately separate from the
+public `agent-native.config.ts` surface. Fields with no alias are settable
+only in code.
 
 | Field                                         | Environment aliases                                                         | Type    | Default  | Description                                                                                                                                          |
 | --------------------------------------------- | --------------------------------------------------------------------------- | ------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -333,6 +371,8 @@ no alias are settable only in code.
 | `app.template`                                | `VITE_AGENT_NATIVE_TEMPLATE`                                                | string  | —        | First-party template this app was generated from.                                                                                                    |
 | `auth.disableDesktopSsoFallbackInDevelopment` | `AGENT_NATIVE_DISABLE_DESKTOP_SSO_FALLBACK`                                 | boolean | `false`  | Disable the loopback Desktop SSO fallback in development so isolated acceptance runs can use their configured local identity. Ignored in production. |
 | `integrations.allowUnverifiedWebhooks`        | `AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS`                                    | boolean | `false`  | Skip inbound webhook signature verification. Development only — every adapter that reads this treats it as a bypass of sender authentication.        |
+| `migration.releaseMigrations`                 | `AGENT_NATIVE_RELEASE_MIGRATIONS`                                           | boolean | `false`  | Treat database migrations as release-owned so request runtimes only probe an already-prepared schema.                                                |
+| `migration.betaSchemaOwner`                   | `AGENT_NATIVE_BETA_SCHEMA_OWNER`                                            | string  | —        | Schema owner marker embedded in a prebuilt beta server bundle.                                                                                       |
 | `privateBlob.provider`                        | —                                                                           | string  | —        | Id of the registered private blob provider to use. Unset falls back to the first registered provider that reports itself configured.                 |
 | `privateBlob.publicUploadFallback`            | `AGENT_NATIVE_PRIVATE_BLOB_PUBLIC_UPLOAD_FALLBACK`                          | boolean | `true`   | Store private blobs as encrypted objects in public file-upload storage when no private blob provider is configured.                                  |
 | `workspace.isWorkspace`                       | `AGENT_NATIVE_WORKSPACE`, `VITE_AGENT_NATIVE_WORKSPACE`                     | boolean | —        | Whether this app is mounted inside a shared workspace gateway.                                                                                       |

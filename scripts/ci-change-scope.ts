@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { appendFileSync, existsSync } from "node:fs";
-import { basename, join, resolve } from "node:path";
+import { basename, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const DOCS_PATH_PREFIXES = [
@@ -8,6 +8,31 @@ const DOCS_PATH_PREFIXES = [
   "packages/core/docs/",
   "packages/docs/",
 ] as const;
+
+/**
+ * Prose and static assets under a docs directory are documentation; the source
+ * and config files beside them are code.
+ *
+ * A docs-only PR runs zero checks — guards included — so anything classified
+ * here as documentation ships unverified. `packages/docs/` is a full Nitro +
+ * React Router app: 248 `.ts`/`.tsx` files, a server route directory, and the
+ * `netlify.toml` that owns the site's static cache headers. Those headers went
+ * missing for 13 days (2026-08-07 a882a536af → 2026-08-20 4ec27fb575) inside
+ * this blind spot.
+ */
+const DOCS_CONTENT_EXTENSIONS = new Set([
+  ".md",
+  ".mdx",
+  ".txt",
+  ".svg",
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".gif",
+  ".webp",
+  ".avif",
+  ".ico",
+]);
 
 const DOCS_SUPPORT_PATHS = new Set([
   "scripts/i18n-catalog-english-value-baseline.txt",
@@ -69,11 +94,14 @@ export function isDocsPath(path: string): boolean {
   if (normalized.startsWith(".changeset/")) return true;
   if (DOCS_SUPPORT_PATHS.has(normalized)) return true;
   if (DOCS_PATH_PREFIXES.some((prefix) => normalized.startsWith(prefix))) {
-    return true;
+    return DOCS_CONTENT_EXTENSIONS.has(extname(normalized).toLowerCase());
   }
 
   const fileName = basename(normalized);
-  return /^(?:CHANGELOG|CONTRIBUTING|README)\.md$/u.test(fileName);
+  return (
+    /^(?:CHANGELOG|CONTRIBUTING|README)\.md$/u.test(fileName) ||
+    /^packages\/[^/]+\/changelog(?:\/|$)/u.test(normalized)
+  );
 }
 
 export function isWorkspacePath(path: string): boolean {
@@ -94,9 +122,6 @@ function workspaceRootForPath(path: string): string | undefined {
   }
 
   if (parent !== "templates" || !segments[1]) return undefined;
-  if (segments[1] === ".retired" && segments[2]) {
-    return `templates/.retired/${segments[2]}`;
-  }
 
   const nested = segments[2];
   if (

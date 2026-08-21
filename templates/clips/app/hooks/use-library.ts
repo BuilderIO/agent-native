@@ -15,6 +15,7 @@ export interface RecordingSummary {
   thumbnailUrl: string | null;
   animatedThumbnailUrl: string | null;
   durationMs: number;
+  effectiveDurationMs: number;
   status: "uploading" | "processing" | "ready" | "failed";
   uploadProgress?: number;
   failureReason?: string | null;

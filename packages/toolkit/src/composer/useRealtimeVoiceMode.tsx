@@ -29,7 +29,7 @@ import {
 
 const REALTIME_VOICE_STATE_KEY = "realtime-voice-session";
 const REALTIME_VOICE_PREFERENCES_KEY = "realtime-voice-prefs";
-const REALTIME_VOICE_REQUEST_SOURCE = "realtime-voice";
+
 const REALTIME_VOICE_SESSION_PATH = "/_agent-native/realtime-voice/session";
 const REALTIME_VOICE_TOOL_PATH = "/_agent-native/realtime-voice/tool";
 const REALTIME_VOICE_CAPABILITY_HEADER = "X-Agent-Native-Realtime-Capability";

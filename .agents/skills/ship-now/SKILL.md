@@ -4,8 +4,9 @@ description: >-
   Fast-path the current branch through local `pnpm prep:urgent`, targeted recovery,
   feedback resolution, whole-branch push, immediate admin merge, and
   fresh-branch rotation. Use when the user explicitly wants to merge
-  immediately after local prep recovery, then monitor beta and release
-  workflows. Main auto-deploys beta; production promotion is manual.
+  immediately after local prep recovery, then monitor beta, docs production,
+  and release workflows. GitHub Actions auto-deploys beta and the docs site
+  through the prebuilt publisher; other production promotion is manual.
 ---
 
 # Ship Now
@@ -19,11 +20,19 @@ after merge, not waited on before the admin merge.
 
 ## Deployment split
 
-Merges to `main` auto-deploy only beta sites at `beta.*.agent-native.com`.
-Production promotion is manual. `/ship-now` monitors beta and any release tail
-after the fast merge; it does not imply that production was promoted. If a
-critical fix needs production, explicitly run the manual promotion and monitor
-that result separately.
+Merges to `main` trigger `.github/workflows/deploy-beta-sites-prebuilt.yml`,
+which builds in GitHub Actions and uploads prebuilt artifacts to the independent
+Netlify beta sites at `beta.*.agent-native.com`. Netlify Git-connected
+auto-builds are disabled, so do not wait for Netlify build queues or
+deploy-preview checks; verify the Actions run and its per-site smoke checks.
+Production promotion is manual for other production sites. The public docs
+site is the temporary exception: matching `main` changes trigger
+`.github/workflows/deploy-docs-production.yml`, which publishes
+`www.agent-native.com` directly and disables its Git-connected Netlify builds.
+`/ship-now` monitors beta, docs production, and any release tail after the
+fast merge; it does not imply that other production sites were promoted. If a
+critical fix needs another production site, explicitly run the manual
+promotion and monitor that result separately.
 
 Use `.github/workflows/deploy-production-sites-prebuilt.yml` or the targeted
 `promote-netlify-deploy.yml` workflow to promote a critical fix and let it

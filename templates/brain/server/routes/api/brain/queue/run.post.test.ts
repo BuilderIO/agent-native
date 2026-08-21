@@ -31,7 +31,10 @@ vi.mock("../../../../lib/brain.js", () => ({
   expireSensitivityQuarantines: mocks.expireSensitivityQuarantines,
 }));
 
-import handler, { BRAIN_QUEUE_SWEEP_LIMIT } from "./run.post.js";
+import handler, {
+  BRAIN_MAX_DISTILLATIONS_PER_SWEEP,
+  BRAIN_QUEUE_SWEEP_LIMIT,
+} from "./run.post.js";
 
 describe("Brain scheduled queue sweep", () => {
   beforeEach(() => {
@@ -44,11 +47,12 @@ describe("Brain scheduled queue sweep", () => {
       undefined,
     );
 
-    expect(BRAIN_QUEUE_SWEEP_LIMIT).toBe(10);
+    expect(BRAIN_QUEUE_SWEEP_LIMIT).toBe(25);
+    expect(BRAIN_MAX_DISTILLATIONS_PER_SWEEP).toBe(2);
     expect(mocks.processBrainIngestQueueOnce).toHaveBeenCalledWith({
-      limit: 10,
+      limit: 25,
       runDistillation: true,
-      maxDistillations: 1,
+      maxDistillations: 2,
     });
   });
 });

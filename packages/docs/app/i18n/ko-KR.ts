@@ -425,6 +425,7 @@ const koKR = {
     viewDocs: "문서 보기",
     source: "소스",
     readDocs: "문서 읽기",
+    signIn: "로그인",
   },
   templatesPage: {
     title: "귀하가 소유한 오픈 소스 에이전트 기반 앱",
@@ -1399,6 +1400,9 @@ const koKR = {
         answerAction: "프롬프트에 추가",
         composerLabel: "내 프롬프트",
         composerPlaceholder: "원하는 덱을 설명하거나 위의 질문에 답해 주세요.",
+        promptTip: "프롬프트 팁",
+        promptPlaceholder:
+          "구체적으로 작성하세요. 누구를 위한 것인지 말하고, 노트를 붙여넣거나, 참고할 웹사이트 디자인을 알려주세요...",
         submit: "덱 생성하기",
         readyHint: "프롬프트가 준비되었습니다. 에이전트에게 보내세요.",
         promptDeck: "{{deck}}을(를) 만들어 주세요.",
@@ -1510,6 +1514,8 @@ const koKR = {
     body: "모든 agent-native 앱을 하나의 데스크톱 셸에서 사용하세요. 프로덕션 앱이 내장되어 있고 로컬 개발용 dev 모드 토글이 있습니다.",
     openDesktop: "Agent Native 열기",
     downloadInstaller: "설치 프로그램 다운로드",
+    downloadStarted: "다운로드가 시작되었습니다",
+    downloadAgain: "작동하지 않았나요? 다시 다운로드해 보세요",
     loadError: "최신 데스크톱 설치 프로그램을 불러올 수 없습니다.",
     checkingRelease: "최신 데스크톱 릴리스를 확인하는 중...",
     retry: "다시 시도",

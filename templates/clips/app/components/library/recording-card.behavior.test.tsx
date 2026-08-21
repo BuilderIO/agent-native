@@ -8,8 +8,6 @@ import type { RecordingSummary } from "@/hooks/use-library";
 
 import { RecordingCard } from "./recording-card";
 
-const navigateMock = vi.hoisted(() => vi.fn());
-
 vi.mock("@agent-native/core/client/i18n", () => ({
   useFormatters: () => ({
     formatDate: () => "date",
@@ -86,6 +84,7 @@ const recording: RecordingSummary = {
   thumbnailUrl: null,
   animatedThumbnailUrl: null,
   durationMs: 1_000,
+  effectiveDurationMs: 1_000,
   status: "ready",
   visibility: "private",
   ownerEmail: "owner@example.com",

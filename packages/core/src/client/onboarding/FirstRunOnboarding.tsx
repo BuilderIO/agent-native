@@ -28,13 +28,13 @@ import {
   filterMcpIntegrations,
   getDefaultMcpIntegrations,
   navigateToMcpOAuthStart,
-  shouldOfferMcpIntegrationOrganizationScope,
   type DefaultMcpIntegration,
 } from "../resources/mcp-integration-catalog.js";
 import { McpIntegrationDialog } from "../resources/McpIntegrationDialog.js";
 import { McpIntegrationLogo } from "../resources/McpIntegrationLogo.js";
 import {
   formatMcpServerError,
+  formatMcpServersLoadError,
   useCreateMcpServer,
   useMcpServers,
 } from "../resources/use-mcp-servers.js";
@@ -224,13 +224,9 @@ export function FirstRunOnboarding({
       return;
     }
 
-    if (
-      shouldOfferMcpIntegrationOrganizationScope(
-        integration,
-        hasOrg,
-        canCreateOrgMcp,
-      )
-    ) {
+    if (!mcpServersQuery.isSuccess) return;
+
+    if (hasOrg) {
       setIntegrationDialogId(integration.id);
       return;
     }
@@ -618,6 +614,22 @@ export function FirstRunOnboarding({
                   {connectError}
                 </p>
               )}
+              {mcpServersQuery.isError ? (
+                <div
+                  role="alert"
+                  className="rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs text-destructive"
+                >
+                  <p>{formatMcpServersLoadError(mcpServersQuery.error)}</p>
+                  <button
+                    type="button"
+                    onClick={() => void mcpServersQuery.refetch()}
+                    disabled={mcpServersQuery.isFetching}
+                    className="mt-2 font-medium underline underline-offset-2 hover:text-foreground disabled:cursor-wait disabled:opacity-60"
+                  >
+                    {mcpServersQuery.isFetching ? "Retrying…" : "Retry"}
+                  </button>
+                </div>
+              ) : null}
             </div>
 
             <IntegrationGrid
@@ -642,7 +654,9 @@ export function FirstRunOnboarding({
                   statusClassName: "text-emerald-600 dark:text-emerald-400",
                   actionLabel: connected ? "Connected" : "Connect",
                   disabled:
-                    connected || connectingIntegrationId === integration.id,
+                    connected ||
+                    connectingIntegrationId === integration.id ||
+                    !mcpServersQuery.isSuccess,
                   onAction: () => void connectIntegration(integration),
                 };
               })}
