@@ -187,8 +187,9 @@ jobs:
     timeout-minutes: 5
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
+      has_tests: ${{ steps.plan.outputs.has_tests }}
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16f8d5 # v4.3.1
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
 
@@ -316,7 +317,7 @@ jobs:
   test-targeted:
     name: Fast tests targeted ${{ matrix.lane }}
     needs: [change-scope, discover-targeted-lanes]
-    if: needs.change-scope.outputs.fast_tests == 'true' && needs.change-scope.outputs.full != 'true'
+    if: needs.change-scope.outputs.fast_tests == 'true' && needs.change-scope.outputs.full != 'true' && needs.discover-targeted-lanes.outputs.has_tests == 'true'
     runs-on: ubuntu-latest
     # Keep each runner bounded to one package at a time, but shard the affected
     # package set across runners so a core change does not serialize its whole
@@ -391,6 +392,7 @@ jobs:
           DOCS_RESULT: ${{ needs.docs.result }}
           DISCOVER_LANES_RESULT: ${{ needs.discover-lanes.result }}
           DISCOVER_TARGETED_LANES_RESULT: ${{ needs.discover-targeted-lanes.result }}
+          TARGETED_HAS_TESTS: ${{ needs.discover-targeted-lanes.outputs.has_tests }}
           TEST_CORE_RESULT: ${{ needs.test-core.result }}
           TEST_REST_RESULT: ${{ needs.test-rest.result }}
           TEST_TARGETED_RESULT: ${{ needs.test-targeted.result }}
@@ -412,11 +414,19 @@ jobs:
               echo "::error::discover-targeted-lanes did not succeed ($DISCOVER_TARGETED_LANES_RESULT)"
               exit 1
             fi
-            if [ "$TEST_TARGETED_RESULT" != "success" ]; then
-              echo "::error::test-targeted did not succeed ($TEST_TARGETED_RESULT)"
-              exit 1
+            if [ "$TARGETED_HAS_TESTS" = "true" ]; then
+              if [ "$TEST_TARGETED_RESULT" != "success" ]; then
+                echo "::error::test-targeted did not succeed ($TEST_TARGETED_RESULT)"
+                exit 1
+              fi
+              echo "Targeted workspace fast tests passed."
+            else
+              if [ "$TEST_TARGETED_RESULT" != "skipped" ] && [ "$TEST_TARGETED_RESULT" != "success" ]; then
+                echo "::error::targeted test job did not skip cleanly ($TEST_TARGETED_RESULT)"
+                exit 1
+              fi
+              echo "No affected workspace has a test script; targeted fast tests were skipped."
             fi
-            echo "Targeted workspace fast tests passed."
             exit 0
           fi
           for dep in "discover-lanes:$DISCOVER_LANES_RESULT" \
