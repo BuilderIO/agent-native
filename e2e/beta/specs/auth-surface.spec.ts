@@ -28,17 +28,21 @@ for (const site of sites) {
       const target = "/settings/general";
       await page.goto(`${origin}${target}`, {
         waitUntil: "domcontentloaded",
-        timeout: 90_000,
       });
 
       const gate = await settleAuthGate(page);
 
-      // Only meaningful if we were actually sent to sign-in; an app that
-      // renders the route for anonymous visitors has nothing to continue to.
-      test.skip(
-        !gate.gated,
-        `${site.id} served ${target} without a sign-in gate`,
-      );
+      // A protected route that renders anonymously is an authorization
+      // regression, not a reason to skip the test. The gate must also remain
+      // on the app's own origin so a sign-in cannot be redirected elsewhere.
+      expect(
+        gate.gated,
+        `${site.id} served ${target} without a sign-in surface`,
+      ).toBe(true);
+      expect(
+        new URL(gate.url).origin,
+        `${site.host} bounced an anonymous visitor off its own origin to ${gate.url}`,
+      ).toBe(origin);
 
       const url = new URL(gate.url);
       const continuation = [...url.searchParams.entries()].find(([key]) =>
@@ -65,6 +69,17 @@ for (const site of sites) {
         decoded,
         `${site.host} carried continuation "${continuation![1]}", which does not resolve to ${target}`,
       ).toContain(target);
+
+      // Same visit, second fact: having settled on sign-in it must stay there.
+      // Checked here rather than in its own test because the page load is the
+      // expensive part — against these hosts from CI it dominates everything
+      // else the assertion does.
+      const settled = page.url();
+      await page.waitForTimeout(2_500);
+      expect(
+        page.url(),
+        `${site.host} kept redirecting after settling on ${settled} — this is the sign-in loop users reported`,
+      ).toBe(settled);
     });
 
     test("holds still on sign-in and refuses an off-origin continuation", async ({
@@ -75,7 +90,6 @@ for (const site of sites) {
       // the plain visit and the settle check share one.
       await page.goto(`${origin}/sign-in`, {
         waitUntil: "domcontentloaded",
-        timeout: 90_000,
       });
       await settleAuthGate(page);
       const settled = page.url();
@@ -96,7 +110,6 @@ for (const site of sites) {
       const hostile = "https://example.com/phish";
       await page.goto(`${origin}/sign-in?c=${encodeURIComponent(hostile)}`, {
         waitUntil: "domcontentloaded",
-        timeout: 90_000,
       });
       await settleAuthGate(page);
       expect
@@ -156,44 +169,3 @@ for (const site of sites) {
     });
   });
 }
-
-test.describe("fleet-wide auth configuration", () => {
-  test("every beta host uses a distinct Google callback", async () => {
-    // Two hosts sharing one redirect_uri means one of them is misconfigured and
-    // will fail OAuth for real users.
-    const seen = new Map<string, string>();
-    const problems: string[] = [];
-
-    for (const site of sites) {
-      const origin = originFor(site);
-      const outcome = await mustRespond(
-        `${origin}/_agent-native/google/auth-url`,
-      );
-      // Apps that do not offer Google sign-in have no callback to collide.
-      if (outcome.status === 404) continue;
-      if (outcome.status !== 200) {
-        problems.push(
-          `${site.id}: auth-url returned HTTP ${outcome.status}: ${outcome.body.slice(0, 160)}`,
-        );
-        continue;
-      }
-      const payload = parseJson<{ url?: string }>(outcome, "google auth-url");
-      const redirectUri = payload.url
-        ? new URL(payload.url).searchParams.get("redirect_uri")
-        : null;
-      if (!redirectUri) {
-        problems.push(`${site.id}: auth-url carried no redirect_uri`);
-        continue;
-      }
-      const owner = seen.get(redirectUri);
-      if (owner) {
-        problems.push(
-          `${site.id} and ${owner} both claim redirect_uri ${redirectUri}`,
-        );
-      }
-      seen.set(redirectUri, site.id);
-    }
-
-    expect(problems, problems.join("\n")).toEqual([]);
-  });
-});

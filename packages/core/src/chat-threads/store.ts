@@ -303,6 +303,24 @@ export interface ChatThreadScope {
   label?: string;
 }
 
+export function isAppOwnedChatScope(scope?: ChatThreadScope | null): boolean {
+  return scope?.type === "workspace-app" || scope?.type === "desktop-app";
+}
+
+/**
+ * A scoped rail may claim a legacy unscoped thread on its first write, but
+ * once a thread has a scope, a non-null incoming scope must match it. App-
+ * owned threads additionally require a scope on every subsequent write.
+ */
+export function threadScopeMismatch(
+  existing?: ChatThreadScope | null,
+  incoming?: ChatThreadScope | null,
+): boolean {
+  if (!existing) return false;
+  if (!incoming) return isAppOwnedChatScope(existing);
+  return existing.type !== incoming.type || existing.id !== incoming.id;
+}
+
 export interface ChatThreadSource {
   platform?: string | null;
   appId?: string | null;

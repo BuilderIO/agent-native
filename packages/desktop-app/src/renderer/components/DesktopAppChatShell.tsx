@@ -15,6 +15,7 @@ import {
 } from "@agent-native/toolkit/ui/dialog";
 import type {
   DesktopAppRuntimeStatus,
+  DesktopIdentityStatus,
   DesktopPrepareLocalCodeChangeResult,
 } from "@shared/ipc-channels";
 import {
@@ -44,6 +45,7 @@ import {
   createDesktopLocalAgentRuntime,
   type DesktopLocalAgentId,
 } from "../lib/desktop-local-agent-runtime.js";
+import type { AppWebviewAuthState } from "./AppWebview.js";
 const desktopChatQueryClient = createAgentNativeQueryClient();
 
 type DesktopChatModelGroup = {
@@ -75,6 +77,8 @@ export interface DesktopAppChatShellProps {
   children: ReactNode;
   desktopIdentityUnauthenticated?: boolean;
   desktopIdentityAuthenticated?: boolean;
+  desktopIdentityStatus?: DesktopIdentityStatus | "checking";
+  appAuthState?: AppWebviewAuthState;
   isActive?: boolean;
   onLocalCodeChangeStarted?: (
     result: DesktopPrepareLocalCodeChangeResult,
@@ -108,6 +112,19 @@ export function shouldAnimateDesktopAppChatSidebar(input: {
   );
 }
 
+export function shouldShowDesktopAppChatSidebar(input: {
+  apiUrl?: string | null;
+  appAuthState?: AppWebviewAuthState;
+  desktopIdentityUnauthenticated?: boolean;
+  desktopIdentityStatus?: DesktopIdentityStatus | "checking";
+}): boolean {
+  if (!input.apiUrl || input.appAuthState !== "authenticated") return false;
+  if (input.desktopIdentityUnauthenticated) return false;
+  return !["checking", "signing-in", "sign-in-required", "failed"].includes(
+    input.desktopIdentityStatus ?? "idle",
+  );
+}
+
 type LocalCodeChangeState =
   | { status: "idle" }
   | { status: "starting"; message?: string }
@@ -120,6 +137,8 @@ export default function DesktopAppChatShell({
   children,
   desktopIdentityUnauthenticated = false,
   desktopIdentityAuthenticated = false,
+  desktopIdentityStatus,
+  appAuthState,
   isActive = true,
   onLocalCodeChangeStarted,
 }: DesktopAppChatShellProps) {
@@ -185,7 +204,7 @@ export default function DesktopAppChatShell({
     return () => {
       cancelled = true;
     };
-  }, [appId]);
+  }, [appId, appAuthState]);
 
   const availableModels = useMemo<DesktopChatModelGroup[]>(() => {
     const groups = new Map<string, DesktopChatModelGroup>();
@@ -296,7 +315,7 @@ export default function DesktopAppChatShell({
       setDesktopChatRelayBase(appId, null);
       setDesktopChatRelayActive(appId, false);
     };
-  }, [appId]);
+  }, [appId, appAuthState, desktopIdentityStatus]);
 
   useEffect(() => {
     setDesktopChatRelayActive(appId, isActive);
@@ -476,13 +495,20 @@ export default function DesktopAppChatShell({
     </Dialog>
   );
 
+  const showChatSidebar = shouldShowDesktopAppChatSidebar({
+    apiUrl,
+    appAuthState,
+    desktopIdentityUnauthenticated,
+    desktopIdentityStatus,
+  });
+
   return (
     <DesktopChatRelayAppContext.Provider value={appId}>
       <div
         ref={shellRootRef}
         className="relative flex h-full min-h-0 min-w-0 flex-1 overflow-hidden"
       >
-        {apiUrl ? (
+        {showChatSidebar ? (
           <MemoryRouter>
             <QueryClientProvider client={desktopChatQueryClient}>
               <AgentSidebar
@@ -497,10 +523,14 @@ export default function DesktopAppChatShell({
                   label: appName,
                   contextKey: `desktop-app:${appId}`,
                 }}
-                apiUrl={apiUrl}
+                apiUrl={apiUrl ?? undefined}
+                isolateHistoryByScope
                 agentChatSurface="desktop"
                 desktopIdentityUnauthenticated={desktopIdentityUnauthenticated}
                 desktopIdentityAuthenticated={desktopIdentityAuthenticated}
+                onConnectProvider={() => {
+                  void window.electronAPI?.codeAgents?.connectBuilderProvider?.();
+                }}
                 showTabBar
                 suppressInlineOpenApp
                 dynamicSuggestions={false}

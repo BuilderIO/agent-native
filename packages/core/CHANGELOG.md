@@ -1,5 +1,53 @@
 # @agent-native/core
 
+## 0.168.2
+
+### Patch Changes
+
+- 8617890: Generate the canonical public stale-while-revalidate headers for Netlify static build artifacts and guard prerendered apps against the platform default cache policy.
+
+## 0.168.1
+
+### Patch Changes
+
+- 07e0de3: Show the personal or workspace scope choice before connecting an integration in an organization, including a clear owner/admin requirement for members.
+- 68265a5: Forward hosted provider setup callbacks through `AgentSidebar` so Electron chat can show its native AI connection action after sign-in, and allow the native integrations surface to route OAuth through the authenticated app webview.
+
+## 0.168.0
+
+### Minor Changes
+
+- 6203d5d: Add an About Agent Native command surface for inspecting deployed framework package versions and diagnostics.
+
+## 0.167.5
+
+### Patch Changes
+
+- d3210d7: Make documented `AGENT_NATIVE_CONFIG_*` environment aliases override typed and JSON public configuration defaults.
+
+## 0.167.4
+
+### Patch Changes
+
+- 8b73951: Isolate workspace app chat history and keep short chat-tab titles clear of the close target.
+
+## 0.167.3
+
+### Patch Changes
+
+- 1aafc1d: Keep authenticated Electron app sessions on their configured production lane instead of applying the browser-only employee beta redirect.
+- 40baf42: Preserve browser attribution through Better Auth email signup user creation.
+- 1aafc1d: Avoid treating the desktop broker identity as proof that an app's own session is authenticated.
+
+## 0.167.2
+
+### Patch Changes
+
+- 95d9d70: Bound public-site monitor requests and clarify unified-diff framing in visual recap authoring prompts.
+- 7f22204: Warn on the Agent Automations page when schedule-triggered automations can never fire — recurring jobs disabled at build time, no durable scheduler on the hosting target, or local development — via a new `get-scheduled-trigger-status` action. The build embeds its recurring-jobs decision into the server bundle so the warning reflects whether a scheduled trigger was actually emitted, and a failed status check is reported as unverified rather than healthy.
+- Updated dependencies [95d9d70]
+  - @agent-native/recap-cli@0.5.7
+
 ## 0.167.1
 
 ### Patch Changes

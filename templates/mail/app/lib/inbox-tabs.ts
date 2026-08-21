@@ -24,6 +24,11 @@ export const COLLAPSIBLE_VIEW_IDS = [
   "trash",
 ] as const;
 
+// Keep the synthetic remainder tab's UI identity separate from user-label IDs.
+// Its public URL remains `tab=other` for existing links and agent commands.
+export const OTHER_INBOX_TAB_ID = "__inbox_other__";
+export const OTHER_INBOX_TAB_PARAM = "other";
+
 /** Pinned labels include a virtual "important" tab when Google is connected. */
 export function resolvePinnedLabels(
   userPinnedLabels: readonly string[],

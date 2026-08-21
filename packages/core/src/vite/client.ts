@@ -72,6 +72,7 @@ import {
   readAgentNativeJsonConfig,
 } from "./agent-native-config-loader.js";
 import { agentsBundlePlugin } from "./agents-bundle-plugin.js";
+import { resolveAgentNativePackageVersions } from "./package-versions.js";
 
 const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -3241,6 +3242,9 @@ function createNitroDevPlugin(
       "process.env.AGENT_NATIVE_RELEASE_MIGRATIONS": JSON.stringify(
         process.env.AGENT_NATIVE_RELEASE_MIGRATIONS?.trim() || "",
       ),
+      "process.env.AGENT_NATIVE_BETA_SCHEMA_OWNER": JSON.stringify(
+        process.env.AGENT_NATIVE_BETA_SCHEMA_OWNER?.trim() || "",
+      ),
       // Same reason as the release owner above: the recurring-jobs decision
       // belongs to the build env, and Nitro is a separate server build with its
       // own replacement map.
@@ -3540,6 +3544,7 @@ function createAgentNativeConfig(
   userConfig: UserConfig = {},
   mode = process.env.NODE_ENV === "production" ? "production" : "development",
   projectConfig?: AgentNativeConfigInput,
+  workspaceConfig?: AgentNativeConfigInput,
 ): UserConfig {
   const cwd = process.cwd();
   const configContext = createAgentNativeConfigContext(command, mode);
@@ -3561,12 +3566,18 @@ function createAgentNativeConfig(
   const appConfig = resolveAgentNativeConfig(
     mergeAgentNativeConfigs(
       mergeAgentNativeConfigs(
-        readAgentNativeJsonConfig(cwd),
-        readAgentNativeConfigEnv(runtimeEnv),
+        mergeAgentNativeConfigs(
+          workspaceConfig
+            ? resolveAgentNativeConfig(workspaceConfig, configContext)
+            : {},
+          readAgentNativeJsonConfig(cwd),
+        ),
+        projectConfigInput
+          ? resolveAgentNativeConfig(projectConfigInput, configContext)
+          : {},
       ),
-      projectConfigInput
-        ? resolveAgentNativeConfig(projectConfigInput, configContext)
-        : {},
+      readAgentNativeConfigEnv(runtimeEnv),
+      { arrayStrategy: "replace" },
     ),
     configContext,
   );
@@ -3588,6 +3599,7 @@ function createAgentNativeConfig(
     process.env.CF_PAGES_COMMIT_SHA?.trim() ||
     process.env.AGENT_NATIVE_BUILD_SHA?.trim() ||
     "development";
+  const packageVersions = resolveAgentNativePackageVersions(cwd);
 
   // Preload workspace-root .env into process.env so Nitro server code sees
   // shared keys during dev (Nitro reads process.env, not vite's envDir).
@@ -3673,6 +3685,7 @@ function createAgentNativeConfig(
       ...(userConfig.define ?? {}),
       ...(options.define ?? {}),
       __AGENT_NATIVE_BUILD_ID__: JSON.stringify(buildId),
+      __AGENT_NATIVE_PACKAGE_VERSIONS__: JSON.stringify(packageVersions),
       __AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__: JSON.stringify(
         options.clientCompatibilityVersion?.trim() || "",
       ),
@@ -3688,6 +3701,9 @@ function createAgentNativeConfig(
       // into deployed Functions, so embed the decision in the server bundle.
       "process.env.AGENT_NATIVE_RELEASE_MIGRATIONS": JSON.stringify(
         process.env.AGENT_NATIVE_RELEASE_MIGRATIONS?.trim() || "",
+      ),
+      "process.env.AGENT_NATIVE_BETA_SCHEMA_OWNER": JSON.stringify(
+        process.env.AGENT_NATIVE_BETA_SCHEMA_OWNER?.trim() || "",
       ),
       // Recurring jobs are turned off (and their platform scheduled trigger
       // omitted) by the BUILD environment, which a deployed serverless runtime
@@ -3931,25 +3947,19 @@ function createAgentNativeConfigPlugin(
     name: "agent-native-config",
     enforce: "pre",
     async config(config: UserConfig, env: ConfigEnv) {
-      const context = createAgentNativeConfigContext(env.command, env.mode);
       const workspaceConfig = await loadWorkspaceAgentNativeConfigFile(
         process.cwd(),
       );
       const projectConfig =
         options.agentNativeConfig ??
         (await loadAgentNativeConfigFile(process.cwd()));
-      const resolvedConfig = mergeAgentNativeConfigs(
-        workspaceConfig
-          ? resolveAgentNativeConfig(workspaceConfig, context)
-          : {},
-        projectConfig ? resolveAgentNativeConfig(projectConfig, context) : {},
-      );
       return createAgentNativeConfig(
         options,
         env.command,
         config,
         env.mode,
-        resolvedConfig,
+        projectConfig,
+        workspaceConfig,
       );
     },
   };
