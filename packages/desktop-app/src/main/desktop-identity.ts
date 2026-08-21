@@ -963,11 +963,21 @@ export class DesktopIdentityBroker {
     this.setStatus("signing-in");
 
     let response: Response;
+    let payload: Awaited<
+      ReturnType<typeof readDesktopIdentityMagicLinkResponse>
+    >;
     const timeoutController = new AbortController();
     const timeoutTimer = setTimeout(
       () => timeoutController.abort(),
       DEFAULT_MAGIC_LINK_REQUEST_TIMEOUT_MS,
     );
+    const timeoutFailure = new Promise<never>((_resolve, reject) => {
+      timeoutController.signal.addEventListener(
+        "abort",
+        () => reject(new Error("Desktop identity magic-link request timed out.")),
+        { once: true },
+      );
+    });
     try {
       response = await this.options.identitySession.fetch(
         new URL("/_agent-native/auth/magic-link", authority.origin).toString(),
@@ -986,6 +996,10 @@ export class DesktopIdentityBroker {
           }),
         },
       );
+      payload = await Promise.race([
+        readDesktopIdentityMagicLinkResponse(response),
+        timeoutFailure,
+      ]);
     } catch (error) {
       return fail(
         timeoutController.signal.aborted
@@ -998,7 +1012,6 @@ export class DesktopIdentityBroker {
       clearTimeout(timeoutTimer);
     }
 
-    const payload = await readDesktopIdentityMagicLinkResponse(response);
     if (!response.ok) {
       return fail(
         payload.error ?? "Could not send a sign-in link. Please try again.",

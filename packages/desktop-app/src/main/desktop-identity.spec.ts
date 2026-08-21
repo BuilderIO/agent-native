@@ -387,6 +387,43 @@ describe("DesktopIdentityBroker", () => {
     expect(createWindow).toHaveBeenCalledOnce();
   });
 
+  it("times out while reading a stalled magic-link response body", async () => {
+    vi.useFakeTimers();
+    try {
+      const authority = authorityFixture();
+      const response = {
+        ok: true,
+        json: vi.fn(() => new Promise<never>(() => {})),
+      } as unknown as Response;
+      const identityFetch = vi.fn(async () => response);
+      const broker = new DesktopIdentityBroker({
+        identitySession: {
+          cookies: cookieStore(),
+          fetch: identityFetch,
+          clearStorageData: vi.fn(async () => {}),
+        } as unknown as Electron.Session,
+        resolveApp: (id) => (id === authority.id ? authority : null),
+        createWindow: vi.fn() as never,
+        reloadApp: vi.fn(),
+        clearLocalBroker: vi.fn(),
+      });
+
+      const request = broker.requestMagicLink({ email: "steve@example.com" });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(identityFetch).toHaveBeenCalledOnce();
+
+      await vi.advanceTimersByTimeAsync(20_000);
+
+      await expect(request).resolves.toEqual({
+        ok: false,
+        error: "The identity service did not respond in time. Please try again.",
+      });
+      expect(broker.getStatus()).toBe("failed");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("adopts a normal Dispatch login into the isolated identity session", async () => {
     const authority = authorityFixture();
     const authorityCookies = cookieStore(

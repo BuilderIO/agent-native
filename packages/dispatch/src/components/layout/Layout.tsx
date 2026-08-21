@@ -1300,47 +1300,30 @@ export function NavContent({
           />
         </div>
       ) : null}
-      <div
-        className={cn(
-          "flex min-h-0 flex-1 flex-col overflow-y-auto",
-          chatFirstMode && "hidden",
-        )}
-      >
-        <nav className={cn("py-2", collapsed ? "px-1.5" : "px-2")}>
-          <ul
-            className={cn(
-              collapsed ? "flex flex-col items-center gap-1" : "space-y-0.5",
-            )}
-          >
-            {primaryNavItems.map(renderNavItem)}
-          </ul>
-        </nav>
-
-        <div
-          className={cn(
-            "mt-auto shrink-0",
-            reserveEnvironmentBadgeSpace && "pb-10",
-          )}
-          data-dispatch-sidebar-footer="standard"
-        >
-          {bottomNavigation}
-          {organizationPicker}
-          {sidebarFooterActions}
-        </div>
-      </div>
-      {chatFirstMode ? (
-        <div
-          className={cn(
-            "mt-auto shrink-0",
-            reserveEnvironmentBadgeSpace && "pb-10",
-          )}
-          data-dispatch-sidebar-footer="chat-first"
-        >
-          {bottomNavigation}
-          {organizationPicker}
-          {sidebarFooterActions}
+      {!chatFirstMode ? (
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <nav className={cn("py-2", collapsed ? "px-1.5" : "px-2")}>
+            <ul
+              className={cn(
+                collapsed ? "flex flex-col items-center gap-1" : "space-y-0.5",
+              )}
+            >
+              {primaryNavItems.map(renderNavItem)}
+            </ul>
+          </nav>
         </div>
       ) : null}
+      <div
+        className={cn(
+          "mt-auto shrink-0",
+          reserveEnvironmentBadgeSpace && "pb-10",
+        )}
+        data-dispatch-sidebar-footer={chatFirstMode ? "chat-first" : "standard"}
+      >
+        {bottomNavigation}
+        {organizationPicker}
+        {sidebarFooterActions}
+      </div>
     </>
   );
 }
@@ -2502,7 +2485,7 @@ export function Layout({
                   chatFirstMode={chatFirstMode}
                   chatFirstEmbedded={chatFirstEmbedded}
                   collapsed={false}
-                  reserveEnvironmentBadgeSpace={false}
+                  reserveEnvironmentBadgeSpace
                   chatFirstAppLayout={chatFirstAppLayout}
                   onChatFirstAppLayoutChange={persistChatFirstAppLayout}
                   chatFirstApps={chatFirstAppItems}
