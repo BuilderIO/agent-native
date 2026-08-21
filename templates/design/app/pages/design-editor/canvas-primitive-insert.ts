@@ -290,6 +290,10 @@ export function appendCanvasPrimitiveToHtml(
     // pick a fill that is legible against its actual container.
     const host = deepestFrameContaining(doc.body, left, top, width, height);
     const hostOrBody: Element = host?.element ?? doc.body;
+    // Every branch appends into `hostOrBody`, so a screen-absolute position
+    // renders the primitive offset by that container's own origin.
+    const localLeft = host ? left - host.x : left;
+    const localTop = host ? top - host.y : top;
 
     if (
       primitive.kind === "path" ||
@@ -398,8 +402,8 @@ export function appendCanvasPrimitiveToHtml(
         "style",
         [
           "position:absolute",
-          `left:${left}px`,
-          `top:${top}px`,
+          `left:${localLeft}px`,
+          `top:${localTop}px`,
           `width:${width}px`,
           `height:${height}px`,
           "overflow:visible",
@@ -441,8 +445,8 @@ export function appendCanvasPrimitiveToHtml(
         "style",
         [
           "position:absolute",
-          `left:${left}px`,
-          `top:${top}px`,
+          `left:${localLeft}px`,
+          `top:${localTop}px`,
           `width:${width}px`,
           `height:${height}px`,
           "overflow:visible",
@@ -464,8 +468,8 @@ export function appendCanvasPrimitiveToHtml(
     // glyph. Read by treeTypeForNode in shared/code-layer.ts.
     element.setAttribute("data-an-primitive", primitive.kind);
     element.style.position = "absolute";
-    element.style.left = `${left}px`;
-    element.style.top = `${top}px`;
+    element.style.left = `${localLeft}px`;
+    element.style.top = `${localTop}px`;
     if (!(primitive.kind === "text" && primitive.autoSize)) {
       element.style.width = `${width}px`;
       element.style.height = `${height}px`;
@@ -560,10 +564,6 @@ export function appendCanvasPrimitiveToHtml(
       element.style.borderRadius = canonical.borderRadius;
     }
 
-    if (host) {
-      element.style.left = `${left - host.x}px`;
-      element.style.top = `${top - host.y}px`;
-    }
     hostOrBody.appendChild(element);
     return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
   } catch {

@@ -2404,7 +2404,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           "multi-selection-handle"
         );
         handle.setAttribute("data-corner", pos);
-        handle.style.cssText = "position:absolute;z-index:1;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:1px;pointer-events:none;";
+        handle.style.cssText = "position:absolute;z-index:1;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:1px;pointer-events:auto;cursor:" + (pos === "nw" || pos === "se" ? "nwse-resize" : "nesw-resize") + ";";
         if (pos.indexOf("n") !== -1) handle.style.top = "-4px";
         if (pos.indexOf("s") !== -1) handle.style.bottom = "-4px";
         if (pos.indexOf("w") !== -1) handle.style.left = "-4px";
@@ -2433,6 +2433,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         "[data-agent-native-edit-overlay='multi-selection-handle']"
       ).forEach(function(handle) {
         var pos = handle.getAttribute("data-corner") || "";
+        handle.style.pointerEvents = readOnly ? "none" : "auto";
         handle.style.width = 7 * sx + "px";
         handle.style.height = 7 * sy + "px";
         handle.style.borderWidth = 1 * line + "px";
@@ -3428,6 +3429,16 @@ export const editorChromeBridgeScript: string = `"use strict";
       overlay.setAttribute("data-agent-native-multi-selection-bounds", "true");
       overlay.style.cssText = "position:fixed;pointer-events:none;z-index:99996;border:1.5px solid var(--design-editor-accent-color);background:transparent;display:none;box-sizing:border-box;";
       appendPassiveSelectionHandles(overlay);
+      overlay.addEventListener(
+        "mousedown",
+        function(e) {
+          if (readOnly) return;
+          var corner = e.target && e.target.getAttribute && e.target.getAttribute("data-corner");
+          if (!corner) return;
+          startGroupResize(corner, e);
+        },
+        true
+      );
       document.body.appendChild(overlay);
       multiSelectionBoundsOverlay = overlay;
       return overlay;
@@ -3440,6 +3451,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       passiveSelectionEls.forEach(function(el) {
         if (el && document.documentElement.contains(el)) members.push(el);
       });
+      setSelectionOverlayResizeChromeVisible(
+        !readOnly && !activeTextEditEl && members.length < 2
+      );
       if (members.length < 2 || selectionChromeHidden) {
         if (multiSelectionBoundsOverlay) {
           multiSelectionBoundsOverlay.style.display = "none";
@@ -5345,8 +5359,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (cs.position === "absolute" || cs.position === "fixed") return false;
       return true;
     }
-    function collectMoveGroupMembers(gestureEl) {
-      if (!gestureEl) return [];
+    function collectSelectionMembers() {
       var raw = [];
       if (selectedEl) raw.push(selectedEl);
       for (var i = 0; i < passiveSelectionEls.length; i += 1) {
@@ -5360,11 +5373,15 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         members.push(candidate);
       }
-      members = members.filter(function(member) {
+      return members.filter(function(member) {
         return !members.some(function(other) {
           return other !== member && other.contains(member);
         });
       });
+    }
+    function collectMoveGroupMembers(gestureEl) {
+      if (!gestureEl) return [];
+      var members = collectSelectionMembers();
       var gestureMember = null;
       for (var k = 0; k < members.length; k += 1) {
         if (members[k] === gestureEl || members[k].contains && members[k].contains(gestureEl)) {
@@ -7323,6 +7340,29 @@ export const editorChromeBridgeScript: string = `"use strict";
       document.addEventListener("keydown", onMoveKeyDown, true);
       setActiveDragCancel(cancelMoveDrag);
     }
+    function collectScaleFontTargets(root) {
+      var targets = [];
+      var nodes = root.querySelectorAll("*");
+      for (var i = 0; i < nodes.length; i += 1) {
+        var el = nodes[i];
+        if (isOverlayElement(el)) continue;
+        var inlineFontSize = el.style.fontSize || "";
+        if (inlineFontSize && !/px\\s*$/i.test(inlineFontSize)) continue;
+        var parent = el.parentElement;
+        var cs = window.getComputedStyle(el);
+        if (!inlineFontSize && parent && window.getComputedStyle(parent).fontSize === cs.fontSize) {
+          continue;
+        }
+        var originFontSize = readPx(inlineFontSize || cs.fontSize);
+        if (!(originFontSize > 0)) continue;
+        targets.push({
+          el,
+          originFontSize,
+          originalInlineFontSize: el.style.fontSize
+        });
+      }
+      return targets;
+    }
     function startResize(handle, e) {
       if (readOnly) return;
       if (!selectedEl) return;
@@ -7393,6 +7433,13 @@ export const editorChromeBridgeScript: string = `"use strict";
       });
       var widthTouched = false;
       var heightTouched = false;
+      var scaledTextTargetsCache = null;
+      function scaledTextTargets() {
+        if (!scaledTextTargetsCache) {
+          scaledTextTargetsCache = collectScaleFontTargets(resizeEl);
+        }
+        return scaledTextTargetsCache;
+      }
       function nextRect(ev) {
         var screenDx = ev.clientX - startX;
         var screenDy = ev.clientY - startY;
@@ -7493,6 +7540,12 @@ export const editorChromeBridgeScript: string = `"use strict";
           if (originFontSize > 0) {
             resizeEl.style.fontSize = Math.max(1, Math.round(originFontSize * kScaleFactor * 100) / 100) + "px";
           }
+          scaledTextTargets().forEach(function(target) {
+            target.el.style.fontSize = Math.max(
+              1,
+              Math.round(target.originFontSize * kScaleFactor * 100) / 100
+            ) + "px";
+          });
         }
         showTransformBadge(
           Math.round(rect.width) + " x " + Math.round(rect.height),
@@ -7519,6 +7572,9 @@ export const editorChromeBridgeScript: string = `"use strict";
           resizeEl.style.height = originalInlineHeight;
           resizeEl.style.borderWidth = originalInlineBorderWidth;
           resizeEl.style.fontSize = originalInlineFontSize;
+          (scaledTextTargetsCache || []).forEach(function(target) {
+            target.el.style.fontSize = target.originalInlineFontSize;
+          });
           selectedEl = resizeEl;
           positionOverlay(selectionOverlay, selectedEl);
         }
@@ -7566,11 +7622,289 @@ export const editorChromeBridgeScript: string = `"use strict";
           },
           "*"
         );
+        if (scaleToolEnabled) {
+          (scaledTextTargetsCache || []).forEach(function(target) {
+            var textStyles = {
+              fontSize: target.el.style.fontSize
+            };
+            window.parent.postMessage(
+              {
+                type: "visual-style-change",
+                selector: getSelector(target.el),
+                styles: textStyles,
+                originalStyles: originalInlineStylesForPatch(
+                  target.el,
+                  textStyles
+                ),
+                payload: getElementInfo(target.el)
+              },
+              "*"
+            );
+          });
+        }
       }
       document.addEventListener(events.move, onMove, true);
       document.addEventListener(events.up, onUp, true);
       document.addEventListener("keydown", onResizeKeyDown, true);
       setActiveDragCancel(cancelResizeDrag);
+    }
+    function startGroupResize(handle, e) {
+      if (readOnly) return;
+      var members = collectSelectionMembers();
+      if (members.length < 2) return;
+      e.preventDefault();
+      e.stopPropagation();
+      var events = dragEventNames(e);
+      var groupLeft = Infinity;
+      var groupTop = Infinity;
+      var groupRight = -Infinity;
+      var groupBottom = -Infinity;
+      var memberStates = members.map(function(member) {
+        var el = member;
+        ensurePositionable(el);
+        var cs = window.getComputedStyle(el);
+        var rect = el.getBoundingClientRect();
+        groupLeft = Math.min(groupLeft, rect.left);
+        groupTop = Math.min(groupTop, rect.top);
+        groupRight = Math.max(groupRight, rect.right);
+        groupBottom = Math.max(groupBottom, rect.bottom);
+        return {
+          el,
+          originalInlinePosition: el.style.position,
+          originalInlineLeft: el.style.left,
+          originalInlineTop: el.style.top,
+          originalInlineWidth: el.style.width,
+          originalInlineHeight: el.style.height,
+          originalInlineBorderWidth: el.style.borderWidth,
+          originalInlineFontSize: el.style.fontSize,
+          originLeft: readPx(el.style.left || cs.left),
+          originTop: readPx(el.style.top || cs.top),
+          originWidth: readPx(cs.width),
+          originHeight: readPx(cs.height),
+          originClientLeft: rect.left,
+          originClientTop: rect.top,
+          originBorderWidth: readPx(el.style.borderWidth || cs.borderWidth),
+          originFontSize: readPx(el.style.fontSize || cs.fontSize),
+          textTargets: null
+        };
+      });
+      var groupWidth = Math.max(1, groupRight - groupLeft);
+      var groupHeight = Math.max(1, groupBottom - groupTop);
+      var anchorX = handle.indexOf("w") !== -1 ? groupRight : groupLeft;
+      var anchorY = handle.indexOf("n") !== -1 ? groupBottom : groupTop;
+      var minMemberWidth = Math.max(
+        1,
+        Math.min.apply(
+          null,
+          memberStates.map(function(state) {
+            return Math.max(1, state.originWidth);
+          })
+        )
+      );
+      var minMemberHeight = Math.max(
+        1,
+        Math.min.apply(
+          null,
+          memberStates.map(function(state) {
+            return Math.max(1, state.originHeight);
+          })
+        )
+      );
+      var minFactorX = 8 / minMemberWidth;
+      var minFactorY = 8 / minMemberHeight;
+      var startX = e.clientX;
+      var startY = e.clientY;
+      var groupGestureViewport = bridgeGestureViewport();
+      var bridgeGroupResizeController = createCanvasGestureController({
+        capabilities: { move: true, resize: true },
+        drag: { threshold: 3, duplicateModifier: "alt" },
+        minSize: 8,
+        adapter: {
+          preview: function() {
+            return { handled: true };
+          },
+          commit: function() {
+            return { handled: true };
+          },
+          cancel: function() {
+            return { handled: true };
+          }
+        }
+      });
+      bridgeGroupResizeController.pointerDown({
+        kind: "resize",
+        objectIds: memberStates.map(function(state) {
+          return getSelector(state.el);
+        }),
+        pointer: bridgeGesturePointer(e),
+        viewport: groupGestureViewport,
+        canvas: {
+          width: groupGestureViewport.width,
+          height: groupGestureViewport.height
+        },
+        handle,
+        rect: {
+          x: groupLeft,
+          y: groupTop,
+          width: groupWidth,
+          height: groupHeight
+        }
+      });
+      function groupFactors(ev) {
+        var dx = ev.clientX - startX;
+        var dy = ev.clientY - startY;
+        var nextWidth = handle.indexOf("e") !== -1 ? groupWidth + dx : groupWidth - dx;
+        var nextHeight = handle.indexOf("s") !== -1 ? groupHeight + dy : groupHeight - dy;
+        var factorX = nextWidth / groupWidth;
+        var factorY = nextHeight / groupHeight;
+        if (ev.shiftKey || scaleToolEnabled) {
+          var uniform = Math.abs(dx) > Math.abs(dy) ? factorX : factorY;
+          factorX = uniform;
+          factorY = uniform;
+        }
+        return {
+          x: Math.max(minFactorX, factorX),
+          y: Math.max(minFactorY, factorY)
+        };
+      }
+      function memberTextTargets(state) {
+        if (!state.textTargets) {
+          state.textTargets = collectScaleFontTargets(state.el);
+        }
+        return state.textTargets;
+      }
+      function onMove(ev) {
+        var controllerMove = bridgeGroupResizeController.pointerMove(
+          bridgeGesturePointer(ev)
+        );
+        if (controllerMove.phase !== "active") return;
+        var factor = groupFactors(ev);
+        memberStates.forEach(function(state) {
+          var nextClientLeft = anchorX + (state.originClientLeft - anchorX) * factor.x;
+          var nextClientTop = anchorY + (state.originClientTop - anchorY) * factor.y;
+          state.el.style.left = Math.round(
+            state.originLeft + (nextClientLeft - state.originClientLeft)
+          ) + "px";
+          state.el.style.top = Math.round(
+            state.originTop + (nextClientTop - state.originClientTop)
+          ) + "px";
+          state.el.style.width = Math.round(state.originWidth * factor.x) + "px";
+          state.el.style.height = Math.round(state.originHeight * factor.y) + "px";
+          if (!scaleToolEnabled) return;
+          if (state.originBorderWidth > 0) {
+            state.el.style.borderWidth = Math.max(
+              0,
+              Math.round(state.originBorderWidth * factor.x * 100) / 100
+            ) + "px";
+          }
+          if (state.originFontSize > 0) {
+            state.el.style.fontSize = Math.max(
+              1,
+              Math.round(state.originFontSize * factor.x * 100) / 100
+            ) + "px";
+          }
+          memberTextTargets(state).forEach(function(target) {
+            target.el.style.fontSize = Math.max(
+              1,
+              Math.round(target.originFontSize * factor.x * 100) / 100
+            ) + "px";
+          });
+        });
+        showTransformBadge(
+          Math.round(groupWidth * factor.x) + " x " + Math.round(groupHeight * factor.y),
+          ev.clientX,
+          ev.clientY
+        );
+        refreshOverlays();
+      }
+      function cleanupGroupResizeDrag() {
+        document.removeEventListener(events.move, onMove, true);
+        document.removeEventListener(events.up, onUp, true);
+        document.removeEventListener("keydown", onGroupResizeKeyDown, true);
+        clearActiveDragCancel(cancelGroupResizeDrag);
+      }
+      function cancelGroupResizeDrag() {
+        bridgeGroupResizeController.cancel();
+        cleanupGroupResizeDrag();
+        hideTransformBadge();
+        memberStates.forEach(function(state) {
+          if (!document.documentElement.contains(state.el)) return;
+          state.el.style.position = state.originalInlinePosition;
+          state.el.style.left = state.originalInlineLeft;
+          state.el.style.top = state.originalInlineTop;
+          state.el.style.width = state.originalInlineWidth;
+          state.el.style.height = state.originalInlineHeight;
+          state.el.style.borderWidth = state.originalInlineBorderWidth;
+          state.el.style.fontSize = state.originalInlineFontSize;
+          (state.textTargets || []).forEach(function(target) {
+            target.el.style.fontSize = target.originalInlineFontSize;
+          });
+        });
+        suppressNextShieldClickBriefly();
+        refreshOverlays();
+        return true;
+      }
+      function onGroupResizeKeyDown(ev) {
+        if (ev.key !== "Escape") return;
+        stopNativeInteraction(ev);
+        cancelGroupResizeDrag();
+      }
+      function onUp(ev) {
+        var controllerEnd = bridgeGroupResizeController.pointerUp(
+          bridgeGesturePointer(ev)
+        );
+        cleanupGroupResizeDrag();
+        hideTransformBadge();
+        if (!controllerEnd.committed) return;
+        memberStates.forEach(function(state) {
+          var styles = {
+            position: state.el.style.position,
+            left: state.el.style.left,
+            top: state.el.style.top,
+            width: state.el.style.width,
+            height: state.el.style.height
+          };
+          if (scaleToolEnabled && state.originBorderWidth > 0) {
+            styles.borderWidth = state.el.style.borderWidth;
+          }
+          if (scaleToolEnabled && state.originFontSize > 0) {
+            styles.fontSize = state.el.style.fontSize;
+          }
+          window.parent.postMessage(
+            {
+              type: "visual-style-change",
+              selector: getSelector(state.el),
+              styles,
+              originalStyles: originalInlineStylesForPatch(state.el, styles),
+              payload: getElementInfo(state.el)
+            },
+            "*"
+          );
+          if (!scaleToolEnabled) return;
+          (state.textTargets || []).forEach(function(target) {
+            var textStyles = {
+              fontSize: target.el.style.fontSize
+            };
+            window.parent.postMessage(
+              {
+                type: "visual-style-change",
+                selector: getSelector(target.el),
+                styles: textStyles,
+                originalStyles: originalInlineStylesForPatch(
+                  target.el,
+                  textStyles
+                ),
+                payload: getElementInfo(target.el)
+              },
+              "*"
+            );
+          });
+        });
+      }
+      document.addEventListener(events.move, onMove, true);
+      document.addEventListener(events.up, onUp, true);
+      document.addEventListener("keydown", onGroupResizeKeyDown, true);
+      setActiveDragCancel(cancelGroupResizeDrag);
     }
     function startRotate(e) {
       if (readOnly) return;

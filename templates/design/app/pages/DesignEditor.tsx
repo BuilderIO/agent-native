@@ -785,6 +785,7 @@ import { postShaderFillPreviewClearToPreviewIframes } from "./design-editor/text
 import {
   getDesignBottomToolbarMode,
   getSingleScreenCreationTool,
+  resolveToolAfterSelection,
   shouldAutoEnableDrawOverlay,
 } from "./design-editor/tool-state";
 import {
@@ -954,6 +955,9 @@ function DesignEditor() {
   // Editor state
   const [mode, setMode] = useState<EditorMode>("edit");
   const [activeTool, setActiveTool] = useState<DesignTool>("move");
+  // Drawing drops activeTool back to move (Figma parity), so the shape group
+  // button cannot read its own identity off it.
+  const [shapeTool, setShapeTool] = useState<ShapeTool>("rect");
   // The frame tool draws a top-level SCREEN or a plain FRAME container. Made
   // explicit because deciding it from where the drag started is unguessable.
   const [frameToolDraws, setFrameToolDraws] = useState<"screen" | "frame">(
@@ -8106,13 +8110,18 @@ function DesignEditor() {
    * engine handles persistence identically to in-screen elements.
    */
   const handleBoardDrawPrimitive = useCallback(
-    (primitive: CanvasPrimitiveInsert) => {
+    (
+      primitive: CanvasPrimitiveInsert,
+      options?: { nextTool?: "move" | "pen" },
+    ) => {
       if (!boardFileId || !canEditDesign) return false;
       const result = handleCreatePrimitive(boardFileId, primitive);
       if (!result) return false;
       const nodeId = typeof result === "string" ? result : primitive.nodeId;
       if (nodeId) {
-        handlePrimitiveCreated(boardFileId, nodeId);
+        // Without the caller's tool intent a board pen commit lands on Move,
+        // which disarms the Pen mid-path — a screen insert keeps it.
+        handlePrimitiveCreated(boardFileId, nodeId, options);
       }
 
       return result;
@@ -8365,6 +8374,7 @@ function DesignEditor() {
       blurActiveDesignEditableTarget();
       flushSync(() => {
         setActiveTool(tool);
+        setShapeTool(tool);
         if (viewModeRef.current === "single" && activeFile) {
           setMode("edit");
           setDrawMode(false);
@@ -9006,7 +9016,7 @@ function DesignEditor() {
           handleBreakpointBarSelect(undefined);
         }
       }
-      setActiveTool("move");
+      setActiveTool(resolveToolAfterSelection);
       setMode("edit");
     },
     [clearPendingOverviewLayerSelectionTimer, handleBreakpointBarSelect],
@@ -17828,7 +17838,7 @@ function DesignEditor() {
         }),
       );
       setActiveFileId(pickedId);
-      setActiveTool("move");
+      setActiveTool(resolveToolAfterSelection);
       setMode("edit");
       if (activeBreakpointWidthStateRef.current !== undefined) {
         handleBreakpointBarSelect(undefined);
@@ -19308,6 +19318,7 @@ function DesignEditor() {
               pinMode={pinMode}
               drawMode={drawMode}
               activeTool={activeTool}
+              shapeTool={shapeTool}
               isOverview={viewMode === "overview"}
               hasActiveFile={Boolean(activeFile)}
               onMove={handleMoveTool}

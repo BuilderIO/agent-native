@@ -3024,7 +3024,9 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       );
       handle.setAttribute("data-corner", pos);
       handle.style.cssText =
-        "position:absolute;z-index:1;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:1px;pointer-events:none;";
+        "position:absolute;z-index:1;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:1px;pointer-events:auto;cursor:" +
+        (pos === "nw" || pos === "se" ? "nwse-resize" : "nesw-resize") +
+        ";";
       if (pos.indexOf("n") !== -1) handle.style.top = "-4px";
       if (pos.indexOf("s") !== -1) handle.style.bottom = "-4px";
       if (pos.indexOf("w") !== -1) handle.style.left = "-4px";
@@ -3061,6 +3063,8 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       )
       .forEach(function (handle) {
         var pos = handle.getAttribute("data-corner") || "";
+        // A viewer must not get four dead 7px squares over their content.
+        handle.style.pointerEvents = readOnly ? "none" : "auto";
         handle.style.width = 7 * sx + "px";
         handle.style.height = 7 * sy + "px";
         handle.style.borderWidth = 1 * line + "px";
@@ -4545,6 +4549,19 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     overlay.style.cssText =
       "position:fixed;pointer-events:none;z-index:99996;border:1.5px solid var(--design-editor-accent-color);background:transparent;display:none;box-sizing:border-box;";
     appendPassiveSelectionHandles(overlay);
+    overlay.addEventListener(
+      "mousedown",
+      function (e) {
+        if (readOnly) return;
+        var corner =
+          e.target &&
+          (e.target as Element).getAttribute &&
+          (e.target as Element).getAttribute("data-corner");
+        if (!corner) return;
+        startGroupResize(corner, e);
+      },
+      true,
+    );
     document.body.appendChild(overlay);
     multiSelectionBoundsOverlay = overlay;
     return overlay;
@@ -4558,6 +4575,11 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     passiveSelectionEls.forEach(function (el) {
       if (el && document.documentElement.contains(el)) members.push(el);
     });
+    // One set of handles per multi-selection: the primary member's own sit
+    // over the group's at a shared corner and win the hit test.
+    setSelectionOverlayResizeChromeVisible(
+      !readOnly && !activeTextEditEl && members.length < 2,
+    );
     if (members.length < 2 || selectionChromeHidden) {
       if (multiSelectionBoundsOverlay) {
         multiSelectionBoundsOverlay.style.display = "none";
@@ -7254,17 +7276,10 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     return true;
   }
 
-  // Multi-select group move: when the user drags an element that is a member
-  // of the current multi-selection (primary selectedEl + the passive
-  // shift-click/marquee set), the whole group moves together — Figma
-  // behavior. Returns the full member list in DOCUMENT ORDER (so a group
-  // flow-insert lands the members consecutively in their existing visual
-  // order) when gestureEl belongs to a 2+ selection, or just [gestureEl]
-  // otherwise. Members nested inside another member are dropped: moving the
-  // ancestor already moves them, and double-applying the delta would fling
-  // them.
-  function collectMoveGroupMembers(gestureEl: Element): Element[] {
-    if (!gestureEl) return [];
+  /** The current multi-selection's own elements: the primary plus the passive
+   *  shift-click/marquee set, minus blocked layers and anything contained by
+   *  another member. */
+  function collectSelectionMembers(): Element[] {
     var raw: Element[] = [];
     if (selectedEl) raw.push(selectedEl);
     for (var i = 0; i < passiveSelectionEls.length; i += 1) {
@@ -7285,12 +7300,25 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
       }
       members.push(candidate);
     }
-    // Drop members contained by another member.
-    members = members.filter(function (member) {
+    return members.filter(function (member) {
       return !members.some(function (other) {
         return other !== member && other.contains(member);
       });
     });
+  }
+
+  // Multi-select group move: when the user drags an element that is a member
+  // of the current multi-selection (primary selectedEl + the passive
+  // shift-click/marquee set), the whole group moves together — Figma
+  // behavior. Returns the full member list in DOCUMENT ORDER (so a group
+  // flow-insert lands the members consecutively in their existing visual
+  // order) when gestureEl belongs to a 2+ selection, or just [gestureEl]
+  // otherwise. Members nested inside another member are dropped: moving the
+  // ancestor already moves them, and double-applying the delta would fling
+  // them.
+  function collectMoveGroupMembers(gestureEl: Element): Element[] {
+    if (!gestureEl) return [];
+    var members = collectSelectionMembers();
     var gestureMember: Element | null = null;
     for (var k = 0; k < members.length; k += 1) {
       if (
@@ -10350,6 +10378,44 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     setActiveDragCancel(cancelMoveDrag);
   }
 
+  /**
+   * K-scale descendant text (Figma scales the type inside a frame too). Only
+   * elements carrying their OWN size are listed: an inherited size is already
+   * covered by the root's font-size write and a relative inline unit tracks
+   * its parent, so writing either here would scale it twice.
+   */
+  function collectScaleFontTargets(root: Element) {
+    var targets: Array<{
+      el: HTMLElement;
+      originFontSize: number;
+      originalInlineFontSize: string;
+    }> = [];
+    var nodes = root.querySelectorAll("*");
+    for (var i = 0; i < nodes.length; i += 1) {
+      var el = nodes[i] as HTMLElement;
+      if (isOverlayElement(el)) continue;
+      var inlineFontSize = el.style.fontSize || "";
+      if (inlineFontSize && !/px\s*$/i.test(inlineFontSize)) continue;
+      var parent = el.parentElement;
+      var cs = window.getComputedStyle(el);
+      if (
+        !inlineFontSize &&
+        parent &&
+        window.getComputedStyle(parent).fontSize === cs.fontSize
+      ) {
+        continue;
+      }
+      var originFontSize = readPx(inlineFontSize || cs.fontSize);
+      if (!(originFontSize > 0)) continue;
+      targets.push({
+        el: el,
+        originFontSize: originFontSize,
+        originalInlineFontSize: el.style.fontSize,
+      });
+    }
+    return targets;
+  }
+
   function startResize(handle, e) {
     if (readOnly) return;
     if (!selectedEl) return;
@@ -10467,6 +10533,17 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
     // in onUp.
     var widthTouched = false;
     var heightTouched = false;
+    // Captured on the first K-scale tick, not at drag start: the host can arm
+    // scale-tool-mode mid-gesture.
+    var scaledTextTargetsCache: ReturnType<
+      typeof collectScaleFontTargets
+    > | null = null;
+    function scaledTextTargets() {
+      if (!scaledTextTargetsCache) {
+        scaledTextTargetsCache = collectScaleFontTargets(resizeEl);
+      }
+      return scaledTextTargetsCache;
+    }
     function nextRect(ev) {
       var screenDx = ev.clientX - startX;
       var screenDy = ev.clientY - startY;
@@ -10602,6 +10679,13 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
             Math.max(1, Math.round(originFontSize * kScaleFactor * 100) / 100) +
             "px";
         }
+        scaledTextTargets().forEach(function (target) {
+          target.el.style.fontSize =
+            Math.max(
+              1,
+              Math.round(target.originFontSize * kScaleFactor * 100) / 100,
+            ) + "px";
+        });
       }
       showTransformBadge(
         Math.round(rect.width) + " x " + Math.round(rect.height),
@@ -10628,6 +10712,9 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         resizeEl.style.height = originalInlineHeight;
         resizeEl.style.borderWidth = originalInlineBorderWidth;
         resizeEl.style.fontSize = originalInlineFontSize;
+        (scaledTextTargetsCache || []).forEach(function (target) {
+          target.el.style.fontSize = target.originalInlineFontSize;
+        });
         selectedEl = resizeEl;
         positionOverlay(selectionOverlay, selectedEl);
       }
@@ -10684,11 +10771,323 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
         },
         "*",
       );
+      if (scaleToolEnabled) {
+        (scaledTextTargetsCache || []).forEach(function (target) {
+          var textStyles: Record<string, string> = {
+            fontSize: target.el.style.fontSize,
+          };
+          (window.parent as Window).postMessage(
+            {
+              type: "visual-style-change",
+              selector: getSelector(target.el),
+              styles: textStyles,
+              originalStyles: originalInlineStylesForPatch(
+                target.el,
+                textStyles,
+              ),
+              payload: getElementInfo(target.el),
+            },
+            "*",
+          );
+        });
+      }
     }
     document.addEventListener(events.move, onMove, true);
     document.addEventListener(events.up, onUp, true);
     document.addEventListener("keydown", onResizeKeyDown, true);
     setActiveDragCancel(cancelResizeDrag);
+  }
+
+  /**
+   * Scales a multi-selection as one box: the drag resizes the group's bounds
+   * and every member keeps its position and size relative to them. Per-member
+   * rotation is not projected here, unlike startResize — whose single-element
+   * invariants (rotation, Alt-from-center, per-axis touch tracking) have no
+   * group analogue, so the two paths stay separate.
+   */
+  function startGroupResize(handle, e) {
+    if (readOnly) return;
+    var members = collectSelectionMembers();
+    if (members.length < 2) return;
+    e.preventDefault();
+    e.stopPropagation();
+    var events = dragEventNames(e);
+    var groupLeft = Infinity;
+    var groupTop = Infinity;
+    var groupRight = -Infinity;
+    var groupBottom = -Infinity;
+    var memberStates = members.map(function (member) {
+      var el = member as HTMLElement;
+      ensurePositionable(el);
+      var cs = window.getComputedStyle(el);
+      var rect = el.getBoundingClientRect();
+      groupLeft = Math.min(groupLeft, rect.left);
+      groupTop = Math.min(groupTop, rect.top);
+      groupRight = Math.max(groupRight, rect.right);
+      groupBottom = Math.max(groupBottom, rect.bottom);
+      return {
+        el: el,
+        originalInlinePosition: el.style.position,
+        originalInlineLeft: el.style.left,
+        originalInlineTop: el.style.top,
+        originalInlineWidth: el.style.width,
+        originalInlineHeight: el.style.height,
+        originalInlineBorderWidth: el.style.borderWidth,
+        originalInlineFontSize: el.style.fontSize,
+        originLeft: readPx(el.style.left || cs.left),
+        originTop: readPx(el.style.top || cs.top),
+        originWidth: readPx(cs.width),
+        originHeight: readPx(cs.height),
+        originClientLeft: rect.left,
+        originClientTop: rect.top,
+        originBorderWidth: readPx(el.style.borderWidth || cs.borderWidth),
+        originFontSize: readPx(el.style.fontSize || cs.fontSize),
+        textTargets: null as ReturnType<typeof collectScaleFontTargets> | null,
+      };
+    });
+    var groupWidth = Math.max(1, groupRight - groupLeft);
+    var groupHeight = Math.max(1, groupBottom - groupTop);
+    // The group's fixed corner for this handle — every member scales away
+    // from it, so the opposite side of the selection stays put.
+    var anchorX = handle.indexOf("w") !== -1 ? groupRight : groupLeft;
+    var anchorY = handle.indexOf("n") !== -1 ? groupBottom : groupTop;
+    // Clamp by the SMALLEST member, not by the group box: a factor that keeps
+    // the group above 8px can still collapse (or mirror) a small member.
+    var minMemberWidth = Math.max(
+      1,
+      Math.min.apply(
+        null,
+        memberStates.map(function (state) {
+          return Math.max(1, state.originWidth);
+        }),
+      ),
+    );
+    var minMemberHeight = Math.max(
+      1,
+      Math.min.apply(
+        null,
+        memberStates.map(function (state) {
+          return Math.max(1, state.originHeight);
+        }),
+      ),
+    );
+    var minFactorX = 8 / minMemberWidth;
+    var minFactorY = 8 / minMemberHeight;
+    var startX = e.clientX;
+    var startY = e.clientY;
+    var groupGestureViewport = bridgeGestureViewport();
+    var bridgeGroupResizeController = createCanvasGestureController({
+      capabilities: { move: true, resize: true },
+      drag: { threshold: 3, duplicateModifier: "alt" },
+      minSize: 8,
+      adapter: {
+        preview: function () {
+          return { handled: true };
+        },
+        commit: function () {
+          return { handled: true };
+        },
+        cancel: function () {
+          return { handled: true };
+        },
+      },
+    });
+    bridgeGroupResizeController.pointerDown({
+      kind: "resize",
+      objectIds: memberStates.map(function (state) {
+        return getSelector(state.el);
+      }),
+      pointer: bridgeGesturePointer(e),
+      viewport: groupGestureViewport,
+      canvas: {
+        width: groupGestureViewport.width,
+        height: groupGestureViewport.height,
+      },
+      handle: handle,
+      rect: {
+        x: groupLeft,
+        y: groupTop,
+        width: groupWidth,
+        height: groupHeight,
+      },
+    });
+
+    function groupFactors(ev) {
+      var dx = ev.clientX - startX;
+      var dy = ev.clientY - startY;
+      var nextWidth =
+        handle.indexOf("e") !== -1 ? groupWidth + dx : groupWidth - dx;
+      var nextHeight =
+        handle.indexOf("s") !== -1 ? groupHeight + dy : groupHeight - dy;
+      var factorX = nextWidth / groupWidth;
+      var factorY = nextHeight / groupHeight;
+      if (ev.shiftKey || scaleToolEnabled) {
+        var uniform = Math.abs(dx) > Math.abs(dy) ? factorX : factorY;
+        factorX = uniform;
+        factorY = uniform;
+      }
+      return {
+        x: Math.max(minFactorX, factorX),
+        y: Math.max(minFactorY, factorY),
+      };
+    }
+
+    function memberTextTargets(state) {
+      if (!state.textTargets) {
+        state.textTargets = collectScaleFontTargets(state.el);
+      }
+      return state.textTargets;
+    }
+
+    function onMove(ev) {
+      var controllerMove = bridgeGroupResizeController.pointerMove(
+        bridgeGesturePointer(ev),
+      );
+      if (controllerMove.phase !== "active") return;
+      var factor = groupFactors(ev);
+      memberStates.forEach(function (state) {
+        var nextClientLeft =
+          anchorX + (state.originClientLeft - anchorX) * factor.x;
+        var nextClientTop =
+          anchorY + (state.originClientTop - anchorY) * factor.y;
+        state.el.style.left =
+          Math.round(
+            state.originLeft + (nextClientLeft - state.originClientLeft),
+          ) + "px";
+        state.el.style.top =
+          Math.round(
+            state.originTop + (nextClientTop - state.originClientTop),
+          ) + "px";
+        state.el.style.width = Math.round(state.originWidth * factor.x) + "px";
+        state.el.style.height =
+          Math.round(state.originHeight * factor.y) + "px";
+        if (!scaleToolEnabled) return;
+        if (state.originBorderWidth > 0) {
+          state.el.style.borderWidth =
+            Math.max(
+              0,
+              Math.round(state.originBorderWidth * factor.x * 100) / 100,
+            ) + "px";
+        }
+        if (state.originFontSize > 0) {
+          state.el.style.fontSize =
+            Math.max(
+              1,
+              Math.round(state.originFontSize * factor.x * 100) / 100,
+            ) + "px";
+        }
+        memberTextTargets(state).forEach(function (target) {
+          target.el.style.fontSize =
+            Math.max(
+              1,
+              Math.round(target.originFontSize * factor.x * 100) / 100,
+            ) + "px";
+        });
+      });
+      showTransformBadge(
+        Math.round(groupWidth * factor.x) +
+          " x " +
+          Math.round(groupHeight * factor.y),
+        ev.clientX,
+        ev.clientY,
+      );
+      refreshOverlays();
+    }
+
+    function cleanupGroupResizeDrag() {
+      document.removeEventListener(events.move, onMove, true);
+      document.removeEventListener(events.up, onUp, true);
+      document.removeEventListener("keydown", onGroupResizeKeyDown, true);
+      clearActiveDragCancel(cancelGroupResizeDrag);
+    }
+
+    function cancelGroupResizeDrag() {
+      bridgeGroupResizeController.cancel();
+      cleanupGroupResizeDrag();
+      hideTransformBadge();
+      memberStates.forEach(function (state) {
+        if (!document.documentElement.contains(state.el)) return;
+        state.el.style.position = state.originalInlinePosition;
+        state.el.style.left = state.originalInlineLeft;
+        state.el.style.top = state.originalInlineTop;
+        state.el.style.width = state.originalInlineWidth;
+        state.el.style.height = state.originalInlineHeight;
+        state.el.style.borderWidth = state.originalInlineBorderWidth;
+        state.el.style.fontSize = state.originalInlineFontSize;
+        (state.textTargets || []).forEach(function (target) {
+          target.el.style.fontSize = target.originalInlineFontSize;
+        });
+      });
+      suppressNextShieldClickBriefly();
+      refreshOverlays();
+      return true;
+    }
+
+    function onGroupResizeKeyDown(ev) {
+      if (ev.key !== "Escape") return;
+      stopNativeInteraction(ev);
+      cancelGroupResizeDrag();
+    }
+
+    function onUp(ev) {
+      var controllerEnd = bridgeGroupResizeController.pointerUp(
+        bridgeGesturePointer(ev),
+      );
+      cleanupGroupResizeDrag();
+      hideTransformBadge();
+      if (!controllerEnd.committed) return;
+      // One style-change message per member, in order — the host composes
+      // them against its same-tick content refs exactly like a group move.
+      memberStates.forEach(function (state) {
+        var styles: Record<string, string> = {
+          position: state.el.style.position,
+          left: state.el.style.left,
+          top: state.el.style.top,
+          width: state.el.style.width,
+          height: state.el.style.height,
+        };
+        if (scaleToolEnabled && state.originBorderWidth > 0) {
+          styles.borderWidth = state.el.style.borderWidth;
+        }
+        if (scaleToolEnabled && state.originFontSize > 0) {
+          styles.fontSize = state.el.style.fontSize;
+        }
+        (window.parent as Window).postMessage(
+          {
+            type: "visual-style-change",
+            selector: getSelector(state.el),
+            styles: styles,
+            originalStyles: originalInlineStylesForPatch(state.el, styles),
+            payload: getElementInfo(state.el),
+          },
+          "*",
+        );
+        if (!scaleToolEnabled) return;
+        (state.textTargets || []).forEach(function (target) {
+          var textStyles: Record<string, string> = {
+            fontSize: target.el.style.fontSize,
+          };
+          (window.parent as Window).postMessage(
+            {
+              type: "visual-style-change",
+              selector: getSelector(target.el),
+              styles: textStyles,
+              originalStyles: originalInlineStylesForPatch(
+                target.el,
+                textStyles,
+              ),
+              payload: getElementInfo(target.el),
+            },
+            "*",
+          );
+        });
+      });
+    }
+
+    document.addEventListener(events.move, onMove, true);
+    document.addEventListener(events.up, onUp, true);
+    document.addEventListener("keydown", onGroupResizeKeyDown, true);
+    setActiveDragCancel(cancelGroupResizeDrag);
   }
 
   function startRotate(e) {

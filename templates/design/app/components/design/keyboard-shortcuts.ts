@@ -125,7 +125,7 @@ export const DESIGN_SHORTCUTS: readonly DesignShortcutDefinition[] = [
   shortcut({
     id: "draw-tool",
     category: "tools",
-    bindings: ["y"],
+    bindings: ["shift+y"],
     labelKey: "designEditor.keyboardShortcuts.commands.drawTool",
     handler: "onDrawTool",
   }),
@@ -421,6 +421,15 @@ export const DESIGN_SHORTCUTS: readonly DesignShortcutDefinition[] = [
     bindings: ["shift+x"],
     labelKey: "designEditor.keyboardShortcuts.commands.swapFillStroke",
     handler: "onSwapFillStroke",
+  }),
+  shortcut({
+    id: "eyedropper",
+    category: "edit",
+    // Apple platforms also accept literal ctrl+c; only the cross-platform
+    // binding is advertised so the row reads the same everywhere.
+    bindings: ["i"],
+    labelKey: "designEditor.keyboardShortcuts.commands.eyedropper",
+    handler: "onEyedropper",
   }),
 
   shortcut({

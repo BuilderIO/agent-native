@@ -687,7 +687,14 @@ export function runCommitVisualStyles(
       setContentRenderRevision((revision) => revision + 1);
     }
   }
-  if (resolvedNode) setSelectedLayerIdsState([resolvedNode.id]);
+  // A commit must never shrink the selection: a group transform commits one
+  // style change per member, so selecting the committed node keeps only the
+  // member that happened to commit last.
+  if (resolvedNode) {
+    setSelectedLayerIdsState((current) =>
+      current.includes(resolvedNode.id) ? current : [resolvedNode.id],
+    );
+  }
   setSelectedElement((prev) => {
     if (options.elementInfo) return options.elementInfo;
     if (!prev) return prev;

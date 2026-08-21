@@ -179,9 +179,9 @@ export interface UseDesignHotkeysProps {
    *  internal canvas clipboard's contents. */
   onPasteToReplace?: DesignHotkeyHandler;
   /**
-   * Figma's Control+C on Apple platforms — eyedropper: sample a color from
-   * anywhere on screen and apply it to the current selection. A one-shot
-   * action, not a persistent tool.
+   * Figma's I (and literal Control+C on Apple platforms) — eyedropper: sample
+   * a color from anywhere on screen and apply it to the current selection. A
+   * one-shot action, not a persistent tool.
    */
   onEyedropper?: DesignHotkeyHandler;
   /**
@@ -228,7 +228,6 @@ const TOOL_SHORTCUTS: Record<
   h: { tool: "hand", handler: "onHandTool" },
   k: { tool: "scale", handler: "onScaleTool" },
   c: { tool: "comment", handler: "onCommentTool" },
-  y: { tool: "draw", handler: "onDrawTool" },
 };
 
 // H1: shift+key variants of a base tool shortcut (Figma muscle-memory), e.g.
@@ -240,6 +239,9 @@ const SHIFT_TOOL_SHORTCUTS: Record<
   { tool: DesignHotkeyTool; handler: keyof UseDesignHotkeysProps }
 > = {
   l: { tool: "arrow", handler: "onArrowTool" },
+  // Draw switches the whole editor into annotate mode, so it takes a
+  // modifier: a bare letter flips modes by accident.
+  y: { tool: "draw", handler: "onDrawTool" },
 };
 
 export function isDesignHotkeyEditableTarget(target: EventTarget | null) {
@@ -552,6 +554,11 @@ export function handleDesignHotkey(
   if (event.ctrlKey && event.altKey && !event.metaKey && !event.shiftKey) {
     if (key === "h") return runDistribute("horizontal");
     if (key === "v") return runDistribute("vertical");
+  }
+
+  // Figma's I — the Control+C binding below is macOS-only.
+  if (!primary && !event.altKey && !event.shiftKey && key === "i") {
+    return run(props.onEyedropper);
   }
 
   // On macOS Figma reserves literal Control+C for Pick color while Cmd+C

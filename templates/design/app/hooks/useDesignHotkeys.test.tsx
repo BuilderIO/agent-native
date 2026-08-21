@@ -153,11 +153,12 @@ describe("useDesignHotkeys — current Figma tool bindings", () => {
     input.remove();
   });
 
-  it("Y arms the annotation/draw tool", async () => {
+  it("Shift+Y arms the annotation/draw tool and a bare Y does not", async () => {
     const onDrawTool = vi.fn();
     const onToolChange = vi.fn();
     await withHotkeys({ onDrawTool, onToolChange }, () => {
       dispatchKey("y");
+      dispatchKey("y", { shiftKey: true });
     });
     expect(onDrawTool).toHaveBeenCalledTimes(1);
     expect(onToolChange).toHaveBeenCalledWith(
@@ -184,6 +185,16 @@ describe("useDesignHotkeys — current Figma tool bindings", () => {
     });
     expect(onLineTool).toHaveBeenCalledTimes(1);
     expect(onArrowTool).toHaveBeenCalledTimes(1);
+  });
+
+  it("binds Figma's I to the eyedropper on every platform", async () => {
+    const onEyedropper = vi.fn();
+    await withNavigatorPlatform("Win32", () =>
+      withHotkeys({ onEyedropper }, () => {
+        dispatchKey("i", { code: "KeyI" });
+      }),
+    );
+    expect(onEyedropper).toHaveBeenCalledTimes(1);
   });
 
   it("uses literal Control+C for Pick color on Apple platforms and Cmd+C for Copy", async () => {
