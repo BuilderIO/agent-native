@@ -1,0 +1,683 @@
+{
+  "expanded": {
+    "url": "http://127.0.0.1:8080/dispatch/overview",
+    "viewport": {
+      "width": 1440,
+      "height": 1000
+    },
+    "badge": {
+      "text": "dev",
+      "rect": {
+        "x": 12,
+        "y": 964,
+        "width": 42.5,
+        "height": 24,
+        "right": 54.5,
+        "bottom": 988
+      },
+      "className": "fixed bottom-3 left-3 z-[100] h-6 min-w-0 rounded-xl px-2 text-[11px] font-semibold uppercase tracking-[0.5px] shadow-sm backdrop-blur-sm inline-flex items-center justify-center border border-border/80 bg-background/95 text-foreground"
+    },
+    "bottomLeft": true,
+    "controls": [
+      {
+        "label": "Search",
+        "rect": {
+          "x": 8,
+          "y": 155,
+          "width": 208,
+          "height": 32,
+          "right": 216,
+          "bottom": 187
+        },
+        "overlapsBadge": false
+      },
+      {
+        "label": "Create workspace app",
+        "rect": {
+          "x": 184,
+          "y": 215,
+          "width": 24,
+          "height": 24,
+          "right": 208,
+          "bottom": 239
+        },
+        "overlapsBadge": false
+      },
+      {
+        "label": "Settings",
+        "rect": {
+          "x": 8,
+          "y": 840,
+          "width": 208,
+          "height": 32,
+          "right": 216,
+          "bottom": 872
+        },
+        "overlapsBadge": false
+      },
+      {
+        "label": "Dev's workspace",
+        "rect": {
+          "x": 12,
+          "y": 884,
+          "width": 200,
+          "height": 28,
+          "right": 212,
+          "bottom": 912
+        },
+        "overlapsBadge": false
+      },
+      {
+        "label": "Search",
+        "rect": {
+          "x": 148,
+          "y": 924,
+          "width": 32,
+          "height": 32,
+          "right": 180,
+          "bottom": 956
+        },
+        "overlapsBadge": false
+      },
+      {
+        "label": "Collapse sidebar",
+        "rect": {
+          "x": 184,
+          "y": 924,
+          "width": 32,
+          "height": 32,
+          "right": 216,
+          "bottom": 956
+        },
+        "overlapsBadge": false
+      },
+      {
+        "label": "Settings for Content",
+        "rect": {
+          "x": 781,
+          "y": 467,
+          "width": 28,
+          "height": 28,
+          "right": 809,
+          "bottom": 495
+        },
+        "overlapsBadge": false
+      },
+      {
+        "label": "Settings for Design",
+        "rect": {
+          "x": 1287,
+          "y": 467,
+          "width": 28,
+          "height": 28,
+          "right": 1315,
+          "bottom": 495
+        },
+        "overlapsBadge": false
+      },
+      {
+        "label": "Settings for Mail",
+        "rect": {
+          "x": 781,
+          "y": 553,
+          "width": 28,
+          "height": 28,
+          "right": 809,
+          "bottom": 581
+        },
+        "overlapsBadge": false
+      },
+      {
+        "label": "Settings for Calendar",
+        "rect": {
+          "x": 1287,
+          "y": 553,
+          "width": 28,
+          "height": 28,
+          "right": 1315,
+          "bottom": 581
+        },
+        "overlapsBadge": false
+      },
+      {
+        "label": "Settings for Clips",
+        "rect": {
+          "x": 781,
+          "y": 639,
+          "width": 28,
+          "height": 28,
+          "right": 809,
+          "bottom": 667
+        },
+        "overlapsBadge": false
+      },
+      {
+        "label": "Settings for Analytics",
+        "rect": {
+          "x": 1287,
+          "y": 639,
+          "width": 28,
+          "height": 28,
+          "right": 1315,
+          "bottom": 667
+        },
+        "overlapsBadge": false
+      },
+      {
+        "label": "Settings for Assets",
+        "rect": {
+          "x": 781,
+          "y": 725,
+          "width": 28,
+          "height": 28,
+          "right": 809,
+          "bottom": 753
+        },
+        "overlapsBadge": false
+      },
+      {
+        "label": "Settings for Brain",
+        "rect": {
+          "x": 1287,
+          "y": 725,
+          "width": 28,
+          "height": 28,
+          "right": 1315,
+          "bottom": 753
+        },
+        "overlapsBadge": false
+      },
+      {
+        "label": "Settings for Forms",
+        "rect": {
+          "x": 781,
+          "y": 811,
+          "width": 28,
+          "height": 28,
+          "right": 809,
+          "bottom": 839
+        },
+        "overlapsBadge": false
+      },
+      {
+        "label": "Settings for Plan",
+        "rect": {
+          "x": 1287,
+          "y": 811,
+          "width": 28,
+          "height": 28,
+          "right": 1315,
+          "bottom": 839
+        },
+        "overlapsBadge": false
+      },
+      {
+        "label": "Settings for Slides",
+        "rect": {
+          "x": 781,
+          "y": 897,
+          "width": 28,
+          "height": 28,
+          "right": 809,
+          "bottom": 925
+        },
+        "overlapsBadge": false
+      }
+    ],
+    "send": null,
+    "composer": {
+      "rect": {
+        "x": 457,
+        "y": 200,
+        "width": 750,
+        "height": 122,
+        "right": 1207,
+        "bottom": 322
+      },
+      "overlapsBadge": false
+    },
+    "chat": {
+      "rect": {
+        "x": 224,
+        "y": 64,
+        "width": 1216,
+        "height": 936,
+        "right": 1440,
+        "bottom": 1000
+      },
+      "overlapsBadge": false
+    },
+    "bodyText": "Dispatch\nNew chat\nIntegrations\nScheduled\nSearch\nWorkspace apps\nContent\n1 of 5\nDesign\n2 of 5\nMail\n3 of 5\nCalendar\n4 of 5\nClips\n5 of 5\nShow more\nAll apps\nAdmin\nSettings\nDev's workspace\nChat across your apps\n\nRoute work, inspect status, or create something new from one place.\n\n\n\n\nGPT-5.6 Luna\n· High\nCreate an app for onboarding requests\nCheck which agents can help with analytics\nApps\nView all\nSearch apps\nNew App\nContent\n\nOpen-source Obsidian for MDX — edit local docs with agent assistance\n\nOpen app\nDesign\n\nAgent-native design tool — create and edit visual designs with agent assistance\n\nOpen app\nMail\n\nAgent-native Superhuman — email client with keyboard shortcuts and AI triage\n\nOpen app\nCalendar\n\nAgent-native Google Calendar — manage events, sync, and public booking\n\nOpen app\nClips\n\nScreen recording, meeting notes, and voice dictation — all with AI\n\nOpen app\nAnalytics\n\nAgent-native Amplitude/Mixpanel — connect data sources, prompt for charts\n\nOpen app\nAssets\n\nDigital asset manager — upload, organize, search, and generate on-brand images and videos\n\nOpen app\nBrain\n\nCited company knowledge from Slack, meetings, transcripts, and decisions\n\nOpen app\nForms\n\nAgent-native form builder — creat",
+    "screenshot": "/root/app/code/.builder/screenshots/dispatch-dev-pill-expanded.png"
+  },
+  "collapsed": {
+    "url": "http://127.0.0.1:8080/dispatch/overview",
+    "viewport": {
+      "width": 1440,
+      "height": 1000
+    },
+    "badge": {
+      "text": "dev",
+      "rect": {
+        "x": 12,
+        "y": 964,
+        "width": 42.5,
+        "height": 24,
+        "right": 54.5,
+        "bottom": 988
+      },
+      "className": "fixed bottom-3 left-3 z-[100] h-6 min-w-0 rounded-xl px-2 text-[11px] font-semibold uppercase tracking-[0.5px] shadow-sm backdrop-blur-sm inline-flex items-center justify-center border border-border/80 bg-background/95 text-foreground"
+    },
+    "bottomLeft": true,
+    "controls": [
+      {
+        "label": "Search",
+        "rect": {
+          "x": 6,
+          "y": 155,
+          "width": 43,
+          "height": 32,
+          "right": 49,
+          "bottom": 187
+        },
+        "overlapsBadge": false
+      },
+      {
+        "label": "Settings",
+        "rect": {
+          "x": 9.5,
+          "y": 798,
+          "width": 36,
+          "height": 36,
+          "right": 45.5,
+          "bottom": 834
+        },
+        "overlapsBadge": false
+      },
+      {
+        "label": "Dev's workspace",
+        "rect": {
+          "x": 14.5,
+          "y": 846,
+          "width": 26,
+          "height": 26,
+          "right": 40.5,
+          "bottom": 872
+        },
+        "overlapsBadge": false
+      },
+      {
+        "label": "Search",
+        "rect": {
+          "x": 11.5,
+          "y": 888,
+          "width": 32,
+          "height": 32,
+          "right": 43.5,
+          "bottom": 920
+        },
+        "overlapsBadge": false
+      },
+      {
+        "label": "Expand sidebar",
+        "rect": {
+          "x": 11.5,
+          "y": 924,
+          "width": 32,
+          "height": 32,
+          "right": 43.5,
+          "bottom": 956
+        },
+        "overlapsBadge": false
+      },
+      {
+        "label": "Settings for Content",
+        "rect": {
+          "x": 697,
+          "y": 467,
+          "width": 28,
+          "height": 28,
+          "right": 725,
+          "bottom": 495
+        },
+        "overlapsBadge": false
+      },
+      {
+        "label": "Settings for Design",
+        "rect": {
+          "x": 1203,
+          "y": 467,
+          "width": 28,
+          "height": 28,
+          "right": 1231,
+          "bottom": 495
+        },
+        "overlapsBadge": false
+      },
+      {
+        "label": "Settings for Mail",
+        "rect": {
+          "x": 697,
+          "y": 553,
+          "width": 28,
+          "height": 28,
+          "right": 725,
+          "bottom": 581
+        },
+        "overlapsBadge": false
+      },
+      {
+        "label": "Settings for Calendar",
+        "rect": {
+          "x": 1203,
+          "y": 553,
+          "width": 28,
+          "height": 28,
+          "right": 1231,
+          "bottom": 581
+        },
+        "overlapsBadge": false
+      },
+      {
+        "label": "Settings for Clips",
+        "rect": {
+          "x": 697,
+          "y": 639,
+          "width": 28,
+          "height": 28,
+          "right": 725,
+          "bottom": 667
+        },
+        "overlapsBadge": false
+      },
+      {
+        "label": "Settings for Analytics",
+        "rect": {
+          "x": 1203,
+          "y": 639,
+          "width": 28,
+          "height": 28,
+          "right": 1231,
+          "bottom": 667
+        },
+        "overlapsBadge": false
+      },
+      {
+        "label": "Settings for Assets",
+        "rect": {
+          "x": 697,
+          "y": 725,
+          "width": 28,
+          "height": 28,
+          "right": 725,
+          "bottom": 753
+        },
+        "overlapsBadge": false
+      },
+      {
+        "label": "Settings for Brain",
+        "rect": {
+          "x": 1203,
+          "y": 725,
+          "width": 28,
+          "height": 28,
+          "right": 1231,
+          "bottom": 753
+        },
+        "overlapsBadge": false
+      },
+      {
+        "label": "Settings for Forms",
+        "rect": {
+          "x": 697,
+          "y": 811,
+          "width": 28,
+          "height": 28,
+          "right": 725,
+          "bottom": 839
+        },
+        "overlapsBadge": false
+      },
+      {
+        "label": "Settings for Plan",
+        "rect": {
+          "x": 1203,
+          "y": 811,
+          "width": 28,
+          "height": 28,
+          "right": 1231,
+          "bottom": 839
+        },
+        "overlapsBadge": false
+      },
+      {
+        "label": "Settings for Slides",
+        "rect": {
+          "x": 697,
+          "y": 897,
+          "width": 28,
+          "height": 28,
+          "right": 725,
+          "bottom": 925
+        },
+        "overlapsBadge": false
+      }
+    ],
+    "send": null,
+    "composer": {
+      "rect": {
+        "x": 373,
+        "y": 200,
+        "width": 750,
+        "height": 122,
+        "right": 1123,
+        "bottom": 322
+      },
+      "overlapsBadge": false
+    },
+    "chat": {
+      "rect": {
+        "x": 56,
+        "y": 64,
+        "width": 1384,
+        "height": 936,
+        "right": 1440,
+        "bottom": 1000
+      },
+      "overlapsBadge": false
+    },
+    "bodyText": "New chat\nIntegrations\nScheduled\nSearch\nChat across your apps\n\nRoute work, inspect status, or create something new from one place.\n\n\n\n\nGPT-5.6 Luna\n· High\nCreate an app for onboarding requests\nCheck which agents can help with analytics\nApps\nView all\nSearch apps\nNew App\nContent\n\nOpen-source Obsidian for MDX — edit local docs with agent assistance\n\nOpen app\nDesign\n\nAgent-native design tool — create and edit visual designs with agent assistance\n\nOpen app\nMail\n\nAgent-native Superhuman — email client with keyboard shortcuts and AI triage\n\nOpen app\nCalendar\n\nAgent-native Google Calendar — manage events, sync, and public booking\n\nOpen app\nClips\n\nScreen recording, meeting notes, and voice dictation — all with AI\n\nOpen app\nAnalytics\n\nAgent-native Amplitude/Mixpanel — connect data sources, prompt for charts\n\nOpen app\nAssets\n\nDigital asset manager — upload, organize, search, and generate on-brand images and videos\n\nOpen app\nBrain\n\nCited company knowledge from Slack, meetings, transcripts, and decisions\n\nOpen app\nForms\n\nAgent-native form builder — create, edit, and manage forms\n\nOpen app\nPlan\n\nStructured visual plans and PR recaps with diagrams, wireframes, prototypes, annotations, and sharing\n",
+    "screenshot": "/root/app/code/.builder/screenshots/dispatch-dev-pill-collapsed.png"
+  },
+  "narrow": {
+    "url": "http://127.0.0.1:8080/dispatch/overview",
+    "viewport": {
+      "width": 600,
+      "height": 900
+    },
+    "badge": {
+      "text": "dev",
+      "rect": {
+        "x": 12,
+        "y": 864,
+        "width": 42.5,
+        "height": 24,
+        "right": 54.5,
+        "bottom": 888
+      },
+      "className": "fixed bottom-3 left-3 z-[100] h-6 min-w-0 rounded-xl px-2 text-[11px] font-semibold uppercase tracking-[0.5px] shadow-sm backdrop-blur-sm inline-flex items-center justify-center border border-border/80 bg-background/95 text-foreground"
+    },
+    "bottomLeft": true,
+    "controls": [
+      {
+        "label": "Settings for Content",
+        "rect": {
+          "x": 540,
+          "y": 438,
+          "width": 28,
+          "height": 28,
+          "right": 568,
+          "bottom": 466
+        },
+        "overlapsBadge": false
+      },
+      {
+        "label": "Settings for Design",
+        "rect": {
+          "x": 540,
+          "y": 511,
+          "width": 28,
+          "height": 28,
+          "right": 568,
+          "bottom": 539
+        },
+        "overlapsBadge": false
+      },
+      {
+        "label": "Settings for Mail",
+        "rect": {
+          "x": 540,
+          "y": 584,
+          "width": 28,
+          "height": 28,
+          "right": 568,
+          "bottom": 612
+        },
+        "overlapsBadge": false
+      },
+      {
+        "label": "Settings for Calendar",
+        "rect": {
+          "x": 540,
+          "y": 657,
+          "width": 28,
+          "height": 28,
+          "right": 568,
+          "bottom": 685
+        },
+        "overlapsBadge": false
+      },
+      {
+        "label": "Settings for Clips",
+        "rect": {
+          "x": 540,
+          "y": 730,
+          "width": 28,
+          "height": 28,
+          "right": 568,
+          "bottom": 758
+        },
+        "overlapsBadge": false
+      },
+      {
+        "label": "Settings for Analytics",
+        "rect": {
+          "x": 540,
+          "y": 803,
+          "width": 28,
+          "height": 28,
+          "right": 568,
+          "bottom": 831
+        },
+        "overlapsBadge": false
+      },
+      {
+        "label": "Settings for Assets",
+        "rect": {
+          "x": 540,
+          "y": 876,
+          "width": 28,
+          "height": 28,
+          "right": 568,
+          "bottom": 904
+        },
+        "overlapsBadge": false
+      },
+      {
+        "label": "Settings for Brain",
+        "rect": {
+          "x": 540,
+          "y": 949,
+          "width": 28,
+          "height": 28,
+          "right": 568,
+          "bottom": 977
+        },
+        "overlapsBadge": false
+      },
+      {
+        "label": "Settings for Forms",
+        "rect": {
+          "x": 540,
+          "y": 1022,
+          "width": 28,
+          "height": 28,
+          "right": 568,
+          "bottom": 1050
+        },
+        "overlapsBadge": false
+      },
+      {
+        "label": "Settings for Plan",
+        "rect": {
+          "x": 540,
+          "y": 1095,
+          "width": 28,
+          "height": 28,
+          "right": 568,
+          "bottom": 1123
+        },
+        "overlapsBadge": false
+      },
+      {
+        "label": "Settings for Slides",
+        "rect": {
+          "x": 540,
+          "y": 1168,
+          "width": 28,
+          "height": 28,
+          "right": 568,
+          "bottom": 1196
+        },
+        "overlapsBadge": false
+      }
+    ],
+    "send": null,
+    "composer": {
+      "rect": {
+        "x": 16,
+        "y": 172,
+        "width": 568,
+        "height": 122,
+        "right": 584,
+        "bottom": 294
+      },
+      "overlapsBadge": false
+    },
+    "chat": {
+      "rect": {
+        "x": 0,
+        "y": 48,
+        "width": 600,
+        "height": 852,
+        "right": 600,
+        "bottom": 900
+      },
+      "overlapsBadge": true
+    },
+    "bodyText": "Chat across your apps\n\nRoute work, inspect status, or create something new from one place.\n\n\n\n\nGPT-5.6 Luna\n· High\nCreate an app for onboarding requests\nCheck which agents can help with analytics\nApps\nView all\nSearch apps\nNew App\nContent\n\nOpen-source Obsidian for MDX — edit local docs with agent assistance\n\nOpen app\nDesign\n\nAgent-native design tool — create and edit visual designs with agent assistance\n\nOpen app\nMail\n\nAgent-native Superhuman — email client with keyboard shortcuts and AI triage\n\nOpen app\nCalendar\n\nAgent-native Google Calendar — manage events, sync, and public booking\n\nOpen app\nClips\n\nScreen recording, meeting notes, and voice dictation — all with AI\n\nOpen app\nAnalytics\n\nAgent-native Amplitude/Mixpanel — connect data sources, prompt for charts\n\nOpen app\nAssets\n\nDigital asset manager — upload, organize, search, and generate on-brand images and videos\n\nOpen app\nBrain\n\nCited company knowledge from Slack, meetings, transcripts, and decisions\n\nOpen app\nForms\n\nAgent-native form builder — create, edit, and manage forms\n\nOpen app\nPlan\n\nStructured visual plans and PR recaps with diagrams, wireframes, prototypes, annotations, and sharing\n\nOpen app\nSlides\n\nAgent-native Google S",
+    "screenshot": "/root/app/code/.builder/screenshots/dispatch-dev-pill-narrow.png"
+  },
+  "console": [
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "type": "warning",
+      "text": "Load failed or canceled (net::ERR_ABORTED; HTTP status 404) for rule set requested from \"http://127.0.0.1:8080/dispatch/_agent-native/speculation-rules.json\" found in Speculation-Rules header."
+    }
+  ],
+  "pageErrors": [],
+  "badgeSpecificErrors": []
+}
