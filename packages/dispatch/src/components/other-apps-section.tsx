@@ -3,6 +3,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import { filterOtherApps, type ConnectedAppSummary } from "../lib/other-apps";
 import type { WorkspaceAppId } from "../lib/other-apps";
 import { cn } from "../lib/utils";
+import { workspaceAppMatchesQuery } from "../lib/workspace-app-layout";
 import { isDefaultWorkspaceAppHiddenId } from "../lib/workspace-apps";
 import { ActionQueryError } from "./action-query-error";
 import {
@@ -40,10 +41,12 @@ export function mergeOtherAppEntries({
   templates,
   connectedApps,
   workspaceApps,
+  query = "",
 }: {
   templates?: CuratedWorkspaceTemplatesResult;
   connectedApps: ConnectedAppSummary[];
   workspaceApps: WorkspaceAppId[];
+  query?: string;
 }): OtherAppEntry[] {
   const workspaceAppIds = new Set(
     workspaceApps.map((app) => app.id.trim().toLowerCase()),
@@ -71,7 +74,17 @@ export function mergeOtherAppEntries({
     entries.push({ kind: "connected", app });
   }
 
-  return entries;
+  return entries.filter((entry) =>
+    workspaceAppMatchesQuery(
+      entry.kind === "template"
+        ? {
+            name: entry.template.name,
+            description: entry.template.description ?? undefined,
+          }
+        : entry.app,
+      query,
+    ),
+  );
 }
 
 export function OtherAppsSection({
@@ -86,6 +99,7 @@ export function OtherAppsSection({
   onRetryConnectedApps,
   templateLabels,
   onRemixSuccess,
+  query = "",
   heading = "Other apps",
   embeddedInList = false,
   className,
@@ -104,6 +118,7 @@ export function OtherAppsSection({
     result: unknown,
     template: CuratedWorkspaceTemplate,
   ) => void;
+  query?: string;
   heading?: string | null;
   embeddedInList?: boolean;
   className?: string;
@@ -113,6 +128,7 @@ export function OtherAppsSection({
     templates,
     connectedApps,
     workspaceApps,
+    query,
   });
   const isLoading = templatesLoading || connectedAppsLoading;
   const hasError = Boolean(templatesError || connectedAppsError);

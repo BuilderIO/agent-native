@@ -186,13 +186,18 @@ function AppsPanel({
   const filteredPendingApps = orderedPendingApps.filter((app) =>
     workspaceAppMatchesQuery(app, searchQuery),
   );
-  const hasSearchResults =
-    filteredActiveApps.length > 0 || filteredPendingApps.length > 0;
   const otherAppEntries = mergeOtherAppEntries({
     templates: curatedTemplates,
     connectedApps,
     workspaceApps: apps,
+    query: searchQuery,
   });
+  const hasSearchResults =
+    filteredActiveApps.length > 0 ||
+    filteredPendingApps.length > 0 ||
+    otherAppEntries.length > 0;
+  const otherAppsLoading = curatedTemplatesLoading || connectedAppsLoading;
+  const otherAppsError = curatedTemplatesError || connectedAppsError;
   const showSkeletons =
     isLoading && activeApps.length === 0 && pendingApps.length === 0;
 
@@ -207,7 +212,10 @@ function AppsPanel({
                 View all
               </Link>
             </Button>
-            {!showSkeletons && visibleApps.length > 0 ? (
+            {!showSkeletons &&
+            (visibleApps.length > 0 ||
+              otherAppEntries.length > 0 ||
+              Boolean(searchQuery.trim())) ? (
               <WorkspaceAppSearch
                 className="w-[220px]"
                 query={searchQuery}
@@ -239,7 +247,10 @@ function AppsPanel({
       ) : null}
       {showSkeletons ? (
         <OverviewAppsSkeleton />
-      ) : searchQuery.trim() && !hasSearchResults ? (
+      ) : searchQuery.trim() &&
+        !hasSearchResults &&
+        !otherAppsLoading &&
+        !otherAppsError ? (
         <WorkspaceAppSearchEmpty
           query={searchQuery}
           onClear={() => setSearchQuery("")}
@@ -269,21 +280,20 @@ function AppsPanel({
                 })}
               </p>
             ) : null}
-            {!searchQuery.trim() ? (
-              <OtherAppsSection
-                templates={curatedTemplates}
-                connectedApps={connectedApps}
-                workspaceApps={apps}
-                templatesLoading={curatedTemplatesLoading}
-                connectedAppsLoading={connectedAppsLoading}
-                templatesError={curatedTemplatesError}
-                connectedAppsError={connectedAppsError}
-                onRetryTemplates={onRetryCuratedTemplates}
-                onRetryConnectedApps={onRetryConnectedApps}
-                heading={null}
-                embeddedInList
-              />
-            ) : null}
+            <OtherAppsSection
+              templates={curatedTemplates}
+              connectedApps={connectedApps}
+              workspaceApps={apps}
+              templatesLoading={curatedTemplatesLoading}
+              connectedAppsLoading={connectedAppsLoading}
+              templatesError={curatedTemplatesError}
+              connectedAppsError={connectedAppsError}
+              query={searchQuery}
+              onRetryTemplates={onRetryCuratedTemplates}
+              onRetryConnectedApps={onRetryConnectedApps}
+              heading={null}
+              embeddedInList
+            />
           </AppList>
         </>
       )}

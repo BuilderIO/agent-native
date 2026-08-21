@@ -102,6 +102,21 @@ describe("DispatchControlPlane", () => {
   let root: Root;
   let queryClient: QueryClient;
 
+  async function searchApps(query: string) {
+    const input = container.querySelector<HTMLInputElement>(
+      'input[placeholder="Search apps"]',
+    );
+    expect(input).not.toBeNull();
+    const valueSetter = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )?.set;
+    await act(async () => {
+      valueSetter?.call(input, query);
+      input?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  }
+
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     clientState.inBuilderFrame = false;
@@ -340,5 +355,58 @@ describe("DispatchControlPlane", () => {
       .find((href) => href?.includes("clips.agent-native.com"));
     expect(clipsHref).toContain("https://clips.agent-native.com");
     expect(clipsHref).not.toContain("/share/");
+  });
+
+  it("searches available apps case-insensitively before showing the empty state", async () => {
+    clientState.workspaceApps = [
+      {
+        id: "analytics",
+        name: "Analytics",
+        path: "/analytics",
+        status: "ready",
+        isDispatch: false,
+      },
+    ];
+    clientState.curatedTemplates = [
+      {
+        id: "brain",
+        name: "Brain",
+        description: "Search cited company knowledge",
+        liveUrl: "https://brain.agent-native.com",
+        installed: false,
+      },
+      {
+        id: "assets",
+        name: "Assets",
+        description: "Manage brand assets",
+        liveUrl: "https://assets.agent-native.com",
+        installed: false,
+      },
+    ];
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/overview"]}>
+          <TooltipProvider>
+            <QueryClientProvider client={queryClient}>
+              <DispatchControlPlane />
+            </QueryClientProvider>
+          </TooltipProvider>
+        </MemoryRouter>,
+      );
+    });
+
+    await searchApps("Brain");
+    expect(container.textContent).toContain("Brain");
+    expect(container.textContent).not.toContain("Assets");
+    expect(container.textContent).not.toContain("No apps match your search");
+
+    await searchApps("brain");
+    expect(container.textContent).toContain("Brain");
+    expect(container.textContent).not.toContain("Assets");
+
+    await searchApps("missing app");
+    expect(container.textContent).toContain("No apps match your search");
+    expect(container.textContent).not.toContain("Brain");
   });
 });
