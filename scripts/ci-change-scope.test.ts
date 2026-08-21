@@ -11,7 +11,7 @@ import {
 
 test("recognizes documentation surfaces and package metadata", () => {
   assert.equal(isDocsPath("packages/core/docs/content/actions.mdx"), true);
-  assert.equal(isDocsPath("packages/docs/app/routes/docs.$slug.tsx"), true);
+  assert.equal(isDocsPath("packages/docs/CHANGELOG.md"), true);
   assert.equal(isDocsPath("docs/environment-variables.md"), true);
   assert.equal(isDocsPath("templates/chat/README.md"), true);
   assert.equal(isDocsPath("packages/core/CHANGELOG.md"), true);
@@ -60,13 +60,34 @@ test("fails closed for empty and unknown root change sets", () => {
 test("selects only docs checks for an all-docs change set", () => {
   const scope = classifyChangedPaths([
     "packages/core/docs/content/actions.mdx",
-    "packages/docs/app/components/MarkdownRenderer.tsx",
+    "packages/docs/public/architecture.svg",
     "README.md",
   ]);
 
   assert.equal(scope.docsOnly, true);
   assert.equal(scope.full, false);
   assert.deepEqual(Object.values(scope.checks).filter(Boolean), []);
+});
+
+test("treats docs-app source and config as code, not documentation", () => {
+  assert.equal(isDocsPath("packages/docs/app/routes/docs.$slug.tsx"), false);
+  assert.equal(
+    isDocsPath("packages/docs/server/routes/[...page].get.ts"),
+    false,
+  );
+  assert.equal(isDocsPath("packages/docs/netlify.toml"), false);
+  assert.equal(isDocsPath("packages/docs/react-router.config.ts"), false);
+});
+
+test("runs guards for a docs-app cache-header change", () => {
+  // The docs static-cache headers live in this file. Classifying it as
+  // documentation skipped every check, guards included, for 13 days.
+  const scope = classifyChangedPaths(["packages/docs/netlify.toml"]);
+
+  assert.equal(scope.docsOnly, false);
+  assert.equal(scope.checks.guards, true);
+  assert.equal(scope.checks.typecheck, true);
+  assert.equal(scope.checks.build, true);
 });
 
 test("selects dependency-aware checks for a template change", () => {
