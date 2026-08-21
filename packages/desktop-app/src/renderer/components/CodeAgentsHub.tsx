@@ -59,6 +59,12 @@ import {
 } from "@agent-native/core/client/chat-first";
 import { createAgentNativeQueryClient } from "@agent-native/core/client/hooks";
 import { cn } from "@agent-native/toolkit";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@agent-native/toolkit/ui";
 import { Input } from "@agent-native/toolkit/ui/input";
 import {
   Select,
@@ -95,6 +101,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type ReactElement,
 } from "react";
 
 import type {
@@ -148,6 +155,21 @@ import {
 } from "./MultiFrontierWorkspace.js";
 import { UpdateIndicator } from "./UpdateIndicator.js";
 import UpdatePrompt from "./UpdatePrompt.js";
+
+function DesktopRailTooltip({
+  children,
+  label,
+}: {
+  children: ReactElement;
+  label: string;
+}) {
+  return (
+    <Tooltip delayDuration={0}>
+      <TooltipTrigger asChild>{children}</TooltipTrigger>
+      <TooltipContent side="right">{label}</TooltipContent>
+    </Tooltip>
+  );
+}
 
 const agentNativeIconUrl = new URL(
   "../assets/agent-native-icon-dark.svg",
@@ -2885,56 +2907,62 @@ export default function CodeAgentsHub({
             />
           }
           railFooterSlot={
-            <>
-              <UpdatePrompt />
-              <UpdateIndicator />
-              <div className="desktop-chat-first-rail-footer-actions">
-                {onOpenSettings ? (
-                  <button
-                    type="button"
-                    className="code-agents-nav-link desktop-chat-first-rail-settings"
-                    onClick={() => onOpenSettings()}
-                    aria-label="Settings"
-                    title="Settings"
+            <TooltipProvider delayDuration={0}>
+              <>
+                <UpdatePrompt />
+                <UpdateIndicator />
+                <div className="desktop-chat-first-rail-footer-actions">
+                  {onOpenSettings ? (
+                    <DesktopRailTooltip label="Settings">
+                      <button
+                        type="button"
+                        className="code-agents-nav-link desktop-chat-first-rail-settings"
+                        onClick={() => onOpenSettings()}
+                        aria-label="Settings"
+                      >
+                        <IconSettings
+                          size={15}
+                          strokeWidth={1.8}
+                          aria-hidden="true"
+                        />
+                        <span>Settings</span>
+                      </button>
+                    </DesktopRailTooltip>
+                  ) : null}
+                  <DesktopRailTooltip
+                    label={
+                      chatFirstRailCollapsed ? "Expand rail" : "Collapse rail"
+                    }
                   >
-                    <IconSettings
-                      size={15}
-                      strokeWidth={1.8}
-                      aria-hidden="true"
-                    />
-                    <span>Settings</span>
-                  </button>
-                ) : null}
-                <button
-                  type="button"
-                  className="code-agents-nav-link desktop-chat-first-rail-collapse"
-                  data-chat-first-rail-collapse
-                  onClick={() =>
-                    setChatFirstRailCollapsed((collapsed) => !collapsed)
-                  }
-                  aria-label={
-                    chatFirstRailCollapsed ? "Expand rail" : "Collapse rail"
-                  }
-                  title={
-                    chatFirstRailCollapsed ? "Expand rail" : "Collapse rail"
-                  }
-                >
-                  {chatFirstRailCollapsed ? (
-                    <IconLayoutSidebarLeftExpand
-                      size={15}
-                      strokeWidth={1.8}
-                      aria-hidden="true"
-                    />
-                  ) : (
-                    <IconLayoutSidebarLeftCollapse
-                      size={15}
-                      strokeWidth={1.8}
-                      aria-hidden="true"
-                    />
-                  )}
-                </button>
-              </div>
-            </>
+                    <button
+                      type="button"
+                      className="code-agents-nav-link desktop-chat-first-rail-collapse"
+                      data-chat-first-rail-collapse
+                      onClick={() =>
+                        setChatFirstRailCollapsed((collapsed) => !collapsed)
+                      }
+                      aria-label={
+                        chatFirstRailCollapsed ? "Expand rail" : "Collapse rail"
+                      }
+                    >
+                      {chatFirstRailCollapsed ? (
+                        <IconLayoutSidebarLeftExpand
+                          size={15}
+                          strokeWidth={1.8}
+                          aria-hidden="true"
+                        />
+                      ) : (
+                        <IconLayoutSidebarLeftCollapse
+                          size={15}
+                          strokeWidth={1.8}
+                          aria-hidden="true"
+                        />
+                      )}
+                    </button>
+                  </DesktopRailTooltip>
+                </div>
+              </>
+            </TooltipProvider>
           }
           newSessionExtension={multiFrontierExtension}
           openDetailRequest={multiFrontierOpenDetailRequest}
