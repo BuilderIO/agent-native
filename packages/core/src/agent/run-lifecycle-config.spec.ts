@@ -7,6 +7,8 @@ import {
 } from "../app-config/index.js";
 import {
   BACKGROUND_AUTOMATION_SOFT_TIMEOUT_HEADROOM_MS,
+  BACKGROUND_FUNCTION_WALL_HEADROOM_MS,
+  BACKGROUND_FUNCTION_WALL_MS,
   RunLifecycleInvariantError,
   assertRunLifecycleInvariants,
 } from "../app-config/run-lifecycle-invariants.js";
@@ -226,6 +228,31 @@ describe("run-lifecycle invariants", () => {
     // Set-time validation is per layer; the ordering check runs on the merged
     // result, which is what `getAppConfig()` resolves.
     expect(() => getAppConfig()).toThrow(RunLifecycleInvariantError);
+  });
+
+  // `backgroundSoftTimeoutCeilingMs` is not just a bound, it IS the clamp
+  // `resolveRunSoftTimeoutMs` reduces every background soft timeout to. Making
+  // it configurable without this check would have left the one number that
+  // keeps a chunk inside the host wall unbounded.
+  it("refuses a background ceiling that would outlive the host's function wall", () => {
+    expect(() =>
+      assertRunLifecycleInvariants({
+        ...base(),
+        backgroundSoftTimeoutCeilingMs: 20 * 60_000,
+      }),
+    ).toThrow(RunLifecycleInvariantError);
+  });
+
+  it("allows the shipped ceiling, which sits exactly on the headroom margin", () => {
+    expect(BACKGROUND_SOFT_TIMEOUT_CEILING_MS).toBe(
+      BACKGROUND_FUNCTION_WALL_MS - BACKGROUND_FUNCTION_WALL_HEADROOM_MS,
+    );
+    expect(() =>
+      assertRunLifecycleInvariants({
+        ...base(),
+        backgroundSoftTimeoutCeilingMs: BACKGROUND_SOFT_TIMEOUT_CEILING_MS,
+      }),
+    ).not.toThrow();
   });
 
   it("skips ordering checks for a disabled backstop", () => {

@@ -19,6 +19,28 @@ import type { AppConfig } from "./schema.js";
 export const BACKGROUND_AUTOMATION_SOFT_TIMEOUT_HEADROOM_MS = 20_000;
 
 /**
+ * The host's hard kill for a background function (Netlify: 15 minutes).
+ *
+ * Not configuration — a deployment does not choose it, the platform does. It is
+ * here because `backgroundSoftTimeoutCeilingMs` IS the clamp that
+ * `resolveRunSoftTimeoutMs` reduces every background soft timeout to, so once
+ * that ceiling became configurable nothing was left bounding it: a deployment
+ * could set 60 minutes and push its own chunk boundary past the wall the
+ * ceiling exists to stay inside, turning every long background turn back into
+ * the silent platform kill it was introduced to prevent. Configurable must not
+ * mean unclamped.
+ */
+export const BACKGROUND_FUNCTION_WALL_MS = 15 * 60_000;
+
+/**
+ * Wall-clock a background chunk must leave itself to abort, persist the partial
+ * turn, write the terminal event, and chain a successor before the host kills
+ * the invocation. The shipped 13-minute ceiling under a 15-minute wall is
+ * exactly this margin.
+ */
+export const BACKGROUND_FUNCTION_WALL_HEADROOM_MS = 2 * 60_000;
+
+/**
  * Ordering relationships between the run-lifecycle bounds.
  *
  * Every one of these was already argued for in a source comment somewhere and
@@ -147,6 +169,19 @@ export function assertRunLifecycleInvariants(agent: AppConfig["agent"]): void {
       "the foreground ceiling is clamped further by the chunk budget, so it can never usefully exceed the background window",
     );
   }
+
+  requireAtMost(
+    "background chunk budget inside the host's background-function wall",
+    {
+      key: "agent.backgroundSoftTimeoutCeilingMs",
+      value: backgroundSoftTimeoutCeilingMs,
+    },
+    {
+      key: "BACKGROUND_FUNCTION_WALL_MS - BACKGROUND_FUNCTION_WALL_HEADROOM_MS",
+      value: BACKGROUND_FUNCTION_WALL_MS - BACKGROUND_FUNCTION_WALL_HEADROOM_MS,
+    },
+    "this ceiling is the clamp every background soft timeout is reduced to, so raising it past the host wall makes the chunk boundary unreachable and the run dies as a silent platform kill instead",
+  );
 
   require("graceful boundary fits before the hard abort", {
     key: "BACKGROUND_AUTOMATION_SOFT_TIMEOUT_HEADROOM_MS",
