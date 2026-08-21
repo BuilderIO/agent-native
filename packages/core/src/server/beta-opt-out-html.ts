@@ -79,6 +79,7 @@ const environmentSwitcherStyles = `<style ${ENVIRONMENT_SWITCHER_STYLE_MARKER}>
     left: 0;
     bottom: calc(100% + 0.5rem);
     width: min(17.5rem, calc(100vw - 1.5rem));
+    box-sizing: border-box;
     padding: 1.25rem;
     background: Canvas;
     color: CanvasText;
