@@ -76,6 +76,27 @@ function resolve(envLayer: Record<string, unknown>): AppConfig {
 }
 
 /**
+ * Nitro embeds build-only deployment markers into direct env reads. Netlify's
+ * prebuilt beta lane has those markers while building, but does not copy them
+ * into the deployed Function environment. Keep the embedded values as the
+ * fallback for this one config boundary so a later dynamic `env[key]` read
+ * cannot erase the build decision from the server bundle.
+ */
+export function readConfigEnvironment(
+  embedded: Record<string, string | undefined> = {
+    AGENT_NATIVE_RELEASE_MIGRATIONS:
+      process.env.AGENT_NATIVE_RELEASE_MIGRATIONS,
+    AGENT_NATIVE_BETA_SCHEMA_OWNER: process.env.AGENT_NATIVE_BETA_SCHEMA_OWNER,
+  },
+): Record<string, string | undefined> {
+  const env = { ...process.env };
+  for (const [key, value] of Object.entries(embedded)) {
+    if (!env[key] && value) env[key] = value;
+  }
+  return env;
+}
+
+/**
  * Writes one layer of the ladder. Framework-internal: the deprecated setters
  * use it to keep working without reintroducing a second namespace.
  */
@@ -119,7 +140,7 @@ export function defineAppConfig(config: AppConfigInput): void {
  * remove.
  */
 export function getAppConfig(): AppConfig {
-  const envLayer = readEnvConfigLayer(appConfigSchema, process.env);
+  const envLayer = readEnvConfigLayer(appConfigSchema, readConfigEnvironment());
   const signature = JSON.stringify(envLayer);
   if (state.resolved && state.envSignature === signature) return state.resolved;
   state.envSignature = signature;

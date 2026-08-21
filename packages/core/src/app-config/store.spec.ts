@@ -6,6 +6,7 @@ import { appConfigSchema } from "./schema.js";
 import {
   defineAppConfig,
   getAppConfig,
+  readConfigEnvironment,
   resetAppConfigForTests,
   setAppConfigLayer,
 } from "./store.js";
@@ -101,6 +102,38 @@ describe("app config store", () => {
     expect(() => getAppConfig()).toThrow(
       /AGENT_NATIVE_PRIVATE_BLOB_PUBLIC_UPLOAD_FALLBACK must be one of/,
     );
+  });
+
+  it("keeps build-only deployment markers when the runtime env omits them", () => {
+    const previousReleaseMigrations =
+      process.env.AGENT_NATIVE_RELEASE_MIGRATIONS;
+    const previousBetaSchemaOwner = process.env.AGENT_NATIVE_BETA_SCHEMA_OWNER;
+
+    delete process.env.AGENT_NATIVE_RELEASE_MIGRATIONS;
+    delete process.env.AGENT_NATIVE_BETA_SCHEMA_OWNER;
+
+    try {
+      const env = readConfigEnvironment({
+        AGENT_NATIVE_RELEASE_MIGRATIONS: "1",
+        AGENT_NATIVE_BETA_SCHEMA_OWNER: "production",
+      });
+
+      expect(readEnvConfigLayer(appConfigSchema, env).migration).toMatchObject({
+        releaseMigrations: true,
+        betaSchemaOwner: "production",
+      });
+    } finally {
+      if (previousReleaseMigrations === undefined) {
+        delete process.env.AGENT_NATIVE_RELEASE_MIGRATIONS;
+      } else {
+        process.env.AGENT_NATIVE_RELEASE_MIGRATIONS = previousReleaseMigrations;
+      }
+      if (previousBetaSchemaOwner === undefined) {
+        delete process.env.AGENT_NATIVE_BETA_SCHEMA_OWNER;
+      } else {
+        process.env.AGENT_NATIVE_BETA_SCHEMA_OWNER = previousBetaSchemaOwner;
+      }
+    }
   });
 });
 

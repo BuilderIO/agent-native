@@ -23,9 +23,11 @@ vi.mock("@agent-native/core/server", () => ({
 }));
 
 vi.mock("@agent-native/core/settings", () => ({
-  getAllSettings: async () => {
+  listSettingsByPrefix: async (prefix: string) => {
     if (state.settingsError) throw state.settingsError;
-    return state.settings;
+    return Object.entries(state.settings)
+      .filter(([key]) => key.startsWith(prefix))
+      .map(([key, value]) => ({ key, value }));
   },
   getOrgSetting: async () => null,
   getUserSetting: async () => null,

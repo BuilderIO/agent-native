@@ -200,6 +200,31 @@ if (workflow) {
       `${workflowPath} no longer passes BETA_E2E_GREP through the advisory lane without failing when no advisory test matches.`,
     );
   }
+  const hasAuthSelectionCommandWithStatus =
+    /set \+e[\s\\]+BETA_E2E_AUTHED=0 pnpm e2e:beta[\s\\]+--project=authed --project=journeys[\s\\]+--grep "\$BETA_E2E_GREP" --list >"\$selection_file" 2>&1\s+selection_status="\$\?"\s+set -e/.test(
+      workflow,
+    );
+  const selectionStatusCapture = workflow.indexOf('selection_status="$?"');
+  const selectionStatusCheck = workflow.indexOf(
+    'if [ "$selection_status" -ne 0 ]',
+  );
+  const noTestsMarker = workflow.indexOf('grep -q "Error: No tests found"');
+  const emptySelectionMarker = workflow.indexOf(
+    'grep -q "Total: 0 tests in 0 files"',
+  );
+  const selectionStatusExit = workflow.indexOf('exit "$selection_status"');
+  if (
+    !hasAuthSelectionCommandWithStatus ||
+    selectionStatusCapture < 0 ||
+    selectionStatusCheck < selectionStatusCapture ||
+    noTestsMarker < selectionStatusCheck ||
+    emptySelectionMarker < selectionStatusCheck ||
+    selectionStatusExit < selectionStatusCheck
+  ) {
+    issues.push(
+      `${workflowPath} must capture and propagate failed authenticated discovery, while skipping only an explicit no-tests result. A public-only grep must not require session credentials.`,
+    );
+  }
   if (!/continue-on-error:\s*true/.test(workflow)) {
     issues.push(
       `${workflowPath} no longer marks the advisory lane non-gating. Gating on advisory findings trains people to ignore a red run.`,

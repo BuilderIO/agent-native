@@ -2,7 +2,7 @@
 ignore = "node ./scripts/netlify-ignore-build.mjs slides"
 # Rebuild Core explicitly so a cached Netlify install cannot bundle an older
 # agent loop or A2A handler into Slides' server functions.
-command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && pnpm --filter @agent-native/core build && NITRO_PRESET=netlify pnpm --filter slides build && if [ \"${CONTEXT:-}\" = \"production\" ]; then pnpm --filter slides migrate:production; fi"
+command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && pnpm --filter @agent-native/core build && NITRO_PRESET=netlify pnpm --filter slides build && if [ \"${CONTEXT:-}\" = \"production\" ] || [ \"${AGENT_NATIVE_RUN_RELEASE_MIGRATIONS:-}\" = \"1\" ]; then pnpm --filter slides migrate:production; fi"
 publish = "templates/slides/dist"
 functions = "templates/slides/.netlify/functions-internal"
 
@@ -18,6 +18,9 @@ AGENT_CHAT_DURABLE_BACKGROUND = "true"
 AGENT_NATIVE_HOSTED_HARNESS = "true"
 AGENT_NATIVE_ENABLE_KEEP_WARM = "1"
 AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND = "1"
+# Production release migrations own schema setup; request functions must skip
+# migration probes on every serverless invocation.
+AGENT_NATIVE_RELEASE_MIGRATIONS = "1"
 
 # Function wall for the non-agent long-request paths (deck import/export,
 # image generation). Agent chat opts into the separate Netlify background

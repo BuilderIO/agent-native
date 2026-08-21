@@ -35,11 +35,12 @@ async function handleGoogleSignInCallback(
   if (
     flowId &&
     (!state.desktopVerifierHash ||
-      !state.desktopBrowserBindingHash ||
-      !matchesDesktopOAuthBrowserBinding(
-        event,
-        state.desktopBrowserBindingHash,
-      ))
+      (state.desktopWebview &&
+        (!state.desktopBrowserBindingHash ||
+          !matchesDesktopOAuthBrowserBinding(
+            event,
+            state.desktopBrowserBindingHash,
+          ))))
   ) {
     return oauthErrorPage("Desktop OAuth browser binding is invalid.");
   }

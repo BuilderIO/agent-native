@@ -7,7 +7,10 @@ import {
   getBrowserTabId,
   useSession,
 } from "@agent-native/core/client/hooks";
-import { setAgentNativeApiDisabled } from "@agent-native/core/client/host";
+import {
+  isEmbedAuthActive,
+  setAgentNativeApiDisabled,
+} from "@agent-native/core/client/host";
 import { getLocaleInitScript, useT } from "@agent-native/core/client/i18n";
 import {
   CommandMenu,
@@ -230,6 +233,7 @@ export default function Root() {
       <AppProviders
         queryClient={queryClient}
         isPublicPath={isPublicPath}
+        sessionBypass={isEmbedAuthActive()}
         i18n={{ catalog: i18nCatalog, persistPreference: !isPublicPath }}
         toaster={<DesignToaster />}
       >
