@@ -344,11 +344,18 @@ jobs:
             async function probe(host) {
               let last = "no attempt";
               for (let attempt = 1; attempt <= 2; attempt += 1) {
-                if (Date.now() >= deadline) return { inconclusive: "probe budget exhausted" };
+                const remainingMs = deadline - Date.now();
+                if (remainingMs <= 0) {
+                  return { inconclusive: "probe budget exhausted" };
+                }
                 try {
                   const response = await fetch(
                     `https://${host}/_agent-native/health/google`,
-                    { signal: AbortSignal.timeout(ATTEMPT_TIMEOUT_MS) },
+                    {
+                      signal: AbortSignal.timeout(
+                        Math.min(ATTEMPT_TIMEOUT_MS, remainingMs),
+                      ),
+                    },
                   );
                   if (response.status === 404) return { absent: "route not deployed" };
                   const body = await response.json();
@@ -386,7 +393,26 @@ jobs:
                   console.log(`INCONCLUSIVE\t${environment}\t${host}\t${result.inconclusive}`);
                   continue;
                 }
-                const { status, reason, mismatchedPairs, clientId, credentialSource } = result.body;
+                const {
+                  status,
+                  reason,
+                  mismatchedPairs,
+                  clientId,
+                  credentialSource,
+                } = result.body;
+                if (
+                  status !== "valid" &&
+                  status !== "invalid" &&
+                  status !== "unconfigured" &&
+                  status !== "unknown"
+                ) {
+                  const detail = `unrecognised status ${String(status)}`;
+                  inconclusive.push(`${environment} ${host} (${detail})`);
+                  console.log(
+                    `INCONCLUSIVE\t${environment}\t${host}\t${detail}`,
+                  );
+                  continue;
+                }
                 if (status === "invalid") broken.push(`${environment} ${host} (${reason})`);
                 // `unknown` means Google did not answer. It is not a pass.
                 if (status === "unknown") {
@@ -397,7 +423,7 @@ jobs:
                 const label =
                   status === "invalid" ? "FAIL" : status === "valid" ? "PASS" : "INFO";
                 console.log(
-                  `${label}\t${environment}\t${host}\t${status}\t${clientId ?? "-"}\t${credentialSource ?? "-"}`,
+                  `${label}\t${environment}\t${host}\t${status}\t${reason ?? "-"}\t${clientId ?? "-"}\t${credentialSource ?? "-"}`,
                 );
               }
             }
@@ -460,6 +486,14 @@ jobs:
           ISSUE_TITLE="Agent Native site availability failing"
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           FAILING="$(grep '^FAIL[[:space:]]' /tmp/agent-native-site-availability.log || true)"
+          GOOGLE_FAILING="$(grep -E '^(FAIL|INCONCLUSIVE)' /tmp/agent-native-google-credentials.log || true)"
+          if [ -n "$GOOGLE_FAILING" ]; then
+            if [ -n "$FAILING" ]; then
+              FAILING="$(printf '%s\n%s' "$FAILING" "$GOOGLE_FAILING")"
+            else
+              FAILING="$GOOGLE_FAILING"
+            fi
+          fi
           if [ -z "$FAILING" ]; then
             FAILING="(the monitor itself failed before producing per-host results)"
           fi

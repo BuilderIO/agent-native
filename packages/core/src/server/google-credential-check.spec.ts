@@ -109,6 +109,31 @@ describe("checkGoogleSignInCredential", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("invalidates a fallback result when Better Auth publishes its active pair", async () => {
+    process.env.GOOGLE_SIGN_IN_CLIENT_ID = "preferred-client";
+    process.env.GOOGLE_SIGN_IN_CLIENT_SECRET = "preferred-secret";
+    const initialFetch = googleAnswers("invalid_grant");
+    vi.stubGlobal("fetch", initialFetch);
+
+    const initial = await checkGoogleSignInCredential();
+    expect(initial.status).toBe("valid");
+    expect(initial.credentialSource).toBe("preferred");
+
+    recordActiveGoogleSignInCredentials({
+      clientId: "active-client",
+      clientSecret: "active-secret",
+    });
+    const activeFetch = googleAnswers("invalid_client", 401);
+    vi.stubGlobal("fetch", activeFetch);
+
+    const refreshed = await checkGoogleSignInCredential();
+
+    expect(refreshed.status).toBe("invalid");
+    expect(refreshed.clientId).toBe("active-client");
+    expect(refreshed.credentialSource).toBe("active");
+    expect(activeFetch).toHaveBeenCalledTimes(1);
+  });
+
   it("reports unconfigured without calling Google", async () => {
     const fetchMock = googleAnswers("invalid_grant");
     vi.stubGlobal("fetch", fetchMock);

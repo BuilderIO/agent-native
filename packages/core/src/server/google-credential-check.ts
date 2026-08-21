@@ -44,7 +44,11 @@ export interface GoogleCredentialCheck {
   checkedAt: number;
 }
 
-let cached: { value: GoogleCredentialCheck; expiresAt: number } | null = null;
+let cached: {
+  value: GoogleCredentialCheck;
+  expiresAt: number;
+  activeCredentialsVersion: number;
+} | null = null;
 
 /** Test seam: drop the memoised result. */
 export function resetGoogleCredentialCheckCache(): void {
@@ -110,13 +114,19 @@ export async function checkGoogleSignInCredential(options?: {
   const now = options?.now ?? Date.now;
   const ttlMs = options?.ttlMs ?? DEFAULT_TTL_MS;
   const at = now();
-  if (cached && cached.expiresAt > at) return cached.value;
-
-  const pairs = describeGoogleSignInCredentialPairs();
   // Prefer what Better Auth actually wired up. A template requesting broader
   // scopes runs on GOOGLE_CLIENT_*, so re-deriving the preferred pair here
   // would test a credential the callback never touches.
   const active = getActiveGoogleSignInCredentials();
+  if (
+    cached &&
+    cached.expiresAt > at &&
+    cached.activeCredentialsVersion === active.version
+  ) {
+    return cached.value;
+  }
+
+  const pairs = describeGoogleSignInCredentialPairs();
   const credentials = active.recorded
     ? active.credentials
     : resolveGoogleSignInCredentials();
@@ -144,7 +154,11 @@ export async function checkGoogleSignInCredential(options?: {
   // Only memoise answers Google actually gave. Caching a transport failure for
   // five minutes would hide a recovery for five minutes.
   if (value.status !== "unknown") {
-    cached = { value, expiresAt: at + ttlMs };
+    cached = {
+      value,
+      expiresAt: at + ttlMs,
+      activeCredentialsVersion: active.version,
+    };
   }
   return value;
 }

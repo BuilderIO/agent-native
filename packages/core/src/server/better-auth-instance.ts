@@ -1232,6 +1232,19 @@ async function createBetterAuthInstance(
   };
 
   const extraScopes = config?.googleScopes ?? [];
+  const configuredGoogleProvider =
+    typeof config?.socialProviders?.google === "function"
+      ? await config.socialProviders.google()
+      : config?.socialProviders?.google;
+  const configuredGoogleCredentials =
+    configuredGoogleProvider &&
+    typeof configuredGoogleProvider.clientId === "string" &&
+    typeof configuredGoogleProvider.clientSecret === "string"
+      ? {
+          clientId: configuredGoogleProvider.clientId,
+          clientSecret: configuredGoogleProvider.clientSecret,
+        }
+      : null;
   const googleCredentials =
     extraScopes.length > 0
       ? process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
@@ -1239,8 +1252,8 @@ async function createBetterAuthInstance(
             clientId: process.env.GOOGLE_CLIENT_ID,
             clientSecret: process.env.GOOGLE_CLIENT_SECRET,
           }
-        : null
-      : resolveGoogleSignInCredentials();
+        : configuredGoogleCredentials
+      : (resolveGoogleSignInCredentials() ?? configuredGoogleCredentials);
   // Publish the pair actually wired to the provider so the credential
   // self-check probes what the callback uses, not what it would prefer.
   recordActiveGoogleSignInCredentials(googleCredentials);
@@ -1255,6 +1268,7 @@ async function createBetterAuthInstance(
     const baseScopes = ["openid", "email", "profile"];
     const mergedScopes = Array.from(new Set([...baseScopes, ...extraScopes]));
     socialProviders.google = {
+      ...(configuredGoogleProvider ?? {}),
       clientId: googleCredentials.clientId,
       clientSecret: googleCredentials.clientSecret,
       ...(extraScopes.length > 0

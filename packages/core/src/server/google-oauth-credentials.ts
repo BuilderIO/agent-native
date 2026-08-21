@@ -125,6 +125,7 @@ export function hasGoogleSignInCredentials(): boolean {
 
 let activeSignInCredentials: GoogleOAuthCredentials | null = null;
 let activeSignInCredentialsRecorded = false;
+let activeSignInCredentialsVersion = 0;
 
 /**
  * Record the pair Better Auth actually handed to the Google provider.
@@ -139,21 +140,25 @@ export function recordActiveGoogleSignInCredentials(
 ): void {
   activeSignInCredentials = credentials;
   activeSignInCredentialsRecorded = true;
+  activeSignInCredentialsVersion += 1;
 }
 
 /** Test seam: forget what Better Auth wired, as if it had not initialised. */
 export function resetActiveGoogleSignInCredentials(): void {
   activeSignInCredentials = null;
   activeSignInCredentialsRecorded = false;
+  activeSignInCredentialsVersion += 1;
 }
 
 export function getActiveGoogleSignInCredentials(): {
   credentials: GoogleOAuthCredentials | null;
   recorded: boolean;
+  version: number;
 } {
   return {
     credentials: activeSignInCredentials,
     recorded: activeSignInCredentialsRecorded,
+    version: activeSignInCredentialsVersion,
   };
 }
 
