@@ -392,7 +392,6 @@ jobs:
           DOCS_RESULT: ${{ needs.docs.result }}
           DISCOVER_LANES_RESULT: ${{ needs.discover-lanes.result }}
           DISCOVER_TARGETED_LANES_RESULT: ${{ needs.discover-targeted-lanes.result }}
-          TARGETED_HAS_TESTS: ${{ needs.discover-targeted-lanes.outputs.has_tests }}
           TEST_CORE_RESULT: ${{ needs.test-core.result }}
           TEST_REST_RESULT: ${{ needs.test-rest.result }}
           TEST_TARGETED_RESULT: ${{ needs.test-targeted.result }}
@@ -414,7 +413,7 @@ jobs:
               echo "::error::discover-targeted-lanes did not succeed ($DISCOVER_TARGETED_LANES_RESULT)"
               exit 1
             fi
-            if [ "$TARGETED_HAS_TESTS" = "true" ]; then
+            if [ "${{ needs.discover-targeted-lanes.outputs.has_tests }}" = "true" ]; then
               if [ "$TEST_TARGETED_RESULT" != "success" ]; then
                 echo "::error::test-targeted did not succeed ($TEST_TARGETED_RESULT)"
                 exit 1
