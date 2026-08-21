@@ -57,13 +57,25 @@ function normalizeOwnerEmail(ownerEmail: string): string {
   return email;
 }
 
-async function ownerOptions(ownerEmail: string) {
+// Read paths use this: a caller with no org simply has no Builder session, so
+// engine detection and status checks get null instead of an exception.
+async function resolveOwnerOptions(ownerEmail: string) {
   const email = normalizeOwnerEmail(ownerEmail);
   const orgId = await resolveOrgIdForEmail(email);
-  if (!orgId) {
-    throw new Error(`Builder OAuth requires an organization for ${email}`);
-  }
+  if (!orgId) return null;
   return orgOwnerOptions(orgId);
+}
+
+// Write paths use this: storing a Builder credential without an org is a broken
+// invariant, so a missing org fails loudly rather than silently dropping it.
+async function ownerOptions(ownerEmail: string) {
+  const options = await resolveOwnerOptions(ownerEmail);
+  if (!options) {
+    throw new Error(
+      `Builder OAuth requires an organization for ${normalizeOwnerEmail(ownerEmail)}`,
+    );
+  }
+  return options;
 }
 
 function orgOwnerOptions(orgId: string) {
@@ -182,13 +194,16 @@ export async function finishBuilderOAuthAuthorization(input: {
 export async function markBuilderOAuthReconnectRequired(
   ownerEmail: string,
 ): Promise<void> {
-  await markMcpOAuthReconnectRequired(await ownerOptions(ownerEmail));
+  const options = await resolveOwnerOptions(ownerEmail);
+  if (!options) return;
+  await markMcpOAuthReconnectRequired(options);
 }
 
 export async function getBuilderOAuthSession(
   ownerEmail: string,
 ): Promise<BuilderOAuthSession | null> {
-  const options = await ownerOptions(ownerEmail);
+  const options = await resolveOwnerOptions(ownerEmail);
+  if (!options) return null;
   // Delegates refresh single-flight and reconnect latching to the shared
   // credential lifecycle; a null token covers missing, expired-unrefreshable,
   // and reconnect_required alike.
@@ -206,7 +221,8 @@ export async function getBuilderOAuthSession(
 export async function hasBuilderOAuthSession(
   ownerEmail: string,
 ): Promise<boolean> {
-  const options = await ownerOptions(ownerEmail);
+  const options = await resolveOwnerOptions(ownerEmail);
+  if (!options) return false;
   const stored = await getOAuthTokens(
     "mcp",
     options.key,
@@ -232,7 +248,8 @@ export async function resolveBuilderOAuthRequestAccess(input: {
 export async function deleteBuilderOAuthSession(
   ownerEmail: string,
 ): Promise<{ localDeleted: boolean; remoteRevoked: boolean }> {
-  const options = await ownerOptions(ownerEmail);
+  const options = await resolveOwnerOptions(ownerEmail);
+  if (!options) return { localDeleted: false, remoteRevoked: false };
   const result = await revokeMcpOAuthCredentials(options);
   return {
     localDeleted: result.local === "deleted",
