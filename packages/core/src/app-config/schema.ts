@@ -5,6 +5,7 @@ import { agentConfig } from "./agent.js";
 import { appConfig } from "./app.js";
 import { authConfig } from "./auth.js";
 import { integrationsConfig } from "./integrations.js";
+import { migrationConfig } from "./migration.js";
 import { privateBlobConfig } from "./private-blob.js";
 import { workspaceConfig } from "./workspace.js";
 
@@ -30,6 +31,7 @@ export const appConfigSchema = z.object({
   app: appConfig.prefault({}),
   auth: authConfig.prefault({}),
   integrations: integrationsConfig.prefault({}),
+  migration: migrationConfig.prefault({}),
   privateBlob: privateBlobConfig.prefault({}),
   workspace: workspaceConfig.prefault({}),
 });

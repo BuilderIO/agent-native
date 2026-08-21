@@ -1,6 +1,6 @@
 [build]
 ignore = "node ./scripts/netlify-ignore-build.mjs chat"
-command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter chat build && if [ \"${CONTEXT:-}\" = \"production\" ]; then pnpm --filter chat migrate:production; fi"
+command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter chat build && if [ \"${CONTEXT:-}\" = \"production\" ] || [ \"${AGENT_NATIVE_RUN_RELEASE_MIGRATIONS:-}\" = \"1\" ]; then pnpm --filter chat migrate:production; fi"
 publish = "templates/chat/dist"
 functions = "templates/chat/.netlify/functions-internal"
 
@@ -14,3 +14,6 @@ NPM_CONFIG_PRODUCTION = "false"
 AGENT_NATIVE_HOSTED_HARNESS = "true"
 AGENT_NATIVE_ENABLE_KEEP_WARM = "1"
 AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND = "1"
+# Production release migrations own schema setup; request functions must skip
+# migration probes on every serverless invocation.
+AGENT_NATIVE_RELEASE_MIGRATIONS = "1"

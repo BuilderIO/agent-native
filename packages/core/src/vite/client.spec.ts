@@ -951,7 +951,9 @@ describe("route warmup config", () => {
 
   it("embeds release migration ownership into the server bundle", () => {
     const previous = process.env.AGENT_NATIVE_RELEASE_MIGRATIONS;
+    const previousBetaOwner = process.env.AGENT_NATIVE_BETA_SCHEMA_OWNER;
     process.env.AGENT_NATIVE_RELEASE_MIGRATIONS = " 1 ";
+    process.env.AGENT_NATIVE_BETA_SCHEMA_OWNER = " production ";
 
     try {
       const config = defineConfig();
@@ -959,11 +961,19 @@ describe("route warmup config", () => {
       expect(
         config.define?.["process.env.AGENT_NATIVE_RELEASE_MIGRATIONS"],
       ).toBe(JSON.stringify("1"));
+      expect(
+        config.define?.["process.env.AGENT_NATIVE_BETA_SCHEMA_OWNER"],
+      ).toBe(JSON.stringify("production"));
     } finally {
       if (previous === undefined) {
         delete process.env.AGENT_NATIVE_RELEASE_MIGRATIONS;
       } else {
         process.env.AGENT_NATIVE_RELEASE_MIGRATIONS = previous;
+      }
+      if (previousBetaOwner === undefined) {
+        delete process.env.AGENT_NATIVE_BETA_SCHEMA_OWNER;
+      } else {
+        process.env.AGENT_NATIVE_BETA_SCHEMA_OWNER = previousBetaOwner;
       }
     }
   });
