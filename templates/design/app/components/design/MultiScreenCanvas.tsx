@@ -3070,6 +3070,53 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     ],
   );
 
+  /** Selects the layer under a client point inside one screen. Shared by the
+   *  double-click drill-in and by a click on an already-selected frame's body,
+   *  so both resolve the same candidate and keep the same repeat-click walk. */
+  const drillIntoScreenAtPoint = useCallback(
+    (id: string, clientX: number, clientY: number) => {
+      const point = getCanvasPoint(clientX, clientY);
+      const previousKey =
+        drillInTargetRef.current?.screenId === id
+          ? drillInTargetRef.current.key
+          : null;
+      const requestId = drillInRequestRef.current + 1;
+      drillInRequestRef.current = requestId;
+      void collectLayerMarqueeCandidates(new Set([id])).then((candidates) => {
+        if (drillInRequestRef.current !== requestId) return;
+        const target = resolveDrillInTarget({
+          candidates,
+          screenId: id,
+          point,
+          previousKey,
+        });
+        if (!target) {
+          // Nothing selectable under the pointer (e.g. an empty frame). Leave
+          // the frame itself selected rather than falling back to Interact.
+          drillInTargetRef.current = null;
+          return;
+        }
+        drillInTargetRef.current = {
+          screenId: id,
+          key: drillInCandidateKey(target),
+        };
+        updateSelectedDraftIds(() => []);
+        updateSelectedIds(() => []);
+        onLayerMarqueeSelectionChange?.(
+          [{ screenId: target.screenId, info: target.info }],
+          { source: "pointer" },
+        );
+      });
+    },
+    [
+      collectLayerMarqueeCandidates,
+      getCanvasPoint,
+      onLayerMarqueeSelectionChange,
+      updateSelectedDraftIds,
+      updateSelectedIds,
+    ],
+  );
+
   const scheduleFeedbackClear = useCallback(() => {
     if (feedbackTimerRef.current !== null) {
       window.clearTimeout(feedbackTimerRef.current);
@@ -5411,6 +5458,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       const targetIds = currentSelectedIds.includes(id)
         ? currentSelectedIds
         : [id];
+      // Figma parity: this surface covers the frame body, so a press that
+      // never becomes a drag has to hand the click back to the content
+      // underneath — otherwise selecting a screen makes it unclickable.
+      const wasAlreadySelected = currentSelectedIds.includes(id);
       if (activeId !== id) {
         onPick(id);
       }
@@ -5687,17 +5738,19 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         }
       };
 
-      const handleMouseUp = () => {
+      const handleMouseUp = (ev: MouseEvent) => {
         const state = dragState.current;
         const dropTarget = primitiveDropTargetRef.current;
         if (state?.type === "move" && !state.hasMoved) {
-          // Belt-and-braces: the live transform above already skips committing
-          // until hasMoved, but restore origin here too in case any geometry
-          // slipped through (e.g. a future code path that writes frameGeometry
-          // directly) so a below-threshold click never leaves a phantom nudge.
+          // Belt-and-braces against a below-threshold click leaving a phantom
+          // nudge, in case any geometry slipped past the live transform's own
+          // hasMoved guard.
           updateFrameGeometry((current) =>
             frameGeometryWithOverrides(current, state.originFrames),
           );
+          if (wasAlreadySelected) {
+            drillIntoScreenAtPoint(id, ev.clientX, ev.clientY);
+          }
         }
         if (state?.type === "move" && state.hasMoved) {
           // If all dragged ids are committed primitive nodeIds (not screen
@@ -5751,6 +5804,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     [
       activeId,
       beginDuplicateGesture,
+      drillIntoScreenAtPoint,
       findPrimitiveDropTarget,
       finishDrag,
       getCanvasPoint,
@@ -6562,48 +6616,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         onEdit?.(id);
         return;
       }
-      const point = getCanvasPoint(e.clientX, e.clientY);
-      const previousKey =
-        drillInTargetRef.current?.screenId === id
-          ? drillInTargetRef.current.key
-          : null;
-      const requestId = drillInRequestRef.current + 1;
-      drillInRequestRef.current = requestId;
-      void collectLayerMarqueeCandidates(new Set([id])).then((candidates) => {
-        if (drillInRequestRef.current !== requestId) return;
-        const target = resolveDrillInTarget({
-          candidates,
-          screenId: id,
-          point,
-          previousKey,
-        });
-        if (!target) {
-          // Nothing selectable under the pointer (e.g. an empty frame). Leave
-          // the frame itself selected rather than falling back to Interact.
-          drillInTargetRef.current = null;
-          return;
-        }
-        drillInTargetRef.current = {
-          screenId: id,
-          key: drillInCandidateKey(target),
-        };
-        updateSelectedDraftIds(() => []);
-        updateSelectedIds(() => []);
-        onLayerMarqueeSelectionChange?.(
-          [{ screenId: target.screenId, info: target.info }],
-          { source: "pointer" },
-        );
-      });
+      drillIntoScreenAtPoint(id, e.clientX, e.clientY);
     },
-    [
-      collectLayerMarqueeCandidates,
-      getCanvasPoint,
-      lockedScreenIdSet,
-      onEdit,
-      onLayerMarqueeSelectionChange,
-      updateSelectedDraftIds,
-      updateSelectedIds,
-    ],
+    [drillIntoScreenAtPoint, lockedScreenIdSet, onEdit],
   );
 
   const handleMouseDown = useCallback(
@@ -8406,9 +8421,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               beginRotate(singleSelectedFrame.id, event)
             }
             onStartDrag={
-              // A running app's frame is dragged by its label. Blanketing its
-              // content with a drag surface would make the app unclickable the
-              // moment it is selected, which is most of the time.
+              // A running app's frame is dragged by its label: its content
+              // wants the raw click, not a layer selection, so the drag
+              // surface must never cover it.
               singleSelectedFrameIsRunningApp
                 ? undefined
                 : (event) => beginFrameDrag(singleSelectedFrame.id, event)
