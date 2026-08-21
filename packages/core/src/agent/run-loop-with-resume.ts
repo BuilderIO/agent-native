@@ -306,6 +306,20 @@ function waitForBackgroundRateLimitCooldown(
   });
 }
 
+/**
+ * Abort reasons the SERVER sets on a run's own controller. Everything else —
+ * including any reason a client passes to the abort route — is a user Stop.
+ *
+ * Kept deliberately short. Each entry is a bound this package owns and can name
+ * in a terminal outcome; if you are adding a fourth, check first whether the
+ * bound belongs in `run-manager.ts` at all.
+ */
+const SERVER_OWNED_ABORT_REASONS = new Set([
+  "no_progress",
+  "run_timeout",
+  "background_automation_hard_timeout",
+]);
+
 /** Machine-readable code carried on the give-up terminal `error` event so the
  * client renders a loud "stopped before finishing" terminal instead of an
  * ambiguous silent stall. Deliberately NOT in the client's auto-recoverable
@@ -424,6 +438,33 @@ export async function runAgentLoopDirectWithSoftTimeout(
   // a control, which is what keeps the foreground/HTTP paths byte-for-byte
   // unchanged.
   const turnSignal = control?.turnSignal ?? opts.signal;
+  /**
+   * A turn someone pressed Stop on is `canceled`. A turn that ended because a
+   * SERVER bound fired is not: nobody cancelled it, it ran out of something,
+   * and the abort reason says which.
+   *
+   * Reporting both as `canceled` made a hard-timed-out automation
+   * byte-identical to a user Stop in every consumer, `$ai_error` included, and
+   * contradicted the no-timeout path above, which has always reported an
+   * unfinished reason as `failed` with that reason as its code.
+   *
+   * Allowlisted rather than "anything that isn't `user`", because the abort
+   * route accepts a client-supplied reason string: an inverted test would
+   * relabel a genuine Stop the moment a caller sent its own word for it.
+   */
+  const turnAbortOutcome = (): AgentLoopOutcome => {
+    const reason =
+      typeof turnSignal.reason === "string" ? turnSignal.reason.trim() : "";
+    if (!SERVER_OWNED_ABORT_REASONS.has(reason)) {
+      return { state: "canceled", message: "Agent run was aborted." };
+    }
+    return {
+      state: "failed",
+      code: reason,
+      retryable: false,
+      message: `Agent run was aborted (${reason}).`,
+    };
+  };
   let chunkSignal = control?.chunkSignal ?? opts.signal;
   const recoverableChunkBoundary = (): AgentLoopContinuationReason | null => {
     if (!control || turnSignal.aborted) return null;
@@ -608,7 +649,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
       }
       reportFinalOutcome(
         turnSignal.aborted
-          ? { state: "canceled", message: "Agent run was aborted." }
+          ? turnAbortOutcome()
           : (attemptOutcome ?? { state: "completed" }),
       );
       return usage;
@@ -716,10 +757,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
         continue;
       }
       if (turnSignal.aborted) {
-        reportFinalOutcome({
-          state: "canceled",
-          message: "Agent run was aborted.",
-        });
+        reportFinalOutcome(turnAbortOutcome());
         throw err;
       }
       const candidate = err as { errorCode?: unknown; message?: unknown };
@@ -776,10 +814,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
       message: RUN_BUDGET_EXHAUSTED_MESSAGE,
     });
   } else if (turnSignal.aborted) {
-    reportFinalOutcome({
-      state: "canceled",
-      message: "Agent run was aborted.",
-    });
+    reportFinalOutcome(turnAbortOutcome());
   }
 
   return usage;

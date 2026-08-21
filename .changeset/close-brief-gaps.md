@@ -4,13 +4,17 @@
 
 Close two acceptance-criteria gaps from the background-run hardening.
 
-A hard-aborted automation reached PostHog carrying "Agent run was aborted" —
+A hard-aborted run reached PostHog carrying "Agent run was aborted" —
 byte-identical to what a user pressing Stop produces, because the abort is what
-the loop actually observes. The taxonomy code the runner already computed never
-left the process. `classifyBackgroundAutomationTraceError` now hands
-`background_automation_hard_timeout` to `instrumentAgentLoop`'s `classifyError`
-hook, so the two failures are distinguishable in the one view you go to to tell
-them apart.
+the loop observes and `$ai_error` derives its code from the terminal outcome.
+
+Fixed at that source rather than per-caller: the agent-loop wrapper now reports
+a server-owned abort reason as a `failed` outcome carrying that reason as its
+code, which is what its own no-timeout path has always done. The code therefore
+reaches `$ai_error` through the existing construction, for every entry point
+rather than just automations. The reason set is an allowlist, not "anything that
+isn't `user`", because the abort route accepts a client-supplied reason string
+and an inverted test would relabel a genuine Stop.
 
 `backgroundSoftTimeoutCeilingMs` is not merely a bound — it IS the clamp
 `resolveRunSoftTimeoutMs` reduces every background soft timeout to. Making it

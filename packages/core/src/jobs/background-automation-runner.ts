@@ -80,39 +80,6 @@ export class BackgroundAutomationRunError extends Error {
   }
 }
 
-/**
- * Terminal classification for an automation's LLM trace.
- *
- * A hard-aborted automation reached PostHog as "Agent run was aborted" — the
- * same string a user pressing Stop produces — because the abort is what the
- * loop actually sees. The taxonomy code this runner already computes never left
- * the process. The two failures call for different responses, so they need
- * different codes in the one view you go to to tell them apart.
- *
- * Returns `null` for anything else, which leaves `instrumentAgentLoop`'s own
- * classification untouched.
- */
-export function classifyBackgroundAutomationTraceError(input: {
-  error: unknown;
-  hardTimedOut: boolean;
-  hardTimeoutMs: number;
-}): {
-  status: "error";
-  errorMessage: string;
-  metadata: Record<string, unknown>;
-} | null {
-  if (!input.hardTimedOut) return null;
-  return {
-    status: "error",
-    errorMessage:
-      input.error instanceof Error ? input.error.message : String(input.error),
-    metadata: {
-      terminal_code: "background_automation_hard_timeout",
-      hard_timeout_ms: input.hardTimeoutMs,
-    },
-  };
-}
-
 /** Terminal state of one background automation run, for `onRunOutcome`. */
 export interface BackgroundAutomationOutcome {
   automation: string;
@@ -808,12 +775,6 @@ async function executeBackgroundAutomation(
                     trigger: "background_automation",
                     scope: orgId ? "organization" : "personal",
                   },
-                  classifyError: (error) =>
-                    classifyBackgroundAutomationTraceError({
-                      error,
-                      hardTimedOut,
-                      hardTimeoutMs,
-                    }),
                 });
                 return;
               }
