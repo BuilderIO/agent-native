@@ -2869,6 +2869,9 @@ export function MultiTabAssistantChat({
                   isNewThread={
                     newThreadIds.current.has(tabId) || isNewThread(tabId)
                   }
+                  onThreadRestoreNotFound={
+                    tabId === activeThreadId ? clearActiveTab : undefined
+                  }
                   isThreadStateLoading={isLoading}
                   onMessageCountChange={(count) =>
                     setMessageCounts((prev) =>

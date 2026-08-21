@@ -2002,6 +2002,8 @@ export interface AssistantChatProps {
   composerDisabledPlaceholder?: string;
   /** When true, skip the restore skeleton (used for freshly created threads with no messages) */
   isNewThread?: boolean;
+  /** Replace an active tab when its saved thread no longer exists. */
+  onThreadRestoreNotFound?: () => void;
   /** Defer restore until the owning thread list has reconciled the active id. */
   isThreadStateLoading?: boolean;
   /** Called when a slash command (e.g. /clear, /help) is executed */
@@ -2458,6 +2460,7 @@ const AssistantChatInner = forwardRef<
     agentChatSurface = "app",
     desktopIdentityUnauthenticated = false,
     desktopIdentityAuthenticated = false,
+    onThreadRestoreNotFound,
     suppressInlineOpenApp = false,
   },
   ref,
@@ -3032,6 +3035,20 @@ const AssistantChatInner = forwardRef<
     setIsRestoring(true);
     setRestoreAttempt((attempt) => attempt + 1);
   }, [isNewThread, threadId]);
+
+  const missingThreadNotifiedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (
+      threadRestoreError !== "not-found" ||
+      !threadId ||
+      !onThreadRestoreNotFound ||
+      missingThreadNotifiedRef.current === threadId
+    ) {
+      return;
+    }
+    missingThreadNotifiedRef.current = threadId;
+    onThreadRestoreNotFound();
+  }, [onThreadRestoreNotFound, threadId, threadRestoreError]);
 
   // The desktop identity gate and chat restore run in sibling surfaces. If the
   // gate wins the race after a masked 404 has already rendered, clear the
