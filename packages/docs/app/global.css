@@ -80,6 +80,7 @@
   --fg-secondary: #666;
   --bg: #fff;
   --bg-secondary: #fafafa;
+  --docs-landing-max-width: 1600px;
   --docs-border: #ebebeb;
   --docs-accent: #0072f5;
   --docs-accent-light: rgba(0, 114, 245, 0.1);
@@ -183,7 +184,7 @@ body {
 
 /* Template detail pages */
 .template-detail-page {
-  max-width: min(1200px, 100%);
+  max-width: min(var(--docs-landing-max-width), 100%);
 }
 
 .template-detail-page :where(.grid) > * {

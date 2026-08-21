@@ -24,7 +24,7 @@ export function TemplateHero({
   titleClassName = "",
 }: TemplateHeroProps) {
   return (
-    <section className={`pt-3 sm:pt-4 lg:pt-5 ${className}`}>
+    <section className={className}>
       <div className="relative overflow-hidden border-x border-[var(--docs-border)]">
         <div
           aria-hidden="true"
