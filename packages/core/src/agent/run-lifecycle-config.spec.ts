@@ -7,6 +7,8 @@ import {
 } from "../app-config/index.js";
 import {
   BACKGROUND_AUTOMATION_SOFT_TIMEOUT_HEADROOM_MS,
+  MAX_BACKGROUND_FOLLOW_WALL_TIME_MS,
+  MAX_FOLLOWED_BACKGROUND_RUNS,
   BACKGROUND_FUNCTION_WALL_HEADROOM_MS,
   BACKGROUND_FUNCTION_WALL_MS,
   RunLifecycleInvariantError,
@@ -224,6 +226,44 @@ describe("run-lifecycle invariants", () => {
         backgroundSoftTimeoutCeilingMs: BACKGROUND_SOFT_TIMEOUT_CEILING_MS,
       }),
     ).not.toThrow();
+  });
+
+  // These three used to be pinned only in `agent-chat-adapter.spec.ts`, against
+  // the server's module constants. Making those configurable moved the real
+  // values out from under that test without moving the test — a deployment
+  // could raise any of them past what the shipped client follows and every
+  // check still passed. The client bound is static in the bundle; the server
+  // bound is not; so the check has to run where the server bound resolves.
+  it("refuses a turn ceiling the shipped client would abandon first", () => {
+    expect(() =>
+      assertRunLifecycleInvariants({
+        ...base(),
+        maxTurnWallClockMs: MAX_BACKGROUND_FOLLOW_WALL_TIME_MS + 60_000,
+      }),
+    ).toThrow(RunLifecycleInvariantError);
+  });
+
+  it("refuses a chain bound the shipped client would stop following", () => {
+    expect(() =>
+      assertRunLifecycleInvariants({
+        ...base(),
+        maxBackgroundRunContinuations: MAX_FOLLOWED_BACKGROUND_RUNS,
+      }),
+    ).toThrow(RunLifecycleInvariantError);
+  });
+
+  it("refuses a chunk budget that leaves no room for a second chunk", () => {
+    // The exact inversion that shipped: one legal chunk longer than half the
+    // client's whole-turn budget means a turn needing two chunks dies mid-stream
+    // while the server is healthy.
+    expect(() =>
+      assertRunLifecycleInvariants({
+        ...base(),
+        backgroundSoftTimeoutCeilingMs: Math.floor(
+          MAX_BACKGROUND_FOLLOW_WALL_TIME_MS / 2,
+        ),
+      }),
+    ).toThrow(RunLifecycleInvariantError);
   });
 
   it("skips ordering checks for a disabled backstop", () => {

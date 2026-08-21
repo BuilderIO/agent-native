@@ -258,29 +258,18 @@ export const BACKGROUND_FOLLOW_IDLE_TIMEOUT_MS = 210_000;
 // 22 minutes, all error:stale_run, user watching a spinner). These bound the
 // whole turn instead, and an identical repeated failure counts as no progress.
 //
-// CLIENT-ABOVE-SERVER INVARIANT (asserted in agent-chat-adapter.spec.ts).
-// These are a backstop for a server that has gone silent in a way the idle
-// timeout misses — NOT the primary limit. They must stay ABOVE the server's
-// own ceilings so the server, which can actually tell progress from looping,
-// always terminates a turn first and writes a truthful terminal reason:
-//   BACKGROUND_SOFT_TIMEOUT_CEILING_MS  (13 min, run-manager.ts)  — one chunk
-//   MAX_TURN_WALL_CLOCK_MS              (90 min, production-agent.ts) — one turn
-//   MAX_BACKGROUND_RUN_CONTINUATIONS    (20,     production-agent.ts)
-//
-// They were originally set to 10 min / 6 runs, which put the whole-turn client
-// budget BELOW the 13-minute ceiling of a single legal chunk. Any turn needing
-// a second full-length chunk was killed by the client while the server was
-// healthy and had 80 minutes left — measured in prod as turns dying at 11-25
-// minutes with `last_progress_at` tracking the abort, i.e. still streaming
-// tokens and completing tools when the client gave up. That is the top
-// non-auth cause of "the chat just stopped" reports.
-//
-// Killing a turn that is NOT progressing is already covered twice over, by
-// mechanisms that read progress rather than a clock: the 210s idle timeout
-// above, and MAX_REPEATED_BACKGROUND_TERMINAL_REASONS below. Do not re-tighten
-// these two to catch a stuck turn — fix the progress signal instead.
-export const MAX_FOLLOWED_BACKGROUND_RUNS = 24;
-export const MAX_BACKGROUND_FOLLOW_WALL_TIME_MS = 95 * 60_000;
+// Defined in `app-config/run-lifecycle-invariants.ts`, not here, because the
+// CLIENT-ABOVE-SERVER relationship they belong to is checked there against the
+// RESOLVED server configuration — the server bounds are runtime-configurable
+// now, so a spec pinning them against module constants stopped enforcing
+// anything. Re-exported under the same names so importers are unchanged; that
+// module has no runtime imports, so the bundle pays nothing for it.
+import {
+  MAX_BACKGROUND_FOLLOW_WALL_TIME_MS,
+  MAX_FOLLOWED_BACKGROUND_RUNS,
+} from "../app-config/run-lifecycle-invariants.js";
+
+export { MAX_BACKGROUND_FOLLOW_WALL_TIME_MS, MAX_FOLLOWED_BACKGROUND_RUNS };
 const MAX_REPEATED_BACKGROUND_TERMINAL_REASONS = 3;
 
 // A re-observed terminal run whose outcome would be an ERROR (never a
