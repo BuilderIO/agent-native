@@ -7,8 +7,7 @@ in the finished product — use the app's real name.
 
 ## Skills
 
-Read the matching skill before implementation. Before building common workspace or
-agent UI, read `agent-native-toolkit` and `customizing-agent-native` for the
+Read the matching skill before implementation. Before building common workspace or agent UI, read `agent-native-toolkit` and `customizing-agent-native` for the
 configure → compose → eject ladder.
 
 The default skill surface is small. Promotion, learning, provider, and release

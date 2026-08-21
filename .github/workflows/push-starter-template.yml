@@ -15,6 +15,7 @@ on:
     branches: [main]
     paths:
       - "templates/base/**"
+      - "packages/core/src/templates/base/**"
       - ".github/workflows/push-starter-template.yml"
   # Fires when a publish completes (published == true). This is the reliable
   # second chance for anything the gate skipped during a publish-in-flight

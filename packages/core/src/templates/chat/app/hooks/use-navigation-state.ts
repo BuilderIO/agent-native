@@ -32,6 +32,7 @@ function threadIdFromPath(pathname: string): string | null {
   try {
     const value = decodeURIComponent(match[1]).trim();
     return value || null;
+    // coercion-ok: malformed thread ids in the URL should read as absent.
   } catch {
     return null;
   }

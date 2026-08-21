@@ -51,8 +51,11 @@ const NETLIFY_BETA_SITES = JSON.parse(
   readFileSync(path.join(REPO_ROOT, "scripts/netlify-beta-sites.json"), "utf8"),
 ) as Array<{ host: string; id: string; siteId: string }>;
 
-const NETLIFY_SITE_SOURCE_TEMPLATES = new Map([["starter", "chat"]]);
-const NETLIFY_TEMPLATE_ALIASES = new Map([["chat", "starter"]]);
+const NETLIFY_SITE_SOURCE_TEMPLATES = new Map([["starter", "base"]]);
+const NETLIFY_TEMPLATE_ALIASES = new Map([
+  ["base", "starter"],
+  ["chat", "starter"],
+]);
 const NETLIFY_SITE_PRODUCTION_URLS = new Map([
   ["starter", "https://starter.agent-native.com"],
 ]);

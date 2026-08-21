@@ -23,9 +23,9 @@ test("maps the production chat alias to the starter site", () => {
   const target = resolveNetlifyPrebuiltTarget("production", "chat");
 
   assert.equal(target.siteName, "starter");
-  assert.equal(target.sourceTemplate, "chat");
+  assert.equal(target.sourceTemplate, "base");
   assert.equal(target.sourceRef, "main");
-  assert.equal(target.publishDirectory, "templates/chat/dist");
+  assert.equal(target.publishDirectory, "templates/base/dist");
   assert.match(target.host, /^starter\./);
 });
 

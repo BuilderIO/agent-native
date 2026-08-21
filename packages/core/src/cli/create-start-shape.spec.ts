@@ -8,6 +8,7 @@ const clack = vi.hoisted(() => ({
   cancel: vi.fn(),
   intro: vi.fn(),
   isCancel: vi.fn(() => false),
+  multiselect: vi.fn(),
   note: vi.fn(),
   outro: vi.fn(),
   select: vi.fn(),
@@ -31,7 +32,7 @@ beforeEach(() => {
     path.join(os.tmpdir(), "agent-native-start-shape-test-"),
   );
   process.chdir(parentDir);
-  clack.select.mockResolvedValueOnce("chat");
+  clack.select.mockResolvedValueOnce("base");
 });
 
 afterEach(() => {
@@ -41,7 +42,7 @@ afterEach(() => {
 });
 
 describe("interactive create start shapes", () => {
-  it("creates a Chat workspace that accepts add-app", async () => {
+  it("creates a Base workspace that accepts add-app", async () => {
     await createApp("my-platform");
 
     const workspaceRoot = path.join(parentDir, "my-platform");
@@ -52,7 +53,7 @@ describe("interactive create start shapes", () => {
       workspaceCoreName: "@my-platform/shared",
     });
     expect(
-      fs.existsSync(path.join(workspaceRoot, "apps", "chat", "package.json")),
+      fs.existsSync(path.join(workspaceRoot, "apps", "base", "package.json")),
     ).toBe(true);
     expect(
       fs.existsSync(

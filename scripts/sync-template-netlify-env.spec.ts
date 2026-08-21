@@ -74,7 +74,7 @@ describe("normalizeProductionUrlEntry", () => {
     ).toEqual({ value, normalized: false });
   });
 
-  it("uses the current starter deployment origin for the chat source template", () => {
+  it("uses the current starter deployment origin for the base source template", () => {
     expect(
       normalizeProductionUrlEntry(
         "starter",
@@ -118,6 +118,10 @@ describe("resolveNetlifyApiContext", () => {
 describe("resolveNetlifyTemplateName", () => {
   it("maps the legacy chat template name to the current starter site", () => {
     expect(resolveNetlifyTemplateName("chat")).toBe("starter");
+  });
+
+  it("maps the base template name to the current starter site", () => {
+    expect(resolveNetlifyTemplateName("base")).toBe("starter");
   });
 
   it("preserves current Netlify site names", () => {

@@ -103,7 +103,7 @@ jobs:
           if (unknown.length) throw new Error(`Unknown production site(s): ${unknown.join(', ')}`);
 
           const projectDirectory = (name) =>
-            name === 'fw' ? 'packages/docs' : `templates/${name === 'starter' ? 'chat' : name}`;
+            name === 'fw' ? 'packages/docs' : `templates/${name === 'starter' ? 'base' : name}`;
           const buildable = [];
           const unsupported = [];
           for (const name of names) {

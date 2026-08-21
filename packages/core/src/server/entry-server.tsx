@@ -42,6 +42,7 @@ export const streamTimeout = 5_000;
 type ServerRouterComponent = (props: {
   context: EntryContext;
   url: string;
+  nonce?: string;
 }) => ReactElement;
 
 export type DocumentRequestHandler = (

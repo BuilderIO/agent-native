@@ -96,6 +96,7 @@ function compareThreads(a: ChatThreadSummary, b: ChatThreadSummary) {
 function persistedActiveThreadId() {
   try {
     return localStorage.getItem(CHAT_ACTIVE_THREAD_KEY);
+    // coercion-ok: localStorage may be unavailable in private browsing.
   } catch {
     return null;
   }
@@ -104,6 +105,7 @@ function persistedActiveThreadId() {
 function persistActiveThreadId(threadId: string) {
   try {
     localStorage.setItem(CHAT_ACTIVE_THREAD_KEY, threadId);
+    // coercion-ok: localStorage may be unavailable in private browsing.
   } catch {}
 }
 
@@ -113,6 +115,7 @@ function threadIdFromPath(pathname: string) {
   try {
     const value = decodeURIComponent(match[1]).trim();
     return value || null;
+    // coercion-ok: malformed thread ids in the URL should read as absent.
   } catch {
     return null;
   }

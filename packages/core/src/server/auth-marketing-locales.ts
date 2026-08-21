@@ -109,6 +109,14 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
         "实现你与代理之间的实时协作",
       ],
     },
+    base: {
+      tagline: "从空白应用外壳开始，随着需求增长添加界面、操作和工作流。",
+      features: [
+        "空白首页，附带标准认证、设置和实时同步",
+        "操作可从界面、HTTP、MCP、A2A 和 CLI 使用",
+        "接入您自己的代理运行时，或使用内置 app-agent 循环",
+      ],
+    },
     chat: {
       tagline:
         "从聊天优先的 agent-native 应用开始，随着代理成长添加操作、界面和工作流。",
@@ -245,6 +253,14 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
         "用一個提示產生完整簡報",
         "簡報或審查時進行精準的投影片編輯",
         "實現你與代理之間的即時協作",
+      ],
+    },
+    base: {
+      tagline: "從空白應用外殼開始，隨著需求成長新增介面、操作和工作流程。",
+      features: [
+        "空白首頁，附帶標準驗證、設定和即時同步",
+        "操作可從介面、HTTP、MCP、A2A 和 CLI 使用",
+        "接入您自己的代理執行階段，或使用內建 app-agent 循環",
       ],
     },
     chat: {
@@ -392,6 +408,15 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
         "Colaboración en tiempo real entre tú y el agente",
       ],
     },
+    base: {
+      tagline:
+        "Empieza con un shell de app en blanco y añade pantallas, acciones y flujos a medida que creces.",
+      features: [
+        "Pantalla de inicio vacía con autenticación, ajustes y sincronización en vivo",
+        "Las acciones funcionan desde la UI, HTTP, MCP, A2A y CLI",
+        "Usa el bucle app-agent integrado o conecta tu propio backend de agente",
+      ],
+    },
     chat: {
       tagline:
         "Empieza con una aplicación agent-native centrada en el chat y añade acciones, pantallas y flujos a medida que crece tu agente.",
@@ -537,6 +562,15 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
         "Générez des présentations entières avec un seul prompt",
         "Modifiez précisément les diapositives pendant la présentation ou la revue",
         "Collaborez en temps réel avec l’agent",
+      ],
+    },
+    base: {
+      tagline:
+        "Partez d'une coquille d'app vierge et ajoutez écrans, actions et workflows au fil de la croissance.",
+      features: [
+        "Écran d'accueil vide avec auth, réglages et synchronisation en direct",
+        "Les actions fonctionnent depuis l'UI, HTTP, MCP, A2A et la CLI",
+        "Utilisez la boucle app-agent intégrée ou branchez votre propre backend agent",
       ],
     },
     chat: {
@@ -687,6 +721,15 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
         "Echtzeit-Zusammenarbeit zwischen dir und dem Agenten",
       ],
     },
+    base: {
+      tagline:
+        "Starte mit einer leeren App-Hülle und ergänze Screens, Aktionen und Workflows, während du wächst.",
+      features: [
+        "Leerer Startbildschirm mit Standard-Auth, Einstellungen und Live-Sync",
+        "Aktionen funktionieren über UI, HTTP, MCP, A2A und CLI",
+        "Nutze die eingebaute app-agent-Schleife oder schließe dein eigenes Agent-Backend an",
+      ],
+    },
     chat: {
       tagline:
         "Starte mit einer chat-zentrierten agent-native App und ergänze Aktionen, Screens und Workflows, während dein Agent wächst.",
@@ -832,6 +875,15 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
         "あなたとエージェントがリアルタイムで共同作業",
       ],
     },
+    base: {
+      tagline:
+        "空白のアプリシェルから始め、成長に合わせて画面、アクション、ワークフローを追加します。",
+      features: [
+        "標準認証、設定、ライブ同期付きの空のホーム画面",
+        "UI、HTTP、MCP、A2A、CLI からアクションを利用",
+        "組み込み app-agent ループを使うか、独自のエージェントバックエンドを接続",
+      ],
+    },
     chat: {
       tagline:
         "チャット中心の agent-native アプリから始め、エージェントの成長に合わせてアクション、画面、ワークフローを追加します。",
@@ -974,6 +1026,15 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
         "한 번의 프롬프트로 전체 덱 생성",
         "발표하거나 검토하면서 슬라이드를 정밀하게 편집",
         "나와 에이전트 간 실시간 협업",
+      ],
+    },
+    base: {
+      tagline:
+        "빈 앱 셸에서 시작해 성장에 맞춰 화면, 액션, 워크플로를 추가하세요.",
+      features: [
+        "표준 인증, 설정, 라이브 동기화가 있는 빈 홈 화면",
+        "UI, HTTP, MCP, A2A, CLI에서 액션 사용",
+        "내장 app-agent 루프를 쓰거나 자체 에이전트 백엔드 연결",
       ],
     },
     chat: {
@@ -1124,6 +1185,15 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
         "Colaboração em tempo real entre você e o agente",
       ],
     },
+    base: {
+      tagline:
+        "Comece com um shell de app em branco e adicione telas, ações e fluxos conforme cresce.",
+      features: [
+        "Tela inicial vazia com auth, configurações e sync ao vivo",
+        "Ações funcionam pela UI, HTTP, MCP, A2A e CLI",
+        "Use o loop app-agent integrado ou conecte seu próprio backend de agente",
+      ],
+    },
     chat: {
       tagline:
         "Comece com um app agent-native focado em chat e adicione ações, telas e fluxos à medida que seu agente cresce.",
@@ -1268,6 +1338,14 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
         "एक प्रॉम्प्ट से पूरा डेक बनाएं",
         "प्रस्तुत करते या समीक्षा करते समय स्लाइड में सटीक बदलाव करें",
         "आप और एजेंट के बीच रियल-टाइम सहयोग",
+      ],
+    },
+    base: {
+      tagline: "खाली ऐप शेल से शुरू करें और बढ़ते हुए स्क्रीन, actions और workflows जोड़ें।",
+      features: [
+        "मानक auth, settings और live sync के साथ खाली होम स्क्रीन",
+        "UI, HTTP, MCP, A2A और CLI से actions काम करते हैं",
+        "बिल्ट-इन app-agent loop उपयोग करें या अपना agent backend जोड़ें",
       ],
     },
     chat: {
@@ -1415,6 +1493,15 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
         "أنشئ عروضًا كاملة من مطالبة واحدة",
         "حرر الشرائح بدقة أثناء العرض أو المراجعة",
         "تعاون في الوقت الفعلي بينك وبين الوكيل",
+      ],
+    },
+    base: {
+      tagline:
+        "ابدأ من هيكل تطبيق فارغ وأضف الشاشات والإجراءات وسير العمل مع نموك.",
+      features: [
+        "شاشة رئيسية فارغة مع auth وإعدادات ومزامنة مباشرة",
+        "تعمل الإجراءات من الواجهة وHTTP وMCP وA2A وCLI",
+        "استخدم حلقة app-agent المدمجة أو اربط backend الوكيل الخاص بك",
       ],
     },
     chat: {

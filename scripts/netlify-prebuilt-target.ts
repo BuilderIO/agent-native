@@ -49,7 +49,7 @@ function canonicalSiteName(
   if (!site) throw new Error("A Netlify site id is required.");
 
   if (target === "beta") {
-    return site === "starter" ? "chat" : site;
+    return site === "starter" ? "base" : site;
   }
 
   if (target === "production") {
@@ -69,7 +69,7 @@ function sourceProject(siteName: string, repoRoot: string): SourceProject {
     };
   }
 
-  const sourceTemplate = siteName === "starter" ? "chat" : siteName;
+  const sourceTemplate = siteName === "starter" ? "base" : siteName;
   return {
     filter: sourceTemplate,
     functionsDirectory: `templates/${sourceTemplate}/.netlify/functions-internal`,
