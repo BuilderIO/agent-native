@@ -98,8 +98,8 @@ export function RecordingCard({
   const pendingTrashRef = useRef(false);
 
   const duration = useMemo(
-    () => formatDuration(recording.durationMs),
-    [recording.durationMs],
+    () => formatDuration(recording.effectiveDurationMs),
+    [recording.effectiveDurationMs],
   );
   const relative = useMemo(() => {
     const date = new Date(recording.createdAt);

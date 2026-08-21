@@ -149,11 +149,6 @@ describe("RecordingOptionsMenu", () => {
     const closeEvent = { preventDefault: vi.fn() };
     act(() => mocks.closeAutoFocus?.(closeEvent));
     expect(closeEvent.preventDefault).toHaveBeenCalled();
-    expect(onDeleted).not.toHaveBeenCalled();
-
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
     expect(onDeleted).toHaveBeenCalledOnce();
   });
 

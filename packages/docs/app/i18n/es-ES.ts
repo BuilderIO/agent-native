@@ -1424,6 +1424,9 @@ const esES = {
         composerLabel: "Tu prompt",
         composerPlaceholder:
           "Describe la presentación que quieres, o responde a las preguntas de arriba.",
+        promptTip: "Consejo para el prompt",
+        promptPlaceholder:
+          "Sea específico. Diga para quién es, pegue sus notas o haga referencia a un diseño de sitio web...",
         submit: "Generar mi presentación",
         readyHint: "Tu prompt está listo: envíalo al agente.",
         promptDeck: "Crea {{deck}}.",
