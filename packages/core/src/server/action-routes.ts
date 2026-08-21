@@ -38,9 +38,9 @@ import {
   resolveEmbedSessionFromRequest,
   resolvedEmbedCapabilityScope,
 } from "./embed-session.js";
-import { getOrigin } from "./google-oauth.js";
 import { getHttpRequestTelemetryId } from "./http-response-telemetry.js";
 import { consumeOneTimeJti } from "./identity-sso-store.js";
+import { getForwardedRequestOrigin } from "./request-origin.js";
 
 declare const __AGENT_NATIVE_BUILD_ID__: string | undefined;
 declare const __AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__: string | undefined;
@@ -588,7 +588,7 @@ export function mountActionRoutes(
             timezone,
             browserSessionId,
             clientPlatform,
-            requestOrigin: getOrigin(event),
+            requestOrigin: getForwardedRequestOrigin(event),
             // Captured here because this is the last layer that still holds
             // the h3 event; everything below reads it off the request store.
             isLoopbackRequest: isLoopbackRequest(event),
