@@ -123,6 +123,35 @@ export function hasGoogleSignInCredentials(): boolean {
   return resolveGoogleSignInCredentials() !== null;
 }
 
+/**
+ * Which sign-in credential pairs are configured, and whether they disagree.
+ *
+ * `mismatched` is the state that hid the 2026-08-20 outage: two pairs naming
+ * different Google clients, where only the winner is ever read. Callers report
+ * it; the resolver only warns.
+ */
+export function describeGoogleSignInCredentialPairs(): {
+  signInClientId: string | null;
+  providerClientId: string | null;
+  mismatched: boolean;
+} {
+  const signIn = readCredentialPair(
+    "GOOGLE_SIGN_IN_CLIENT_ID",
+    "GOOGLE_SIGN_IN_CLIENT_SECRET",
+  );
+  const provider = readCredentialPair(
+    "GOOGLE_CLIENT_ID",
+    "GOOGLE_CLIENT_SECRET",
+  );
+  return {
+    signInClientId: signIn?.clientId ?? null,
+    providerClientId: provider?.clientId ?? null,
+    mismatched: Boolean(
+      signIn && provider && signIn.clientId !== provider.clientId,
+    ),
+  };
+}
+
 export function resolveGoogleProviderCredentials(): GoogleOAuthCredentials | null {
   return readCredentialPair(
     GOOGLE_PRIMARY_PROVIDER_CREDENTIAL_KEYS.clientIdKey,
