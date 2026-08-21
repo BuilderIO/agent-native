@@ -62,6 +62,7 @@ const guards = [
   "guard:help-icon-scale",
   "guard:no-default-chrome",
   "guard:no-boot-data-work",
+  "guard:no-untracked-imports",
   "guard:no-heavy-dashboard-list-reads",
   "guard:dead-settings-keys",
   "guard:serverless-function-payload",

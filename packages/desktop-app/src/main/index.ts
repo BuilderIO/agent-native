@@ -232,6 +232,7 @@ import {
 } from "./computer-control";
 import { contentFilesWebviewDenialReason } from "./content-files-webview-access.js";
 import { deriveContentFilesRepositoryIdentity } from "./content-files/local-identity";
+import { readCookieHeaderForUrl } from "./cookie-header.js";
 import { DesktopDesignPreviewManager } from "./design-preview-manager";
 import {
   DESKTOP_IDENTITY_PARTITION,
@@ -3466,9 +3467,7 @@ async function cookieHeaderForRelay(
   relaySession: Electron.Session,
   relayUrl: string,
 ): Promise<string> {
-  const origin = new URL(relayUrl).origin;
-  const cookies = await relaySession.cookies.get({ url: origin });
-  return cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join("; ");
+  return readCookieHeaderForUrl(relaySession, relayUrl);
 }
 
 async function pairRemoteCodeAgentConnector(

@@ -249,6 +249,15 @@ Agent-Native is an open source framework for building apps where AI agents and U
       lastmod: gitLastmod(path.resolve(rootDir, "app/routes/templates.tsx")),
     },
     {
+      path: "/pricing",
+      title: "Pricing — Agent-Native",
+      description:
+        "Agent-Native is MIT licensed and free for unlimited users, apps, and environments. Pay only for the infrastructure you choose.",
+      markdown:
+        "# Pricing\n\nAgent-Native is MIT licensed and free for unlimited users, apps, and environments. Pay only for the infrastructure you choose.\n",
+      lastmod: gitLastmod(path.resolve(rootDir, "app/routes/pricing.tsx")),
+    },
+    {
       path: "/skills",
       title: "Agent Skills",
       description:
