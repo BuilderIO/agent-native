@@ -18,8 +18,8 @@ const RELEASE_COMMAND = /\bmigrate:production\b/;
 const RELEASE_FLAG =
   /^\s*AGENT_NATIVE_RELEASE_MIGRATIONS\s*=\s*["']1["']\s*(?:#.*)?$/m;
 const BETA_RELEASE_FLAG = /\bAGENT_NATIVE_RUN_RELEASE_MIGRATIONS\b/;
-const BETA_SHARED_SCHEMA_OWNER =
-  /^\s*AGENT_NATIVE_BETA_SCHEMA_OWNER\s*=\s*["']production["']\s*(?:#.*)?$/m;
+const BETA_SCHEMA_OWNER_EXPORT =
+  "export AGENT_NATIVE_BETA_SCHEMA_OWNER=production";
 const CLIPS_PREBUILT_MIGRATION_SKIP =
   /agentNativePrebuiltBuild:-\}.*!= \\\"true\\\".*migrate:production/;
 
@@ -72,16 +72,15 @@ export function validatePublishedNetlifyReleaseMigrationConfig(
   }
 
   const issues = validateNetlifyReleaseMigrationConfig(source, file);
-  if (sourceTemplate === "clips" && CLIPS_PREBUILT_MIGRATION_SKIP.test(build)) {
-    if (!BETA_SHARED_SCHEMA_OWNER.test(source)) {
+  if (
+    sourceTemplate !== "clips" ||
+    !CLIPS_PREBUILT_MIGRATION_SKIP.test(build)
+  ) {
+    if (!BETA_RELEASE_FLAG.test(build)) {
       issues.push(
-        `${file}: Clips prebuilt builds skip release migration; declare AGENT_NATIVE_BETA_SCHEMA_OWNER = "production" for the beta lane`,
+        `${file}: beta branch-deploy builds run migrate:production only when AGENT_NATIVE_RUN_RELEASE_MIGRATIONS = "1" is supplied by the prebuilt beta lane`,
       );
     }
-  } else if (!BETA_RELEASE_FLAG.test(build)) {
-    issues.push(
-      `${file}: beta branch-deploy builds run migrate:production only when AGENT_NATIVE_RUN_RELEASE_MIGRATIONS = "1" is supplied by the prebuilt beta lane`,
-    );
   }
   return issues;
 }
@@ -123,6 +122,11 @@ export function validateBetaPrebuiltReleaseEnvironment(
   if (!nonClipsBlockMatch) {
     issues.push(
       `${file}: beta build must scope release migration exports to a non-Clips template block`,
+    );
+  }
+  if (!betaBuild.includes(BETA_SCHEMA_OWNER_EXPORT)) {
+    issues.push(
+      `${file}: Clips beta build must export AGENT_NATIVE_BETA_SCHEMA_OWNER=production inside its beta-only build block`,
     );
   }
   for (const entry of releaseExports) {

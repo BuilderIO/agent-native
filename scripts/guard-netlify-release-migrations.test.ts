@@ -83,23 +83,13 @@ describe("Netlify release migration guard", () => {
     );
   });
 
-  it("makes the masked Clips prebuilt schema owner explicit", () => {
+  it("leaves Clips beta schema ownership to the prebuilt workflow", () => {
     const source =
       `[build]\ncommand = "if [ \\\"\${agentNativePrebuiltBuild:-}\\\" != \\\"true\\\" ]; then pnpm migrate:production; fi"\n\n` +
       `[context.production.environment]\nAGENT_NATIVE_RELEASE_MIGRATIONS = "1"\n`;
     assert.deepEqual(
       validatePublishedNetlifyReleaseMigrationConfig(
         source,
-        "templates/clips/netlify.toml",
-        "clips",
-      ),
-      [
-        'templates/clips/netlify.toml: Clips prebuilt builds skip release migration; declare AGENT_NATIVE_BETA_SCHEMA_OWNER = "production" for the beta lane',
-      ],
-    );
-    assert.deepEqual(
-      validatePublishedNetlifyReleaseMigrationConfig(
-        `${source}\n[context.branch-deploy.environment]\nAGENT_NATIVE_BETA_SCHEMA_OWNER = "production"\n`,
         "templates/clips/netlify.toml",
         "clips",
       ),
@@ -112,6 +102,8 @@ describe("Netlify release migration guard", () => {
   if [[ "$SOURCE_TEMPLATE" != "clips" ]]; then
     export AGENT_NATIVE_RELEASE_MIGRATIONS=1
     export AGENT_NATIVE_RUN_RELEASE_MIGRATIONS=1
+  else
+    export AGENT_NATIVE_BETA_SCHEMA_OWNER=production
   fi
   export AGENT_NATIVE_ENABLE_KEEP_WARM=1
   export AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND=1
@@ -122,6 +114,12 @@ if [[ "$SOURCE_TEMPLATE" == "clips" ]]; then`;
     assert.notDeepEqual(
       validateBetaPrebuiltReleaseEnvironment(
         source.replace("export AGENT_NATIVE_RUN_RELEASE_MIGRATIONS=1", ""),
+      ),
+      [],
+    );
+    assert.notDeepEqual(
+      validateBetaPrebuiltReleaseEnvironment(
+        source.replace("export AGENT_NATIVE_BETA_SCHEMA_OWNER=production", ""),
       ),
       [],
     );
