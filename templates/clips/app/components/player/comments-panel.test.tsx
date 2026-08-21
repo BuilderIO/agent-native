@@ -287,4 +287,32 @@ describe("CommentsPanel reply composer", () => {
     ).toBeNull();
     expect(actionMocks.updateComment).not.toHaveBeenCalled();
   });
+
+  it("submits a new comment for a signed-in viewer", () => {
+    const newComment = container.querySelector<HTMLTextAreaElement>(
+      'textarea[placeholder="commentsPanel.leaveComment"]',
+    );
+    expect(newComment).not.toBeNull();
+
+    act(() => {
+      if (!newComment) return;
+      setTextareaValue(newComment, "Viewer note");
+    });
+
+    act(() => {
+      newComment?.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          bubbles: true,
+          ctrlKey: true,
+          key: "Enter",
+        }),
+      );
+    });
+
+    expect(actionMocks.addComment).toHaveBeenCalledWith({
+      recordingId: "recording-1",
+      content: "Viewer note",
+      videoTimestampMs: 34_000,
+    });
+  });
 });

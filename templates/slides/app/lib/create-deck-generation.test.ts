@@ -113,6 +113,9 @@ describe("startDeckGeneration", () => {
     expect(agentSubmit.mock.calls[0]?.[1]).toContain(
       "do not import or append their slides",
     );
+    expect(agentSubmit.mock.calls[0]?.[1]).toContain(
+      "write presenter-only text into each slide's `notes` field",
+    );
   });
 
   it("imports an attached source PDF for a slide-for-slide restyling request", async () => {

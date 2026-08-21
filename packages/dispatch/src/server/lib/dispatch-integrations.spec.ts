@@ -2,6 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   consumeLinkToken: vi.fn(),
+  evaluateIntegrationScopePolicy: vi.fn(),
+  getActiveIntegrationInstallationByKey: vi.fn(),
+  getIntegrationScope: vi.fn(),
+  isOrgMember: vi.fn(),
   resolveLinkedOwner: vi.fn(),
   resolveOrgIdForEmail: vi.fn(),
   resolveSecret: vi.fn(),
@@ -19,11 +23,16 @@ vi.mock("@agent-native/core/integrations", async () => {
   >("@agent-native/core/integrations");
   return {
     ...actual,
+    getActiveIntegrationInstallationByKey:
+      mocks.getActiveIntegrationInstallationByKey,
+    evaluateIntegrationScopePolicy: mocks.evaluateIntegrationScopePolicy,
+    getIntegrationScope: mocks.getIntegrationScope,
     resolveSlackBotTokenForIncoming: mocks.resolveSlackBotTokenForIncoming,
   };
 });
 
 vi.mock("@agent-native/core/org", () => ({
+  isOrgMember: mocks.isOrgMember,
   resolveOrgIdForEmail: mocks.resolveOrgIdForEmail,
 }));
 
@@ -114,6 +123,10 @@ const noopAdapter: PlatformAdapter = {
 };
 
 beforeEach(() => {
+  mocks.getActiveIntegrationInstallationByKey.mockResolvedValue(null);
+  mocks.getIntegrationScope.mockResolvedValue(null);
+  mocks.evaluateIntegrationScopePolicy.mockReturnValue({ allowed: true });
+  mocks.isOrgMember.mockResolvedValue(false);
   mocks.resolveLinkedOwner.mockResolvedValue(null);
   mocks.consumeLinkToken.mockResolvedValue("owner@example.test");
   mocks.resolveOrgIdForEmail.mockResolvedValue(null);
@@ -126,6 +139,16 @@ beforeEach(() => {
     vi.fn(async () => new Response(JSON.stringify({ ok: false }))),
   );
 });
+
+function managedSlackInstallation(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "installation-managed",
+    installationKey: "T-MANAGED",
+    ownerEmail: "installer@example.test",
+    orgId: "org-managed",
+    ...overrides,
+  };
+}
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -374,7 +397,7 @@ describe("beforeDispatchProcess", () => {
     });
   });
 
-  it("replies with linking guidance instead of silently dropping an unlinked Slack DM", async () => {
+  it("fails closed instead of silently dropping an unmatched Slack DM", async () => {
     vi.stubEnv("APP_URL", "https://dispatch.agent-native.test");
     const incoming = slackIncoming({
       triggerKind: "dm",
@@ -390,15 +413,15 @@ describe("beforeDispatchProcess", () => {
     const result = await beforeDispatchProcess(incoming, noopAdapter);
 
     expect(execution.ownerEmail).toMatch(/@integration\.local$/);
-    expect(incoming.platformContext.identityLinkRequired).toBe(true);
+    expect(incoming.platformContext.identityVerificationFailed).toBe(true);
     expect(result).toEqual({
       handled: true,
       responseText:
-        "Agent Native is ready, but this Slack account is not linked to an Agent Native user yet. Open https://dispatch.agent-native.test/identities, create a Slack link token, then send `/link <token>` in this DM.",
+        "I couldn't verify your Slack identity just now, so I can't run this request. Please try again in a moment.",
     });
   });
 
-  it("lets an unlinked Slack DM consume a link token before the agent gate", async () => {
+  it("does not let an unmatched Slack DM consume a link token", async () => {
     const incoming = slackIncoming({
       text: "/link token-123",
       triggerKind: "dm",
@@ -416,13 +439,561 @@ describe("beforeDispatchProcess", () => {
     expect(result).toEqual({
       handled: true,
       responseText:
-        "Linked successfully. Future slack messages will use owner@example.test's personal dispatch context.",
+        "I couldn't verify your Slack identity just now, so I can't run this request. Please try again in a moment.",
     });
+    expect(mocks.consumeLinkToken).not.toHaveBeenCalled();
+  });
+
+  it("scopes a managed Slack link claim to the installation organization", async () => {
+    mocks.getActiveIntegrationInstallationByKey.mockResolvedValueOnce(
+      managedSlackInstallation(),
+    );
+    mocks.resolveSlackBotTokenForIncoming.mockResolvedValueOnce(
+      "managed-token",
+    );
+    mocks.consumeLinkToken.mockRejectedValueOnce(
+      new Error(
+        "This link token belongs to a different organization. Create a token from this workspace and try again.",
+      ),
+    );
+    vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          user: { profile: { email: "outside@example.test" } },
+        }),
+      ),
+    );
+    const incoming = slackIncoming({
+      text: "/link token-other-org",
+      senderId: "U-MANAGED-LINK",
+      triggerKind: "dm",
+      conversationType: "dm",
+      platformContext: {
+        teamId: "T-MANAGED",
+        channelId: "D-MANAGED",
+        channelType: "im",
+      },
+    });
+
+    await expect(beforeDispatchProcess(incoming, noopAdapter)).resolves.toEqual(
+      {
+        handled: true,
+        responseText:
+          "This link token belongs to a different organization. Create a token from this workspace and try again.",
+      },
+    );
     expect(mocks.consumeLinkToken).toHaveBeenCalledWith({
       platform: "slack",
-      token: "token-123",
-      externalUserId: "T123:U123",
+      token: "token-other-org",
+      externalUserId: "T-MANAGED:U-MANAGED-LINK",
       externalUserName: "U123",
+      expectedOrgId: "org-managed",
     });
+  });
+
+  it("does not consume a managed Slack link token when identity verification fails", async () => {
+    mocks.getActiveIntegrationInstallationByKey.mockResolvedValueOnce(
+      managedSlackInstallation(),
+    );
+    mocks.resolveSlackBotTokenForIncoming.mockResolvedValueOnce(
+      "managed-token",
+    );
+    vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: false })),
+    );
+    const incoming = slackIncoming({
+      text: "/link token-unverified",
+      senderId: "U-MANAGED-UNVERIFIED",
+      triggerKind: "dm",
+      conversationType: "dm",
+      platformContext: {
+        teamId: "T-MANAGED",
+        channelId: "D-MANAGED",
+        channelType: "im",
+      },
+    });
+
+    await expect(beforeDispatchProcess(incoming, noopAdapter)).resolves.toEqual(
+      {
+        handled: true,
+        responseText:
+          "I couldn't verify your Slack identity just now, so I can't run this request. Please try again in a moment.",
+      },
+    );
+    expect(mocks.consumeLinkToken).not.toHaveBeenCalled();
+  });
+});
+
+describe("managed Slack execution identity", () => {
+  it("fails closed when no managed installation matches a Slack DM", async () => {
+    vi.stubEnv("DISPATCH_DEFAULT_OWNER_EMAIL", "deployment-owner@example.test");
+    const incoming = slackIncoming({
+      senderId: "U-UNMATCHED",
+      triggerKind: "dm",
+      conversationType: "dm",
+      platformContext: { teamId: "T-UNMATCHED", channelId: "D-UNMATCHED" },
+    });
+
+    const execution = await resolveDispatchExecutionContext(incoming);
+
+    expect(execution.ownerEmail).toMatch(/@integration\.local$/);
+    expect(execution.ownerEmail).not.toBe("deployment-owner@example.test");
+    expect(execution.orgId).toBeNull();
+    expect(incoming.platformContext.identityVerificationFailed).toBe(true);
+  });
+
+  it("uses the enterprise-scoped installation for an Enterprise Grid DM", async () => {
+    mocks.getActiveIntegrationInstallationByKey.mockResolvedValueOnce(
+      managedSlackInstallation(),
+    );
+    mocks.resolveSlackBotTokenForIncoming.mockResolvedValueOnce(
+      "managed-token",
+    );
+    mocks.isOrgMember.mockResolvedValueOnce(true);
+    vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          user: { profile: { email: "alice@example.test" } },
+        }),
+      ),
+    );
+
+    await resolveDispatchExecutionContext(
+      slackIncoming({
+        senderId: "U-ENTERPRISE-ALICE",
+        triggerKind: "dm",
+        conversationType: "dm",
+        platformContext: {
+          teamId: "T-ENTERPRISE-WORKSPACE",
+          enterpriseId: "E-MANAGED",
+          isEnterpriseInstall: true,
+          apiAppId: "A-MANAGED",
+          channelId: "D-MANAGED",
+          channelType: "im",
+        },
+      }),
+    );
+
+    expect(mocks.getActiveIntegrationInstallationByKey).toHaveBeenCalledWith(
+      "slack",
+      "enterprise:E-MANAGED:app:A-MANAGED",
+    );
+  });
+
+  it("fails closed with retry guidance when managed installation lookup is unavailable", async () => {
+    vi.stubEnv("DISPATCH_DEFAULT_OWNER_EMAIL", "deployment-owner@example.test");
+    mocks.getActiveIntegrationInstallationByKey.mockRejectedValueOnce(
+      new Error("installation store unavailable"),
+    );
+    const incoming = slackIncoming({
+      senderId: "U-MANAGED-ALICE",
+      triggerKind: "dm",
+      conversationType: "dm",
+      platformContext: {
+        teamId: "T-MANAGED",
+        channelId: "D-MANAGED",
+        channelType: "im",
+      },
+    });
+
+    const execution = await resolveDispatchExecutionContext(incoming);
+
+    expect(execution.ownerEmail).toMatch(/@integration\.local$/);
+    expect(execution.ownerEmail).not.toBe("deployment-owner@example.test");
+    expect(execution.orgId).toBeNull();
+    await expect(beforeDispatchProcess(incoming, noopAdapter)).resolves.toEqual(
+      {
+        handled: true,
+        responseText:
+          "I couldn't verify your Slack identity just now, so I can't run this request. Please try again in a moment.",
+      },
+    );
+  });
+
+  it("fails closed with retry guidance when linked identity lookup is unavailable", async () => {
+    vi.stubEnv("DISPATCH_DEFAULT_OWNER_EMAIL", "deployment-owner@example.test");
+    mocks.getActiveIntegrationInstallationByKey.mockResolvedValueOnce(
+      managedSlackInstallation(),
+    );
+    mocks.resolveSlackBotTokenForIncoming.mockResolvedValueOnce(
+      "managed-token",
+    );
+    mocks.resolveLinkedOwner.mockRejectedValueOnce(
+      new Error("identity link store unavailable"),
+    );
+    vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          user: { profile: { email: "alice@example.test" } },
+        }),
+      ),
+    );
+    const incoming = slackIncoming({
+      senderId: "U-MANAGED-ALICE",
+      triggerKind: "dm",
+      conversationType: "dm",
+      platformContext: {
+        teamId: "T-MANAGED",
+        channelId: "D-MANAGED",
+        channelType: "im",
+      },
+    });
+
+    const execution = await resolveDispatchExecutionContext(incoming);
+
+    expect(execution.ownerEmail).toMatch(/@integration\.local$/);
+    expect(execution.ownerEmail).not.toBe("deployment-owner@example.test");
+    await expect(beforeDispatchProcess(incoming, noopAdapter)).resolves.toEqual(
+      {
+        handled: true,
+        responseText:
+          "I couldn't verify your Slack identity just now, so I can't run this request. Please try again in a moment.",
+      },
+    );
+  });
+
+  it("does not let a stale identity link override the verified Slack email", async () => {
+    mocks.getActiveIntegrationInstallationByKey.mockResolvedValueOnce(
+      managedSlackInstallation(),
+    );
+    mocks.resolveSlackBotTokenForIncoming.mockResolvedValueOnce(
+      "managed-token",
+    );
+    mocks.resolveLinkedOwner.mockResolvedValueOnce("stale@example.test");
+    mocks.isOrgMember.mockImplementation(
+      async (_orgId, email) => email === "current@example.test",
+    );
+    vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          user: { profile: { email: "current@example.test" } },
+        }),
+      ),
+    );
+    const incoming = slackIncoming({
+      senderId: "U-MANAGED-MEMBER",
+      triggerKind: "dm",
+      conversationType: "dm",
+      platformContext: {
+        teamId: "T-MANAGED",
+        channelId: "D-MANAGED",
+        channelType: "im",
+      },
+    });
+
+    await expect(
+      resolveDispatchExecutionContext(incoming),
+    ).resolves.toMatchObject({
+      ownerEmail: "current@example.test",
+      orgId: "org-managed",
+      principalType: "user",
+    });
+    expect(mocks.isOrgMember).not.toHaveBeenCalledWith(
+      "org-managed",
+      "stale@example.test",
+    );
+  });
+
+  it("does not borrow a user principal when managed channel installation lookup is unavailable", async () => {
+    vi.stubEnv("DISPATCH_DEFAULT_OWNER_EMAIL", "deployment-owner@example.test");
+    mocks.getActiveIntegrationInstallationByKey.mockRejectedValueOnce(
+      new Error("installation store unavailable"),
+    );
+
+    await expect(
+      resolveDispatchExecutionContext(
+        slackIncoming({
+          senderId: "U-MANAGED-ALICE",
+          triggerKind: "mention",
+          conversationType: "channel",
+          platformContext: {
+            teamId: "T-MANAGED",
+            channelId: "C-MANAGED",
+            channelType: "channel",
+          },
+        }),
+      ),
+    ).rejects.toThrow(
+      "Managed Slack installation identity is temporarily unavailable",
+    );
+    expect(mocks.resolveLinkedOwner).not.toHaveBeenCalled();
+  });
+
+  it("uses the verified member in the installation org and ignores the deployment default", async () => {
+    vi.stubEnv("DISPATCH_DEFAULT_OWNER_EMAIL", "deployment-owner@example.test");
+    mocks.getActiveIntegrationInstallationByKey.mockResolvedValueOnce(
+      managedSlackInstallation(),
+    );
+    mocks.resolveSlackBotTokenForIncoming.mockResolvedValueOnce(
+      "managed-token",
+    );
+    mocks.isOrgMember.mockResolvedValueOnce(true);
+    vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          user: {
+            profile: {
+              email: "ALICE@EXAMPLE.TEST",
+              display_name: "Alice",
+            },
+          },
+        }),
+      ),
+    );
+    const incoming = slackIncoming({
+      senderId: "U-MANAGED-ALICE",
+      triggerKind: "dm",
+      conversationType: "dm",
+      platformContext: {
+        teamId: "T-MANAGED",
+        channelId: "D-MANAGED",
+        channelType: "im",
+      },
+    });
+
+    await expect(resolveDispatchExecutionContext(incoming)).resolves.toEqual({
+      ownerEmail: "alice@example.test",
+      orgId: "org-managed",
+      principalType: "user",
+      installationId: "installation-managed",
+    });
+    expect(mocks.isOrgMember).toHaveBeenCalledWith(
+      "org-managed",
+      "alice@example.test",
+    );
+    expect(incoming.senderVerified).toBe(true);
+    expect(incoming.actorTrust).toEqual({
+      memberType: "member",
+      verified: true,
+    });
+  });
+
+  it("fails closed instead of borrowing the deployment owner when Slack hydration fails", async () => {
+    vi.stubEnv("DISPATCH_DEFAULT_OWNER_EMAIL", "deployment-owner@example.test");
+    mocks.getActiveIntegrationInstallationByKey.mockResolvedValueOnce(
+      managedSlackInstallation(),
+    );
+    mocks.resolveSlackBotTokenForIncoming.mockResolvedValueOnce(
+      "managed-token",
+    );
+    vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: false })),
+    );
+    const incoming = slackIncoming({
+      senderId: "U-MANAGED-UNKNOWN",
+      triggerKind: "dm",
+      conversationType: "dm",
+      platformContext: {
+        teamId: "T-MANAGED",
+        channelId: "D-MANAGED",
+        channelType: "im",
+      },
+    });
+
+    const execution = await resolveDispatchExecutionContext(incoming);
+    expect(execution.ownerEmail).toMatch(/@integration\.local$/);
+    expect(execution.ownerEmail).not.toBe("deployment-owner@example.test");
+    expect(execution.orgId).toBeNull();
+    await expect(beforeDispatchProcess(incoming, noopAdapter)).resolves.toEqual(
+      {
+        handled: true,
+        responseText:
+          "I couldn't verify your Slack identity just now, so I can't run this request. Please try again in a moment.",
+      },
+    );
+  });
+
+  it("requires an explicit link when the verified identity is outside the installation org", async () => {
+    vi.stubEnv("APP_URL", "https://dispatch.agent-native.test");
+    vi.stubEnv("DISPATCH_DEFAULT_OWNER_EMAIL", "deployment-owner@example.test");
+    mocks.getActiveIntegrationInstallationByKey.mockResolvedValueOnce(
+      managedSlackInstallation(),
+    );
+    mocks.resolveSlackBotTokenForIncoming.mockResolvedValueOnce(
+      "managed-token",
+    );
+    mocks.isOrgMember.mockResolvedValueOnce(false);
+    vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          user: { profile: { email: "outside@example.test" } },
+        }),
+      ),
+    );
+    const incoming = slackIncoming({
+      senderId: "U-MANAGED-OUTSIDE",
+      triggerKind: "dm",
+      conversationType: "dm",
+      platformContext: {
+        teamId: "T-MANAGED",
+        channelId: "D-MANAGED",
+        channelType: "im",
+      },
+    });
+
+    const execution = await resolveDispatchExecutionContext(incoming);
+    expect(execution.ownerEmail).toMatch(/@integration\.local$/);
+    expect(execution.ownerEmail).not.toBe("deployment-owner@example.test");
+    await expect(beforeDispatchProcess(incoming, noopAdapter)).resolves.toEqual(
+      {
+        handled: true,
+        responseText:
+          "Agent Native is ready, but this Slack account is not linked to an Agent Native user yet. Open https://dispatch.agent-native.test/identities, create a Slack link token, then send `/link <token>` in this DM.",
+      },
+    );
+  });
+
+  it("uses an explicitly linked in-org owner when the verified Slack email is outside the org", async () => {
+    mocks.getActiveIntegrationInstallationByKey.mockResolvedValueOnce(
+      managedSlackInstallation(),
+    );
+    mocks.resolveSlackBotTokenForIncoming.mockResolvedValueOnce(
+      "managed-token",
+    );
+    mocks.resolveLinkedOwner.mockResolvedValueOnce("member@example.test");
+    mocks.isOrgMember.mockImplementation(
+      async (_orgId, email) => email === "member@example.test",
+    );
+    vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          user: { profile: { email: "outside@example.test" } },
+        }),
+      ),
+    );
+    const incoming = slackIncoming({
+      senderId: "U-MANAGED-LINKED",
+      triggerKind: "dm",
+      conversationType: "dm",
+      platformContext: {
+        teamId: "T-MANAGED",
+        channelId: "D-MANAGED",
+        channelType: "im",
+      },
+    });
+
+    await expect(
+      resolveDispatchExecutionContext(incoming),
+    ).resolves.toMatchObject({
+      ownerEmail: "member@example.test",
+      orgId: "org-managed",
+      principalType: "user",
+    });
+    expect(mocks.isOrgMember).toHaveBeenNthCalledWith(
+      1,
+      "org-managed",
+      "outside@example.test",
+    );
+    expect(mocks.isOrgMember).toHaveBeenNthCalledWith(
+      2,
+      "org-managed",
+      "member@example.test",
+    );
+  });
+
+  it("denies a Slack Connect stranger before linked-owner resolution", async () => {
+    mocks.getActiveIntegrationInstallationByKey.mockResolvedValueOnce(
+      managedSlackInstallation(),
+    );
+    mocks.resolveSlackBotTokenForIncoming.mockResolvedValueOnce(
+      "managed-token",
+    );
+    mocks.resolveLinkedOwner.mockResolvedValueOnce("member@example.test");
+    mocks.isOrgMember.mockResolvedValueOnce(true);
+    vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          user: {
+            is_stranger: true,
+            profile: { email: "stranger@example.test" },
+          },
+        }),
+      ),
+    );
+    const incoming = slackIncoming({
+      senderId: "U-SLACK-CONNECT-STRANGER",
+      triggerKind: "dm",
+      conversationType: "dm",
+      platformContext: {
+        teamId: "T-MANAGED",
+        channelId: "D-MANAGED",
+        channelType: "im",
+      },
+    });
+
+    const execution = await resolveDispatchExecutionContext(incoming);
+    expect(execution.orgId).toBeNull();
+    await expect(beforeDispatchProcess(incoming, noopAdapter)).resolves.toEqual(
+      {
+        handled: true,
+        responseText:
+          "This assistant is only available to members of this workspace's organization.",
+      },
+    );
+    expect(mocks.resolveLinkedOwner).not.toHaveBeenCalled();
+    expect(mocks.isOrgMember).not.toHaveBeenCalled();
+  });
+
+  it("keeps a managed channel on its service principal even when Alice is verified", async () => {
+    mocks.getActiveIntegrationInstallationByKey.mockResolvedValueOnce(
+      managedSlackInstallation(),
+    );
+    mocks.resolveSlackBotTokenForIncoming.mockResolvedValue("managed-token");
+    mocks.getIntegrationScope.mockResolvedValueOnce({
+      id: "scope-managed-channel",
+      serviceOwnerEmail: "scope-managed-channel@integration.local",
+      orgId: "org-managed",
+      defaultModel: null,
+    });
+    vi.mocked(globalThis.fetch)
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            user: {
+              profile: {
+                email: "alice@example.test",
+                display_name: "Alice",
+              },
+            },
+          }),
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ ok: true, channel: { is_ext_shared: false } }),
+        ),
+      );
+
+    const execution = await resolveDispatchExecutionContext(
+      slackIncoming({
+        senderId: "U-MANAGED-ALICE",
+        triggerKind: "mention",
+        conversationType: "channel",
+        platformContext: {
+          teamId: "T-MANAGED",
+          channelId: "C-MANAGED",
+          channelType: "channel",
+        },
+      }),
+    );
+
+    expect(execution).toEqual({
+      ownerEmail: "scope-managed-channel@integration.local",
+      orgId: "org-managed",
+      principalType: "service",
+      installationId: "installation-managed",
+      scopeId: "scope-managed-channel",
+    });
+    expect(execution.ownerEmail).not.toBe("alice@example.test");
+    expect(mocks.isOrgMember).not.toHaveBeenCalled();
   });
 });

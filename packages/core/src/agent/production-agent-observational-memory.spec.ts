@@ -14,6 +14,8 @@
  */
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
+import { runWithRequestContext } from "../server/request-context.js";
+
 // Mock run-store so DB is never touched.
 vi.mock("./run-store.js", () => ({
   writeLedgerEntry: vi.fn(async () => {}),
@@ -154,6 +156,41 @@ describe("observational memory wiring", () => {
     const arg = maybeCompactThreadMock.mock.calls[0][0] as any;
     expect(arg.threadId).toBe("thread-om");
     expect(arg.ownerEmail).toBe("alice@example.com");
+  });
+
+  it("registers compaction with the platform keep-alive when one exists", async () => {
+    // The pass starts AFTER the turn's `done` event and must finish a streaming
+    // model call before it writes. On a host that freezes the isolate once the
+    // response settles, an unregistered promise is killed and the thread never
+    // accrues the memory that would have spared the next turn.
+    const kept: Promise<unknown>[] = [];
+    const captured: EngineMessage[][] = [];
+    await runWithRequestContext(
+      {
+        userEmail: "alice@example.com",
+        run: { waitUntil: (p: Promise<unknown>) => kept.push(p) },
+      } as any,
+      () =>
+        runAgentLoop({
+          engine: recordingEngine(captured),
+          model: "test-model",
+          systemPrompt: "system",
+          tools: [],
+          messages: [...baseMessages],
+          actions: {},
+          send: () => {},
+          signal: new AbortController().signal,
+          threadId: "thread-om-waituntil",
+          ownerEmail: "alice@example.com",
+        }),
+    );
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(maybeCompactThreadMock).toHaveBeenCalledTimes(1);
+    expect(kept).toHaveLength(1);
+    await expect(kept[0]).resolves.not.toThrow();
   });
 
   it("does NOT run compaction when there is no threadId", async () => {

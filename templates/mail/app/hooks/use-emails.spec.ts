@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import type { EmailMessage } from "@shared/types";
 import { describe, expect, it, afterEach, vi } from "vitest";
 
@@ -25,6 +27,10 @@ function makeEmail(id: string, threadId: string): EmailMessage {
     isTrashed: false,
     labelIds: ["inbox"],
   };
+}
+
+function emailsHookSource(): string {
+  return readFileSync(new URL("./use-emails.ts", import.meta.url), "utf8");
 }
 
 describe("filterSuppressedThreads", () => {
@@ -85,5 +91,14 @@ describe("consumeExternalEmailRefresh", () => {
     vi.advanceTimersByTime(5000);
 
     expect(consumeExternalEmailRefresh()).toBeUndefined();
+  });
+});
+
+describe("useLabels", () => {
+  it("keeps the last label data during a failed refresh", () => {
+    const source = emailsHookSource();
+
+    expect(source).toContain("placeholderData: (previousData) => previousData");
+    expect(source).toContain("export const EMPTY_LABELS: Label[] = [];");
   });
 });

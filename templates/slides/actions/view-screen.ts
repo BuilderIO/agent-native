@@ -8,6 +8,7 @@ import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { normalizeOwnerEmail } from "../shared/ownership.js";
 import { hashSlideContent, type DeckFitState } from "../shared/slide-fit.js";
 import { readAppStateForCurrentTab } from "./_tab-state.js";
 
@@ -369,11 +370,14 @@ export default defineAction({
       .where(accessFilter(schema.decks, schema.deckShares))
       .orderBy(desc(schema.decks.updatedAt));
 
-    const userEmail = getRequestUserEmail();
+    const normalizedUserEmail = normalizeOwnerEmail(getRequestUserEmail());
     const filteredRows =
       navigation?.deckFilter === "created-by-me"
-        ? userEmail
-          ? rows.filter((row) => row.ownerEmail === userEmail)
+        ? normalizedUserEmail !== null
+          ? rows.filter(
+              (row) =>
+                normalizeOwnerEmail(row.ownerEmail) === normalizedUserEmail,
+            )
           : []
         : rows;
     const lines: string[] = [];

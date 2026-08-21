@@ -789,6 +789,21 @@ describe("verifyA2AToken (exported)", () => {
     expect(result).toEqual({ email: "alice@builder.io", orgDomain: null });
   });
 
+  it("returns an exact org id claim without changing legacy token results", async () => {
+    process.env.A2A_SECRET = "shared-global-secret";
+    const { verifyA2AToken } = await import("./server.js");
+    const token = await signToken("shared-global-secret", {
+      sub: "alice@builder.io",
+      org_id: "org-builder",
+    });
+
+    await expect(verifyA2AToken(token)).resolves.toEqual({
+      email: "alice@builder.io",
+      orgDomain: null,
+      orgId: "org-builder",
+    });
+  });
+
   it("binds a path-mounted receiver to its app base path", async () => {
     process.env.A2A_SECRET = "shared-global-secret";
     process.env.APP_URL = "https://workspace.example/dispatch";

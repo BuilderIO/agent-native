@@ -395,6 +395,9 @@ const messages = {
     aiNotes: "AIメモ",
     summary: "要約",
     actionItems: "アクションアイテム",
+    addActionItem: "アクション項目を追加",
+    removeActionItem: "アクション項目を削除",
+    actionItemPlaceholder: "何をする必要がありますか？",
     working: "働く…",
     noActionItems:
       "まだアクションアイテムはありません。これらは、トランスクリプトからメモが生成された後にここに表示されます。",
@@ -626,12 +629,17 @@ const messages = {
     alsoFor: "{{platform}}でもご利用いただけます",
     backToLibrary: "ライブラリに戻る",
     clipsDesktop: "Clips Desktop",
+    stable: "安定版",
+    nightly: "Nightly",
+    switchToNightly: "Nightly ビルドに切り替え",
+    switchToStable: "安定版ビルドに切り替え",
+    retry: "再試行",
     heroDescription:
       "画面、カメラ、画面+カメラのメニューバーレコーダー。ワンクリックで開始、ドラッグ可能なカメラバブル、停止時のインスタント共有リンク。",
     versionReleased: "バージョン {{version}} — リリースされた {{date}}",
     version: "バージョン{{version}}",
     manifestError:
-      "リリース マニフェストを読み込めませんでした。リリース ページからインストーラーを選択してください。",
+      "リリース マニフェストを読み込めませんでした。もう一度お試しください。",
     loadingRelease: "最新リリースを読み込んでいます…",
     chromeTitle: "ブラウザログ用のChrome拡張子",
     chromeDescription:
@@ -695,15 +703,6 @@ const messages = {
     viewAllUpdates: "すべての更新を見る",
     expand: "展開",
     collapse: "折りたたむ",
-    changelogMarkdown: `# 変更履歴
-
-Clips のユーザー向けの主な変更はここに記録されます。コマンドメニュー（Cmd K -> "最新情報"）または設定からいつでも開けます。
-
-## 2026-06-23
-
-### 追加
-
-- Clips 内で最新情報を直接確認できるようになりました。変更履歴はコマンドメニュー（Cmd K）と設定にあります。`,
     playback: "再生",
     defaultPlaybackSpeed: "デフォルト再生速度",
     playbackDescription: "録画を開いたときに自動的に適用されます。",
@@ -990,7 +989,7 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
   commentsPanel: {
     disabled: "この録画ではコメントが無効です。",
     beFirst: "最初にコメントする",
-    leaveNotePanel: "このパネルの上部にメモを残します。",
+    leaveNotePanel: "このパネルの下部にメモを残します。",
     leaveNoteTimestamp: "現在のタイムスタンプにメモを残します。",
     leaveComment: "コメントを残す...",
     signInToComment: "コメントするにはサインインしてください。",
@@ -1047,8 +1046,13 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     pauseShortcut: "一時停止 (⌥⇧P)",
     stop: "録画を停止",
     elapsed: "経過時間",
-    cancel: "録画をキャンセル",
-    cancelShortcut: "キャンセル (⌥⇧C)",
+    cancel: "録画を破棄",
+    cancelShortcut: "破棄 (⌥⇧C)",
+    discardConfirmTitle: "この録画を破棄しますか?",
+    discardConfirmDescription:
+      "この操作は元に戻せません。これまでの録画内容は完全に削除されます。",
+    resume: "再開",
+    discardRecording: "録画を破棄",
   },
   countdownOverlay: {
     startsIn: "録画は {{count}} で開始します",
@@ -1131,6 +1135,7 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
       "ノートが始まるとライブ文字起こしがここに表示されます。",
     me: "自分",
     them: "相手",
+    unknownSpeaker: "話者",
     searchTranscript: "文字起こしを検索",
     searchPlaceholder: "文字起こしを検索…",
     searchMatchCount: "{{total}} 件中 {{current}} 件目",
@@ -1252,7 +1257,7 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     seekTo: "Seek to {{time}} (ローカライズ済み)",
   },
   editorToolbar: {
-    undoTooltip: "Undo (Cmd/Ctrl Z) (ローカライズ済み)",
+    undoTooltip: "Undo (Cmd/Ctrl+Z) (ローカライズ済み)",
     playPauseTooltip: "Play / Pause (Space) (ローカライズ済み)",
     sourceDuration: "({{duration}} src) (ローカライズ済み)",
     previewSpeed: "Preview speed (ローカライズ済み)",
@@ -1346,10 +1351,11 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     cameraOff: "Camera off (ローカライズ済み)",
     includeCameraAria: "Include camera in this recording (ローカライズ済み)",
     startRecording: "Start recording (ローカライズ済み)",
-    micOffConfirmTitle: "Record without a microphone? (ローカライズ済み)",
+    micOffConfirmTitle: "マイクがミュートされています",
     micOffConfirmDescription:
-      "Your mic is off, so this recording won't capture any audio. Turn it on before starting if you want narration. (ローカライズ済み)",
-    startWithoutMic: "Start anyway (ローカライズ済み)",
+      "動画に音声を入れるには、マイクのミュートを解除してください。",
+    startWithoutMic: "続ける",
+    unmuteMicrophone: "ミュートを解除",
     uploadVideo: "Upload video (ローカライズ済み)",
     importLoom: "Import Loom (ローカライズ済み)",
     importing: "Importing... (ローカライズ済み)",
@@ -1434,6 +1440,10 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
       "次の画面でストレージを接続してください: Builder.io (無料プランのストレージ + AI) または S3 互換ストレージ。Clips が保存を完了します。",
     connectStorageToRetryLoom:
       "次の画面でストレージを接続してください: Builder.io (無料プランのストレージ + AI) または S3 互換ストレージ。Clips がインポートを再試行します。",
+    leaveConfirmTitle: "このページを離れて録画を破棄しますか?",
+    leaveConfirmDescription:
+      "録画中のデータはまだ保存が完了していません。今このページを離れると破棄されます。",
+    leaveAndDiscard: "離れて破棄する",
   },
   importRoute: {
     pageTitle: "Loom をインポート — Clips",
@@ -1633,7 +1643,15 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     title: "Meetings (ローカライズ済み)",
     intro:
       "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time. (ローカライズ済み)",
-    searchPlaceholder: "Search meetings... (ローカライズ済み)",
+    searchPlaceholder:
+      "Search meetings, attendees, and transcripts... (ローカライズ済み)",
+    agendaTab: "Agenda (ローカライズ済み)",
+    pastTab: "Past (ローカライズ済み)",
+    now: "Now (ローカライズ済み)",
+    noPastMeetings: "No past meetings yet (ローカライズ済み)",
+    loadOlder: "Load older (ローカライズ済み)",
+    searchFailed:
+      "Couldn't search meetings. Try again in a moment. (ローカライズ済み)",
     clearSearch: "Clear search (ローカライズ済み)",
     noMeetingsYet: "No meetings yet (ローカライズ済み)",
     noMeetingsDescription:

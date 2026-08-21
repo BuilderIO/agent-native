@@ -42,6 +42,39 @@ describe("buildDispatchNavigationState", () => {
     });
   });
 
+  it("keeps the embedded app identity on workspace app routes", () => {
+    expect(buildDispatchNavigationState("/apps/mail")).toEqual({
+      view: "workspace-app",
+      path: "/apps/mail",
+      workspaceAppId: "mail",
+      workspaceAppPath: "/",
+    });
+    expect(buildDispatchNavigationState("/apps/mail/inbox")).toEqual({
+      view: "workspace-app",
+      path: "/apps/mail/inbox",
+      workspaceAppId: "mail",
+      workspaceAppPath: "/inbox",
+    });
+  });
+
+  it("still treats the apps index as the list", () => {
+    expect(buildDispatchNavigationState("/apps")).toEqual({
+      view: "apps",
+      path: "/apps",
+    });
+    expect(buildDispatchNavigationState("/apps/")).toEqual({
+      view: "apps",
+      path: "/apps/",
+    });
+  });
+
+  it("reports an undecodable app route as a workspace app with no id", () => {
+    expect(buildDispatchNavigationState("/apps/%E0%A4%A")).toEqual({
+      view: "workspace-app",
+      path: "/apps/%E0%A4%A",
+    });
+  });
+
   it("preserves dreams query context", () => {
     expect(
       buildDispatchNavigationState(

@@ -95,5 +95,5 @@ templates/design/app/components/design/edit-panel/effects-properties.tsx|, eleme
 templates/design/app/components/design/multi-screen/screen-content-cache.ts|, existingScreenIds: ReadonlySet
 templates/design/app/components/design/multi-screen/screen-content-cache.ts|, liveScreenIds: ReadonlySet
 templates/design/app/pages/DesignEditor.tsx|Could not open component source
-templates/design/app/pages/DesignEditor.tsx|Migration failed
+templates/design/app/pages/design-editor/commands/confirm-make-real.ts|Migration failed
 templates/design/app/pages/design-editor/pending-edits.ts|, primaryInfo?: Pick

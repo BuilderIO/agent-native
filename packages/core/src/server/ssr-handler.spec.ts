@@ -4,6 +4,7 @@ import {
   DEFAULT_SSR_CACHE_CONTROL,
   DEFAULT_SSR_CDN_CACHE_CONTROL,
   DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL,
+  SSR_QUERY_CACHE_KEY_HEADER,
 } from "../shared/cache-control.js";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
@@ -86,6 +87,11 @@ describe("createH3SSRHandler", () => {
     delete process.env.SENTRY_CLIENT_DSN;
     delete process.env.SENTRY_DSN;
     delete process.env.SENTRY_ENVIRONMENT;
+    delete process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT;
+    delete process.env.CONTEXT;
+    delete process.env.NETLIFY_CONTEXT;
+    delete process.env.BRANCH;
+    delete process.env.VERCEL_ENV;
     delete process.env.AGENT_NATIVE_SSR_CACHE;
     delete process.env.NETLIFY;
     delete process.env.NETLIFY_LOCAL;
@@ -280,6 +286,44 @@ describe("createH3SSRHandler", () => {
     const response = await handler(createEvent("/"));
 
     expect(response.headers.get("netlify-vary")).toBe("query=_routes|index");
+  });
+
+  it("preserves full Netlify query variation for marked public redirects", async () => {
+    process.env.SITE_ID = "site-test";
+    mocks.requestHandler.mockResolvedValueOnce(
+      new Response(null, {
+        status: 302,
+        headers: {
+          [SSR_QUERY_CACHE_KEY_HEADER]: "query",
+          "content-type": "text/html; charset=utf-8",
+          location: "/library?from=home",
+        },
+      }),
+    );
+    const handler = createH3SSRHandler(() => ({})) as any;
+
+    const response = await handler(createEvent("/?from=home"));
+
+    expect(response.headers.get("netlify-vary")).toBe("query");
+    expect(response.headers.get(SSR_QUERY_CACHE_KEY_HEADER)).toBeNull();
+  });
+
+  it("does not expose the internal query variation marker outside Netlify", async () => {
+    mocks.requestHandler.mockResolvedValueOnce(
+      new Response(null, {
+        status: 302,
+        headers: {
+          [SSR_QUERY_CACHE_KEY_HEADER]: "query",
+          "content-type": "text/html; charset=utf-8",
+        },
+      }),
+    );
+    const handler = createH3SSRHandler(() => ({})) as any;
+
+    const response = await handler(createEvent("/?from=home"));
+
+    expect(response.headers.get("netlify-vary")).toBeNull();
+    expect(response.headers.get(SSR_QUERY_CACHE_KEY_HEADER)).toBeNull();
   });
 
   it("prefixes the default Speculation-Rules header under APP_BASE_PATH", async () => {
@@ -838,6 +882,28 @@ describe("createH3SSRHandler", () => {
     expect(html).toContain("data-agent-native-sentry-config");
     expect(html).toContain("https://public@example/4511270423822336");
     expect(html).toContain('"sentryEnvironment":"production"');
+    expect(html).toContain('"deploymentEnvironment":"production"');
+  });
+
+  it("injects deployment attribution without browser Sentry", async () => {
+    process.env.CONTEXT = "deploy-preview";
+    process.env.NETLIFY_CONTEXT = "production";
+    process.env.BRANCH = "feature/auth";
+    process.env.SENTRY_DSN = "";
+    process.env.SENTRY_CLIENT_DSN = "";
+    mocks.requestHandler.mockResolvedValueOnce(
+      new Response("<html><head></head><body>ok</body></html>", {
+        headers: { "content-type": "text/html; charset=utf-8" },
+      }),
+    );
+    const handler = createH3SSRHandler(() => ({})) as any;
+
+    const response = await handler(createEvent("/"));
+    const html = await response.text();
+
+    expect(html).toContain("data-agent-native-sentry-config");
+    expect(html).toContain('"deploymentEnvironment":"preview"');
+    expect(html).not.toContain("sentryDsn");
   });
 
   it("prefixes mounted SSR redirects", async () => {

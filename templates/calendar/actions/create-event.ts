@@ -22,6 +22,7 @@ import {
   ensureOrganizerInAttendees,
   normalizeAttendees,
   normalizeCreateEventInput,
+  normalizeRecurrence,
   resolveOwnedAccountEmail,
   reminderMethodInput,
   reminderMinutesInput,
@@ -37,7 +38,9 @@ export default defineAction({
     title: z
       .string()
       .optional()
-      .describe("Event title. Defaults to 'Out of office' for OOO events."),
+      .describe(
+        "Event title. Defaults to 'Out of office' for OOO events. Working-location events use Google's generated display title and do not require one.",
+      ),
     start: z
       .string()
       .describe(
@@ -46,7 +49,7 @@ export default defineAction({
     end: z
       .string()
       .describe(
-        "End time in ISO format, or the last inclusive YYYY-MM-DD date for a full-day OOO event.",
+        "End time in ISO format, the last inclusive YYYY-MM-DD date for a full-day OOO event, or the exclusive YYYY-MM-DD date for an all-day working-location event.",
       ),
     startTimeZone: z
       .string()
@@ -97,9 +100,11 @@ export default defineAction({
       "Google Calendar event color id, 1 through 11.",
     ),
     recurrence: z
-      .array(z.string())
+      .union([z.string(), z.array(z.string())])
       .optional()
-      .describe("Google recurrence rules such as RRULE:FREQ=WEEKLY;BYDAY=MO."),
+      .describe(
+        "Google recurrence rules, such as RRULE:FREQ=DAILY. Pass an empty string or [] for a non-recurring event.",
+      ),
     reminderMinutes: reminderMinutesInput.describe(
       "Convenience field for a single reminder in minutes before the event.",
     ),
@@ -174,6 +179,7 @@ export default defineAction({
       reminderMethod: args.reminderMethod,
       useDefaultReminders: args.remindersUseDefault,
     });
+    const recurrence = normalizeRecurrence(args.recurrence);
     const statusEventFields = buildStatusEventFields({
       eventType: args.eventType,
       title: normalized.title,
@@ -202,7 +208,7 @@ export default defineAction({
       attendees,
       attachments: args.attachments,
       colorId: args.colorId,
-      recurrence: args.recurrence,
+      ...(recurrence && recurrence.length > 0 ? { recurrence } : {}),
       ...reminderFields,
       ...statusEventFields,
       createdAt: new Date().toISOString(),

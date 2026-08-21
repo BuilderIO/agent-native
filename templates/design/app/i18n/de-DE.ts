@@ -6,6 +6,11 @@ const messages = {
     ...messagesByLocale["de-DE"].designEditor,
     commenterRoleLabel: "Kommentator",
     commenterRoleDescription: "Kann ansehen und Prüfkommentare hinzufügen",
+    toasts: {
+      ...messagesByLocale["de-DE"].designEditor.toasts,
+      pdfExportError: "PDF konnte nicht exportiert werden",
+      pdfDownloaded: "PDF heruntergeladen",
+    },
     nodeRewrite: {
       composerTitle: "Auswahl fragen oder ändern",
       send: "Senden",

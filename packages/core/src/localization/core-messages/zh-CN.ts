@@ -27,6 +27,12 @@ const messages: AgentChatTranslation = {
   "commands.mention": "提及文件、智能体或资源",
   "commands.new": "与 /clear 相同",
   "commands.plan": "切换到只读规划模式",
+  "aboutAgentNative.title": "关于 Agent Native",
+  "aboutAgentNative.version": "版本",
+  "aboutAgentNative.environment": "环境",
+  "aboutAgentNative.build": "构建",
+  "aboutAgentNative.copyDiagnostics": "复制诊断信息",
+  "aboutAgentNative.unknown": "未知",
   "common.agent": "智能体",
   "common.cancel": "取消",
   "common.collapse": "收起",
@@ -262,6 +268,8 @@ const messages: AgentChatTranslation = {
   "errorMessages.builderModelUnauthorized":
     "此模型背后的提供商拒绝了请求。请选择其他模型后重试。",
   "errorMessages.errorPrefix": "错误：{{message}}",
+  "errorMessages.gatewayInternalError":
+    "模型网关在智能体作答前发生内部错误。请稍后重试；如果持续出现，请提供下方的错误 ID。",
   "errorMessages.gatewayNoDetails":
     "模型网关未返回错误详情，聊天无法恢复。请稍等片刻后重试；如果问题持续出现，请开始新聊天。",
   "errorMessages.inactivityTimeout":
@@ -282,10 +290,14 @@ const messages: AgentChatTranslation = {
   "errorMessages.startNewChat": "开始新聊天",
   "errorMessages.upgradeAtBuilder": "在 Builder.io 升级",
   "feedback.inaccurate": "不准确",
+  "feedback.keyboardHint": "{{shortcut}} Enter 发送",
   "feedback.notHelpful": "没有帮助",
+  "feedback.placeholder": "告诉我们哪里出了问题……",
+  "feedback.submit": "提交",
   "feedback.thumbsDown": "不喜欢",
   "feedback.thumbsUp": "喜欢",
   "feedback.tooSlow": "太慢",
+  "feedback.whatWentWrong": "哪里出了问题？",
   "feedback.wrongTool": "工具错误",
   "header.switchToCli": "切换到 CLI",
   "history.active": "活跃",
@@ -327,6 +339,8 @@ const messages: AgentChatTranslation = {
   "message.restoreFailed": "恢复失败（{{status}}）。",
   "message.restoreQuestion": "恢复到此处？",
   "message.restoreRequestFailed": "恢复请求失败。",
+  "message.threadNotFound":
+    "此聊天线程已不可用。请开始新聊天；如果这是意外情况，也可以重试。",
   "message.restoring": "正在恢复...",
   "message.revertHere": "还原到此处",
   "message.sentAt": "发送于 {{time}}",
@@ -493,6 +507,7 @@ const messages: AgentChatTranslation = {
   "share.unknownPerson": "未知人员",
   "share.viewer": "查看者",
   "share.viewerDescription": "可以查看",
+  "share.userGroup": "用户组",
   "status.resuming": "正在恢复",
   "status.stillWorking": "仍在处理",
   "status.thinking": "正在思考",

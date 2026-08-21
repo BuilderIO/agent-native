@@ -7,6 +7,7 @@ export const EXTENSION_FRAME_ANCESTORS = [
   "'self'",
   "https://agent-native.com",
   "https://*.agent-native.com",
+  "https://agent-workspace.builder.io",
   "http://localhost:*",
   "http://127.0.0.1:*",
   "https://*.claudemcpcontent.com",

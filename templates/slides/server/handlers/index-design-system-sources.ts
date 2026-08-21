@@ -1,12 +1,14 @@
 import {
   FeatureNotConfiguredError,
-  getSession,
   indexBuilderDesignSystem,
 } from "@agent-native/core/server";
 import { defineEventHandler, readBody, setResponseStatus } from "h3";
 
 import { upsertBuilderProxyDesignSystem } from "../lib/builder-design-system-proxy.js";
-import { withSlidesRequestContext } from "./request-auth-context.js";
+import {
+  resolveSlidesRequestAuth,
+  withSlidesRequestContext,
+} from "./request-auth-context.js";
 
 /**
  * Finalizes Builder DSI indexing from upload tokens produced by the
@@ -14,8 +16,14 @@ import { withSlidesRequestContext } from "./request-auth-context.js";
  * storage; this endpoint only forwards the opaque tokens.
  */
 export const indexDesignSystemSources = defineEventHandler(async (event) => {
-  const session = await getSession(event).catch(() => null);
-  if (!session?.email) {
+  const auth = await resolveSlidesRequestAuth(event);
+  if (!auth.ok) {
+    setResponseStatus(event, auth.statusCode);
+    return { error: auth.error };
+  }
+  const session = auth.context;
+  const sessionEmail = session.email;
+  if (!sessionEmail) {
     setResponseStatus(event, 401);
     return { error: "Unauthorized" };
   }
@@ -45,21 +53,28 @@ export const indexDesignSystemSources = defineEventHandler(async (event) => {
   }));
 
   try {
-    return await withSlidesRequestContext(event, async ({ email, orgId }) => {
-      const result = await indexBuilderDesignSystem({ sources, projectName });
-      const proxy = await upsertBuilderProxyDesignSystem({
-        result,
-        ownerEmail: email ?? session.email,
-        orgId: orgId ?? null,
-        projectName,
-        sourceKind: "figma",
-      });
-      return {
-        ...result,
-        ...proxy,
-        uploadedFileCount: uploadTokens.length,
-      };
-    });
+    return await withSlidesRequestContext(
+      event,
+      async ({ email, orgId }) => {
+        const result = await indexBuilderDesignSystem({
+          sources,
+          projectName,
+        });
+        const proxy = await upsertBuilderProxyDesignSystem({
+          result,
+          ownerEmail: email ?? sessionEmail,
+          orgId: orgId ?? null,
+          projectName,
+          sourceKind: "figma",
+        });
+        return {
+          ...result,
+          ...proxy,
+          uploadedFileCount: uploadTokens.length,
+        };
+      },
+      session,
+    );
   } catch (err) {
     if (err instanceof FeatureNotConfiguredError) {
       setResponseStatus(event, 412);

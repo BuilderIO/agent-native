@@ -29,6 +29,11 @@ A few are entry points rather than area guides:
   moment you are tempted to stop and ask. Chasing status is the single most
   frequent correction in this repo.
 - `concurrent-agents` — read before working in a shared checkout.
+- `ship` — normal guarded ship through merge and branch rotation; beta and docs
+  production deploys are automatic, while other production promotion is manual.
+- `ship-and-monitor` — read when the normal ship flow also needs post-merge
+  beta/release monitoring or explicit production-promotion verification.
+- `ship-now` — fast admin-merge path with post-merge monitoring.
 
 Spawning a read-only investigator? Use `/sidecar <task>` instead of retyping the
 contract.
@@ -44,6 +49,27 @@ contract.
 - Never add `Co-Authored-By` or other agent attribution to commits.
 - PRs use the current branch unless the user explicitly requests a new branch.
   PRs are ready for review by default, not drafts, unless requested.
+- Deployment split: `.github/workflows/deploy-beta-sites-prebuilt.yml` is the
+  sole automatic beta publisher. It builds in GitHub Actions and uploads
+  prebuilt artifacts to the independent Netlify beta sites at
+  `beta.*.agent-native.com`; Netlify Git-connected auto-builds are disabled.
+  Do not wait for Netlify build queues or deploy-preview checks. Verify the
+  GitHub Actions run and its per-site smoke checks instead. Normal `/ship` does
+  not monitor post-merge deployments or claim beta health; use
+  `/ship-and-monitor` to verify beta. The public docs site is the temporary
+  production exception: `.github/workflows/deploy-docs-production.yml` builds
+  and publishes `fw` / `www.agent-native.com` from matching `main` changes,
+  then disables the site's Git-connected Netlify builds. There is no beta docs
+  site or beta docs hostname today. Other production promotion is manual, and
+  critical fixes must be explicitly promoted to production through the manual
+  `.github/workflows/deploy-production-sites-prebuilt.yml` or targeted
+  `promote-netlify-deploy.yml` workflows. Let the workflow manage Netlify lock
+  transitions; do not manually remove a lock or imply that clearing one makes
+  production live.
+- Worktrees are valid PR sources. When the user authorizes shipping or opening
+  or updating a PR from a worktree, use that worktree's current branch and cwd
+  for the commit, push, and PR operation; do not copy changes into the shared
+  checkout.
 - Never use `[codex]`, `codex`, or similar agent labels in user-visible GitHub
   metadata unless explicitly requested.
 - On every response, consider whether the chat title still matches the work.
@@ -81,6 +107,12 @@ contract.
   meaning changes. If translations cannot be updated in the same change, call
   out the specific locales that need follow-up; reviewers should flag docs
   changes that only update one language.
+- During review, treat any user-facing copy change as a localization change:
+  UI labels, buttons, tooltips, placeholders, errors, empty states,
+  accessibility text, prompts, and documentation prose all need their English
+  source and configured locale translations updated together. Run
+  `pnpm guard:i18n-catalogs` and `pnpm guard:i18n-changed-copy`; do not approve
+  an unexplained `i18n-copy-ignore` marker or localization baseline update.
 - Docs-only commits start with `docs: ` in the present tense, e.g.
   `docs: fix broken link in provider API guide`, not `docs: fixed broken link`.
 
@@ -122,6 +154,11 @@ could not run. A diff-scoped guard that cannot resolve a base ref exits 2 via
 for a check that inspected nothing; that is the flagship rule above, violated
 inside the thing that enforces it.
 
+Shared checkout edits are visible through Git. Re-read existing changes before
+editing them, and use `corepack pnpm ship:push` when the user authorizes a
+branch-wide checkpoint. Read `concurrent-agents` before working in a shared
+checkout.
+
 **One hook** (`scripts/hooks/file-lease.mjs`, registered in the tracked
 `.claude/settings.json`): denies a write when another live session holds the
 file, or when it changed on disk under you. It exists because this is the only
@@ -131,6 +168,12 @@ their change; never force past it. It is a Claude Code mechanism only: it gives
 Codex sessions and plain human edits nothing, so it is a backstop, not a
 guarantee. Read `concurrent-agents` before working in a shared checkout.
 `guard:hooks-registered` keeps this section and that file from drifting apart.
+`guard:i18n-catalogs` checks catalog shape, placeholders, raw UI literals,
+English-value debt, and localized docs coverage. `guard:i18n-changed-copy`
+checks the changed-source side of the contract: a changed English catalog or
+source doc must have the corresponding configured locale files/sections changed
+in the same diff. Use `i18n-copy-ignore` only for reviewed non-translatable or
+source-only edits, with the reason visible in the diff.
 
 Everything else is guidance — but guidance nobody measures is guidance nobody
 can tell is working. `node scripts/agent-friction-report.mjs --weeks 2` counts
@@ -175,21 +218,33 @@ argument rots into exactly the patchwork it warns about.
 - Before adding any custom API or Nitro route for app data, inspect existing
   actions first. Reuse or extend the action surface instead of creating REST
   wrappers, pass-through endpoints, or duplicate CRUD routes that re-export
-  actions. If you are about to write a handler under `server/routes/api/`, or
-  middleware to guard one, stop and write an action instead. The only
-  exceptions are uploads, streaming, inbound webhooks, OAuth callbacks, public
-  unauthenticated URLs, and non-JSON responses. Existing template `/api/*` CRUD
-  is a grandfathered baseline being migrated, not a pattern to copy;
-  `guard:no-action-twin-routes` fails on new ones.
+  actions.
+- Before adding settings, setup, credential, OAuth, or connection UI for an
+  external service, inspect the shared toolkit, settings, vault, OAuth,
+  workspace-connection, onboarding, and provider API primitives. Use the
+  strongest existing primitive by default; keep custom UI only for
+  provider-specific prerequisites, sequencing, status, or health checks.
+- Normal app data must flow through actions. If you are about to write a handler
+  under `server/routes/api/`, or middleware to guard one, stop and write an
+  action instead. The only exceptions are uploads, streaming, inbound webhooks,
+  OAuth callbacks, public unauthenticated URLs, and non-JSON responses.
+  Existing template `/api/*` CRUD is a grandfathered baseline being migrated,
+  not a pattern to copy; `guard:no-action-twin-routes` fails on new ones.
 - For provider integrations used in ad hoc analysis, querying, reporting, or
   cross-source research, prefer the shared `provider-api-catalog`,
   `provider-api-docs`, and `provider-api-request` action pattern from
   `@agent-native/core/provider-api` instead of hardcoding one action per
   provider endpoint/filter. First-class actions are ergonomic shortcuts, not
   capability limits: when the upstream API can express an endpoint, filter,
-  pagination mode, or payload, agents need a safe way to call it directly. If an
-  app stores provider credentials on resource/share rows, add a scoped resolver
-  that preserves those access checks before exposing raw provider requests.
+  pagination mode, or payload, agents should have a safe way to call it
+  directly through the provider API substrate. If an app stores provider
+  credentials on resource/share rows, add a scoped resolver that preserves
+  those access checks before exposing raw provider requests.
+- For customer or third-party provider data, never read API keys or tokens from
+  `process.env`. Inspect the workspace connection catalog first, use the
+  granted connection's vault-backed credential refs, and only use scoped local
+  credentials when no reusable connection exists. Deployment environment
+  variables are for deploy-level configuration, not user/workspace data access.
 - Treat Clay as a credentialed GTM provider API, not as a messaging channel.
   Hosted access uses `CLAY_PUBLIC_API_KEY` through the provider API substrate;
   the optional local Clay CLI/MCP plugin has a separate browser-login session
@@ -205,6 +260,11 @@ argument rots into exactly the patchwork it warns about.
 - Application state belongs in SQL `application_state` so the agent can know
   the current navigation, selection, and focused object.
 - Polling keeps UIs in sync through `useDbSync()` and `/_agent-native/poll`.
+- Server configuration is one zod schema. Add a field under
+  `packages/core/src/app-config/` and read it with `getAppConfig()`; an
+  environment variable is a declared `.meta({ env })` alias into that field, not
+  a parallel namespace. Consumer code never reads `process.env` — four
+  resolvers do, and `configuration` names them.
 - Never do heavy work at serverless cold start — migrations, backfills,
   aggregation, index builds, provider handshakes, or warmup probes in module
   load or plugin init run on every cold Lambda and surface as sitewide slowness,

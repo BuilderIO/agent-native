@@ -392,6 +392,9 @@ const messages = {
     aiNotes: "Notas de IA",
     summary: "Resumo",
     actionItems: "Itens de ação",
+    addActionItem: "Adicionar item de ação",
+    removeActionItem: "Remover item de ação",
+    actionItemPlaceholder: "O que precisa ser feito?",
     working: "Trabalhando…",
     noActionItems:
       "Ainda não há itens de ação. Eles aparecem aqui depois que as notas são geradas a partir de uma transcrição.",
@@ -626,12 +629,17 @@ const messages = {
     alsoFor: "Também disponível para {{platform}}",
     backToLibrary: "Voltar à biblioteca",
     clipsDesktop: "Clips Desktop",
+    stable: "Estável",
+    nightly: "Nightly",
+    switchToNightly: "Mudar para builds Nightly",
+    switchToStable: "Mudar para builds estáveis",
+    retry: "Tentar novamente",
     heroDescription:
       "Um gravador de barra de menu para tela, câmera e tela + câmera. Iniciar com um clique, bolha de câmera arrastável, link de compartilhamento instantâneo quando você parar.",
     versionReleased: "Versão {{version}} — lançada {{date}}",
     version: "Versão {{version}}",
     manifestError:
-      "Não foi possível carregar o manifesto de lançamento — escolha um instalador na página de lançamentos.",
+      "Não foi possível carregar o manifesto de lançamento. Tente novamente.",
     loadingRelease: "Carregando a versão mais recente…",
     chromeTitle: "Extensão Chrome para logs do navegador",
     chromeDescription:
@@ -695,15 +703,6 @@ const messages = {
     viewAllUpdates: "Ver todas as atualizações",
     expand: "Expandir",
     collapse: "Recolher",
-    changelogMarkdown: `# Registro de alterações
-
-Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Você pode abrir a qualquer momento pelo menu de comandos (Cmd K -> "Novidades") ou pelas Configurações.
-
-## 2026-06-23
-
-### Adicionado
-
-- Agora você pode ver as novidades diretamente dentro do Clips. O registro de alterações fica no menu de comandos (Cmd K) e nas Configurações.`,
     playback: "Reprodução",
     defaultPlaybackSpeed: "Velocidade padrão de reprodução",
     playbackDescription:
@@ -998,7 +997,7 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
   commentsPanel: {
     disabled: "Os comentários estão desativados para esta gravação.",
     beFirst: "Seja a primeira pessoa a comentar",
-    leaveNotePanel: "Deixe uma nota no topo deste painel.",
+    leaveNotePanel: "Deixe uma nota na parte inferior deste painel.",
     leaveNoteTimestamp: "Deixe uma nota no timestamp atual.",
     leaveComment: "Deixe um comentário...",
     signInToComment: "Entre para deixar um comentário.",
@@ -1056,8 +1055,13 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     pauseShortcut: "Pausar (⌥⇧P)",
     stop: "Parar gravação",
     elapsed: "Tempo decorrido",
-    cancel: "Cancelar gravação",
-    cancelShortcut: "Cancelar (⌥⇧C)",
+    cancel: "Descartar gravação",
+    cancelShortcut: "Descartar (⌥⇧C)",
+    discardConfirmTitle: "Descartar esta gravação?",
+    discardConfirmDescription:
+      "Essa ação não pode ser desfeita. Sua gravação até agora será excluída permanentemente.",
+    resume: "Retomar",
+    discardRecording: "Descartar gravação",
   },
   countdownOverlay: {
     startsIn: "A gravação começa em {{count}}",
@@ -1140,6 +1144,7 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
       "A transcrição ao vivo aparecerá aqui quando as notas começarem.",
     me: "Eu",
     them: "Eles",
+    unknownSpeaker: "Pessoa",
     searchTranscript: "Pesquisar na transcrição",
     searchPlaceholder: "Pesquisar na transcrição…",
     searchMatchCount: "{{current}} de {{total}}",
@@ -1260,7 +1265,7 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     seekTo: "Seek to {{time}}",
   },
   editorToolbar: {
-    undoTooltip: "Undo (Cmd/Ctrl Z)",
+    undoTooltip: "Undo (Cmd/Ctrl+Z)",
     playPauseTooltip: "Play / Pause (Space)",
     sourceDuration: "({{duration}} src)",
     previewSpeed: "Preview speed",
@@ -1352,10 +1357,11 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     cameraOff: "Camera off",
     includeCameraAria: "Include camera in this recording",
     startRecording: "Start recording",
-    micOffConfirmTitle: "Record without a microphone?",
+    micOffConfirmTitle: "Seu microfone está silenciado",
     micOffConfirmDescription:
-      "Your mic is off, so this recording won't capture any audio. Turn it on before starting if you want narration.",
-    startWithoutMic: "Start anyway",
+      "Para que seu vídeo tenha som, ative o microfone.",
+    startWithoutMic: "Continuar",
+    unmuteMicrophone: "Ativar microfone",
     uploadVideo: "Upload video",
     importLoom: "Import Loom",
     importing: "Importing...",
@@ -1434,6 +1440,10 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
       "Conecte armazenamento na próxima tela: Builder.io (armazenamento + IA no plano gratuito) ou armazenamento compatível com S3. Clips terminará de salvar.",
     connectStorageToRetryLoom:
       "Conecte armazenamento na próxima tela: Builder.io (armazenamento + IA no plano gratuito) ou armazenamento compatível com S3. Clips tentará importar novamente.",
+    leaveConfirmTitle: "Sair e descartar esta gravação?",
+    leaveConfirmDescription:
+      "Sua gravação em andamento ainda não terminou de ser salva. Se você sair desta página agora, ela será descartada.",
+    leaveAndDiscard: "Sair e descartar",
   },
   importRoute: {
     pageTitle: "Importar Loom — Clips",
@@ -1628,7 +1638,14 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     title: "Meetings",
     intro:
       "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time.",
-    searchPlaceholder: "Search meetings...",
+    searchPlaceholder: "Pesquisar reuniões, participantes e transcrições...",
+    agendaTab: "Agenda",
+    pastTab: "Anteriores",
+    now: "Agora",
+    noPastMeetings: "Ainda não há reuniões anteriores",
+    loadOlder: "Carregar anteriores",
+    searchFailed:
+      "Não foi possível pesquisar as reuniões. Tente novamente em instantes.",
     clearSearch: "Clear search",
     noMeetingsYet: "No meetings yet",
     noMeetingsDescription:

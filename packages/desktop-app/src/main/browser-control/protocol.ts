@@ -31,6 +31,7 @@ export type BrowserCommand =
       modifiers?: Array<"alt" | "control" | "meta" | "shift">;
     }
   | { type: "navigate"; url: string }
+  | { type: "open-tab"; url: string }
   | {
       type: "scroll";
       deltaX: number;

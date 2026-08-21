@@ -24,6 +24,7 @@ export {
 
 // Client
 export { A2AClient, callAction, callAgent, signA2AToken } from "./client.js";
+export { canonicalA2AAudience } from "./audience.js";
 export { resolveA2ACallerAuth } from "./caller-auth.js";
 export type { A2ACallerAuth } from "./caller-auth.js";
 export {
@@ -75,3 +76,8 @@ export type {
   ResolveAgentInvocationTargetOptions,
   ResolvedAgentInvocationTarget,
 } from "./invoke.js";
+export {
+  extractA2APersistedMutationReceipts,
+  stripA2APersistedArtifactMarkers,
+} from "./artifact-response.js";
+export type { A2APersistedMutationReceipt } from "./artifact-response.js";

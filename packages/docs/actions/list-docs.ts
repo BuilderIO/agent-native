@@ -30,6 +30,7 @@ export default defineAction({
   schema: z.object({}),
   http: false,
   readOnly: true,
+  publicAgent: { expose: true, readOnly: true },
   run: async () => {
     const docs = await loadDocsIndex();
     return docs

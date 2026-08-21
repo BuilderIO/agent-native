@@ -155,7 +155,11 @@ export default defineAction({
       access.role === "owner" ||
       access.role === "admin" ||
       access.role === "editor";
-    const canCommentRecording = canEditRecording || access.role === "commenter";
+    // Reaching this action already requires a signed-in session with at
+    // least viewer access to the recording (`resolveAccess` above), so any
+    // resolved role qualifies to comment/react — no separate "commenter"
+    // tier.
+    const canCommentRecording = true;
     // This action is on a 1-3s poll from the player, so every read here shares
     // one Promise.all instead of adding serial round-trips.
     const [

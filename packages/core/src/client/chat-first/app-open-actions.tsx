@@ -121,7 +121,7 @@ export function AppOpenActions({
           </DropdownMenuTrigger>
           <DropdownMenuContent
             align="end"
-            className={APP_ACTION_MENU_CONTENT_CLASS}
+            className={cn(APP_ACTION_MENU_CONTENT_CLASS, "min-w-max")}
           >
             {onAddApp ? (
               <DropdownMenuItem onSelect={onAddApp}>

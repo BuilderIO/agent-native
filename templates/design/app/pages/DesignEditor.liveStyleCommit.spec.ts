@@ -24,18 +24,22 @@ const source = readFileSync(
   "utf8",
 );
 
-const commitVisualStyles = source.slice(
-  source.indexOf("const commitVisualStyles = useCallback"),
-  source.indexOf("const commitStylesToSelectedLayers = useCallback"),
+// commitVisualStyles now lives in its own command module; the whole file is
+// the section these assertions used to slice out of DesignEditor.tsx.
+const commitVisualStyles = readFileSync(
+  new URL("./design-editor/commands/commit-visual-styles.ts", import.meta.url),
+  "utf8",
 );
 
 describe("commitVisualStyles on a localhost screen", () => {
   it("queues a pending edit instead of writing the screen's stored content", () => {
     expect(commitVisualStyles).toContain(
-      'if (activeCanvasSourceType === "localhost")',
+      "if (isRunningAppSourceType(activeCanvasSourceType))",
     );
     const branch = commitVisualStyles.slice(
-      commitVisualStyles.indexOf('if (activeCanvasSourceType === "localhost")'),
+      commitVisualStyles.indexOf(
+        "if (isRunningAppSourceType(activeCanvasSourceType))",
+      ),
     );
     expect(branch.indexOf("recordPendingVisualStyleEdit(")).toBeGreaterThan(-1);
     // The branch must return before the stored-content patch below it.

@@ -385,7 +385,10 @@ export function AppLayout({ children }: AppLayoutProps) {
             open={shortcutsHelpOpen}
             onClose={() => setShortcutsHelpOpen(false)}
           />
-          <div className="agent-layout-shell flex h-screen overflow-hidden bg-background">
+          <div
+            className="agent-layout-shell flex h-screen overflow-hidden bg-background"
+            data-agent-native-shell-variant="custom"
+          >
             <Sidebar
               open={sidebarOpen}
               onClose={() => setSidebarOpen(false)}

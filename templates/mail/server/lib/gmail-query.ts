@@ -6,8 +6,11 @@ import { isSelfAddressedThread } from "@shared/self-notes.js";
 import type { EmailMessage } from "@shared/types.js";
 
 export const VIEW_QUERIES: Record<string, string> = {
-  inbox: "in:inbox -in:sent",
-  unread: "is:unread in:inbox -in:sent",
+  // Keep sent replies in a matching Gmail thread. The local thread filter
+  // below excludes sent-only threads while preserving received inbox threads
+  // whose latest message was sent by the user.
+  inbox: "in:inbox",
+  unread: "is:unread in:inbox",
   starred: "is:starred",
   sent: "in:sent",
   drafts: "in:drafts",

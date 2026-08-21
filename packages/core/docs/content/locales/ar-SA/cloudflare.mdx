@@ -1,0 +1,43 @@
+---
+title: "Cloudflare"
+description: "انشر تطبيق agent-native على Cloudflare Pages أو Cloudflare Workers باستخدام إعداد Nitro المسبق المطابق."
+---
+
+# Cloudflare
+
+## Cloudflare Pages {#cloudflare-pages}
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "cloudflare_pages" } })],
+});
+```
+
+## Cloudflare Workers {#cloudflare-workers}
+
+استخدم مخرجات الوحدة الأصلية لـ Nitro من أجل Cloudflare Worker. هذا يبقي
+SSR مُفعّلًا ويُصدر نقطة دخول الـ Worker بالإضافة إلى الأصول الثابتة تحت
+`.output/server` و`.output/public`:
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "cloudflare_module" } })],
+});
+```
+
+قم ببناء ونشر الـ Worker المُولَّد باستخدام Wrangler:
+
+```bash
+npx @agent-native/core@latest build
+npx wrangler deploy --config .output/server/wrangler.json
+```
+
+يمكنك أيضًا تحديد الإعداد المسبق صراحةً باستخدام
+`NITRO_PRESET=cloudflare_module`. قم بتكوين قاعدة بيانات SQL خارجية دائمة
+قبل النشر. نظام ملفات الـ Worker ليس مخزنًا دائمًا للتطبيق.
+
+## ما هي الخطوة التالية
+
+- [**النشر**](/docs/deployment) — اختر قاعدة بيانات دائمة وإعدادًا مسبقًا قبل أول عملية نشر إنتاجي
+- [**نشر مساحة العمل**](/docs/workspace-deployment) — Cloudflare Pages هو الإعداد المسبق الافتراضي لأمر `deploy` الموحد
+- [Node.js](/docs/node-js), [Docker](/docs/docker)، و[**Vercel**](/docs/vercel)، و[**Netlify**](/docs/netlify)، و[**منصات أخرى**](/docs/other-platforms) — إعدادات Nitro المسبقة الأخرى

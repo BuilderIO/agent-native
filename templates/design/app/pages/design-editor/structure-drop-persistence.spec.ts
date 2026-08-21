@@ -2,10 +2,6 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-const editorSource = readFileSync(
-  new URL("../DesignEditor.tsx", import.meta.url),
-  "utf8",
-);
 // setFlowPositioningOverrideForNodeInHtml/setAbsolutePositioningForNodeInHtml
 // live in html-layer-positioning.ts (extracted from DesignEditor.tsx as a
 // pure, non-closure module-scope helper module); the second test below
@@ -17,8 +13,17 @@ const htmlLayerPositioningSource = readFileSync(
 
 describe("flow-to-absolute structure drop persistence", () => {
   it("persists absolute-container positioning even when the source node began in flow", () => {
-    const absoluteDropBranches = editorSource.match(
-      /movedNodeAttrId && details\?\.dropMode === "absolute-container"/g,
+    const structureChangeSources = [
+      "visual-structure-change",
+      "screen-visual-structure-change",
+    ].map((name) =>
+      readFileSync(new URL(`./commands/${name}.ts`, import.meta.url), "utf8"),
+    );
+    const absoluteDropBranches = structureChangeSources.flatMap(
+      (text) =>
+        text.match(
+          /movedNodeAttrId && details\?\.dropMode === "absolute-container"/g,
+        ) ?? [],
     );
     expect(absoluteDropBranches).toHaveLength(2);
 
@@ -26,16 +31,14 @@ describe("flow-to-absolute structure drop persistence", () => {
     // style before consulting the old source node's positioning. This is what
     // makes flow -> root/absolute-container survive reload instead of reverting
     // after the bridge's optimistic DOM move.
-    for (const handlerName of [
-      "const handleVisualStructureChange",
-      "const handleScreenVisualStructureChange",
+    for (const commandModule of [
+      "visual-structure-change",
+      "screen-visual-structure-change",
     ]) {
-      const start = editorSource.indexOf(handlerName);
-      const next = editorSource.indexOf(
-        "const handle",
-        start + handlerName.length,
+      const section = readFileSync(
+        new URL(`./commands/${commandModule}.ts`, import.meta.url),
+        "utf8",
       );
-      const section = editorSource.slice(start, next < 0 ? undefined : next);
       const absoluteDropIndex = section.indexOf(
         'details?.dropMode === "absolute-container"',
       );
@@ -69,12 +72,10 @@ describe("flow-to-absolute structure drop persistence", () => {
   });
 
   it("keeps the source update on the existing local history/optimistic-preview path", () => {
-    const start = editorSource.indexOf("const handleVisualStructureChange");
-    const end = editorSource.indexOf(
-      "const handleVisualDuplicateChange",
-      start,
+    const section = readFileSync(
+      new URL("./commands/visual-structure-change.ts", import.meta.url),
+      "utf8",
     );
-    const section = editorSource.slice(start, end);
 
     expect(section).toContain("applyLocalContentUpdate(");
     expect(section.match(/applyLocalContentUpdate\(/g)).toHaveLength(1);

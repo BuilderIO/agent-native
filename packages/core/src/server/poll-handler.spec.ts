@@ -390,6 +390,89 @@ describe("poll handler", () => {
     ]);
   });
 
+  it("uses the durable id as a cursor tie-breaker for same-version events", async () => {
+    delete process.env.AGENT_NATIVE_SYNC_EVENTS_DISABLE;
+    process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS = "1";
+    const firstEvent = {
+      version: 2_000,
+      source: "action",
+      type: "change",
+      key: "first",
+    };
+    const secondEvent = {
+      version: 2_000,
+      source: "action",
+      type: "change",
+      key: "second",
+    };
+
+    mockExecute.mockImplementation(async (query: any) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      if (typeof sql === "string" && sql.includes("sync_events")) {
+        if (sql.includes("MAX(version)")) {
+          return { rows: [{ max_version: 2_000 }] };
+        }
+        if (sql.includes("(version > ? OR")) {
+          expect(query.args?.slice(0, 3)).toEqual([2_000, 2_000, "a"]);
+          return {
+            rows: [
+              {
+                id: "b",
+                version: 2_000,
+                event_json: JSON.stringify(secondEvent),
+              },
+            ],
+          };
+        }
+        if (sql.includes("WHERE version > ?")) {
+          return {
+            rows: [
+              {
+                id: "a",
+                version: 2_000,
+                event_json: JSON.stringify(firstEvent),
+              },
+            ],
+          };
+        }
+        return { rows: [] };
+      }
+      if (
+        sql.includes("MAX(updated_at)") &&
+        sql.includes("application_state") &&
+        sql.includes("WHERE key = ?")
+      ) {
+        return { rows: [{ max_ts: 0 }] };
+      }
+      if (
+        sql.includes("MAX(updated_at)") &&
+        (sql.includes("application_state") ||
+          sql.includes("settings") ||
+          sql.includes("tools"))
+      ) {
+        return { rows: [{ max_ts: 0 }] };
+      }
+      if (sql.includes("FROM application_state WHERE key = ?")) {
+        return { rows: [] };
+      }
+      return { rows: [] };
+    });
+
+    const { createPollHandler } = await import("./poll.js");
+    const handler = createPollHandler() as any;
+
+    const first = await handler({ query: { since: "1000" } });
+    expect(first.events).toEqual([expect.objectContaining({ key: "first" })]);
+
+    const second = await handler({
+      query: { since: "2000", cursor: "2000.a" },
+    });
+    expect(second.events).toEqual([
+      expect.objectContaining({ key: "second", cursorId: "b" }),
+    ]);
+    expect(second.cursor).toBe("2000.b");
+  });
+
   it("emits screen-refresh events when the refresh marker changes", async () => {
     let appStateTs = 1_000;
     let settingsTs = 900;
@@ -999,9 +1082,21 @@ describe("poll handler", () => {
         owner: "test@example.com",
       }),
     ]);
-    expect(executedSql()).not.toContain(
-      "application_state WHERE key = ? AND updated_at > ?",
-    );
+    const extensionScan = mockExecute.mock.calls.find(([query]) => {
+      if (typeof query === "string") return false;
+      return (
+        query?.sql?.includes(
+          "SELECT session_id, value, updated_at FROM application_state WHERE key = ? AND updated_at > ?",
+        ) && query?.args?.[0] === "__extensions_change__"
+      );
+    });
+    expect(extensionScan?.[0]).toMatchObject({
+      args: ["__extensions_change__", 700],
+    });
+    // The extension-marker scan is bounded by the same watermark clause, so
+    // match on the key argument rather than the SQL text: this asserts the
+    // screen-refresh scan did not run, not that no bounded scan ran.
+    expect(executedBoundedScanKeys()).not.toContain("__screen_refresh__");
   });
 
   it("scopes the durable sync_events query so unrelated-owner noise cannot crowd a page ahead of the caller's own, global, and resource-scoped events", async () => {
@@ -1334,6 +1429,19 @@ function scopedSyncEventsRows(
       version: row.version,
       event_json: JSON.stringify(row.event),
     }));
+}
+
+/** Key arguments of every `WHERE key = ? AND updated_at > ?` scan executed. */
+function executedBoundedScanKeys(): string[] {
+  return mockExecute.mock.calls
+    .filter(
+      ([query]) =>
+        typeof query !== "string" &&
+        (query?.sql ?? "").includes(
+          "application_state WHERE key = ? AND updated_at > ?",
+        ),
+    )
+    .map(([query]) => String((query as { args?: unknown[] })?.args?.[0] ?? ""));
 }
 
 function executedSql(): string {

@@ -21,6 +21,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useAccountFilter } from "@/hooks/use-account-filter";
+import { getLabelStyle } from "@/lib/label-colors";
 import type { ThreadSummary } from "@/lib/threads";
 import { cn, formatEmailDate, truncate } from "@/lib/utils";
 
@@ -96,29 +97,6 @@ function formatParticipants(participants: string[], maxWidth = 3): string {
   return `${firstNames[0]} .. ${firstNames.slice(-(maxWidth - 1)).join(", ")}`;
 }
 
-// Map common label IDs to display colors
-const labelColors: Record<string, { bg: string; text: string }> = {
-  automated: { bg: "bg-pink-500/20", text: "text-pink-700 dark:text-pink-300" },
-  social: { bg: "bg-blue-500/20", text: "text-blue-700 dark:text-blue-300" },
-  updates: {
-    bg: "bg-yellow-500/20",
-    text: "text-yellow-700 dark:text-yellow-300",
-  },
-  promotions: {
-    bg: "bg-green-500/20",
-    text: "text-green-700 dark:text-green-300",
-  },
-  forums: {
-    bg: "bg-sky-500/20",
-    text: "text-sky-700 dark:text-sky-300",
-  },
-  finance: {
-    bg: "bg-emerald-500/20",
-    text: "text-emerald-700 dark:text-emerald-300",
-  },
-  travel: { bg: "bg-cyan-500/20", text: "text-cyan-700 dark:text-cyan-300" },
-};
-
 /** Stable dot colors for distinguishing accounts */
 const accountDotColors = [
   "bg-blue-400",
@@ -137,18 +115,6 @@ function getAccountColor(
 ): string {
   const idx = allAccounts.findIndex((a) => a.email === email);
   return accountDotColors[(idx >= 0 ? idx : 0) % accountDotColors.length];
-}
-
-function getLabelStyle(labelId: string): { bg: string; text: string } {
-  const normalized = labelId.toLowerCase().replace(/^label:/, "");
-  if (labelColors[normalized]) return labelColors[normalized];
-  // Fallback: hash to a color
-  let hash = 0;
-  for (let i = 0; i < normalized.length; i++) {
-    hash = normalized.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  const options = Object.values(labelColors);
-  return options[Math.abs(hash) % options.length];
 }
 
 export const EmailListItem = memo(function EmailListItem({

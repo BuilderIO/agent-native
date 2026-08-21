@@ -173,6 +173,8 @@ function normalizeReviewState(
       return "changes_requested";
     case "PENDING":
       return "pending";
+    case "DISMISSED":
+      return "dismissed";
     default:
       return "commented";
   }

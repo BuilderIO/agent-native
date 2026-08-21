@@ -900,6 +900,7 @@ const messages = {
       applyButton: "套用樣式",
       previewLabel: "待處理的視覺預覽",
       applyDesignUpdates: "套用設計更新",
+      applying: "正在套用…",
       verifying: "正在驗證來源與執行階段…",
       retryWithAgent: "重試來源驗證",
       copyPrompt: "將提示複製給您的代理",
@@ -966,6 +967,8 @@ const messages = {
       pngReadOnlyUnavailable: "唯讀預覽不支援 PNG 擷取",
       pngSaveError: "無法儲存 PNG",
       pngExportError: "無法匯出 PNG",
+      pdfExportError: "無法匯出 PDF",
+      pdfDownloaded: "PDF 已下載",
       pdfAllScreensDownloaded: "PDF 已下載（所有畫面）",
       openScreenSvg: "匯出 SVG 前請先開啟一個螢幕",
       svgDownloaded: "SVG 已下載",
@@ -1046,6 +1049,7 @@ const messages = {
     },
   },
   multiScreenCanvas: {
+    preparingLiveEditor: "正在準備即時編輯器…",
     addBreakpointToAllScreens: "為所有畫面新增 {{label}} 中斷點（{{width}}px）",
     duplicate: "複製",
     fork: "分支",
@@ -1276,6 +1280,9 @@ const messages = {
     continue: "繼續生成",
     starting: "正在啟動…",
     githubIndexStarted: "GitHub 索引已開始",
+    designMdIndexStarted: "design.md 索引已開始",
+    designMdUpload: "上傳 design.md",
+    designMdHelp: "將 design.md 指引匯入 Builder DSI",
     title: "設定您的設計系統",
     description:
       "透過 Builder DSI 連接 Figma、程式碼和選用的 design.md 指引。脈絡越多，代理得到的系統越準確。",
@@ -1333,6 +1340,10 @@ const messages = {
         "使用完整的 GitHub 儲存庫 URL，例如 https://github.com/org/repo。",
       githubIndex:
         "無法啟動 GitHub 索引。請檢查 Builder 連線和儲存庫存取權限。",
+      chooseDesignMd: "請選取 design.md 或 design.mdx 檔案。",
+      readDesignMd: "無法讀取 design.md 檔案。",
+      designMdTooLarge: "design.md 必須為 2 MB 或更小。",
+      designMdIndex: "無法啟動 design.md 索引。請檢查 Builder 連線。",
       noSources: "在生成設計系統之前至少新增一個來源。",
     },
     sections: {
@@ -1349,6 +1360,10 @@ const messages = {
         title: "連接程式碼",
         description:
           "GitHub 儲存庫、本機程式碼檔案或 design.md 會交給 Builder DSI 索引。",
+      },
+      designMd: {
+        title: "匯入 design.md",
+        description: "使用 design.md 檔案作為設計系統來源",
       },
       designFiles: {
         title: "參考檔案",

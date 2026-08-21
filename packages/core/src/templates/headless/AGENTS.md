@@ -13,6 +13,10 @@ This app is not stateless. The Agent Native runtime uses SQL-backed stores for a
   ZIPs, screenshots, thumbnails, session replay chunks) in configured file/blob
   storage and persist only URLs, ids, or handles.
 - Do not hardcode API keys, tokens, webhook URLs, private data, or credential-looking literals.
+- For external integrations, inspect the workspace/provider connection catalog
+  first. Reuse an existing connection and its scoped credential resolver; only
+  use app-local vault/OAuth/settings primitives when no reusable connection
+  exists. Keep custom setup UI provider-specific and never duplicate storage.
 - `actions/run.ts` is the CLI dispatcher for `pnpm action ...`, not an app
   action. Leave it in place and add callable primitives as separate
   `actions/<name>.ts` files.

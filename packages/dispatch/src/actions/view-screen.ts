@@ -32,6 +32,7 @@ import {
   listWorkspaceResourceOptions,
   listWorkspaceResourcesForApp,
 } from "../server/lib/workspace-resources-store.js";
+import { CHAT_FIRST_PANE_STATE_KEY } from "../shared/chat-first-pane.js";
 
 async function runLocalDispatchAction(
   name: string,
@@ -67,9 +68,76 @@ function threadDebugFailureStatus(
     : "all";
 }
 
+/**
+ * The workspace app Dispatch has embedded, or `null` when none is open. A
+ * surface that is showing an app whose identity could not be read reports
+ * `status: "unknown"` — never a plausible-looking id and never silence, so the
+ * agent can tell "no app open" from "an app is open and I cannot name it".
+ */
+type EmbeddedApp =
+  | {
+      status: "open";
+      id: string;
+      /** Path inside the embedded app, not the Dispatch route. */
+      path: string;
+      /** Named screen the pane was opened at, when it carries one instead of a path. */
+      view?: string;
+      source: "route" | "chat-first-pane";
+    }
+  | { status: "unknown"; source: "route" | "chat-first-pane"; reason: string };
+
+async function resolveEmbeddedApp(
+  navigation: Record<string, any> | null,
+): Promise<EmbeddedApp | null> {
+  if (navigation?.view === "workspace-app") {
+    const id =
+      typeof navigation.workspaceAppId === "string"
+        ? navigation.workspaceAppId.trim()
+        : "";
+    if (!id) {
+      return {
+        status: "unknown",
+        source: "route",
+        reason: `The route ${navigation.path ?? "/apps/…"} embeds a workspace app, but its id could not be read from the URL.`,
+      };
+    }
+    return {
+      status: "open",
+      id,
+      path:
+        typeof navigation.workspaceAppPath === "string"
+          ? navigation.workspaceAppPath
+          : "/",
+      source: "route",
+    };
+  }
+
+  // Chat-first mode keeps the route on /chat and opens the app as a surface
+  // tab, so the pane state is the only place the open app is named.
+  if (navigation?.view !== "chat") return null;
+  const pane = await readAppState(CHAT_FIRST_PANE_STATE_KEY);
+  if (pane === null) return null;
+  const appId = typeof pane.appId === "string" ? pane.appId.trim() : "";
+  if (!appId) {
+    return {
+      status: "unknown",
+      source: "chat-first-pane",
+      reason:
+        "A chat-first app pane is recorded, but its stored state does not name an app.",
+    };
+  }
+  return {
+    status: "open",
+    id: appId,
+    path: typeof pane.path === "string" && pane.path ? pane.path : "/",
+    ...(typeof pane.view === "string" && pane.view ? { view: pane.view } : {}),
+    source: "chat-first-pane",
+  };
+}
+
 export default defineAction({
   description:
-    "See what the user is currently looking at in the dispatch UI, including navigation state and a compact operational summary.",
+    "See what the user is currently looking at in the dispatch UI, including navigation state, any embedded workspace app, and a compact operational summary.",
   schema: z.object({}),
   http: false,
   run: async () => {
@@ -84,6 +152,10 @@ export default defineAction({
       approvalPolicy: overview.settings,
     };
     if (navigation) screen.navigation = navigation;
+
+    const embeddedApp = await resolveEmbeddedApp(navigation);
+    if (embeddedApp) screen.embeddedApp = embeddedApp;
+
     if (navigation?.view === "chat" || navigation?.view === "browser-chat") {
       screen.chatSurface = {
         view:
@@ -142,6 +214,7 @@ export default defineAction({
       navigation?.view === "overview" ||
       navigation?.view === "metrics" ||
       navigation?.view === "apps" ||
+      navigation?.view === "workspace-app" ||
       navigation?.view === "new-app"
     ) {
       const workspaceApps = await listWorkspaceApps({

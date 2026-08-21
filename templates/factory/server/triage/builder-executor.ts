@@ -71,6 +71,7 @@ export async function startBuilderRun(
     input.sourceUrl ? `Source: ${input.sourceUrl}` : "",
     input.repository ? `Repository: ${input.repository}` : "",
     input.instructions ? `Triage instructions: ${input.instructions}` : "",
+    "Run /address-feedback in the repository and read the address-feedback, address-feedback-with-replies, review-latest-feedback, and review-prs skills as relevant. Search for repeat reports, fix the smallest owning boundary, and verify the full path before opening the pull request.",
     "Inspect the repository, make the smallest safe fix, run validation, and open a pull request.",
     "Include the Factory item id and source link in the pull request description.",
     "Do not touch protected areas: auth/session/identity, credentials/vault, migrations, payments, security, or publishable packages.",

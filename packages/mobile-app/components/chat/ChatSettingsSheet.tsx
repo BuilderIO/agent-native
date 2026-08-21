@@ -2,13 +2,13 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   IconCheck,
   IconChevronDown,
+  IconChevronLeft,
   IconChevronRight,
   IconX,
 } from "@tabler/icons-react-native";
 import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
-  Modal,
   Pressable,
   ScrollView,
   Text,
@@ -16,14 +16,24 @@ import {
   View,
 } from "react-native";
 
+import { MobileSheet } from "@/components/MobileSheet";
 import { SafeAreaView } from "@/components/uniwind-interop";
 import {
   fetchModelCatalog,
   PROVIDER_KEY_OPTIONS,
   saveProviderApiKey,
 } from "@/lib/agent-chat/api";
+import {
+  formatMobileModelLabel,
+  getMobileAgentId,
+  getMobileModelGroups,
+  MOBILE_AGENT_OPTIONS,
+  selectMobileAgentSettings,
+  type MobileAgentId,
+} from "@/lib/agent-chat/model-picker";
 import type { ChatModelCatalog } from "@/lib/agent-chat/types";
 import type { AgentChatSettings } from "@/lib/agent-chat/use-agent-chat";
+import { useMobileThemeColors } from "@/lib/mobile-colors";
 
 const SETTINGS_KEY = "agent-native:chat-settings";
 
@@ -36,10 +46,15 @@ const EFFORT_OPTIONS: Array<{
   value: string | undefined;
   label: string;
 }> = [
+  { value: undefined, label: "Default" },
   { value: "low", label: "Low" },
   { value: "medium", label: "Medium" },
   { value: "high", label: "High" },
+  { value: "xhigh", label: "Extra High" },
+  { value: "max", label: "Max" },
 ];
+
+type MobilePickerSection = "agent" | "model" | "effort";
 
 export async function loadChatSettings(): Promise<AgentChatSettings> {
   try {
@@ -77,6 +92,7 @@ function GroupHeader({
   expanded: boolean;
   onPress: () => void;
 }) {
+  const { mutedForeground } = useMobileThemeColors();
   return (
     <Pressable
       onPress={onPress}
@@ -86,9 +102,17 @@ function GroupHeader({
     >
       <View className="flex-row items-center gap-2">
         {expanded ? (
-          <IconChevronDown color="#71717a" size={15} strokeWidth={2.5} />
+          <IconChevronDown
+            color={mutedForeground}
+            size={15}
+            strokeWidth={2.5}
+          />
         ) : (
-          <IconChevronRight color="#71717a" size={15} strokeWidth={2.5} />
+          <IconChevronRight
+            color={mutedForeground}
+            size={15}
+            strokeWidth={2.5}
+          />
         )}
         <Text className="text-zinc-400 text-[13px] font-bold uppercase tracking-wider">
           {label}
@@ -106,18 +130,24 @@ function GroupHeader({
 function ModelItem({
   label,
   selected,
+  disabled = false,
   onPress,
 }: {
   label: string;
   selected: boolean;
+  disabled?: boolean;
   onPress: () => void;
 }) {
+  const { accentBlue } = useMobileThemeColors();
   return (
     <Pressable
       onPress={onPress}
-      className="flex-row items-center justify-between py-3.5 pl-10 pr-4 active:bg-white/5 border-b border-zinc-800/30"
+      disabled={disabled}
+      className={`flex-row items-center justify-between py-3.5 pl-10 pr-4 border-b border-zinc-800/30 ${
+        disabled ? "opacity-45" : "active:bg-white/5"
+      }`}
       accessibilityRole="button"
-      accessibilityState={{ selected }}
+      accessibilityState={{ selected, disabled }}
     >
       <Text
         className={`text-[14px] ${
@@ -126,7 +156,7 @@ function ModelItem({
       >
         {label}
       </Text>
-      {selected && <IconCheck color="#2563eb" size={15} strokeWidth={2.5} />}
+      {selected && <IconCheck color={accentBlue} size={15} strokeWidth={2.5} />}
     </Pressable>
   );
 }
@@ -138,6 +168,7 @@ function AutoItem({
   selected: boolean;
   onPress: () => void;
 }) {
+  const { accentBlue } = useMobileThemeColors();
   return (
     <Pressable
       onPress={onPress}
@@ -152,7 +183,83 @@ function AutoItem({
       >
         Auto
       </Text>
-      {selected && <IconCheck color="#2563eb" size={15} strokeWidth={2.5} />}
+      {selected && <IconCheck color={accentBlue} size={15} strokeWidth={2.5} />}
+    </Pressable>
+  );
+}
+
+function PickerSectionRow({
+  label,
+  value,
+  onPress,
+}: {
+  label: string;
+  value: string;
+  onPress: () => void;
+}) {
+  const { mutedForeground } = useMobileThemeColors();
+  return (
+    <Pressable
+      onPress={onPress}
+      className="flex-row items-center gap-3 px-4 py-3.5 active:bg-white/5 border-b border-zinc-800/40"
+      accessibilityRole="button"
+      accessibilityLabel={`Choose ${label}`}
+    >
+      <Text className="text-zinc-300 text-[14px] font-medium">{label}</Text>
+      <Text
+        className="flex-1 text-right text-zinc-500 text-[13px]"
+        numberOfLines={1}
+      >
+        {value}
+      </Text>
+      <IconChevronRight color={mutedForeground} size={15} strokeWidth={2.2} />
+    </Pressable>
+  );
+}
+
+function AgentItem({
+  label,
+  description,
+  selected,
+  available,
+  onPress,
+}: {
+  label: string;
+  description?: string;
+  selected: boolean;
+  available: boolean;
+  onPress: () => void;
+}) {
+  const { accentBlue } = useMobileThemeColors();
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={!available}
+      className={`flex-row items-center gap-3 py-3.5 pl-4 pr-4 border-b border-zinc-800/30 ${
+        available ? "active:bg-white/5" : "opacity-45"
+      }`}
+      accessibilityRole="button"
+      accessibilityState={{ selected, disabled: !available }}
+    >
+      <View className="flex-1">
+        <Text
+          className={`text-[14px] ${
+            selected ? "text-white font-semibold" : "text-zinc-300 font-medium"
+          }`}
+        >
+          {label}
+        </Text>
+        {description ? (
+          <Text className="text-zinc-500 text-[12px] mt-0.5" numberOfLines={1}>
+            {description}
+          </Text>
+        ) : null}
+      </View>
+      {!available ? (
+        <Text className="text-zinc-600 text-[11px]">Unavailable</Text>
+      ) : selected ? (
+        <IconCheck color={accentBlue} size={15} strokeWidth={2.5} />
+      ) : null}
     </Pressable>
   );
 }
@@ -166,6 +273,7 @@ function ProviderKeyRow({
   placeholder: string;
   onSave: (apiKey: string) => Promise<void>;
 }) {
+  const { mutedForeground } = useMobileThemeColors();
   const [value, setValue] = useState("");
   const [status, setStatus] = useState<
     "idle" | "saving" | "saved" | { error: string }
@@ -196,7 +304,7 @@ function ProviderKeyRow({
             if (status !== "idle") setStatus("idle");
           }}
           placeholder={placeholder}
-          placeholderTextColor="#52525b"
+          placeholderTextColor={mutedForeground}
           autoCapitalize="none"
           autoCorrect={false}
           secureTextEntry
@@ -205,7 +313,7 @@ function ProviderKeyRow({
         <Pressable
           className={`h-10 px-4 rounded-lg items-center justify-center ${
             value.trim() && status !== "saving"
-              ? "bg-white active:opacity-75"
+              ? "bg-primary active:opacity-75"
               : "bg-zinc-800"
           }`}
           onPress={() => void save()}
@@ -214,11 +322,11 @@ function ProviderKeyRow({
           accessibilityLabel={`Save ${label} API key`}
         >
           {status === "saving" ? (
-            <ActivityIndicator size="small" color="#71717a" />
+            <ActivityIndicator size="small" color={mutedForeground} />
           ) : (
             <Text
               className={`text-[13px] font-bold ${
-                value.trim() ? "text-zinc-950" : "text-zinc-500"
+                value.trim() ? "text-primary-foreground" : "text-zinc-500"
               }`}
             >
               Save
@@ -251,6 +359,9 @@ export function ChatSettingsSheet({
   onChange: (settings: AgentChatSettings) => void;
   onClose: () => void;
 }) {
+  const { mutedForeground, accentBlue } = useMobileThemeColors();
+  const [pickerSection, setPickerSection] =
+    useState<MobilePickerSection | null>(null);
   const [catalog, setCatalog] = useState<ChatModelCatalog | null>(null);
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(
@@ -268,7 +379,10 @@ export function ChatSettingsSheet({
   // Reload whenever opened or the active app changes, so the catalog and
   // configurable providers reflect the app being configured.
   useEffect(() => {
-    if (visible) loadCatalog();
+    if (visible) {
+      setPickerSection(null);
+      loadCatalog();
+    }
   }, [visible, loadCatalog]);
 
   useEffect(() => {
@@ -316,20 +430,40 @@ export function ChatSettingsSheet({
     void persistChatSettings(next);
   };
 
+  const activeAgentId = getMobileAgentId(settings.engine);
+  const activeAgent = MOBILE_AGENT_OPTIONS.find(
+    (agent) => agent.id === activeAgentId,
+  );
+  const activeAgentLabel = activeAgent?.label ?? "Default";
+  const activeModelLabel = formatMobileModelLabel(settings.model);
   const activeEffortLabel =
     EFFORT_OPTIONS.find((o) => o.value === settings.effort)?.label ?? "Default";
+  const modelGroups = getMobileModelGroups(catalog, activeAgentId);
+
+  const chooseAgent = (agentId: MobileAgentId) => {
+    update(selectMobileAgentSettings(agentId, settings, catalog));
+    setPickerSection(null);
+  };
+
+  const chooseModel = (model: string, engine: string) => {
+    update({ ...settings, model, engine });
+    setPickerSection(null);
+  };
 
   return (
-    <Modal
+    <MobileSheet
       visible={visible}
-      animationType="slide"
-      presentationStyle="formSheet"
-      onRequestClose={onClose}
+      onClose={onClose}
+      motion="sheet"
+      contentClassName="max-h-[88%] overflow-hidden rounded-t-[26px] border border-border bg-background pt-3"
+      overlayClassName="bg-black/45"
+      accessibilityLabel="Dismiss settings"
     >
-      <SafeAreaView edges={["top", "bottom"]} className="flex-1 bg-[#09090b]">
-        <View className="flex-row items-center justify-between px-4 py-3.5 border-b border-zinc-800">
-          <Text className="text-white text-base font-bold">
-            Configure Model
+      <SafeAreaView edges={["bottom"]} className="flex-1">
+        <View className="self-center h-1 w-10 rounded-full bg-zinc-600" />
+        <View className="flex-row items-center justify-between px-4 py-4">
+          <Text className="text-foreground text-[20px] font-semibold">
+            Configure
           </Text>
           <Pressable
             className="p-1.5 active:opacity-75"
@@ -337,69 +471,103 @@ export function ChatSettingsSheet({
             accessibilityRole="button"
             accessibilityLabel="Close settings"
           >
-            <IconX color="#71717a" size={18} strokeWidth={2.5} />
+            <IconX color={mutedForeground} size={18} strokeWidth={2.5} />
           </Pressable>
         </View>
 
         <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
           {catalogLoading && (
             <View className="py-8 items-center justify-center">
-              <ActivityIndicator color="#2563eb" />
+              <ActivityIndicator color={accentBlue} />
             </View>
           )}
 
           {catalog && (
-            <View className="bg-[#18181b] border-y border-zinc-800 mt-4">
-              {/* Auto Option */}
-              <AutoItem
-                selected={!settings.model}
-                onPress={() =>
-                  update({ ...settings, model: undefined, engine: undefined })
-                }
-              />
-
-              {/* Model Provider Groups */}
-              {catalog.groups.map((group) => {
-                const groupKey = `model-${group.engine}-${group.label}`;
-                const isExpanded = !!expandedGroups[groupKey];
-                return (
-                  <View key={groupKey} className="border-b border-zinc-800/20">
-                    <GroupHeader
-                      label={group.label}
-                      expanded={isExpanded}
-                      onPress={() => toggleGroup(groupKey)}
+            <View className="bg-card-dark border-y border-zinc-800 mt-4">
+              {pickerSection ? (
+                <>
+                  <Pressable
+                    onPress={() => setPickerSection(null)}
+                    className="flex-row items-center gap-2 px-4 py-3.5 border-b border-zinc-800 active:bg-white/5"
+                    accessibilityRole="button"
+                    accessibilityLabel="Back to picker sections"
+                  >
+                    <IconChevronLeft
+                      color={mutedForeground}
+                      size={17}
+                      strokeWidth={2.2}
                     />
-                    {isExpanded &&
-                      group.models.map((model) => (
-                        <ModelItem
-                          key={model}
-                          label={model}
-                          selected={settings.model === model}
+                    <Text className="text-zinc-300 text-[14px] font-semibold">
+                      {pickerSection === "agent"
+                        ? "Agent"
+                        : pickerSection === "model"
+                          ? "Model"
+                          : "Effort"}
+                    </Text>
+                  </Pressable>
+
+                  {pickerSection === "agent" &&
+                    MOBILE_AGENT_OPTIONS.map((agent) => {
+                      const available =
+                        agent.id === "default" ||
+                        ("engine" in agent &&
+                          catalog.groups.some(
+                            (group) => group.engine === agent.engine,
+                          ));
+                      return (
+                        <AgentItem
+                          key={agent.id}
+                          label={agent.label}
+                          description={agent.description}
+                          selected={agent.id === activeAgentId}
+                          available={available}
+                          onPress={() => chooseAgent(agent.id)}
+                        />
+                      );
+                    })}
+
+                  {pickerSection === "model" && (
+                    <>
+                      {activeAgentId === "default" && (
+                        <AutoItem
+                          selected={!settings.model}
                           onPress={() =>
-                            update({ ...settings, model, engine: group.engine })
+                            update({
+                              ...settings,
+                              model: undefined,
+                              engine: undefined,
+                            })
                           }
                         />
+                      )}
+                      {modelGroups.map((group) => (
+                        <View
+                          key={`${group.engine}-${group.label}`}
+                          className="border-b border-zinc-800/20"
+                        >
+                          <Text className="text-zinc-500 text-[11px] font-semibold uppercase tracking-wider pl-10 pr-4 pt-3 pb-1">
+                            {group.label}
+                          </Text>
+                          {group.models.map((model) => (
+                            <ModelItem
+                              key={model}
+                              label={formatMobileModelLabel(model)}
+                              selected={settings.model === model}
+                              onPress={() => chooseModel(model, group.engine)}
+                            />
+                          ))}
+                        </View>
                       ))}
-                  </View>
-                );
-              })}
+                      {modelGroups.length === 0 && (
+                        <Text className="text-zinc-500 text-[13px] leading-5 px-10 py-5">
+                          This agent is not available on the active app.
+                        </Text>
+                      )}
+                    </>
+                  )}
 
-              {/* Effort Section */}
-              <View>
-                <GroupHeader
-                  label="Effort"
-                  valueSuffix={activeEffortLabel}
-                  expanded={!!expandedGroups["effort"]}
-                  onPress={() => toggleGroup("effort")}
-                />
-                {!!expandedGroups["effort"] && (
-                  <>
-                    <ModelItem
-                      label="Default"
-                      selected={settings.effort === undefined}
-                      onPress={() => update({ ...settings, effort: undefined })}
-                    />
-                    {EFFORT_OPTIONS.map((option) => (
+                  {pickerSection === "effort" &&
+                    EFFORT_OPTIONS.map((option) => (
                       <ModelItem
                         key={option.label}
                         label={option.label}
@@ -409,11 +577,27 @@ export function ChatSettingsSheet({
                         }
                       />
                     ))}
-                  </>
-                )}
-              </View>
+                </>
+              ) : (
+                <>
+                  <PickerSectionRow
+                    label="Agent"
+                    value={activeAgentLabel}
+                    onPress={() => setPickerSection("agent")}
+                  />
+                  <PickerSectionRow
+                    label="Model"
+                    value={activeModelLabel}
+                    onPress={() => setPickerSection("model")}
+                  />
+                  <PickerSectionRow
+                    label="Effort"
+                    value={activeEffortLabel}
+                    onPress={() => setPickerSection("effort")}
+                  />
+                </>
+              )}
 
-              {/* API Keys Section */}
               <View>
                 <GroupHeader
                   label="API Keys"
@@ -464,7 +648,7 @@ export function ChatSettingsSheet({
           )}
         </ScrollView>
       </SafeAreaView>
-    </Modal>
+    </MobileSheet>
   );
 }
 

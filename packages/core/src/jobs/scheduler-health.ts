@@ -80,7 +80,7 @@ export interface AutomationSchedulerHealth {
 
 let initPromise: Promise<void> | undefined;
 
-async function ensureHealthTable(): Promise<void> {
+export async function ensureHealthTable(): Promise<void> {
   if (!initPromise) {
     initPromise = (async () => {
       const createSql = `

@@ -9,7 +9,15 @@ const mocks = vi.hoisted(() => ({
   getJob: vi.fn(),
   queueJob: vi.fn(),
   requireAnalyticsAdminContext: vi.fn(),
+  listDashboards: vi.fn(),
+  assertBigQuerySql: vi.fn(),
 }));
+
+class FakeUnsupportedSqlError extends Error {
+  constructor(readonly construct: string) {
+    super(`unsupported: ${construct}`);
+  }
+}
 
 vi.mock("@agent-native/core", () => ({
   defineAction: (definition: unknown) => definition,
@@ -22,6 +30,11 @@ vi.mock("../server/lib/first-party-analytics-backend.js", () => ({
   getFirstPartyAnalyticsBackend: mocks.getBackend,
   saveFirstPartyAnalyticsBackend: mocks.saveBackend,
   assertFirstPartyAnalyticsBigQueryReady: mocks.assertReady,
+  assertFirstPartyAnalyticsBigQuerySql: mocks.assertBigQuerySql,
+  FirstPartyAnalyticsUnsupportedSqlError: FakeUnsupportedSqlError,
+}));
+vi.mock("../server/lib/dashboards-store.js", () => ({
+  listDashboards: mocks.listDashboards,
 }));
 vi.mock("../server/jobs/analytics-bigquery-backfill.js", () => ({
   getFirstPartyAnalyticsBigQueryBackfillJob: mocks.getJob,
@@ -45,6 +58,9 @@ beforeEach(() => {
   mocks.getJob.mockReset();
   mocks.queueJob.mockReset();
   mocks.requireAnalyticsAdminContext.mockReset();
+  mocks.listDashboards.mockReset();
+  mocks.assertBigQuerySql.mockReset();
+  mocks.listDashboards.mockResolvedValue([]);
   mocks.getRequestOrgId.mockReturnValue("org_builder");
   mocks.getRequestUserEmail.mockReturnValue("owner@builder.io");
   mocks.requireAnalyticsAdminContext.mockResolvedValue({
@@ -294,5 +310,107 @@ describe("migrate-first-party-analytics-to-bigquery action", () => {
         backfillCompleted: true,
       },
     );
+  });
+
+  function stageCompletedBackfill() {
+    mocks.getBackend.mockResolvedValueOnce({
+      sink: "dual",
+      table,
+      backfillCursor: "evt_last",
+      backfillCompleted: false,
+    });
+    mocks.getJob.mockResolvedValueOnce({
+      status: "completed",
+      cursor: "evt_last",
+    });
+  }
+
+  function stageUnrunnablePanel() {
+    mocks.listDashboards.mockResolvedValue([
+      {
+        id: "weekly-metrics",
+        title: "Weekly metrics",
+        config: {
+          panels: [
+            {
+              id: "monthly",
+              title: "Monthly signups",
+              source: "first-party",
+              sql: "SELECT date_trunc('month', event_date) FROM analytics_events",
+            },
+            {
+              id: "warehouse",
+              title: "Warehouse panel",
+              source: "bigquery",
+              sql: "SELECT date_trunc('month', d) FROM t",
+            },
+          ],
+        },
+      },
+    ]);
+    mocks.assertBigQuerySql.mockImplementation((sql: string) => {
+      if (sql.includes("date_trunc('month'")) {
+        throw new FakeUnsupportedSqlError("date_trunc('month', ...)");
+      }
+    });
+  }
+
+  it("refuses to flip the sink while saved panels cannot run on BigQuery", async () => {
+    stageCompletedBackfill();
+    stageUnrunnablePanel();
+
+    await expect(
+      migrateAction.run({ mode: "cutover", confirm: true }),
+    ).rejects.toThrow(
+      /weekly-metrics\/monthly "Monthly signups" uses date_trunc\('month', \.\.\.\)/,
+    );
+
+    expect(mocks.saveBackend).not.toHaveBeenCalled();
+    // Only first-party panels route through the translator; a warehouse panel
+    // already speaks BigQuery.
+    expect(mocks.assertBigQuerySql).toHaveBeenCalledTimes(1);
+  });
+
+  it("cuts over with the affected panels reported once they are acknowledged", async () => {
+    stageCompletedBackfill();
+    stageUnrunnablePanel();
+
+    await expect(
+      migrateAction.run({
+        mode: "cutover",
+        confirm: true,
+        acknowledgeUnrunnablePanels: true,
+      }),
+    ).resolves.toMatchObject({
+      sink: "bigquery",
+      unrunnablePanels: [
+        {
+          dashboardId: "weekly-metrics",
+          panelId: "monthly",
+          reason: "uses date_trunc('month', ...)",
+        },
+      ],
+    });
+
+    expect(mocks.saveBackend).toHaveBeenCalled();
+  });
+
+  it("reports the affected panels from status before anyone cuts over", async () => {
+    mocks.getBackend.mockResolvedValueOnce({
+      sink: "dual",
+      table,
+      backfillCursor: "evt_last",
+      backfillCompleted: false,
+    });
+    mocks.getJob.mockResolvedValueOnce({ status: "pending" });
+    mocks.assertReady.mockResolvedValueOnce({
+      table: { fullyQualified: table },
+      rowCount: 10,
+    });
+    stageUnrunnablePanel();
+
+    await expect(migrateAction.run({ mode: "status" })).resolves.toMatchObject({
+      unrunnablePanels: [{ panelId: "monthly" }],
+    });
   });
 });

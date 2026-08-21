@@ -25,6 +25,11 @@ import {
   type JobFrontmatter,
 } from "./frontmatter.js";
 import {
+  dispatchRemoteAutomation,
+  finishRemoteAutomationHistory,
+  getRemoteAutomationStatus,
+} from "./remote-execution.js";
+import {
   claimAutomationRun,
   finishAutomationRun,
   getAutomationRun,
@@ -253,6 +258,13 @@ async function processRecurringJobsWithLease(
       // worker can claim the same organization resource.
       if (!jobBelongsToApp(meta, deps.appId)) continue;
       healthOrgIds.add(meta.orgId ?? null);
+
+      // A host-targeted run is reconciled from the durable relay command. It
+      // must never fall back to this scheduler after the laptop disconnects.
+      if (meta.lastStatus === "running" && meta.executionHostId) {
+        await reconcileRemoteJob(resource, meta, now);
+        continue;
+      }
 
       // Skip disabled or missing schedule
       if (!meta.enabled || !meta.schedule) continue;
@@ -499,6 +511,76 @@ function hasRecentIdentityFailure(meta: JobFrontmatter, now: Date): boolean {
   );
 }
 
+async function reconcileRemoteJob(
+  resource: Resource,
+  meta: JobFrontmatter,
+  now: Date,
+): Promise<void> {
+  const ownerEmail = meta.createdBy?.trim() || resource.owner;
+  try {
+    const remote = await getRemoteAutomationStatus({
+      meta,
+      ownerEmail,
+      orgId: meta.orgId,
+      now,
+    });
+    if (remote.state === "active") return;
+
+    const error =
+      remote.error ??
+      (remote.state === "failed"
+        ? "The remote execution host did not complete this automation."
+        : undefined);
+    await finishRemoteAutomationHistory(
+      meta,
+      remote.state === "completed" ? "completed" : "failed",
+      error,
+    ).catch((historyError) => {
+      console.warn(
+        `[recurring-jobs] Could not finish remote history for "${resource.path}":`,
+        historyError,
+      );
+    });
+    await recordExecutionOutcome(resource, {
+      lastRun: meta.lastRun,
+      lastStatus: remote.state === "completed" ? "success" : "error",
+      lastError: error,
+      remoteRequestId: undefined,
+      remoteCommandId: undefined,
+      remoteRunId: undefined,
+      remoteAutomationRunId: undefined,
+      remoteAdvanceSchedule: undefined,
+      advanceSchedule: meta.remoteAdvanceSchedule !== false,
+    });
+    console.log(
+      `[recurring-jobs] Remote job "${resource.path}" reached ${remote.state}.`,
+    );
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message.slice(0, 200)
+        : "Remote execution host could not be reached.";
+    await finishRemoteAutomationHistory(meta, "failed", message).catch(
+      () => undefined,
+    );
+    await recordExecutionOutcome(resource, {
+      lastRun: meta.lastRun,
+      lastStatus: "error",
+      lastError: message,
+      remoteRequestId: undefined,
+      remoteCommandId: undefined,
+      remoteRunId: undefined,
+      remoteAutomationRunId: undefined,
+      remoteAdvanceSchedule: undefined,
+      advanceSchedule: meta.remoteAdvanceSchedule !== false,
+    });
+    console.error(
+      `[recurring-jobs] Remote job "${resource.path}" failed:`,
+      message,
+    );
+  }
+}
+
 async function executeJob(
   resource: Resource,
   meta: JobFrontmatter,
@@ -571,6 +653,57 @@ async function executeJob(
     };
   }
 
+  const prompt = options.manual
+    ? `[Manual Automation Run: ${jobName}]\nThis run was explicitly started by the automation owner. Execute the following instructions now:\n\n${body}`
+    : `[Recurring Job: ${jobName}]\nSchedule: ${describeCron(meta.schedule, effectiveTimezone(meta.timezone))}\n\nExecute the following job instructions:\n\n${body}`;
+
+  if (meta.executionHostId) {
+    try {
+      const dispatch = await dispatchRemoteAutomation({
+        resource,
+        meta,
+        body,
+        ownerEmail: jobUserEmail,
+        orgId: jobOrgId,
+        appId: deps.appId,
+        prompt,
+        title: `${options.manual ? "Automation" : "Job"}: ${jobName}`,
+        historyId: options.historyId,
+        advanceSchedule: options.advanceSchedule,
+        now,
+      });
+      console.log(
+        `[recurring-jobs] Job "${jobName}" queued on remote host as ${dispatch.command.id}.`,
+      );
+      return { status: "success", runId: dispatch.command.id };
+    } catch (err) {
+      const lastError =
+        err instanceof Error
+          ? err.message.slice(0, 200)
+          : "Remote dispatch failed";
+      const reportedError = `${lastError}. No delivery was confirmed.`;
+      await recordExecutionOutcome(resource, {
+        lastRun: meta.lastRun,
+        lastStatus: "error",
+        lastError: reportedError,
+        remoteRequestId: undefined,
+        remoteCommandId: undefined,
+        remoteRunId: undefined,
+        remoteAutomationRunId: undefined,
+        remoteAdvanceSchedule: undefined,
+        advanceSchedule: options.advanceSchedule,
+      });
+      if (options.historyId) {
+        await finishAutomationRun(options.historyId, "error", reportedError);
+      }
+      console.error(
+        `[recurring-jobs] Job "${jobName}" remote dispatch failed:`,
+        reportedError,
+      );
+      return { status: "error", error: reportedError };
+    }
+  }
+
   const requestContext =
     meta.originScopeId && meta.deliveryPlatform && meta.deliveryDestination
       ? {
@@ -603,9 +736,7 @@ async function executeJob(
         automation: jobContext,
         ownerEmail: jobUserEmail,
         orgId: jobOrgId,
-        prompt: options.manual
-          ? `[Manual Automation Run: ${jobName}]\nThis run was explicitly started by the automation owner. Execute the following instructions now:\n\n${body}`
-          : `[Recurring Job: ${jobName}]\nSchedule: ${describeCron(meta.schedule, effectiveTimezone(meta.timezone))}\n\nExecute the following job instructions:\n\n${body}`,
+        prompt,
         threadTitle: `${options.manual ? "Automation" : "Job"}: ${jobName} — ${now.toLocaleDateString()}`,
         runIdPrefix: `${options.manual ? "manual" : "job"}-${jobName}`,
         usageLabel: `${options.manual ? "manual-automation" : "recurring-job"}:${jobName}`,
@@ -711,7 +842,15 @@ async function updateResource(
 /** Execution bookkeeping the scheduler owns; the rest belongs to the editor. */
 type ExecutionOutcome = Pick<
   JobFrontmatter,
-  "lastRun" | "lastCheck" | "lastStatus" | "lastError"
+  | "lastRun"
+  | "lastCheck"
+  | "lastStatus"
+  | "lastError"
+  | "remoteRequestId"
+  | "remoteCommandId"
+  | "remoteRunId"
+  | "remoteAutomationRunId"
+  | "remoteAdvanceSchedule"
 > & { advanceSchedule?: boolean };
 
 /**

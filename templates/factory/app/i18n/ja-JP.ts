@@ -70,6 +70,7 @@ const messages = {
     status: "ステータス",
     coverage: "カバレッジ",
     reason: "理由",
+    updatedAt: "最終更新",
     detailTitle: "判断の詳細",
     selectItem: "項目を選択して証拠と判断を確認してください。",
     detailError: "この観測を読み込めませんでした。",
@@ -96,6 +97,8 @@ const messages = {
     slackChannelPlaceholder: "例：C0123456789",
     slackChannelName: "チャンネル名",
     slackChannelNamePlaceholder: "例：product-agent-native-feedback",
+    builderSlackUserId: "@Builder.io の Slack メンバー ID",
+    builderSlackUserIdPlaceholder: "例：U096KN3EL2Y",
     repository: "リポジトリ",
     repositoryPlaceholder: "例：BuilderIO/agent-native",
     enablePolling: "毎分の観測ポーリングを有効にする",
@@ -163,6 +166,7 @@ const messages = {
     rulesTab: "ルール",
     automationsTab: "自動化",
     agentsTab: "エージェント",
+    factorySettings: "Factory 設定",
     agenticAppsTitle: "エージェントアプリ",
     agenticAppsEmpty:
       "このワークスペースにはまだエージェントアプリがありません。",
@@ -203,6 +207,48 @@ const messages = {
     auditUxImpact: "UXへの影響",
     auditOwnerArea: "担当領域",
     auditGuardsLabel: "ガード",
+    historyTab: "履歴",
+    historyTitle: "保存済みバージョン",
+    historyLoading: "保存済みバージョンを読み込んでいます",
+    historyLoadError: "Factory の履歴を読み込めませんでした。",
+    historyEmpty: "保存済みバージョンはまだありません",
+    historyEmptyHint:
+      "ビジュアルグラフを一度保存すると、Factory が各バージョンを確認と復元のためにここへ保持します。",
+    historyVersion: "バージョン {{version}}",
+    historyCurrent: "現在",
+    historySource: "ソース",
+    historySourceManual: "ビジュアルエディター",
+    historySourceAi: "エージェントの提案",
+    historySourceSeed: "Factory の初期版",
+    historySourceRestore: "復元",
+    historySourceSaved: "保存済みグラフ",
+    historyNodes: "ノード",
+    historyConnections: "接続",
+    historyChangeSummary: "変更の概要",
+    historyNoSummary: "変更の概要は記録されていません。",
+    historyCurrentHint: "これは現在 Factory が使用しているバージョンです。",
+    historyRestore: "このバージョンを復元",
+    historyRestoreTitle: "バージョン {{version}} を復元しますか？",
+    historyRestoreDescription:
+      "このスナップショットから新しい現在のバージョンを作成します。既存のバージョンは履歴に残ります。",
+    historyRestoreUnsaved:
+      "保存されていないビジュアル変更もあります。復元すると破棄されます。",
+    historyCancel: "キャンセル",
+    historyRestoreConfirm: "バージョンを復元",
+    historyRestored:
+      "バージョンを復元しました。新しい現在のバージョンを作成しました。",
+    historyRestoreFailed: "この Factory バージョンを復元できませんでした。",
+    historyRestoreConflict:
+      "復元中に Factory が変更されました。再試行する前に更新された履歴を確認してください。",
+    historyRefreshFailed:
+      "バージョンは復元されましたが、Factory ビューを更新できませんでした。",
+    historyLoadOlder: "以前のバージョンを読み込む",
+    historySnapshotLoadError:
+      "このバージョンのプレビューを読み込めませんでした。",
+    historyRestoreUnverified:
+      "復元は完了しましたが、結果を確認できませんでした。もう一度試す前に履歴を更新してください。",
+    saveConflictFallback:
+      "保存中に Factory が変更されました。Factory を更新してもう一度お試しください。",
     automationsTitle: "自動化",
     automationsDescription:
       "Factory のプロンプトをスケジュールして実行します。",
@@ -223,11 +269,14 @@ const messages = {
     automationSchedulePlaceholder: "例: 平日の午前9時",
     automationEnabledLabel: "自動化を有効にする",
     automationPrompt: "プロンプト",
+    automationLastUpdated: "最終更新",
     automationPromptPlaceholder: "実行時に Factory は何をすべきですか？",
     promptEditorHint: "ここで編集してから自動化を保存します。",
     pastRuns: "過去の実行",
     pastRunsEmpty: "記録された実行はまだありません。",
     saveAutomation: "保存",
+    automationSaved: "保存しました",
+    automationSaveFailed: "自動化を保存できませんでした。",
     runNow: "今すぐ実行",
     automationHealthTitle: "スケジューラーの状態",
     automationHealthDescription:
@@ -315,6 +364,9 @@ const messages = {
     addComment: "コメントを追加",
     savingGraph: "グラフを保存中...",
     saveGraph: "ファクトリーの変更を保存",
+    saveConflictHint:
+      "未保存の変更は保持されています。破棄して新しい Factory バージョンを読み込んでください。",
+    discardLocalChanges: "ローカル変更を破棄して現在のバージョンを読み込む",
     savedGraph: "ファクトリーを保存しました",
     saveNote:
       "新しいバージョンを保存します。既存の実行は元のコンテキストを保持します。",

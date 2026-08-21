@@ -63,7 +63,7 @@ export interface ToggleSidebarMessage {
 /** The host chat rail asks the embedded app to compact its own navigation. */
 export interface PerAppChatSidebarStateMessage {
   type: "agentNative.perAppChatState";
-  data: { open: boolean };
+  data: { open: boolean; hosted: boolean };
 }
 
 /** The embedded app asks a host for the current per-app chat state on mount. */

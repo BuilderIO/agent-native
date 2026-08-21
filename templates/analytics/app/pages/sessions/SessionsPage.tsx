@@ -21,7 +21,6 @@ import {
   IconServer,
   IconSettings,
 } from "@tabler/icons-react";
-import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { toast } from "sonner";
@@ -526,8 +525,7 @@ export function ReplayStorageHint({
   const storageStatus = useReplayStorageStatus();
   const builderStatus = useBuilderStatus();
   const builderConnect = useBuilderConnectFlow({
-    popupUrl:
-      builderStatus.status?.cliAuthUrl ?? builderStatus.status?.connectUrl,
+    popupUrl: builderStatus.status?.connectUrl,
     trackingSource: "analytics_sessions_storage_hint",
     trackingFlow: "replay_storage",
     onConnected: async () => {

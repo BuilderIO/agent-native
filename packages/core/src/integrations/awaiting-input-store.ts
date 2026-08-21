@@ -6,7 +6,7 @@ let initPromise: Promise<void> | undefined;
 /** Channel-thread clarification windows are deliberately short-lived. */
 export const INTEGRATION_AWAITING_INPUT_TTL_MS = 24 * 60 * 60 * 1000;
 
-async function ensureTable(): Promise<void> {
+export async function ensureTable(): Promise<void> {
   if (!initPromise) {
     initPromise = (async () => {
       const client = getDbExec();

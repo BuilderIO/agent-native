@@ -103,4 +103,30 @@ describe("runObserver", () => {
     expect(insertArg.sourceEndIndex).toBe(9);
     expect(insertArg.sourceMessageCount).toBe(6);
   });
+
+  it("names a cursor that cannot apply to this window instead of reading it as up to date", async () => {
+    // The live loop observes the engine array (each tool result its own entry);
+    // other callers pass the store-derived array, which folds those in and runs
+    // several times shorter. A cursor from the longer basis can never yield a
+    // non-empty window here, so the thread would stop accruing memory forever
+    // while reporting the same shape as "nothing new".
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    storeMod.getObservedThroughIndex.mockResolvedValue(57);
+    const runInternal = vi.fn(async () => "observation log");
+
+    const result = await runObserver({
+      threadId: "t-basis-mismatch",
+      ownerEmail: "alice@example.com",
+      messages: buildMessages(9, 1000),
+      runInternal,
+      config: { observationTokenThreshold: 100 },
+    });
+
+    expect(result.observed).toBe(false);
+    expect(runInternal).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("past the end of this 9-message window"),
+    );
+    warn.mockRestore();
+  });
 });

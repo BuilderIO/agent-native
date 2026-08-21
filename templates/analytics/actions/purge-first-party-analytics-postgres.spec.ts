@@ -74,6 +74,23 @@ describe("purge-first-party-analytics-postgres action", () => {
     expect(purgeFirstPartyAnalyticsPostgresRows).not.toHaveBeenCalled();
   });
 
+  it("returns a fail-closed dry-run diagnostic when Postgres inventory fails", async () => {
+    countFirstPartyAnalyticsPostgresRows.mockRejectedValue(
+      new Error("analytics_events is unavailable"),
+    );
+
+    const result = await purgeAction.run({ dryRun: true }, {} as never);
+
+    expect(result).toMatchObject({
+      dryRun: true,
+      postgres: null,
+      postgresError: "analytics_events is unavailable",
+      uncopiedEventRows: null,
+      safeToDelete: false,
+    });
+    expect(purgeFirstPartyAnalyticsPostgresRows).not.toHaveBeenCalled();
+  });
+
   it("requires the exact token before a write", async () => {
     await expect(
       purgeAction.run({ dryRun: false }, {} as never),

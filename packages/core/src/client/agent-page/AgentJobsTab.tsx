@@ -37,6 +37,11 @@ import {
   type AutomationDetailsField,
 } from "./AutomationDetailsDialog.js";
 import { AutomationScheduleDialog } from "./AutomationScheduleDialog.js";
+import {
+  scheduleFiringFor,
+  type ScheduleFiring,
+} from "./scheduled-trigger-state.js";
+import { ScheduledTriggerNotice } from "./ScheduledTriggerNotice.js";
 import type { AgentPageTabProps } from "./types.js";
 import {
   useAutomations,
@@ -44,6 +49,7 @@ import {
   useManageRecurringJob,
   useRunAutomationNow,
   useRecurringJobs,
+  useScheduledTriggerState,
   type Automation,
   type RecurringJob,
 } from "./use-jobs.js";
@@ -92,10 +98,44 @@ function describeTrigger(entry: ListedAutomation, t: Translate): string {
   );
 }
 
+/**
+ * `nextRun` is computed from the cron expression, not from anything that
+ * promises to run it, so it must never be presented with more confidence than
+ * the scheduler check earned. Three answers, three phrasings: a known-dead
+ * scheduler replaces the date, an unverified one qualifies it, and a confirmed
+ * one shows it plainly.
+ */
+function nextRunValue(
+  entry: ListedAutomation,
+  t: Translate,
+  formatDateTime: (value: string | null) => string | null,
+  scheduleFiring: ScheduleFiring,
+  unset: string,
+): string {
+  const formatted = formatDateTime(entry.resource.nextRun);
+  if (entry.triggerType !== "schedule" || scheduleFiring === "fires") {
+    return formatted ?? unset;
+  }
+  if (scheduleFiring === "never") {
+    return t("jobs.nextRunNeverScheduler", {
+      defaultValue: "Never — no scheduler in this deploy",
+    });
+  }
+  return formatted
+    ? t("jobs.nextRunSchedulerUnknown", {
+        defaultValue: "{{date}} — unconfirmed, the scheduler check failed",
+        date: formatted,
+      })
+    : t("jobs.nextRunSchedulerUnknownNoDate", {
+        defaultValue: "Unknown — the scheduler check failed",
+      });
+}
+
 function detailsFields(
   entry: ListedAutomation,
   t: Translate,
   formatDateTime: (value: string | null) => string | null,
+  scheduleFiring: ScheduleFiring,
 ): AutomationDetailsField[] {
   const resource = entry.resource;
   const unset = t("jobs.notSet", { defaultValue: "—" });
@@ -132,7 +172,7 @@ function detailsFields(
   fields.push(
     {
       label: t("jobs.nextRun", { defaultValue: "Next run" }),
-      value: formatDateTime(resource.nextRun) ?? unset,
+      value: nextRunValue(entry, t, formatDateTime, scheduleFiring, unset),
     },
     {
       label: t("jobs.lastRun", { defaultValue: "Last run" }),
@@ -185,6 +225,11 @@ export function AgentJobsTab({
   const personalAutomationsQuery = useAutomations("user");
   const organizationJobsQuery = useRecurringJobs("org");
   const organizationAutomationsQuery = useAutomations("org");
+  const scheduledTriggerState = useScheduledTriggerState();
+  // Three states, not `!== false`: that expression also swallowed a FAILED
+  // status query, which then licensed a confident "Next run" forever. See
+  // `scheduleFiringFor` for which way each state leans and why.
+  const scheduleFiring = scheduleFiringFor(scheduledTriggerState);
   const personalJobsMutation = useManageRecurringJob("user");
   const personalAutomationsMutation = useManageAutomation("user");
   const organizationJobsMutation = useManageRecurringJob("org");
@@ -660,6 +705,7 @@ export function AgentJobsTab({
       }
     >
       <div className="space-y-7">
+        <ScheduledTriggerNotice state={scheduledTriggerState} />
         {hideHeader ? (
           <div className="flex justify-end">
             <AgentAskPopover
@@ -836,7 +882,12 @@ export function AgentJobsTab({
             detailsTarget.resource.scope === "organization" ? "org" : "user"
           }
           triggerSummary={describeTrigger(detailsTarget, t)}
-          fields={detailsFields(detailsTarget, t, formatDateTime)}
+          fields={detailsFields(
+            detailsTarget,
+            t,
+            formatDateTime,
+            scheduleFiring,
+          )}
           condition={
             detailsTarget.kind === "automation"
               ? detailsTarget.resource.condition
@@ -864,6 +915,7 @@ export function AgentJobsTab({
           timezone={scheduleTarget.resource.timezone ?? null}
           saving={mutationPending}
           error={mutationError ? mutationError.message : null}
+          scheduledTriggerState={scheduledTriggerState}
           onCancel={() => setScheduleTarget(null)}
           onSave={(next) =>
             mutateEntry(scheduleTarget, "update", next, () =>

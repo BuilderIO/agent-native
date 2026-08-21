@@ -90,6 +90,15 @@ To edit a slide's content:
    preserve quote, speaker, date, metric, and uncertainty status. Existing HTML
    or visual similarity is not proof of source fidelity.
 
+## Skipping a Slide
+
+Set a slide's `skipped: true` via a `patch-deck` `patch-slide` operation to
+exclude it from Present/Presenter playback without deleting it — the slide
+stays in the deck, editor, and exports. Set `skipped: false` (or omit it) to
+include it again. The rail's right-click menu on each slide thumbnail offers
+Cut, Copy, Paste, Delete, New slide, Duplicate slide, and Skip slide as the
+same operations.
+
 ## Click-to-reveal animations
 
 Animations are metadata over the final slide HTML, not alternate slide markup.

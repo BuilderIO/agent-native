@@ -29,7 +29,7 @@ description: "تشريح defineAction(): المخطط، وrun، وإعداد HTT
     {
       lines: "12-16",
       label: "تطبيق واحد",
-      note: "جسم `run` هو المصدر الوحيد للحقيقة. ينفّذ كل من زر واجهة المستخدم وأداة الوكيل هذا الجسم بالضبط. يأتي `getDb()` و`schema` من `server/db/index.ts` الخاص بتطبيقك. راجع [قاعدة البيانات](/docs/database).",
+      note: "جسم `run` هو المصدر الوحيد للحقيقة. ينفّذ كل من زر واجهة المستخدم وأداة الوكيل هذا الجسم بالضبط. يأتي `getDb()` و`schema` من `server/db/index.ts` الخاص بتطبيقك. راجع [قاعدة البيانات](/docs/server-database).",
     },
   ]}
 />
@@ -269,5 +269,5 @@ POST هو الافتراضي، ويجعله `http: { method: "GET" }` GET. تس�
 - [**الوصول والتخويل**](/docs/actions-access-control) — `agentTool` و`toolCallable` وauthorize ونطاق `ctx`
 - [**سياق التشغيل**](/docs/actions-run-context) — جدول حقول `ctx` الكامل
 - [**أسطح أخرى**](/docs/actions-other-surfaces) — واجهة المحادثة الأصلية، وCLI، وA2A، وMCP، وactions القياسية
-- [**قاعدة البيانات**](/docs/database) — `getDb()`/`schema` المستخدمة داخل `run()`
+- [**قاعدة البيانات**](/docs/server-database) — `getDb()`/`schema` المستخدمة داخل `run()`
 - [**البيانات والمزامنة**](/docs/client-data) — استدعاء هذا الـ action من واجهة المستخدم

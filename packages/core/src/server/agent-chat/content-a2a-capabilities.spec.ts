@@ -4,10 +4,12 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { dispatchIntegrationRoutingHint } from "../../../../dispatch/src/server/lib/dispatch-routing.js";
+import { actionsToEngineTools } from "../../agent/production-agent.js";
 import { generateActionRegistryForProject } from "../../vite/action-types-plugin.js";
 import { loadActionsFromStaticRegistry } from "../action-discovery.js";
 import {
   buildAuthenticatedAgentA2ASkills,
+  createA2AEngineToolSurface,
   filterDirectA2AActions,
 } from "./action-filters-a2a.js";
 
@@ -90,6 +92,49 @@ describe("Content authenticated A2A capabilities", () => {
           "Design a visual mockup for the editorial intake screen",
         ),
       ).toMatchObject({ targetAgent: "design" });
+
+      const availableTools = [
+        ...actionsToEngineTools(actions),
+        {
+          name: "tool-search",
+          description: "Find a local action",
+          inputSchema: { type: "object" as const },
+        },
+        {
+          name: "describe-workspace-apps",
+          description: "Inspect another app",
+          inputSchema: { type: "object" as const },
+        },
+        {
+          name: "call-agent",
+          description: "Delegate to another app",
+          inputSchema: { type: "object" as const },
+        },
+      ];
+      const selectedReceiverSurface = createA2AEngineToolSurface(
+        availableTools,
+        ["update-document"],
+        {
+          receiverOwnsObjective: true,
+          localCapabilityNames: externalAgentOptions.connectorCatalog,
+        },
+      );
+      const selectedToolNames = selectedReceiverSurface.tools.map(
+        (tool) => tool.name,
+      );
+      expect(selectedToolNames).toEqual(
+        expect.arrayContaining([
+          "list-content-databases",
+          "describe-content-database",
+          "update-document",
+          "tool-search",
+        ]),
+      );
+      expect(selectedToolNames).not.toContain("describe-workspace-apps");
+      expect(selectedToolNames).not.toContain("call-agent");
+      expect(
+        selectedReceiverSurface.availableTools.map((tool) => tool.name),
+      ).toContain("submit-content-database-form");
     },
     ACTION_REGISTRY_TEST_TIMEOUT_MS,
   );

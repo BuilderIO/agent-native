@@ -222,7 +222,7 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
     );
     expect(repairEntry).toContain("sql: {},");
     expect(repairEntry).not.toContain("run:");
-    expect(dbTsSource).not.toContain("deferMigration");
+    expect(repairEntry).not.toContain("deferMigration");
     expect(dbTsSource).not.toContain(
       "isHistoricalAnalyticsRollupBackfillComplete",
     );
@@ -241,6 +241,64 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
     expect(jobEntry).toContain("next_run_at");
     expect(jobEntry).toContain("analytics_bigquery_backfill_jobs_due_idx");
     expect(jobEntry).not.toContain("FROM analytics_events");
+  });
+
+  it("repairs interrupted non-http event cursor indexes", () => {
+    const repairStart = dbTsSource.indexOf("version: 144,");
+    const repairEnd = dbTsSource.indexOf("\n    },", repairStart);
+    const repairEntry = dbTsSource.slice(repairStart, repairEnd);
+
+    expect(repairStart).toBeGreaterThan(-1);
+    expect(repairEnd).toBeGreaterThan(repairStart);
+    expect(repairEntry).toContain(
+      'name: "analytics-events-backfill-filtered-cursor-index-repair"',
+    );
+    expect(repairEntry).toContain(
+      "DROP INDEX CONCURRENTLY IF EXISTS analytics_events_org_received_id_non_http_idx",
+    );
+    expect(repairEntry).toContain(
+      "DROP INDEX CONCURRENTLY IF EXISTS analytics_events_owner_received_id_non_http_idx",
+    );
+    expect(repairEntry).toContain(
+      "event_name IS DISTINCT FROM 'http.response'",
+    );
+  });
+
+  it("has a direct-endpoint repair for indexes interrupted by statement budgets", () => {
+    const repairStart = dbTsSource.indexOf("version: 145,");
+    const repairEnd = dbTsSource.indexOf("\n    },", repairStart);
+    const repairEntry = dbTsSource.slice(repairStart, repairEnd);
+
+    expect(repairStart).toBeGreaterThan(-1);
+    expect(repairEnd).toBeGreaterThan(repairStart);
+    expect(repairEntry).toContain(
+      'name: "analytics-events-backfill-filtered-cursor-index-direct-repair"',
+    );
+    expect(repairEntry).toContain("repairAnalyticsEventCursorIndexes");
+    expect(dbTsSource).toContain("pg_try_advisory_lock");
+    expect(dbTsSource).toContain("deferMigration()");
+    expect(repairEntry).toContain('postgres: "SELECT 1"');
+    expect(dbTsSource).toContain(
+      "ANALYTICS_EVENT_CURSOR_INDEX_REPAIR_TIMEOUT_MS = 15 * 60 * 1000",
+    );
+    expect(dbTsSource).toContain("getAnalyticsMigrationDatabaseUrl()");
+  });
+
+  it("indexes bounded purge inventory counts", () => {
+    const repairStart = dbTsSource.indexOf("version: 146,");
+    const repairEnd = dbTsSource.indexOf("\n    },", repairStart);
+    const repairEntry = dbTsSource.slice(repairStart, repairEnd);
+
+    expect(repairStart).toBeGreaterThan(-1);
+    expect(repairEnd).toBeGreaterThan(repairStart);
+    expect(repairEntry).toContain(
+      'name: "analytics-events-purge-inventory-index-direct-repair"',
+    );
+    expect(dbTsSource).toContain(
+      "analytics_event_daily_rollups_org_event_date_idx",
+    );
+    expect(dbTsSource).toContain("analytics_user_days_org_event_date_idx");
+    expect(repairEntry).toContain("repairAnalyticsEventCursorIndexes");
   });
 
   it("stores BigQuery backfill progress in additive PostgreSQL and SQLite shard tables", () => {

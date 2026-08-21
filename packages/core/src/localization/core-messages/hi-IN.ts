@@ -28,6 +28,12 @@ const messages: AgentChatTranslation = {
   "commands.mention": "फ़ाइलों, एजेंटों या संसाधनों का उल्लेख करें",
   "commands.new": "/clear के समान",
   "commands.plan": "केवल-पढ़ने योग्य योजना मोड पर जाएँ",
+  "aboutAgentNative.title": "Agent Native के बारे में",
+  "aboutAgentNative.version": "संस्करण",
+  "aboutAgentNative.environment": "पर्यावरण",
+  "aboutAgentNative.build": "बिल्ड",
+  "aboutAgentNative.copyDiagnostics": "डायग्नोस्टिक कॉपी करें",
+  "aboutAgentNative.unknown": "अज्ञात",
   "common.agent": "एजेंट",
   "common.cancel": "रद्द करें",
   "common.collapse": "समेटें",
@@ -275,6 +281,8 @@ const messages: AgentChatTranslation = {
   "errorMessages.builderModelUnauthorized":
     "इस मॉडल के पीछे मौजूद प्रदाता ने अनुरोध अस्वीकार कर दिया। कोई दूसरा मॉडल चुनें, फिर से प्रयास करें।",
   "errorMessages.errorPrefix": "त्रुटि: {{message}}",
+  "errorMessages.gatewayInternalError":
+    "एजेंट के उत्तर देने से पहले मॉडल गेटवे में एक आंतरिक त्रुटि आई। कुछ देर में फिर कोशिश करें, और बार-बार होने पर नीचे दिया गया error id बताएं।",
   "errorMessages.gatewayNoDetails":
     "मॉडल गेटवे ने त्रुटि का कोई विवरण नहीं दिया और चैट रिकवर नहीं हो सकी। कुछ देर रुककर फिर से प्रयास करें या समस्या बनी रहने पर नई चैट शुरू करें।",
   "errorMessages.inactivityTimeout":
@@ -296,10 +304,14 @@ const messages: AgentChatTranslation = {
   "errorMessages.startNewChat": "नई चैट शुरू करें",
   "errorMessages.upgradeAtBuilder": "Builder.io पर अपग्रेड करें",
   "feedback.inaccurate": "गलत जानकारी",
+  "feedback.keyboardHint": "भेजने के लिए {{shortcut}} Enter",
   "feedback.notHelpful": "उपयोगी नहीं",
+  "feedback.placeholder": "बताएं कि क्या गलत हुआ...",
+  "feedback.submit": "जमा करें",
   "feedback.thumbsDown": "नापसंद",
   "feedback.thumbsUp": "पसंद",
   "feedback.tooSlow": "बहुत धीमा",
+  "feedback.whatWentWrong": "क्या गलत हुआ?",
   "feedback.wrongTool": "गलत टूल",
   "header.switchToCli": "CLI पर जाएँ",
   "history.active": "सक्रिय",
@@ -344,6 +356,8 @@ const messages: AgentChatTranslation = {
   "message.restoreFailed": "पुनर्स्थापना विफल रही ({{status}})।",
   "message.restoreQuestion": "यहाँ तक पुनर्स्थापित करें?",
   "message.restoreRequestFailed": "पुनर्स्थापना अनुरोध विफल रहा।",
+  "message.threadNotFound":
+    "यह चैट थ्रेड अब उपलब्ध नहीं है। नई चैट शुरू करें या यदि यह अप्रत्याशित है तो फिर कोशिश करें।",
   "message.restoring": "पुनर्स्थापित किया जा रहा है...",
   "message.revertHere": "यहाँ तक वापस जाएँ",
   "message.sentAt": "{{time}} पर भेजा गया",
@@ -513,6 +527,7 @@ const messages: AgentChatTranslation = {
   "share.unknownPerson": "अज्ञात व्यक्ति",
   "share.viewer": "दर्शक",
   "share.viewerDescription": "देख सकता है",
+  "share.userGroup": "उपयोगकर्ता समूह",
   "status.resuming": "फिर से शुरू हो रहा है",
   "status.stillWorking": "अभी काम जारी है",
   "status.thinking": "सोच रहा है",

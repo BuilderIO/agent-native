@@ -247,8 +247,11 @@ class AcpHarnessSession implements AgentHarnessSession {
         });
         this.acpSessionId = resume.sessionId;
         return;
-      } catch {
-        // Fall through to a fresh session if the agent could not load it.
+      } catch (error) {
+        if (!isExplicitlyMissingAcpSession(error)) throw error;
+        // A provider can legitimately evict an old session. Only that
+        // explicit condition may fall back to a fresh session; transport or
+        // permission failures must remain visible to the caller.
       }
     }
 
@@ -423,6 +426,11 @@ class AcpHarnessSession implements AgentHarnessSession {
   private async handleWriteTextFile(
     params: AcpWriteTextFileRequest,
   ): Promise<Record<string, never>> {
+    if (this.permissionMode === "allow-reads") {
+      throw new Error(
+        "[acp-harness] File writes are disabled in allow-reads mode.",
+      );
+    }
     const abs = resolveAcpWorkspacePath(this.cwd, params.path);
     const existed = await fileExists(abs);
     await fs.mkdir(path.dirname(abs), { recursive: true });
@@ -747,6 +755,18 @@ function acpErrorMessage(error: unknown): string {
     }
   }
   return typeof error === "string" ? error : "ACP request failed";
+}
+
+function isExplicitlyMissingAcpSession(error: unknown): boolean {
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+        ? error
+        : "";
+  return /(?:session|conversation).*(?:not found|does not exist|unknown|unsupported)|(?:unknown|unsupported).*(?:session|conversation)/i.test(
+    message,
+  );
 }
 
 // --- Minimal structural mirrors of the ACP schema (avoids a build-time dep) ---

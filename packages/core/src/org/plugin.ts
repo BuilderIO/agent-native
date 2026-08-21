@@ -37,6 +37,7 @@ import {
   setA2ASecretHandler,
   syncA2ASecretHandler,
   receiveA2ASecretHandler,
+  setWorkspaceAppDefaultVisibilityHandler,
 } from "./handlers.js";
 import { ORG_MIGRATIONS } from "./migrations.js";
 
@@ -148,6 +149,19 @@ export function createOrgPlugin(): NitroPluginDef {
           return { error: "Method not allowed" };
         }
         return removeMemberHandler(event);
+      }),
+    );
+
+    // PUT /workspace-app-default-visibility — org admins choose the default
+    // for newly created workspace apps. Existing apps retain their setting.
+    app.use(
+      `${ORG_PREFIX}/workspace-app-default-visibility`,
+      defineEventHandler(async (event: H3Event) => {
+        if (getMethod(event) !== "PUT") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        return setWorkspaceAppDefaultVisibilityHandler(event);
       }),
     );
 

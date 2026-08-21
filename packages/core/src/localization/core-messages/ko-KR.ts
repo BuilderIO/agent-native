@@ -29,6 +29,12 @@ const messages: AgentChatTranslation = {
   "commands.mention": "파일, 에이전트 또는 리소스 멘션",
   "commands.new": "/clear와 동일",
   "commands.plan": "읽기 전용 계획 모드로 전환",
+  "aboutAgentNative.title": "Agent Native 정보",
+  "aboutAgentNative.version": "버전",
+  "aboutAgentNative.environment": "환경",
+  "aboutAgentNative.build": "빌드",
+  "aboutAgentNative.copyDiagnostics": "진단 정보 복사",
+  "aboutAgentNative.unknown": "알 수 없음",
   "common.agent": "에이전트",
   "common.cancel": "취소",
   "common.collapse": "접기",
@@ -275,6 +281,8 @@ const messages: AgentChatTranslation = {
   "errorMessages.builderModelUnauthorized":
     "이 모델의 제공업체가 요청을 거부했습니다. 다른 모델을 선택한 후 다시 시도하세요.",
   "errorMessages.errorPrefix": "오류: {{message}}",
+  "errorMessages.gatewayInternalError":
+    "에이전트가 답변하기 전에 모델 게이트웨이에서 내부 오류가 발생했습니다. 잠시 후 다시 시도하고, 계속 발생하면 아래 오류 ID를 알려 주세요.",
   "errorMessages.gatewayNoDetails":
     "모델 게이트웨이가 오류 세부 정보를 반환하지 않아 채팅을 복구할 수 없습니다. 잠시 후 다시 시도하고, 문제가 계속되면 새 채팅을 시작하세요.",
   "errorMessages.inactivityTimeout":
@@ -296,10 +304,14 @@ const messages: AgentChatTranslation = {
   "errorMessages.startNewChat": "새 채팅 시작",
   "errorMessages.upgradeAtBuilder": "Builder.io에서 업그레이드",
   "feedback.inaccurate": "부정확함",
+  "feedback.keyboardHint": "보내려면 {{shortcut}} Enter",
   "feedback.notHelpful": "도움이 되지 않음",
+  "feedback.placeholder": "무엇이 문제였는지 알려주세요…",
+  "feedback.submit": "제출",
   "feedback.thumbsDown": "싫어요",
   "feedback.thumbsUp": "좋아요",
   "feedback.tooSlow": "너무 느림",
+  "feedback.whatWentWrong": "무엇이 잘못되었나요?",
   "feedback.wrongTool": "잘못된 도구",
   "header.switchToCli": "CLI로 전환",
   "history.active": "활성",
@@ -342,6 +354,8 @@ const messages: AgentChatTranslation = {
   "message.restoreFailed": "복원 실패({{status}}).",
   "message.restoreQuestion": "여기로 복원하시겠습니까?",
   "message.restoreRequestFailed": "복원 요청에 실패했습니다.",
+  "message.threadNotFound":
+    "이 채팅 스레드는 더 이상 사용할 수 없습니다. 새 채팅을 시작하거나 예상치 못한 문제라면 다시 시도하세요.",
   "message.restoring": "복원 중...",
   "message.revertHere": "여기로 되돌리기",
   "message.sentAt": "{{time}}에 전송",
@@ -513,6 +527,7 @@ const messages: AgentChatTranslation = {
   "share.unknownPerson": "알 수 없는 사용자",
   "share.viewer": "뷰어",
   "share.viewerDescription": "보기 가능",
+  "share.userGroup": "사용자 그룹",
   "status.resuming": "재개 중",
   "status.stillWorking": "계속 작업 중",
   "status.thinking": "생각 중",

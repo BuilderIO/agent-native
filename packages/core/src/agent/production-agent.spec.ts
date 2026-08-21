@@ -34,6 +34,7 @@ import {
   createPlanModeActionRegistry,
   createProductionAgentHandler,
   preloadPlanModeEngineTools,
+  normalizeAgentActionSurfaceResolution,
   readPersistedActionSurface,
   readPersistedAllowedActionNames,
   isPlanModeToolCallAllowed,
@@ -45,8 +46,13 @@ import {
   filterInitialEngineTools,
   findApprovedStructuredToolCall,
   MAX_BACKGROUND_RUN_CONTINUATIONS,
+  MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS,
+  backgroundNoProgressTerminalEvent,
+  installBackgroundNoProgressTerminalEvent,
+  resolveBackgroundNoProgressRepeat,
   lastUnfinishedPreparingActionToolFromEvents,
   markBackgroundContinuationChunkTerminal,
+  resolveAgentModelSelection,
   resolveAgentOwnerEmail,
   resolveBackgroundDispatchOutcome,
   resolveFinalResponseGuardRequestText,
@@ -87,6 +93,16 @@ describe("runCompletionCallbackWithDatabaseRetry", () => {
     expect(sleep).toHaveBeenCalledWith(250);
   });
 });
+
+/**
+ * Chat events minus the `model_stream` bracket. The bracket exists for the run
+ * manager's no-progress backstop, renders nothing, and would otherwise have to
+ * be re-spelled inside every exact-sequence assertion below; the bracket's own
+ * pairing and placement are asserted directly in its dedicated tests.
+ */
+function visibleEvents(events: AgentChatEvent[]): AgentChatEvent[] {
+  return events.filter((event) => event.type !== "model_stream");
+}
 
 function actionEntry(opts: {
   description?: string;
@@ -162,6 +178,40 @@ describe("resolveAgentRequestReasoningEffort", () => {
         configuredEffort: "high",
       }),
     ).toBe("none");
+  });
+});
+
+describe("resolveAgentModelSelection", () => {
+  const defaultModel = "gpt-5-6-luna";
+
+  it("uses a manually selected request model first", () => {
+    expect(
+      resolveAgentModelSelection({
+        requestModel: "gpt-5-6-terra",
+        storedModel: "gpt-5-6-sol",
+        defaultModel,
+      }),
+    ).toEqual({ model: "gpt-5-6-terra", source: "request" });
+  });
+
+  it("treats auto as a sentinel and uses the stored AN default", () => {
+    expect(
+      resolveAgentModelSelection({
+        requestModel: "auto",
+        storedModel: "gpt-5-6-terra",
+        defaultModel,
+      }),
+    ).toEqual({ model: "gpt-5-6-terra", source: "stored" });
+  });
+
+  it("uses the single configured global default when no override exists", () => {
+    expect(
+      resolveAgentModelSelection({
+        requestModel: "auto",
+        storedModel: "auto",
+        defaultModel,
+      }),
+    ).toEqual({ model: defaultModel, source: "default" });
   });
 });
 
@@ -463,6 +513,62 @@ describe("buildUserContentWithAttachments", () => {
       { type: "image", mediaType: "image/png", data: "aW1hZ2U=" },
       { type: "text", text: "Describe this" },
     ]);
+  });
+
+  // Binary attachments were never capped, so a large screenshot or PDF went out
+  // as unbounded inline base64. OpenAI rejects the whole request over 1,048,576
+  // chars in one file_url ("string too long", measured at 4,149,128) and the
+  // turn dies -- 64 events in 7 days, all on the gateway path.
+  it("does not inline an oversized image, and points at the uploaded URL instead", () => {
+    const att: any = {
+      type: "image",
+      name: "huge.png",
+      contentType: "image/png",
+      data: `data:image/png;base64,${"A".repeat(1_000_001)}`,
+      url: "https://cdn.example.com/huge.png",
+    };
+    const parts = buildUserContentWithAttachments({
+      text: "Describe this",
+      attachments: [att],
+    });
+    expect(parts.some((p: any) => p.type === "image")).toBe(false);
+    const text = parts.map((p: any) => p.text ?? "").join("\n");
+    expect(text).toContain("https://cdn.example.com/huge.png");
+    expect(text).toContain("too large to send inline");
+  });
+
+  it("still inlines an image that fits", () => {
+    const parts = buildUserContentWithAttachments({
+      text: "Describe this",
+      attachments: [
+        {
+          type: "image",
+          name: "small.png",
+          contentType: "image/png",
+          data: "data:image/png;base64,aW1hZ2U=",
+        } as any,
+      ],
+    });
+    expect(parts.some((p: any) => p.type === "image")).toBe(true);
+  });
+
+  // Without a URL the bytes are unreachable, so say so rather than dropping the
+  // attachment and leaving the model to answer as if nothing was sent.
+  it("says an oversized file is unavailable when there is no upload URL", () => {
+    const att: any = {
+      type: "file",
+      name: "huge.pdf",
+      contentType: "application/pdf",
+      data: `data:application/pdf;base64,${"A".repeat(1_000_001)}`,
+    };
+    const parts = buildUserContentWithAttachments({
+      text: "Summarize",
+      attachments: [att],
+    });
+    expect(parts.some((p: any) => p.type === "file")).toBe(false);
+    const text = parts.map((p: any) => p.text ?? "").join("\n");
+    expect(text).toContain("huge.pdf");
+    expect(text).toContain("no upload URL");
   });
 
   it("keeps hosted image URLs in text context instead of sending malformed URL image parts", () => {
@@ -1496,7 +1602,63 @@ describe("createProductionAgentHandler", () => {
     expect(getRequestRunContext()).toBeUndefined();
   });
 
-  it("keeps concurrent request action surfaces isolated by thread", async () => {
+  it("uses the normal initial tool surface when the resolver selects the default", async () => {
+    const seenTools: string[][] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        seenTools.push(opts.tools.map((tool) => tool.name));
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {
+        common: actionEntry({}),
+        rare: actionEntry({}),
+        "tool-search": actionEntry({}),
+      },
+      initialToolNames: ["common"],
+      resolveActionSurface: async () => ({ mode: "default" }),
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message: "Use the default agent" }),
+      }),
+    );
+
+    const response = await runWithRequestContext(
+      { userEmail: "owner@example.com", run: {} },
+      () => handler(event),
+    );
+    if (response instanceof ReadableStream) {
+      const reader = response.getReader();
+      while (!(await reader.read()).done) {}
+    }
+
+    await vi.waitFor(() => {
+      expect(seenTools).toEqual([["common", "tool-search"]]);
+    });
+  });
+
+  it("keeps concurrent default and allowlisted action surfaces isolated by thread", async () => {
     const seenTools: string[][] = [];
     const seenContinuations: Array<[string | undefined, boolean]> = [];
     const engine: AgentEngine = {
@@ -1528,11 +1690,12 @@ describe("createProductionAgentHandler", () => {
         beta: actionEntry({}),
         "tool-search": actionEntry({}),
       },
+      initialToolNames: ["alpha"],
       resolveActionSurface: async ({ threadId, internalContinuation }) => {
         seenContinuations.push([threadId, internalContinuation]);
         if (threadId === "thread-alpha") {
           await new Promise((resolve) => setTimeout(resolve, 10));
-          return { allowedActionNames: ["alpha"] };
+          return { mode: "default" };
         }
         return { allowedActionNames: ["beta"] };
       },
@@ -1566,7 +1729,7 @@ describe("createProductionAgentHandler", () => {
     ]);
 
     expect(seenTools).toHaveLength(2);
-    expect(seenTools).toContainEqual(["alpha"]);
+    expect(seenTools).toContainEqual(["alpha", "tool-search"]);
     expect(seenTools).toContainEqual(["beta"]);
     expect(seenContinuations).toContainEqual(["thread-alpha", false]);
     expect(seenContinuations).toContainEqual(["thread-beta", true]);
@@ -1735,6 +1898,42 @@ describe("createProductionAgentHandler", () => {
 });
 
 describe("filterActionsByAllowedNames", () => {
+  it("normalizes only explicit default or valid allowlisted surfaces", () => {
+    expect(normalizeAgentActionSurfaceResolution({ mode: "default" })).toEqual({
+      mode: "default",
+    });
+    expect(
+      normalizeAgentActionSurfaceResolution({
+        allowedActionNames: ["allowed", "allowed"],
+      }),
+    ).toEqual({ mode: "allowlist", allowedActionNames: ["allowed"] });
+    expect(() =>
+      normalizeAgentActionSurfaceResolution({
+        mode: "default",
+        allowedActionNames: [],
+      }),
+    ).toThrow("resolveActionSurface returned an invalid default surface");
+    expect(() =>
+      normalizeAgentActionSurfaceResolution({ mode: "unknown" }),
+    ).toThrow("resolveActionSurface returned an invalid default surface");
+    expect(() => normalizeAgentActionSurfaceResolution({})).toThrow(
+      "resolveActionSurface returned an invalid action surface",
+    );
+    expect(() =>
+      normalizeAgentActionSurfaceResolution({ allowedActionNames: null }),
+    ).toThrow("resolveActionSurface returned an invalid action surface");
+    expect(() =>
+      normalizeAgentActionSurfaceResolution({
+        allowedActionNames: ["allowed", null],
+      }),
+    ).toThrow("resolveActionSurface returned an invalid action surface");
+    expect(() =>
+      normalizeAgentActionSurfaceResolution({
+        allowedActionNames: "allowed",
+      }),
+    ).toThrow("resolveActionSurface returned an invalid action surface");
+  });
+
   it("treats an explicit empty allowlist as no actions", () => {
     expect(
       filterActionsByAllowedNames(
@@ -1820,6 +2019,40 @@ describe("filterActionsByAllowedNames", () => {
         "__resolvedActionSurface",
       ),
     ).toEqual({ orgId: null, allowedActionNames: ["allowed"] });
+    expect(
+      readPersistedActionSurface(
+        {
+          __resolvedActionSurface: {
+            orgId: "org-123",
+            mode: "default",
+          },
+        },
+        "__resolvedActionSurface",
+      ),
+    ).toEqual({ orgId: "org-123", mode: "default" });
+    expect(
+      readPersistedActionSurface(
+        {
+          __resolvedActionSurface: {
+            orgId: "org-123",
+            mode: "unknown",
+          },
+        },
+        "__resolvedActionSurface",
+      ),
+    ).toEqual({ orgId: null, allowedActionNames: [] });
+    expect(
+      readPersistedActionSurface(
+        {
+          __resolvedActionSurface: {
+            orgId: "org-123",
+            mode: "default",
+            allowedActionNames: ["allowed"],
+          },
+        },
+        "__resolvedActionSurface",
+      ),
+    ).toEqual({ orgId: null, allowedActionNames: [] });
   });
 
   it("keeps tool-search scoped to the filtered request registry", async () => {
@@ -1888,7 +2121,7 @@ describe("runAgentLoop", () => {
       },
     };
 
-    await runAgentLoop({
+    const usage = await runAgentLoop({
       engine,
       model: "test-model",
       systemPrompt: "system",
@@ -1904,6 +2137,8 @@ describe("runAgentLoop", () => {
         policyId: "crm-sales-routine-local-v1",
       },
     });
+
+    expect(usage.llmCalls).toBe(2);
 
     expect(run).toHaveBeenCalledWith(
       {},
@@ -2865,6 +3100,101 @@ describe("runAgentLoop", () => {
     },
   });
 
+  const modelStreamBracket = (events: AgentChatEvent[]) =>
+    events.filter((event) => event.type === "model_stream");
+
+  // The bracket the run manager's no-progress backstop reads
+  // (`inFlightWorkDelta` in run-manager.ts). It must be balanced on every exit
+  // path: a leaked `start` suspends that backstop for the rest of the run,
+  // which is worse than the stall it exists to catch.
+  it("brackets each engine call with a model_stream start/end pair", async () => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        yield { type: "text-delta", text: "answer" };
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {},
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(streamCalls).toBe(1);
+    // Opened before anything the stream produces, closed before the turn ends.
+    expect(events[0]).toEqual({ type: "model_stream", status: "start" });
+    expect(modelStreamBracket(events)).toEqual([
+      { type: "model_stream", status: "start" },
+      { type: "model_stream", status: "end" },
+    ]);
+    expect(events.at(-1)).toEqual({ type: "done" });
+  });
+
+  it("closes the model-stream bracket when the engine throws mid-stream", async () => {
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield { type: "text-delta", text: "partial" };
+        throw new EngineError("Connection error.", {
+          errorCode: "provider_network_error",
+        });
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    vi.stubEnv("AGENT_RUN_SOFT_TIMEOUT_MS", "1000");
+    try {
+      await expect(
+        runAgentLoop({
+          engine,
+          model: "test-model",
+          systemPrompt: "system",
+          tools: [],
+          messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+          actions: {},
+          send: (event) => events.push(event),
+          signal: new AbortController().signal,
+        }),
+      ).rejects.toThrow("Connection error.");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+
+    expect(modelStreamBracket(events)).toEqual([
+      { type: "model_stream", status: "start" },
+      { type: "model_stream", status: "end" },
+    ]);
+  });
+
   it("FIX 2: a hung FIRST model event triggers auto_continue at 25s on the HOSTED foreground runtime", async () => {
     const restoreEnv = snapshotAndClearRuntimePredicateEnv();
     // Hosted (non-background Lambda name, e.g. the regular `server` function)
@@ -2925,7 +3255,7 @@ describe("runAgentLoop", () => {
 
       // Past the 25s cap — a non-hosted runtime must be unaffected by it.
       await vi.advanceTimersByTimeAsync(26_000);
-      expect(events).toHaveLength(0);
+      expect(events).toEqual([{ type: "model_stream", status: "start" }]);
 
       // The normal 90s in-loop watchdog still applies and eventually fires.
       await vi.advanceTimersByTimeAsync(90_000 - 26_000);
@@ -2964,7 +3294,7 @@ describe("runAgentLoop", () => {
       // Past the 25s foreground cap — a proven background-function worker
       // must be unaffected by it.
       await vi.advanceTimersByTimeAsync(26_000);
-      expect(events).toHaveLength(0);
+      expect(events).toEqual([{ type: "model_stream", status: "start" }]);
 
       // The normal 90s watchdog still applies and eventually fires.
       await vi.advanceTimersByTimeAsync(90_000 - 26_000);
@@ -3134,6 +3464,59 @@ describe("runAgentLoop", () => {
     // Retryable, but 2s+ of backoff plus the minimum continuation budget does
     // not fit in a 1s run budget — burning it here leaves nothing to resume with.
     expect(streamCalls).toBe(1);
+  });
+
+  // End-to-end shape of the Analytics outage: the gateway answered 200, emitted
+  // its unhandled-500 envelope in-stream, and the turn ended on the first
+  // attempt — 14 turns, every one at exactly 1.00 runs/turn. The envelope now
+  // carries a code and a retry verdict, so the same turn finishes.
+  it("recovers a turn from the Builder gateway internal-error envelope", async () => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          throw new EngineError(
+            "Sorry, we ran into an issue processing your request. " +
+              "ERROR ID: bebaeb5da13441539790834b63ff955a",
+            { errorCode: "builder_gateway_internal_error" },
+          );
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "recovered" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+
+    const events: AgentChatEvent[] = [];
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {},
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(streamCalls).toBe(2);
+    expect(JSON.stringify(events)).toContain("recovered");
+    // The turn must not end on the envelope: no terminal error reaches the user.
+    expect(events.filter((event) => event.type === "error")).toEqual([]);
   });
 
   it("resumes a resumable engine error in-process on the foreground while budget remains", async () => {
@@ -8217,7 +8600,7 @@ describe("runAgentLoop", () => {
     });
 
     expect(streamCalls).toBe(1);
-    expect(events).toEqual([
+    expect(visibleEvents(events)).toEqual([
       {
         type: "tool_start",
         id: "query-1",
@@ -8798,7 +9181,7 @@ describe("runAgentLoop", () => {
       "act",
       "act",
     ]);
-    expect(events.slice(0, 2)).toEqual([
+    expect(visibleEvents(events).slice(0, 2)).toEqual([
       {
         type: "text",
         text: "Looks up and to the right.",
@@ -8971,7 +9354,7 @@ describe("runAgentLoop", () => {
       "unclear",
       "grounded",
     ]);
-    expect(events).toEqual([
+    expect(visibleEvents(events)).toEqual([
       { type: "text", text: "unclear" },
       { type: "clear" },
       { type: "text", text: "grounded" },
@@ -9019,7 +9402,7 @@ describe("runAgentLoop", () => {
       }),
     ).rejects.toThrow("guard unavailable");
 
-    expect(events.slice(0, 2)).toEqual([
+    expect(visibleEvents(events).slice(0, 2)).toEqual([
       { type: "text", text: "Unverified answer." },
       { type: "clear" },
     ]);
@@ -9068,7 +9451,7 @@ describe("runAgentLoop", () => {
     });
 
     expect(streamCalls).toBe(2);
-    expect(events).toEqual([
+    expect(visibleEvents(events)).toEqual([
       { type: "text", text: "fake answer" },
       { type: "clear" },
       { type: "text", text: "still fake" },
@@ -9207,7 +9590,7 @@ describe("runAgentLoop", () => {
       requestText: "go",
       text: "Recovered answer.",
     });
-    expect(events.map((event) => event.type)).toEqual([
+    expect(visibleEvents(events).map((event) => event.type)).toEqual([
       "thinking",
       "clear",
       "text",
@@ -9366,7 +9749,9 @@ describe("runAgentLoop", () => {
       signal: new AbortController().signal,
     });
 
-    expect(events).toEqual([{ type: "auto_continue", reason: "stream_ended" }]);
+    expect(visibleEvents(events)).toEqual([
+      { type: "auto_continue", reason: "stream_ended" },
+    ]);
   });
 
   it("recovers repeated Luna reasoning-only turns before an app guard classifies the continuation", async () => {
@@ -9479,7 +9864,7 @@ describe("runAgentLoop", () => {
     expect(textEvents).toHaveLength(1);
     expect(textEvents[0].text).toMatch(/empty response/i);
     expect(textEvents[0].text).toMatch(/different model/i);
-    expect(events.map((event) => event.type)).toEqual([
+    expect(visibleEvents(events).map((event) => event.type)).toEqual([
       "thinking",
       "clear",
       "thinking",
@@ -10132,6 +10517,88 @@ describe("runAgentLoop", () => {
     expect(events2.at(-1)).toEqual({ type: "done" });
   });
 
+  it("runs an approved call when the continuation has a new provider call id", async () => {
+    const phase1 = approvalEngine();
+    const run = vi.fn(async () => "delivered");
+    const actions = {
+      "send-email": {
+        ...actionEntry({ readOnly: false }),
+        needsApproval: true,
+        run,
+      },
+    };
+    const events1: any[] = [];
+
+    await runAgentLoop({
+      engine: phase1.engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions,
+      send: (event) => events1.push(event),
+      signal: new AbortController().signal,
+    });
+
+    const approvalKey = events1.find(
+      (event) => event.type === "approval_required",
+    )?.approvalKey as string;
+    let continuationStreamCalls = 0;
+    const continuationEngine: AgentEngine = {
+      ...approvalEngine().engine,
+      async *stream(): AsyncIterable<EngineEvent> {
+        continuationStreamCalls += 1;
+        if (continuationStreamCalls === 1) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: "replayed-call-id",
+                name: "send-email",
+                input: { to: "a@b.com" },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "sent the email" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const consumeApproval = vi.fn(
+      async (binding: { callId: string; approvalKey: string }) => {
+        expect(binding.callId).toBe("replayed-call-id");
+        return binding.approvalKey === approvalKey;
+      },
+    );
+    const events2: any[] = [];
+
+    await runAgentLoop({
+      engine: continuationEngine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions,
+      approvedToolCalls: [approvalKey],
+      consumeApproval,
+      onApprovalRequired: vi.fn(async () => undefined),
+      send: (event) => events2.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(consumeApproval).toHaveBeenCalledOnce();
+    expect(run).toHaveBeenCalledOnce();
+    expect(events2.some((event) => event.type === "approval_required")).toBe(
+      false,
+    );
+  });
+
   it("requires the server approval consumer before executing an approved call", async () => {
     const phase1 = approvalEngine();
     const run = vi.fn(async () => "delivered");
@@ -10574,6 +11041,39 @@ describe("isRetryableError", () => {
   it("does not retry when providerRetryable is false and no other signals", () => {
     const err = new EngineError("not retryable", { providerRetryable: false });
     expect(isRetryableError(err)).toBe(false);
+  });
+
+  // On a Builder-credits site the gateway's message is replaced by one
+  // visitor-facing line before it ever reaches here, so the org concurrency
+  // throttle has no retryable keyword left in it. The structured fields
+  // builder-engine attaches are the whole retry decision; the first assertion
+  // is what fails if anyone re-couples this to wording.
+  it("retries the gateway concurrency throttle from structure alone, not wording", () => {
+    const visitorLine = "AI features aren't available on this site right now.";
+    expect(
+      isRetryableError(
+        new EngineError(visitorLine, {
+          errorCode: "too_many_concurrent_requests",
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      isRetryableError(
+        new EngineError(visitorLine, {
+          errorCode: "too_many_concurrent_requests",
+          statusCode: 429,
+          providerRetryable: true,
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      isRetryableError(
+        new EngineError(visitorLine, {
+          errorCode: "rate_limited",
+          providerRetryable: true,
+        }),
+      ),
+    ).toBe(true);
   });
 
   it("retries on Anthropic bare 'Connection error.' transport failures", () => {
@@ -11119,6 +11619,51 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
     ).toBe(false);
   });
 
+  // `providerRetryable` is the engine's "another attempt may succeed", carried
+  // on the error event because a Builder-credits deployment replaces the message
+  // the client keyword-matched. It must NOT be read as a continuation boundary
+  // here: a provider throttle would self-chain up to
+  // MAX_BACKGROUND_RUN_CONTINUATIONS background invocations into the very limit
+  // that just rejected the call, on every lane. `recoverable` — the server's own
+  // boundary signal — still chains, which is the distinction.
+  it("does NOT chain on the engine's retry verdict alone", () => {
+    for (const errorCode of [
+      "rate_limited",
+      "too_many_concurrent_requests",
+      "upstream_unavailable",
+    ]) {
+      expect(
+        shouldChainBackgroundContinuation({
+          isBackgroundWorker: true,
+          run: makeRun([
+            {
+              type: "error",
+              error: "AI features aren't available on this site right now.",
+              errorCode,
+              providerRetryable: true,
+            },
+          ]),
+          continuationCount: 0,
+        }),
+      ).toBe(false);
+    }
+
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: true,
+        run: makeRun([
+          {
+            type: "error",
+            error: "AI features aren't available on this site right now.",
+            errorCode: "stale_run",
+            recoverable: true,
+          },
+        ]),
+        continuationCount: 0,
+      }),
+    ).toBe(true);
+  });
+
   it("preserves the specific continuation reason for recoverable background errors", () => {
     expect(
       backgroundContinuationReasonForRun(
@@ -11288,6 +11833,148 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
         continuationCount: MAX_BACKGROUND_RUN_CONTINUATIONS - 1,
       }),
     ).toBe(true);
+  });
+
+  // ── No-progress circuit breaker ──────────────────────────────────────────
+  // The measured incident: one message, 27 background runs, 15 minutes. Every
+  // chunk failed with the same gateway 500 after the engine's own 3 internal
+  // retries, and a recoverable error is also a continuation boundary, so the
+  // two recovery layers multiplied instead of stopping each other.
+  const gatewayFailure = (): AgentChatEvent => ({
+    type: "error",
+    error:
+      "Sorry, we ran into an issue processing your request. ERROR ID: 0f3c9ab21d7e",
+    errorCode: "builder_gateway_internal_error",
+    recoverable: true,
+  });
+
+  it("chains the FIRST identical no-progress failure and stops at the second", () => {
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: true,
+        run: makeRun([gatewayFailure()], "errored"),
+        continuationCount: 0,
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: true,
+        run: makeRun([gatewayFailure()], "errored"),
+        continuationCount: 1,
+        priorNoProgressErrorCode: "builder_gateway_internal_error",
+        priorNoProgressCount: 1,
+      }),
+    ).toBe(false);
+    expect(MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS).toBe(2);
+  });
+
+  it("keeps chaining when a DIFFERENT error follows the failed one", () => {
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: true,
+        run: makeRun(
+          [
+            {
+              type: "error",
+              error: "The model stream ended without a stop event.",
+              errorCode: "builder_gateway_stream_ended",
+              recoverable: true,
+            },
+          ],
+          "errored",
+        ),
+        continuationCount: 1,
+        priorNoProgressErrorCode: "builder_gateway_internal_error",
+        priorNoProgressCount: 1,
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps chaining the same error after real forward progress", () => {
+    // A truncated stream that produced partial text or ran a tool IS advancing;
+    // cutting that off is what would weaken the recovery this path exists for.
+    for (const progress of [
+      { type: "text", text: "Rewriting the migration…" } as AgentChatEvent,
+      {
+        type: "tool_done",
+        tool: "edit-design",
+        result: '{"ok":true}',
+        completedSideEffect: true,
+      } as AgentChatEvent,
+    ]) {
+      expect(
+        shouldChainBackgroundContinuation({
+          isBackgroundWorker: true,
+          run: makeRun([progress, gatewayFailure()], "errored"),
+          continuationCount: 1,
+          priorNoProgressErrorCode: "builder_gateway_internal_error",
+          priorNoProgressCount: 1,
+        }),
+      ).toBe(true);
+    }
+  });
+
+  it("resets the streak after progress instead of carrying it forward", () => {
+    const advanced = resolveBackgroundNoProgressRepeat({
+      run: makeRun(
+        [{ type: "text", text: "Working on it." }, gatewayFailure()],
+        "errored",
+      ),
+      priorErrorCode: "builder_gateway_internal_error",
+      priorCount: 1,
+    });
+    expect(advanced).toEqual({ count: 0, tripped: false });
+  });
+
+  it("ends a tripped chain with one non-recoverable error keeping the code and gateway reference", () => {
+    const run = makeRun([gatewayFailure()], "errored");
+    const repeat = resolveBackgroundNoProgressRepeat({
+      run,
+      priorErrorCode: "builder_gateway_internal_error",
+      priorCount: 1,
+    });
+    expect(repeat).toEqual({
+      errorCode: "builder_gateway_internal_error",
+      count: 2,
+      tripped: true,
+    });
+
+    const terminal = backgroundNoProgressTerminalEvent(run, repeat);
+    expect(terminal?.errorCode).toBe("builder_gateway_internal_error");
+    expect(terminal?.recoverable).toBe(false);
+    expect(terminal?.error).toContain("ERROR ID: 0f3c9ab21d7e");
+    expect(terminal?.error).toContain("2 times in a row");
+  });
+
+  it("replaces the persisted recoverable error before completion callbacks run", () => {
+    const run = makeRun([gatewayFailure()], "errored");
+    const repeat = resolveBackgroundNoProgressRepeat({
+      run,
+      priorErrorCode: "builder_gateway_internal_error",
+      priorCount: 1,
+    });
+
+    expect(installBackgroundNoProgressTerminalEvent(run, repeat)).toBe(true);
+    expect(run.events.at(-1)?.event).toMatchObject({
+      type: "error",
+      errorCode: "builder_gateway_internal_error",
+      recoverable: false,
+    });
+    expect(run.events.at(-1)?.event).toEqual(run.continuationTerminalEvent);
+  });
+
+  it("leaves a soft-timeout boundary to the run-manager's own backstop", () => {
+    // No error code to repeat — an empty auto_continue chunk is not this
+    // breaker's business, and treating it as one would cap legitimate long
+    // turns at two chunks.
+    expect(
+      resolveBackgroundNoProgressRepeat({
+        run: makeRun([{ type: "auto_continue", reason: "run_timeout" }]),
+        priorErrorCode: "builder_gateway_internal_error",
+        priorCount: 1,
+      }),
+    ).toEqual({ count: 0, tripped: false });
   });
 
   it("marks a successfully chained background chunk terminal before the worker returns", async () => {

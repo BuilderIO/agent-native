@@ -1,5 +1,16 @@
+import {
+  isClaudeCodeAgentId,
+  isLunaModel,
+  resolvePreferredAgentModel,
+} from "@agent-native/toolkit/composer/model-selection";
 import { IconPlus, IconHistory, IconX } from "@tabler/icons-react";
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, {
+  useState,
+  useRef,
+  useEffect,
+  useLayoutEffect,
+  useCallback,
+} from "react";
 
 import { DEFAULT_MODEL } from "../agent/default-model.js";
 import {
@@ -71,6 +82,9 @@ import {
 } from "./use-chat-threads.js";
 import { usePollLoop } from "./use-poll-loop.js";
 import { cn } from "./utils.js";
+
+const useBrowserLayoutEffect =
+  typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 interface ModelSelection {
   model: string;
@@ -587,6 +601,22 @@ const DEFAULT_THREAD_URL_PARAM = "thread";
 const THREAD_URL_CHANGED_EVENT = "agent-chat:url-thread-changed";
 const hasOwn = Object.prototype.hasOwnProperty;
 
+// A duplicated id in `openTabIds` makes two tab-bar entries share one
+// underlying thread: closing either one filters that id out of the array
+// entirely, so both disappear at once. De-duplicate at every boundary the
+// array crosses (localStorage read and write) so a corrupted persisted list
+// self-heals instead of reproducing the phantom tab on every reload.
+function dedupeIds(ids: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const id of ids) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    result.push(id);
+  }
+  return result;
+}
+
 // The history patch is installed once and shared via a ref count so that
 // multiple synced chats (or a remount) don't restore a stale `pushState`
 // reference and silently drop a wrapper installed by another instance.
@@ -756,6 +786,8 @@ export type MultiTabAssistantChatProps = Omit<
   threadUrlSync?: boolean | ChatThreadUrlSyncOptions;
   /** Ambient resource context to show as a composer chip. */
   scope?: ChatThreadScope | null;
+  /** Keep app-owned chat history isolated to the supplied scope. */
+  isolateHistoryByScope?: boolean;
   /** @deprecated Scope context is now rendered in the composer. */
   showScopeBadge?: boolean;
   /** Cadence for hydrating agent-team sub-agent tab status. Default: 3000. */
@@ -773,6 +805,7 @@ export function MultiTabAssistantChat({
   browserTabId,
   threadUrlSync = false,
   scope = null,
+  isolateHistoryByScope = false,
   agentTeamPollMs = DEFAULT_AGENT_TEAM_POLL_MS,
   ...props
 }: MultiTabAssistantChatProps) {
@@ -918,6 +951,7 @@ export function MultiTabAssistantChat({
     hasMoreThreads,
     isLoadingMoreThreads,
     threadsLoadError,
+    restoredThreadIdOnListFailure,
     isNewThread,
     pinThread,
     renameThread,
@@ -926,6 +960,7 @@ export function MultiTabAssistantChat({
     routeThreadId: threadUrlSyncEnabled
       ? urlThreadId
       : (activeDeepLinkedThreadId ?? undefined),
+    isolateHistoryByScope,
   });
 
   const switchThread = useCallback(
@@ -1109,14 +1144,28 @@ export function MultiTabAssistantChat({
     (model: string, engine: string) => {
       const threadId = activeThreadIdRef.current;
       if (!threadId) return;
+      const preferredAgentModel =
+        isClaudeCodeAgentId(props.selectedAgent) && isLunaModel(model)
+          ? resolvePreferredAgentModel(props.selectedAgent, availableModels)
+          : undefined;
+      const nextModel = preferredAgentModel?.model ?? model;
+      const nextEngine = preferredAgentModel?.engine ?? engine;
       const existing = threadModelRef.current.get(threadId);
-      const effort = resolveReasoningEffortSelection(model, existing?.effort);
-      const selection = { model, engine, effort };
+      const effort = resolveReasoningEffortSelection(
+        nextModel,
+        existing?.effort,
+      );
+      const selection = { model: nextModel, engine: nextEngine, effort };
       threadModelRef.current.set(threadId, selection);
       persistModelSelection(selection);
       bumpModelSelectionVersion();
     },
-    [bumpModelSelectionVersion, persistModelSelection],
+    [
+      availableModels,
+      bumpModelSelectionVersion,
+      persistModelSelection,
+      props.selectedAgent,
+    ],
   );
 
   const handleEffortChange = useCallback(
@@ -1143,6 +1192,45 @@ export function MultiTabAssistantChat({
       resolveThreadModelSelection,
     ],
   );
+
+  useEffect(() => {
+    const preferredAgentModel = props.selectedAgent
+      ? resolvePreferredAgentModel(props.selectedAgent, availableModels)
+      : undefined;
+    if (!preferredAgentModel) return;
+
+    const threadId = activeThreadIdRef.current;
+    const current = threadId
+      ? resolveThreadModelSelection(threadId)
+      : persistedModelSelection;
+    if (
+      current?.model === preferredAgentModel.model &&
+      current.engine === preferredAgentModel.engine
+    ) {
+      return;
+    }
+
+    const selection = {
+      model: preferredAgentModel.model,
+      engine: preferredAgentModel.engine,
+      effort: resolveReasoningEffortSelection(
+        preferredAgentModel.model,
+        current?.effort,
+      ),
+    };
+    if (threadId) {
+      threadModelRef.current.set(threadId, selection);
+      bumpModelSelectionVersion();
+    }
+    persistModelSelection(selection);
+  }, [
+    availableModels,
+    bumpModelSelectionVersion,
+    persistedModelSelection,
+    props.selectedAgent,
+    persistModelSelection,
+    resolveThreadModelSelection,
+  ]);
 
   const refreshEngines = useCallback(() => {
     setModelListLoading(true);
@@ -1248,8 +1336,12 @@ export function MultiTabAssistantChat({
   }, [subAgentNames, SUB_AGENT_NAMES_KEY]);
 
   // Open tabs — persisted to localStorage so they survive refresh.
-  const OPEN_TABS_KEY = `agent-chat-open-tabs${keyPrefix}`;
-  const [openTabIds, setOpenTabIds] = useState<string[]>(() => {
+  // Per-scope, for the same reason the active thread is: the tab list must
+  // follow the resource in view, so one resource's tabs never stay mounted
+  // (and rebroadcasting their run state) while another resource is open.
+  const scopeKeyPart = scope ? `:scope:${scope.type}:${scope.id}` : "";
+  const OPEN_TABS_KEY = `agent-chat-open-tabs${keyPrefix}${scopeKeyPart}`;
+  const [openTabIds, setOpenTabIdsRaw] = useState<string[]>(() => {
     if (!restoreActiveThread && activeThreadId) {
       for (const id of [activeThreadId]) mountedTabsRef.current.add(id);
       return [activeThreadId];
@@ -1259,21 +1351,66 @@ export function MultiTabAssistantChat({
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
+          const deduped = dedupeIds(parsed);
           // Mark restored tabs as mounted
-          for (const id of parsed) mountedTabsRef.current.add(id);
-          return parsed;
+          for (const id of deduped) mountedTabsRef.current.add(id);
+          return deduped;
         }
       }
     } catch {}
     return [];
   });
+
+  // Every writer routes through here so a duplicate id can never reach state.
+  // A `.includes()` guard evaluated outside the updater cannot prevent one: a
+  // synchronous burst of writes (the mount-time replay of buffered open
+  // requests dispatches its whole backlog in one loop) has every handler read
+  // the same pre-render list, so each one appends. Two tab-bar entries then
+  // share a single thread id and `closeTab`'s filter removes both at once.
+  // Returning `prev` unchanged is load-bearing, not an optimization — callers
+  // rely on identity bail-outs to keep effects that depend on `openTabIds`
+  // from re-running forever.
+  const setOpenTabIds = useCallback((value: React.SetStateAction<string[]>) => {
+    setOpenTabIdsRaw((prev) => {
+      const next = dedupeIds(typeof value === "function" ? value(prev) : value);
+      return next.length === prev.length &&
+        next.every((id, i) => id === prev[i])
+        ? prev
+        : next;
+    });
+  }, []);
   const openTabIdsRef = useRef(openTabIds);
   openTabIdsRef.current = openTabIds;
   const initializedRef = useRef(false);
 
+  // Rehydrate open tabs when the scope flips. Read the new key before the
+  // persistence effect can write the current (now-wrong) tab list under it.
   const openTabsKeyRef = useRef(OPEN_TABS_KEY);
-
   useEffect(() => {
+    if (openTabsKeyRef.current === OPEN_TABS_KEY) return;
+    openTabsKeyRef.current = OPEN_TABS_KEY;
+    initializedRef.current = false;
+    if (!restoreActiveThread) {
+      setOpenTabIds(activeThreadId ? [activeThreadId] : []);
+      return;
+    }
+    try {
+      const saved = localStorage.getItem(OPEN_TABS_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          for (const id of parsed) mountedTabsRef.current.add(id);
+          setOpenTabIds(parsed);
+          return;
+        }
+      }
+    } catch {
+      // coercion-ok: malformed persisted tab data is an absent tab list.
+    }
+    setOpenTabIds([]);
+  }, [OPEN_TABS_KEY, activeThreadId, restoreActiveThread]);
+
+  useBrowserLayoutEffect(() => {
     const nextScope = scope;
     if (!nextScope) return;
     const type = formatScopeType(nextScope.type);
@@ -1287,7 +1424,7 @@ export function MultiTabAssistantChat({
       (item) => item.key === key,
     );
     let ownsContextItem = false;
-    if (!existing || existing.context.startsWith(marker)) {
+    if (!existing || existing.context.startsWith("Resource context:")) {
       setAgentChatContextItem({
         key,
         title,
@@ -1424,6 +1561,38 @@ export function MultiTabAssistantChat({
   // optimistic id for a brand-new session); the activeThreadId effect above
   // adds it to openTabIds without spinning up a duplicate thread.
   const autoCreatingRef = useRef(false);
+  const restoreFailureReplacementInFlightRef = useRef<string | null>(null);
+  const lastTabReplacementInFlightRef = useRef(false);
+  useEffect(() => {
+    if (
+      isLoading ||
+      !restoredThreadIdOnListFailure ||
+      activeThreadId !== restoredThreadIdOnListFailure ||
+      restoreFailureReplacementInFlightRef.current ===
+        restoredThreadIdOnListFailure
+    ) {
+      return;
+    }
+
+    restoreFailureReplacementInFlightRef.current =
+      restoredThreadIdOnListFailure;
+    void createThread().then((id) => {
+      if (!id) {
+        restoreFailureReplacementInFlightRef.current = null;
+        return;
+      }
+      newThreadIds.current.add(id);
+      setOpenTabIds([id]);
+      writeThreadUrl(null, { replace: true });
+    });
+  }, [
+    activeThreadId,
+    createThread,
+    isLoading,
+    restoredThreadIdOnListFailure,
+    writeThreadUrl,
+  ]);
+
   useEffect(() => {
     if (isLoading || autoCreatingRef.current) return;
     if (openTabIds.length === 0 && !activeThreadId) {
@@ -1921,25 +2090,45 @@ export function MultiTabAssistantChat({
 
   const closeTab = useCallback(
     (tabId: string) => {
-      setOpenTabIds((prev) => {
-        if (prev.length <= 1) {
-          // Last tab — create a new one and replace the old tab atomically
-          createThread().then((newId) => {
+      // Read the current list from the ref rather than a `setOpenTabIds`
+      // updater callback — `createThread()`/`switchThread()` below set
+      // `activeThreadId` synchronously as a side effect, and calling them
+      // from inside an updater left `openTabIds` and `activeThreadId`
+      // inconsistent for a render: the "ensure active thread is in open
+      // tabs" effect would then re-add the just-closed id, so the tab
+      // appeared to reopen itself right after closing.
+      const prev = openTabIdsRef.current;
+      if (prev.length <= 1) {
+        if (lastTabReplacementInFlightRef.current) return;
+        lastTabReplacementInFlightRef.current = true;
+        // Last tab — create a new one and replace the old tab once ready;
+        // the old tab stays visible in the meantime so the bar is never empty.
+        cleanupClosedTab(tabId);
+        void (async () => {
+          try {
+            const newId = await createThread();
             if (newId) {
               newThreadIds.current.add(newId);
               setOpenTabIds([newId]);
               writeThreadUrl(null);
             }
-          });
-          return prev; // Keep old tab until new one is ready
-        }
-        const next = prev.filter((id) => id !== tabId);
-        if (tabId === activeThreadIdRef.current && next.length > 0) {
-          const idx = prev.indexOf(tabId);
-          switchThread(next[Math.min(idx, next.length - 1)]);
-        }
-        return next;
-      });
+          } catch (error) {
+            console.error(
+              "[agent-chat] failed to replace the closed final tab",
+              error,
+            );
+          } finally {
+            lastTabReplacementInFlightRef.current = false;
+          }
+        })();
+        return;
+      }
+      const next = prev.filter((id) => id !== tabId);
+      if (tabId === activeThreadIdRef.current && next.length > 0) {
+        const idx = prev.indexOf(tabId);
+        switchThread(next[Math.min(idx, next.length - 1)]);
+      }
+      setOpenTabIds(next);
       cleanupClosedTab(tabId);
     },
     [switchThread, createThread, cleanupClosedTab, writeThreadUrl],
@@ -2427,7 +2616,7 @@ export function MultiTabAssistantChat({
                             key={tab.id}
                             ref={isActive ? activeTabRefCb : undefined}
                             className={cn(
-                              "agent-tab relative flex items-center rounded-md text-[11px] font-medium shrink-0 max-w-[130px]",
+                              "agent-tab relative flex items-center rounded-md text-[11px] font-medium shrink-0 min-w-[56px] max-w-[130px]",
                               isActive
                                 ? "bg-accent text-foreground ring-1 ring-inset ring-border/60 shadow-sm"
                                 : "text-muted-foreground hover:text-foreground hover:bg-accent/50",
@@ -2529,7 +2718,7 @@ export function MultiTabAssistantChat({
                                 : undefined
                             }
                             className={cn(
-                              "agent-tab relative flex shrink-0 items-center rounded-md text-[10px] font-medium max-w-[130px]",
+                              "agent-tab relative flex shrink-0 items-center rounded-md text-[10px] font-medium min-w-[48px] max-w-[130px]",
                               tab.id === activeThreadId
                                 ? "bg-accent text-foreground"
                                 : "text-muted-foreground hover:bg-accent hover:text-foreground",
@@ -2672,7 +2861,9 @@ export function MultiTabAssistantChat({
                   threadId={tabId}
                   tabId={tabId}
                   browserTabId={browserTabId}
+                  contextScope={scope}
                   contextNamespace={contextNamespace}
+                  isolateHistoryByScope={isolateHistoryByScope}
                   isActiveComposer={tabId === activeThreadId}
                   apiUrl={apiUrl}
                   isNewThread={

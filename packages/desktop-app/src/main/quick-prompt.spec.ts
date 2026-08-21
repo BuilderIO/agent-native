@@ -15,13 +15,26 @@ const electronState = vi.hoisted(() => {
     private readonly eventHandlers = new Map<string, Handler>();
     private visible = false;
     private destroyed = false;
+    private size: [number, number] = [460, 108];
+    private position: [number, number] = [0, 0];
 
     static getFocusedWindow = vi.fn(() => focusedWindow);
 
     readonly setAlwaysOnTop = vi.fn();
     readonly setVisibleOnAllWorkspaces = vi.fn();
-    readonly getSize = vi.fn(() => [460, 108] as [number, number]);
-    readonly setPosition = vi.fn();
+    readonly setVibrancy = vi.fn();
+    readonly setHasShadow = vi.fn();
+    readonly getSize = vi.fn(() => this.size);
+    readonly getPosition = vi.fn(() => this.position);
+    readonly setSize = vi.fn((width: number, height: number) => {
+      this.size = [width, height];
+    });
+    readonly setPosition = vi.fn((x: number, y: number) => {
+      this.position = [x, y];
+    });
+    readonly webContents = {
+      send: vi.fn(),
+    };
     readonly loadFile = vi.fn();
     readonly show = vi.fn(() => {
       this.visible = true;
@@ -124,8 +137,11 @@ describe("Quick Prompt focus behavior", () => {
 
   it("restores the previously focused window instead of the main app on dismiss", async () => {
     vi.resetModules();
-    const { registerQuickPromptIpc, registerQuickPromptShortcut } =
-      await import("./quick-prompt.js");
+    const {
+      isQuickPromptActive,
+      registerQuickPromptIpc,
+      registerQuickPromptShortcut,
+    } = await import("./quick-prompt.js");
 
     registerQuickPromptIpc({
       createCodeAgentRun: vi.fn(),
@@ -133,13 +149,16 @@ describe("Quick Prompt focus behavior", () => {
     });
     registerQuickPromptShortcut();
 
+    expect(isQuickPromptActive()).toBe(false);
     electronState.getShortcutHandler()?.();
+    expect(isQuickPromptActive()).toBe(true);
     const promptWindow = electronState.getWindow();
     expect(promptWindow?.show).toHaveBeenCalled();
     expect(promptWindow?.focus).toHaveBeenCalled();
     expect(electronState.app.focus).not.toHaveBeenCalled();
 
     electronState.getShortcutHandler()?.();
+    expect(isQuickPromptActive()).toBe(false);
     expect(promptWindow?.hide).toHaveBeenCalled();
     if (process.platform === "darwin") {
       expect(electronState.app.hide).toHaveBeenCalledTimes(1);
@@ -198,6 +217,47 @@ describe("Quick Prompt focus behavior", () => {
     expect(electronState.app.hide).not.toHaveBeenCalled();
   });
 
+  it("expands the picker bounds around the existing overlay center", async () => {
+    vi.resetModules();
+    const { registerQuickPromptIpc, registerQuickPromptShortcut } =
+      await import("./quick-prompt.js");
+
+    registerQuickPromptIpc({
+      createCodeAgentRun: vi.fn(),
+      sendOpenRequestToRenderer: vi.fn(),
+    });
+    registerQuickPromptShortcut();
+    electronState.getShortcutHandler()?.();
+
+    const promptWindow = electronState.getWindow();
+    expect(promptWindow?.getSize()).toEqual([460, 108]);
+    expect(promptWindow?.getPosition()).toEqual([490, 396]);
+
+    electronState.ipcMain.handlers.get(IPC.QUICK_PROMPT_SET_PICKER_OPEN)?.(
+      undefined,
+      true,
+    );
+    expect(promptWindow?.getSize()).toEqual([760, 360]);
+    expect(promptWindow?.getPosition()).toEqual([340, 270]);
+    if (process.platform === "darwin") {
+      expect(promptWindow?.setVibrancy).toHaveBeenCalledWith(null);
+      expect(promptWindow?.setHasShadow).toHaveBeenCalledWith(false);
+    }
+
+    electronState.ipcMain.handlers.get(IPC.QUICK_PROMPT_SET_PICKER_OPEN)?.(
+      undefined,
+      false,
+    );
+    expect(promptWindow?.getSize()).toEqual([460, 108]);
+    expect(promptWindow?.getPosition()).toEqual([490, 396]);
+    if (process.platform === "darwin") {
+      expect(promptWindow?.setVibrancy).toHaveBeenLastCalledWith(
+        "under-window",
+      );
+      expect(promptWindow?.setHasShadow).toHaveBeenLastCalledWith(true);
+    }
+  });
+
   it("does not resurrect after dismissal before ready-to-show", async () => {
     vi.resetModules();
     const { registerQuickPromptIpc, registerQuickPromptShortcut } =
@@ -244,9 +304,23 @@ describe("Quick Prompt focus behavior", () => {
     electronState.getShortcutHandler()?.();
 
     const submit = electronState.ipcMain.handlers.get(IPC.QUICK_PROMPT_SUBMIT);
-    const result = await submit?.(undefined, { prompt: "Investigate this" });
+    const result = await submit?.(undefined, {
+      prompt: "Investigate this",
+      engine: "codex-cli",
+      model: "gpt-5.6-luna",
+      effort: "high",
+    });
 
     expect(result).toMatchObject({ ok: true });
+    expect(createCodeAgentRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: "Investigate this",
+        engine: "codex-cli",
+        model: "gpt-5.6-luna",
+        effort: "high",
+        metadata: { source: "quick-prompt" },
+      }),
+    );
     expect(sendOpenRequestToRenderer).toHaveBeenCalledWith(
       {
         app: CODE_AGENTS_SURFACE_ID,

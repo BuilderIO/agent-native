@@ -16,10 +16,16 @@ import type {
   DispatchExtensionConfig,
   DispatchNavItem,
 } from "../components/index.js";
+import {
+  workspaceAppIdFromRoute,
+  workspaceAppRoute,
+} from "../lib/workspace-apps.js";
 
 export interface NavigationState {
   view: string;
   path?: string;
+  workspaceAppId?: string;
+  workspaceAppPath?: string;
   extensionId?: string;
   extensionSlug?: string;
   dreamId?: string;
@@ -153,6 +159,14 @@ export function buildDispatchNavigationState(
     return state;
   }
 
+  if (state.view === "workspace-app") {
+    const workspaceAppId = workspaceAppIdFromRoute(pathname);
+    if (workspaceAppId) {
+      state.workspaceAppId = workspaceAppId;
+      state.workspaceAppPath = pathname.replace(/^\/apps\/[^/]+/, "") || "/";
+    }
+  }
+
   if (state.view === "dreams") {
     const params = new URLSearchParams(search);
     const dreamId = params.get("dreamId");
@@ -265,6 +279,12 @@ function resolveView(
   }
   if (pathname.startsWith("/browser-chat")) return "browser-chat";
   if (pathname.startsWith("/chat")) return "chat";
+  // A route below /apps/ always embeds one app, so it must not collapse to the
+  // apps list. An id that fails to decode still resolves here without a
+  // `workspaceAppId`, which view-screen reports as an unknown app.
+  if (pathname.startsWith("/apps/") && pathname !== "/apps/") {
+    return "workspace-app";
+  }
   if (pathname.startsWith("/apps")) return "apps";
   if (pathname.startsWith("/operations")) return "operations";
   if (pathname.startsWith("/metrics")) return "metrics";
@@ -291,7 +311,10 @@ function resolveView(
 function resolvePath(
   view?: string,
   extensions?: DispatchExtensionConfig,
-  command?: Pick<NavigationState, "extensionId" | "threadId">,
+  command?: Pick<
+    NavigationState,
+    "extensionId" | "threadId" | "workspaceAppId"
+  >,
 ): string | undefined {
   switch (view) {
     case "admin":
@@ -305,6 +328,10 @@ function resolvePath(
       return "/overview";
     case "apps":
       return "/apps";
+    case "workspace-app":
+      return command?.workspaceAppId
+        ? workspaceAppRoute(command.workspaceAppId)
+        : "/apps";
     case "operations":
     case "monitoring":
     case "observability":

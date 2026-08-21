@@ -746,6 +746,27 @@ const messages = {
     settingsSummary:
       "Manage scheduled and event-triggered agent tasks together from the Automations page.",
     openAutomations: "Open Automations",
+    nextRunNeverScheduler: "Never — no scheduler in this deploy",
+    nextRunSchedulerUnknown:
+      "{{date}} — unconfirmed, the scheduler check failed",
+    nextRunSchedulerUnknownNoDate: "Unknown — the scheduler check failed",
+    scheduleUnknownTitle: "Couldn't check whether schedules run here",
+    scheduleUnknownDetail:
+      "The scheduler status check failed, so the next run times below are unconfirmed. Reload to check again.",
+    scheduleUnavailableTitle: "Schedules won't run in this deploy",
+    scheduleUnavailableLocalTitle: "Schedules don't run in local development",
+    scheduleUnavailableDisabled:
+      "This app was built with recurring jobs turned off, so no scheduled automation will fire. Event-triggered automations and Run now still work.",
+    scheduleUnavailableNoScheduler:
+      "This hosting target has no durable scheduler, so no scheduled automation will fire. Event-triggered automations and Run now still work.",
+    scheduleUnavailableLocal:
+      "Schedules stay off on a dev machine unless you opt in. Event-triggered automations and Run now still work.",
+    scheduleUnavailableDisabledFix:
+      "To enable recurring jobs, set AGENT_NATIVE_DISABLE_RECURRING_JOBS=false in the build environment.",
+    scheduleUnavailableLocalFix:
+      "Set AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS=true to run schedules on this machine.",
+    scheduleUnavailableFixLabel: "Show more",
+    scheduleUnavailableFixLabelOpen: "Show less",
   },
   share: {
     titleWithResource: 'Share "{{title}}"',
@@ -813,6 +834,9 @@ const messages = {
     statusDone: "Done",
     statusFailed: "Failed",
     statusStopped: "Stopped",
+    statusNeedsApproval: "Needs approval",
+    statusNeedsInput: "Needs input",
+    statusPaused: "Paused",
     updatedJustNow: "Updated just now",
     finishedJustNow: "Finished just now",
     updatedMinutes: "Updated {{count}}m ago",
@@ -823,8 +847,8 @@ const messages = {
     finishedDate: "Finished {{date}}",
   },
   agentTask: {
-    backgroundTask: "Background task",
-    stop: "Stop background task",
+    spawnedAgent: "Spawned agent",
+    stop: "Stop spawned agent",
     openThread: "Open task thread",
   },
   codeRequired: {
@@ -980,6 +1004,11 @@ const messages = {
     owner: "Owner",
     admin: "Admin",
     member: "Member",
+    workspaceAppsDefaultPrivacy: "New app privacy",
+    workspaceAppsDefaultPrivacyDescription:
+      "Choose whether new workspace apps start private to their creator or visible to the organization.",
+    workspaceAppsOrganization: "Organization",
+    workspaceAppsCreatorOnly: "Creator only",
     members: "Members",
     inviteMembers: "Invite members",
     invited: "Invited",
@@ -1111,6 +1140,16 @@ const messages = {
     personal: "Personal",
     organization: "Organization",
     scopeQuestion: "Who should be able to use this connection?",
+    scopeChoiceTitle: "Who should use this?",
+    scopeChoiceDescription: "Choose where this connection is available.",
+    connectForMe: "Connect for me",
+    setUpForWorkspace: "Set up for workspace",
+    workspaceAdminRequired: "Workspace owner or admin required.",
+    personalOnlyDescription:
+      "Only personal connections are supported for this integration.",
+    loadingScopeMetadata: "Loading connection scope…",
+    retry: "Retry",
+    retrying: "Retrying…",
     personalDescription: "Only you can use this connection.",
     sharedWithWorkspace: "Shared with workspace",
     organizationDescription:

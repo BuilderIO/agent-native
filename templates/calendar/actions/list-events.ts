@@ -554,6 +554,59 @@ async function listLocalBookingEvents(
   });
 }
 
+/**
+ * Which of these Google event ids are backing a still-active booking.
+ *
+ * Deleting such an event without cancelling its booking leaves the row
+ * confirmed, and `shouldShowLocalBookingEvent` then republishes the booking as a
+ * local calendar event — so the "deleted" meeting reappears. Scoped through the
+ * same booking-link access filter as the calendar read.
+ *
+ * Returns `calendarAccountId` so callers can tell which account a booking'"'"'s event
+ * lives on. It is nullable — the column was added after bookings already
+ * existed — so a null must be read as "unknown account", never as "other
+ * account".
+ */
+export async function findBookedGoogleEvents(
+  googleEventIds: readonly string[],
+): Promise<Array<{ googleEventId: string; calendarAccountId: string | null }>> {
+  const ids = Array.from(new Set(googleEventIds.filter(Boolean)));
+  if (ids.length === 0) return [];
+
+  const db = getDb();
+  const links = await db
+    .select({ slug: schema.bookingLinks.slug })
+    .from(schema.bookingLinks)
+    .where(accessFilter(schema.bookingLinks, schema.bookingLinkShares));
+  const slugs = links.map((link) => link.slug);
+  if (slugs.length === 0) return [];
+
+  const rows = await db
+    .select({
+      googleEventId: schema.bookings.googleEventId,
+      calendarAccountId: schema.bookings.calendarAccountId,
+    })
+    .from(schema.bookings)
+    .where(
+      and(
+        inArray(schema.bookings.slug, slugs),
+        ne(schema.bookings.status, "cancelled"),
+        inArray(schema.bookings.googleEventId, ids),
+      ),
+    );
+
+  return rows.flatMap((row) =>
+    row.googleEventId
+      ? [
+          {
+            googleEventId: row.googleEventId,
+            calendarAccountId: row.calendarAccountId ?? null,
+          },
+        ]
+      : [],
+  );
+}
+
 function shouldShowLocalBookingEvent({
   event,
   googleEventIds,

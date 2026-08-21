@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 export type Workspace = "primary" | "secondary";
 
 export type SlackTokenResolver = (workspace: Workspace) => Promise<string>;
@@ -12,12 +14,26 @@ export interface SlackMessage {
   thread_ts?: string;
   reply_count?: number;
   permalink?: string;
+  reactions?: Array<{ name: string; count?: number; users?: string[] }>;
+}
+
+export interface SlackAuthTestResult {
+  userId: string;
+  userName: string;
+  teamId: string;
+  teamName: string;
 }
 
 export interface SlackTeamInfo {
   id: string;
   name: string;
   domain: string;
+}
+
+export interface SlackUserInfo {
+  id: string;
+  name: string | null;
+  displayName: string | null;
 }
 
 export interface ChannelHistoryResult {
@@ -35,6 +51,10 @@ export interface ThreadRepliesResult {
 export interface SlackReactionResult {
   added: boolean;
   already_present: boolean;
+}
+
+export interface SlackReactionState {
+  eyesPresent: boolean;
 }
 
 export interface SlackPostMessageResult {
@@ -65,16 +85,20 @@ async function getToken(
   );
 }
 
+function slackCacheScope(token: string): string {
+  return createHash("sha256").update(token).digest("hex").slice(0, 16);
+}
+
 async function slackApi<T>(
   workspace: Workspace,
   method: string,
   params: Record<string, string> | undefined,
   tokenResolver?: SlackTokenResolver,
 ): Promise<T> {
-  const cacheKey = `${workspace}:${method}:${JSON.stringify(params ?? {})}`;
+  const token = await getToken(workspace, tokenResolver);
+  const cacheKey = `${workspace}:${slackCacheScope(token)}:${method}:${JSON.stringify(params ?? {})}`;
   const cached = cache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return cached.value as T;
-  const token = await getToken(workspace, tokenResolver);
   const url = new URL(`https://slack.com/api/${method}`);
   for (const [key, value] of Object.entries(params ?? {}))
     url.searchParams.set(key, value);
@@ -207,6 +231,56 @@ export async function getThread(
   };
 }
 
+export async function authTest(
+  workspace: Workspace,
+  tokenResolver?: SlackTokenResolver,
+): Promise<SlackAuthTestResult> {
+  const data = await slackApi<{
+    user_id?: string;
+    user?: string;
+    team_id?: string;
+    team?: string;
+  }>(workspace, "auth.test", undefined, tokenResolver);
+  if (
+    typeof data.user_id !== "string" ||
+    typeof data.user !== "string" ||
+    typeof data.team_id !== "string" ||
+    typeof data.team !== "string"
+  ) {
+    throw new Error("Slack auth.test response is missing bot identity.");
+  }
+  return {
+    userId: data.user_id,
+    userName: data.user,
+    teamId: data.team_id,
+    teamName: data.team,
+  };
+}
+
+export async function getEyesReaction(
+  workspace: Workspace,
+  channelId: string,
+  timestamp: string,
+  tokenResolver?: SlackTokenResolver,
+): Promise<SlackReactionState> {
+  const data = await slackApi<{
+    message?: { reactions?: Array<{ name?: string; count?: number }> };
+  }>(
+    workspace,
+    "reactions.get",
+    { channel: channelId, timestamp },
+    tokenResolver,
+  );
+  if (!data.message) {
+    throw new Error("Slack reaction response is missing the message.");
+  }
+  return {
+    eyesPresent: (data.message.reactions ?? []).some(
+      (reaction) => reaction.name === "eyes" && (reaction.count ?? 0) > 0,
+    ),
+  };
+}
+
 export async function addEyesReaction(
   workspace: Workspace,
   channelId: string,
@@ -254,4 +328,34 @@ export async function getTeamInfo(
     tokenResolver,
   );
   return data.team ?? { id: data.team_id ?? "", name: workspace, domain: "" };
+}
+
+export async function getUserInfo(
+  workspace: Workspace,
+  userId: string,
+  tokenResolver?: SlackTokenResolver,
+): Promise<SlackUserInfo> {
+  const id = userId.trim();
+  if (!id) throw new Error("A Slack user id is required.");
+  const data = await slackApi<{
+    user?: {
+      id?: string;
+      name?: string;
+      profile?: { display_name?: string };
+    };
+  }>(workspace, "users.info", { user: id }, tokenResolver);
+  const user = data.user;
+  if (!user || typeof user.id !== "string" || !user.id.trim()) {
+    throw new Error("Slack user response is missing a user id.");
+  }
+  const displayName =
+    typeof user.profile?.display_name === "string"
+      ? user.profile.display_name.trim()
+      : "";
+  const name = typeof user.name === "string" ? user.name.trim() : "";
+  return {
+    id: user.id.trim(),
+    name: name || null,
+    displayName: displayName || null,
+  };
 }

@@ -108,8 +108,8 @@ const CSRF_ALLOWLIST_PREFIXES = [
   // state token. Each callback handler is responsible for its own CSRF
   // check (signed state tokens).
   "/oauth/",
-  // Builder's CLI-auth callback — uses the BUILDER_STATE_PARAM signed token
-  // to authenticate the round-trip; framework CSRF check would block it.
+  // Builder's OAuth callback is a top-level GET whose route validates OAuth
+  // state and the signed-in owner before exchanging the code.
   "/builder/callback",
 ];
 

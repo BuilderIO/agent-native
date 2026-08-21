@@ -985,6 +985,7 @@ const enUS = {
       applyButton: "Apply styles",
       previewLabel: "Pending visual preview",
       applyDesignUpdates: "Apply design update",
+      applying: "Applying…",
       verifying: "Verifying source and runtime…",
       retryWithAgent: "Retry source verification",
       copyPrompt: "Copy prompt to your agent",
@@ -1084,6 +1085,8 @@ const enUS = {
         "PNG capture isn't available in read-only previews",
       pngSaveError: "Could not save PNG",
       pngExportError: "Could not export PNG",
+      pdfExportError: "Could not export PDF",
+      pdfDownloaded: "PDF downloaded",
       pdfAllScreensDownloaded: "PDF downloaded (all screens)",
       openScreenSvg: "Open a screen before exporting SVG",
       svgDownloaded: "SVG downloaded",
@@ -1175,6 +1178,7 @@ const enUS = {
   multiScreenCanvas: {
     addBreakpointToAllScreens:
       "Add {{label}} breakpoint ({{width}}px) to all screens",
+    preparingLiveEditor: "Preparing the live editor…",
     duplicate: "Duplicate",
     fork: "Fork",
     fullView: "Full view",
@@ -1474,6 +1478,9 @@ const enUS = {
     continue: "Continue to generation",
     starting: "Starting...",
     githubIndexStarted: "GitHub indexing started",
+    designMdIndexStarted: "design.md indexing started",
+    designMdUpload: "Upload design.md",
+    designMdHelp: "Import design.md guidance into Builder DSI",
     title: "Set up your design system",
     description:
       "Connect Figma, code, and optional design.md guidance through Builder DSI. More context gives the agent a more accurate system.",
@@ -1538,6 +1545,11 @@ const enUS = {
         "Use a full GitHub repository URL, like https://github.com/org/repo.",
       githubIndex:
         "Could not start GitHub indexing. Check your Builder connection and repository access.",
+      chooseDesignMd: "Please choose a design.md or design.mdx file.",
+      readDesignMd: "Could not read the design.md file.",
+      designMdTooLarge: "design.md must be 2 MB or smaller.",
+      designMdIndex:
+        "Could not start design.md indexing. Check your Builder connection.",
       noSources: "Add at least one source before generating a design system.",
     },
     sections: {
@@ -1554,6 +1566,10 @@ const enUS = {
         title: "Connect Code",
         description:
           "GitHub repos, local source files, and optional design.md guidance for Builder DSI",
+      },
+      designMd: {
+        title: "Import design.md",
+        description: "Use a design.md file as the design system source",
       },
       designFiles: {
         title: "Reference files",
@@ -1956,6 +1972,9 @@ const designLocaleOverrides = {
       continue: "继续生成",
       starting: "正在启动…",
       githubIndexStarted: "GitHub 索引已开始",
+      designMdIndexStarted: "design.md 索引已开始",
+      designMdUpload: "上传 design.md",
+      designMdHelp: "将 design.md 指引导入 Builder DSI",
       title: "设置您的设计系统",
       description:
         "通过 Builder DSI 连接 Figma、代码和可选的 design.md 指引。上下文越多，代理得到的系统越准确。",
@@ -2012,6 +2031,10 @@ const designLocaleOverrides = {
           "使用完整的 GitHub 存储库 URL，例如 https://github.com/org/repo。",
         githubIndex:
           "无法启动 GitHub 索引。请检查 Builder 连接和仓库访问权限。",
+        chooseDesignMd: "请选择 design.md 或 design.mdx 文件。",
+        readDesignMd: "无法读取 design.md 文件。",
+        designMdTooLarge: "design.md 必须不超过 2 MB。",
+        designMdIndex: "无法启动 design.md 索引。请检查 Builder 连接。",
         noSources: "在生成设计系统之前至少添加一个源。",
       },
       sections: {
@@ -2028,6 +2051,10 @@ const designLocaleOverrides = {
           title: "连接代码",
           description:
             "GitHub 存储库、本地代码文件或 design.md 会交给 Builder DSI 索引。",
+        },
+        designMd: {
+          title: "导入 design.md",
+          description: "使用 design.md 文件作为设计系统来源",
         },
         designFiles: {
           title: "参考文件",
@@ -2372,6 +2399,9 @@ const designLocaleOverrides = {
       continue: "continuar con la generación",
       starting: "Iniciando…",
       githubIndexStarted: "La indexación de GitHub ha comenzado",
+      designMdIndexStarted: "La indexación de design.md ha comenzado",
+      designMdUpload: "Importar design.md",
+      designMdHelp: "Importa las directrices de design.md a Builder DSI",
       title: "Configure su sistema de diseño",
       description:
         "Conecta Figma, código y guía opcional de design.md mediante Builder DSI. Más contexto le da al agente un sistema más preciso.",
@@ -2438,6 +2468,11 @@ const designLocaleOverrides = {
           "Utilice un repositorio GitHub completo URL, como https://github.com/org/repo.",
         githubIndex:
           "No se pudo iniciar la indexación de GitHub. Comprueba la conexión de Builder y el acceso al repositorio.",
+        chooseDesignMd: "Elija un archivo design.md o design.mdx.",
+        readDesignMd: "No se pudo leer el archivo design.md.",
+        designMdTooLarge: "design.md debe tener un tamaño máximo de 2 MB.",
+        designMdIndex:
+          "No se pudo iniciar la indexación de design.md. Comprueba la conexión de Builder.",
         noSources:
           "Agregue al menos una fuente antes de generar un sistema de diseño.",
       },
@@ -2455,6 +2490,11 @@ const designLocaleOverrides = {
           title: "Conectar código",
           description:
             "Repositorios de GitHub, archivos de código locales o design.md se indexan con Builder DSI.",
+        },
+        designMd: {
+          title: "Importar design.md",
+          description:
+            "Usa un archivo design.md como fuente del sistema de diseño",
         },
         designFiles: {
           title: "Archivos de referencia",
@@ -2810,6 +2850,9 @@ const designLocaleOverrides = {
       continue: "Continuer jusqu'à la génération",
       starting: "Démarrage…",
       githubIndexStarted: "L’indexation GitHub a démarré",
+      designMdIndexStarted: "L’indexation de design.md a démarré",
+      designMdUpload: "Importer design.md",
+      designMdHelp: "Importez les consignes design.md dans Builder DSI",
       title: "Configurez votre système de conception",
       description:
         "Connectez Figma, le code et les consignes design.md facultatives via Builder DSI. Plus le contexte est riche, plus le système de l’agent est précis.",
@@ -2877,6 +2920,11 @@ const designLocaleOverrides = {
           "Utilisez un référentiel GitHub complet URL, comme https://github.com/org/repo.",
         githubIndex:
           "Impossible de démarrer l’indexation GitHub. Vérifiez la connexion à Builder et l’accès au dépôt.",
+        chooseDesignMd: "Veuillez choisir un fichier design.md ou design.mdx.",
+        readDesignMd: "Impossible de lire le fichier design.md.",
+        designMdTooLarge: "design.md doit faire 2 Mo ou moins.",
+        designMdIndex:
+          "Impossible de démarrer l’indexation de design.md. Vérifiez la connexion à Builder.",
         noSources:
           "Ajoutez au moins une source avant de générer un système de conception.",
       },
@@ -2894,6 +2942,11 @@ const designLocaleOverrides = {
           title: "Connecter le code",
           description:
             "Les dépôts GitHub, fichiers de code locaux ou design.md sont indexés par Builder DSI.",
+        },
+        designMd: {
+          title: "Importer design.md",
+          description:
+            "Utilisez un fichier design.md comme source du système de conception",
         },
         designFiles: {
           title: "Fichiers de référence",
@@ -3249,6 +3302,9 @@ const designLocaleOverrides = {
       continue: "Weiter zur Generation",
       starting: "Wird gestartet…",
       githubIndexStarted: "GitHub-Indizierung gestartet",
+      designMdIndexStarted: "design.md-Indizierung gestartet",
+      designMdUpload: "design.md importieren",
+      designMdHelp: "design.md-Anweisungen in Builder DSI importieren",
       title: "Richten Sie Ihr Designsystem ein",
       description:
         "Verbinde Figma, Code und optionale design.md-Anweisungen über Builder DSI. Mehr Kontext gibt dem Agenten ein genaueres System.",
@@ -3317,6 +3373,11 @@ const designLocaleOverrides = {
           "Verwenden Sie ein vollständiges GitHub-Repository URL, wie https://github.com/org/repo.",
         githubIndex:
           "GitHub-Indizierung konnte nicht gestartet werden. Prüfe die Builder-Verbindung und den Repository-Zugriff.",
+        chooseDesignMd: "Wählen Sie eine design.md- oder design.mdx-Datei aus.",
+        readDesignMd: "Die design.md-Datei konnte nicht gelesen werden.",
+        designMdTooLarge: "design.md darf höchstens 2 MB groß sein.",
+        designMdIndex:
+          "Die design.md-Indizierung konnte nicht gestartet werden. Prüfen Sie die Builder-Verbindung.",
         noSources:
           "Fügen Sie mindestens eine Quelle hinzu, bevor Sie ein Designsystem erstellen.",
       },
@@ -3334,6 +3395,11 @@ const designLocaleOverrides = {
           title: "Code verbinden",
           description:
             "GitHub-Repositories, lokale Code-Dateien oder design.md werden mit Builder DSI indexiert.",
+        },
+        designMd: {
+          title: "design.md importieren",
+          description:
+            "Eine design.md-Datei als Quelle für das Designsystem verwenden",
         },
         designFiles: {
           title: "Referenzdateien",
@@ -3687,6 +3753,9 @@ const designLocaleOverrides = {
       continue: "世代を継続する",
       starting: "開始中…",
       githubIndexStarted: "GitHub のインデックス作成を開始しました",
+      designMdIndexStarted: "design.md のインデックス作成を開始しました",
+      designMdUpload: "design.md をインポート",
+      designMdHelp: "design.md ガイドを Builder DSI にインポートします",
       title: "デザインシステムをセットアップする",
       description:
         "Figma、コード、任意の design.md ガイドを Builder DSI で接続します。コンテキストが多いほど、エージェントのシステムは正確になります。",
@@ -3753,6 +3822,12 @@ const designLocaleOverrides = {
           "https://github.com/org/repo など、完全な GitHub リポジトリ URL を使用します。",
         githubIndex:
           "GitHub のインデックス作成を開始できませんでした。Builder の接続とリポジトリへのアクセスを確認してください。",
+        chooseDesignMd:
+          "design.md または design.mdx ファイルを選択してください。",
+        readDesignMd: "design.md ファイルを読み込めませんでした。",
+        designMdTooLarge: "design.md は 2 MB 以下にしてください。",
+        designMdIndex:
+          "design.md のインデックス作成を開始できませんでした。Builder の接続を確認してください。",
         noSources:
           "デザイン システムを生成する前に、少なくとも 1 つのソースを追加します。",
       },
@@ -3770,6 +3845,10 @@ const designLocaleOverrides = {
           title: "コードを接続",
           description:
             "GitHub リポジトリ、ローカルコードファイル、design.md は Builder DSI でインデックス化されます。",
+        },
+        designMd: {
+          title: "design.md をインポート",
+          description: "design.md ファイルをデザインシステムのソースとして使用",
         },
         designFiles: {
           title: "参照ファイル",
@@ -4120,6 +4199,9 @@ const designLocaleOverrides = {
       continue: "세대를 이어가다",
       starting: "시작 중…",
       githubIndexStarted: "GitHub 인덱싱이 시작되었습니다",
+      designMdIndexStarted: "design.md 인덱싱이 시작되었습니다",
+      designMdUpload: "design.md 가져오기",
+      designMdHelp: "design.md 지침을 Builder DSI로 가져오기",
       title: "디자인 시스템 설정",
       description:
         "Figma, 코드, 선택적 design.md 지침을 Builder DSI로 연결하세요. 맥락이 많을수록 에이전트의 시스템이 더 정확해집니다.",
@@ -4182,6 +4264,11 @@ const designLocaleOverrides = {
           "https://github.com/org/repo와 같은 전체 GitHub 저장소 URL를 사용하세요.",
         githubIndex:
           "GitHub 인덱싱을 시작할 수 없습니다. Builder 연결과 저장소 접근 권한을 확인하세요.",
+        chooseDesignMd: "design.md 또는 design.mdx 파일을 선택하세요.",
+        readDesignMd: "design.md 파일을 읽을 수 없습니다.",
+        designMdTooLarge: "design.md 파일은 2MB 이하여야 합니다.",
+        designMdIndex:
+          "design.md 인덱싱을 시작할 수 없습니다. Builder 연결을 확인하세요.",
         noSources: "디자인 시스템을 생성하기 전에 소스를 하나 이상 추가하세요.",
       },
       sections: {
@@ -4198,6 +4285,10 @@ const designLocaleOverrides = {
           title: "코드 연결",
           description:
             "GitHub 저장소, 로컬 코드 파일 또는 design.md가 Builder DSI로 색인화됩니다.",
+        },
+        designMd: {
+          title: "design.md 가져오기",
+          description: "design.md 파일을 디자인 시스템 소스로 사용",
         },
         designFiles: {
           title: "참조 파일",
@@ -4547,6 +4638,9 @@ const designLocaleOverrides = {
       continue: "Continuar para a geração",
       starting: "Iniciando…",
       githubIndexStarted: "Indexação do GitHub iniciada",
+      designMdIndexStarted: "Indexação do design.md iniciada",
+      designMdUpload: "Importar design.md",
+      designMdHelp: "Importe as orientações de design.md para o Builder DSI",
       title: "Configure seu sistema de design",
       description:
         "Conecte Figma, código e orientações opcionais de design.md pelo Builder DSI. Mais contexto dá ao agente um sistema mais preciso.",
@@ -4612,6 +4706,11 @@ const designLocaleOverrides = {
           "Use um repositório GitHub completo URL, como https://github.com/org/repo.",
         githubIndex:
           "Não foi possível iniciar a indexação do GitHub. Verifique a conexão do Builder e o acesso ao repositório.",
+        chooseDesignMd: "Escolha um arquivo design.md ou design.mdx.",
+        readDesignMd: "Não foi possível ler o arquivo design.md.",
+        designMdTooLarge: "design.md deve ter no máximo 2 MB.",
+        designMdIndex:
+          "Não foi possível iniciar a indexação do design.md. Verifique a conexão do Builder.",
         noSources:
           "Adicione pelo menos uma fonte antes de gerar um sistema de design.",
       },
@@ -4629,6 +4728,11 @@ const designLocaleOverrides = {
           title: "Conectar código",
           description:
             "Repositórios GitHub, arquivos de código locais ou design.md são indexados com Builder DSI.",
+        },
+        designMd: {
+          title: "Importar design.md",
+          description:
+            "Usar um arquivo design.md como fonte do sistema de design",
         },
         designFiles: {
           title: "Arquivos de referência",
@@ -4980,6 +5084,9 @@ const designLocaleOverrides = {
       continue: "पीढ़ी तक जारी रखें",
       starting: "शुरू हो रहा है…",
       githubIndexStarted: "GitHub इंडेक्सिंग शुरू हो गई",
+      designMdIndexStarted: "design.md इंडेक्सिंग शुरू हो गई",
+      designMdUpload: "design.md आयात करें",
+      designMdHelp: "design.md मार्गदर्शन को Builder DSI में आयात करें",
       title: "अपना डिज़ाइन सिस्टम सेट करें",
       description:
         "Figma, कोड और वैकल्पिक design.md मार्गदर्शन को Builder DSI से कनेक्ट करें. अधिक संदर्भ एजेंट को अधिक सटीक सिस्टम देता है.",
@@ -5040,6 +5147,10 @@ const designLocaleOverrides = {
           "https://github.com/org/repo जैसे पूर्ण GitHub रिपॉजिटरी URL का उपयोग करें।",
         githubIndex:
           "GitHub इंडेक्सिंग शुरू नहीं हो सकी। Builder कनेक्शन और रिपॉजिटरी एक्सेस जाँचें।",
+        chooseDesignMd: "कृपया design.md या design.mdx फ़ाइल चुनें।",
+        readDesignMd: "design.md फ़ाइल पढ़ी नहीं जा सकी।",
+        designMdTooLarge: "design.md 2 MB या उससे छोटा होना चाहिए।",
+        designMdIndex: "design.md इंडेक्सिंग शुरू नहीं हो सकी। Builder कनेक्शन जाँचें।",
         noSources: "डिज़ाइन सिस्टम तैयार करने से पहले कम से कम एक स्रोत जोड़ें।",
       },
       sections: {
@@ -5056,6 +5167,10 @@ const designLocaleOverrides = {
           title: "कोड कनेक्ट करें",
           description:
             "GitHub रिपॉज़िटरी, स्थानीय कोड फ़ाइलें या design.md Builder DSI से index होते हैं.",
+        },
+        designMd: {
+          title: "design.md आयात करें",
+          description: "डिज़ाइन सिस्टम के स्रोत के रूप में design.md फ़ाइल का उपयोग करें",
         },
         designFiles: {
           title: "संदर्भ फ़ाइलें",
@@ -5403,6 +5518,9 @@ const designLocaleOverrides = {
       continue: "الاستمرار في الجيل",
       starting: "جارٍ البدء…",
       githubIndexStarted: "بدأت فهرسة GitHub",
+      designMdIndexStarted: "بدأت فهرسة design.md",
+      designMdUpload: "استيراد design.md",
+      designMdHelp: "استيراد إرشادات design.md إلى Builder DSI",
       title: "قم بإعداد نظام التصميم الخاص بك",
       description:
         "اربط Figma والكود وإرشادات design.md الاختيارية عبر Builder DSI. كلما زاد السياق، حصل الوكيل على نظام أدق.",
@@ -5465,6 +5583,10 @@ const designLocaleOverrides = {
           "استخدم مستودع GitHub الكامل URL، مثل https://github.com/org/repo.",
         githubIndex:
           "تعذر بدء فهرسة GitHub. تحقق من اتصال Builder ومن صلاحية الوصول إلى المستودع.",
+        chooseDesignMd: "يرجى اختيار ملف design.md أو design.mdx.",
+        readDesignMd: "تعذر قراءة ملف design.md.",
+        designMdTooLarge: "يجب ألا يتجاوز حجم design.md ‏2 ميغابايت.",
+        designMdIndex: "تعذر بدء فهرسة design.md. تحقق من اتصال Builder.",
         noSources: "أضف مصدرًا واحدًا على الأقل قبل إنشاء نظام التصميم.",
       },
       sections: {
@@ -5481,6 +5603,10 @@ const designLocaleOverrides = {
           title: "ربط الكود",
           description:
             "تتم فهرسة مستودعات GitHub أو ملفات الكود المحلية أو design.md عبر Builder DSI.",
+        },
+        designMd: {
+          title: "استيراد design.md",
+          description: "استخدم ملف design.md كمصدر لنظام التصميم",
         },
         designFiles: {
           title: "ملفات مرجعية",
@@ -8052,6 +8178,7 @@ const designModeFeatureOverrides = {
       },
     },
     multiScreenCanvas: {
+      preparingLiveEditor: "正在準備即時編輯器…",
       addBreakpointToAllScreens:
         "為所有畫面新增 {{label}} 中斷點（{{width}}px）",
       duplicate: "複製",
@@ -8224,6 +8351,7 @@ const designModeFeatureOverrides = {
       },
     },
     multiScreenCanvas: {
+      preparingLiveEditor: "正在准备实时编辑器…",
       addBreakpointToAllScreens: "为所有画面添加 {{label}} 断点（{{width}}px）",
       duplicate: "复制",
       fork: "分支",
@@ -8396,6 +8524,7 @@ const designModeFeatureOverrides = {
       },
     },
     multiScreenCanvas: {
+      preparingLiveEditor: "Preparando el editor en vivo…",
       addBreakpointToAllScreens:
         "Añadir punto de ruptura {{label}} ({{width}}px) a todas las pantallas",
       duplicate: "Duplicar",
@@ -8590,6 +8719,7 @@ const designModeFeatureOverrides = {
       },
     },
     multiScreenCanvas: {
+      preparingLiveEditor: "Préparation de l'éditeur en direct…",
       addBreakpointToAllScreens:
         "Ajouter le point de rupture {{label}} ({{width}}px) à tous les écrans",
       duplicate: "Dupliquer",
@@ -8781,6 +8911,7 @@ const designModeFeatureOverrides = {
       },
     },
     multiScreenCanvas: {
+      preparingLiveEditor: "Live-Editor wird vorbereitet…",
       addBreakpointToAllScreens:
         "{{label}}-Breakpoint ({{width}}px) zu allen Screens hinzufügen",
       duplicate: "Duplizieren",
@@ -8977,6 +9108,7 @@ const designModeFeatureOverrides = {
       },
     },
     multiScreenCanvas: {
+      preparingLiveEditor: "ライブエディターを準備しています…",
       addBreakpointToAllScreens:
         "すべての画面に {{label}} ブレークポイント（{{width}}px）を追加",
       duplicate: "複製",
@@ -9168,6 +9300,7 @@ const designModeFeatureOverrides = {
       },
     },
     multiScreenCanvas: {
+      preparingLiveEditor: "실시간 편집기를 준비하는 중…",
       addBreakpointToAllScreens:
         "모든 화면에 {{label}} 중단점({{width}}px) 추가",
       duplicate: "복제",
@@ -9356,6 +9489,7 @@ const designModeFeatureOverrides = {
       },
     },
     multiScreenCanvas: {
+      preparingLiveEditor: "Preparando o editor ao vivo…",
       addBreakpointToAllScreens:
         "Adicionar ponto de quebra {{label}} ({{width}}px) a todas as telas",
       duplicate: "Duplicar",
@@ -9544,6 +9678,7 @@ const designModeFeatureOverrides = {
       },
     },
     multiScreenCanvas: {
+      preparingLiveEditor: "लाइव एडिटर तैयार किया जा रहा है…",
       addBreakpointToAllScreens:
         "सभी स्क्रीन में {{label}} ब्रेकपॉइंट ({{width}}px) जोड़ें",
       duplicate: "डुप्लिकेट",
@@ -9732,6 +9867,7 @@ const designModeFeatureOverrides = {
       },
     },
     multiScreenCanvas: {
+      preparingLiveEditor: "جارٍ تحضير المحرر المباشر…",
       addBreakpointToAllScreens:
         "إضافة نقطة توقف {{label}} ({{width}}px) إلى جميع الشاشات",
       duplicate: "تكرار",
@@ -11430,6 +11566,7 @@ const designPendingVisualStyleOverrides = {
         applyButton: "套用樣式",
         previewLabel: "待處理的視覺預覽",
         applyDesignUpdates: "套用設計更新",
+        applying: "正在套用…",
         verifying: "正在驗證來源與執行階段…",
         retryWithAgent: "重試來源驗證",
         copyPrompt: "將提示複製給您的代理",
@@ -11463,6 +11600,7 @@ const designPendingVisualStyleOverrides = {
         applyButton: "应用样式",
         previewLabel: "待处理的视觉预览",
         applyDesignUpdates: "应用设计更新",
+        applying: "正在应用…",
         verifying: "正在验证源文件和运行时…",
         retryWithAgent: "重试源文件验证",
         copyPrompt: "将提示复制给你的代理",
@@ -11496,6 +11634,7 @@ const designPendingVisualStyleOverrides = {
         applyButton: "Aplicar estilos",
         previewLabel: "Vista previa visual pendiente",
         applyDesignUpdates: "Aplicar actualizaciones de diseño",
+        applying: "Aplicando…",
         verifying: "Verificando el código y el runtime…",
         retryWithAgent: "Reintentar verificación del código",
         copyPrompt: "Copiar prompt a tu agente",
@@ -11531,6 +11670,7 @@ const designPendingVisualStyleOverrides = {
         applyButton: "Appliquer les styles",
         previewLabel: "Aperçu visuel en attente",
         applyDesignUpdates: "Appliquer les mises à jour du design",
+        applying: "Application…",
         verifying: "Vérification de la source et du runtime…",
         retryWithAgent: "Réessayer la vérification de la source",
         copyPrompt: "Copier le prompt vers votre agent",
@@ -11566,6 +11706,7 @@ const designPendingVisualStyleOverrides = {
         applyButton: "Stile anwenden",
         previewLabel: "Ausstehende visuelle Vorschau",
         applyDesignUpdates: "Design-Updates anwenden",
+        applying: "Wird angewendet…",
         verifying: "Quelle und Laufzeit werden überprüft…",
         retryWithAgent: "Quellprüfung wiederholen",
         copyPrompt: "Prompt an deinen Agent kopieren",
@@ -11601,6 +11742,7 @@ const designPendingVisualStyleOverrides = {
         applyButton: "スタイルを適用",
         previewLabel: "保留中のビジュアルプレビュー",
         applyDesignUpdates: "デザインの更新を適用",
+        applying: "適用中…",
         verifying: "ソースとランタイムを検証中…",
         retryWithAgent: "ソース検証を再試行",
         copyPrompt: "エージェントにプロンプトをコピー",
@@ -11636,6 +11778,7 @@ const designPendingVisualStyleOverrides = {
         applyButton: "스타일 적용",
         previewLabel: "보류 중인 시각 미리보기",
         applyDesignUpdates: "디자인 업데이트 적용",
+        applying: "적용 중…",
         verifying: "소스와 런타임 확인 중…",
         retryWithAgent: "소스 확인 다시 시도",
         copyPrompt: "에이전트에 프롬프트 복사",
@@ -11670,6 +11813,7 @@ const designPendingVisualStyleOverrides = {
         applyButton: "Aplicar estilos",
         previewLabel: "Prévia visual pendente",
         applyDesignUpdates: "Aplicar atualizações de design",
+        applying: "Aplicando…",
         verifying: "Verificando origem e runtime…",
         retryWithAgent: "Tentar verificar a origem novamente",
         copyPrompt: "Copiar prompt para seu agente",
@@ -11705,6 +11849,7 @@ const designPendingVisualStyleOverrides = {
         applyButton: "Styles लागू करें",
         previewLabel: "लंबित visual preview",
         applyDesignUpdates: "डिज़ाइन अपडेट लागू करें",
+        applying: "लागू किया जा रहा है…",
         verifying: "Source और runtime सत्यापित हो रहे हैं…",
         retryWithAgent: "Source verification फिर करें",
         copyPrompt: "Prompt अपने agent को कॉपी करें",
@@ -11738,6 +11883,7 @@ const designPendingVisualStyleOverrides = {
         applyButton: "تطبيق الأنماط",
         previewLabel: "معاينة مرئية معلقة",
         applyDesignUpdates: "تطبيق تحديثات التصميم",
+        applying: "جارٍ التطبيق…",
         verifying: "جارٍ التحقق من المصدر ووقت التشغيل…",
         retryWithAgent: "إعادة التحقق من المصدر",
         copyPrompt: "نسخ الموجه إلى وكيلك",

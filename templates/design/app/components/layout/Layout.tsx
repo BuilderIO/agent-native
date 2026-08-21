@@ -20,6 +20,7 @@ import { useLocation } from "react-router";
 
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { DESIGN_CHAT_STORAGE_KEY } from "@/lib/agent-chat";
+import { isBuilderHostEmbed } from "@/lib/builder-host-origin";
 import {
   designEditorRoute,
   isDesignEditorRoute,
@@ -59,7 +60,9 @@ export function Layout({ children }: LayoutProps) {
   const t = useT();
   const { session } = useSession();
   const hasSession = Boolean(session?.email);
-  const embedded = isEmbedAuthActive();
+  // The shell canvas is embedded without a session, so this cannot be the token
+  // check alone or it renders Design's own nav inside Builder.
+  const embedded = isBuilderHostEmbed() || isEmbedAuthActive();
   useNavigationState(hasSession);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const openMobileSidebar = useCallback(() => setMobileSidebarOpen(true), []);

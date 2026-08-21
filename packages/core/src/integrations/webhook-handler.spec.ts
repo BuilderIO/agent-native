@@ -335,13 +335,31 @@ describe("integration webhook handler", () => {
 
   it("does not reflect inbound Host into self-dispatch URLs in production", () => {
     vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("DEPLOY_PRIME_URL", "");
     vi.stubEnv("APP_URL", "");
     vi.stubEnv("URL", "");
     vi.stubEnv("DEPLOY_URL", "");
     vi.stubEnv("BETTER_AUTH_URL", "");
 
     expect(() => resolveBaseUrl(createEvent())).toThrow(
-      /requires APP_URL, URL, DEPLOY_URL, or BETTER_AUTH_URL/,
+      /requires DEPLOY_PRIME_URL, DEPLOY_URL, URL, APP_URL, or BETTER_AUTH_URL/,
+    );
+  });
+
+  it("dispatches to this deploy, not production, on a deploy preview", () => {
+    // The copy of this resolver that used to live in webhook-handler.ts
+    // preferred APP_URL and never read DEPLOY_PRIME_URL, so integration work
+    // enqueued by a preview was POSTed to production while agent background
+    // work correctly stayed on the preview.
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("DEPLOY_PRIME_URL", "https://preview--app.netlify.app");
+    vi.stubEnv("APP_URL", "https://app.example.com");
+    vi.stubEnv("URL", "");
+    vi.stubEnv("DEPLOY_URL", "");
+    vi.stubEnv("BETTER_AUTH_URL", "");
+
+    expect(resolveBaseUrl(createEvent())).toBe(
+      "https://preview--app.netlify.app",
     );
   });
 

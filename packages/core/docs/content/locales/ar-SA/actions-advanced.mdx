@@ -17,7 +17,7 @@ description: "التحكم بأعلام الميزات لـ actions ما زال�
 
 ```ts
 // shared/feature-flags.ts
-import { defineFeatureFlag } from "@agent-native/core/feature-flags";
+import { defineFeatureFlag } from "@agent-native/core/feature-flags/registry";
 
 export const FULL_APP_BUILDING = defineFeatureFlag({
   key: "full-app-building",

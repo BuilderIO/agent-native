@@ -74,6 +74,11 @@ export function initServerSentry(): boolean {
     // cookies, or process.env contents to Sentry without explicit consent.
     sendDefaultPii: false,
     beforeSend(event) {
+      event.tags = {
+        ...event.tags,
+        deployment_environment: resolveDeployEnvironment(),
+      };
+
       // Drop rules live in `error-noise-filter.ts` so every backend applies
       // the same ones — they describe which server errors are non-bugs in
       // this framework, not a Sentry preference.
@@ -223,7 +228,7 @@ export function setSentryRequestContext(ctx: {
 export function captureAuthError(
   error: unknown,
   context: {
-    route: "login" | "signup" | "logout" | "magic-link";
+    route: "login" | "signup" | "logout" | "magic-link" | "verify-email";
     email?: string;
   },
 ): string | undefined {

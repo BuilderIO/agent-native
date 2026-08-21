@@ -52,6 +52,9 @@ export interface ChatFirstSurfaceTabsProps {
   onCloseToRight: (tab: ChatFirstSurfaceTab) => void;
   onCloseAll: () => void;
   onOpenSurface?: (kind: ChatFirstSurfaceKind) => void;
+  hiddenSurfaceKinds?: readonly ChatFirstSurfaceKind[];
+  onAddTab?: () => void;
+  addTabLabel?: string;
   apps?: readonly ChatFirstAppItem[];
   onOpenApp?: (app: ChatFirstAppItem) => void;
   renderAppIcon?: (app: ChatFirstAppItem) => ReactNode;
@@ -60,6 +63,8 @@ export interface ChatFirstSurfaceTabsProps {
 
 export interface ChatFirstAppRailProps {
   apps: readonly ChatFirstAppItem[];
+  /** Optional host-specific fallback order for apps without a saved layout. */
+  defaultAppIds?: readonly string[];
   activeAppId?: string;
   loading?: boolean;
   error?: string | null;

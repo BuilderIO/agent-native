@@ -442,6 +442,12 @@ const messages = {
     pasteStyle: "शैली पेस्ट करें",
     copy: "कॉपी करें",
     paste: "पेस्ट करें",
+    insertRowAbove: "ऊपर पंक्ति जोड़ें",
+    insertRowBelow: "नीचे पंक्ति जोड़ें",
+    deleteRow: "पंक्ति हटाएं",
+    insertColumnLeft: "बाईं ओर कॉलम जोड़ें",
+    insertColumnRight: "दाईं ओर कॉलम जोड़ें",
+    deleteColumn: "कॉलम हटाएं",
   },
   animations: {
     appear: "दिखाएं",
@@ -520,6 +526,11 @@ const messages = {
     newSlide: "नई स्लाइड",
     closeAddSlides: "बंद करें",
     describeThisSlide: "इस स्लाइड का वर्णन करें",
+    cut: "काटें",
+    copy: "कॉपी करें",
+    paste: "चिपकाएं",
+    skipSlide: "स्लाइड छोड़ें",
+    unskipSlide: "स्लाइड न छोड़ें",
   },
   presentation: {
     loadFailed: "यह प्रस्तुति लोड नहीं हो सकी।",
@@ -539,16 +550,52 @@ const messages = {
   },
   deckEditor: {
     lookingForDeck: "यह डेक खोजा जा रहा है",
-    teamAccessCheckFailed: "टीम एक्सेस जांच नहीं हो सकी",
     joinTeamToOpen: "यह डेक खोलने के लिए अपनी टीम से जुड़ें",
     deckUnavailable: "डेक उपलब्ध नहीं",
     checkingSharedAccess: "जांच रहे हैं कि यह प्रस्तुति आपके खाते से साझा है या नहीं।",
-    verifySharedAccessFailed:
-      "हम सत्यापित नहीं कर सके कि यह प्रस्तुति आपके खाते से साझा है या नहीं। टीम एक्सेस और डेक फिर से लोड करने के लिए पुनः प्रयास करें।",
     joinTeamDescription:
       "यह लिंक टीम प्रस्तुति की ओर इशारा करता है। ऊपर दिखाई गई टीम से जुड़ें और डेक यहां अपने-आप खुल जाएगा।",
     deckUnavailableDescription:
       "यह डेक हटाया गया हो सकता है, या आपके खाते को इसका एक्सेस नहीं है।",
+    privateDeckTitle: "यह डेक निजी है",
+    privateDeckDescription:
+      "यह डेक खोलने के लिए मालिक से एक्सेस का अनुरोध करें। अनुरोध भेजने पर उन्हें सूचना मिलेगी।",
+    signedInAs: "आप इस खाते से साइन इन हैं",
+    accessRequestSentDescription:
+      "मालिक को सूचना भेज दी गई है। एक्सेस मिलने के बाद आप यह डेक खोल सकेंगे।",
+    accessRequestRecordedDescription:
+      "आपका अनुरोध दर्ज कर लिया गया है। एक्सेस मिलने के बाद आप यह डेक खोल सकेंगे।",
+    requestAccessPending: "अनुरोध भेजा जा रहा है…",
+    accessRequestSent: "अनुरोध भेज दिया गया",
+    requestAccess: "एक्सेस का अनुरोध करें",
+    signInToRequestAccess: "एक्सेस का अनुरोध करने के लिए साइन इन करें",
+    requestAccessDialogTitle: "एक्सेस का अनुरोध करें",
+    requestAccessDialogDescription:
+      "साइन इन करें या वह ईमेल पता दर्ज करें जिसे मालिक इस डेक के साथ साझा करे।",
+    requestAccessSignIn: "साइन इन या साइन अप करें",
+    requestAccessOr: "या",
+    requestAccessEmailLabel: "ईमेल पता",
+    requestAccessEmailPlaceholder: "you@example.com",
+    requestAccessEmailHint:
+      "एक्सेस मिलने के बाद डेक देखने के लिए इसी ईमेल से साइन इन करें।",
+    requestAccessWithEmail: "ईमेल से अनुरोध करें",
+    requestAccessEmailRequired: "मान्य ईमेल पता दर्ज करें।",
+    requestingAccess: "एक्सेस का अनुरोध किया जा रहा है…",
+    accessRequestSentWithEmail:
+      "मालिक से {{email}} के साथ यह डेक साझा करने का अनुरोध किया गया है।",
+    accessRequestFailed: "एक्सेस का अनुरोध नहीं किया जा सका। फिर से कोशिश करें।",
+    accessApprovalTitle: "एक्सेस दे दी गई",
+    accessApprovalAlreadyTitle: "एक्सेस पहले से दी गई है",
+    accessApprovalMessage: "{{email}} अब यह डेक खोल सकते हैं।",
+    accessApprovalAlreadyMessage: "{{email}} के पास इस डेक की एक्सेस पहले से है।",
+    accessApprovalErrorTitle: "एक्सेस नहीं दी जा सकी",
+    accessApprovalInvalid: "यह एक्सेस अनुरोध अमान्य या समाप्त हो चुका है।",
+    accessApprovalSignInTitle: "एक्सेस देने के लिए साइन इन करें",
+    accessApprovalSignInMessage:
+      "इस अनुरोध को मंजूर करने के लिए डेक मालिक या एडमिन के रूप में साइन इन करें।",
+    accessApprovalOpenDeck: "डेक खोलें",
+    accessApprovalSignIn: "साइन इन करें",
+    accessApprovalLoading: "एक्सेस दी जा रही है...",
     backToDecks: "डेक पर वापस जाएं",
     tryAgain: "फिर कोशिश करें",
     imageUploadFailed: "चित्र अपलोड विफल",
@@ -691,6 +738,7 @@ const messages = {
     chooseReferences: "संदर्भ चुनें",
     addDesignSystem: "+ डिज़ाइन सिस्टम",
     importFrom: "इससे आयात करें",
+    attachedFiles: "अटैच किया गया",
     imported: "इंपोर्ट किया गया",
     importedReferenceDeck: "इंपोर्ट किया गया रेफरेंस डेक",
     referenceImportSuccess: "सफलतापूर्वक इंपोर्ट किया गया",

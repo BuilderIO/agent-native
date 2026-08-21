@@ -4,10 +4,12 @@ import os from "node:os";
 import { resultStatus, summarizeGuardRun } from "./lib/guard-run-summary";
 
 const guards = [
+  "guard:hooks-registered",
   "guard:no-drizzle-push",
   "guard:no-pnpm-patches",
   "guard:chat-first-shared-ui",
   "guard:no-empty-migrations",
+  "guard:release-schema-complete",
   "guard:no-unscoped-queries",
   "guard:no-env-credentials",
   "guard:env-documentation",
@@ -18,6 +20,8 @@ const guards = [
   "guard:db-tool-scoping",
   "guard:template-list",
   "guard:netlify-private-env",
+  "guard:netlify-prebuilt-workflow",
+  "guard:beta-e2e-suite",
   "guard:trusted-acceptance",
   "guard:content-product-conformance",
   "guard:content-product-docs",
@@ -35,6 +39,7 @@ const guards = [
   "guard:extension-no-public",
   "guard:no-one-off-mcp-app-html",
   "guard:i18n-catalogs",
+  "guard:i18n-changed-copy",
   "guard:plan-skills",
   "guard:plan-marketplace",
   "guard:no-error-string-returns",
@@ -47,6 +52,8 @@ const guards = [
   "guard:one-sign-in",
   "guard:no-secret-literals",
   "guard:additive-migrations",
+  "guard:config-docs",
+  "guard:no-legacy-config",
   "guard:no-silent-coercion",
   "guard:no-raw-colors",
   "guard:persistent-compositing",
@@ -56,7 +63,7 @@ const guards = [
   "guard:no-heavy-dashboard-list-reads",
   "guard:dead-settings-keys",
   "guard:serverless-function-payload",
-  "guard:hooks-registered",
+  "guard:doc-budgets",
 ] as const;
 
 type GuardName = (typeof guards)[number];

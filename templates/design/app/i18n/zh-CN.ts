@@ -6,6 +6,11 @@ const messages = {
     ...messagesByLocale["zh-CN"].designEditor,
     commenterRoleLabel: "评论者",
     commenterRoleDescription: "可以查看并添加审阅评论",
+    toasts: {
+      ...messagesByLocale["zh-CN"].designEditor.toasts,
+      pdfExportError: "无法导出 PDF",
+      pdfDownloaded: "PDF 已下载",
+    },
     nodeRewrite: {
       composerTitle: "询问或更改所选内容",
       send: "发送",

@@ -11,4 +11,13 @@ describe("default chat-first copy", () => {
   it("provides a clear destructive app action label", () => {
     expect(defaultChatFirstCopy("removeApp")).toBe("Remove app from workspace");
   });
+
+  it("keeps app pin labels independent of the app name", () => {
+    expect(defaultChatFirstCopy("pinApp", { name: "Long app name" })).toBe(
+      "Pin this app",
+    );
+    expect(defaultChatFirstCopy("unpinApp", { name: "Long app name" })).toBe(
+      "Unpin this app",
+    );
+  });
 });

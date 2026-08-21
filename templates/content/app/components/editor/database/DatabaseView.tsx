@@ -50,7 +50,6 @@ import {
   type DocumentPropertyOptionColor,
   countWords,
   documentPropertyDateKey,
-  documentPropertyDatePart,
   evaluateNormalizationFormula,
   formatWordCount,
   formulaValueText,
@@ -890,6 +889,8 @@ function DatabaseTable({
   >(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [preserveSourceNavigationOnClose, setPreserveSourceNavigationOnClose] =
+    useState(false);
   const sourceHandoffActiveRef = useRef(false);
   const addPropertyOpenRequestSequenceRef = useRef(0);
   const [addPropertyOpenRequestId, setAddPropertyOpenRequestId] = useState(0);
@@ -940,12 +941,35 @@ function DatabaseTable({
   };
   async function runSourceHandoffMutation<T>(
     mutation: () => Promise<T>,
+    options: { revealOptimisticPreview?: boolean } = {},
   ): Promise<T | null> {
+    const returnToAddProperty = sourceHandoffActiveRef.current;
+    if (options.revealOptimisticPreview) {
+      sourceHandoffActiveRef.current = false;
+      setPreserveSourceNavigationOnClose(true);
+      setSettingsOpen(false);
+    }
     try {
       const result = await mutation();
-      completeSourceHandoff();
+      if (options.revealOptimisticPreview) {
+        setPreserveSourceNavigationOnClose(false);
+        if (returnToAddProperty) {
+          addPropertyOpenRequestSequenceRef.current += 1;
+          setAddPropertyOpenRequestId(
+            addPropertyOpenRequestSequenceRef.current,
+          );
+        }
+      } else {
+        completeSourceHandoff();
+      }
       return result;
     } catch (error) {
+      if (options.revealOptimisticPreview) {
+        sourceHandoffActiveRef.current = returnToAddProperty;
+        setSettingsPanel("source");
+        setSettingsOpen(true);
+        setPreserveSourceNavigationOnClose(false);
+      }
       toast.error(dbText("failedToAttachSource"), {
         description:
           error instanceof Error ? error.message : dbText("somethingWentWrong"),
@@ -3067,21 +3091,28 @@ function DatabaseTable({
         onClose={closeDatabaseSettings}
         onPanelChange={changeDatabaseSettingsPanel}
         onAttachBuilderSource={(model, relationshipMode) =>
-          runSourceHandoffMutation(() =>
-            attachSource.mutateAsync({
-              documentId: document.id,
-              sourceType: "builder-cms",
-              sourceName: model.displayName,
-              sourceTable: model.name,
-              builderFieldPaths: model.fields.map((field) => field.name),
-              relationshipMode,
-              mode:
-                relationshipMode === "items"
-                  ? "add"
-                  : sources.length > 0 || source
-                    ? undefined
-                    : "replace",
-            }),
+          runSourceHandoffMutation(
+            async () => {
+              const result = await attachSource.mutateAsync({
+                documentId: document.id,
+                sourceType: "builder-cms",
+                sourceName: model.displayName,
+                sourceTable: model.name,
+                builderFieldPaths: model.fields.map((field) => field.name),
+                relationshipMode,
+                mode:
+                  relationshipMode === "items"
+                    ? "add"
+                    : sources.length > 0 || source
+                      ? undefined
+                      : "replace",
+              });
+              if ("responseProjection" in result) {
+                runBuilderHydration(result.sourceId);
+              }
+              return result;
+            },
+            { revealOptimisticPreview: true },
           )
         }
         onFederateSource={(candidate, join) =>
@@ -3194,6 +3225,7 @@ function DatabaseTable({
           setSourceWriteMode.isPending
         }
         sourcePendingOperations={sourcePendingOperations}
+        preserveSourceNavigationOnClose={preserveSourceNavigationOnClose}
         onViewTypeChange={(type) =>
           setViewConfig(updateDatabaseViewType(viewConfig, activeView.id, type))
         }
@@ -7634,6 +7666,7 @@ function DatabaseSettingsPanelSheet({
   onSetBuilderLiveWrites,
   sourceActionPending,
   sourcePendingOperations,
+  preserveSourceNavigationOnClose,
   onViewTypeChange,
   onWrapCellsChange,
   onOpenPagesInChange,
@@ -7681,6 +7714,7 @@ function DatabaseSettingsPanelSheet({
   onSetBuilderLiveWrites: (settings: BuilderSourceWriteSettingsInput) => void;
   sourceActionPending: boolean;
   sourcePendingOperations: DatabaseSourcePendingOperations;
+  preserveSourceNavigationOnClose: boolean;
   onViewTypeChange: (type: ContentDatabaseViewType) => void;
   onWrapCellsChange: (wrapCells: boolean) => void;
   onOpenPagesInChange: (openPagesIn: ContentDatabaseOpenPagesIn) => void;
@@ -7730,10 +7764,12 @@ function DatabaseSettingsPanelSheet({
     );
   }, [builderAttachPreview.data, documentId, queryClient, sourceActionPending]);
   useEffect(() => {
-    // Always re-enter the Sources panel at its root, and don't retain a path
-    // across close/reopen.
-    if (!open || panel !== "source") setSourceNavStack([]);
-  }, [open, panel]);
+    // Ordinary close/reopen returns to the root. The optimistic attach handoff
+    // keeps the leaf only long enough to restore a failed mutation in place.
+    if (panel !== "source" || (!open && !preserveSourceNavigationOnClose)) {
+      setSourceNavStack([]);
+    }
+  }, [open, panel, preserveSourceNavigationOnClose]);
 
   if (!open) return null;
 
@@ -10544,20 +10580,6 @@ function SourceChangeSetReviewCard({
   );
 }
 
-function SourceMetadataRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex min-w-0 items-start justify-between gap-3 text-xs">
-      <span className="shrink-0 text-muted-foreground">{label}</span>
-      <span
-        className="min-w-0 max-w-[65%] break-words text-right"
-        title={value}
-      >
-        {value}
-      </span>
-    </div>
-  );
-}
-
 function sourceRiskClass(risk: ContentDatabaseSourceChangeSet["riskLevel"]) {
   return cn(
     "rounded border px-1.5 py-0.5",
@@ -10725,14 +10747,6 @@ export function builderSourceContinuationWatchdogDelay(refires: number) {
     BUILDER_SOURCE_CONTINUATION_MAX_BACKOFF_MS,
     BUILDER_SOURCE_CONTINUATION_STALL_MS * 2 ** Math.max(0, refires),
   );
-}
-
-function sourceBuilderReadModeSummary(source: ContentDatabaseSource) {
-  if (source.metadata.liveReadConfigured) return "Builder API read-only";
-  if (source.metadata.readMode === "fixture") {
-    return "Local fixture; Builder credentials unavailable";
-  }
-  return "Local fixture";
 }
 
 function sourcePushModeLabel(
@@ -11540,139 +11554,6 @@ function DatabasePropertyPickerSubContent({
         </div>
       ) : null}
     </DropdownMenuSubContent>
-  );
-}
-
-function DatabaseGroupMenu({
-  activeView,
-  properties,
-  groupIds,
-  onGroupByChange,
-  onHideEmptyGroupsChange,
-  onGroupsCollapsedChange,
-}: {
-  activeView: Pick<
-    ContentDatabaseView,
-    "type" | "groupByPropertyId" | "hideEmptyGroups"
-  >;
-  properties: DocumentProperty[];
-  groupIds: string[];
-  onGroupByChange: (propertyId: string | null) => void;
-  onHideEmptyGroupsChange: (hideEmptyGroups: boolean) => void;
-  onGroupsCollapsedChange: (groupIds: string[], collapsed: boolean) => void;
-}) {
-  const groupableProperties = databaseViewGroupableProperties(properties);
-  const groupProperty = databaseViewGroupingProperty(activeView, properties);
-  const hideEmptyGroups = activeView.hideEmptyGroups === true;
-  const [propertyQuery, setPropertyQuery] = useState("");
-  const groupPropertyItems = databasePropertyPickerItems(
-    groupableProperties,
-    propertyQuery,
-    { includeName: false },
-  );
-  const canGroupView =
-    activeView.type === "table" ||
-    activeView.type === "list" ||
-    activeView.type === "gallery";
-
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          disabled={!canGroupView}
-          aria-label={
-            groupProperty
-              ? `Group by ${groupProperty.definition.name}`
-              : "Group"
-          }
-          title="Group"
-          className={cn(databaseToolbarIconButtonClass(Boolean(groupProperty)))}
-        >
-          <IconLayoutKanban className="size-3.5" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-56">
-        <DropdownMenuLabel className="text-xs text-muted-foreground">
-          {dbText("groupBy")}
-        </DropdownMenuLabel>
-        <DropdownMenuItem
-          onSelect={(event) => {
-            event.preventDefault();
-            onGroupByChange(null);
-          }}
-        >
-          <span className="flex-1">None</span>
-          {!groupProperty ? (
-            <IconCheck className="size-4 text-muted-foreground" />
-          ) : null}
-        </DropdownMenuItem>
-        {groupableProperties.length > 0 ? <DropdownMenuSeparator /> : null}
-        {groupableProperties.length > 0 ? (
-          <DatabasePropertyPickerSearch
-            value={propertyQuery}
-            onChange={setPropertyQuery}
-          />
-        ) : null}
-        {groupPropertyItems.map((item) => (
-          <DatabasePropertyPickerItem
-            key={item.key}
-            item={item}
-            selected={groupProperty?.definition.id === item.key}
-            onSelect={(key) => onGroupByChange(key)}
-          />
-        ))}
-        {groupableProperties.length > 0 && groupPropertyItems.length === 0 ? (
-          <div className="px-2 py-1.5 text-xs text-muted-foreground">
-            {dbText("noPropertiesFound")}
-          </div>
-        ) : null}
-        {groupProperty ? (
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              onSelect={(event) => {
-                event.preventDefault();
-                onHideEmptyGroupsChange(!hideEmptyGroups);
-              }}
-            >
-              <IconEyeOff className="mr-2 size-4 text-muted-foreground" />
-              <span className="flex-1">{dbText("hideEmptyGroups")}</span>
-              {hideEmptyGroups ? (
-                <IconCheck className="size-4 text-muted-foreground" />
-              ) : null}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              disabled={groupIds.length === 0}
-              onSelect={(event) => {
-                event.preventDefault();
-                onGroupsCollapsedChange(groupIds, true);
-              }}
-            >
-              <IconChevronRight className="mr-2 size-4 text-muted-foreground" />
-              {dbText("collapseAllGroups")}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              disabled={groupIds.length === 0}
-              onSelect={(event) => {
-                event.preventDefault();
-                onGroupsCollapsedChange(groupIds, false);
-              }}
-            >
-              <IconChevronDown className="mr-2 size-4 text-muted-foreground" />
-              {dbText("expandAllGroups")}
-            </DropdownMenuItem>
-          </>
-        ) : null}
-        {groupableProperties.length === 0 ? (
-          <div className="px-2 py-1.5 text-xs text-muted-foreground">
-            {dbText("addAStatusSelectMultiSelectOrCheckboxPropertyToGroup")}
-          </div>
-        ) : null}
-      </DropdownMenuContent>
-    </DropdownMenu>
   );
 }
 
@@ -16663,163 +16544,6 @@ function ColumnHeaderMenuContent({
   );
 }
 
-function DatabasePropertiesMenu({
-  documentId,
-  databaseId,
-  properties,
-  hiddenCount,
-  activeView,
-  items,
-  onPropertyHiddenChange,
-  onPropertiesHiddenChange,
-}: {
-  documentId: string;
-  databaseId: string;
-  properties: DocumentProperty[];
-  hiddenCount: number;
-  activeView: ContentDatabaseView;
-  items: ContentDatabaseItem[];
-  onPropertyHiddenChange: (propertyId: string, hidden: boolean) => void;
-  onPropertiesHiddenChange: (propertyIds: string[], hidden: boolean) => void;
-}) {
-  const [query, setQuery] = useState("");
-  const normalizedQuery = query.trim().toLowerCase();
-  const filteredProperties = normalizedQuery
-    ? properties.filter((property) =>
-        property.definition.name.toLowerCase().includes(normalizedQuery),
-      )
-    : properties;
-  const visibleCount = properties.filter((property) =>
-    isDatabasePropertyVisibleInView(property, items, activeView),
-  ).length;
-  const propertyIds = properties.map((property) => property.definition.id);
-
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          aria-label={
-            hiddenCount > 0
-              ? `${hiddenCount} hidden properties`
-              : "Property visibility"
-          }
-          title={dbText("propertyVisibility")}
-          className={cn(
-            databaseToolbarIconButtonClass(hiddenCount > 0),
-            "relative",
-          )}
-        >
-          <IconEye className="size-3.5" />
-          {hiddenCount > 0 ? (
-            <span className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 shrink-0 items-center justify-center rounded-full bg-foreground px-1 text-[9px] leading-none text-background">
-              {formatCompactCountBadge(hiddenCount)}
-            </span>
-          ) : null}
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="end"
-        className="w-80"
-        onCloseAutoFocus={() => setQuery("")}
-      >
-        <DropdownMenuLabel className="text-xs text-muted-foreground">
-          Properties
-        </DropdownMenuLabel>
-        <div
-          className="grid gap-2 p-2 pt-1"
-          onKeyDown={(event) => event.stopPropagation()}
-        >
-          <div className="flex h-8 items-center gap-1 rounded border border-border bg-background px-2">
-            <IconSearch className="size-3.5 shrink-0 text-muted-foreground" />
-            <Input
-              value={query}
-              placeholder={dbText("searchProperties")}
-              aria-label={dbText("searchProperties")}
-              onChange={(event) => setQuery(event.target.value)}
-              className="h-7 border-0 bg-transparent px-0 text-xs shadow-none focus-visible:ring-0"
-            />
-          </div>
-          <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-            <span>
-              {visibleCount} shown, {properties.length - visibleCount} hidden
-            </span>
-            <div className="flex items-center gap-1">
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                className="h-7 px-2 text-xs"
-                disabled={hiddenCount === 0}
-                onClick={() => onPropertiesHiddenChange(propertyIds, false)}
-              >
-                <IconEye className="mr-1 size-3.5" />
-                {dbText("showAll")}
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                className="h-7 px-2 text-xs"
-                disabled={visibleCount === 0}
-                onClick={() => onPropertiesHiddenChange(propertyIds, true)}
-              >
-                <IconEyeOff className="mr-1 size-3.5" />
-                {dbText("hideAll")}
-              </Button>
-            </div>
-          </div>
-        </div>
-        {filteredProperties.length === 0 ? (
-          <div className="px-3 py-4 text-sm text-muted-foreground">
-            {dbText("noMatchingProperties")}
-          </div>
-        ) : null}
-        {filteredProperties.map((property) => {
-          const Icon = TYPE_ICONS[property.definition.type];
-          const visible = isDatabasePropertyVisibleInView(
-            property,
-            items,
-            activeView,
-          );
-          return (
-            <DropdownMenuItem
-              key={property.definition.id}
-              onSelect={(event) => {
-                event.preventDefault();
-                onPropertyHiddenChange(property.definition.id, visible);
-              }}
-            >
-              <Icon className="mr-2 size-4 text-muted-foreground" />
-              <span className="min-w-0 flex-1 truncate">
-                {property.definition.name}
-              </span>
-              <span className="mr-2 text-xs text-muted-foreground">
-                {visible ? "Shown" : "Hidden"}
-              </span>
-              {visible ? (
-                <IconCheck className="size-4 text-muted-foreground" />
-              ) : null}
-            </DropdownMenuItem>
-          );
-        })}
-        <div
-          className="border-t border-border p-2"
-          onKeyDown={(event) => event.stopPropagation()}
-        >
-          <AddProperty
-            documentId={documentId}
-            databaseId={databaseId}
-            label={dbText("newProperty")}
-          />
-        </div>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
 export function applyDatabaseView(
   items: ContentDatabaseItem[],
   properties: DocumentProperty[],
@@ -16834,53 +16558,6 @@ export function applyDatabaseView(
     sorts,
     filterMode,
   });
-}
-
-function databaseItemMatchesFilterTree(
-  item: ContentDatabaseItem,
-  properties: DocumentProperty[],
-  filters: DatabaseFilter[],
-  filterMode: DatabaseFilterMode,
-) {
-  const rootFilters = filters.filter((filter) => !filter.parentFilterGroupId);
-  const nestedGroups = nestedDatabaseFilterGroups(filters);
-  const matches = [
-    ...rootFilters.map((filter) =>
-      databaseItemMatchesFilter(item, properties, filter),
-    ),
-    ...nestedGroups.map((group) =>
-      combineDatabaseFilterMatches(
-        group.map((filter) =>
-          databaseItemMatchesFilter(item, properties, filter),
-        ),
-        filterMode,
-      ),
-    ),
-  ];
-
-  return combineDatabaseFilterMatches(matches, filterMode);
-}
-
-function nestedDatabaseFilterGroups(filters: DatabaseFilter[]) {
-  const groups = new Map<string, DatabaseFilter[]>();
-  for (const filter of filters) {
-    if (!filter.parentFilterGroupId || !filter.filterGroupId) continue;
-    groups.set(filter.filterGroupId, [
-      ...(groups.get(filter.filterGroupId) ?? []),
-      filter,
-    ]);
-  }
-  return [...groups.values()].filter((group) => group.length > 0);
-}
-
-function combineDatabaseFilterMatches(
-  matches: boolean[],
-  filterMode: DatabaseFilterMode,
-) {
-  if (matches.length === 0) return true;
-  return filterMode === "or"
-    ? matches.some((matched) => matched)
-    : matches.every((matched) => matched);
 }
 
 function defaultDatabaseSort(): DatabaseSort {
@@ -17222,175 +16899,6 @@ function databasePropertyOptionIdForFilterValue(
   )?.id;
 }
 
-function databaseItemMatchesFilter(
-  item: ContentDatabaseItem,
-  properties: DocumentProperty[],
-  filter: DatabaseFilter,
-) {
-  const value = databaseItemFilterValue(item, properties, filter.key);
-  const property = databaseItemFilterProperty(item, properties, filter.key);
-
-  if (filter.operator === "is_empty") return !value.trim();
-  if (filter.operator === "is_not_empty") return !!value.trim();
-
-  if (filter.operator === "is_checked") return property?.value === true;
-  if (filter.operator === "is_unchecked") return property?.value !== true;
-
-  if (filter.operator === "greater_than" || filter.operator === "less_than") {
-    const current = propertyNumberValue(property);
-    const target = Number(filter.value.trim());
-    if (!Number.isFinite(current) || !Number.isFinite(target)) return false;
-    return filter.operator === "greater_than"
-      ? current > target
-      : current < target;
-  }
-
-  if (
-    filter.operator === "before" ||
-    filter.operator === "after" ||
-    filter.operator === "between"
-  ) {
-    const current = propertyDateValue(property);
-    if (!Number.isFinite(current)) return false;
-    if (filter.operator === "between") {
-      const range = databaseFilterDateRangeValue(filter.value);
-      if (!range) return false;
-      return current >= range[0] && current <= range[1];
-    }
-    const target = new Date(filter.value.trim()).getTime();
-    if (!Number.isFinite(target)) return false;
-    return filter.operator === "before" ? current < target : current > target;
-  }
-
-  const candidateValues = databaseItemFilterCandidateValues(
-    item,
-    properties,
-    filter.key,
-  ).map((candidate) => candidate.trim().toLowerCase());
-  const selectedFilterValues = databaseFilterSelectedValues(filter.value).map(
-    (candidate) => candidate.trim().toLowerCase(),
-  );
-  const normalizedValue = value.trim().toLowerCase();
-  const normalizedFilter = selectedFilterValues[0] ?? "";
-  const usesDiscreteValues =
-    property?.definition.type === "select" ||
-    property?.definition.type === "status" ||
-    property?.definition.type === "multi_select" ||
-    property?.definition.type === "person";
-
-  if (
-    usesDiscreteValues &&
-    (filter.operator === "equals" || filter.operator === "contains")
-  ) {
-    return selectedFilterValues.some((filterValue) =>
-      candidateValues.includes(filterValue),
-    );
-  }
-  if (usesDiscreteValues && filter.operator === "does_not_equal") {
-    return selectedFilterValues.every(
-      (filterValue) => !candidateValues.includes(filterValue),
-    );
-  }
-
-  if (filter.operator === "equals") {
-    return candidateValues.includes(normalizedFilter);
-  }
-  if (filter.operator === "does_not_equal") {
-    return !candidateValues.includes(normalizedFilter);
-  }
-  return normalizedValue.includes(normalizedFilter);
-}
-
-function databaseItemSearchText(
-  item: ContentDatabaseItem,
-  properties: DocumentProperty[],
-) {
-  return [
-    item.document.title || "Untitled",
-    ...properties.map((property) =>
-      propertyValueText(
-        item.properties.find(
-          (candidate) => candidate.definition.id === property.definition.id,
-        ) ?? property,
-      ),
-    ),
-  ].join(" ");
-}
-
-function databaseItemSortValue(
-  item: ContentDatabaseItem,
-  properties: DocumentProperty[],
-  key: string,
-) {
-  if (key === "name") return item.document.title || "";
-  const property = properties.find(
-    (candidate) => candidate.definition.id === key,
-  );
-  const itemProperty = item.properties.find(
-    (candidate) => candidate.definition.id === key,
-  );
-  return propertyValueText(itemProperty ?? property ?? null);
-}
-
-function databaseItemFilterValue(
-  item: ContentDatabaseItem,
-  properties: DocumentProperty[],
-  key: string,
-) {
-  if (key === "name") return item.document.title || "";
-  return propertyValueText(databaseItemFilterProperty(item, properties, key));
-}
-
-function databaseItemFilterProperty(
-  item: ContentDatabaseItem,
-  properties: DocumentProperty[],
-  key: string,
-) {
-  if (key === "name") return null;
-  const property = properties.find(
-    (candidate) => candidate.definition.id === key,
-  );
-  const itemProperty = item.properties.find(
-    (candidate) => candidate.definition.id === key,
-  );
-  return itemProperty ?? property ?? null;
-}
-
-function databaseItemFilterCandidateValues(
-  item: ContentDatabaseItem,
-  properties: DocumentProperty[],
-  key: string,
-) {
-  if (key === "name") return [item.document.title || ""];
-  const property = databaseItemFilterProperty(item, properties, key);
-  if (!property) return [""];
-  const value = property.value;
-
-  if (value === null || value === undefined || value === "") return [""];
-
-  if (Array.isArray(value)) {
-    return value.flatMap((id) => {
-      const optionName =
-        property.definition.options.options?.find((option) => option.id === id)
-          ?.name ?? id;
-      return [id, optionName];
-    });
-  }
-
-  if (
-    property.definition.type === "select" ||
-    property.definition.type === "status"
-  ) {
-    const id = String(value);
-    const optionName =
-      property.definition.options.options?.find((option) => option.id === id)
-        ?.name ?? id;
-    return [id, optionName];
-  }
-
-  return [propertyValueText(property)];
-}
-
 function propertyValueText(property: DocumentProperty | null | undefined) {
   if (!property) return "";
   const value = property.value;
@@ -17424,23 +16932,6 @@ function propertyValueText(property: DocumentProperty | null | undefined) {
   return formulaValueText(value);
 }
 
-function compareDatabaseSortValues(left: string, right: string) {
-  const leftNumber = Number(left);
-  const rightNumber = Number(right);
-  if (
-    left.trim() &&
-    right.trim() &&
-    Number.isFinite(leftNumber) &&
-    Number.isFinite(rightNumber)
-  ) {
-    return leftNumber - rightNumber;
-  }
-  return left.localeCompare(right, undefined, {
-    numeric: true,
-    sensitivity: "base",
-  });
-}
-
 function propertyNumberValue(property: DocumentProperty | null | undefined) {
   if (!property) return Number.NaN;
   if (
@@ -17454,14 +16945,6 @@ function propertyNumberValue(property: DocumentProperty | null | undefined) {
     typeof property.value === "number"
       ? property.value
       : Number(String(property.value).trim());
-  return Number.isFinite(value) ? value : Number.NaN;
-}
-
-function propertyDateValue(property: DocumentProperty | null | undefined) {
-  if (!property || !property.value) return Number.NaN;
-  const value = new Date(
-    documentPropertyDatePart(property.value, "start") || String(property.value),
-  ).getTime();
   return Number.isFinite(value) ? value : Number.NaN;
 }
 
@@ -18347,14 +17830,6 @@ function databaseFilterEncodeDateRangeValues(start: string, end: string) {
   return JSON.stringify([normalizedStart, normalizedEnd]);
 }
 
-function databaseFilterDateRangeValue(value: string): [number, number] | null {
-  const [startValue, endValue] = databaseFilterDateRangeValues(value);
-  const start = new Date(startValue).getTime();
-  const end = new Date(endValue).getTime();
-  if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
-  return start <= end ? [start, end] : [end, start];
-}
-
 function databaseFilterEncodeSelectedValues(values: string[]) {
   const normalized = [
     ...new Set(values.map((value) => value.trim()).filter(Boolean)),
@@ -18374,24 +17849,6 @@ function databaseFilterOptionIsSelected(
     (value) =>
       value === optionValue || value.trim().toLowerCase() === optionName,
   );
-}
-
-function databaseFilterChipLabel(
-  filter: DatabaseFilter,
-  properties: DocumentProperty[],
-) {
-  const operator = databaseFilterOperatorLabel(
-    filter.operator,
-    filter.key,
-    properties,
-  );
-  if (!filterOperatorNeedsValue(filter.operator)) {
-    return `${filter.label} ${operator.toLowerCase()}`;
-  }
-  return `${filter.label} ${operator.toLowerCase()} ${databaseFilterValueLabel(
-    filter,
-    properties,
-  )}`;
 }
 
 export function databaseInlineFilterLabel(

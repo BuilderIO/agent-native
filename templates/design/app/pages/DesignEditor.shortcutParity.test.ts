@@ -9,6 +9,10 @@ describe("DesignEditor Figma navigation shortcut wiring", () => {
     "app/components/design/LayersPanel.tsx",
     "utf8",
   );
+  const bottomToolbarSource = readFileSync(
+    "app/components/design/editor/DesignBottomToolbar.tsx",
+    "utf8",
+  );
 
   it("routes Find through the real LayersPanel search control", () => {
     expect(editorSource).toContain(
@@ -32,7 +36,7 @@ describe("DesignEditor Figma navigation shortcut wiring", () => {
       "onShowLayersPanel: initialGenerationChromeLimited\n      ? undefined\n      : handleShowLayersPanel",
     );
     expect(editorSource).toContain(
-      "onShowAssetsPanel: initialGenerationChromeLimited\n      ? undefined\n      : handleShowAssetsPanel",
+      "onShowAssetsPanel:\n      initialGenerationChromeLimited || !SHOW_DESIGN_SECONDARY_LEFT_PANELS\n        ? undefined\n        : handleShowAssetsPanel",
     );
   });
 
@@ -48,12 +52,14 @@ describe("DesignEditor Figma navigation shortcut wiring", () => {
   });
 
   it("projects the active move-group sub-tool through the toolbar", () => {
-    expect(editorSource).toContain("label: t(activeMoveGroupTool.labelKey)");
-    expect(editorSource).toContain("onClick: handleActiveMoveGroupTool");
-    expect(editorSource).toContain(
+    expect(bottomToolbarSource).toContain(
+      "label: t(activeMoveGroupTool.labelKey)",
+    );
+    expect(bottomToolbarSource).toContain("onClick: handleActiveMoveGroupTool");
+    expect(bottomToolbarSource).toContain(
       "shortcut: MOVE_GROUP_TOOL_PRESENTATIONS.hand.shortcut",
     );
-    expect(editorSource).toContain(
+    expect(bottomToolbarSource).toContain(
       "shortcut: MOVE_GROUP_TOOL_PRESENTATIONS.scale.shortcut",
     );
   });

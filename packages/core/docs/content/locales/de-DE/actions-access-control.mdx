@@ -83,7 +83,145 @@ Verwenden Sie es nur für sichere, schreibgeschützte oder reine Ingest-Actions,
 
 Eine Handvoll Actions sind zu folgenreich, um den Agenten sie allein ausführen zu lassen, etwa eine E-Mail senden, eine Karte belasten oder ein Konto löschen. Setzen Sie `needsApproval: true` (oder ein Prädikat `(args, ctx) => boolean | Promise<boolean>`) auf `defineAction()`, und die Schleife pausiert vor `run()` und verlangt, dass ein Mensch genau diesen Aufruf genehmigt. Der Standard ist **aus**, und fast jede Action sollte das bleiben.
 
-Siehe [Human-in-the-Loop-Genehmigungen](/docs/human-approval) für die Prädikat-API, das `approval_required`-Ereignis und den vollständigen End-to-End-Ablauf.
+<Callout tone="warning">
+  Halten Sie Genehmigungen selten. Jede gesperrte Action ist ein harter Stopp in
+  der Agentenschleife. Sie unterbricht den Lauf und verlangt einen menschlichen
+  Hin-und-Rückweg. Verwenden Sie `needsApproval` nur für wirklich folgenreiche,
+  schwer rückgängig zu machende, nach außen gerichtete Operationen. Wenn Sie
+  sich dabei ertappen, Lesevorgänge oder Routine-Schreibvorgänge zu sperren,
+  nutzen Sie es falsch. Der Standard ist **aus**, und fast jede Action sollte
+  das bleiben.
+</Callout>
+
+<AnnotatedCode
+  id="doc-block-13p4g9y"
+  title="Die eine folgenreiche Action sperren"
+  filename="actions/send-email.ts"
+  language="ts"
+  code={
+    'export default defineAction({\n  description: "Send an email via Gmail.",\n  schema: z.object({\n    to: z.string(),\n    subject: z.string(),\n    body: z.string(),\n  }),\n  // Sending is outward-facing and hard to undo, so the agent can never send\n  // without a human approving the specific call. Drafting and queueing are\n  // not affected. Only the real send is gated.\n  needsApproval: true,\n  run: async (args) => {\n    /* ...actually send... */\n  },\n});'
+  }
+  annotations={[
+    {
+      lines: "10",
+      label: "Die ganze Sperre",
+      note: "Ein einziges Flag. Ist es wahr und wurde der Aufruf noch nicht genehmigt, stoppt die Schleife vor `run`. Das Modell erreicht die Nebenwirkung nie von selbst.",
+    },
+    {
+      lines: "11-13",
+      label: "`run()` bleibt unverändert",
+      note: "Der Handler bleibt gleich. Die Genehmigung wird von der Schleife darum herum erzwungen, nicht von irgendetwas innerhalb von `run`.",
+    },
+  ]}
+/>
+
+- **`needsApproval: true`** verlangt immer eine Genehmigung.
+- **`needsApproval: (args, ctx) => boolean | Promise<boolean>`** verlangt eine Genehmigung nur, wenn das Prädikat `true` zurückgibt. Verwenden Sie dies, um bedingt zu sperren, etwa nur für externe Empfänger oder nur oberhalb eines Dollar-Schwellenwerts:
+
+  ```ts
+  needsApproval: (args) => !args.to.endsWith("@your-company.com"),
+  ```
+
+  Halten Sie das Prädikat rein und schnell. Wenn das Prädikat einen Fehler wirft, behandelt das Framework den Aufruf so, als hätte das Prädikat `true` zurückgegeben, sodass die Action auf eine Genehmigung pausiert, statt auszuführen. Das bedeutet, dass ein defektes Prädikat niemals stillschweigend eine folgenreiche Action ausführen lassen kann, ohne dass zuvor ein Mensch sie genehmigt hat.
+
+Wenn `needsApproval` weggelassen wird, bleibt das Verhalten byte-für-byte unverändert. Auf dem üblichen Pfad entstehen keine zusätzlichen Kosten.
+
+Das funktioniert genauso für Actions im alten `parameters`-Stil wie für schemabasierte Actions. Es funktioniert auch genauso für den In-App-Agenten, Sub-Agenten, A2A- und MCP-Aufrufer, da jede Agent-Oberfläche durch dieselbe Schleife läuft.
+
+### Wie die Schleife pausiert {#loop}
+
+Wenn der Agent eine gesperrte Action aufruft und dieser konkrete Aufruf **noch nicht** genehmigt wurde, führt die Schleife `run()` **nicht** aus. Stattdessen:
+
+1. Löst sie die Sperre auf. Bei einem Prädikat ruft die Schleife `needsApproval(input, ctx)` auf. Wenn dieser Aufruf einen Fehler wirft, behandelt die Schleife ihn wie ein `true`-Ergebnis, sodass die Action eine Genehmigung verlangt.
+2. Sendet sie ein `tool_start`-Ereignis (damit die UI den Aufruf anzeigt), unmittelbar gefolgt von einem **`approval_required`**-Ereignis, und stoppt dann den Turn. Die Nebenwirkung der Action tritt nie ein.
+
+Das `approval_required`-Ereignis trägt alles, was der Client braucht, um ein Bedienelement darzustellen:
+
+| Feld          | Typ      | Hinweise                                                                                     |
+| ------------- | -------- | -------------------------------------------------------------------------------------------- |
+| `tool`        | `string` | Der Name der Action, die der Agent aufzurufen versuchte.                                     |
+| `input`       | object   | Die Argumente, die der Agent übergeben hat.                                                  |
+| `approvalKey` | `string` | **Stabiler Schlüssel**, den der Client zurücksendet, um _genau diesen Aufruf_ zu genehmigen. |
+| `toolCallId`  | `string` | Die modellseitige Tool-Call-ID, sofern verfügbar.                                            |
+
+Der `approvalKey` wird deterministisch aus dem Tool-Namen und seinem Input abgeleitet, sodass derselbe logische Aufruf immer denselben Schlüssel erzeugt. Das Modell sieht oder setzt ihn nie. Er existiert ausschließlich als Handshake zwischen dem Framework und dem Genehmigen-Bedienelement des Menschen.
+
+Das pausierte Tool gibt ein Ergebnis zurück, das dem Modell mitteilt, dass der Turn pausiert ist und es nicht erneut versuchen soll, damit das Modell nicht endlos weiter versucht.
+
+### Wie der Mensch genehmigt {#approve}
+
+Bei `approval_required` rendert die Chat-UI ein **Genehmigen / Ablehnen**-Bedienelement auf dem pausierten Tool-Aufruf. Das ist in `AssistantChat` automatisch verdrahtet. Sie müssen es nicht pro Vorlage selbst bauen.
+
+<WireframeBlock id="doc-block-humanapprovalwf1">
+  <Screen
+    surface="popover"
+    html={
+      "<div style='display:flex;flex-direction:column;box-sizing:border-box;padding:16px;gap:12px'><div class='wf-card' style='display:flex;flex-direction:column;gap:8px'><div style='display:flex;align-items:center;gap:8px'><span class='wf-pill warn'>Needs approval</span><strong>send-email</strong></div><div style='display:flex;flex-direction:column;gap:2px'><span class='wf-muted'>to: alex@acme.com</span><span class='wf-muted'>subject: Following up on the proposal</span></div><div style='display:flex;gap:8px'><button>Deny</button><button class='primary'>Approve</button></div></div></div>"
+    }
+  />
+</WireframeBlock>
+
+- **Genehmigen** gibt den Turn erneut als gewöhnliche Fortsetzungsnachricht aus, die den Schlüssel des Aufrufs in `approvedToolCalls: [approvalKey]` trägt. Beim erneut ausgegebenen Turn sieht die Sperre den Schlüssel in der genehmigten Menge und lässt genau diesen Aufruf normal laufen.
+- **Ablehnen** verwirft das Bedienelement lokal. Es wird nichts erneut ausgegeben, sodass die Action nie läuft.
+
+`approvedToolCalls` ist ein Feld der Chat-Anfrage (`AgentChatRequest.approvedToolCalls`). Schlüssel, die darin nicht vorhanden sind, bleiben pausiert. Die Genehmigung eines Aufrufs genehmigt nie einen anderen Aufruf. Da der Schlüssel inhaltsadressiert ist, autorisiert eine Genehmigung nur genau diesen Aufruf mit genau diesen Argumenten. Wenn das Modell später einen anderen Versand vorschlägt, wird das zu einem neuen Schlüssel und braucht seine eigene, frische Genehmigung.
+
+### End-to-End {#flow}
+
+<Diagram id="doc-block-2nor1g" title="Die Genehmigungsunterbrechung" summary={"Ein gesperrter Aufruf pausiert den Turn, bevor run() ausgelöst wird. Die Genehmigung gibt den Turn mit dem Schlüssel des Aufrufs erneut aus. Erst dann tritt die Nebenwirkung ein."}>
+
+```html
+<div class="diagram-approve">
+  <div class="diagram-box" data-rough>Agent ruft send-email auf</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-panel warn" data-rough>
+    <strong>Sperre wahr, Aufruf noch nicht genehmigt</strong
+    ><small class="diagram-muted"
+      >Schleife sendet tool_start + approval_required { tool, input, approvalKey
+      }</small
+    ><span class="diagram-pill warn">run() wurde nicht ausgeführt</span>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-box" data-rough>
+    Mensch klickt im Chat auf Genehmigen<br /><small class="diagram-muted"
+      >Client gibt den Turn erneut aus mit approvedToolCalls:
+      [approvalKey]</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-panel ok" data-rough>
+    <span class="diagram-pill ok"
+      >Sperre sieht den Schlüssel &rarr; run() wird ausgeführt &rarr; E-Mail
+      wird gesendet</span
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-approve {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.diagram-approve .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+  padding: 12px 16px;
+  text-align: center;
+}
+.diagram-approve .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+Die `send-email`-Action der Mail-Vorlage ist die kanonische Verwendung dieser Sperre im Framework, und sie ist absichtlich selten. Sie setzt `needsApproval: true`, sodass der Agent E-Mails frei entwerfen und in die Warteschlange stellen kann. Er kann eine Nachricht nie tatsächlich senden, ohne dass ein Mensch genau diesen Versand genehmigt.
 
 ## Aufrufer nach Rolle einschränken {#authorize}
 
@@ -220,7 +358,7 @@ Ein paar weitere Optionen. `audit: { onRead: true }` auditiert einen sensiblen L
 - [**Überblick**](/docs/actions-overview) — was eine Action ist und der Hello-World-Durchlauf
 - [**Actions definieren**](/docs/actions-defining) — `defineAction()`-Aufbau, Schema und HTTP-Konfiguration
 - [**Ausführungskontext**](/docs/actions-run-context) — das `ctx`-Argument, das diese Prüfungen lesen
-- [**Human-in-the-Loop-Genehmigungen**](/docs/human-approval) — das `needsApproval`-Gate im Detail
+- [**Mail-Vorlage**](/docs/template-mail) — `send-email` ist das Referenzbeispiel für `needsApproval`
 - [**Audit-Protokoll**](/docs/audit-log) — der automatische Wer-hat-was-geändert-Trail
 - [**Sicherheit**](/docs/security) — `accessFilter`/`assertAccess` und die Vertrauensgrenze des Extension-Iframes
 - [**Freigabe und Datenschutz**](/docs/sharing) — das Framework-Freigabesystem, auf dem diese Helfer aufbauen

@@ -16,6 +16,7 @@ import {
 } from "@shared/responsive-classes";
 import {
   type ElementProvenanceUnavailableReason,
+  isRunningAppSourceType,
   normalizeDesignSourceType,
   type DesignSourceType,
 } from "@shared/source-mode";
@@ -824,11 +825,22 @@ export function formatPendingVisualStylePrompt(args: {
   localhostConnectionId?: string | null;
   edits: readonly PendingVisualStyleEdit[];
   liveEdits?: readonly PendingLiveNonStyleEdit[];
+  /**
+   * A coding agent has the repo and none of the Design source tools, and a
+   * screen's `.html` filename is the editor's own bookkeeping — naming it sends
+   * that agent hunting for a file the project does not contain.
+   */
+  audience?: "design-agent" | "coding-agent";
+  /** Screen id → the route it renders, for naming screens the way the app does. */
+  screenRoutes?: Readonly<Record<string, string>>;
 }): string {
+  const codingAgent = args.audience === "coding-agent";
+  const nameScreen = (screenId: string, filename: string) =>
+    (codingAgent ? args.screenRoutes?.[screenId] : undefined) ?? filename;
   const title = args.designTitle?.trim();
   const editPayload = args.edits.map((edit) => ({
     screenId: edit.screenId,
-    filename: edit.filename,
+    screen: nameScreen(edit.screenId, edit.filename),
     screenName: edit.screenName,
     selector: edit.selector,
     sourceId: edit.sourceId ?? null,
@@ -864,7 +876,7 @@ export function formatPendingVisualStylePrompt(args: {
       return {
         kind: edit.kind,
         screenId: edit.screenId,
-        filename: edit.filename,
+        screen: nameScreen(edit.screenId, edit.filename),
         screenName: edit.screenName,
         selector: edit.selector,
         sourceId: edit.sourceId ?? null,
@@ -887,7 +899,7 @@ export function formatPendingVisualStylePrompt(args: {
       return {
         kind: edit.kind,
         screenId: edit.screenId,
-        filename: edit.filename,
+        screen: nameScreen(edit.screenId, edit.filename),
         screenName: edit.screenName,
         selector: edit.selector,
         sourceId: edit.sourceId ?? null,
@@ -1031,7 +1043,7 @@ export function formatPendingVisualStylePrompt(args: {
     return {
       kind: edit.kind,
       screenId: edit.screenId,
-      filename: edit.filename,
+      screen: nameScreen(edit.screenId, edit.filename),
       screenName: edit.screenName,
       selector: edit.selector,
       sourceId: edit.sourceId ?? null,
@@ -1075,18 +1087,27 @@ export function formatPendingVisualStylePrompt(args: {
     };
   });
 
+  const activeScreenLabel = args.activeFileId
+    ? nameScreen(args.activeFileId, args.activeFilename ?? "")
+    : "";
   return [
-    `Apply these pending live visual edits${title ? ` to "${title}"` : ""}.`,
-    args.designId ? `Design id: "${args.designId}".` : "",
+    codingAgent
+      ? `Apply these visual edits${title ? ` to "${title}"` : ""} by editing the app's source.`
+      : `Apply these pending live visual edits${title ? ` to "${title}"` : ""}.`,
+    codingAgent ? "" : args.designId ? `Design id: "${args.designId}".` : "",
     args.activeFileId
-      ? `Active screen: "${args.activeFilename ?? args.activeFileId}" (${args.activeFileId}).`
+      ? codingAgent
+        ? `Screen: ${activeScreenLabel || "the current route"}.`
+        : `Active screen: "${args.activeFilename ?? args.activeFileId}" (${args.activeFileId}).`
       : "",
-    args.localhostConnectionId
+    args.localhostConnectionId && !codingAgent
       ? `Active localhost connection id: "${args.localhostConnectionId}".`
       : "",
     "",
-    "Use the Design source tools to make the source match the current live canvas preview. Read each target screen, resolve source ids/selectors through the code-layer projection, then apply the style, text, layer-state, and structure changes with focused source edits. Preserve layout, behavior, and unrelated styling.",
-    hasReactSourceAnchors
+    codingAgent
+      ? "These were made against the running app in a visual canvas, so the selectors and node ids below are runtime-only — they do not appear in source. Locate the component that renders each element using its tag, class names and current text, then make the change in that source file. Preserve layout, behavior, and unrelated styling."
+      : "Use the Design source tools to make the source match the current live canvas preview. Read each target screen, resolve source ids/selectors through the code-layer projection, then apply the style, text, layer-state, and structure changes with focused source edits. Preserve layout, behavior, and unrelated styling.",
+    hasReactSourceAnchors && !codingAgent
       ? "React sourceAnchor fields are source provenance; runtime source ids and selectors are correlation hints only. For a single-instance leaf text, literal className/class, or flat literal style-object edit, call apply-visual-edit with source.kind=local-file plus designId, connectionId, the verified project-relative path, and target.sourceAnchor. First omit persist and inspect proposedDiff; then retry with persist=true only when the diff matches the preview. That write still requires human localhost consent and exact version-hash concurrency. Verify every file, line, column, component, and surrounding control flow before editing. Never use a generic AST reparent, group, wrapper, breakpoint, dynamic expression, repeated render, or shared component transform through this path. For semantic structure edits, follow the embedded semanticHandoff packet and use this exact guarded sequence: read-local-file, capture its versionHash, obtain human write consent, write-local-file with expectedVersionHash and requireExpectedVersionHash: true, then keep the preview pending until HMR proves the intended runtime relationship. On a version conflict, re-read and re-plan; never overwrite blindly."
       : "",
     hasRepeatedOrSharedReactScope
@@ -1147,11 +1168,15 @@ export function shouldUseRuntimeLayerProjection(args: {
   fallbackSourceType?: DesignSourceType;
   content: string;
 }): boolean {
+  // A running app's live DOM is the ground truth; only inline screens carry
+  // their own source.
   if (
-    resolveOverviewScreenSourceType(
-      args.screen,
-      args.fallbackSourceType ?? "inline",
-    ) !== "localhost"
+    !isRunningAppSourceType(
+      resolveOverviewScreenSourceType(
+        args.screen,
+        args.fallbackSourceType ?? "inline",
+      ),
+    )
   ) {
     return false;
   }
@@ -1185,11 +1210,10 @@ export function shouldShowPendingVisualStyleApply(args: {
   const allEdits = [...args.edits, ...(args.liveEdits ?? [])];
   return (
     allEdits.length > 0 &&
-    allEdits.every(
-      (edit) =>
-        normalizeDesignSourceType(
-          args.screenSourceTypes.get(edit.screenId) ?? args.fallbackSourceType,
-        ) === "localhost",
+    allEdits.every((edit) =>
+      isRunningAppSourceType(
+        args.screenSourceTypes.get(edit.screenId) ?? args.fallbackSourceType,
+      ),
     )
   );
 }

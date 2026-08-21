@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
+  invalidateDocumentQueries,
   useDisconnectNotion,
   useDocumentSyncStatus,
   useLinkDocumentToNotion,
@@ -51,7 +52,9 @@ export function NotionSyncBar({ documentId }: NotionSyncBarProps) {
       lastSyncedRef.current &&
       lastSyncedRef.current !== syncStatus.lastSyncedAt
     ) {
-      queryClient.invalidateQueries({ queryKey: ["action"] });
+      // Bare ["action"] refetches every mounted query app-wide (sidebar tree,
+      // comments, database views, search, connection status) on each sync tick.
+      invalidateDocumentQueries(queryClient, documentId);
     }
     lastSyncedRef.current = syncStatus.lastSyncedAt;
   }, [syncStatus?.lastSyncedAt, queryClient, documentId]);

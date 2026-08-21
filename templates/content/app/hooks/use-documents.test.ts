@@ -23,6 +23,9 @@ import {
   patchDocumentInDatabaseCache,
   patchDocumentInListDocumentsCache,
   restoreQuerySnapshots,
+  restoreDeletedDocumentSnapshots,
+  restoreListDocumentsSnapshot,
+  rollbackOptimisticCreatedDocument,
   setDocumentFavoriteInDatabaseCache,
   setDocumentFavoriteInListCache,
   seedDatabaseItemDocumentCaches,
@@ -30,6 +33,113 @@ import {
 } from "./use-documents";
 
 describe("complete document discovery", () => {
+  it("rolls back only its own optimistic create", () => {
+    const queryClient = new QueryClient();
+    const existing = doc("existing", null);
+    const firstCreate = doc("first-create", null);
+    const secondCreate = doc("second-create", null);
+
+    queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, {
+      documents: [existing, firstCreate, secondCreate],
+      pagination: { totalItems: 1 },
+    });
+    rollbackOptimisticCreatedDocument(queryClient, "first-create", true);
+
+    expect(queryClient.getQueryData(LIST_DOCUMENTS_QUERY_KEY)).toEqual({
+      documents: [existing, secondCreate],
+      pagination: { totalItems: 1 },
+    });
+  });
+
+  it("removes a failed optimistic list when no earlier list existed", () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, {
+      documents: [doc("failed-create", null)],
+    });
+
+    rollbackOptimisticCreatedDocument(queryClient, "failed-create", false);
+
+    expect(queryClient.getQueryData(LIST_DOCUMENTS_QUERY_KEY)).toBeUndefined();
+  });
+
+  it("removes the list after concurrent optimistic creates both fail", () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, {
+      documents: [doc("first-create", null), doc("second-create", null)],
+    });
+
+    rollbackOptimisticCreatedDocument(queryClient, "first-create", false);
+    rollbackOptimisticCreatedDocument(queryClient, "second-create", false);
+
+    expect(queryClient.getQueryData(LIST_DOCUMENTS_QUERY_KEY)).toBeUndefined();
+  });
+
+  it("restores an existing list snapshot and removes an absent one", () => {
+    const queryClient = new QueryClient();
+    const existing = { documents: [doc("existing", null)] };
+
+    queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, { documents: [] });
+    restoreListDocumentsSnapshot(queryClient, existing);
+    expect(queryClient.getQueryData(LIST_DOCUMENTS_QUERY_KEY)).toEqual(
+      existing,
+    );
+
+    restoreListDocumentsSnapshot(queryClient, undefined);
+    expect(queryClient.getQueryData(LIST_DOCUMENTS_QUERY_KEY)).toBeUndefined();
+  });
+
+  it("restores only deleted entries without overwriting concurrent changes", () => {
+    const queryClient = new QueryClient();
+    const existing = doc("existing", null);
+    const child = doc("child", "existing");
+    const concurrent = doc("concurrent", null);
+    const listSnapshot = { documents: [existing, child] };
+    const existingKey = documentQueryKey("existing");
+    const childKey = documentQueryKey("child");
+
+    queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, {
+      documents: [concurrent],
+    });
+    restoreDeletedDocumentSnapshots(
+      queryClient,
+      listSnapshot,
+      [
+        [existingKey, existing],
+        [childKey, child],
+      ],
+      ["existing", "child"],
+    );
+
+    expect(queryClient.getQueryData(LIST_DOCUMENTS_QUERY_KEY)).toEqual({
+      documents: [concurrent, existing, child],
+    });
+    expect(queryClient.getQueryData(existingKey)).toBe(existing);
+    expect(queryClient.getQueryData(childKey)).toBe(child);
+  });
+
+  it("keeps a concurrently restored document and its newer cache", () => {
+    const queryClient = new QueryClient();
+    const previous = doc("existing", null);
+    const concurrent = { ...previous, title: "Updated elsewhere" };
+    const existingKey = documentQueryKey("existing");
+
+    queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, {
+      documents: [concurrent],
+    });
+    queryClient.setQueryData(existingKey, concurrent);
+    restoreDeletedDocumentSnapshots(
+      queryClient,
+      { documents: [previous] },
+      [[existingKey, previous]],
+      ["existing"],
+    );
+
+    expect(queryClient.getQueryData(LIST_DOCUMENTS_QUERY_KEY)).toEqual({
+      documents: [concurrent],
+    });
+    expect(queryClient.getQueryData(existingKey)).toBe(concurrent);
+  });
+
   it("keeps object-shaped optimistic cache writes array-shaped for consumers", async () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false, staleTime: Infinity } },

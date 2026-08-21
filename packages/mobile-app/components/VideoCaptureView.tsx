@@ -623,7 +623,7 @@ export function VideoCaptureView({
 
         <View className="flex-1 items-center justify-center px-7 pb-16">
           <View
-            className="w-18 h-18 rounded-3xl items-center justify-center mb-5 bg-[#1C1C1C] border border-gray-border-light"
+            className="w-18 h-18 rounded-3xl items-center justify-center mb-5 bg-gray-dark border border-gray-border-light"
             accessible={false}
           >
             <IconCamera size={34} color="#FFFFFF" strokeWidth={1.7} />
@@ -650,7 +650,7 @@ export function VideoCaptureView({
               accessibilityRole="button"
               accessibilityLabel="Open device Settings"
               onPress={() => void openSettings()}
-              className="w-full max-w-sm h-13 flex-row items-center justify-center gap-2 rounded-2xl bg-white active:opacity-70"
+              className="w-full max-w-sm h-13 flex-row items-center justify-center gap-2 rounded-2xl bg-white-pure active:opacity-70"
             >
               <IconSettings size={20} color="#111111" strokeWidth={2} />
               <Text className="text-background-pure text-base font-bold">
@@ -664,7 +664,7 @@ export function VideoCaptureView({
               accessibilityState={{ busy: isRequestingPermission }}
               disabled={isRequestingPermission}
               onPress={() => void requestCaptureAccess()}
-              className={`w-full max-w-sm h-13 flex-row items-center justify-center gap-2 rounded-2xl bg-white active:opacity-70 ${isRequestingPermission ? "opacity-45" : ""}`}
+              className={`w-full max-w-sm h-13 flex-row items-center justify-center gap-2 rounded-2xl bg-white-pure active:opacity-70 ${isRequestingPermission ? "opacity-45" : ""}`}
             >
               {isRequestingPermission ? (
                 <ActivityIndicator size="small" color="#111111" />
@@ -859,7 +859,7 @@ export function VideoCaptureView({
                 onPress={
                   isRecording ? stopRecording : () => void startRecording()
                 }
-                className={`w-20 h-20 rounded-full items-center justify-center bg-record-border-outer border-2 border-white active:scale-95 ${
+                className={`w-20 h-20 rounded-full items-center justify-center bg-record-border-outer border-2 border-white-pure active:scale-95 ${
                   !cameraReady || isBusy ? "opacity-45" : ""
                 }`}
               >

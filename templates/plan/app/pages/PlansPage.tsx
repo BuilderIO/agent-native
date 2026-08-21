@@ -1,6 +1,5 @@
 import {
   SIDEBAR_STATE_CHANGE_EVENT,
-  BuilderSetupCard,
   sendToAgentChat,
   setAgentChatContextItem,
   useAgentEngineConfigured,
@@ -8466,23 +8465,12 @@ function CreatePlanDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-3">
-          {canCreate && agentMissing ? (
-            <BuilderSetupCard
-              fullWidth
-              onConnected={() =>
-                window.dispatchEvent(
-                  new Event("agent-engine:configured-changed"),
-                )
-              }
-            />
-          ) : null}
           <div className="rounded-xl border border-border bg-background p-2 shadow-sm">
             <PromptComposer
               autoFocus
               disabled={composerLocked}
               attachmentsEnabled={false}
               showModelSelector={false}
-              modelStatusChecksEnabled={false}
               placeholder={t("plansPage.create.placeholder")}
               draftScope="plans:create-plan"
               initialText={promptSeed}

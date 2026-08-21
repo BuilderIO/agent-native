@@ -11,6 +11,7 @@ const base = {
   isLast: false,
   runId: "run-1",
   checkpointRunIds: new Set(["run-1"]),
+  hostname: "localhost",
 };
 
 describe("assistantMessageRunId", () => {
@@ -52,5 +53,20 @@ describe("shouldOfferRestore", () => {
     expect(shouldOfferRestore({ ...base, devMode: undefined })).toBe(false);
     expect(shouldOfferRestore({ ...base, isComplete: false })).toBe(false);
     expect(shouldOfferRestore({ ...base, isLast: true })).toBe(false);
+  });
+
+  it("hides restore on remote hosted and iframe origins", () => {
+    expect(
+      shouldOfferRestore({ ...base, hostname: "agent-workspace.builder.io" }),
+    ).toBe(false);
+    expect(
+      shouldOfferRestore({ ...base, hostname: "dispatch.agent-native.com" }),
+    ).toBe(false);
+  });
+
+  it("allows restore on local development hosts", () => {
+    for (const hostname of ["localhost", "127.0.0.1", "0.0.0.0", "::1"]) {
+      expect(shouldOfferRestore({ ...base, hostname })).toBe(true);
+    }
   });
 });

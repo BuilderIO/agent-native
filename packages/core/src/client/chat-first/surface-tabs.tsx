@@ -13,6 +13,7 @@ import {
   IconFiles,
   IconGitCompare,
   IconMessageCircle,
+  IconPlus,
   IconTerminal2,
   IconUsersGroup,
   IconWorld,
@@ -56,9 +57,12 @@ export function ChatFirstSurfaceTabs({
   onCloseToRight,
   onCloseAll,
   onOpenSurface,
+  hiddenSurfaceKinds = [],
   apps = [],
   onOpenApp,
   renderAppIcon,
+  onAddTab,
+  addTabLabel = "New tab",
   copy = defaultChatFirstCopy,
 }: ChatFirstSurfaceTabsProps) {
   return (
@@ -174,6 +178,17 @@ export function ChatFirstSurfaceTabs({
                 </ContextMenuContent>
               </ContextMenu>
             ))}
+            {onAddTab ? (
+              <button
+                type="button"
+                className="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground/65 transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                aria-label={addTabLabel}
+                title={addTabLabel}
+                onClick={onAddTab}
+              >
+                <IconPlus size={14} aria-hidden="true" />
+              </button>
+            ) : null}
           </div>
         ) : (
           <div
@@ -181,7 +196,9 @@ export function ChatFirstSurfaceTabs({
             data-surface-empty-state
             aria-label={copy("openSideSurfaces")}
           >
-            {CHAT_FIRST_SURFACE_CATALOG.map((surface) => {
+            {CHAT_FIRST_SURFACE_CATALOG.filter(
+              (surface) => !hiddenSurfaceKinds.includes(surface.kind),
+            ).map((surface) => {
               const label = copy(`surface.${surface.kind}.label`);
               const reason =
                 surface.availability === "deferred"
@@ -191,6 +208,8 @@ export function ChatFirstSurfaceTabs({
               const canOpenSurface =
                 onOpenSurface &&
                 (surface.kind === "browser" ||
+                  (surface.kind === "terminal" &&
+                    surface.availability === "desktop") ||
                   surface.kind === "side-chat" ||
                   surface.kind === "agents");
               const row = (
@@ -293,7 +312,7 @@ export function ChatFirstSurfaceContent({
   renderTab: (tab: ChatFirstSurfaceTab) => ReactNode;
 }) {
   return (
-    <div className="min-h-0 flex-1 overflow-hidden">
+    <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
       {tabs.map((tab) => {
         const active = tab.id === activeTabId;
         return (

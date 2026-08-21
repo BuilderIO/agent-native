@@ -444,6 +444,12 @@ const messages = {
     pasteStyle: "스타일 붙여넣기",
     copy: "복사",
     paste: "붙여넣기",
+    insertRowAbove: "위에 행 삽입",
+    insertRowBelow: "아래에 행 삽입",
+    deleteRow: "행 삭제",
+    insertColumnLeft: "왼쪽에 열 삽입",
+    insertColumnRight: "오른쪽에 열 삽입",
+    deleteColumn: "열 삭제",
   },
   animations: {
     appear: "出现",
@@ -519,6 +525,11 @@ const messages = {
     newSlide: "새 슬라이드",
     closeAddSlides: "닫기",
     describeThisSlide: "이 슬라이드를 설명하세요",
+    cut: "잘라내기",
+    copy: "복사",
+    paste: "붙여넣기",
+    skipSlide: "슬라이드 건너뛰기",
+    unskipSlide: "건너뛰기 취소",
   },
   presentation: {
     loadFailed: "이 프레젠테이션을 불러오지 못했습니다.",
@@ -538,16 +549,53 @@ const messages = {
   },
   deckEditor: {
     lookingForDeck: "正在查找此幻灯片",
-    teamAccessCheckFailed: "无法检查团队访问权限",
     joinTeamToOpen: "加入团队以打开此幻灯片",
     deckUnavailable: "幻灯片不可用",
     checkingSharedAccess: "正在检查此演示文稿是否与你的账户共享。",
-    verifySharedAccessFailed:
-      "无法验证此演示文稿是否与你的账户共享。请重试以重新加载团队访问权限和幻灯片。",
     joinTeamDescription:
       "此链接指向团队演示文稿。加入上方显示的团队后，幻灯片会自动在此打开。",
     deckUnavailableDescription: "此幻灯片可能已被移除，或你的账户无权访问。",
-    backToDecks: "返回幻灯片",
+    privateDeckTitle: "이 덱은 비공개입니다",
+    privateDeckDescription:
+      "이 덱을 열려면 소유자에게 액세스를 요청하세요. 요청을 보내면 소유자에게 알림이 전송됩니다.",
+    signedInAs: "로그인한 계정",
+    accessRequestSentDescription:
+      "소유자에게 알림을 보냈습니다. 액세스가 허용되면 이 덱을 열 수 있습니다.",
+    accessRequestRecordedDescription:
+      "요청을 기록했습니다. 액세스가 허용되면 이 덱을 열 수 있습니다.",
+    requestAccessPending: "요청 보내는 중…",
+    accessRequestSent: "요청을 보냈습니다",
+    requestAccess: "액세스 요청",
+    signInToRequestAccess: "로그인하여 액세스 요청",
+    requestAccessDialogTitle: "액세스 요청",
+    requestAccessDialogDescription:
+      "로그인하거나 소유자가 이 덱을 공유할 이메일 주소를 입력하세요.",
+    requestAccessSignIn: "로그인 또는 회원가입",
+    requestAccessOr: "또는",
+    requestAccessEmailLabel: "이메일 주소",
+    requestAccessEmailPlaceholder: "you@example.com",
+    requestAccessEmailHint:
+      "액세스가 허용되면 이 이메일로 로그인하여 덱을 확인하세요.",
+    requestAccessWithEmail: "이메일로 요청",
+    requestAccessEmailRequired: "유효한 이메일 주소를 입력하세요.",
+    requestingAccess: "액세스 요청 중…",
+    accessRequestSentWithEmail:
+      "소유자에게 {{email}} 님과 이 덱을 공유해 달라고 요청했습니다.",
+    accessRequestFailed: "액세스를 요청하지 못했습니다. 다시 시도하세요.",
+    accessApprovalTitle: "액세스 권한이 부여되었습니다",
+    accessApprovalAlreadyTitle: "이미 액세스 권한이 있습니다",
+    accessApprovalMessage: "이제 {{email}} 님이 이 덱을 열 수 있습니다.",
+    accessApprovalAlreadyMessage:
+      "{{email}} 님은 이미 이 덱에 액세스할 수 있습니다.",
+    accessApprovalErrorTitle: "액세스 권한을 부여하지 못했습니다",
+    accessApprovalInvalid: "이 액세스 요청은 유효하지 않거나 만료되었습니다.",
+    accessApprovalSignInTitle: "액세스 권한을 부여하려면 로그인하세요",
+    accessApprovalSignInMessage:
+      "이 요청을 승인하려면 덱 소유자 또는 관리자로 로그인하세요.",
+    accessApprovalOpenDeck: "덱 열기",
+    accessApprovalSignIn: "로그인",
+    accessApprovalLoading: "액세스 권한을 부여하는 중...",
+    backToDecks: "덱으로 돌아가기",
     tryAgain: "重试",
     imageUploadFailed: "图片上传失败",
     imageUploadNeedsBuilder:
@@ -691,6 +739,7 @@ const messages = {
     chooseReferences: "참조 선택",
     addDesignSystem: "+ 디자인 시스템",
     importFrom: "가져오기",
+    attachedFiles: "첨부 파일",
     imported: "가져옴",
     importedReferenceDeck: "가져온 참고 덱",
     referenceImportSuccess: "성공적으로 가져왔습니다",

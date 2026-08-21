@@ -183,6 +183,48 @@ describe("buildStatusEventFields", () => {
       },
     });
   });
+
+  it("creates unlabeled office working-location fields without a placeholder name", () => {
+    expect(
+      buildStatusEventFields({
+        eventType: "workingLocation",
+        workingLocationType: "officeLocation",
+      }),
+    ).toMatchObject({
+      workingLocationProperties: {
+        type: "officeLocation",
+        officeLocation: {},
+      },
+    });
+  });
+
+  it("creates Other working-location fields from workingLocationLabel", () => {
+    expect(
+      buildStatusEventFields({
+        eventType: "workingLocation",
+        workingLocationType: "customLocation",
+        workingLocationLabel: "Church",
+        location: "",
+        title: "",
+      }),
+    ).toMatchObject({
+      workingLocationProperties: {
+        type: "customLocation",
+        customLocation: { label: "Church" },
+      },
+    });
+  });
+
+  it("rejects Other working locations without a name", () => {
+    expect(() =>
+      buildStatusEventFields({
+        eventType: "workingLocation",
+        workingLocationType: "customLocation",
+        location: "",
+        title: "",
+      }),
+    ).toThrow("Other working locations require a name");
+  });
 });
 
 describe("normalizeCreateEventInput", () => {
@@ -313,6 +355,24 @@ describe("normalizeCreateEventInput", () => {
       }),
     ).toThrow("Event title is required");
   });
+
+  it("allows titleless all-day working locations with exclusive date bounds", () => {
+    expect(
+      normalizeCreateEventInput({
+        eventType: "workingLocation",
+        start: "2026-08-10",
+        end: "2026-08-15",
+        allDay: true,
+      }),
+    ).toEqual({
+      title: "",
+      start: "2026-08-10",
+      end: "2026-08-15",
+      startTimeZone: undefined,
+      endTimeZone: undefined,
+      allDay: true,
+    });
+  });
 });
 
 describe("validateStatusEventTiming", () => {
@@ -353,7 +413,7 @@ describe("validateStatusEventTiming", () => {
     ).not.toThrow();
   });
 
-  it("rejects multi-day all-day working locations", () => {
+  it("allows multi-day all-day working locations", () => {
     expect(() =>
       validateStatusEventTiming({
         eventType: "workingLocation",
@@ -361,6 +421,17 @@ describe("validateStatusEventTiming", () => {
         start: "2026-07-06",
         end: "2026-07-11",
       }),
-    ).toThrow("All-day working location events must be a single day.");
+    ).not.toThrow();
+  });
+
+  it("rejects empty all-day working-location ranges", () => {
+    expect(() =>
+      validateStatusEventTiming({
+        eventType: "workingLocation",
+        allDay: true,
+        start: "2026-07-06",
+        end: "2026-07-06",
+      }),
+    ).toThrow("end date must be after");
   });
 });

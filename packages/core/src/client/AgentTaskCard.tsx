@@ -1,6 +1,5 @@
 import {
   IconLoader2,
-  IconCheck,
   IconChevronRight,
   IconExternalLink,
   IconAlertCircle,
@@ -23,8 +22,8 @@ export interface AgentTaskCardProps {
 }
 
 /**
- * Rich preview card for a sub-agent task. Listens for agent-task-event
- * CustomEvents to update its state in real-time.
+ * Inline tool-call presentation for a spawned sub-agent. Listens for
+ * agent-task-event CustomEvents to update its streamed output in real-time.
  */
 export function AgentTaskCard({
   taskId,
@@ -155,117 +154,95 @@ export function AgentTaskCard({
 
   const taskTitle = description.trim() || "Task";
   const currentStepText = currentStep.trim();
-  const statusLabel = isRunning ? "Running" : isError ? "Error" : "Done";
-  const statusClassName = cn(
-    "inline-flex h-5 shrink-0 items-center gap-1 rounded-md px-1.5 text-[10px] font-medium",
-    isError
-      ? "bg-destructive/10 text-destructive"
-      : isComplete
-        ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-        : "bg-muted text-muted-foreground",
-  );
-
   const displayText = isComplete && summary ? summary : preview;
   const hasContent = displayText.length > 0;
-  const emptyMessage = isRunning
-    ? "Waiting for updates"
-    : isError
-      ? "No error details yet"
-      : "No summary available";
+  const statusLabel = isRunning ? "Running" : isError ? "Error" : "Done";
 
   return (
-    <div
-      className={cn(
-        "my-2 overflow-hidden rounded-lg border bg-background/50 transition-colors",
-        isError
-          ? "border-destructive/30"
-          : isComplete
-            ? "border-emerald-500/20"
-            : "border-border",
-      )}
-    >
-      {/* Header */}
+    <div className="group/agent my-0.5 w-full">
       <button
         type="button"
         aria-expanded={expanded}
-        className="flex w-full items-center gap-2 px-3 py-2 text-start transition-colors hover:bg-muted/45"
+        className="flex w-full items-center gap-1.5 rounded-md py-0.5 text-left text-[13px] text-muted-foreground transition-colors hover:text-foreground"
         onClick={() => setExpanded(!expanded)}
       >
-        <span className="inline-flex h-5 shrink-0 items-center gap-1 rounded-md border border-border/60 bg-background/70 px-1.5 text-[10px] font-medium text-muted-foreground">
-          <IconSubtask className="h-3 w-3" />
-          {t("agentTask.backgroundTask")}
-        </span>
-
-        <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">
-          {taskTitle}
-        </span>
-
-        <span className={statusClassName}>
+        <span className="relative flex size-4 shrink-0 items-center justify-center">
           {isRunning ? (
-            <IconLoader2 className="h-3 w-3 animate-spin" />
+            <IconLoader2 className="size-3.5 animate-spin" />
           ) : isError ? (
-            <IconAlertCircle className="h-3 w-3" />
+            <IconAlertCircle className="size-3.5 text-destructive" />
           ) : (
-            <IconCheck className="h-3 w-3" />
+            <>
+              <IconSubtask
+                className={cn(
+                  "size-3.5 transition-opacity",
+                  "group-hover/agent:opacity-0",
+                )}
+              />
+              <IconChevronRight
+                className={cn(
+                  "absolute size-3.5 opacity-0 transition-[opacity,transform] group-hover/agent:opacity-100",
+                  expanded && "rotate-90",
+                )}
+              />
+            </>
           )}
-          {statusLabel}
         </span>
-
-        <IconChevronRight
+        <span
           className={cn(
-            "h-3 w-3 shrink-0 text-muted-foreground/40 transition-transform duration-150",
-            expanded && "rotate-90",
-            "rtl:-scale-x-100",
+            "min-w-0 truncate font-normal",
+            isRunning && "agent-running-shimmer",
           )}
-        />
+        >
+          {t("agentTask.spawnedAgent")}: {taskTitle}
+        </span>
+        <span className="sr-only">{statusLabel}</span>
       </button>
 
-      {expanded && isRunning && currentStepText && (
-        <div className="flex gap-1.5 border-t border-border/60 px-3 py-1.5 text-[11px] text-muted-foreground">
-          <span className="shrink-0 font-medium text-foreground/70">Now:</span>
-          <span className="min-w-0 break-words">{currentStepText}</span>
-        </div>
-      )}
-
-      {/* Preview content */}
-      {expanded && hasContent && (
-        <div className="px-3 pb-2 pt-1">
-          <div
-            ref={previewRef}
-            className="agent-markdown prose prose-sm prose-invert max-h-48 max-w-none overflow-y-auto break-words rounded-md border border-border/50 bg-muted/25 px-3 py-2 text-xs text-muted-foreground"
-          >
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-              {displayText.length > 800
-                ? "..." + displayText.slice(-800)
-                : displayText}
-            </ReactMarkdown>
-          </div>
-        </div>
-      )}
-
-      {/* Footer with Open / Stop buttons */}
       {expanded && (
-        <div className="flex items-center justify-between gap-2 px-3 pb-2">
-          <span className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground/60">
-            {!hasContent ? emptyMessage : ""}
-          </span>
-          <div className="flex shrink-0 items-center gap-1">
+        <div className="ms-1 border-s border-border/50 ps-2 pt-1">
+          {isRunning && currentStepText && (
+            <p
+              className="ps-5 pb-1 text-xs text-muted-foreground"
+              aria-live="polite"
+            >
+              {currentStepText}
+            </p>
+          )}
+          {hasContent && (
+            <div className="ps-5 pb-1">
+              <div
+                ref={previewRef}
+                aria-live={isRunning ? "polite" : undefined}
+                data-streaming={isRunning ? "true" : undefined}
+                className="agent-markdown prose prose-sm prose-invert max-h-48 max-w-none overflow-y-auto break-words text-xs text-muted-foreground"
+              >
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {displayText.length > 800
+                    ? "..." + displayText.slice(-800)
+                    : displayText}
+                </ReactMarkdown>
+              </div>
+            </div>
+          )}
+          {/* Keep task controls in the same compact tool-call rail. */}
+          <div className="flex items-center gap-1 ps-5 pb-1">
             {isRunning && (
               <button
                 onClick={handleStop}
-                className="inline-flex cursor-pointer items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground hover:bg-muted hover:text-destructive"
+                className="inline-flex cursor-pointer items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-destructive"
                 aria-label={t("agentTask.stop")}
               >
-                <IconPlayerStop className="h-3 w-3" />
+                <IconPlayerStop className="size-3" />
                 Stop
               </button>
             )}
             <button
               onClick={handleOpen}
-              className="inline-flex cursor-pointer items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+              className="inline-flex cursor-pointer items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             >
               {t("agentTask.openThread")}
-              <IconExternalLink className="h-3 w-3" />
+              <IconExternalLink className="size-3" />
             </button>
           </div>
         </div>

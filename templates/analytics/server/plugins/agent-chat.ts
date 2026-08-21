@@ -61,6 +61,10 @@ function hasSuccessfulDashboardSave(
     "update-dashboard",
     "mutate-dashboard",
     "compose-dashboard",
+    // An extension edit is the whole job when the dashboard panel IS the
+    // extension. Leaving it out meant a turn that saved exactly what the user
+    // asked for still had to prove itself with a data query.
+    "update-extension",
   ]);
   return (toolResults ?? []).some((result) => {
     if (result.isError) return false;

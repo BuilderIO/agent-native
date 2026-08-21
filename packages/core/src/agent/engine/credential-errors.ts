@@ -13,6 +13,29 @@ export const CREDENTIAL_STORE_UNAVAILABLE_ERROR_CODE =
 export const LLM_MISSING_CREDENTIALS_MESSAGE =
   "No LLM provider is connected. Open this app's Manage agent > LLM, then connect Builder.io (free tier available) or add a provider key.";
 
+/**
+ * The one line a site visitor sees for every gateway rejection. Quota,
+ * concurrency, a revoked token, a disabled gateway and an unreadable credential
+ * store all read the same to someone with no account and no settings page.
+ */
+export const GATEWAY_UNAVAILABLE_VISITOR_MESSAGE =
+  "AI features aren't available on this site right now.";
+
+/**
+ * Rewrite a gateway rejection for a visitor on a Builder-credits site: one
+ * message, and the real reason preserved on `errorCode` for the site owner, who
+ * is the only party who can act on it.
+ */
+export function gatewayVisitorFacingError(errorCode?: string): {
+  error: string;
+  errorCode?: string;
+} {
+  return {
+    error: GATEWAY_UNAVAILABLE_VISITOR_MESSAGE,
+    ...(errorCode ? { errorCode } : {}),
+  };
+}
+
 const LLM_CREDENTIAL_KEYS = new Set([
   ...PROVIDER_ENV_VARS,
   "BUILDER_PRIVATE_KEY",
@@ -53,7 +76,15 @@ export function isLlmCredentialError(
 
 export function formatLlmCredentialErrorMessage(options?: {
   agentName?: string;
+  /**
+   * True when the reader is a visitor on a deployment that pays for its own AI:
+   * they have no Builder account, no Settings page and nothing to connect, so
+   * the owner-facing instructions name an action they cannot take. The real
+   * reason stays on the error code, which is where the owner reads it.
+   */
+  visitorFacing?: boolean;
 }): string {
+  if (options?.visitorFacing) return GATEWAY_UNAVAILABLE_VISITOR_MESSAGE;
   const agentName = options?.agentName?.trim();
   if (agentName) {
     return `The ${agentName} agent could not finish this request because that app needs an LLM connection. Open ${agentName}'s Manage agent > LLM, then connect Builder.io (free tier available) or add a provider key.`;
@@ -63,7 +94,7 @@ export function formatLlmCredentialErrorMessage(options?: {
 
 export function userFacingLlmCredentialError(
   error: unknown,
-  options?: { agentName?: string },
+  options?: { agentName?: string; visitorFacing?: boolean },
 ): string | null {
   return isLlmCredentialError(error)
     ? formatLlmCredentialErrorMessage(options)

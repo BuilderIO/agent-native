@@ -2,11 +2,35 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import {
+  defineAppConfig,
+  resetAppConfigForTests,
+} from "../app-config/index.js";
 import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
 
+const originalEnv = { ...process.env };
+
+const WORKSPACE_ENV_KEYS = [
+  "AGENT_NATIVE_WORKSPACE",
+  "VITE_AGENT_NATIVE_WORKSPACE",
+  "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+  "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
+];
+
 describe("resolveAuthCookieNamespace", () => {
+  beforeEach(() => {
+    resetAppConfigForTests();
+    process.env = { ...originalEnv };
+    for (const key of WORKSPACE_ENV_KEYS) delete process.env[key];
+  });
+
+  afterEach(() => {
+    resetAppConfigForTests();
+    process.env = { ...originalEnv };
+  });
+
   it("isolates standalone local dev cookies with npm_package_name", () => {
     expect(
       resolveAuthCookieNamespace({
@@ -59,6 +83,52 @@ describe("resolveAuthCookieNamespace", () => {
       frameworkCookieName: "an_session_workspace",
       betterAuthCookiePrefix: "an",
       betterAuthCookieDomain: undefined,
+    });
+  });
+
+  it("keeps boolean-style workspace mode in the shared auth realm", () => {
+    expect(
+      resolveAuthCookieNamespace({
+        NODE_ENV: "production",
+        APP_NAME: "mail",
+        AGENT_NATIVE_WORKSPACE: "true",
+      }),
+    ).toMatchObject({
+      frameworkCookieName: "an_session_workspace",
+      betterAuthCookiePrefix: "an",
+      betterAuthCookieDomain: undefined,
+    });
+  });
+
+  it("uses app-config-only workspace mode for the production namespace", () => {
+    defineAppConfig({ workspace: { isWorkspace: true } });
+
+    expect(
+      resolveAuthCookieNamespace({
+        NODE_ENV: "production",
+        APP_NAME: "mail",
+      }),
+    ).toMatchObject({
+      frameworkCookieName: "an_session_mail",
+    });
+
+    expect(resolveAuthCookieNamespace()).toMatchObject({
+      frameworkCookieName: "an_session_workspace",
+      isWorkspaceMode: true,
+    });
+  });
+
+  it("uses the canonical workspace alias before the VITE mirror", () => {
+    expect(
+      resolveAuthCookieNamespace({
+        NODE_ENV: "production",
+        APP_NAME: "mail",
+        AGENT_NATIVE_WORKSPACE: "0",
+        VITE_AGENT_NATIVE_WORKSPACE: "true",
+      }),
+    ).toMatchObject({
+      frameworkCookieName: "an_session_mail",
+      isWorkspaceMode: false,
     });
   });
 

@@ -8,6 +8,7 @@ import {
   retrySqliteBusy,
   type DbExec,
 } from "./client.js";
+import { isMigrationAuthorizedRuntime } from "./migration-runtime.js";
 
 interface D1PreparedStatementLike {
   bind(...values: unknown[]): D1PreparedStatementLike;
@@ -357,44 +358,12 @@ function appMigratesAtRelease(): boolean {
 }
 
 /**
- * A runtime that is ALLOWED to migrate: release scripts, scheduled jobs, and
- * durable background workers, which are off the request path and may take as
- * long as they need. Claimed with {@link withMigrationRuntime}.
- */
-function isMigrationAuthorizedRuntime(): boolean {
-  return (
-    (
-      globalThis as typeof globalThis & {
-        __AGENT_NATIVE_MIGRATION_RUNTIME__?: boolean;
-      }
-    ).__AGENT_NATIVE_MIGRATION_RUNTIME__ === true
-  );
-}
-
-/**
  * Run an explicit release-time migration job with migration duty enabled.
  *
  * The flag is process-local and restored even when the job fails, so a build
  * step can opt in without creating a permanent escape hatch for request code.
  */
-export async function withMigrationRuntime<T>(
-  run: () => Promise<T>,
-): Promise<T> {
-  const runtime = globalThis as typeof globalThis & {
-    __AGENT_NATIVE_MIGRATION_RUNTIME__?: boolean;
-  };
-  const previous = runtime.__AGENT_NATIVE_MIGRATION_RUNTIME__;
-  runtime.__AGENT_NATIVE_MIGRATION_RUNTIME__ = true;
-  try {
-    return await run();
-  } finally {
-    if (previous === undefined) {
-      delete runtime.__AGENT_NATIVE_MIGRATION_RUNTIME__;
-    } else {
-      runtime.__AGENT_NATIVE_MIGRATION_RUNTIME__ = previous;
-    }
-  }
-}
+export { withMigrationRuntime } from "./migration-runtime.js";
 
 export function runMigrations(
   migrations: Array<MigrationEntry>,

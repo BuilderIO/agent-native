@@ -6,6 +6,7 @@ import { eq } from "drizzle-orm";
 import {
   clipsShareDescription,
   displayRecordingTitle,
+  resolveClipsSocialImageUrl,
 } from "../../shared/share-meta.js";
 import { getDb, schema } from "../db/index.js";
 
@@ -191,15 +192,6 @@ function appPath(path: string, basePath: string): string {
   return base ? `/${base}${path}` : path;
 }
 
-function absoluteUrl(value: string | null | undefined, origin: string): string {
-  if (!value) return AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE;
-  try {
-    return new URL(value, origin).toString();
-  } catch {
-    return AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE;
-  }
-}
-
 function isExpired(value: string | null): boolean {
   if (!value) return false;
   const expires = new Date(value).getTime();
@@ -255,10 +247,12 @@ export function buildSlackVideoBlock(options: {
   const description = duration
     ? `${duration} · ${shareDescription}`
     : shareDescription;
-  const thumbnailUrl = absoluteUrl(
-    recording.thumbnailUrl || recording.animatedThumbnailUrl,
-    origin,
-  );
+  const thumbnailUrl =
+    resolveClipsSocialImageUrl({
+      recording,
+      origin,
+      basePath,
+    }) ?? AGENT_NATIVE_DEFAULT_SOCIAL_IMAGE;
 
   return {
     type: "video",

@@ -55,7 +55,9 @@ export async function uploadPromptFiles(
         message = data.error;
       }
     } catch (error) {
-      throw new Error(`Upload failed (${response.status})`, { cause: error });
+      const uploadError = new Error(`Upload failed (${response.status})`);
+      (uploadError as Error & { cause?: unknown }).cause = error;
+      throw uploadError;
     }
     throw new Error(message);
   }

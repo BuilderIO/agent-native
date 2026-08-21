@@ -169,6 +169,11 @@ function resolveSentryDsn(): string {
 }
 
 const desktopSentryDefines = {
+  __AGENT_NATIVE_DESKTOP_RELEASE_CHANNEL__: JSON.stringify(
+    process.env.AGENT_NATIVE_DESKTOP_RELEASE_CHANNEL === "nightly"
+      ? "nightly"
+      : "production",
+  ),
   __AGENT_NATIVE_DESKTOP_SENTRY_DSN__: JSON.stringify(resolveSentryDsn()),
   __AGENT_NATIVE_DESKTOP_SENTRY_ENVIRONMENT__: JSON.stringify(
     firstNonEmpty(
@@ -266,6 +271,7 @@ export default defineConfig({
         input: {
           index: resolve("src/preload/index.ts"),
           webview: resolve("src/preload/webview.ts"),
+          "webview-chat": resolve("src/preload/webview-chat.ts"),
         },
         output: {
           format: "cjs",

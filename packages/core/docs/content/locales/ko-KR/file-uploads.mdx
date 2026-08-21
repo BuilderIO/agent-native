@@ -1,23 +1,27 @@
 ---
 title: "파일 업로드"
-description: "파일 업로드를 위한 영구 객체 스토리지 구성 - Builder.io 또는 사용자 지정 S3 호환 공급자"
+description: "Builder.io 또는 사용자 지정 객체 스토리지 공급자를 사용하여 프로덕션용 영구 파일 업로드 스토리지를 구성하세요."
 ---
 
 # 파일 업로드
 
-프레임워크는 구성 가능한 공급자를 통해 업로드를 라우팅하는 파일 업로드 추상화를 제공합니다. 템플릿은 `uploadFile()`를 호출하고 URL를 반환합니다. 스토리지 백엔드는 애플리케이션 코드를 변경하지 않고도 교체 가능합니다.
+프레임워크는 구성 가능한 공급자를 통해 업로드를 라우팅하는 파일 업로드 추상화를 제공합니다. 템플릿은 `uploadFile()`을 호출하고 URL을 반환받습니다. 스토리지 백엔드는 애플리케이션 코드를 변경하지 않고도 교체할 수 있습니다.
 
 ## 작동 방식 {#how-it-works}
 
-업로드 요청은 활성 공급자에게 전달되는 `POST /_agent-native/file-upload`로 이동합니다. `GET /_agent-native/file-upload/status`에서 어떤 공급자가 구성되어 있는지 확인할 수 있습니다.
+업로드 요청은 `POST /_agent-native/file-upload`로 전달되며, 이 엔드포인트가 활성 공급자로 요청을 전달합니다. 어떤 공급자가 구성되어 있는지는 `GET /_agent-native/file-upload/status`에서 확인할 수 있습니다.
 
 공급자 해결 순서는 다음과 같습니다.
 
-1. **사용자 등록 공급자** — `registerFileUploadProvider()`를 통해 등록된 맞춤형 공급자
-2. **Builder.io 공급자**(무료 요금제 제공) — 내장, Builder.io가 연결되면 자동으로 활성화됨
-3. **스토리지 필요** — 공급자가 없으면 업로드가 안전하게 거부되고 설정 카드가 표시됩니다. 바이너리 데이터는 SQL에 저장되지 않습니다
+1. **사용자 등록 공급자**: `registerFileUploadProvider()`를 통해 등록된 사용자 지정 공급자입니다.
+2. **Builder.io 공급자**: 내장되어 있으며, Builder.io가 연결되면 자동으로 활성화됩니다.
+3. **공급자 없음**: 업로드가 거부되고 채팅에 스토리지 설정 CTA가 표시됩니다. 바이너리 데이터는 SQL에 저장되지 않습니다.
 
-<Diagram id="doc-block-uady1j" title={"공급자 해결 순서"} summary={"uploadFile()은 첫 번째로 구성된 공급자를 순서대로 선택합니다. 공급자가 없으면 업로드가 안전하게 거부되고 설정 카드가 표시됩니다."}>
+사용자 등록 공급자 중에서는 스스로 구성되었다고 보고하는 첫 번째 공급자가 우선합니다. `registerFileUploadProvider()`는 `id`별로 멱등적입니다. 이미 사용 중인 id로 등록하면 기존 공급자를 대체합니다.
+
+UI는 업로드가 시도되기 전에 동기적인 `isConfigured()` 검사만으로 스토리지 설정 프롬프트를 표시할지 결정합니다. 실제 업로드는 `isConfigured()`와 `isConfiguredForRequest()`를 모두 확인합니다. `isConfiguredForRequest()`를 통해서만 스스로 구성되었다고 보고하는 공급자는 이를 통한 업로드가 성공하더라도 설정 프롬프트에는 표시되지 않습니다.
+
+<Diagram id="doc-block-hq5uvx" title="공급자 해결 순서" summary="uploadFile()은 순서대로 첫 번째로 구성된 공급자를 선택합니다. 구성된 공급자가 없으면 업로드가 안전하게 실패하여 바이너리 데이터가 SQL에 저장되지 않습니다.">
 
 ```html
 <div class="diagram-upload">
@@ -32,7 +36,7 @@ description: "파일 업로드를 위한 영구 객체 스토리지 구성 - Bui
       <span class="diagram-pill accent">1</span>
       <div class="diagram-node">
         사용자 등록<br /><small class="diagram-muted"
-          >registerFileUploadProvider() — S3, R2, GCS…</small
+          >registerFileUploadProvider(), S3, R2, GCS 등</small
         >
       </div>
     </div>
@@ -40,15 +44,15 @@ description: "파일 업로드를 위한 영구 객체 스토리지 구성 - Bui
       <span class="diagram-pill">2</span>
       <div class="diagram-node">
         Builder.io<br /><small class="diagram-muted"
-          >연결 시 자동 — CDN 제공</small
+          >연결 시 자동, CDN으로 제공</small
         >
       </div>
     </div>
     <div class="diagram-step">
       <span class="diagram-pill warn">3</span>
       <div class="diagram-node">
-        스토리지 필요<br /><small class="diagram-muted"
-          >Builder.io 또는 S3 호환 스토리지 구성</small
+        공급자 없음<br /><small class="diagram-muted"
+          >설정 CTA, 바이너리 미저장</small
         >
       </div>
     </div>
@@ -81,60 +85,83 @@ description: "파일 업로드를 위한 영구 객체 스토리지 구성 - Bui
 
 </Diagram>
 
-<Endpoint id="doc-block-ob6jrc" title={"업로드 엔드포인트"} method="POST" path="/_agent-native/file-upload" summary={"활성 공급자를 통해 파일을 업로드하고 공개 URL을 다시 가져옵니다."} request={{
+<Endpoint id="doc-block-4os0mo" title="업로드 엔드포인트" method="POST" path="/_agent-native/file-upload" summary="활성 공급자를 통해 파일을 업로드하고 공개 URL을 반환받습니다." request={{
   "contentType": "multipart/form-data"
 }} responses={[
   {
-    "status": "200",
-    "description": "{ url, id?, provider } — the public URL and which provider handled it."
+    "status": "201",
+    "description": "`{ url, id?, provider }`: 공개 URL과 이를 처리한 공급자입니다."
+  },
+  {
+    "status": "401",
+    "description": "인증된 세션이 없습니다."
+  },
+  {
+    "status": "413",
+    "description": "파일이 25MB 업로드 상한을 초과합니다."
+  },
+  {
+    "status": "415",
+    "description": "실행 파일이나 스크립트 같은 차단된 MIME 유형입니다."
+  },
+  {
+    "status": "503",
+    "description": "구성된 파일 업로드 공급자가 없습니다."
   }
 ]}>
 
-Dispatches to the first configured provider in resolution order. Check the active provider at `GET /_agent-native/file-upload/status`.
+해결 순서상 첫 번째로 구성된 공급자로 전달합니다. 활성 공급자는 `GET /_agent-native/file-upload/status`에서 확인할 수 있습니다.
 
 </Endpoint>
 
-## 영구 업로드에는 스토리지가 필요합니다 {#storage-required}
+## 영구 업로드를 위한 스토리지 필요 {#storage-required}
 
-구성된 공급자가 없으면 업로드가 안전하게 거부되고 Builder.io 또는 S3 호환 공급자를 구성하는 카드가 표시됩니다. 바이너리 데이터는 base64로 SQL에 저장되지 않습니다.
-
-바이트는 현재 요청에서만 사용할 수 있으며 채팅 기록에 저장되지 않습니다. 스토리지를 구성하면 이후 턴에서 재사용할 수 있는 안정적인 공개 URL이 업로드 결과로 반환됩니다.
+구성된 공급자가 없으면 `uploadFile()`은 `null`을 반환하고 멀티파트 라우트는 `503`을 반환합니다. 채팅 첨부 파일은 현재 요청에서만 사용할 수 있고, 에이전트는 스토리지 설정 힌트를 받으며, 트랜스크립트에는 바이너리 페이로드 대신 설정 마커가 저장됩니다. 이러한 안전 실패 동작은 SQL을 작게 유지하고 누락된 구성을 명확하게 드러냅니다.
 
 ## Builder.io 호스팅 {#builder-hosting}
 
-앱이 Builder.io에 연결되면(무료 요금제 제공) 파일 업로드가 자동으로 Builder의 자산 호스팅으로 라우팅됩니다. 파일은 구성이 필요 없이 CDN에서 제공됩니다. 이는 권장되는 제작 설정입니다.
+앱이 Builder.io에 연결되면 파일 업로드가 자동으로 Builder의 자산 호스팅으로 라우팅됩니다. Builder.io의 무료 요금제에는 이 관리형 스토리지가 포함되어 있습니다. 파일은 별도 구성 없이 CDN에서 제공되며, 영구 URL이 채팅 스레드에 저장되어 이후 턴에서 재사용할 수 있습니다. 이는 권장되는 프로덕션 설정입니다.
 
-## 맞춤 제공자 {#custom-providers}
+## 사용자 지정 공급자 {#custom-providers}
 
-스토리지 백엔드(S3, Cloudflare R2, GCS 등)를 사용하려면 서버 플러그인에 사용자 지정 공급자를 등록하세요.
+프레임워크에는 S3 호환 스토리지(AWS S3, Cloudflare R2, MinIO 등)용 내장 공급자가 이미 포함되어 있습니다. 환경 변수를 사용하거나 사이드바 온보딩 체크리스트를 통해 연결할 수 있습니다. 코드를 작성할 필요는 없습니다. [온보딩](/docs/onboarding)을 참고하세요.
 
-```ts
-// server/plugins/file-upload.ts
+사용자 지정 공급자는 다른 종류의 백엔드를 사용할 때만 등록하세요. 다음 예시는 `fetch()`를 사용하여 일반 HTTP API를 통해 업로드합니다.
+
+```ts filename="server/plugins/file-upload.ts"
 import { registerFileUploadProvider } from "@agent-native/core/file-upload";
+import { defineNitroPlugin } from "@agent-native/core/server";
 
 export default defineNitroPlugin(() => {
   registerFileUploadProvider({
-    id: "s3",
-    name: "Amazon S3",
-    isConfigured: () => !!process.env.S3_BUCKET,
+    id: "my-storage",
+    name: "My Storage",
+    isConfigured: () => !!process.env.UPLOAD_ENDPOINT,
     upload: async ({ data, filename, mimeType }) => {
-      const key = `uploads/${Date.now()}-${filename}`;
-      await s3Client.putObject({
-        Bucket: process.env.S3_BUCKET!,
-        Key: key,
-        Body: data,
-        ContentType: mimeType,
-      });
-      return {
-        url: `https://${process.env.S3_BUCKET}.s3.amazonaws.com/${key}`,
-        provider: "s3",
-      };
+      const endpoint = process.env.UPLOAD_ENDPOINT!;
+      const body = new FormData();
+      body.append("file", new Blob([data], { type: mimeType }), filename);
+
+      // This example assumes an upload API that accepts a multipart file
+      // and returns { url }. Adjust the request and response handling to
+      // match your own provider's actual contract.
+      const response = await fetch(endpoint, { method: "POST", body });
+      if (!response.ok) {
+        throw new Error(`Upload failed with status ${response.status}`);
+      }
+
+      const { url } = await response.json();
+      return { url, provider: "my-storage" };
     },
   });
 });
 ```
 
-## API 업로드 {#upload-api}
+공급자가 API 키 같은 실제 자격 증명을 필요로 하는 경우에는 환경 변수 대신
+`@agent-native/core/server`의 `resolveSecret()`을 사용하세요.
+[보안 — 비밀 관리](/docs/security#secrets)를 참고하세요.
+
+## 업로드 API {#upload-api}
 
 `FileUploadProvider` 인터페이스:
 
@@ -152,6 +179,8 @@ interface FileUploadInput {
   filename?: string; // Original filename
   mimeType?: string; // MIME type, e.g. "image/png"
   ownerEmail?: string; // For request-scoped provider credentials
+  stableUrl?: boolean; // Builder.io hint: one stable URL while compression finishes
+  recordAsset?: boolean; // Builder.io hint: set false to skip the asset library
 }
 
 interface FileUploadResult {
@@ -161,7 +190,7 @@ interface FileUploadResult {
 }
 ```
 
-actions 또는 서버 코드에서 `@agent-native/core/file-upload`의 `uploadFile()`를 사용합니다.
+actions나 서버 코드에서 `@agent-native/core/file-upload`의 `uploadFile()`을 사용하세요.
 
 ```ts
 import { uploadFile } from "@agent-native/core/file-upload";
@@ -173,8 +202,58 @@ const result = await uploadFile({
 });
 
 if (result) {
-  // Provider handled it — result.url is the public URL
+  // Provider handled it. result.url is the public URL.
 } else {
-  // 스토리지를 구성하거나 업로드를 건너뜁니다
+  // No provider configured. Show the storage setup CTA, or skip.
 }
 ```
+
+## 재개 가능 / 스트리밍 업로드 {#resumable}
+
+공급자는 전체 파일을 먼저 버퍼링하는 대신 데이터가 도착하는 대로 스토리지로 스트리밍해야 하는 업로드를 위해 `FileUploadProvider`에 `resumable` 블록을 선택적으로 구현할 수 있습니다. Clips 템플릿은 이를 사용하여 녹화가 끝난 후 전체 블롭을 조립하는 대신, 녹화가 진행되는 동안 청크 단위로 녹화 데이터를 스토리지에 전달합니다.
+
+```ts
+interface FileUploadProvider {
+  // ...id, name, isConfigured, upload...
+
+  resumable?: {
+    startSession(
+      filename: string,
+      mimeType: string,
+      maxBytes: number,
+    ): Promise<ResumableUploadSession>;
+    relayChunk(
+      session: ResumableUploadSession,
+      contentRange: string,
+      bytes: Uint8Array,
+      options?: { mimeType?: string },
+    ): Promise<ResumableChunkResult>;
+    completeSession(
+      session: ResumableUploadSession,
+      filename: string,
+      options?: { stableUrl?: boolean; recordAsset?: boolean },
+    ): Promise<string>;
+    // Best-effort provider cleanup for a session the caller will not resume.
+    abortSession?(session: ResumableUploadSession): Promise<void>;
+  };
+}
+
+interface ResumableUploadSession {
+  sessionId: string; // Provider-specific: GCS Location URI, S3 UploadId, etc.
+  meta: Record<string, unknown>; // Provider state carried between calls
+}
+
+interface ResumableChunkResult {
+  ok: boolean;
+  status: number;
+  updatedMeta?: Record<string, unknown>; // Merged back into the stored session
+}
+```
+
+`resumable`이 존재하면 (레코더처럼) 데이터를 스트리밍으로 전달하는 호출자는 `startSession`을 한 번 호출하고, 바이트가 도착할 때마다 `relayChunk`를 반복 호출하며, 스트림이 끝나면 `completeSession`을 호출합니다. 이는 단일 버퍼링 `upload()` 호출을 대체합니다. `resumable` 블록이 없는 공급자는 항상 버퍼링 경로만 사용됩니다. 스토리지 백엔드에 노출할 가치가 있는 네이티브 청크/재개 가능 업로드 API(S3 멀티파트, GCS 재개 가능 업로드 등)가 있는 경우에만 이를 구현하세요.
+
+## 다음 단계
+
+- [**데이터베이스**](/docs/server-database) — `uploadFile()`이 반환하는 URL을 저장하기 위한 `getDb()`/스키마 패턴
+- [**보안 — 비밀 관리**](/docs/security#secrets) — `resolveSecret()`과 자격 증명 볼트가 저장 시 공급자 키를 암호화하는 방법
+- [**온보딩**](/docs/onboarding) — 사이드바 체크리스트에 사용자 지정 공급자의 설정 단계를 등록하기

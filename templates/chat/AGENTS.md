@@ -25,6 +25,10 @@ the matching skill only when this app actually uses that workflow. The
 - Never hardcode API keys, tokens, webhook URLs, signing secrets, private
   Builder/internal data, customer data, or credential-looking literals. Use
   secrets/OAuth/runtime configuration and obvious placeholders in examples.
+- For external integrations, inspect the workspace/provider connection catalog
+  first. Reuse an existing connection and its scoped credential resolver; only
+  use app-local vault/OAuth/settings primitives when no reusable connection
+  exists. Keep custom setup UI provider-specific and never duplicate storage.
 - Keep actions deterministic and focused. Research, analysis, generation,
   recommendation, and synthesis start in the AgentSidebar and let the agent
   orchestrate its tools; follow-ups stay in the same thread rather than moving

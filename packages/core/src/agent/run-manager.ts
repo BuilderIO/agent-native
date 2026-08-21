@@ -1,3 +1,4 @@
+import { getAppConfig } from "../app-config/index.js";
 import { captureError } from "../server/capture-error.js";
 import {
   isLlmCredentialError,
@@ -10,6 +11,7 @@ import {
   isProviderConnectionError,
 } from "./engine/error-detail.js";
 import { EngineError } from "./engine/types.js";
+import type { EngineRequestShape } from "./engine/types.js";
 import {
   insertRun,
   insertRunEvent,
@@ -52,14 +54,17 @@ export interface ActiveRun {
   abort: AbortController;
   abortReason?: string;
   /**
-   * Terminal event to emit when a server-driven continuation has been handed
-   * off successfully. The continuation runs outside this process, so the
-   * normal loop-level auto_continue event is not sent through this run's
-   * `send` callback.
+   * Terminal event the completion callback installs in place of the one the
+   * loop stashed: `auto_continue` when a server-driven continuation has been
+   * handed off successfully (that continuation runs outside this process, so
+   * the loop-level auto_continue never goes through this run's `send`), or
+   * `error` when the callback decided the turn must stop here instead — the
+   * stashed error is recoverable by construction, so leaving it in place
+   * re-enters the very chain the callback just refused to continue.
    */
   continuationTerminalEvent?: Extract<
     AgentChatEvent,
-    { type: "auto_continue" }
+    { type: "auto_continue" } | { type: "error" }
   >;
   startedAt: number;
 }
@@ -153,10 +158,21 @@ export const DEFAULT_BACKGROUND_RUN_SOFT_TIMEOUT_MS =
  * with the client watching keepalives. This backstop covers every segment by
  * construction: if no REAL progress event (see `shouldBumpProgressForEvent`;
  * keepalives and zero-byte prep activity don't count) lands for this long —
- * and no tool call is in flight (tool execution legitimately emits nothing
- * for minutes and has its own 12-min timeout) — the run manager emits
+ * and no unit of work is in flight (see `inFlightWorkDelta`: tool calls,
+ * cross-app calls, and the model stream all legitimately emit nothing for
+ * minutes and each carry a bound of their own) — the run manager emits
  * `auto_continue { reason: "no_progress" }` and aborts the chunk, exactly
  * like the soft timeout, so the normal continuation machinery recovers it.
+ *
+ * Being numerically larger than the in-loop watchdogs is NOT what keeps this
+ * from killing a healthy run, and treating it that way is what made it do so:
+ * this clock and the loop's `lastModelStreamProgressAt` measure DIFFERENT
+ * events. An extended-thinking phase bumps the inner clock on every engine
+ * frame while forwarding nothing, so the inner watchdog correctly stayed quiet
+ * and this one saw pure silence — runs whose worst gap crossed 150s died while
+ * still streaming, some by a single second. Ordering between two clocks only
+ * means something when they watch the same events; suspending on in-flight
+ * work is what actually makes the two agree.
  *
  * This is now only the CEILING, not the value: `resolveRunNoProgressTimeoutMs`
  * clamps the foreground backstop to a fraction of the chunk's soft timeout
@@ -250,6 +266,37 @@ export function resolveRunNoProgressTimeoutMs(params: {
   );
   if (override === undefined) return ceiling;
   return override === 0 ? 0 : Math.min(override, ceiling);
+}
+
+/**
+ * Work-tracking transition for one event: `1` opens a unit of in-flight work,
+ * `-1` closes one, `0` is not a work-tracking event.
+ *
+ * Every pair listed here suspends the no-progress backstop for as long as it is
+ * open, so each one MUST be bounded by a watchdog of its own — tool calls by
+ * the per-tool timeout, cross-app calls by the A2A poll timeout, the model
+ * stream by `MODEL_STREAM_NO_PROGRESS_TIMEOUT_MS`, which the agent loop races
+ * against every wait for the next engine frame. A pair added here without such
+ * a bound turns the backstop off for the rest of the run, which is strictly
+ * worse than the stall it was meant to catch.
+ *
+ * Note what that leaves: the model-stream bound covers waiting for the engine,
+ * not a hang while the loop processes a frame it already has. Nothing here
+ * covers that segment, so a suspension is only ever as tight as the chunk's own
+ * soft timeout. Keep the pairs narrow around genuinely blocking work.
+ */
+function inFlightWorkDelta(event: AgentChatEvent): -1 | 0 | 1 {
+  switch (event.type) {
+    case "tool_start":
+      return 1;
+    case "tool_done":
+      return -1;
+    case "agent_call":
+    case "model_stream":
+      return event.status === "start" ? 1 : -1;
+    default:
+      return 0;
+  }
 }
 
 /**
@@ -428,6 +475,22 @@ function getRunErrorCode(err: unknown): string | undefined {
   return classifyTerminalErrorCode(describeErrorWithCauses(err));
 }
 
+/**
+ * Sentry tags are strings, and an absent shape must stay absent: a run that
+ * failed before the request was built did not send a zero-byte payload.
+ */
+export function engineRequestShapeTags(
+  shape: EngineRequestShape | undefined,
+): Record<string, string> {
+  if (!shape) return {};
+  return {
+    engineModel: shape.model,
+    enginePayloadBytes: String(shape.payloadBytes),
+    engineToolCount: String(shape.toolCount),
+    engineMessageCount: String(shape.messageCount),
+  };
+}
+
 function getEngineRunErrorDetails(err: EngineError): string | undefined {
   if (err.statusCode === 429) return err.message;
   return undefined;
@@ -450,6 +513,10 @@ function shouldCaptureRunError(err: unknown): boolean {
   return (
     !normalizedCode.startsWith("credits-limit") &&
     normalizedCode !== "builder_gateway_network_error" &&
+    // A truncated gateway stream, which the client continues. It arrived here as
+    // `builder_gateway_network_error` until the engine gave it its own code, so
+    // omitting it would turn a routine recovered interruption into Sentry noise.
+    normalizedCode !== "builder_gateway_stream_ended" &&
     normalizedCode !== PROVIDER_NETWORK_ERROR_CODE &&
     normalizedCode !== "provider_rate_limited" &&
     normalizedCode !== "rate_limit_exceeded"
@@ -589,11 +656,8 @@ export function resolveRunSoftTimeoutMs(
   if (typeof overrideMs === "number" && Number.isFinite(overrideMs)) {
     return clampHosted(Math.max(0, overrideMs));
   }
-  const envValue = process.env.AGENT_RUN_SOFT_TIMEOUT_MS;
-  if (envValue !== undefined) {
-    const raw = Number(envValue);
-    if (Number.isFinite(raw) && raw >= 0) return clampHosted(raw);
-  }
+  const configured = getAppConfig().agent.runSoftTimeoutMs;
+  if (configured !== undefined) return clampHosted(configured);
   // A background-function run uses the full background budget by default; the
   // foreground default (40s) is unchanged.
   if (background) {
@@ -605,21 +669,17 @@ export function resolveRunSoftTimeoutMs(
 }
 
 export function resolveCompletedRunRetentionMs(): number {
-  const envValue = process.env.AGENT_RUN_RETENTION_MS;
-  if (envValue !== undefined) {
-    const raw = Number(envValue);
-    if (Number.isFinite(raw) && raw >= 0) return raw;
-  }
-  return DEFAULT_COMPLETED_RUN_RETENTION_MS;
+  return (
+    getAppConfig().agent.completedRunRetentionMs ??
+    DEFAULT_COMPLETED_RUN_RETENTION_MS
+  );
 }
 
 export function resolveErroredRunRetentionMs(): number {
-  const envValue = process.env.AGENT_ERRORED_RUN_RETENTION_MS;
-  if (envValue !== undefined) {
-    const raw = Number(envValue);
-    if (Number.isFinite(raw) && raw >= 0) return raw;
-  }
-  return DEFAULT_ERRORED_RUN_RETENTION_MS;
+  return (
+    getAppConfig().agent.erroredRunRetentionMs ??
+    DEFAULT_ERRORED_RUN_RETENTION_MS
+  );
 }
 
 function isTerminalRunEvent(event: AgentChatEvent): boolean {
@@ -1127,9 +1187,10 @@ export function startRun(
   // ── No-progress backstop (see RUN_NO_PROGRESS_HARD_TIMEOUT_MS) ──────────
   // Timer-driven and independent of the agent loop, so it fires even when the
   // stall is in a segment the in-loop watchdogs never see (engine-call
-  // establishment, setup, a wedged transport emitting keepalives). Tool calls
-  // and sub-agent calls in flight suspend it — tool execution legitimately
-  // emits nothing for minutes and carries its own 12-min timeout.
+  // establishment, setup, a wedged transport emitting keepalives). Tool calls,
+  // sub-agent calls, and the model stream in flight suspend it — each
+  // legitimately emits nothing for minutes and each carries a bound of its own
+  // (see `inFlightWorkDelta`).
   let lastRealProgressAt = Date.now();
   let inFlightWorkCount = 0;
   let inFlightMarkerSince: number | null = null;
@@ -1157,20 +1218,10 @@ export function startRun(
       });
   };
   const trackInFlightWork = (event: AgentChatEvent) => {
+    const delta = inFlightWorkDelta(event);
+    if (delta === 0) return; // Not a work-tracking event — no transition.
     const wasIdle = inFlightWorkCount === 0;
-    if (event.type === "tool_start") {
-      inFlightWorkCount += 1;
-    } else if (event.type === "tool_done") {
-      inFlightWorkCount = Math.max(0, inFlightWorkCount - 1);
-    } else if (event.type === "agent_call") {
-      if (event.status === "start") {
-        inFlightWorkCount += 1;
-      } else {
-        inFlightWorkCount = Math.max(0, inFlightWorkCount - 1);
-      }
-    } else {
-      return; // Not a work-tracking event — no transition possible.
-    }
+    inFlightWorkCount = Math.max(0, inFlightWorkCount + delta);
     // Mirror the 0<->N transition into SQL so a stale reaper running in a
     // DIFFERENT isolate (a client's SQL-subscription poll, a sibling
     // isolate's opportunistic cleanup, a fresh boot's startup sweep) can
@@ -1181,6 +1232,14 @@ export function startRun(
     // keep failures observable and preserve transition order. See
     // `setRunInFlightMarker` / `IN_FLIGHT_RUN_STALE_GRACE_MS` in run-store.ts
     // for the full reasoning and bounded-grace derivation.
+    //
+    // A model stream in flight mirrors the marker too, deliberately: a long
+    // thinking phase is exactly when another isolate's reaper would call this
+    // run stale, and the stream is as demonstrably alive as a tool call. It
+    // cannot latch a corpse — the grace clause additionally requires the
+    // liveness basis to be fresh within `IN_FLIGHT_GRACE_MAX_LIVENESS_GAP_MS`,
+    // so a marker left set by a dead producer buys nothing. The cost is one
+    // extra set/clear pair per model call on the way to each tool call.
     if (wasIdle && inFlightWorkCount > 0) {
       mirrorInFlightMarker(true);
     } else if (!wasIdle && inFlightWorkCount === 0) {
@@ -1223,7 +1282,8 @@ export function startRun(
     if (inFlightWorkCount > 0) return;
     if (Date.now() - lastRealProgressAt < noProgressTimeoutMs) return;
     console.error(
-      `[run-manager] no real progress for ${noProgressTimeoutMs}ms with no tool in flight — ` +
+      `[run-manager] no real progress for ${noProgressTimeoutMs}ms with no tool ` +
+        `or model stream in flight — ` +
         `checkpointing run for continuation`,
       runId,
     );
@@ -1379,6 +1439,10 @@ export function startRun(
 
   const captureRunError = (error: unknown, phase: "run" | "completion") => {
     const errorCode = getRunErrorCode(error);
+    // A gateway error often arrives as one opaque user-facing sentence, so the
+    // structured fields EngineError already carries are the whole diagnostic.
+    // Dropping them here left operators with an error id and nothing to join on.
+    const engineError = error instanceof EngineError ? error : null;
     captureError(error, {
       route: "/_agent-native/agent-chat",
       aiTraceId: runId,
@@ -1389,6 +1453,16 @@ export function startRun(
         softTimedOut: softTimedOut ? "true" : "false",
         abortReason: run.abortReason,
         errorCode,
+        gatewayRequestId: engineError?.requestId,
+        statusCode:
+          engineError?.statusCode != null
+            ? String(engineError.statusCode)
+            : undefined,
+        // What we sent, in sizes and counts only. A gateway rejection describes
+        // nothing about the request behind it, so without these an oversized
+        // payload and an upstream outage produce the same capture — which is
+        // how one gateway 500 cost a night of guessing.
+        ...engineRequestShapeTags(engineError?.requestShape),
       },
       extra: {
         runId,
@@ -1509,6 +1583,32 @@ export function startRun(
         ...(err instanceof EngineError && err.upgradeUrl
           ? { upgradeUrl: err.upgradeUrl }
           : {}),
+        // The engine's own retry verdict, carried structurally. The client
+        // decides auto-continue from this, `recoverable` and the error code, and
+        // a deployment whose visitor copy replaces the message (Builder credits)
+        // leaves it nothing else to read: without this a provider throttle the
+        // engine marked retryable ends the turn on those sites only.
+        //
+        // NOT `recoverable`. That field is the server's own "this run stopped at
+        // an internal continuation boundary" signal, read by
+        // `isInternalContinuationError` (thread-data-builder) to drop the error
+        // from the persisted turn and by `isRecoverableContinuationError`
+        // (production-agent) to self-chain the next background chunk. Neither
+        // lists `rate_limited` or `too_many_concurrent_requests` today, so
+        // feeding them from the engine verdict would newly chain up to
+        // MAX_BACKGROUND_RUN_CONTINUATIONS invocations into a live throttle — on
+        // every lane, not just Builder credits.
+        ...(err instanceof EngineError && err.providerRetryable === true
+          ? { providerRetryable: true }
+          : {}),
+        // Same reasoning as `providerRetryable`: on the credits lane the message
+        // is the visitor line and the code is `invalid_request_error`, so this
+        // flag is the only thing left that says "trim and retry once". Dropping
+        // it here turns a recoverable overflow into a terminal failure on exactly
+        // the sites that cannot read the real reason.
+        ...(err instanceof EngineError && err.contextOverflow === true
+          ? { contextOverflow: true }
+          : {}),
       });
     })
     .finally(async () => {
@@ -1564,6 +1664,13 @@ export function startRun(
                 }
               : run;
           await onComplete(completionRun);
+          // `completionRun` is a shallow COPY whenever the loop stashed a
+          // terminal event, so a callback that installs its own terminal
+          // event writes it to the copy and `resolveTerminalEventForCompletion`
+          // below never sees it — the run then emits the pre-callback event
+          // the callback was overriding.
+          run.continuationTerminalEvent ??=
+            completionRun.continuationTerminalEvent;
         } catch (err) {
           completionError = err;
           captureRunError(err, "completion");

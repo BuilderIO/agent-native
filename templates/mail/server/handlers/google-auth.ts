@@ -15,6 +15,9 @@ import {
   oauthCallbackResponse,
   oauthDesktopExchangePage,
   oauthErrorPage,
+  registerDesktopExchange,
+  prepareDesktopOAuthBrowserBinding,
+  matchesDesktopOAuthBrowserBinding,
   safeReturnPath,
   setDesktopExchange,
   setDesktopExchangeError,
@@ -22,6 +25,8 @@ import {
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 import {
   defineEventHandler,
+  getHeader,
+  getMethod,
   getQuery,
   setResponseStatus,
   type H3Event,
@@ -58,30 +63,31 @@ function googleOAuthErrorPayload(
   message: string;
   code?: string;
   accountId?: string;
-  existingOwner?: string;
-  attemptedOwner?: string;
 } {
   if (
     error instanceof OAuthAccountOwnedByOtherUserError ||
     error?.name === "OAuthAccountOwnedByOtherUserError"
   ) {
     const account = error.accountId || "This Google account";
-    const existingOwner = error.existingOwner || undefined;
-    const attemptedOwner = error.attemptedOwner || undefined;
     const message = `${account} is connected to another login. Sign out, then sign in with ${account}.`;
     return {
       message,
       code: "account_owner_mismatch",
       accountId: error.accountId,
-      existingOwner,
-      attemptedOwner,
     };
   }
 
   const msg = error?.message || "Unknown error";
+  const statusCode = Number(error?.statusCode || error?.status || 0);
   const isPermission =
+    error?.oauthErrorCode === "access_denied" ||
+    error?.oauthErrorCode === "forbidden" ||
+    error?.oauthErrorCode === "insufficient_scope" ||
     msg.includes("Insufficient Permission") ||
-    msg.includes("insufficient_scope");
+    msg.includes("insufficient_scope") ||
+    /insufficient authentication scopes/i.test(msg) ||
+    (statusCode === 403 &&
+      /\b(?:scope|permission|forbidden|access denied)\b/i.test(msg));
   return {
     message: isPermission
       ? "This account wasn't granted the required permissions. Make sure you check all the permission boxes on the consent screen. If the app is in testing mode, add this email as a test user in Google Cloud Console."
@@ -106,6 +112,7 @@ function googleOAuthErrorResponse(
 export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
   try {
     const q = getQuery(event);
+    const method = getMethod(event);
     const redirectUri = resolveOAuthRedirectUri(event);
     if (!redirectUri) {
       setResponseStatus(event, 400);
@@ -120,6 +127,34 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
     const desktop =
       isElectron(event) || q.desktop === "1" || q.desktop === "true";
     const flowId = desktop ? (q.flow_id as string) || undefined : undefined;
+    if (method === "POST" && (!desktop || !flowId)) {
+      setResponseStatus(event, 400);
+      return { error: "Invalid desktop exchange challenge." };
+    }
+    let desktopVerifierHash: string | undefined;
+    let desktopBrowserBindingHash: string | undefined;
+    if (flowId) {
+      if (method !== "POST" || q.redirect !== undefined) {
+        setResponseStatus(event, 400);
+        return { error: "Invalid desktop exchange challenge." };
+      }
+      const verifier = getHeader(event, "x-agent-native-desktop-verifier");
+      if (!verifier || q.verifier !== undefined) {
+        setResponseStatus(event, 400);
+        return { error: "Invalid desktop exchange challenge." };
+      }
+      try {
+        desktopBrowserBindingHash = prepareDesktopOAuthBrowserBinding(event);
+        desktopVerifierHash = await registerDesktopExchange(
+          flowId,
+          verifier,
+          desktopBrowserBindingHash,
+        );
+      } catch {
+        setResponseStatus(event, 400);
+        return { error: "Invalid desktop exchange challenge." };
+      }
+    }
     const requestedReturn =
       typeof q.return === "string" ? safeReturnPath(q.return) : "/";
     const returnUrl = requestedReturn !== "/" ? requestedReturn : undefined;
@@ -134,6 +169,8 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
       app: OAUTH_STATE_APP_ID,
       returnUrl,
       flowId,
+      desktopVerifierHash,
+      desktopBrowserBindingHash,
     });
     const url = await getAuthUrl(undefined, redirectUri, state, owner);
     if (q.redirect === "1") {
@@ -166,22 +203,28 @@ export const handleGoogleCallback = defineEventHandler(
       );
       desktop = state.desktop ?? false;
       flowId = state.flowId;
+      if (
+        flowId &&
+        (!state.desktopVerifierHash ||
+          !state.desktopBrowserBindingHash ||
+          !matchesDesktopOAuthBrowserBinding(
+            event,
+            state.desktopBrowserBindingHash,
+          ))
+      ) {
+        throw new Error("Desktop OAuth browser binding is invalid.");
+      }
 
       // Handle Google authorization errors (e.g. user denied access, invalid client)
       const googleError = query.error as string | undefined;
       if (googleError) {
         const errorDesc =
           (query.error_description as string | undefined) || googleError;
-        const isPermission =
-          googleError === "access_denied" ||
-          errorDesc.includes("Insufficient Permission");
-        const userMessage = isPermission
-          ? "Access was denied. Make sure to check all the permission boxes on the consent screen. If the app is in testing mode, add this email as a test user in Google Cloud Console."
-          : `Connection failed: ${errorDesc}`;
-        return googleOAuthErrorResponse(event, new Error(userMessage), {
-          desktop,
-          flowId,
-        });
+        return googleOAuthErrorResponse(
+          event,
+          Object.assign(new Error(errorDesc), { oauthErrorCode: googleError }),
+          { desktop, flowId },
+        );
       }
 
       const code = query.code as string;
@@ -190,7 +233,13 @@ export const handleGoogleCallback = defineEventHandler(
         return { error: "Missing authorization code" };
       }
 
-      const { redirectUri, owner: stateOwner, addAccount, returnUrl } = state;
+      const {
+        redirectUri,
+        owner: stateOwner,
+        addAccount,
+        returnUrl,
+        desktopVerifierHash,
+      } = state;
 
       // 1. Resolve owner (needs session context, before exchangeCode)
       const { owner, hasProductionSession } = await resolveOAuthOwner(
@@ -256,7 +305,15 @@ export const handleGoogleCallback = defineEventHandler(
           });
 
       if (flowId && sessionToken) {
-        setDesktopExchange(flowId, sessionToken, email);
+        if (!desktopVerifierHash) {
+          throw new Error("Missing desktop exchange challenge.");
+        }
+        await setDesktopExchange(
+          flowId,
+          sessionToken,
+          email,
+          desktopVerifierHash,
+        );
       }
 
       // 4. Return platform-appropriate response
@@ -291,6 +348,7 @@ export const getGoogleAddAccountUrl = defineEventHandler(
     }
     try {
       const q = getQuery(event);
+      const method = getMethod(event);
       const redirectUri = resolveOAuthRedirectUri(event);
       if (!redirectUri) {
         setResponseStatus(event, 400);
@@ -302,6 +360,34 @@ export const getGoogleAddAccountUrl = defineEventHandler(
       const desktop =
         isElectron(event) || q.desktop === "1" || q.desktop === "true";
       const flowId = desktop ? (q.flow_id as string) || undefined : undefined;
+      if (method === "POST" && (!desktop || !flowId)) {
+        setResponseStatus(event, 400);
+        return { error: "Invalid desktop exchange challenge." };
+      }
+      let desktopVerifierHash: string | undefined;
+      let desktopBrowserBindingHash: string | undefined;
+      if (flowId) {
+        if (method !== "POST" || q.redirect !== undefined) {
+          setResponseStatus(event, 400);
+          return { error: "Invalid desktop exchange challenge." };
+        }
+        const verifier = getHeader(event, "x-agent-native-desktop-verifier");
+        if (!verifier || q.verifier !== undefined) {
+          setResponseStatus(event, 400);
+          return { error: "Invalid desktop exchange challenge." };
+        }
+        try {
+          desktopBrowserBindingHash = prepareDesktopOAuthBrowserBinding(event);
+          desktopVerifierHash = await registerDesktopExchange(
+            flowId,
+            verifier,
+            desktopBrowserBindingHash,
+          );
+        } catch {
+          setResponseStatus(event, 400);
+          return { error: "Invalid desktop exchange challenge." };
+        }
+      }
       const state = encodeOAuthState({
         redirectUri,
         owner: session.email,
@@ -309,6 +395,8 @@ export const getGoogleAddAccountUrl = defineEventHandler(
         addAccount: true,
         app: OAUTH_STATE_APP_ID,
         flowId,
+        desktopVerifierHash,
+        desktopBrowserBindingHash,
       });
       const url = await getAuthUrl(
         undefined,
@@ -340,22 +428,28 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
       );
       desktop = state.desktop ?? false;
       flowId = state.flowId;
+      if (
+        flowId &&
+        (!state.desktopVerifierHash ||
+          !state.desktopBrowserBindingHash ||
+          !matchesDesktopOAuthBrowserBinding(
+            event,
+            state.desktopBrowserBindingHash,
+          ))
+      ) {
+        throw new Error("Desktop OAuth browser binding is invalid.");
+      }
 
       // Handle Google authorization errors (e.g. user denied access, invalid client)
       const googleError = query.error as string | undefined;
       if (googleError) {
         const errorDesc =
           (query.error_description as string | undefined) || googleError;
-        const isPermission =
-          googleError === "access_denied" ||
-          errorDesc.includes("Insufficient Permission");
-        const userMessage = isPermission
-          ? "Access was denied. Make sure to check all the permission boxes on the consent screen. If the app is in testing mode, add this email as a test user in Google Cloud Console."
-          : `Connection failed: ${errorDesc}`;
-        return googleOAuthErrorResponse(event, new Error(userMessage), {
-          desktop,
-          flowId,
-        });
+        return googleOAuthErrorResponse(
+          event,
+          Object.assign(new Error(errorDesc), { oauthErrorCode: googleError }),
+          { desktop, flowId },
+        );
       }
 
       const { redirectUri, owner: stateOwner } = state;

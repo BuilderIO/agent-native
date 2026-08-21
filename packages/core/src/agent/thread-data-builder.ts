@@ -13,7 +13,9 @@ import {
   type NormalizedCodeAgentTranscriptItem,
 } from "../code-agents/transcript-normalizer.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
-import type { EngineMessage } from "./engine/types.js";
+import { BUILDER_GATEWAY_INTERNAL_ERROR_CODE } from "./engine/error-detail.js";
+import { stringifyToolUseInputForGateway } from "./engine/translate-anthropic.js";
+import type { EngineContentPart, EngineMessage } from "./engine/types.js";
 import type { AgentChatAttachment, RunEvent } from "./types.js";
 
 interface ContentPart {
@@ -31,7 +33,7 @@ interface ContentPart {
   mcpApp?: AgentMcpAppPayload;
   chatUI?: ActionChatUIConfig;
   activity?: boolean;
-  approval?: { approvalKey: string; dismissed?: boolean };
+  approval?: { approvalKey: string; dismissed?: boolean; askId?: string };
 }
 
 interface BuildAssistantMessageOptions {
@@ -64,15 +66,29 @@ function isInternalContinuationError(event: {
   const code = String(event.errorCode ?? "").toLowerCase();
   const msg = event.error.toLowerCase();
   if (code === "builder_gateway_error") return false;
+  // An explicit `recoverable: false` outranks the code and message inference
+  // below, matching `isRecoverableContinuationError`. The background
+  // no-progress breaker stops a turn while PRESERVING the underlying transient
+  // code, so reading the code instead of the flag drops the one error the user
+  // was supposed to see out of the persisted turn.
+  if (event.recoverable === false) return false;
   return (
     event.recoverable === true ||
     code === "builder_gateway_timeout" ||
+    // Carries what `msg.includes("stream ended")` below used to: a
+    // Builder-credits deployment replaces that sentence with one visitor line,
+    // and the code is the only thing left that says the turn was truncated.
+    code === "builder_gateway_stream_ended" ||
     code === "stale_run" ||
     code === "timeout" ||
     code === "timeout_error" ||
     code === "http_408" ||
     code === "http_429" ||
     code === "http_500" ||
+    // The gateway's unhandled-500 envelope arriving in-stream. Without this the
+    // turn stored Builder's internal correlation id as the assistant's visible
+    // answer instead of a continuation.
+    code === BUILDER_GATEWAY_INTERNAL_ERROR_CODE ||
     code === "http_502" ||
     code === "http_503" ||
     code === "http_504" ||
@@ -219,7 +235,10 @@ export function buildAssistantMessage(
 
       const part = content[matchingIndex];
       if (part?.type === "tool-call") {
-        part.approval = { approvalKey: event.approvalKey };
+        part.approval = {
+          approvalKey: event.approvalKey,
+          ...(event.askId ? { askId: event.askId } : {}),
+        };
       }
       continue;
     }
@@ -797,10 +816,138 @@ export function normalizeThreadRepository(repo: any): any {
 }
 
 /**
+ * A replayed tool result is evidence, not the source of truth — the resumed
+ * turn can always re-read current state. Bound each one so restoring fidelity
+ * cannot itself overflow the context window, and say so in-band when it bites.
+ */
+const MAX_REPLAYED_TOOL_RESULT_CHARS = 12_000;
+/**
+ * Total budget for replayed tool payloads across the whole thread. Per-result
+ * capping alone is not a bound: a long run has hundreds of calls, so replaying
+ * every one of them would overflow the context window and break the very
+ * continuation this replay exists to serve. The newest turns keep their tool
+ * detail; older turns fall back to prose and say so.
+ */
+const MAX_REPLAYED_TOOL_PAYLOAD_CHARS = 64_000;
+const ELIDED_TOOL_DETAIL_NOTE =
+  "[Tool calls from this turn were elided from replayed history to fit the context. Re-read the current state with tools if their detail matters.]";
+
+function replayedToolResultContent(result: unknown): string {
+  const body =
+    typeof result === "string"
+      ? result
+      : result === undefined || result === null
+        ? ""
+        : (() => {
+            try {
+              return JSON.stringify(result) ?? "";
+            } catch {
+              return String(result);
+            }
+          })();
+  if (body.length <= MAX_REPLAYED_TOOL_RESULT_CHARS) return body;
+  const omitted = body.length - MAX_REPLAYED_TOOL_RESULT_CHARS;
+  return `${body.slice(0, MAX_REPLAYED_TOOL_RESULT_CHARS)}\n\n[Tool result truncated after ${MAX_REPLAYED_TOOL_RESULT_CHARS.toLocaleString()} characters; ${omitted.toLocaleString()} omitted from replayed history. Re-read the current state with tools if the exact content matters.]`;
+}
+
+/**
+ * Integration turns (Slack and friends) deliberately replay only what the
+ * participant saw plus a compact artifact ledger — never the raw tool results.
+ * `threadMessageTextForEngine` owns that policy, so a structured replay has to
+ * defer to it rather than reach past it into `content`.
+ */
+function hasIntegrationReplayPolicy(message: any): boolean {
+  const metadata = message?.metadata;
+  if (!metadata || typeof metadata !== "object") return false;
+  return (
+    metadata.integrationDelivery !== undefined ||
+    metadata.integrationDeliveryAttempted === true ||
+    Array.isArray(metadata.integrationArtifacts)
+  );
+}
+
+function replayableToolCalls(message: any): any[] {
+  const content = Array.isArray(message?.content) ? message.content : [];
+  return content.filter(
+    (part: any) =>
+      part?.type === "tool-call" &&
+      typeof part.toolCallId === "string" &&
+      part.toolCallId.trim() &&
+      typeof part.toolName === "string" &&
+      part.toolName.trim(),
+  );
+}
+
+/** What replaying this turn's tool calls with their results would actually cost. */
+function replayedToolPayloadCost(message: any): number {
+  let cost = 0;
+  for (const part of replayableToolCalls(message)) {
+    cost += stringifyToolUseInputForGateway(part.args ?? {}).length;
+    if (part.result !== undefined) {
+      cost += replayedToolResultContent(part.result).length;
+    }
+  }
+  return cost;
+}
+
+/**
+ * One persisted assistant turn spans many tool rounds. Replay it as the
+ * provider protocol wants it — one assistant message carrying every `tool-call`,
+ * then one user message carrying every matching `tool-result`. The exact
+ * round-by-round interleaving is not recoverable from thread_data and does not
+ * matter; what matters is that the calls and their outputs survive at all.
+ */
+function assistantReplayContent(
+  message: any,
+  text: string,
+): { assistant: EngineContentPart[]; results: EngineContentPart[] } {
+  const assistant: EngineContentPart[] = [];
+  const results: EngineContentPart[] = [];
+  if (text.trim()) assistant.push({ type: "text", text });
+  const content = Array.isArray(message?.content) ? message.content : [];
+  for (const part of content) {
+    if (part?.type !== "tool-call") continue;
+    const id =
+      typeof part.toolCallId === "string" ? part.toolCallId.trim() : "";
+    const name = typeof part.toolName === "string" ? part.toolName.trim() : "";
+    if (!id || !name) continue;
+    const input =
+      part.args && typeof part.args === "object" && !Array.isArray(part.args)
+        ? (part.args as Record<string, unknown>)
+        : {};
+    assistant.push({ type: "tool-call", id, name, input });
+    const result =
+      part.result === undefined ? INTERRUPTED_TOOL_RESULT : part.result;
+    results.push({
+      type: "tool-result",
+      toolCallId: id,
+      toolName: name,
+      toolInput: stringifyToolUseInputForGateway(input),
+      content: replayedToolResultContent(result),
+      ...(part.isError === true ? { isError: true } : {}),
+    });
+  }
+  return { assistant, results };
+}
+
+export interface ThreadDataToEngineMessagesOptions {
+  /**
+   * Replay the tool calls and results thread_data already stores instead of
+   * flattening each turn to its prose. Required by callers that RESUME a run
+   * (chained background continuation, agent-teams continue): a turn rebuilt as
+   * text alone tells the model what it said but not what it did, so it re-runs
+   * tools it already ran and cannot see their output. Callers that only need
+   * "what was said" — recovery floors, memory compaction — leave this off.
+   */
+  includeToolCalls?: boolean;
+}
+
+/**
  * Rebuild a flat `EngineMessage[]` from persisted thread_data (the
- * assistant-ui ExportedMessageRepository shape). Text-only — tool calls/results
- * are flattened to their text so a continuation run gets the conversation
- * prefix as plain context (Anthropic's prompt cache makes the resume cheap).
+ * assistant-ui ExportedMessageRepository shape). Each turn collapses to its
+ * text by default, which is all a recovery floor or a memory compaction needs.
+ * Callers resuming a run pass `includeToolCalls` to replay what the turn
+ * actually DID as well as what it said.
  *
  * Used to resume a background sub-agent in a fresh function invocation (the
  * server-side analog of the browser re-POSTing history for the main chat).
@@ -808,6 +955,7 @@ export function normalizeThreadRepository(repo: any): any {
  */
 export function threadDataToEngineMessages(
   threadData: string | Record<string, unknown> | null | undefined,
+  options: ThreadDataToEngineMessagesOptions = {},
 ): EngineMessage[] {
   const messages: EngineMessage[] = [];
   if (!threadData) return messages;
@@ -818,14 +966,98 @@ export function threadDataToEngineMessages(
     return messages;
   }
   if (!Array.isArray(data?.messages)) return messages;
-  for (const entry of data.messages) {
+
+  const entries: any[] = data.messages;
+  const replaysTools = (m: any) =>
+    options.includeToolCalls === true &&
+    m?.role === "assistant" &&
+    !hasIntegrationReplayPolicy(m);
+
+  // Spend the tool-payload budget on the most recent turns: those are the ones
+  // a resumed run is about to build on. Decided up front so the walk below can
+  // stay in conversation order.
+  const toolPayloadAllowed = new Set<number>();
+  if (options.includeToolCalls) {
+    let spent = 0;
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const m = entries[i]?.message ?? entries[i];
+      if (!replaysTools(m)) continue;
+      const cost = replayedToolPayloadCost(m);
+      if (cost === 0) continue;
+      if (spent + cost > MAX_REPLAYED_TOOL_PAYLOAD_CHARS) continue;
+      spent += cost;
+      toolPayloadAllowed.add(i);
+    }
+  }
+
+  for (const [index, entry] of entries.entries()) {
     const m = entry?.message ?? entry;
     if (!m || (m.role !== "user" && m.role !== "assistant")) continue;
     const text = threadMessageTextForEngine(m);
+    if (replaysTools(m)) {
+      if (toolPayloadAllowed.has(index)) {
+        const { assistant, results } = assistantReplayContent(m, text);
+        if (assistant.length === 0) continue;
+        messages.push({ role: "assistant", content: assistant });
+        if (results.length > 0) {
+          messages.push({ role: "user", content: results });
+        }
+        continue;
+      }
+      // Over budget, or nothing to replay. Prose still travels — but a turn
+      // whose tool detail was dropped must not read like a turn that never
+      // called a tool.
+      const elided = replayableToolCalls(m).length > 0;
+      const prose = elided
+        ? `${text.trim() ? `${text.trim()}\n\n` : ""}${ELIDED_TOOL_DETAIL_NOTE}`
+        : text;
+      if (!prose.trim()) continue;
+      messages.push({
+        role: "assistant",
+        content: [{ type: "text", text: prose }],
+      });
+      continue;
+    }
     if (!text.trim()) continue;
     messages.push({ role: m.role, content: [{ type: "text", text }] });
   }
   return messages;
+}
+
+const MAX_RECOVERED_HISTORY_MESSAGES = 12;
+const MAX_RECOVERED_HISTORY_CHARS = 32_000;
+
+function engineMessageTextLength(message: EngineMessage): number {
+  return message.content.reduce(
+    (total, part) =>
+      total + (part.type === "text" ? (part.text?.length ?? 0) : 0),
+    0,
+  );
+}
+
+/**
+ * The trailing window of what was actually said in a thread, for a request that
+ * arrived carrying no history of its own. The client trims history against a
+ * size budget, so one tool-heavy turn can zero it out; without this floor the
+ * model re-derives answers it already gave and re-asks questions the user
+ * already answered. Contiguous and bounded on purpose — this restores the
+ * conversation, not the tool transcript.
+ */
+export function recoverThreadHistoryForRequest(
+  threadData: string | Record<string, unknown> | null | undefined,
+  limits?: { maxMessages?: number; maxChars?: number },
+): EngineMessage[] {
+  const maxMessages = limits?.maxMessages ?? MAX_RECOVERED_HISTORY_MESSAGES;
+  const maxChars = limits?.maxChars ?? MAX_RECOVERED_HISTORY_CHARS;
+  const window = threadDataToEngineMessages(threadData).slice(-maxMessages);
+  let total = window.reduce(
+    (sum, message) => sum + engineMessageTextLength(message),
+    0,
+  );
+  while (window.length > 1 && total > maxChars) {
+    total -= engineMessageTextLength(window.shift()!);
+  }
+  return window;
 }
 
 const MAX_INTEGRATION_ARTIFACTS_IN_CONTEXT = 12;

@@ -256,7 +256,7 @@ my-company-platform/
 
 कुछ ऑनबोर्डिंग प्रवाह बॉक्स से बाहर कार्यक्षेत्र-जागरूक हैं:
 
-- **Builder `/cli-auth`**: clicking "Connect Builder" (free tier available) from any app writes `BUILDER_PRIVATE_KEY` and related metadata to scoped DB secrets, so every app can resolve the connection without sharing a deploy-global key.
+- **Builder OAuth**: clicking "Connect Builder" authorizes the signed-in user with the least-privilege `builder:ai:invoke` scope and stores the token in encrypted per-user custody. Legacy Builder keys remain available only to existing uncovered integrations.
 - **Compatibility key route** (`POST /_agent-native/env-vars`): older onboarding forms still call this route name, but it now saves values as scoped DB secrets. Pass `scope: "workspace"` to share with the active org, or omit it for a per-user key.
 
 ## साझा क्रेडेंशियल {#shared-credentials}

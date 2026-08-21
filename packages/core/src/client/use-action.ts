@@ -27,9 +27,15 @@ import type {
   UseMutationOptions,
 } from "@tanstack/react-query";
 
+import { ANALYTICS_CLIENT_PLATFORM_HEADER } from "../shared/analytics-platform.js";
+import { getAnalyticsClientPlatform } from "./analytics-platform.js";
 import { getOrCreateAnalyticsSessionId } from "./analytics-session.js";
 import { trackEvent } from "./analytics.js";
 import { agentNativePath } from "./api-path.js";
+import {
+  agentNativeApiDisabledReason,
+  assertAgentNativeApiEnabled,
+} from "./api-surface.js";
 import { getBrowserTabId } from "./browser-tab-id.js";
 import {
   clientBuildId,
@@ -67,6 +73,14 @@ function isActionTimeout(error: unknown): boolean {
   );
 }
 
+function isActionMethodMismatch(error: unknown): boolean {
+  return (
+    !!error &&
+    typeof error === "object" &&
+    (error as { code?: unknown }).code === "action_method_mismatch"
+  );
+}
+
 /** @internal exported for tests */
 export function defaultActionQueryRetry(
   failureCount: number,
@@ -76,6 +90,8 @@ export function defaultActionQueryRetry(
   // A timeout already made the user wait the full timeout window once;
   // silently retrying would multiply that wait. Surface it instead.
   if (isActionTimeout(error)) return false;
+  // Wrong verb is deterministic — retrying sends the same wrong verb again.
+  if (isActionMethodMismatch(error)) return false;
   if (isBrowserResourceExhaustion(error)) return false;
   // Network-level failures never carry an HTTP `status` (actionFetch only
   // sets it after a response arrives). Chrome reports connection-pool
@@ -310,6 +326,7 @@ async function performActionFetch<T>(
   if (browserSessionId) {
     headers["X-Agent-Native-Session-Id"] = browserSessionId;
   }
+  headers[ANALYTICS_CLIENT_PLATFORM_HEADER] = getAnalyticsClientPlatform();
   const init: RequestInit = {
     method,
     headers,
@@ -447,6 +464,27 @@ async function performActionFetch<T>(
       (raw && raw.slice(0, 200)) ||
       res.statusText ||
       `HTTP ${res.status}`;
+
+    // mountActionRoutes only ever returns 405 for one reason: the verb this
+    // call sent doesn't match the action's declared `http.method`. The client
+    // has no way to look that method up ahead of time (defineAction lives in
+    // server-only modules), so callers routinely default to POST and hit this
+    // blind. Name the action and the required method instead of leaving a
+    // bare 405 for the caller to reverse-engineer from a "Use X" string.
+    if (res.status === 405) {
+      const requiredMethod = /\bUse (GET|POST|PUT|DELETE)\b/.exec(message)?.[1];
+      const error = new Error(
+        `Action ${name} was called with ${method}, but it declares ` +
+          `http: { method: "${requiredMethod ?? "?"}" }. Pass { method: "${requiredMethod ?? "..."}" } ` +
+          `to this call (or use the hook that defaults to it) to match the action's declared method.`,
+      );
+      (error as any).status = 405;
+      (error as any).code = "action_method_mismatch";
+      (error as any).sentMethod = method;
+      if (requiredMethod) (error as any).requiredMethod = requiredMethod;
+      throw error;
+    }
+
     const error = new Error(`Action ${name} failed: ${message}`);
     (error as any).status = res.status;
     throw error;
@@ -529,6 +567,7 @@ async function actionFetch<T>(
   params?: Record<string, any>,
   options?: ActionFetchOptions,
 ): Promise<T> {
+  assertAgentNativeApiEnabled(`${method} ${name}`);
   const startedAt = actionTelemetryNow();
   let response: Response | undefined;
   let responseAt: number | undefined;
@@ -642,7 +681,8 @@ export function callAction<
 
 export type KeepaliveActionCallRejectionReason =
   | "body-too-large"
-  | "budget-exhausted";
+  | "budget-exhausted"
+  | "api-disabled";
 
 export type KeepaliveActionCallResult<TResult> =
   | {
@@ -679,6 +719,17 @@ export function tryCallActionKeepalive<
   type R = TResult extends undefined ? ActionResult<TName> : TResult;
   const serializedBody = JSON.stringify(params ?? {});
   const bodyBytes = utf8ByteLength(serializedBody);
+
+  // Reported as a refusal rather than thrown: callers keep the work queued on
+  // `accepted: false`, which is the honest outcome for a surface with no backend.
+  if (agentNativeApiDisabledReason()) {
+    return {
+      accepted: false,
+      bodyBytes,
+      reason: "api-disabled",
+      completion: null,
+    };
+  }
 
   if (bodyBytes > ACTION_KEEPALIVE_BODY_BUDGET_BYTES) {
     return {
@@ -747,6 +798,10 @@ export function useActionQuery<
   >,
 ) {
   type R = TResult extends undefined ? ActionResult<TName> : TResult;
+  // Not `enabled: false` via options: a disabled surface must win over whatever
+  // the caller asked for, and an unfired query reads as "no data" rather than
+  // as an error the UI has to special-case.
+  const apiDisabled = Boolean(agentNativeApiDisabledReason());
   return useQuery<R>({
     queryKey: ["action", actionName, params],
     // Thread React Query's per-fetch AbortSignal into the network request so
@@ -757,6 +812,7 @@ export function useActionQuery<
     retry: defaultActionQueryRetry,
     retryDelay: defaultActionQueryRetryDelay,
     ...options,
+    ...(apiDisabled ? { enabled: false as const } : {}),
   });
 }
 

@@ -35,6 +35,8 @@ let unclaimedBackgroundRunRowsWithStartedAt: Array<{
   has_dispatch_payload?: boolean | number;
 }> = [];
 let runCountRows: Array<{ run_count: number }> = [];
+let prunedRunRows: Array<Record<string, unknown>> = [];
+let postgres = false;
 // claimBackgroundRun CAS simulation: the real DB row only has `dispatch_mode
 // = 'background'` ONCE, so only the FIRST `claimBackgroundRun` UPDATE for a
 // given runId can match the WHERE clause; every subsequent attempt (a
@@ -48,6 +50,10 @@ const mockDb = {
     const rawSql = typeof sql === "string" ? sql : sql.sql;
     const args = typeof sql === "string" ? [] : (sql.args ?? []);
     execCalls.push({ sql: rawSql, args });
+
+    if (/pg_try_advisory_xact_lock/i.test(rawSql)) {
+      return { rows: [{ acquired: true }], rowsAffected: 0 };
+    }
 
     if (
       /SELECT seq,\s*event_data(?:,\s*event_at)?\s+FROM agent_run_events/i.test(
@@ -150,6 +156,9 @@ const mockDb = {
     if (/SELECT dispatch_payload FROM agent_runs WHERE id/i.test(rawSql)) {
       return { rows: dispatchPayloadRows, rowsAffected: 0 };
     }
+    if (/DELETE FROM agent_runs[\s\S]*RETURNING/i.test(rawSql)) {
+      return { rows: prunedRunRows, rowsAffected: prunedRunRows.length };
+    }
     // countRunsForTurn: SELECT COUNT(*) AS run_count FROM agent_runs WHERE thread_id = ? AND turn_id = ?
     if (/SELECT COUNT\(\*\) AS run_count FROM agent_runs/i.test(rawSql)) {
       return { rows: runCountRows, rowsAffected: 0 };
@@ -183,7 +192,7 @@ const mockCaptureError = vi.fn();
 vi.mock("../db/client.js", () => ({
   getDbExec: () => mockDb,
   intType: () => "INTEGER",
-  isPostgres: () => false,
+  isPostgres: () => postgres,
 }));
 
 vi.mock("../server/capture-error.js", () => ({
@@ -251,6 +260,8 @@ describe("run store", () => {
     unclaimedBackgroundRunRows = [];
     unclaimedBackgroundRunRowsWithStartedAt = [];
     runCountRows = [];
+    prunedRunRows = [];
+    postgres = false;
     insertEventBehavior = () => {};
     abortRowsAffected = 1;
     __resetNoRunningRunsProbeForTests();
@@ -905,18 +916,26 @@ describe("run store", () => {
   });
 
   it("keeps errored runs longer than completed runs during cleanup", async () => {
+    prunedRunRows = [
+      {
+        id: "run-completed",
+        status: "completed",
+        completed_at: Date.now() - 2 * 24 * 60 * 60 * 1000,
+        terminal_reason: "done",
+      },
+      {
+        id: "run-errored",
+        status: "errored",
+        completed_at: Date.now() - 8 * 24 * 60 * 60 * 1000,
+        terminal_reason: "error:provider",
+      },
+    ];
     await cleanupOldRuns(24 * 60 * 60 * 1000, 7 * 24 * 60 * 60 * 1000);
 
     const deleteEvents = execCalls.find((call) =>
       /DELETE FROM agent_run_events/i.test(call.sql),
     );
-    expect(deleteEvents?.sql).toContain("status = 'completed'");
-    expect(deleteEvents?.sql).toContain(
-      "status IN ('errored', 'aborted', 'truncated')",
-    );
-    expect(Number(deleteEvents?.args[1])).toBeLessThan(
-      Number(deleteEvents?.args[0]),
-    );
+    expect(deleteEvents?.args).toEqual(["run-completed", "run-errored"]);
 
     const deleteRuns = execCalls.find((call) =>
       /DELETE FROM agent_runs/i.test(call.sql),
@@ -928,6 +947,18 @@ describe("run store", () => {
     expect(Number(deleteRuns?.args[1])).toBeLessThan(
       Number(deleteRuns?.args[0]),
     );
+    expect(deleteRuns?.sql).toContain("LIMIT 200");
+  });
+
+  it("uses a transaction-scoped lease for Postgres cleanup", async () => {
+    postgres = true;
+
+    await cleanupOldRuns(24 * 60 * 60 * 1000);
+
+    const lock = execCalls.find((call) =>
+      /pg_try_advisory_xact_lock/i.test(call.sql),
+    );
+    expect(lock?.args).toEqual(["agent-native:run-outcome-prune"]);
   });
 
   // Fix 2: atomic run lease

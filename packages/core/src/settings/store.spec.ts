@@ -25,8 +25,13 @@ vi.mock("../db/client.js", () => ({
   isPostgres: () => false,
 }));
 
-const { getSetting, putSetting, deleteSetting, mutateSetting } =
-  await import("./store.js");
+const {
+  getSetting,
+  putSetting,
+  deleteSetting,
+  deleteSettingIfValue,
+  mutateSetting,
+} = await import("./store.js");
 
 beforeEach(() => {
   sqlite = new Database(":memory:");
@@ -89,6 +94,19 @@ describe("settings store", () => {
     expect(deleted).toBe(false);
   });
 
+  it("conditionally deletes only the inspected value", async () => {
+    await putSetting("conditional", { value: "old" });
+
+    expect(await deleteSettingIfValue("conditional", { value: "new" })).toBe(
+      false,
+    );
+    expect(await getSetting("conditional")).toEqual({ value: "old" });
+    expect(await deleteSettingIfValue("conditional", { value: "old" })).toBe(
+      true,
+    );
+    expect(await getSetting("conditional")).toBeNull();
+  });
+
   it("preserves every concurrent read-modify-write update", async () => {
     await putSetting("counter", { value: 0 });
 
@@ -115,5 +133,18 @@ describe("settings store", () => {
     );
 
     expect(await getSetting("new-counter")).toEqual({ value: 8 });
+  });
+
+  it("lists and isolates keys by prefix", async () => {
+    await putSetting("builder-connect-pending:a", { expiresAt: 1 });
+    await putSetting("builder-connect-pending:b", { expiresAt: 2 });
+    await putSetting("other:c", { expiresAt: 3 });
+
+    const { listSettingsByPrefix } = await import("./store.js");
+    const rows = await listSettingsByPrefix("builder-connect-pending:");
+    expect(rows.map((row) => row.key).sort()).toEqual([
+      "builder-connect-pending:a",
+      "builder-connect-pending:b",
+    ]);
   });
 });

@@ -1,6 +1,18 @@
 import {
+  getCodeAgentIdForEngine,
+  getCodeAgentPickerOptions,
+  getCodeAgentSelection,
+  groupCodeAgentModelOptions,
+  normalizeModelSelection,
+  readCodeAgentModelSelection,
+  writeCodeAgentModelSelection,
+  type CodeAgentModelOption,
+  type CodeAgentModelSelection as CodeAgentModelSelectionType,
+} from "@agent-native/code-agents-ui";
+import {
   PromptComposer,
   readAgentPromptAttachment,
+  type PromptComposerSubmitOptions,
   type TiptapComposerHandle,
 } from "@agent-native/core/client/composer";
 import {
@@ -14,6 +26,7 @@ import { IconFolder, IconFolderPlus } from "@tabler/icons-react";
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type MouseEvent,
@@ -26,6 +39,7 @@ type QuickPromptOverlayProps = {
     prompt: string,
     attachments: CodeAgentPromptAttachment[],
     cwd?: string,
+    modelSelection?: CodeAgentModelSelectionType,
   ): Promise<void>;
   onDismiss(): void;
   submitting?: boolean;
@@ -138,7 +152,24 @@ export default function QuickPromptOverlay({
   const [projects, setProjects] = useState<CodeAgentProjectFolder[]>([]);
   const [selectedProjectPath, setSelectedProjectPath] = useState("");
   const [projectLoading, setProjectLoading] = useState(true);
+  const [modelOptions, setModelOptions] = useState<CodeAgentModelOption[]>([]);
+  const [modelListLoading, setModelListLoading] = useState(true);
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const [modelSelection, setModelSelection] =
+    useState<CodeAgentModelSelectionType>(() => readCodeAgentModelSelection());
   const effectiveProjectPath = selectedProjectPath || projects[0]?.path || "";
+  const normalizedModelSelection = useMemo(
+    () => normalizeModelSelection(modelSelection, modelOptions),
+    [modelOptions, modelSelection],
+  );
+  const availableModels = useMemo(
+    () => groupCodeAgentModelOptions(modelOptions),
+    [modelOptions],
+  );
+  const availableAgents = useMemo(
+    () => getCodeAgentPickerOptions(modelOptions),
+    [modelOptions],
+  );
 
   useEffect(() => {
     let mounted = true;
@@ -165,6 +196,105 @@ export default function QuickPromptOverlay({
     };
   }, []);
 
+  useEffect(() => {
+    let mounted = true;
+    const api = window.electronAPI?.codeAgents;
+    if (!api) {
+      setModelListLoading(false);
+      return;
+    }
+
+    void api
+      .listModels()
+      .then((result) => {
+        if (!mounted) return;
+        if (result.status === "ok") {
+          setModelOptions(result.models);
+          setModelSelection((current) => {
+            if (current.engine && current.model) return current;
+            if (!result.selected) return current;
+            return {
+              engine: result.selected.engine,
+              model: result.selected.model,
+              effort: result.selected.effort as
+                | CodeAgentModelSelectionType["effort"]
+                | undefined,
+            };
+          });
+        } else {
+          setModelOptions([]);
+        }
+        setModelListLoading(false);
+      })
+      .catch(() => {
+        if (!mounted) return;
+        setModelOptions([]);
+        setModelListLoading(false);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (modelListLoading || modelOptions.length === 0) return;
+    writeCodeAgentModelSelection(normalizedModelSelection);
+  }, [modelListLoading, modelOptions.length, normalizedModelSelection]);
+
+  const handleModelChange = useCallback(
+    (model: string, engine: string) => {
+      setModelSelection((current) => ({
+        engine,
+        model,
+        effort: current.effort ?? normalizedModelSelection.effort,
+      }));
+    },
+    [normalizedModelSelection.effort],
+  );
+
+  const handleAgentChange = useCallback(
+    (agent: string) => {
+      setModelSelection((current) =>
+        getCodeAgentSelection(
+          agent,
+          normalizeModelSelection(current, modelOptions),
+          modelOptions,
+        ),
+      );
+    },
+    [modelOptions],
+  );
+
+  const handleEffortChange = useCallback((effort: string) => {
+    setModelSelection((current) => ({
+      ...current,
+      effort: effort as CodeAgentModelSelectionType["effort"],
+    }));
+  }, []);
+
+  const handleModelPickerOpenChange = useCallback((open: boolean) => {
+    setModelPickerOpen(open);
+    window.electronAPI?.quickPrompt.setPickerOpen(open);
+  }, []);
+
+  useEffect(() => {
+    const unsubscribe = window.electronAPI?.quickPrompt.onHidden(() => {
+      setModelPickerOpen(false);
+    });
+    return unsubscribe;
+  }, []);
+
+  const handleConnectLocalRuntime = useCallback((engine: string) => {
+    const api = window.electronAPI?.codeAgents;
+    if (!api) return;
+    if (engine === "codex-cli") {
+      void api.openCodexLogin();
+      return;
+    }
+    void api.openTerminal();
+  }, []);
+
   const handleProjectSelect = useCallback(async (path: string) => {
     setSelectedProjectPath(path);
     const api = window.electronAPI?.codeAgents;
@@ -186,7 +316,12 @@ export default function QuickPromptOverlay({
   }, []);
 
   const handleSubmit = useCallback(
-    async (text: string, files: File[]) => {
+    async (
+      text: string,
+      files: File[],
+      _references: unknown[],
+      options: PromptComposerSubmitOptions,
+    ) => {
       const prompt = text.trim();
       setSubmitError(null);
       setLocalSubmitting(true);
@@ -194,14 +329,18 @@ export default function QuickPromptOverlay({
         const attachments = await Promise.all(
           files.map((file) => readAgentPromptAttachment(file)),
         );
-        await onSubmit(prompt, attachments, effectiveProjectPath || undefined);
+        await onSubmit(prompt, attachments, effectiveProjectPath || undefined, {
+          engine: options.engine ?? normalizedModelSelection.engine,
+          model: options.model ?? normalizedModelSelection.model,
+          effort: options.effort ?? normalizedModelSelection.effort,
+        });
       } catch (error) {
         setSubmitError(error instanceof Error ? error.message : String(error));
       } finally {
         setLocalSubmitting(false);
       }
     },
-    [effectiveProjectPath, onSubmit],
+    [effectiveProjectPath, normalizedModelSelection, onSubmit],
   );
 
   const handleBackdropMouseDown = useCallback(
@@ -239,7 +378,9 @@ export default function QuickPromptOverlay({
   return (
     <div
       ref={overlayRef}
-      className="quick-prompt-overlay"
+      className={`quick-prompt-overlay${
+        modelPickerOpen ? " quick-prompt-overlay--picker-open" : ""
+      }`}
       role="dialog"
       aria-modal="true"
       aria-label="Prompt"
@@ -254,7 +395,22 @@ export default function QuickPromptOverlay({
         initialText=""
         layoutVariant="hero"
         placeholder="Ask anything…"
-        showModelSelector={false}
+        showModelSelector
+        showAutoModelOption={false}
+        availableAgents={availableAgents}
+        availableModels={availableModels}
+        modelListLoading={modelListLoading}
+        modelSelectorOpen={modelPickerOpen}
+        modelStatusChecksEnabled={false}
+        selectedAgent={getCodeAgentIdForEngine(normalizedModelSelection.engine)}
+        selectedEngine={normalizedModelSelection.engine}
+        selectedEffort={normalizedModelSelection.effort}
+        selectedModel={normalizedModelSelection.model}
+        onAgentChange={handleAgentChange}
+        onConnectLocalRuntime={handleConnectLocalRuntime}
+        onEffortChange={handleEffortChange}
+        onModelChange={handleModelChange}
+        onModelSelectorOpenChange={handleModelPickerOpenChange}
         toolbarSlot={
           <QuickPromptProjectPicker
             loading={projectLoading}

@@ -61,6 +61,7 @@ import {
   changeMemberRoleHandler,
   updateOrgHandler,
   setDomainHandler,
+  setWorkspaceAppDefaultVisibilityHandler,
 } from "./handlers.js";
 import {
   cachedMemberships,
@@ -100,6 +101,20 @@ describe("org handlers", () => {
     expect(call.sql).toContain("LIMIT ? OFFSET ?");
     expect(call.sql).not.toContain("ESCAPE '\\'");
     expect(call.args).toEqual(["org-1", "%alice!%!_bob!!%", 9, 16]);
+  });
+
+  it("rejects malformed workspace app visibility defaults", async () => {
+    await expect(
+      setWorkspaceAppDefaultVisibilityHandler(
+        makeEvent("/_agent-native/org/workspace-app-default-visibility", {
+          visibility: "everyone",
+        }),
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      message: "visibility must be either private or org.",
+    });
+    expect(mockExecute).not.toHaveBeenCalled();
   });
 
   it("returns a total count with a paginated member page", async () => {

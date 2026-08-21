@@ -3,6 +3,7 @@ import { timingSafeEqual } from "node:crypto";
 import type { H3Event } from "h3";
 import { getHeader, readRawBody as h3ReadRawBody } from "h3";
 
+import { getAppConfig } from "../../app-config/index.js";
 import { getDbExec } from "../../db/client.js";
 import type { EnvKeyConfig } from "../../server/create-server.js";
 import { resolveSecret } from "../../server/credential-provider.js";
@@ -51,7 +52,7 @@ function escapeLike(value: string): string {
  * webhook security audit).
  */
 function shouldRefuseWhenSecretMissing(): boolean {
-  if (process.env.AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS === "1") return false;
+  if (getAppConfig().integrations.allowUnverifiedWebhooks) return false;
   return process.env.NODE_ENV === "production";
 }
 

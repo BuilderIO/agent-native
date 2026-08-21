@@ -9,17 +9,36 @@ on:
       - "packages/shared-app-config/**"
   workflow_dispatch:
     inputs:
+      channel:
+        description: "Release channel"
+        required: true
+        default: production
+        type: choice
+        options:
+          - production
+          - nightly
       version:
-        description: "Version to release (e.g. 0.2.0). Leave empty to use package.json version."
+        description: "Stable version to release (e.g. 0.2.0). Required for production; Nightly may use the package.json version."
         required: false
         type: string
 
 permissions:
   contents: write
 
+concurrency:
+  group: desktop-release-${{ github.event_name == 'push' && 'nightly' || inputs.channel || 'production' }}
+  cancel-in-progress: false
+
 env:
-  # Stable patch version for auto-triggered builds. The run number ensures
-  # uniqueness without committing version bumps back to the repository.
+  # Pushes to main are the employee-facing Nightly train. Production is only
+  # released deliberately through workflow_dispatch.
+  RELEASE_CHANNEL: ${{ github.event_name == 'push' && 'nightly' || inputs.channel || 'production' }}
+  AGENT_NATIVE_DESKTOP_RELEASE_CHANNEL: ${{ github.event_name == 'push' && 'nightly' || inputs.channel || 'production' }}
+  EP_PRE_RELEASE: ${{ (github.event_name == 'push' && 'nightly' || inputs.channel || 'production') == 'nightly' }}
+  ELECTRON_APP_ID: ${{ (github.event_name == 'push' && 'nightly' || inputs.channel || 'production') == 'nightly' && 'com.agentnative.desktop.nightly' || 'com.agentnative.desktop' }}
+  ELECTRON_PRODUCT_NAME: ${{ (github.event_name == 'push' && 'nightly' || inputs.channel || 'production') == 'nightly' && 'Agent Native Nightly' || 'Agent Native' }}
+  # Deterministic version for auto-triggered builds: base version from
+  # package.json + run number ensures uniqueness without committing back.
   AUTO_VERSION_SUFFIX: ${{ github.run_number }}
 
 jobs:
@@ -33,36 +52,72 @@ jobs:
       - name: Resolve version
         id: v
         shell: bash
+        env:
+          RELEASE_VERSION_INPUT: ${{ inputs.version }}
         run: |
-          if [ -n "${{ inputs.version }}" ]; then
-            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
-          elif [ "${{ github.event_name }}" = "push" ]; then
-            BASE=$(node -p "require('./packages/desktop-app/package.json').version")
-            # Keep automatic releases on the stable update channel. The
-            # updater and download feed intentionally ignore prereleases. Use
-            # both the run number and remote stable tags so a reset workflow
-            # counter can never move the stable channel backwards.
-            NEXT=$(node -e '
-              const { execFileSync } = require("node:child_process");
-              const [major, minor, patch] = process.argv[1].split(".").map(Number);
-              const runNumber = Number(process.env.AUTO_VERSION_SUFFIX);
-              const tags = execFileSync("git", ["ls-remote", "--tags", "origin", `v${major}.${minor}.*`], { encoding: "utf8" });
-              const stableTag = new RegExp(`refs/tags/v${major}\\.${minor}\\.(\\d+)$`);
-              let releasedPatch = -1;
-              for (const line of tags.split("\\n")) {
-                const match = line.match(stableTag);
-                if (match) releasedPatch = Math.max(releasedPatch, Number(match[1]));
-              }
-              const nextPatch = Math.max(patch + 1, runNumber, releasedPatch + 1);
-              console.log(`${major}.${minor}.${nextPatch}`);
-            ' "$BASE")
-            echo "version=${NEXT}" >> "$GITHUB_OUTPUT"
+          if [ -n "$RELEASE_VERSION_INPUT" ]; then
+            if [ "$RELEASE_CHANNEL" = "nightly" ]; then
+              if [[ "$RELEASE_VERSION_INPUT" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                echo "version=${RELEASE_VERSION_INPUT}-nightly.${AUTO_VERSION_SUFFIX}" >> "$GITHUB_OUTPUT"
+              elif [[ "$RELEASE_VERSION_INPUT" =~ ^[0-9]+\.[0-9]+\.[0-9]+-nightly\.[0-9]+$ ]]; then
+                echo "version=$RELEASE_VERSION_INPUT" >> "$GITHUB_OUTPUT"
+              else
+                echo "::error::Nightly versions must be semver or include the -nightly prerelease marker."
+                exit 1
+              fi
+            else
+              if [[ ! "$RELEASE_VERSION_INPUT" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                echo "::error::Production versions must be an exact stable major.minor.patch version."
+                exit 1
+              fi
+              echo "version=$RELEASE_VERSION_INPUT" >> "$GITHUB_OUTPUT"
+            fi
           else
-            echo "version=$(node -p "require('./packages/desktop-app/package.json').version")" >> "$GITHUB_OUTPUT"
+            if [ "$RELEASE_CHANNEL" = "nightly" ]; then
+              BASE=$(node -p "require('./packages/desktop-app/package.json').version")
+              # Use a prerelease tag rather than build metadata: npm version
+              # silently strips +metadata, which would make release assets
+              # collide across automatic runs.
+              echo "version=${BASE}-nightly.${AUTO_VERSION_SUFFIX}" >> "$GITHUB_OUTPUT"
+            else
+              echo "::error::Production releases require an explicit stable version input."
+              exit 1
+            fi
+          fi
+
+  prepare-release:
+    needs: resolve-version
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create draft release before parallel uploads
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          TAG="v${{ needs.resolve-version.outputs.version }}"
+          if gh release view "$TAG" -R "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; build jobs will upload to it."
+          elif [ "$RELEASE_CHANNEL" = "nightly" ]; then
+            gh release create "$TAG" \
+              --draft \
+              --prerelease \
+              --latest=false \
+              --target "${{ github.sha }}" \
+              --title "Agent Native Nightly v${{ needs.resolve-version.outputs.version }}" \
+              --notes "Auto-updating Nightly build of the Agent Native desktop app." \
+              -R "${{ github.repository }}"
+          else
+            gh release create "$TAG" \
+              --draft \
+              --latest=false \
+              --target "${{ github.sha }}" \
+              --title "Agent Native v${{ needs.resolve-version.outputs.version }}" \
+              --notes "Stable release of the Agent Native desktop app." \
+              -R "${{ github.repository }}"
           fi
 
   build-mac:
-    needs: resolve-version
+    needs: [resolve-version, prepare-release]
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -76,6 +131,41 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Configure Nightly channel
+        if: env.RELEASE_CHANNEL == 'nightly'
+        working-directory: packages/desktop-app
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require("node:fs");
+          const builderPath = "electron-builder.yml";
+          let builder = fs.readFileSync(builderPath, "utf8");
+          builder = builder
+            .replace(
+              /^([ \t]*- name: )Agent Native([ \t]*\r?\n)/m,
+              "$1Agent Native Nightly$2",
+            )
+            .replace(
+              /^([ \t]*- )agentnative([ \t]*\r?\n)/m,
+              "$1agentnative-nightly$2",
+            );
+          if (!/^\s*- agentnative-nightly\s*$/m.test(builder)) {
+            throw new Error("Could not configure the Nightly deep-link scheme.");
+          }
+          fs.writeFileSync(builderPath, builder);
+
+          const updateConfigPath = "desktop-update-config.yml";
+          let updateConfig = fs.readFileSync(updateConfigPath, "utf8");
+          updateConfig = updateConfig.replace(
+            'updaterCacheDirName: "@agent-nativedesktop-app-updater"',
+            'updaterCacheDirName: "@agent-nativedesktop-app-updater-nightly"',
+          );
+          if (!updateConfig.includes("@agent-nativedesktop-app-updater-nightly")) {
+            throw new Error("Could not configure the Nightly updater cache.");
+          }
+          fs.writeFileSync(updateConfigPath, updateConfig);
+          NODE
 
       - name: Set version
         working-directory: packages/desktop-app
@@ -96,6 +186,7 @@ jobs:
 
       - name: Build and publish
         working-directory: packages/desktop-app
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -105,11 +196,15 @@ jobs:
           SENTRY_DESKTOP_CLIENT_KEY: ${{ secrets.SENTRY_DESKTOP_CLIENT_KEY || secrets.SENTRY_CLIENT_KEY }}
           SENTRY_DESKTOP_PROJECT_ID: ${{ secrets.SENTRY_DESKTOP_PROJECT_ID || secrets.SENTRY_PROJECT_ID }}
           SENTRY_DESKTOP_INGEST_HOST: ${{ secrets.SENTRY_DESKTOP_INGEST_HOST || secrets.SENTRY_INGEST_HOST }}
-          SENTRY_DESKTOP_ENVIRONMENT: production
-        run: pnpm build && npx electron-builder --mac --config --publish always
+          SENTRY_DESKTOP_ENVIRONMENT: ${{ env.RELEASE_CHANNEL }}
+        run: |
+          pnpm build:mac-assets && pnpm build
+          npx electron-builder --mac --config --publish always \
+            "-c.appId=$ELECTRON_APP_ID" \
+            "-c.productName=$ELECTRON_PRODUCT_NAME"
 
   build-windows:
-    needs: resolve-version
+    needs: [resolve-version, prepare-release]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -124,23 +219,63 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Configure Nightly channel
+        if: env.RELEASE_CHANNEL == 'nightly'
+        working-directory: packages/desktop-app
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require("node:fs");
+          const builderPath = "electron-builder.yml";
+          let builder = fs.readFileSync(builderPath, "utf8");
+          builder = builder
+            .replace(
+              /^([ \t]*- name: )Agent Native([ \t]*\r?\n)/m,
+              "$1Agent Native Nightly$2",
+            )
+            .replace(
+              /^([ \t]*- )agentnative([ \t]*\r?\n)/m,
+              "$1agentnative-nightly$2",
+            );
+          if (!/^\s*- agentnative-nightly\s*$/m.test(builder)) {
+            throw new Error("Could not configure the Nightly deep-link scheme.");
+          }
+          fs.writeFileSync(builderPath, builder);
+
+          const updateConfigPath = "desktop-update-config.yml";
+          let updateConfig = fs.readFileSync(updateConfigPath, "utf8");
+          updateConfig = updateConfig.replace(
+            'updaterCacheDirName: "@agent-nativedesktop-app-updater"',
+            'updaterCacheDirName: "@agent-nativedesktop-app-updater-nightly"',
+          );
+          if (!updateConfig.includes("@agent-nativedesktop-app-updater-nightly")) {
+            throw new Error("Could not configure the Nightly updater cache.");
+          }
+          fs.writeFileSync(updateConfigPath, updateConfig);
+          NODE
+
       - name: Set version
         working-directory: packages/desktop-app
         run: npm version "${{ needs.resolve-version.outputs.version }}" --no-git-tag-version --allow-same-version
 
       - name: Build and publish
         working-directory: packages/desktop-app
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN || secrets.SENTRY_ELECTRON_DSN || secrets.SENTRY_CLIENT_DSN || secrets.SENTRY_DSN }}
           SENTRY_DESKTOP_CLIENT_KEY: ${{ secrets.SENTRY_DESKTOP_CLIENT_KEY || secrets.SENTRY_CLIENT_KEY }}
           SENTRY_DESKTOP_PROJECT_ID: ${{ secrets.SENTRY_DESKTOP_PROJECT_ID || secrets.SENTRY_PROJECT_ID }}
           SENTRY_DESKTOP_INGEST_HOST: ${{ secrets.SENTRY_DESKTOP_INGEST_HOST || secrets.SENTRY_INGEST_HOST }}
-          SENTRY_DESKTOP_ENVIRONMENT: production
-        run: pnpm build && npx electron-builder --win --config --publish always
+          SENTRY_DESKTOP_ENVIRONMENT: ${{ env.RELEASE_CHANNEL }}
+        run: |
+          pnpm build:chrome-extension && pnpm build
+          npx electron-builder --win --config --publish always \
+            "-c.appId=$ELECTRON_APP_ID" \
+            "-c.productName=$ELECTRON_PRODUCT_NAME"
 
   build-linux:
-    needs: resolve-version
+    needs: [resolve-version, prepare-release]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -155,20 +290,65 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Configure Nightly channel
+        if: env.RELEASE_CHANNEL == 'nightly'
+        working-directory: packages/desktop-app
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require("node:fs");
+          const builderPath = "electron-builder.yml";
+          let builder = fs.readFileSync(builderPath, "utf8");
+          builder = builder
+            .replace(
+              /^([ \t]*- name: )Agent Native([ \t]*\r?\n)/m,
+              "$1Agent Native Nightly$2",
+            )
+            .replace(
+              /^([ \t]*- )agentnative([ \t]*\r?\n)/m,
+              "$1agentnative-nightly$2",
+            );
+          if (!/^\s*- agentnative-nightly\s*$/m.test(builder)) {
+            throw new Error("Could not configure the Nightly deep-link scheme.");
+          }
+          fs.writeFileSync(builderPath, builder);
+
+          const updateConfigPath = "desktop-update-config.yml";
+          let updateConfig = fs.readFileSync(updateConfigPath, "utf8");
+          updateConfig = updateConfig.replace(
+            'updaterCacheDirName: "@agent-nativedesktop-app-updater"',
+            'updaterCacheDirName: "@agent-nativedesktop-app-updater-nightly"',
+          );
+          if (!updateConfig.includes("@agent-nativedesktop-app-updater-nightly")) {
+            throw new Error("Could not configure the Nightly updater cache.");
+          }
+          fs.writeFileSync(updateConfigPath, updateConfig);
+          NODE
+
       - name: Set version
         working-directory: packages/desktop-app
         run: npm version "${{ needs.resolve-version.outputs.version }}" --no-git-tag-version --allow-same-version
 
       - name: Build and publish
         working-directory: packages/desktop-app
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN || secrets.SENTRY_ELECTRON_DSN || secrets.SENTRY_CLIENT_DSN || secrets.SENTRY_DSN }}
           SENTRY_DESKTOP_CLIENT_KEY: ${{ secrets.SENTRY_DESKTOP_CLIENT_KEY || secrets.SENTRY_CLIENT_KEY }}
           SENTRY_DESKTOP_PROJECT_ID: ${{ secrets.SENTRY_DESKTOP_PROJECT_ID || secrets.SENTRY_PROJECT_ID }}
           SENTRY_DESKTOP_INGEST_HOST: ${{ secrets.SENTRY_DESKTOP_INGEST_HOST || secrets.SENTRY_INGEST_HOST }}
-          SENTRY_DESKTOP_ENVIRONMENT: production
-        run: pnpm build && npx electron-builder --linux --config --publish always
+          SENTRY_DESKTOP_ENVIRONMENT: ${{ env.RELEASE_CHANNEL }}
+        run: |
+          pnpm build:chrome-extension && pnpm build
+          LINUX_EXECUTABLE_NAME="agent-native"
+          if [ "$RELEASE_CHANNEL" = "nightly" ]; then
+            LINUX_EXECUTABLE_NAME="agent-native-nightly"
+          fi
+          npx electron-builder --linux --config --publish always \
+            "-c.linux.executableName=$LINUX_EXECUTABLE_NAME" \
+            "-c.appId=$ELECTRON_APP_ID" \
+            "-c.productName=$ELECTRON_PRODUCT_NAME"
 
   publish-release:
     needs: [resolve-version, build-mac, build-windows, build-linux]
@@ -177,4 +357,20 @@ jobs:
       - name: Publish draft release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release edit "v${{ needs.resolve-version.outputs.version }}" --draft=false --latest -R ${{ github.repository }}
+        shell: bash
+        run: |
+          TAG="v${{ needs.resolve-version.outputs.version }}"
+          if [ "$RELEASE_CHANNEL" = "nightly" ]; then
+            gh release edit "$TAG" \
+              --draft=false \
+              --prerelease \
+              --latest=false \
+              --title "Agent Native Nightly v${{ needs.resolve-version.outputs.version }}" \
+              -R "${{ github.repository }}"
+          else
+            gh release edit "$TAG" \
+              --draft=false \
+              --latest \
+              --title "Agent Native v${{ needs.resolve-version.outputs.version }}" \
+              -R "${{ github.repository }}"
+          fi

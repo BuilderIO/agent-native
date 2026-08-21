@@ -9,6 +9,7 @@ export type {
   OrgMember,
   OrgPendingInvitation,
   RequiredAuthProvider,
+  WorkspaceAppDefaultVisibility,
 } from "./types.js";
 
 export {
@@ -74,6 +75,8 @@ export {
   orgMembers,
   orgInvitations,
   appMemberRoles,
+  workspaceApps,
+  workspaceAppShares,
 } from "./schema.js";
 
 // Individual handlers — exported so templates can compose a custom org plugin
@@ -93,6 +96,7 @@ export {
   syncA2ASecretHandler,
   receiveA2ASecretHandler,
   setRequiredAuthProviderHandler,
+  setWorkspaceAppDefaultVisibilityHandler,
 } from "./handlers.js";
 
 export {

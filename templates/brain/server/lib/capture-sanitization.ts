@@ -71,6 +71,7 @@ export interface CaptureSanitizationInput {
     title: string;
     provider: BrainSourceProvider;
     ownerEmail: string;
+    orgId?: string | null;
   };
   sourceConfig?: Record<string, unknown>;
   settings: BrainSettings;
@@ -399,17 +400,6 @@ function buildClassifierSystemPrompt(settings: BrainSettings) {
     .join("\n");
 }
 
-function buildSanitizerUserPrompt(input: CaptureSanitizationInput) {
-  return [
-    `Source provider: ${input.source.provider}`,
-    `Capture title: ${sanitizeSensitiveText(input.title)}`,
-    "Raw capture text to filter:",
-    "```text",
-    input.content,
-    "```",
-  ].join("\n");
-}
-
 function modelInputLimit(input: CaptureSanitizationInput) {
   return (
     numberSetting(input.sourceConfig?.captureSanitizationMaxChars) ??
@@ -451,6 +441,10 @@ async function classifyWithApprovedModel(
     apiKeyEnvVar: userApiKey.apiKeyEnvVar,
     appId: "brain",
     engineOption: engineName,
+    credentialIdentity: {
+      userEmail: input.source.ownerEmail,
+      orgId: input.source.orgId ?? undefined,
+    },
   });
 
   const maxChars = Math.min(

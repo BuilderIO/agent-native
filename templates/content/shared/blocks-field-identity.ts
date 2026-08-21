@@ -4,6 +4,83 @@ export const BLOCKS_FIELD_IDENTITY_VERSION = 1;
 export const BLOCK_TOMBSTONE_REVISION_WINDOW = 20;
 export const MAX_BLOCK_TOMBSTONES_PER_FIELD = 500;
 
+export const BLOCKS_FIELD_BLOCK_KINDS = [
+  "paragraph",
+  "heading",
+  "horizontalRule",
+  "codeBlock",
+  "blockquote",
+  "bulletList",
+  "orderedList",
+  "listItem",
+  "taskList",
+  "taskItem",
+  "notionToggle",
+  "notionCallout",
+  "notionColumns",
+  "notionColumn",
+  "notionSyncedBlock",
+  "table",
+  "tableRow",
+  "tableHeader",
+  "tableCell",
+  "image",
+  "video",
+  "audio",
+  "notionBlockAtom",
+  "registryBlock",
+  "contentReference",
+  "localMdxComponent",
+] as const;
+
+export type BlocksFieldBlockKind = (typeof BLOCKS_FIELD_BLOCK_KINDS)[number];
+export type BlocksFieldBlockOperation =
+  | "insert"
+  | "update"
+  | "upsert"
+  | "delete"
+  | "reorder";
+
+const FULL_BLOCK_OPERATIONS = [
+  "insert",
+  "update",
+  "upsert",
+  "delete",
+  "reorder",
+] as const;
+const ORDER_ONLY_BLOCK_OPERATIONS = ["delete", "reorder"] as const;
+
+export const BLOCKS_FIELD_OPERATION_CAPABILITIES: Readonly<
+  Record<BlocksFieldBlockKind, readonly BlocksFieldBlockOperation[]>
+> = {
+  paragraph: FULL_BLOCK_OPERATIONS,
+  heading: FULL_BLOCK_OPERATIONS,
+  horizontalRule: FULL_BLOCK_OPERATIONS,
+  codeBlock: FULL_BLOCK_OPERATIONS,
+  blockquote: FULL_BLOCK_OPERATIONS,
+  bulletList: [],
+  orderedList: [],
+  listItem: ORDER_ONLY_BLOCK_OPERATIONS,
+  taskList: [],
+  taskItem: ORDER_ONLY_BLOCK_OPERATIONS,
+  notionToggle: FULL_BLOCK_OPERATIONS,
+  notionCallout: FULL_BLOCK_OPERATIONS,
+  notionColumns: FULL_BLOCK_OPERATIONS,
+  notionColumn: FULL_BLOCK_OPERATIONS,
+  notionSyncedBlock: FULL_BLOCK_OPERATIONS,
+  table: FULL_BLOCK_OPERATIONS,
+  tableRow: [],
+  tableHeader: [],
+  tableCell: [],
+  image: FULL_BLOCK_OPERATIONS,
+  video: FULL_BLOCK_OPERATIONS,
+  audio: FULL_BLOCK_OPERATIONS,
+  notionBlockAtom: FULL_BLOCK_OPERATIONS,
+  registryBlock: FULL_BLOCK_OPERATIONS,
+  contentReference: FULL_BLOCK_OPERATIONS,
+  localMdxComponent: FULL_BLOCK_OPERATIONS,
+};
+
 export type BlocksFieldIdentityStatus = "legacy" | "materialized" | "stale";
 
 export interface BlocksFieldBlock {
@@ -46,7 +123,7 @@ export interface StoredBlocksFieldIdentity {
   blocks: StoredBlocksFieldBlock[];
 }
 
-interface BlockSnapshot {
+export interface BlocksFieldBlockSnapshot {
   path: string;
   parentPath: string | null;
   kind: string;
@@ -57,34 +134,7 @@ interface BlockSnapshot {
   preferredId: string | null;
 }
 
-const BLOCK_NODE_TYPES = new Set([
-  "paragraph",
-  "heading",
-  "horizontalRule",
-  "codeBlock",
-  "blockquote",
-  "bulletList",
-  "orderedList",
-  "listItem",
-  "taskList",
-  "taskItem",
-  "notionToggle",
-  "notionCallout",
-  "notionColumns",
-  "notionColumn",
-  "notionSyncedBlock",
-  "table",
-  "tableRow",
-  "tableHeader",
-  "tableCell",
-  "image",
-  "video",
-  "audio",
-  "notionBlockAtom",
-  "registryBlock",
-  "contentReference",
-  "localMdxComponent",
-]);
+const BLOCK_NODE_TYPES = new Set<string>(BLOCKS_FIELD_BLOCK_KINDS);
 
 const NON_ADDRESSABLE_NODE_TYPES = new Set([
   "bulletList",
@@ -133,8 +183,10 @@ function nodeMarkdown(node: PMNode): string {
   return docToNfm({ type: "doc", content: [node] });
 }
 
-function snapshotMarkdown(markdown: string): BlockSnapshot[] {
-  const snapshots: BlockSnapshot[] = [];
+export function snapshotBlocksFieldMarkdown(
+  markdown: string,
+): BlocksFieldBlockSnapshot[] {
+  const snapshots: BlocksFieldBlockSnapshot[] = [];
   const doc = nfmToDoc(markdown);
 
   function visit(nodes: PMNode[] | undefined, parentPath: string | null) {
@@ -172,7 +224,7 @@ function snapshotMarkdown(markdown: string): BlockSnapshot[] {
 
 function deterministicBlockId(
   fieldId: string,
-  snapshot: Pick<BlockSnapshot, "path" | "kind" | "contentHash">,
+  snapshot: Pick<BlocksFieldBlockSnapshot, "path" | "kind" | "contentHash">,
 ): string {
   return `block_${hashString(
     `${fieldId}\0${snapshot.path}\0${snapshot.kind}\0${snapshot.contentHash}`,
@@ -225,7 +277,7 @@ export function legacyBlocksFieldIdentity(args: {
   markdown: string;
 }): BlocksFieldIdentity {
   const fieldId = blocksFieldId(args.documentId, args.propertyId);
-  const snapshots = snapshotMarkdown(args.markdown);
+  const snapshots = snapshotBlocksFieldMarkdown(args.markdown);
   const idByPath = new Map<string, string>();
   const usedIds = new Set<string>();
   const blocks: StoredBlocksFieldBlock[] = snapshots.map((snapshot) => {
@@ -308,9 +360,10 @@ export function reconcileBlocksFieldIdentity(args: {
   previous: StoredBlocksFieldIdentity;
   markdown: string;
   createId: () => string;
+  preferredIdsByPath?: Readonly<Record<string, string>>;
 }): StoredBlocksFieldIdentity {
   const nextRevision = args.previous.revision + 1;
-  const snapshots = snapshotMarkdown(args.markdown);
+  const snapshots = snapshotBlocksFieldMarkdown(args.markdown);
   const previousLive = args.previous.blocks.filter(
     (block) => block.state === "live",
   );
@@ -320,6 +373,21 @@ export function reconcileBlocksFieldIdentity(args: {
   const matchedPrevious = new Set<number>();
   const assigned = new Map<number, StoredBlocksFieldBlock>();
   const usedIds = new Set(args.previous.blocks.map((block) => block.id));
+  const assignedNextIds = new Set<string>();
+
+  const previousLiveById = new Map(
+    previousLive.map((block, index) => [block.id, index]),
+  );
+  for (let nextIndex = 0; nextIndex < snapshots.length; nextIndex++) {
+    const explicitId = args.preferredIdsByPath?.[snapshots[nextIndex]!.path];
+    if (!explicitId) continue;
+    const previousIndex = previousLiveById.get(explicitId);
+    if (previousIndex === undefined || matchedPrevious.has(previousIndex)) {
+      continue;
+    }
+    matchedPrevious.add(previousIndex);
+    assigned.set(nextIndex, previousLive[previousIndex]!);
+  }
 
   const previousExact = uniqueIndexByKey(
     previousLive,
@@ -440,8 +508,9 @@ export function reconcileBlocksFieldIdentity(args: {
   const recoveredIds = new Set<string>();
   const idByPath = new Map<string, string>();
   const nextBlocks = snapshots.map((snapshot, nextIndex) => {
+    const explicitId = args.preferredIdsByPath?.[snapshot.path];
     let previous = assigned.get(nextIndex);
-    if (!previous) {
+    if (!previous && !explicitId) {
       const recoveredIndex = recoverable.get(
         `${snapshot.kind}\0${snapshot.contentHash}`,
       );
@@ -453,16 +522,24 @@ export function reconcileBlocksFieldIdentity(args: {
         }
       }
     }
+    if (explicitId && usedIds.has(explicitId) && explicitId !== previous?.id) {
+      throw new Error(`Preferred Block ID is already reserved: ${explicitId}`);
+    }
     let id =
+      explicitId ??
       previous?.id ??
       fieldScopedBlockId(
         args.previous.fieldId,
         snapshot.preferredId ?? args.createId(),
       );
-    while (usedIds.has(id) && id !== previous?.id) {
+    while (
+      assignedNextIds.has(id) ||
+      (!explicitId && usedIds.has(id) && id !== previous?.id)
+    ) {
       id = fieldScopedBlockId(args.previous.fieldId, args.createId());
     }
     usedIds.add(id);
+    assignedNextIds.add(id);
     idByPath.set(snapshot.path, id);
     return {
       id,
@@ -537,7 +614,7 @@ export function materializeLegacyBlocksFieldIdentity(args: {
   markdown: string;
 }): StoredBlocksFieldIdentity {
   const publicState = legacyBlocksFieldIdentity(args);
-  const snapshots = snapshotMarkdown(args.markdown);
+  const snapshots = snapshotBlocksFieldMarkdown(args.markdown);
   return {
     fieldId: publicState.fieldId,
     revision: 0,

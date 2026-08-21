@@ -7,11 +7,13 @@ const deckRows = [
     data: JSON.stringify({ slides: [{ id: "slide-1" }] }),
     visibility: "private",
     designSystemId: null,
-    ownerEmail: "alice@example.com",
+    ownerEmail: "Alice@Example.com",
     createdAt: "2026-05-03T00:00:00.000Z",
     updatedAt: "2026-05-03T00:00:00.000Z",
   },
 ];
+
+let requestUserEmail = "alice@example.com";
 
 const orderByFn = vi.fn(async () => deckRows);
 const whereFn = vi.fn(() => ({ orderBy: orderByFn }));
@@ -26,6 +28,8 @@ vi.mock("../server/db/index.js", () => ({
       id: "id_col",
       title: "title_col",
       ownerEmail: "owner_email_col",
+      designSystemId: "design_system_id_col",
+      createdAt: "created_at_col",
       updatedAt: "updated_at_col",
       visibility: "visibility_col",
     },
@@ -34,7 +38,7 @@ vi.mock("../server/db/index.js", () => ({
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
-  getRequestUserEmail: () => "alice@example.com",
+  getRequestUserEmail: () => requestUserEmail,
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
@@ -52,6 +56,7 @@ import action from "./list-decks";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  requestUserEmail = "alice@example.com";
   vi.stubEnv("APP_URL", "https://slides.agent.test");
 });
 
@@ -63,16 +68,37 @@ describe("list-decks", () => {
       id: "deck_123",
       title: "Roadmap",
       url: "https://slides.agent.test/deck/deck_123",
-      slideCount: 1,
     });
+    expect(selectFn).toHaveBeenCalledWith({
+      id: "id_col",
+      title: "title_col",
+      ownerEmail: "owner_email_col",
+      designSystemId: "design_system_id_col",
+      createdAt: "created_at_col",
+      updatedAt: "updated_at_col",
+      visibility: "visibility_col",
+    });
+    expect(result.decks[0]).not.toHaveProperty("slideCount");
   });
 
-  it("includes URLs in compact output too", async () => {
+  it("keeps compact output metadata-only", async () => {
     const result = await action.run({ compact: "true" });
 
     expect(result.decks[0]).toMatchObject({
       id: "deck_123",
       url: "https://slides.agent.test/deck/deck_123",
+    });
+    expect(result.decks[0]).not.toHaveProperty("slideCount");
+  });
+
+  it("only reads deck bodies when full slides are explicitly requested", async () => {
+    const result = await action.run({ includeSlides: "true" });
+
+    expect(selectFn).toHaveBeenCalledWith();
+    expect(result.decks[0]).toMatchObject({
+      id: "deck_123",
+      slides: [{ id: "slide-1" }],
+      createdByMe: true,
     });
   });
 
@@ -86,7 +112,13 @@ describe("list-decks", () => {
       title: "title_col",
       updatedAt: "updated_at_col",
       visibility: "visibility_col",
+      ownerEmail: "owner_email_col",
     });
+    expect(result.decks[0]).toMatchObject({
+      id: "deck_123",
+      createdByMe: true,
+    });
+    expect(result.decks[0]).not.toHaveProperty("ownerEmail");
     expect(result.count).toBe(1);
   });
 
@@ -96,8 +128,21 @@ describe("list-decks", () => {
     expect(whereFn).toHaveBeenCalledWith({
       and: [
         { allowed: true },
-        { column: "owner_email_col", value: "alice@example.com" },
+        {
+          strings: ["lower(trim(", ")) = ", ""],
+          values: ["owner_email_col", "alice@example.com"],
+        },
       ],
     });
+  });
+
+  it("does not bypass Mine filtering for a whitespace-only identity", async () => {
+    requestUserEmail = "   ";
+
+    await expect(action.run({ createdBy: "me" })).resolves.toEqual({
+      count: 0,
+      decks: [],
+    });
+    expect(selectFn).not.toHaveBeenCalled();
   });
 });

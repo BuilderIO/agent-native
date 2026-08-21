@@ -23,6 +23,23 @@ jobs:
     timeout-minutes: 5
     outputs:
       docs_only: ${{ steps.scope.outputs.docs_only }}
+      full: ${{ steps.scope.outputs.full }}
+      lint: ${{ steps.scope.outputs.lint }}
+      typecheck: ${{ steps.scope.outputs.typecheck }}
+      workspace_filters: ${{ steps.scope.outputs.workspace_filters }}
+      fast_tests: ${{ steps.scope.outputs.fast_tests }}
+      content: ${{ steps.scope.outputs.content }}
+      core_integration: ${{ steps.scope.outputs.core_integration }}
+      plan_e2e: ${{ steps.scope.outputs.plan_e2e }}
+      brain_evals: ${{ steps.scope.outputs.brain_evals }}
+      brain_privacy: ${{ steps.scope.outputs.brain_privacy }}
+      build: ${{ steps.scope.outputs.build }}
+      trusted_acceptance: ${{ steps.scope.outputs.trusted_acceptance }}
+      scaffold: ${{ steps.scope.outputs.scaffold }}
+      ssr_boot: ${{ steps.scope.outputs.ssr_boot }}
+      guards: ${{ steps.scope.outputs.guards }}
+      drizzle: ${{ steps.scope.outputs.drizzle }}
+      qa_static: ${{ steps.scope.outputs.qa_static }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -44,10 +61,14 @@ jobs:
 
   lint:
     name: Lint & format
+    needs: change-scope
+    if: needs.change-scope.outputs.lint == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
 
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
 
@@ -60,14 +81,45 @@ jobs:
       # builds are required, so skip the postinstall build chain entirely.
       - run: pnpm install --frozen-lockfile --ignore-scripts
 
-      - name: Oxfmt check
-        run: pnpm fmt:check
+      - name: Check the full tree
+        if: needs.change-scope.outputs.full == 'true'
+        run: pnpm fmt:check && pnpm oxlint
 
-      - name: Oxlint
-        run: pnpm oxlint
+      - name: Check changed source files
+        if: needs.change-scope.outputs.full != 'true'
+        env:
+          CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          CI_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          format_files=()
+          lint_files=()
+          while IFS= read -r -d '' file; do
+            [ -f "$file" ] || continue
+            case "$file" in
+              *.ts|*.tsx|*.js|*.jsx|*.mjs|*.cjs|*.mts|*.cts|*.json|*.jsonc|*.css)
+                format_files+=("$file")
+                ;;
+            esac
+            case "$file" in
+              *.ts|*.tsx|*.js|*.jsx|*.mjs|*.cjs|*.mts|*.cts)
+                lint_files+=("$file")
+                ;;
+            esac
+          done < <(git diff --name-only -z "$CI_BASE_SHA...$CI_HEAD_SHA")
+
+          if ((${#format_files[@]} > 0)); then
+            pnpm exec oxfmt --check "${format_files[@]}"
+          fi
+          if ((${#lint_files[@]} > 0)); then
+            pnpm exec oxlint --config .oxlintrc.json --no-error-on-unmatched-pattern "${lint_files[@]}"
+          fi
 
   typecheck:
     name: Typecheck
+    needs: change-scope
+    if: needs.change-scope.outputs.typecheck == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -85,21 +137,33 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - name: Typecheck
-        run: pnpm typecheck
+      - name: Typecheck affected workspaces
+        env:
+          CI_FULL: ${{ needs.change-scope.outputs.full }}
+          CI_WORKSPACE_FILTERS: ${{ needs.change-scope.outputs.workspace_filters }}
+        run: |
+          if [ "$CI_FULL" = "true" ]; then
+            pnpm typecheck
+          else
+            filters=()
+            while IFS= read -r filter; do
+              filters+=(--filter "$filter")
+            done < <(node -e 'for (const filter of JSON.parse(process.env.CI_WORKSPACE_FILTERS)) console.log(filter)')
+            pnpm -r --no-bail --if-present "${filters[@]}" run typecheck
+          fi
 
-  # Non-docs PRs run the full fast-test suite — nothing is change-selected, so a
-  # test can never be silently skipped. Docs-only PRs use the focused docs job
-  # below and the stable Fast tests gate records the intentional skip. The full
-  # suite is split into parallel lanes purely for wall-clock: @agent-native/core
-  # runs isolated and uncapped (test-core), and every other test package is
-  # partitioned across balanced lanes (test-rest) by scripts/ci-test-lanes.ts,
-  # which asserts every package lands in exactly one lane. Adding a package
-  # auto-assigns it; dropping one fails the discover job.
+  # Full-fallback PRs run the complete fast-test suite — nothing is
+  # change-selected, so a test can never be silently skipped. Workspace-scoped
+  # PRs use test-targeted below, and docs-only PRs use the focused docs job.
+  # The full suite is split into parallel lanes purely for wall-clock:
+  # @agent-native/core runs isolated and uncapped (test-core), and every other
+  # test package is partitioned across balanced lanes (test-rest) by
+  # scripts/ci-test-lanes.ts, which asserts every package lands in exactly one
+  # lane. Adding a package auto-assigns it; dropping one fails discover-lanes.
   discover-lanes:
     name: Plan test lanes
     needs: change-scope
-    if: needs.change-scope.outputs.docs_only != 'true'
+    if: needs.change-scope.outputs.full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -118,7 +182,7 @@ jobs:
   test-core:
     name: Fast tests core
     needs: change-scope
-    if: needs.change-scope.outputs.docs_only != 'true'
+    if: needs.change-scope.outputs.full == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -171,7 +235,7 @@ jobs:
   test-rest:
     name: Fast tests ${{ matrix.lane }}
     needs: [change-scope, discover-lanes]
-    if: needs.change-scope.outputs.docs_only != 'true'
+    if: needs.change-scope.outputs.full == 'true'
     runs-on: ubuntu-latest
     # Cap the run so a hung test fails fast instead of pinning a runner for
     # GitHub's 6h default. Slow DB/integration/e2e specs run in separate jobs
@@ -225,11 +289,69 @@ jobs:
           --exclude "**/*.perf.test.ts"
           --exclude "**/create-e2e.spec.ts"
 
+  test-targeted:
+    name: Fast tests targeted workspaces
+    needs: change-scope
+    if: needs.change-scope.outputs.fast_tests == 'true' && needs.change-scope.outputs.full != 'true'
+    runs-on: ubuntu-latest
+    # A core change expands to its dependent workspace graph (currently 38
+    # projects) and runs those packages serially to keep runner memory bounded.
+    # Keep the bounded execution, but allow the graph to finish before treating
+    # a passing test run as a failure. The current serial graph needs more than
+    # 30 minutes on the hosted runner; retain a finite bound for true hangs.
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - name: Restore dist + tsBuildInfo cache
+        uses: ./.github/actions/restore-dist-cache
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Restore Playwright browser cache
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: playwright-${{ runner.os }}-
+
+      - name: Install Playwright Chromium for browser-backed unit tests
+        run: pnpm exec playwright install --only-shell chromium
+
+      - name: Run fast tests for affected workspaces
+        env:
+          CI_WORKSPACE_FILTERS: ${{ needs.change-scope.outputs.workspace_filters }}
+        run: |
+          filters=()
+          while IFS= read -r filter; do
+            filters+=(--filter "$filter")
+          done < <(node -e 'for (const filter of JSON.parse(process.env.CI_WORKSPACE_FILTERS)) console.log(filter)')
+          pnpm -r --no-bail --if-present --workspace-concurrency=1 "${filters[@]}" run test \
+            --exclude "**/*.db.test.ts" \
+            --exclude "**/*.integration.spec.ts" \
+            --exclude "**/*.integration.test.ts" \
+            --exclude "**/*.e2e.spec.ts" \
+            --exclude "**/*.e2e.test.ts" \
+            --exclude "**/e2e/**" \
+            --exclude "**/*.live.spec.ts" \
+            --exclude "**/*.live.test.ts" \
+            --exclude "**/*.perf.spec.ts" \
+            --exclude "**/*.perf.test.ts" \
+            --exclude "**/create-e2e.spec.ts"
+
   # Stable required status check. Point branch protection at "Fast tests" (this
-  # gate), not the per-lane jobs whose names vary with the matrix.
+  # gate), not the per-lane or targeted jobs whose names may vary.
   fast-tests:
     name: Fast tests
-    needs: [change-scope, docs, discover-lanes, test-core, test-rest]
+    needs:
+      [change-scope, docs, discover-lanes, test-core, test-rest, test-targeted]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -242,6 +364,7 @@ jobs:
           DISCOVER_LANES_RESULT: ${{ needs.discover-lanes.result }}
           TEST_CORE_RESULT: ${{ needs.test-core.result }}
           TEST_REST_RESULT: ${{ needs.test-rest.result }}
+          TEST_TARGETED_RESULT: ${{ needs.test-targeted.result }}
         run: |
           if [ "$CHANGE_SCOPE_RESULT" != "success" ]; then
             echo "::error::change-scope did not succeed ($CHANGE_SCOPE_RESULT)"
@@ -253,6 +376,10 @@ jobs:
               exit 1
             fi
             echo "Docs-only change: full fast-test lanes are not required."
+            exit 0
+          fi
+          if [ "$TEST_TARGETED_RESULT" = "success" ]; then
+            echo "Targeted workspace fast tests passed."
             exit 0
           fi
           for dep in "discover-lanes:$DISCOVER_LANES_RESULT" \
@@ -296,7 +423,7 @@ jobs:
   content-parity:
     name: Content parity
     needs: change-scope
-    if: needs.change-scope.outputs.docs_only != 'true'
+    if: needs.change-scope.outputs.content == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -320,7 +447,7 @@ jobs:
   content-db-tests:
     name: Content DB tests
     needs: change-scope
-    if: needs.change-scope.outputs.docs_only != 'true'
+    if: needs.change-scope.outputs.content == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -355,7 +482,7 @@ jobs:
   content-db-postgres-tests:
     name: Content DB PostgreSQL locking
     needs: change-scope
-    if: needs.change-scope.outputs.docs_only != 'true'
+    if: needs.change-scope.outputs.content == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
@@ -397,7 +524,7 @@ jobs:
   core-integration-tests:
     name: Core integration tests
     needs: change-scope
-    if: needs.change-scope.outputs.docs_only != 'true'
+    if: needs.change-scope.outputs.core_integration == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -431,7 +558,7 @@ jobs:
   plan-e2e-tests:
     name: Plan E2E tests
     needs: change-scope
-    if: needs.change-scope.outputs.docs_only != 'true'
+    if: needs.change-scope.outputs.plan_e2e == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -455,7 +582,7 @@ jobs:
   brain-evals:
     name: Brain evals
     needs: change-scope
-    if: needs.change-scope.outputs.docs_only != 'true'
+    if: needs.change-scope.outputs.brain_evals == 'true'
     runs-on: ubuntu-latest
     # Brain evals are offline action/fixture retrieval checks; live LLM evals
     # belong in the gated eval workflow.
@@ -481,7 +608,7 @@ jobs:
   brain-privacy-evals:
     name: Brain privacy leakage evals
     needs: change-scope
-    if: needs.change-scope.outputs.docs_only != 'true'
+    if: needs.change-scope.outputs.brain_privacy == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -505,7 +632,7 @@ jobs:
   build:
     name: Build
     needs: change-scope
-    if: needs.change-scope.result == 'success'
+    if: needs.change-scope.result == 'success' && (needs.change-scope.outputs.docs_only == 'true' || needs.change-scope.outputs.build == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -524,8 +651,19 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - name: Build all packages
-        if: needs.change-scope.outputs.docs_only != 'true'
+        if: needs.change-scope.outputs.full == 'true'
         run: pnpm build
+
+      - name: Build affected workspaces
+        if: needs.change-scope.outputs.build == 'true' && needs.change-scope.outputs.full != 'true'
+        env:
+          CI_WORKSPACE_FILTERS: ${{ needs.change-scope.outputs.workspace_filters }}
+        run: |
+          filters=()
+          while IFS= read -r filter; do
+            filters+=(--filter "$filter")
+          done < <(node -e 'for (const filter of JSON.parse(process.env.CI_WORKSPACE_FILTERS)) console.log(filter)')
+          pnpm -r --no-bail --if-present "${filters[@]}" run build
 
       - name: Build docs site
         if: needs.change-scope.outputs.docs_only == 'true'
@@ -534,7 +672,7 @@ jobs:
   trusted-acceptance:
     name: Trusted acceptance substrate
     needs: change-scope
-    if: needs.change-scope.outputs.docs_only != 'true'
+    if: needs.change-scope.outputs.trusted_acceptance == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -567,7 +705,7 @@ jobs:
   scaffold-e2e:
     name: Scaffold E2E — create + pnpm install
     needs: change-scope
-    if: needs.change-scope.outputs.docs_only != 'true'
+    if: needs.change-scope.outputs.scaffold == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -697,7 +835,7 @@ jobs:
   ssr-boot-smoke:
     name: SSR cold-start smoke
     needs: change-scope
-    if: needs.change-scope.outputs.docs_only != 'true'
+    if: needs.change-scope.outputs.ssr_boot == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -755,6 +893,8 @@ jobs:
 
   guards:
     name: Security guards
+    needs: change-scope
+    if: needs.change-scope.outputs.guards == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -774,6 +914,9 @@ jobs:
       # lifecycle builds; skipping scripts avoids native optional builds here.
       - run: pnpm install --frozen-lockfile --ignore-scripts
 
+      - name: Test production deploy concurrency guard
+        run: pnpm test:netlify-prebuilt-workflow
+
       # Source-backed guards import published-style package entrypoints, so
       # build the workspace packages they inspect before loading locale data.
       - name: Build packages for source-backed guards
@@ -788,6 +931,8 @@ jobs:
 
   guard-no-drizzle-push:
     name: Guard — no drizzle-kit push in build paths
+    needs: change-scope
+    if: needs.change-scope.outputs.drizzle == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -803,6 +948,8 @@ jobs:
 
   qa-static:
     name: QA — static template checks
+    needs: change-scope
+    if: needs.change-scope.outputs.qa_static == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

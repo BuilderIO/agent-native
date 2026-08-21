@@ -12,7 +12,12 @@ import {
   type DashboardPanelQueryResult,
   type DashboardPanelSource,
   runDashboardPanelQuery,
+  type UnsupportedBackendResponse,
 } from "./dashboard-panel-query";
+
+type AnalyticsPanelSourceFailure =
+  | MissingKeyResponse
+  | UnsupportedBackendResponse;
 
 type AnalyticsPanelSourceResolver = PanelSourceResolver<
   DashboardPanelSource,
@@ -35,7 +40,7 @@ function createResolver(
         query: request.query,
         ctx: context,
         ...(timeoutMs !== undefined ? { timeoutMs } : {}),
-      })) as DashboardPanelQueryResult | MissingKeyResponse;
+      })) as DashboardPanelQueryResult | AnalyticsPanelSourceFailure;
     },
   };
 }
@@ -51,8 +56,8 @@ const registry = createPanelSourceResolverRegistry<
 export async function resolveAnalyticsPanelSource(
   request: AnalyticsPanelSourceRequest,
   context: CredentialContext,
-): Promise<PanelSourceResult | MissingKeyResponse> {
+): Promise<PanelSourceResult | AnalyticsPanelSourceFailure> {
   return registry.resolve(request, context) as Promise<
-    PanelSourceResult | MissingKeyResponse
+    PanelSourceResult | AnalyticsPanelSourceFailure
   >;
 }

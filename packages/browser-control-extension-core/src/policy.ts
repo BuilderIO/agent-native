@@ -253,6 +253,8 @@ function parseCommand(value: unknown): BrowserCommand {
     }
     case "navigate":
       return { type, url: nonEmptyString(input.url, "navigate.url", 16_384) };
+    case "open-tab":
+      return { type, url: nonEmptyString(input.url, "open-tab.url", 16_384) };
     case "scroll":
       return {
         type,

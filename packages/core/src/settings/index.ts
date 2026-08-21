@@ -1,8 +1,10 @@
 // Store
 export {
   getSetting,
+  mutateSetting,
   putSetting,
   deleteSetting,
+  deleteSettingIfValue,
   getAllSettings,
   getSettingsEmitter,
   type StoreWriteOptions,

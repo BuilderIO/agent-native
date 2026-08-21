@@ -41,6 +41,10 @@ export default defineAction({
           timezone: meta.timezone ?? null,
           condition: meta.condition ?? null,
           createdBy: meta.createdBy ?? null,
+          updatedAt:
+            Number.isFinite(resource.updatedAt) && resource.updatedAt > 0
+              ? new Date(resource.updatedAt).toISOString()
+              : null,
           canUpdate,
           runs: await listAutomationRuns({
             owners: [resource.owner],

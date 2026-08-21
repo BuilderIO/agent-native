@@ -120,6 +120,29 @@ describe("update-dashboard demo source validation", () => {
     );
   });
 
+  it("rejects a plain data program id before saving a panel", async () => {
+    await expect(
+      updateDashboard.run({
+        dashboardId: "program-test",
+        config: {
+          name: "Program test",
+          panels: [
+            {
+              id: "risk-cohort",
+              title: "Risk cohort",
+              source: "program",
+              sql: "dp_risk_cohort",
+              chartType: "table",
+              width: 1,
+            },
+          ],
+        },
+      }),
+    ).rejects.toThrow(/program descriptor is invalid/);
+
+    expect(mocks.upsertDashboard).not.toHaveBeenCalled();
+  });
+
   it("rejects malformed demo descriptors", async () => {
     await expect(
       updateDashboard.run({

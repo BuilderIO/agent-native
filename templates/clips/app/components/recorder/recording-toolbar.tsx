@@ -3,7 +3,7 @@ import {
   IconPlayerPause,
   IconPlayerPlay,
   IconPlayerStop,
-  IconX,
+  IconTrash,
 } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 
@@ -223,7 +223,7 @@ export function RecordingToolbar({
             className="flex h-9 w-9 items-center justify-center rounded-full hover:bg-white/15"
             aria-label={t("recordingToolbar.cancel")}
           >
-            <IconX className="h-4 w-4" />
+            <IconTrash className="h-4 w-4" />
           </button>
         </TooltipTrigger>
         <TooltipContent>{t("recordingToolbar.cancelShortcut")}</TooltipContent>

@@ -12,6 +12,30 @@ const BROWSER_RENDERABLE_IMAGE_MIME_TYPES = new Set([
   "image/bmp",
 ]);
 
+/**
+ * Validate every image before any upload starts. PPTX imports reject partial
+ * fidelity, so an unsupported image must not leave earlier slide uploads
+ * orphaned when the action eventually throws.
+ */
+export function assertPptxImagesRenderable(
+  slides: readonly ParsedSlide[],
+): void {
+  const unsupported = new Set<string>();
+  for (const slide of slides) {
+    for (const element of slide.elements ?? []) {
+      if (element.kind !== "image" || !element.image) continue;
+      if (!BROWSER_RENDERABLE_IMAGE_MIME_TYPES.has(element.image.mimeType)) {
+        unsupported.add(element.image.mimeType || "unknown");
+      }
+    }
+  }
+  if (unsupported.size > 0) {
+    throw new Error(
+      `Source-faithful PPTX import cannot preserve unsupported image type(s): ${[...unsupported].join(", ")}. No images were uploaded. Re-export the deck with browser-renderable images or use a PDF export for page-faithful preservation.`,
+    );
+  }
+}
+
 export async function uploadPptxSlideImages(args: {
   slide: ParsedSlide;
   slideIndex: number;

@@ -1,6 +1,8 @@
 import { useEffect } from "react";
 import { View, ActivityIndicator } from "react-native";
 
+import { useMobileThemeColors } from "../lib/mobile-colors";
+
 /**
  * Transient screen shown if the agentnative://oauth-complete deep link happens
  * to route here. The real work — applying the token and navigating back to the
@@ -9,6 +11,8 @@ import { View, ActivityIndicator } from "react-native";
  * root handler and consume them first).
  */
 export default function OAuthComplete() {
+  const { foreground } = useMobileThemeColors();
+
   useEffect(() => {
     console.log(
       "[oauth] oauth-complete ROUTE mounted (expo-router routed here)",
@@ -16,7 +20,7 @@ export default function OAuthComplete() {
   }, []);
   return (
     <View className="flex-1 justify-center items-center bg-background-dark">
-      <ActivityIndicator size="large" color="#ffffff" />
+      <ActivityIndicator size="large" color={foreground} />
     </View>
   );
 }

@@ -76,6 +76,28 @@ async function createDatabaseDocument(args: {
   });
 }
 
+async function createPersonalSpace(args: {
+  id: string;
+  name: string;
+  filesDatabaseId: string;
+  ownerEmail?: string;
+}) {
+  const now = new Date().toISOString();
+  await getDb()
+    .insert(schema.contentSpaces)
+    .values({
+      id: args.id,
+      name: args.name,
+      kind: "personal",
+      ownerEmail: args.ownerEmail ?? OWNER,
+      orgId: null,
+      filesDatabaseId: args.filesDatabaseId,
+      createdBy: args.ownerEmail ?? OWNER,
+      createdAt: now,
+      updatedAt: now,
+    });
+}
+
 describe("list-content-databases", () => {
   it("matches database document titles case-insensitively", async () => {
     await createDatabaseDocument({
@@ -110,6 +132,11 @@ describe("list-content-databases", () => {
   });
 
   it("searches user-authored descriptions and returns live identity metadata", async () => {
+    await createPersonalSpace({
+      id: "space-creative",
+      name: "Creative",
+      filesDatabaseId: "space-creative-files",
+    });
     await createDatabaseDocument({
       documentId: "db-doc-described",
       databaseId: "db-described",
@@ -148,6 +175,16 @@ describe("list-content-databases", () => {
   });
 
   it("resolves exact IDs and titles within an exact space", async () => {
+    await createPersonalSpace({
+      id: "space-product",
+      name: "Product",
+      filesDatabaseId: "space-product-files",
+    });
+    await createPersonalSpace({
+      id: "space-other",
+      name: "Other",
+      filesDatabaseId: "space-other-files",
+    });
     await createDatabaseDocument({
       documentId: "db-doc-exact",
       databaseId: "db-exact",
@@ -392,6 +429,42 @@ describe("list-content-databases", () => {
     });
   });
 
+  it("does not discover a shared document from another Personal space", async () => {
+    const otherOwner = "other@example.com";
+    const spaceId = "space-private-other";
+    const documentId = "db-doc-shared-cross-space";
+    await createPersonalSpace({
+      id: spaceId,
+      name: "Other Personal",
+      filesDatabaseId: "other-files-database",
+      ownerEmail: otherOwner,
+    });
+    await createDatabaseDocument({
+      documentId,
+      databaseId: "db-shared-cross-space",
+      title: "Shared document, private space",
+      spaceId,
+      ownerEmail: otherOwner,
+    });
+    await getDb().insert(schema.documentShares).values({
+      id: "share-cross-space-document",
+      resourceId: documentId,
+      principalType: "user",
+      principalId: OWNER,
+      role: "viewer",
+      createdBy: otherOwner,
+      createdAt: new Date().toISOString(),
+    });
+
+    await runWithRequestContext({ userEmail: OWNER }, async () => {
+      const inventory = await listContentDatabasesAction.run({
+        query: "Shared document, private space",
+      });
+      expect(inventory.databases).toEqual([]);
+      expect(inventory.pagination.totalItems).toBe(0);
+    });
+  });
+
   it("preserves unexpected database discovery failures", async () => {
     const discovery = vi
       .spyOn(listContentDatabasesAction, "run")
@@ -487,6 +560,164 @@ describe("list-content-databases", () => {
       expect(
         result.databases.map((database) => database.databaseId),
       ).not.toContain("db-grandchild");
+    });
+  });
+
+  it("finds an exact Personal database and classifies system collections without title or count assumptions", async () => {
+    const spaceId = "content_space_personal_dd0c011c68137c2ae7baa4d672932070";
+    const feedbackDatabaseId = "7uLr3ect3IIm";
+    const feedbackDocumentId = "FJk2OZ1SWcZ9";
+    await createPersonalSpace({
+      id: spaceId,
+      name: "Personal",
+      filesDatabaseId: "system-files-exact",
+    });
+    await createDatabaseDocument({
+      documentId: feedbackDocumentId,
+      databaseId: feedbackDatabaseId,
+      title: "Feedback",
+      spaceId,
+    });
+    await createDatabaseDocument({
+      documentId: "feedback-document-same-name",
+      databaseId: "feedback-database-same-name",
+      title: "Feedback",
+      spaceId,
+    });
+    for (const systemRole of ["files", "favorites", "workspaces"]) {
+      await createDatabaseDocument({
+        documentId: `system-${systemRole}-document-exact`,
+        databaseId: `system-${systemRole}-exact`,
+        title: systemRole === "files" ? "Personal" : systemRole,
+        spaceId,
+        systemRole,
+        hideFromSearch: true,
+      });
+    }
+
+    await runWithRequestContext({ userEmail: OWNER }, async () => {
+      const inventory = await listContentDatabasesAction.run({
+        spaceId,
+        includeSystemCollections: true,
+      });
+      expect(inventory.databases).toContainEqual({
+        databaseId: feedbackDatabaseId,
+        documentId: feedbackDocumentId,
+        title: "Feedback",
+        spaceId,
+        description: "",
+      });
+      expect(
+        new Set(
+          inventory.systemCollections?.map(
+            (collection) => collection.systemRole,
+          ),
+        ),
+      ).toEqual(new Set(["files", "favorites", "workspaces"]));
+      await expect(
+        listContentDatabasesAction.run({
+          spaceId,
+          databaseId: feedbackDatabaseId,
+        }),
+      ).resolves.toEqual({
+        databases: [
+          {
+            databaseId: feedbackDatabaseId,
+            documentId: feedbackDocumentId,
+            title: "Feedback",
+            spaceId,
+            description: "",
+          },
+        ],
+        pagination: {
+          offset: 0,
+          limit: 50,
+          totalItems: 1,
+          returnedItems: 1,
+          hasMore: false,
+          nextOffset: null,
+        },
+      });
+    });
+
+    await runWithRequestContext(
+      { userEmail: "managed-channel@integration.local" },
+      async () => {
+        await expect(
+          listContentDatabasesAction.run({
+            spaceId,
+            databaseId: feedbackDatabaseId,
+          }),
+        ).rejects.toThrow(/Not authorized for Content space/);
+        await expect(
+          listContentDatabasesAction.run({
+            spaceId,
+            includeSystemCollections: true,
+          }),
+        ).rejects.toThrow(/Not authorized for Content space/);
+      },
+    );
+  });
+
+  it("does not inventory system collections from an archived space", async () => {
+    const spaceId = "content-space-archived-system-inventory";
+    await createPersonalSpace({
+      id: spaceId,
+      name: "Archived Personal",
+      filesDatabaseId: "archived-files-database",
+    });
+    await createDatabaseDocument({
+      documentId: "archived-files-document",
+      databaseId: "archived-files-database",
+      title: "Archived Personal",
+      spaceId,
+      systemRole: "files",
+      hideFromSearch: true,
+    });
+    await createDatabaseDocument({
+      documentId: "archived-ordinary-document",
+      databaseId: "archived-ordinary-database",
+      title: "Archived ordinary database",
+      spaceId,
+    });
+    await getDb()
+      .update(schema.contentSpaces)
+      .set({ archivedAt: new Date().toISOString() })
+      .where(eq(schema.contentSpaces.id, spaceId));
+
+    await runWithRequestContext({ userEmail: OWNER }, async () => {
+      await expect(
+        listContentDatabasesAction.run({
+          spaceId,
+          includeSystemCollections: true,
+        }),
+      ).rejects.toThrow(/not found/);
+    });
+  });
+
+  it("does not inventory databases whose referenced space is missing", async () => {
+    const spaceId = "missing-space";
+    await createDatabaseDocument({
+      documentId: "orphaned-ordinary-document",
+      databaseId: "orphaned-ordinary-database",
+      title: "Orphaned ordinary database",
+      spaceId,
+    });
+    await createDatabaseDocument({
+      documentId: "orphaned-system-document",
+      databaseId: "orphaned-system-database",
+      title: "Orphaned files",
+      spaceId,
+      systemRole: "files",
+    });
+
+    await runWithRequestContext({ userEmail: OWNER }, async () => {
+      await expect(
+        listContentDatabasesAction.run({
+          spaceId,
+          includeSystemCollections: true,
+        }),
+      ).rejects.toThrow(/not found/);
     });
   });
 });

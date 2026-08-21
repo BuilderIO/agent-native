@@ -23,6 +23,7 @@ import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import {
+  OTHER_INBOX_TAB_PARAM,
   resolvePinnedLabels,
   pinnedTriageLabels,
   augmentSelfSentLabels,
@@ -30,6 +31,8 @@ import {
 } from "@/lib/inbox-tabs";
 import { groupIntoThreads, type ThreadSummary } from "@/lib/threads";
 import { cn } from "@/lib/utils";
+
+import { shouldShowInboxZero } from "./inbox-zero";
 
 function ContactPanel({
   emailId,
@@ -258,6 +261,7 @@ export function InboxPage() {
   const { data: settings } = useSettings();
   const [searchParams] = useSearchParams();
   const activeLabel = searchParams.get("label");
+  const activeInboxTab = searchParams.get("tab");
   const routeSearchSuffix = searchParams.toString()
     ? `?${searchParams.toString()}`
     : "";
@@ -302,6 +306,10 @@ export function InboxPage() {
     view === "inbox" &&
     mailLabelsInclude(triageLabels, activeLabel);
   const clientSliceTab = isPinnedTab && !searchQuery;
+  const isOtherTab =
+    view === "inbox" &&
+    activeInboxTab === OTHER_INBOX_TAB_PARAM &&
+    !searchQuery;
   const effectiveLabel = clientSliceTab
     ? undefined
     : (activeLabel ?? undefined);
@@ -315,6 +323,7 @@ export function InboxPage() {
     hasNextPage,
     fetchNextPage,
     isFetchingNextPage,
+    isFetchNextPageError,
   } = useEmails(view, searchQuery, effectiveLabel);
   const hasEmailData = rawEmails !== undefined;
   const emailListLoading =
@@ -346,12 +355,7 @@ export function InboxPage() {
       return filterInboxTabEmails(filtered, activeLabel, pinnedLabels);
     }
     // "Other" tab — the inbox remainder, same partition as its badge.
-    if (
-      !searchQuery &&
-      view === "inbox" &&
-      !activeLabel &&
-      triageLabels.length > 0
-    ) {
+    if (isOtherTab) {
       return filterInboxTabEmails(filtered, null, pinnedLabels);
     }
 
@@ -404,6 +408,7 @@ export function InboxPage() {
     view,
     searchQuery,
     activeLabel,
+    isOtherTab,
     clientSliceTab,
     pinnedLabels,
     triageLabels,
@@ -416,7 +421,10 @@ export function InboxPage() {
   // Clear multi-selection when switching views or label tabs. Do NOT clear on
   // threadId changes — shift+j/k in detail view navigates between threads while
   // extending the selection, so selection must persist across thread nav.
-  useEffect(() => setSelectedIds(new Set()), [view, activeLabel]);
+  useEffect(
+    () => setSelectedIds(new Set()),
+    [view, activeLabel, activeInboxTab],
+  );
 
   // Sync current navigation state to file (write-only, so agent can read it)
   const searchQ = searchParams.get("q") ?? undefined;
@@ -427,10 +435,22 @@ export function InboxPage() {
       focusedEmailId: focusedId ?? undefined,
       search: searchQ,
       label: activeLabel ?? undefined,
+      activeInboxTab: activeInboxTab ?? undefined,
+      activeAccounts:
+        activeAccounts.size > 0 ? Array.from(activeAccounts) : undefined,
       selectedThreadIds:
         selectedThreadIds.length > 0 ? selectedThreadIds : undefined,
     });
-  }, [view, threadId, focusedId, searchQ, activeLabel, selectedThreadIds]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [
+    view,
+    threadId,
+    focusedId,
+    searchQ,
+    activeLabel,
+    activeInboxTab,
+    activeAccounts,
+    selectedThreadIds,
+  ]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // One-shot agent navigation: agent writes navigate.json, UI reads it, navigates, deletes it
   const { data: navCommand } = navState.command;
@@ -590,16 +610,17 @@ export function InboxPage() {
 
   const isMobile = useIsMobile();
   const hasThread = !!threadId;
-  const showsScenicInboxZero =
-    view === "inbox" && (!activeLabel || activeLabel === "important");
-  const isInboxZero =
-    showsScenicInboxZero &&
-    hasEmailData &&
-    !emailListLoading &&
-    !isError &&
-    !hasThread &&
-    !searchQuery &&
-    threads.length === 0;
+  const isInboxZero = shouldShowInboxZero({
+    view,
+    activeLabel,
+    hasEmailData,
+    isLoading: emailListLoading,
+    isError,
+    hasThread,
+    searchQuery,
+    threadCount: threads.length,
+    hasNextPage: Boolean(hasNextPage),
+  });
   const [sidebarContactEmail, setSidebarContactEmail] = useState<
     string | undefined
   >();
@@ -680,6 +701,7 @@ export function InboxPage() {
             hasNextPage={hasNextPage}
             fetchNextPage={fetchNextPage}
             isFetchingNextPage={isFetchingNextPage}
+            isFetchNextPageError={isFetchNextPageError}
           />
         )}
       </div>

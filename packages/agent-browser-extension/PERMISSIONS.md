@@ -22,8 +22,9 @@
 - `nativeMessaging`: connects the shared engine to Agent Native Desktop only
   when no usable paired relay is available.
 - `alarms`: retries Desktop and wakes the direct relay fallback.
-- `tabs`: follows the current page, resolves user-shared page handles, and
-  revalidates an assigned control tab's exact origin.
+- `tabs`: follows the current page, resolves user-shared page handles,
+  revalidates an assigned control tab's exact origin, and creates requested
+  control tabs with `active: false`.
 
 A usable paired relay is canonical for side-panel browser sessions: the
 extension disconnects or skips Native Messaging before advertising relay

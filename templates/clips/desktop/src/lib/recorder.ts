@@ -84,6 +84,7 @@ import {
   type NativeRecordingRequestOptions,
 } from "./recording-request";
 import {
+  boundedCleanup,
   guardRecordingStart,
   RECORDING_START_TIMEOUT_MS,
   RecordingStartCancelledError,
@@ -1991,14 +1992,6 @@ function isCountdownCancelledError(err: unknown) {
   );
 }
 
-function isRegionSelectionCancelledError(err: unknown) {
-  return (
-    err instanceof Error &&
-    err.name === "AbortError" &&
-    /region selection/i.test(err.message)
-  );
-}
-
 function normalizeRegionCaptureRect(value: unknown): RegionCaptureRect | null {
   if (!value || typeof value !== "object") return null;
   const rect = value as Partial<RegionCaptureRect>;
@@ -2748,7 +2741,7 @@ async function tryStartRewindFullscreenRecording(
       },
       async countdown() {
         console.log("[rewind-latency] countdown shown after preparation");
-        await invoke("hide_preparing").catch(() => {});
+        await boundedCleanup(invoke("hide_preparing"));
         // Overlap whisper startup with the countdown so the capture boundary
         // never waits on it, but have both settled before activation.
         await Promise.all([
@@ -2792,7 +2785,7 @@ async function tryStartRewindFullscreenRecording(
       });
     }
   } catch (err) {
-    await invoke("hide_preparing").catch(() => {});
+    await boundedCleanup(invoke("hide_preparing"));
     transcriptionAborted = true;
     // Cast: `transcriptionCapture` is only assigned inside the
     // `startRewindTranscription` closure, which TS's control-flow analysis
@@ -4090,7 +4083,7 @@ export async function startRecording(
       },
     });
   } catch (err) {
-    await invoke("hide_recording_chrome").catch(() => {});
+    await boundedCleanup(invoke("hide_recording_chrome"));
     const e = err as { name?: string; message?: string } | null;
     console.error(
       "[clips-recorder] startRecording threw:",

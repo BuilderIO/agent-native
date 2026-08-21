@@ -233,13 +233,185 @@ describe("Builder MDX conversion", () => {
     const changedId = structuredClone(authoredBlocks);
     changedId[0]!.id = "authored-text-2";
     expect(builderBlocksHash(changedText)).not.toBe(baseline);
-    expect(builderBlocksHash(changedId)).not.toBe(baseline);
+    expect(builderBlocksHash(changedId)).toBe(baseline);
 
     const authoredZeroSizeImage = builderTrackingPixel("authored-image");
     authoredZeroSizeImage.properties.src = "https://example.com/pixel.gif";
     expect(
       builderBlocksHash([...authoredBlocks, authoredZeroSizeImage]),
     ).not.toBe(baseline);
+  });
+
+  it("omits generated Builder tracking pixels from hydrated body content", async () => {
+    const authoredZeroSizeImage = builderTrackingPixel("authored-image");
+    authoredZeroSizeImage.properties.src = "https://example.com/pixel.gif";
+    const entry: BuilderContentEntry = {
+      id: "tracking-body",
+      model: "blog-article",
+      data: {
+        blocks: [
+          {
+            id: "authored-text",
+            "@type": "@builder.io/sdk:Element",
+            component: {
+              name: "Text",
+              options: { text: "<p>Authored body.</p>" },
+            },
+          },
+          builderTrackingPixel("generated-pixel"),
+          authoredZeroSizeImage,
+        ],
+      },
+    };
+
+    const readable = await builderEntryToReadableMdxBundle(entry);
+    expect(readable.mdx.body).toContain("Authored body.");
+    expect(readable.mdx.body).not.toContain("generated-pixel");
+    expect(readable.mdx.body).toContain("authored-image");
+  });
+
+  it("hashes Builder references by identity instead of volatile enrichment", () => {
+    const reference = {
+      "@type": "@builder.io/core:Reference",
+      id: "author-1",
+      model: "blog-author",
+      value: {
+        id: "author-1",
+        data: {
+          name: "Ada",
+          generatedTracking: builderTrackingPixel("first-enrichment"),
+        },
+      },
+    };
+    const blocks = [
+      {
+        id: "authored-text-1",
+        "@type": "@builder.io/sdk:Element",
+        component: {
+          name: "Text",
+          options: { text: "<p>Authored body.</p>", author: reference },
+        },
+      },
+    ];
+    const baseline = builderBlocksHash(blocks);
+    const reenriched = structuredClone(blocks);
+    reenriched[0]!.component.options.author.value = {
+      id: "author-1",
+      data: {
+        name: "Ada Lovelace",
+        generatedTracking: builderTrackingPixel("next-enrichment"),
+      },
+    };
+    expect(builderBlocksHash(reenriched)).toBe(baseline);
+
+    const changedReferenceId = structuredClone(blocks);
+    changedReferenceId[0]!.component.options.author.id = "author-2";
+    expect(builderBlocksHash(changedReferenceId)).not.toBe(baseline);
+
+    const changedReferenceModel = structuredClone(blocks);
+    changedReferenceModel[0]!.component.options.author.model = "guest-author";
+    expect(builderBlocksHash(changedReferenceModel)).not.toBe(baseline);
+  });
+
+  it("ignores nested generated tracking pixels without hiding nested authored content", () => {
+    const blocks = [
+      {
+        id: "authored-container",
+        "@type": "@builder.io/sdk:Element",
+        children: [
+          {
+            id: "authored-text-1",
+            "@type": "@builder.io/sdk:Element",
+            component: {
+              name: "Text",
+              options: { text: "<p>Nested authored body.</p>" },
+            },
+          },
+          builderTrackingPixel("nested-first-response"),
+        ],
+      },
+    ];
+    const baseline = builderBlocksHash(blocks);
+    const regeneratedPixel = structuredClone(blocks);
+    regeneratedPixel[0]!.children[1] = builderTrackingPixel(
+      "nested-next-response",
+    );
+    expect(builderBlocksHash(regeneratedPixel)).toBe(baseline);
+
+    const changedNestedText = structuredClone(blocks);
+    const nestedText = changedNestedText[0]!.children[0] as {
+      component: { options: { text: string } };
+    };
+    nestedText.component.options.text = "<p>Actually changed nested body.</p>";
+    expect(builderBlocksHash(changedNestedText)).not.toBe(baseline);
+  });
+
+  it("ignores regenerated Builder element ids and symbol revisions", () => {
+    const blocks = [
+      {
+        id: "symbol-wrapper-first",
+        "@type": "@builder.io/sdk:Element",
+        component: {
+          name: "Symbol",
+          options: {
+            symbol: {
+              content: {
+                rev: "first-revision",
+                data: {
+                  blocks: [
+                    {
+                      id: "symbol-text-first",
+                      "@type": "@builder.io/sdk:Element",
+                      component: {
+                        name: "Text",
+                        options: { text: "<p>Symbol body.</p>" },
+                      },
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      },
+    ];
+    const baseline = builderBlocksHash(blocks);
+    const regenerated = structuredClone(blocks);
+    regenerated[0]!.id = "symbol-wrapper-next";
+    regenerated[0]!.component.options.symbol.content.rev = "next-revision";
+    regenerated[0]!.component.options.symbol.content.data.blocks[0]!.id =
+      "symbol-text-next";
+    expect(builderBlocksHash(regenerated)).toBe(baseline);
+
+    const changedText = structuredClone(regenerated);
+    changedText[0]!.component.options.symbol.content.data.blocks[0]!.component.options.text =
+      "<p>Actually changed symbol body.</p>";
+    expect(builderBlocksHash(changedText)).not.toBe(baseline);
+  });
+
+  it("preserves authored nested ids and revisions", () => {
+    const blocks = [
+      {
+        id: "tabs-wrapper",
+        "@type": "@builder.io/sdk:Element",
+        component: {
+          name: "Tabbed Content",
+          options: {
+            tabs: [{ id: "overview", label: "Overview" }],
+            revision: { rev: "authored-revision" },
+          },
+        },
+      },
+    ];
+    const baseline = builderBlocksHash(blocks);
+    const changedTabId = structuredClone(blocks);
+    changedTabId[0]!.component.options.tabs[0]!.id = "details";
+    expect(builderBlocksHash(changedTabId)).not.toBe(baseline);
+
+    const changedAuthoredRevision = structuredClone(blocks);
+    changedAuthoredRevision[0]!.component.options.revision.rev =
+      "next-authored-revision";
+    expect(builderBlocksHash(changedAuthoredRevision)).not.toBe(baseline);
   });
 
   it.each([

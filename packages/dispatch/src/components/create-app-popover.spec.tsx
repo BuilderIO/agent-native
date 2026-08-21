@@ -216,6 +216,26 @@ describe("CreateAppFlow", () => {
     ).toBe(false);
   });
 
+  it("reuses an empty local chat for direct dev-mode app creation", async () => {
+    devState.isDevMode = true;
+
+    await renderAndSubmit("Build a quality dashboard");
+
+    expect(sendToAgentChatMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        submit: true,
+        type: "code",
+        newTab: true,
+        reuseEmptyTab: true,
+      }),
+    );
+    expect(
+      fetchSpy.mock.calls.some(([input]) =>
+        String(input).includes("start-workspace-app-creation"),
+      ),
+    ).toBe(false);
+  });
+
   it("opens a fresh local chat when the server hands off app creation", async () => {
     startWorkspaceAppCreationResponse.result = {
       mode: "local-agent",

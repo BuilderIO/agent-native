@@ -37,6 +37,22 @@ cookie**. Each separately hosted app still creates and owns its own local
 session. Dispatch proves the user's identity at the app's front door, and the
 app then continues with its normal local auth and access checks.
 
+## Mobile and app-scoped embed sessions {#mobile-embed-sessions}
+
+Mobile chat and Dispatch panes use a different contract from MCP-hosted iframe
+embeds. The mobile client first authenticates the parent session, then requests
+an app-scoped, one-time embed ticket for the target workspace app. The ticket
+is exchanged at the target app's embed-start endpoint for a short-lived local
+embed session and is consumed once. It is not a reusable bearer token, is not
+placed in a long-lived URL, and does not grant access to another app.
+
+This flow lets a mobile WebView or Dispatch pane open a target app while the
+target app still owns its session and authorization checks. A missing, expired,
+replayed, or cross-app ticket must fail closed; it must not be treated as an
+anonymous session or silently fall back to the parent bearer. The `embed
+session` described in [MCP Apps](/docs/mcp-apps) is a separate MCP-host iframe
+feature and is not this mobile handoff contract.
+
 The packaged Desktop Canary is deliberately more explicit: it never intercepts
 anonymous app sign-in navigation. The user chooses workspace sign-in once in
 Desktop Settings; Desktop then provisions every currently eligible registered
@@ -352,13 +368,20 @@ Desktop leaves ordinary per-app sign-in, sign-out, and Settings unchanged.
 Canonical hosted apps recognize the packaged Desktop request and ordinary web
 browsers without requiring `AGENT_NATIVE_IDENTITY_HUB_URL` on every deployment;
 self-hosted apps still require that explicit configuration.
-Stable Desktop builds do not initialize the broker until a later release is
-separately approved.
+Every Desktop build may initialize the broker when the per-device
+`desktopSsoEnabled` preference is true (the default); an explicit persisted
+`false` remains an opt-out. The `desktop.workspace-sso` Dispatch flag must also
+be enabled. The Canary user-agent marker no longer gates broker initialization;
+it only identifies the update channel.
 The Canary user-agent marker is an availability hint, not remote attestation;
 the server cannot infer code signature from HTTP. No authentication or
 authorization decision trusts it. Supervised acceptance therefore binds the
 tested client through the signed artifact's exact commit, manifest, hashes, and
 notarization evidence.
+
+For an eligible registered app, Desktop presents the workspace sign-in surface
+over the app's sign-in flow. If the rollout is unavailable or the app is not
+eligible, ordinary per-app sign-in remains available.
 
 ## Self-hosting {#self-hosting}
 

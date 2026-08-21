@@ -13,24 +13,21 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-const editorSource = readFileSync(
-  new URL("../DesignEditor.tsx", import.meta.url),
+const commitVisualStylesSource = readFileSync(
+  new URL("./commands/commit-visual-styles.ts", import.meta.url),
   "utf8",
 );
 
 function commitVisualStylesSection(): string {
-  const start = editorSource.indexOf("const commitVisualStyles = useCallback(");
-  const end = editorSource.indexOf(
-    "const commitStylesToSelectedLayers = useCallback(",
-    start,
+  expect(commitVisualStylesSource).toContain(
+    "export function runCommitVisualStyles(",
   );
-  expect(start).toBeGreaterThanOrEqual(0);
-  expect(end).toBeGreaterThan(start);
-  return editorSource.slice(start, end);
+  return commitVisualStylesSource;
 }
 
 describe("localhost style commit route order", () => {
-  const LOCALHOST_ROUTE = 'if (activeCanvasSourceType === "localhost") {';
+  const LOCALHOST_ROUTE =
+    "if (isRunningAppSourceType(activeCanvasSourceType)) {";
   const RUNTIME_ONLY_REFUSAL =
     "if (!targetNode && elementInfoIsRuntimeOnly(targetInfo)) {";
 

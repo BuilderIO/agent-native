@@ -1,3 +1,4 @@
+import { withSsrHtmlContentType } from "@agent-native/core/shared";
 import {
   redirect,
   useLoaderData,
@@ -33,16 +34,20 @@ export async function loader({ params, request, url }: LoaderFunctionArgs) {
   const requestUrl = url ?? new URL(request.url);
 
   if (locale === DEFAULT_DOCS_LOCALE) {
-    throw redirect(docsPathForSlug(slug, DEFAULT_DOCS_LOCALE), 301);
+    throw withSsrHtmlContentType(
+      redirect(docsPathForSlug(slug, DEFAULT_DOCS_LOCALE), 301),
+    );
   }
 
   const target = DOCS_SLUG_REDIRECTS[slug];
   if (target) {
-    throw redirect(docsPathForSlug(target, locale), 301);
+    throw withSsrHtmlContentType(
+      redirect(docsPathForSlug(target, locale), 301),
+    );
   }
 
   if (requestUrl.pathname.startsWith("/docs/")) {
-    throw redirect(docsPathForSlug(slug, locale), 301);
+    throw withSsrHtmlContentType(redirect(docsPathForSlug(slug, locale), 301));
   }
 
   const doc = await loadDocRespectingDraftVisibility(slug, locale);

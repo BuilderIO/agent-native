@@ -71,6 +71,7 @@ const messages = {
     status: "État",
     coverage: "Couverture",
     reason: "Motif",
+    updatedAt: "Mis à jour",
     detailTitle: "Détail de la décision",
     selectItem:
       "Sélectionnez un élément pour inspecter ses preuves et décisions.",
@@ -102,6 +103,8 @@ const messages = {
     slackChannelPlaceholder: "Par exemple : C0123456789",
     slackChannelName: "Nom du canal",
     slackChannelNamePlaceholder: "Par exemple : product-agent-native-feedback",
+    builderSlackUserId: "ID de membre Slack @Builder.io",
+    builderSlackUserIdPlaceholder: "Par exemple : U096KN3EL2Y",
     repository: "Dépôt",
     repositoryPlaceholder: "Par exemple : BuilderIO/agent-native",
     enablePolling: "Activer le sondage des observations chaque minute",
@@ -172,6 +175,7 @@ const messages = {
     rulesTab: "Règles",
     automationsTab: "Automatisations",
     agentsTab: "Agents",
+    factorySettings: "Paramètres Factory",
     agenticAppsTitle: "Applications agentiques",
     agenticAppsEmpty:
       "Aucune application agentique dans cet espace de travail.",
@@ -213,6 +217,48 @@ const messages = {
     auditUxImpact: "Impact UX",
     auditOwnerArea: "Domaine responsable",
     auditGuardsLabel: "Gardes",
+    historyTab: "Historique",
+    historyTitle: "Versions enregistrées",
+    historyLoading: "Chargement des versions enregistrées",
+    historyLoadError: "Impossible de charger l’historique de Factory.",
+    historyEmpty: "Aucune version enregistrée pour le moment",
+    historyEmptyHint:
+      "Enregistrez le graphe visuel une fois pour que Factory conserve chaque version ici et permette de l’examiner ou de la restaurer.",
+    historyVersion: "Version {{version}}",
+    historyCurrent: "Actuelle",
+    historySource: "Source",
+    historySourceManual: "Éditeur visuel",
+    historySourceAi: "Proposition de l’agent",
+    historySourceSeed: "Version initiale Factory",
+    historySourceRestore: "Restauration",
+    historySourceSaved: "Graphe enregistré",
+    historyNodes: "Nœuds",
+    historyConnections: "Connexions",
+    historyChangeSummary: "Résumé du changement",
+    historyNoSummary: "Aucun résumé du changement n’a été enregistré.",
+    historyCurrentHint: "C’est la version actuellement utilisée par Factory.",
+    historyRestore: "Restaurer cette version",
+    historyRestoreTitle: "Restaurer la version {{version}} ?",
+    historyRestoreDescription:
+      "Factory créera une nouvelle version actuelle à partir de cet instantané. Les versions existantes resteront disponibles dans l’historique.",
+    historyRestoreUnsaved:
+      "Vous avez également des changements visuels non enregistrés. La restauration les supprimera.",
+    historyCancel: "Annuler",
+    historyRestoreConfirm: "Restaurer la version",
+    historyRestored:
+      "Version restaurée. Une nouvelle version actuelle a été créée.",
+    historyRestoreFailed: "Impossible de restaurer cette version de Factory.",
+    historyRestoreConflict:
+      "Factory a changé pendant la restauration. Consultez l’historique actualisé avant de réessayer.",
+    historyRefreshFailed:
+      "La version a été restaurée, mais la vue Factory n’a pas pu être actualisée.",
+    historyLoadOlder: "Charger les versions précédentes",
+    historySnapshotLoadError:
+      "Impossible de charger l’aperçu de cette version.",
+    historyRestoreUnverified:
+      "La restauration est terminée, mais son résultat n’a pas pu être vérifié. Actualisez l’historique avant de réessayer.",
+    saveConflictFallback:
+      "Factory a changé pendant l’enregistrement. Actualisez Factory et réessayez.",
     automationsTitle: "Automatisations",
     automationsDescription: "Planifiez et exécutez les prompts de la factory.",
     automationsLoading: "Chargement des automatisations...",
@@ -232,12 +278,15 @@ const messages = {
     automationSchedulePlaceholder: "Par exemple, chaque jour ouvré à 9 h",
     automationEnabledLabel: "L’automatisation est activée",
     automationPrompt: "Prompt",
+    automationLastUpdated: "dernière mise à jour",
     automationPromptPlaceholder:
       "Que doit faire la factory lors de l’exécution ?",
     promptEditorHint: "Modifiez ici, puis enregistrez l’automatisation.",
     pastRuns: "Exécutions précédentes",
     pastRunsEmpty: "Aucune exécution enregistrée.",
     saveAutomation: "Enregistrer",
+    automationSaved: "Enregistré",
+    automationSaveFailed: "Impossible d'enregistrer l'automatisation.",
     runNow: "Exécuter maintenant",
     automationHealthTitle: "État du planificateur",
     automationHealthDescription:
@@ -327,6 +376,10 @@ const messages = {
     addComment: "Ajouter un commentaire",
     savingGraph: "Enregistrement du graphe...",
     saveGraph: "Enregistrer les modifications de la factory",
+    saveConflictHint:
+      "Vos modifications non enregistrées sont conservées. Supprimez-les pour charger la version plus récente de Factory.",
+    discardLocalChanges:
+      "Supprimer les modifications locales et charger la version actuelle",
     savedGraph: "La factory est enregistrée",
     saveNote:
       "Enregistre une nouvelle version. Les exécutions existantes conservent leur contexte d’origine.",

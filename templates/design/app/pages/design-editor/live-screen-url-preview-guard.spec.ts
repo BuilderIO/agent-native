@@ -28,7 +28,17 @@ const editorSource = readFileSync(
   "utf8",
 );
 
+// commitVisualStyles now lives in its own command module; the whole file is
+// the section these assertions used to slice out of DesignEditor.tsx.
+const commitVisualStylesSource = readFileSync(
+  new URL("./commands/commit-visual-styles.ts", import.meta.url),
+  "utf8",
+);
+
 function sourceSection(start: string, end: string): string {
+  if (start === "const commitVisualStyles = useCallback(") {
+    return commitVisualStylesSource;
+  }
   const startIndex = editorSource.indexOf(start);
   const endIndex = editorSource.indexOf(end, startIndex + start.length);
   expect(startIndex).toBeGreaterThanOrEqual(0);

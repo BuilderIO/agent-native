@@ -17,6 +17,7 @@ import {
 
 import { buildMarkdownResponseHeaders } from "../../../core/src/agent-web/index";
 import { wrapDocumentResponse } from "../../lib/analytics";
+import { applyDocsSsrCacheKeyHeaders } from "../../lib/ssr-cache";
 
 const SITE_URL = "https://www.agent-native.com";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -66,9 +67,9 @@ export default async function docsPageHandler(event: H3Event) {
 
 function setSsrCacheHeaders(event: H3Event) {
   // Keep docs-only public text/markdown assets on the same framework SSR cache
-  // policy as HTML and React Router .data. Do not move these back to
-  // netlify.toml: core owns the browser/CDN/Netlify durable header set so every
-  // provider and template gets the same long-fresh/long-SWR edge behavior.
+  // policy as HTML and React Router .data. Core owns the headers for function
+  // responses; prerendered HTML is served statically and is covered by the
+  // matching public SWR rules generated into the Netlify publish directory.
   for (const [name, value] of Object.entries(resolveSsrCacheHeaders())) {
     setHeader(event, name, value);
   }
@@ -100,9 +101,10 @@ function appendVary(headers: Headers, value: string) {
       headers.set("vary", `${existing}, ${value}`);
     }
   }
-  for (const [k, v] of Object.entries(resolveSsrCacheKeyHeaders())) {
-    headers.set(k, v);
-  }
+  // Core has already promoted query-preserving HTML redirects to a full
+  // query cache key. Keep that stronger key when adding Docs' Accept variant;
+  // replacing it here would collapse distinct redirect targets again.
+  applyDocsSsrCacheKeyHeaders(headers);
 }
 
 function readAgentWebAssetForRequest(

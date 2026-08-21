@@ -27,7 +27,6 @@ import type {
 import {
   CREATABLE_DOCUMENT_PROPERTY_TYPES,
   DOCUMENT_PROPERTY_TYPE_LABELS,
-  DOCUMENT_PROPERTY_VISIBILITY_LABELS,
   DOCUMENT_PROPERTY_VISIBILITIES,
   defaultPropertyOptions,
   documentPropertyDateIncludesTime,
@@ -54,7 +53,6 @@ import {
   IconCircleChevronDown,
   IconCircleDotted,
   IconClockFilled,
-  IconClock,
   IconCopy,
   IconEdit,
   IconEye,
@@ -102,7 +100,6 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import {
@@ -2162,9 +2159,6 @@ function PersonValueEditor({
   const [query, setQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const currentUserEmail = session?.email?.trim() ?? "";
-  const currentUserLabel = currentUserEmail
-    ? personLabel(currentUserEmail)
-    : "";
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => inputRef.current?.focus());

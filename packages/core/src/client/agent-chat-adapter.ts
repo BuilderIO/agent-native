@@ -3,6 +3,8 @@ import type { ChatModelAdapter, ChatModelRunResult } from "@assistant-ui/react";
 
 import { actionPreparationContinuationNote } from "../agent/action-continuation-guidance.js";
 import {
+  formatLlmCredentialErrorMessage,
+  isLlmCredentialError,
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "../agent/engine/credential-errors.js";
@@ -10,6 +12,7 @@ import type {
   AgentChatStructuredContentPart,
   AgentChatStructuredMessage,
 } from "../agent/types.js";
+import { ANALYTICS_CLIENT_PLATFORM_HEADER } from "../shared/analytics-platform.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import {
   clearPendingTurnIfMatches,
@@ -20,6 +23,7 @@ import {
   clearActiveRunIfMatches,
   setPendingTurn,
 } from "./active-run-state.js";
+import { getAnalyticsClientPlatform } from "./analytics-platform.js";
 import { getOrCreateAnalyticsSessionId } from "./analytics-session.js";
 import { captureError } from "./analytics.js";
 import { agentNativePath } from "./api-path.js";
@@ -139,8 +143,33 @@ const MAX_HISTORY_ATTACHMENT_CHARS = 60_000;
 // the trailing truncation notice still makes a pathological multi-MB paste
 // visibly (not silently) capped.
 const MAX_OUTBOUND_ATTACHMENT_CHARS = 200_000;
-const MAX_HISTORY_MESSAGES = 24;
+// An array-length backstop, NOT the reduction policy. Reducing a long thread is
+// Observational Memory's job: it folds older turns into observations/reflections
+// and replaces the raw prefix with a memory block plus a recent-raw window
+// (agent/observational-memory/). But its Observer only engages once a thread
+// passes 30k unobserved tokens, and a count cap of 24 bit long before that — so
+// turns were evicted from the request while compaction still had nothing to say
+// about them, and only reached the model again once thread_data was observed a
+// turn or more later. The two char budgets below are the real bound (they cap
+// what a request can carry regardless of message count); this cap only keeps the
+// array from growing without limit.
+const MAX_HISTORY_MESSAGES = 80;
+// Every provider prompt cache matches a byte-identical PREFIX. A window that
+// ends at the newest message and starts MAX_HISTORY_MESSAGES back moves its
+// START by one message per turn, so from the first turn past the cap onward no
+// cached prefix ever matches again and the whole conversation is re-billed at
+// full write price on every turn — the cache breakpoints the engines place
+// (system prefix, last tool, last user message) cannot save a prefix whose
+// first bytes changed. Quantizing where the window starts holds those bytes
+// identical for a stride of turns, so one turn in STRIDE pays the write and the
+// rest read. The window then holds up to MAX + STRIDE - 1 messages; the char
+// budgets below, not the message count, are what bound the payload.
+const HISTORY_WINDOW_STRIDE = 8;
 const MAX_HISTORY_TOTAL_CHARS = 64_000;
+// Budget for everything actually said in the thread — every user ask and every
+// assistant conclusion. Separate from MAX_HISTORY_TOTAL_CHARS, which bounds the
+// tool args/results those turns produced. See limitPriorMessagesForRequest.
+const MAX_HISTORY_WORD_CHARS = 32_000;
 const MAX_HISTORY_MESSAGE_CHARS = 12_000;
 const MAX_HISTORY_TOOL_ARGS_CHARS = 8_000;
 const MAX_HISTORY_TOOL_RESULT_CHARS = 12_000;
@@ -285,6 +314,29 @@ const BACKGROUND_TERMINAL_REASON_MESSAGES: Record<string, string> = {
   turn_continuation_budget_exhausted:
     "This request needed more automatic continuations than allowed and was stopped. Try breaking it into smaller steps.",
 };
+
+/**
+ * Re-decide the mapped copy for whoever is reading it.
+ *
+ * The map above is client-authored copy for a server-produced code, and for the
+ * credential reasons that duplicates a decision the server already makes with
+ * `formatLlmCredentialErrorMessage({ visitorFacing })` — without the one input
+ * the decision needs. Earlier notes called this an unfixable residual gap on the
+ * grounds that the client cannot know the lane; the framing was wrong, because
+ * the lane is a fact about the deployment that the run snapshot can carry
+ * (`deploymentPaysForAi` on `/runs/active`). Everything else in the map is
+ * background-handoff copy that reads the same to either party.
+ */
+function laneAwareTerminalReasonMessage(
+  mapped: string | undefined,
+  terminalReason: string,
+  deploymentPaysForAi: boolean,
+): string | undefined {
+  if (!mapped || !isLlmCredentialError(mapped, terminalReason)) return mapped;
+  return formatLlmCredentialErrorMessage({
+    visitorFacing: deploymentPaysForAi,
+  });
+}
 
 /**
  * `agent_runs.terminal_reason` values that mark a CHUNK boundary, not the end
@@ -981,23 +1033,39 @@ function limitPriorMessagesForRequest<
     attachments?: readonly AssistantUiAttachment[];
   },
 >(messages: readonly T[]): T[] {
-  const recent = messages.slice(-MAX_HISTORY_MESSAGES);
+  const overflow = Math.max(0, messages.length - MAX_HISTORY_MESSAGES);
+  const recent = messages.slice(
+    Math.floor(overflow / HISTORY_WINDOW_STRIDE) * HISTORY_WINDOW_STRIDE,
+  );
   const kept: T[] = [];
-  let totalChars = 0;
+  let words = 0;
+  let payload = 0;
 
   for (let i = recent.length - 1; i >= 0; i--) {
     const message = recent[i];
     if (message.role !== "user" && message.role !== "assistant") continue;
-    const cost = estimateHistoryMessageCost(message);
-    if (kept.length > 0 && totalChars + cost > MAX_HISTORY_TOTAL_CHARS) {
-      break;
-    }
-    kept.push(message);
-    totalChars += cost;
+    // What was said is cheap and cannot be re-derived; what a tool returned is
+    // ~97% of a tool-heavy turn and can always be re-read. Pricing both against
+    // one budget let a single read-heavy turn evict the whole conversation, so
+    // the agent re-derived the same answer and re-asked the same question.
+    const wordCost = messageTextForHistory(message).length;
+    if (kept.length > 0 && words + wordCost > MAX_HISTORY_WORD_CHARS) continue;
+    const payloadCost = estimateHistoryMessageCost(message) - wordCost;
+    const affordsPayload = payload + payloadCost <= MAX_HISTORY_TOTAL_CHARS;
+    const content = affordsPayload
+      ? message.content
+      : message.content.filter((part) => part.type === "text");
+    if (!content.length) continue;
+    kept.push(affordsPayload ? message : { ...message, content });
+    words += wordCost;
+    if (affordsPayload) payload += payloadCost;
   }
 
   kept.reverse();
-  while (kept.length > 0 && kept[0].role !== "user") {
+  // Stop before emptying: this rule exists to start history on a user turn for
+  // providers that require it, not to license sending no history at all. It was
+  // the last step that turned an over-budget turn into a blank conversation.
+  while (kept.length > 1 && kept[0].role !== "user") {
     kept.shift();
   }
   return kept;
@@ -1717,15 +1785,29 @@ function isMissingCredentialMessage(message: string): boolean {
   );
 }
 
+function isMissingProviderErrorMessage(
+  message: string,
+  errorCode?: string,
+): boolean {
+  const text = message.toLowerCase();
+  const code = (errorCode ?? "").toLowerCase();
+  return (
+    text.includes("no llm provider") ||
+    text.includes("missing credentials") ||
+    text.includes("missing api key") ||
+    text.includes("missing_api_key") ||
+    ((code === "missing_credentials" || code === "missing_api_key") &&
+      text.includes("llm provider"))
+  );
+}
+
 function missingCredentialFailure(message: string): {
-  text: string;
   runError: { message: string; errorCode: string };
 } {
   try {
     const parsed = JSON.parse(message) as {
       error?: unknown;
       message?: unknown;
-      upgradeUrl?: unknown;
       errorCode?: unknown;
     };
     const raw =
@@ -1737,13 +1819,10 @@ function missingCredentialFailure(message: string): {
     const errorCode =
       typeof parsed.errorCode === "string"
         ? parsed.errorCode
-        : "missing_credentials";
+        : isMissingCredentialMessage(raw)
+          ? "missing_credentials"
+          : "authentication_error";
     return {
-      text: formatChatErrorText(
-        raw,
-        typeof parsed.upgradeUrl === "string" ? parsed.upgradeUrl : undefined,
-        errorCode,
-      ),
       runError: {
         message: normalizeChatError(raw).message,
         errorCode,
@@ -1751,10 +1830,11 @@ function missingCredentialFailure(message: string): {
     };
   } catch {
     return {
-      text: formatChatErrorText(message, undefined, "missing_credentials"),
       runError: {
         message: normalizeChatError(message).message,
-        errorCode: "missing_credentials",
+        errorCode: isMissingCredentialMessage(message)
+          ? "missing_credentials"
+          : "authentication_error",
       },
     };
   }
@@ -1776,6 +1856,8 @@ export interface CreateAgentChatAdapterOptions {
   modelRef?: { current: string | undefined };
   engineRef?: { current: string | undefined };
   effortRef?: { current: ReasoningEffort | undefined };
+  harnessRef?: { current: string | undefined };
+  hostedHarnessRef?: { current: boolean };
   execModeRef?: { current: "build" | "plan" | undefined };
   browserTabId?: string;
   scopeRef?: { current: ChatThreadScope | null | undefined };
@@ -1863,6 +1945,8 @@ export function createAgentChatAdapter(
   const modelRef = options?.modelRef;
   const engineRef = options?.engineRef;
   const effortRef = options?.effortRef;
+  const harnessRef = options?.harnessRef;
+  const hostedHarnessRef = options?.hostedHarnessRef;
   const execModeRef = options?.execModeRef;
   const browserTabId = options?.browserTabId;
   const scopeRef = options?.scopeRef;
@@ -1967,7 +2051,9 @@ export function createAgentChatAdapter(
       // Queued turns carry the model/engine/effort they were composed with.
       // The refs track the live picker, so without this a queue that flushes
       // after the user switches models runs under the wrong one.
-      const runConfigSelection = (key: "model" | "engine" | "effort") => {
+      const runConfigSelection = (
+        key: "model" | "engine" | "effort" | "harness",
+      ) => {
         const raw =
           runConfig?.custom && typeof runConfig.custom === "object"
             ? (runConfig.custom as Record<string, unknown>)[key]
@@ -1979,6 +2065,9 @@ export function createAgentChatAdapter(
       const effort =
         (runConfigSelection("effort") as ReasoningEffort | undefined) ??
         effortRef?.current;
+      const harness = hostedHarnessRef?.current
+        ? (runConfigSelection("harness") ?? harnessRef?.current)
+        : undefined;
       const requestedTurnId = (() => {
         const raw =
           runConfig?.custom && typeof runConfig.custom === "object"
@@ -2060,6 +2149,14 @@ export function createAgentChatAdapter(
             activeRun.runId === runId)
         );
       };
+      const clearOwnedActiveRun = () => {
+        if (!ownsActiveRunState()) return;
+        if (threadId && runId) {
+          clearActiveRunIfMatches(threadId, runId);
+        } else {
+          clearActiveRun();
+        }
+      };
       // The adapter's own stream outranks AssistantChat's reconnect fallback:
       // when it attaches to a run, any reconnect reader folding the same run
       // must stop writing UI state or both folds render at once.
@@ -2068,6 +2165,18 @@ export function createAgentChatAdapter(
         if (threadId && runId) {
           preemptRunStream(threadId, runId, streamOwnershipToken);
         }
+      };
+      let terminalChatUiStopped = false;
+      const publishTerminalChatUiStopped = () => {
+        if (terminalChatUiStopped) return;
+        terminalChatUiStopped = true;
+        if (typeof window === "undefined") return;
+        dispatchTerminalChatUiCleanup(tabId);
+        window.dispatchEvent(
+          new CustomEvent("agentNative.chatRunning", {
+            detail: { isRunning: false, tabId },
+          }),
+        );
       };
       const settleTerminalChatRun = () => {
         if (threadId && runId) {
@@ -2079,13 +2188,7 @@ export function createAgentChatAdapter(
         } else {
           clearActiveRun();
         }
-        if (typeof window === "undefined") return;
-        dispatchTerminalChatUiCleanup(tabId);
-        window.dispatchEvent(
-          new CustomEvent("agentNative.chatRunning", {
-            detail: { isRunning: false, tabId },
-          }),
-        );
+        publishTerminalChatUiStopped();
       };
       const seenRunSeqs = new Map<string, number>();
       const preparingActionStatesByRun = new Map<
@@ -2438,11 +2541,14 @@ export function createAgentChatAdapter(
         } catch {
           // Analytics session unavailable — traces just lose replay linkage.
         }
+        headers[ANALYTICS_CLIENT_PLATFORM_HEADER] =
+          getAnalyticsClientPlatform();
         // Surface hint — the server uses this to keep code-editing dev tools
         // out of the app-rendered sidebar. The outer dev frame passes
         // "dev-frame" explicitly; the reusable in-product chat defaults to
         // "app" even when it is running in Desktop or inside a preview iframe.
         headers["x-agent-native-surface"] = surface;
+        if (harness) headers["x-agent-native-hosted-harness"] = "1";
 
         const reconnectCurrentRun = async function* (): AsyncGenerator<
           ChatModelRunResult,
@@ -2460,7 +2566,7 @@ export function createAgentChatAdapter(
               );
               if (!reconnectRes.ok || !reconnectRes.body) {
                 if (reconnectRes.status === 404) {
-                  clearActiveRun();
+                  clearOwnedActiveRun();
                   return false;
                 }
                 lastReconnectError = new Error(
@@ -2506,7 +2612,7 @@ export function createAgentChatAdapter(
                 yield nextResult;
               }
               if (ownsActiveRunState()) {
-                clearActiveRun();
+                clearOwnedActiveRun();
               }
               return true;
             } catch (reconnectErr: unknown) {
@@ -2514,7 +2620,7 @@ export function createAgentChatAdapter(
                 reconnectErr instanceof Error &&
                 reconnectErr.name === "AbortError"
               ) {
-                clearActiveRun();
+                clearOwnedActiveRun();
                 return true;
               }
               if (reconnectErr instanceof AgentAutoContinueSignal) {
@@ -2593,7 +2699,7 @@ export function createAgentChatAdapter(
                 activeErr instanceof Error &&
                 activeErr.name === "AbortError"
               ) {
-                clearActiveRun();
+                clearOwnedActiveRun();
                 return true;
               }
               lastActiveRunError = activeErr;
@@ -2676,7 +2782,7 @@ export function createAgentChatAdapter(
                   activeErr instanceof Error &&
                   activeErr.name === "AbortError"
                 ) {
-                  clearActiveRun();
+                  clearOwnedActiveRun();
                   return true;
                 }
                 lastActiveRunError = activeErr;
@@ -2724,17 +2830,23 @@ export function createAgentChatAdapter(
           settleInterruptedToolCalls(content, undefined, {
             includeActivity: true,
           });
-          content.push({
-            type: "text",
-            text: formatChatErrorText(args.message, undefined, args.errorCode),
-          });
+          if (!isMissingProviderErrorMessage(args.message, args.errorCode)) {
+            content.push({
+              type: "text",
+              text: formatChatErrorText(
+                args.message,
+                undefined,
+                args.errorCode,
+              ),
+            });
+          }
           settleTerminalChatRun();
           yield {
             content: [...content],
             status: { type: "incomplete" as const, reason: "error" as const },
             metadata: { custom: { ...(runId ? { runId } : {}), runError } },
           } as ChatModelRunResult;
-          clearActiveRun();
+          clearOwnedActiveRun();
         };
 
         // Final outcome for a background turn the follow loop can no longer
@@ -2769,7 +2881,7 @@ export function createAgentChatAdapter(
                 },
               },
             } as ChatModelRunResult;
-            clearActiveRun();
+            clearOwnedActiveRun();
             return;
           }
           // terminal_reason is either a bare reason ("dispatch_payload_missing")
@@ -2777,7 +2889,11 @@ export function createAgentChatAdapter(
           const hasErrorTerminalReason = rawTerminalReason.startsWith("error:");
           const terminalReason = rawTerminalReason.replace(/^error:/, "");
           const mappedMessage = terminalReason
-            ? BACKGROUND_TERMINAL_REASON_MESSAGES[terminalReason]
+            ? laneAwareTerminalReasonMessage(
+                BACKGROUND_TERMINAL_REASON_MESSAGES[terminalReason],
+                terminalReason,
+                lastKnown?.deploymentPaysForAi === true,
+              )
             : undefined;
           const mappedErrorCode =
             terminalReason === "missing_api_key" ||
@@ -2785,31 +2901,44 @@ export function createAgentChatAdapter(
               ? LLM_MISSING_CREDENTIALS_ERROR_CODE
               : terminalReason;
 
-          if (mappedMessage) {
-            yield* emitBackgroundTerminalError({
-              message: mappedMessage,
-              errorCode: mappedErrorCode,
-              details: `terminal_reason: ${rawTerminalReason}`,
-            });
-            return;
-          }
-
           if (hasErrorTerminalReason) {
-            if (lastRecoverableRunError) {
+            // Never REPLACE the wording the server chose for this failure: a
+            // deployment that pays for its own AI answers whoever is chatting
+            // with one visitor line, and the map only knows the owner copy.
+            // Only the captured error whose code IS the terminal reason is that
+            // wording — an earlier auto-recoverable error in the same run is
+            // stale (the cursor reset only clears it when the followed run
+            // changes), and letting it outrank the terminal reason reports a
+            // transient blip for a run that died of something else.
+            const serverChosenError =
+              lastRecoverableRunError?.errorCode === terminalReason
+                ? lastRecoverableRunError
+                : null;
+            if (serverChosenError) {
               yield* emitBackgroundTerminalError({
-                message: lastRecoverableRunError.message,
+                message: serverChosenError.message,
                 errorCode:
-                  lastRecoverableRunError.errorCode ||
+                  serverChosenError.errorCode ||
                   mappedErrorCode ||
                   "background_run_failed",
-                details: lastRecoverableRunError.details,
+                details: serverChosenError.details,
               });
               return;
             }
             yield* emitBackgroundTerminalError({
               message:
+                mappedMessage ??
                 "The agent's background run failed before its final response could be recovered. You can retry from the preserved chat context.",
               errorCode: mappedErrorCode || "background_run_failed",
+              details: `terminal_reason: ${rawTerminalReason}`,
+            });
+            return;
+          }
+
+          if (mappedMessage) {
+            yield* emitBackgroundTerminalError({
+              message: mappedMessage,
+              errorCode: mappedErrorCode,
               details: `terminal_reason: ${rawTerminalReason}`,
             });
             return;
@@ -2835,7 +2964,7 @@ export function createAgentChatAdapter(
                 },
               },
             } as ChatModelRunResult;
-            clearActiveRun();
+            clearOwnedActiveRun();
             return;
           }
 
@@ -2943,16 +3072,16 @@ export function createAgentChatAdapter(
               }
               settleTerminalChatRun();
               yield missingFinalResponseResult;
-              clearActiveRun();
+              clearOwnedActiveRun();
               return "completed";
             }
             // readSSEStream returned normally: a terminal done/error was
             // consumed and rendered — the turn is over.
-            clearActiveRun();
+            clearOwnedActiveRun();
             return "completed";
           } catch (attachErr: unknown) {
             if (attachErr instanceof Error && attachErr.name === "AbortError") {
-              clearActiveRun();
+              clearOwnedActiveRun();
               return "aborted";
             }
             if (attachErr instanceof AgentAutoContinueSignal) {
@@ -3129,7 +3258,7 @@ export function createAgentChatAdapter(
 
           while (true) {
             if (abortSignal.aborted) {
-              clearActiveRun();
+              clearOwnedActiveRun();
               return "completed";
             }
             if (
@@ -3171,7 +3300,7 @@ export function createAgentChatAdapter(
               }
             } catch (pollErr: unknown) {
               if (pollErr instanceof Error && pollErr.name === "AbortError") {
-                clearActiveRun();
+                clearOwnedActiveRun();
                 return "completed";
               }
               activeUnreadable = true;
@@ -3180,7 +3309,7 @@ export function createAgentChatAdapter(
               // Unreadable: learn nothing, decide nothing, wait and re-ask.
               await delay(BACKGROUND_FOLLOW_POLL_INTERVAL_MS, abortSignal);
               if (abortSignal.aborted) {
-                clearActiveRun();
+                clearOwnedActiveRun();
                 return "completed";
               }
               continue;
@@ -3277,7 +3406,7 @@ export function createAgentChatAdapter(
                   const graceOutcome =
                     await awaitBackgroundErrorRecoverySuccessor(activeRunId);
                   if (graceOutcome === "aborted") {
-                    clearActiveRun();
+                    clearOwnedActiveRun();
                     return "completed";
                   }
                   if (graceOutcome === "successor") {
@@ -3411,7 +3540,7 @@ export function createAgentChatAdapter(
                     refetchErr instanceof Error &&
                     refetchErr.name === "AbortError"
                   ) {
-                    clearActiveRun();
+                    clearOwnedActiveRun();
                     return "completed";
                   }
                   secondOpinionUnreadable = true;
@@ -3530,7 +3659,7 @@ export function createAgentChatAdapter(
             );
             await delay(nextPollDelayMs, abortSignal);
             if (abortSignal.aborted) {
-              clearActiveRun();
+              clearOwnedActiveRun();
               return "completed";
             }
           }
@@ -3699,7 +3828,7 @@ export function createAgentChatAdapter(
           includeReferences = Boolean(runConfig?.custom?.references);
           internalContinuationRequest = true;
           startupRecoveryAttempts = 0;
-          clearActiveRun();
+          clearOwnedActiveRun();
           if (!isTransient) {
             return {
               ok: true,
@@ -3759,6 +3888,7 @@ export function createAgentChatAdapter(
                   ...(model ? { model } : {}),
                   ...(engine ? { engine } : {}),
                   ...(effort ? { effort } : {}),
+                  ...(harness ? { harness: { runtime: harness } } : {}),
                   ...(browserTabId ? { browserTabId } : {}),
                   ...(scopeRef?.current ? { scope: scopeRef.current } : {}),
                   ...(includeAttachments ? { attachments } : {}),
@@ -3957,7 +4087,6 @@ export function createAgentChatAdapter(
                       }),
                     );
                   }
-                  content.push({ type: "text", text: failure.text });
                   settleTerminalChatRun();
                   yield {
                     content: [...content],
@@ -4055,17 +4184,17 @@ export function createAgentChatAdapter(
               }
               settleTerminalChatRun();
               yield missingFinalResponseResult;
-              clearActiveRun();
+              clearOwnedActiveRun();
               return;
             }
 
             // Run completed normally — clear active run state
-            clearActiveRun();
+            clearOwnedActiveRun();
             return;
           } catch (err: unknown) {
             if (err instanceof Error && err.name === "AbortError") {
               // User-initiated abort (Stop button) — clear active run
-              clearActiveRun();
+              clearOwnedActiveRun();
               return;
             }
 
@@ -4128,7 +4257,7 @@ export function createAgentChatAdapter(
                       },
                     },
                   };
-                  clearActiveRun();
+                  clearOwnedActiveRun();
                   return;
                 }
                 const preservedError =
@@ -4190,7 +4319,7 @@ export function createAgentChatAdapter(
                     custom: { ...(runId ? { runId } : {}), runError },
                   },
                 };
-                clearActiveRun();
+                clearOwnedActiveRun();
                 return;
               }
               if (continuation.resetVisibleContent) {
@@ -4267,7 +4396,7 @@ export function createAgentChatAdapter(
                   custom: { ...(runId ? { runId } : {}), runError },
                 },
               };
-              clearActiveRun();
+              clearOwnedActiveRun();
               return;
             }
 
@@ -4294,7 +4423,7 @@ export function createAgentChatAdapter(
                   reason: "error" as const,
                 },
               };
-              clearActiveRun();
+              clearOwnedActiveRun();
               return;
             }
 
@@ -4308,7 +4437,6 @@ export function createAgentChatAdapter(
                   }),
                 );
               }
-              content.push({ type: "text", text: failure.text });
               settleTerminalChatRun();
               yield {
                 content: [...content],
@@ -4318,7 +4446,7 @@ export function createAgentChatAdapter(
                 },
                 metadata: { custom: { runError: failure.runError } },
               };
-              clearActiveRun();
+              clearOwnedActiveRun();
               return;
             }
 
@@ -4382,7 +4510,7 @@ export function createAgentChatAdapter(
                 },
                 metadata: { custom: { ...(runId ? { runId } : {}), runError } },
               };
-              clearActiveRun();
+              clearOwnedActiveRun();
               return;
             }
 
@@ -4416,7 +4544,7 @@ export function createAgentChatAdapter(
                       },
                     },
                   };
-                  clearActiveRun();
+                  clearOwnedActiveRun();
                   return;
                 }
                 const message = exhaustedRecoveryMessage("stream_ended");
@@ -4453,7 +4581,7 @@ export function createAgentChatAdapter(
                     custom: { ...(runId ? { runId } : {}), runError },
                   },
                 };
-                clearActiveRun();
+                clearOwnedActiveRun();
                 return;
               }
               if (continuation.resetVisibleContent) {
@@ -4521,13 +4649,8 @@ export function createAgentChatAdapter(
           }
         }
       } finally {
-        if (typeof window !== "undefined" && ownsActiveRunState()) {
-          dispatchTerminalChatUiCleanup(tabId);
-          window.dispatchEvent(
-            new CustomEvent("agentNative.chatRunning", {
-              detail: { isRunning: false, tabId },
-            }),
-          );
+        if (ownsActiveRunState()) {
+          publishTerminalChatUiStopped();
         }
       }
     },

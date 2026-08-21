@@ -123,12 +123,19 @@ export function findSlideExportSource(
   }
 
   // A given slide can appear multiple times (sidebar thumbnail + active
-  // editor canvas); pick the one with the largest natural width so we
-  // capture full-resolution pixels even when the visible copy is scaled
-  // down via CSS transform.
-  return candidates.reduce((best, el) =>
-    el.offsetWidth > best.offsetWidth ? el : best,
-  );
+  // editor canvas). Rank on the *rendered* width, not `offsetWidth`:
+  // `offsetWidth` ignores CSS transforms, so a sidebar thumbnail shrunk by
+  // `scale()` reports the same 960 as the canvas it mirrors. That tie left
+  // the strict `>` below returning `candidates[0]` — document order, i.e.
+  // the thumbnail — so exports captured the low-fidelity copy.
+  // `getBoundingClientRect().width` sees through the transform and picks the
+  // real canvas; `offsetWidth` only breaks a genuine rendered-width tie.
+  return candidates.reduce((best, el) => {
+    const elWidth = el.getBoundingClientRect().width;
+    const bestWidth = best.getBoundingClientRect().width;
+    if (elWidth !== bestWidth) return elWidth > bestWidth ? el : best;
+    return el.offsetWidth > best.offsetWidth ? el : best;
+  });
 }
 
 export async function exportDeckAsPdf(

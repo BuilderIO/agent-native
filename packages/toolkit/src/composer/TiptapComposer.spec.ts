@@ -18,6 +18,7 @@ import {
   getOversizedDocumentAttachmentError,
   handleComposerFileDrop,
   insertComposerHardBreakAndScrollIntoView,
+  isOpenAiModelProviderGroup,
   isComposerEditorUsable,
   formatVoiceTranscriptForComposer,
   MODEL_SELECTOR_POPOVER_STYLE,
@@ -104,6 +105,51 @@ describe("createTiptapComposerExtensions", () => {
     expect(compactComposerReasoningEffortLabel("medium", translate)).toBe(
       "Mittel",
     );
+  });
+
+  it("limits Codex to OpenAI model providers", () => {
+    expect(
+      isOpenAiModelProviderGroup({
+        engine: "builder",
+        label: "OpenAI",
+        models: ["gpt-5.6-luna"],
+      }),
+    ).toBe(true);
+    expect(
+      isOpenAiModelProviderGroup({
+        engine: "ai-sdk:google",
+        label: "Gemini",
+        models: ["gemini-3.5-flash"],
+      }),
+    ).toBe(false);
+    expect(
+      isOpenAiModelProviderGroup({
+        engine: "custom-gateway",
+        label: "Custom",
+        models: ["gpt-5.6-luna"],
+      }),
+    ).toBe(true);
+    expect(
+      isOpenAiModelProviderGroup({
+        engine: "ai-sdk:openrouter",
+        label: "OpenRouter",
+        models: ["openai/gpt-5.6-luna"],
+      }),
+    ).toBe(true);
+    expect(
+      isOpenAiModelProviderGroup({
+        engine: "codex-cli",
+        label: "OpenAI",
+        models: ["gpt-5.6-luna"],
+      }),
+    ).toBe(true);
+    expect(
+      isOpenAiModelProviderGroup({
+        engine: "codex-cli",
+        label: "OpenAI",
+        models: ["codex-cli"],
+      }),
+    ).toBe(false);
   });
 
   it("keeps the prompt composer schema minimal and restores legacy draft HTML", () => {

@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { defineAction } from "../../action.js";
 import { organizations } from "../../org/schema.js";
+import { listWorkspaceUserGroupsForOrg } from "../../workspace-connections/groups.js";
 import { resolveAccess } from "../access.js";
 import { requireShareableResource } from "../registry.js";
 
@@ -44,6 +45,32 @@ async function loadOrgDisplayNames(
   }
 }
 
+async function loadGroupDisplayNames(
+  orgId: string | null | undefined,
+  shares: Array<{ principalType: string; principalId: string }>,
+): Promise<Map<string, string>> {
+  const groupIds = Array.from(
+    new Set(
+      shares
+        .filter((share) => share.principalType === "group" && share.principalId)
+        .map((share) => share.principalId),
+    ),
+  );
+  if (!groupIds.length || !orgId) return new Map();
+  try {
+    const groups = await listWorkspaceUserGroupsForOrg(orgId, groupIds);
+    return new Map(
+      groups.flatMap((group): Array<[string, string]> => {
+        const id = group.id;
+        const name = group.name.trim();
+        return id && name ? [[id, name]] : [];
+      }),
+    );
+  } catch {
+    return new Map();
+  }
+}
+
 export default defineAction({
   description:
     "List the current visibility and share grants on a shareable resource. Any read access is sufficient.",
@@ -54,11 +81,18 @@ export default defineAction({
   http: { method: "GET" },
   run: async (args) => {
     const reg = requireShareableResource(args.resourceType);
-    const policy = {
+    const policy: {
+      allowPublic: boolean;
+      requireOrgMemberForUserShares: boolean;
+      supportsGroupShares?: boolean;
+    } = {
       // Defaults match registration defaults so the UI behaves the same for
       // resources that haven't opted into restrictions.
       allowPublic: reg.allowPublic !== false,
       requireOrgMemberForUserShares: reg.requireOrgMemberForUserShares === true,
+      ...(reg.supportsGroupShares === true
+        ? { supportsGroupShares: true }
+        : {}),
     };
     // Only `ownerEmail`/`orgId`/`visibility` are read below, all of which the
     // projected load carries — so the share dialog never pulls a resource's
@@ -78,6 +112,10 @@ export default defineAction({
       .from(reg.sharesTable)
       .where(eq(reg.sharesTable.resourceId, args.resourceId));
     const orgDisplayNames = await loadOrgDisplayNames(db, shares);
+    const groupDisplayNames = await loadGroupDisplayNames(
+      access.resource.orgId,
+      shares,
+    );
 
     return {
       ownerEmail: access.resource.ownerEmail ?? null,
@@ -92,7 +130,9 @@ export default defineAction({
         displayName:
           s.principalType === "org"
             ? orgDisplayNames.get(s.principalId)
-            : undefined,
+            : s.principalType === "group"
+              ? groupDisplayNames.get(s.principalId)
+              : undefined,
         role: s.role,
         createdAt: s.createdAt,
       })),

@@ -121,8 +121,24 @@ describe("Clips Slack unfurls", () => {
         emoji: true,
       },
       video_url: "https://clips.example.com/embed/rec-1?autoplay=1",
-      thumbnail_url: "https://clips.example.com/api/media/thumb",
+      thumbnail_url: "https://clips.example.com/api/thumbnail/rec-1",
       provider_name: "Clips",
+    });
+  });
+
+  it("uses a public video frame when no stored thumbnail exists", () => {
+    expect(
+      buildSlackVideoBlock({
+        recording: recording({
+          thumbnailUrl: null,
+          animatedThumbnailUrl: null,
+        }),
+        origin: "https://clips.example.com",
+        basePath: "/clips",
+      }),
+    ).toMatchObject({
+      thumbnail_url:
+        "https://clips.example.com/clips/api/agent-frame.jpg?id=rec-1&atMs=350",
     });
   });
 

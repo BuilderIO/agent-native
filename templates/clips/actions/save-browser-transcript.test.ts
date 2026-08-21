@@ -140,4 +140,91 @@ describe("save-browser-transcript", () => {
     );
     expect(result).toMatchObject({ status: "failed", truncated: true });
   });
+
+  // macos-native and web-speech are mic-only engines (see
+  // transcription-engine.ts), so a fullText-only save from either can only be
+  // the mic. Without a source the UI defaults the whole transcript to "Them".
+  //
+  // This covers the action's own contract, not the desktop meeting flush:
+  // `transcriptSegments` now always sends at least one segment per line, so
+  // the desktop no longer reaches this branch. The reachable callers are the
+  // web recorder, the Chrome extension, and agent/CLI `save-browser-transcript`
+  // calls, whose `segments` argument is optional.
+  it.each([
+    ["macos-native", "mic"],
+    ["web-speech", "mic"],
+  ] as const)(
+    "tags synthesized segments as mic for the %s engine when no segments are supplied",
+    async (source, expectedSpeakerSource) => {
+      const values = vi.fn();
+      mocks.insert.mockReturnValue({ values });
+      mocks.rows = [[], [{ status: "ready", title: "Clip", description: "x" }]];
+
+      await saveBrowserTranscript.run({
+        recordingId: "rec-1",
+        fullText: "Hello there, this is a test.",
+        source,
+        overwriteReady: true,
+      });
+
+      const inserted = values.mock.calls[0][0] as { segmentsJson: string };
+      const segments = JSON.parse(inserted.segmentsJson);
+      expect(segments.length).toBeGreaterThan(0);
+      for (const segment of segments) {
+        expect(segment.source).toBe(expectedSpeakerSource);
+      }
+    },
+  );
+
+  // `speaker` was not declared on the segment schema, so zod stripped it before
+  // the array was serialized: a provider's diarized labels vanished on save and
+  // the transcript could no longer tell its speakers apart on reload.
+  it("round-trips a caller-supplied diarized speaker into segmentsJson", async () => {
+    const values = vi.fn();
+    mocks.insert.mockReturnValue({ values });
+    mocks.rows = [[], [{ status: "ready", title: "Clip", description: "x" }]];
+
+    await saveBrowserTranscript.run({
+      recordingId: "rec-1",
+      fullText: "Hello there. General Kenobi.",
+      source: "whisper",
+      overwriteReady: true,
+      segments: [
+        { startMs: 0, endMs: 1_000, text: "Hello there.", speaker: "Alice" },
+        {
+          startMs: 1_000,
+          endMs: 2_000,
+          text: "General Kenobi.",
+          source: "system",
+          speaker: "Bob",
+        },
+      ],
+    });
+
+    const inserted = values.mock.calls[0][0] as { segmentsJson: string };
+    expect(JSON.parse(inserted.segmentsJson)).toEqual([
+      expect.objectContaining({ text: "Hello there.", speaker: "Alice" }),
+      expect.objectContaining({ text: "General Kenobi.", speaker: "Bob" }),
+    ]);
+  });
+
+  it("leaves synthesized segments source-less for whisper (mixed mic + system)", async () => {
+    const values = vi.fn();
+    mocks.insert.mockReturnValue({ values });
+    mocks.rows = [[], [{ status: "ready", title: "Clip", description: "x" }]];
+
+    await saveBrowserTranscript.run({
+      recordingId: "rec-1",
+      fullText: "Hello there, this is a test.",
+      source: "whisper",
+      overwriteReady: true,
+    });
+
+    const inserted = values.mock.calls[0][0] as { segmentsJson: string };
+    const segments = JSON.parse(inserted.segmentsJson);
+    expect(segments.length).toBeGreaterThan(0);
+    for (const segment of segments) {
+      expect(segment.source).toBeUndefined();
+    }
+  });
 });

@@ -36,6 +36,7 @@ import {
   PROMPT_DOCUMENT_ATTACHMENT_ACCEPT,
   TextAttachmentAdapter,
 } from "./attachment-accept.js";
+import type { ComposerTerminalModeControl } from "./ComposerPlusMenu.js";
 import { isPastedTextAttachmentName } from "./pasted-text.js";
 import { PastedTextChip } from "./PastedTextChip.js";
 import { escapePromptAttachmentAttribute } from "./prompt-attachments.js";
@@ -85,6 +86,8 @@ export interface PromptComposerProps {
   ) => void | Promise<void>;
   placeholder?: string;
   disabled?: boolean;
+  /** Called when a host-gated composer is clicked while it is disabled. */
+  onDisabledClick?: () => void;
   /** Override the generic document attachment cap for a multipart host. */
   maxDocumentAttachmentBytes?: number;
   /** Label used in the visible document attachment limit error. */
@@ -100,6 +103,8 @@ export interface PromptComposerProps {
   preserveDraftOnSubmit?: boolean;
   /** Show the model selector (default: true). */
   showModelSelector?: boolean;
+  /** Controlled open state for hosts that resize around the model picker. */
+  modelSelectorOpen?: boolean;
   /** Show the legacy provider-level Auto model option (default: true). */
   showAutoModelOption?: boolean;
   /** Show the voice dictation button. Defaults to DEFAULT_VOICE_DICTATION_ENABLED. */
@@ -110,7 +115,9 @@ export interface PromptComposerProps {
    * Controls the shared "+" affordance. Defaults to upload-only for standalone
    * prompt forms; chat surfaces can opt into the full sidebar menu.
    */
-  plusMenuMode?: "full" | "upload-only" | "hidden";
+  plusMenuMode?: "full" | "upload-only" | "terminal" | "hidden";
+  /** Controls the terminal-specific plus menu when `plusMenuMode` is terminal. */
+  terminalModeControl?: ComposerTerminalModeControl;
   /**
    * Include extension creation in the full "+" menu. Defaults to false.
    */
@@ -154,8 +161,12 @@ export interface PromptComposerProps {
   availableAgents?: ComposerAgentOption[];
   /** Selected agent runtime identifier. */
   selectedAgent?: string;
+  /** Show only the selected agent in the model control. */
+  agentOnly?: boolean;
   /** Callback when the user picks an agent runtime. */
   onAgentChange?: (agent: string) => void;
+  /** Called when the shared model picker opens or closes. */
+  onModelSelectorOpenChange?: (open: boolean) => void;
   /**
    * Enable server-backed model/provider status checks. Defaults off when the
    * host supplies model state and callbacks, otherwise on.
@@ -487,6 +498,7 @@ function PromptComposerInner({
   onSubmit,
   placeholder,
   disabled,
+  onDisabledClick,
   maxDocumentAttachmentBytes,
   documentAttachmentLimitLabel,
   autoFocus,
@@ -497,10 +509,12 @@ function PromptComposerInner({
   draftScope,
   preserveDraftOnSubmit = false,
   showModelSelector = true,
+  modelSelectorOpen,
   showAutoModelOption = true,
   voiceEnabled = DEFAULT_VOICE_DICTATION_ENABLED,
   attachmentsEnabled = true,
   plusMenuMode,
+  terminalModeControl,
   extensionTools = false,
   initialText,
   initialTextKey,
@@ -524,7 +538,9 @@ function PromptComposerInner({
   onEffortChange,
   availableAgents,
   selectedAgent,
+  agentOnly = false,
   onAgentChange,
+  onModelSelectorOpenChange,
   modelStatusChecksEnabled,
   onTextChange,
   onConnectProvider,
@@ -637,12 +653,13 @@ function PromptComposerInner({
         <BuilderSetupCard
           onConnected={handleBuilderConnected}
           bouncePulse={missingKeyBouncePulse}
+          attached
           fullWidth
           layout="sidebar"
         />
       ) : null}
       {missingApiKey && useInlineMissingKeySetup && BuilderSetupContent ? (
-        <div className="mb-2 rounded-md border border-border/80 bg-background/80 p-2.5 text-start shadow-sm">
+        <div className="agent-builder-setup-inline--attached mb-0 rounded-md border border-border/80 bg-background/80 p-2.5 text-start shadow-sm">
           <BuilderSetupContent
             onConnected={handleBuilderConnected}
             layout="sidebar"
@@ -653,13 +670,21 @@ function PromptComposerInner({
         className={cn(
           "text-start",
           gateComposer && "cursor-pointer",
+          (gateComposer || onDisabledClick) &&
+            "agent-composer-area--attached-above",
           className,
         )}
         rootClassName={rootClassName}
         style={style}
         rootStyle={rootStyle}
         layoutVariant={layoutVariant}
-        onClick={gateComposer ? bounceMissingKeySetup : undefined}
+        onClick={
+          gateComposer
+            ? bounceMissingKeySetup
+            : onDisabledClick
+              ? () => onDisabledClick()
+              : undefined
+        }
       >
         <PromptAttachmentStrip />
         <TiptapComposer
@@ -681,6 +706,7 @@ function PromptComposerInner({
           plusMenuMode={
             plusMenuMode ?? (attachmentsEnabled ? "upload-only" : "hidden")
           }
+          terminalModeControl={terminalModeControl}
           extensionTools={extensionTools}
           attachButton={attachButton}
           modeControl={modeControl}
@@ -697,15 +723,18 @@ function PromptComposerInner({
           onTextChange={onTextChange}
           draftScope={draftScope}
           selectedModel={composerModel}
+          modelSelectorOpen={modelSelectorOpen}
           selectedEffort={composerEffort}
           availableModels={composerModelGroups}
           availableAgents={availableAgents}
           selectedAgent={selectedAgent}
+          agentOnly={agentOnly}
           showAutoModelOption={showAutoModelOption}
           modelListLoading={composerModelListLoading}
           onModelChange={handleModelChange}
           onEffortChange={handleEffortChange}
           onAgentChange={onAgentChange}
+          onModelSelectorOpenChange={onModelSelectorOpenChange}
           providerConnectStatusEnabled={resolvedModelStatusChecksEnabled}
           onConnectProvider={onConnectProvider}
           onConnectLocalRuntime={onConnectLocalRuntime}

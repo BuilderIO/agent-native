@@ -83,7 +83,144 @@ export default defineAction({
 
 मुट्ठी भर actions एजेंट को अपने आप चलाने देने के लिए बहुत परिणामी हैं, जैसे email भेजना, कार्ड चार्ज करना, या account delete करना। `defineAction()` पर `needsApproval: true` (या एक predicate `(args, ctx) => boolean | Promise<boolean>`) सेट करें, और लूप `run()` से पहले रुक जाता है, जिसके लिए किसी मानव को उस विशिष्ट कॉल को अनुमोदित करना होता है। डिफ़ॉल्ट **off** है, और लगभग हर action को वैसा ही रहना चाहिए।
 
-predicate API, `approval_required` इवेंट, और पूरे end-to-end flow के लिए [Human-in-the-Loop Approvals](/docs/human-approval) देखें।
+<Callout tone="warning">
+  अनुमोदनों को दुर्लभ रखें। हर गेटेड action एजेंट लूप में एक hard stop है। यह
+  run को बीच में रोकता है और किसी मानव से round-trip की मांग करता है।
+  `needsApproval` का उपयोग केवल सचमुच उच्च-परिणाम वाले, पूर्ववत करना कठिन, बाहर
+  की ओर जाने वाले ऑपरेशंस के लिए करें। अगर आप खुद को reads या सामान्य writes को
+  गेट करते हुए पाते हैं, तो आप इसे गलत तरीके से इस्तेमाल कर रहे हैं। डिफ़ॉल्ट
+  **off** है, और लगभग हर action को off ही छोड़ना चाहिए।
+</Callout>
+
+<AnnotatedCode
+  id="doc-block-13p4g9y"
+  title="उस एक परिणामी action को गेट करना"
+  filename="actions/send-email.ts"
+  language="ts"
+  code={
+    'export default defineAction({\n  description: "Send an email via Gmail.",\n  schema: z.object({\n    to: z.string(),\n    subject: z.string(),\n    body: z.string(),\n  }),\n  // Sending is outward-facing and hard to undo, so the agent can never send\n  // without a human approving the specific call. Drafting and queueing are\n  // not affected. Only the real send is gated.\n  needsApproval: true,\n  run: async (args) => {\n    /* ...actually send... */\n  },\n});'
+  }
+  annotations={[
+    {
+      lines: "10",
+      label: "पूरा गेट",
+      note: "एक फ़्लैग। जब यह truthy होता है और कॉल अभी अनुमोदित नहीं हुई है, तो लूप `run` से पहले रुक जाता है। मॉडल कभी भी अपने आप side effect तक नहीं पहुंचता।",
+    },
+    {
+      lines: "11-13",
+      label: "`run()` अछूता रहता है",
+      note: "हैंडलर वैसा ही रहता है। अनुमोदन इसके चारों ओर के लूप द्वारा लागू किया जाता है, `run` के अंदर किसी चीज़ से नहीं।",
+    },
+  ]}
+/>
+
+- **`needsApproval: true`** हमेशा अनुमोदन की आवश्यकता रखता है।
+- **`needsApproval: (args, ctx) => boolean | Promise<boolean>`** केवल तभी अनुमोदन की आवश्यकता रखता है जब predicate `true` लौटाता है। इसका उपयोग सशर्त रूप से गेट करने के लिए करें, उदाहरण के लिए केवल external प्राप्तकर्ताओं के लिए या केवल किसी डॉलर सीमा से ऊपर:
+
+  ```ts
+  needsApproval: (args) => !args.to.endsWith("@your-company.com"),
+  ```
+
+  predicate को pure और तेज़ रखें। अगर predicate कोई error throw करता है, तो फ्रेमवर्क कॉल को वैसे ही treat करता है जैसे predicate ने `true` लौटाया हो, इसलिए action चलने के बजाय अनुमोदन के लिए रुक जाता है। इसका मतलब है कि कोई टूटा हुआ predicate किसी उच्च-परिणाम वाले action को बिना किसी मानव के पहले अनुमोदन किए चुपचाप चलने नहीं दे सकता।
+
+जब `needsApproval` को छोड़ दिया जाता है, तो व्यवहार byte-for-byte अपरिवर्तित रहता है। सामान्य पथ पर कोई अतिरिक्त लागत नहीं होती।
+
+यह legacy `parameters`-स्टाइल actions और schema-आधारित actions दोनों के लिए उसी तरह काम करता है। यह in-app एजेंट, sub-agents, A2A, और MCP कॉलर्स के लिए भी उसी तरह काम करता है, क्योंकि हर एजेंट सतह उसी लूप से होकर गुज़रती है।
+
+### लूप कैसे रुकता है {#loop}
+
+जब एजेंट किसी गेटेड action को कॉल करता है और यह विशिष्ट कॉल पहले से अनुमोदित **नहीं** है, तो लूप `run()` को execute **नहीं** करता। इसके बजाय यह:
+
+1. गेट को resolve करता है। किसी predicate के लिए, लूप `needsApproval(input, ctx)` को कॉल करता है। अगर वह कॉल कोई error throw करती है, तो लूप इसे `true` परिणाम जैसा ही treat करता है, इसलिए action को अनुमोदन की आवश्यकता होती है।
+2. एक `tool_start` इवेंट emit करता है (ताकि UI कॉल दिखाए) जिसके तुरंत बाद एक **`approval_required`** इवेंट आता है, फिर turn को रोक देता है। action का side effect कभी नहीं होता।
+
+`approval_required` इवेंट में वह सब कुछ होता है जो client को एक affordance render करने के लिए चाहिए:
+
+| फ़ील्ड        | टाइप     | नोट्स                                                                                      |
+| ------------- | -------- | ------------------------------------------------------------------------------------------ |
+| `tool`        | `string` | वह action नाम जिसे एजेंट ने कॉल करने की कोशिश की।                                          |
+| `input`       | object   | वे arguments जो एजेंट ने पास किए।                                                          |
+| `approvalKey` | `string` | **स्थिर key** जिसे client _इस बिल्कुल सटीक कॉल_ को अनुमोदित करने के लिए वापस echo करता है। |
+| `toolCallId`  | `string` | मॉडल-साइड tool-call id, जब उपलब्ध हो।                                                      |
+
+`approvalKey` को tool नाम और उसके input से नियतात्मक रूप से (deterministically) derive किया जाता है, इसलिए वही logical कॉल हमेशा वही key produce करता है। मॉडल इसे कभी नहीं देखता और न ही सेट करता है। यह केवल फ्रेमवर्क और मानव के Approve affordance के बीच एक handshake के रूप में मौजूद है।
+
+रुका हुआ tool एक ऐसा result लौटाता है जो मॉडल को बताता है कि turn रुका हुआ है और इसे retry नहीं करना चाहिए, ताकि मॉडल spin न करे।
+
+### मानव कैसे अनुमोदन करता है {#approve}
+
+`approval_required` पर, chat UI रुके हुए tool कॉल पर एक **Approve / Deny** affordance render करता है। यह `AssistantChat` में अपने आप wired होता है। आपको इसे हर template में अलग से बनाने की ज़रूरत नहीं है।
+
+<WireframeBlock id="doc-block-humanapprovalwf1">
+  <Screen
+    surface="popover"
+    html={
+      "<div style='display:flex;flex-direction:column;box-sizing:border-box;padding:16px;gap:12px'><div class='wf-card' style='display:flex;flex-direction:column;gap:8px'><div style='display:flex;align-items:center;gap:8px'><span class='wf-pill warn'>Needs approval</span><strong>send-email</strong></div><div style='display:flex;flex-direction:column;gap:2px'><span class='wf-muted'>to: alex@acme.com</span><span class='wf-muted'>subject: Following up on the proposal</span></div><div style='display:flex;gap:8px'><button>Deny</button><button class='primary'>Approve</button></div></div></div>"
+    }
+  />
+</WireframeBlock>
+
+- **Approve** turn को एक सामान्य continuation मैसेज के रूप में फिर से issue करता है जो कॉल की key को `approvedToolCalls: [approvalKey]` में ले जाता है। फिर से issued turn पर, गेट अनुमोदित सेट में key देखता है और उस विशिष्ट कॉल को सामान्य रूप से चलने देता है।
+- **Deny** affordance को स्थानीय रूप से खारिज कर देता है। कुछ भी फिर से issue नहीं होता, इसलिए action कभी नहीं चलता।
+
+`approvedToolCalls` chat request पर एक field है (`AgentChatRequest.approvedToolCalls`)। जो keys इसमें मौजूद नहीं हैं वे रुकी रहती हैं। एक कॉल को अनुमोदित करना किसी अन्य कॉल को कभी अनुमोदित नहीं करता। क्योंकि key content-addressed है, एक अनुमोदन केवल उन्हीं exact arguments के साथ उस exact कॉल को अधिकृत करता है। अगर मॉडल बाद में कोई अलग send प्रस्तावित करता है, तो वह एक नई key बन जाती है और उसे अपना खुद का नया अनुमोदन चाहिए होता है।
+
+### शुरू से अंत तक {#flow}
+
+<Diagram id="doc-block-2nor1g" title="अनुमोदन व्यवधान" summary={"एक गेटेड कॉल run() के चलने से पहले turn को रोक देती है। अनुमोदन कॉल की key ले जाते हुए turn को फिर से issue करता है। तभी side effect होता है।"}>
+
+```html
+<div class="diagram-approve">
+  <div class="diagram-box" data-rough>एजेंट send-email को कॉल करता है</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-panel warn" data-rough>
+    <strong>गेट truthy है, कॉल अभी अनुमोदित नहीं</strong
+    ><small class="diagram-muted"
+      >लूप tool_start + approval_required { tool, input, approvalKey } emit करता
+      है</small
+    ><span class="diagram-pill warn">run() अभी execute नहीं हुआ</span>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-box" data-rough>
+    मानव chat में Approve पर क्लिक करता है<br /><small class="diagram-muted"
+      >client turn को approvedToolCalls: [approvalKey] के साथ फिर से issue करता
+      है</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-panel ok" data-rough>
+    <span class="diagram-pill ok"
+      >गेट key देखता है &rarr; run() execute होता है &rarr; email भेजा जाता
+      है</span
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-approve {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.diagram-approve .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+  padding: 12px 16px;
+  text-align: center;
+}
+.diagram-approve .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+Mail template का `send-email` action फ्रेमवर्क में इस गेट का canonical उपयोग है, और यह जानबूझकर दुर्लभ है। यह `needsApproval: true` सेट करता है ताकि एजेंट स्वतंत्र रूप से emails draft और queue कर सके। यह किसी मानव के उस विशिष्ट send को अनुमोदित किए बिना कभी असल में कोई मैसेज नहीं भेज सकता।
 
 ## भूमिका के अनुसार कॉलर्स को प्रतिबंधित करें {#authorize}
 
@@ -220,7 +357,7 @@ export default defineAction({
 - [**अवलोकन**](/docs/actions-overview) — action क्या है और hello-world वॉकथ्रू
 - [**Actions परिभाषित करना**](/docs/actions-defining) — `defineAction()` की संरचना, schema, और HTTP config
 - [**Run Context**](/docs/actions-run-context) — `ctx` argument जिसे ये जांचें पढ़ती हैं
-- [**Human-in-the-Loop Approvals**](/docs/human-approval) — `needsApproval` गेट विस्तार से
+- [**Mail template**](/docs/template-mail) — `needsApproval` के लिए संदर्भ उदाहरण `send-email` है
 - [**Audit Log**](/docs/audit-log) — अपने आप बनने वाला who-changed-what trail
 - [**Security**](/docs/security) — `accessFilter`/`assertAccess` और extension iframe trust boundary
 - [**Sharing**](/docs/sharing) — फ्रेमवर्क sharing सिस्टम जो इन हेल्पर्स को समर्थन देता है

@@ -1,6 +1,6 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { IconDots, IconDownload, IconTrash } from "@tabler/icons-react";
+import { IconDotsVertical, IconDownload, IconTrash } from "@tabler/icons-react";
 import { useCallback, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -93,10 +93,10 @@ export function RecordingOptionsMenu({
           <Button
             variant="ghost"
             size="icon"
-            className="shrink-0"
+            className="-mx-1.5 h-auto w-auto shrink-0 px-0.5 py-1.5"
             aria-label={t("deleteRecordingMenu.clipOptions")}
           >
-            <IconDots className="h-4 w-4" />
+            <IconDotsVertical className="h-4 w-4" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-44">

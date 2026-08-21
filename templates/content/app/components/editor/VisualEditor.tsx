@@ -76,7 +76,7 @@ import {
   LocalMdxComponentNode,
 } from "./extensions/LocalMdxComponentNode";
 import {
-  EMPTY_TOGGLE_BODY_PLACEHOLDER,
+  CompatibleCode,
   createNotionEditorExtensions,
   focusMostRecentEmptyToggleSummary,
   type NotionPageLink,
@@ -447,10 +447,7 @@ const NotionMarkdownShortcuts = Extension.create({
                   .replaceWith(
                     shortcut.blockFrom,
                     shortcut.blockTo,
-                    toggle.create(
-                      { summary: "", open: true },
-                      paragraph.create(),
-                    ),
+                    toggle.create({ summary: "", open: true }),
                   )
                   .scrollIntoView(),
               );
@@ -471,47 +468,6 @@ const NotionMarkdownShortcuts = Extension.create({
             );
             view.dispatch(tr.scrollIntoView());
             return true;
-          },
-        },
-      }),
-    ];
-  },
-});
-
-const NotionToggleBodyPlaceholder = Extension.create({
-  name: "notionToggleBodyPlaceholder",
-
-  addProseMirrorPlugins() {
-    return [
-      new Plugin({
-        key: new PluginKey("notionToggleBodyPlaceholder"),
-        props: {
-          decorations: ({ doc, selection }) => {
-            const decorations: Decoration[] = [];
-
-            doc.descendants((node, pos, parent) => {
-              const selectionIsInsideNode =
-                selection.from >= pos && selection.to <= pos + node.nodeSize;
-
-              if (
-                node.type.name !== "paragraph" ||
-                parent?.type.name !== "notionToggle" ||
-                node.content.size > 0 ||
-                node.textContent.trim() ||
-                selectionIsInsideNode
-              ) {
-                return;
-              }
-
-              decorations.push(
-                Decoration.node(pos, pos + node.nodeSize, {
-                  class: "is-empty notion-toggle__body-placeholder",
-                  "data-placeholder": EMPTY_TOGGLE_BODY_PLACEHOLDER,
-                }),
-              );
-            });
-
-            return DecorationSet.create(doc, decorations);
           },
         },
       }),
@@ -816,6 +772,20 @@ interface VisualEditorProps {
    * whose type has no NFM analog (via the shared registry-block side-map).
    */
   notionPageId?: string | null;
+  onHistoryControllerChange?: (
+    controller: VisualEditorHistoryController | null,
+  ) => void;
+  onHistoryStateChange?: (state: VisualEditorHistoryState) => void;
+}
+
+export interface VisualEditorHistoryState {
+  canUndo: boolean;
+  canRedo: boolean;
+}
+
+export interface VisualEditorHistoryController {
+  undo: () => boolean;
+  redo: () => boolean;
 }
 
 export type { NotionPageLink };
@@ -1011,6 +981,27 @@ function isActiveSlashCommandDraft(editor: CoreEditor): boolean {
   const blockStart = $from.start();
   const textBefore = state.doc.textBetween(blockStart, from, "\n");
   return /^\s*\/[a-zA-Z0-9]*$/.test(textBefore);
+}
+
+export function runPersistableHistoryCommand(
+  editor: CoreEditor,
+  command: "undo" | "redo",
+): boolean {
+  let applied = false;
+  for (let index = 0; index < 20; index += 1) {
+    const changed = editor
+      .chain()
+      .focus()
+      .command(({ tr }) => {
+        tr.setMeta(LOCAL_FILE_USER_EDIT_META, true);
+        return true;
+      })
+      [command]()
+      .run();
+    applied ||= changed;
+    if (!changed || !isActiveSlashCommandDraft(editor)) break;
+  }
+  return applied;
 }
 
 interface VisualEditorExtensionOptions {
@@ -1363,9 +1354,7 @@ function getVisualEditorPlaceholder({
     hasAncestorType(editor, pos, "notionToggle");
 
   if (isToggleBody) {
-    return hasAnchor && editor.isFocused
-      ? emptyBlockPlaceholder
-      : EMPTY_TOGGLE_BODY_PLACEHOLDER;
+    return hasAnchor && editor.isFocused ? emptyBlockPlaceholder : "";
   }
 
   if (node.type.name === "heading") {
@@ -1657,6 +1646,7 @@ export function createVisualEditorExtensions({
     },
     starterKit: {
       blockquote: false,
+      code: false,
       paragraph: false,
       heading: { levels: [1, 2, 3, 4, 5, 6] },
       horizontalRule: {},
@@ -1665,13 +1655,13 @@ export function createVisualEditorExtensions({
     collab:
       ydoc || localAwareness ? { ydoc, awareness: localAwareness, user } : null,
     extraExtensions: [
+      CompatibleCode,
       EmptyLineParagraph,
       NotionBlockquote,
       CodeBlock,
       VisualEditorPlaceholder.configure({
         emptyBlockPlaceholder,
       }),
-      NotionToggleBodyPlaceholder,
       Link.configure({
         openOnClick: false,
         HTMLAttributes: { class: "notion-link" },
@@ -2005,6 +1995,8 @@ export function VisualEditor({
   notionPageLinks = [],
   onOpenNotionPageLink,
   notionPageId,
+  onHistoryControllerChange,
+  onHistoryStateChange,
 }: VisualEditorProps) {
   const t = useT();
   const [isDraggingMedia, setIsDraggingMedia] = useState(false);
@@ -2015,6 +2007,8 @@ export function VisualEditor({
   onChangeRef.current = onChange;
   const onSaveContentRef = useRef(onSaveContent);
   onSaveContentRef.current = onSaveContent;
+  const onHistoryStateChangeRef = useRef(onHistoryStateChange);
+  onHistoryStateChangeRef.current = onHistoryStateChange;
   const notionPageLinksRef = useRef(notionPageLinks);
   notionPageLinksRef.current = notionPageLinks;
   const onMediaSourceCommittedRef = useRef<
@@ -2042,6 +2036,14 @@ export function VisualEditor({
           link.notionPageId === notionPageId ||
           link.notionPageId.replace(/-/g, "").toLowerCase() === normalized,
       ) ?? null
+    );
+  }, []);
+  const isVisualEditorFocused = useCallback((editor: CoreEditor) => {
+    if (editor.isFocused) return true;
+    const activeElement = editor.view.dom.ownerDocument.activeElement;
+    return Boolean(
+      activeElement?.matches(".notion-toggle__summary") &&
+      editor.view.dom.contains(activeElement),
     );
   }, []);
 
@@ -2190,6 +2192,7 @@ export function VisualEditor({
     }
   };
 
+  const historyEditorRef = useRef<CoreEditor | null>(null);
   const editor = useEditor({
     extensions,
     // With Collaboration (ydoc) active, content is owned by the Y.XmlFragment —
@@ -2280,8 +2283,22 @@ export function VisualEditor({
           if (view.editable) markUserEditIntent();
           return false;
         },
-        keydown(view) {
+        keydown(view, event) {
           if (view.editable) markUserEditIntent();
+          if (
+            view.editable &&
+            (event.metaKey || event.ctrlKey) &&
+            !event.altKey &&
+            event.key.toLowerCase() === "z" &&
+            historyEditorRef.current
+          ) {
+            event.preventDefault();
+            runPersistableHistoryCommand(
+              historyEditorRef.current,
+              event.shiftKey ? "redo" : "undo",
+            );
+            return true;
+          }
           return false;
         },
         cut(view) {
@@ -2316,6 +2333,12 @@ export function VisualEditor({
       },
     },
     editable,
+    onTransaction: ({ editor }) => {
+      onHistoryStateChangeRef.current?.({
+        canUndo: editor.can().undo(),
+        canRedo: editor.can().redo(),
+      });
+    },
     onUpdate: ({ editor, transaction }) => {
       const guards = guardsRef.current;
       // `shouldIgnoreUpdate` covers: not editable, mid-programmatic setContent,
@@ -2366,6 +2389,23 @@ export function VisualEditor({
       });
     },
   });
+  historyEditorRef.current = editor;
+
+  useEffect(() => {
+    if (!editor) {
+      onHistoryControllerChange?.(null);
+      return;
+    }
+    onHistoryControllerChange?.({
+      undo: () => runPersistableHistoryCommand(editor, "undo"),
+      redo: () => runPersistableHistoryCommand(editor, "redo"),
+    });
+    onHistoryStateChange?.({
+      canUndo: editor.can().undo(),
+      canRedo: editor.can().redo(),
+    });
+    return () => onHistoryControllerChange?.(null);
+  }, [editor, onHistoryControllerChange, onHistoryStateChange]);
 
   const handleImageFileInputChange = useCallback(
     async (event: Event) => {
@@ -2468,6 +2508,7 @@ export function VisualEditor({
     value: content,
     contentUpdatedAt,
     editable,
+    isEditorFocused: isVisualEditorFocused,
     getMarkdown: (e) => docToNfm(e.getJSON() as any),
     // Read-only viewers join the shared Y.Doc purely to RECEIVE live edits and
     // cursors; their editor content comes from the server state fetch + peer Yjs

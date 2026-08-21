@@ -199,6 +199,10 @@ Vous pouvez vérifier l'état de préparation de la connexion dans votre rappel 
 
 ```ts
 import { listWorkspaceConnectionProviderCatalogForApp } from "@agent-native/core/workspace-connections";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server";
 
 // Inside registerOnboardingStep:
 isComplete: async () => {
@@ -217,8 +221,15 @@ isComplete: async () => {
     return true;
   }
 
-  // Fall back to local environment variable check
-  return !!process.env.GMAIL_REFRESH_TOKEN;
+  // If there is no reusable connection, check the caller-scoped credential
+  // store - never a deployment environment variable.
+  const { resolveCredential } = await import("@agent-native/core/credentials");
+  return Boolean(
+    await resolveCredential("GMAIL_REFRESH_TOKEN", {
+      userEmail: getRequestUserEmail(),
+      orgId: getRequestOrgId(),
+    }),
+  );
 };
 ```
 

@@ -400,8 +400,12 @@ export function createFetchToolEntry(
           // saveToFile: write full body to workspace and return compact summary.
           if (saveToFilePath) {
             try {
-              const { writeWorkspaceFile, SAVE_TO_FILE_MAX_BYTES } =
-                await import("../workspace-files/store.js");
+              const {
+                writeWorkspaceFile,
+                SAVE_TO_FILE_MAX_BYTES,
+                isScratchWorkspacePath,
+                toWorkspaceFileCard,
+              } = await import("../workspace-files/store.js");
               const { getRequestOrgId, getRequestUserEmail } =
                 await import("../server/request-context.js");
               const orgId = getRequestOrgId();
@@ -413,7 +417,7 @@ export function createFetchToolEntry(
                   : null;
               if (!scope)
                 throw new Error("No authenticated context for saveToFile");
-              await writeWorkspaceFile(
+              const meta = await writeWorkspaceFile(
                 scope,
                 saveToFilePath,
                 body,
@@ -433,6 +437,12 @@ export function createFetchToolEntry(
                 responseMode: processedMode,
                 preview:
                   preview.length < displayBody.length ? `${preview}…` : preview,
+                // A durable (non-scratch) file renders a download card the
+                // moment it's created — no separate show-workspace-file call
+                // needed to get a link.
+                ...(isScratchWorkspacePath(saveToFilePath)
+                  ? {}
+                  : { file: toWorkspaceFileCard(meta) }),
               });
             } catch (saveErr: any) {
               return `saveToFile error: ${saveErr?.message ?? String(saveErr)}\n\nHTTP ${response.status} ${response.statusText}\n\n${body.slice(0, maxChars)}`;

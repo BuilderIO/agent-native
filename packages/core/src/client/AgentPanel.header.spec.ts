@@ -350,6 +350,16 @@ describe("AgentPanel header overflow actions", () => {
     expect(source).toContain("defaultOpen={onCollapse && shareFromMenuOpen}");
     expect(source).toContain("onCollapse ? setShareFromMenuOpen : undefined");
   });
+
+  it("keeps per-app chat headers stable while switching app surfaces", () => {
+    const source = readFileSync("src/client/AgentPanel.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).toContain(
+      ".agent-sidebar-panel[data-agent-sidebar-per-app-chat='true'] .agent-sidebar-chat-header[data-agent-sidebar-chat-header]{opacity:1;pointer-events:auto;transition:none;}",
+    );
+  });
 });
 
 describe("AgentSidebar wide drawer layout", () => {

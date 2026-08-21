@@ -328,6 +328,49 @@ describe("A2A continuation processor", () => {
     },
   );
 
+  it("self-dispatches to this deploy, not production, on a deploy preview", async () => {
+    // This resolver used to carry its own chain: it never read
+    // DEPLOY_PRIME_URL, so a preview POSTed the continuation to production.
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("WEBHOOK_BASE_URL", "");
+    vi.stubEnv("DEPLOY_PRIME_URL", "https://preview--app.netlify.app");
+    vi.stubEnv("APP_URL", "https://app.example.com");
+    vi.stubEnv("URL", "");
+    vi.stubEnv("DEPLOY_URL", "");
+    vi.stubEnv("BETTER_AUTH_URL", "");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 202 })),
+    );
+    const { dispatchA2AContinuation } =
+      await import("./a2a-continuation-processor.js");
+
+    await dispatchA2AContinuation("cont-preview");
+
+    expect(fetch).toHaveBeenCalledWith(
+      "https://preview--app.netlify.app/_agent-native/integrations/process-a2a-continuation",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  it("refuses to silently dispatch to localhost in production", async () => {
+    // The old fallback was `http://localhost:${PORT}`, where the request never
+    // arrives and the continuation is dropped with no error anywhere.
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("WEBHOOK_BASE_URL", "");
+    vi.stubEnv("DEPLOY_PRIME_URL", "");
+    vi.stubEnv("APP_URL", "");
+    vi.stubEnv("URL", "");
+    vi.stubEnv("DEPLOY_URL", "");
+    vi.stubEnv("BETTER_AUTH_URL", "");
+    const { dispatchA2AContinuation } =
+      await import("./a2a-continuation-processor.js");
+
+    await expect(dispatchA2AContinuation("cont-nowhere")).rejects.toThrow(
+      /requires DEPLOY_PRIME_URL/,
+    );
+  });
+
   it("recovers a bounded due batch by waking processors without claiming or polling", async () => {
     recoverDueA2AContinuationIdsMock.mockResolvedValue([
       "cont-due-1",

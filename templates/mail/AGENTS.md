@@ -56,6 +56,7 @@ Read the relevant skill before deeper work:
 - Never hardcode API keys, tokens, webhook URLs, signing secrets, private
   Builder/internal data, customer data, or credential-looking literals. Use
   secrets/OAuth/runtime configuration and obvious placeholders in examples.
+- For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver.
 
 ## Action Map
 

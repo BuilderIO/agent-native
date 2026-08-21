@@ -1,5 +1,7 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 
+import { getAppConfig } from "../app-config/index.js";
+import { setAppConfigLayer } from "../app-config/store.js";
 import { uploadFile } from "../file-upload/index.js";
 import {
   decryptSecretValue,
@@ -16,7 +18,6 @@ import type {
 
 interface PrivateBlobGlobals {
   __agentNativePrivateBlobProviders?: Map<string, PrivateBlobProvider>;
-  __agentNativePrivateBlobPublicUploadFallback?: { enabled: boolean };
 }
 
 interface EncryptedPayload {
@@ -48,10 +49,6 @@ const PUBLIC_UPLOAD_READ_RETRY_DELAYS_MS = [100, 250, 500] as const;
 const globals = globalThis as typeof globalThis & PrivateBlobGlobals;
 const providers: Map<string, PrivateBlobProvider> =
   (globals.__agentNativePrivateBlobProviders ??= new Map());
-const publicUploadFallbackRef: { enabled: boolean } =
-  (globals.__agentNativePrivateBlobPublicUploadFallback ??= {
-    enabled: true,
-  });
 
 function toBytes(data: Uint8Array | Buffer): Uint8Array {
   return data instanceof Uint8Array ? data : new Uint8Array(data);
@@ -276,16 +273,33 @@ export function listPrivateBlobProviders(): PrivateBlobProvider[] {
 }
 
 export function getActivePrivateBlobProvider(): PrivateBlobProvider | null {
+  const selected = getAppConfig().privateBlob.provider;
+  if (selected) {
+    const provider = providers.get(selected);
+    if (!provider) {
+      throw new Error(
+        `Private blob provider "${selected}" is selected in app config but no provider with that id is registered`,
+      );
+    }
+    return provider;
+  }
   for (const provider of providers.values()) {
     if (provider.isConfigured()) return provider;
   }
   return null;
 }
 
+/**
+ * @deprecated Use `defineAppConfig({ privateBlob: { publicUploadFallback } })`
+ * instead. This writes the same value into the deprecated layer of the config
+ * ladder, so an explicit `defineAppConfig` call now wins over it.
+ */
 export function setPrivateBlobPublicUploadFallbackEnabled(
   enabled: boolean,
 ): void {
-  publicUploadFallbackRef.enabled = enabled;
+  setAppConfigLayer("legacy", {
+    privateBlob: { publicUploadFallback: enabled },
+  });
 }
 
 export async function putPrivateBlob(
@@ -293,10 +307,7 @@ export async function putPrivateBlob(
 ): Promise<PrivateBlobHandle | null> {
   const provider = getActivePrivateBlobProvider();
   if (provider) return provider.put(input);
-  if (!publicUploadFallbackRef.enabled) return null;
-  if (process.env.AGENT_NATIVE_PRIVATE_BLOB_PUBLIC_UPLOAD_FALLBACK === "0") {
-    return null;
-  }
+  if (!getAppConfig().privateBlob.publicUploadFallback) return null;
   return putViaEncryptedPublicUpload(input);
 }
 

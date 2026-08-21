@@ -5,6 +5,12 @@ import { getSetting } from "@agent-native/core/settings";
 import { emailMessageMatchesSearch } from "@shared/search.js";
 import { z } from "zod";
 
+import {
+  augmentSelfSentLabels,
+  filterInboxTabEmails,
+  OTHER_INBOX_TAB_PARAM,
+  resolvePinnedLabels,
+} from "../app/lib/inbox-tabs.js";
 import { buildGmailEmailSearchQuery } from "../server/lib/gmail-query.js";
 import { gmailGetThread } from "../server/lib/google-api.js";
 import {
@@ -16,10 +22,12 @@ import {
   fetchGmailLabelMap,
 } from "../server/lib/google-auth.js";
 import { getSyntheticEmailsForView } from "../server/lib/jobs.js";
+import { readSettings } from "../server/lib/mail-settings.js";
 import {
   listQueuedDrafts,
   requireQueuedDraft,
 } from "../server/lib/queued-drafts.js";
+import type { EmailMessage } from "../shared/types.js";
 import { getAccessTokens, fetchLabelMap } from "./helpers.js";
 
 function latestPerThread(emails: any[]): any[] {
@@ -43,10 +51,33 @@ async function fetchEmailList(
   view: string,
   search?: string,
   _label?: string,
+  activeInboxTab?: string,
+  activeAccounts?: string[],
 ): Promise<any[]> {
   try {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
+    const shouldFilterOther =
+      view === "inbox" && !search && activeInboxTab === OTHER_INBOX_TAB_PARAM;
+    const selectedAccountEmails = Array.isArray(activeAccounts)
+      ? [
+          ...new Set(
+            activeAccounts
+              .filter((email): email is string => typeof email === "string")
+              .map((email) => email.toLowerCase()),
+          ),
+        ]
+      : [];
+    const selectedAccountSet = new Set(selectedAccountEmails);
+    const filterSelectedAccounts = (emails: any[]) => {
+      if (selectedAccountEmails.length === 0) return emails;
+      return emails.filter(
+        (email) =>
+          typeof email.accountEmail === "string" &&
+          selectedAccountSet.has(email.accountEmail.toLowerCase()),
+      );
+    };
+
     if (view === "snoozed" || view === "scheduled") {
       let emails = await getSyntheticEmailsForView(ownerEmail, view);
       if (search) {
@@ -54,10 +85,37 @@ async function fetchEmailList(
           emailMessageMatchesSearch(e, search),
         );
       }
-      return emails.slice(0, 50);
+      return filterSelectedAccounts(emails).slice(0, 50);
     }
-    if (await isConnected(ownerEmail)) {
-      const clients = await getClients(ownerEmail);
+
+    const googleConnected = await isConnected(ownerEmail);
+    const settings =
+      googleConnected || shouldFilterOther
+        ? await readSettings(ownerEmail)
+        : undefined;
+    const userPinnedLabels = settings?.pinnedLabels;
+    const pinnedLabels =
+      userPinnedLabels === undefined
+        ? resolvePinnedLabels([], googleConnected)
+        : resolvePinnedLabels(userPinnedLabels, googleConnected);
+    const hasNoteToSelf = pinnedLabels.includes("note-to-self");
+    const clients = googleConnected ? await getClients(ownerEmail) : [];
+    const connectedEmails = new Set(
+      clients.map(({ email }) => email.toLowerCase()),
+    );
+    const prepareEmails = (emails: any[]) => {
+      const augmented = augmentSelfSentLabels(emails as EmailMessage[], {
+        isGoogleConnected: googleConnected,
+        connectedEmails,
+        hasNoteToSelf,
+      });
+      return filterSelectedAccounts(augmented);
+    };
+    const applyActiveInboxTab = (emails: any[]) =>
+      shouldFilterOther
+        ? filterInboxTabEmails(prepareEmails(emails), null, pinnedLabels)
+        : prepareEmails(emails);
+    if (googleConnected) {
       const labelMap = new Map<string, string>();
       await Promise.all(
         clients.map(async ({ accessToken }) => {
@@ -70,7 +128,7 @@ async function fetchEmailList(
 
       const gmailQuery = buildGmailEmailSearchQuery({ view, q: search });
       const effectiveQuery =
-        view === "all" && !search ? "" : gmailQuery || "in:inbox -in:sent";
+        view === "all" && !search ? "" : gmailQuery || "in:inbox";
       const { messages } = await listGmailMessages(
         effectiveQuery,
         50,
@@ -79,6 +137,10 @@ async function fetchEmailList(
         {
           mode: "threads",
           threadFormat: "metadata",
+          accountEmails:
+            selectedAccountEmails.length > 0
+              ? selectedAccountEmails
+              : undefined,
           threadCandidateLimit: search ? 500 : undefined,
           threadRecentMessageCandidateLimit:
             !search && (view === "inbox" || view === "unread")
@@ -87,9 +149,11 @@ async function fetchEmailList(
         },
       );
 
-      return latestPerThread(
-        messages.map((m: any) =>
-          gmailToEmailMessage(m, m._accountEmail, labelMap),
+      return applyActiveInboxTab(
+        latestPerThread(
+          messages.map((m: any) =>
+            gmailToEmailMessage(m, m._accountEmail, labelMap),
+          ),
         ),
       ).slice(0, 50);
     }
@@ -136,7 +200,7 @@ async function fetchEmailList(
           emailMessageMatchesSearch(e, search),
         );
       }
-      return emails.slice(0, 50);
+      return applyActiveInboxTab(emails).slice(0, 50);
     }
     return [];
   } catch {
@@ -255,7 +319,13 @@ export default defineAction({
         };
       }
     } else if (nav?.view) {
-      const emails = await fetchEmailList(nav.view, nav.search, nav.label);
+      const emails = await fetchEmailList(
+        nav.view,
+        nav.search,
+        nav.label,
+        nav.activeInboxTab,
+        nav.activeAccounts,
+      );
       const selectedThreadIds = Array.isArray(nav.selectedThreadIds)
         ? new Set(
             nav.selectedThreadIds.filter(
@@ -279,6 +349,8 @@ export default defineAction({
       screen.emailList = {
         view: nav.view,
         label: nav.label ?? null,
+        activeInboxTab: nav.activeInboxTab ?? null,
+        activeAccounts: nav.activeAccounts ?? [],
         search: nav.search ?? null,
         selectedThreadIds: Array.from(selectedThreadIds),
         count: compact.length,

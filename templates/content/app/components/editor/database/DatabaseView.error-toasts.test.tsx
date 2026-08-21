@@ -60,6 +60,12 @@ const changeSourceRoleMutation = vi.hoisted(() => ({
   isPending: false,
 }));
 
+const processBuilderBodiesMutation = vi.hoisted(() => ({
+  mutate: vi.fn(),
+  mutateAsync: vi.fn(),
+  isPending: false,
+}));
+
 const builderModel = vi.hoisted<BuilderCmsModelSummary>(() => ({
   id: "model-1",
   name: "article",
@@ -158,7 +164,7 @@ vi.mock("@/hooks/use-content-database", () => ({
   useChangeContentDatabaseSourceRole: () => changeSourceRoleMutation,
   useRefreshContentDatabaseSource: () => benignMutation,
   useDisconnectContentDatabaseSource: () => benignMutation,
-  useProcessBuilderBodyHydration: () => benignMutation,
+  useProcessBuilderBodyHydration: () => processBuilderBodiesMutation,
   usePrepareBuilderSourceReview: () => benignMutation,
   usePreviewBuilderSourceReview: () => ({
     data: undefined,
@@ -298,6 +304,7 @@ describe("DatabaseView UI regressions", () => {
     changeSourceRoleMutation.mutateAsync
       .mockReset()
       .mockResolvedValue(databaseResponse);
+    processBuilderBodiesMutation.mutate.mockReset();
     benignMutation.mutateAsync.mockReset().mockResolvedValue(undefined);
     databaseResponse.items = [];
     databaseResponse.properties = [];
@@ -730,6 +737,105 @@ describe("DatabaseView UI regressions", () => {
       ).toBeTruthy();
     },
   );
+
+  it("reveals the ready preview while attach is pending and starts hydration from the acknowledgement", async () => {
+    let resolveAttach: ((value: unknown) => void) | undefined;
+    attachSourceMutation.mutateAsync.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveAttach = resolve;
+        }),
+    );
+    await renderDatabaseView();
+
+    await act(async () => {
+      findButtonByText(container, "Add property")?.click();
+    });
+    await act(async () => {
+      findButtonByText(
+        document.body,
+        "editor.properties.connectASource",
+      )?.click();
+    });
+    await act(async () => {
+      findButtonByText(container, "Builder")?.click();
+    });
+    await act(async () => {
+      findButtonByText(container, "Test Space")?.click();
+    });
+    await act(async () => {
+      findButtonByText(container, "Article")?.click();
+    });
+    await act(async () => {
+      findButtonByText(container, "Attach")?.click();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).not.toContain("Database settings");
+    expect(attachSourceMutation.mutateAsync).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveAttach?.({
+        responseProjection: "ack",
+        databaseId: "database-1",
+        documentId: "document-1",
+        sourceId: "builder-source-1",
+        sourceType: "builder-cms",
+        sourceTable: "article",
+        importedItemCount: 584,
+        fetchedAt: "2026-08-14T17:00:00.000Z",
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(processBuilderBodiesMutation.mutate).toHaveBeenCalledWith(
+      { sourceId: "builder-source-1" },
+      expect.any(Object),
+    );
+    expect(
+      document.body.querySelector(
+        'input[aria-label="editor.properties.searchPropertyTypes"]',
+      ),
+    ).toBeTruthy();
+  });
+
+  it("reopens the Builder model leaf when an optimistic attach fails", async () => {
+    attachSourceMutation.mutateAsync.mockRejectedValue(
+      new Error("Builder attach failed"),
+    );
+    await renderDatabaseView();
+
+    await act(async () => {
+      findButtonByText(container, "Add property")?.click();
+    });
+    await act(async () => {
+      findButtonByText(
+        document.body,
+        "editor.properties.connectASource",
+      )?.click();
+    });
+    await act(async () => {
+      findButtonByText(container, "Builder")?.click();
+    });
+    await act(async () => {
+      findButtonByText(container, "Test Space")?.click();
+    });
+    await act(async () => {
+      findButtonByText(container, "Article")?.click();
+    });
+    await act(async () => {
+      findButtonByText(container, "Attach")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("Article");
+    expect(findButtonByText(container, "Attach")).toBeTruthy();
+    expect(toastErrorMock).toHaveBeenCalledWith(failedToAttachSource, {
+      description: "Builder attach failed",
+    });
+  });
 
   it("clears the Add property handoff when backing out of Sources", async () => {
     attachSourceMutation.mutateAsync.mockResolvedValue(databaseResponse);

@@ -27,6 +27,15 @@ describe("deck title safeguards", () => {
     );
   });
 
+  it("finds a styled title inside a styled slide wrapper", () => {
+    const content =
+      '<div class="fmd-slide" style="padding: 80px 110px;"><div style="font-size: 54px;">Agent-Native Strategy</div></div>';
+
+    expect(deriveDeckTitleFromSlideContent(content)).toBe(
+      "Agent-Native Strategy",
+    );
+  });
+
   it("repairs a generated title from slide content or keeps a good existing title", () => {
     expect(
       repairGeneratedDeckTitle(

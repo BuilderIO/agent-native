@@ -4,7 +4,10 @@ import type {
 } from "@shared/design-preview-protocol";
 import {
   IPC,
+  type DesktopContentFilesAssociateSourceRequest,
   type DesktopContentFilesClearFolderRequest,
+  type DesktopContentFilesChange,
+  type DesktopContentFilesChangesRequest,
   type DesktopContentFileDeleteRequest,
   type DesktopContentFileRevealRequest,
   type DesktopContentFileWriteRequest,
@@ -21,6 +24,14 @@ import {
 import { contextBridge, ipcRenderer } from "electron";
 
 const agentNativeDesktop = {
+  analytics: {
+    clientPlatform: "electron" as const,
+  },
+  chat: {
+    toggle: () => ipcRenderer.sendToHost("agent-native:chat-command", "toggle"),
+    open: () => ipcRenderer.sendToHost("agent-native:chat-command", "open"),
+    close: () => ipcRenderer.sendToHost("agent-native:chat-command", "close"),
+  },
   clipboard: {
     writeText: (text: string): Promise<boolean> =>
       ipcRenderer.invoke(IPC.CLIPBOARD_WRITE_TEXT, text),
@@ -70,6 +81,10 @@ const agentNativeDesktop = {
       ipcRenderer.invoke(IPC.CONTENT_FILES_GET_FOLDER, request),
     chooseFolder: (): Promise<DesktopContentFilesResult> =>
       ipcRenderer.invoke(IPC.CONTENT_FILES_CHOOSE_FOLDER),
+    associateSource: (
+      request: DesktopContentFilesAssociateSourceRequest,
+    ): Promise<DesktopContentFilesResult> =>
+      ipcRenderer.invoke(IPC.CONTENT_FILES_ASSOCIATE_SOURCE, request),
     writeFiles: (
       request: DesktopContentFilesWriteRequest,
     ): Promise<DesktopContentFilesResult> =>
@@ -94,6 +109,25 @@ const agentNativeDesktop = {
       request?: DesktopContentFilesClearFolderRequest,
     ): Promise<DesktopContentFilesResult> =>
       ipcRenderer.invoke(IPC.CONTENT_FILES_CLEAR_FOLDER, request),
+    subscribeChanges: (
+      request?: DesktopContentFilesChangesRequest,
+    ): Promise<DesktopContentFilesResult> =>
+      ipcRenderer.invoke(IPC.CONTENT_FILES_SUBSCRIBE_CHANGES, request),
+    unsubscribeChanges: (
+      request?: DesktopContentFilesChangesRequest,
+    ): Promise<DesktopContentFilesResult> =>
+      ipcRenderer.invoke(IPC.CONTENT_FILES_UNSUBSCRIBE_CHANGES, request),
+    onChange: (
+      callback: (change: DesktopContentFilesChange) => void,
+    ): (() => void) => {
+      const handler = (
+        _event: Electron.IpcRendererEvent,
+        change: DesktopContentFilesChange,
+      ) => callback(change);
+      ipcRenderer.on(IPC.CONTENT_FILES_CHANGED, handler);
+      return () =>
+        ipcRenderer.removeListener(IPC.CONTENT_FILES_CHANGED, handler);
+    },
   },
 };
 

@@ -17,12 +17,14 @@ adapter.sendResponse
 Agent Native
 Agent-native
 Agent-Native App
+Agent-Native Config
 Agent-Native sidecar
 AgentHarness substrate
 AgentRunHost
 AGENTS.md · skills
 analytics@example.com, ops@example.com
 AuthSession
+Azure Static Web Apps
 AWS Lambda
 Bearer access token
 Better Auth
@@ -41,6 +43,7 @@ CRUD
 Cursor · Codex
 dashboard_.$ticketId.tsx
 dbQuery / dbExec
+Deno Deploy
 Dispatch hub
 GET /api/auth/user
 getSession callback

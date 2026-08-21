@@ -8,6 +8,7 @@ import type {
   AgentChatReference,
   MentionProvider,
 } from "../../agent/types.js";
+import type { FeatureFlagDefinition } from "../../feature-flags/registry.js";
 import type { FrameworkToolsConfig } from "../../framework-tools.js";
 import type { ExternalAgentPolicy } from "../../mcp/external-agent-policy.js";
 import type { DatabaseToolsOption } from "../../scripts/db/tool-mode.js";
@@ -141,6 +142,11 @@ export interface AgentChatPluginOptions {
    */
   actionRouteAuth?: import("../action-routes.js").ActionRouteAuthAdapter;
   /**
+   * Framework action paths that use `actionRouteAuth` instead of the browser
+   * session guard. The route handler still owns credential verification.
+   */
+  actionRoutePublicPaths?: string[];
+  /**
    * Optional callback to append template-specific context to the system
    * prompt on each request. Runs after AGENTS.md / skills / memory are
    * loaded and before the schema block — use it to inject dynamic SQL
@@ -194,8 +200,9 @@ export interface AgentChatPluginOptions {
       }>;
   /**
    * Resolve the exact native action surface for each interactive chat request.
-   * Omitted names are not sent to the model and are not discoverable through
-   * tool-search. When configured, every allowed action is loaded directly.
+   * Omitted allowlist names are not sent to the model or discoverable through
+   * tool-search. Return `{ mode: "default" }` to keep the normal initial-tool
+   * and discovery behavior for a request instead.
    */
   resolveActionSurface?: ProductionAgentOptions["resolveActionSurface"];
   /**
@@ -394,6 +401,12 @@ export interface AgentChatPluginOptions {
    * cycle safety does not depend on removing the tool.
    */
   a2aAgentDelegation?: boolean;
+
+  /**
+   * Default-off app-owned rollout for binding a delegated objective to this
+   * selected receiver before it considers another cross-app delegation.
+   */
+  a2aReceiverOwnershipFlag?: FeatureFlagDefinition;
 
   /**
    * Resource budget for delegated A2A/MCP agent turns. Defaults are stricter

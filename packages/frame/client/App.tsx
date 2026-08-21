@@ -674,6 +674,17 @@ export function App() {
                   onExitWideDrawer={exitSidebarDrawer}
                   devAppUrl={appUrl}
                   storageKey={appId}
+                  scope={
+                    appId
+                      ? {
+                          type: "workspace-app",
+                          id: appId,
+                          label: app?.label,
+                          contextKey: `workspace-app:${appId}`,
+                        }
+                      : null
+                  }
+                  isolateHistoryByScope
                   agentChatSurface="dev-frame"
                   codeAccess={{
                     enabled: isDesktop,

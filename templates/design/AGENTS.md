@@ -45,6 +45,7 @@ Read the relevant skill before deeper work in that area.
 - Never hardcode API keys, tokens, webhook URLs, signing secrets, private
   Builder/internal data, customer data, or credential-looking literals. Use
   secrets/OAuth/runtime configuration and obvious placeholders in examples.
+- For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver.
 - Use the app actions for designs, files, versions, design systems, variants,
   export, and sharing. Do not write design rows directly with SQL.
 - A message beginning with `[Reprompt selection]` is preview-only: the only
@@ -84,7 +85,8 @@ Read the relevant skill before deeper work in that area.
 ## Application State
 
 - `navigation` — current view, design id, file id, and related UI state.
-- `navigate` — moves the UI; auto-deleted after the client consumes it.
+- `navigate` — moves the UI in the tab that asked; auto-deleted after the
+  client consumes it.
 - `design-selection` — active screen, selected element, overview mode,
   inspector tab, zoom, and screen list for the current tab.
 - `design-generation-session:<designId>`, `show-questions`, `guided-questions` —
@@ -98,4 +100,6 @@ Read the relevant skill before deeper work in that area.
 ## Source Changes
 
 Before building common workspace or agent UI, read `agent-native-toolkit`; read
-`customizing-agent-native` before adapting shared UI.
+`customizing-agent-native` before adapting shared UI. Editor behavior lives in
+`app/pages/design-editor/commands/*.ts`, not `DesignEditor.tsx` — read
+`design-editor-architecture` before changing it.
