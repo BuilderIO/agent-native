@@ -99,6 +99,10 @@ import {
 } from "@/lib/local-content-source-files";
 import { cn } from "@/lib/utils";
 
+import {
+  DatabaseExportDialog,
+  type DatabaseExportContext,
+} from "./database/DatabaseExportDialog";
 import { VersionHistoryPanel } from "./VersionHistoryPanel";
 
 type ExportFormat = "pdf" | "markdown" | "html";
@@ -473,6 +477,7 @@ interface DocumentToolbarProps {
   utilityPanel: "info" | "comments" | null;
   onUtilityPanelChange: (panel: "info" | "comments" | null) => void;
   showCommentsControl?: boolean;
+  databaseExportContext?: DatabaseExportContext | null;
   onOpenBreadcrumbItem?: (id: string) => void;
   canUndo?: boolean;
   canRedo?: boolean;
@@ -499,6 +504,7 @@ export function DocumentToolbar({
   utilityPanel,
   onUtilityPanelChange,
   showCommentsControl = true,
+  databaseExportContext,
   onOpenBreadcrumbItem,
   canUndo = false,
   canRedo = false,
@@ -540,6 +546,7 @@ export function DocumentToolbar({
     boolean | null
   >(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [databaseExportOpen, setDatabaseExportOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
@@ -1076,6 +1083,15 @@ export function DocumentToolbar({
                       {t("editor.toolbar.export")}
                     </DropdownMenuSubTrigger>
                     <DropdownMenuSubContent className="w-44">
+                      {databaseExportContext ? (
+                        <DropdownMenuItem
+                          disabled={exportDocument.isPending}
+                          onSelect={() => setDatabaseExportOpen(true)}
+                        >
+                          <IconDownload className="me-2 h-4 w-4" />
+                          CSV
+                        </DropdownMenuItem>
+                      ) : null}
                       <DropdownMenuItem
                         disabled={exportDocument.isPending}
                         onSelect={() => void handleExport("pdf")}
@@ -1500,6 +1516,13 @@ export function DocumentToolbar({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <DatabaseExportDialog
+        documentId={documentId}
+        context={databaseExportContext ?? null}
+        defaultScope="current_view"
+        open={databaseExportOpen}
+        onOpenChange={setDatabaseExportOpen}
+      />
     </>
   );
 }

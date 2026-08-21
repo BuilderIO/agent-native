@@ -98,6 +98,7 @@ import {
 import { BuilderBodySyncingNotice } from "./BuilderBodySyncingNotice";
 import type { CommentTextAnchor } from "./comment-anchors";
 import { CommentsSidebar } from "./CommentsSidebar";
+import type { DatabaseExportContext } from "./database/DatabaseExportDialog";
 import { DocumentBlockFields } from "./DocumentBlockFields";
 import { DocumentDatabase } from "./DocumentDatabase";
 import { DocumentEditorSkeleton } from "./DocumentEditorSkeleton";
@@ -636,6 +637,18 @@ function DocumentEditorBody({
   const pushDocumentToNotion = usePushDocumentToNotion(documentId);
   const [localTitle, setLocalTitle] = useState("");
   const [localContent, setLocalContent] = useState("");
+  const [databaseExportContext, setDatabaseExportContext] =
+    useState<DatabaseExportContext | null>(null);
+  const databaseExportContextFingerprintRef = useRef("null");
+  const handleDatabaseExportContextChange = useCallback(
+    (context: DatabaseExportContext | null) => {
+      const fingerprint = JSON.stringify(context);
+      if (databaseExportContextFingerprintRef.current === fingerprint) return;
+      databaseExportContextFingerprintRef.current = fingerprint;
+      setDatabaseExportContext(context);
+    },
+    [],
+  );
   const [newDocumentTypeChosen, setNewDocumentTypeChosen] = useState(false);
   const [localContentUpdatedAt, setLocalContentUpdatedAt] = useState<
     string | null
@@ -2029,6 +2042,7 @@ function DocumentEditorBody({
             documentId={documentId}
             documentTitle={exportTitle}
             documentContent={exportContent}
+            databaseExportContext={databaseExportContext}
             breadcrumbItems={toolbarBreadcrumbItems.map((item) =>
               item.id === documentId ? { ...item, title: exportTitle } : item,
             )}
@@ -2230,7 +2244,11 @@ function DocumentEditorBody({
                 </div>
                 {document.database ? (
                   <div className={documentEditorDatabaseRegionClassName()}>
-                    <DocumentDatabase document={document} canEdit={canEdit} />
+                    <DocumentDatabase
+                      document={document}
+                      canEdit={canEdit}
+                      onExportContextChange={handleDatabaseExportContextChange}
+                    />
                   </div>
                 ) : null}
 
