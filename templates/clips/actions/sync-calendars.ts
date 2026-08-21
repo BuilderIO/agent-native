@@ -24,6 +24,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import {
   recordCalendarFetchError,
+  recordCalendarFetchSuccess,
   resolveCalendarAccessToken,
   shouldMarkNeedsReauth,
 } from "../server/lib/calendar-event-meetings.js";
@@ -194,18 +195,10 @@ export default defineAction({
           perAccountEvents += 1;
         }
 
-        // Fix 10: isolate the success-path status write so other accounts'
-        // needs-reauth flags can't be wiped by a later account-level throw.
+        // Keep the success write isolated and guarded so an in-flight sweep
+        // cannot overwrite a concurrent needs-reauth decision.
         try {
-          await db
-            .update(schema.calendarAccounts)
-            .set({
-              lastSyncedAt: new Date().toISOString(),
-              lastSyncError: null,
-              status: "connected",
-              updatedAt: new Date().toISOString(),
-            })
-            .where(eq(schema.calendarAccounts.id, account.id));
+          await recordCalendarFetchSuccess(account);
         } catch (writeErr: any) {
           console.warn(
             `[sync-calendars] failed to update account ${account.id} after success:`,

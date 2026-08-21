@@ -18,8 +18,8 @@ vi.mock("@agent-native/core/sharing", () => ({
 }));
 
 vi.mock("drizzle-orm", () => ({
-  and: vi.fn(),
-  eq: vi.fn(),
+  and: (...conditions: unknown[]) => ({ kind: "and", conditions }),
+  eq: (column: unknown, value: unknown) => ({ kind: "eq", column, value }),
   isNull: vi.fn(),
 }));
 
@@ -29,6 +29,7 @@ vi.mock("../db/index.js", () => ({
     calendarAccounts: {
       id: "id",
       ownerEmail: "ownerEmail",
+      status: "status",
     },
   },
 }));
@@ -67,6 +68,7 @@ import {
 } from "./calendar-event-classification";
 import {
   recordCalendarFetchError,
+  recordCalendarFetchSuccess,
   resolveCalendarAccessToken,
   shouldMarkNeedsReauth,
 } from "./calendar-event-meetings";
@@ -213,20 +215,43 @@ describe("calendar reconnect classification", () => {
   });
 });
 
-describe("calendar fetch error recording", () => {
-  it("persists and returns an explicit reauthentication decision", async () => {
+describe("calendar fetch status recording", () => {
+  const calendarAccount = {
+    id: "calendar_1",
+    provider: "google",
+    ownerEmail: "user@example.com",
+  };
+
+  function mockAccountUpdate() {
     const where = vi.fn().mockResolvedValue(undefined);
-    const set = vi.fn(() => ({ where }));
+    const set = vi.fn((_values: Record<string, unknown>) => ({ where }));
     calendarMocks.getDb.mockReturnValue({
       update: vi.fn(() => ({ set })),
     });
+    return { set, where };
+  }
+
+  it("does not promote a soft failure to connected", async () => {
+    const { set } = mockAccountUpdate();
 
     const result = await recordCalendarFetchError(
-      {
-        id: "calendar_1",
-        provider: "google",
-        ownerEmail: "user@example.com",
-      },
+      calendarAccount,
+      new Error("Calendar unavailable"),
+      { needsReauth: false },
+    );
+
+    expect(set).toHaveBeenCalledWith(
+      expect.objectContaining({ lastSyncError: "Calendar unavailable" }),
+    );
+    expect(set.mock.calls[0][0]).not.toHaveProperty("status");
+    expect(result.needsReauth).toBe(false);
+  });
+
+  it("persists and returns an explicit reauthentication decision", async () => {
+    const { set } = mockAccountUpdate();
+
+    const result = await recordCalendarFetchError(
+      calendarAccount,
       new Error("Token refresh failed"),
       { needsReauth: true },
     );
@@ -241,6 +266,25 @@ describe("calendar fetch error recording", () => {
       accountId: "calendar_1",
       error: "Token refresh failed",
       needsReauth: true,
+    });
+  });
+
+  it("records success only while the account remains connected", async () => {
+    const { set, where } = mockAccountUpdate();
+
+    await recordCalendarFetchSuccess(calendarAccount);
+
+    expect(set).toHaveBeenCalledWith(
+      expect.objectContaining({ lastSyncError: null }),
+    );
+    expect(set.mock.calls[0][0]).not.toHaveProperty("status");
+    expect(where).toHaveBeenCalledWith({
+      kind: "and",
+      conditions: [
+        { kind: "eq", column: "id", value: "calendar_1" },
+        { kind: "eq", column: "ownerEmail", value: "user@example.com" },
+        { kind: "eq", column: "status", value: "connected" },
+      ],
     });
   });
 });

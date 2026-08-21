@@ -165,13 +165,13 @@ export async function recordCalendarFetchSuccess(
     .set({
       lastSyncedAt: now,
       lastSyncError: null,
-      status: "connected",
       updatedAt: now,
     })
     .where(
       and(
         eq(schema.calendarAccounts.id, account.id),
         eq(schema.calendarAccounts.ownerEmail, account.ownerEmail),
+        eq(schema.calendarAccounts.status, "connected"),
       ),
     );
 }
@@ -191,7 +191,7 @@ export async function recordCalendarFetchError(
   await db
     .update(schema.calendarAccounts)
     .set({
-      status: needsReauth ? "needs-reauth" : "connected",
+      ...(needsReauth ? { status: "needs-reauth" as const } : {}),
       lastSyncError: needsReauth
         ? "Google Calendar needs to be reconnected."
         : message,
