@@ -880,6 +880,10 @@ async function executeBackgroundAutomation(
             // to re-POST and no `chainServerDrivenContinuation` behind it, so a
             // checkpoint must end the CHUNK and let the loop above recover it.
             recoverChunkBoundaries: true,
+            // Matches the `dispatch_mode` this runner already writes onto the
+            // run row at insert. Without it the terminal and boundary analytics
+            // events reported every scheduled run as foreground.
+            dispatchMode: "background",
             noProgressTimeoutMs: options.noProgressTimeoutMs,
             backgroundNoProgressTimeoutMs:
               options.backgroundNoProgressTimeoutMs,

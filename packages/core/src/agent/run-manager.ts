@@ -567,9 +567,18 @@ export interface StartRunOptions {
    */
   backgroundNoProgressTimeoutMs?: number;
   /**
-   * Lifecycle metadata persisted to `agent_runs.dispatch_mode` and surfaced to
-   * clients through `/runs/active`. This does not change run-manager behavior;
-   * callers use it to describe who owns continuation at hosted chunk boundaries.
+   * Lifecycle metadata persisted to `agent_runs.dispatch_mode`, surfaced to
+   * clients through `/runs/active`, and carried on the terminal/boundary
+   * analytics events. This does not change run-manager behavior; callers use it
+   * to describe who owns continuation at hosted chunk boundaries.
+   *
+   * Unset is reported as ABSENT, never as `"foreground"`. The analytics events
+   * used to default it, and the default was wrong every single time it applied:
+   * the interactive handler is the one caller that passes this, so the default
+   * only ever labelled the callers that are NOT foreground — automations, agent
+   * teams, webhooks, harness runs. It made a 6-of-7 no-progress failure rate on
+   * the automation path indistinguishable from chat in the one place anybody
+   * would have looked.
    */
   dispatchMode?: "foreground" | "foreground-self-chain" | "background";
   /**
@@ -913,7 +922,7 @@ function emitRunBoundaryTrackingEvent(args: {
     reason: args.reason,
     recovered: args.recovered,
     boundary_index: args.boundaryIndex,
-    dispatch_mode: args.dispatchMode ?? "foreground",
+    dispatch_mode: args.dispatchMode,
     model: args.model,
     engine: args.engineName,
   };
@@ -982,7 +991,7 @@ function emitRunTerminalTrackingEvent(args: {
         ? `${args.errorDetail.slice(0, MAX_RUN_ERROR_DETAIL_LENGTH)}…`
         : args.errorDetail
       : undefined,
-    dispatch_mode: args.dispatchMode ?? "foreground",
+    dispatch_mode: args.dispatchMode,
     abort_reason: args.abortReason,
     duration_ms: args.durationMs,
     model: args.model,
