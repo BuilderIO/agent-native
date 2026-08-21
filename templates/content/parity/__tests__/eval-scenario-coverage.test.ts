@@ -203,4 +203,79 @@ describe("Content parity eval scenarios", () => {
     ).toMatchObject({ passed: true, score: 1 });
     expect(row.status).toBe("passed");
   });
+
+  it.each([
+    {
+      name: "duplicate property entries",
+      toolCallDetails: [
+        {
+          name: "add-database-item",
+          input: {
+            propertyEntries: [
+              { propertyId: "parity-text-property-id", value: "preserve me" },
+              { propertyId: "parity-text-property-id", value: "preserve me" },
+              { propertyId: "parity-status-property-id", value: "ready" },
+            ],
+          },
+        },
+      ],
+    },
+    {
+      name: "ambiguous property formats",
+      toolCallDetails: [
+        {
+          name: "add-database-item",
+          input: {
+            propertyEntries: [
+              { propertyId: "parity-text-property-id", value: "preserve me" },
+              { propertyId: "parity-status-property-id", value: "ready" },
+            ],
+            propertyValues: {
+              "parity-text-property-id": "preserve me",
+              "parity-status-property-id": "ready",
+            },
+          },
+        },
+      ],
+    },
+    {
+      name: "an extra row mutation",
+      toolCallDetails: [
+        {
+          name: "add-database-item",
+          input: {
+            propertyEntries: [
+              { propertyId: "parity-text-property-id", value: "preserve me" },
+              { propertyId: "parity-status-property-id", value: "ready" },
+            ],
+          },
+        },
+        { name: "update-database-item", input: {} },
+      ],
+    },
+  ])("rejects $name", async ({ toolCallDetails }) => {
+    process.env.CONTENT_PARITY_EVALS = "1";
+    const scenario = parityEvalScenarios.find(
+      (candidate) => candidate.id === "database-create-property-preservation",
+    )!;
+    const evalCase = scenarioToEval(scenario);
+    const row = await scoreEval(evalCase, {
+      runAgent: vi.fn(async () => ({
+        text: scenario.successSignals.join("\n"),
+        toolCalls: toolCallDetails.map((call) => call.name),
+        toolCallDetails,
+        ok: true,
+        runId: "content-parity:invalid-property-input",
+        durationMs: 1,
+      })),
+      engine: {} as never,
+      model: "test-model",
+      analyzeContext: vi.fn(),
+    });
+
+    expect(
+      row.scores.find((score) => score.scorer === "expected_property_values"),
+    ).toMatchObject({ passed: false, score: 0 });
+    expect(row.status).toBe("failed");
+  });
 });

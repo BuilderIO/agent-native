@@ -51,3 +51,23 @@ export function normalizeDatabasePropertyInput(input: {
   }
   return values;
 }
+
+export function canonicalizeDatabasePropertyInput<
+  T extends {
+    propertyEntries?: Array<{ propertyId: string; value: unknown }>;
+    propertyValues?: Record<string, unknown>;
+  },
+>(
+  input: T,
+): Omit<T, "propertyEntries" | "propertyValues"> & {
+  propertyValues?: Record<string, unknown>;
+} {
+  const { propertyEntries, propertyValues, ...canonicalInput } = input;
+  return {
+    ...canonicalInput,
+    propertyValues: normalizeDatabasePropertyInput({
+      propertyEntries,
+      propertyValues,
+    }),
+  };
+}

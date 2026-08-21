@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { normalizeDatabasePropertyInput } from "../../actions/_database-property-input";
+import {
+  canonicalizeDatabasePropertyInput,
+  normalizeDatabasePropertyInput,
+} from "../../actions/_database-property-input";
+import { digest } from "../../actions/_database-row-mutation";
 import addDatabaseItem from "../../actions/add-database-item";
 import updateDatabaseItem from "../../actions/update-database-item";
 import upsertDatabaseItemByKey from "../../actions/upsert-database-item-by-key";
@@ -66,5 +70,43 @@ describe("database row property inputs", () => {
         propertyValues: { "status-id": "ready" },
       }),
     ).toThrow(/not both/);
+  });
+
+  it("removes the model-only representation before canonical hashing", () => {
+    const canonical = canonicalizeDatabasePropertyInput({
+      idempotencyKey: "same-intent",
+      propertyEntries: [
+        { propertyId: "status-id", value: "ready" },
+        { propertyId: "evidence-id", value: "preserve me" },
+      ],
+    });
+
+    expect(canonical).toEqual({
+      idempotencyKey: "same-intent",
+      propertyValues: {
+        "status-id": "ready",
+        "evidence-id": "preserve me",
+      },
+    });
+    expect(canonical).not.toHaveProperty("propertyEntries");
+  });
+
+  it("gives equivalent entry and record inputs the same canonical digest", () => {
+    const fromEntries = canonicalizeDatabasePropertyInput({
+      idempotencyKey: "same-intent",
+      propertyEntries: [
+        { propertyId: "status-id", value: "ready" },
+        { propertyId: "evidence-id", value: "preserve me" },
+      ],
+    });
+    const fromRecord = canonicalizeDatabasePropertyInput({
+      idempotencyKey: "same-intent",
+      propertyValues: {
+        "evidence-id": "preserve me",
+        "status-id": "ready",
+      },
+    });
+
+    expect(digest(fromEntries)).toBe(digest(fromRecord));
   });
 });

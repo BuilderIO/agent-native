@@ -4,9 +4,9 @@ import { z } from "zod";
 
 import type { ContentDatabaseRowMutationResult } from "../shared/api.js";
 import {
+  canonicalizeDatabasePropertyInput,
   databasePropertyEntriesSchema,
   databasePropertyValuesSchema,
-  normalizeDatabasePropertyInput,
 } from "./_database-property-input.js";
 import {
   createDatabaseRow,
@@ -56,10 +56,9 @@ export default defineAction({
     },
   },
   run: async (args): Promise<ContentDatabaseRowMutationResult> => {
-    const result = await createDatabaseRow({
-      ...args,
-      propertyValues: normalizeDatabasePropertyInput(args),
-    });
+    const result = await createDatabaseRow(
+      canonicalizeDatabasePropertyInput(args),
+    );
     const response = await getContentDatabaseResponse(
       result.receipt.target.databaseId,
       {

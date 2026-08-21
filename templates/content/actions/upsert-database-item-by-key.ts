@@ -4,9 +4,9 @@ import { z } from "zod";
 
 import type { ContentDatabaseRowMutationResult } from "../shared/api.js";
 import {
+  canonicalizeDatabasePropertyInput,
   databasePropertyEntriesSchema,
   databasePropertyValuesSchema,
-  normalizeDatabasePropertyInput,
 } from "./_database-property-input.js";
 import {
   databaseMutationEnvelopeSchema,
@@ -49,11 +49,7 @@ export default defineAction({
         : "Upserted Content database row by natural key";
     },
   },
-  run: (args) =>
-    upsertDatabaseRow({
-      ...args,
-      propertyValues: normalizeDatabasePropertyInput(args),
-    }),
+  run: (args) => upsertDatabaseRow(canonicalizeDatabasePropertyInput(args)),
   link: ({ result }) => {
     const documentId = (result as ContentDatabaseRowMutationResult | null)
       ?.receipt.row.documentId;
