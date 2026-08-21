@@ -15,6 +15,7 @@ import {
 } from "../agent/production-agent.js";
 import { runAgentLoopDirectWithSoftTimeout } from "../agent/run-loop-with-resume.js";
 import {
+  abortRun,
   resolveBackgroundAutomationSoftTimeoutMs,
   resolveBackgroundRunHardTimeoutMs,
   startRun,
@@ -787,7 +788,11 @@ async function executeBackgroundAutomation(
           hardAbortTimer = null;
           if (activeRun.status !== "running") return;
           hardTimedOut = true;
-          activeRun.abort.abort("background_automation_hard_timeout");
+          // `abortRun`, not `activeRun.abort.abort`: the controller alone
+          // carries no reason the run manager can see, so finalization fell
+          // through to `aborted:user` and a hard timeout was recorded as a
+          // person pressing Stop.
+          abortRun(runId, "background_automation_hard_timeout");
           const timeoutError = new BackgroundAutomationRunError(
             `Background automation timed out after ${Math.round(hardTimeoutMs / 60_000)} minutes`,
             "background_automation_hard_timeout",

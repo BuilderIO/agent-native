@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { z } from "zod";
 
+import { resolveBackgroundRunHardTimeoutMs } from "../agent/run-manager.js";
 import { getDbExec, intType, isPostgres } from "../db/client.js";
 import {
   ensureColumnExists,
@@ -85,10 +86,17 @@ const MAX_ERROR_LENGTH = 500;
 const MAX_ERROR_CODE_LENGTH = 100;
 
 /**
- * Generous multiple of the runner's own 10 minute hard abort
- * (BACKGROUND_RUN_HARD_TIMEOUT_MS). Past this, no run is still alive.
+ * Past this, no run of this automation is still alive.
+ *
+ * DERIVED from the runner's own hard abort rather than pinned, because that
+ * abort became configurable: a fixed 15 minutes against a longer configured
+ * timeout would report a still-executing run as `interrupted` and expire its
+ * claim lease, redispatching it on top of itself. Half again the abort leaves
+ * room for wind-down and the terminal write without ever preceding them.
  */
-const RUN_LIVENESS_CEILING_MS = 15 * 60_000;
+function resolveRunLivenessCeilingMs(): number {
+  return Math.ceil(resolveBackgroundRunHardTimeoutMs() * 1.5);
+}
 const INTERRUPTED_RUN_MESSAGE =
   "Worker stopped before a terminal result was recorded. The serverless worker may have timed out or been recycled. No delivery was confirmed.";
 /**
@@ -97,10 +105,10 @@ const INTERRUPTED_RUN_MESSAGE =
  */
 const INTERRUPTED_RUN_ERROR_CODE = "background_automation_interrupted";
 
-// The background worker has a shorter hard timeout than this lease. A worker
-// that dies after claiming can therefore be redelivered without overlapping a
-// still-live execution under normal runtime limits.
-const CLAIM_LEASE_MS = RUN_LIVENESS_CEILING_MS;
+// The background worker's hard timeout is always shorter than this lease, by
+// construction above. A worker that dies after claiming can therefore be
+// redelivered without overlapping a still-live execution.
+const claimLeaseMs = () => resolveRunLivenessCeilingMs();
 
 /** Rows kept per automation, so a per-minute schedule cannot grow forever. */
 const RUNS_RETAINED_PER_AUTOMATION = 50;
@@ -253,7 +261,7 @@ function toRun(row: Record<string, unknown>, now: number): AutomationRun {
   const stored = String(row.status) as AutomationRunStatus;
   const startedAt = Number(row.started_at);
   const status: AutomationRunStatus =
-    stored === "running" && now - startedAt > RUN_LIVENESS_CEILING_MS
+    stored === "running" && now - startedAt > resolveRunLivenessCeilingMs()
       ? "interrupted"
       : stored;
   return {
@@ -333,7 +341,7 @@ export async function claimAutomationRun(id: string): Promise<boolean> {
   const now = Date.now();
   const result = await getDbExec().execute({
     sql: `UPDATE ${TABLE} SET claimed_at = ? WHERE id = ? AND dispatch_pending = 1 AND (claimed_at IS NULL OR claimed_at <= ?) AND status = 'running'`,
-    args: [now, id, now - CLAIM_LEASE_MS],
+    args: [now, id, now - claimLeaseMs()],
   });
   return Number(result.rowsAffected ?? 0) > 0;
 }
@@ -360,7 +368,7 @@ export async function listUnclaimedAutomationRuns(options?: {
             AND started_at <= ?
           ORDER BY started_at ASC LIMIT ${limit}`,
     args: [
-      Date.now() - CLAIM_LEASE_MS,
+      Date.now() - claimLeaseMs(),
       ...(appId ? [appId] : []),
       Date.now() - olderThanMs,
     ],

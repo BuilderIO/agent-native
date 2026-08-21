@@ -275,7 +275,6 @@ export function assertRunLifecycleInvariants(agent: AppConfig["agent"]): void {
   // bound it cannot currently reach should get a field added deliberately, with
   // the relationship below extended to cover it.
   const { backgroundNoProgressTimeoutMs, backgroundRunHardTimeoutMs } = agent;
-  const runNoProgressTimeoutMs = RUN_NO_PROGRESS_HARD_TIMEOUT_MS;
   const backgroundSoftTimeoutCeilingMs = BACKGROUND_SOFT_TIMEOUT_CEILING_MS;
   const modelStreamNoProgressTimeoutMs = MODEL_STREAM_NO_PROGRESS_TIMEOUT_MS;
   const actionPreparationNoProgressTimeoutMs =
@@ -337,18 +336,6 @@ export function assertRunLifecycleInvariants(agent: AppConfig["agent"]): void {
         backgroundRunHardTimeoutMs -
         BACKGROUND_AUTOMATION_SOFT_TIMEOUT_HEADROOM_MS,
     }, "an automation whose backstop outlives its own chunk budget dies at the hard abort instead of checkpointing");
-  }
-
-  if (runNoProgressTimeoutMs > 0 && backgroundNoProgressTimeoutMs > 0) {
-    requireAtMost(
-      "foreground backstop ceiling under the background one",
-      { key: "agent.runNoProgressTimeoutMs", value: runNoProgressTimeoutMs },
-      {
-        key: "agent.backgroundNoProgressTimeoutMs",
-        value: backgroundNoProgressTimeoutMs,
-      },
-      "the foreground ceiling is clamped further by the chunk budget, so it can never usefully exceed the background window",
-    );
   }
 
   requireAtMost(

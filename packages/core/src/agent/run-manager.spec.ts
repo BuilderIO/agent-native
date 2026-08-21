@@ -4523,6 +4523,100 @@ describe("run manager soft timeout", () => {
       expect(completions).toEqual(["errored"]);
     });
 
+    it("counts a boundary as recovered only once a round actually starts", async () => {
+      // This counter answers "is the recovery working?", so `recovered` has to
+      // mean a round started — not that one was invited to. A caller can still
+      // exhaust its budget after the boundary, and counting the invitation
+      // over-reports recovery, which is the direction that hides the failure.
+      const boundaryEvents: Array<Record<string, unknown>> = [];
+      track.mockImplementation((name: string, properties: unknown) => {
+        if (name === "agent_run_boundary") {
+          boundaryEvents.push(properties as Record<string, unknown>);
+        }
+      });
+
+      const run = startRun(
+        "run-boundary-not-recovered",
+        "thread-boundary-not-recovered",
+        async (send, signal) => {
+          const keepaliveTimer = setInterval(() => {
+            send({ type: "stream_keepalive" });
+          }, 1500);
+          await new Promise<void>((resolve) => {
+            signal.addEventListener("abort", () => resolve(), { once: true });
+          });
+          clearInterval(keepaliveTimer);
+          // Gives up instead of calling beginChunk() — the budget-exhausted case.
+        },
+        undefined,
+        {
+          softTimeoutMs: BACKGROUND_SOFT_TIMEOUT_CEILING_MS,
+          backgroundFunction: true,
+          recoverChunkBoundaries: true,
+        },
+      );
+      run.subscribers.add(() => {});
+
+      await vi.advanceTimersByTimeAsync(
+        DEFAULT_BACKGROUND_NO_PROGRESS_TIMEOUT_MS + 1,
+      );
+      await run.finalized;
+
+      await vi.waitFor(() => expect(boundaryEvents.length).toBe(1));
+      expect(boundaryEvents[0]).toMatchObject({
+        reason: "no_progress",
+        recovered: false,
+      });
+    });
+
+    it("counts a boundary as recovered when the caller opens the next round", async () => {
+      const boundaryEvents: Array<Record<string, unknown>> = [];
+      track.mockImplementation((name: string, properties: unknown) => {
+        if (name === "agent_run_boundary") {
+          boundaryEvents.push(properties as Record<string, unknown>);
+        }
+      });
+      let finish: (() => void) | undefined;
+
+      const run = startRun(
+        "run-boundary-recovered",
+        "thread-boundary-recovered",
+        async (send, signal, control) => {
+          const keepaliveTimer = setInterval(() => {
+            send({ type: "stream_keepalive" });
+          }, 1500);
+          await new Promise<void>((resolve) => {
+            signal.addEventListener("abort", () => resolve(), { once: true });
+          });
+          clearInterval(keepaliveTimer);
+          const next = control.beginChunk();
+          await new Promise<void>((resolve) => {
+            finish = resolve;
+            next.addEventListener("abort", () => resolve(), { once: true });
+          });
+        },
+        undefined,
+        {
+          softTimeoutMs: BACKGROUND_SOFT_TIMEOUT_CEILING_MS,
+          backgroundFunction: true,
+          recoverChunkBoundaries: true,
+        },
+      );
+      run.subscribers.add(() => {});
+
+      await vi.advanceTimersByTimeAsync(
+        DEFAULT_BACKGROUND_NO_PROGRESS_TIMEOUT_MS + 1,
+      );
+      await vi.waitFor(() => expect(boundaryEvents.length).toBe(1));
+      expect(boundaryEvents[0]).toMatchObject({
+        reason: "no_progress",
+        recovered: true,
+      });
+
+      finish?.();
+      await run.finalized;
+    });
+
     it("keeps the terminal turn-ending checkpoint for a run that did not opt in", async () => {
       let abortReason: unknown;
 

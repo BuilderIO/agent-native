@@ -209,8 +209,14 @@ export function resolveRunNoProgressTimeoutMs(params: {
     // and stays bounded by its own hard abort.
     const override =
       explicit(params.backgroundOverrideMs) ?? explicit(params.overrideMs);
-    if (override !== undefined) return override;
-    if (!(softTimeoutMs > 0)) return 0;
+    if (!(softTimeoutMs > 0)) return override ?? 0;
+    // Honoured as given, because this override exists to RAISE the window —
+    // but still bounded by the chunk it guards. A backstop at or above the
+    // chunk budget is not a longer backstop, it is an absent one, so a caller
+    // asking for one was disabling recovery without meaning to.
+    if (override !== undefined) {
+      return override === 0 ? 0 : Math.min(override, budgetCeilingMs);
+    }
     // Clamped: returned flat, a deployment that lowered the GLOBAL
     // `runSoftTimeoutMs` shrank the chunk without shrinking the backstop, and
     // the backstop silently stopped being reachable. Nothing changes at the
@@ -1008,6 +1014,37 @@ export function startRun(
     : null;
   let chunkBoundaryReason: string | null = null;
   let recoveredChunkBoundaries = 0;
+  /** A boundary that has been reached but not yet proven recovered. */
+  let pendingBoundary: {
+    reason: "no_progress" | "run_timeout";
+    diagnostic: { silentForMs?: number; lastEventType?: string };
+    index: number;
+  } | null = null;
+  /**
+   * Resolve the outstanding boundary once its fate is known: `true` when the
+   * caller actually opened another round, `false` when the run ended first.
+   */
+  const settleBoundary = (recovered: boolean) => {
+    const boundary = pendingBoundary;
+    if (!boundary) return;
+    pendingBoundary = null;
+    recordRunBoundaryDiagnostic(
+      boundary.reason,
+      boundary.diagnostic,
+      recovered ? "recovered" : "terminal",
+    );
+    emitRunBoundaryTrackingEvent({
+      runId,
+      threadId,
+      reason: boundary.reason,
+      recovered,
+      boundaryIndex: boundary.index,
+      dispatchMode: options?.dispatchMode,
+      model: options?.model,
+      engineName: options?.engineName,
+      userId: options?.userId,
+    });
+  };
   if (chunkAbort) {
     abort.signal.addEventListener("abort", () => {
       chunkAbort?.abort(abort.signal.reason);
@@ -1023,6 +1060,7 @@ export function startRun(
     chunkBoundaryReason: () => chunkBoundaryReason,
     beginChunk: () => {
       if (abort.signal.aborted || !chunkAbort) return abort.signal;
+      settleBoundary(true);
       chunkBoundaryReason = null;
       chunkAbort = new AbortController();
       // The boundary is behind us; the silence clock restarts with the chunk,
@@ -1474,18 +1512,13 @@ export function startRun(
         runId,
         diagnostic,
       );
-      recordRunBoundaryDiagnostic(reason, diagnostic, "recovered");
-      emitRunBoundaryTrackingEvent({
-        runId,
-        threadId,
-        reason,
-        recovered: true,
-        boundaryIndex: recoveredChunkBoundaries,
-        dispatchMode: options?.dispatchMode,
-        model: options?.model,
-        engineName: options?.engineName,
-        userId: options?.userId,
-      });
+      // NOT counted as recovered yet. `recovered` is the whole point of this
+      // counter — it answers "is the recovery working?" — so it has to mean a
+      // round actually started, not that one was invited to. The caller can
+      // still exhaust its budget or fail to build continuation context, and
+      // counting the invitation would over-report recovery, which is the
+      // direction that hides the failure.
+      pendingBoundary = { reason, diagnostic, index: recoveredChunkBoundaries };
       chunkBoundaryReason = reason;
       chunkAbort.abort(reason);
       return;
@@ -1814,6 +1847,11 @@ export function startRun(
   // Run in background — intentionally detached from any HTTP connection
   const runPromise = runFn(send, runControl.chunkSignal, runControl)
     .then(() => {
+      // Settled inside the existing handlers rather than a `.finally()`: that
+      // would add a microtask tick to a chain whose ordering callers depend on.
+      // The runFn is done and never opened another round, so an outstanding
+      // boundary ended the run rather than being recovered from.
+      settleBoundary(false);
       if (abort.signal.aborted) {
         run.status = softTimedOut ? "completed" : "aborted";
         return;
@@ -1821,6 +1859,7 @@ export function startRun(
       run.status = "completed";
     })
     .catch((err) => {
+      settleBoundary(false);
       // Don't surface abort errors — the run was intentionally stopped
       if (abort.signal.aborted) {
         run.status = softTimedOut ? "completed" : "aborted";
