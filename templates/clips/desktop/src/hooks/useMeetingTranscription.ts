@@ -4,6 +4,7 @@ import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import { callAppBundleIdsForJoinUrl } from "../lib/meeting-call-app";
+import { stopMeetingBeforeTranscriptFlush } from "../lib/meeting-stop";
 import {
   appendFinalTranscript,
   onFinalTranscript,
@@ -195,18 +196,33 @@ export function useMeetingTranscription({
           }
         });
         await invoke("silence_detector_stop").catch(() => {});
-        if (reason !== "app-quit") {
-          await session.historyInFlight?.catch(() => {});
-        }
-        // Final flush waits for any in-flight flush first (flushTranscript's
-        // single-flight coalescing) then sends the definitive snapshot.
-        await flushTranscript().catch((err) => {
-          console.warn("[clips-popover] meeting transcript save failed:", err);
-        });
-        await callClipsAction("stop-meeting-recording", {
-          meetingId: session.meetingId,
-        }).catch((err) => {
-          console.warn("[clips-popover] stop meeting action failed:", err);
+        await stopMeetingBeforeTranscriptFlush({
+          // Stamp actualEnd as soon as capture is torn down. Transcript
+          // history and network flushes may be slow or unavailable, but they
+          // must not leave the meeting looking live in the meantime.
+          stopRecording: async () => {
+            await callClipsAction("stop-meeting-recording", {
+              meetingId: session.meetingId,
+            }).catch((err) => {
+              console.warn("[clips-popover] stop meeting action failed:", err);
+            });
+          },
+          waitForHistory: async () => {
+            if (reason !== "app-quit") {
+              await session.historyInFlight?.catch(() => {});
+            }
+          },
+          // Final flush waits for any in-flight flush first
+          // (flushTranscript's single-flight coalescing) and sends the
+          // definitive snapshot.
+          flushTranscript: async () => {
+            await flushTranscript().catch((err) => {
+              console.warn(
+                "[clips-popover] meeting transcript save failed:",
+                err,
+              );
+            });
+          },
         });
         if (session.lines.length) {
           const finalizePromise = callClipsAction("finalize-meeting", {

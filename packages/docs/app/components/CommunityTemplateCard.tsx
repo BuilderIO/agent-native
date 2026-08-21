@@ -85,7 +85,6 @@ export function CommunityTemplateCard({
         >
           <BuilderImage
             src={template.screenshot}
-            sizes="(max-width: 768px) 100vw, 400px"
             alt=""
             loading="lazy"
             decoding="async"

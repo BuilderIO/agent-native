@@ -3,6 +3,7 @@ import type {
   AgentLoopUsage,
 } from "../agent/production-agent.js";
 import type { AgentChatEvent, AgentToolInput } from "../agent/types.js";
+import { captureError } from "../server/capture-error.js";
 import { getRequestContext } from "../server/request-context.js";
 import {
   MAX_AI_CONTENT_BYTES,
@@ -36,6 +37,33 @@ function llmProviderFromEngine(
 
 function costUsdFromCenticents(value: number): number {
   return Math.round((value / 10_000) * 1_000_000) / 1_000_000;
+}
+
+/**
+ * Project run metadata onto flat PostHog trace properties.
+ *
+ * Prefixed and shallow on purpose: this is operational context (which
+ * automation, which trigger, which terminal state), never message content, and
+ * nested objects in an analytics property are unqueryable anyway. Values are
+ * bounded so a caller cannot turn a metadata bag into a payload channel.
+ */
+function aiTraceMetadataProperties(
+  metadata: Record<string, unknown> | null,
+): Record<string, unknown> {
+  if (!metadata) return {};
+  const properties: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(metadata)) {
+    if (value === undefined || value === null) continue;
+    const scalar =
+      typeof value === "string"
+        ? value.slice(0, 200)
+        : typeof value === "number" || typeof value === "boolean"
+          ? value
+          : undefined;
+    if (scalar === undefined) continue;
+    properties[`run_${key}`] = scalar;
+  }
+  return properties;
 }
 
 const MAX_TRACKED_GENERATION_TOOL_CALLS = 50;
@@ -452,6 +480,19 @@ export async function instrumentAgentLoop(opts: {
    *  reads. */
   userId: string | null;
   config: ObservabilityConfig;
+  /**
+   * Name for this run's root span, in the local trace store and in PostHog LLM
+   * analytics. Defaults to `"agent_run"`. Without it every path emits the same
+   * name and a scheduled automation is indistinguishable from a chat turn in
+   * the one view where telling them apart is the whole question.
+   */
+  spanName?: string;
+  /**
+   * Free-form run context. Persisted onto the local store's parent span AND
+   * forwarded to PostHog as trace properties — a channel that reached only the
+   * SQL store was a channel that could not answer "which automation was this?"
+   * in LLM analytics.
+   */
   metadata?: Record<string, unknown> | null;
   experimentAssignments?: Array<{
     experimentId: string;
@@ -486,6 +527,7 @@ export async function instrumentAgentLoop(opts: {
     | undefined;
 }): Promise<AgentLoopUsage> {
   const { runAgentLoop, loopOpts, runId, threadId, userId, config } = opts;
+  const spanName = opts.spanName?.trim() || "agent_run";
   const runStart = Date.now();
   const parentSpanId = spanId();
   const precedingResponsePromise =
@@ -826,394 +868,417 @@ export async function instrumentAgentLoop(opts: {
         : null;
     throw err;
   } finally {
-    const runEnd = Date.now();
-    const totalDurationMs = runEnd - runStart;
+    // A throw from inside a `finally` REPLACES whatever the block was doing —
+    // including a successful return — so an assembly failure here (a content
+    // builder tripping on an odd payload, a span mapper on a malformed tool
+    // result) would report a completed run as a failed one, and a failed run
+    // with the wrong error. Every emit below already guards itself; this guards
+    // the assembly between them, so the module's contract holds without each
+    // future line having to remember it.
+    try {
+      const runEnd = Date.now();
+      const totalDurationMs = runEnd - runStart;
 
-    if (pendingTools.size > 0) {
-      if (runStatus === "success") {
-        runStatus = "error";
-        errorMessage ??= "Agent run ended with interrupted tool calls";
-      }
-      for (const [counter, pending] of pendingTools) {
-        toolCallCount += 1;
-        failedTools += 1;
-        const interruptedMessage = "Tool call interrupted before completion";
-        if (counter < MAX_TRACKED_GENERATION_TOOL_CALLS) {
-          generationToolCalls.set(counter, {
+      if (pendingTools.size > 0) {
+        if (runStatus === "success") {
+          runStatus = "error";
+          errorMessage ??= "Agent run ended with interrupted tool calls";
+        }
+        for (const [counter, pending] of pendingTools) {
+          toolCallCount += 1;
+          failedTools += 1;
+          const interruptedMessage = "Tool call interrupted before completion";
+          if (counter < MAX_TRACKED_GENERATION_TOOL_CALLS) {
+            generationToolCalls.set(counter, {
+              name: pending.toolName,
+              started_offset_ms: Math.max(0, pending.startMs - runStart),
+              duration_ms: Math.max(0, runEnd - pending.startMs),
+              status: "error",
+              error_class: "interrupted",
+              error_message: config.captureToolResults
+                ? interruptedMessage
+                : undefined,
+            });
+          }
+          if (pending.otelSpan) {
+            openOtelToolSpans.delete(pending.otelSpan);
+            endAgentSpan(pending.otelSpan, {
+              status: "error",
+              errorMessage: interruptedMessage,
+              attributes: { "tool.name": pending.toolName },
+            });
+          } else {
+            pending.endResult = {
+              status: "error",
+              errorMessage: interruptedMessage,
+            };
+          }
+          spans.push({
+            id: pending.spanId,
+            runId,
+            threadId,
+            userId,
+            parentSpanId,
+            spanType: "tool_call",
             name: pending.toolName,
-            started_offset_ms: Math.max(0, pending.startMs - runStart),
-            duration_ms: Math.max(0, runEnd - pending.startMs),
-            status: "error",
-            error_class: "interrupted",
-            error_message: config.captureToolResults
-              ? interruptedMessage
-              : undefined,
-          });
-        }
-        if (pending.otelSpan) {
-          openOtelToolSpans.delete(pending.otelSpan);
-          endAgentSpan(pending.otelSpan, {
+            inputTokens: 0,
+            outputTokens: 0,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            costCentsX100: 0,
+            durationMs: Math.max(0, runEnd - pending.startMs),
             status: "error",
             errorMessage: interruptedMessage,
-            attributes: { "tool.name": pending.toolName },
+            metadata: null,
+            createdAt: runEnd,
           });
-        } else {
-          pending.endResult = {
-            status: "error",
-            errorMessage: interruptedMessage,
-          };
         }
-        spans.push({
-          id: pending.spanId,
-          runId,
-          threadId,
-          userId,
-          parentSpanId,
-          spanType: "tool_call",
-          name: pending.toolName,
+        pendingTools.clear();
+        toolNameToCounters.clear();
+        toolCallIdToCounter.clear();
+      }
+
+      let costCentsX100 = 0;
+      try {
+        const { calculateCost } = await import("../usage/store.js");
+        if (usage) {
+          costCentsX100 = calculateCost(
+            usage.inputTokens,
+            usage.outputTokens,
+            usage.model,
+            usage.cacheReadTokens,
+            usage.cacheWriteTokens,
+          );
+        }
+        // Cost estimation is enrichment: a pricing-table miss leaves the span
+        // without a cost rather than failing the trace.
+      } catch {} // coercion-ok: see above
+
+      // A cut-off run never reaches the loop's outcome classification, so stand in
+      // for it here rather than reporting no terminal state at all. `failed` +
+      // `retryable` is the honest encoding available in `AgentLoopOutcome`: the
+      // turn did not finish, and the continuation machinery is expected to
+      // recover it. A real reported outcome always wins.
+      const effectiveTerminalOutcome: AgentLoopOutcome | undefined =
+        terminalOutcome ??
+        (cutOffReason && !EXPECTED_CONTINUATION_REASONS.has(cutOffReason)
+          ? {
+              state: "failed",
+              code: cutOffReason,
+              retryable: true,
+              message: `Agent run was cut off before finishing (${cutOffReason}).`,
+            }
+          : undefined);
+
+      let llmCallCount = 0;
+      if (usage || runStatus === "error") {
+        llmCallCount =
+          usage?.llmCalls ??
+          // Compatibility for custom loop implementations that predate the
+          // attempt counter: a measured run still counts as one call.
+          1;
+        const generationUsage = usage ?? {
           inputTokens: 0,
           outputTokens: 0,
           cacheReadTokens: 0,
           cacheWriteTokens: 0,
-          costCentsX100: 0,
-          durationMs: Math.max(0, runEnd - pending.startMs),
-          status: "error",
-          errorMessage: interruptedMessage,
+          model: loopOpts.model,
+        };
+        // The engine never reported a `usage` event for this run (killed for
+        // silence before any provider response, or the loop threw before
+        // returning). `generationUsage`'s token fields are placeholder zeros in
+        // that case, not measured values — the tracking event below must omit
+        // them rather than report a fabricated 0.
+        const usageReported = usage?.usageReported === true;
+        const firstTokenMs =
+          usage?.firstEngineEventAtMs !== undefined
+            ? Math.max(0, usage.firstEngineEventAtMs - runStart)
+            : undefined;
+        const llmSpanId = spanId();
+        const generationContent = buildGenerationContent({
+          config,
+          messages: loopOpts.messages,
+          tools: loopOpts.tools,
+          assistantText: assistantTextParts.join(""),
+          toolSpans: spans.filter((s) => s.spanType === "tool_call"),
+        });
+        const llmSpan: TraceSpan = {
+          id: llmSpanId,
+          runId,
+          threadId,
+          userId,
+          parentSpanId,
+          spanType: "llm_call",
+          name: generationUsage.model,
+          inputTokens: generationUsage.inputTokens,
+          outputTokens: generationUsage.outputTokens,
+          cacheReadTokens: generationUsage.cacheReadTokens,
+          cacheWriteTokens: generationUsage.cacheWriteTokens,
+          costCentsX100,
+          durationMs: totalDurationMs,
+          status: runStatus,
+          errorMessage,
           metadata: null,
-          createdAt: runEnd,
+          createdAt: runStart,
+        };
+        spans.push(llmSpan);
+        emitLlmGenerationTrackingEvent({
+          runId,
+          threadId,
+          userId,
+          parentSpanId,
+          llmSpanId,
+          engineName:
+            typeof loopOpts.engine?.name === "string"
+              ? loopOpts.engine.name
+              : undefined,
+          model: generationUsage.model,
+          inputTokens: usageReported ? generationUsage.inputTokens : undefined,
+          outputTokens: usageReported
+            ? generationUsage.outputTokens
+            : undefined,
+          cacheReadTokens: usageReported
+            ? generationUsage.cacheReadTokens
+            : undefined,
+          cacheWriteTokens: usageReported
+            ? generationUsage.cacheWriteTokens
+            : undefined,
+          costCentsX100: usageReported ? costCentsX100 : undefined,
+          durationMs: totalDurationMs,
+          firstTokenMs,
+          status: runStatus,
+          errorMessage,
+          toolCalls: toolCallCount,
+          successfulTools,
+          failedTools,
+          tools: [...generationToolCalls.entries()]
+            .sort(([a], [b]) => a - b)
+            .map(([, detail]) => detail),
+          toolsTruncated:
+            toolInvocationCounter > MAX_TRACKED_GENERATION_TOOL_CALLS,
+          terminalOutcome: effectiveTerminalOutcome,
+          delegation: opts.delegation,
+          createdAt: runStart,
+          experimentAssignments: opts.experimentAssignments,
+          modelSelectionSource: opts.modelSelectionSource,
+          browserSessionId,
+          ...generationContent,
         });
       }
-      pendingTools.clear();
-      toolNameToCounters.clear();
-      toolCallIdToCounter.clear();
-    }
 
-    let costCentsX100 = 0;
-    try {
-      const { calculateCost } = await import("../usage/store.js");
-      if (usage) {
-        costCentsX100 = calculateCost(
-          usage.inputTokens,
-          usage.outputTokens,
-          usage.model,
-          usage.cacheReadTokens,
-          usage.cacheWriteTokens,
-        );
-      }
-    } catch {}
-
-    // A cut-off run never reaches the loop's outcome classification, so stand in
-    // for it here rather than reporting no terminal state at all. `failed` +
-    // `retryable` is the honest encoding available in `AgentLoopOutcome`: the
-    // turn did not finish, and the continuation machinery is expected to
-    // recover it. A real reported outcome always wins.
-    const effectiveTerminalOutcome: AgentLoopOutcome | undefined =
-      terminalOutcome ??
-      (cutOffReason && !EXPECTED_CONTINUATION_REASONS.has(cutOffReason)
-        ? {
-            state: "failed",
-            code: cutOffReason,
-            retryable: true,
-            message: `Agent run was cut off before finishing (${cutOffReason}).`,
-          }
-        : undefined);
-
-    let llmCallCount = 0;
-    if (usage || runStatus === "error") {
-      llmCallCount =
-        usage?.llmCalls ??
-        // Compatibility for custom loop implementations that predate the
-        // attempt counter: a measured run still counts as one call.
-        1;
-      const generationUsage = usage ?? {
-        inputTokens: 0,
-        outputTokens: 0,
-        cacheReadTokens: 0,
-        cacheWriteTokens: 0,
-        model: loopOpts.model,
-      };
-      // The engine never reported a `usage` event for this run (killed for
-      // silence before any provider response, or the loop threw before
-      // returning). `generationUsage`'s token fields are placeholder zeros in
-      // that case, not measured values — the tracking event below must omit
-      // them rather than report a fabricated 0.
-      const usageReported = usage?.usageReported === true;
-      const firstTokenMs =
-        usage?.firstEngineEventAtMs !== undefined
-          ? Math.max(0, usage.firstEngineEventAtMs - runStart)
-          : undefined;
-      const llmSpanId = spanId();
-      const generationContent = buildGenerationContent({
-        config,
-        messages: loopOpts.messages,
-        tools: loopOpts.tools,
-        assistantText: assistantTextParts.join(""),
-        toolSpans: spans.filter((s) => s.spanType === "tool_call"),
-      });
-      const llmSpan: TraceSpan = {
-        id: llmSpanId,
+      const parentSpan: TraceSpan = {
+        id: parentSpanId,
         runId,
         threadId,
         userId,
-        parentSpanId,
-        spanType: "llm_call",
-        name: generationUsage.model,
-        inputTokens: generationUsage.inputTokens,
-        outputTokens: generationUsage.outputTokens,
-        cacheReadTokens: generationUsage.cacheReadTokens,
-        cacheWriteTokens: generationUsage.cacheWriteTokens,
+        parentSpanId: null,
+        spanType: "agent_run",
+        name: spanName,
+        inputTokens: usage?.inputTokens ?? 0,
+        outputTokens: usage?.outputTokens ?? 0,
+        cacheReadTokens: usage?.cacheReadTokens ?? 0,
+        cacheWriteTokens: usage?.cacheWriteTokens ?? 0,
         costCentsX100,
         durationMs: totalDurationMs,
         status: runStatus,
         errorMessage,
-        metadata: null,
+        metadata: runMetadata,
         createdAt: runStart,
       };
-      spans.push(llmSpan);
-      emitLlmGenerationTrackingEvent({
-        runId,
-        threadId,
-        userId,
-        parentSpanId,
-        llmSpanId,
-        engineName:
+      spans.push(parentSpan);
+
+      // PostHog LLM analytics: the run is a `$ai_trace`, each tool call an
+      // `$ai_span` under it. Emitted from the collected spans rather than from a
+      // second instrumentation pass, so the tree PostHog shows and the tree we
+      // persist cannot drift apart.
+      try {
+        const aiError =
+          runStatus === "error"
+            ? toAiErrorDetail(errorMessage, {
+                state: effectiveTerminalOutcome?.state,
+                code:
+                  effectiveTerminalOutcome?.state === "failed" ||
+                  effectiveTerminalOutcome?.state === "input_required"
+                    ? effectiveTerminalOutcome.code
+                    : undefined,
+                retryable:
+                  effectiveTerminalOutcome?.state === "failed"
+                    ? effectiveTerminalOutcome.retryable
+                    : undefined,
+              })
+            : undefined;
+        const provider = llmProviderFromEngine(
           typeof loopOpts.engine?.name === "string"
             ? loopOpts.engine.name
             : undefined,
-        model: generationUsage.model,
-        inputTokens: usageReported ? generationUsage.inputTokens : undefined,
-        outputTokens: usageReported ? generationUsage.outputTokens : undefined,
-        cacheReadTokens: usageReported
-          ? generationUsage.cacheReadTokens
-          : undefined,
-        cacheWriteTokens: usageReported
-          ? generationUsage.cacheWriteTokens
-          : undefined,
-        costCentsX100: usageReported ? costCentsX100 : undefined,
-        durationMs: totalDurationMs,
-        firstTokenMs,
-        status: runStatus,
-        errorMessage,
-        toolCalls: toolCallCount,
-        successfulTools,
-        failedTools,
-        tools: [...generationToolCalls.entries()]
-          .sort(([a], [b]) => a - b)
-          .map(([, detail]) => detail),
-        toolsTruncated:
-          toolInvocationCounter > MAX_TRACKED_GENERATION_TOOL_CALLS,
-        terminalOutcome: effectiveTerminalOutcome,
-        delegation: opts.delegation,
-        createdAt: runStart,
-        experimentAssignments: opts.experimentAssignments,
-        modelSelectionSource: opts.modelSelectionSource,
-        browserSessionId,
-        ...generationContent,
-      });
-    }
+          usage?.model ?? loopOpts.model,
+        );
 
-    const parentSpan: TraceSpan = {
-      id: parentSpanId,
-      runId,
-      threadId,
-      userId,
-      parentSpanId: null,
-      spanType: "agent_run",
-      name: "agent_run",
-      inputTokens: usage?.inputTokens ?? 0,
-      outputTokens: usage?.outputTokens ?? 0,
-      cacheReadTokens: usage?.cacheReadTokens ?? 0,
-      cacheWriteTokens: usage?.cacheWriteTokens ?? 0,
-      costCentsX100,
-      durationMs: totalDurationMs,
-      status: runStatus,
-      errorMessage,
-      metadata: runMetadata,
-      createdAt: runStart,
-    };
-    spans.push(parentSpan);
+        const toolSpans = config.captureLlmSpans
+          ? spans.filter((s) => s.spanType === "tool_call")
+          : [];
+        const emittedToolSpans = toolSpans.slice(0, MAX_AI_SPANS_PER_RUN);
+        const droppedToolSpans = toolSpans.length - emittedToolSpans.length;
 
-    // PostHog LLM analytics: the run is a `$ai_trace`, each tool call an
-    // `$ai_span` under it. Emitted from the collected spans rather than from a
-    // second instrumentation pass, so the tree PostHog shows and the tree we
-    // persist cannot drift apart.
-    try {
-      const aiError =
-        runStatus === "error"
-          ? toAiErrorDetail(errorMessage, {
-              state: effectiveTerminalOutcome?.state,
-              code:
-                effectiveTerminalOutcome?.state === "failed" ||
-                effectiveTerminalOutcome?.state === "input_required"
-                  ? effectiveTerminalOutcome.code
-                  : undefined,
-              retryable:
-                effectiveTerminalOutcome?.state === "failed"
-                  ? effectiveTerminalOutcome.retryable
-                  : undefined,
-            })
-          : undefined;
-      const provider = llmProviderFromEngine(
-        typeof loopOpts.engine?.name === "string"
-          ? loopOpts.engine.name
-          : undefined,
-        usage?.model ?? loopOpts.model,
-      );
-
-      const toolSpans = config.captureLlmSpans
-        ? spans.filter((s) => s.spanType === "tool_call")
-        : [];
-      const emittedToolSpans = toolSpans.slice(0, MAX_AI_SPANS_PER_RUN);
-      const droppedToolSpans = toolSpans.length - emittedToolSpans.length;
-
-      emitAiTraceEvent({
-        runId,
-        threadId,
-        userId,
-        spanName: "agent_run",
-        model: usage?.model ?? loopOpts.model,
-        provider,
-        latencySeconds: Math.round(totalDurationMs) / 1000,
-        isError: runStatus === "error",
-        error: aiError,
-        inputTokens: usage?.usageReported ? usage.inputTokens : undefined,
-        outputTokens: usage?.usageReported ? usage.outputTokens : undefined,
-        costUsd: usage?.usageReported
-          ? costUsdFromCenticents(costCentsX100)
-          : undefined,
-        createdAt: runStart,
-        browserSessionId,
-        extraProperties: {
-          ...trackingIdentityProperties(),
-          source: "agent_observability",
-          run_id: runId,
-          thread_id: threadId,
-          // Present for planned boundaries too, which are not errors: the ratio
-          // of run_timeout to no_progress is the signal, and it is unreadable
-          // if only one side of it is recorded.
-          ...(cutOffReason ? { terminal_reason: cutOffReason } : {}),
-          // A truncated run must not read as a complete one.
-          ...(droppedToolSpans > 0
-            ? {
-                $ai_spans_dropped: droppedToolSpans,
-                $ai_spans_emitted: emittedToolSpans.length,
-              }
-            : {}),
-        },
-      });
-
-      for (const span of emittedToolSpans) {
-        // `span.errorMessage` is the raw tool result. It routinely contains
-        // upstream response bodies with Authorization headers and standalone
-        // API keys, so it gets the same redaction + bounding the generation
-        // event's `tools[].error_message` already applies, and the same
-        // `captureToolResults` gate — exporting it here otherwise reintroduced
-        // the leak that gate exists to prevent. `$ai_is_error` still marks the
-        // failure when the content is withheld.
-        const toolErrorMessage =
-          span.status === "error" &&
-          span.errorMessage &&
-          config.captureToolResults
-            ? truncateToolErrorMessage(
-                redactToolErrorMessage(span.errorMessage),
-              )
-            : undefined;
-
-        emitAiSpanEvent({
+        emitAiTraceEvent({
           runId,
           threadId,
           userId,
-          spanId: span.id,
-          spanName: span.name,
-          latencySeconds: Math.round(span.durationMs) / 1000,
-          isError: span.status === "error",
-          error: toolErrorMessage
-            ? toAiErrorDetail(toolErrorMessage)
+          spanName,
+          model: usage?.model ?? loopOpts.model,
+          provider,
+          latencySeconds: Math.round(totalDurationMs) / 1000,
+          isError: runStatus === "error",
+          error: aiError,
+          inputTokens: usage?.usageReported ? usage.inputTokens : undefined,
+          outputTokens: usage?.usageReported ? usage.outputTokens : undefined,
+          costUsd: usage?.usageReported
+            ? costUsdFromCenticents(costCentsX100)
             : undefined,
-          createdAt: span.createdAt,
+          createdAt: runStart,
           browserSessionId,
-          // `metadata.input` is already redacted and only present when
-          // `captureToolArgs` is on; absent stays absent.
-          inputState: (span.metadata as { input?: unknown } | null)?.input,
-          outputState: toolErrorMessage,
           extraProperties: {
             ...trackingIdentityProperties(),
             source: "agent_observability",
-            span_type: "tool_call",
+            run_id: runId,
+            thread_id: threadId,
+            ...aiTraceMetadataProperties(runMetadata),
+            // Present for planned boundaries too, which are not errors: the ratio
+            // of run_timeout to no_progress is the signal, and it is unreadable
+            // if only one side of it is recorded.
+            ...(cutOffReason ? { terminal_reason: cutOffReason } : {}),
+            // A truncated run must not read as a complete one.
+            ...(droppedToolSpans > 0
+              ? {
+                  $ai_spans_dropped: droppedToolSpans,
+                  $ai_spans_emitted: emittedToolSpans.length,
+                }
+              : {}),
           },
         });
+
+        for (const span of emittedToolSpans) {
+          // `span.errorMessage` is the raw tool result. It routinely contains
+          // upstream response bodies with Authorization headers and standalone
+          // API keys, so it gets the same redaction + bounding the generation
+          // event's `tools[].error_message` already applies, and the same
+          // `captureToolResults` gate — exporting it here otherwise reintroduced
+          // the leak that gate exists to prevent. `$ai_is_error` still marks the
+          // failure when the content is withheld.
+          const toolErrorMessage =
+            span.status === "error" &&
+            span.errorMessage &&
+            config.captureToolResults
+              ? truncateToolErrorMessage(
+                  redactToolErrorMessage(span.errorMessage),
+                )
+              : undefined;
+
+          emitAiSpanEvent({
+            runId,
+            threadId,
+            userId,
+            spanId: span.id,
+            spanName: span.name,
+            latencySeconds: Math.round(span.durationMs) / 1000,
+            isError: span.status === "error",
+            error: toolErrorMessage
+              ? toAiErrorDetail(toolErrorMessage)
+              : undefined,
+            createdAt: span.createdAt,
+            browserSessionId,
+            // `metadata.input` is already redacted and only present when
+            // `captureToolArgs` is on; absent stays absent.
+            inputState: (span.metadata as { input?: unknown } | null)?.input,
+            outputState: toolErrorMessage,
+            extraProperties: {
+              ...trackingIdentityProperties(),
+              source: "agent_observability",
+              span_type: "tool_call",
+            },
+          });
+        }
+        // coercion-ok: a throw here would skip trace persistence below
+      } catch {
+        // LLM analytics must never affect the run or trace persistence.
       }
-      // coercion-ok: a throw here would skip trace persistence below
-    } catch {
-      // LLM analytics must never affect the run or trace persistence.
-    }
 
-    const summary: TraceSummary = {
-      runId,
-      threadId,
-      userId,
-      totalSpans: spans.length,
-      llmCalls: llmCallCount,
-      toolCalls: toolCallCount,
-      successfulTools,
-      failedTools,
-      totalDurationMs,
-      totalCostCentsX100: costCentsX100,
-      totalInputTokens: usage?.inputTokens ?? 0,
-      totalOutputTokens: usage?.outputTokens ?? 0,
-      model: usage?.model ?? loopOpts.model,
-      createdAt: runStart,
-    };
+      const summary: TraceSummary = {
+        runId,
+        threadId,
+        userId,
+        totalSpans: spans.length,
+        llmCalls: llmCallCount,
+        toolCalls: toolCallCount,
+        successfulTools,
+        failedTools,
+        totalDurationMs,
+        totalCostCentsX100: costCentsX100,
+        totalInputTokens: usage?.inputTokens ?? 0,
+        totalOutputTokens: usage?.outputTokens ?? 0,
+        model: usage?.model ?? loopOpts.model,
+        createdAt: runStart,
+      };
 
-    writeTraceData(spans, summary, runId, config).catch(() => {});
+      writeTraceData(spans, summary, runId, config).catch(() => {});
 
-    // OpenTelemetry export (no-op unless a provider is registered). Emit a
-    // self-contained `llm.call` span carrying model + token usage, end any
-    // tool spans still open (loop threw mid-tool), and end the run span. Awaited
-    // so the spans are emitted before the function returns; cheap when no-op.
-    try {
-      if (usage) {
-        endAgentSpan(await startAgentSpan("llm.call", {}), {
+      // OpenTelemetry export (no-op unless a provider is registered). Emit a
+      // self-contained `llm.call` span carrying model + token usage, end any
+      // tool spans still open (loop threw mid-tool), and end the run span. Awaited
+      // so the spans are emitted before the function returns; cheap when no-op.
+      try {
+        if (usage) {
+          endAgentSpan(await startAgentSpan("llm.call", {}), {
+            status: runStatus,
+            errorMessage,
+            attributes: {
+              "llm.model": usage.model,
+              "llm.input_tokens": usage.inputTokens,
+              "llm.output_tokens": usage.outputTokens,
+              "llm.cache_read_tokens": usage.cacheReadTokens,
+              "llm.cache_write_tokens": usage.cacheWriteTokens,
+              "llm.cost_cents_x100": costCentsX100,
+            },
+          });
+        }
+        for (const toolSpan of openOtelToolSpans) {
+          endAgentSpan(toolSpan, {
+            status: "error",
+            errorMessage: "Agent run ended before tool_done.",
+          });
+        }
+        openOtelToolSpans.clear();
+        endAgentSpan(await otelRunSpanPromise, {
           status: runStatus,
           errorMessage,
           attributes: {
-            "llm.model": usage.model,
-            "llm.input_tokens": usage.inputTokens,
-            "llm.output_tokens": usage.outputTokens,
-            "llm.cache_read_tokens": usage.cacheReadTokens,
-            "llm.cache_write_tokens": usage.cacheWriteTokens,
-            "llm.cost_cents_x100": costCentsX100,
+            "agent.tool_calls": toolCallCount,
+            "agent.successful_tools": successfulTools,
+            "agent.failed_tools": failedTools,
+            "agent.duration_ms": totalDurationMs,
+            "agent.input_tokens": usage?.inputTokens ?? 0,
+            "agent.output_tokens": usage?.outputTokens ?? 0,
+            "agent.cost_cents_x100": costCentsX100,
+            "agent.terminal_state": effectiveTerminalOutcome?.state,
+            "agent.terminal_code":
+              effectiveTerminalOutcome?.state === "failed" ||
+              effectiveTerminalOutcome?.state === "input_required"
+                ? effectiveTerminalOutcome.code
+                : undefined,
           },
         });
+        // coercion-ok: OTel export must never break the run.
+      } catch {
+        // OTel export must never break the run.
       }
-      for (const toolSpan of openOtelToolSpans) {
-        endAgentSpan(toolSpan, {
-          status: "error",
-          errorMessage: "Agent run ended before tool_done.",
-        });
-      }
-      openOtelToolSpans.clear();
-      endAgentSpan(await otelRunSpanPromise, {
-        status: runStatus,
-        errorMessage,
-        attributes: {
-          "agent.tool_calls": toolCallCount,
-          "agent.successful_tools": successfulTools,
-          "agent.failed_tools": failedTools,
-          "agent.duration_ms": totalDurationMs,
-          "agent.input_tokens": usage?.inputTokens ?? 0,
-          "agent.output_tokens": usage?.outputTokens ?? 0,
-          "agent.cost_cents_x100": costCentsX100,
-          "agent.terminal_state": effectiveTerminalOutcome?.state,
-          "agent.terminal_code":
-            effectiveTerminalOutcome?.state === "failed" ||
-            effectiveTerminalOutcome?.state === "input_required"
-              ? effectiveTerminalOutcome.code
-              : undefined,
-        },
+    } catch (instrumentationError) {
+      // Deliberately not rethrown and deliberately not silent: the run's own
+      // outcome stands, and the telemetry failure is reported as its own.
+      captureError(instrumentationError, {
+        tags: { source: "agent-observability", phase: "trace-finalize" },
+        aiTraceId: runId,
+        extra: { runId, threadId },
       });
-    } catch {
-      // OTel export must never break the run.
     }
   }
 

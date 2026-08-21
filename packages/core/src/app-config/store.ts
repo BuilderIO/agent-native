@@ -1,4 +1,5 @@
 import { readEnvConfigLayer } from "./env-layer.js";
+import { assertRunLifecycleInvariants } from "./run-lifecycle-invariants.js";
 import {
   appConfigSchema,
   type AppConfig,
@@ -72,7 +73,14 @@ function resolve(envLayer: Record<string, unknown>): AppConfig {
     const value = state.layers[layer];
     if (value) merged = mergeLayers(merged, value as Record<string, unknown>);
   }
-  return appConfigSchema.parse(merged);
+  const parsed = appConfigSchema.parse(merged);
+  // Checked on the MERGED result, not per layer: a deployment may legitimately
+  // set one half of a relationship in the environment and the other in a
+  // plugin, and a per-layer check would reject that pairing before it exists.
+  // Defaults go through here too — the pair that shipped violated was a pair of
+  // defaults.
+  assertRunLifecycleInvariants(parsed.agent);
+  return parsed;
 }
 
 /**

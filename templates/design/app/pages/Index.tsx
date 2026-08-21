@@ -1232,7 +1232,7 @@ export default function Index() {
             </AlertDialogCancel>
             <AlertDialogAction
               onClick={bulkDeleteOpen ? handleBulkDelete : handleDelete}
-              className="bg-red-600 hover:bg-red-700 cursor-pointer"
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90 cursor-pointer"
             >
               {t("home.delete")}
             </AlertDialogAction>

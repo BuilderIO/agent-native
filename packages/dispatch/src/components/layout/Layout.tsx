@@ -953,6 +953,7 @@ export function NavContent({
   chatFirstEmbedded = false,
   collapsed = false,
   collapsible = false,
+  reserveEnvironmentBadgeSpace = false,
   onCollapsedChange,
   chatFirstAppLayout,
   onChatFirstAppLayoutChange,
@@ -971,6 +972,7 @@ export function NavContent({
   chatFirstEmbedded?: boolean;
   collapsed?: boolean;
   collapsible?: boolean;
+  reserveEnvironmentBadgeSpace?: boolean;
   onCollapsedChange?: (collapsed: boolean) => void;
   chatFirstAppLayout?: ChatFirstAppLayoutPreference;
   onChatFirstAppLayoutChange?: (layout: ChatFirstAppLayoutPreference) => void;
@@ -1298,35 +1300,30 @@ export function NavContent({
           />
         </div>
       ) : null}
-      <div
-        className={cn(
-          "flex min-h-0 flex-1 flex-col overflow-y-auto",
-          chatFirstMode && "hidden",
-        )}
-      >
-        <nav className={cn("py-2", collapsed ? "px-1.5" : "px-2")}>
-          <ul
-            className={cn(
-              collapsed ? "flex flex-col items-center gap-1" : "space-y-0.5",
-            )}
-          >
-            {primaryNavItems.map(renderNavItem)}
-          </ul>
-        </nav>
-
-        <div className="mt-auto shrink-0">
-          {bottomNavigation}
-          {organizationPicker}
-        </div>
-        {sidebarFooterActions}
-      </div>
-      {chatFirstMode ? (
-        <div className="mt-auto shrink-0">
-          {bottomNavigation}
-          {organizationPicker}
-          {sidebarFooterActions}
+      {!chatFirstMode ? (
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <nav className={cn("py-2", collapsed ? "px-1.5" : "px-2")}>
+            <ul
+              className={cn(
+                collapsed ? "flex flex-col items-center gap-1" : "space-y-0.5",
+              )}
+            >
+              {primaryNavItems.map(renderNavItem)}
+            </ul>
+          </nav>
         </div>
       ) : null}
+      <div
+        className={cn(
+          "mt-auto shrink-0",
+          reserveEnvironmentBadgeSpace && "pb-10",
+        )}
+        data-dispatch-sidebar-footer={chatFirstMode ? "chat-first" : "standard"}
+      >
+        {bottomNavigation}
+        {organizationPicker}
+        {sidebarFooterActions}
+      </div>
     </>
   );
 }
@@ -2466,6 +2463,7 @@ export function Layout({
               }}
               onChatFirstAppsRetry={() => void chatFirstAppsQuery.refetch()}
               collapsible
+              reserveEnvironmentBadgeSpace
               onCollapsedChange={setSidebarCollapsed}
             />
           </aside>
@@ -2487,6 +2485,7 @@ export function Layout({
                   chatFirstMode={chatFirstMode}
                   chatFirstEmbedded={chatFirstEmbedded}
                   collapsed={false}
+                  reserveEnvironmentBadgeSpace
                   chatFirstAppLayout={chatFirstAppLayout}
                   onChatFirstAppLayoutChange={persistChatFirstAppLayout}
                   chatFirstApps={chatFirstAppItems}

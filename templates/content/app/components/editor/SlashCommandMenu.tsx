@@ -1042,6 +1042,7 @@ export function SlashCommandMenu({
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (
+        !isOpen &&
         e.key === "Enter" &&
         !e.shiftKey &&
         !e.metaKey &&

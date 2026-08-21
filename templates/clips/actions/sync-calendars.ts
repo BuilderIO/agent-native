@@ -23,6 +23,8 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
+  recordCalendarFetchError,
+  recordCalendarFetchSuccess,
   resolveCalendarAccessToken,
   shouldMarkNeedsReauth,
 } from "../server/lib/calendar-event-meetings.js";
@@ -98,24 +100,11 @@ export default defineAction({
         // sync error via shouldMarkNeedsReauth without flipping status.
         const accessToken = await resolveCalendarAccessToken(account);
         if (!accessToken) {
-          // Fix 10: isolate this account's needs-reauth write in its own
-          // try/catch so a downstream throw on a different account doesn't
-          // leave the flag unpersisted.
-          try {
-            await db
-              .update(schema.calendarAccounts)
-              .set({
-                status: "needs-reauth",
-                lastSyncError: "Token refresh failed — reconnect required.",
-                updatedAt: new Date().toISOString(),
-              })
-              .where(eq(schema.calendarAccounts.id, account.id));
-          } catch (writeErr: any) {
-            console.warn(
-              `[sync-calendars] failed to flag account ${account.id} as needs-reauth:`,
-              writeErr?.message ?? writeErr,
-            );
-          }
+          await recordCalendarFetchError(
+            account,
+            new Error("Token refresh failed"),
+            { needsReauth: true },
+          );
           errors.push({
             accountId: account.id,
             error: "needs-reauth",
@@ -206,18 +195,10 @@ export default defineAction({
           perAccountEvents += 1;
         }
 
-        // Fix 10: isolate the success-path status write so other accounts'
-        // needs-reauth flags can't be wiped by a later account-level throw.
+        // Keep the success write isolated and guarded so an in-flight sweep
+        // cannot overwrite a concurrent needs-reauth decision.
         try {
-          await db
-            .update(schema.calendarAccounts)
-            .set({
-              lastSyncedAt: new Date().toISOString(),
-              lastSyncError: null,
-              status: "connected",
-              updatedAt: new Date().toISOString(),
-            })
-            .where(eq(schema.calendarAccounts.id, account.id));
+          await recordCalendarFetchSuccess(account);
         } catch (writeErr: any) {
           console.warn(
             `[sync-calendars] failed to update account ${account.id} after success:`,

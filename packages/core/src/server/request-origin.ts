@@ -1,5 +1,20 @@
 import { getRequestHeader, type H3Event } from "h3";
 
+/**
+ * Browser-visible origin from proxy-forwarded headers. Unlike `getOrigin()`,
+ * this ignores OAuth callback and configured-public-origin overrides so action
+ * CSRF checks match the Referer the browser actually sent.
+ */
+export function getForwardedRequestOrigin(event: H3Event): string {
+  const headerHost =
+    getRequestHeader(event, "x-forwarded-host") ||
+    getRequestHeader(event, "host");
+  const isProd = process.env.NODE_ENV === "production";
+  const headerProto =
+    getRequestHeader(event, "x-forwarded-proto") || (isProd ? "https" : "http");
+  return `${headerProto}://${headerHost ?? "localhost"}`;
+}
+
 function isLoopbackHost(host: string): boolean {
   return host.startsWith("localhost:") || host.startsWith("127.0.0.1:");
 }

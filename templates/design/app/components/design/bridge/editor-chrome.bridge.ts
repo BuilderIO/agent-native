@@ -5884,9 +5884,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           // Cmd from Ctrl the way isPlatformPrimaryModifier does host-side, but
           // forwarding is harmless when the host has no match for the combo.
           "f",
-          // Cmd/Ctrl+R rename / Cmd/Ctrl+Shift+R paste-to-replace (onRename /
-          // onPasteToReplace) — both live under bare primary+r.
-          "r",
+          // Cmd/Ctrl+Shift+R paste-to-replace. Bare primary+r stays native
+          // so browser refresh keeps its expected meaning.
           // Cmd/Ctrl+K — open the host command menu even while the iframe has
           // focus. DesignEditor routes this chord to openCommandMenu().
           "k",
@@ -5901,6 +5900,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         // shortcuts the host has no bare-primary binding for — are left
         // alone (see useDesignHotkeys.ts: both require event.shiftKey).
         (e.shiftKey && (normalized === "h" || normalized === "l")) ||
+        (e.shiftKey && normalized === "r") ||
         // Cmd/Ctrl+Alt+B detach instance / Cmd/Ctrl+Alt+K create component
         // (onDetachInstance / onCreateComponent). Gated on altKey so bare
         // Cmd+B is left alone — the host has no bare-primary binding for it.

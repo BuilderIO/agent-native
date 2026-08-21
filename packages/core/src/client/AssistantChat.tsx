@@ -371,6 +371,8 @@ function getPollAbortMs(interval: number): number {
   return Math.max(POLL_ABORT_MIN_MS, interval * 4);
 }
 const ACTIVE_RUN_CLEAR_TIMEOUT_MS = 5_000;
+const ACTIVE_RUN_CLEAR_STABLE_POLLS = 2;
+const ACTIVE_RUN_CLEAR_RETRY_DELAY_MS = 1_000;
 const ACTIVE_RUN_STUCK_THRESHOLD_MS = 90_000;
 const BACKGROUND_ACTIVE_RUN_STUCK_THRESHOLD_MS = 13 * 60_000;
 const ACTIVE_RUN_POLL_INTERVAL_MS = 150;
@@ -641,6 +643,7 @@ export async function waitForThreadRunToClear(
   if (!threadId) return true;
   const deadline = Date.now() + ACTIVE_RUN_CLEAR_TIMEOUT_MS;
   let activeRunToResume: ActiveRunLookup | null = null;
+  let consecutiveClearPolls = 0;
 
   const resumeActiveRun = (info: ActiveRunLookup) => {
     if (!info.runId) return;
@@ -665,13 +668,22 @@ export async function waitForThreadRunToClear(
       );
       if (res.ok) {
         const info = (await res.json()) as ActiveRunLookup;
-        if (
+        const runLooksClear =
           !info?.active ||
           info?.status !== "running" ||
-          activeRunLooksStale(info)
-        )
-          return true;
-        if (info.runId) {
+          activeRunLooksStale(info);
+        if (runLooksClear) {
+          consecutiveClearPolls += 1;
+          // A terminal/no-active snapshot can briefly appear between a
+          // foreground run and its server-owned continuation. Require two
+          // consecutive clear polls before releasing a queued follow-up.
+          if (consecutiveClearPolls >= ACTIVE_RUN_CLEAR_STABLE_POLLS) {
+            return true;
+          }
+        } else {
+          consecutiveClearPolls = 0;
+        }
+        if (!runLooksClear && info.runId) {
           activeRunToResume = info;
           if (info.awaitingRedispatch === true) {
             // This is not the brief terminal-write lag the 5s waiter was built
@@ -683,8 +695,11 @@ export async function waitForThreadRunToClear(
             return false;
           }
         }
+      } else {
+        consecutiveClearPolls = 0;
       }
     } catch {
+      consecutiveClearPolls = 0;
       // Transient poll failure — try again until the short grace period ends.
     }
 
@@ -2887,6 +2902,16 @@ const AssistantChatInner = forwardRef<
     tabId,
     onActiveRunChange: setHasActiveServerRun,
   });
+  // Server truth must participate in submit gating, not only in the missing
+  // final-response warning. The local lifecycle can clear during a transport
+  // handoff while the server still owns the turn.
+  const serverRunState = useRunStuckDetection({
+    threadId: threadId ?? null,
+    enabled: isActiveComposer,
+    apiUrl,
+  });
+  const serverRunActive =
+    serverRunState.runId != null && serverRunState.status === "running";
   // Real running state drives submission/queue gating; UI running also covers
   // short auto-continuation gaps so the latest assistant message does not flash
   // into a done state while the agent is still working.
@@ -2896,20 +2921,10 @@ const AssistantChatInner = forwardRef<
     isReconnecting,
     optimisticRunning,
     isAutoResuming,
-    hasActiveServerRun,
+    hasActiveServerRun: hasActiveServerRun || serverRunActive,
     hasTerminalRunError: runErrorInfo !== null,
   });
   const textStreaming = showRunningInUI || externalStreaming;
-  // Server truth about this thread's run, used to suppress the "agent stopped
-  // without sending a final message" notice while the server still has the
-  // turn in flight. The poll backs itself off to 15s while nothing is running.
-  const serverRunState = useRunStuckDetection({
-    threadId: threadId ?? null,
-    enabled: isActiveComposer,
-    apiUrl,
-  });
-  const serverRunActive =
-    serverRunState.runId != null && serverRunState.status === "running";
   const storedActiveRun = getActiveRun();
   const activeChatRunId =
     (serverRunState.status === "running" ? serverRunState.runId : null) ??
@@ -4632,6 +4647,7 @@ const AssistantChatInner = forwardRef<
     dequeueInFlightRef.current = true;
     let cancelled = false;
     let started = false;
+    let retryTimer: number | null = null;
     const timer = window.setTimeout(() => {
       started = true;
       void (async () => {
@@ -4643,7 +4659,18 @@ const AssistantChatInner = forwardRef<
           // complete. Starting the queued turn during that window can reconnect
           // to the old run and replay the old answer under the new prompt.
           const runCleared = await waitForThreadRunToClear(apiUrl, threadId);
-          if (cancelled || !runCleared) return;
+          if (cancelled) return;
+          if (!runCleared) {
+            // The server still owns this turn (including a deferred durable
+            // successor). Keep the queued message visible and retry after a
+            // short delay so one transient idle snapshot cannot strand it.
+            retryTimer = window.setTimeout(() => {
+              if (!cancelled) {
+                setQueueWakeVersion((version) => version + 1);
+              }
+            }, ACTIVE_RUN_CLEAR_RETRY_DELAY_MS);
+            return;
+          }
 
           if (
             queueStopVersionRef.current !== stopVersion ||
@@ -4722,6 +4749,7 @@ const AssistantChatInner = forwardRef<
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
+      if (retryTimer !== null) window.clearTimeout(retryTimer);
       if (!started) {
         dequeueInFlightRef.current = false;
       }

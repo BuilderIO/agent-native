@@ -32,6 +32,7 @@ import type {
 } from "../../a2a/activity.js";
 import type { ActionChatUIConfig } from "../../action-ui.js";
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
+import { formatAgentChatContextItemsForPrompt } from "../agent-chat.js";
 import { AgentTaskCard } from "../AgentTaskCard.js";
 import { writeClipboardText } from "../clipboard.js";
 import {
@@ -57,6 +58,7 @@ import {
   isCallAgentToolCallShadowed,
   isToolCallActive,
 } from "../tool-display.js";
+import { useAgentChatContext } from "../use-agent-chat-context.js";
 import { cn } from "../utils.js";
 import { ActionChatUiSurface } from "./action-chat-ui-surface.js";
 import {
@@ -710,6 +712,13 @@ export function ToolCallDisplay({
   /** @deprecated Use isActiveTail. */
   isLatestRunning?: boolean;
 }) {
+  const { items: agentChatContextItems } = useAgentChatContext(
+    toolName === "connect-builder",
+  );
+  const builderContext =
+    toolName === "connect-builder"
+      ? formatAgentChatContextItemsForPrompt(agentChatContextItems)
+      : "";
   const isDelegatedAgentCall =
     toolName === "call-agent" || toolName.startsWith("agent:");
   const effectiveIsRunning =
@@ -786,6 +795,7 @@ export function ToolCallDisplay({
       structuredMeta={structuredMeta}
       approval={approval}
       repeatCount={repeatCount}
+      context={builderContext}
     />,
   );
 }
@@ -804,6 +814,7 @@ function ToolCallDisplayGeneric({
   structuredMeta,
   approval,
   repeatCount,
+  context,
 }: {
   toolName: string;
   toolCallId?: string;
@@ -818,6 +829,7 @@ function ToolCallDisplayGeneric({
   structuredMeta?: Record<string, unknown>;
   approval?: { approvalKey: string; dismissed?: boolean; askId?: string };
   repeatCount?: number;
+  context?: string;
 }) {
   const t = useT();
   const suppressInlineOpenApp = React.useContext(SuppressInlineOpenAppContext);
@@ -860,6 +872,7 @@ function ToolCallDisplayGeneric({
             connectUrl={parsed.connectUrl || ""}
             orgName={parsed.orgName ?? null}
             prompt={typeof parsed.prompt === "string" ? parsed.prompt : ""}
+            context={context}
           />
         );
       }
