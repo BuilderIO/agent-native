@@ -180,6 +180,31 @@ describe("runMigrations – serverless request runtime", () => {
     expect(getDbExec).toHaveBeenCalled();
   });
 
+  it("skips request-time migrations for a production-owned beta schema", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NETLIFY", "true");
+    vi.stubEnv("AGENT_NATIVE_BETA_SCHEMA_OWNER", " production ");
+
+    const plugin = runMigrations(migrations, { table: "guard_migrations" });
+    await plugin(null);
+
+    expect(getDbExec).not.toHaveBeenCalled();
+    expect(createDbExec).not.toHaveBeenCalled();
+  });
+
+  it("does not treat a non-production beta schema marker as release ownership", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NETLIFY", "true");
+    vi.stubEnv("AGENT_NATIVE_BETA_SCHEMA_OWNER", "preview");
+    const exec = makeExec([{ v: 5 }]);
+    vi.mocked(getDbExec).mockReturnValue(exec);
+
+    const plugin = runMigrations(migrations, { table: "guard_migrations" });
+    await plugin(null);
+
+    expect(getDbExec).toHaveBeenCalled();
+  });
+
   it("still migrates through withMigrationRuntime, which is how release builds run", async () => {
     // The Netlify BUILD environment sets NETLIFY=true, so the release
     // migration step looks exactly like a serverless request to the guard
