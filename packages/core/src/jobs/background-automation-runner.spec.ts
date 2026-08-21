@@ -97,8 +97,11 @@ vi.mock("../secrets/storage.js", async (importOriginal) => ({
   readAppSecrets: vi.fn(async () => new Map()),
 }));
 
-const { BACKGROUND_RUN_HARD_TIMEOUT_MS, runBackgroundAutomation } =
-  await import("./background-automation-runner.js");
+const {
+  BACKGROUND_RUN_HARD_TIMEOUT_MS,
+  classifyBackgroundAutomationTraceError,
+  runBackgroundAutomation,
+} = await import("./background-automation-runner.js");
 
 function dispatchModeOf(runId: string): string | null {
   const row = sqlite
@@ -321,6 +324,48 @@ function assistantContent() {
   const content = assistantMessage().content;
   return Array.isArray(content) ? content : [];
 }
+
+// A hard-aborted automation reached PostHog as "Agent run was aborted" — the
+// same string a user Stop produces — so the two were indistinguishable in the
+// one view you go to to tell them apart.
+describe("classifyBackgroundAutomationTraceError", () => {
+  it("names the hard timeout with the code the taxonomy already computed", () => {
+    expect(
+      classifyBackgroundAutomationTraceError({
+        error: new Error("Background automation timed out after 10 minutes"),
+        hardTimedOut: true,
+        hardTimeoutMs: 600_000,
+      }),
+    ).toEqual({
+      status: "error",
+      errorMessage: "Background automation timed out after 10 minutes",
+      metadata: {
+        terminal_code: "background_automation_hard_timeout",
+        hard_timeout_ms: 600_000,
+      },
+    });
+  });
+
+  it("leaves every other failure to the instrumentation's own classification", () => {
+    expect(
+      classifyBackgroundAutomationTraceError({
+        error: new Error("provider exploded"),
+        hardTimedOut: false,
+        hardTimeoutMs: 600_000,
+      }),
+    ).toBeNull();
+  });
+
+  it("carries a non-Error rejection through as its own text", () => {
+    expect(
+      classifyBackgroundAutomationTraceError({
+        error: "socket hang up",
+        hardTimedOut: true,
+        hardTimeoutMs: 600_000,
+      })?.errorMessage,
+    ).toBe("socket hang up");
+  });
+});
 
 describe("runBackgroundAutomation — thread transcript", () => {
   it("persists the prompt and tool-call turn, keeping the Job title", async () => {
