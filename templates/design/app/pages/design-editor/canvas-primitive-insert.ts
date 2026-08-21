@@ -9,11 +9,12 @@ import type { CanvasPrimitiveInsert } from "@/components/design/multi-screen/typ
 
 import {
   CANVAS_TEXT_DEFAULT_FONT_FAMILY,
+  defaultCanvasFrameFill,
   defaultCanvasTextColor,
 } from "./canvas-primitives";
 import {
   BOARD_TEXT_AUTO_COLOR_MARKER,
-  destinationBackgroundIsLightForNode,
+  destinationBackgroundLightness,
 } from "./cross-screen-text-color";
 import { escapeHtmlAttributeValue, escapeHtmlText } from "./dom-utils";
 import { isStandaloneHttpUrl } from "./editor-state";
@@ -219,8 +220,9 @@ function absoluteRect(
     ) {
       continue;
     }
-    originX += read(ancestor.style.left) ?? 0;
-    originY += read(ancestor.style.top) ?? 0;
+    const inset = inlineBorderInset(ancestor);
+    originX += (read(ancestor.style.left) ?? 0) + inset.x;
+    originY += (read(ancestor.style.top) ?? 0) + inset.y;
   }
   return { x: originX + x, y: originY + y, w, h };
 }
@@ -230,12 +232,20 @@ function absoluteRect(
  * `data-an-primitive="frame"` adopts. Bounds come from inline geometry
  * because this document is parsed, never laid out.
  */
+/** Inline border widths, which an absolute child's offsets resolve inside of. */
+function inlineBorderInset(element: Element): { x: number; y: number } {
+  const style = (element as HTMLElement).style;
+  const read = (value: string) => {
+    const parsed = Number.parseFloat(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+  return { x: read(style.borderLeftWidth), y: read(style.borderTopWidth) };
+}
+
 function deepestFrameContaining(
   root: Element,
   x: number,
   y: number,
-  w: number,
-  h: number,
 ): { element: Element; x: number; y: number } | null {
   const contained = Array.from(
     root.querySelectorAll('[data-an-primitive="frame"]'),
@@ -248,11 +258,14 @@ function deepestFrameContaining(
         element: Element;
         rect: { x: number; y: number; w: number; h: number };
       } =>
+        // Nest on the origin, as Figma does. Requiring the whole box to fit
+        // drops a click-created text (default width) out to the root, where
+        // it overlaps the frame it looks like it belongs to.
         candidate.rect !== null &&
         x >= candidate.rect.x &&
         y >= candidate.rect.y &&
-        x + w <= candidate.rect.x + candidate.rect.w &&
-        y + h <= candidate.rect.y + candidate.rect.h,
+        x <= candidate.rect.x + candidate.rect.w &&
+        y <= candidate.rect.y + candidate.rect.h,
     )
     .sort((a, b) => a.rect.w * a.rect.h - b.rect.w * b.rect.h);
   const best = contained[0];
@@ -288,8 +301,14 @@ export function appendCanvasPrimitiveToHtml(
     const layerName = primitiveLayerName(primitive);
     // Resolved once so every primitive kind nests identically, and so text can
     // pick a fill that is legible against its actual container.
-    const host = deepestFrameContaining(doc.body, left, top, width, height);
+    const host = deepestFrameContaining(doc.body, left, top);
     const hostOrBody: Element = host?.element ?? doc.body;
+    // An absolute child resolves against the host's PADDING box, while
+    // host.x/host.y are its border-box origin — so a bordered frame shifts
+    // everything dropped into it by the border width.
+    const hostBorder = host ? inlineBorderInset(host.element) : { x: 0, y: 0 };
+    const hostLeft = host ? left - host.x - hostBorder.x : left;
+    const hostTop = host ? top - host.y - hostBorder.y : top;
 
     if (
       primitive.kind === "path" ||
@@ -398,8 +417,8 @@ export function appendCanvasPrimitiveToHtml(
         "style",
         [
           "position:absolute",
-          `left:${left}px`,
-          `top:${top}px`,
+          `left:${hostLeft}px`,
+          `top:${hostTop}px`,
           `width:${width}px`,
           `height:${height}px`,
           "overflow:visible",
@@ -441,8 +460,8 @@ export function appendCanvasPrimitiveToHtml(
         "style",
         [
           "position:absolute",
-          `left:${left}px`,
-          `top:${top}px`,
+          `left:${hostLeft}px`,
+          `top:${hostTop}px`,
           `width:${width}px`,
           `height:${height}px`,
           "overflow:visible",
@@ -464,8 +483,8 @@ export function appendCanvasPrimitiveToHtml(
     // glyph. Read by treeTypeForNode in shared/code-layer.ts.
     element.setAttribute("data-an-primitive", primitive.kind);
     element.style.position = "absolute";
-    element.style.left = `${left}px`;
-    element.style.top = `${top}px`;
+    element.style.left = `${hostLeft}px`;
+    element.style.top = `${hostTop}px`;
     if (!(primitive.kind === "text" && primitive.autoSize)) {
       element.style.width = `${width}px`;
       element.style.height = `${height}px`;
@@ -482,19 +501,12 @@ export function appendCanvasPrimitiveToHtml(
       primitive.kind === "rectangle" ? "rect" : primitive.kind,
     );
     if (primitive.kind === "frame") {
-      // A committed frame is a BARE container <div> — no default fill,
-      // border, or radius — so the markup this code-first editor emits stays
-      // clean (a Figma frame reads as unstyled structure, and a dashed
-      // border/tint baked into the design's real HTML would be styling
-      // pollution). This deliberately diverges from the draft PREVIEW's
-      // faint-tint/dashed look (canvas-primitive-style.ts), which is editor
-      // affordance chrome during the drag; on commit the new frame is
-      // immediately selected, so its bounds stay visible via selection
-      // chrome instead. Explicit user-chosen fill/stroke still applies.
+      // A committed frame carries a real surface, not the draft preview's
+      // dashed tint (editor chrome, canvas-primitive-style.ts): selection
+      // chrome only covers the frame while it stays selected, and a bare
+      // container is invisible the moment it is not.
       // overflow:hidden matches Figma frames clipping their content.
-      if (primitive.fill) {
-        element.style.background = primitive.fill;
-      }
+      element.style.background = primitive.fill ?? defaultCanvasFrameFill();
       if (
         primitive.stroke !== undefined ||
         primitive.strokeWidth !== undefined
@@ -516,9 +528,13 @@ export function appendCanvasPrimitiveToHtml(
       // "currentColor" so text still inherits their theme.
       // Measure the frame the text actually lands in: a dark frame on a light
       // page would otherwise keep currentColor and render invisible.
+      // isBoardTarget only says which surface is behind the text, and the
+      // board is not always dark — a measured background always wins.
+      const measuredLightness = destinationBackgroundLightness(hostOrBody);
       const autoTextNeedsLightFill =
-        options?.isBoardTarget === true ||
-        !destinationBackgroundIsLightForNode(hostOrBody);
+        measuredLightness === null
+          ? options?.isBoardTarget === true
+          : !measuredLightness;
       const resolvedTextColor =
         primitive.fill ?? defaultCanvasTextColor(autoTextNeedsLightFill);
       element.style.color = resolvedTextColor;
@@ -560,10 +576,6 @@ export function appendCanvasPrimitiveToHtml(
       element.style.borderRadius = canonical.borderRadius;
     }
 
-    if (host) {
-      element.style.left = `${left - host.x}px`;
-      element.style.top = `${top - host.y}px`;
-    }
     hostOrBody.appendChild(element);
     return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
   } catch {

@@ -26,6 +26,7 @@ import { getViteDevRecoveryScript } from "../client/vite-dev-recovery-script.js"
 import {
   inferAgentNativeDeploymentEnvironment,
   mergeAgentNativeConfigs,
+  readAgentNativeConfigEnv,
   resolveAgentNativeConfig,
   type AgentNativeConfig,
   type AgentNativeConfigContext,
@@ -33,6 +34,10 @@ import {
 } from "../config.js";
 import { writeAgentNativeNitroPresetMarker } from "../deploy/nitro-preset.js";
 import { findWorkspaceRoot } from "../scripts/utils.js";
+import {
+  RECURRING_JOBS_BUILD_MARKER_ENV_VAR,
+  resolveRecurringJobsBuildMarker,
+} from "../server/agent-chat/recurring-jobs-runtime.js";
 import { verifyEmbedSessionToken } from "../server/embed-session.js";
 import {
   EMBED_SESSION_COOKIE,
@@ -67,6 +72,7 @@ import {
   readAgentNativeJsonConfig,
 } from "./agent-native-config-loader.js";
 import { agentsBundlePlugin } from "./agents-bundle-plugin.js";
+import { resolveAgentNativePackageVersions } from "./package-versions.js";
 
 const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -3236,6 +3242,15 @@ function createNitroDevPlugin(
       "process.env.AGENT_NATIVE_RELEASE_MIGRATIONS": JSON.stringify(
         process.env.AGENT_NATIVE_RELEASE_MIGRATIONS?.trim() || "",
       ),
+      "process.env.AGENT_NATIVE_BETA_SCHEMA_OWNER": JSON.stringify(
+        process.env.AGENT_NATIVE_BETA_SCHEMA_OWNER?.trim() || "",
+      ),
+      // Same reason as the release owner above: the recurring-jobs decision
+      // belongs to the build env, and Nitro is a separate server build with its
+      // own replacement map.
+      [`process.env.${RECURRING_JOBS_BUILD_MARKER_ENV_VAR}`]: JSON.stringify(
+        resolveRecurringJobsBuildMarker(process.env),
+      ),
     },
     // Never auto-load test files as server handlers/plugins/middleware.
     // Nitro scans server/{plugins,middleware,routes,api}/*; a co-located
@@ -3529,16 +3544,40 @@ function createAgentNativeConfig(
   userConfig: UserConfig = {},
   mode = process.env.NODE_ENV === "production" ? "production" : "development",
   projectConfig?: AgentNativeConfigInput,
+  workspaceConfig?: AgentNativeConfigInput,
 ): UserConfig {
   const cwd = process.cwd();
   const configContext = createAgentNativeConfigContext(command, mode);
   const projectConfigInput = projectConfig ?? options.agentNativeConfig;
+
+  // Workspace env fallback. If this app is inside a workspace, tell Vite to
+  // also look for .env files at the workspace root. Per-app .env still wins
+  // (Vite's loadEnv merges in precedence order — app dir is loaded after).
+  const workspaceRoot = findWorkspaceRoot(cwd);
+  const envDir = workspaceRoot && workspaceRoot !== cwd ? workspaceRoot : cwd;
+
+  const runtimeEnv = {
+    ...(workspaceRoot && workspaceRoot !== cwd
+      ? loadEnv(mode, workspaceRoot, "")
+      : {}),
+    ...loadEnv(mode, cwd, ""),
+    ...process.env,
+  };
   const appConfig = resolveAgentNativeConfig(
     mergeAgentNativeConfigs(
-      readAgentNativeJsonConfig(cwd),
-      projectConfigInput
-        ? resolveAgentNativeConfig(projectConfigInput, configContext)
-        : {},
+      mergeAgentNativeConfigs(
+        mergeAgentNativeConfigs(
+          workspaceConfig
+            ? resolveAgentNativeConfig(workspaceConfig, configContext)
+            : {},
+          readAgentNativeJsonConfig(cwd),
+        ),
+        projectConfigInput
+          ? resolveAgentNativeConfig(projectConfigInput, configContext)
+          : {},
+      ),
+      readAgentNativeConfigEnv(runtimeEnv),
+      { arrayStrategy: "replace" },
     ),
     configContext,
   );
@@ -3560,12 +3599,7 @@ function createAgentNativeConfig(
     process.env.CF_PAGES_COMMIT_SHA?.trim() ||
     process.env.AGENT_NATIVE_BUILD_SHA?.trim() ||
     "development";
-
-  // Workspace env fallback. If this app is inside a workspace, tell Vite to
-  // also look for .env files at the workspace root. Per-app .env still wins
-  // (Vite's loadEnv merges in precedence order — app dir is loaded after).
-  const workspaceRoot = findWorkspaceRoot(cwd);
-  const envDir = workspaceRoot && workspaceRoot !== cwd ? workspaceRoot : cwd;
+  const packageVersions = resolveAgentNativePackageVersions(cwd);
 
   // Preload workspace-root .env into process.env so Nitro server code sees
   // shared keys during dev (Nitro reads process.env, not vite's envDir).
@@ -3583,13 +3617,6 @@ function createAgentNativeConfig(
     } catch {}
   }
 
-  const runtimeEnv = {
-    ...(workspaceRoot && workspaceRoot !== cwd
-      ? loadEnv(mode, workspaceRoot, "")
-      : {}),
-    ...loadEnv(mode, cwd, ""),
-    ...process.env,
-  };
   reportRuntimeConfigDiagnostics(appConfig, configContext, mode, runtimeEnv);
 
   const { base } = getConfiguredAppBasePath();
@@ -3658,6 +3685,7 @@ function createAgentNativeConfig(
       ...(userConfig.define ?? {}),
       ...(options.define ?? {}),
       __AGENT_NATIVE_BUILD_ID__: JSON.stringify(buildId),
+      __AGENT_NATIVE_PACKAGE_VERSIONS__: JSON.stringify(packageVersions),
       __AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__: JSON.stringify(
         options.clientCompatibilityVersion?.trim() || "",
       ),
@@ -3673,6 +3701,16 @@ function createAgentNativeConfig(
       // into deployed Functions, so embed the decision in the server bundle.
       "process.env.AGENT_NATIVE_RELEASE_MIGRATIONS": JSON.stringify(
         process.env.AGENT_NATIVE_RELEASE_MIGRATIONS?.trim() || "",
+      ),
+      "process.env.AGENT_NATIVE_BETA_SCHEMA_OWNER": JSON.stringify(
+        process.env.AGENT_NATIVE_BETA_SCHEMA_OWNER?.trim() || "",
+      ),
+      // Recurring jobs are turned off (and their platform scheduled trigger
+      // omitted) by the BUILD environment, which a deployed serverless runtime
+      // never sees. Embed the decision so the Automations page reports what
+      // will actually fire instead of inferring it from runtime-only markers.
+      [`process.env.${RECURRING_JOBS_BUILD_MARKER_ENV_VAR}`]: JSON.stringify(
+        resolveRecurringJobsBuildMarker(process.env),
       ),
       ...(resolvedAppConfig.deployment?.environment
         ? {
@@ -3909,25 +3947,19 @@ function createAgentNativeConfigPlugin(
     name: "agent-native-config",
     enforce: "pre",
     async config(config: UserConfig, env: ConfigEnv) {
-      const context = createAgentNativeConfigContext(env.command, env.mode);
       const workspaceConfig = await loadWorkspaceAgentNativeConfigFile(
         process.cwd(),
       );
       const projectConfig =
         options.agentNativeConfig ??
         (await loadAgentNativeConfigFile(process.cwd()));
-      const resolvedConfig = mergeAgentNativeConfigs(
-        workspaceConfig
-          ? resolveAgentNativeConfig(workspaceConfig, context)
-          : {},
-        projectConfig ? resolveAgentNativeConfig(projectConfig, context) : {},
-      );
       return createAgentNativeConfig(
         options,
         env.command,
         config,
         env.mode,
-        resolvedConfig,
+        projectConfig,
+        workspaceConfig,
       );
     },
   };

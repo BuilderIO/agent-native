@@ -1,6 +1,6 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { IconDots, IconDownload, IconTrash } from "@tabler/icons-react";
+import { IconDotsVertical, IconDownload, IconTrash } from "@tabler/icons-react";
 import { useCallback, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -51,6 +51,7 @@ export function RecordingOptionsMenu({
   const [open, setOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const deletedWhileOpenRef = useRef(false);
+  const pendingDeleteConfirmRef = useRef(false);
   const showDownload = canDownload && Boolean(onDownload);
   const showDelete = canDelete;
   const trashRecording = useActionMutation<any, { id: string }>(
@@ -93,13 +94,28 @@ export function RecordingOptionsMenu({
           <Button
             variant="ghost"
             size="icon"
-            className="shrink-0"
+            className="-mx-1.5 h-auto w-auto shrink-0 px-0.5 py-1.5"
             aria-label={t("deleteRecordingMenu.clipOptions")}
           >
-            <IconDots className="h-4 w-4" />
+            <IconDotsVertical className="h-4 w-4" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-44">
+        <DropdownMenuContent
+          align="end"
+          className="w-44"
+          onCloseAutoFocus={(event) => {
+            // Opening the AlertDialog while this menu is still tearing down
+            // leaves `pointer-events: none` stuck on <body>: two dismissable
+            // layers overlap and the survivor never restores the style. Wait
+            // for the menu to finish closing, and keep focus off the trigger
+            // so the dialog owns it.
+            if (pendingDeleteConfirmRef.current) {
+              event.preventDefault();
+              pendingDeleteConfirmRef.current = false;
+              setOpen(true);
+            }
+          }}
+        >
           {showDownload ? (
             <DropdownMenuItem
               onSelect={handleDownload}
@@ -116,7 +132,8 @@ export function RecordingOptionsMenu({
             <DropdownMenuItem
               onSelect={(event) => {
                 event.preventDefault();
-                setOpen(true);
+                pendingDeleteConfirmRef.current = true;
+                setMenuOpen(false);
               }}
               className="text-destructive focus:text-destructive"
             >
@@ -132,7 +149,7 @@ export function RecordingOptionsMenu({
             if (!deletedWhileOpenRef.current) return;
             deletedWhileOpenRef.current = false;
             event.preventDefault();
-            setTimeout(() => onDeleted?.(), 0);
+            onDeleted?.();
           }}
         >
           <AlertDialogHeader>

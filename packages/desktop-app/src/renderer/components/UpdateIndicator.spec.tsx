@@ -10,15 +10,10 @@ describe("UpdateIndicator", () => {
   let container: HTMLDivElement;
   let root: Root;
   let install: ReturnType<typeof vi.fn>;
-  let check: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     install = vi.fn();
-    check = vi.fn().mockResolvedValue({
-      state: "not-available",
-      currentVersion: "1.1.0",
-    });
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -30,7 +25,6 @@ describe("UpdateIndicator", () => {
             state: "downloaded",
             version: "1.1.0",
           }),
-          check,
           install,
           onStatusChange: vi.fn(() => vi.fn()),
         },
@@ -63,37 +57,36 @@ describe("UpdateIndicator", () => {
     expect(install).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps a check action in the expanded and collapsed rail states", async () => {
-    Object.defineProperty(window, "electronAPI", {
-      configurable: true,
-      value: {
-        updater: {
-          getStatus: vi.fn().mockResolvedValue({
-            state: "not-available",
-            currentVersion: "1.1.0",
-          }),
-          check,
-          install,
-          onStatusChange: vi.fn(() => vi.fn()),
+  it.each([
+    { state: "idle" },
+    { state: "unsupported", reason: "Local development build" },
+    { state: "checking" },
+    { state: "available", version: "1.2.0" },
+    { state: "not-available", currentVersion: "1.1.0" },
+    { state: "downloading", percent: 50 },
+    { state: "error", message: "Update check failed" },
+  ] satisfies UpdateStatus[])(
+    "does not render a rail action before an update is ready (%#)",
+    async (status) => {
+      Object.defineProperty(window, "electronAPI", {
+        configurable: true,
+        value: {
+          updater: {
+            getStatus: vi.fn().mockResolvedValue(status),
+            install,
+            onStatusChange: vi.fn(() => vi.fn()),
+          },
         },
-      },
-    });
+      });
 
-    await act(async () => {
-      root.render(<UpdateIndicator />);
-      await Promise.resolve();
-    });
+      await act(async () => {
+        root.render(<UpdateIndicator />);
+        await Promise.resolve();
+      });
 
-    const button = container.querySelector<HTMLButtonElement>(
-      "[data-update-indicator]",
-    );
-    expect(button).not.toBeNull();
-    expect(button?.textContent).toContain("Check for updates");
-    expect(button?.querySelector("svg")).not.toBeNull();
-
-    act(() => button?.click());
-    expect(check).toHaveBeenCalledTimes(1);
-  });
+      expect(container.querySelector("[data-update-indicator]")).toBeNull();
+    },
+  );
 
   it("does not let the initial status read overwrite a newer live update", async () => {
     let resolveStatus!: (status: UpdateStatus) => void;
@@ -110,7 +103,6 @@ describe("UpdateIndicator", () => {
       value: {
         updater: {
           getStatus,
-          check,
           install,
           onStatusChange: vi.fn((listener: (status: UpdateStatus) => void) => {
             onStatusChange = listener;

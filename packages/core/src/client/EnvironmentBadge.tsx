@@ -21,6 +21,7 @@ import {
 import { trackEvent } from "./analytics.js";
 import { injectedAgentNativeConfig } from "./app-config.js";
 import { useSession } from "./use-session.js";
+import { cn } from "./utils.js";
 
 export {
   BETA_OPT_OUT_DURATION_MS,
@@ -34,6 +35,12 @@ export {
 
 export function isBuilderIoEmployee(email: string | null | undefined): boolean {
   return email?.trim().toLowerCase().endsWith("@builder.io") ?? false;
+}
+
+export function isAgentNativeDesktopUserAgent(
+  userAgent: string | undefined,
+): boolean {
+  return /AgentNativeDesktop/i.test(userAgent ?? "");
 }
 
 export function resolveEnvironmentChannel(
@@ -150,7 +157,12 @@ function EnvironmentBadgeContent({
       <PopoverTrigger asChild>
         <Button
           aria-label={`Open ${title.toLowerCase()} switcher`}
-          className="fixed top-3 right-3 z-[100] h-6 min-w-0 rounded-xl border-border/80 bg-background/95 px-2 text-[11px] font-semibold uppercase tracking-[0.5px] shadow-sm backdrop-blur-sm"
+          className={cn(
+            "fixed top-3 right-3 z-[100] h-6 min-w-0 rounded-xl px-2 text-[11px] font-semibold uppercase tracking-[0.5px] shadow-sm backdrop-blur-sm",
+            environment === "beta"
+              ? "border-primary/80"
+              : "border-border/80 bg-background/95 text-foreground",
+          )}
           size="sm"
           variant={environment === "beta" ? "default" : "outline"}
         >
@@ -199,6 +211,10 @@ function ProductionEnvironmentBadge({
     if (!isEligible || didAutoRedirect.current) {
       return;
     }
+
+    // Desktop child sessions are minted against their configured production
+    // origin. Do not move that WebView to beta after the session is created.
+    if (isAgentNativeDesktopUserAgent(window.navigator.userAgent)) return;
 
     if (readBetaOptOutUntil() !== null) return;
     if (consumeBetaOptOutQueryParam(window.location.href)) return;

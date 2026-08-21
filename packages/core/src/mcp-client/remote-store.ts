@@ -28,15 +28,10 @@ import {
   readAppSecret,
   deleteAppSecret,
 } from "../secrets/storage.js";
-import {
-  getOrgSetting,
-  putOrgSetting,
-  deleteOrgSetting,
-} from "../settings/org-settings.js";
+import { getOrgSetting, mutateOrgSetting } from "../settings/org-settings.js";
 import {
   getUserSetting,
-  putUserSetting,
-  deleteUserSetting,
+  mutateUserSetting,
 } from "../settings/user-settings.js";
 import type { McpHttpServerConfig } from "./config.js";
 import {
@@ -182,26 +177,34 @@ async function readList(
   scope: RemoteMcpScope,
   scopeId: string,
 ): Promise<StoredRemoteMcpServer[]> {
-  const raw =
+  return parseServerList(
     scope === "user"
       ? await getUserSetting(scopeId, SETTINGS_KEY)
-      : await getOrgSetting(scopeId, SETTINGS_KEY);
+      : await getOrgSetting(scopeId, SETTINGS_KEY),
+  );
+}
+
+function parseServerList(
+  raw: Record<string, unknown> | null,
+): StoredRemoteMcpServer[] {
   if (!raw || !Array.isArray((raw as any).servers)) return [];
   return ((raw as any).servers as StoredRemoteMcpServer[]).filter(
     (s) => s && typeof s.id === "string" && typeof s.url === "string",
   );
 }
 
-async function writeList(
+async function mutateServerList(
   scope: RemoteMcpScope,
   scopeId: string,
-  servers: StoredRemoteMcpServer[],
-): Promise<void> {
-  if (scope === "user") {
-    await putUserSetting(scopeId, SETTINGS_KEY, { servers });
-  } else {
-    await putOrgSetting(scopeId, SETTINGS_KEY, { servers });
-  }
+  updater: (
+    servers: StoredRemoteMcpServer[],
+  ) => StoredRemoteMcpServer[] | Promise<StoredRemoteMcpServer[]>,
+): Promise<StoredRemoteMcpServer[]> {
+  const mutate = scope === "user" ? mutateUserSetting : mutateOrgSetting;
+  const next = await mutate(scopeId, SETTINGS_KEY, async (raw) => ({
+    servers: await updater(parseServerList(raw)),
+  }));
+  return parseServerList(next);
 }
 
 export async function listRemoteServers(
@@ -306,6 +309,101 @@ export async function addOAuthRemoteServer(
   }
 }
 
+/**
+ * Replace the OAuth grant for an existing server without changing its id or
+ * display name. Reconnect must update the saved grant in place; registering a
+ * second row makes the original connection impossible to repair.
+ */
+export async function replaceOAuthRemoteServer(
+  scope: RemoteMcpScope,
+  scopeId: string,
+  serverId: string,
+  credentials: McpOAuthCredentialBundle,
+): Promise<
+  { ok: true; server: StoredRemoteMcpServer } | { ok: false; error: string }
+> {
+  const credentialResource = validateRemoteUrl(credentials.serverUrl);
+  if (!credentialResource.ok || !credentialResource.url) {
+    return {
+      ok: false,
+      error: "MCP server URL must match the OAuth credential resource URL",
+    };
+  }
+  const existing = await readList(scope, scopeId);
+  const index = existing.findIndex((server) => server.id === serverId);
+  const current = index >= 0 ? existing[index] : undefined;
+  if (!current) return { ok: false, error: "MCP server was not found" };
+  if (!current.oauthSecretKey) {
+    return {
+      ok: false,
+      error: "This MCP server does not use OAuth credentials",
+    };
+  }
+  if (current.url !== credentialResource.url.toString()) {
+    return {
+      ok: false,
+      error: "MCP server URL must match the saved OAuth connection",
+    };
+  }
+
+  const nextSecretKey = `mcp_oauth:${shortId()}`;
+  const nextCredentials = {
+    ...credentials,
+    serverUrl: credentialResource.url.toString(),
+  };
+  let updated: StoredRemoteMcpServer[];
+  try {
+    await saveMcpOAuthCredentials({
+      key: nextSecretKey,
+      scope,
+      scopeId,
+      credentials: nextCredentials,
+    });
+    updated = await mutateServerList(scope, scopeId, (servers) => {
+      const latestIndex = servers.findIndex((server) => server.id === serverId);
+      const latest = latestIndex >= 0 ? servers[latestIndex] : undefined;
+      if (
+        !latest ||
+        latest.oauthSecretKey !== current.oauthSecretKey ||
+        latest.url !== current.url
+      ) {
+        throw new Error("MCP server changed while reconnecting");
+      }
+      const next = [...servers];
+      next[latestIndex] = {
+        ...latest,
+        url: nextCredentials.serverUrl,
+        oauthSecretKey: nextSecretKey,
+      };
+      return next;
+    });
+  } catch (err: any) {
+    await revokeMcpOAuthCredentials({
+      key: nextSecretKey,
+      scope,
+      scopeId,
+      serverUrl: nextCredentials.serverUrl,
+    }).catch(() => undefined);
+    return {
+      ok: false,
+      error: `Failed to replace MCP OAuth credentials: ${err?.message ?? err}`,
+    };
+  }
+
+  // The settings row now points at the replacement grant. Old-grant cleanup
+  // is best effort and must not roll back or invalidate the committed row.
+  await revokeMcpOAuthCredentials({
+    key: current.oauthSecretKey,
+    scope,
+    scopeId,
+    serverUrl: current.url,
+  }).catch(() => undefined);
+  const server = updated.find((candidate) => candidate.id === serverId);
+  return server
+    ? { ok: true, server }
+    : { ok: false, error: "MCP server was not found" };
+}
+
 export async function addFirstPartyRemoteServer(
   orgId: string,
   input: {
@@ -398,7 +496,23 @@ async function addRemoteServerInternal(
     description: input.description?.trim() || undefined,
     createdAt: Date.now(),
   };
-  await writeList(scope, scopeId, [...existing, server]);
+  try {
+    await mutateServerList(scope, scopeId, (servers) => {
+      if (servers.some((candidate) => candidate.name === name)) {
+        throw new Error(`A server named "${name}" already exists`);
+      }
+      return [...servers, server];
+    });
+  } catch (err: any) {
+    if (headerSecretKey) {
+      await deleteAppSecret({
+        key: headerSecretKey,
+        scope: toSecretScope(scope),
+        scopeId,
+      }).catch(() => undefined);
+    }
+    return { ok: false, error: err?.message ?? String(err) };
+  }
   return { ok: true, server };
 }
 
@@ -485,9 +599,30 @@ export async function removeRemoteServer(
   id: string,
 ): Promise<boolean> {
   const existing = await readList(scope, scopeId);
-  const removed = existing.find((s) => s.id === id);
-  const next = existing.filter((s) => s.id !== id);
-  if (next.length === existing.length) return false;
+  const expected = existing.find((s) => s.id === id);
+  if (!expected) return false;
+  let removed: StoredRemoteMcpServer | undefined;
+  try {
+    await mutateServerList(scope, scopeId, (servers) => {
+      removed = undefined;
+      const latest = servers.find((server) => server.id === id);
+      if (!latest) return servers;
+      if (latest.oauthSecretKey !== expected.oauthSecretKey) {
+        throw new Error(
+          `MCP OAuth credentials changed while removing ${expected.name}`,
+        );
+      }
+      removed = latest;
+      return servers.filter((server) => server.id !== id);
+    });
+  } catch (err: any) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[mcp-client] Failed to remove MCP server ${expected.name}: ${err?.message ?? err}`,
+    );
+    return false;
+  }
+  if (!removed) return false;
   if (removed?.oauthSecretKey) {
     try {
       const result = await revokeMcpOAuthCredentials({
@@ -498,9 +633,8 @@ export async function removeRemoteServer(
       });
       if (result.local === "replaced") {
         console.warn(
-          `[mcp-client] MCP OAuth credentials changed while removing ${removed.name}; the server was kept so the newer connection remains manageable.`,
+          `[mcp-client] MCP OAuth credentials changed while removing ${removed.name}; the server row was already removed.`,
         );
-        return false;
       }
       if (result.remote === "failed") {
         console.warn(
@@ -513,15 +647,6 @@ export async function removeRemoteServer(
         `[mcp-client] Failed to delete MCP OAuth credentials ${removed.oauthSecretKey}: ${err?.message ?? err}`,
       );
     }
-  }
-  if (next.length === 0) {
-    if (scope === "user") {
-      await deleteUserSetting(scopeId, SETTINGS_KEY);
-    } else {
-      await deleteOrgSetting(scopeId, SETTINGS_KEY);
-    }
-  } else {
-    await writeList(scope, scopeId, next);
   }
   // Best-effort: drop the encrypted-headers secret too. Errors are logged
   // but don't fail the deletion — the settings row is already gone, so a

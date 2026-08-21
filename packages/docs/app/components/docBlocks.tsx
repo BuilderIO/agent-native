@@ -4,10 +4,11 @@
  * The docs reuse the exact same first-party block library that powers Visual
  * Plans and Visual Recaps (`@agent-native/core/blocks`): hand-drawn rough.js
  * diagrams, expandable API-endpoint and OpenAPI specs, schema/data-model tables,
- * annotated code walkthroughs, file trees, callouts, tabs, and columns. They
- * share the global sketchy/clean preference (localStorage `plan-wireframe-style`)
- * and the docs light/dark theme, so a diagram in the docs looks identical to one
- * in the Plan app.
+ * annotated code walkthroughs, file trees, callouts, tabs, and columns. Actual
+ * diagrams share the global sketchy/clean preference (localStorage
+ * `plan-wireframe-style`) and the docs light/dark theme. UI-like HTML blocks
+ * such as cards, logo walls, tables, and controls should set
+ * `renderMode="design"` so they keep normal docs typography and skip Rough.js.
  *
  * Authoring: blocks are embedded in the markdown docs as standard MDX
  * components, e.g.

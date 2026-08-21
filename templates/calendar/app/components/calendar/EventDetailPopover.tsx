@@ -10,7 +10,6 @@ import {
   IconClock,
   IconMapPin,
   IconVideo,
-  IconRefresh,
   IconBell,
   IconLayoutSidebarRight,
   IconFileText,
@@ -190,16 +189,6 @@ function formatDuration(start: string, end: string): string {
   if (hours === 0) return `${minutes}min`;
   if (minutes === 0) return `${hours}h`;
   return `${hours}h ${minutes}min`;
-}
-
-function formatTimeShort(dateStr: string): string {
-  const d = parseISO(dateStr);
-  const h = d.getHours();
-  const m = d.getMinutes();
-  const period = h >= 12 ? "PM" : "AM";
-  const hour12 = h % 12 || 12;
-  if (m === 0) return `${hour12} ${period}`;
-  return `${hour12}:${m.toString().padStart(2, "0")} ${period}`;
 }
 
 /** Extract a Zoom/Meet/Teams link from location or description */
@@ -445,15 +434,6 @@ function toTimeInputValue(iso: string, timezone?: string): string {
   }
   const d = parseISO(iso);
   return format(d, "HH:mm");
-}
-
-function formatEventDateRange(start: string, end: string, allDay?: boolean) {
-  const startDate = parseISO(start);
-  const endDate = parseISO(end);
-  const displayEndDate = allDay ? new Date(endDate.getTime() - 1) : endDate;
-  const startLabel = format(startDate, "EEE MMM d");
-  const endLabel = format(displayEndDate, "EEE MMM d");
-  return startLabel === endLabel ? startLabel : `${startLabel} - ${endLabel}`;
 }
 
 interface EventDetailPopoverProps {

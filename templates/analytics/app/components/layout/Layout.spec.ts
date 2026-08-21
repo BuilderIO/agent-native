@@ -64,6 +64,21 @@ describe("Analytics layout sidebar route policy", () => {
     expect(source).not.toContain("open={askOpen && isAskRoute}");
   });
 
+  it("keeps Ask filtering compact and visibility-only", () => {
+    const source = readFileSync(
+      new URL("./Sidebar.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("const [askFilter, setAskFilter]");
+    expect(source).toContain('label={t("navigation.ask")}');
+    expect(source).toContain("visibilityFilter={askFilter}");
+    expect(source).toContain("onVisibilityFilterChange={setAskFilter}");
+    expect(source).toContain(
+      "threadMatchesVisibilityFilter(thread, visibilityFilter)",
+    );
+  });
+
   it("keeps the collapsed rail compact without changing expanded spacing", () => {
     const source = readFileSync(
       new URL("./Sidebar.tsx", import.meta.url),

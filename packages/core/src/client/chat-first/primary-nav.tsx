@@ -1,4 +1,10 @@
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@agent-native/toolkit/ui";
+import {
   IconClock,
   IconPlus,
   IconPlugConnected,
@@ -51,19 +57,30 @@ export function ChatFirstPrimaryNavigation({
     content: ReactNode,
     onSelect: () => void,
     className?: string,
-  ) => (
-    <button
-      type="button"
-      role="tab"
-      aria-selected={activeTab === tab}
-      aria-label={collapsed || tab === "new-chat" ? tabLabel(tab) : undefined}
-      title={collapsed ? tabLabel(tab) : undefined}
-      className={[tabClassName(tab), className].filter(Boolean).join(" ")}
-      onClick={onSelect}
-    >
-      {content}
-    </button>
-  );
+  ) => {
+    const label = tabLabel(tab);
+    const control = (
+      <button
+        type="button"
+        role="tab"
+        aria-selected={activeTab === tab}
+        aria-label={collapsed || tab === "new-chat" ? label : undefined}
+        className={[tabClassName(tab), className].filter(Boolean).join(" ")}
+        onClick={onSelect}
+      >
+        {content}
+      </button>
+    );
+
+    return collapsed ? (
+      <Tooltip>
+        <TooltipTrigger asChild>{control}</TooltipTrigger>
+        <TooltipContent side="right">{label}</TooltipContent>
+      </Tooltip>
+    ) : (
+      control
+    );
+  };
 
   const newChatTab = onNewChat
     ? renderTab(
@@ -98,54 +115,67 @@ export function ChatFirstPrimaryNavigation({
     </>,
     onOpenScheduled,
   );
-  const searchAction = onSearch ? (
-    <button
-      type="button"
-      aria-label={collapsed ? copy("search") : undefined}
-      title={collapsed ? copy("search") : undefined}
-      className={`mt-px flex h-8 w-full items-center gap-2 rounded-md text-[13px] font-medium text-sidebar-foreground/80 transition-[background-color,color] hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${collapsed ? "justify-center px-0" : "px-2"}`}
-      onClick={onSearch}
-    >
-      <IconSearch size={15} className="shrink-0" aria-hidden="true" />
-      <span className={collapsed ? "sr-only" : undefined}>
-        {copy("search")}
-      </span>
-    </button>
-  ) : null;
+  const searchAction = onSearch
+    ? (() => {
+        const label = copy("search");
+        const control = (
+          <button
+            type="button"
+            aria-label={collapsed ? label : undefined}
+            className={`mt-px flex h-8 w-full items-center gap-2 rounded-md text-[13px] font-medium text-sidebar-foreground/80 transition-[background-color,color] hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${collapsed ? "justify-center px-0" : "px-2"}`}
+            onClick={onSearch}
+          >
+            <IconSearch size={15} className="shrink-0" aria-hidden="true" />
+            <span className={collapsed ? "sr-only" : undefined}>{label}</span>
+          </button>
+        );
 
-  if (stickyNewChat) {
-    return (
-      <>
-        {newChatTab ? (
-          <div className="code-agents-primary-new-chat-shell">{newChatTab}</div>
-        ) : null}
-        <div className="code-agents-nav-list" aria-label="Agent navigation">
+        return collapsed ? (
+          <Tooltip>
+            <TooltipTrigger asChild>{control}</TooltipTrigger>
+            <TooltipContent side="right">{label}</TooltipContent>
+          </Tooltip>
+        ) : (
+          control
+        );
+      })()
+    : null;
+
+  return (
+    <TooltipProvider delayDuration={0}>
+      {stickyNewChat ? (
+        <>
+          {newChatTab ? (
+            <div className="code-agents-primary-new-chat-shell">
+              {newChatTab}
+            </div>
+          ) : null}
+          <div className="code-agents-nav-list" aria-label="Agent navigation">
+            <div
+              role="tablist"
+              aria-label="Primary navigation"
+              className="grid gap-px"
+            >
+              {integrationsTab}
+              {scheduledTab}
+            </div>
+            {searchAction}
+          </div>
+        </>
+      ) : (
+        <div>
           <div
             role="tablist"
             aria-label="Primary navigation"
             className="grid gap-px"
           >
+            {newChatTab}
             {integrationsTab}
             {scheduledTab}
           </div>
           {searchAction}
         </div>
-      </>
-    );
-  }
-
-  return (
-    <div>
-      <div
-        role="tablist"
-        aria-label="Primary navigation"
-        className="grid gap-px"
-      >
-        {newChatTab}
-        {integrationsTab}
-        {scheduledTab}
-      </div>
-      {searchAction}
-    </div>
+      )}
+    </TooltipProvider>
   );
 }

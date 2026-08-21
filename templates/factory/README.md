@@ -44,19 +44,22 @@ shared `app_secrets` rows must use the same
 encryption fallback). Never copy raw tokens between apps or add a second
 env-only read in a provider client.
 
-Factory's default observer still keeps organization-scoped source metadata -
-such as a Slack channel, repository, or Sentry project - for its normalized
-queue adapters. That metadata is not a credential or a per-factory integration
-setup. GitHub issue polling defaults to hourly; Slack and pull-request checks
-use shorter bounded cadences because those sources can need faster feedback.
-Every poll preserves errors for reconciliation.
+Factory's observer keeps **per-factory** source metadata — Slack channel,
+repository, Sentry project, and related polling settings — for its normalized
+queue adapters. Each factory has its own inbox, rules, automations, and activity.
+Reusable agents and workspace credentials stay shared. Each factory's observation
+settings live on its Settings tab in the factory detail view. That metadata is
+not a credential or a per-factory
+integration setup. GitHub issue polling defaults to hourly; Slack and
+pull-request checks use shorter bounded cadences because those sources can need
+faster feedback. Every poll preserves errors for reconciliation.
 
 Factory agents can discover connected provider APIs with
 `provider-api-catalog`, inspect their docs with `provider-api-docs`, and call
 them through `provider-api-request`. Scheduled Factory runs also receive the
 workspace's connected MCP tools, subject to the same workspace and request
-scope gates. The three normalized pollers are compatibility adapters for the
-default triage queue, not the agent's capability limit.
+scope gates. The three normalized pollers are compatibility adapters scoped by
+`factoryId`, not the agent's capability limit.
 
 The generic Slack bot is wired to Factory. Mention `@agent-native` in a feedback
 thread to inspect the linked item, explain its decision, tune a rule, or say

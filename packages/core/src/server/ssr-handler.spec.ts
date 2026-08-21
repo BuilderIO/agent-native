@@ -1045,6 +1045,45 @@ describe("createH3SSRHandler", () => {
       );
     });
 
+    it("caches a 404 shell so dead links stop re-invoking the function", async () => {
+      // These carried `no-cache` and were never stored, so the SAME dead URL
+      // cost a full cold render every time. Netlify runs one request per
+      // container, so a crawler walking dead links drained the concurrency
+      // pool every other site on the account shares.
+      mocks.requestHandler.mockResolvedValueOnce(
+        new Response("<html><body>not found</body></html>", {
+          status: 404,
+          headers: { "content-type": "text/html; charset=utf-8" },
+        }),
+      );
+      const handler = createH3SSRHandler(() => ({})) as any;
+
+      const response = await handler(createEvent("/docs/does-not-exist"));
+
+      expect(response.status).toBe(404);
+      expectDefaultSsrCacheHeaders(response);
+    });
+
+    it("never caches a 5xx shell", async () => {
+      // A transient failure pinned at the edge for the stale-while-revalidate
+      // window turns a blip into an outage.
+      mocks.requestHandler.mockResolvedValueOnce(
+        new Response("<html><body>boom</body></html>", {
+          status: 503,
+          headers: { "content-type": "text/html; charset=utf-8" },
+        }),
+      );
+      const handler = createH3SSRHandler(() => ({})) as any;
+
+      const response = await handler(createEvent("/docs/boom"));
+
+      expect(response.status).toBe(503);
+      expect(response.headers.get("cache-control") ?? "").not.toContain(
+        "max-age",
+      );
+      expect(response.headers.get("netlify-cdn-cache-control")).toBeNull();
+    });
+
     it("keeps the default policy byte-identical when unset", async () => {
       expect(process.env.AGENT_NATIVE_SSR_CACHE).toBeUndefined();
       mockHtmlResponse();

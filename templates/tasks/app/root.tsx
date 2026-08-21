@@ -26,6 +26,8 @@ import { i18nCatalog } from "@/i18n";
 import { APP_TITLE } from "@/lib/app-config";
 import { TAB_ID } from "@/lib/tab-id";
 
+import changelog from "../CHANGELOG.md?raw";
+
 import stylesheet from "./global.css?url";
 
 configureTracking({
@@ -135,7 +137,12 @@ function AppContent() {
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   return (
     <>
-      <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
+      <CommandMenu
+        open={cmdkOpen}
+        onOpenChange={setCmdkOpen}
+        changelog={changelog}
+        changelogKey="tasks"
+      >
         <CommandMenu.Group heading="Actions">
           <CommandMenu.Item onSelect={() => {}}>Search</CommandMenu.Item>
         </CommandMenu.Group>

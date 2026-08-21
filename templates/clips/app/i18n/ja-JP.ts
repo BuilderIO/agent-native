@@ -629,12 +629,17 @@ const messages = {
     alsoFor: "{{platform}}でもご利用いただけます",
     backToLibrary: "ライブラリに戻る",
     clipsDesktop: "Clips Desktop",
+    stable: "安定版",
+    nightly: "Nightly",
+    switchToNightly: "Nightly ビルドに切り替え",
+    switchToStable: "安定版ビルドに切り替え",
+    retry: "再試行",
     heroDescription:
       "画面、カメラ、画面+カメラのメニューバーレコーダー。ワンクリックで開始、ドラッグ可能なカメラバブル、停止時のインスタント共有リンク。",
     versionReleased: "バージョン {{version}} — リリースされた {{date}}",
     version: "バージョン{{version}}",
     manifestError:
-      "リリース マニフェストを読み込めませんでした。リリース ページからインストーラーを選択してください。",
+      "リリース マニフェストを読み込めませんでした。もう一度お試しください。",
     loadingRelease: "最新リリースを読み込んでいます…",
     chromeTitle: "ブラウザログ用のChrome拡張子",
     chromeDescription:
@@ -698,15 +703,6 @@ const messages = {
     viewAllUpdates: "すべての更新を見る",
     expand: "展開",
     collapse: "折りたたむ",
-    changelogMarkdown: `# 変更履歴
-
-Clips のユーザー向けの主な変更はここに記録されます。コマンドメニュー（Cmd+K -> "最新情報"）または設定からいつでも開けます。
-
-## 2026-06-23
-
-### 追加
-
-- Clips 内で最新情報を直接確認できるようになりました。変更履歴はコマンドメニュー（Cmd+K）と設定にあります。`,
     playback: "再生",
     defaultPlaybackSpeed: "デフォルト再生速度",
     playbackDescription: "録画を開いたときに自動的に適用されます。",

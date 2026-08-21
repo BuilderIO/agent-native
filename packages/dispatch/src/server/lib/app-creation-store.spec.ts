@@ -808,7 +808,7 @@ describe("listWorkspaceApps", () => {
     ).toBe("Tracks customer onboarding risks and handoffs.");
   });
 
-  it("offers Brain and Assets as workspace template tiles", async () => {
+  it("offers Brain and Assets as workspace template tiles and excludes retired Videos", async () => {
     stubNoPendingContext();
     stubManifest([{ id: "dispatch", name: "Dispatch", path: "/dispatch" }]);
 
@@ -820,6 +820,7 @@ describe("listWorkspaceApps", () => {
     expect(templates.map((template) => template.name)).toEqual(
       expect.arrayContaining(["brain", "assets"]),
     );
+    expect(templates.map((template) => template.name)).not.toContain("videos");
   });
 
   it("hides local scaffold templates in hosted runtimes", async () => {

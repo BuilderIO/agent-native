@@ -498,6 +498,17 @@ export interface AutoLayoutEditIntent {
   enabled: boolean;
   direction?: "row" | "column";
   gap?: string;
+  /**
+   * Measured child geometry, container-relative, keyed by stable node id.
+   * Supplied when disabling so children keep their rendered positions and
+   * become freely draggable; without it they re-stack in block flow.
+   */
+  childRects?: Record<
+    string,
+    { x: number; y: number; width: number; height: number }
+  >;
+  /** Rendered size of the container, so it cannot collapse once flow empties. */
+  containerRect?: { width: number; height: number };
 }
 
 /**
@@ -948,17 +959,6 @@ function cssEscape(value: string): string {
 function cssIdent(value: string): string | null {
   if (/^-?[A-Za-z_][A-Za-z0-9_-]*$/.test(value)) return value;
   return null;
-}
-
-function unquoteHtmlAttributeValue(value: string): string {
-  const trimmed = value.trim();
-  if (
-    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
-    (trimmed.startsWith("'") && trimmed.endsWith("'"))
-  ) {
-    return trimmed.slice(1, -1);
-  }
-  return trimmed;
 }
 
 function escapeHtmlAttribute(value: string): string {
@@ -1775,18 +1775,6 @@ function utilityToStyleProperty(
   }
   if (/^text-/.test(utility)) return { property: "color", confidence: 0.45 };
   return null;
-}
-
-function classStyleToken(token: string): StyleToken | null {
-  const { utility } = parseClassToken(token);
-  const mapped = utilityToStyleProperty(utility);
-  if (!mapped) return null;
-  const { property, confidence } = mapped;
-  // The legacy value field preserves the original full token (including prefix)
-  // for backward compatibility.  The responsive path uses `breakpointValues`.
-  const value =
-    property === "display" ? (utility === "hidden" ? "none" : utility) : token;
-  return { property, value, token, source: "class", confidence };
 }
 
 function layoutFor(
@@ -3386,43 +3374,6 @@ const FLEX_ITEM_STRIP_PROPS = [
 ] as const;
 
 /**
- * Apply display:flex + direction + gap to a raw open-tag string and return it.
- * Only touches the style attribute.
- */
-function addAutoLayoutStyleToOpenTag(
-  openTag: string,
-  element: ParsedElement,
-  html: string,
-  direction: "row" | "column",
-  gap: string,
-): string {
-  const currentStyle = attributeValue(element, "style");
-  let declarations = parseStyleDeclarations(currentStyle);
-  const setOrReplace = (prop: string, val: string) => {
-    const existing = declarations.find((d) => d.property === prop);
-    if (existing) {
-      existing.value = val;
-    } else {
-      declarations.push({ property: prop, value: val });
-    }
-  };
-  setOrReplace("display", "flex");
-  setOrReplace("flex-direction", direction);
-  setOrReplace("gap", gap);
-  const nextStyle = serializeStyleDeclarations(declarations);
-  // We work on a scratch copy relative to element boundaries
-  const attr = getAttribute(element, "style");
-  if (attr) {
-    return `${openTag.slice(0, attr.start - element.start)}${attr.name}="${escapeHtmlAttribute(nextStyle)}"${openTag.slice(attr.end - element.start)}`;
-  }
-  // Insert before closing >
-  const closeChar = openTag.endsWith("/>")
-    ? openTag.length - 2
-    : openTag.length - 1;
-  return `${openTag.slice(0, closeChar)} style="${escapeHtmlAttribute(nextStyle)}"${openTag.slice(closeChar)}`;
-}
-
-/**
  * Strip absolute-positioning properties from a child's inline style, applying
  * the edit directly to the html string at the child element's source spans.
  * Returns the updated html string.
@@ -3889,6 +3840,13 @@ function applyUnwrap(
 /**
  * CONVERT: toggle auto-layout (display:flex) on an existing container.
  */
+/** Whether an existing min-width/min-height already preserves `extent` px. */
+function holdsOpen(value: string, extent: number): boolean {
+  const trimmed = value.trim();
+  if (!/^[\d.]+px$/i.test(trimmed)) return !/^0[a-z%]*$/i.test(trimmed);
+  return Number.parseFloat(trimmed) >= extent;
+}
+
 function applyAutoLayout(
   html: string,
   build: ProjectionBuild,
@@ -3907,21 +3865,113 @@ function applyAutoLayout(
   if (!element) return "conflict";
 
   if (!enabled) {
-    // Turn off auto-layout: set display:block.
+    const childRects = intent.childRects;
+    const hasRects = !!childRects && Object.keys(childRects).length > 0;
     const currentStyle = attributeValue(element, "style");
-    let declarations = parseStyleDeclarations(currentStyle);
-    const displayDecl = declarations.find((d) => d.property === "display");
-    if (displayDecl) {
-      displayDecl.value = "block";
-    } else {
-      declarations.push({ property: "display", value: "block" });
+    const declarations = parseStyleDeclarations(currentStyle);
+    const setOnContainer = (property: string, value: string) => {
+      const existing = declarations.find((d) => d.property === property);
+      if (existing) existing.value = value;
+      else declarations.push({ property, value });
+    };
+    setOnContainer("display", "block");
+    if (hasRects) {
+      // Absolute children resolve against the nearest positioned ancestor, so
+      // a static container would let them escape to the page.
+      const position = declarations.find((d) => d.property === "position");
+      if (!position || position.value === "static") {
+        setOnContainer("position", "relative");
+      }
+      // With every child absolute the content box is empty, so a hug-sized
+      // container collapses and overflow:hidden then hides what we just pinned.
+      const rect = intent.containerRect;
+      if (rect) {
+        for (const [property, value] of [
+          ["min-width", rect.width],
+          ["min-height", rect.height],
+        ] as const) {
+          const existing = declarations.find((d) => d.property === property);
+          // `min-height: 0` is the standard flex idiom and holds nothing open.
+          // Only a px minimum at least as large as the measured extent does.
+          if (existing && !holdsOpen(existing.value, value)) {
+            existing.value = `${Math.round(value)}px`;
+          } else if (!existing) {
+            declarations.push({ property, value: `${Math.round(value)}px` });
+          }
+        }
+      }
     }
-    const nextStyle = serializeStyleDeclarations(declarations);
+    let result = replaceOrInsertAttribute(
+      html,
+      element,
+      "style",
+      serializeStyleDeclarations(declarations),
+    );
+    if (!hasRects) {
+      return {
+        content: result,
+        capability: { kind: "style", properties: ["display"], confidence: 0.9 },
+      };
+    }
+
+    const updatedElements = parseHtmlElements(result);
+    const targetAttr = attributeValue(element, "data-agent-native-node-id");
+    const updatedTarget =
+      (targetAttr
+        ? updatedElements.find(
+            (fe) =>
+              attributeValue(fe, "data-agent-native-node-id") === targetAttr,
+          )
+        : undefined) ??
+      updatedElements.find((fe) => fe.start === element.start);
+    if (updatedTarget) {
+      // Reverse order keeps earlier offsets valid as each write shifts the rest.
+      for (const childIndex of [...updatedTarget.childIndexes].reverse()) {
+        const child = updatedElements[childIndex];
+        if (!child) continue;
+        const childId = attributeValue(child, "data-agent-native-node-id");
+        const rect = childId ? childRects[childId] : undefined;
+        if (!rect) continue;
+        const childDecls = parseStyleDeclarations(
+          attributeValue(child, "style"),
+        );
+        const setOnChild = (property: string, value: string) => {
+          const existing = childDecls.find((d) => d.property === property);
+          if (existing) existing.value = value;
+          else childDecls.push({ property, value });
+        };
+        // The measured rect is a border box placed by its margin edge, so a
+        // content-box child would grow by its padding and a margin would shift
+        // it off the position we just measured.
+        setOnChild("box-sizing", "border-box");
+        setOnChild("margin", "0");
+        setOnChild("position", "absolute");
+        setOnChild("left", `${Math.round(rect.x)}px`);
+        setOnChild("top", `${Math.round(rect.y)}px`);
+        setOnChild("width", `${Math.round(rect.width)}px`);
+        setOnChild("height", `${Math.round(rect.height)}px`);
+        result = replaceOrInsertAttribute(
+          result,
+          child,
+          "style",
+          serializeStyleDeclarations(childDecls),
+        );
+      }
+    }
     return {
-      content: replaceOrInsertAttribute(html, element, "style", nextStyle),
+      content: result,
       capability: {
         kind: "style",
-        properties: ["display"],
+        properties: [
+          "display",
+          "position",
+          "min-width",
+          "min-height",
+          "left",
+          "top",
+          "width",
+          "height",
+        ],
         confidence: 0.9,
       },
     };

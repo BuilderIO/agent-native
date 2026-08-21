@@ -265,6 +265,67 @@ describe("slash command menu trigger", () => {
       container.remove();
     }
   });
+
+  it("executes the highlighted native command on Enter when the menu is visible", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const editor = new Editor({
+      extensions: [StarterKit],
+      content: "<p></p>",
+    });
+
+    try {
+      await act(async () => {
+        root.render(
+          createElement(
+            MemoryRouter,
+            null,
+            createElement(
+              QueryClientProvider,
+              { client: queryClient },
+              createElement(
+                "div",
+                { className: "visual-editor-wrapper" },
+                createElement(EditorContent, { editor }),
+                createElement(SlashCommandMenu, { editor }),
+              ),
+            ),
+          ),
+        );
+        await Promise.resolve();
+      });
+
+      act(() => {
+        editor.commands.focus("end");
+        editor.commands.insertContent("/code");
+      });
+      await act(async () => Promise.resolve());
+
+      expect(container.querySelector(".slash-command-menu")).not.toBeNull();
+      act(() => {
+        document.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "Enter",
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      });
+      await act(async () => Promise.resolve());
+
+      expect(editor.getText()).not.toContain("/code");
+      expect(editor.getJSON().content?.[0]?.type).toBe("codeBlock");
+    } finally {
+      await act(async () => root.unmount());
+      editor.destroy();
+      queryClient.clear();
+      container.remove();
+    }
+  });
 });
 
 describe("slash command pointer activation", () => {

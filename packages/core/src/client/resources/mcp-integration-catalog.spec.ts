@@ -18,6 +18,7 @@ import {
   resolveMcpIntegrationScope,
   shouldOfferMcpIntegrationOrganizationScope,
   shouldOfferMcpOrganizationScope,
+  supportsMcpIntegrationOrganizationScope,
 } from "./mcp-integration-catalog.js";
 
 describe("MCP integration catalog", () => {
@@ -53,6 +54,8 @@ describe("MCP integration catalog", () => {
     expect(exa.supportsOrganizationScope).toBe(true);
     expect(gong.supportsOrganizationScope).toBe(true);
     expect(hubspot.supportsOrganizationScope).not.toBe(true);
+    expect(supportsMcpIntegrationOrganizationScope(context7)).toBe(true);
+    expect(supportsMcpIntegrationOrganizationScope(hubspot)).toBe(false);
     expect(
       shouldOfferMcpIntegrationOrganizationScope(context7, true, true),
     ).toBe(true);

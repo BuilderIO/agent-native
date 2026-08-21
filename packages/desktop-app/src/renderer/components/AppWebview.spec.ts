@@ -17,8 +17,10 @@ import { buildGuestThemeScript } from "../lib/theme.js";
 import {
   APP_WEBVIEW_PREFERENCES,
   buildGuestAppChatSidebarStateScript,
+  buildGuestAuthStateProbeScript,
   resolveAppWebviewPartition,
   resolveAppWebviewAuthState,
+  resolveAppWebviewAuthStateFromProbe,
   resolveAppWebviewUrl,
   withDesktopEnvironmentOptOut,
   isDesktopIdentityAuthenticated,
@@ -28,6 +30,7 @@ import {
   shouldSuppressDesktopSignInPrompt,
   resolveGuestChatCommand,
   resolveDesktopIdentityLazySyncStatus,
+  shouldDeferDesktopAppWebviewLoad,
   resolveDesktopIdentityStatusForChat,
   rememberDesktopIdentityStatus,
   invalidateRememberedDesktopIdentityStatus,
@@ -59,6 +62,41 @@ beforeAll(() => {
 });
 
 describe("Desktop identity lazy child synchronization", () => {
+  it("defers eligible webviews until identity and child session sync are ready", () => {
+    expect(
+      shouldDeferDesktopAppWebviewLoad({
+        eligible: true,
+        enabled: null,
+        sessionReady: false,
+        status: "checking",
+      }),
+    ).toBe(true);
+    expect(
+      shouldDeferDesktopAppWebviewLoad({
+        eligible: true,
+        enabled: true,
+        sessionReady: false,
+        status: "signed-in",
+      }),
+    ).toBe(true);
+    expect(
+      shouldDeferDesktopAppWebviewLoad({
+        eligible: true,
+        enabled: true,
+        sessionReady: true,
+        status: "signed-in",
+      }),
+    ).toBe(false);
+    expect(
+      shouldDeferDesktopAppWebviewLoad({
+        eligible: true,
+        enabled: false,
+        sessionReady: false,
+        status: "idle",
+      }),
+    ).toBe(false);
+  });
+
   it("keeps the chat handoff pending until child synchronization completes", () => {
     expect(resolveDesktopIdentityStatusForChat("signed-in", false)).toBe(
       "checking",
@@ -66,6 +104,8 @@ describe("Desktop identity lazy child synchronization", () => {
     expect(resolveDesktopIdentityStatusForChat("signed-in", true)).toBe(
       "signed-in",
     );
+    expect(resolveDesktopIdentityStatusForChat("idle", false)).toBe("checking");
+    expect(resolveDesktopIdentityStatusForChat("idle", true)).toBe("idle");
     expect(resolveDesktopIdentityStatusForChat("sign-in-required", false)).toBe(
       "sign-in-required",
     );
@@ -160,6 +200,127 @@ describe("Desktop identity activation", () => {
     container.remove();
     delete (window as unknown as { electronAPI?: unknown }).electronAPI;
     invalidateRememberedDesktopIdentityStatus();
+  });
+
+  it("keeps the webview URL stable across state renders", () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(1_000_000);
+    try {
+      root = createRoot(container);
+      const app = {
+        id: "custom-mail",
+        name: "Mail",
+        icon: "mail",
+        description: "",
+        devPort: 3000,
+      };
+      const appConfig = {
+        ...app,
+        url: "https://mail.agent-native.com",
+        isBuiltIn: false,
+        enabled: true,
+        mode: "prod" as const,
+      };
+      const props = {
+        app,
+        appConfig,
+        isActive: true,
+        theme: "dark" as const,
+      };
+
+      act(() => {
+        root.render(React.createElement(AppWebview, props));
+      });
+
+      const webview = container.querySelector("webview");
+      const firstUrl = webview?.getAttribute("src");
+      expect(
+        Number(new URL(firstUrl!).searchParams.get("agentNativeBetaOptOut")),
+      ).toBe(87_400_000);
+
+      now.mockReturnValue(2_000_000);
+      act(() => {
+        root.render(React.createElement(AppWebview, props));
+      });
+
+      expect(webview?.getAttribute("src")).toBe(firstUrl);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it("reveals a loaded tab without reloading it after switching away", async () => {
+    root = createRoot(container);
+    const app = {
+      id: "custom-mail",
+      name: "Mail",
+      icon: "mail",
+      description: "",
+      devPort: 3000,
+    };
+    const appConfig = {
+      ...app,
+      url: "https://mail.agent-native.com",
+      isBuiltIn: false,
+      enabled: true,
+      mode: "prod" as const,
+    };
+
+    act(() => {
+      root.render(
+        React.createElement(AppWebview, {
+          app,
+          appConfig,
+          isActive: true,
+          theme: "dark" as const,
+        }),
+      );
+    });
+
+    const webview = container.querySelector("webview");
+    expect(webview).not.toBeNull();
+    Object.defineProperties(webview!, {
+      getTitle: { configurable: true, value: () => "" },
+      getURL: {
+        configurable: true,
+        value: () => webview!.getAttribute("src") ?? "",
+      },
+    });
+    const sourceAssignments = vi
+      .spyOn(webview!, "setAttribute")
+      .mockImplementation(HTMLElement.prototype.setAttribute);
+
+    await act(async () => {
+      webview?.dispatchEvent(new Event("dom-ready"));
+      await Promise.resolve();
+    });
+    const initialSourceAssignmentCount = sourceAssignments.mock.calls.filter(
+      ([name]) => name === "src",
+    ).length;
+
+    act(() => {
+      root.render(
+        React.createElement(AppWebview, {
+          app,
+          appConfig,
+          isActive: false,
+          theme: "dark" as const,
+        }),
+      );
+    });
+    act(() => {
+      root.render(
+        React.createElement(AppWebview, {
+          app,
+          appConfig,
+          isActive: true,
+          theme: "dark" as const,
+        }),
+      );
+    });
+
+    expect(
+      sourceAssignments.mock.calls.filter(([name]) => name === "src"),
+    ).toHaveLength(initialSourceAssignmentCount);
   });
 
   it("keeps a remembered session gated until child synchronization completes", async () => {
@@ -545,6 +706,43 @@ describe("Desktop identity gate eligibility", () => {
 });
 
 describe("AppWebview auth state", () => {
+  it("probes the guest session instead of trusting a client route", () => {
+    expect(buildGuestAuthStateProbeScript()).toContain(
+      "/_agent-native/auth/session",
+    );
+    expect(buildGuestAuthStateProbeScript()).toContain("workspaceRuntime");
+    expect(
+      resolveAppWebviewAuthStateFromProbe(
+        { authenticated: false, status: 200 },
+        "authenticated",
+      ),
+    ).toBe("unauthenticated");
+    expect(
+      resolveAppWebviewAuthStateFromProbe(
+        { authenticated: true, status: 200 },
+        "unauthenticated",
+      ),
+    ).toBe("authenticated");
+  });
+
+  it("falls back only when the app does not expose the session endpoint", () => {
+    expect(
+      resolveAppWebviewAuthStateFromProbe(undefined, "authenticated"),
+    ).toBe("unknown");
+    expect(
+      resolveAppWebviewAuthStateFromProbe("not-an-object", "authenticated"),
+    ).toBe("unknown");
+    expect(
+      resolveAppWebviewAuthStateFromProbe({ status: 404 }, "authenticated"),
+    ).toBe("authenticated");
+    expect(
+      resolveAppWebviewAuthStateFromProbe(
+        { authenticated: false, status: 500 },
+        "authenticated",
+      ),
+    ).toBe("unknown");
+  });
+
   it("recognizes framework and app-base sign-in routes", () => {
     expect(
       resolveAppWebviewAuthState(

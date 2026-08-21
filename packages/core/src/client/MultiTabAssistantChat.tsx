@@ -786,6 +786,8 @@ export type MultiTabAssistantChatProps = Omit<
   threadUrlSync?: boolean | ChatThreadUrlSyncOptions;
   /** Ambient resource context to show as a composer chip. */
   scope?: ChatThreadScope | null;
+  /** Keep app-owned chat history isolated to the supplied scope. */
+  isolateHistoryByScope?: boolean;
   /** @deprecated Scope context is now rendered in the composer. */
   showScopeBadge?: boolean;
   /** Cadence for hydrating agent-team sub-agent tab status. Default: 3000. */
@@ -803,6 +805,7 @@ export function MultiTabAssistantChat({
   browserTabId,
   threadUrlSync = false,
   scope = null,
+  isolateHistoryByScope = false,
   agentTeamPollMs = DEFAULT_AGENT_TEAM_POLL_MS,
   ...props
 }: MultiTabAssistantChatProps) {
@@ -957,6 +960,7 @@ export function MultiTabAssistantChat({
     routeThreadId: threadUrlSyncEnabled
       ? urlThreadId
       : (activeDeepLinkedThreadId ?? undefined),
+    isolateHistoryByScope,
   });
 
   const switchThread = useCallback(
@@ -2612,7 +2616,7 @@ export function MultiTabAssistantChat({
                             key={tab.id}
                             ref={isActive ? activeTabRefCb : undefined}
                             className={cn(
-                              "agent-tab relative flex items-center rounded-md text-[11px] font-medium shrink-0 max-w-[130px]",
+                              "agent-tab relative flex items-center rounded-md text-[11px] font-medium shrink-0 min-w-[56px] max-w-[130px]",
                               isActive
                                 ? "bg-accent text-foreground ring-1 ring-inset ring-border/60 shadow-sm"
                                 : "text-muted-foreground hover:text-foreground hover:bg-accent/50",
@@ -2714,7 +2718,7 @@ export function MultiTabAssistantChat({
                                 : undefined
                             }
                             className={cn(
-                              "agent-tab relative flex shrink-0 items-center rounded-md text-[10px] font-medium max-w-[130px]",
+                              "agent-tab relative flex shrink-0 items-center rounded-md text-[10px] font-medium min-w-[48px] max-w-[130px]",
                               tab.id === activeThreadId
                                 ? "bg-accent text-foreground"
                                 : "text-muted-foreground hover:bg-accent hover:text-foreground",
@@ -2857,11 +2861,20 @@ export function MultiTabAssistantChat({
                   threadId={tabId}
                   tabId={tabId}
                   browserTabId={browserTabId}
+                  contextScope={scope}
                   contextNamespace={contextNamespace}
+                  isolateHistoryByScope={isolateHistoryByScope}
                   isActiveComposer={tabId === activeThreadId}
                   apiUrl={apiUrl}
                   isNewThread={
                     newThreadIds.current.has(tabId) || isNewThread(tabId)
+                  }
+                  onThreadRestoreNotFound={
+                    tabId === activeThreadId &&
+                    (props.agentChatSurface !== "desktop" ||
+                      props.desktopIdentityAuthenticated === true)
+                      ? clearActiveTab
+                      : undefined
                   }
                   isThreadStateLoading={isLoading}
                   onMessageCountChange={(count) =>

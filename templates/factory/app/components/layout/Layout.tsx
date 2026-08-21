@@ -42,7 +42,7 @@ function routeOwnsToolbar(pathname: string): boolean {
     pathname === "/chat" ||
     pathname.startsWith("/chat/") ||
     pathname === "/factory" ||
-    pathname === "/factory-settings" ||
+    pathname === "/new-factory" ||
     pathname === "/agents" ||
     pathname === "/database" ||
     pathname.startsWith("/extensions")

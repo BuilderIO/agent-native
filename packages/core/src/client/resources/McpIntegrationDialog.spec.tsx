@@ -10,6 +10,19 @@ import { McpIntegrationDialog } from "./McpIntegrationDialog.js";
 
 const mocks = vi.hoisted(() => ({
   navigateToMcpOAuthStart: vi.fn(),
+  mcpServersQuery: {
+    data: {
+      user: [],
+      org: [],
+      orgId: "org-builder",
+      role: "owner",
+    },
+    isSuccess: true,
+    isError: false,
+    error: null as Error | null,
+    isFetching: false,
+    refetch: vi.fn().mockResolvedValue(undefined),
+  },
 }));
 
 vi.mock("./mcp-integration-catalog.js", async (importOriginal) => ({
@@ -19,15 +32,7 @@ vi.mock("./mcp-integration-catalog.js", async (importOriginal) => ({
 
 vi.mock("./use-mcp-servers.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./use-mcp-servers.js")>()),
-  useMcpServers: () => ({
-    data: {
-      user: [],
-      org: [],
-      orgId: "org-builder",
-      role: "owner",
-    },
-    isSuccess: true,
-  }),
+  useMcpServers: () => mocks.mcpServersQuery,
 }));
 
 describe("McpIntegrationDialog", () => {
@@ -37,6 +42,11 @@ describe("McpIntegrationDialog", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     mocks.navigateToMcpOAuthStart.mockReset();
+    mocks.mcpServersQuery.isSuccess = true;
+    mocks.mcpServersQuery.isError = false;
+    mocks.mcpServersQuery.error = null;
+    mocks.mcpServersQuery.isFetching = false;
+    mocks.mcpServersQuery.refetch.mockReset().mockResolvedValue(undefined);
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -101,7 +111,7 @@ describe("McpIntegrationDialog", () => {
           <McpIntegrationDialog
             open
             onOpenChange={() => {}}
-            initialIntegrationId="context7"
+            connectIntegrationId="context7"
             defaultScope="user"
             canCreateOrgMcp
             hasOrg
@@ -112,34 +122,20 @@ describe("McpIntegrationDialog", () => {
       );
     });
 
-    expect(document.body.textContent).toContain(
-      "Who should be able to use this connection?",
-    );
-    expect(document.body.textContent).toContain(
-      "Only you can use this connection.",
-    );
+    expect(document.body.textContent).toContain("Who should use this?");
 
     const shared = [...document.body.querySelectorAll("button")].find(
-      (button) => button.textContent === "Shared with workspace",
+      (button) => button.textContent === "Set up for workspace",
     );
     expect(shared).toBeTruthy();
     act(() => shared?.click());
-    expect(document.body.textContent).toContain(
-      "Permitted workspace members can use this connection. Provider permissions still apply.",
-    );
-
-    const connectButton = [...document.body.querySelectorAll("button")].find(
-      (button) => button.textContent === "Connect",
-    );
-    expect(connectButton).toBeTruthy();
-    act(() => connectButton?.click());
 
     expect(onCreateMcpServer).toHaveBeenCalledWith(
       expect.objectContaining({ scope: "org" }),
     );
   });
 
-  it("quick-connects catalog integrations personally by default", () => {
+  it("asks for scope before quick connecting in an organization", () => {
     const context7 = DEFAULT_MCP_INTEGRATIONS.find(
       (integration) => integration.id === "context7",
     )!;
@@ -162,15 +158,393 @@ describe("McpIntegrationDialog", () => {
       );
     });
 
-    expect(document.body.textContent).not.toContain(
-      "Who should be able to use this connection?",
+    expect(document.body.textContent).toContain("Who should use this?");
+    expect(onCreateMcpServer).not.toHaveBeenCalled();
+
+    const personal = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent === "Connect for me",
     );
+    expect(personal).toBeTruthy();
+    act(() => personal?.click());
+
     expect(onCreateMcpServer).toHaveBeenCalledWith(
       expect.objectContaining({ scope: "user" }),
     );
   });
 
-  it("does not show organization scope to a member", () => {
+  it("waits for scope metadata before auto-connecting", () => {
+    const context7 = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "context7",
+    )!;
+    const onCreateMcpServer = vi.fn().mockResolvedValue(undefined);
+    mocks.mcpServersQuery.isSuccess = false;
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <McpIntegrationDialog
+            open
+            onOpenChange={() => {}}
+            connectIntegrationId="context7"
+            defaultScope="user"
+            canCreateOrgMcp={false}
+            hasOrg={false}
+            onCreateMcpServer={onCreateMcpServer}
+            integrations={[context7]}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(document.body.textContent).not.toContain("Who should use this?");
+    expect(onCreateMcpServer).not.toHaveBeenCalled();
+
+    mocks.mcpServersQuery.isSuccess = true;
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <McpIntegrationDialog
+            open
+            onOpenChange={() => {}}
+            connectIntegrationId="context7"
+            defaultScope="user"
+            canCreateOrgMcp
+            hasOrg
+            onCreateMcpServer={onCreateMcpServer}
+            integrations={[context7]}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(document.body.textContent).toContain("Who should use this?");
+    expect(onCreateMcpServer).not.toHaveBeenCalled();
+  });
+
+  it("waits for scope metadata before quick connecting", () => {
+    const context7 = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "context7",
+    )!;
+    const onCreateMcpServer = vi.fn().mockResolvedValue(undefined);
+    mocks.mcpServersQuery.isSuccess = false;
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <McpIntegrationDialog
+            open
+            onOpenChange={() => {}}
+            quickConnectIntegrationId="context7"
+            defaultScope="user"
+            canCreateOrgMcp={false}
+            hasOrg={false}
+            onCreateMcpServer={onCreateMcpServer}
+            integrations={[context7]}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(mocks.navigateToMcpOAuthStart).not.toHaveBeenCalled();
+    expect(onCreateMcpServer).not.toHaveBeenCalled();
+
+    mocks.mcpServersQuery.isSuccess = true;
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <McpIntegrationDialog
+            open
+            onOpenChange={() => {}}
+            quickConnectIntegrationId="context7"
+            defaultScope="user"
+            canCreateOrgMcp
+            hasOrg
+            onCreateMcpServer={onCreateMcpServer}
+            integrations={[context7]}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(document.body.textContent).toContain("Who should use this?");
+    expect(mocks.navigateToMcpOAuthStart).not.toHaveBeenCalled();
+    expect(onCreateMcpServer).not.toHaveBeenCalled();
+  });
+
+  it("disables catalog connections while scope metadata is loading", () => {
+    const context7 = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "context7",
+    )!;
+    mocks.mcpServersQuery.isSuccess = false;
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <McpIntegrationDialog
+            open
+            onOpenChange={() => {}}
+            defaultScope="user"
+            canCreateOrgMcp={false}
+            hasOrg={false}
+            onCreateMcpServer={vi.fn()}
+            integrations={[context7]}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(document.body.textContent).toContain("Loading connection scope…");
+    expect(
+      document.body.querySelector('button[aria-label="Connect Context7"]'),
+    ).toHaveProperty("disabled", true);
+    expect(mocks.navigateToMcpOAuthStart).not.toHaveBeenCalled();
+  });
+
+  it("waits for scope metadata before opening an initial setup", () => {
+    const gong = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "gong",
+    )!;
+    mocks.mcpServersQuery.isSuccess = false;
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <McpIntegrationDialog
+            open
+            onOpenChange={() => {}}
+            initialIntegrationId="gong"
+            defaultScope="user"
+            canCreateOrgMcp={false}
+            hasOrg={false}
+            onCreateMcpServer={vi.fn()}
+            integrations={[gong]}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(document.body.textContent).toContain("Loading connection scope…");
+    expect(document.body.textContent).not.toContain("Provider setup required");
+
+    mocks.mcpServersQuery.isSuccess = true;
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <McpIntegrationDialog
+            open
+            onOpenChange={() => {}}
+            initialIntegrationId="gong"
+            defaultScope="user"
+            canCreateOrgMcp
+            hasOrg
+            onCreateMcpServer={vi.fn()}
+            integrations={[gong]}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(document.body.textContent).toContain("Who should use this?");
+  });
+
+  it("surfaces a retry when scope metadata fails before direct connecting", () => {
+    const context7 = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "context7",
+    )!;
+    mocks.mcpServersQuery.isSuccess = false;
+    mocks.mcpServersQuery.isError = true;
+    mocks.mcpServersQuery.error = new Error("Scope metadata unavailable");
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <McpIntegrationDialog
+            open
+            onOpenChange={() => {}}
+            connectIntegrationId="context7"
+            defaultScope="user"
+            canCreateOrgMcp={false}
+            hasOrg={false}
+            onCreateMcpServer={vi.fn()}
+            integrations={[context7]}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(
+      document.body.querySelector('[role="alert"]')?.textContent,
+    ).toContain("Scope metadata unavailable");
+    const retry = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent === "Retry",
+    );
+    expect(retry).toBeTruthy();
+
+    act(() => retry?.click());
+
+    expect(mocks.mcpServersQuery.refetch).toHaveBeenCalledOnce();
+    expect(mocks.navigateToMcpOAuthStart).not.toHaveBeenCalled();
+  });
+
+  it("surfaces a retry when scope metadata fails before quick connecting", () => {
+    const context7 = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "context7",
+    )!;
+    mocks.mcpServersQuery.isSuccess = false;
+    mocks.mcpServersQuery.isError = true;
+    mocks.mcpServersQuery.error = new Error("Scope metadata unavailable");
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <McpIntegrationDialog
+            open
+            onOpenChange={() => {}}
+            quickConnectIntegrationId="context7"
+            defaultScope="user"
+            canCreateOrgMcp={false}
+            hasOrg={true}
+            onCreateMcpServer={vi.fn()}
+            integrations={[context7]}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(
+      document.body.querySelector('[role="alert"]')?.textContent,
+    ).toContain("Scope metadata unavailable");
+    const retry = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent === "Retry",
+    );
+    expect(retry).toBeTruthy();
+
+    act(() => retry?.click());
+
+    expect(mocks.mcpServersQuery.refetch).toHaveBeenCalledOnce();
+    expect(document.body.textContent).not.toContain("Who should use this?");
+  });
+
+  it("routes catalog connections through the scope choice in an organization", () => {
+    const context7 = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "context7",
+    )!;
+    const onCreateMcpServer = vi.fn().mockResolvedValue(undefined);
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <McpIntegrationDialog
+            open
+            onOpenChange={() => {}}
+            defaultScope="user"
+            canCreateOrgMcp
+            hasOrg
+            onCreateMcpServer={onCreateMcpServer}
+            integrations={[context7]}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      document.body
+        .querySelector('button[aria-label="Connect Context7"]')
+        ?.click();
+    });
+
+    expect(document.body.textContent).toContain("Who should use this?");
+    expect(onCreateMcpServer).not.toHaveBeenCalled();
+  });
+
+  it("routes an initial workspace-capable setup through the scope choice", () => {
+    const gong = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "gong",
+    )!;
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <McpIntegrationDialog
+            open
+            onOpenChange={() => {}}
+            initialIntegrationId="gong"
+            defaultScope="user"
+            canCreateOrgMcp
+            hasOrg
+            onCreateMcpServer={vi.fn()}
+            integrations={[gong]}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(document.body.textContent).toContain("Who should use this?");
+    expect(document.body.textContent).not.toContain("Provider setup required");
+
+    const workspace = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent === "Set up for workspace",
+    );
+    expect(workspace).toBeTruthy();
+    act(() => workspace?.click());
+
+    expect(document.body.textContent).toContain("Provider setup required");
+    const continueButton = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent === "I've completed setup",
+    );
+    expect(continueButton).toBeTruthy();
+
+    act(() => continueButton?.click());
+
+    const url = mocks.navigateToMcpOAuthStart.mock.calls[0]?.[0];
+    expect(
+      new URL(url, "https://analytics.example.com").searchParams.get("scope"),
+    ).toBe("org");
+  });
+
+  it("shows a disabled workspace option to a member", () => {
+    const context7 = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "context7",
+    )!;
+    const onCreateMcpServer = vi.fn().mockResolvedValue(undefined);
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <McpIntegrationDialog
+            open
+            onOpenChange={() => {}}
+            connectIntegrationId="context7"
+            defaultScope="org"
+            canCreateOrgMcp={false}
+            hasOrg
+            onCreateMcpServer={onCreateMcpServer}
+            integrations={[context7]}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(document.body.textContent).toContain("Who should use this?");
+    expect(document.body.textContent).toContain(
+      "Workspace owner or admin required.",
+    );
+    const workspace = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent?.includes("Set up for workspace") ?? false,
+    );
+    expect(workspace).toBeTruthy();
+    expect(workspace).toHaveProperty("disabled", true);
+
+    const personal = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent === "Connect for me",
+    );
+    act(() => personal?.click());
+    expect(onCreateMcpServer).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: "user" }),
+    );
+  });
+
+  it("explains personal-only integrations before connecting in an organization", () => {
     const linear = DEFAULT_MCP_INTEGRATIONS.find(
       (integration) => integration.id === "linear",
     )!;
@@ -181,9 +555,9 @@ describe("McpIntegrationDialog", () => {
           <McpIntegrationDialog
             open
             onOpenChange={() => {}}
-            initialIntegrationId="linear"
+            connectIntegrationId="linear"
             defaultScope="org"
-            canCreateOrgMcp={false}
+            canCreateOrgMcp
             hasOrg
             onCreateMcpServer={vi.fn()}
             integrations={[linear]}
@@ -192,8 +566,11 @@ describe("McpIntegrationDialog", () => {
       );
     });
 
-    expect(document.body.textContent).not.toContain("Organization");
-    expect(document.body.textContent).not.toContain("owners and admins");
+    expect(document.body.textContent).toContain("Who should use this?");
+    expect(document.body.textContent).toContain(
+      "Only personal connections are supported for this integration.",
+    );
+    expect(document.body.textContent).not.toContain("Set up for workspace");
   });
 
   it("does not offer an unauthenticated test for setup-gated integrations", () => {
@@ -268,6 +645,12 @@ describe("McpIntegrationDialog", () => {
     expect(viewSetupButton).toBeTruthy();
 
     act(() => viewSetupButton?.click());
+    expect(document.body.textContent).toContain("Who should use this?");
+    const personal = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent === "Connect for me",
+    );
+    expect(personal).toBeTruthy();
+    act(() => personal?.click());
     expect(document.body.textContent).toContain("Provider setup required");
   });
 

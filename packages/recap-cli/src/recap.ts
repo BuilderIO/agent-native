@@ -37,7 +37,6 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 
@@ -2008,16 +2007,11 @@ export function buildRecapPrompt(input: {
    */
   diffLines?: number;
 }): string {
-  const appUrl = input.appUrl.replace(/\/$/, "");
   const localDir =
     input.localDir ?? path.join("plans", `pr-${input.pr}-visual-recap`);
   // Deterministically derive the PR back-link URL so the agent doesn't have to
   // guess it. Use an explicit override when provided, else build from repo+pr.
-  const prSourceUrl =
-    input.sourceUrl ??
-    (input.repo && input.pr
-      ? `https://github.com/${input.repo}/pull/${input.pr}`
-      : undefined);
+
   const lines: string[] = [];
   lines.push(
     input.localFiles
@@ -2066,6 +2060,9 @@ export function buildRecapPrompt(input: {
       `- The diff is LARGE — produce a **summarized** recap (top files + schema/API deltas), not an exhaustive one. The diff was truncated at the size cap — \`${input.statPath ?? "recap.stat"}\` contains the complete file list with per-file stats; for any file missing from \`${input.diffPath}\`, fetch it directly with \`git diff <base>...<head> -- <path>\`.`,
     );
   }
+  lines.push(
+    "Unified-diff framing is metadata, not recap content: never copy leading `+` or `-` markers, context-space prefixes, or `@@` hunk headers into the authored MDX. Every tag, paragraph, and block in `plan.mdx` must use the source content without patch markers.",
+  );
   lines.push("");
   if (input.localFiles) {
     lines.push(

@@ -1,5 +1,6 @@
 import { builderFileUploadProvider } from "./builder.js";
 import type {
+  FileUploadDeleteInput,
   FileUploadInput,
   FileUploadProvider,
   FileUploadResult,
@@ -81,6 +82,18 @@ export async function getActiveFileUploadProviderForRequest(): Promise<FileUploa
  * configured. `null` is an explicit storage-setup state: callers must not
  * turn the input into a base64 SQL fallback.
  */
+export async function deleteUploadedFile(
+  providerId: string,
+  input: FileUploadDeleteInput,
+): Promise<boolean> {
+  const provider =
+    providerId === builderFileUploadProvider.id
+      ? builderFileUploadProvider
+      : providers.get(providerId);
+  if (!provider?.delete) return false;
+  return provider.delete(input);
+}
+
 export async function uploadFile(
   input: FileUploadInput,
 ): Promise<FileUploadResult | null> {

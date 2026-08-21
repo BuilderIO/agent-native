@@ -4,7 +4,7 @@ ignore = "node ./scripts/netlify-ignore-build.mjs analytics"
 # core explicitly here so a cached Netlify install cannot bundle an older agent
 # loop into Analytics' server functions (including A2A/MCP final-response
 # guards).
-command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && pnpm --filter @agent-native/core build && NITRO_PRESET=netlify pnpm --filter analytics build && if [ \"${CONTEXT:-}\" = \"production\" ]; then pnpm --filter analytics migrate:production; fi"
+command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && pnpm --filter @agent-native/core build && NITRO_PRESET=netlify pnpm --filter analytics build && if [ \"${CONTEXT:-}\" = \"production\" ] || [ \"${AGENT_NATIVE_RUN_RELEASE_MIGRATIONS:-}\" = \"1\" ]; then pnpm --filter analytics migrate:production; fi"
 publish = "templates/analytics/dist"
 functions = "templates/analytics/.netlify/functions-internal"
 
@@ -27,9 +27,9 @@ AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND = "1"
 # its loading screen while those chunks return 404.
 AGENT_NATIVE_SSR_CACHE = "30s"
 # Analytics owns its schema at release time (`migrate:production` above), so
-# production request functions skip migrations. Preview functions still run
-# request-path migrations because previews do not run the production release
-# migration step.
+# production request functions skip migrations. Ordinary deploy previews still
+# run request-path migrations; the beta prebuilt lane explicitly supplies the
+# release owner even though it builds with branch-deploy context.
 AGENT_NATIVE_RELEASE_MIGRATIONS = "1"
 
 # A2A delegation calls run a full agent loop (LLM + tool calls + DB queries).

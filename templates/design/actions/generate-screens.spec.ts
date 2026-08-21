@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   writeAppState: vi.fn(),
+  writeAppStateForCurrentTab: vi.fn(),
   assertAccess: vi.fn(),
   existingDesignFiles: [] as Array<{ filename: string }>,
   existingDesignRows: [] as Array<{ data: string | null }>,
@@ -18,6 +19,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: mocks.writeAppState,
+  writeAppStateForCurrentTab: mocks.writeAppStateForCurrentTab,
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
@@ -76,6 +78,7 @@ import action from "./generate-screens.js";
 describe("generate-screens", () => {
   beforeEach(() => {
     mocks.writeAppState.mockReset();
+    mocks.writeAppStateForCurrentTab.mockReset();
     mocks.assertAccess.mockReset();
     mocks.existingDesignFiles = [];
     mocks.existingDesignRows = [];
@@ -126,7 +129,7 @@ describe("generate-screens", () => {
         ]),
       }),
     );
-    expect(mocks.writeAppState).toHaveBeenNthCalledWith(2, "navigate", {
+    expect(mocks.writeAppStateForCurrentTab).toHaveBeenCalledWith("navigate", {
       view: "editor",
       designId: "design_123",
       editorView: "overview",

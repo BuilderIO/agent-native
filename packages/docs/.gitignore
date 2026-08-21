@@ -11,6 +11,7 @@ dist-ssr
 server/*
 !server/routes/
 !server/plugins/
+!server/lib/
 .vinxi
 __unconfig*
 todos.json

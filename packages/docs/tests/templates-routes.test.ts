@@ -106,9 +106,9 @@ describe("template routes", () => {
     expect(ogImageAccentText(localizedIndex)).toBe("Agent-Native Docs");
 
     const arabicIndexDoc = await loadDoc("getting-started", "ar-SA");
-    expect(arabicIndexDoc?.title).toBe("الخطوات الأولى");
+    expect(arabicIndexDoc?.title).toBe("البدء");
     const arabicIndex = docsIndexMeta({ data: arabicIndexDoc });
-    expect(ogImageTitle(arabicIndex)).toBe("الخطوات الأولى");
+    expect(ogImageTitle(arabicIndex)).toBe("البدء");
     expect(ogImageAccentText(arabicIndex)).toBe("Agent-Native Docs");
 
     const docsPageDoc = await loadDoc("workspace-connections");
