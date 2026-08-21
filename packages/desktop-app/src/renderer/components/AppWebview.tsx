@@ -183,7 +183,9 @@ export function resolveAppWebviewAuthStateFromProbe(
   result: unknown,
   fallbackState: AppWebviewAuthState,
 ): AppWebviewAuthState {
-  if (!result || typeof result !== "object") return fallbackState;
+  // A missing probe result is a failed read, not evidence that the route is
+  // authenticated. The fallback is reserved for a known-unsupported 404.
+  if (!result || typeof result !== "object") return "unknown";
   const probe = result as {
     authenticated?: unknown;
     invalidJson?: unknown;
@@ -389,6 +391,11 @@ interface AppWebviewProps {
   onTitleChange?: (title: string) => void;
   /** Emits the guest page's coarse session state for host-owned UI. */
   onAuthStateChange?: (state: AppWebviewAuthState) => void;
+  /** Emits terminal main-frame failures so host-owned overlays can recover. */
+  onMainFrameLoadFailure?: (details: {
+    errorCode?: number;
+    errorDescription: string;
+  }) => void;
   /** Emits the native desktop identity state for sibling host surfaces. */
   onDesktopIdentityStatusChange?: (
     status: DesktopIdentityStatus | "checking",
@@ -624,6 +631,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       refreshKey = 0,
       onTitleChange,
       onAuthStateChange,
+      onMainFrameLoadFailure,
       onDesktopIdentityStatusChange,
       onWebContentsIdChange,
       onAppsChanged,
@@ -699,6 +707,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     const prevIsActiveRef = useRef(isActive);
     const onTitleChangeRef = useRef(onTitleChange);
     const onAuthStateChangeRef = useRef(onAuthStateChange);
+    const onMainFrameLoadFailureRef = useRef(onMainFrameLoadFailure);
     const onDesktopIdentityStatusChangeRef = useRef(
       onDesktopIdentityStatusChange,
     );
@@ -783,6 +792,10 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     useEffect(() => {
       onAuthStateChangeRef.current = onAuthStateChange;
     }, [onAuthStateChange]);
+
+    useEffect(() => {
+      onMainFrameLoadFailureRef.current = onMainFrameLoadFailure;
+    }, [onMainFrameLoadFailure]);
 
     useEffect(() => {
       onDesktopIdentityStatusChangeRef.current = onDesktopIdentityStatusChange;
@@ -1201,8 +1214,13 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
           return;
         }
         loadFailureRef.current = true;
+        authProbeSequenceRef.current += 1;
         setError(true);
         setIsLoading(false);
+        onMainFrameLoadFailureRef.current?.({
+          errorCode,
+          errorDescription: description,
+        });
       };
       const onConsoleMessage = (e: Event) => {
         const message = String((e as WebviewConsoleMessageEvent).message || "");
@@ -1415,8 +1433,12 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         () => {
           if (isLoading) {
             loadFailureRef.current = true;
+            authProbeSequenceRef.current += 1;
             setError(true);
             setIsLoading(false);
+            onMainFrameLoadFailureRef.current?.({
+              errorDescription: "Timed out while loading the app.",
+            });
           }
         },
         isDevMode ? DEV_APP_LOAD_TIMEOUT_MS : APP_LOAD_TIMEOUT_MS,
