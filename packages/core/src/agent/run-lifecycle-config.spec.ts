@@ -37,6 +37,7 @@ import {
   resolveMaxTurnWallClockMs,
   resolveModelStreamNoProgressTimeoutMs,
   resolveRunNoProgressTimeoutMs,
+  resolveRunSoftTimeoutMs,
 } from "./run-manager.js";
 
 afterEach(() => {
@@ -92,6 +93,23 @@ describe("run-lifecycle configuration", () => {
     expect(resolveRunNoProgressTimeoutMs({ softTimeoutMs: 40_000 })).toBe(
       30_000,
     );
+  });
+
+  // A deployment lowering the GLOBAL soft timeout used to shrink the chunk
+  // without shrinking the background backstop, so the backstop stopped being
+  // reachable inside the chunk it guards — silently, with nothing asserting it.
+  it("keeps the background backstop inside a chunk shrunk by global configuration", () => {
+    defineAppConfig({ agent: { runSoftTimeoutMs: 20_000 } });
+    const soft = resolveRunSoftTimeoutMs(undefined, {
+      useHostedDefault: true,
+      backgroundFunction: true,
+    });
+    const backstop = resolveRunNoProgressTimeoutMs({
+      softTimeoutMs: soft,
+      backgroundFunction: true,
+    });
+    expect(soft).toBe(20_000);
+    expect(backstop).toBeLessThan(soft);
   });
 
   it("keeps a per-call override above configuration", () => {

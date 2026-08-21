@@ -32,7 +32,16 @@ terminal `no_progress` failure.
   dispatch failure alike.
 - The run-lifecycle bounds that can terminate a run are configurable under
   `agent.*` with today's values as defaults, each behind one resolver, and their
-  ordering relationships are asserted when configuration resolves. That check
+  ordering relationships are asserted when configuration resolves. The
+  background no-progress default is clamped to the chunk it guards, so lowering
+  the global soft timeout cannot leave it unreachable.
+- On a run that recovers boundaries in-invocation the run manager no longer arms
+  its own soft-timeout timer: the agent-loop wrapper already races that same
+  wall with a cumulative per-round budget, so a second timer fired exactly when
+  the wrapper had nothing left to continue with. One wall, one clock.
+- Trace finalization can no longer alter the run it observes. Assembly ran
+  unguarded inside a `finally`, where a throw replaces the block's result — so a
+  malformed payload could report a completed run as failed. That check
   catches the pair that shipped violated: the automation runner took a 13-minute
   chunk budget under its own 10-minute hard abort, so its recoverable boundary
   was dead code. The runner now derives that budget from its own hard abort.

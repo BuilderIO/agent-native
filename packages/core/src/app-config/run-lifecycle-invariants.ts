@@ -1,9 +1,13 @@
 import type { AppConfig } from "./schema.js";
 
 /**
- * Wall-clock reserved between a background automation's chunk budget and its
- * own hard abort, so the boundary the run manager owns can actually fire and
- * be recovered before the runner kills the process.
+ * Wall-clock reserved between a background automation's round budget and its
+ * own hard abort.
+ *
+ * It covers wind-down only — emit the terminal event, persist the turn, let
+ * `finalized` settle — because the recoverable boundary on this path belongs to
+ * the agent-loop wrapper's own per-round timer, not to a second timer in the
+ * run manager.
  *
  * This is the constant that makes `automation soft timeout < automation hard
  * abort` true by construction rather than by hoping two independently chosen
@@ -12,7 +16,7 @@ import type { AppConfig } from "./schema.js";
  * the recoverable boundary was dead code and the only boundary an automation
  * could reach was the terminal one.
  */
-export const BACKGROUND_AUTOMATION_SOFT_TIMEOUT_HEADROOM_MS = 60_000;
+export const BACKGROUND_AUTOMATION_SOFT_TIMEOUT_HEADROOM_MS = 20_000;
 
 /**
  * Ordering relationships between the run-lifecycle bounds.
