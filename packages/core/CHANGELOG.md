@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.168.2
+
+### Patch Changes
+
+- 8617890: Generate the canonical public stale-while-revalidate headers for Netlify static build artifacts and guard prerendered apps against the platform default cache policy.
+
 ## 0.168.1
 
 ### Patch Changes
