@@ -13,6 +13,7 @@ import {
 } from "./production-agent.js";
 import {
   AGENT_INTERNAL_CONTINUATION_CHECKPOINT_PROMPT,
+  clientAbortReason,
   runAgentLoopDirectWithSoftTimeout,
   BACKGROUND_RATE_LIMIT_CONTINUATION_DELAY_MS,
   MAX_BACKGROUND_RATE_LIMIT_CONTINUATIONS,
@@ -1772,5 +1773,31 @@ describe("chunk-boundary recovery", () => {
       state: "canceled",
       message: "Agent run was aborted.",
     });
+  });
+});
+
+describe("clientAbortReason", () => {
+  // The terminal outcome keys off the abort reason, so a client able to name a
+  // server-owned bound could file its own Stop as a server-side failure.
+  it("refuses reasons only the server is allowed to name", () => {
+    expect(clientAbortReason("background_automation_hard_timeout")).toBe(
+      "user",
+    );
+    expect(clientAbortReason("no_progress")).toBe("user");
+    expect(clientAbortReason("RUN_TIMEOUT")).toBe("user");
+  });
+
+  it("keeps a caller's own word for its Stop", () => {
+    expect(clientAbortReason("stopped_by_reviewer")).toBe(
+      "stopped_by_reviewer",
+    );
+    expect(clientAbortReason("user")).toBe("user");
+  });
+
+  it("falls back to user for anything malformed or absent", () => {
+    expect(clientAbortReason(undefined)).toBe("user");
+    expect(clientAbortReason(42)).toBe("user");
+    expect(clientAbortReason("has spaces")).toBe("user");
+    expect(clientAbortReason("x".repeat(65))).toBe("user");
   });
 });

@@ -313,12 +313,37 @@ function waitForBackgroundRateLimitCooldown(
  * Kept deliberately short. Each entry is a bound this package owns and can name
  * in a terminal outcome; if you are adding a fourth, check first whether the
  * bound belongs in `run-manager.ts` at all.
+ *
+ * Exported so the abort route can refuse these words from a client. That check
+ * belongs at the boundary where untrusted input enters, not here: by the time a
+ * reason reaches an `AbortSignal` it is just a string, and nothing downstream
+ * can tell who wrote it.
  */
-const SERVER_OWNED_ABORT_REASONS = new Set([
+export const SERVER_OWNED_ABORT_REASONS = new Set([
   "no_progress",
   "run_timeout",
   "background_automation_hard_timeout",
 ]);
+
+/**
+ * The abort reason to record for a client-initiated Stop.
+ *
+ * A caller reaching the abort route is a person pressing Stop, so it must not
+ * be able to name a bound only the server can reach: the terminal outcome keys
+ * off the abort reason, and a client sending `background_automation_hard_timeout`
+ * would file its own Stop as a server-side failure. Anything unrecognised,
+ * malformed, or reserved falls back to `"user"`.
+ *
+ * Normalised here rather than in the route because this is where the meaning of
+ * the string is decided — downstream it is just a string, and nothing can tell
+ * who wrote it.
+ */
+export function clientAbortReason(raw: unknown): string {
+  if (typeof raw !== "string") return "user";
+  const reason = raw.trim();
+  if (!/^[a-z0-9_-]{1,64}$/i.test(reason)) return "user";
+  return SERVER_OWNED_ABORT_REASONS.has(reason.toLowerCase()) ? "user" : reason;
+}
 
 /** Machine-readable code carried on the give-up terminal `error` event so the
  * client renders a loud "stopped before finishing" terminal instead of an
@@ -379,64 +404,6 @@ export async function runAgentLoopDirectWithSoftTimeout(
   // Disabling continuation recovery must not disable terminal classification.
   // Keep the same outcome boundary around a direct loop so A2A/MCP callers
   // never infer success from a rejected or canceled run.
-  if (timeoutMs <= 0) {
-    const directEvents: AgentChatEvent[] = [];
-    let directOutcome: AgentLoopOutcome | undefined;
-    try {
-      const result = await runAgentLoop({
-        ...stableOpts,
-        send: (event) => {
-          directEvents.push(event);
-          stableOpts.send(event);
-        },
-        onOutcome: (outcome) => {
-          directOutcome = outcome;
-        },
-      });
-      const unfinishedReason =
-        internalContinuationReasonForAttempt(directEvents);
-      if (opts.signal.aborted) {
-        reportFinalOutcome({
-          state: "canceled",
-          message: "Agent run was aborted.",
-        });
-      } else if (unfinishedReason) {
-        reportFinalOutcome({
-          state: "failed",
-          code: unfinishedReason,
-          retryable: false,
-          message: `Agent stopped before finishing (${unfinishedReason}).`,
-        });
-      } else {
-        reportFinalOutcome(directOutcome ?? { state: "completed" });
-      }
-      return result;
-    } catch (err) {
-      const candidate = err as { errorCode?: unknown; message?: unknown };
-      reportFinalOutcome(
-        opts.signal.aborted
-          ? { state: "canceled", message: "Agent run was aborted." }
-          : {
-              state: "failed",
-              code:
-                typeof candidate?.errorCode === "string" && candidate.errorCode
-                  ? candidate.errorCode
-                  : "internal_error",
-              retryable: isResumableEngineError(err),
-              message:
-                typeof candidate?.message === "string"
-                  ? candidate.message
-                  : String(err),
-            },
-      );
-      throw err;
-    }
-  }
-
-  // `turnSignal` answers "is this turn over?"; `chunkSignal` answers "is this
-  // ROUND over?". They are the same object for every caller that does not pass
-  // a control, which is what keeps the foreground/HTTP paths byte-for-byte
-  // unchanged.
   const turnSignal = control?.turnSignal ?? opts.signal;
   /**
    * A turn someone pressed Stop on is `canceled`. A turn that ended because a
@@ -471,6 +438,61 @@ export async function runAgentLoopDirectWithSoftTimeout(
     const reason = control.chunkBoundaryReason();
     return reason === "no_progress" || reason === "run_timeout" ? reason : null;
   };
+  if (timeoutMs <= 0) {
+    const directEvents: AgentChatEvent[] = [];
+    let directOutcome: AgentLoopOutcome | undefined;
+    try {
+      const result = await runAgentLoop({
+        ...stableOpts,
+        send: (event) => {
+          directEvents.push(event);
+          stableOpts.send(event);
+        },
+        onOutcome: (outcome) => {
+          directOutcome = outcome;
+        },
+      });
+      const unfinishedReason =
+        internalContinuationReasonForAttempt(directEvents);
+      if (turnSignal.aborted) {
+        reportFinalOutcome(turnAbortOutcome());
+      } else if (unfinishedReason) {
+        reportFinalOutcome({
+          state: "failed",
+          code: unfinishedReason,
+          retryable: false,
+          message: `Agent stopped before finishing (${unfinishedReason}).`,
+        });
+      } else {
+        reportFinalOutcome(directOutcome ?? { state: "completed" });
+      }
+      return result;
+    } catch (err) {
+      const candidate = err as { errorCode?: unknown; message?: unknown };
+      reportFinalOutcome(
+        turnSignal.aborted
+          ? turnAbortOutcome()
+          : {
+              state: "failed",
+              code:
+                typeof candidate?.errorCode === "string" && candidate.errorCode
+                  ? candidate.errorCode
+                  : "internal_error",
+              retryable: isResumableEngineError(err),
+              message:
+                typeof candidate?.message === "string"
+                  ? candidate.message
+                  : String(err),
+            },
+      );
+      throw err;
+    }
+  }
+
+  // `turnSignal` answers "is this turn over?"; `chunkSignal` answers "is this
+  // ROUND over?". They are the same object for every caller that does not pass
+  // a control, which is what keeps the foreground/HTTP paths byte-for-byte
+  // unchanged.
   const usage: Awaited<ReturnType<typeof runAgentLoop>> = {
     inputTokens: 0,
     outputTokens: 0,
