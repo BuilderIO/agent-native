@@ -56,6 +56,7 @@ describe("update content database view", () => {
         },
       ],
       collapsedGroupIds: ["status:done"],
+      propertyOrderIds: ["name", "status"],
       hideEmptyGroups: true,
       calculations: { status: "count_values" },
       wrapCells: true,
