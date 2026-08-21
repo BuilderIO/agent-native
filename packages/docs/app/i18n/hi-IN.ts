@@ -425,6 +425,12 @@ const hiIN = {
     source: "स्रोत",
     readDocs: "दस्तावेज़ पढ़ें",
     signIn: "साइन इन करें",
+    tryTemplateFree: "{{name}} को मुफ़्त में आज़माएँ",
+    designForFree: "मुफ़्त में डिज़ाइन करें",
+    recordForFree: "मुफ़्त में रिकॉर्ड करें",
+    getStarted: "शुरू करें",
+    freeAndOpenSource: "100% मुफ़्त • ओपन सोर्स",
+    viewAllApps: "सभी ऐप्स देखें",
   },
   templatesPage: {
     title: "ओपन-सोर्स, एजेंट-नेटिव ऐप्स आपके स्वामित्व में हैं",

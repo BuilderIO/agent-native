@@ -425,6 +425,12 @@ const ptBR = {
     source: "Fonte",
     readDocs: "Leia os documentos",
     signIn: "Entrar",
+    tryTemplateFree: "Experimente {{name}} grátis",
+    designForFree: "Crie de graça",
+    recordForFree: "Grave de graça",
+    getStarted: "Começar",
+    freeAndOpenSource: "100% grátis • código aberto",
+    viewAllApps: "Ver todos os apps",
   },
   templatesPage: {
     title: "Aplicativos de código aberto e nativos do agente que você possui",

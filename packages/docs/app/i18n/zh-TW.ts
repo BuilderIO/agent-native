@@ -417,6 +417,12 @@ const messages = {
     source: "來源",
     readDocs: "閱讀檔案",
     signIn: "登入",
+    tryTemplateFree: "免費試用 {{name}}",
+    designForFree: "免費設計",
+    recordForFree: "免費錄製",
+    getStarted: "開始使用",
+    freeAndOpenSource: "100% 免費 • 開放原始碼",
+    viewAllApps: "查看所有應用",
   },
   templatesPage: {
     title: "您擁有的開放原始碼、Agent-Native 應用程式",

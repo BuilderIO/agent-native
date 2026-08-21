@@ -20,11 +20,6 @@ export function ImageBlock({ data, ctx }: BlockReadProps<ImageData>) {
         <BuilderImage
           src={data.src}
           alt={data.alt}
-          sizes={
-            data.align && data.text
-              ? `(max-width: 900px) 100vw, ${data.width ?? 400}px`
-              : "(max-width: 900px) 100vw, 900px"
-          }
           width={data.width}
           loading="lazy"
           decoding="async"

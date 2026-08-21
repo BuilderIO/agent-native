@@ -7,6 +7,10 @@ export {
 } from "./TemplateComparisonTable";
 export { TemplateFinalCta } from "./TemplateFinalCta";
 export {
+  TemplateLandingActions,
+  type TemplateLandingCtaTemplate,
+} from "./TemplateLandingActions";
+export {
   TemplateLandingFaq,
   type TemplateLandingFaqItem,
 } from "./TemplateLandingFaq";

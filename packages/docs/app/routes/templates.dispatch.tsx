@@ -1,4 +1,4 @@
-import { useLocale, useT } from "@agent-native/core/client/i18n";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconBrandSlack,
   IconCheck,
@@ -6,10 +6,8 @@ import {
   IconHierarchy,
   IconShieldCheck,
 } from "@tabler/icons-react";
-import { Link } from "react-router";
 
 import { BuilderImage } from "../components/builder-image";
-import { sitePathForLocale } from "../components/docs-locale";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { SectionDivider } from "../components/SectionDivider";
 import {
@@ -63,7 +61,6 @@ const primaryLinkClassName = "primary-button";
 
 export default function DispatchTemplate() {
   const t = useT();
-  const { locale } = useLocale();
   const capabilities = [
     {
       icon: IconBrandSlack,
@@ -104,7 +101,7 @@ export default function DispatchTemplate() {
       <TemplateHero
         eyebrow={
           <span style={{ color: template.color }}>
-            Agent-Native {template.name}
+            {t("common.freeAndOpenSource")}
           </span>
         }
         title={t("templateLanding.dispatch.s007")}
@@ -125,13 +122,12 @@ export default function DispatchTemplate() {
               });
             }}
           >
-            {t("templateLanding.dispatch.s009")}
+            {t("common.getStarted")}
           </a>
         }
         media={
           <BuilderImage
             src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd0bd7821c20a41c59924a0cc5101a149"
-            sizes="(max-width: 900px) 100vw, 800px"
             crossOrigin="anonymous"
             alt={t("templateLanding.dispatch.s001")}
             loading="lazy"
@@ -389,32 +385,14 @@ export default function DispatchTemplate() {
       <TemplateFinalCta
         eyebrow={
           <span
-            className="font-mono text-sm font-semibold uppercase tracking-[0.14em]"
+            className="font-mono text-sm font-semibold tracking-[0.14em]"
             style={{ color: template.color }}
           >
-            Agent-Native {template.name}
+            {t("common.freeAndOpenSource")}
           </span>
         }
         title={t("templateLanding.dispatch.s051")}
-        actions={
-          <>
-            <a
-              href={`${template.demoUrl}/_agent-native/sign-in`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={primaryLinkClassName}
-            >
-              {t("common.signIn")}
-            </a>
-            <Link
-              data-an-prefetch="viewport"
-              to={sitePathForLocale("/apps", locale)}
-              className="inline-flex items-center gap-2 rounded-xl border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
-            >
-              View more apps
-            </Link>
-          </>
-        }
+        template={template}
       >
         <p className="m-0 max-w-2xl px-6 text-lg leading-[1.4] text-[var(--fg-secondary)] sm:px-8">
           {t("templateLanding.dispatch.s052")}
