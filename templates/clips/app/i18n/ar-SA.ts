@@ -357,6 +357,7 @@ const messages = {
     couldNotLoadMeeting: "تعذر تحميل هذا الاجتماع.",
     retry: "إعادة المحاولة",
     meetingNotFound: "لم يتم العثور على الاجتماع",
+    meetingUnavailable: "هذا الاجتماع غير متاح.",
     noAccess: "قد لا يكون لديك حق الوصول إلى هذا الاجتماع.",
     transcriptCopied: "تم نسخ النص",
     couldNotCopyTranscript: "تعذر نسخ النص",

@@ -1058,7 +1058,11 @@ export default function MeetingDetailRoute() {
     return (
       <div className="p-6 max-w-2xl mx-auto w-full">
         <div className="rounded-md border px-4 py-3 text-sm text-muted-foreground">
-          {t("meetingDetail.meetingNotFound")}
+          {/* Neutral on purpose: `get-meeting` returns one reason for missing
+              and inaccessible so callers cannot probe which ids exist, and
+              saying "not found" here would leak back the distinction the
+              action withholds. */}
+          {t("meetingDetail.meetingUnavailable")}
         </div>
         <Button asChild variant="outline" className="mt-3">
           <NavLink to="/meetings">{t("meetingDetail.allMeetings")}</NavLink>

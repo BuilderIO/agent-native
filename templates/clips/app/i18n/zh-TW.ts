@@ -345,6 +345,7 @@ const messages = {
     couldNotLoadMeeting: "無法載入該會議。",
     retry: "重試",
     meetingNotFound: "找不到會議",
+    meetingUnavailable: "此會議無法使用。",
     noAccess: "您可能無權存取此會議。",
     transcriptCopied: "複製逐字稿",
     couldNotCopyTranscript: "無法複製逐字稿",

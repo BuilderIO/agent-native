@@ -360,6 +360,7 @@ const messages = {
     couldNotLoadMeeting: "Couldn't load this meeting.",
     retry: "Retry",
     meetingNotFound: "Meeting not found",
+    meetingUnavailable: "This meeting isn't available.",
     noAccess: "You may not have access to this meeting.",
     transcriptCopied: "Transcript copied",
     couldNotCopyTranscript: "Couldn't copy transcript",

@@ -323,6 +323,12 @@ async function startBrowserTranscriptionCapture(): Promise<TranscriptionCapture 
       try {
         recognition.start();
       } catch {
+        // `paused` is already false, so the recording is live through the
+        // failed start and the retry delay. A later successful retry does not
+        // recover that speech, so the gap is recorded durably and the server
+        // still schedules cloud transcription.
+        failureReason ??=
+          "Web Speech transcription dropped audio while resuming after a pause.";
         scheduleRestart(WEB_SPEECH_RESTART_RETRY_BASE_MS);
       }
     },

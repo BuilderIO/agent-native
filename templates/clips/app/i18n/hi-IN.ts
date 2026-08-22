@@ -358,6 +358,7 @@ const messages = {
     couldNotLoadMeeting: "इस मीटिंग को लोड नहीं किया जा सका.",
     retry: "फिर से प्रयास करें",
     meetingNotFound: "मीटिंग नहीं मिली",
+    meetingUnavailable: "यह मीटिंग उपलब्ध नहीं है।",
     noAccess: "हो सकता है कि आपके पास इस मीटिंग तक पहुंच न हो.",
     transcriptCopied: "प्रतिलेख की प्रतिलिपि बनाई गई",
     couldNotCopyTranscript: "प्रतिलेख कॉपी नहीं किया जा सका",

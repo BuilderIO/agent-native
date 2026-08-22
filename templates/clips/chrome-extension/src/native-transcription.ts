@@ -82,6 +82,10 @@ export function createNativeTranscriptionCapture(options?: {
   let paused = false;
   let disposed = false;
   let failureReason = unsupportedReason;
+  // Kept apart from `failureReason`: a failed `start()` attempt loses no
+  // audio once a later attempt succeeds, whereas `failureReason` records
+  // speech that was actually dropped and must survive a recovery.
+  let restartStartFailure: string | null = null;
   let restartTimer: ReturnType<typeof setTimeout> | null = null;
   let restartFailures = 0;
   let stopPromise: Promise<NativeTranscriptResult> | null = null;
@@ -97,6 +101,7 @@ export function createNativeTranscriptionCapture(options?: {
       text,
       failureReason:
         failureReason ||
+        restartStartFailure ||
         (text.length > 0
           ? null
           : "Chrome Web Speech recognition returned no transcript."),
@@ -124,12 +129,13 @@ export function createNativeTranscriptionCapture(options?: {
       try {
         recognition.start();
         restartFailures = 0;
-        // Recognition recovered, so the earlier restart error is no longer the
-        // transcript's outcome. Leaving it set makes the server treat a
-        // complete transcript as partial and re-run cloud transcription.
-        failureReason = null;
+        // The engine recovered, so a failed start attempt is no longer the
+        // transcript's outcome. `failureReason` is deliberately NOT cleared:
+        // it records audio that was actually dropped, which a restart cannot
+        // recover.
+        restartStartFailure = null;
       } catch (error) {
-        failureReason =
+        restartStartFailure =
           error instanceof Error
             ? `Chrome Web Speech recognition could not restart: ${error.message}`
             : "Chrome Web Speech recognition could not restart.";
@@ -137,6 +143,9 @@ export function createNativeTranscriptionCapture(options?: {
         restartFailures += 1;
         if (restartFailures < MAX_RESTART_ATTEMPTS) {
           scheduleRestart(RESTART_DELAY_MS * restartFailures);
+        } else {
+          // Out of retries: the gap is permanent, so it stops being transient.
+          failureReason = failureReason || restartStartFailure;
         }
       }
     }, delayMs);

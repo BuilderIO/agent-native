@@ -370,6 +370,7 @@ const messages = {
     couldNotLoadMeeting: "この会議を読み込めませんでした。",
     retry: "再試行",
     meetingNotFound: "会議が見つかりません",
+    meetingUnavailable: "この会議は利用できません。",
     noAccess: "この会議にアクセスできない可能性があります。",
     transcriptCopied: "トランスクリプトをコピーしました",
     couldNotCopyTranscript: "トランスクリプトをコピーできませんでした",

@@ -368,6 +368,7 @@ const messages = {
     couldNotLoadMeeting: "Não foi possível carregar esta reunião.",
     retry: "Tentar novamente",
     meetingNotFound: "Reunião não encontrada",
+    meetingUnavailable: "Esta reunião não está disponível.",
     noAccess: "Você pode não ter acesso a esta reunião.",
     transcriptCopied: "Transcrição copiada",
     couldNotCopyTranscript: "Não foi possível copiar a transcrição",
