@@ -49,7 +49,6 @@
  */
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { open as openExternal } from "@tauri-apps/plugin-shell";
 
 import {
   waitForAcceptedRecordingAfterFinalizeError,
@@ -2464,24 +2463,6 @@ async function publishFinalizingResult(params: {
   });
 }
 
-async function claimNativeUploadOpen(recordingId: string): Promise<boolean> {
-  return invoke<boolean>("native_fullscreen_claim_upload_open", {
-    recordingId,
-  }).catch(() => true);
-}
-
-async function openNativeUploadUrl(
-  recordingId: string,
-  url: string,
-): Promise<void> {
-  if (!(await claimNativeUploadOpen(recordingId))) return;
-  try {
-    await openExternal(url);
-  } catch (err) {
-    console.error("[clips-recorder] openExternal failed:", err);
-  }
-}
-
 /**
  * Hosted native start sequencing helper: overlap Whisper start, create-recording,
  * and deferred SCK warm so Skip no longer waits serially on Whisper then warm.
@@ -2986,10 +2967,6 @@ async function tryStartRewindFullscreenRecording(
               : Promise.resolve(true);
           await invoke("hide_recording_chrome").catch(() => {});
           if (wantsCamera) await invoke("close_bubble").catch(() => {});
-          await openNativeUploadUrl(
-            id,
-            `${params.serverUrl.replace(/\/+$/, "")}${viewUrl}`,
-          );
           try {
             const uploaded = await uploadPromise;
             if (uploaded.verificationPending) {
@@ -3786,13 +3763,6 @@ async function startNativeFullscreenRecording(
           },
         );
         uploadPromise.catch(() => {});
-        // The recording row already exists, so open its page as soon as the
-        // native stop command has started. Upload/finalize continues in this
-        // webview while the page polls from `uploading` to `ready`.
-        await openNativeUploadUrl(
-          id,
-          `${params.serverUrl.replace(/\/+$/, "")}${viewUrl}`,
-        );
         try {
           await Promise.race([
             recorderFinalized,
@@ -5221,11 +5191,6 @@ async function startRecordingInner(
       // fixed even if launching the browser takes a moment. Open the existing
       // recording row now and let its page poll while upload/finalize continues.
       //
-      // This must claim the native upload-open slot before launching. The
-      // Finalizing overlay receives the completion event later and uses the
-      // same claim; without it, browser recordings opened once here and then a
-      // second time when finalization completed.
-      await openNativeUploadUrl(id, absoluteViewUrl);
       const recorderStopTimedOut = await Promise.race([
         recorderStopped.then(() => false),
         wait(MEDIA_RECORDER_STOP_TIMEOUT_MS).then(() => true),

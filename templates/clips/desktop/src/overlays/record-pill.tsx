@@ -262,10 +262,12 @@ export function RecordingPill() {
   }
 
   function syncWindowToContent() {
-    const el = mode === "done" ? cardRef.current : pillRef.current;
-    const rect = (el ?? pillRef.current)?.getBoundingClientRect();
-    if (!rect) return;
-    resizeWindowTo(Math.ceil(rect.width), Math.ceil(rect.height));
+    const el =
+      (mode === "done" ? cardRef.current : pillRef.current) ?? pillRef.current;
+    if (!el) return;
+    // offsetWidth/Height are layout metrics, immune to the card's scale-in
+    // entrance — a rect measured mid-animation locks the window too narrow.
+    resizeWindowTo(el.offsetWidth, el.offsetHeight);
   }
 
   // Which segments are (or are animating toward) open. Live rects mid-flight
@@ -839,7 +841,7 @@ export function RecordingPill() {
   return (
     <div
       data-tw-surface
-      className="record-pill-scope flex h-screen w-screen items-end p-[18px]"
+      className="record-pill-scope flex h-screen w-screen select-none items-end p-[18px]"
     >
       <div aria-live="polite" className="sr-only">
         {announcement}
