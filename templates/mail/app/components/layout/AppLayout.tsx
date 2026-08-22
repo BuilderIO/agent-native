@@ -1914,9 +1914,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
           !hasLocalMailboxData &&
           view !== "settings" &&
           view !== "draft-queue" &&
-          (googleConfigured ||
-            canOfferGoogleOAuthSetup ||
-            googleStatus.isError) ? (
+          (googleConfigured || canOfferGoogleOAuthSetup) ? (
             <GoogleConnectBanner variant="hero" />
           ) : (
             <main className="agent-native-app-main flex flex-1 overflow-hidden">
