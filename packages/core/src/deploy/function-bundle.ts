@@ -218,12 +218,20 @@ export function readPackageManifest(
   return manifest as Record<string, unknown>;
 }
 
-/** Every installed package name directly under `nodeModulesDir`, scoped packages expanded to `@scope/name`. */
+/**
+ * Every installed package name directly under `nodeModulesDir`, scoped packages
+ * expanded to `@scope/name`.
+ *
+ * Dot-prefixed entries are npm/pnpm bookkeeping, not packages — `.bin` holds
+ * executable links and has no manifest, so treating it as a package makes the
+ * closure walk throw on a perfectly normal bundle.
+ */
 function listTopLevelPackageNames(nodeModulesDir: string): string[] {
   if (!fs.existsSync(nodeModulesDir)) return [];
   const names: string[] = [];
   for (const entry of fs.readdirSync(nodeModulesDir, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
+    if (entry.name.startsWith(".")) continue;
     if (!entry.name.startsWith("@")) {
       names.push(entry.name);
       continue;

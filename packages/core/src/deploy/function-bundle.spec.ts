@@ -107,6 +107,27 @@ describe("pruneBrowserRuntimeFromNonAgentClone orphan closure", () => {
     );
   });
 
+  it("ignores node_modules bookkeeping directories", () => {
+    writePackage("@sparticuz/chromium-min", { "orphan-tar": "^1.0.0" });
+    writePackage("playwright-core");
+    writePackage("orphan-tar");
+    // .bin holds executable links and has no manifest. Walking it as a package
+    // makes the closure walk throw on an ordinary bundle.
+    fs.mkdirSync(path.join(dir, "node_modules", ".bin"), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "node_modules", ".bin", "tsc"),
+      "#!/bin/sh",
+    );
+
+    expect(() =>
+      pruneBrowserRuntimeFromNonAgentClone(dir, REWRITING_ENTRY),
+    ).not.toThrow();
+    expect(fs.existsSync(path.join(dir, "node_modules", ".bin"))).toBe(true);
+    expect(fs.existsSync(path.join(dir, "node_modules", "orphan-tar"))).toBe(
+      false,
+    );
+  });
+
   it("keeps a closure member the surviving server imports directly", () => {
     writePackage("@sparticuz/chromium-min", { "shared-tar": "^1.0.0" });
     writePackage("playwright-core");

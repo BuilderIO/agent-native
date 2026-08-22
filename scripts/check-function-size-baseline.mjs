@@ -217,6 +217,26 @@ for (const [name, bytes] of Object.entries(measured).sort()) {
   if (overRatio && overBytes) grown.push({ name, before, bytes });
 }
 
+// A function in the baseline that the build no longer emits is not a pass. It
+// is a route, cron, or background worker that silently stopped shipping, and
+// "nothing grew" is exactly the wrong thing to say about it.
+const missing = Object.keys(recorded)
+  .filter((name) => measured[name] === undefined)
+  .sort();
+if (missing.length > 0) {
+  console.error(
+    `\n[size-baseline] ${site}: ${missing.length} function(s) in the baseline are no longer emitted:`,
+  );
+  for (const name of missing) {
+    console.error(`  - ${name}: was ${mb(recorded[name])}MB, now absent`);
+  }
+  console.error(
+    "\nIf the removal is intended, re-record so the baseline stops expecting " +
+      "it:\n" +
+      `  pnpm check:function-size-baseline --site ${site} --dir ${functionsDir} --update`,
+  );
+}
+
 if (unrecorded.length > 0) {
   console.error(
     `\n[size-baseline] ${site}: ${unrecorded.length} function(s) are not in the baseline:`,
@@ -246,6 +266,8 @@ if (grown.length > 0) {
   );
 }
 
-if (grown.length > 0 || unrecorded.length > 0) process.exit(1);
+if (grown.length > 0 || unrecorded.length > 0 || missing.length > 0) {
+  process.exit(1);
+}
 
 console.log(`\n[size-baseline] ${site}: no function grew past its baseline.`);
