@@ -4002,7 +4002,18 @@ export function stubLocalOnlySqliteDriverForServerless(
   fs.mkdirSync(packageDir, { recursive: true });
   fs.writeFileSync(
     manifestPath,
-    `${JSON.stringify({ name: "better-sqlite3", version, main: "index.js" }, null, 2)}\n`,
+    `${JSON.stringify(
+      {
+        name: "better-sqlite3",
+        version,
+        main: "index.js",
+        // Read by the CLI's native-dependency preflight, which would otherwise
+        // probe the stub, see its deliberate throw, and try to rebuild it.
+        agentNativeServerlessStub: true,
+      },
+      null,
+      2,
+    )}\n`,
   );
   // CommonJS, matching the real package: Drizzle default-imports it from ESM
   // and relies on the interop default being the constructor.

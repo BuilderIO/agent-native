@@ -386,7 +386,10 @@ export function pruneBrowserRuntimeFromNonAgentClone(
       bytes += dirSize(packageDir);
       fs.rmSync(packageDir, { recursive: true, force: true });
       const scopeDir = path.dirname(packageDir);
-      if (scopeDir !== nodeModulesDir && fs.readdirSync(scopeDir).length === 0) {
+      if (
+        scopeDir !== nodeModulesDir &&
+        fs.readdirSync(scopeDir).length === 0
+      ) {
         fs.rmSync(scopeDir, { recursive: true, force: true });
       }
     }

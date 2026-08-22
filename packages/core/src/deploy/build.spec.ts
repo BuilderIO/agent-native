@@ -3631,6 +3631,9 @@ describe("stubLocalOnlySqliteDriverForServerless", () => {
     );
     expect(manifest.version).toBe("12.11.1");
     expect(manifest.main).toBe("index.js");
+    // The CLI's native-dependency preflight keys off this to avoid probing a
+    // package whose constructor throws by design.
+    expect(manifest.agentNativeServerlessStub).toBe(true);
 
     const Stub = createRequire(import.meta.url)(packageDir);
     expect(() => new Stub(":memory:")).toThrow(/not available in a serverless/);

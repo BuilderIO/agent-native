@@ -74,9 +74,7 @@ describe("pruneBrowserRuntimeFromNonAgentClone orphan closure", () => {
     'const url = new URL(req.url);\nurl.pathname = "/api/dashboard-report-sweep";\n';
 
   beforeEach(() => {
-    dir = fs.mkdtempSync(
-      path.join(os.tmpdir(), "an-function-bundle-orphans-"),
-    );
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "an-function-bundle-orphans-"));
   });
 
   afterEach(() => {
@@ -104,9 +102,9 @@ describe("pruneBrowserRuntimeFromNonAgentClone orphan closure", () => {
     const freed = pruneBrowserRuntimeFromNonAgentClone(dir, REWRITING_ENTRY);
 
     expect(freed).toBeGreaterThan(0);
-    expect(
-      fs.existsSync(path.join(dir, "node_modules", "orphan-tar")),
-    ).toBe(false);
+    expect(fs.existsSync(path.join(dir, "node_modules", "orphan-tar"))).toBe(
+      false,
+    );
   });
 
   it("keeps a closure member an unrelated surviving package also depends on", () => {
