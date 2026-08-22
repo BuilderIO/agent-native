@@ -2590,6 +2590,13 @@ const SERVERLESS_FUNCTION_PACKAGE_DENYLIST = new Set([
   "fsevents",
   "node-pty",
   "playwright",
+  // Nitro traces these from officeparser's PDF-output branch, which nothing in
+  // this repo reaches — the creative-context browser path uses playwright-core,
+  // not puppeteer. `pdf` output from officeparser now fails loudly instead of
+  // launching a second, unused browser stack in every function.
+  "puppeteer",
+  "puppeteer-core",
+  "chromium-bidi",
 ]);
 type ServerlessFfmpegStaticArch = "arm64" | "x64";
 

@@ -70,7 +70,10 @@ import {
   shouldBundleFfmpegStaticForServerless,
   writeSingleTemplateNetlifyRedirects,
 } from "./build.js";
-import { pruneSsrIslandFromRewritingClone } from "./function-bundle.js";
+import {
+  pruneBrowserRuntimeFromNonAgentClone,
+  pruneSsrIslandFromRewritingClone,
+} from "./function-bundle.js";
 import { IMMUTABLE_ASSET_CACHE_CONTROL } from "./immutable-assets.js";
 import {
   renderNetlifyStaticHeaders,
@@ -3507,5 +3510,54 @@ describe("pruneSsrIslandFromRewritingClone", () => {
 
     expect(pruneSsrIslandFromRewritingClone(dir, REWRITING_ENTRY)).toBe(0);
     expect(fs.existsSync(path.join(dir, "page-only.mjs"))).toBe(true);
+  });
+});
+
+describe("pruneBrowserRuntimeFromNonAgentClone", () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "browser-prune-"));
+    for (const name of ["@sparticuz", "playwright-core"]) {
+      const pkg = path.join(dir, "node_modules", name);
+      fs.mkdirSync(pkg, { recursive: true });
+      fs.writeFileSync(path.join(pkg, "index.js"), "x".repeat(1024));
+    }
+  });
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("drops the browser runtime from a scheduled sweep clone", () => {
+    const freed = pruneBrowserRuntimeFromNonAgentClone(
+      dir,
+      'const url = new URL(req.url);\nurl.pathname = "/api/dashboard-report-sweep";\n',
+    );
+
+    expect(freed).toBeGreaterThan(0);
+    expect(fs.existsSync(path.join(dir, "node_modules", "@sparticuz"))).toBe(
+      false,
+    );
+  });
+
+  it("refuses a clone whose entry can reach an agent turn", () => {
+    // creative-context loads the browser through a non-literal dynamic import,
+    // so nothing static can prove it dead — this assertion is the only guard.
+    expect(() =>
+      pruneBrowserRuntimeFromNonAgentClone(
+        dir,
+        'url.pathname = "/_agent-native/agent-chat/_process-run";\n',
+      ),
+    ).toThrow(/agent-capable route/);
+    expect(fs.existsSync(path.join(dir, "node_modules", "@sparticuz"))).toBe(
+      true,
+    );
+  });
+
+  it("refuses a clone that does not rewrite the pathname at all", () => {
+    expect(() =>
+      pruneBrowserRuntimeFromNonAgentClone(dir, "export default handler;\n"),
+    ).toThrow(/rewrites url\.pathname/);
   });
 });

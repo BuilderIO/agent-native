@@ -197,3 +197,78 @@ export function pruneSsrIslandFromRewritingClone(
   }
   return bytes;
 }
+
+/** Copied by copyInstalledBrowserRuntimePackages; see SERVERLESS_BROWSER_RUNTIME_PACKAGES. */
+const BROWSER_RUNTIME_DIRS = ["@sparticuz", "playwright-core"];
+
+/**
+ * Any path whose handler can reach an agent turn, directly or transitively.
+ * `_process-run` is the obvious one, but the integration sweep and the
+ * recurring-jobs sweep both resume tasks that run a full agent turn with the
+ * app's whole tool surface, so a path-shape check alone is not enough.
+ */
+const AGENT_CAPABLE_PATH =
+  /_process-run|_process-task|\/integrations\/|recurring-jobs/;
+
+function dirSize(dir: string): number {
+  let total = 0;
+  const stack = [dir];
+  while (stack.length > 0) {
+    const cur = stack.pop() as string;
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(cur, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const full = path.join(cur, entry.name);
+      if (entry.isDirectory()) stack.push(full);
+      else {
+        try {
+          total += fs.statSync(full).size;
+        } catch {
+          // coercion-ok: an unreadable entry contributes no measurable bytes and
+          // must not abort a size report.
+        }
+      }
+    }
+  }
+  return total;
+}
+
+/**
+ * Drop the serverless browser runtime from a clone that can never run an agent
+ * turn.
+ *
+ * Playwright and @sparticuz/chromium are reached only through NON-LITERAL
+ * dynamic imports in creative-context's rendered-page connector, so no static
+ * walk can prove them dead. The caller asserts it instead, and this refuses the
+ * prune when the entry rewrites to a route that could reach an agent — a
+ * scheduled report sweep can drop 79MB, an agent worker cannot.
+ */
+export function pruneBrowserRuntimeFromNonAgentClone(
+  dest: string,
+  entryText: string,
+): number {
+  if (!/^\s*url\.pathname\s*=/m.test(entryText)) {
+    throw new Error(
+      "[deploy] browser-runtime prune requires a clone entry that rewrites url.pathname unconditionally",
+    );
+  }
+  if (AGENT_CAPABLE_PATH.test(entryText)) {
+    throw new Error(
+      "[deploy] refusing to prune the browser runtime from a clone whose entry names an agent-capable route",
+    );
+  }
+
+  let bytes = 0;
+  for (const name of BROWSER_RUNTIME_DIRS) {
+    const dir = path.join(dest, "node_modules", name);
+    if (!fs.existsSync(dir)) continue;
+    bytes += dirSize(dir);
+    // Hard links: deleting the clone's link never touches the source bundle.
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+  return bytes;
+}
