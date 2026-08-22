@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import { act } from "react";
+import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -98,5 +99,32 @@ describe("useLocalStorage", () => {
     } finally {
       console.error = originalError;
     }
+  });
+
+  it("exposes the new key value during the key-transition render", () => {
+    const renderedValues: boolean[] = [];
+    window.localStorage.setItem("document-a", JSON.stringify(true));
+    window.localStorage.setItem("document-b", JSON.stringify(false));
+
+    function Probe({ storageKey }: { storageKey: string }) {
+      const [value] = useLocalStorage(storageKey, false);
+      renderedValues.push(value);
+      return null;
+    }
+
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    act(() => {
+      root?.render(<Probe storageKey="document-a" />);
+    });
+    expect(renderedValues[renderedValues.length - 1]).toBe(true);
+
+    const firstTransitionRender = renderedValues.length;
+    flushSync(() => {
+      root?.render(<Probe storageKey="document-b" />);
+    });
+    expect(renderedValues[firstTransitionRender]).toBe(false);
   });
 });

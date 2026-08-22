@@ -1,3 +1,4 @@
+import { SSR_QUERY_CACHE_KEY_HEADER } from "@agent-native/core/shared";
 import { describe, expect, it, vi } from "vitest";
 
 const mockGetAppBasePath = vi.hoisted(() => vi.fn(() => ""));
@@ -97,6 +98,7 @@ describe("public form SSR", () => {
     expect(html).toContain(
       '<meta property="og:title" content="Customer intake">',
     );
+    expect(response.headers.get(SSR_QUERY_CACHE_KEY_HEADER)).toBe("query");
     expect(html).toContain(
       '<meta property="og:description" content="Tell us what you need.">',
     );

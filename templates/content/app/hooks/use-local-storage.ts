@@ -20,6 +20,8 @@ export function useLocalStorage<T>(
   const prevKeyRef = useRef(key);
   const [value, setValue] = useState<T>(() => readStorage(key, defaultValue));
   const valueRef = useRef(value);
+  const keyChanged = prevKeyRef.current !== key;
+  const visibleValue = keyChanged ? readStorage(key, defaultValue) : value;
 
   useEffect(() => {
     if (prevKeyRef.current !== key) {
@@ -79,5 +81,5 @@ export function useLocalStorage<T>(
     [key],
   );
 
-  return [value, set];
+  return [visibleValue, set];
 }

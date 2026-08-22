@@ -5,6 +5,7 @@ import {
   AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT,
   AGENT_NATIVE_SOCIAL_IMAGE_TYPE,
   AGENT_NATIVE_SOCIAL_IMAGE_WIDTH,
+  SSR_QUERY_CACHE_KEY_HEADER,
   withAgentNativeSocialImageCacheBuster,
 } from "@agent-native/core/shared";
 import { eq } from "drizzle-orm";
@@ -321,6 +322,7 @@ export async function renderPublicForm(event: H3Event) {
     // short-fresh/long-SWR policy as React Router SSR. Keep all cache headers
     // here; relying on provider config would make templates perform differently.
     Object.assign(headers, resolveSsrCacheHeaders());
+    headers[SSR_QUERY_CACHE_KEY_HEADER] = "query";
   }
   return new Response(getMethod(event) === "HEAD" ? null : html, {
     status,
