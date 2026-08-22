@@ -122,6 +122,17 @@ describe("transactional email registry", () => {
     expect(getTransactionalEmail("other.keep")?.name).toBe("other.keep");
   });
 
+  it("rejects an overlapping replacement scope without mutating the registry", () => {
+    define("test.stale");
+    define("other.keep");
+
+    expect(() => replaceTransactionalEmails("test", [])).toThrow(
+      /namespace prefix ending in a period/,
+    );
+    expect(getTransactionalEmail("test.stale")).toBeDefined();
+    expect(getTransactionalEmail("other.keep")).toBeDefined();
+  });
+
   it("renders a preview by id", () => {
     define("test.preview");
     expect(renderTransactionalEmailPreview("test.preview").subject).toBe(

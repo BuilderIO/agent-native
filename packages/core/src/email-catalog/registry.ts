@@ -152,9 +152,9 @@ export function replaceTransactionalEmails(
   idPrefix: string,
   definitions: readonly TransactionalEmailDefinition[],
 ): RegisteredTransactionalEmail[] {
-  if (!idPrefix) {
+  if (!idPrefix || !idPrefix.endsWith(".")) {
     throw new Error(
-      "Transactional email replacement requires a non-empty id prefix.",
+      "Transactional email replacement requires a non-empty namespace prefix ending in a period.",
     );
   }
 
