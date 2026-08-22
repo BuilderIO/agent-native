@@ -2612,14 +2612,6 @@ const SERVERLESS_FUNCTION_PACKAGE_DENYLIST = new Set([
   "puppeteer",
   "puppeteer-core",
   "chromium-bidi",
-  // Local-development driver only. Every consumer is gated on a `file:` or
-  // schemeless DATABASE_URL, and a serverless function holding a file-backed
-  // SQLite database is already broken — the filesystem is ephemeral and each
-  // container gets its own copy, so that data was never going to persist.
-  // Denying the package turns that misconfiguration into a loud failure rather
-  // than a silently empty database. This list applies to the netlify, vercel
-  // and aws-lambda presets only, so local dev against a file: URL is unaffected.
-  "better-sqlite3",
 ]);
 
 /**
@@ -3964,6 +3956,84 @@ function hasBundledServerlessBrowserRuntime(functionDir: string): boolean {
   );
 }
 
+/**
+ * Replace the bundled `better-sqlite3` with a throwing stub in serverless
+ * output.
+ *
+ * The package is 27MB — a 9.1MB `sqlite3.c`, its object files, and a static
+ * archive, none of which a function can use: every consumer is gated on a
+ * `file:` or schemeless `DATABASE_URL`, and a serverless container holding a
+ * file-backed SQLite database is already broken, since the filesystem is
+ * ephemeral and each container gets its own copy.
+ *
+ * It cannot simply be deleted. Drizzle's bundled `_libs/drizzle-orm+postgres`
+ * chunk imports it at module scope, so removing the package turns every cold
+ * start into `ERR_MODULE_NOT_FOUND` — which is how this was first written, and
+ * what the SSR cold-start smoke caught. The stub keeps the specifier
+ * resolvable and moves the failure to the only place it can be acted on: a
+ * deploy that actually tries to open a file-backed database, which now throws
+ * with the reason instead of quietly serving an empty one.
+ */
+export function stubLocalOnlySqliteDriverForServerless(
+  serverDir: string,
+): number {
+  const packageDir = path.join(serverDir, "node_modules", "better-sqlite3");
+  if (!fs.existsSync(packageDir)) return 0;
+
+  const manifestPath = path.join(packageDir, "package.json");
+  if (!fs.existsSync(manifestPath)) {
+    throw new Error(
+      `[deploy] ${path.relative(serverDir, packageDir)} has no package.json; ` +
+        "refusing to stub a package tree this build does not understand.",
+    );
+  }
+  const version = (
+    JSON.parse(fs.readFileSync(manifestPath, "utf8")) as { version?: string }
+  ).version;
+  if (!version) {
+    throw new Error(
+      `[deploy] ${path.relative(serverDir, manifestPath)} declares no version; ` +
+        "refusing to stub a package tree this build does not understand.",
+    );
+  }
+
+  const saved = getDirSize(packageDir);
+  fs.rmSync(packageDir, { recursive: true, force: true });
+  fs.mkdirSync(packageDir, { recursive: true });
+  fs.writeFileSync(
+    manifestPath,
+    `${JSON.stringify({ name: "better-sqlite3", version, main: "index.js" }, null, 2)}\n`,
+  );
+  // CommonJS, matching the real package: Drizzle default-imports it from ESM
+  // and relies on the interop default being the constructor.
+  fs.writeFileSync(
+    path.join(packageDir, "index.js"),
+    [
+      "// Replaced at build time by @agent-native/core: better-sqlite3 is a",
+      "// local-development driver and cannot back a serverless deployment,",
+      "// whose filesystem is ephemeral and per-container.",
+      "module.exports = class BetterSqlite3NotAvailableInServerless {",
+      "  constructor() {",
+      "    throw new Error(",
+      '      "better-sqlite3 is not available in a serverless deployment. " +',
+      '        "DATABASE_URL resolved to a file-backed SQLite database, whose " +',
+      '        "filesystem is ephemeral and not shared between containers. " +',
+      '        "Point DATABASE_URL at Postgres or libSQL/Turso."',
+      "    );",
+      "  }",
+      "};",
+      "",
+    ].join("\n"),
+  );
+
+  const freed = saved - getDirSize(packageDir);
+  console.log(
+    `[deploy] Stubbed better-sqlite3 in ${path.basename(serverDir)}: ` +
+      `${(freed / 1024 / 1024).toFixed(1)}MB of local-only SQLite driver removed.`,
+  );
+  return freed;
+}
+
 function netlifyFunctionSizeBudget(functionDir: string): number {
   const allowance =
     (hasBundledServerlessBrowserRuntime(functionDir)
@@ -5244,6 +5314,7 @@ export default bundle;
     copyInstalledFfmpegStaticPackage(nitro.options.output.serverDir);
     copyInstalledBrowserRuntimePackages(nitro.options.output.serverDir);
     sanitizeServerlessFunctionPackageManifest(nitro.options.output.serverDir);
+    stubLocalOnlySqliteDriverForServerless(nitro.options.output.serverDir);
     // Before the Netlify block below clones this dir into the extra functions,
     // so they inherit the pruned bundle instead of a second full copy.
     pruneServerlessFunctionDeadWeight(nitro.options.output.serverDir);
