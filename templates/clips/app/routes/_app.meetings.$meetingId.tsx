@@ -466,7 +466,7 @@ export default function MeetingDetailRoute() {
     } | null;
     recording?: { id: string; durationMs?: number | null } | null;
     role?: "owner" | "admin" | "editor" | "commenter" | "viewer";
-    reason?: "not-found" | "forbidden";
+    reason?: "unavailable";
   };
 
   const {
@@ -1058,9 +1058,7 @@ export default function MeetingDetailRoute() {
     return (
       <div className="p-6 max-w-2xl mx-auto w-full">
         <div className="rounded-md border px-4 py-3 text-sm text-muted-foreground">
-          {data?.reason === "forbidden"
-            ? t("meetingDetail.noAccess")
-            : t("meetingDetail.meetingNotFound")}
+          {t("meetingDetail.meetingNotFound")}
         </div>
         <Button asChild variant="outline" className="mt-3">
           <NavLink to="/meetings">{t("meetingDetail.allMeetings")}</NavLink>
