@@ -216,7 +216,7 @@ export async function bootstrapAppSession(
         });
         const promoted = await page.evaluate(async (sessionToken: string) => {
           const response = await fetch(
-            `/sign-in?_session=${encodeURIComponent(sessionToken)}`,
+            `/_agent-native/auth/session?_session=${encodeURIComponent(sessionToken)}`,
             { redirect: "manual", credentials: "include" },
           );
           return response.status;
