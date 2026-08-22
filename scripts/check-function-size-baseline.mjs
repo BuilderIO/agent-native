@@ -61,19 +61,91 @@ const TOLERANCE_BYTES = 5 * 1024 * 1024;
  * the moment a baseline is recorded; the app is then protected like the other
  * fifteen.
  */
+const mb = (bytes) => (bytes / 1024 / 1024).toFixed(1);
+
 /**
  * Functions emitted only when a build flag is set, so whether they exist
- * differs between a local build and a deploy. `agent-native-keep-warm` is
- * emitted by the beta workflow (AGENT_NATIVE_ENABLE_KEEP_WARM=1) and not by a
- * plain local build, so it can be neither recorded nor missed reliably.
+ * differs between a local build and a deploy. They can be neither recorded nor
+ * missed reliably: baseline one and every build without the flag fails
+ * "no longer emitted"; leave it out and every build with the flag fails
+ * "not in baseline".
  *
- * These are exempt from the new-function and removed-function checks, but only
- * while they stay trigger-sized. The cap is what stops the exemption from
- * becoming somewhere a payload can hide: a gated function over it fails like
- * any other.
+ * So their absence is never a failure — but their presence still has to be
+ * bounded, or the exemption becomes somewhere a payload can hide. Each entry
+ * carries the ceiling that applies whenever it IS emitted:
+ *
+ *   bytes    a fixed ceiling, for trigger-sized entries
+ *   like     the name of another function it is derived from and can never
+ *            legitimately exceed
  */
-const BUILD_FLAG_GATED_FUNCTIONS = new Set(["agent-native-keep-warm"]);
-const GATED_FUNCTION_SIZE_CAP_BYTES = 1024 * 1024;
+const BUILD_FLAG_GATED_FUNCTIONS = new Map([
+  [
+    "agent-native-keep-warm",
+    {
+      // A scheduled ping, 4KB today. AGENT_NATIVE_ENABLE_KEEP_WARM=1 in the
+      // beta workflow; a plain local build does not emit it.
+      bytes: 1024 * 1024,
+      why: "a scheduled trigger entry, not a bundle",
+    },
+  ],
+  [
+    "server-integration-recovery",
+    {
+      // AGENT_INTEGRATION_DURABLE_DISPATCH, which no workflow sets today but a
+      // Netlify site env var can. It is a clone of the server function with the
+      // SSR island pruned, so server is the ceiling it cannot legitimately pass.
+      like: "server",
+      why: "a pruned clone of the server function",
+    },
+  ],
+]);
+
+/**
+ * The byte ceiling for a gated function, or null when the function it derives
+ * from is not in this build and no bound can be stated.
+ *
+ * A derived ceiling reads THIS build's sibling before the baseline's: the
+ * invariant is that the clone cannot exceed the function it was cloned from in
+ * the same build. Comparing it against a baseline recorded from an older build
+ * fails on ordinary drift.
+ */
+function gatedFunctionCap(name, measured, recorded) {
+  const rule = BUILD_FLAG_GATED_FUNCTIONS.get(name);
+  if (!rule) return null;
+  if (rule.bytes !== undefined) return rule.bytes;
+  return measured?.[rule.like] ?? recorded?.[rule.like] ?? null;
+}
+
+/**
+ * Gated functions in `measured` that exceed their ceiling. Every exit path runs
+ * this — including --update and the unmeasurable-app allowance — because a
+ * ceiling only enforced on one path is not a ceiling.
+ */
+function oversizedGatedFunctions(measured, recorded) {
+  const over = [];
+  for (const [name, bytes] of Object.entries(measured)) {
+    const cap = gatedFunctionCap(name, measured, recorded);
+    if (cap !== null && bytes > cap) over.push({ name, bytes, cap });
+  }
+  return over;
+}
+
+function reportOversizedGated(site, over) {
+  console.error(
+    `\n[size-baseline] ${site}: ${over.length} build-flag-gated function(s) over their ceiling:`,
+  );
+  for (const fn of over) {
+    const rule = BUILD_FLAG_GATED_FUNCTIONS.get(fn.name);
+    console.error(
+      `  - ${fn.name}: ${mb(fn.bytes)}MB, ceiling ${mb(fn.cap)}MB (${rule.why})`,
+    );
+  }
+  console.error(
+    "\nThese are exempt from the new/removed checks only because of what they " +
+      "are. One this large is carrying something else; find what entered its " +
+      "graph rather than raising the ceiling.",
+  );
+}
 
 const UNMEASURABLE_APPS = new Map([
   [
@@ -165,9 +237,17 @@ if (!existsSync(functionsDir)) {
 
 const measured = measure(functionsDir);
 const baseline = readBaseline();
-const mb = (bytes) => (bytes / 1024 / 1024).toFixed(1);
 
 if (update) {
+  // Recording is how a size becomes the thing future builds are measured
+  // against, so it must not be the way an over-ceiling gated function gets
+  // written in and normalised.
+  const over = oversizedGatedFunctions(measured, baseline[site]);
+  if (over.length > 0) {
+    reportOversizedGated(site, over);
+    console.error("\nRefusing to record it.");
+    process.exit(1);
+  }
   baseline[site] = measured;
   // Sort by rebuilding the object. JSON.stringify's second argument is a key
   // ALLOWLIST, not a sort order — passing site names there silently drops every
@@ -195,6 +275,14 @@ if (!recorded) {
     console.log(`    ${name} ${mb(bytes)}MB`);
   }
   if (allowed) {
+    // The app-level allowance waives the baseline, never a gated function's own
+    // ceiling: an allowance is for a size nobody has measured, not a licence
+    // for one that is measured and too big.
+    const over = oversizedGatedFunctions(measured, undefined);
+    if (over.length > 0) {
+      reportOversizedGated(site, over);
+      process.exit(1);
+    }
     console.log(
       `[size-baseline] ${site} has no baseline and is a known exception: ${allowed}. ` +
         "Sizes above are reported, not asserted.",
@@ -217,19 +305,18 @@ const unrecorded = [];
 const oversizedGated = [];
 for (const [name, bytes] of Object.entries(measured).sort()) {
   const before = recorded[name];
-  // The cap applies to a gated function whether or not it is recorded. Being
-  // in the baseline would otherwise buy it the general tolerance, and both of
-  // those bounds must be exceeded — so a 4KB trigger entry could reach 5MB
-  // unchallenged, which is the opposite of what the cap is for.
+  // The ceiling applies whether or not the function is recorded. Being in the
+  // baseline would otherwise buy it the general tolerance, where both bounds
+  // must be exceeded — so a 4KB trigger entry could reach 5MB unchallenged,
+  // the opposite of what the ceiling is for.
   if (BUILD_FLAG_GATED_FUNCTIONS.has(name)) {
-    if (bytes > GATED_FUNCTION_SIZE_CAP_BYTES) {
-      console.log(`  BIG  ${name} ${mb(bytes)}MB (build-flag gated, over cap)`);
-      oversizedGated.push({ name, bytes });
+    const cap = gatedFunctionCap(name, measured, recorded);
+    if (cap !== null && bytes > cap) {
+      console.log(`  BIG  ${name} ${mb(bytes)}MB (gated, over ${mb(cap)}MB)`);
+      oversizedGated.push({ name, bytes, cap });
       continue;
     }
-    console.log(
-      `  gated ${name} ${mb(bytes)}MB (build-flag gated, within cap)`,
-    );
+    console.log(`  gated ${name} ${mb(bytes)}MB (build-flag gated)`);
     continue;
   }
   if (before === undefined) {
@@ -270,20 +357,7 @@ if (missing.length > 0) {
   );
 }
 
-if (oversizedGated.length > 0) {
-  console.error(
-    `\n[size-baseline] ${site}: ${oversizedGated.length} build-flag-gated function(s) exceed the ` +
-      `${mb(GATED_FUNCTION_SIZE_CAP_BYTES)}MB cap:`,
-  );
-  for (const fn of oversizedGated) {
-    console.error(`  - ${fn.name}: ${mb(fn.bytes)}MB`);
-  }
-  console.error(
-    "\nThese are exempt from the new/removed checks only because they are " +
-      "trigger-sized. One this large is carrying a payload; find what entered " +
-      "its graph rather than raising the cap.",
-  );
-}
+if (oversizedGated.length > 0) reportOversizedGated(site, oversizedGated);
 
 if (unrecorded.length > 0) {
   console.error(
