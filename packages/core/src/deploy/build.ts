@@ -3306,6 +3306,12 @@ export default async function handler(request) {
   console.log(
     "[agent-native-keep-warm] Warmed " + warmed + "/" + WARM_CONCURRENCY + " containers via " + url.toString(),
   );
+  // 207 is deliberately a SUCCESS to the scheduler, not a retry signal. The
+  // next run is 60s away, so retrying a warm buys nothing, and failing the
+  // invocation because one probe of three flaked would alert on a
+  // reduced-but-real success every time the platform hiccups. The ratio is
+  // logged and every failure is warned, so a persistently degraded warm stays
+  // visible without paging. Zero warmed still throws.
   return new Response(null, { status: warmed === WARM_CONCURRENCY ? 204 : 207 });
 }
 
