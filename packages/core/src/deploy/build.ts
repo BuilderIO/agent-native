@@ -2607,6 +2607,22 @@ const SERVERLESS_FUNCTION_PACKAGE_DENYLIST = new Set([
   "puppeteer-core",
   "chromium-bidi",
 ]);
+
+/**
+ * Declared dependencies of the browser tree that only the Bare runtime can
+ * load. tar-stream hard-depends on bare-fs and events-universal on bare-events,
+ * but on Node both exports maps resolve to the plain builtins instead, so these
+ * are never required — and most of their bytes are android/darwin/win32
+ * prebuilds a Linux function could not execute anyway.
+ */
+const BARE_RUNTIME_ONLY_PACKAGES = new Set([
+  "bare-events",
+  "bare-fs",
+  "bare-path",
+  "bare-stream",
+  "bare-url",
+  "teex",
+]);
 type ServerlessFfmpegStaticArch = "arm64" | "x64";
 
 function serverlessFfmpegStaticTargetArchFromEnv(): ServerlessFfmpegStaticArch | null {
@@ -2771,6 +2787,12 @@ function copyRuntimePackageTree(
   for (const dependencyName of Object.keys(
     dependencies as Record<string, unknown>,
   )) {
+    // Declared by tar-stream and events-universal but unreachable on Node: both
+    // exports maps send Node to a plain fs/path implementation, and only the
+    // Bare runtime sets the condition that selects these. Skipped inside the
+    // loop, before resolution, so an unresolvable REAL dependency still fails
+    // loudly below.
+    if (BARE_RUNTIME_ONLY_PACKAGES.has(dependencyName)) continue;
     const dependencyDir = findInstalledPackageRoot(
       dependencyName,
       nodeModulesRoots,
@@ -2831,6 +2853,24 @@ export function copyInstalledBrowserRuntimePackages(
       serverDir,
       nodeModulesRoots,
       copiedPackages,
+    );
+  }
+
+  // playwright-core ships its own developer tooling: lib/vite is the trace
+  // viewer, HTML reporter, codegen recorder and CLI dashboard UI, and lib/tools
+  // plus bin/ and cli.js are the command line. A function reaches none of them —
+  // they are only entered from startTraceViewerServer, startDashboardServer and
+  // the recorder route — and every byte is paid once per emitted function.
+  // force:true because a fixture (or a future playwright-core) may not have them.
+  for (const dead of ["lib/vite", "lib/tools", "bin", "cli.js"]) {
+    fs.rmSync(
+      path.join(
+        serverDir,
+        "node_modules",
+        "playwright-core",
+        ...dead.split("/"),
+      ),
+      { recursive: true, force: true },
     );
   }
 
@@ -4540,6 +4580,30 @@ export function pruneServerlessFunctionDeadWeight(
     removedBytes += getDirSize(dataDir);
     removedNames.push("data");
     fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+
+  // Only the `types` export condition points at declaration files, and no
+  // runtime resolver honours it — nothing inside a deployed function ever
+  // type-checks. Scoped to node_modules on purpose: there are no .d.ts outside
+  // it today, and scoping keeps a future emitted asset out of range.
+  if (fs.existsSync(nodeModulesDir)) {
+    let removedDeclarations = 0;
+    for (const declaration of fs.globSync("**/*.d.ts", {
+      cwd: nodeModulesDir,
+    })) {
+      const declarationPath = path.join(nodeModulesDir, declaration);
+      try {
+        removedBytes += fs.statSync(declarationPath).size;
+        fs.rmSync(declarationPath);
+        removedDeclarations += 1;
+      } catch {
+        // coercion-ok: a file already gone contributes nothing, and its bytes
+        // were counted before the unlink, so the total stays honest.
+      }
+    }
+    if (removedDeclarations > 0) {
+      removedNames.push(`${removedDeclarations} .d.ts file(s)`);
+    }
   }
 
   if (removedNames.length > 0) {

@@ -3561,3 +3561,27 @@ describe("pruneBrowserRuntimeFromNonAgentClone", () => {
     ).toThrow(/rewrites url\.pathname/);
   });
 });
+
+describe("serverless bundle trimming", () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "trim-"));
+  });
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("strips declaration files, which no runtime resolver reads", () => {
+    const pkg = path.join(dir, "node_modules", "some-pkg");
+    fs.mkdirSync(pkg, { recursive: true });
+    fs.writeFileSync(path.join(pkg, "index.js"), "module.exports = 1;\n");
+    fs.writeFileSync(path.join(pkg, "index.d.ts"), "export default 1;\n");
+
+    pruneServerlessFunctionDeadWeight(dir);
+
+    expect(fs.existsSync(path.join(pkg, "index.d.ts"))).toBe(false);
+    expect(fs.existsSync(path.join(pkg, "index.js"))).toBe(true);
+  });
+});
