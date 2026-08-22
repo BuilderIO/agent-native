@@ -116,6 +116,22 @@ interface DesignSystemData {
   tokens?: unknown;
 }
 
+type BuilderRefreshResult = {
+  synced: boolean;
+  status?: string;
+};
+
+function isTerminalBuilderStatus(status?: string): boolean {
+  return (
+    status === "ready" ||
+    status === "complete" ||
+    status === "completed" ||
+    status === "error" ||
+    status === "failed" ||
+    status === "cancelled"
+  );
+}
+
 export function shouldRefreshBuilderDesignSystem(
   system: Pick<DesignSystem, "accessRole" | "data">,
 ): boolean {
@@ -149,7 +165,7 @@ export default function DesignSystems() {
   const deleteMutation = useActionMutation("delete-design-system");
   const updateMutation = useActionMutation("update-design-system");
   const refreshBuilderSystemMutation = useActionMutation<
-    { synced: boolean },
+    BuilderRefreshResult,
     { id: string }
   >("refresh-design-system-with-builder", {
     skipActionQueryInvalidation: true,
@@ -405,6 +421,20 @@ export default function DesignSystems() {
     const timers: Array<ReturnType<typeof setTimeout>> = [];
     const maxAttempts = 5;
     const retryDelayMs = 5_000;
+    const retryPollDelayMs = 30_000;
+
+    const scheduleRetry = (
+      id: string,
+      delayMs: number,
+      attempt: number,
+    ): void => {
+      if (disposed) return;
+      timers.push(
+        setTimeout(() => {
+          void refresh(id, attempt);
+        }, delayMs),
+      );
+    };
 
     const refresh = async (id: string, attempt: number): Promise<void> => {
       try {
@@ -418,24 +448,20 @@ export default function DesignSystems() {
           });
           return;
         }
-        if (attempt >= maxAttempts) {
+        if (isTerminalBuilderStatus(result.status)) {
           activeBuilderRefreshesRef.current.delete(id);
           completedBuilderRefreshesRef.current.add(id);
           return;
         }
       } catch {
         if (disposed) return;
-        if (attempt >= maxAttempts) {
-          activeBuilderRefreshesRef.current.delete(id);
-          completedBuilderRefreshesRef.current.add(id);
-          return;
-        }
       }
       if (disposed) return;
-      timers.push(
-        setTimeout(() => {
-          void refresh(id, attempt + 1);
-        }, retryDelayMs),
+      const exhausted = attempt >= maxAttempts;
+      scheduleRetry(
+        id,
+        exhausted ? retryPollDelayMs : retryDelayMs,
+        exhausted ? 0 : attempt + 1,
       );
     };
 

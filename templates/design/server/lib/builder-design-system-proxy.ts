@@ -48,9 +48,15 @@ function normalizedTokenName(value: string): string {
   return value.toLowerCase().replace(/^--/, "").replace(/_/g, "-");
 }
 
+function tokenShade(name: string): number | undefined {
+  const match = name.match(/(?:^|-)(\d{2,4})(?:-|$)/);
+  return match ? Number(match[1]) : undefined;
+}
+
 function findTokenValue(
   tokens: Array<{ cssVar: string; value: string; type: string }>,
   names: string[],
+  excludedNamePattern?: RegExp,
 ): string | undefined {
   const candidates = tokens
     .filter((token) => isColorTokenValue(token.value))
@@ -62,21 +68,75 @@ function findTokenValue(
       );
       return {
         token,
+        name,
         score: exactIndex >= 0 ? 100 - exactIndex : hasName ? 10 : 0,
       };
     })
-    .filter((candidate) => candidate.score > 0)
-    .sort((a, b) => b.score - a.score);
-  return candidates[0]?.token.value;
+    .filter(
+      (candidate) =>
+        candidate.score > 0 && !excludedNamePattern?.test(candidate.name),
+    );
+  const exactCandidates = candidates
+    .filter((candidate) => names.includes(candidate.name))
+    .sort((a, b) => a.score - b.score);
+  if (exactCandidates.length > 0) {
+    return exactCandidates[0].token.value;
+  }
+
+  const fallbackCandidates = candidates.sort((a, b) => {
+    const aShade = tokenShade(a.name);
+    const bShade = tokenShade(b.name);
+    const aShadeRank = aShade === 500 ? 0 : aShade === undefined ? 1 : 2;
+    const bShadeRank = bShade === 500 ? 0 : bShade === undefined ? 1 : 2;
+    return (
+      aShadeRank - bShadeRank ||
+      (aShade === undefined
+        ? Number.MAX_SAFE_INTEGER
+        : Math.abs(aShade - 500)) -
+        (bShade === undefined
+          ? Number.MAX_SAFE_INTEGER
+          : Math.abs(bShade - 500)) ||
+      a.name.localeCompare(b.name)
+    );
+  });
+  return fallbackCandidates[0]?.token.value;
 }
 
 function findTypedTokenValue(
   tokens: Array<{ cssVar: string; value: string; type: string }>,
-  pattern: RegExp,
+  patterns: RegExp[],
+  excludedNamePattern?: RegExp,
 ): string | undefined {
-  return tokens.find(
-    (token) => token.type === "typography" && pattern.test(token.cssVar),
-  )?.value;
+  const candidates = tokens
+    .filter((token) => {
+      if (token.type !== "typography") return false;
+      const name = normalizedTokenName(token.cssVar);
+      if (
+        excludedNamePattern?.test(name) ||
+        !/(?:^|-)font(?:-family)?(?:-|$)|(?:^|-)family(?:-|$)/i.test(name) ||
+        /(?:^|-)weight(?:-|$)|(?:^|-)size(?:-|$)|line-?height|leading|letter|tracking/i.test(
+          name,
+        ) ||
+        /^-?\d*\.?\d+(?:px|rem|em|ex|ch|%|vh|vw|vmin|vmax|pt|pc|cm|mm|in|s|ms|deg|fr)?$/i.test(
+          token.value.trim(),
+        )
+      ) {
+        return false;
+      }
+      return true;
+    })
+    .map((token) => ({
+      token,
+      name: normalizedTokenName(token.cssVar),
+      patternIndex: patterns.findIndex((pattern) =>
+        pattern.test(normalizedTokenName(token.cssVar)),
+      ),
+    }))
+    .filter((candidate) => candidate.patternIndex >= 0)
+    .sort(
+      (a, b) => a.patternIndex - b.patternIndex || a.name.localeCompare(b.name),
+    );
+  return candidates[0]?.token.value;
 }
 
 /**
@@ -122,18 +182,29 @@ export function reconcileBuilderProxyData(
     textMuted: ["text-muted", "muted-foreground", "text-secondary", "muted"],
   };
   for (const [role, names] of Object.entries(colorRoles)) {
-    const value = findTokenValue(colorTokens, names);
+    const value = findTokenValue(
+      colorTokens,
+      names,
+      role === "primary" ? /(?:^|-)text(?:-|$)/i : undefined,
+    );
     if (value) nextColors[role] = value;
   }
 
   const nextTypography = { ...(parsed.typography ?? {}) };
-  const headingFont = findTypedTokenValue(
-    tokens,
-    /heading|display|title|font-family-heading/i,
-  );
+  const headingFont = findTypedTokenValue(tokens, [
+    /(?:^|-)heading(?:-|$)/i,
+    /(?:^|-)display(?:-|$)/i,
+    /(?:^|-)title(?:-|$)/i,
+  ]);
   const bodyFont = findTypedTokenValue(
     tokens,
-    /body|font-family-body|font-family/i,
+    [
+      /(?:^|-)body(?:-|$)/i,
+      /(?:^|-)base(?:-|$)/i,
+      /(?:^|-)text(?:-|$)/i,
+      /(?:^|-)font-family(?:-|$)/i,
+    ],
+    /(?:^|-)heading(?:-|$)|(?:^|-)display(?:-|$)|(?:^|-)title(?:-|$)/i,
   );
   if (headingFont) nextTypography.headingFont = headingFont;
   if (bodyFont) nextTypography.bodyFont = bodyFont;

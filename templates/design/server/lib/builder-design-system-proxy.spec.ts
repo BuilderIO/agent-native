@@ -88,6 +88,35 @@ describe("reconcileBuilderProxyData", () => {
     ).toBeNull();
   });
 
+  it("chooses semantic color shades and explicit font-family tokens", () => {
+    const result = reconcileBuilderProxyData(
+      JSON.stringify({ source: "builder", builderStatus: "in-progress" }),
+      {
+        ...reference,
+        tokenValues: {
+          "--color-primary-50": "#f8fafc",
+          "--color-primary-500": "#64748b",
+          "--color-primary-900": "#0f172a",
+          "--text-primary": "#111827",
+          "--heading-size": "48px",
+          "--heading-line-height": "1.2",
+          "--heading-font-weight": "700",
+          "--font-family-heading": "Inter",
+          "--font-family-body": "Arial",
+        },
+      },
+      "2026-08-21T00:00:00.000Z",
+    );
+
+    const data = JSON.parse(result!.data) as Record<string, any>;
+    expect(data.colors.primary).toBe("#64748b");
+    expect(data.colors.text).toBe("#111827");
+    expect(data.typography).toMatchObject({
+      headingFont: "Inter",
+      bodyFont: "Arial",
+    });
+  });
+
   it("rejects malformed local proxy data instead of overwriting it", () => {
     expect(() =>
       reconcileBuilderProxyData(
