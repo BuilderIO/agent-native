@@ -159,7 +159,8 @@ export type BuilderDesignSystemStatus =
   | "complete"
   | "completed"
   | "error"
-  | "failed";
+  | "failed"
+  | "cancelled";
 
 interface BuilderDesignSystemCredentials {
   privateKey: string;
@@ -1072,6 +1073,9 @@ function normalizeBuilderDesignSystemStatus(
     case "failed":
     case "failure":
       return "failed";
+    case "cancelled":
+    case "canceled":
+      return "cancelled";
     default:
       return "in-progress";
   }
@@ -1134,12 +1138,15 @@ async function fetchBuilderDesignSystemDocsResponse(
     typeof rawStatus === "string"
       ? normalizeBuilderDesignSystemStatus(rawStatus)
       : undefined;
+  const isTerminalFailure =
+    status === "error" || status === "failed" || status === "cancelled";
   return {
     docs: rawDocs.map(normalizeBuilderDesignSystemDocument),
     completionConfirmed:
-      envelope.complete === true ||
-      envelope.completed === true ||
-      isConfirmedBuilderDesignSystemStatus(status),
+      !isTerminalFailure &&
+      (envelope.complete === true ||
+        envelope.completed === true ||
+        isConfirmedBuilderDesignSystemStatus(status)),
     ...(status ? { status } : {}),
   };
 }

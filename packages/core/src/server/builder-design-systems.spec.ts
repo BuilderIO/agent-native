@@ -270,6 +270,55 @@ describe("Builder design-system helpers", () => {
     });
   });
 
+  it("preserves failed status over completion flags and normalizes cancellation variants", async () => {
+    process.env.BUILDER_PRIVATE_KEY = "builder-private";
+    process.env.BUILDER_PUBLIC_KEY = "builder-public";
+    process.env.BUILDER_DESIGN_SYSTEMS_BASE_URL =
+      "https://builder.example.test/design-systems/v1";
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          docs: [],
+          status: "error",
+          complete: true,
+          completed: true,
+        }),
+        { status: 200 },
+      ),
+    );
+    await expect(
+      hydrateBuilderDesignSystemReference({
+        source: "builder",
+        builderDesignSystemId: "ds-1",
+        builderJobId: "job-1",
+        builderStatus: "in-progress",
+      }),
+    ).resolves.toMatchObject({
+      builderStatus: "error",
+      completionConfirmed: false,
+    });
+
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ docs: [], status: "canceled" }), {
+        status: 200,
+      }),
+    );
+    await expect(
+      hydrateBuilderDesignSystemReference({
+        source: "builder",
+        builderDesignSystemId: "ds-1",
+        builderJobId: "job-1",
+        builderStatus: "in-progress",
+      }),
+    ).resolves.toMatchObject({
+      builderStatus: "cancelled",
+      completionConfirmed: false,
+    });
+  });
+
   it("persists replayable GitHub source scope in the local proxy", () => {
     const fields = createBuilderDesignSystemProxyFields({
       result: {
