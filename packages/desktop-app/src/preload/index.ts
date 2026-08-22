@@ -279,6 +279,8 @@ const electronAPI = {
       ipcRenderer.invoke(IPC.IDENTITY_SSO_ENABLED_SET, enabled),
     ensureAppSession: (appId: string): Promise<boolean> =>
       ipcRenderer.invoke(IPC.IDENTITY_APP_SESSION_ENSURE, appId),
+    hasAppSession: (appId: string): Promise<boolean> =>
+      ipcRenderer.invoke(IPC.IDENTITY_APP_SESSION_HAS, appId),
     getAvailability: (): Promise<boolean> =>
       ipcRenderer.invoke(IPC.IDENTITY_AVAILABILITY_GET),
     signIn: (): Promise<boolean> => ipcRenderer.invoke(IPC.IDENTITY_SIGN_IN),

@@ -1,4 +1,5 @@
 import { TEMPLATE_APPS } from "@agent-native/shared-app-config";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import { callAppAction, callAppActionGet } from "./agent-chat/api";
 
@@ -82,4 +83,164 @@ export async function createWorkspaceAppEmbedSession({
       : new Error("Dispatch returned an invalid workspace app session.");
   }
   return result;
+}
+
+/**
+ * A workspace app open costs four serial round trips to Dispatch before the
+ * target host is contacted at all, and `/_agent-native/embed/start` is the
+ * only hop that is `no-store` AND gated behind the target app's full plugin
+ * bootstrap — measured at 4.5s on a cold function against 25ms for the same
+ * app's CDN-cached shell. The two caches below exist to keep that hop off the
+ * critical path of every open, not just to save bytes.
+ */
+
+const SSO_FLAG_TTL_MS = 10 * 60 * 1000;
+let ssoFlagCache: { value: boolean; readAt: number } | null = null;
+let ssoFlagInFlight: Promise<boolean> | null = null;
+
+/**
+ * Reuse a minted embed session for less than the embed cookie's own lifetime
+ * (`maxAge: 3600` server-side) so a reused session is never a guess about
+ * whether the credential is still live.
+ */
+const EMBED_SESSION_REUSE_MS = 55 * 60 * 1000;
+const LIVE_EMBED_SESSIONS_KEY = "agent-native:live-workspace-app-sessions-v1";
+const liveEmbedSessions = new Map<string, { establishedAt: number }>();
+let hydration: Promise<void> | null = null;
+
+function persistLiveEmbedSessions(): void {
+  const entries: Record<string, number> = {};
+  for (const [key, value] of liveEmbedSessions) {
+    entries[key] = value.establishedAt;
+  }
+  void AsyncStorage.setItem(
+    LIVE_EMBED_SESSIONS_KEY,
+    JSON.stringify(entries),
+  ).catch(() => {
+    // A failed write only costs the next open one extra handshake.
+  });
+}
+
+/**
+ * WebView cookies outlive the JS process, so a relaunch inside the embed
+ * cookie's hour can still open at the CDN-cached shell. React Native gives no
+ * way to read those cookies back, so the marker is persisted alongside them —
+ * and `handleLoadEnd` re-mints if the app answers with its sign-in document,
+ * which is what keeps a wrong marker self-correcting rather than silent.
+ */
+export function ensureLiveWorkspaceAppSessionsHydrated(): Promise<void> {
+  if (hydration) return hydration;
+  hydration = AsyncStorage.getItem(LIVE_EMBED_SESSIONS_KEY)
+    .then((raw) => {
+      if (!raw) return;
+      const parsed: unknown = JSON.parse(raw);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+        return;
+      for (const [key, establishedAt] of Object.entries(parsed)) {
+        if (typeof establishedAt !== "number") continue;
+        if (liveEmbedSessions.has(key)) continue;
+        liveEmbedSessions.set(key, { establishedAt });
+      }
+    })
+    .catch(() => {
+      // Unreadable storage means "nothing remembered", which costs a
+      // handshake — never a wrongly reused session.
+    });
+  return hydration;
+}
+
+function embedSessionKey(app: string, parentSessionToken: string): string {
+  // Fingerprint, not the credential: a rotated parent session must invalidate
+  // reuse, but this map must never hold a usable bearer.
+  let hash = 0;
+  for (let index = 0; index < parentSessionToken.length; index += 1) {
+    hash = (hash * 31 + parentSessionToken.charCodeAt(index)) | 0;
+  }
+  return `${app}:${hash}`;
+}
+
+/** Record that `app` now holds a live embed session in the shared cookie store. */
+export function rememberLiveWorkspaceAppSession(
+  app: string,
+  parentSessionToken: string,
+  establishedAt = Date.now(),
+): void {
+  liveEmbedSessions.set(embedSessionKey(app, parentSessionToken), {
+    establishedAt,
+  });
+  persistLiveEmbedSessions();
+}
+
+/** Forget a session the target app rejected, so the next open re-mints. */
+export function forgetLiveWorkspaceAppSession(
+  app: string,
+  parentSessionToken: string,
+): void {
+  liveEmbedSessions.delete(embedSessionKey(app, parentSessionToken));
+  persistLiveEmbedSessions();
+}
+
+/**
+ * True when `app` can be opened at its ordinary URL — the CDN-cached shell —
+ * because a still-live embed session already sits in the shared cookie store.
+ */
+export function hasLiveWorkspaceAppSession(
+  app: string,
+  parentSessionToken: string,
+  now = Date.now(),
+): boolean {
+  const key = embedSessionKey(app, parentSessionToken);
+  const entry = liveEmbedSessions.get(key);
+  if (!entry) return false;
+  if (now - entry.establishedAt >= EMBED_SESSION_REUSE_MS) {
+    liveEmbedSessions.delete(key);
+    return false;
+  }
+  return true;
+}
+
+/** Drop every remembered session — native sign-out and test isolation. */
+export function clearLiveWorkspaceAppSessions(): void {
+  liveEmbedSessions.clear();
+  hydration = null;
+  ssoFlagCache = null;
+  ssoFlagInFlight = null;
+  void AsyncStorage.removeItem(LIVE_EMBED_SESSIONS_KEY).catch(() => {});
+}
+
+/**
+ * The cached rollout answer, or `null` when it has never been read in this
+ * window. `null` means unknown, never "disabled" — a caller must be able to
+ * tell those apart before deciding to skip work on a user's behalf.
+ */
+export function peekWorkspaceSsoEnabled(now = Date.now()): boolean | null {
+  if (!ssoFlagCache) return null;
+  return now - ssoFlagCache.readAt < SSO_FLAG_TTL_MS
+    ? ssoFlagCache.value
+    : null;
+}
+
+/**
+ * Rollout gate, read once per process window instead of once per app open.
+ * Only a successful read is cached: a failure must stay distinguishable from
+ * a disabled rollout, or every app silently falls back to its own login form.
+ */
+export async function readWorkspaceSsoEnabled(
+  baseUrl = MOBILE_DISPATCH_BASE_URL,
+  now = Date.now(),
+): Promise<boolean> {
+  if (ssoFlagCache && now - ssoFlagCache.readAt < SSO_FLAG_TTL_MS) {
+    return ssoFlagCache.value;
+  }
+  if (ssoFlagInFlight) return ssoFlagInFlight;
+  const request = isWorkspaceSsoEnabled(baseUrl)
+    .then((value) => {
+      ssoFlagCache = { value, readAt: now };
+      return value;
+    })
+    .finally(() => {
+      ssoFlagInFlight = null;
+    });
+  ssoFlagInFlight = request;
+  return request;
 }

@@ -1396,6 +1396,19 @@ ipcMain.handle(IPC.IDENTITY_APP_SESSION_ENSURE, async (event, appId) => {
   return broker?.ensureAppSession(appId.trim()) ?? false;
 });
 
+ipcMain.handle(IPC.IDENTITY_APP_SESSION_HAS, async (event, appId) => {
+  if (
+    !isShellIdentityIpc(event) ||
+    !isDesktopSsoEnabled() ||
+    typeof appId !== "string" ||
+    !appId.trim()
+  ) {
+    return false;
+  }
+  const broker = ensureDesktopIdentityBroker();
+  return broker?.hasLiveAppSession(appId.trim()) ?? false;
+});
+
 ipcMain.handle(IPC.IDENTITY_SIGN_IN, async (event) => {
   if (!isShellIdentityIpc(event) || !isDesktopSsoEnabled()) return false;
   const broker = ensureDesktopIdentityBroker();

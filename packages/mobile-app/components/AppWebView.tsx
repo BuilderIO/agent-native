@@ -28,7 +28,10 @@ import { clipsSessionOwnerKey } from "@/lib/clips-session";
 import { useMobileThemeColors } from "@/lib/mobile-colors";
 import { buildMobileGuestThemeScript } from "@/lib/mobile-theme";
 import { useNativeAppAuthState } from "@/lib/native-app-auth";
-import { inspectNativeSession, NATIVE_AUTH_BASE_URL } from "@/lib/native-auth";
+import {
+  inspectNativeSessionShared,
+  NATIVE_AUTH_BASE_URL,
+} from "@/lib/native-auth";
 import { completeOAuthCallback, rememberOAuthState } from "@/lib/oauth-session";
 import {
   OAUTH_BASE_URL_KEY,
@@ -45,6 +48,7 @@ import {
 import {
   buildMobileWebViewAuthUrl,
   canCaptureMobileWebViewSession,
+  resolveStickyWebViewUrl,
 } from "@/lib/webview-auth-url";
 import {
   isTrustedWebViewUrl,
@@ -53,7 +57,12 @@ import {
 } from "@/lib/webview-security";
 import {
   createWorkspaceAppEmbedSession,
-  isWorkspaceSsoEnabled,
+  ensureLiveWorkspaceAppSessionsHydrated,
+  forgetLiveWorkspaceAppSession,
+  hasLiveWorkspaceAppSession,
+  peekWorkspaceSsoEnabled,
+  readWorkspaceSsoEnabled,
+  rememberLiveWorkspaceAppSession,
 } from "@/lib/workspace-app-auth";
 
 interface AppWebViewProps {
@@ -241,13 +250,27 @@ function embedTargetPath(rawUrl: string): string {
   }
 }
 
-function isEmbedStartUrl(rawUrl: string): boolean {
+const SIGN_IN_ENTRY_PATHS = ["/sign-in", "/_agent-native/sign-in"] as const;
+
+function urlPathOnly(rawUrl: string): string {
   const queryOrFragmentIndex = rawUrl.search(/[?#]/);
-  const path =
-    queryOrFragmentIndex === -1
-      ? rawUrl
-      : rawUrl.slice(0, queryOrFragmentIndex);
-  return path.endsWith("/_agent-native/embed/start");
+  return queryOrFragmentIndex === -1
+    ? rawUrl
+    : rawUrl.slice(0, queryOrFragmentIndex);
+}
+
+/**
+ * The target app served its own sign-in document. For a reused workspace
+ * session that means the cookie we assumed was live is gone, and the open has
+ * to fall back to minting a fresh one.
+ */
+function isSignInEntryUrl(rawUrl: string): boolean {
+  const path = urlPathOnly(rawUrl);
+  return SIGN_IN_ENTRY_PATHS.some((entry) => path.endsWith(entry));
+}
+
+function isEmbedStartUrl(rawUrl: string): boolean {
+  return urlPathOnly(rawUrl).endsWith("/_agent-native/embed/start");
 }
 
 function AppWebView(
@@ -279,7 +302,7 @@ function AppWebView(
     null,
   );
   const [workspaceEmbedState, setWorkspaceEmbedState] = useState<
-    "idle" | "loading" | "disabled" | "ready" | "error"
+    "idle" | "loading" | "disabled" | "ready" | "reused" | "error"
   >("idle");
   const [workspaceEmbedAttempt, setWorkspaceEmbedAttempt] = useState(0);
   const workspaceEmbedAutoRetryRef = useRef(0);
@@ -288,6 +311,8 @@ function AppWebView(
   const oauthInFlightRef = useRef(false);
   const sessionUrlLoadedRef = useRef(false);
   const isFocusedRef = useRef(false);
+  /** The URL the mounted WebView is actually showing; see webviewUrl below. */
+  const loadedWebviewUrlRef = useRef<string | null>(null);
   const trustedOrigin = useMemo(() => parseTrustedOrigin(url), [url]);
   const { enabled: nativeAuthEnabled, ready: nativeAuthReady } =
     useNativeAppAuthState();
@@ -311,31 +336,39 @@ function AppWebView(
   const pathnameRef = useRef(pathname);
   pathnameRef.current = pathname;
 
-  const refreshWorkspaceEmbed = useCallback((automatic: boolean) => {
-    if (automatic) {
-      if (
-        workspaceEmbedAutoRetryRef.current >=
-        MAX_AUTOMATIC_WORKSPACE_EMBED_RETRIES
-      ) {
-        setWorkspaceEmbedUrl(null);
-        setWorkspaceEmbedError(
-          "The workspace app session could not be refreshed. Try again.",
-        );
-        setWorkspaceEmbedState("error");
-        setLoading(false);
-        return;
+  const refreshWorkspaceEmbed = useCallback(
+    (automatic: boolean) => {
+      if (automatic) {
+        if (
+          workspaceEmbedAutoRetryRef.current >=
+          MAX_AUTOMATIC_WORKSPACE_EMBED_RETRIES
+        ) {
+          setWorkspaceEmbedUrl(null);
+          setWorkspaceEmbedError(
+            "The workspace app session could not be refreshed. Try again.",
+          );
+          setWorkspaceEmbedState("error");
+          setLoading(false);
+          return;
+        }
+        workspaceEmbedAutoRetryRef.current += 1;
+      } else {
+        workspaceEmbedAutoRetryRef.current = 0;
+        // An explicit retry is the user telling us the reused session is wrong.
+        // Drop it so this attempt mints a fresh one instead of reusing again.
+        if (workspaceAppId && parentSessionToken) {
+          forgetLiveWorkspaceAppSession(workspaceAppId, parentSessionToken);
+        }
       }
-      workspaceEmbedAutoRetryRef.current += 1;
-    } else {
-      workspaceEmbedAutoRetryRef.current = 0;
-    }
-    setError(false);
-    setLoading(true);
-    setWorkspaceEmbedUrl(null);
-    setWorkspaceEmbedError(null);
-    setWorkspaceEmbedState("loading");
-    setWorkspaceEmbedAttempt((attempt) => attempt + 1);
-  }, []);
+      setError(false);
+      setLoading(true);
+      setWorkspaceEmbedUrl(null);
+      setWorkspaceEmbedError(null);
+      setWorkspaceEmbedState("loading");
+      setWorkspaceEmbedAttempt((attempt) => attempt + 1);
+    },
+    [parentSessionToken, workspaceAppId],
+  );
 
   const reload = useCallback(() => {
     setError(false);
@@ -361,7 +394,7 @@ function AppWebView(
     let nextTargetToken = targetToken;
     let nextParentToken = parentToken;
     if (nativeAuthEnabled && parentToken) {
-      const parentCheck = await inspectNativeSession(
+      const parentCheck = await inspectNativeSessionShared(
         parentToken,
         NATIVE_AUTH_BASE_URL,
       );
@@ -417,18 +450,40 @@ function AppWebView(
     setWorkspaceEmbedError(null);
     setWorkspaceEmbedState("loading");
     void (async () => {
-      const enabled = await isWorkspaceSsoEnabled();
+      // A live embed session already sits in the shared cookie store, so this
+      // app opens at its ordinary URL — a CDN-cached shell — instead of paying
+      // the mint plus the `no-store` /embed/start hop again.
+      await ensureLiveWorkspaceAppSessionsHydrated();
+      if (cancelled) return;
+      if (hasLiveWorkspaceAppSession(workspaceAppId!, parentSessionToken)) {
+        setWorkspaceEmbedState("reused");
+        return;
+      }
+      // A known-disabled rollout must not mint anything. Only when the gate
+      // is still unknown do the two Dispatch calls run together instead of
+      // back to back — neither needs the other's answer, and a ticket minted
+      // under a rollout that turns out disabled is never redeemed and expires
+      // on its own five-minute TTL.
+      const mint = () =>
+        createWorkspaceAppEmbedSession({
+          app: workspaceAppId!,
+          path: embedTargetPath(url),
+        });
+      const known = peekWorkspaceSsoEnabled();
+      if (known === false) {
+        setWorkspaceEmbedState("disabled");
+        return;
+      }
+      const [enabled, session] =
+        known === true
+          ? [true, await mint()]
+          : await Promise.all([readWorkspaceSsoEnabled(), mint()]);
       if (cancelled) return;
       if (!enabled) {
         setWorkspaceEmbedState("disabled");
         return;
       }
-      const result = await createWorkspaceAppEmbedSession({
-        app: workspaceAppId!,
-        path: embedTargetPath(url),
-      });
-      if (cancelled) return;
-      setWorkspaceEmbedUrl(result.startUrl);
+      setWorkspaceEmbedUrl(session.startUrl);
       setWorkspaceEmbedState("ready");
     })().catch((cause: unknown) => {
       if (cancelled) return;
@@ -748,7 +803,27 @@ function AppWebView(
         refreshWorkspaceEmbed(true);
         return;
       }
-      if (workspaceAppId) {
+      if (workspaceAppId && parentSessionToken) {
+        // A reused session that lands on the app's own sign-in document was
+        // not live after all. Drop it and mint, rather than leaving the user
+        // on a login form the parent shell was supposed to have handled.
+        if (
+          workspaceEmbedState === "reused" &&
+          isSignInEntryUrl(event.nativeEvent.url)
+        ) {
+          forgetLiveWorkspaceAppSession(workspaceAppId, parentSessionToken);
+          refreshWorkspaceEmbed(true);
+          return;
+        }
+        workspaceEmbedAutoRetryRef.current = 0;
+        // Landing off /embed/start means the target host accepted the ticket
+        // and set its session cookie. Only a freshly minted session may start
+        // the reuse window; a reused load must not extend its own deadline
+        // past the embed cookie's real lifetime.
+        if (workspaceEmbedState === "ready") {
+          rememberLiveWorkspaceAppSession(workspaceAppId, parentSessionToken);
+        }
+      } else if (workspaceAppId) {
         workspaceEmbedAutoRetryRef.current = 0;
       }
       setLoading(false);
@@ -774,16 +849,18 @@ function AppWebView(
     },
     [
       canCaptureSessionToken,
+      parentSessionToken,
       refreshWorkspaceEmbed,
       theme,
       trustedOrigin,
       workspaceAppId,
+      workspaceEmbedState,
     ],
   );
 
   // Workspace apps load only through their one-time embed URL. Other WebViews
   // stay on their ordinary app-owned URL and never receive a reusable token.
-  const webviewUrl = useMemo(() => {
+  const requestedWebviewUrl = useMemo(() => {
     return buildMobileWebViewAuthUrl({
       url,
       workspaceAppId: effectiveCaptureSessionToken ? workspaceAppId : undefined,
@@ -797,6 +874,21 @@ function AppWebView(
     workspaceEmbedState,
     workspaceEmbedUrl,
   ]);
+
+  // A WebView that already holds a document must never be renavigated because
+  // the handshake restarted. While a workspace session is being re-established
+  // the builder falls back to the plain app URL, and handing that to a live
+  // WebView is exactly the "switching tabs reloaded everything" the sticky
+  // value prevents. Only a settled state may replace the loaded document.
+  const workspaceHandshakeInFlight =
+    Boolean(workspaceAppId) &&
+    effectiveCaptureSessionToken &&
+    (workspaceEmbedState === "idle" || workspaceEmbedState === "loading");
+  const webviewUrl = resolveStickyWebViewUrl({
+    requestedUrl: requestedWebviewUrl,
+    loadedUrl: loadedWebviewUrlRef.current,
+    workspaceHandshakeInFlight,
+  });
 
   const handleNativeSignedIn = useCallback(async () => {
     setNativeSignInOpen(false);
@@ -849,7 +941,10 @@ function AppWebView(
     );
   }
 
-  if (workspaceSessionPending) {
+  // Only blank the screen when there is genuinely nothing to show yet.
+  // Returning a loading view here once a WebView exists destroys it and every
+  // bit of app state the user had in it.
+  if (workspaceSessionPending && !loadedWebviewUrlRef.current) {
     return <MobileWebViewLoading label="Opening your workspace app…" />;
   }
 
@@ -898,6 +993,12 @@ function AppWebView(
       </View>
     );
   }
+
+  // Recorded here, not during the early-return gauntlet above: the ref means
+  // "a WebView is showing this", and setting it before one is actually
+  // rendered would let a mid-handshake fallback URL satisfy the pending gate
+  // and then get navigated away from.
+  loadedWebviewUrlRef.current = webviewUrl;
 
   return (
     <View className="flex-1 bg-background-pure">

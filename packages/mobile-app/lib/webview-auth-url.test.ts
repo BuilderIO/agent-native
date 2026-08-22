@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildMobileWebViewAuthUrl,
   canCaptureMobileWebViewSession,
+  resolveStickyWebViewUrl,
 } from "./webview-auth-url";
 
 describe("canCaptureMobileWebViewSession", () => {
@@ -78,5 +79,41 @@ describe("buildMobileWebViewAuthUrl", () => {
 
     expect(url).toBe("https://mail.example/app?tab=inbox");
     expect(url).not.toContain("parent-token");
+  });
+});
+
+describe("resolveStickyWebViewUrl", () => {
+  it("returns requestedUrl when no URL is loaded yet", () => {
+    expect(
+      resolveStickyWebViewUrl({
+        requestedUrl: "https://calendar.example/events",
+        loadedUrl: null,
+        workspaceHandshakeInFlight: true,
+      }),
+    ).toBe("https://calendar.example/events");
+  });
+
+  it("keeps the loaded URL when a handshake is in flight and a URL is already loaded", () => {
+    // Regression: switching back to a workspace-app tab must not reload it
+    // just because the workspace handshake happens to be re-running.
+    expect(
+      resolveStickyWebViewUrl({
+        requestedUrl:
+          "https://calendar.example/_agent-native/embed/start?ticket=new",
+        loadedUrl: "https://calendar.example/events",
+        workspaceHandshakeInFlight: true,
+      }),
+    ).toBe("https://calendar.example/events");
+  });
+
+  it("returns requestedUrl once the handshake settles, even with a URL loaded", () => {
+    expect(
+      resolveStickyWebViewUrl({
+        requestedUrl:
+          "https://calendar.example/_agent-native/embed/start?ticket=new",
+        loadedUrl: "https://calendar.example/events",
+        workspaceHandshakeInFlight: false,
+      }),
+    ).toBe("https://calendar.example/_agent-native/embed/start?ticket=new");
   });
 });

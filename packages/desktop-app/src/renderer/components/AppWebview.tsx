@@ -332,6 +332,22 @@ export function shouldDeferDesktopAppWebviewLoad(input: {
   );
 }
 
+/**
+ * Whether reactivating a tab must hide its guest page behind the identity
+ * loading gate again.
+ *
+ * Returning to an app used to re-gate unconditionally, so a page that was
+ * already loaded and verified vanished behind "Loading …" on every switch —
+ * the whole reason coming back to a tab read as a full reload. A page is only
+ * re-gated when there is nothing usable on screen to preserve.
+ */
+export function shouldClearDesktopIdentitySessionOnActivation(input: {
+  hasLoadedGuestPage: boolean;
+  sessionReady: boolean;
+}): boolean {
+  return !(input.hasLoadedGuestPage && input.sessionReady);
+}
+
 const DESKTOP_IDENTITY_STATUS_CACHE_TTL_MS = 5 * 60 * 1000;
 const DESKTOP_IDENTITY_STATUS_POLL_INTERVAL_MS = 750;
 const DESKTOP_IDENTITY_STATUS_POLL_ATTEMPTS = 40;
@@ -672,6 +688,12 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     const [desktopIdentitySessionReady, setDesktopIdentitySessionReady] =
       useState(() => !desktopIdentityGateEligible);
     const desktopIdentitySessionReadyRef = useRef(!desktopIdentityGateEligible);
+    /**
+     * This app's WebView partition already holds a session cookie, so its
+     * page may paint while the synchronization ceremony confirms it. See
+     * DesktopIdentityBroker.hasLiveAppSession.
+     */
+    const liveAppSessionRef = useRef(false);
     const updateDesktopIdentitySessionReady = useCallback((ready: boolean) => {
       desktopIdentitySessionReadyRef.current = ready;
       setDesktopIdentitySessionReady(ready);
@@ -851,7 +873,35 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       );
       setDesktopIdentityEnabled(rememberedSignedIn ? true : null);
       setDesktopIdentityStatus(rememberedSignedIn ? "signed-in" : "idle");
-      updateDesktopIdentitySessionReady(false);
+      // Reactivating a tab whose guest page is already loaded and verified must
+      // not hide it behind the loading gate again — the recheck below is cheap
+      // and runs fine underneath a usable page. Clearing this on every
+      // activation is what made returning to a tab look like a full reload.
+      // Same rule applyStatus already uses when a child-session event repeats.
+      if (
+        shouldClearDesktopIdentitySessionOnActivation({
+          hasLoadedGuestPage: hasLoadedGuestPageRef.current,
+          sessionReady: desktopIdentitySessionReadyRef.current,
+        })
+      ) {
+        updateDesktopIdentitySessionReady(false);
+      }
+
+      // One cheap cookie read, in parallel with the ceremony below, decides
+      // whether this app can paint now instead of after up to four sequential
+      // network round trips. The ceremony still runs and still reconciles a
+      // cookie that turns out stale.
+      void identity
+        .hasAppSession?.(app.id)
+        .then((live) => {
+          if (!active || !live) return;
+          liveAppSessionRef.current = true;
+          setDesktopIdentityStatus("signed-in");
+          updateDesktopIdentitySessionReady(true);
+        })
+        .catch(() => {
+          // A preload without this channel simply keeps the gated behaviour.
+        });
 
       const applyStatus = async (
         status: DesktopIdentityStatus,
@@ -866,8 +916,9 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
           // loaded. Keep the verified page usable while the broker confirms
           // the same session; only gate the initial load or a real transition.
           const preserveLoadedSession =
-            hasLoadedGuestPageRef.current &&
-            desktopIdentitySessionReadyRef.current;
+            liveAppSessionRef.current ||
+            (hasLoadedGuestPageRef.current &&
+              desktopIdentitySessionReadyRef.current);
           if (!preserveLoadedSession) {
             updateDesktopIdentitySessionReady(false);
           }
@@ -896,6 +947,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
           );
           return;
         }
+        liveAppSessionRef.current = false;
         updateDesktopIdentitySessionReady(status !== "signing-in");
       };
 

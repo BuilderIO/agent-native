@@ -754,6 +754,41 @@ export class DesktopIdentityBroker {
     return operation;
   }
 
+  /**
+   * Cheap, local answer to "can this app's WebView load a signed-in page right
+   * now" — a cookie read, never a network call. NOT a pure query: a `true`
+   * answer also claims the app's once-per-generation reload slot, because the
+   * caller is about to load the page with that cookie already in place.
+   *
+   * The synchronization ceremony costs up to four sequential round trips, and
+   * `/_agent-native/embed/start` is `no-store` behind the target app's full
+   * plugin bootstrap (measured at 4.5s cold). Blocking the WebView's first
+   * byte on all of that when the session cookie is already present is what
+   * made opening a tab feel like it hung. Callers still run `ensureAppSession`
+   * afterwards so a cookie that turns out stale is reconciled — this only
+   * decides whether the page may paint while that happens.
+   */
+  async hasLiveAppSession(appId: string): Promise<boolean> {
+    if (
+      this.status !== "signed-in" ||
+      this.signOutOperation ||
+      (this.options.isAvailable && this.availability !== "available")
+    ) {
+      return false;
+    }
+    const app = this.options.resolveApp(appId);
+    if (!app) return false;
+    if (!(await this.hasAppSession(app))) return false;
+    // Answering true means this app's WebView is about to load WITH the
+    // session cookie already in place, so it can never be stranded on a
+    // pre-auth document — which is the only thing reloadModernAppOnce exists
+    // to rescue. Claim its once-per-generation slot so the ceremony below does
+    // not reload a page that was already correct. A session mismatch clears
+    // this again in ensureModernAppSession before re-minting.
+    this.reloadedModernAppSessions.add(`${this.ceremonyGeneration}:${app.id}`);
+    return true;
+  }
+
   private ensureModernAppSessionDeduped(
     appId: string,
     generation = this.ceremonyGeneration,
