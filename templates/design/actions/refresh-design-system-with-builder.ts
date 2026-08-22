@@ -17,8 +17,11 @@ function persistedBuilderSyncMatches(data: unknown, syncedAt: string): boolean {
     return (
       parsed.builderStatus === "ready" && parsed.builderSyncedAt === syncedAt
     );
-  } catch {
-    return false;
+  } catch (error) {
+    throw new Error(
+      "The design system data became invalid while Builder DSI was syncing.",
+      { cause: error },
+    );
   }
 }
 
