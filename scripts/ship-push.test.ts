@@ -55,3 +55,27 @@ describe("selectStageablePaths", () => {
     ]);
   });
 });
+
+describe("renames survive the round trip", () => {
+  // Verified against real git: an unstaged `mv old.ts new.ts` does NOT produce
+  // an `R` record. Porcelain reports ` D old.ts` and `?? new.ts` as two
+  // separate entries, so both reach `git add` on their own. An `R` record only
+  // appears once the rename is already staged, at which point the old path's
+  // removal is in the index and re-adding it would be a no-op — which is why
+  // parsePorcelain may drop it without losing the deletion.
+  it("reads an unstaged rename as a deletion plus an addition", () => {
+    expect(parsePorcelain(z(" D old.ts", "?? new.ts"))).toEqual([
+      "old.ts",
+      "new.ts",
+    ]);
+  });
+
+  it("stages both halves of an unstaged rename", () => {
+    expect(
+      selectStageablePaths(parsePorcelain(z(" D old.ts", "?? new.ts")), {
+        exists: (file) => file === "new.ts",
+        isTracked: (file) => file === "old.ts",
+      }),
+    ).toEqual(["old.ts", "new.ts"]);
+  });
+});
