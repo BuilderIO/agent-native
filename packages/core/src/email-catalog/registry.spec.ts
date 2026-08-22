@@ -48,10 +48,12 @@ describe("transactional email registry", () => {
 
   it("throws on a duplicate id rather than silently merging", () => {
     define("test.dupe");
-    expect(() => define("test.dupe")).toThrow(/Duplicate transactional email/);
+    expect(() => define("test.dupe", { name: "different" })).toThrow(
+      /Duplicate transactional email/,
+    );
   });
 
-  it("is idempotent when the same definition object re-registers", () => {
+  it("is idempotent when an equivalent definition re-registers", () => {
     const definition = {
       id: "test.same",
       name: "same",
@@ -64,7 +66,12 @@ describe("transactional email registry", () => {
       preview: () => ({ subject: "s", html: "h", text: "t" }),
     };
     defineTransactionalEmail(definition);
-    expect(() => defineTransactionalEmail(definition)).not.toThrow();
+    expect(() =>
+      defineTransactionalEmail({
+        ...definition,
+        preview: () => ({ ...definition.preview() }),
+      }),
+    ).not.toThrow();
     expect(listTransactionalEmails()).toHaveLength(1);
   });
 
