@@ -1,5 +1,5 @@
 import { Feather } from "@expo/vector-icons";
-import { useLocalSearchParams, Stack } from "expo-router";
+import { useLocalSearchParams, useRouter, Stack } from "expo-router";
 import { useRef } from "react";
 import { View, Text, TouchableOpacity } from "react-native";
 
@@ -11,6 +11,7 @@ import { useWorkspaceApps } from "@/lib/workspace-apps";
 
 export default function AppScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const router = useRouter();
   const { apps } = useApps();
   const workspace = useWorkspaceApps();
   const webviewRef = useRef<AppWebViewHandle>(null);
@@ -26,10 +27,24 @@ export default function AppScreen() {
 
   if (!app) {
     return (
-      <View className="flex-1 justify-center items-center bg-background-dark p-6">
-        <Text className="text-white text-lg font-semibold mt-4 mb-1.5">
+      <View
+        className="flex-1 justify-center items-center p-6"
+        style={{ backgroundColor: background }}
+      >
+        <Text
+          className="text-lg font-semibold mt-4 mb-1.5"
+          style={{ color: foreground }}
+        >
           App not found
         </Text>
+        <TouchableOpacity
+          accessibilityRole="button"
+          accessibilityLabel="Back to apps"
+          onPress={() => router.replace("/" as never)}
+          className="mt-4 rounded-lg bg-primary px-4 py-2 active:opacity-75"
+        >
+          <Text className="font-medium text-white">Back to apps</Text>
+        </TouchableOpacity>
       </View>
     );
   }
@@ -46,6 +61,8 @@ export default function AppScreen() {
           headerTintColor: foreground,
           headerRight: () => (
             <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel={`Refresh ${app.name}`}
               onPress={() => webviewRef.current?.reload()}
               className="p-2 active:opacity-75"
             >

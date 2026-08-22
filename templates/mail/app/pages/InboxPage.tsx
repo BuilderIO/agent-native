@@ -50,14 +50,16 @@ function ContactPanel({
       emails.find((e) => e.id === emailId || (e.threadId || e.id) === emailId),
     [emails, emailId],
   );
-  // Always use inbox emails for "recent from contact" — shares React Query cache,
-  // no extra fetch. The `emails` prop may be a different view (sent, starred, etc.)
-  const { data: inboxEmails = [] } = useEmails("inbox");
-
   const displayEmail = contactEmail || email?.from.email;
   const displayName = contactEmail
     ? contactEmail
     : email?.from.name || email?.from.email;
+  // Use all mail so contact activity survives sent/archive/inbox navigation.
+  // The query stays disabled until a contact is selected to avoid an eager
+  // mailbox-wide fetch when the sidebar is closed.
+  const { data: allEmails = [] } = useEmails("all", undefined, undefined, {
+    enabled: Boolean(displayEmail),
+  });
 
   if (!displayEmail) {
     return (
@@ -69,8 +71,16 @@ function ContactPanel({
     );
   }
 
-  const recentFromContact = inboxEmails
-    .filter((e) => e.from.email === displayEmail && e.id !== emailId)
+  const normalizedDisplayEmail = displayEmail.trim().toLowerCase();
+  const recentFromContact = allEmails
+    .filter((e) => {
+      if (e.id === emailId) return false;
+      const participants = [e.from, ...e.to, ...(e.cc ?? []), ...(e.bcc ?? [])];
+      return participants.some(
+        (participant) =>
+          participant.email.trim().toLowerCase() === normalizedDisplayEmail,
+      );
+    })
     .slice(0, 4)
     .map((e) => ({ id: e.id, subject: e.subject }));
 

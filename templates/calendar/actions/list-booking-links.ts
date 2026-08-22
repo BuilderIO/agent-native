@@ -1,5 +1,9 @@
 import { defineAction } from "@agent-native/core";
-import { accessFilter } from "@agent-native/core/sharing";
+import {
+  accessFilter,
+  resolveAccess,
+  type ShareRole,
+} from "@agent-native/core/sharing";
 import { desc } from "drizzle-orm";
 import { z } from "zod";
 
@@ -16,6 +20,17 @@ export default defineAction({
       .from(schema.bookingLinks)
       .where(accessFilter(schema.bookingLinks, schema.bookingLinkShares))
       .orderBy(desc(schema.bookingLinks.updatedAt));
-    return rows.map(rowToBookingLink);
+    const accessById = new Map<string, "owner" | ShareRole>();
+    await Promise.all(
+      rows.map(async (row) => {
+        const access = await resolveAccess("booking-link", row.id);
+        if (access) accessById.set(row.id, access.role);
+      }),
+    );
+
+    return rows.map((row) => ({
+      ...rowToBookingLink(row),
+      accessRole: accessById.get(row.id) ?? "viewer",
+    }));
   },
 });

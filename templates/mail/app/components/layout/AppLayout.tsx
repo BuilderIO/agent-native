@@ -1063,18 +1063,18 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   const localCountsForKind = (kind: CountKind) =>
     kind === "total" ? labelThreadCounts.total : labelThreadCounts.unread;
 
-  // Take the larger of the server-reported count and the count we compute
-  // locally from loaded inbox emails. Either side can be stale (Gmail label
-  // totals can lag; loaded emails may be a partial window).
+  // Prefer the complete server count when Gmail provides one. Falling back to
+  // loaded rows is useful for local/demo mail, but merging the two with
+  // Math.max makes badges grow as more pages happen to be loaded.
   const getInboxCount = (kind: CountKind) => {
     const inboxLabel = resolveLabelForCount("inbox");
     const countField = countFieldForKind(kind);
     const localCounts = localCountsForKind(kind);
-    const serverCount = useServerLabelCounts
-      ? (inboxLabel?.[countField] ?? 0)
-      : 0;
+    const serverCount = inboxLabel?.[countField];
     const localCount = localCounts["__inboxTotal"] ?? 0;
-    return Math.max(serverCount, localCount);
+    return typeof serverCount === "number" && useServerLabelCounts
+      ? serverCount
+      : localCount;
   };
 
   const getOtherCount = (kind: CountKind) => {
@@ -1096,12 +1096,11 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     const localCounts = localCountsForKind(kind);
     const localCount =
       localCounts[viewId] ?? (label ? (localCounts[label.id] ?? 0) : 0);
-    const serverCount =
-      useServerLabelCounts && viewId !== "note-to-self"
-        ? (label?.[countField] ?? 0)
-        : 0;
     if (inboxPartitionTabIds.has(viewId)) return localCount;
-    return Math.max(serverCount, localCount);
+    const serverCount = label?.[countField];
+    return typeof serverCount === "number" && useServerLabelCounts
+      ? serverCount
+      : localCount;
   };
   const getTopBarCount = (viewId: string) => getTabCount(viewId, "total");
   const getUnreadCount = (viewId: string) => getTabCount(viewId, "unread");
