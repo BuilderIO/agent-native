@@ -3,6 +3,7 @@ export {
   getAppConfig,
   resetAppConfigForTests,
 } from "./store.js";
+export { AppConfigurationError } from "./configuration-error.js";
 export {
   appConfigSchema,
   type AppConfig,

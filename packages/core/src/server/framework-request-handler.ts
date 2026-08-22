@@ -14,6 +14,7 @@
 import type { EventHandler, H3Event } from "h3";
 import { setResponseHeader, setResponseStatus } from "h3";
 
+import { AppConfigurationError } from "../app-config/index.js";
 import { getMissingDefaultPlugins } from "../deploy/route-discovery.js";
 import { MCP_PUBLIC_ROUTE_PREFIX } from "../mcp/route-paths.js";
 import {
@@ -23,6 +24,7 @@ import {
 import { getConfiguredAppBasePath } from "./app-base-path.js";
 import { captureError } from "./capture-error.js";
 import { createCsrfMiddleware } from "./csrf.js";
+import { getDisabledDefaultPlugins } from "./default-plugins.js";
 import {
   installHttpResponseTelemetryHooks,
   recordFrameworkReadyWait,
@@ -190,18 +192,30 @@ export function getH3App(nitroApp: any): H3AppShim {
 
   if (!BOOTSTRAPPED.has(nitroApp)) {
     BOOTSTRAPPED.add(nitroApp);
-    nitroApp[BOOTSTRAP_PROMISE_KEY] = bootstrapDefaultPlugins(nitroApp).catch(
-      (err) => {
-        console.warn(
-          "[agent-native] Failed to auto-mount default plugins:",
-          (err as Error).message,
-        );
-        captureError(err, {
-          route: "default-plugin-bootstrap",
-          tags: { phase: "default-plugin-bootstrap" },
-        });
-      },
-    );
+    // Parse now, decide later. An unknown slot name in `plugins.disabled` is
+    // an invalid deployment, not a plugin that failed to start, and the catch
+    // below would turn it into an app with every default route missing — so
+    // the value has to be read where it can still throw synchronously. The
+    // mount set is read again inside bootstrap: auto-mount can start before a
+    // server plugin has called `defineAppConfig()`, and this early read only
+    // sees the environment layer.
+    getDisabledDefaultPlugins();
+    const bootstrap = bootstrapDefaultPlugins(nitroApp).catch((err) => {
+      console.warn(
+        "[agent-native] Failed to auto-mount default plugins:",
+        (err as Error).message,
+      );
+      captureError(err, {
+        route: "default-plugin-bootstrap",
+        tags: { phase: "default-plugin-bootstrap" },
+      });
+      if (err instanceof AppConfigurationError) throw err;
+    });
+    // The readiness gate is what observes this rejection, and it only runs on
+    // a request. Without a handler attached now, Node exits on the unhandled
+    // rejection before anything can report the configuration error.
+    bootstrap.catch(() => {});
+    nitroApp[BOOTSTRAP_PROMISE_KEY] = bootstrap;
 
     // Readiness gate: Nitro v3 doesn't await async plugins, so routes
     // registered inside an async plugin may not exist when the first
@@ -841,9 +855,12 @@ async function bootstrapDefaultPlugins(nitroApp: any): Promise<void> {
     const provided = nitroApp[PROVIDED_PLUGIN_STEMS_KEY] as
       | Set<string>
       | undefined;
-    const missing = provided
+    const undiscovered = provided
       ? discoveredMissing.filter((stem) => !provided.has(stem))
       : discoveredMissing;
+    const disabled: readonly string[] = getDisabledDefaultPlugins();
+    const missing = undiscovered.filter((stem) => !disabled.includes(stem));
+    const refused = undiscovered.filter((stem) => disabled.includes(stem));
     if (missing.length === 0) return;
 
     // Lazy import to avoid circular dependency at module load time
@@ -929,7 +946,10 @@ async function bootstrapDefaultPlugins(nitroApp: any): Promise<void> {
 
     if (process.env.DEBUG)
       console.log(
-        `[agent-native] Auto-mounting ${missing.length} default plugin(s): ${missing.join(", ")}`,
+        `[agent-native] Auto-mounting ${missing.length} default plugin(s): ${missing.join(", ")}` +
+          (refused.length > 0
+            ? ` (refused by plugins.disabled: ${refused.join(", ")})`
+            : ""),
       );
 
     for (const stem of missing) {
@@ -947,6 +967,10 @@ async function bootstrapDefaultPlugins(nitroApp: any): Promise<void> {
             route: "default-plugin-bootstrap",
             tags: { phase: "default-plugin-bootstrap", plugin: stem },
           });
+          // A plugin that cannot start is optional; a plugin the deployment
+          // configured wrongly is not. Skipping it leaves the operator with
+          // routes that 404 and a deployment that reported success.
+          if (e instanceof AppConfigurationError) throw e;
         }
       }
     }
