@@ -107,6 +107,35 @@ describe("pruneBrowserRuntimeFromNonAgentClone orphan closure", () => {
     );
   });
 
+  it("keeps a closure member the surviving server imports directly", () => {
+    writePackage("@sparticuz/chromium-min", { "shared-tar": "^1.0.0" });
+    writePackage("playwright-core");
+    writePackage("shared-tar");
+    // Traced straight into the emitted bundle, so no other *package* depends on
+    // it and only the function's own manifest proves it is still live.
+    fs.writeFileSync(
+      path.join(dir, "package.json"),
+      JSON.stringify({
+        name: "traced-node-modules",
+        dependencies: {
+          "@sparticuz/chromium-min": "1.0.0",
+          "shared-tar": "1.0.0",
+        },
+      }),
+    );
+
+    pruneBrowserRuntimeFromNonAgentClone(dir, REWRITING_ENTRY);
+
+    expect(fs.existsSync(path.join(dir, "node_modules", "shared-tar"))).toBe(
+      true,
+    );
+    expect(
+      fs.existsSync(
+        path.join(dir, "node_modules", "@sparticuz", "chromium-min"),
+      ),
+    ).toBe(false);
+  });
+
   it("keeps an unrelated package sharing the browser runtime's scope", () => {
     writePackage("@sparticuz/chromium-min");
     writePackage("playwright-core");

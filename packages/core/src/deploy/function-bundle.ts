@@ -393,9 +393,23 @@ export function pruneBrowserRuntimeFromNonAgentClone(
     // ISN'T itself downstream of the runtime, so it can never trivially
     // "prove itself" reachable.
     const browserClosure = reachablePackageNames(nodeModulesDir, browserRoots);
-    const otherRoots = listTopLevelPackageNames(nodeModulesDir).filter(
-      (name) => !browserClosure.has(name),
-    );
+    // The function's own manifest is a liveness root too. Its dependencies are
+    // what the emitted bundle traced directly, so a package that is BOTH in the
+    // browser closure and imported by the surviving server has no other package
+    // vouching for it and would be deleted out from under a live import. The
+    // browser roots are excluded — they are declared there as well, and keeping
+    // them would make the whole closure look alive.
+    const ownDependencies = Object.keys(
+      (readPackageManifest(dest)?.dependencies as
+        | Record<string, unknown>
+        | undefined) ?? {},
+    ).filter((name) => !browserRoots.includes(name));
+    const otherRoots = [
+      ...listTopLevelPackageNames(nodeModulesDir).filter(
+        (name) => !browserClosure.has(name),
+      ),
+      ...ownDependencies,
+    ];
     const stillNeeded = reachablePackageNames(nodeModulesDir, otherRoots);
 
     for (const packageName of browserClosure) {
