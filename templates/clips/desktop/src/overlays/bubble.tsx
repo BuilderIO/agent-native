@@ -3,6 +3,13 @@ import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect, useRef, useState } from "react";
+
+import {
+  BUBBLE_PLAY_HEARTBEAT_MS,
+  BUBBLE_RENDER_GRACE_MS,
+  shouldReportUnrendered,
+} from "../lib/bubble-playback";
+
 type BubbleSize = "small" | "medium";
 
 /**
@@ -41,10 +48,13 @@ type BubbleSize = "small" | "medium";
  *      feature degrades gracefully if the WebRTC handshake fails.
  *
  * The bubble always sets up BOTH receivers on mount. Whichever path
- * delivers video first wins — the other stays passive. If the
- * popover's WebRTC handshake fails (ICE timeout / failed state), it
- * stops trying and the popover starts the canvas pump instead, at
- * which point the canvas path takes over seamlessly.
+ * delivers video first wins — the other stays passive. The popover
+ * starts the canvas pump instead when the WebRTC handshake fails (ICE
+ * timeout / failed state) OR when this bubble reports that a connected
+ * track never rendered (`clips:bubble-webrtc-unrendered`; see the
+ * playback watchdog below). Both signals are needed — ICE reaching
+ * `connected` says the transport works, never that WebKit painted a
+ * frame.
  *
  * # Hover controls (Loom-style)
  *
@@ -59,16 +69,24 @@ type BubbleSize = "small" | "medium";
 export function Bubble() {
   // Dual-path rendering: <video> for WebRTC, <canvas> for the legacy
   // JPEG stream. CSS stacks them in the same circle — whichever has a
-  // stream / frames visible fills the same space. Starts with canvas
-  // hidden via `data-path="webrtc"` on the root; once a WebRTC track
-  // arrives we set it to "webrtc", and if WebRTC fails and canvas
-  // frames start arriving we flip to "canvas".
+  // stream / frames visible fills the same space. `data-path` on the root
+  // hides the loser. It flips to "webrtc" only once the <video> actually
+  // renders a frame, and to "canvas" on the first JPEG frame.
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const firstFrameAtRef = useRef<number | null>(null);
-  // Which transport delivered the most recent usable frame. Starts as
-  // "none" — we flip to "webrtc" on ontrack, or "canvas" on the first
-  // JPEG frame, whichever lands first.
+  const firstTrackAtRef = useRef<number | null>(null);
+  // When the current WebRTC track arrived, so the playback watchdog can tell
+  // "no track yet" from "track arrived and WebKit still isn't rendering it".
+  const trackArrivedAtRef = useRef<number | null>(null);
+  // Assigned by the playback watchdog effect; called from `ontrack`, which
+  // lives in a different effect and must not own the retry policy.
+  const attemptPlayRef = useRef<() => void>(() => {});
+  // Which transport last put pixels on screen. Starts as "none"; the
+  // playback watchdog flips it to "webrtc" on a `playing` event with real
+  // frame dimensions, and the canvas sink flips it on the first JPEG frame.
+  // A track merely arriving is NOT enough — claiming "webrtc" there hid the
+  // canvas fallback exactly when WebKit had refused to play the video.
   const [activePath, setActivePath] = useState<"none" | "webrtc" | "canvas">(
     "none",
   );
@@ -153,6 +171,114 @@ export function Bubble() {
     }
   };
 
+  // ---- playback watchdog --------------------------------------------------
+  // WKWebView will not start a MediaStream-backed `<video>` that has had no
+  // user gesture in the page, and pauses one again whenever its window loses
+  // on-screen area. One `play()` at `ontrack` time therefore leaves the
+  // element parked behind WebKit's start-playback overlay — the black circle
+  // with a white triangle users report — and nothing ever retries it. The
+  // popover's offscreen pump video already defends itself the same way (see
+  // `bubble-pump.ts`); this is the bubble's copy of that defense.
+  //
+  // It also owns the `activePath` transition: only a `playing` event with real
+  // frame dimensions proves WebRTC is on screen. Flipping on `ontrack` instead
+  // hid the canvas fallback exactly when it was needed.
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    let stopped = false;
+    let lastFailure: string | null = null;
+    let reportedUnrendered = false;
+
+    const attemptPlay = () => {
+      if (stopped) return;
+      if (!video.srcObject || !video.paused) return;
+      video.play().catch((err: unknown) => {
+        // Name and message, not the raw object: `console.warn` on a
+        // DOMException logs only its stack, which cannot tell NotAllowedError
+        // (playback blocked) from AbortError (load interrupted) — the two
+        // point at different bugs. Log each distinct reason once so the retry
+        // loop cannot bury the rest of the log.
+        const name = (err as { name?: string } | null)?.name ?? "unknown";
+        const message =
+          (err as { message?: string } | null)?.message ?? String(err);
+        const signature = `${name}: ${message}`;
+        if (lastFailure === signature) return;
+        lastFailure = signature;
+        console.warn("[bubble] video.play() rejected —", signature);
+      });
+    };
+    attemptPlayRef.current = attemptPlay;
+
+    const onPlaying = () => {
+      if (stopped) return;
+      lastFailure = null;
+      reportedUnrendered = false;
+      if (video.videoWidth === 0) return;
+      setActivePath((current) => {
+        if (current !== "webrtc") {
+          console.log(
+            "[bubble] webrtc playback started %dx%d",
+            video.videoWidth,
+            video.videoHeight,
+          );
+        }
+        return "webrtc";
+      });
+    };
+
+    video.addEventListener("playing", onPlaying);
+    video.addEventListener("loadedmetadata", attemptPlay);
+    video.addEventListener("canplay", attemptPlay);
+    video.addEventListener("pause", attemptPlay);
+    document.addEventListener("visibilitychange", attemptPlay);
+
+    // Heartbeat: covers the resume cases no media event fires for (window
+    // shrunk to no visible area and back, a gesture landing on a control
+    // rather than the video). `play()` on an already-playing element is a
+    // no-op, so this is cheap. It doubles as the unrendered detector — if a
+    // track has been sitting there for BUBBLE_RENDER_GRACE_MS with no frames,
+    // tell the popover so it can start the proven canvas pump instead of
+    // leaving the user with a dead circle.
+    const heartbeat = setInterval(() => {
+      if (stopped) return;
+      attemptPlay();
+      const unrendered = shouldReportUnrendered({
+        trackArrivedAt: trackArrivedAtRef.current,
+        now: Date.now(),
+        paused: video.paused,
+        videoWidth: video.videoWidth,
+        alreadyReported: reportedUnrendered,
+      });
+      if (!unrendered) return;
+      reportedUnrendered = true;
+      console.warn(
+        "[bubble] webrtc track is not rendering after %dms (paused=%o readyState=%d videoWidth=%d) — asking popover for the canvas pump",
+        BUBBLE_RENDER_GRACE_MS,
+        video.paused,
+        video.readyState,
+        video.videoWidth,
+      );
+      emit("clips:bubble-webrtc-unrendered", {
+        paused: video.paused,
+        readyState: video.readyState,
+        videoWidth: video.videoWidth,
+        lastPlayFailure: lastFailure,
+      }).catch(() => {});
+    }, BUBBLE_PLAY_HEARTBEAT_MS);
+
+    return () => {
+      stopped = true;
+      clearInterval(heartbeat);
+      video.removeEventListener("playing", onPlaying);
+      video.removeEventListener("loadedmetadata", attemptPlay);
+      video.removeEventListener("canplay", attemptPlay);
+      video.removeEventListener("pause", attemptPlay);
+      document.removeEventListener("visibilitychange", attemptPlay);
+      attemptPlayRef.current = () => {};
+    };
+  }, []);
+
   // ---- WebRTC receiver ----------------------------------------------------
   // Sets up a fresh RTCPeerConnection on mount, emits `bubble-ready`
   // so the popover knows to start the handshake, and renegotiates on
@@ -187,6 +313,7 @@ export function Bubble() {
     };
 
     function teardownPeer() {
+      trackArrivedAtRef.current = null;
       if (pc) {
         // Detach the incoming video <video>.srcObject BEFORE closing the
         // peer — otherwise WKWebView's media pipeline keeps the decoder
@@ -272,17 +399,16 @@ export function Bubble() {
         const incomingStream = ev.streams[0];
         if (!incomingStream) return;
         videoEl.srcObject = incomingStream;
-        videoEl.play().catch((err) => {
-          // Autoplay might be blocked in some WebKit corners —
-          // `muted` + `playsInline` in JSX should be enough, but log
-          // if it trips so we know to investigate.
-          console.warn("[bubble] video.play() rejected", err);
-        });
-        if (firstFrameAtRef.current == null) {
-          firstFrameAtRef.current = Date.now();
+        // Do NOT flip `activePath` here. A track arriving proves the
+        // transport works, not that WebKit will render it — see the
+        // playback watchdog below, which owns that transition and the
+        // fallback when playback never starts.
+        trackArrivedAtRef.current = Date.now();
+        attemptPlayRef.current();
+        if (firstTrackAtRef.current == null) {
+          firstTrackAtRef.current = Date.now();
           console.log("[bubble] first webrtc track received");
         }
-        setActivePath("webrtc");
       };
 
       try {

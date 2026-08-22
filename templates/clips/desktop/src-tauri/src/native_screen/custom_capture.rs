@@ -959,6 +959,34 @@ struct CustomScreenCaptureWriterState {
     session_start_time: Option<(i64, i32)>,
     finished: bool,
     failed: Option<String>,
+    /// Per-track append bookkeeping, keyed by the labels in `track_labels`.
+    /// Only interesting when something goes wrong: `appendSampleBuffer`
+    /// reports a bare `false` plus an `AVErrorUnknown`, naming neither the
+    /// track nor the timestamp, so a mid-recording writer death is otherwise
+    /// undiagnosable from a user's log.
+    append_stats: std::collections::HashMap<&'static str, TrackAppendStats>,
+}
+
+/// Track labels used for append diagnostics. Static strings so the stats map
+/// keys stay allocation-free on the realtime capture callbacks.
+mod track_labels {
+    pub(super) const VIDEO: &str = "video";
+    pub(super) const SYSTEM_AUDIO: &str = "system-audio";
+    pub(super) const MIC_AUDIO: &str = "mic-audio";
+    pub(super) const MIXED_AUDIO: &str = "mixed-audio";
+}
+
+/// What we know about one writer input's append history. Enough to answer the
+/// two questions a writer failure raises: which track broke, and was its
+/// timeline still monotonic when it did.
+#[derive(Default, Clone, Copy)]
+struct TrackAppendStats {
+    appended: u64,
+    last_pts_seconds: Option<f64>,
+    /// Count of samples whose PTS did not advance past the previous one.
+    /// AVAssetWriter rejects a non-monotonic timeline, so a non-zero count
+    /// here beside a failure is the answer rather than a coincidence.
+    pts_regressions: u64,
 }
 
 // SAFETY: `Retained<AnyObject>` is `!Send`/`!Sync` by default because objc2
@@ -1558,6 +1586,7 @@ impl CustomScreenCaptureWriter {
                     session_start_time: None,
                     finished: false,
                     failed: None,
+                    append_stats: std::collections::HashMap::new(),
                 })),
                 mixer: mixer.map(|m| Arc::new(Mutex::new(m))),
                 started: Arc::new(AtomicBool::new(false)),
@@ -1675,6 +1704,35 @@ impl CustomScreenCaptureWriter {
             .and_then(|guard| guard.failed.clone())
     }
 
+    /// One line describing what each writer input managed to append. Paired
+    /// with a failure it separates "this track died" from "this track was
+    /// never fed", which the failure string alone cannot say.
+    fn append_stats_summary(&self) -> String {
+        let Ok(guard) = self.inner.lock() else {
+            return "append stats unavailable (writer lock poisoned)".to_string();
+        };
+        if guard.append_stats.is_empty() {
+            return "no samples appended on any track".to_string();
+        }
+        let mut tracks: Vec<_> = guard.append_stats.iter().collect();
+        tracks.sort_by_key(|(track, _)| **track);
+        tracks
+            .iter()
+            .map(|(track, stats)| {
+                format!(
+                    "{track}: appended={} last_pts={} regressions={}",
+                    stats.appended,
+                    stats
+                        .last_pts_seconds
+                        .map(|v| format!("{v:.6}s"))
+                        .unwrap_or_else(|| "none".to_string()),
+                    stats.pts_regressions
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(" | ")
+    }
+
     /// Accumulated pause offset in seconds. Every appended sample skips this
     /// much wall-clock time so a pause/resume leaves no gap in the file.
     pub(super) fn pause_offset(&self) -> f64 {
@@ -1719,10 +1777,14 @@ impl CustomScreenCaptureWriter {
         if guard.finished || guard.failed.is_some() {
             return;
         }
-        let input = match of_type {
-            SCStreamOutputType::Screen => Some(guard.video_input.clone()),
-            SCStreamOutputType::Audio => guard.system_audio_input.clone(),
-            SCStreamOutputType::Microphone => guard.mic_audio_input.clone(),
+        let (input, track) = match of_type {
+            SCStreamOutputType::Screen => (Some(guard.video_input.clone()), track_labels::VIDEO),
+            SCStreamOutputType::Audio => {
+                (guard.system_audio_input.clone(), track_labels::SYSTEM_AUDIO)
+            }
+            SCStreamOutputType::Microphone => {
+                (guard.mic_audio_input.clone(), track_labels::MIC_AUDIO)
+            }
         };
         let Some(input) = input else {
             return;
@@ -1731,6 +1793,7 @@ impl CustomScreenCaptureWriter {
             Ok(timing) if timing.presentation_time_stamp.is_valid() => timing,
             _ => return,
         };
+        let source_pts = timing.presentation_time_stamp.as_seconds();
 
         unsafe {
             if !self.ensure_session_started(&mut guard, timing.presentation_time_stamp) {
@@ -1748,15 +1811,27 @@ impl CustomScreenCaptureWriter {
                 let pause_offset = self.pause_offset();
                 match retimed_sample_copy(sample, &timing, base, pause_offset) {
                     Ok(copy) => {
-                        self.append_sample_ptr(&mut guard, &input, copy.as_ptr());
+                        // Report the rebased PTS, not the source one — that is
+                        // the timeline the writer actually validates.
+                        let rebased_pts = copy
+                            .sample_timing_info(0)
+                            .ok()
+                            .and_then(|t| t.presentation_time_stamp.as_seconds());
+                        self.append_sample_ptr(
+                            &mut guard,
+                            &input,
+                            copy.as_ptr(),
+                            track,
+                            rebased_pts,
+                        );
                     }
                     Err(err) => {
                         drop(guard);
-                        self.fail(format!("sample retime failed: {err}"));
+                        self.fail(format!("sample retime failed on {track}: {err}"));
                     }
                 }
             } else {
-                self.append_sample_ptr(&mut guard, &input, sample.as_ptr());
+                self.append_sample_ptr(&mut guard, &input, sample.as_ptr(), track, source_pts);
             }
         }
     }
@@ -1822,8 +1897,18 @@ impl CustomScreenCaptureWriter {
             return;
         };
         for buffer in &emitted {
+            let pts = buffer
+                .sample_timing_info(0)
+                .ok()
+                .and_then(|t| t.presentation_time_stamp.as_seconds());
             unsafe {
-                self.append_sample_ptr(&mut guard, &input, buffer.as_ptr());
+                self.append_sample_ptr(
+                    &mut guard,
+                    &input,
+                    buffer.as_ptr(),
+                    track_labels::MIXED_AUDIO,
+                    pts,
+                );
             }
             if guard.failed.is_some() {
                 break;
@@ -1936,6 +2021,8 @@ impl CustomScreenCaptureWriter {
         guard: &mut CustomScreenCaptureWriterState,
         input: &objc2::rc::Retained<objc2::runtime::AnyObject>,
         sample_ptr: *mut std::ffi::c_void,
+        track: &'static str,
+        pts_seconds: Option<f64>,
     ) {
         use objc2::msg_send;
 
@@ -1945,10 +2032,43 @@ impl CustomScreenCaptureWriter {
             // count and periodically log so sustained backpressure is visible.
             let dropped = self.dropped_samples.fetch_add(1, Ordering::Relaxed) + 1;
             if dropped == 1 || dropped % 100 == 0 {
-                eprintln!("[mixer] writer input not ready; dropped {dropped} sample(s) so far");
+                eprintln!(
+                    "[mixer] writer input not ready on {track}; dropped {dropped} sample(s) so far"
+                );
             }
             return;
         }
+        // Record the timeline BEFORE the append so a failure report describes
+        // the sample that was actually rejected, not the last good one.
+        let stats = guard.append_stats.entry(track).or_default();
+        let previous_pts = stats.last_pts_seconds;
+        if let Some(pts) = pts_seconds {
+            if previous_pts.is_some_and(|last| pts <= last) {
+                stats.pts_regressions += 1;
+                let regressions = stats.pts_regressions;
+                if regressions == 1 || regressions % 100 == 0 {
+                    crate::logfile::diagnostic(&format!(
+                        "[capture-health] {track} PTS did not advance: {:.6}s after {:.6}s ({regressions} so far)",
+                        pts,
+                        previous_pts.unwrap_or(f64::NAN)
+                    ));
+                }
+            }
+            stats.last_pts_seconds = Some(pts);
+        }
+        let appended_before = stats.appended;
+        stats.appended += 1;
+        let pts_report = |outcome: &str| {
+            format!(
+                "AVAssetWriter appendSampleBuffer {outcome} on {track} (pts={}, previous={}, appended={appended_before})",
+                pts_seconds
+                    .map(|v| format!("{v:.6}s"))
+                    .unwrap_or_else(|| "unknown".to_string()),
+                previous_pts
+                    .map(|v| format!("{v:.6}s"))
+                    .unwrap_or_else(|| "none".to_string()),
+            )
+        };
         // `appendSampleBuffer:` throws Objective-C exceptions on bad input
         // (format/timestamp/state). Those can't be caught by `catch_unwind`
         // and would abort the app, so contain them here.
@@ -1962,15 +2082,18 @@ impl CustomScreenCaptureWriter {
             Ok(false) => {
                 self.appends_closed.store(true, Ordering::SeqCst);
                 guard.failed = Some(format!(
-                    "AVAssetWriter appendSampleBuffer failed{}",
+                    "{}{}",
+                    pts_report("failed"),
                     av_writer_error_suffix(&guard.writer)
                 ));
             }
             Err(exc) => {
                 self.appends_closed.store(true, Ordering::SeqCst);
                 let detail = describe_objc_exception(exc);
-                eprintln!("[mixer] appendSampleBuffer raised Objective-C exception: {detail}");
-                guard.failed = Some(format!("AVAssetWriter appendSampleBuffer raised: {detail}"));
+                eprintln!(
+                    "[mixer] appendSampleBuffer raised Objective-C exception on {track}: {detail}"
+                );
+                guard.failed = Some(format!("{}: {detail}", pts_report("raised")));
             }
         }
     }
@@ -2012,8 +2135,18 @@ impl CustomScreenCaptureWriter {
                         Ok(buffers) => {
                             if let Some(input) = guard.mixed_audio_input.clone() {
                                 for buffer in &buffers {
+                                    let pts = buffer
+                                        .sample_timing_info(0)
+                                        .ok()
+                                        .and_then(|t| t.presentation_time_stamp.as_seconds());
                                     unsafe {
-                                        self.append_sample_ptr(&mut guard, &input, buffer.as_ptr());
+                                        self.append_sample_ptr(
+                                            &mut guard,
+                                            &input,
+                                            buffer.as_ptr(),
+                                            track_labels::MIXED_AUDIO,
+                                            pts,
+                                        );
                                     }
                                     if guard.failed.is_some() {
                                         break;
@@ -3908,6 +4041,10 @@ fn spawn_capture_watchdog(
                     .unwrap_or_else(|| "unknown writer failure".to_string());
                 crate::logfile::diagnostic(&format!(
                     "[capture-health] writer closed unexpectedly; finalizing partial recording: {writer_error}"
+                ));
+                crate::logfile::diagnostic(&format!(
+                    "[capture-health] append stats at failure — {}",
+                    writer.append_stats_summary()
                 ));
                 if let Ok(guard) = stream.lock() {
                     let _ = guard.stop_capture();
