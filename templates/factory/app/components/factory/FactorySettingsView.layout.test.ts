@@ -19,7 +19,7 @@ describe("FactorySettingsView load gating", () => {
     expect(source).toContain("if (!configLoaded) {");
     expect(source).toContain("ActionQueryError");
     expect(source).toContain("onRetry={() => void query.refetch()}");
-    expect(source).toContain("disabled={mutation.isPending || !configLoaded}");
+    expect(source).toContain("disabled={saving || !configLoaded}");
     expect(source).toMatch(
       /if \(!configLoaded\) \{\s*toast\.error\(t\("triage\.settingsError"\)\);\s*return;/,
     );
@@ -43,6 +43,14 @@ describe("FactorySettingsView factory switching", () => {
     expect(source).toContain("setBaseline(null)");
     expect(source).toContain("}, [factoryId]);");
   });
+
+  it("keeps unsaved edits when a background refetch delivers new config", () => {
+    const source = readViewSource();
+
+    expect(source).toContain(
+      "if (hydratedRef.current && dirtyRef.current) return;",
+    );
+  });
 });
 
 describe("FactorySettingsView unsaved-change bar", () => {
@@ -58,11 +66,14 @@ describe("FactorySettingsView unsaved-change bar", () => {
     expect(source.match(/t\("triage\.saveSettings"\)/g)).toHaveLength(1);
   });
 
-  it("keeps unsaved edits when a background refetch delivers new config", () => {
+  it("does not overwrite edits made while Save is pending", () => {
     const source = readViewSource();
 
     expect(source).toContain(
-      "if (hydratedRef.current && dirtyRef.current) return;",
+      '<fieldset disabled={saving} className="contents">',
+    );
+    expect(source).toContain(
+      "if (isSameForm(trimmedForm(latestFormRef.current), submitted))",
     );
   });
 });

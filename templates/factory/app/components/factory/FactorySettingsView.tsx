@@ -191,6 +191,9 @@ export function FactorySettingsView({
     automationFailureAlertEmail,
   };
   const dirty = baseline !== null && !isSameForm(baseline, currentForm);
+  const saving = mutation.isPending;
+  const latestFormRef = useRef(currentForm);
+  latestFormRef.current = currentForm;
 
   useEffect(() => {
     dirtyRef.current = dirty;
@@ -201,26 +204,29 @@ export function FactorySettingsView({
       toast.error(t("triage.settingsError"));
       return;
     }
-    const saved = trimmedForm(currentForm);
+    const submitted = trimmedForm(currentForm);
     try {
       await mutation.mutateAsync({
         factoryId,
-        slackWorkspace: saved.workspace,
-        slackChannelId: saved.channelId,
-        slackChannelName: saved.channelName,
-        builderSlackUserId: saved.builderSlackUserId,
-        repository: saved.repository,
-        pollingEnabled: saved.polling,
-        githubPollingEnabled: saved.githubPolling,
-        sentryPollingEnabled: saved.sentryPolling,
-        sentryOrgSlug: saved.sentryOrgSlug,
-        sentryProjectSlug: saved.sentryProjectSlug,
-        sentryEnvironment: saved.sentryEnvironment,
-        automationFailureAlertsEnabled: saved.automationFailureAlertsEnabled,
-        automationFailureAlertEmail: saved.automationFailureAlertEmail,
+        slackWorkspace: submitted.workspace,
+        slackChannelId: submitted.channelId,
+        slackChannelName: submitted.channelName,
+        builderSlackUserId: submitted.builderSlackUserId,
+        repository: submitted.repository,
+        pollingEnabled: submitted.polling,
+        githubPollingEnabled: submitted.githubPolling,
+        sentryPollingEnabled: submitted.sentryPolling,
+        sentryOrgSlug: submitted.sentryOrgSlug,
+        sentryProjectSlug: submitted.sentryProjectSlug,
+        sentryEnvironment: submitted.sentryEnvironment,
+        automationFailureAlertsEnabled:
+          submitted.automationFailureAlertsEnabled,
+        automationFailureAlertEmail: submitted.automationFailureAlertEmail,
       });
-      applyForm(saved);
-      setBaseline(saved);
+      if (isSameForm(trimmedForm(latestFormRef.current), submitted)) {
+        applyForm(submitted);
+      }
+      setBaseline(submitted);
       toast.success(t("triage.settingsSaved"));
     } catch (error) {
       toast.error(
@@ -263,14 +269,14 @@ export function FactorySettingsView({
                 type="button"
                 variant="ghost"
                 onClick={() => baseline && applyForm(baseline)}
-                disabled={mutation.isPending}
+                disabled={saving}
               >
                 {t("triage.discardSettingsChanges")}
               </Button>
               <Button
                 type="button"
                 onClick={() => void saveSettings()}
-                disabled={mutation.isPending || !configLoaded}
+                disabled={saving || !configLoaded}
               >
                 {mutation.isPending && <IconLoader2 className="animate-spin" />}
                 {t("triage.saveSettings")}
@@ -301,200 +307,208 @@ export function FactorySettingsView({
         />
       </SettingsGroup>
 
-      <FactorySourceSettingsGroup
-        title={t("factoryRoute.slackSource")}
-        description={t("factoryRoute.slackSourceDescription")}
-        optionalLabel={t("factoryInspector.optional")}
-      >
-        <SettingsRow
-          label={t("triage.slackWorkspace")}
-          control={
-            <select
-              aria-label={t("triage.slackWorkspace")}
-              value={workspace}
-              onChange={(event) =>
-                setWorkspace(event.target.value as "primary" | "secondary")
-              }
-              className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm sm:w-64"
-            >
-              <option value="primary">primary</option>
-              <option value="secondary">secondary</option>
-            </select>
-          }
-        />
-        <SettingsRow
-          label={t("triage.slackChannelId")}
-          control={
-            <Input
-              aria-label={t("triage.slackChannelId")}
-              value={channelId}
-              onChange={(event) => setChannelId(event.target.value)}
-              placeholder={t("triage.slackChannelPlaceholder")}
-              className={fieldControlClass}
-            />
-          }
-        />
-        <SettingsRow
-          label={t("triage.slackChannelName")}
-          control={
-            <Input
-              aria-label={t("triage.slackChannelName")}
-              value={channelName}
-              onChange={(event) => setChannelName(event.target.value)}
-              placeholder={t("triage.slackChannelNamePlaceholder")}
-              className={fieldControlClass}
-            />
-          }
-        />
-        <SettingsRow
-          label={t("triage.builderSlackUserId")}
-          control={
-            <Input
-              aria-label={t("triage.builderSlackUserId")}
-              value={builderSlackUserId}
-              onChange={(event) => setBuilderSlackUserId(event.target.value)}
-              placeholder={t("triage.builderSlackUserIdPlaceholder")}
-              className={fieldControlClass}
-            />
-          }
-        />
-        <SettingsRow
-          label={t("triage.enablePolling")}
-          control={
-            <Switch
-              aria-label={t("triage.enablePolling")}
-              checked={polling}
-              onCheckedChange={(checked) => setPolling(checked === true)}
-            />
-          }
-        />
-      </FactorySourceSettingsGroup>
+      <fieldset disabled={saving} className="contents">
+        <FactorySourceSettingsGroup
+          title={t("factoryRoute.slackSource")}
+          description={t("factoryRoute.slackSourceDescription")}
+          optionalLabel={t("factoryInspector.optional")}
+        >
+          <SettingsRow
+            label={t("triage.slackWorkspace")}
+            control={
+              <select
+                aria-label={t("triage.slackWorkspace")}
+                value={workspace}
+                onChange={(event) =>
+                  setWorkspace(event.target.value as "primary" | "secondary")
+                }
+                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm sm:w-64"
+              >
+                <option value="primary">primary</option>
+                <option value="secondary">secondary</option>
+              </select>
+            }
+          />
+          <SettingsRow
+            label={t("triage.slackChannelId")}
+            control={
+              <Input
+                aria-label={t("triage.slackChannelId")}
+                value={channelId}
+                onChange={(event) => setChannelId(event.target.value)}
+                placeholder={t("triage.slackChannelPlaceholder")}
+                className={fieldControlClass}
+              />
+            }
+          />
+          <SettingsRow
+            label={t("triage.slackChannelName")}
+            control={
+              <Input
+                aria-label={t("triage.slackChannelName")}
+                value={channelName}
+                onChange={(event) => setChannelName(event.target.value)}
+                placeholder={t("triage.slackChannelNamePlaceholder")}
+                className={fieldControlClass}
+              />
+            }
+          />
+          <SettingsRow
+            label={t("triage.builderSlackUserId")}
+            control={
+              <Input
+                aria-label={t("triage.builderSlackUserId")}
+                value={builderSlackUserId}
+                onChange={(event) => setBuilderSlackUserId(event.target.value)}
+                placeholder={t("triage.builderSlackUserIdPlaceholder")}
+                className={fieldControlClass}
+              />
+            }
+          />
+          <SettingsRow
+            label={t("triage.enablePolling")}
+            control={
+              <Switch
+                aria-label={t("triage.enablePolling")}
+                checked={polling}
+                onCheckedChange={(checked) => setPolling(checked === true)}
+              />
+            }
+          />
+        </FactorySourceSettingsGroup>
 
-      <FactorySourceSettingsGroup
-        title={t("factoryRoute.githubSource")}
-        description={t("factoryRoute.githubSourceDescription")}
-        optionalLabel={t("factoryInspector.optional")}
-      >
-        <SettingsRow
-          label={t("triage.repository")}
-          control={
-            <Input
-              aria-label={t("triage.repository")}
-              value={repository}
-              onChange={(event) => setRepository(event.target.value)}
-              placeholder={t("triage.repositoryPlaceholder")}
-              className={fieldControlClass}
-            />
-          }
-        />
-        <SettingsRow
-          label={t("triage.enableGithubPolling")}
-          control={
-            <Switch
-              aria-label={t("triage.enableGithubPolling")}
-              checked={githubPolling}
-              onCheckedChange={(checked) => setGithubPolling(checked === true)}
-            />
-          }
-        />
-      </FactorySourceSettingsGroup>
+        <FactorySourceSettingsGroup
+          title={t("factoryRoute.githubSource")}
+          description={t("factoryRoute.githubSourceDescription")}
+          optionalLabel={t("factoryInspector.optional")}
+        >
+          <SettingsRow
+            label={t("triage.repository")}
+            control={
+              <Input
+                aria-label={t("triage.repository")}
+                value={repository}
+                onChange={(event) => setRepository(event.target.value)}
+                placeholder={t("triage.repositoryPlaceholder")}
+                className={fieldControlClass}
+              />
+            }
+          />
+          <SettingsRow
+            label={t("triage.enableGithubPolling")}
+            control={
+              <Switch
+                aria-label={t("triage.enableGithubPolling")}
+                checked={githubPolling}
+                onCheckedChange={(checked) =>
+                  setGithubPolling(checked === true)
+                }
+              />
+            }
+          />
+        </FactorySourceSettingsGroup>
 
-      <FactorySourceSettingsGroup
-        title={t("factoryRoute.sentrySource")}
-        description={t("factoryRoute.sentrySourceDescription")}
-        optionalLabel={t("factoryInspector.optional")}
-      >
-        <SettingsRow
-          label={t("triage.sentryOrgSlug")}
-          control={
-            <Input
-              aria-label={t("triage.sentryOrgSlug")}
-              value={sentryOrgSlug}
-              onChange={(event) => setSentryOrgSlug(event.target.value)}
-              placeholder={t("triage.sentryOrgPlaceholder")}
-              className={fieldControlClass}
-            />
-          }
-        />
-        <SettingsRow
-          label={t("triage.sentryProjectSlug")}
-          control={
-            <Input
-              aria-label={t("triage.sentryProjectSlug")}
-              value={sentryProjectSlug}
-              onChange={(event) => setSentryProjectSlug(event.target.value)}
-              placeholder={t("triage.sentryProjectPlaceholder")}
-              className={fieldControlClass}
-            />
-          }
-        />
-        <SettingsRow
-          label={t("triage.sentryEnvironment")}
-          control={
-            <Input
-              aria-label={t("triage.sentryEnvironment")}
-              value={sentryEnvironment}
-              onChange={(event) => setSentryEnvironment(event.target.value)}
-              placeholder={t("triage.sentryEnvironmentPlaceholder")}
-              className={fieldControlClass}
-            />
-          }
-        />
-        <SettingsRow
-          label={t("triage.enableSentryPolling")}
-          control={
-            <Switch
-              aria-label={t("triage.enableSentryPolling")}
-              checked={sentryPolling}
-              onCheckedChange={(checked) => setSentryPolling(checked === true)}
-            />
-          }
-        />
-      </FactorySourceSettingsGroup>
+        <FactorySourceSettingsGroup
+          title={t("factoryRoute.sentrySource")}
+          description={t("factoryRoute.sentrySourceDescription")}
+          optionalLabel={t("factoryInspector.optional")}
+        >
+          <SettingsRow
+            label={t("triage.sentryOrgSlug")}
+            control={
+              <Input
+                aria-label={t("triage.sentryOrgSlug")}
+                value={sentryOrgSlug}
+                onChange={(event) => setSentryOrgSlug(event.target.value)}
+                placeholder={t("triage.sentryOrgPlaceholder")}
+                className={fieldControlClass}
+              />
+            }
+          />
+          <SettingsRow
+            label={t("triage.sentryProjectSlug")}
+            control={
+              <Input
+                aria-label={t("triage.sentryProjectSlug")}
+                value={sentryProjectSlug}
+                onChange={(event) => setSentryProjectSlug(event.target.value)}
+                placeholder={t("triage.sentryProjectPlaceholder")}
+                className={fieldControlClass}
+              />
+            }
+          />
+          <SettingsRow
+            label={t("triage.sentryEnvironment")}
+            control={
+              <Input
+                aria-label={t("triage.sentryEnvironment")}
+                value={sentryEnvironment}
+                onChange={(event) => setSentryEnvironment(event.target.value)}
+                placeholder={t("triage.sentryEnvironmentPlaceholder")}
+                className={fieldControlClass}
+              />
+            }
+          />
+          <SettingsRow
+            label={t("triage.enableSentryPolling")}
+            control={
+              <Switch
+                aria-label={t("triage.enableSentryPolling")}
+                checked={sentryPolling}
+                onCheckedChange={(checked) =>
+                  setSentryPolling(checked === true)
+                }
+              />
+            }
+          />
+        </FactorySourceSettingsGroup>
 
-      <SettingsGroup variant="soft">
-        <SettingsRow
-          label={t("factoryRoute.automationFailureAlertsTitle")}
-          description={t("factoryRoute.automationFailureAlertsDescription")}
-          control={
-            <Switch
-              aria-label={t("factoryRoute.automationFailureAlertsEnabled")}
-              checked={automationFailureAlertsEnabled}
-              onCheckedChange={(checked) =>
-                setAutomationFailureAlertsEnabled(checked === true)
-              }
-            />
-          }
-        />
-        <SettingsRow
-          label={t("factoryRoute.automationFailureAlertEmail")}
-          description={t("factoryRoute.automationFailureAlertEmailPlaceholder")}
-          control={
-            <Input
-              aria-label={t("factoryRoute.automationFailureAlertEmail")}
-              type="email"
-              value={automationFailureAlertEmail}
-              onChange={(event) =>
-                setAutomationFailureAlertEmail(event.target.value)
-              }
-              placeholder={t(
-                "factoryRoute.automationFailureAlertEmailPlaceholder",
-              )}
-              className={fieldControlClass}
-            />
-          }
-        />
-        <SettingsRow
-          label={t("factoryRoute.automationFailureEmailReadiness")}
-          description={t("factoryRoute.automationEmailReadinessHint")}
-          control={
-            <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
-              {(query.data as TriageConfig | undefined)?.emailReadiness
-                ?.status ?? "unknown"}
-            </span>
-          }
-        />
-      </SettingsGroup>
+        <SettingsGroup variant="soft">
+          <SettingsRow
+            label={t("factoryRoute.automationFailureAlertsTitle")}
+            description={t("factoryRoute.automationFailureAlertsDescription")}
+            control={
+              <Switch
+                aria-label={t("factoryRoute.automationFailureAlertsEnabled")}
+                checked={automationFailureAlertsEnabled}
+                onCheckedChange={(checked) =>
+                  setAutomationFailureAlertsEnabled(checked === true)
+                }
+              />
+            }
+          />
+          <SettingsRow
+            label={t("factoryRoute.automationFailureAlertEmail")}
+            description={t(
+              "factoryRoute.automationFailureAlertEmailPlaceholder",
+            )}
+            control={
+              <Input
+                aria-label={t("factoryRoute.automationFailureAlertEmail")}
+                type="email"
+                value={automationFailureAlertEmail}
+                onChange={(event) =>
+                  setAutomationFailureAlertEmail(event.target.value)
+                }
+                placeholder={t(
+                  "factoryRoute.automationFailureAlertEmailPlaceholder",
+                )}
+                className={fieldControlClass}
+              />
+            }
+          />
+          <SettingsRow
+            label={t("factoryRoute.automationFailureEmailReadiness")}
+            description={t("factoryRoute.automationEmailReadinessHint")}
+            control={
+              <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
+                {(query.data as TriageConfig | undefined)?.emailReadiness
+                  ?.status ?? "unknown"}
+              </span>
+            }
+          />
+        </SettingsGroup>
+      </fieldset>
 
       <SchedulerHealthStatus
         health={schedulerHealthQuery.data}

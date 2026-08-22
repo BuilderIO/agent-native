@@ -7,9 +7,16 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb } from "../server/db/index.js";
-import { factoryAuditEvents } from "../server/db/schema.js";
+import {
+  factoryAuditEvents,
+  triageItems,
+  triageRuns,
+} from "../server/db/schema.js";
+import { projectFactoryAuditReport } from "../server/lib/factory-audit-report.js";
 import {
   factoryIdSchema,
+  orgFactoryItemFilter,
+  orgFactoryRunFilter,
   readAutomationDisplayName,
   readAutomationFactoryId,
 } from "../server/lib/factory-scope.js";
@@ -88,33 +95,97 @@ export default defineAction({
       eventsByRun.set(event.automationRunId, current);
     }
 
+    const itemIds = [
+      ...new Set(
+        events.flatMap((event) => {
+          const ids: string[] = [];
+          if (event.itemId) ids.push(event.itemId);
+          const details = parseDetails(event.detailsJson);
+          const listed = details.itemIds;
+          if (Array.isArray(listed)) {
+            for (const value of listed) {
+              if (typeof value === "string" && value) ids.push(value);
+            }
+          }
+          return ids;
+        }),
+      ),
+    ];
+    const itemRows = itemIds.length
+      ? await db
+          .select({
+            id: triageItems.id,
+            title: triageItems.title,
+            summary: triageItems.summary,
+            source: triageItems.source,
+            sourceUrl: triageItems.sourceUrl,
+          })
+          .from(triageItems)
+          .where(
+            and(
+              orgFactoryItemFilter(orgId, factoryId),
+              inArray(triageItems.id, itemIds),
+            ),
+          )
+      : [];
+    const runRows = itemIds.length
+      ? await db
+          .select({
+            itemId: triageRuns.itemId,
+            status: triageRuns.status,
+            error: triageRuns.error,
+            provider: triageRuns.provider,
+            startedAt: triageRuns.startedAt,
+          })
+          .from(triageRuns)
+          .where(
+            and(
+              orgFactoryRunFilter(orgId, factoryId),
+              inArray(triageRuns.itemId, itemIds),
+            ),
+          )
+      : [];
+
     return {
-      runs: boundedEntries.map(({ run, displayName }) => ({
-        id: run.id,
-        automation: run.automation,
-        displayName,
-        runId: run.runId,
-        threadId: run.threadId,
-        status: run.status,
-        startedAt: run.startedAt,
-        finishedAt: run.finishedAt,
-        error: run.error,
-        events: (eventsByRun.get(run.runId ?? "") ?? []).map((event) => ({
-          id: event.id,
-          automationRunId: event.automationRunId,
-          automationThreadId: event.automationThreadId,
-          automationName: event.automationName,
-          itemId: event.itemId,
-          source: event.source,
-          sourceUrl: event.sourceUrl,
-          action: event.action,
-          kind: event.kind,
-          status: event.status,
-          summary: event.summary,
-          details: parseDetails(event.detailsJson),
-          createdAt: event.createdAt,
-        })),
-      })),
+      runs: boundedEntries.map(({ run, displayName }) => {
+        const mappedEvents = (eventsByRun.get(run.runId ?? "") ?? []).map(
+          (event) => ({
+            id: event.id,
+            automationRunId: event.automationRunId,
+            automationThreadId: event.automationThreadId,
+            automationName: event.automationName,
+            itemId: event.itemId,
+            source: event.source,
+            sourceUrl: event.sourceUrl,
+            action: event.action,
+            kind: event.kind,
+            status: event.status,
+            summary: event.summary,
+            details: parseDetails(event.detailsJson),
+            createdAt: event.createdAt,
+          }),
+        );
+        const report = projectFactoryAuditReport(
+          mappedEvents,
+          itemRows,
+          runRows,
+          { startedAt: run.startedAt, finishedAt: run.finishedAt },
+        );
+        return {
+          id: run.id,
+          automation: run.automation,
+          displayName,
+          runId: run.runId,
+          threadId: run.threadId,
+          status: run.status,
+          startedAt: run.startedAt,
+          finishedAt: run.finishedAt,
+          error: run.error,
+          counts: report.counts,
+          items: report.items,
+          trace: report.trace,
+        };
+      }),
       count: boundedEntries.length,
     };
   },

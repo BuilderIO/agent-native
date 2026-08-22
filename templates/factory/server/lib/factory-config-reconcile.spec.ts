@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   mergeFactoryConfigRows,
   planDefaultFactoryConfigReconciliation,
+  planSlackChannelConflictClears,
   type FactoryConfigSqlRow,
 } from "./factory-config-reconcile.js";
 
@@ -92,5 +93,47 @@ describe("mergeFactoryConfigRows", () => {
     );
     expect(merged.last_slack_ts).toBe("10.0");
     expect(merged.polling_enabled).toBe(1);
+  });
+
+  it("keeps checkpoints with the winning Slack channel", () => {
+    const merged = mergeFactoryConfigRows(
+      row({
+        id: "keep",
+        slack_channel_id: "C-A",
+        last_slack_ts: "100.1",
+        slack_history_cursor: "cursor-a",
+      }),
+      row({
+        id: "other",
+        slack_channel_id: "C-B",
+        last_slack_ts: "999.9",
+        slack_history_cursor: "cursor-b",
+      }),
+    );
+    expect(merged.slack_channel_id).toBe("C-A");
+    expect(merged.last_slack_ts).toBe("100.1");
+    expect(merged.slack_history_cursor).toBe("cursor-a");
+  });
+});
+
+describe("planSlackChannelConflictClears", () => {
+  it("clears every extra factory sharing a Slack channel in the same org", () => {
+    const clears = planSlackChannelConflictClears([
+      row({
+        id: "org-1:factory-a",
+        factory_id: "factory-a",
+        slack_channel_id: "C123",
+        polling_enabled: 1,
+        updated_at: "2026-08-21T00:00:00.000Z",
+      }),
+      row({
+        id: "org-1:factory-b",
+        factory_id: "factory-b",
+        slack_channel_id: "C123",
+        polling_enabled: 0,
+        updated_at: "2026-08-22T00:00:00.000Z",
+      }),
+    ]);
+    expect(clears).toEqual([{ id: "org-1:factory-b", org_id: "org-1" }]);
   });
 });

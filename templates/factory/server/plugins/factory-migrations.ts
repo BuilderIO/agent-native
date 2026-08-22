@@ -5,6 +5,7 @@ import {
   factoryConfigSqlRowFromQuery,
   isUniqueConstraintError,
   planDefaultFactoryConfigReconciliation,
+  planSlackChannelConflictClears,
   type FactoryConfigSqlRow,
 } from "../lib/factory-config-reconcile.js";
 
@@ -96,6 +97,29 @@ async function reconcileDefaultFactoryConfigRows(): Promise<void> {
     defaultFactoryId,
   )) {
     await writeReconciledFactoryConfig(exec, plan);
+  }
+}
+
+async function clearDuplicateSlackChannelAssignments(): Promise<void> {
+  const { getDbExec } = await import("@agent-native/core/db");
+  const exec = getDbExec();
+  const configRows = await exec.execute({
+    sql: `SELECT * FROM factory_config`,
+    args: [],
+  });
+  const rows = (configRows.rows ?? [])
+    .map((row) => factoryConfigSqlRowFromQuery(row as Record<string, unknown>))
+    .filter((row): row is FactoryConfigSqlRow => row !== null);
+  for (const clear of planSlackChannelConflictClears(rows)) {
+    await exec.execute({
+      sql: `UPDATE factory_config SET
+        slack_channel_id = NULL,
+        slack_channel_name = NULL,
+        last_slack_ts = NULL,
+        slack_history_cursor = NULL
+        WHERE id = ? AND org_id = ?`,
+      args: [clear.id, clear.org_id],
+    });
   }
 }
 
@@ -476,17 +500,15 @@ const migrations = [
   {
     version: 24,
     name: "factory-config-org-slack-channel-unique",
-    sql: {},
     run: async () => {
-      const { getDbExec } = await import("@agent-native/core/db");
       await reconcileDefaultFactoryConfigRows();
-      await getDbExec().execute({
-        sql: `CREATE UNIQUE INDEX IF NOT EXISTS factory_config_org_slack_channel_idx
-          ON factory_config (org_id, slack_channel_id)
-          WHERE slack_channel_id IS NOT NULL AND slack_channel_id != ''`,
-        args: [],
-      });
+      await clearDuplicateSlackChannelAssignments();
     },
+    sql: `
+      CREATE UNIQUE INDEX IF NOT EXISTS factory_config_org_slack_channel_idx
+        ON factory_config (org_id, slack_channel_id)
+        WHERE slack_channel_id IS NOT NULL AND slack_channel_id != '';
+    `,
   },
   {
     version: 25,

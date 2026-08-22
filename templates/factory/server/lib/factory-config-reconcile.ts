@@ -134,14 +134,12 @@ export function mergeFactoryConfigRows(
   keep: FactoryConfigSqlRow,
   other: FactoryConfigSqlRow,
 ): FactoryConfigSqlRow {
+  const slackIdentity = mergeSlackIdentity(keep, other);
   return {
     ...keep,
     slack_workspace: pickText(keep.slack_workspace, other.slack_workspace),
-    slack_channel_id: pickText(keep.slack_channel_id, other.slack_channel_id),
-    slack_channel_name: pickText(
-      keep.slack_channel_name,
-      other.slack_channel_name,
-    ),
+    slack_channel_id: slackIdentity.slack_channel_id,
+    slack_channel_name: slackIdentity.slack_channel_name,
     builder_slack_user_id: pickText(
       keep.builder_slack_user_id,
       other.builder_slack_user_id,
@@ -150,11 +148,8 @@ export function mergeFactoryConfigRows(
       asFlag(keep.polling_enabled),
       asFlag(other.polling_enabled),
     ),
-    last_slack_ts: pickLater(keep.last_slack_ts, other.last_slack_ts),
-    slack_history_cursor: pickText(
-      keep.slack_history_cursor,
-      other.slack_history_cursor,
-    ),
+    last_slack_ts: slackIdentity.last_slack_ts,
+    slack_history_cursor: slackIdentity.slack_history_cursor,
     repository: pickText(keep.repository, other.repository),
     github_polling_enabled: Math.max(
       asFlag(keep.github_polling_enabled),
@@ -237,4 +232,86 @@ export function planDefaultFactoryConfigReconciliation(
     });
   }
   return plans;
+}
+
+export type SlackChannelConflictClear = {
+  id: string;
+  org_id: string;
+};
+
+function mergeSlackIdentity(
+  keep: FactoryConfigSqlRow,
+  other: FactoryConfigSqlRow,
+): Pick<
+  FactoryConfigSqlRow,
+  | "slack_channel_id"
+  | "slack_channel_name"
+  | "last_slack_ts"
+  | "slack_history_cursor"
+> {
+  const keepChannel = asText(keep.slack_channel_id);
+  const otherChannel = asText(other.slack_channel_id);
+  if (!otherChannel || keepChannel === otherChannel) {
+    return {
+      slack_channel_id: keepChannel ?? otherChannel,
+      slack_channel_name: pickText(
+        keep.slack_channel_name,
+        other.slack_channel_name,
+      ),
+      last_slack_ts: pickLater(keep.last_slack_ts, other.last_slack_ts),
+      slack_history_cursor: pickText(
+        keep.slack_history_cursor,
+        other.slack_history_cursor,
+      ),
+    };
+  }
+  if (!keepChannel) {
+    return {
+      slack_channel_id: other.slack_channel_id,
+      slack_channel_name: other.slack_channel_name,
+      last_slack_ts: other.last_slack_ts,
+      slack_history_cursor: other.slack_history_cursor,
+    };
+  }
+  return {
+    slack_channel_id: keep.slack_channel_id,
+    slack_channel_name: keep.slack_channel_name,
+    last_slack_ts: keep.last_slack_ts,
+    slack_history_cursor: keep.slack_history_cursor,
+  };
+}
+
+export function planSlackChannelConflictClears(
+  rows: FactoryConfigSqlRow[],
+): SlackChannelConflictClear[] {
+  const groups = new Map<string, FactoryConfigSqlRow[]>();
+  for (const row of rows) {
+    const orgId = asText(row.org_id);
+    const channelId = asText(row.slack_channel_id);
+    const id = asText(row.id);
+    if (!orgId || !channelId || !id) continue;
+    const key = `${orgId}\0${channelId}`;
+    const group = groups.get(key) ?? [];
+    group.push({ ...row, id, org_id: orgId });
+    groups.set(key, group);
+  }
+
+  const clears: SlackChannelConflictClear[] = [];
+  for (const group of groups.values()) {
+    if (group.length < 2) continue;
+    const ranked = [...group].sort((left, right) => {
+      const polling =
+        asFlag(right.polling_enabled) - asFlag(left.polling_enabled);
+      if (polling !== 0) return polling;
+      const updated = (right.updated_at ?? "").localeCompare(
+        left.updated_at ?? "",
+      );
+      if (updated !== 0) return updated;
+      return left.id.localeCompare(right.id);
+    });
+    for (const row of ranked.slice(1)) {
+      clears.push({ id: row.id, org_id: row.org_id! });
+    }
+  }
+  return clears;
 }
