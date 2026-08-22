@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   assertPrerendered,
   attributeChunks,
-} from "../scripts/prune-locale-doc-chunks";
+} from "../scripts/prune-serverless-functions";
 
 /**
  * The pruner deletes real files out of a deployed function, so the two things
@@ -15,7 +15,7 @@ import {
  * the wrong side (deleting an English page's content) and deleting a page that
  * was never prerendered (a 500 on a translated doc).
  */
-describe("prune-locale-doc-chunks", () => {
+describe("prune-serverless-functions", () => {
   let dir: string;
 
   beforeEach(() => {

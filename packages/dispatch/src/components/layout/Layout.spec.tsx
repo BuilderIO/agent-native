@@ -246,7 +246,7 @@ describe("Dispatch NavContent", () => {
     { mode: "chat-first", chatFirstMode: true, collapsed: false },
     { mode: "chat-first", chatFirstMode: true, collapsed: true },
   ])(
-    "reserves environment pill space in the $mode desktop footer when collapsed is $collapsed",
+    "keeps footer controls flush with the bottom in the $mode desktop footer when collapsed is $collapsed",
     async ({ mode, chatFirstMode, collapsed }) => {
       await act(async () => {
         root.render(
@@ -254,11 +254,7 @@ describe("Dispatch NavContent", () => {
             initialEntries={[chatFirstMode ? "/chat" : "/overview"]}
           >
             <TooltipProvider>
-              <NavContent
-                chatFirstMode={chatFirstMode}
-                collapsed={collapsed}
-                reserveEnvironmentBadgeSpace
-              />
+              <NavContent chatFirstMode={chatFirstMode} collapsed={collapsed} />
             </TooltipProvider>
           </MemoryRouter>,
         );
@@ -278,7 +274,7 @@ describe("Dispatch NavContent", () => {
 
       expect(footer?.className).toContain("mt-auto");
       expect(footer?.className).toContain("shrink-0");
-      expect(footer?.className).toContain("pb-10");
+      expect(footer?.className).not.toContain("pb-10");
       if (mode === "standard") {
         expect(footer?.closest(".overflow-y-auto")).toBeNull();
       }
@@ -297,23 +293,6 @@ describe("Dispatch NavContent", () => {
       );
     },
   );
-
-  it("reserves environment pill space in the mobile footer", async () => {
-    await act(async () => {
-      root.render(
-        <MemoryRouter initialEntries={["/overview"]}>
-          <TooltipProvider>
-            <NavContent reserveEnvironmentBadgeSpace />
-          </TooltipProvider>
-        </MemoryRouter>,
-      );
-    });
-
-    expect(
-      container.querySelector('[data-dispatch-sidebar-footer="standard"]')
-        ?.className,
-    ).toContain("pb-10");
-  });
 
   it("keeps chat-first primary actions in the collapsed sidebar", async () => {
     await act(async () => {

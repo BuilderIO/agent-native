@@ -385,7 +385,14 @@ function SharePanel(
   } = controller;
   const hasInviteEmail = inviteEmail.trim().length > 0;
 
-  const isLoading = data === undefined;
+  // `data` stays undefined after a failed read, so a stuck skeleton is
+  // indistinguishable from loading unless the error comes off the query itself.
+  // `isError` alone is not that signal: it is also true when a refetch fails
+  // while React Query still holds usable data, and this panel refetches on open
+  // and after every mutation — blocking on that would swap a working panel for
+  // a retry screen on one transient failure.
+  const loadFailed = controller.sharesQuery.isError && data === undefined;
+  const isLoading = !loadFailed && data === undefined;
   const meta = visibilityMeta(visibility, t, props.visibilityCopy);
   const peopleAccessLabel =
     props.peopleAccessLabel ??
@@ -436,7 +443,33 @@ function SharePanel(
     props.shareTabs?.shareLabel ??
     t("agentChat.share.shareLink", { defaultValue: "Share link" });
 
-  const sharePanel = isLoading ? (
+  const sharePanel = loadFailed ? (
+    <div>
+      {showShareLinks && shareUrlPlacement === "top" ? shareLinks : null}
+      <div
+        role="alert"
+        className="flex items-center justify-between gap-2 rounded-md border border-border bg-muted/30 px-3 py-2"
+      >
+        <span className="text-xs text-muted-foreground">
+          {t("agentChat.share.loadFailed", {
+            defaultValue: "Couldn't load sharing settings.",
+          })}
+        </span>
+        <button
+          type="button"
+          onClick={() => controller.sharesQuery.refetch()}
+          disabled={controller.sharesQuery.isFetching}
+          className={cn(
+            BUTTON_BASE,
+            "h-7 px-2 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+          )}
+        >
+          {t("agentChat.common.retry")}
+        </button>
+      </div>
+      {showShareLinks && shareUrlPlacement === "bottom" ? shareLinks : null}
+    </div>
+  ) : isLoading ? (
     <div>
       {showShareLinks ? (
         <div className="mb-4 h-9 rounded-md bg-muted animate-pulse" />

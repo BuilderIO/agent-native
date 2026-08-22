@@ -506,6 +506,7 @@ export class RecorderEngine {
   private audioMixSources: MediaStreamAudioSourceNode[] = [];
   private wakeLock: WakeLockSentinel | null = null;
   private wakeLockGeneration = 0;
+  private wakeLockRetake: (() => void) | null = null;
   private recorder: MediaRecorder | null = null;
   private mimeType: string = "video/webm";
 
@@ -909,7 +910,7 @@ export class RecorderEngine {
         // during active recording, which ends getDisplayMedia's video track
         // outright (unlike the mic/camera, display capture requires an
         // active compositor). Without this, a paused recording left idle
-        // finalizes early with no warning — see onDisplayTrackEnded below.
+        // finalizes early — see onDisplayTrackEnded below.
         // Best-effort: unsupported browsers or a denied request must never
         // block capture.
         void this.acquireWakeLock();
@@ -1010,6 +1011,14 @@ export class RecorderEngine {
           );
           track.addEventListener("ended", () => {
             if (this.state === "recording" || this.state === "paused") {
+              // Paused, the user cannot have clicked "Stop sharing" — the
+              // display slept or locked. Same finalize, but say so instead of
+              // ending as if they had asked for it.
+              if (this.state === "paused") {
+                this.emitWarning(
+                  "Screen sharing ended while the recording was paused; saving what was captured so far.",
+                );
+              }
               if (this.opts.onDisplayTrackEnded) {
                 this.opts.onDisplayTrackEnded();
               } else {
@@ -2371,7 +2380,22 @@ export class RecorderEngine {
 
   /** Best-effort — unsupported browsers or a denied request must never block capture. */
   private async acquireWakeLock(): Promise<void> {
+    // The platform drops a screen wake lock the moment the document goes
+    // hidden and refuses to grant one while it is hidden, so a single
+    // acquisition only ever protects the foreground. Taking it again on the
+    // way back is the most the page can do.
+    if (!this.wakeLockRetake && typeof document !== "undefined") {
+      const doc = document;
+      this.wakeLockRetake = () => {
+        if (doc.visibilityState === "visible" && this.displayStream) {
+          void this.acquireWakeLock();
+        }
+      };
+      doc.addEventListener("visibilitychange", this.wakeLockRetake);
+    }
     const generation = ++this.wakeLockGeneration;
+    this.wakeLock?.release().catch(() => {});
+    this.wakeLock = null;
     try {
       // coercion-ok: optional chaining yields undefined only when the Wake
       // Lock API itself is absent (older/other browsers) — a real rejection
@@ -2389,6 +2413,10 @@ export class RecorderEngine {
 
   private releaseWakeLock(): void {
     this.wakeLockGeneration += 1;
+    if (this.wakeLockRetake) {
+      document.removeEventListener("visibilitychange", this.wakeLockRetake);
+      this.wakeLockRetake = null;
+    }
     this.wakeLock?.release().catch(() => {});
     this.wakeLock = null;
   }

@@ -3,6 +3,10 @@ import {
   APP_CHAT_SIDEBAR_STATE_MESSAGE,
 } from "@agent-native/core/client/hooks";
 import {
+  BETA_OPT_OUT_DURATION_MS,
+  BETA_OPT_OUT_QUERY_PARAM,
+} from "@agent-native/core/shared";
+import {
   DESKTOP_DEFAULT_APPS,
   getTemplate,
   type AppDefinition,
@@ -44,9 +48,6 @@ export const APP_WEBVIEW_PREFERENCES =
 // minted against the configured production origin, so keep first-party
 // production webviews on that same origin unless a beta URL was explicitly
 // supplied. The query is consumed by the hosted app and removed from history.
-const DESKTOP_BETA_OPT_OUT_QUERY_PARAM = "agentNativeBetaOptOut";
-const DESKTOP_BETA_OPT_OUT_DURATION_MS = 24 * 60 * 60 * 1000;
-
 type WebviewTitleUpdatedEvent = Event & { title?: string };
 type WebviewLoadFailedEvent = Event & {
   errorCode?: number;
@@ -498,8 +499,8 @@ export function withDesktopEnvironmentOptOut(rawUrl: string): string {
   try {
     const target = new URL(rawUrl);
     target.searchParams.set(
-      DESKTOP_BETA_OPT_OUT_QUERY_PARAM,
-      String(Date.now() + DESKTOP_BETA_OPT_OUT_DURATION_MS),
+      BETA_OPT_OUT_QUERY_PARAM,
+      String(Date.now() + BETA_OPT_OUT_DURATION_MS),
     );
     return target.toString();
   } catch {

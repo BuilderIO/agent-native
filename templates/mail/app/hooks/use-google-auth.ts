@@ -12,6 +12,7 @@ export interface GoogleAuthAccount {
 }
 
 export interface GoogleAuthStatus {
+  configured?: boolean;
   connected: boolean;
   accounts: GoogleAuthAccount[];
 }

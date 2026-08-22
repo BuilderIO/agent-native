@@ -1,10 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+const resolveSecretMock = vi.hoisted(() => vi.fn());
+
+vi.mock("./credential-provider.js", () => ({
+  resolveSecret: (...args: unknown[]) => resolveSecretMock(...args),
+}));
+
 import { getWorkspaceConnectionProvider } from "../connections/catalog.js";
 import {
   buildWorkspaceProviderAuthorizationUrl,
   canConnectWorkspaceProviderOAuth,
   exchangeWorkspaceProviderOAuthCode,
+  hasWorkspaceProviderOAuthCredentials,
   isGoogleWorkspaceOAuthProvider,
   isWorkspaceProviderOAuthScope,
   isWorkspaceProviderOAuthFlowValid,
@@ -19,6 +26,7 @@ import {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  resolveSecretMock.mockReset();
 });
 
 describe("workspace provider OAuth", () => {
@@ -38,6 +46,20 @@ describe("workspace provider OAuth", () => {
     expect(isGoogleWorkspaceOAuthProvider("gmail")).toBe(true);
     expect(isGoogleWorkspaceOAuthProvider("google_calendar")).toBe(true);
     expect(isGoogleWorkspaceOAuthProvider("figma")).toBe(false);
+  });
+
+  it("requires both managed OAuth client credentials", async () => {
+    resolveSecretMock.mockImplementation(async (key: string) =>
+      key === "GOOGLE_CLIENT_ID" ? "google-client" : null,
+    );
+    await expect(hasWorkspaceProviderOAuthCredentials("gmail")).resolves.toBe(
+      false,
+    );
+
+    resolveSecretMock.mockResolvedValue("google-secret");
+    await expect(hasWorkspaceProviderOAuthCredentials("gmail")).resolves.toBe(
+      true,
+    );
   });
 
   it("keeps portal and site OAuth token keys owner-scoped", () => {

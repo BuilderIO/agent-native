@@ -18,7 +18,7 @@ describe("configureLocalSqlite", () => {
   it("waits for competing app writes before giving up", async () => {
     const pragma = vi.fn();
 
-    await configureLocalSqlite({ pragma, close: vi.fn() });
+    await configureLocalSqlite({ pragma });
 
     expect(pragma.mock.calls).toEqual([
       ["busy_timeout = 10000"],
@@ -75,6 +75,25 @@ describe("configureLocalSqlite", () => {
       ["journal_mode = WAL"],
     ]);
     expect(close).toHaveBeenCalledOnce();
+  });
+
+  it("retries the WAL negotiation while a dev-server handoff holds the file", async () => {
+    const pragma = vi.fn((statement: string) => {
+      if (statement === "journal_mode = WAL" && pragma.mock.calls.length <= 2) {
+        throw Object.assign(new Error("database is locked"), {
+          code: "SQLITE_BUSY",
+        });
+      }
+      return undefined;
+    });
+    const close = vi.fn();
+
+    await configureLocalSqlite({ pragma, close });
+
+    expect(close).not.toHaveBeenCalled();
+    expect(
+      pragma.mock.calls.filter(([s]) => s === "journal_mode = WAL"),
+    ).toHaveLength(2);
   });
 });
 

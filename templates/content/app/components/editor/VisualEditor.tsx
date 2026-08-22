@@ -2107,6 +2107,33 @@ export function VisualEditor({
   onSaveContentRef.current = onSaveContent;
   const onHistoryStateChangeRef = useRef(onHistoryStateChange);
   onHistoryStateChangeRef.current = onHistoryStateChange;
+  const historyStateNotificationRef = useRef<VisualEditorHistoryState | null>(
+    null,
+  );
+  const historyStateNotificationQueuedRef = useRef(false);
+  const editorMountedRef = useRef(false);
+  const notifyHistoryStateChange = useCallback(
+    (state: VisualEditorHistoryState) => {
+      historyStateNotificationRef.current = state;
+      if (historyStateNotificationQueuedRef.current) return;
+      historyStateNotificationQueuedRef.current = true;
+      queueMicrotask(() => {
+        historyStateNotificationQueuedRef.current = false;
+        const next = historyStateNotificationRef.current;
+        historyStateNotificationRef.current = null;
+        if (!editorMountedRef.current || !next) return;
+        onHistoryStateChangeRef.current?.(next);
+      });
+    },
+    [],
+  );
+  useEffect(() => {
+    editorMountedRef.current = true;
+    return () => {
+      editorMountedRef.current = false;
+      historyStateNotificationRef.current = null;
+    };
+  }, []);
   const notionPageLinksRef = useRef(notionPageLinks);
   notionPageLinksRef.current = notionPageLinks;
   const onMediaSourceCommittedRef = useRef<
@@ -2432,7 +2459,7 @@ export function VisualEditor({
     },
     editable,
     onTransaction: ({ editor }) => {
-      onHistoryStateChangeRef.current?.({
+      notifyHistoryStateChange({
         canUndo: editor.can().undo(),
         canRedo: editor.can().redo(),
       });

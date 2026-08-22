@@ -58,6 +58,15 @@ describe("AppLayout inbox rail count", () => {
     expect(source).toContain("{mobileInboxTabs.map((tab) => {");
   });
 
+  it("does not let loaded pages inflate server-backed label badges", () => {
+    const source = appLayoutSource();
+
+    expect(source).not.toContain("Math.max(serverCount, localCount)");
+    expect(source).toContain(
+      'typeof serverCount === "number" && useServerLabelCounts',
+    );
+  });
+
   it("preserves labels and exposes a retry when Gmail label reads fail", () => {
     const source = appLayoutSource();
 
@@ -80,7 +89,7 @@ describe("AppLayout inbox rail count", () => {
       'import { isKnownMailView } from "@/routes/$view";',
     );
     expect(source).toContain(
-      "isKnownMailView(view) ? (\n            <GoogleConnectBanner",
+      "isKnownMailView(view) &&\n          (googleConfigured || canOfferGoogleOAuthSetup) ? (\n            <GoogleConnectBanner",
     );
   });
 });

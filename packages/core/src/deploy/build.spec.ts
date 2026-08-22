@@ -1,4 +1,5 @@
 import fs from "fs";
+import { createRequire } from "module";
 import os from "os";
 import path from "path";
 import { pathToFileURL } from "url";
@@ -66,6 +67,7 @@ import {
   resolveNitroBuildReplacements,
   runNitroBuildPipeline,
   sanitizeServerlessFunctionPackageManifest,
+  stubLocalOnlySqliteDriverForServerless,
   shouldBundleYjsRuntimeForPreset,
   shouldBundleFfmpegStaticForServerless,
   writeSingleTemplateNetlifyRedirects,
@@ -3518,9 +3520,14 @@ describe("pruneBrowserRuntimeFromNonAgentClone", () => {
 
   beforeEach(() => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), "browser-prune-"));
-    for (const name of ["@sparticuz", "playwright-core"]) {
-      const pkg = path.join(dir, "node_modules", name);
+    // Real installs, package.json included: the orphan-closure walk reads each
+    // package's manifest, so a directory without one reads as a broken install.
+    for (const pkg of [
+      path.join(dir, "node_modules", "@sparticuz", "chromium-min"),
+      path.join(dir, "node_modules", "playwright-core"),
+    ]) {
       fs.mkdirSync(pkg, { recursive: true });
+      fs.writeFileSync(path.join(pkg, "package.json"), "{}");
       fs.writeFileSync(path.join(pkg, "index.js"), "x".repeat(1024));
     }
   });
@@ -3582,5 +3589,76 @@ describe("serverless bundle trimming", () => {
 
     expect(fs.existsSync(path.join(pkg, "index.d.ts"))).toBe(false);
     expect(fs.existsSync(path.join(pkg, "index.js"))).toBe(true);
+  });
+});
+
+describe("stubLocalOnlySqliteDriverForServerless", () => {
+  function seedDriver(root: string, files: Record<string, string>): string {
+    const packageDir = path.join(root, "node_modules", "better-sqlite3");
+    for (const [relative, contents] of Object.entries(files)) {
+      const target = path.join(packageDir, relative);
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.writeFileSync(target, contents);
+    }
+    return packageDir;
+  }
+
+  it("replaces the driver with a resolvable stub that throws when constructed", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "sqlite-stub-"));
+    const packageDir = seedDriver(root, {
+      "package.json": JSON.stringify({
+        name: "better-sqlite3",
+        version: "12.11.1",
+        main: "lib/index.js",
+      }),
+      "lib/index.js": "module.exports = class Real {};",
+      "deps/sqlite3/sqlite3.c": "x".repeat(2048),
+      "build/Release/better_sqlite3.node": "y".repeat(4096),
+    });
+
+    const freed = stubLocalOnlySqliteDriverForServerless(root);
+
+    expect(freed).toBeGreaterThan(0);
+    // The specifier must stay resolvable: drizzle-orm's bundled postgres chunk
+    // imports it at module scope, so a missing package is a cold-start crash.
+    expect(fs.existsSync(path.join(packageDir, "package.json"))).toBe(true);
+    expect(fs.existsSync(path.join(packageDir, "index.js"))).toBe(true);
+    expect(fs.existsSync(path.join(packageDir, "deps"))).toBe(false);
+    expect(fs.existsSync(path.join(packageDir, "build"))).toBe(false);
+
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(packageDir, "package.json"), "utf8"),
+    );
+    expect(manifest.version).toBe("12.11.1");
+    expect(manifest.main).toBe("index.js");
+    // The CLI's native-dependency preflight keys off this to avoid probing a
+    // package whose constructor throws by design.
+    expect(manifest.agentNativeServerlessStub).toBe(true);
+
+    const Stub = createRequire(import.meta.url)(packageDir);
+    expect(() => new Stub(":memory:")).toThrow(/not available in a serverless/);
+  });
+
+  it("does nothing when the driver was never bundled", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "sqlite-stub-absent-"));
+    expect(stubLocalOnlySqliteDriverForServerless(root)).toBe(0);
+  });
+
+  it("throws rather than stubbing a package tree it cannot read", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "sqlite-stub-broken-"));
+    seedDriver(root, { "lib/index.js": "module.exports = class Real {};" });
+    expect(() => stubLocalOnlySqliteDriverForServerless(root)).toThrow(
+      /no package\.json/,
+    );
+
+    const versionless = fs.mkdtempSync(
+      path.join(os.tmpdir(), "sqlite-stub-versionless-"),
+    );
+    seedDriver(versionless, {
+      "package.json": JSON.stringify({ name: "better-sqlite3" }),
+    });
+    expect(() => stubLocalOnlySqliteDriverForServerless(versionless)).toThrow(
+      /declares no version/,
+    );
   });
 });

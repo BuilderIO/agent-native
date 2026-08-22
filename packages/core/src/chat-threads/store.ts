@@ -10,7 +10,6 @@ import { createGetDb } from "../db/create-get-db.js";
 import {
   ensureColumnExists,
   ensureIndexExists,
-  ensureIndexExistsConcurrently,
   ensureTableExists,
 } from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
@@ -157,18 +156,20 @@ async function ensureTable(): Promise<void> {
         // serve that predicate — without the expression index the list falls
         // back to scanning every row in the (shared, multi-tenant) table.
         //
-        // Built CONCURRENTLY: these land on tables that already hold every
-        // tenant's threads, and a plain `CREATE INDEX` holds a SHARE lock for
-        // the whole build, queueing chat writes behind it. That is why they are
-        // not in the migration list — `runMigrations` wraps statements in a
-        // transaction, and Postgres forbids CONCURRENTLY inside one.
-        await ensureIndexExistsConcurrently(
+        // NOT built CONCURRENTLY, despite the SHARE lock. This ensure path runs
+        // at release over the pooled Neon endpoint, and a transaction-pooled
+        // connection cannot carry `CREATE INDEX CONCURRENTLY` to completion:
+        // the statement returned without creating anything and the verifying
+        // probe failed the whole release, so no docs production deploy could
+        // publish. Release already runs locking DDL; a plain build here is the
+        // form that actually lands.
+        await ensureIndexExists(
           "chat_threads_owner_lower_updated_idx",
-          `CREATE INDEX CONCURRENTLY IF NOT EXISTS chat_threads_owner_lower_updated_idx ON chat_threads (LOWER(owner_email), updated_at)`,
+          `CREATE INDEX IF NOT EXISTS chat_threads_owner_lower_updated_idx ON chat_threads (LOWER(owner_email), updated_at)`,
         );
-        await ensureIndexExistsConcurrently(
+        await ensureIndexExists(
           "chat_thread_shares_principal_lower_idx",
-          `CREATE INDEX CONCURRENTLY IF NOT EXISTS chat_thread_shares_principal_lower_idx ON chat_thread_shares (resource_id, principal_type, LOWER(principal_id))`,
+          `CREATE INDEX IF NOT EXISTS chat_thread_shares_principal_lower_idx ON chat_thread_shares (resource_id, principal_type, LOWER(principal_id))`,
         );
         await ensureIndexExists(
           "chat_threads_scope_updated_idx",

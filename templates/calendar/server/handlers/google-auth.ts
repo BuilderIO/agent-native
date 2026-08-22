@@ -5,6 +5,7 @@ import {
   isElectron,
   getAppUrl,
   GOOGLE_PRIMARY_PROVIDER_CREDENTIAL_KEYS,
+  hasWorkspaceProviderOAuthCredentials,
   resolveGoogleSignInCredentials,
   resolveGoogleProviderCredentialCandidatesWithReader,
   resolveOAuthRedirectUri,
@@ -687,7 +688,12 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
 export const getGoogleStatus = defineEventHandler(async (event: H3Event) => {
   try {
     const session = await getSession(event);
-    return await getAuthStatus(session?.email, session?.orgId);
+    const status = await getAuthStatus(session?.email, session?.orgId);
+    const configured = await runWithRequestContext(
+      { userEmail: session?.email, orgId: session?.orgId },
+      () => hasWorkspaceProviderOAuthCredentials("google_calendar"),
+    );
+    return { ...status, configured };
   } catch (error: any) {
     setResponseStatus(event, 500);
     return { error: error.message };
