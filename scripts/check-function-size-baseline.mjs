@@ -214,18 +214,25 @@ if (!recorded) {
 
 const grown = [];
 const unrecorded = [];
+const oversizedGated = [];
 for (const [name, bytes] of Object.entries(measured).sort()) {
   const before = recorded[name];
-  if (before === undefined) {
-    if (
-      BUILD_FLAG_GATED_FUNCTIONS.has(name) &&
-      bytes <= GATED_FUNCTION_SIZE_CAP_BYTES
-    ) {
-      console.log(
-        `  gated ${name} ${mb(bytes)}MB (build-flag gated, within cap)`,
-      );
+  // The cap applies to a gated function whether or not it is recorded. Being
+  // in the baseline would otherwise buy it the general tolerance, and both of
+  // those bounds must be exceeded — so a 4KB trigger entry could reach 5MB
+  // unchallenged, which is the opposite of what the cap is for.
+  if (BUILD_FLAG_GATED_FUNCTIONS.has(name)) {
+    if (bytes > GATED_FUNCTION_SIZE_CAP_BYTES) {
+      console.log(`  BIG  ${name} ${mb(bytes)}MB (build-flag gated, over cap)`);
+      oversizedGated.push({ name, bytes });
       continue;
     }
+    console.log(
+      `  gated ${name} ${mb(bytes)}MB (build-flag gated, within cap)`,
+    );
+    continue;
+  }
+  if (before === undefined) {
     // A function the baseline has never seen is unmeasured, and unmeasured is
     // not "small": without this the build could emit a brand new 100MB
     // function and deploy it unchallenged.
@@ -263,6 +270,21 @@ if (missing.length > 0) {
   );
 }
 
+if (oversizedGated.length > 0) {
+  console.error(
+    `\n[size-baseline] ${site}: ${oversizedGated.length} build-flag-gated function(s) exceed the ` +
+      `${mb(GATED_FUNCTION_SIZE_CAP_BYTES)}MB cap:`,
+  );
+  for (const fn of oversizedGated) {
+    console.error(`  - ${fn.name}: ${mb(fn.bytes)}MB`);
+  }
+  console.error(
+    "\nThese are exempt from the new/removed checks only because they are " +
+      "trigger-sized. One this large is carrying a payload; find what entered " +
+      "its graph rather than raising the cap.",
+  );
+}
+
 if (unrecorded.length > 0) {
   console.error(
     `\n[size-baseline] ${site}: ${unrecorded.length} function(s) are not in the baseline:`,
@@ -292,7 +314,12 @@ if (grown.length > 0) {
   );
 }
 
-if (grown.length > 0 || unrecorded.length > 0 || missing.length > 0) {
+if (
+  grown.length > 0 ||
+  unrecorded.length > 0 ||
+  missing.length > 0 ||
+  oversizedGated.length > 0
+) {
   process.exit(1);
 }
 
