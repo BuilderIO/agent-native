@@ -112,7 +112,9 @@ const PATTERNS = [
     label: "Reported a list/read that is slow in production",
     fixedBy:
       "guard:no-blob-column-predicate + performance skill heavy-column rule (2026-08-22)",
-    re: /\b(?:takes?|taking|took)\b[^.!?]{0,60}\b(?:forever|ages|\d+\s*(?:s|sec|seconds))\b|\b(?:so|insanely|really|super)\s+slow\b|\bwhy (?:is|are).{0,40}\bslow\b/i,
+    // Anchored to a LIST/READ subject so an unrelated "the build is so slow"
+    // does not inflate the count the guard is measured against.
+    re: /\b(?:list|lists|query|queries|search|sidebar|dashboard|page|endpoint|request|chats?|threads?|results?|rows?|load(?:ing)?)\b[^.!?]{0,80}\b(?:takes? forever|so slow|insanely slow|really slow|super slow|\d+\s*(?:s|sec|seconds)\s*to\s*(?:load|populate|render))\b/i,
   },
   {
     key: "stopped-early",

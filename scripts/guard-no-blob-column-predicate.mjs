@@ -41,6 +41,14 @@
  *
  *   // guard:allow-blob-predicate — short reason
  *
+ * Known limitation, stated so a pass is not misread as coverage: this matches
+ * a PHYSICAL LINE. A predicate split across lines — the column at the end of
+ * one, `NOT LIKE '…'` at the start of the next — is invisible here. Closing
+ * that needs SQL-aware parsing of template literals, not a longer regex.
+ * The formatting this codebase actually produces keeps the comparison on one
+ * line (oxfmt does not break inside a template literal), which is why a
+ * line-oriented check is worth having rather than nothing.
+ *
  * Same diff-base contract as every guard built on changed-lines.mjs: if the
  * base cannot be resolved the guard exits GUARD_EXIT_COULD_NOT_RUN, which
  * run-guards.ts reports as SKIPPED, because a silent pass would look identical
@@ -81,19 +89,21 @@ const SKIPPED = /(\.spec\.|\.test\.|\/__tests__\/|\/dist\/|\/node_modules\/)/;
  * Small columns a list legitimately filters on — title, preview, name, slug,
  * email — are absent on purpose.
  */
-const HEAVY_COLUMN = String.raw`(?:\w*_)?(?:thread_?data|content|body|payload|config|layout|spec|tracks|snapshot|blob|html|markdown|messages|tool_?results|evidence_?json|options_?json|edits_?json|chapters_?json|json_?value|properties|data)`;
+const HEAVY_COLUMN = String.raw`(?:\w*_)?(?:thread_?data|content|body|payload|config|layout|spec|tracks|snapshot|blob|html|markdown|messages|metadata|tool_?results|evidence_?json|options_?json|edits_?json|chapters_?json|json_?value|properties|data)`;
 
 /**
  * `<heavy column> [NOT] LIKE/ILIKE '<literal>'` in raw SQL.
  *
  * Requires a quoted literal on the right-hand side. A `?` / `$1` placeholder is
- * a user search term and is intentionally not matched.
+ * a user search term and is intentionally not matched. The pattern is captured
+ * so an INTERPOLATED template (`LIKE '%${term}%'`) can be excluded below — that
+ * is a dynamic search term wearing a literal's punctuation.
  */
 const RAW_SQL_LITERAL_MATCH = new RegExp(
   // `\)?` catches the common wrapped form, `LOWER(documents.content) LIKE '…'`,
   // which is strictly worse than the bare column: it materialises a lowercased
   // copy of the detoasted blob per row on top of the fetch.
-  String.raw`\b${HEAVY_COLUMN}\b\s*\)?\s*(?:NOT\s+)?I?LIKE\s*['"\`]`,
+  String.raw`\b${HEAVY_COLUMN}\b\s*\)?\s*(?:NOT\s+)?I?LIKE\s*(['"\`][^'"\`]*)`,
   "i",
 );
 
@@ -102,9 +112,16 @@ const RAW_SQL_LITERAL_MATCH = new RegExp(
  * A variable second argument (a bound search term) is not matched.
  */
 const DRIZZLE_LITERAL_MATCH = new RegExp(
-  String.raw`\b(?:not)?i?like\s*\(\s*[\w.]*\b${HEAVY_COLUMN}\b\s*,\s*['"\`]`,
+  String.raw`\b(?:not)?i?like\s*\(\s*[\w.]*\b${HEAVY_COLUMN}\b\s*,\s*(['"\`][^'"\`]*)`,
   "i",
 );
+
+/**
+ * A quoted pattern containing `${` is built from a variable, so it is a search
+ * term rather than a fixed marker — the same reason a `?` placeholder is
+ * allowed. Flagging it would put the guard in the way of legitimate search.
+ */
+const INTERPOLATED = /\$\{/;
 
 const added = requireAddedLines(REPO_ROOT, "guard-no-blob-column-predicate");
 
@@ -124,12 +141,10 @@ for (const [absPath, lineNumbers] of added) {
   for (const lineNumber of lineNumbers) {
     const line = lines[lineNumber - 1];
     if (!line) continue;
-    if (
-      !RAW_SQL_LITERAL_MATCH.test(line) &&
-      !DRIZZLE_LITERAL_MATCH.test(line)
-    ) {
-      continue;
-    }
+    const match =
+      RAW_SQL_LITERAL_MATCH.exec(line) ?? DRIZZLE_LITERAL_MATCH.exec(line);
+    if (!match) continue;
+    if (INTERPOLATED.test(match[1] ?? "")) continue;
     if (PRAGMA.test(line) || PRAGMA.test(lines[lineNumber - 2] ?? "")) continue;
     violations.push({ rel, lineNumber, text: line.trim().slice(0, 140) });
   }
