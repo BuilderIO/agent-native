@@ -276,7 +276,32 @@ describe("createAgentRunner over a mocked runAgentLoop (no real model)", () => {
     const runLoop = vi.fn(
       async (opts: { send: (e: AgentChatEvent) => void }) => {
         opts.send({ type: "text", text: "Hello " });
-        opts.send({ type: "tool_start", tool: "search", input: {} });
+        opts.send({
+          type: "tool_start",
+          tool: "search",
+          id: "search-1",
+          input: {},
+        });
+        opts.send({
+          type: "tool_done",
+          tool: "search",
+          id: "search-1",
+          result: '{"ok":true}',
+          completedSideEffect: true,
+        });
+        opts.send({
+          type: "tool_start",
+          tool: "update",
+          id: "update-1",
+          input: {},
+        });
+        opts.send({
+          type: "tool_done",
+          tool: "update",
+          id: "update-1",
+          result: '{"ok":false}',
+          completedSideEffect: false,
+        });
         opts.send({ type: "text", text: "world" });
         return {
           inputTokens: 0,
@@ -298,7 +323,25 @@ describe("createAgentRunner over a mocked runAgentLoop (no real model)", () => {
 
     const out = await runner.runAgent({ prompt: "hi" });
     expect(out.text).toBe("Hello world");
-    expect(out.toolCalls).toEqual(["search"]);
+    expect(out.toolCalls).toEqual(["search", "update"]);
+    expect(out.toolCallDetails).toEqual([
+      {
+        name: "search",
+        input: {},
+        completed: true,
+        completedSideEffect: true,
+        isError: false,
+        result: '{"ok":true}',
+      },
+      {
+        name: "update",
+        input: {},
+        completed: true,
+        completedSideEffect: false,
+        isError: false,
+        result: '{"ok":false}',
+      },
+    ]);
     expect(out.ok).toBe(true);
 
     // End-to-end: a contains scorer over the real collected text.

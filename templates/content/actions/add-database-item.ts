@@ -4,6 +4,11 @@ import { z } from "zod";
 
 import type { ContentDatabaseRowMutationResult } from "../shared/api.js";
 import {
+  canonicalizeDatabasePropertyInput,
+  databasePropertyEntriesSchema,
+  databasePropertyValuesSchema,
+} from "./_database-property-input.js";
+import {
   createDatabaseRow,
   databaseMutationEnvelopeSchema,
 } from "./_database-row-mutation.js";
@@ -17,15 +22,14 @@ const schema = databaseMutationEnvelopeSchema.extend({
     .max(500)
     .optional()
     .describe("New row page title"),
-  propertyValues: z
-    .record(z.string(), z.unknown())
-    .optional()
-    .describe("Strict property values keyed by property definition ID"),
+  propertyValues: databasePropertyValuesSchema,
+  propertyEntries: databasePropertyEntriesSchema,
 });
 
 export default defineAction({
   description:
     "Create one row in an exact ordinary Content database using its discovered schema revision. Strictly validates every non-Blocks property, applies the side effect once per idempotency key, and returns a verified receipt with stable row identity.",
+  agentInputSchema: schema.omit({ propertyValues: true }),
   publicAgent: {
     expose: true,
     readOnly: false,
@@ -52,7 +56,9 @@ export default defineAction({
     },
   },
   run: async (args): Promise<ContentDatabaseRowMutationResult> => {
-    const result = await createDatabaseRow(args);
+    const result = await createDatabaseRow(
+      canonicalizeDatabasePropertyInput(args),
+    );
     const response = await getContentDatabaseResponse(
       result.receipt.target.databaseId,
       {
