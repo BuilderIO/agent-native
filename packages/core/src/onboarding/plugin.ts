@@ -23,6 +23,7 @@ import {
 import { appStateGet, appStatePut } from "../application-state/store.js";
 import { getOrgContext } from "../org/context.js";
 import { getSession } from "../server/auth.js";
+import { CredentialStoreUnavailableError } from "../server/credential-provider.js";
 import {
   awaitBootstrap,
   getH3App,
@@ -98,8 +99,11 @@ async function serializeSteps(
   // chain of credential/settings reads — walking them one at a time made this
   // route cost the SUM of every step's round trips against a remote database
   // instead of the slowest one. `Promise.all` preserves `steps` order.
-  return Promise.all(
+  const serialized = await Promise.all(
     steps.map(async (step) => {
+      if (!options.preview && step.isAvailable) {
+        if (!(await step.isAvailable(context))) return null;
+      }
       let complete = false;
       if (!options.preview) {
         try {
@@ -121,6 +125,9 @@ async function serializeSteps(
         methods: step.methods,
       };
     }),
+  );
+  return serialized.filter(
+    (step): step is OnboardingStepStatus => step !== null,
   );
 }
 
@@ -271,7 +278,8 @@ export function createOnboardingPlugin(
               allComplete: allRequiredComplete(statuses),
             };
           });
-        } catch {
+        } catch (error) {
+          if (error instanceof CredentialStoreUnavailableError) throw error;
           return { dismissed: false, allComplete: false };
         }
       }),

@@ -22,6 +22,7 @@ vi.mock("../org/context.js", () => ({
   getOrgContext: (...args: any[]) => getOrgContextMock(...args),
 }));
 
+import { CredentialStoreUnavailableError } from "../server/credential-provider.js";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -131,6 +132,48 @@ describe("onboarding plugin routes", () => {
     ]);
   });
 
+  it("omits unavailable steps without running their completion resolver", async () => {
+    const isComplete = vi.fn(() => true);
+    registerOnboardingStep({
+      id: "google",
+      order: 10,
+      title: "Connect Google",
+      description: "Requires managed Google OAuth.",
+      methods: [],
+      isAvailable: () => false,
+      isComplete,
+    });
+    const nitroApp = createNitroApp();
+    await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
+
+    const result = await dispatch(nitroApp, "/_agent-native/onboarding/steps");
+
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual([]);
+    expect(isComplete).not.toHaveBeenCalled();
+  });
+
+  it("propagates availability failures so callers can retry", async () => {
+    registerOnboardingStep({
+      id: "google",
+      order: 10,
+      title: "Connect Google",
+      description: "Requires managed Google OAuth.",
+      methods: [],
+      isAvailable: () => {
+        throw new Error("credential store unavailable");
+      },
+      isComplete: () => false,
+    });
+    const nitroApp = createNitroApp();
+    await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
+
+    const result = await dispatch(nitroApp, "/_agent-native/onboarding/steps");
+
+    expect(result.status).toBe(500);
+    expect(result.body).toEqual({ error: "credential store unavailable" });
+  });
+
   it("uses the same request context when reporting dismissed/allComplete state", async () => {
     registerRequestContextProbeStep();
     appStateGetMock.mockImplementation(async (_sessionId, key) =>
@@ -153,6 +196,33 @@ describe("onboarding plugin routes", () => {
       "alice@example.com",
       "onboarding:dismissed",
     );
+  });
+
+  it("propagates availability failures from the dismissed state route", async () => {
+    registerOnboardingStep({
+      id: "google",
+      order: 10,
+      title: "Connect Google",
+      description: "Requires managed Google OAuth.",
+      methods: [],
+      isAvailable: () => {
+        throw new CredentialStoreUnavailableError();
+      },
+      isComplete: () => false,
+    });
+    const nitroApp = createNitroApp();
+    await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/onboarding/dismissed",
+    );
+
+    expect(result.status).toBe(500);
+    expect(result.body).toEqual({
+      error:
+        "Could not read your saved connections — the app database did not answer. This is temporary; try again in a moment.",
+    });
   });
 
   it("keeps first-run onboarding tied to the signup cookie and completion state", async () => {

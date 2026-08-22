@@ -85,6 +85,7 @@ import {
   type CalendarColorMode,
 } from "@/lib/calendar-view-preferences";
 import { EVENT_CATEGORY_COLORS } from "@/lib/event-colors";
+import { shouldOfferGoogleOAuthSetup } from "@/lib/google-oauth-setup";
 import { cn } from "@/lib/utils";
 
 import { useCalendarContext } from "./AppLayout";
@@ -422,9 +423,11 @@ function ColorPickerPopover({
 
 function GoogleAccountsSection({
   accounts,
+  canAddAccount,
   onClose,
 }: {
   accounts: Array<{ email: string }>;
+  canAddAccount: boolean;
   onClose: () => void;
 }) {
   const t = useT();
@@ -507,19 +510,21 @@ function GoogleAccountsSection({
               {t("sidebar.googleCalendarSettings")}
             </TooltipContent>
           </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                onClick={handleAddAccount}
-                disabled={isGoogleDesktopAuthPending}
-                className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
-              >
-                <IconPlus className="h-3.5 w-3.5" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>{t("sidebar.addGoogleAccount")}</TooltipContent>
-          </Tooltip>
+          {canAddAccount && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={handleAddAccount}
+                  disabled={isGoogleDesktopAuthPending}
+                  className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+                >
+                  <IconPlus className="h-3.5 w-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>{t("sidebar.addGoogleAccount")}</TooltipContent>
+            </Tooltip>
+          )}
         </div>
       </div>
 
@@ -656,6 +661,10 @@ export function Sidebar({
   const removeExternal = useRemoveExternalCalendar();
   const updateExternalColor = useUpdateExternalCalendarColor();
   const isConnected = googleStatus.data?.connected ?? false;
+  const canOfferGoogleOAuthSetup = useMemo(
+    () => shouldOfferGoogleOAuthSetup(),
+    [],
+  );
   const [peopleGroupOpen, setPeopleGroupOpen] = useState(
     () => overlayPeople.length <= 2, // i18n-ignore scanner false positive
   );
@@ -878,14 +887,19 @@ export function Sidebar({
               </nav>
 
               {/* Google status / connect CTA */}
-              {!googleStatus.isLoading && !isConnected && (
-                <GoogleConnectSidebarButton />
-              )}
+              {!googleStatus.isLoading &&
+                !isConnected &&
+                (googleStatus.data?.configured === true ||
+                  canOfferGoogleOAuthSetup) && <GoogleConnectSidebarButton />}
 
               {isConnected &&
                 (googleStatus.data?.accounts?.length ?? 0) > 0 && (
                   <GoogleAccountsSection
                     accounts={googleStatus.data!.accounts!}
+                    canAddAccount={
+                      googleStatus.data?.configured === true ||
+                      canOfferGoogleOAuthSetup
+                    }
                     onClose={onClose}
                   />
                 )}

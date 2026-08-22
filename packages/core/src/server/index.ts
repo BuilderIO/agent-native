@@ -529,6 +529,8 @@ export {
   exchangeWorkspaceProviderOAuthCode,
   handleWorkspaceProviderOAuthCallback,
   handleWorkspaceProviderOAuthStart,
+  hasWorkspaceProviderOAuthCredentials,
+  isGoogleWorkspaceOAuthProvider,
   isWorkspaceProviderOAuthFlowValid,
   mergeWorkspaceOAuthValues,
   resolveWorkspaceProviderIdentity,
@@ -538,6 +540,7 @@ export {
 } from "./workspace-provider-oauth.js";
 
 export {
+  CredentialStoreUnavailableError,
   FeatureNotConfiguredError,
   hasBuilderPrivateKey,
   isBuilderEnvManaged,
