@@ -1180,6 +1180,18 @@ export function MultiTabAssistantChat({
     ],
   );
 
+  // A host that owns the model list still needs the internal selection updated:
+  // `selectedModel`/`selectedEngine` render from it and submitted turns read it,
+  // so routing a pick only to the host snaps the picker back to the previous
+  // model and sends that one.
+  const handleModelChangeWithHost = useCallback(
+    (model: string, engine: string) => {
+      handleModelChange(model, engine);
+      hostOnModelChange?.(model, engine);
+    },
+    [handleModelChange, hostOnModelChange],
+  );
+
   const handleEffortChange = useCallback(
     (effort: ReasoningEffort) => {
       const threadId = activeThreadIdRef.current;
@@ -2914,7 +2926,7 @@ export function MultiTabAssistantChat({
                   defaultModel={defaultModel}
                   availableModels={availableModels}
                   modelListLoading={modelListLoading}
-                  onModelChange={hostOnModelChange ?? handleModelChange}
+                  onModelChange={handleModelChangeWithHost}
                   onEffortChange={handleEffortChange}
                   onForkChat={() => handleForkChat(tabId)}
                   // Sub-agent tabs are read-only: sending a new message from the
