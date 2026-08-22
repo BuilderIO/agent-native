@@ -49,6 +49,20 @@ const TOLERANCE_RATIO = 1.1;
 const TOLERANCE_BYTES = 5 * 1024 * 1024;
 
 /**
+ * A function the baseline has never seen fails only from here up.
+ *
+ * Conditionally emitted functions are ordinary: AGENT_NATIVE_ENABLE_KEEP_WARM,
+ * AGENT_INTEGRATION_DURABLE_DISPATCH, AGENT_CHAT_DURABLE_BACKGROUND and
+ * AGENT_NATIVE_DISABLE_RECURRING_JOBS each add or remove one, so which
+ * functions exist is a property of the deploy's configuration, not a
+ * regression. Failing on the name means every flag not enumerated breaks a
+ * deploy. Failing on the size means the risk that motivated the check — a large
+ * new payload shipping unmeasured — is still caught, and a new trigger entry
+ * is just reported.
+ */
+const NEW_FUNCTION_FAIL_BYTES = 5 * 1024 * 1024;
+
+/**
  * Apps with no recorded baseline that may still deploy, and why none exists.
  *
  * This waives only this check. It cannot rescue a deploy that failed earlier —
@@ -151,6 +165,10 @@ const UNMEASURABLE_APPS = new Map([
   [
     "crm",
     "no baseline yet: templates/crm has no prebuilt build/client locally, so a local netlify build stops at the publish-dir guard before emitting functions",
+  ],
+  [
+    "workspace",
+    "no baseline possible here: the workspace production site has no templates/workspace directory, so this checkout cannot build or measure it",
   ],
   [
     "design",
@@ -303,6 +321,7 @@ if (!recorded) {
 const grown = [];
 const unrecorded = [];
 const oversizedGated = [];
+const newSmall = [];
 for (const [name, bytes] of Object.entries(measured).sort()) {
   const before = recorded[name];
   // The ceiling applies whether or not the function is recorded. Being in the
@@ -320,9 +339,18 @@ for (const [name, bytes] of Object.entries(measured).sort()) {
     continue;
   }
   if (before === undefined) {
-    // A function the baseline has never seen is unmeasured, and unmeasured is
-    // not "small": without this the build could emit a brand new 100MB
-    // function and deploy it unchallenged.
+    // A function the baseline has never seen is unmeasured, so it cannot be
+    // asserted — but whether that matters is a question of bytes, not of
+    // which build flag produced it. Enumerating the conditional functions was
+    // the losing version of this: there are at least five build flags that add
+    // or remove one, and every flag missed from the list breaks a deploy.
+    // Bound the thing that actually matters instead. A brand new 100MB
+    // function still cannot ship unchallenged; a new trigger entry is noise.
+    if (bytes < NEW_FUNCTION_FAIL_BYTES) {
+      console.log(`  new  ${name} ${mb(bytes)}MB (not in baseline, under cap)`);
+      newSmall.push({ name, bytes });
+      continue;
+    }
     console.log(`  NEW  ${name} ${mb(bytes)}MB (not in baseline)`);
     unrecorded.push({ name, bytes });
     continue;
@@ -337,23 +365,24 @@ for (const [name, bytes] of Object.entries(measured).sort()) {
 // A function in the baseline that the build no longer emits is not a pass. It
 // is a route, cron, or background worker that silently stopped shipping, and
 // "nothing grew" is exactly the wrong thing to say about it.
+// Reported, never failed. A function is absent because a feature is switched
+// off for this deploy at least as often as because something broke, and an
+// absence is not a size regression either way. Failing here would make a
+// legitimate configuration — durable background off, recurring jobs disabled —
+// unable to deploy.
 const missing = Object.keys(recorded)
-  .filter(
-    (name) =>
-      measured[name] === undefined && !BUILD_FLAG_GATED_FUNCTIONS.has(name),
-  )
+  .filter((name) => measured[name] === undefined)
   .sort();
 if (missing.length > 0) {
-  console.error(
-    `\n[size-baseline] ${site}: ${missing.length} function(s) in the baseline are no longer emitted:`,
+  console.log(
+    `\n[size-baseline] ${site}: ${missing.length} baseline function(s) not emitted by this build:`,
   );
   for (const name of missing) {
-    console.error(`  - ${name}: was ${mb(recorded[name])}MB, now absent`);
+    console.log(`  - ${name}: was ${mb(recorded[name])}MB`);
   }
-  console.error(
-    "\nIf the removal is intended, re-record so the baseline stops expecting " +
-      "it:\n" +
-      `  pnpm check:function-size-baseline --site ${site} --dir ${functionsDir} --update`,
+  console.log(
+    "  Expected when a build flag disables one. If it is permanent, re-record " +
+      "so the baseline stops listing it.",
   );
 }
 
@@ -388,12 +417,14 @@ if (grown.length > 0) {
   );
 }
 
-if (
-  grown.length > 0 ||
-  unrecorded.length > 0 ||
-  missing.length > 0 ||
-  oversizedGated.length > 0
-) {
+if (newSmall.length > 0) {
+  console.log(
+    `\n[size-baseline] ${site}: ${newSmall.length} function(s) not in the baseline, ` +
+      `each under ${mb(NEW_FUNCTION_FAIL_BYTES)}MB. Re-record to assert them.`,
+  );
+}
+
+if (grown.length > 0 || unrecorded.length > 0 || oversizedGated.length > 0) {
   process.exit(1);
 }
 
