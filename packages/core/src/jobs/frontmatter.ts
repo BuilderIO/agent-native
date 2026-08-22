@@ -114,6 +114,48 @@ const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n)?([\s\S]*)$/;
 const DELEGATED_POLICY_ID_RE = /^[a-z0-9][a-z0-9._:-]{0,127}$/i;
 const EXECUTION_ID_RE = /^[a-z0-9][a-z0-9._:-]{0,127}$/i;
 const REMOTE_ID_RE = /^[a-z0-9][a-z0-9@+._:/-]{0,511}$/i;
+const EXTRA_FRONTMATTER_LINES = Symbol("extraFrontmatterLines");
+const KNOWN_FRONTMATTER_FIELDS = new Set([
+  "schedule",
+  "enabled",
+  "timezone",
+  "createdBy",
+  "orgId",
+  "runAs",
+  "lastRun",
+  "lastCheck",
+  "lastStatus",
+  "lastError",
+  "nextRun",
+  "originScopeId",
+  "deliveryPlatform",
+  "deliveryDestination",
+  "deliveryThreadRef",
+  "deliveryTenantId",
+  "model",
+  "maxIterations",
+  "maxRunInputTokens",
+  "mcpTools",
+  "triggerType",
+  "event",
+  "condition",
+  "mode",
+  "domain",
+  "appId",
+  "executionHostId",
+  "executionEngine",
+  "executionCwd",
+  "remoteRequestId",
+  "remoteCommandId",
+  "remoteRunId",
+  "remoteAutomationRunId",
+  "remoteAdvanceSchedule",
+  "delegatedPolicyId",
+]);
+
+type JobFrontmatterWithExtras = JobFrontmatter & {
+  [EXTRA_FRONTMATTER_LINES]?: string[];
+};
 
 function assertBoundedFrontmatterValue(
   value: string | undefined,
@@ -333,15 +375,23 @@ export function parseJobResource(content: string): ParsedJobResource {
     };
   }
 
-  const meta: JobFrontmatter = { schedule: "", enabled: true };
+  const meta: JobFrontmatterWithExtras = { schedule: "", enabled: true };
+  const extraLines: string[] = [];
   for (const line of match[1].split(/\r?\n/)) {
     const colonIdx = line.indexOf(":");
-    if (colonIdx === -1) continue;
-    parseKnownField(
-      meta,
-      line.slice(0, colonIdx).trim(),
-      line.slice(colonIdx + 1),
-    );
+    if (colonIdx === -1) {
+      if (line.trim()) extraLines.push(line);
+      continue;
+    }
+    const key = line.slice(0, colonIdx).trim();
+    if (!KNOWN_FRONTMATTER_FIELDS.has(key)) {
+      extraLines.push(line);
+      continue;
+    }
+    parseKnownField(meta, key, line.slice(colonIdx + 1));
+  }
+  if (extraLines.length) {
+    meta[EXTRA_FRONTMATTER_LINES] = extraLines;
   }
 
   return {
@@ -471,6 +521,9 @@ export function buildJobResourceContent(
   if (meta.mcpTools?.length) {
     lines.push(`mcpTools: ${JSON.stringify(meta.mcpTools)}`);
   }
+  lines.push(
+    ...((meta as JobFrontmatterWithExtras)[EXTRA_FRONTMATTER_LINES] ?? []),
+  );
   lines.push("---", "", body);
   return lines.join("\n");
 }

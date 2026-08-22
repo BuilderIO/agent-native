@@ -20,6 +20,7 @@ import {
 } from "../server/lib/factory-automation-plan.js";
 import {
   assertUniqueSlackChannelForFactory,
+  builderSlackUserIdSchema,
   factoryConfigRowId,
   resolveUniqueFactoryId,
 } from "../server/lib/factory-scope.js";
@@ -40,8 +41,10 @@ export default defineAction({
   schema: z.object({
     name: z.string().trim().min(1).max(120),
     description: z.string().trim().max(500).optional(),
+    slackWorkspace: z.enum(["primary", "secondary"]).optional(),
     slackChannelId: z.string().trim().max(128).optional(),
     slackChannelName: z.string().trim().max(200).optional(),
+    builderSlackUserId: builderSlackUserIdSchema.optional(),
     observeSlack: z.boolean().optional(),
     repository: z.string().trim().max(256).optional(),
     observeGithub: z.boolean().optional(),
@@ -111,7 +114,16 @@ export default defineAction({
             orgId,
           });
 
-          if (automationPlan.hasConfig) {
+          const shouldWriteConfig =
+            automationPlan.hasConfig ||
+            Boolean(input.slackChannelId?.trim()) ||
+            Boolean(input.slackChannelName?.trim()) ||
+            Boolean(input.builderSlackUserId?.trim()) ||
+            Boolean(input.slackWorkspace) ||
+            Boolean(input.sentryOrgSlug?.trim()) ||
+            Boolean(input.sentryProjectSlug?.trim()) ||
+            Boolean(input.sentryEnvironment?.trim());
+          if (shouldWriteConfig) {
             const slackChannelId = input.slackChannelId?.trim() || null;
             await assertUniqueSlackChannelForFactory(
               tx as unknown as typeof db,
@@ -122,10 +134,11 @@ export default defineAction({
             await tx.insert(triageConfig).values({
               id: factoryConfigRowId(orgId, factoryId),
               factoryId,
-              slackWorkspace: "primary",
+              slackWorkspace:
+                input.slackWorkspace === "secondary" ? "secondary" : "primary",
               slackChannelId,
               slackChannelName: input.slackChannelName?.trim() || null,
-              builderSlackUserId: null,
+              builderSlackUserId: input.builderSlackUserId?.trim() || null,
               pollingEnabled: automationPlan.pollingEnabled ? 1 : 0,
               githubPollingEnabled: automationPlan.githubPollingEnabled ? 1 : 0,
               sentryPollingEnabled: automationPlan.sentryPollingEnabled ? 1 : 0,

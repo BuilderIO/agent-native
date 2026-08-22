@@ -9,16 +9,22 @@ import {
   IconExternalLink,
   IconSearch,
 } from "@tabler/icons-react";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useRef } from "react";
 import { useSearchParams } from "react-router";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
+type FactoryAuditCounts = {
+  newlyObserved: number;
+  scanned: number;
+  investigated: number;
+  held: number;
+  dispatched: number;
+  failed: number;
+};
+
 type FactoryAuditEvent = {
   id: string;
-  automationRunId: string | null;
-  automationThreadId: string | null;
-  automationName: string | null;
   itemId: string | null;
   source: string | null;
   sourceUrl: string | null;
@@ -30,36 +36,50 @@ type FactoryAuditEvent = {
   createdAt: string;
 };
 
+type FactoryAuditItem = {
+  itemId: string;
+  source: string | null;
+  sourceUrl: string | null;
+  title: string;
+  outcome: "held" | "dispatched" | "failed" | "inspected";
+  status: string;
+  rationale: string | null;
+  dispatchError: string | null;
+  clearBug: boolean | null;
+  productUx: boolean | null;
+  ownerArea: string | null;
+  guards: string | null;
+  events: FactoryAuditEvent[];
+};
+
+type FactoryAuditTraceStep = {
+  id: string;
+  action: string;
+  summary: string;
+  status: string;
+  createdAt: string;
+  count: number;
+  purpose: string | null;
+};
+
 type FactoryAuditRun = {
   id: string;
   automation: string;
+  displayName: string | null;
   runId: string | null;
   threadId: string | null;
   status: string;
   startedAt: number;
   finishedAt: number | null;
   error: string | null;
-  events: FactoryAuditEvent[];
+  counts: FactoryAuditCounts;
+  items: FactoryAuditItem[];
+  trace: FactoryAuditTraceStep[];
 };
 
 type FactoryAuditResponse = {
   runs: FactoryAuditRun[];
   count: number;
-};
-
-type AuditItemGroup = {
-  key: string;
-  events: FactoryAuditEvent[];
-  itemId: string | null;
-  source: string | null;
-  sourceUrl: string | null;
-  title: string;
-  outcome: string;
-  status: string;
-  latestAt: string;
-  checks: number;
-  decision: FactoryAuditEvent | null;
-  externalAction: FactoryAuditEvent | null;
 };
 
 export function FactoryAuditView({
@@ -76,7 +96,13 @@ export function FactoryAuditView({
   const auditQuery = useActionQuery<FactoryAuditResponse>(
     "list-factory-audit",
     { factoryId, limit: 30 },
-    { staleTime: 5_000 },
+    {
+      staleTime: 5_000,
+      refetchInterval: (query) =>
+        query.state.data?.runs.some((run) => run.status === "running")
+          ? 1_000
+          : false,
+    },
   );
   const refetchAudit = auditQuery.refetch;
   const runs = auditQuery.data?.runs ?? [];
@@ -140,14 +166,9 @@ export function FactoryAuditView({
         <div className="grid gap-4 lg:grid-cols-[minmax(240px,.4fr)_minmax(0,1fr)]">
           <Card>
             <CardHeader className="px-4 py-3">
-              <div className="flex items-center justify-between gap-3">
-                <CardTitle className="text-sm">
-                  {t("factoryRoute.auditRuns")}
-                </CardTitle>
-                <span className="text-xs text-muted-foreground">
-                  {runs.length}
-                </span>
-              </div>
+              <CardTitle className="text-sm">
+                {t("factoryRoute.auditRuns")}
+              </CardTitle>
             </CardHeader>
             <CardContent className="p-0">
               <div className="grid gap-1.5 p-2">
@@ -167,17 +188,16 @@ export function FactoryAuditView({
                     >
                       <div className="flex items-center justify-between gap-3">
                         <span className="min-w-0 truncate text-sm font-medium">
-                          {formatAutomationName(run.automation)}
+                          {automationLabel(run)}
                         </span>
-                        <AuditStatus status={run.status} />
+                        <AuditStatus status={runHeadlineStatus(run)} />
                       </div>
                       <div className="mt-1 flex items-center justify-between gap-2 text-xs text-muted-foreground">
                         <span className="shrink-0">
                           {formatAuditAge(run.startedAt)}
                         </span>
-                        <span className="shrink-0">
-                          {run.events.length}{" "}
-                          {formatAuditCountLabel(run.events.length)}
+                        <span className="min-w-0 truncate">
+                          {formatRunHeadline(run.counts, t)}
                         </span>
                       </div>
                     </button>
@@ -192,16 +212,19 @@ export function FactoryAuditView({
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
                   <CardTitle className="truncate text-base">
-                    {selectedRun &&
-                      formatAutomationName(selectedRun.automation)}
+                    {selectedRun && automationLabel(selectedRun)}
                   </CardTitle>
                   {selectedRun && (
                     <p className="mt-1 truncate text-xs text-muted-foreground">
                       {formatAuditAge(selectedRun.startedAt)}
+                      <span aria-hidden="true"> · </span>
+                      {formatRunHeadline(selectedRun.counts, t)}
                     </p>
                   )}
                 </div>
-                {selectedRun && <AuditStatus status={selectedRun.status} />}
+                {selectedRun && (
+                  <AuditStatus status={runHeadlineStatus(selectedRun)} />
+                )}
               </div>
             </CardHeader>
             <CardContent className="pt-4">
@@ -224,35 +247,17 @@ function AuditRunDetail({
   factoryId: string;
 }) {
   const t = useT();
-  const groups = useMemo(() => groupAuditEvents(run.events), [run.events]);
-  const itemCount = new Set(
-    run.events
-      .map((event) => event.itemId)
-      .filter((itemId): itemId is string => Boolean(itemId)),
-  ).size;
-  const decisionCount = run.events.filter(
-    (event) => event.kind === "decision",
-  ).length;
-  const actionCount = run.events.filter(
-    (event) => event.kind === "external_action",
-  ).length;
+  const items = run.items ?? [];
+  const trace = run.trace ?? [];
+  const failedItems = items.filter((item) => item.outcome === "failed");
 
   return (
     <>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
-        <span>
-          {itemCount} {itemCount === 1 ? "item" : "items"}
-        </span>
-        <span>
-          {decisionCount} {decisionCount === 1 ? "decision" : "decisions"}
-        </span>
-        <span>
-          {actionCount} {actionCount === 1 ? "action" : "actions"}
-        </span>
         {run.threadId && (
           <a
             href={`/chat/${encodeURIComponent(run.threadId)}`}
-            className="ml-auto inline-flex items-center text-primary hover:underline"
+            className="inline-flex items-center text-primary hover:underline"
             onClick={(event) => {
               if (
                 event.metaKey ||
@@ -272,167 +277,194 @@ function AuditRunDetail({
         )}
       </div>
 
-      {run.error && (
+      {(run.error || failedItems.length > 0) && (
         <div className="mt-4 rounded-md bg-destructive/5 p-3 text-sm">
           <p className="font-medium text-destructive">
             {t("factoryRoute.auditRunError")}
           </p>
-          <p className="mt-1 break-words text-muted-foreground">{run.error}</p>
+          {run.error ? (
+            <p className="mt-1 break-words text-muted-foreground">
+              {run.error}
+            </p>
+          ) : null}
+          {failedItems.map((item) => (
+            <p
+              key={item.itemId}
+              className="mt-1 break-words text-muted-foreground"
+            >
+              {item.title}
+              {item.dispatchError ? ` — ${item.dispatchError}` : ""}
+            </p>
+          ))}
         </div>
       )}
 
-      <div className="mt-5">
-        <div className="mb-2 flex items-center justify-between gap-3">
-          <h3 className="text-sm font-medium">Activity</h3>
-          <span className="text-xs text-muted-foreground">
-            {groups.length} {groups.length === 1 ? "thing" : "things"}
-          </span>
-        </div>
-        {groups.length === 0 ? (
+      <div className="mt-5 grid gap-1.5">
+        {items.length === 0 ? (
           <p className="rounded-md bg-muted/20 p-4 text-sm text-muted-foreground">
             {t("factoryRoute.auditNoEvents")}
           </p>
         ) : (
-          <div className="grid gap-1.5">
-            {groups.map((group) => (
-              <AuditItemRow
-                key={group.key}
-                group={group}
-                factoryId={factoryId}
-              />
-            ))}
-          </div>
+          items.map((item) => (
+            <AuditItemRow key={item.itemId} item={item} factoryId={factoryId} />
+          ))
         )}
       </div>
+
+      {trace.length > 0 && (
+        <details className="group mt-5 overflow-hidden rounded-lg border border-border bg-muted/20">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-lg px-3 py-3 text-sm hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+            <span>{t("factoryRoute.auditTrace")}</span>
+            <IconChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform duration-200 ease-[var(--ease-collapse)] group-open:rotate-180 motion-reduce:transition-none" />
+          </summary>
+          <div className="space-y-2 px-4 pb-4">
+            {trace.map((step) => (
+              <div
+                key={step.id}
+                className="flex items-center justify-between gap-3 text-xs text-muted-foreground"
+              >
+                <span className="min-w-0 truncate">{step.summary}</span>
+                <time className="shrink-0">
+                  {formatAuditAge(step.createdAt)}
+                </time>
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
     </>
   );
 }
 
 function AuditItemRow({
-  group,
+  item,
   factoryId,
 }: {
-  group: AuditItemGroup;
+  item: FactoryAuditItem;
   factoryId: string;
 }) {
   const t = useT();
-  const decision = group.decision;
-  const rationale = decision?.summary ?? group.externalAction?.summary ?? null;
-  const sourceLink = resolveAuditSourceLink(group);
+  const sourceLink = resolveAuditSourceLink(item);
 
   return (
     <details className="group overflow-hidden rounded-lg border border-border bg-muted/20">
       <summary className="flex cursor-pointer list-none items-center gap-3 rounded-lg px-3 py-3 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
-        <AuditSourceIcon source={group.source} />
+        <AuditSourceIcon source={item.source} />
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium">{group.title}</p>
+          <p className="truncate text-sm font-medium">{item.title}</p>
           <p className="mt-0.5 truncate text-xs text-muted-foreground">
-            {group.outcome}
-            <span aria-hidden="true"> · </span>
-            {group.checks} {formatAuditCountLabel(group.checks)}
+            {formatItemOutcome(item.outcome, t)}
           </p>
         </div>
         <span className="hidden shrink-0 text-[11px] text-muted-foreground sm:block">
-          {formatAuditSource(group.source)}
+          {formatAuditSource(item.source)}
         </span>
-        <AuditStatus status={group.status} compact />
+        <AuditStatus status={item.status} compact />
         <IconChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform duration-200 ease-[var(--ease-collapse)] group-open:rotate-180 motion-reduce:transition-none" />
       </summary>
       <div className="bg-muted/20 px-4 pb-4 pt-3">
         <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
           <div>
             <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-              {rationale ? "Why" : "What happened"}
+              {item.rationale || item.dispatchError
+                ? t("factoryRoute.auditWhy")
+                : t("factoryRoute.auditWhatHappened")}
             </p>
             <p className="mt-1 max-w-[72ch] text-sm leading-6">
-              {rationale ??
-                "The source was inspected, but no action was taken."}
+              {item.dispatchError ??
+                item.rationale ??
+                t("factoryRoute.auditInspectedOnly")}
             </p>
           </div>
-          <AuditDecisionFacts event={decision} />
+          <AuditDecisionFacts item={item} />
         </div>
 
-        <div className="mt-4 rounded-md bg-background/40 p-3">
-          <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-            Trace
-          </p>
-          <div className="mt-2 space-y-2">
-            {group.events.map((event) => (
-              <div
-                key={event.id}
-                className="flex items-center justify-between gap-3 text-xs text-muted-foreground"
-              >
-                <span className="flex min-w-0 items-center gap-2">
-                  <AuditStatus status={event.status} compact />
-                  <span className="truncate">
-                    {formatAuditAction(event.action)}
+        {item.events.length > 0 && (
+          <div className="mt-4 rounded-md bg-background/40 p-3">
+            <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              {t("factoryRoute.auditTrace")}
+            </p>
+            <div className="mt-2 space-y-2">
+              {item.events.map((entry) => (
+                <div
+                  key={entry.id}
+                  className="flex items-center justify-between gap-3 text-xs text-muted-foreground"
+                >
+                  <span className="flex min-w-0 items-center gap-2">
+                    <AuditStatus status={entry.status} compact />
+                    <span className="truncate">
+                      {formatAuditAction(entry.action)}
+                    </span>
                   </span>
-                </span>
-                <time className="shrink-0">
-                  {formatAuditAge(event.createdAt)}
-                </time>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {(group.itemId || sourceLink) && (
-          <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 bg-background/40 px-3 py-3 text-xs">
-            {group.itemId && (
-              <a
-                href={`/factory?factoryId=${encodeURIComponent(factoryId)}&tab=inbox&itemId=${encodeURIComponent(group.itemId)}`}
-                className="text-primary hover:underline"
-              >
-                {t("factoryRoute.auditOpenItem")}
-              </a>
-            )}
-            {sourceLink && (
-              <a
-                href={sourceLink}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1 text-primary hover:underline"
-              >
-                {t("factoryRoute.auditOpenSource")}
-                <IconExternalLink className="size-3" />
-              </a>
-            )}
+                  <time className="shrink-0">
+                    {formatAuditAge(entry.createdAt)}
+                  </time>
+                </div>
+              ))}
+            </div>
           </div>
         )}
+
+        <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 bg-background/40 px-3 py-3 text-xs">
+          <a
+            href={`/factory?factoryId=${encodeURIComponent(factoryId)}&tab=inbox&itemId=${encodeURIComponent(item.itemId)}`}
+            className="text-primary hover:underline"
+          >
+            {t("factoryRoute.auditOpenItem")}
+          </a>
+          {sourceLink && (
+            <a
+              href={sourceLink}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 text-primary hover:underline"
+            >
+              {t("factoryRoute.auditOpenSource")}
+              <IconExternalLink className="size-3" />
+            </a>
+          )}
+        </div>
       </div>
     </details>
   );
 }
 
-function AuditDecisionFacts({ event }: { event: FactoryAuditEvent | null }) {
+function AuditDecisionFacts({ item }: { item: FactoryAuditItem }) {
   const t = useT();
-  if (!event) return null;
-  const clearBug = readBooleanDetail(event.details, "clearBug");
-  const productUx = readBooleanDetail(event.details, "productUxImplications");
-  const ownerArea = readStringDetail(event.details, "ownerOwnedArea");
-  const guards = readGuardSummary(event.details.guardResults);
-  if (clearBug === null && productUx === null && !ownerArea && !guards)
+  if (
+    item.clearBug === null &&
+    item.productUx === null &&
+    !item.ownerArea &&
+    !item.guards
+  ) {
     return null;
+  }
 
   return (
     <div className="flex flex-wrap content-start gap-x-3 gap-y-1 text-xs text-muted-foreground sm:max-w-[260px] sm:justify-end">
-      {clearBug !== null && (
+      {item.clearBug !== null && (
         <AuditFact
           label={t("factoryRoute.auditClearBug")}
-          value={yesNo(clearBug)}
+          value={yesNo(item.clearBug)}
         />
       )}
-      {productUx !== null && (
+      {item.productUx !== null && (
         <AuditFact
           label={t("factoryRoute.auditUxImpact")}
-          value={yesNo(productUx)}
+          value={yesNo(item.productUx)}
         />
       )}
-      {ownerArea && (
-        <AuditFact label={t("factoryRoute.auditOwnerArea")} value={ownerArea} />
+      {item.ownerArea && (
+        <AuditFact
+          label={t("factoryRoute.auditOwnerArea")}
+          value={item.ownerArea}
+        />
       )}
-      {guards && (
-        <AuditFact label={t("factoryRoute.auditGuardsLabel")} value={guards} />
+      {item.guards && (
+        <AuditFact
+          label={t("factoryRoute.auditGuardsLabel")}
+          value={item.guards}
+        />
       )}
     </div>
   );
@@ -502,117 +534,51 @@ function AuditSkeleton({ rows }: { rows: number }) {
   );
 }
 
-function groupAuditEvents(events: FactoryAuditEvent[]): AuditItemGroup[] {
-  const grouped = new Map<string, FactoryAuditEvent[]>();
-  for (const event of events) {
-    const key = event.itemId ?? `event:${event.id}`;
-    const current = grouped.get(key) ?? [];
-    current.push(event);
-    grouped.set(key, current);
+function runHeadlineStatus(run: FactoryAuditRun): string {
+  if (run.status === "error" || (run.counts?.failed ?? 0) > 0) return "error";
+  if (run.status === "running") return "running";
+  if ((run.counts?.held ?? 0) > 0 && (run.counts?.dispatched ?? 0) === 0) {
+    return "skipped";
   }
-
-  return [...grouped.entries()]
-    .map(([key, groupEvents]) => {
-      const decision =
-        groupEvents.find((event) => event.kind === "decision") ?? null;
-      const externalAction =
-        groupEvents.find((event) => event.kind === "external_action") ?? null;
-      const titleEvent =
-        groupEvents.find((event) => event.action === "get-triage-item") ??
-        groupEvents.find(
-          (event) => event.action === "get-slack-feedback-context",
-        ) ??
-        groupEvents.find((event) => event.action === "list-triage-items") ??
-        groupEvents.find((event) => event.kind === "observed") ??
-        groupEvents[0];
-      const latestAt = groupEvents.reduce(
-        (latest, event) =>
-          new Date(event.createdAt).getTime() > new Date(latest).getTime()
-            ? event.createdAt
-            : latest,
-        groupEvents[0].createdAt,
-      );
-
-      return {
-        key,
-        events: groupEvents,
-        itemId: titleEvent.itemId,
-        source: titleEvent.source,
-        sourceUrl: titleEvent.sourceUrl,
-        title: formatAuditSubject(titleEvent),
-        outcome: formatAuditOutcome(groupEvents, decision, externalAction),
-        status: formatGroupStatus(groupEvents, decision, externalAction),
-        latestAt,
-        checks: groupEvents.filter(
-          (event) => event.kind === "read" || event.kind === "observed",
-        ).length,
-        decision,
-        externalAction,
-      };
-    })
-    .sort(
-      (left, right) =>
-        new Date(right.latestAt).getTime() - new Date(left.latestAt).getTime(),
-    );
+  return run.status;
 }
 
-function formatAuditSubject(event: FactoryAuditEvent): string {
-  if (event.action === "get-slack-feedback-context") {
-    const messageCount = readNumberDetail(event.details, "messageCount");
-    return `Slack thread${messageCount === null ? "" : ` · ${messageCount} ${messageCount === 1 ? "message" : "messages"}`}`;
-  }
-  const summary = event.summary.trim();
-  const subject = summary.replace(/^(Inspected|Read)\s+/i, "");
-  return truncateAuditText(subject || formatAuditAction(event.action), 110);
-}
-
-function formatAuditOutcome(
-  events: FactoryAuditEvent[],
-  decision: FactoryAuditEvent | null,
-  externalAction: FactoryAuditEvent | null,
+function formatRunHeadline(
+  counts: FactoryAuditCounts | undefined,
+  t: ReturnType<typeof useT>,
 ): string {
-  if (externalAction) {
-    const provider = readStringDetail(externalAction.details, "provider");
-    if (provider === "bot-tag") return "Builder tagged in Slack";
-    if (provider === "builder-http") return "Builder fix submitted";
-    return "Action taken";
-  }
-  if (decision) {
-    const ownerArea = readStringDetail(decision.details, "ownerOwnedArea");
-    const productUx = readBooleanDetail(
-      decision.details,
-      "productUxImplications",
+  if (!counts) return "";
+  const parts: string[] = [];
+  if (counts.newlyObserved > 0) {
+    parts.push(
+      t("factoryRoute.auditObserved", { count: counts.newlyObserved }),
     );
-    if (decision.status === "skipped" || ownerArea || productUx === true) {
-      return "Held for review";
-    }
-    if (readBooleanDetail(decision.details, "clearBug") === true) {
-      return "Builder fix selected";
-    }
-    return "Decision recorded";
+  } else {
+    parts.push(t("factoryRoute.auditNoNew"));
   }
-  if (
-    events.some(
-      (event) =>
-        event.kind === "observed" && /no new|no result/i.test(event.summary),
-    )
-  ) {
-    return "No new items";
+  if (counts.scanned > 0 && counts.scanned !== counts.newlyObserved) {
+    parts.push(t("factoryRoute.auditScanned", { count: counts.scanned }));
   }
-  return "Inspected only";
+  if (counts.failed > 0) {
+    parts.push(t("factoryRoute.auditFailed", { count: counts.failed }));
+  }
+  if (counts.dispatched > 0) {
+    parts.push(t("factoryRoute.auditDispatched", { count: counts.dispatched }));
+  }
+  if (counts.held > 0) {
+    parts.push(t("factoryRoute.auditHeld", { count: counts.held }));
+  }
+  return parts.join(" · ");
 }
 
-function formatGroupStatus(
-  events: FactoryAuditEvent[],
-  decision: FactoryAuditEvent | null,
-  externalAction: FactoryAuditEvent | null,
+function formatItemOutcome(
+  outcome: FactoryAuditItem["outcome"],
+  t: ReturnType<typeof useT>,
 ): string {
-  if (events.some((event) => event.status === "error")) return "error";
-  if (externalAction) return externalAction.status;
-  if (decision) return decision.status;
-  return events.some((event) => event.status === "running")
-    ? "running"
-    : "success";
+  if (outcome === "failed") return t("factoryRoute.auditOutcomeFailed");
+  if (outcome === "dispatched") return t("factoryRoute.auditOutcomeDispatched");
+  if (outcome === "held") return t("factoryRoute.auditOutcomeHeld");
+  return t("factoryRoute.auditOutcomeInspected");
 }
 
 function formatAuditSource(source: string | null): string {
@@ -623,14 +589,9 @@ function formatAuditSource(source: string | null): string {
   return source ? formatAuditLabel(source) : "Factory";
 }
 
-function resolveAuditSourceLink(group: AuditItemGroup): string | null {
-  const storedUrl =
-    group.sourceUrl ??
-    group.events.find((event) => event.sourceUrl)?.sourceUrl ??
-    null;
-  if (storedUrl) return storedUrl;
-
-  for (const event of group.events) {
+function resolveAuditSourceLink(item: FactoryAuditItem): string | null {
+  if (item.sourceUrl) return item.sourceUrl;
+  for (const event of item.events) {
     const channelId = readStringDetail(event.details, "channelId");
     const threadTs = readStringDetail(event.details, "threadTs");
     if (channelId && threadTs) return slackThreadUrl(channelId, threadTs);
@@ -641,6 +602,12 @@ function resolveAuditSourceLink(group: AuditItemGroup): string | null {
 function slackThreadUrl(channelId: string, threadTs: string): string {
   const compactTs = threadTs.replace(".", "");
   return `https://slack.com/archives/${encodeURIComponent(channelId)}/p${compactTs}?thread_ts=${encodeURIComponent(threadTs)}`;
+}
+
+function automationLabel(run: FactoryAuditRun): string {
+  if (run.displayName) return run.displayName;
+  const segments = run.automation.split("/");
+  return formatAutomationName(segments[segments.length - 1] || run.automation);
 }
 
 function formatAutomationName(value: string): string {
@@ -663,10 +630,6 @@ function formatAutomationName(value: string): string {
 
 function formatAuditAction(value: string): string {
   return formatAuditLabel(value).replace(/^Poll /, "Check ");
-}
-
-function formatAuditCountLabel(value: number): string {
-  return value === 1 ? "check" : "checks";
 }
 
 function formatAuditAge(value: string | number) {
@@ -695,42 +658,11 @@ function formatAuditLabel(value: string): string {
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
-function truncateAuditText(value: string, maxLength: number): string {
-  return value.length > maxLength ? `${value.slice(0, maxLength - 1)}…` : value;
-}
-
-function readBooleanDetail(
-  details: Record<string, unknown>,
-  key: string,
-): boolean | null {
-  return typeof details[key] === "boolean" ? details[key] : null;
-}
-
-function readNumberDetail(
-  details: Record<string, unknown>,
-  key: string,
-): number | null {
-  return typeof details[key] === "number" ? details[key] : null;
-}
-
 function readStringDetail(
   details: Record<string, unknown>,
   key: string,
 ): string | null {
   return typeof details[key] === "string" && details[key] ? details[key] : null;
-}
-
-function readGuardSummary(value: unknown): string | null {
-  if (!Array.isArray(value) || value.length === 0) return null;
-  const passed = value.filter(
-    (guard): guard is { passed: boolean } =>
-      typeof guard === "object" &&
-      guard !== null &&
-      "passed" in guard &&
-      typeof guard.passed === "boolean" &&
-      guard.passed,
-  ).length;
-  return `${passed}/${value.length} passed`;
 }
 
 function yesNo(value: boolean): string {

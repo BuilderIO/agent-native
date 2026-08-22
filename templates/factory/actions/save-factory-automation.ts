@@ -63,8 +63,11 @@ export default defineAction({
     );
     if (!definition) throw new Error("Factory automation not found.");
     if (
-      readAutomationFactoryId(definition.meta, definition.resource.content) !==
-      factoryId
+      readAutomationFactoryId(
+        definition.meta,
+        definition.resource.content,
+        definition.resource.path,
+      ) !== factoryId
     ) {
       throw new Error("Factory automation not found.");
     }

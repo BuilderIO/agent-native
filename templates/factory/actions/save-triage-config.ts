@@ -13,6 +13,7 @@ import {
 } from "../server/lib/factory-automation-plan.js";
 import {
   assertUniqueSlackChannelForFactory,
+  builderSlackUserIdSchema,
   factoryConfigRowId,
   factoryIdSchema,
   readTriageConfigRow,
@@ -36,14 +37,7 @@ export default defineAction({
     slackWorkspace: workspaceSchema.optional(),
     slackChannelId: z.string().trim().max(128).optional(),
     slackChannelName: z.string().trim().max(200).optional(),
-    builderSlackUserId: z
-      .string()
-      .trim()
-      .max(32)
-      .refine((value) => value === "" || /^[UW][A-Z0-9]+$/i.test(value), {
-        message: "Builder Slack member id must look like U01234567.",
-      })
-      .optional(),
+    builderSlackUserId: builderSlackUserIdSchema.optional(),
     pollingEnabled: z.boolean().optional(),
     githubPollingEnabled: z.boolean().optional(),
     sentryPollingEnabled: z.boolean().optional(),

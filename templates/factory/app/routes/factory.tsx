@@ -16,6 +16,7 @@ import {
   IconPlus,
   IconRefresh,
 } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
@@ -140,6 +141,12 @@ type FactoryAutomation = {
   updatedAt?: string | number | null;
   runs?: FactoryAutomationRun[] | null;
   pastRuns?: FactoryAutomationRun[] | null;
+};
+
+type RunFactoryAutomationResult = {
+  queued: true;
+  runId: string;
+  automationRunId: string;
 };
 
 const DEFAULT_FACTORY_ID = "product-feedback";
@@ -745,9 +752,9 @@ export default function FactoryRoute() {
         ) : activeTab === "rules" ? (
           <RulesView factoryId={factoryId} t={t} />
         ) : activeTab === "settings" ? (
-          <FactorySettingsView factoryId={factoryId} />
+          <FactorySettingsView key={factoryId} factoryId={factoryId} />
         ) : activeTab === "automations" ? (
-          <AutomationsView factoryId={factoryId} t={t} />
+          <AutomationsView key={factoryId} factoryId={factoryId} t={t} />
         ) : activeTab === "audit" ? (
           <FactoryAuditView
             factoryId={factoryId}
@@ -922,13 +929,22 @@ function AutomationsView({
 }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [draft, setDraft] = useState<FactoryAutomation | null>(null);
+  const [queuedRuns, setQueuedRuns] = useState<Record<string, string>>({});
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    setQueuedRuns({});
+  }, [factoryId]);
   const selectedId = searchParams.get("automationId");
   const automationsQuery = useActionQuery<FactoryAutomation[]>(
     "list-factory-automations",
     { factoryId },
+    { refetchInterval: Object.keys(queuedRuns).length > 0 ? 1_000 : false },
   );
   const saveMutation = useActionMutation("save-factory-automation");
-  const runMutation = useActionMutation("run-factory-automation");
+  const runMutation = useActionMutation<
+    RunFactoryAutomationResult,
+    { factoryId: string; automationId: string }
+  >("run-factory-automation", { skipActionQueryInvalidation: true });
   const {
     availableModels,
     defaultModel,
@@ -1008,6 +1024,28 @@ function AutomationsView({
     });
   }, [selected, selectedId]);
 
+  useEffect(() => {
+    if (Object.keys(queuedRuns).length === 0 || !response) return;
+    const finishedAutomationIds = Object.entries(queuedRuns).flatMap(
+      ([automationId, runId]) => {
+        const automation = response.find((entry) => entry.id === automationId);
+        const run = automation?.runs?.find((entry) => entry.id === runId);
+        return run && run.status !== "running" ? [automationId] : [];
+      },
+    );
+    if (finishedAutomationIds.length === 0) return;
+    setQueuedRuns((current) => {
+      const next = { ...current };
+      for (const automationId of finishedAutomationIds) {
+        delete next[automationId];
+      }
+      return next;
+    });
+    void queryClient.invalidateQueries({
+      queryKey: ["action", "list-factory-audit"],
+    });
+  }, [queryClient, queuedRuns, response]);
+
   async function saveAutomation() {
     if (!draft) return;
     try {
@@ -1034,8 +1072,33 @@ function AutomationsView({
 
   async function runAutomation() {
     if (!draft) return;
-    await runMutation.mutateAsync({ factoryId, automationId: draft.id });
-    await automationsQuery.refetch();
+    try {
+      const result = await runMutation.mutateAsync({
+        factoryId,
+        automationId: draft.id,
+      });
+      setQueuedRuns((current) => ({
+        ...current,
+        [draft.id]: result.automationRunId,
+      }));
+      setSearchParams(
+        (current) => {
+          const next = new URLSearchParams(current);
+          next.set("auditRunId", result.automationRunId);
+          return next;
+        },
+        { replace: true },
+      );
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "list-factory-audit"],
+      });
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t("factoryRoute.automationRunFailed"),
+      );
+    }
   }
 
   return (
@@ -1067,6 +1130,7 @@ function AutomationsView({
               >
                 {automations.map((automation) => {
                   const selected = activeAutomationId === automation.id;
+                  const running = Boolean(queuedRuns[automation.id]);
                   return (
                     <button
                       key={automation.id}
@@ -1083,15 +1147,20 @@ function AutomationsView({
                       onClick={() => selectAutomation(automation.id)}
                     >
                       <span
-                        className="block truncate text-sm font-medium"
+                        className="block break-words text-sm font-medium"
                         title={automation.name}
                       >
                         {automation.displayName}
                       </span>
-                      <span className="mt-1 block truncate text-xs text-muted-foreground">
-                        {automation.enabled
-                          ? t("factoryRoute.automationEnabled")
-                          : t("factoryRoute.automationDisabled")}
+                      <span className="mt-1 flex items-center gap-1.5 truncate text-xs text-muted-foreground">
+                        {running && (
+                          <IconLoader2 className="size-3 animate-spin motion-reduce:animate-none" />
+                        )}
+                        {running
+                          ? t("factoryRoute.automationRunning")
+                          : automation.enabled
+                            ? t("factoryRoute.automationEnabled")
+                            : t("factoryRoute.automationDisabled")}
                       </span>
                     </button>
                   );
@@ -1126,7 +1195,11 @@ function AutomationsView({
                   variant="outline"
                   size="sm"
                   onClick={() => void runAutomation()}
-                  disabled={runMutation.isPending || draft.canUpdate === false}
+                  disabled={
+                    runMutation.isPending ||
+                    Boolean(queuedRuns[draft.id]) ||
+                    draft.canUpdate === false
+                  }
                 >
                   {runMutation.isPending && (
                     <IconLoader2 className="animate-spin" />

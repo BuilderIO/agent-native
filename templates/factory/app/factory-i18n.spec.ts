@@ -38,6 +38,7 @@ const requiredKeys = [
   "factoryRoute.defaultFactoryLabel",
   "factoryRoute.savedFactoryLabel",
   "factoryRoute.auditGuardsLabel",
+  "factoryRoute.auditTrace",
   "factoryRoute.factorySettings",
 ] as const;
 

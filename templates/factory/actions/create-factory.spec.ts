@@ -129,7 +129,9 @@ describe("create-factory", () => {
     const result = await action.run(
       {
         name: "Support triage",
+        slackWorkspace: "secondary",
         slackChannelId: "C123",
+        builderSlackUserId: "U096KN3EL2Y",
         observeSlack: true,
         repository: "agent-native/agent-native",
       },
@@ -144,6 +146,12 @@ describe("create-factory", () => {
       ]),
     );
     expect(insertedConfig).toHaveLength(1);
+    expect(insertedConfig[0]).toMatchObject({
+      slackWorkspace: "secondary",
+      slackChannelId: "C123",
+      builderSlackUserId: "U096KN3EL2Y",
+      pollingEnabled: 1,
+    });
     expect(assertUniqueSlackChannelForFactoryMock).toHaveBeenCalled();
     expect(syncFactoryAutomationEnabledStatesMock).toHaveBeenCalledWith(
       "owner@example.com",

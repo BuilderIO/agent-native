@@ -670,6 +670,7 @@ export default defineAction({
             details: {
               provider: "bot-tag",
               runId,
+              factoryRunId: runId,
               relatedItemIds: relatedItems.map(({ id }) => id),
             },
           },
@@ -743,6 +744,7 @@ export default defineAction({
           details: {
             provider: "builder-http",
             runId,
+            factoryRunId: runId,
             providerTaskId: result.providerTaskId ?? null,
           },
         },
@@ -765,6 +767,25 @@ export default defineAction({
           heartbeatAt: new Date().toISOString(),
         })
         .where(and(eq(triageRuns.id, runId), eq(triageRuns.orgId, orgId)));
+      await recordFactoryAudit(
+        context,
+        { userEmail, orgId },
+        {
+          action: "start-builder-for-item",
+          kind: "external_action",
+          factoryId,
+          itemId,
+          source: item.source,
+          sourceUrl: item.sourceUrl,
+          status: "error",
+          summary: `Builder dispatch failed: ${message}`,
+          details: {
+            provider: isSlack ? "bot-tag" : "builder-http",
+            runId,
+            factoryRunId: runId,
+          },
+        },
+      );
       throw new Error(
         `Factory Builder dispatch failed after recording the run: ${message}`,
       );

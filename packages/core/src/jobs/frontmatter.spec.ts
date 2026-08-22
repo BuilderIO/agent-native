@@ -58,6 +58,30 @@ describe("job resource frontmatter", () => {
     });
   });
 
+  it("preserves application-owned fields during a scheduler rewrite", () => {
+    const content = `---
+schedule: "0 9 * * *"
+enabled: true
+triggerType: schedule
+domain: "factory"
+factoryId: enzo-test-factory-3
+displayName: My Slack triage
+---
+
+Run the automation.`;
+    const parsed = parseJobResource(content);
+    const rewrittenMeta = {
+      ...parsed.meta,
+      lastRun: "2026-08-21T17:30:01.097Z",
+    };
+
+    const rewritten = buildJobResourceContent(rewrittenMeta, parsed.body);
+
+    expect(rewritten).toContain("factoryId: enzo-test-factory-3");
+    expect(rewritten).toContain("displayName: My Slack triage");
+    expect(rewritten).toContain('lastRun: "2026-08-21T17:30:01.097Z"');
+  });
+
   it("distinguishes legacy jobs from explicit scheduled automations", () => {
     const legacy = `---
 schedule: "0 9 * * *"

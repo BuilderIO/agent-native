@@ -39,8 +39,6 @@ import {
 } from "../triage/review-skill-alignment.js";
 
 const LEGACY_JOB_PATH = "jobs/factory-observation-scheduler.md";
-const DEFAULT_SLACK_CHANNEL_ID = "C0ATH3CCZT4";
-const DEFAULT_SLACK_CHANNEL_NAME = "product-agent-native-feedback";
 const FAILURE_ALERT_COOLDOWN_MS = 15 * 60_000;
 
 type AutomationRunFinishedEvent = {
@@ -627,6 +625,7 @@ export async function syncFactoryAutomationEnabledStates(
           readAutomationFactoryId(
             definition.meta,
             definition.resource.content,
+            definition.resource.path,
           ) === factoryId,
       )
       .map(async (definition) => {
@@ -687,16 +686,15 @@ async function ensureDefaultTriageConfig(
   }
   const now = new Date().toISOString();
   const repository = defaultRepository();
-  const pollingEnabled = 1;
   const githubPollingEnabled = defaultGithubPollingEnabled() ? 1 : 0;
   await db.insert(triageConfig).values({
     id: factoryConfigRowId(orgId, factoryId),
     factoryId,
     slackWorkspace: "primary",
-    slackChannelId: DEFAULT_SLACK_CHANNEL_ID,
-    slackChannelName: DEFAULT_SLACK_CHANNEL_NAME,
+    slackChannelId: null,
+    slackChannelName: null,
     builderSlackUserId: null,
-    pollingEnabled,
+    pollingEnabled: 0,
     githubPollingEnabled,
     sentryPollingEnabled: 0,
     lastSlackTs: null,

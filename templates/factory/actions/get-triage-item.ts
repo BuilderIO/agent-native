@@ -95,6 +95,8 @@ export default defineAction({
           feedbackCount: matchingFeedback.length,
           runCount: runs.length,
           coverage: item.coverage,
+          itemTitle: item.title,
+          itemSummary: item.summary,
         },
       },
       factoryId,

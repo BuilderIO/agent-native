@@ -46,8 +46,10 @@ vi.mock("../localization/user-timezone.js", () => ({
   resolveUserSchedulingTimezone: resolveUserSchedulingTimezoneMock,
 }));
 
-vi.mock("../jobs/run-history.js", () => ({
-  deleteAutomationRuns: deleteAutomationRunsMock,
+const queueAutomationRunNowMock = vi.hoisted(() => vi.fn());
+
+vi.mock("../jobs/run-now.js", () => ({
+  queueAutomationRunNow: queueAutomationRunNowMock,
 }));
 
 vi.mock("../integrations/remote-devices-store.js", () => ({
@@ -67,6 +69,11 @@ describe("manage-automations tool", () => {
     refreshEventSubscriptionsMock.mockResolvedValue(undefined);
     resolveUserSchedulingTimezoneMock.mockResolvedValue("America/Los_Angeles");
     deleteAutomationRunsMock.mockResolvedValue(undefined);
+    queueAutomationRunNowMock.mockResolvedValue({
+      queued: true,
+      runId: "run-1",
+      automationRunId: "run-1",
+    });
     listRemoteDevicesForOwnerMock.mockResolvedValue([]);
     getRemoteExecutionCapabilitiesMock.mockReturnValue(null);
   });
@@ -438,6 +445,22 @@ Record the signal.`,
     );
 
     expect(result).toBe("Error: an automation cannot run another automation.");
-    expect(resourceGetByPathMock).not.toHaveBeenCalled();
+    expect(queueAutomationRunNowMock).not.toHaveBeenCalled();
+  });
+
+  it("runs a nested automation by path without sending an empty name", async () => {
+    const path = "jobs/factories/enzo-test-factory-3/factory-slack-feedback.md";
+
+    await tool().run({ action: "run-now", path, scope: "organization" });
+
+    expect(queueAutomationRunNowMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        path,
+        scope: "organization",
+      }),
+    );
+    expect(queueAutomationRunNowMock.mock.calls[0]?.[0]).not.toHaveProperty(
+      "name",
+    );
   });
 });

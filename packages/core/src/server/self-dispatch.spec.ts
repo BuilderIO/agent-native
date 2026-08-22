@@ -13,6 +13,33 @@ describe("fireInternalDispatch", () => {
     vi.restoreAllMocks();
   });
 
+  it("uses the Agent Native dev port when retrying outside a request", () => {
+    const keys = [
+      "DEPLOY_PRIME_URL",
+      "DEPLOY_URL",
+      "URL",
+      "APP_URL",
+      "VITE_APP_URL",
+      "BETTER_AUTH_URL",
+      "VITE_BETTER_AUTH_URL",
+      "PORT",
+    ] as const;
+    const previous = Object.fromEntries(
+      keys.map((key) => [key, process.env[key]]),
+    );
+    for (const key of keys) delete process.env[key];
+
+    try {
+      expect(resolveSelfDispatchBaseUrl()).toBe("http://localhost:3000");
+    } finally {
+      for (const key of keys) {
+        const value = previous[key];
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  });
+
   it("rejects quickly returned non-2xx processor responses", async () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     globalThis.fetch = vi.fn(async () => ({
