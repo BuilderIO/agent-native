@@ -108,6 +108,13 @@ const PATTERNS = [
     re: /\b(?:cache|caching|cache-control|stale-while-revalidate|SWR|CDN)\b[^.!?]{0,140}\b(?:wrong|broken|slow|again|regression|revert|reverted|no-cache|no-store|max-age=0|must-revalidate|fire|every few weeks)\b/i,
   },
   {
+    key: "slow-list-query",
+    label: "Reported a list/read that is slow in production",
+    fixedBy:
+      "guard:no-blob-column-predicate + performance skill heavy-column rule (2026-08-22)",
+    re: /\b(?:takes?|taking|took)\b[^.!?]{0,60}\b(?:forever|ages|\d+\s*(?:s|sec|seconds))\b|\b(?:so|insanely|really|super)\s+slow\b|\bwhy (?:is|are).{0,40}\bslow\b/i,
+  },
+  {
     key: "stopped-early",
     label: "Stopped mid-task / queued instead of doing",
     fixedBy: ".agents/skills/verifying-changes (2026-07-31)",
