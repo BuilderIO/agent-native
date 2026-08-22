@@ -752,9 +752,9 @@ export default function FactoryRoute() {
         ) : activeTab === "rules" ? (
           <RulesView factoryId={factoryId} t={t} />
         ) : activeTab === "settings" ? (
-          <FactorySettingsView factoryId={factoryId} />
+          <FactorySettingsView key={factoryId} factoryId={factoryId} />
         ) : activeTab === "automations" ? (
-          <AutomationsView factoryId={factoryId} t={t} />
+          <AutomationsView key={factoryId} factoryId={factoryId} t={t} />
         ) : activeTab === "audit" ? (
           <FactoryAuditView
             factoryId={factoryId}
@@ -931,6 +931,9 @@ function AutomationsView({
   const [draft, setDraft] = useState<FactoryAutomation | null>(null);
   const [queuedRuns, setQueuedRuns] = useState<Record<string, string>>({});
   const queryClient = useQueryClient();
+  useEffect(() => {
+    setQueuedRuns({});
+  }, [factoryId]);
   const selectedId = searchParams.get("automationId");
   const automationsQuery = useActionQuery<FactoryAutomation[]>(
     "list-factory-automations",

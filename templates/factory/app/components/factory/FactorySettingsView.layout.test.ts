@@ -24,8 +24,24 @@ describe("FactorySettingsView load gating", () => {
       /if \(!configLoaded\) \{\s*toast\.error\(t\("triage\.settingsError"\)\);\s*return;/,
     );
     expect(source).toContain(
-      "automationFailureAlertEmail: automationFailureAlertEmail.trim()",
+      "automationFailureAlertEmail: form.automationFailureAlertEmail.trim()",
     );
+    expect(source).toContain("channelId: form.channelId.trim()");
+    expect(source).toContain("repository: form.repository.trim()");
+    expect(source).toContain(
+      "builderSlackUserId: form.builderSlackUserId.trim()",
+    );
+  });
+});
+
+describe("FactorySettingsView factory switching", () => {
+  it("resets hydration when factoryId changes so Factory B cannot inherit Factory A edits", () => {
+    const source = readViewSource();
+
+    expect(source).toContain("hydratedRef.current = false");
+    expect(source).toContain("dirtyRef.current = false");
+    expect(source).toContain("setBaseline(null)");
+    expect(source).toContain("}, [factoryId]);");
   });
 });
 

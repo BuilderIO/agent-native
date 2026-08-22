@@ -77,6 +77,20 @@ function isSameForm(a: TriageFormState, b: TriageFormState) {
   );
 }
 
+function trimmedForm(form: TriageFormState): TriageFormState {
+  return {
+    ...form,
+    channelId: form.channelId.trim(),
+    channelName: form.channelName.trim(),
+    builderSlackUserId: form.builderSlackUserId.trim(),
+    repository: form.repository.trim(),
+    sentryOrgSlug: form.sentryOrgSlug.trim(),
+    sentryProjectSlug: form.sentryProjectSlug.trim(),
+    sentryEnvironment: form.sentryEnvironment.trim(),
+    automationFailureAlertEmail: form.automationFailureAlertEmail.trim(),
+  };
+}
+
 type FactoryAutomationHealth = {
   status: "healthy" | "stale" | "error" | "no-data";
   lastCheckedAt?: number | null;
@@ -142,6 +156,12 @@ export function FactorySettingsView({
   }, []);
 
   useEffect(() => {
+    hydratedRef.current = false;
+    dirtyRef.current = false;
+    setBaseline(null);
+  }, [factoryId]);
+
+  useEffect(() => {
     const data = query.data as TriageConfig | undefined;
     if (!data) return;
     // A background refetch must never overwrite edits the user has not saved
@@ -181,26 +201,23 @@ export function FactorySettingsView({
       toast.error(t("triage.settingsError"));
       return;
     }
-    const saved: TriageFormState = {
-      ...currentForm,
-      automationFailureAlertEmail: automationFailureAlertEmail.trim(),
-    };
+    const saved = trimmedForm(currentForm);
     try {
       await mutation.mutateAsync({
         factoryId,
-        slackWorkspace: workspace,
-        slackChannelId: channelId,
-        slackChannelName: channelName,
-        builderSlackUserId,
-        repository,
-        pollingEnabled: polling,
-        githubPollingEnabled: githubPolling,
-        sentryPollingEnabled: sentryPolling,
-        sentryOrgSlug,
-        sentryProjectSlug,
-        sentryEnvironment,
-        automationFailureAlertsEnabled,
-        automationFailureAlertEmail: automationFailureAlertEmail.trim(),
+        slackWorkspace: saved.workspace,
+        slackChannelId: saved.channelId,
+        slackChannelName: saved.channelName,
+        builderSlackUserId: saved.builderSlackUserId,
+        repository: saved.repository,
+        pollingEnabled: saved.polling,
+        githubPollingEnabled: saved.githubPolling,
+        sentryPollingEnabled: saved.sentryPolling,
+        sentryOrgSlug: saved.sentryOrgSlug,
+        sentryProjectSlug: saved.sentryProjectSlug,
+        sentryEnvironment: saved.sentryEnvironment,
+        automationFailureAlertsEnabled: saved.automationFailureAlertsEnabled,
+        automationFailureAlertEmail: saved.automationFailureAlertEmail,
       });
       applyForm(saved);
       setBaseline(saved);

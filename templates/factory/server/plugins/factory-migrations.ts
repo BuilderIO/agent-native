@@ -79,6 +79,26 @@ async function writeReconciledFactoryConfig(
   }
 }
 
+async function reconcileDefaultFactoryConfigRows(): Promise<void> {
+  const { getDbExec } = await import("@agent-native/core/db");
+  const exec = getDbExec();
+  const defaultFactoryId = "product-feedback";
+  const configRows = await exec.execute({
+    sql: `SELECT * FROM factory_config
+          WHERE factory_id IS NULL OR factory_id = '' OR factory_id = ?`,
+    args: [defaultFactoryId],
+  });
+  const rows = (configRows.rows ?? [])
+    .map((row) => factoryConfigSqlRowFromQuery(row as Record<string, unknown>))
+    .filter((row): row is FactoryConfigSqlRow => row !== null);
+  for (const plan of planDefaultFactoryConfigReconciliation(
+    rows,
+    defaultFactoryId,
+  )) {
+    await writeReconciledFactoryConfig(exec, plan);
+  }
+}
+
 const migrations = [
   {
     version: 1,
@@ -456,36 +476,24 @@ const migrations = [
   {
     version: 24,
     name: "factory-config-org-slack-channel-unique",
-    sql: `
-      CREATE UNIQUE INDEX IF NOT EXISTS factory_config_org_slack_channel_idx
-        ON factory_config (org_id, slack_channel_id)
-        WHERE slack_channel_id IS NOT NULL AND slack_channel_id != '';
-    `,
+    sql: {},
+    run: async () => {
+      const { getDbExec } = await import("@agent-native/core/db");
+      await reconcileDefaultFactoryConfigRows();
+      await getDbExec().execute({
+        sql: `CREATE UNIQUE INDEX IF NOT EXISTS factory_config_org_slack_channel_idx
+          ON factory_config (org_id, slack_channel_id)
+          WHERE slack_channel_id IS NOT NULL AND slack_channel_id != ''`,
+        args: [],
+      });
+    },
   },
   {
     version: 25,
     name: "factory-config-reconcile-legacy-rows",
     sql: {},
     run: async () => {
-      const { getDbExec } = await import("@agent-native/core/db");
-      const exec = getDbExec();
-      const defaultFactoryId = "product-feedback";
-      const configRows = await exec.execute({
-        sql: `SELECT * FROM factory_config
-          WHERE factory_id IS NULL OR factory_id = '' OR factory_id = ?`,
-        args: [defaultFactoryId],
-      });
-      const rows = (configRows.rows ?? [])
-        .map((row) =>
-          factoryConfigSqlRowFromQuery(row as Record<string, unknown>),
-        )
-        .filter((row): row is FactoryConfigSqlRow => row !== null);
-      for (const plan of planDefaultFactoryConfigReconciliation(
-        rows,
-        defaultFactoryId,
-      )) {
-        await writeReconciledFactoryConfig(exec, plan);
-      }
+      await reconcileDefaultFactoryConfigRows();
     },
   },
 ];
