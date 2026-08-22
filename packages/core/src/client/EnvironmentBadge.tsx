@@ -317,13 +317,19 @@ export function EnvironmentBadge({
 }: {
   showProduction?: boolean;
 } = {}) {
+  const [hydrated, setHydrated] = useState(false);
   const config = useMemo(injectedAgentNativeConfig, []);
   const hostname =
     typeof window === "undefined" ? undefined : window.location.hostname;
   const environment = resolveEnvironmentChannel(config, hostname);
   const targets = resolveEnvironmentTargets(hostname);
 
+  useEffect(() => {
+    setHydrated(true);
+  }, []);
+
   if (
+    !hydrated ||
     typeof window === "undefined" ||
     window.parent !== window ||
     !environment
