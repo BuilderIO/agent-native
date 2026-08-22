@@ -58,13 +58,24 @@ function documentedKeys(path: string): Set<string> {
   );
 }
 
-const sites = await api<Site[]>("listSites", {});
+// listSites is paginated; one page silently hides sites past the first.
+const sites: Site[] = [];
+for (let page = 1; ; page += 1) {
+  const batch = await api<Site[]>("listSites", { page, per_page: 100 });
+  sites.push(...batch);
+  if (batch.length < 100) break;
+}
 let gapCount = 0;
 
 for (const site of sites.sort((a, b) => a.name.localeCompare(b.name))) {
   const matched = /^agent-native-(.+)$/.exec(site.name);
   if (!matched) continue;
-  const template = matched[1] === "images" ? "assets" : matched[1];
+  // A few site names do not match their template directory.
+  const SITE_TO_TEMPLATE: Record<string, string> = {
+    images: "assets",
+    starter: "chat",
+  };
+  const template = SITE_TO_TEMPLATE[matched[1]] ?? matched[1];
   const examplePath = `${REPO}/templates/${template}/.env.example`;
   if (!existsSync(examplePath)) continue;
 
