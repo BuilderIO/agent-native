@@ -310,6 +310,8 @@ export interface BookingLink {
   isActive: boolean;
   /** Sharing visibility: private (default), org, or public */
   visibility?: "private" | "org" | "public";
+  /** Effective management role for the current caller, when loaded from a list. */
+  accessRole?: "owner" | "admin" | "editor" | "commenter" | "viewer";
   createdAt: string;
   updatedAt: string;
 }
