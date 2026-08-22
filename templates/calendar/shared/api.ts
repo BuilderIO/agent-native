@@ -318,7 +318,12 @@ export interface BookingLink {
 
 export interface GoogleAuthStatus {
   connected: boolean;
-  accounts: Array<{ email: string; expiresAt?: string; photoUrl?: string }>;
+  accounts: Array<{
+    email: string;
+    expiresAt?: string;
+    photoUrl?: string;
+    shared?: boolean;
+  }>;
 }
 
 export interface ExternalCalendar {

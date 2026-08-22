@@ -7,6 +7,7 @@ import { appApiPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import { usePerAppChatOpen } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { InvitationBanner, OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
@@ -2564,7 +2565,12 @@ function AccountPopover({
   onToggleAccount,
   onRemoveAccount,
 }: {
-  accounts: Array<{ email: string; displayName?: string; photoUrl?: string }>;
+  accounts: Array<{
+    email: string;
+    displayName?: string;
+    photoUrl?: string;
+    shared?: boolean;
+  }>;
   activeAccounts: Set<string>;
   onToggleAccount: (email: string) => void;
   onRemoveAccount: (email: string) => void;
@@ -2667,15 +2673,17 @@ function AccountPopover({
                     </span>
                   )}
               </span>
-              <button
-                onClick={() => {
-                  onRemoveAccount(account.email);
-                  disconnectGoogle.mutate(account.email);
-                }}
-                className="opacity-0 group-hover:opacity-100 text-[11px] text-muted-foreground hover:text-red-400 transition-all"
-              >
-                {t("mail.accounts.remove")}
-              </button>
+              {!account.shared && (
+                <button
+                  onClick={() => {
+                    onRemoveAccount(account.email);
+                    disconnectGoogle.mutate(account.email);
+                  }}
+                  className="opacity-0 group-hover:opacity-100 text-[11px] text-muted-foreground hover:text-destructive transition-all"
+                >
+                  {t("mail.accounts.remove")}
+                </button>
+              )}
             </div>
           );
         })}
@@ -2683,7 +2691,14 @@ function AccountPopover({
 
       <div className="border-t border-border/30 px-3 py-2">
         <button
-          onClick={() => setWantAuthUrl(true)}
+          onClick={() => {
+            const returnPath = `${window.location.pathname}${window.location.search}`;
+            startWorkspaceProviderOAuth("gmail", {
+              appId: "mail",
+              returnPath,
+              scope: "user",
+            });
+          }}
           disabled={authUrl.isLoading || authUrl.isFetching}
           className="flex items-center gap-2 w-full text-[13px] text-muted-foreground hover:text-foreground transition-colors py-1"
         >

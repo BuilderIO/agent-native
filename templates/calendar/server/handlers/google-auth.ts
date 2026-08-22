@@ -708,7 +708,9 @@ export const disconnectGoogle = defineEventHandler(async (event: H3Event) => {
       return { error: "email is required" };
     }
     const owned = await getAuthStatus(session.email, session.orgId);
-    const isOwned = owned.accounts.some((a) => a.email === targetEmail);
+    const isOwned = owned.accounts.some(
+      (a) => a.email === targetEmail && !a.shared,
+    );
     if (!isOwned) {
       setResponseStatus(event, 403);
       return { error: "Cannot disconnect an account you don't own" };

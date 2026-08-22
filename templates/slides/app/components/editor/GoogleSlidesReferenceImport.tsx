@@ -1,7 +1,7 @@
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { useActionMutation } from "@agent-native/core/client/hooks";
-import { oauthRedirectUri } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
+import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
 import {
   IconBrandGoogleDrive,
   IconFolderOpen,
@@ -163,68 +163,16 @@ export function GoogleSlidesReferenceImport({
     [onBusyChange],
   );
 
-  const connect = useCallback(async () => {
+  const connect = useCallback(() => {
     setConnecting(true);
     reportBusy(true);
     setError(null);
-    const popup = window.open(
-      "about:blank",
-      "google-docs-oauth",
-      "popup,width=520,height=720",
-    );
-    try {
-      const callbackUrl = oauthRedirectUri(
-        "/_agent-native/google-docs/callback",
-      );
-      const authUrl = new URL(endpoint("/_agent-native/google-docs/auth-url"));
-      authUrl.searchParams.set("redirect_uri", callbackUrl);
-      authUrl.searchParams.set(
-        "return",
-        window.location.pathname + window.location.search,
-      );
-      const response = await fetch(authUrl.toString(), {
-        credentials: "same-origin",
-      });
-      const result = await readJson<{
-        url?: string;
-        error?: string;
-        message?: string;
-      }>(response);
-      if (!result.ok) throw result.error;
-      const data = result.data;
-      if (!response.ok || !data?.url) {
-        throw new Error(
-          errorFromResponse(
-            response,
-            data ?? {},
-            "Could not start Google OAuth",
-          ),
-        );
-      }
-      if (!popup) {
-        window.location.href = data.url;
-        return;
-      }
-      popup.location.href = data.url;
-
-      const deadline = Date.now() + 90_000;
-      while (Date.now() < deadline && !popup.closed) {
-        await new Promise((resolve) => window.setTimeout(resolve, 1200));
-        const next = await refreshStatus();
-        if (next?.connected) {
-          popup.close();
-          return;
-        }
-      }
-      await refreshStatus();
-    } catch (caught) {
-      popup?.close();
-      setError(caught instanceof Error ? caught.message : String(caught));
-    } finally {
-      setConnecting(false);
-      reportBusy(false);
-    }
-  }, [refreshStatus, reportBusy]);
+    startWorkspaceProviderOAuth("google_drive", {
+      appId: "slides",
+      returnPath: `${window.location.pathname}${window.location.search}`,
+      scope: "user",
+    });
+  }, [reportBusy]);
 
   const chooseDocument = useCallback(async () => {
     setChoosing(true);

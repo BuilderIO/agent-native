@@ -21,6 +21,7 @@ const getRequestOrgIdMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/server", () => ({
   getOAuthAccounts: getOAuthAccountsMock,
+  getCredentialContext: vi.fn(() => null),
   getRequestOrgId: getRequestOrgIdMock,
   isOAuthConnected: vi.fn(),
   resolveGoogleProviderCredentialCandidatesWithReader: async ({

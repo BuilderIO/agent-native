@@ -4,6 +4,7 @@ import {
   oauthRedirectUri,
 } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
+import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
 import {
   IconMail,
   IconX,
@@ -25,6 +26,7 @@ import {
   useGoogleAddAccountUrl,
   useDisconnectGoogle,
 } from "@/hooks/use-google-auth";
+import { shouldOfferGoogleOAuthSetup } from "@/lib/google-oauth-setup";
 
 interface EnvKeyStatus {
   key: string;
@@ -76,6 +78,15 @@ const ADD_ACCOUNT_POLL_ABORT_MS = Math.max(
   ADD_ACCOUNT_POLL_INTERVAL_MS * 4,
 );
 
+function startManagedGoogleOAuth(): void {
+  const returnPath = `${window.location.pathname}${window.location.search}`;
+  startWorkspaceProviderOAuth("gmail", {
+    appId: "mail",
+    returnPath,
+    scope: "user",
+  });
+}
+
 function newDesktopOAuthVerifier(): string | null {
   const cryptoApi = globalThis.crypto;
   const randomUuid = cryptoApi?.randomUUID;
@@ -125,6 +136,7 @@ export function GoogleConnectBanner({
 
   const accounts = googleStatus.data?.accounts ?? [];
   const hasAccounts = accounts.length > 0;
+  const canOfferOAuthSetup = useMemo(() => shouldOfferGoogleOAuthSetup(), []);
 
   const isBuilderFrame = useMemo(() => isInBuilderFrame(), []);
   const useDesktopAuth = useMemo(
@@ -336,13 +348,15 @@ export function GoogleConnectBanner({
   useEffect(() => {
     if (authUrl.error) {
       setWantAuthUrl(false);
-      setShowWizard(true);
-      fetchStatus();
+      if (canOfferOAuthSetup) {
+        setShowWizard(true);
+        fetchStatus();
+      }
       setAuthError(
         (authUrl.error as any)?.message || t("mail.error.failedToConnect"),
       );
     }
-  }, [authUrl.error, fetchStatus]);
+  }, [authUrl.error, canOfferOAuthSetup, fetchStatus]);
 
   const allConfigured =
     envStatus.length > 0 && envStatus.every((k) => k.configured);
@@ -424,7 +438,7 @@ export function GoogleConnectBanner({
       signInViaDesktopBrowser();
       return;
     }
-    setWantAuthUrl(true);
+    startManagedGoogleOAuth();
   }
 
   function handleAddAccount() {
@@ -432,7 +446,7 @@ export function GoogleConnectBanner({
       signInViaDesktopBrowser(true);
       return;
     }
-    setWantAddAccount(true);
+    startManagedGoogleOAuth();
   }
 
   async function handleJsonUpload(file: File) {
@@ -531,7 +545,7 @@ export function GoogleConnectBanner({
           <p className="mt-3 text-xs text-red-400">{authError}</p>
         )}
 
-        {showWizard && !allConfigured && (
+        {showWizard && !allConfigured && canOfferOAuthSetup && (
           <div className="mt-10 w-full max-w-lg text-start">
             <p className="text-xs text-muted-foreground mb-3">
               {t("mail.googleConnect.setupIntro")}
@@ -711,12 +725,14 @@ export function GoogleConnectBanner({
                 className="group flex items-center gap-1.5 text-xs text-foreground/60"
               >
                 <span className="truncate">{account.email}</span>
-                <button
-                  onClick={() => disconnectGoogle.mutate(account.email)}
-                  className="opacity-0 group-hover:opacity-100 transition-opacity text-foreground/30 hover:text-foreground/60"
-                >
-                  <IconX className="h-3 w-3" />
-                </button>
+                {!account.shared && (
+                  <button
+                    onClick={() => disconnectGoogle.mutate(account.email)}
+                    className="opacity-0 group-hover:opacity-100 transition-opacity text-foreground/30 hover:text-foreground/60"
+                  >
+                    <IconX className="h-3 w-3" />
+                  </button>
+                )}
               </div>
             ))}
             <button
@@ -763,7 +779,7 @@ export function GoogleConnectBanner({
         </div>
 
         <div className="flex items-center gap-1.5 shrink-0">
-          {showWizard && !allConfigured ? (
+          {showWizard && !allConfigured && canOfferOAuthSetup ? (
             <Button
               size="sm"
               variant="outline"
@@ -817,7 +833,7 @@ export function GoogleConnectBanner({
       />
 
       {/* Inline setup wizard */}
-      {showWizard && !allConfigured && (
+      {showWizard && !allConfigured && canOfferOAuthSetup && (
         <div className="px-4 pb-4 pt-1 max-w-2xl">
           <p className="text-xs text-muted-foreground mb-3">
             {t("mail.googleConnect.setupIntro")}

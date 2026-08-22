@@ -16,6 +16,10 @@ vi.mock("@agent-native/core/client/host", () => ({
   oauthRedirectUri: (path: string) => `https://slides.example${path}`,
 }));
 
+vi.mock("@agent-native/core/client/integrations", () => ({
+  startWorkspaceProviderOAuth: vi.fn(),
+}));
+
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) =>
     ({
@@ -27,6 +31,8 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       "comments.close": "Close",
     })[key] ?? key,
 }));
+
+import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
 
 import { GoogleDriveConnectionCta } from "./GoogleDriveConnectionCta";
 
@@ -107,38 +113,18 @@ describe("<GoogleDriveConnectionCta>", () => {
     ).toBeTruthy();
   });
 
-  it("opens the app-owned OAuth flow and hides the CTA after connection", async () => {
-    const openedTab = {
-      close: vi.fn(),
-      closed: false,
-      location: { href: "" },
-    };
-    vi.spyOn(window, "open").mockReturnValue(openedTab as unknown as Window);
-
+  it("starts the managed Drive OAuth flow", async () => {
     render(<GoogleDriveConnectionCta />);
     fireEvent.click(
       await screen.findByRole("button", { name: "Connect Google" }),
     );
 
     await waitFor(() => {
-      expect(window.open).toHaveBeenCalledWith(
-        "about:blank",
-        "google-docs-oauth",
-        "popup,width=520,height=720",
-      );
-      expect(fetch).toHaveBeenCalledWith(
-        expect.stringContaining(
-          "/agent/_agent-native/google-docs/auth-url?redirect_uri=",
-        ),
-        { credentials: "same-origin" },
+      expect(startWorkspaceProviderOAuth).toHaveBeenCalledWith(
+        "google_drive",
+        expect.objectContaining({ appId: "slides", scope: "user" }),
       );
     });
-    await waitFor(() => {
-      expect(
-        screen.queryByRole("button", { name: "Connect Google" }),
-      ).toBeNull();
-    });
-    expect(openedTab.close).toHaveBeenCalledOnce();
   });
 
   it("surfaces a status failure instead of hiding the connection problem", async () => {

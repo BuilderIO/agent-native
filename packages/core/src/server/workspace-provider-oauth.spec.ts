@@ -5,6 +5,8 @@ import {
   buildWorkspaceProviderAuthorizationUrl,
   canConnectWorkspaceProviderOAuth,
   exchangeWorkspaceProviderOAuthCode,
+  isGoogleWorkspaceOAuthProvider,
+  isWorkspaceProviderOAuthScope,
   isWorkspaceProviderOAuthFlowValid,
   mergeWorkspaceOAuthValues,
   resolveWorkspaceProviderIdentity,
@@ -26,6 +28,16 @@ describe("workspace provider OAuth", () => {
     expect(canConnectWorkspaceProviderOAuth("org-1", "member")).toBe(false);
     expect(canConnectWorkspaceProviderOAuth("org-1", null)).toBe(false);
     expect(canConnectWorkspaceProviderOAuth(null, null)).toBe(false);
+  });
+
+  it("recognizes personal and shared connection scopes", () => {
+    expect(isWorkspaceProviderOAuthScope("user")).toBe(true);
+    expect(isWorkspaceProviderOAuthScope("organization")).toBe(true);
+    expect(isWorkspaceProviderOAuthScope("app")).toBe(true);
+    expect(isWorkspaceProviderOAuthScope("workspace")).toBe(false);
+    expect(isGoogleWorkspaceOAuthProvider("gmail")).toBe(true);
+    expect(isGoogleWorkspaceOAuthProvider("google_calendar")).toBe(true);
+    expect(isGoogleWorkspaceOAuthProvider("figma")).toBe(false);
   });
 
   it("keeps portal and site OAuth token keys owner-scoped", () => {
@@ -67,6 +79,7 @@ describe("workspace provider OAuth", () => {
       owner: "owner@example.com",
       orgId: "org-1",
       appId: "creative-context",
+      scope: "organization",
       expiresAt: 2_000,
     };
     const state = {
@@ -74,6 +87,7 @@ describe("workspace provider OAuth", () => {
       owner: flow.owner,
       orgId: flow.orgId,
       app: flow.appId,
+      scope: flow.scope,
       flowId: flow.flowId,
     };
     const valid = {
@@ -281,9 +295,14 @@ describe("workspace provider OAuth", () => {
     expect(url.searchParams.get("access_type")).toBe("offline");
     expect(url.searchParams.get("include_granted_scopes")).toBe("true");
     expect(url.searchParams.get("prompt")).toBe("consent");
-    expect(url.searchParams.get("scope")?.split(" ")).toEqual([
-      "https://www.googleapis.com/auth/drive.file",
-    ]);
+    expect(url.searchParams.get("scope")?.split(" ")).toEqual(
+      expect.arrayContaining([
+        "openid",
+        "email",
+        "profile",
+        "https://www.googleapis.com/auth/drive.file",
+      ]),
+    );
   });
 
   it("exchanges Figma codes at the current token endpoint without exposing credentials", async () => {
@@ -647,16 +666,14 @@ describe("workspace provider OAuth", () => {
     });
   });
 
-  it("resolves Google account identity through the bounded Drive about endpoint", async () => {
+  it("resolves Google account identity through the bounded OpenID userinfo endpoint", async () => {
     const fetchMock = vi.fn(
       async () =>
         new Response(
           JSON.stringify({
-            user: {
-              permissionId: "drive-permission-1",
-              emailAddress: "designer@example.com",
-              displayName: "Designer",
-            },
+            sub: "google-sub-1",
+            email: "designer@example.com",
+            name: "Designer",
           }),
           { status: 200 },
         ),
@@ -668,11 +685,11 @@ describe("workspace provider OAuth", () => {
         access_token: "google-access",
       }),
     ).resolves.toEqual({
-      accountId: "drive-permission-1",
+      accountId: "designer@example.com",
       label: "designer@example.com",
     });
     expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining("/drive/v3/about?fields="),
+      "https://openidconnect.googleapis.com/v1/userinfo",
       expect.objectContaining({
         headers: { Authorization: "Bearer google-access" },
       }),
