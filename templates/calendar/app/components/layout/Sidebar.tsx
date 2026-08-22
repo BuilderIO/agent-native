@@ -1,6 +1,7 @@
 import { appPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import { useT } from "@agent-native/core/client/i18n";
+import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
@@ -69,8 +70,6 @@ import {
 } from "@/hooks/use-external-calendars";
 import {
   useGoogleAuthStatus,
-  useGoogleAuthUrl,
-  useGoogleAddAccountUrl,
   useGoogleDesktopAuth,
 } from "@/hooks/use-google-auth";
 import {
@@ -324,8 +323,6 @@ function MiniCalendar({
 
 function GoogleConnectSidebarButton() {
   const t = useT();
-  const [wantAuthUrl, setWantAuthUrl] = useState(false);
-  const authUrl = useGoogleAuthUrl(wantAuthUrl);
   const {
     isDesktopGoogleAuth,
     isGoogleDesktopAuthPending,
@@ -336,24 +333,17 @@ function GoogleConnectSidebarButton() {
     onSuccess: () => window.location.reload(),
   });
 
-  useEffect(() => {
-    if (!wantAuthUrl || !authUrl.data?.url) return;
-    setWantAuthUrl(false);
-    window.open(authUrl.data.url, "_blank");
-  }, [wantAuthUrl, authUrl.data]);
-
-  useEffect(() => {
-    if (!authUrl.error) return;
-    toast.error(authUrl.error.message);
-    setWantAuthUrl(false);
-  }, [authUrl.error]);
-
   function handleConnect() {
     if (isDesktopGoogleAuth) {
       startDesktopGoogleAuth({ previousAccountCount: 0 });
       return;
     }
-    setWantAuthUrl(true);
+    const returnPath = `${window.location.pathname}${window.location.search}`;
+    startWorkspaceProviderOAuth("google_calendar", {
+      appId: "calendar",
+      returnPath,
+      scope: "user",
+    });
   }
 
   return (
@@ -369,14 +359,12 @@ function GoogleConnectSidebarButton() {
           size="sm"
           className="w-full gap-1.5 text-xs font-semibold"
           onClick={handleConnect}
-          disabled={
-            authUrl.isLoading ||
-            authUrl.isFetching ||
-            isGoogleDesktopAuthPending
-          }
+          disabled={isGoogleDesktopAuthPending}
         >
           <IconExternalLink className="h-3 w-3" />
-          {authUrl.isLoading ? t("common.connecting") : t("common.connect")}
+          {isGoogleDesktopAuthPending
+            ? t("common.connecting")
+            : t("common.connect")}
         </Button>
       </div>
     </div>
@@ -450,8 +438,6 @@ function GoogleAccountsSection({
     () => accounts.map((account) => account.email),
     [accounts],
   );
-  const [wantAddAccount, setWantAddAccount] = useState(false);
-  const addAccountUrl = useGoogleAddAccountUrl(wantAddAccount);
   const {
     isDesktopGoogleAuth,
     isGoogleDesktopAuthPending,
@@ -462,18 +448,6 @@ function GoogleAccountsSection({
     onSuccess: () => window.location.reload(),
   });
 
-  useEffect(() => {
-    if (!wantAddAccount || !addAccountUrl.data?.url) return;
-    window.open(addAccountUrl.data.url, "_blank");
-    setWantAddAccount(false);
-  }, [wantAddAccount, addAccountUrl.data]);
-
-  useEffect(() => {
-    if (!addAccountUrl.error) return;
-    toast.error(addAccountUrl.error.message);
-    setWantAddAccount(false);
-  }, [addAccountUrl.error]);
-
   function handleAddAccount() {
     if (isDesktopGoogleAuth) {
       startDesktopGoogleAuth({
@@ -482,7 +456,12 @@ function GoogleAccountsSection({
       });
       return;
     }
-    setWantAddAccount(true);
+    const returnPath = `${window.location.pathname}${window.location.search}`;
+    startWorkspaceProviderOAuth("google_calendar", {
+      appId: "calendar",
+      returnPath,
+      scope: "user",
+    });
   }
 
   function accountColorMode(email: string): CalendarColorMode {
@@ -533,11 +512,7 @@ function GoogleAccountsSection({
               <button
                 type="button"
                 onClick={handleAddAccount}
-                disabled={
-                  addAccountUrl.isLoading ||
-                  addAccountUrl.isFetching ||
-                  isGoogleDesktopAuthPending
-                }
+                disabled={isGoogleDesktopAuthPending}
                 className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
               >
                 <IconPlus className="h-3.5 w-3.5" />
