@@ -16,15 +16,30 @@
     "uptime-monitor-cron": 1560,
     "uptime-monitor-sweep-background": 27687204
   },
+  "assets": {
+    "agent-native-recurring-jobs": 1758,
+    "server": 47974585,
+    "server-agent-background": 41401561
+  },
   "calendar": {
     "agent-native-recurring-jobs": 1758,
     "server": 22139899,
     "server-agent-background": 15361339
   },
+  "clips": {
+    "agent-native-recurring-jobs": 1758,
+    "server": 36328096,
+    "server-agent-background": 13539990
+  },
   "docs": {
     "agent-native-recurring-jobs": 1758,
     "server": 23054523,
     "server-agent-background": 13204810
+  },
+  "plan": {
+    "agent-native-recurring-jobs": 1758,
+    "server": 25092838,
+    "server-agent-background": 16780809
   },
   "slides": {
     "agent-native-recurring-jobs": 1758,
