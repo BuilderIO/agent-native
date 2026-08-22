@@ -681,7 +681,6 @@ async function launchChromium(
         });
       }
     } catch (error) {
-      if (!isMissingBrowserError(error)) throw error;
       missingBrowserError = error;
     }
   }
@@ -722,15 +721,16 @@ interface ServerlessChromiumLike {
  * own mirror to drop the runtime dependency on the upstream release.
  */
 const CHROMIUM_PACK_VERSION = "149.0.0";
-const DEFAULT_CHROMIUM_PACK_URL =
-  `https://github.com/Sparticuz/chromium/releases/download/v${CHROMIUM_PACK_VERSION}` +
-  `/chromium-v${CHROMIUM_PACK_VERSION}-pack.x64.tar`;
 
 /** The one resolver for this key. */
-function chromiumPackUrl(): string {
+export function chromiumPackUrl(
+  architecture: NodeJS.Architecture = process.arch,
+): string {
+  const packArchitecture = architecture === "arm64" ? "arm64" : "x64";
   return (
     process.env.AGENT_NATIVE_CHROMIUM_PACK_URL?.trim() ||
-    DEFAULT_CHROMIUM_PACK_URL
+    `https://github.com/Sparticuz/chromium/releases/download/v${CHROMIUM_PACK_VERSION}` +
+      `/chromium-v${CHROMIUM_PACK_VERSION}-pack.${packArchitecture}.tar`
   );
 }
 

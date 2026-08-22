@@ -8,7 +8,15 @@ vi.mock("@agent-native/core/extensions/url-safety", () => ({
   ssrfSafeFetch,
 }));
 
-const { renderWithPlaywright } = await import("./rendered-page.js");
+const { chromiumPackUrl, renderWithPlaywright } =
+  await import("./rendered-page.js");
+
+describe("chromium pack selection", () => {
+  it("selects the serverless pack for each supported architecture", () => {
+    expect(chromiumPackUrl("x64")).toContain("pack.x64.tar");
+    expect(chromiumPackUrl("arm64")).toContain("pack.arm64.tar");
+  });
+});
 
 describe("renderWithPlaywright lifecycle", () => {
   afterEach(() => {
