@@ -1,5 +1,6 @@
 import {
   IconCheck,
+  IconCopy,
   IconLink,
   IconPlayerPauseFilled,
   IconPlayerPlayFilled,
@@ -99,8 +100,9 @@ function formatDurationCopy(ms: number): string {
  * confirm, done. Left edge anchored: hover extras and the inline delete
  * confirm grow rightward while the dot, timer, pause button, and Stop hold
  * position (near the right screen edge the anchor mirrors). Stop swaps the
- * pill for the completion card in place; the link is copied and visibly
- * confirmed. While paused the pause circle swaps to a play glyph — the
+ * pill for the completion card in place; the link is copied only when the
+ * user clicks Copy (an automatic copy would clear their clipboard
+ * unannounced). While paused the pause circle swaps to a play glyph — the
  * amber dot carries the paused state; the button carries the way back.
  * Pure command emitter — the recorder in the popover window owns
  * capture, and drives us through the same IPC contract the old toolbar used:
@@ -139,7 +141,6 @@ export function RecordingPill() {
   const sessionRef = useRef<RecorderSession>({});
   const [viewUrl, setViewUrl] = useState<string | null>(null);
   const viewUrlRef = useRef<string | null>(null);
-  const copiedRef = useRef(false);
   const reducedRef = useRef(
     window.matchMedia("(prefers-reduced-motion: reduce)").matches,
   );
@@ -168,7 +169,6 @@ export function RecordingPill() {
   modeRef.current = mode;
   elapsedRef.current = elapsed;
   viewUrlRef.current = viewUrl;
-  copiedRef.current = copied;
 
   function clearPauseTransition() {
     pauseTransitionRef.current = null;
@@ -410,12 +410,17 @@ export function RecordingPill() {
     setAnnouncement(transition === "pause" ? "Paused" : "Recording");
   }
 
+  // Copying is always the user's click — an automatic copy would clear their
+  // clipboard without them knowing.
+  const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   async function copyLink(url: string) {
     try {
       if (hasTauri) await writeText(url);
       else await navigator.clipboard.writeText(url);
       setCopied(true);
-      setAnnouncement("Recording saved, link copied");
+      setAnnouncement("Link copied");
+      if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+      copiedTimerRef.current = setTimeout(() => setCopied(false), 1_600);
     } catch (err) {
       console.error("[record-pill] clipboard write failed:", err);
     }
@@ -439,8 +444,7 @@ export function RecordingPill() {
     // the done-mode effect refits to the exact card rect one frame later.
     resizeWindowTo(340, 180);
     setMode("done");
-    const url = viewUrlRef.current;
-    if (url) void copyLink(url);
+    setAnnouncement("Recording saved");
     if (demoMode) {
       setTimeout(() => {
         handleUploadFinished({
@@ -511,9 +515,6 @@ export function RecordingPill() {
     if (payload.ok && payload.viewUrl) {
       setViewUrl(payload.viewUrl);
       setDoneStage("uploaded");
-      if (!copiedRef.current && modeRef.current === "done") {
-        void copyLink(payload.viewUrl);
-      }
       return;
     }
     setSavedLocally(Boolean(payload.localFilePath));
@@ -883,10 +884,19 @@ export function RecordingPill() {
                 {viewUrl.replace(/^https?:\/\//, "")}
               </span>
               {copied ? (
-                <span className="flex-none font-semibold text-[var(--pill-card-badge)]">
+                <span className="flex-none text-[11px] font-semibold text-[var(--pill-card-badge)]">
                   Copied
                 </span>
-              ) : null}
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void copyLink(viewUrl)}
+                  aria-label="Copy link"
+                  className="flex size-5 flex-none items-center justify-center rounded text-[var(--pill-card-ink-2)] hover:text-[var(--pill-card-ink)]"
+                >
+                  <IconCopy size={14} aria-hidden />
+                </button>
+              )}
             </div>
           ) : null}
           <div className="flex gap-2">
@@ -900,14 +910,14 @@ export function RecordingPill() {
                   }}
                   className="h-[34px] flex-1 rounded-lg bg-[var(--pill-card-ink)] text-[13px] font-semibold text-[var(--pill-on-chrome)]"
                 >
-                  Open clip
+                  Open
                 </button>
                 <button
                   type="button"
                   onClick={() => void copyLink(viewUrl)}
                   className="h-[34px] flex-1 rounded-lg border border-[var(--pill-card-border-strong)] bg-[var(--pill-on-chrome)] text-[13px] font-semibold text-[var(--pill-card-ink)]"
                 >
-                  Copy again
+                  {copied ? "Copied" : "Copy"}
                 </button>
               </>
             ) : null}
