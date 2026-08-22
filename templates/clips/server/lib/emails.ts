@@ -59,21 +59,8 @@ const globalRegistrationState = globalThis as typeof globalThis &
 
 function defineClipsTransactionalEmail(
   definition: Parameters<typeof defineTransactionalEmail>[0],
-): boolean {
-  try {
-    defineTransactionalEmail(definition);
-    return true;
-  } catch (error) {
-    if (
-      error instanceof Error &&
-      error.message.startsWith('Duplicate transactional email id "clips.')
-    ) {
-      // The same Clips catalog can be evaluated twice by Nitro/Vite. The
-      // first definition is canonical, so a duplicate is already registered.
-      return false;
-    }
-    throw error;
-  }
+): ReturnType<typeof defineTransactionalEmail> {
+  return defineTransactionalEmail(definition);
 }
 
 export function registerClipsEmails(): void {
