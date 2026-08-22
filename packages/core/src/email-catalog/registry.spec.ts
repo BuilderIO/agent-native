@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import {
   defineTransactionalEmail,
+  defineTransactionalEmails,
   getTransactionalEmail,
   listTransactionalEmails,
   renderTransactionalEmailPreview,
@@ -48,10 +49,12 @@ describe("transactional email registry", () => {
 
   it("throws on a duplicate id rather than silently merging", () => {
     define("test.dupe");
-    expect(() => define("test.dupe")).toThrow(/Duplicate transactional email/);
+    expect(() => define("test.dupe", { name: "different" })).toThrow(
+      /Duplicate transactional email/,
+    );
   });
 
-  it("is idempotent when the same definition object re-registers", () => {
+  it("is idempotent when an equivalent definition re-registers", () => {
     const definition = {
       id: "test.same",
       name: "same",
@@ -64,8 +67,37 @@ describe("transactional email registry", () => {
       preview: () => ({ subject: "s", html: "h", text: "t" }),
     };
     defineTransactionalEmail(definition);
-    expect(() => defineTransactionalEmail(definition)).not.toThrow();
+    expect(() =>
+      defineTransactionalEmail({
+        ...definition,
+        preview: () => ({ ...definition.preview() }),
+      }),
+    ).not.toThrow();
     expect(listTransactionalEmails()).toHaveLength(1);
+  });
+
+  it("does not partially register a batch when a later definition conflicts", () => {
+    define("test.conflict", { name: "existing" });
+    const first = {
+      id: "test.first",
+      name: "test.first",
+      app: "test-app",
+      trigger: "trigger",
+      recipient: "recipient",
+      recipientLabel: "Recipient",
+      sender: "sender",
+      senderLabel: "Sender",
+      preview: () => ({ subject: "first", html: "", text: "" }),
+    };
+    const conflict = { ...first, id: "test.conflict", name: "different" };
+
+    expect(() => defineTransactionalEmails([first, conflict])).toThrow(
+      /Duplicate transactional email/,
+    );
+
+    expect(listTransactionalEmails().map((email) => email.id)).toEqual([
+      "test.conflict",
+    ]);
   });
 
   it("renders a preview by id", () => {

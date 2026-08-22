@@ -66,8 +66,37 @@ export type RegisteredTransactionalEmail = TransactionalEmailDefinition & {
 };
 
 const registry = new Map<string, RegisteredTransactionalEmail>();
-/** Source definitions, so re-registering the same one is a no-op rather than a clash. */
-const sources = new Map<string, TransactionalEmailDefinition>();
+
+function resolveDefinition(
+  definition: TransactionalEmailDefinition,
+): RegisteredTransactionalEmail {
+  return {
+    ...definition,
+    app: definition.app ?? getAppSlug() ?? "unknown",
+  };
+}
+
+function assertCanRegister(
+  resolved: RegisteredTransactionalEmail,
+  existing: RegisteredTransactionalEmail | undefined,
+): void {
+  if (
+    existing &&
+    (existing.app !== resolved.app ||
+      existing.name !== resolved.name ||
+      existing.trigger !== resolved.trigger ||
+      existing.recipient !== resolved.recipient ||
+      existing.recipientLabel !== resolved.recipientLabel ||
+      existing.sender !== resolved.sender ||
+      existing.senderLabel !== resolved.senderLabel)
+  ) {
+    // Two emails sharing an id would silently merge their metrics and make the
+    // catalog claim one exists when the other actually sent.
+    throw new Error(
+      `Duplicate transactional email id "${resolved.id}". Ids must be unique across the app.`,
+    );
+  }
+}
 
 /**
  * Register a transactional email. Returns the definition so the call site can
@@ -76,20 +105,33 @@ const sources = new Map<string, TransactionalEmailDefinition>();
 export function defineTransactionalEmail(
   definition: TransactionalEmailDefinition,
 ): RegisteredTransactionalEmail {
-  const existing = sources.get(definition.id);
-  if (existing && existing !== definition) {
-    // Two emails sharing an id would silently merge their metrics and make the
-    // catalog claim one exists when the other actually sent.
-    throw new Error(
-      `Duplicate transactional email id "${definition.id}". Ids must be unique across the app.`,
-    );
-  }
-  const resolved: RegisteredTransactionalEmail = {
-    ...definition,
-    app: definition.app ?? getAppSlug() ?? "unknown",
-  };
+  const resolved = resolveDefinition(definition);
+  // HMR recreates preview functions, so stable catalog metadata is the collision boundary.
+  assertCanRegister(resolved, registry.get(resolved.id));
   registry.set(definition.id, resolved);
-  sources.set(definition.id, definition);
+  return resolved;
+}
+
+/** Register a catalog as one atomic operation, allowing safe HMR refreshes. */
+export function defineTransactionalEmails(
+  definitions: readonly TransactionalEmailDefinition[],
+): RegisteredTransactionalEmail[] {
+  const resolved = definitions.map(resolveDefinition);
+  const seen = new Set<string>();
+
+  for (const definition of resolved) {
+    if (seen.has(definition.id)) {
+      throw new Error(
+        `Duplicate transactional email id "${definition.id}". Ids must be unique across the app.`,
+      );
+    }
+    seen.add(definition.id);
+    assertCanRegister(definition, registry.get(definition.id));
+  }
+
+  for (const definition of resolved) {
+    registry.set(definition.id, definition);
+  }
   return resolved;
 }
 
@@ -124,5 +166,4 @@ export function renderTransactionalEmailPreview(
 /** Test seam — drops all registrations. */
 export function resetTransactionalEmailRegistry(): void {
   registry.clear();
-  sources.clear();
 }
