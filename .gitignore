@@ -118,6 +118,11 @@ db-exec
 templates/*/.env
 templates/*/.env.local
 templates/*/.env.*.local
+# Editor and tooling backups of the above. `.env` is ignored but `.env.bak`
+# was not, and `ship:push` stages the whole snapshot — so a routine push could
+# have committed a file full of production credentials.
+*.bak
+*.orig
 test-reports/
 *.tsbuildinfo
 
