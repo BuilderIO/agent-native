@@ -112,12 +112,19 @@ plans/*/preview.html
 db-exec
 
 # Environment files (may contain secrets)
+# Every mode-specific variant too: `.env.production` and friends were not
+# matched by the old explicit list, and `ship:push` stages the whole snapshot.
+# Patterns without a slash match at any depth, so this covers templates/,
+# packages/ and examples/ alike. The .example files stay tracked.
 .env
-.env.local
-.env.*.local
-templates/*/.env
-templates/*/.env.local
-templates/*/.env.*.local
+.env.*
+!.env.example
+!.env.*.example
+# Editor and tooling backups of the above. `.env` was ignored but `.env.bak`
+# was not, so a routine push could have committed a file full of production
+# credentials.
+*.bak
+*.orig
 test-reports/
 *.tsbuildinfo
 

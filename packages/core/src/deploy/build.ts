@@ -3071,42 +3071,6 @@ export function isKeepWarmDeployEnabled(): boolean {
   );
 }
 
-/** Default number of containers the scheduled warm tries to hold open. */
-const DEFAULT_KEEP_WARM_CONCURRENCY = 3;
-const MAX_KEEP_WARM_CONCURRENCY = 10;
-
-/**
- * How many warm requests the scheduled function issues CONCURRENTLY.
- *
- * One sequential request holds exactly one container, which is why a warmed
- * site can still serve cold responses: measured on www.agent-native.com, roughly
- * half of probe requests reported `cold` even with keep-warm running every
- * minute. Each cold render there occupies its container for ~4s, so any request
- * arriving during one lands on a new, cold container.
- *
- * Concurrency is what holds more than one open — sequential requests reuse the
- * same container and warm nothing extra. Kept small by default: this multiplies
- * scheduled invocations and health-probe DB round trips by the same factor.
- */
-export function resolveKeepWarmConcurrency(): number {
-  const raw = process.env.AGENT_NATIVE_KEEP_WARM_CONCURRENCY?.trim();
-  if (!raw) return DEFAULT_KEEP_WARM_CONCURRENCY;
-  const parsed = Number(raw);
-  if (!Number.isInteger(parsed) || parsed < 1) {
-    throw new Error(
-      `AGENT_NATIVE_KEEP_WARM_CONCURRENCY must be a positive integer; got "${raw}".`,
-    );
-  }
-  if (parsed > MAX_KEEP_WARM_CONCURRENCY) {
-    throw new Error(
-      `AGENT_NATIVE_KEEP_WARM_CONCURRENCY is capped at ${MAX_KEEP_WARM_CONCURRENCY}; got ${parsed}. ` +
-        `Holding more containers than that open on a schedule is provisioned ` +
-        `concurrency wearing a cron, and should be a deliberate platform choice.`,
-    );
-  }
-  return parsed;
-}
-
 /**
  * The background warm is a separate, much more expensive knob than the server
  * warm and gets its own switch. Warming `server` is one health request; warming
@@ -3212,11 +3176,9 @@ export function emitSingleTemplateNetlifyKeepWarmFunction(
     fs.existsSync(backgroundEntryPath)
       ? JSON.stringify(AGENT_BACKGROUND_FUNCTION_URL_PATH)
       : "null";
-  const warmConcurrency = resolveKeepWarmConcurrency();
   const entry = `const HEALTH_PATH = "/_agent-native/health";
 const BACKGROUND_WARM_PATH = ${backgroundWarmPath};
 const REQUEST_TIMEOUT_MS = 25_000;
-const WARM_CONCURRENCY = ${warmConcurrency};
 
 function siteOrigin(request) {
   return new URL(request.url).origin;
@@ -3247,51 +3209,30 @@ export default async function handler(request) {
   const origin = siteOrigin(request);
   const backgroundWarm = warmBackgroundFunction(origin);
   const url = new URL(HEALTH_PATH, origin);
-
-  // Issued together on purpose. Sequential requests reuse one container and
-  // warm nothing extra; only overlapping ones make the platform hold several
-  // open, which is what stops a cache miss from landing on a cold start.
-  const results = await Promise.allSettled(
-    Array.from({ length: WARM_CONCURRENCY }, async () => {
-      const response = await fetch(url, {
-        headers: { "user-agent": "agent-native-netlify-keep-warm" },
-        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-      });
-      if (!response.ok) {
-        const body = await response.text();
-        throw new Error(
-          "health request failed with " + response.status + ": " + body.slice(0, 300),
-        );
-      }
-      return true;
-    }),
-  );
-
-  const warmed = results.filter((r) => r.status === "fulfilled").length;
-  for (const result of results) {
-    if (result.status === "rejected") {
-      console.warn("[agent-native-keep-warm] One warm request failed:", result.reason);
-    }
+  let response;
+  try {
+    response = await fetch(url, {
+      headers: { "user-agent": "agent-native-netlify-keep-warm" },
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+  } catch (error) {
+    console.error("[agent-native-keep-warm] Health request failed:", url.toString(), error);
+    throw error;
   }
-  // A partial warm is a real, reduced success and must not read as a clean run;
-  // zero is a failure and must not read as a partial one.
-  if (warmed === 0) {
+
+  if (!response.ok) {
+    const body = await response.text();
     throw new Error(
-      "[agent-native-keep-warm] All " + WARM_CONCURRENCY + " warm requests failed for " + url.toString(),
+      "[agent-native-keep-warm] Health request failed with " +
+        response.status +
+        ": " +
+        body.slice(0, 500),
     );
   }
 
   await backgroundWarm;
-  console.log(
-    "[agent-native-keep-warm] Warmed " + warmed + "/" + WARM_CONCURRENCY + " containers via " + url.toString(),
-  );
-  // 207 is deliberately a SUCCESS to the scheduler, not a retry signal. The
-  // next run is 60s away, so retrying a warm buys nothing, and failing the
-  // invocation because one probe of three flaked would alert on a
-  // reduced-but-real success every time the platform hiccups. The ratio is
-  // logged and every failure is warned, so a persistently degraded warm stays
-  // visible without paging. Zero warmed still throws.
-  return new Response(null, { status: warmed === WARM_CONCURRENCY ? 204 : 207 });
+  console.log("[agent-native-keep-warm] Warmed", url.toString());
+  return new Response(null, { status: 204 });
 }
 
 export const config = {
@@ -3309,7 +3250,6 @@ export const config = {
   console.log(
     `[build] Emitted Netlify scheduled keep-warm function ` +
       `"${NETLIFY_KEEP_WARM_FUNCTION_NAME}" (schedule "${keepWarmSchedule}", ` +
-      `concurrency ${warmConcurrency}, ` +
       `background warm ${backgroundWarmPath === "null" ? "off" : "on"}).`,
   );
 }
