@@ -20,6 +20,8 @@ import {
 import { NATIVE_AUTH_COPY } from "../shared/auth-copy.js";
 import { docsUrl } from "../shared/docs-url.js";
 import {
+  BETA_FORCE_QUERY_PARAM,
+  BETA_FORCE_SESSION_STORAGE_KEY,
   BETA_OPT_OUT_DURATION_MS,
   BETA_OPT_OUT_QUERY_PARAM,
   BETA_OPT_OUT_STORAGE_KEY,
@@ -1265,6 +1267,7 @@ ${localeMenuItemsHtml}
     <div class="environment-popover-title" id="environment-popover-title">You're on Agent Native Beta</div>
     <div class="environment-popover-copy">Choose where you want to continue.</div>
     <a class="environment-production-link" id="environment-production-link" href="">Switch to production</a>
+    <button type="button" class="environment-hide-badge" id="environment-hide-badge">Hide badge</button>
   </div>
 </div>`;
   const hostedSignupLegalNotice: SignupLegalNoticeOptions | undefined =
@@ -1668,8 +1671,18 @@ ${marketing!.description ? `      <p class="app-desc" data-marketing-field="desc
     var button = document.getElementById('environment-badge');
     var popover = document.getElementById('environment-popover');
     var productionLink = document.getElementById('environment-production-link');
-    if (!switcher || !button || !popover || !productionLink) return;
+    var hideButton = document.getElementById('environment-hide-badge');
+    if (!switcher || !button || !popover || !productionLink || !hideButton) return;
     if (window.parent !== window) return;
+
+    try {
+      var forceUrl = new URL(window.location.href);
+      if (forceUrl.searchParams.get(${JSON.stringify(BETA_FORCE_QUERY_PARAM)}) === 'true') {
+        window.sessionStorage.setItem(${JSON.stringify(BETA_FORCE_SESSION_STORAGE_KEY)}, '1');
+      }
+    } catch (error) {
+      void error;
+    }
 
     // Persist the beta opt-out before authentication replaces this cached shell.
     try {
@@ -1733,6 +1746,10 @@ ${marketing!.description ? `      <p class="app-desc" data-marketing-field="desc
     });
     document.addEventListener('keydown', function(event) {
       if (event.key === 'Escape') setOpen(false);
+    });
+    hideButton.addEventListener('click', function() {
+      setOpen(false);
+      switcher.hidden = true;
     });
   })();`;
 
@@ -1909,7 +1926,8 @@ ${
   .environment-badge:hover,
   .environment-badge[aria-expanded="true"] { background: #4a4a4a; }
   .environment-badge:focus-visible,
-  .environment-production-link:focus-visible {
+  .environment-production-link:focus-visible,
+  .environment-hide-badge:focus-visible {
     outline: 2px solid #33c4ff;
     outline-offset: 2px;
   }
@@ -1941,6 +1959,21 @@ ${
     text-decoration: none;
   }
   .environment-production-link:hover { background: #242424; }
+  .environment-hide-badge {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 2rem;
+    padding: 0.375rem 0.75rem;
+    color: inherit;
+    opacity: 0.65;
+    border: 0;
+    background: transparent;
+    font: inherit;
+    font-size: 0.8125rem;
+    cursor: pointer;
+  }
+  .environment-hide-badge:hover { opacity: 1; }
   .card {
     width: 100%;
     max-width: 400px;
