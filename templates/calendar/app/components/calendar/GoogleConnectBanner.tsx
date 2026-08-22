@@ -537,6 +537,17 @@ export function GoogleConnectBanner({
           onDismiss={() => setDesktopAuthIssue(null)}
           className="mx-4 mb-3"
         />
+        {googleStatus.isError && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="mx-4 mb-2"
+            onClick={() => void googleStatus.refetch()}
+            disabled={googleStatus.isFetching}
+          >
+            {t("common.retry")}
+          </Button>
+        )}
       </div>
     );
   }
@@ -560,7 +571,17 @@ export function GoogleConnectBanner({
         </div>
 
         <div className="flex items-center gap-1.5 shrink-0">
-          {showWizard && !allConfigured && canOfferOAuthSetup ? (
+          {googleStatus.isError ? (
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5 text-xs h-7 font-medium"
+              onClick={() => void googleStatus.refetch()}
+              disabled={googleStatus.isFetching}
+            >
+              {t("common.retry")}
+            </Button>
+          ) : showWizard && !allConfigured && canOfferOAuthSetup ? (
             <Button
               size="sm"
               variant="outline"
