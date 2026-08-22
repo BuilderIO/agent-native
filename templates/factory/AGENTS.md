@@ -31,6 +31,9 @@ decisions, feedback, agent runs, and provider audit records.
 - Provider credentials belong to Dispatch/shared workspace integrations, never
   to a Factory or Factory graph. Agents use shared provider APIs and connected
   MCP tools through the workspace grant boundary.
+- Never put provider keys or account identifiers in `.env`, deployment env, or
+  Factory actions/bootstrap. Configure standard integrations and resolve them
+  from the multitenant org/workspace vault.
 - For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver.
 
 ## Application state

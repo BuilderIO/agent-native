@@ -671,7 +671,8 @@ async function launchChromium(
   const serverlessChromium = await loadOptionalServerlessChromium();
   if (serverlessChromium) {
     try {
-      const executablePath = await serverlessChromium.executablePath();
+      const executablePath =
+        await serverlessChromium.executablePath(chromiumPackUrl());
       if (executablePath) {
         return await chromium.launch({
           ...launchOptions,
@@ -703,11 +704,38 @@ async function launchChromium(
 
 interface ServerlessChromiumLike {
   args?: string[];
-  executablePath(): Promise<string>;
+  /** `chromium-min` downloads and unpacks the browser from this URL. */
+  executablePath(packUrl?: string): Promise<string>;
+}
+
+/**
+ * Where the headless browser binary comes from.
+ *
+ * The full `@sparticuz/chromium` package carries a 66MB browser inside every
+ * serverless function — paid on every cold start of every function, to serve a
+ * fallback path most requests never take. `chromium-min` is 46KB and fetches
+ * the same pinned pack on first launch instead, caching it in the container.
+ *
+ * Pinned to the version this package depends on: a pack built for a different
+ * Chromium than the client expects fails at launch, so this must move in
+ * lockstep with the dependency. Point AGENT_NATIVE_CHROMIUM_PACK_URL at your
+ * own mirror to drop the runtime dependency on the upstream release.
+ */
+const CHROMIUM_PACK_VERSION = "149.0.0";
+const DEFAULT_CHROMIUM_PACK_URL =
+  `https://github.com/Sparticuz/chromium/releases/download/v${CHROMIUM_PACK_VERSION}` +
+  `/chromium-v${CHROMIUM_PACK_VERSION}-pack.x64.tar`;
+
+/** The one resolver for this key. */
+function chromiumPackUrl(): string {
+  return (
+    process.env.AGENT_NATIVE_CHROMIUM_PACK_URL?.trim() ||
+    DEFAULT_CHROMIUM_PACK_URL
+  );
 }
 
 async function loadOptionalServerlessChromium(): Promise<ServerlessChromiumLike | null> {
-  const specifier = "@sparticuz/chromium";
+  const specifier = "@sparticuz/chromium-min";
   try {
     const module = (await import(/* @vite-ignore */ specifier)) as unknown as {
       default?: Partial<ServerlessChromiumLike>;

@@ -2544,7 +2544,12 @@ const FFMPEG_STATIC_PACKAGE_NAME = "ffmpeg-static";
 const RESVG_SCOPE = "@resvg";
 const RESVG_PACKAGE_PREFIX = "resvg-js";
 const SERVERLESS_BROWSER_RUNTIME_PACKAGES = [
-  "@sparticuz/chromium",
+  // chromium-min, not chromium: the full package embeds a 66MB browser in every
+  // emitted function, paid on every cold start to serve a fallback most requests
+  // never take. The min package is 46KB and fetches the same pinned pack on
+  // first launch. See chromiumPackUrl() in creative-context's rendered-page.
+  // guard:allow-serverless-function-payload — -66.4MB per function, replaces "@sparticuz/chromium"
+  "@sparticuz/chromium-min",
   "playwright-core",
 ] as const;
 const SERVERLESS_BROWSER_RUNTIME_CONSUMER = "@agent-native/creative-context";
@@ -3953,6 +3958,12 @@ function hasBundledFfmpegStaticRuntime(functionDir: string): boolean {
   );
 }
 
+/**
+ * Whether this function embeds the browser binary itself, which earns the size
+ * budget's browser allowance. `chromium-min` fetches the pack at launch and
+ * ships no `bin/`, so a min-based function no longer claims the allowance — the
+ * budget tightens automatically once the binary stops being bundled.
+ */
 function hasBundledServerlessBrowserRuntime(functionDir: string): boolean {
   return fs.existsSync(
     path.join(
