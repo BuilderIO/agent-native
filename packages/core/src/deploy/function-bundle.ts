@@ -245,12 +245,18 @@ function listTopLevelPackageNames(nodeModulesDir: string): string[] {
 }
 
 /**
- * Every package name reachable from `roots` by walking installed
- * `dependencies` fields — the same edge copyRuntimePackageTree
- * (build.ts) follows to build the browser runtime tree in the first place, so
- * a package that tree copied in is exactly a package this walk can find again.
- * Only "dependencies": a dev/optional/peer-only listing must never wrongly
- * prove an orphan still alive.
+ * Every package name reachable from `roots` by walking the given manifest
+ * fields — the same edge copyRuntimePackageTree (build.ts) follows to build the
+ * browser runtime tree in the first place, so a package that tree copied in is
+ * exactly a package this walk can find again.
+ *
+ * The two callers want deliberately different widths. "What might be dead"
+ * walks `dependencies` only, so a dev/optional/peer listing cannot pull an
+ * unrelated package into the browser's closure. "What must live" also walks
+ * `optionalDependencies`: an installed optional dependency is one a surviving
+ * package may still require at runtime, and deleting it is unrecoverable
+ * whereas keeping it costs bytes. Err narrow when deciding what to delete and
+ * wide when deciding what to spare.
  *
  * A dependency name with no directory here was never installed — the same
  * BARE_RUNTIME_ONLY_PACKAGES / SERVERLESS_FUNCTION_PACKAGE_DENYLIST exclusions
@@ -262,6 +268,7 @@ function listTopLevelPackageNames(nodeModulesDir: string): string[] {
 function reachablePackageNames(
   nodeModulesDir: string,
   roots: Iterable<string>,
+  fields: readonly string[] = ["dependencies"],
 ): Set<string> {
   const seen = new Set<string>();
   const visit = (packageName: string): void => {
@@ -275,12 +282,14 @@ function reachablePackageNames(
         `[deploy] ${packageDir} has no readable package.json; cannot compute the runtime dependency closure it belongs to.`,
       );
     }
-    const dependencies = manifest.dependencies;
-    if (!dependencies || typeof dependencies !== "object") return;
-    for (const dependencyName of Object.keys(
-      dependencies as Record<string, unknown>,
-    )) {
-      visit(dependencyName);
+    for (const field of fields) {
+      const dependencies = manifest[field];
+      if (!dependencies || typeof dependencies !== "object") continue;
+      for (const dependencyName of Object.keys(
+        dependencies as Record<string, unknown>,
+      )) {
+        visit(dependencyName);
+      }
     }
   };
   for (const root of roots) visit(root);
@@ -407,18 +416,24 @@ export function pruneBrowserRuntimeFromNonAgentClone(
     // vouching for it and would be deleted out from under a live import. The
     // browser roots are excluded — they are declared there as well, and keeping
     // them would make the whole closure look alive.
-    const ownDependencies = Object.keys(
-      (readPackageManifest(dest)?.dependencies as
-        | Record<string, unknown>
-        | undefined) ?? {},
-    ).filter((name) => !browserRoots.includes(name));
+    const ownManifest = readPackageManifest(dest);
+    const ownDependencies = ["dependencies", "optionalDependencies"]
+      .flatMap((field) =>
+        Object.keys(
+          (ownManifest?.[field] as Record<string, unknown> | undefined) ?? {},
+        ),
+      )
+      .filter((name) => !browserRoots.includes(name));
     const otherRoots = [
       ...listTopLevelPackageNames(nodeModulesDir).filter(
         (name) => !browserClosure.has(name),
       ),
       ...ownDependencies,
     ];
-    const stillNeeded = reachablePackageNames(nodeModulesDir, otherRoots);
+    const stillNeeded = reachablePackageNames(nodeModulesDir, otherRoots, [
+      "dependencies",
+      "optionalDependencies",
+    ]);
 
     for (const packageName of browserClosure) {
       // The roots are deleted below, after their closure.

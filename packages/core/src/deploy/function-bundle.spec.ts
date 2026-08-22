@@ -107,6 +107,29 @@ describe("pruneBrowserRuntimeFromNonAgentClone orphan closure", () => {
     );
   });
 
+  it("keeps a closure member a surviving package lists as optional", () => {
+    writePackage("@sparticuz/chromium-min", { "maybe-lib": "^1.0.0" });
+    writePackage("playwright-core");
+    writePackage("maybe-lib");
+    // Installed, so the survivor can require it at runtime. Deleting it is
+    // unrecoverable; keeping it costs bytes.
+    const survivor = path.join(dir, "node_modules", "survivor");
+    fs.mkdirSync(survivor, { recursive: true });
+    fs.writeFileSync(
+      path.join(survivor, "package.json"),
+      JSON.stringify({
+        name: "survivor",
+        optionalDependencies: { "maybe-lib": "^1.0.0" },
+      }),
+    );
+
+    pruneBrowserRuntimeFromNonAgentClone(dir, REWRITING_ENTRY);
+
+    expect(fs.existsSync(path.join(dir, "node_modules", "maybe-lib"))).toBe(
+      true,
+    );
+  });
+
   it("ignores node_modules bookkeeping directories", () => {
     writePackage("@sparticuz/chromium-min", { "orphan-tar": "^1.0.0" });
     writePackage("playwright-core");
