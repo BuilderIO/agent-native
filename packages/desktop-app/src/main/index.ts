@@ -14040,15 +14040,6 @@ app.whenReady().then(async () => {
     }
   });
 
-  // Broadcast window maximized state changes to the renderer
-  const broadcastMaximized = (isMaximized: boolean) =>
-    win.webContents.send(IPC.WINDOW_MAXIMIZED_CHANGED, isMaximized);
-
-  win.on("maximize", () => broadcastMaximized(true));
-  win.on("unmaximize", () => broadcastMaximized(false));
-  win.on("enter-full-screen", () => broadcastMaximized(true));
-  win.on("leave-full-screen", () => broadcastMaximized(false));
-
   // macOS: restore/focus the window when dock icon is clicked
   app.on("activate", () => {
     if (isQuickPromptActive()) return;

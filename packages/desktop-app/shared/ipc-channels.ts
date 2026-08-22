@@ -14,15 +14,9 @@ import type {
 export const IPC = {
   /** Window control channels (renderer → main) */
   WINDOW_MINIMIZE: "window:minimize",
-  WINDOW_MAXIMIZE: "window:maximize",
+  WINDOW_TOGGLE_WINDOW_MODE: "window:toggle-window-mode",
   WINDOW_CLOSE: "window:close",
   WINDOW_NATIVE_BUTTONS_VISIBILITY: "window:native-buttons-visibility",
-
-  /** Window state query (renderer ↔ main) */
-  WINDOW_IS_MAXIMIZED: "window:is-maximized",
-
-  /** Window state broadcast (main → renderer) */
-  WINDOW_MAXIMIZED_CHANGED: "window:maximized-changed",
 
   /** Inter-app message relay (renderer → main → renderer) */
   INTER_APP_SEND: "inter-app:send",

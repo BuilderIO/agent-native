@@ -91,10 +91,8 @@ Available in all renderer code via the preload context bridge:
 ```ts
 // Window chrome
 window.electronAPI.windowControls.minimize()
-window.electronAPI.windowControls.maximize()
+window.electronAPI.windowControls.toggleWindowMode()
 window.electronAPI.windowControls.close()
-window.electronAPI.windowControls.isMaximized() // Promise<boolean>
-window.electronAPI.windowControls.onMaximizedChange(cb) // returns unsubscribe fn
 
 // Inter-app messaging
 window.electronAPI.interApp.send(targetAppId, event, data)
