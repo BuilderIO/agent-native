@@ -15,8 +15,16 @@ export function isReconcileLeadClient(
   let minVisible = localClientId;
   awareness.getStates().forEach((state, clientId) => {
     if (clientId === AGENT_CLIENT_ID || clientId === localClientId) return;
-    const candidate = state as { user?: unknown; visible?: boolean };
+    const candidate = state as {
+      user?: unknown;
+      visible?: boolean;
+      canFlushDocument?: boolean;
+    };
     if (!candidate?.user) return;
+    // Read-only viewers subscribe to awareness for presence but bind no Y.Doc,
+    // so electing one stops external snapshots reconciling anywhere. Absent
+    // (legacy clients that never publish the field) still counts as eligible.
+    if (candidate.canFlushDocument === false) return;
     hasPeer = true;
     if (candidate.visible !== false && clientId < minVisible) {
       minVisible = clientId;

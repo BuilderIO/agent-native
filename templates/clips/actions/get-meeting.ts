@@ -48,7 +48,7 @@ function safeParseArray<T>(
 
 export default defineAction({
   description:
-    "Get a meeting by id with its participants, action items, and a reference to its recording (if any). Returns null if the user lacks access.",
+    'Get a meeting by id with its participants, action items, and a reference to its recording (if any). When there is no meeting, `meeting` is null and `reason` says why: "not-found" or "forbidden".',
   schema: z.object({
     id: z.string().describe("Meeting id"),
   }),
@@ -59,12 +59,13 @@ export default defineAction({
       const materialized = await materializeCalendarMeetingFromVirtualId(
         args.id,
       );
-      if (!materialized?.meeting?.id) return { meeting: null };
+      if (!materialized?.meeting?.id)
+        return { meeting: null, reason: "not-found" as const };
       meetingId = materialized.meeting.id;
     }
 
     const access = await resolveAccess("meeting", meetingId);
-    if (!access) return { meeting: null };
+    if (!access) return { meeting: null, reason: "forbidden" as const };
 
     const db = getDb();
     const [row] = await db
@@ -77,7 +78,7 @@ export default defineAction({
         ),
       )
       .limit(1);
-    if (!row) return { meeting: null };
+    if (!row) return { meeting: null, reason: "not-found" as const };
 
     // Server-side JSON parse — clients see structured arrays, not raw TEXT.
     const bullets = safeParseArray<Bullet>(

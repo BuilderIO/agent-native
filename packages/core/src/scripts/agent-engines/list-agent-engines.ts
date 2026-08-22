@@ -99,8 +99,11 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
           { preserveCustomModels },
         )
       : (currentModelCandidate ?? DEFAULT_MODEL);
-  const result = {
-    engines: engines.map((e) => ({
+  // Readiness has to be resolved here: `requiredEnvVars` alone cannot see
+  // vault-stored keys or the deploy-injected Builder gateway lane, so a client
+  // that re-derives it from env keys marks working engines unconfigured.
+  const engineEntries = await Promise.all(
+    engines.map(async (e) => ({
       name: e.name,
       label: e.label,
       description: e.description,
@@ -110,7 +113,14 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
       requiredEnvVars: e.requiredEnvVars,
       installPackage: e.installPackage,
       packageInstalled: isAgentEnginePackageInstalled(e),
+      configured: await isStoredEngineUsableForRequest(
+        { engine: e.name, model: e.defaultModel },
+        e,
+      ),
     })),
+  );
+  const result = {
+    engines: engineEntries,
     current: envUnavailable
       ? null
       : {

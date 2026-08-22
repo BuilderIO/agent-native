@@ -362,7 +362,16 @@ export function useCollabReconcile({
         emptySnapshotDecisionPendingRef.current = false;
       };
     }
-    if (!isLeadClient) return;
+    // A non-lead client must never seed (two clients inserting the same content
+    // duplicates it), but `seededRef` also gates persistence and reconcile — so
+    // release it here anyway, or this client's own typing is dropped before it
+    // ever reaches SQL while its peers still see it through Yjs.
+    if (!isLeadClient) {
+      const releaseTimer = setTimeout(() => {
+        seededRef.current = true;
+      }, 0);
+      return () => clearTimeout(releaseTimer);
+    }
     let cancelled = false;
     // Defer via a timer task (NOT a microtask — microtasks can still run
     // inside React's commit and trigger flushSync-from-lifecycle warnings).

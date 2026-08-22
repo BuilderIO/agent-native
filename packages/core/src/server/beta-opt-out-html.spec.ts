@@ -35,6 +35,23 @@ describe("injectBetaOptOutPersistence", () => {
     );
   });
 
+  it("opens the switcher stylesheet with a rule, so the badge keeps position: fixed", () => {
+    const html = injectBetaOptOutPersistence(
+      "<html><head></head><body>Sign in</body></html>",
+    );
+    const css = html.slice(
+      html.indexOf("agent-native-environment-switcher-style"),
+    );
+    const stylesheet = css.slice(css.indexOf(">") + 1, css.indexOf("</style>"));
+
+    // A declaration before the first rule is not a contained parse error: the
+    // following rule's prelude absorbs it and that rule is dropped, which
+    // silently unpins the badge.
+    expect(stylesheet.trimStart()).toMatch(/^[.#a-zA-Z@:*]/);
+    expect(stylesheet.trimStart()).not.toMatch(/^[a-z-]+\s*:/);
+    expect(stylesheet).toContain(".environment-switcher {");
+  });
+
   it("does not duplicate the handoff on a second auth response pass", () => {
     const html = injectBetaOptOutPersistence(
       "<html><body>Sign in</body></html>",

@@ -497,6 +497,7 @@ const messages: AgentChatTranslation = {
   "share.hideInSearch": "검색에서 숨기기",
   "share.linkCanStillOpen": "링크가 있는 사용자는 계속 열 수 있습니다.",
   "share.loadMore": "더 불러오기",
+  "share.loadFailed": "공유 설정을 불러올 수 없습니다.",
   "share.loadPeopleFailed": "사용자를 불러올 수 없습니다.",
   "share.loading": "불러오는 중...",
   "share.noAccess": "아직 접근 권한이 있는 사용자가 없습니다.",

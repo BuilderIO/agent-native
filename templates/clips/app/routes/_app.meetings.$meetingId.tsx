@@ -466,6 +466,7 @@ export default function MeetingDetailRoute() {
     } | null;
     recording?: { id: string; durationMs?: number | null } | null;
     role?: "owner" | "admin" | "editor" | "commenter" | "viewer";
+    reason?: "not-found" | "forbidden";
   };
 
   const {
@@ -1018,7 +1019,28 @@ export default function MeetingDetailRoute() {
     finalize,
   ]);
 
-  if (isLoading || !meeting) {
+  // Failed, still pending, and loaded-but-absent are three outcomes: the query
+  // never retries, so collapsing any of them into the skeleton pins it forever.
+  // A failed live-poll on top of an already-loaded meeting is none of them —
+  // keep showing the meeting.
+  if (isError && !meeting) {
+    return (
+      <div className="p-6 max-w-2xl mx-auto w-full">
+        <div className="rounded-md border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+          {t("meetingDetail.couldNotLoadMeeting")}
+        </div>
+        <Button
+          variant="outline"
+          className="mt-3"
+          onClick={() => refetchMeeting()}
+        >
+          {t("meetingDetail.retry")}
+        </Button>
+      </div>
+    );
+  }
+
+  if (isLoading) {
     return (
       <div className="p-6 max-w-6xl mx-auto w-full">
         <Skeleton className="h-6 w-32 mb-4" />
@@ -1032,12 +1054,17 @@ export default function MeetingDetailRoute() {
     );
   }
 
-  if (isError) {
+  if (!meeting) {
     return (
       <div className="p-6 max-w-2xl mx-auto w-full">
-        <div className="rounded-md border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-          {t("meetingDetail.couldNotLoadMeeting")}
+        <div className="rounded-md border px-4 py-3 text-sm text-muted-foreground">
+          {data?.reason === "forbidden"
+            ? t("meetingDetail.noAccess")
+            : t("meetingDetail.meetingNotFound")}
         </div>
+        <Button asChild variant="outline" className="mt-3">
+          <NavLink to="/meetings">{t("meetingDetail.allMeetings")}</NavLink>
+        </Button>
       </div>
     );
   }

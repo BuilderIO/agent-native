@@ -503,6 +503,7 @@ const messages = {
   "share.linkCanStillOpen": "People with the link can still open this.",
   "share.loading": "Loading...",
   "share.loadMore": "Load more",
+  "share.loadFailed": "Couldn't load sharing settings.",
   "share.loadPeopleFailed": "Could not load people.",
   "share.noAccess": "No one has access yet.",
   "share.noMatches": "No matches.",
