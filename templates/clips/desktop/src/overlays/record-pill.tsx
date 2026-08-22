@@ -883,20 +883,18 @@ export function RecordingPill() {
               <span className="record-pill-mono min-w-0 flex-1 truncate text-[var(--pill-card-ink-2)]">
                 {viewUrl.replace(/^https?:\/\//, "")}
               </span>
-              {copied ? (
-                <span className="flex-none text-[11px] font-semibold text-[var(--pill-card-badge)]">
-                  Copied
-                </span>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => void copyLink(viewUrl)}
-                  aria-label="Copy link"
-                  className="flex size-5 flex-none items-center justify-center rounded text-[var(--pill-card-ink-2)] hover:text-[var(--pill-card-ink)]"
-                >
+              <button
+                type="button"
+                onClick={() => void copyLink(viewUrl)}
+                aria-label="Copy link"
+                className={`flex size-5 flex-none items-center justify-center rounded ${copied ? "text-[var(--pill-card-badge)]" : "text-[var(--pill-card-ink-2)] hover:text-[var(--pill-card-ink)]"}`}
+              >
+                {copied ? (
+                  <IconCheck size={14} aria-hidden />
+                ) : (
                   <IconCopy size={14} aria-hidden />
-                </button>
-              )}
+                )}
+              </button>
             </div>
           ) : null}
           <div className="flex gap-2">
