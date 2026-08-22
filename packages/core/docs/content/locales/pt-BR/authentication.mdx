@@ -166,6 +166,26 @@ verificação e o e-mail de verificação de inscrição não são enviados. Use
 ou visualize ambientes e nomeie contas de teste com um endereço `+qa`
 (`name+qa@example.com`) para que sejam fáceis de identificar.
 
+## Política de verificação de e-mail {#email-verification-policy}
+
+`AUTH_SKIP_EMAIL_VERIFICATION` é uma conveniência local e de controle de
+qualidade — uma implantação hospedada a ignora. Para declarar a política em
+qualquer ambiente, inclusive produção, declare-a na configuração:
+
+```ts
+defineAppConfig({ auth: { requireEmailVerification: false } });
+```
+
+O alias de implantação é `AUTH_REQUIRE_EMAIL_VERIFICATION=0`. Um valor
+declarado prevalece sobre `AUTH_SKIP_EMAIL_VERIFICATION` e sobre o padrão de
+cada ambiente.
+
+`false` aceita um endereço não verificado como credencial de login — qualquer
+pessoa pode reivindicar qualquer e-mail —, portanto use-o apenas onde a
+inscrição já esteja restrita de outra forma. `true` em uma implantação sem
+provedor de e-mail desativa a inscrição por senha, porque a verificação nunca
+poderia ser entregue.
+
 ## Provedores Sociais {#social-providers}
 
 Defina variáveis de ambiente para ativar o login social. O Better Auth os detecta automaticamente:
@@ -438,6 +458,7 @@ A rota `/_agent-native/google/auth-url` padrão faz isso automaticamente – sub
 | --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `BETTER_AUTH_SECRET`                    | Chave de assinatura para Better Auth (gerada automaticamente se não for definida)                                                                                                                                |
 | `AUTH_SKIP_EMAIL_VERIFICATION`          | Defina como `1` em ambientes de controle de qualidade/visualização para permitir que inscrições de e-mail/senha continuem sem verificação; desenvolvimento/teste local ignora por padrão                         |
+| `AUTH_REQUIRE_EMAIL_VERIFICATION`       | Defina como `0` ou `1` para declarar a política de verificação da inscrição por senha em qualquer ambiente, inclusive produção; prevalece sobre `AUTH_SKIP_EMAIL_VERIFICATION`                                   |
 | `AUTH_DISABLED`                         | Defina como `true` ou `1` para ignorar o login/inscrição; todas as solicitações são executadas como um usuário compartilhado (somente desenvolvimento/visualização local — não para produção com usuários reais) |
 | `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT` | Defina como `1` para desativar o login automático do host local em um novo banco de dados de desenvolvimento                                                                                                     |
 | `AUTH_MODE`                             | `local` resolve apenas a identidade CLI/agente (como o usuário desenvolvedor `pnpm action` é executado); nunca um desvio de login do navegador                                                                   |

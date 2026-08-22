@@ -166,6 +166,27 @@ Bestätigung und die Anmeldebestätigungs-E-Mail wird nicht gesendet. Verwenden 
 oder Vorschauumgebungen und benennen Sie Testkonten mit einer `+qa`-Adresse
 (`name+qa@example.com`), damit sie leicht zu identifizieren sind.
 
+## Richtlinie zur E-Mail-Überprüfung {#email-verification-policy}
+
+`AUTH_SKIP_EMAIL_VERIFICATION` ist eine lokale und QA-Bequemlichkeit — eine
+gehostete Bereitstellung ignoriert sie. Um die Richtlinie für jede Umgebung
+festzulegen, einschließlich der Produktion, deklarieren Sie sie in der
+Konfiguration:
+
+```ts
+defineAppConfig({ auth: { requireEmailVerification: false } });
+```
+
+Der Bereitstellungsalias lautet `AUTH_REQUIRE_EMAIL_VERIFICATION=0`. Ein
+deklarierter Wert übertrifft sowohl `AUTH_SKIP_EMAIL_VERIFICATION` als auch die
+Standardeinstellung der jeweiligen Umgebung.
+
+`false` akzeptiert eine nicht überprüfte Adresse als Anmeldeinformation — jeder
+kann jede E-Mail-Adresse beanspruchen — verwenden Sie es also nur dort, wo die
+Anmeldung bereits anderweitig eingeschränkt ist. `true` deaktiviert auf einer
+Bereitstellung ohne E-Mail-Anbieter stattdessen die Passwortanmeldung, da die
+Überprüfung nie zugestellt werden könnte.
+
 ## Soziale Anbieter {#social-providers}
 
 Legen Sie Umgebungsvariablen fest, um die soziale Anmeldung zu ermöglichen. Better Auth erkennt sie automatisch:
@@ -438,6 +459,7 @@ Die Standardroute `/_agent-native/google/auth-url` führt dies automatisch aus �
 | --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `BETTER_AUTH_SECRET`                    | Signaturschlüssel für Better Auth (automatisch generiert, wenn nicht festgelegt)                                                                                                                                             |
 | `AUTH_SKIP_EMAIL_VERIFICATION`          | In QA-/Vorschauumgebungen auf `1` setzen, damit E-Mail-/Passwort-Anmeldungen ohne Überprüfung durchgeführt werden können. Lokale Entwicklung/Test überspringt standardmäßig                                                  |
+| `AUTH_REQUIRE_EMAIL_VERIFICATION`       | Auf `0` oder `1` setzen, um die Überprüfungsrichtlinie für die Passwortanmeldung in jeder Umgebung festzulegen, einschließlich der Produktion; übertrifft `AUTH_SKIP_EMAIL_VERIFICATION`                                     |
 | `AUTH_DISABLED`                         | Auf `true` oder `1` einstellen, um Anmeldung/Registrierung zu überspringen; Alle Anfragen werden von einem gemeinsamen Benutzer ausgeführt (nur lokale Entwicklung/Vorschau – nicht für die Produktion mit echten Benutzern) |
 | `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT` | Auf `1` einstellen, um die automatische Anmeldung von Localhost in einer neuen Entwicklungsdatenbank zu deaktivieren                                                                                                         |
 | `AUTH_MODE`                             | `local` löst nur die CLI/Agent-Identität auf (unter der der Entwicklerbenutzer `pnpm action` ausgeführt wird); niemals eine Browser-Anmeldeumgehung                                                                          |

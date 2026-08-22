@@ -166,6 +166,24 @@ AUTH_SKIP_EMAIL_VERIFICATION=1
 또는 환경을 미리 보고 `+qa` 주소로 테스트 계정 이름을 지정
 (`name+qa@example.com`) 쉽게 식별할 수 있습니다.
 
+## 이메일 확인 정책 {#email-verification-policy}
+
+`AUTH_SKIP_EMAIL_VERIFICATION`은 로컬 및 QA용 편의 기능이며 호스팅된 배포에서는
+무시됩니다. 프로덕션을 포함한 모든 환경에 대해 정책을 명시하려면 구성에서
+선언하세요:
+
+```ts
+defineAppConfig({ auth: { requireEmailVerification: false } });
+```
+
+배포 별칭은 `AUTH_REQUIRE_EMAIL_VERIFICATION=0`입니다. 선언된 값은
+`AUTH_SKIP_EMAIL_VERIFICATION`과 환경별 기본값보다 모두 우선합니다.
+
+`false`는 확인되지 않은 주소를 로그인 자격 증명으로 허용합니다. 누구나 어떤
+이메일이든 사용할 수 있으므로 가입이 이미 다른 방법으로 제한된 곳에서만
+사용하세요. 이메일 공급자가 없는 배포에서 `true`로 설정하면 확인을 전달할 수
+없으므로 대신 비밀번호 가입이 비활성화됩니다.
+
 ## 소셜 제공자 {#social-providers}
 
 소셜 로그인을 활성화하려면 환경 변수를 설정하세요. Better Auth는 이를 자동으로 감지합니다:
@@ -438,6 +456,7 @@ const state = encodeOAuthState({
 | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `BETTER_AUTH_SECRET`                    | 더 나은 인증을 위한 서명 키(설정되지 않은 경우 자동 생성)                                                                                                                        |
 | `AUTH_SKIP_EMAIL_VERIFICATION`          | QA/미리보기 환경에서 `1`로 설정하면 확인 없이 이메일/비밀번호 가입이 진행될 수 있습니다. 기본적으로 로컬 개발/테스트 건너뛰기                                                    |
+| `AUTH_REQUIRE_EMAIL_VERIFICATION`       | `0` 또는 `1`로 설정하면 프로덕션을 포함한 모든 환경에서 비밀번호 가입 확인 정책을 선언합니다. `AUTH_SKIP_EMAIL_VERIFICATION`보다 우선합니다                                      |
 | `AUTH_DISABLED`                         | 로그인/가입을 건너뛰려면 `true` 또는 `1`로 설정하세요. 모든 요청은 하나의 공유 사용자로 실행됩니다(로컬 개발/미리 보기에만 해당 - 실제 사용자가 있는 프로덕션에는 해당되지 않음) |
 | `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT` | 새로운 개발 데이터베이스에서 로컬 호스트 자동 로그인을 비활성화하려면 `1`로 설정하세요.                                                                                          |
 | `AUTH_MODE`                             | `local`는 CLI/에이전트 ID만 확인합니다(개발자 사용자 `pnpm action`가 실행되는 ID). 브라우저 로그인 우회는 절대 안 됩니다                                                         |

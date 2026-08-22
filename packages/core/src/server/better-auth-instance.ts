@@ -26,6 +26,7 @@ import {
   integer as sqliteInteger,
 } from "drizzle-orm/sqlite-core";
 
+import { getAppConfig } from "../app-config/index.js";
 import { TEMPLATES } from "../cli/templates-meta.js";
 import { getDbExec, isPostgres } from "../db/client.js";
 import {
@@ -392,6 +393,19 @@ export function resolveEmailPasswordAuthPolicy(emailConfigured: boolean): {
   requireEmailVerification: boolean;
   disableSignUp: boolean;
 } {
+  const declared = getAppConfig().auth.requireEmailVerification;
+  if (declared !== undefined) {
+    // A declared policy is the whole policy — it outranks both the hosted
+    // derivation below and AUTH_SKIP_EMAIL_VERIFICATION. Choosing `false` is
+    // choosing to accept an unverified email as a login credential, so the
+    // signup lock that exists to prevent exactly that comes off with it.
+    return {
+      requireEmailVerification: declared && emailConfigured,
+      // Verification that no provider can deliver would strand every new
+      // account on an unverifiable signup, so refuse the signup instead.
+      disableSignUp: declared && !emailConfigured,
+    };
+  }
   const hosted = process.env.NODE_ENV === "production" || isDeployPreview();
   return {
     requireEmailVerification:

@@ -167,6 +167,22 @@ AUTH_SKIP_EMAIL_VERIFICATION=1
 或預覽環境，並使用 `+qa` 地址命名測試帳戶
 (`name+qa@example.com`)，因此很容易識別。
 
+## 電子郵件驗證政策 {#email-verification-policy}
+
+`AUTH_SKIP_EMAIL_VERIFICATION` 只是本機和 QA 的便利設定，託管部署會忽略它。若要
+為任何環境（包括正式環境）宣告該政策，請在設定中宣告：
+
+```ts
+defineAppConfig({ auth: { requireEmailVerification: false } });
+```
+
+部署別名為 `AUTH_REQUIRE_EMAIL_VERIFICATION=0`。宣告的值優先於
+`AUTH_SKIP_EMAIL_VERIFICATION` 和各環境的預設值。
+
+`false` 會將未經驗證的位址當作登入憑證接受——任何人都可以宣稱擁有任何電子郵件
+位址——因此僅在註冊已透過其他方式受限時使用。在沒有電子郵件供應商的部署上設定
+`true` 則會停用密碼註冊，因為驗證信永遠無法送達。
+
 ## 社交提供者 {#social-providers}
 
 設定環境變數以啟用社交登入。 Better Auth 自動偵測它們：
@@ -439,6 +455,7 @@ const state = encodeOAuthState({
 | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
 | `BETTER_AUTH_SECRET`                    | 更好的驗證簽名金鑰（如果未設定，則自動生成）                                                                         |
 | `AUTH_SKIP_EMAIL_VERIFICATION`          | 在 QA/預覽環境中設定為 `1`，讓電子郵件/密碼註冊無需驗證即可繼續進行；預設情況下跳過本機開發/測試                     |
+| `AUTH_REQUIRE_EMAIL_VERIFICATION`       | 設定為 `0` 或 `1` 可為任何環境（包括正式環境）宣告密碼註冊的驗證政策；優先於 `AUTH_SKIP_EMAIL_VERIFICATION`          |
 | `AUTH_DISABLED`                         | 設定為`true`或`1`跳過登入/註冊；所有請求都作為一個共用使用者執行（僅限本機開發/預覽 - 不適用於真實使用者的正式環境） |
 | `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT` | 設定為 `1` 以在新的開發資料庫上停用本機主機自動登入                                                                  |
 | `AUTH_MODE`                             | `local` 僅解析 CLI/代理身分（開發使用者 `pnpm action` 作為其執行）；絕不繞過瀏覽器登入                               |
