@@ -76,6 +76,7 @@ import {
   cloneServerBundleForFunction,
   copyDir,
   pruneSsrIslandFromRewritingClone,
+  readPackageManifest,
 } from "./function-bundle.js";
 import {
   collectImmutableAssetPaths,
@@ -2670,20 +2671,6 @@ function nodeModulesAncestors(startDir: string): string[] {
   return dirs;
 }
 
-function readPackageManifest(
-  packageDir: string,
-): Record<string, unknown> | null {
-  const packageJsonPath = path.join(packageDir, "package.json");
-  if (!fs.existsSync(packageJsonPath)) return null;
-  const manifest: unknown = JSON.parse(
-    fs.readFileSync(packageJsonPath, "utf8"),
-  );
-  if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) {
-    return null;
-  }
-  return manifest as Record<string, unknown>;
-}
-
 function manifestDeclaresDependency(
   manifest: Record<string, unknown> | null,
   packageName: string,
@@ -3991,6 +3978,32 @@ function netlifyFunctionSizeBudget(functionDir: string): number {
   );
 }
 
+/**
+ * App-owned pruning of the emitted serverless functions, run before the
+ * framework measures them.
+ *
+ * An app can know things about its own payload the framework cannot — docs, for
+ * instance, emits a locale chunk per translated page and can tell which ones no
+ * prerendered route will ever import. That pruning used to be chained after
+ * `agent-native build` with `&&`, which put it after this file had already
+ * printed the size report and applied the budget: the numbers described a
+ * directory that no longer existed by the time the deploy uploaded it, 19MB
+ * high for docs. Running the app's script here instead is the only ordering in
+ * which the report is measuring what ships.
+ *
+ * A script that exists and fails aborts the build. Silently continuing would
+ * publish an unpruned payload while reporting the size the app expected.
+ */
+function runAppServerlessFunctionPruning(cwd: string): void {
+  const script = path.join(cwd, "scripts", "prune-serverless-functions.ts");
+  if (!fs.existsSync(script)) return;
+
+  console.log(
+    `[deploy] Running app serverless pruning: ${path.relative(cwd, script)}`,
+  );
+  execFileSync("npx", ["tsx", script], { cwd, stdio: "inherit" });
+}
+
 function reportNetlifyFunctionSizes(
   internalDir: string,
   failures: string[],
@@ -5280,6 +5293,7 @@ export default bundle;
     // directly from Netlify's static backing store. Keep that artifact on the
     // same public SWR policy as runtime SSR and .data responses.
     writeNetlifyStaticHeaders(path.join(cwd, "dist"));
+    runAppServerlessFunctionPruning(cwd);
     assertSingleTemplateNetlifyBuildOutput(cwd);
   }
 

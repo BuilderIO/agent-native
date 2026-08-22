@@ -153,7 +153,7 @@ function pruneFunction(functionDir: string): {
   const missing = assertPrerendered(provenKeys);
   if (missing.length > 0) {
     throw new Error(
-      `prune-locale-doc-chunks: refusing to prune — ${missing.length} translated doc(s) have no prerendered page, ` +
+      `prune-serverless-functions: refusing to prune — ${missing.length} translated doc(s) have no prerendered page, ` +
         `so the function is still their only renderer: ${missing.slice(0, 8).join(", ")}` +
         (missing.length > 8 ? ` (+${missing.length - 8} more)` : ""),
     );
