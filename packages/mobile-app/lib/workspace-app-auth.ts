@@ -95,8 +95,12 @@ export async function createWorkspaceAppEmbedSession({
  */
 
 const SSO_FLAG_TTL_MS = 10 * 60 * 1000;
-let ssoFlagCache: { value: boolean; readAt: number } | null = null;
-let ssoFlagInFlight: Promise<boolean> | null = null;
+let ssoFlagCache: {
+  owner: string;
+  readAt: number;
+  value: boolean;
+} | null = null;
+const ssoFlagInFlight = new Map<string, Promise<boolean>>();
 
 /**
  * Reuse a minted embed session for less than the embed cookie's own lifetime
@@ -149,14 +153,21 @@ export function ensureLiveWorkspaceAppSessionsHydrated(): Promise<void> {
   return hydration;
 }
 
-function embedSessionKey(app: string, parentSessionToken: string): string {
-  // Fingerprint, not the credential: a rotated parent session must invalidate
-  // reuse, but this map must never hold a usable bearer.
+/**
+ * Fingerprint, not the credential. Every cache here is scoped to the signed-in
+ * parent session so an account switch cannot inherit the previous user's
+ * rollout decision or reuse their session, and none of them may hold a bearer.
+ */
+function sessionFingerprint(parentSessionToken: string): string {
   let hash = 0;
   for (let index = 0; index < parentSessionToken.length; index += 1) {
     hash = (hash * 31 + parentSessionToken.charCodeAt(index)) | 0;
   }
-  return `${app}:${hash}`;
+  return String(hash);
+}
+
+function embedSessionKey(app: string, parentSessionToken: string): string {
+  return `${app}:${sessionFingerprint(parentSessionToken)}`;
 }
 
 /** Record that `app` now holds a live embed session in the shared cookie store. */
@@ -204,7 +215,7 @@ export function clearLiveWorkspaceAppSessions(): void {
   liveEmbedSessions.clear();
   hydration = null;
   ssoFlagCache = null;
-  ssoFlagInFlight = null;
+  ssoFlagInFlight.clear();
   void AsyncStorage.removeItem(LIVE_EMBED_SESSIONS_KEY).catch(() => {});
 }
 
@@ -213,8 +224,12 @@ export function clearLiveWorkspaceAppSessions(): void {
  * window. `null` means unknown, never "disabled" — a caller must be able to
  * tell those apart before deciding to skip work on a user's behalf.
  */
-export function peekWorkspaceSsoEnabled(now = Date.now()): boolean | null {
-  if (!ssoFlagCache) return null;
+export function peekWorkspaceSsoEnabled(
+  parentSessionToken: string,
+  now = Date.now(),
+): boolean | null {
+  const owner = sessionFingerprint(parentSessionToken);
+  if (!ssoFlagCache || ssoFlagCache.owner !== owner) return null;
   return now - ssoFlagCache.readAt < SSO_FLAG_TTL_MS
     ? ssoFlagCache.value
     : null;
@@ -226,21 +241,25 @@ export function peekWorkspaceSsoEnabled(now = Date.now()): boolean | null {
  * a disabled rollout, or every app silently falls back to its own login form.
  */
 export async function readWorkspaceSsoEnabled(
+  parentSessionToken: string,
   baseUrl = MOBILE_DISPATCH_BASE_URL,
   now = Date.now(),
 ): Promise<boolean> {
-  if (ssoFlagCache && now - ssoFlagCache.readAt < SSO_FLAG_TTL_MS) {
-    return ssoFlagCache.value;
-  }
-  if (ssoFlagInFlight) return ssoFlagInFlight;
+  const cached = peekWorkspaceSsoEnabled(parentSessionToken, now);
+  if (cached !== null) return cached;
+  // Keyed by owner as well: an account switch while a read is in flight must
+  // not hand the new user the previous user's answer.
+  const owner = sessionFingerprint(parentSessionToken);
+  const pending = ssoFlagInFlight.get(owner);
+  if (pending) return pending;
   const request = isWorkspaceSsoEnabled(baseUrl)
     .then((value) => {
-      ssoFlagCache = { value, readAt: now };
+      ssoFlagCache = { owner, readAt: now, value };
       return value;
     })
     .finally(() => {
-      ssoFlagInFlight = null;
+      ssoFlagInFlight.delete(owner);
     });
-  ssoFlagInFlight = request;
+  ssoFlagInFlight.set(owner, request);
   return request;
 }

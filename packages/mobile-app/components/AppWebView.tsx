@@ -338,6 +338,14 @@ function AppWebView(
 
   const refreshWorkspaceEmbed = useCallback(
     (automatic: boolean) => {
+      // Any refresh — the page reporting its embed session expired, a load that
+      // never left /embed/start, or the user tapping Retry — means the session
+      // we would otherwise reuse is not working. Dropped first, before the
+      // retry cap can return early, so a stale marker cannot survive to be
+      // re-selected by the next mount.
+      if (workspaceAppId && parentSessionToken) {
+        forgetLiveWorkspaceAppSession(workspaceAppId, parentSessionToken);
+      }
       if (automatic) {
         if (
           workspaceEmbedAutoRetryRef.current >=
@@ -354,11 +362,6 @@ function AppWebView(
         workspaceEmbedAutoRetryRef.current += 1;
       } else {
         workspaceEmbedAutoRetryRef.current = 0;
-        // An explicit retry is the user telling us the reused session is wrong.
-        // Drop it so this attempt mints a fresh one instead of reusing again.
-        if (workspaceAppId && parentSessionToken) {
-          forgetLiveWorkspaceAppSession(workspaceAppId, parentSessionToken);
-        }
       }
       setError(false);
       setLoading(true);
@@ -469,7 +472,7 @@ function AppWebView(
           app: workspaceAppId!,
           path: embedTargetPath(url),
         });
-      const known = peekWorkspaceSsoEnabled();
+      const known = peekWorkspaceSsoEnabled(parentSessionToken);
       if (known === false) {
         setWorkspaceEmbedState("disabled");
         return;
@@ -477,7 +480,10 @@ function AppWebView(
       const [enabled, session] =
         known === true
           ? [true, await mint()]
-          : await Promise.all([readWorkspaceSsoEnabled(), mint()]);
+          : await Promise.all([
+              readWorkspaceSsoEnabled(parentSessionToken),
+              mint(),
+            ]);
       if (cancelled) return;
       if (!enabled) {
         setWorkspaceEmbedState("disabled");
@@ -805,13 +811,11 @@ function AppWebView(
       }
       if (workspaceAppId && parentSessionToken) {
         // A reused session that lands on the app's own sign-in document was
-        // not live after all. Drop it and mint, rather than leaving the user
-        // on a login form the parent shell was supposed to have handled.
+        // not live after all. refreshWorkspaceEmbed drops the marker for us.
         if (
           workspaceEmbedState === "reused" &&
           isSignInEntryUrl(event.nativeEvent.url)
         ) {
-          forgetLiveWorkspaceAppSession(workspaceAppId, parentSessionToken);
           refreshWorkspaceEmbed(true);
           return;
         }

@@ -2338,6 +2338,57 @@ describe("DesktopIdentityBroker", () => {
     expect(reloadApp).toHaveBeenCalledTimes(1);
   });
 
+  it("verifies the authority once when a child session already matches", async () => {
+    // The already-signed-in path used to verify the authority, then verify it
+    // again inside the matching check, before the WebView was allowed to load.
+    const authority = authorityFixture();
+    const mail = appFixture();
+    mail.cookieNames = [...mail.cookieNames, "an_embed_session"];
+    mail.cookieNamesToClear = [...mail.cookieNamesToClear, "an_embed_session"];
+    const identityCookies = cookieStore([
+      sessionCookie("an_session_dispatch", authority.origin, "desktop-session"),
+    ]);
+    const mailCookies = cookieStore([
+      sessionCookie("an_embed_session", mail.origin, "workspace-embed-session"),
+    ]);
+    const identityFetch = vi.fn(async (input: string) =>
+      new URL(input).pathname === "/_agent-native/auth/session"
+        ? sessionResponse("owner@example.com")
+        : new Response(null, { status: 404 }),
+    );
+    mail.session = {
+      cookies: mailCookies,
+      fetch: vi.fn(async (input: string) =>
+        new URL(input).pathname === "/_agent-native/auth/session"
+          ? sessionResponse("owner@example.com")
+          : new Response(null, { status: 404 }),
+      ),
+    } as unknown as Electron.Session;
+    const broker = new DesktopIdentityBroker({
+      identitySession: {
+        cookies: identityCookies,
+        fetch: identityFetch,
+        clearStorageData: vi.fn(async () => {}),
+      } as unknown as Electron.Session,
+      resolveApp: (id) =>
+        id === authority.id ? authority : id === mail.id ? mail : null,
+      listApps: () => [authority, mail],
+      openExternal: vi.fn(async () => {}),
+      reloadApp: vi.fn(),
+      clearLocalBroker: vi.fn(),
+      createWindow: vi.fn() as never,
+    });
+    broker.setStatusForSetting("signed-in");
+
+    await expect(broker.ensureAppSession(mail.id)).resolves.toBe(true);
+
+    const authorityVerifies = identityFetch.mock.calls.filter(
+      ([input]) =>
+        new URL(String(input)).pathname === "/_agent-native/auth/session",
+    );
+    expect(authorityVerifies).toHaveLength(1);
+  });
+
   it("remints a completed modern child if its session cookie disappears", async () => {
     const authority = authorityFixture();
     const mail = appFixture();
@@ -4013,178 +4064,5 @@ describe("DesktopIdentityBroker", () => {
 
     await expect(secondCeremony).resolves.toBe(true);
     expect(targetCookies.set).toHaveBeenCalledTimes(2);
-  });
-});
-
-describe("DesktopIdentityBroker.hasLiveAppSession", () => {
-  it("returns false when the broker is not signed in", async () => {
-    const app = appFixture();
-    const broker = new DesktopIdentityBroker({
-      identitySession: {
-        cookies: cookieStore(),
-        clearStorageData: vi.fn(async () => {}),
-      } as unknown as Electron.Session,
-      resolveApp: (id) => (id === app.id ? app : null),
-      createWindow: vi.fn() as never,
-      reloadApp: vi.fn(),
-      clearLocalBroker: vi.fn(),
-    });
-
-    expect(broker.getStatus()).not.toBe("signed-in");
-    await expect(broker.hasLiveAppSession(app.id)).resolves.toBe(false);
-    expect(app.session.fetch).not.toHaveBeenCalled();
-  });
-
-  it("returns false for an unknown app id", async () => {
-    const app = appFixture();
-    const broker = new DesktopIdentityBroker({
-      identitySession: {
-        cookies: cookieStore(),
-        clearStorageData: vi.fn(async () => {}),
-      } as unknown as Electron.Session,
-      resolveApp: (id) => (id === app.id ? app : null),
-      createWindow: vi.fn() as never,
-      reloadApp: vi.fn(),
-      clearLocalBroker: vi.fn(),
-    });
-    broker.setStatusForSetting("signed-in");
-
-    await expect(broker.hasLiveAppSession("unknown-app")).resolves.toBe(false);
-  });
-
-  it("returns true when the app session holds an allowed cookie on its origin", async () => {
-    const app = appFixture();
-    app.session = {
-      cookies: cookieStore([sessionCookie(app.cookieNames[0]!, app.origin)]),
-      fetch: vi.fn(async () => new Response(null, { status: 200 })),
-    } as unknown as Electron.Session;
-    const broker = new DesktopIdentityBroker({
-      identitySession: {
-        cookies: cookieStore(),
-        clearStorageData: vi.fn(async () => {}),
-      } as unknown as Electron.Session,
-      resolveApp: (id) => (id === app.id ? app : null),
-      createWindow: vi.fn() as never,
-      reloadApp: vi.fn(),
-      clearLocalBroker: vi.fn(),
-    });
-    broker.setStatusForSetting("signed-in");
-
-    await expect(broker.hasLiveAppSession(app.id)).resolves.toBe(true);
-    expect(app.session.fetch).not.toHaveBeenCalled();
-  });
-
-  it("returns false when the only cookie present is off-origin or not an allowed name", async () => {
-    const app = appFixture();
-    app.session = {
-      cookies: cookieStore([
-        sessionCookie(app.cookieNames[0]!, "https://evil.example"),
-        sessionCookie("not_an_allowed_cookie", app.origin),
-      ]),
-      fetch: vi.fn(async () => new Response(null, { status: 200 })),
-    } as unknown as Electron.Session;
-    const broker = new DesktopIdentityBroker({
-      identitySession: {
-        cookies: cookieStore(),
-        clearStorageData: vi.fn(async () => {}),
-      } as unknown as Electron.Session,
-      resolveApp: (id) => (id === app.id ? app : null),
-      createWindow: vi.fn() as never,
-      reloadApp: vi.fn(),
-      clearLocalBroker: vi.fn(),
-    });
-    broker.setStatusForSetting("signed-in");
-
-    await expect(broker.hasLiveAppSession(app.id)).resolves.toBe(false);
-    expect(app.session.fetch).not.toHaveBeenCalled();
-  });
-
-  it("does not reload an app whose live session was already claimed", async () => {
-    const authority = authorityFixture();
-    const mail = appFixture();
-    const identityCookies = cookieStore([
-      sessionCookie("an_session_dispatch", authority.origin, "desktop-session"),
-    ]);
-    const mailCookies = cookieStore([
-      sessionCookie("an_session_mail", mail.origin, "mail-session"),
-    ]);
-    const identityFetch = vi.fn(async (input: string) =>
-      new URL(input).pathname === "/_agent-native/auth/session"
-        ? sessionResponse("owner@example.com")
-        : new Response(null, { status: 404 }),
-    );
-    mail.session = {
-      cookies: mailCookies,
-      fetch: vi.fn(async (input: string) =>
-        new URL(input).pathname === "/_agent-native/auth/session"
-          ? sessionResponse("owner@example.com")
-          : new Response(null, { status: 404 }),
-      ),
-    } as unknown as Electron.Session;
-    const reloadApp = vi.fn();
-    const broker = new DesktopIdentityBroker({
-      identitySession: {
-        cookies: identityCookies,
-        fetch: identityFetch,
-        clearStorageData: vi.fn(async () => {}),
-      } as unknown as Electron.Session,
-      resolveApp: (id) =>
-        id === authority.id ? authority : id === mail.id ? mail : null,
-      listApps: () => [authority, mail],
-      openExternal: vi.fn(async () => {}),
-      reloadApp,
-      clearLocalBroker: vi.fn(),
-      createWindow: vi.fn() as never,
-    });
-    broker.setStatusForSetting("signed-in");
-
-    await expect(broker.hasLiveAppSession(mail.id)).resolves.toBe(true);
-    await expect(broker.ensureAppSession(mail.id)).resolves.toBe(true);
-
-    expect(reloadApp).not.toHaveBeenCalled();
-  });
-
-  it("still reloads a matching app session when its live slot was not pre-claimed", async () => {
-    const authority = authorityFixture();
-    const mail = appFixture();
-    const identityCookies = cookieStore([
-      sessionCookie("an_session_dispatch", authority.origin, "desktop-session"),
-    ]);
-    const mailCookies = cookieStore([
-      sessionCookie("an_session_mail", mail.origin, "mail-session"),
-    ]);
-    const identityFetch = vi.fn(async (input: string) =>
-      new URL(input).pathname === "/_agent-native/auth/session"
-        ? sessionResponse("owner@example.com")
-        : new Response(null, { status: 404 }),
-    );
-    mail.session = {
-      cookies: mailCookies,
-      fetch: vi.fn(async (input: string) =>
-        new URL(input).pathname === "/_agent-native/auth/session"
-          ? sessionResponse("owner@example.com")
-          : new Response(null, { status: 404 }),
-      ),
-    } as unknown as Electron.Session;
-    const reloadApp = vi.fn();
-    const broker = new DesktopIdentityBroker({
-      identitySession: {
-        cookies: identityCookies,
-        fetch: identityFetch,
-        clearStorageData: vi.fn(async () => {}),
-      } as unknown as Electron.Session,
-      resolveApp: (id) =>
-        id === authority.id ? authority : id === mail.id ? mail : null,
-      listApps: () => [authority, mail],
-      openExternal: vi.fn(async () => {}),
-      reloadApp,
-      clearLocalBroker: vi.fn(),
-      createWindow: vi.fn() as never,
-    });
-    broker.setStatusForSetting("signed-in");
-
-    await expect(broker.ensureAppSession(mail.id)).resolves.toBe(true);
-
-    expect(reloadApp).toHaveBeenCalledTimes(1);
   });
 });

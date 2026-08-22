@@ -150,7 +150,7 @@ describe("peekWorkspaceSsoEnabled / readWorkspaceSsoEnabled caching", () => {
   });
 
   it("returns null when the rollout flag has never been read", () => {
-    expect(peekWorkspaceSsoEnabled()).toBeNull();
+    expect(peekWorkspaceSsoEnabled("parent-token")).toBeNull();
   });
 
   it("caches a successful read so peek serves it and a second call skips the network", async () => {
@@ -159,12 +159,12 @@ describe("peekWorkspaceSsoEnabled / readWorkspaceSsoEnabled caching", () => {
     });
 
     await expect(
-      readWorkspaceSsoEnabled("https://dispatch.example"),
+      readWorkspaceSsoEnabled("parent-token", "https://dispatch.example"),
     ).resolves.toBe(true);
-    expect(peekWorkspaceSsoEnabled()).toBe(true);
+    expect(peekWorkspaceSsoEnabled("parent-token")).toBe(true);
 
     await expect(
-      readWorkspaceSsoEnabled("https://dispatch.example"),
+      readWorkspaceSsoEnabled("parent-token", "https://dispatch.example"),
     ).resolves.toBe(true);
     expect(actionApi.callAppActionGet).toHaveBeenCalledTimes(1);
   });
@@ -174,18 +174,26 @@ describe("peekWorkspaceSsoEnabled / readWorkspaceSsoEnabled caching", () => {
       "dispatch.workspace-sso": true,
     });
 
-    await readWorkspaceSsoEnabled("https://dispatch.example");
+    await readWorkspaceSsoEnabled("parent-token", "https://dispatch.example");
     const afterWrite = Date.now();
 
-    expect(peekWorkspaceSsoEnabled(afterWrite + SSO_FLAG_TTL_MS)).toBeNull();
+    expect(
+      peekWorkspaceSsoEnabled("parent-token", afterWrite + SSO_FLAG_TTL_MS),
+    ).toBeNull();
   });
 
   it("shares one in-flight request across concurrent callers", async () => {
     const gate = deferred<Record<string, unknown>>();
     actionApi.callAppActionGet.mockReturnValue(gate.promise);
 
-    const first = readWorkspaceSsoEnabled("https://dispatch.example");
-    const second = readWorkspaceSsoEnabled("https://dispatch.example");
+    const first = readWorkspaceSsoEnabled(
+      "parent-token",
+      "https://dispatch.example",
+    );
+    const second = readWorkspaceSsoEnabled(
+      "parent-token",
+      "https://dispatch.example",
+    );
 
     gate.resolve({ "dispatch.workspace-sso": true });
 
@@ -200,13 +208,49 @@ describe("peekWorkspaceSsoEnabled / readWorkspaceSsoEnabled caching", () => {
       .mockResolvedValueOnce({ "dispatch.workspace-sso": true });
 
     await expect(
-      readWorkspaceSsoEnabled("https://dispatch.example"),
+      readWorkspaceSsoEnabled("parent-token", "https://dispatch.example"),
     ).rejects.toThrow("network down");
-    expect(peekWorkspaceSsoEnabled()).toBeNull();
+    expect(peekWorkspaceSsoEnabled("parent-token")).toBeNull();
 
     await expect(
-      readWorkspaceSsoEnabled("https://dispatch.example"),
+      readWorkspaceSsoEnabled("parent-token", "https://dispatch.example"),
     ).resolves.toBe(true);
+    expect(actionApi.callAppActionGet).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not hand an in-flight read to a different account", async () => {
+    const gate = deferred<Record<string, unknown>>();
+    actionApi.callAppActionGet.mockReturnValue(gate.promise);
+
+    const mine = readWorkspaceSsoEnabled(
+      "parent-token",
+      "https://dispatch.example",
+    );
+    const theirs = readWorkspaceSsoEnabled(
+      "another-parent-token",
+      "https://dispatch.example",
+    );
+
+    gate.resolve({ "dispatch.workspace-sso": true });
+    await Promise.all([mine, theirs]);
+
+    // Two distinct owners means two reads, not one shared answer.
+    expect(actionApi.callAppActionGet).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not serve one account's rollout decision to the next", async () => {
+    actionApi.callAppActionGet.mockResolvedValue({
+      "dispatch.workspace-sso": true,
+    });
+    await readWorkspaceSsoEnabled("parent-token", "https://dispatch.example");
+    expect(peekWorkspaceSsoEnabled("parent-token")).toBe(true);
+
+    // A different signed-in parent must re-ask rather than inherit.
+    expect(peekWorkspaceSsoEnabled("another-parent-token")).toBeNull();
+    await readWorkspaceSsoEnabled(
+      "another-parent-token",
+      "https://dispatch.example",
+    );
     expect(actionApi.callAppActionGet).toHaveBeenCalledTimes(2);
   });
 });

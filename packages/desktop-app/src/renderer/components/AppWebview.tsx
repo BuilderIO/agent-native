@@ -688,12 +688,6 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     const [desktopIdentitySessionReady, setDesktopIdentitySessionReady] =
       useState(() => !desktopIdentityGateEligible);
     const desktopIdentitySessionReadyRef = useRef(!desktopIdentityGateEligible);
-    /**
-     * This app's WebView partition already holds a session cookie, so its
-     * page may paint while the synchronization ceremony confirms it. See
-     * DesktopIdentityBroker.hasLiveAppSession.
-     */
-    const liveAppSessionRef = useRef(false);
     const updateDesktopIdentitySessionReady = useCallback((ready: boolean) => {
       desktopIdentitySessionReadyRef.current = ready;
       setDesktopIdentitySessionReady(ready);
@@ -887,22 +881,6 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         updateDesktopIdentitySessionReady(false);
       }
 
-      // One cheap cookie read, in parallel with the ceremony below, decides
-      // whether this app can paint now instead of after up to four sequential
-      // network round trips. The ceremony still runs and still reconciles a
-      // cookie that turns out stale.
-      void identity
-        .hasAppSession?.(app.id)
-        .then((live) => {
-          if (!active || !live) return;
-          liveAppSessionRef.current = true;
-          setDesktopIdentityStatus("signed-in");
-          updateDesktopIdentitySessionReady(true);
-        })
-        .catch(() => {
-          // A preload without this channel simply keeps the gated behaviour.
-        });
-
       const applyStatus = async (
         status: DesktopIdentityStatus,
         request: number,
@@ -916,9 +894,8 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
           // loaded. Keep the verified page usable while the broker confirms
           // the same session; only gate the initial load or a real transition.
           const preserveLoadedSession =
-            liveAppSessionRef.current ||
-            (hasLoadedGuestPageRef.current &&
-              desktopIdentitySessionReadyRef.current);
+            hasLoadedGuestPageRef.current &&
+            desktopIdentitySessionReadyRef.current;
           if (!preserveLoadedSession) {
             updateDesktopIdentitySessionReady(false);
           }
@@ -947,7 +924,6 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
           );
           return;
         }
-        liveAppSessionRef.current = false;
         updateDesktopIdentitySessionReady(status !== "signing-in");
       };
 

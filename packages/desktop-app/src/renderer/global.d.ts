@@ -873,8 +873,6 @@ interface ElectronAPI {
     getSettings(): Promise<DesktopIdentitySettings>;
     setSsoEnabled(enabled: boolean): Promise<boolean>;
     ensureAppSession(appId: string): Promise<boolean>;
-    /** Absent on an older preload; callers must keep the gated path. */
-    hasAppSession?(appId: string): Promise<boolean>;
     getAvailability(): Promise<boolean>;
     signIn(): Promise<boolean>;
     authenticate(
