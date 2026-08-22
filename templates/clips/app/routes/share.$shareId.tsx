@@ -443,14 +443,24 @@ export default function ShareRoute() {
 
   const playerRef = useRef<VideoPlayerHandle | null>(null);
   const readyMediaPollRef = useRef<{ key: string; until: number } | null>(null);
-  const [password, setPassword] = useState<string | null>(() => {
-    if (typeof window === "undefined" || !shareId) return null;
+  // Reading sessionStorage in the initializer makes the first client render
+  // disagree with the server's, which has no storage and always renders the
+  // locked state. React answers a mismatch by throwing away the hydrated tree
+  // and re-rendering from scratch, so a returning viewer watches a blank share
+  // page while everything refetches. Start where the server started and adopt
+  // the stored password after mount.
+  const [password, setPassword] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!shareId) return;
     try {
-      return sessionStorage.getItem(STORAGE_KEY_PREFIX + shareId);
-    } catch {
-      return null;
-    }
-  });
+      const stored = sessionStorage.getItem(STORAGE_KEY_PREFIX + shareId);
+      if (stored) setPassword(stored);
+      // Unreadable storage and no stored password are the same state to this
+      // screen: both leave `password` null, which renders the password prompt.
+      // coercion-ok: the fallback is visible to the viewer, not swallowed.
+    } catch {}
+  }, [shareId]);
   const [pwError, setPwError] = useState<string | null>(null);
   const [currentMs, setCurrentMs] = useState(0);
   const [commentOpen, setCommentOpen] = useState(false);

@@ -5245,6 +5245,28 @@ async function mountBetterAuthRoutes(
     }),
   );
 
+  // Better Auth redirects new magic-link users through this small public
+  // callback so first-run onboarding is marked only for newly created users.
+  // Keep this before the generic magic-link handler for runtimes whose
+  // app.use() middleware paths match descendants as prefixes.
+  app.use(
+    "/_agent-native/auth/magic-link/new-user",
+    defineEventHandler(async (event) => {
+      if (!isReadMethod(event)) {
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }
+      const query = getQuery(event);
+      const rawReturn = Array.isArray(query.return)
+        ? query.return[0]
+        : query.return;
+      if (await getSession(event)) {
+        setFirstRunOnboardingCookie(event);
+      }
+      return redirectWithStagedCookies(event, safeReturnPath(rawReturn), 302);
+    }),
+  );
+
   // Passwordless login via Better Auth's rate-limited magic-link plugin.
   app.use(
     "/_agent-native/auth/magic-link",
@@ -5554,26 +5576,6 @@ async function mountBetterAuthRoutes(
       return new Response(getResetPasswordHtml(), {
         headers: { "Content-Type": "text/html; charset=utf-8" },
       });
-    }),
-  );
-
-  // Better Auth redirects new magic-link users through this small public
-  // callback so first-run onboarding is marked only for newly created users.
-  app.use(
-    "/_agent-native/auth/magic-link/new-user",
-    defineEventHandler(async (event) => {
-      if (!isReadMethod(event)) {
-        setResponseStatus(event, 405);
-        return { error: "Method not allowed" };
-      }
-      const query = getQuery(event);
-      const rawReturn = Array.isArray(query.return)
-        ? query.return[0]
-        : query.return;
-      if (await getSession(event)) {
-        setFirstRunOnboardingCookie(event);
-      }
-      return redirectWithStagedCookies(event, safeReturnPath(rawReturn), 302);
     }),
   );
 

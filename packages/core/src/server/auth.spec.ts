@@ -899,12 +899,25 @@ describe("server/auth", () => {
       const { autoMountAuth } = await import("./auth.js");
       const app = createMockApp();
       await autoMountAuth(app);
+      const callbackPath = "/_agent-native/auth/magic-link/new-user";
+      const magicLinkPath = "/_agent-native/auth/magic-link";
       const handler = app.use.mock.calls.find(
-        (call: any[]) => call[0] === "/_agent-native/auth/magic-link/new-user",
+        (call: any[]) => call[0] === callbackPath || call[0] === magicLinkPath,
       )?.[1];
+      expect(handler).toBeTypeOf("function");
+      // Older h3/Nitro runtimes match app.use() paths as prefixes, so the
+      // first matching handler must be the specific callback route.
+      const callbackRouteIndex = app.use.mock.calls.findIndex(
+        (call: any[]) => call[0] === callbackPath,
+      );
+      const magicLinkRouteIndex = app.use.mock.calls.findIndex(
+        (call: any[]) => call[0] === magicLinkPath,
+      );
+      expect(callbackRouteIndex).toBeGreaterThanOrEqual(0);
+      expect(magicLinkRouteIndex).toBeGreaterThan(callbackRouteIndex);
 
       const event = createMockEvent({
-        path: "/_agent-native/auth/magic-link/new-user",
+        path: callbackPath,
         query: { return: "/welcome" },
       });
       const response = await handler(event);
