@@ -31,7 +31,7 @@ import {
   FigmaLinkComposerBubble,
   useDetectedFigmaComposerLink,
 } from "../editor/FigmaLinkComposerBubble";
-import { Header } from "./Header";
+import { Header, MobileHeaderActions } from "./Header";
 import { Sidebar } from "./Sidebar";
 
 interface LayoutProps {
@@ -236,7 +236,12 @@ export function Layout({ children }: LayoutProps) {
                   </span>
                 </div>
               )}
-              {!hideHeader && <Header />}
+              {!hideHeader && (
+                <>
+                  <MobileHeaderActions />
+                  <Header />
+                </>
+              )}
               <main
                 className={cn(
                   "agent-native-app-main flex-1",

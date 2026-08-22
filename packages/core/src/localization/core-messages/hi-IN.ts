@@ -498,6 +498,7 @@ const messages: AgentChatTranslation = {
   "share.linkCanStillOpen": "लिंक वाले लोग इसे फिर भी खोल सकते हैं।",
   "share.loading": "लोड हो रहा है...",
   "share.loadMore": "और लोड करें",
+  "share.loadFailed": "साझाकरण सेटिंग्स लोड नहीं की जा सकीं।",
   "share.loadPeopleFailed": "लोगों को लोड नहीं किया जा सका।",
   "share.noAccess": "अभी किसी के पास एक्सेस नहीं है।",
   "share.noMatches": "कोई मिलान नहीं मिला।",

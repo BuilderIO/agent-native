@@ -506,6 +506,7 @@ const messages: AgentChatTranslation = {
   "share.linkCanStillOpen":
     "リンクを知っているユーザーは引き続き開くことができます。",
   "share.loadMore": "さらに読み込む",
+  "share.loadFailed": "共有設定を読み込めませんでした。",
   "share.loadPeopleFailed": "ユーザーを読み込めませんでした。",
   "share.loading": "読み込み中...",
   "share.noAccess": "アクセスできるユーザーはまだいません。",
