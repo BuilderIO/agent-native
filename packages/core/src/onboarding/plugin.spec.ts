@@ -22,6 +22,7 @@ vi.mock("../org/context.js", () => ({
   getOrgContext: (...args: any[]) => getOrgContextMock(...args),
 }));
 
+import { CredentialStoreUnavailableError } from "../server/credential-provider.js";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -195,6 +196,33 @@ describe("onboarding plugin routes", () => {
       "alice@example.com",
       "onboarding:dismissed",
     );
+  });
+
+  it("propagates availability failures from the dismissed state route", async () => {
+    registerOnboardingStep({
+      id: "google",
+      order: 10,
+      title: "Connect Google",
+      description: "Requires managed Google OAuth.",
+      methods: [],
+      isAvailable: () => {
+        throw new CredentialStoreUnavailableError();
+      },
+      isComplete: () => false,
+    });
+    const nitroApp = createNitroApp();
+    await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/onboarding/dismissed",
+    );
+
+    expect(result.status).toBe(500);
+    expect(result.body).toEqual({
+      error:
+        "Could not read your saved connections — the app database did not answer. This is temporary; try again in a moment.",
+    });
   });
 
   it("keeps first-run onboarding tied to the signup cookie and completion state", async () => {

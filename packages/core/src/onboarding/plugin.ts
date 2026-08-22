@@ -23,6 +23,7 @@ import {
 import { appStateGet, appStatePut } from "../application-state/store.js";
 import { getOrgContext } from "../org/context.js";
 import { getSession } from "../server/auth.js";
+import { CredentialStoreUnavailableError } from "../server/credential-provider.js";
 import {
   awaitBootstrap,
   getH3App,
@@ -277,7 +278,8 @@ export function createOnboardingPlugin(
               allComplete: allRequiredComplete(statuses),
             };
           });
-        } catch {
+        } catch (error) {
+          if (error instanceof CredentialStoreUnavailableError) throw error;
           return { dismissed: false, allComplete: false };
         }
       }),
