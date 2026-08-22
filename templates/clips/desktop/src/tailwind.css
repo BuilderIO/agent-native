@@ -291,8 +291,6 @@
   /* guard:allow-raw-color — theme-invariant capture chrome, spec-contractual palette */
   --pill-control: rgba(255, 255, 255, 0.1);
   /* guard:allow-raw-color — theme-invariant capture chrome, spec-contractual palette */
-  --pill-control-paused: rgba(255, 255, 255, 0.35);
-  /* guard:allow-raw-color — theme-invariant capture chrome, spec-contractual palette */
   --pill-rec: #e0473f;
   /* guard:allow-raw-color — theme-invariant capture chrome, spec-contractual palette */
   --pill-paused: #fac775;

@@ -2,6 +2,7 @@ import {
   IconCheck,
   IconLink,
   IconPlayerPauseFilled,
+  IconPlayerPlayFilled,
   IconPlayerStopFilled,
   IconRefresh,
   IconTrash,
@@ -99,7 +100,9 @@ function formatDurationCopy(ms: number): string {
  * confirm grow rightward while the dot, timer, pause button, and Stop hold
  * position (near the right screen edge the anchor mirrors). Stop swaps the
  * pill for the completion card in place; the link is copied and visibly
- * confirmed. Pure command emitter — the recorder in the popover window owns
+ * confirmed. While paused the pause circle swaps to a play glyph — the
+ * amber dot carries the paused state; the button carries the way back.
+ * Pure command emitter — the recorder in the popover window owns
  * capture, and drives us through the same IPC contract the old toolbar used:
  *
  *   receives → `clips:recorder-state` { paused, elapsedMs },
@@ -949,16 +952,14 @@ export function RecordingPill() {
             type="button"
             onClick={togglePause}
             disabled={!enabled || inConfirm}
-            aria-label="Pause"
-            aria-pressed={showPaused}
-            className="ml-2.5 flex size-[30px] flex-none items-center justify-center rounded-full transition-colors duration-150 disabled:cursor-default"
-            style={{
-              background: showPaused
-                ? "var(--pill-control-paused)"
-                : "var(--pill-control)",
-            }}
+            aria-label={showPaused ? "Resume" : "Pause"}
+            className="ml-2.5 flex size-[30px] flex-none items-center justify-center rounded-full bg-[var(--pill-control)] disabled:cursor-default disabled:opacity-50"
           >
-            <IconPlayerPauseFilled size={14} aria-hidden />
+            {showPaused ? (
+              <IconPlayerPlayFilled size={14} aria-hidden />
+            ) : (
+              <IconPlayerPauseFilled size={14} aria-hidden />
+            )}
           </button>
           <span
             ref={(el) => {
