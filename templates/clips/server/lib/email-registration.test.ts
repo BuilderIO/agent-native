@@ -18,7 +18,7 @@ describe("Clips transactional email registration", () => {
     defineTransactionalEmail({
       id: CLIPS_FIRST_VIEW_EMAIL_ID,
       name: "stale definition",
-      app: "clips",
+      app: "other-app",
       trigger: "trigger",
       recipient: "recipient",
       recipientLabel: "Recipient",
@@ -27,9 +27,7 @@ describe("Clips transactional email registration", () => {
       preview: () => ({ subject: "stale", html: "", text: "" }),
     });
 
-    expect(() => registerClipsEmails()).toThrow(
-      /Duplicate transactional email/,
-    );
+    expect(() => registerClipsEmails()).toThrow(/owned by "other-app"/);
     expect(
       listTransactionalEmails()
         .filter((email) => email.id.startsWith("clips."))

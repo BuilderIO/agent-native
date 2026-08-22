@@ -102,11 +102,11 @@ describe("transactional email registry", () => {
   });
 
   it("replaces only the requested catalog scope", () => {
-    define("test.stale");
+    define("test-app.stale");
     define("other.keep");
     const current = {
-      id: "test.current",
-      name: "test.current",
+      id: "test-app.current",
+      name: "test-app.current",
       app: "test-app",
       trigger: "trigger",
       recipient: "recipient",
@@ -116,21 +116,70 @@ describe("transactional email registry", () => {
       preview: () => ({ subject: "current", html: "", text: "" }),
     };
 
-    expect(replaceTransactionalEmails("test.", [current])).toHaveLength(1);
-    expect(getTransactionalEmail("test.stale")).toBeUndefined();
-    expect(getTransactionalEmail("test.current")?.name).toBe("test.current");
+    expect(
+      replaceTransactionalEmails("test-app", "test-app.", [current]),
+    ).toHaveLength(1);
+    expect(getTransactionalEmail("test-app.stale")).toBeUndefined();
+    expect(getTransactionalEmail("test-app.current")?.name).toBe(
+      "test-app.current",
+    );
     expect(getTransactionalEmail("other.keep")?.name).toBe("other.keep");
   });
 
   it("rejects an overlapping replacement scope without mutating the registry", () => {
-    define("test.stale");
+    define("test-app.stale");
     define("other.keep");
 
-    expect(() => replaceTransactionalEmails("test", [])).toThrow(
-      /namespace prefix ending in a period/,
+    expect(() => replaceTransactionalEmails("test-app", "test", [])).toThrow(
+      /owner app and its exact namespace prefix/,
     );
-    expect(getTransactionalEmail("test.stale")).toBeDefined();
+    expect(getTransactionalEmail("test-app.stale")).toBeDefined();
     expect(getTransactionalEmail("other.keep")).toBeDefined();
+  });
+
+  it("allows an owner to refresh metadata within its replacement scope", () => {
+    define("test-app.current", { name: "Old name" });
+    const updated = {
+      id: "test-app.current",
+      name: "New name",
+      app: "test-app",
+      trigger: "updated trigger",
+      recipient: "recipient",
+      recipientLabel: "Recipient",
+      sender: "sender",
+      senderLabel: "Sender",
+      preview: () => ({ subject: "updated", html: "", text: "" }),
+    };
+
+    expect(() =>
+      replaceTransactionalEmails("test-app", "test-app.", [updated]),
+    ).not.toThrow();
+    expect(getTransactionalEmail("test-app.current")?.name).toBe("New name");
+  });
+
+  it("rejects a replacement that would modify another app's scope", () => {
+    define("test-app.foreign", { app: "other-app" });
+
+    expect(() =>
+      replaceTransactionalEmails("test-app", "test-app.", []),
+    ).toThrow(/owned by "other-app"/);
+    expect(getTransactionalEmail("test-app.foreign")?.app).toBe("other-app");
+
+    expect(() =>
+      replaceTransactionalEmails("test-app", "test-app.", [
+        {
+          id: "test-app.incoming",
+          name: "Incoming",
+          app: "other-app",
+          trigger: "trigger",
+          recipient: "recipient",
+          recipientLabel: "Recipient",
+          sender: "sender",
+          senderLabel: "Sender",
+          preview: () => ({ subject: "incoming", html: "", text: "" }),
+        },
+      ]),
+    ).toThrow(/only test-app email definitions/);
   });
 
   it("renders a preview by id", () => {

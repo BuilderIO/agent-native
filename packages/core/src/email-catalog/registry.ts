@@ -112,7 +112,7 @@ export function defineTransactionalEmail(
   return resolved;
 }
 
-function validateDefinitions(
+function resolveDefinitions(
   definitions: readonly TransactionalEmailDefinition[],
 ): RegisteredTransactionalEmail[] {
   const resolved = definitions.map(resolveDefinition);
@@ -125,9 +125,18 @@ function validateDefinitions(
       );
     }
     seen.add(definition.id);
-    assertCanRegister(definition, registry.get(definition.id));
   }
 
+  return resolved;
+}
+
+function validateDefinitions(
+  definitions: readonly TransactionalEmailDefinition[],
+): RegisteredTransactionalEmail[] {
+  const resolved = resolveDefinitions(definitions);
+  for (const definition of resolved) {
+    assertCanRegister(definition, registry.get(definition.id));
+  }
   return resolved;
 }
 
@@ -149,20 +158,37 @@ export function defineTransactionalEmails(
 
 /** Replace one app-owned catalog snapshot after validating the full replacement. */
 export function replaceTransactionalEmails(
+  ownerApp: string,
   idPrefix: string,
   definitions: readonly TransactionalEmailDefinition[],
 ): RegisteredTransactionalEmail[] {
-  if (!idPrefix || !idPrefix.endsWith(".")) {
+  const runtimeApp = getAppSlug();
+  if (
+    !ownerApp ||
+    ownerApp.includes(".") ||
+    idPrefix !== `${ownerApp}.` ||
+    (runtimeApp && runtimeApp !== ownerApp)
+  ) {
     throw new Error(
-      "Transactional email replacement requires a non-empty namespace prefix ending in a period.",
+      "Transactional email replacement requires an owner app and its exact namespace prefix.",
     );
   }
 
-  const resolved = validateDefinitions(definitions);
-  if (resolved.some(({ id }) => !id.startsWith(idPrefix))) {
+  const resolved = resolveDefinitions(definitions);
+  if (
+    resolved.some(({ id, app }) => app !== ownerApp || !id.startsWith(idPrefix))
+  ) {
     throw new Error(
-      `Transactional email replacement contains an id outside the "${idPrefix}" scope.`,
+      `Transactional email replacement must contain only ${ownerApp} email definitions in the "${idPrefix}" scope.`,
     );
+  }
+
+  for (const [id, existing] of registry) {
+    if (id.startsWith(idPrefix) && existing.app !== ownerApp) {
+      throw new Error(
+        `Transactional email replacement cannot modify "${id}" owned by "${existing.app}".`,
+      );
+    }
   }
 
   const nextIds = new Set(resolved.map(({ id }) => id));

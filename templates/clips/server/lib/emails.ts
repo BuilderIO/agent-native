@@ -284,7 +284,7 @@ function registerClipsEmailDefinitions(): void {
       }),
   });
 
-  replaceTransactionalEmails("clips.", definitions);
+  replaceTransactionalEmails("clips", "clips.", definitions);
 }
 
 export function registerClipsEmails(): void {
