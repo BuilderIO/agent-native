@@ -101,15 +101,7 @@ async function serializeSteps(
   const serialized = await Promise.all(
     steps.map(async (step) => {
       if (!options.preview && step.isAvailable) {
-        try {
-          // Fail closed: a capability without a proven configuration should
-          // not render a CTA that can only end in a provider error. The next
-          // poll retries the availability check.
-          if (!(await step.isAvailable(context))) return null;
-          // coercion-ok: hide unavailable OAuth setup and retry on the next poll.
-        } catch {
-          return null;
-        }
+        if (!(await step.isAvailable(context))) return null;
       }
       let complete = false;
       if (!options.preview) {

@@ -85,6 +85,7 @@ import {
   type CalendarColorMode,
 } from "@/lib/calendar-view-preferences";
 import { EVENT_CATEGORY_COLORS } from "@/lib/event-colors";
+import { shouldOfferGoogleOAuthSetup } from "@/lib/google-oauth-setup";
 import { cn } from "@/lib/utils";
 
 import { useCalendarContext } from "./AppLayout";
@@ -660,6 +661,10 @@ export function Sidebar({
   const removeExternal = useRemoveExternalCalendar();
   const updateExternalColor = useUpdateExternalCalendarColor();
   const isConnected = googleStatus.data?.connected ?? false;
+  const canOfferGoogleOAuthSetup = useMemo(
+    () => shouldOfferGoogleOAuthSetup(),
+    [],
+  );
   const [peopleGroupOpen, setPeopleGroupOpen] = useState(
     () => overlayPeople.length <= 2, // i18n-ignore scanner false positive
   );
@@ -884,15 +889,17 @@ export function Sidebar({
               {/* Google status / connect CTA */}
               {!googleStatus.isLoading &&
                 !isConnected &&
-                googleStatus.data?.configured === true && (
-                  <GoogleConnectSidebarButton />
-                )}
+                (googleStatus.data?.configured === true ||
+                  canOfferGoogleOAuthSetup) && <GoogleConnectSidebarButton />}
 
               {isConnected &&
                 (googleStatus.data?.accounts?.length ?? 0) > 0 && (
                   <GoogleAccountsSection
                     accounts={googleStatus.data!.accounts!}
-                    canAddAccount={googleStatus.data?.configured === true}
+                    canAddAccount={
+                      googleStatus.data?.configured === true ||
+                      canOfferGoogleOAuthSetup
+                    }
                     onClose={onClose}
                   />
                 )}

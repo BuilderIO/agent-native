@@ -271,7 +271,8 @@ export default function Settings() {
           </SettingsGroup>
 
           {/* Google Calendar Connection */}
-          {(googleStatus.data?.connected ||
+          {(googleStatus.isError ||
+            googleStatus.data?.connected ||
             googleStatus.data?.configured === true ||
             canOfferGoogleOAuthSetup) && (
             <Card id="google-calendar" className="scroll-mt-16">
@@ -312,10 +313,19 @@ export default function Settings() {
                     )}
                   </div>
 
-                  {googleStatus.data?.connected &&
-                  googleStatus.data.accounts.some(
-                    (account) => !account.shared,
-                  ) ? (
+                  {googleStatus.isError ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void googleStatus.refetch()}
+                      disabled={googleStatus.isFetching}
+                    >
+                      {t("common.retry")}
+                    </Button>
+                  ) : googleStatus.data?.connected &&
+                    googleStatus.data.accounts.some(
+                      (account) => !account.shared,
+                    ) ? (
                     <Button
                       variant="outline"
                       size="sm"

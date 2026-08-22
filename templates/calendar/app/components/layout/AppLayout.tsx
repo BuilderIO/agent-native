@@ -442,13 +442,13 @@ export function AppLayout({ children }: AppLayoutProps) {
 
                   {/* Show the full-page Google prompt only on the calendar view. */}
                   {!googleStatus.isLoading &&
-                  !googleStatus.isError &&
                   !hasAccounts &&
                   !eventDraft &&
                   isCalendarPage &&
                   !isSettingsPage &&
                   (googleStatus.data?.configured === true ||
-                    canOfferGoogleOAuthSetup) ? (
+                    canOfferGoogleOAuthSetup ||
+                    googleStatus.isError) ? (
                     <main className="agent-native-app-main flex-1 overflow-y-auto">
                       <GoogleConnectBanner variant="hero" />
                     </main>

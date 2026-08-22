@@ -152,6 +152,27 @@ describe("onboarding plugin routes", () => {
     expect(isComplete).not.toHaveBeenCalled();
   });
 
+  it("propagates availability failures so callers can retry", async () => {
+    registerOnboardingStep({
+      id: "google",
+      order: 10,
+      title: "Connect Google",
+      description: "Requires managed Google OAuth.",
+      methods: [],
+      isAvailable: () => {
+        throw new Error("credential store unavailable");
+      },
+      isComplete: () => false,
+    });
+    const nitroApp = createNitroApp();
+    await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
+
+    const result = await dispatch(nitroApp, "/_agent-native/onboarding/steps");
+
+    expect(result.status).toBe(500);
+    expect(result.body).toEqual({ error: "credential store unavailable" });
+  });
+
   it("uses the same request context when reporting dismissed/allComplete state", async () => {
     registerRequestContextProbeStep();
     appStateGetMock.mockImplementation(async (_sessionId, key) =>

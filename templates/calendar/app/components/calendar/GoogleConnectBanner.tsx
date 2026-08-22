@@ -384,8 +384,15 @@ export function GoogleConnectBanner({
   }
 
   if (dismissed) return null;
-  if (!googleStatus.data && !canOfferOAuthSetup) return null;
-  if (!googleConfigured && !canOfferOAuthSetup && !hasAccounts) return null;
+  if (!googleStatus.data && !canOfferOAuthSetup && !googleStatus.isError)
+    return null;
+  if (
+    !googleConfigured &&
+    !canOfferOAuthSetup &&
+    !hasAccounts &&
+    !googleStatus.isError
+  )
+    return null;
 
   if (variant === "hero") {
     return (
@@ -399,7 +406,17 @@ export function GoogleConnectBanner({
         <p className="mt-2 max-w-xs text-[13px] text-muted-foreground leading-relaxed">
           {t("googleConnect.syncEventsDescription")}
         </p>
-        {(googleConfigured || canOfferOAuthSetup) && (
+        {googleStatus.isError ? (
+          <Button
+            size="sm"
+            variant="outline"
+            className="mt-6 gap-2 px-4 h-8 text-[13px] font-medium"
+            onClick={() => void googleStatus.refetch()}
+            disabled={googleStatus.isFetching}
+          >
+            {t("common.retry")}
+          </Button>
+        ) : googleConfigured || canOfferOAuthSetup ? (
           <Button
             size="sm"
             className="mt-6 gap-2 px-4 h-8 text-[13px] font-medium"
@@ -417,7 +434,7 @@ export function GoogleConnectBanner({
                 ? t("googleConnect.addAccount")
                 : t("googleConnect.connectGoogle")}
           </Button>
-        )}
+        ) : null}
 
         <GoogleAuthIssuePanel
           issue={desktopAuthIssue}

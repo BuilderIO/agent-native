@@ -506,8 +506,15 @@ export function GoogleConnectBanner({
   }
 
   if (dismissed) return null;
-  if (!googleStatus.data && !canOfferOAuthSetup) return null;
-  if (!googleConfigured && !canOfferOAuthSetup && !hasAccounts) return null;
+  if (!googleStatus.data && !canOfferOAuthSetup && !googleStatus.isError)
+    return null;
+  if (
+    !googleConfigured &&
+    !canOfferOAuthSetup &&
+    !hasAccounts &&
+    !googleStatus.isError
+  )
+    return null;
 
   // Full-page hero for setup / reconnection
   if (variant === "hero") {
@@ -522,7 +529,17 @@ export function GoogleConnectBanner({
         <p className="mt-2 max-w-sm text-sm text-muted-foreground leading-relaxed">
           {t("mail.googleConnect.heroDescription")}
         </p>
-        {(googleConfigured || canOfferOAuthSetup) && (
+        {googleStatus.isError ? (
+          <Button
+            size="sm"
+            variant="outline"
+            className="mt-8 gap-2 px-5 h-9 text-sm font-medium"
+            onClick={() => void googleStatus.refetch()}
+            disabled={googleStatus.isFetching}
+          >
+            {t("mail.error.tryAgain")}
+          </Button>
+        ) : googleConfigured || canOfferOAuthSetup ? (
           <Button
             size="sm"
             className="mt-8 gap-2 px-5 h-9 text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90"
@@ -539,7 +556,7 @@ export function GoogleConnectBanner({
                 ? t("mail.accounts.signInWithGoogle")
                 : t("mail.accounts.connectGoogle")}
           </Button>
-        )}
+        ) : null}
 
         <GoogleAuthIssuePanel
           issue={desktopAuthIssue}
@@ -767,6 +784,17 @@ export function GoogleConnectBanner({
           onDismiss={() => setDesktopAuthIssue(null)}
           className="mx-4 mb-3"
         />
+        {googleStatus.isError && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="mx-4 mb-2"
+            onClick={() => void googleStatus.refetch()}
+            disabled={googleStatus.isFetching}
+          >
+            {t("mail.error.tryAgain")}
+          </Button>
+        )}
       </div>
     );
   }
@@ -788,7 +816,17 @@ export function GoogleConnectBanner({
         </div>
 
         <div className="flex items-center gap-1.5 shrink-0">
-          {showWizard && !allConfigured && canOfferOAuthSetup ? (
+          {googleStatus.isError ? (
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5 text-xs h-7 font-medium"
+              onClick={() => void googleStatus.refetch()}
+              disabled={googleStatus.isFetching}
+            >
+              {t("mail.error.tryAgain")}
+            </Button>
+          ) : showWizard && !allConfigured && canOfferOAuthSetup ? (
             <Button
               size="sm"
               variant="outline"
