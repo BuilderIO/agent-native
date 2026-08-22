@@ -161,6 +161,14 @@ function canEditBookingLink(link: BookingLink | null | undefined) {
   );
 }
 
+function canDeleteBookingLink(link: BookingLink | null | undefined) {
+  return (
+    !link?.accessRole ||
+    link.accessRole === "owner" ||
+    link.accessRole === "admin"
+  );
+}
+
 type DraftLink = {
   id?: string;
   title: string;
@@ -795,6 +803,7 @@ export default function BookingLinksPage({
     [bookingLinks, selectedId],
   );
   const canEditSelectedLink = canEditBookingLink(selectedLink);
+  const canDeleteSelectedLink = canDeleteBookingLink(selectedLink);
 
   useEffect(() => {
     if (!selectedLink) {
@@ -1494,7 +1503,7 @@ export default function BookingLinksPage({
                       }
                     />
                   </div>
-                  {canEditSelectedLink && (
+                  {canDeleteSelectedLink && (
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
                         <button

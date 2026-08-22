@@ -87,6 +87,15 @@ describe("Inbox pagination", () => {
     expect(inboxSource()).toContain("shouldShowInboxZero");
     expect(inboxSource()).toContain("hasNextPage: Boolean(hasNextPage)");
   });
+
+  it("uses a contact-scoped search and bounded follow-up pages", () => {
+    const source = inboxSource();
+
+    expect(source).toContain('useEmails("all", normalizedDisplayEmail');
+    expect(source).toContain("fetchNextPage");
+    expect(source).toContain("contactPageFetchesRef");
+    expect(source).toContain("recentFromContact.length >= 4");
+  });
 });
 
 describe("Inbox draft opening", () => {

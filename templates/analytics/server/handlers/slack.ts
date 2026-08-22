@@ -45,10 +45,21 @@ export function parseCursorMap(
       return { ok: false };
     }
     const entries = Object.entries(parsed);
-    if (entries.some(([, value]) => typeof value !== "string")) {
+    if (
+      entries.some(
+        ([, value]) =>
+          typeof value !== "string" ||
+          !/^\d+(?:\.\d{1,6})?$/.test(value.trim()),
+      )
+    ) {
       return { ok: false };
     }
-    return { ok: true, value: Object.fromEntries(entries) };
+    return {
+      ok: true,
+      value: Object.fromEntries(
+        entries.map(([channelId, value]) => [channelId, value.trim()]),
+      ),
+    };
   } catch {
     return { ok: false };
   }

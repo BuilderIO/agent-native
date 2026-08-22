@@ -1,7 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter, Stack } from "expo-router";
 import { useRef } from "react";
-import { View, Text, TouchableOpacity } from "react-native";
+import { ActivityIndicator, View, Text, TouchableOpacity } from "react-native";
 
 import AppWebView, { type AppWebViewHandle } from "@/components/AppWebView";
 import { useMobileThemeColors } from "@/lib/mobile-colors";
@@ -12,7 +12,7 @@ import { useWorkspaceApps } from "@/lib/workspace-apps";
 export default function AppScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const { apps } = useApps();
+  const { apps, loading: appsLoading } = useApps();
   const workspace = useWorkspaceApps();
   const webviewRef = useRef<AppWebViewHandle>(null);
   const { background, foreground } = useMobileThemeColors();
@@ -24,6 +24,17 @@ export default function AppScreen() {
   const isWorkspaceApp =
     workspace.enabled &&
     workspace.apps.some((candidate) => candidate.id === id);
+
+  if (appsLoading || workspace.loading) {
+    return (
+      <View
+        className="flex-1 items-center justify-center"
+        style={{ backgroundColor: background }}
+      >
+        <ActivityIndicator color={foreground} />
+      </View>
+    );
+  }
 
   if (!app) {
     return (

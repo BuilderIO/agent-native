@@ -10,7 +10,7 @@ describe("Slack request parsing", () => {
     expect(parseWorkspace("bogus")).toBeNull();
   });
 
-  it("accepts only a string cursor map", () => {
+  it("accepts only well-formed Slack timestamp cursors", () => {
     expect(parseCursorMap()).toEqual({ ok: true, value: {} });
     expect(parseCursorMap('{"C1":"1780000000.000000"}')).toEqual({
       ok: true,
@@ -19,5 +19,12 @@ describe("Slack request parsing", () => {
     expect(parseCursorMap("{bad")).toEqual({ ok: false });
     expect(parseCursorMap("[]")).toEqual({ ok: false });
     expect(parseCursorMap('{"C1":123}')).toEqual({ ok: false });
+    expect(parseCursorMap('{"C1":"not-a-timestamp"}')).toEqual({
+      ok: false,
+    });
+    expect(parseCursorMap('{"C1":""}')).toEqual({ ok: false });
+    expect(parseCursorMap('{"C1":"1780000000.1234567"}')).toEqual({
+      ok: false,
+    });
   });
 });

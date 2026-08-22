@@ -54,12 +54,68 @@ function ContactPanel({
   const displayName = contactEmail
     ? contactEmail
     : email?.from.name || email?.from.email;
+  const normalizedDisplayEmail = displayEmail?.trim().toLowerCase() ?? "";
   // Use all mail so contact activity survives sent/archive/inbox navigation.
-  // The query stays disabled until a contact is selected to avoid an eager
-  // mailbox-wide fetch when the sidebar is closed.
-  const { data: allEmails = [] } = useEmails("all", undefined, undefined, {
-    enabled: Boolean(displayEmail),
+  // Search at the provider boundary so the contact panel does not page through
+  // the entire mailbox. The bounded follow-up fetches cover sparse histories.
+  const {
+    data: allEmails = [],
+    hasNextPage,
+    fetchNextPage,
+    isFetchingNextPage,
+    isFetchNextPageError,
+  } = useEmails("all", normalizedDisplayEmail || undefined, undefined, {
+    enabled: Boolean(normalizedDisplayEmail),
   });
+  const contactPageFetchesRef = useRef(0);
+
+  useEffect(() => {
+    contactPageFetchesRef.current = 0;
+  }, [normalizedDisplayEmail]);
+
+  const recentFromContact = displayEmail
+    ? allEmails
+        .filter((e) => {
+          if (e.id === emailId) return false;
+          const participants = [
+            e.from,
+            ...e.to,
+            ...(e.cc ?? []),
+            ...(e.bcc ?? []),
+          ];
+          return participants.some(
+            (participant) =>
+              participant.email.trim().toLowerCase() === normalizedDisplayEmail,
+          );
+        })
+        .slice(0, 4)
+        .map((e) => ({ id: e.id, subject: e.subject }))
+    : [];
+
+  useEffect(() => {
+    const maxContactPages = 4;
+    if (
+      !normalizedDisplayEmail ||
+      recentFromContact.length >= 4 ||
+      !hasNextPage ||
+      isFetchingNextPage ||
+      isFetchNextPageError ||
+      contactPageFetchesRef.current >= maxContactPages
+    ) {
+      return;
+    }
+    contactPageFetchesRef.current += 1;
+    void fetchNextPage().catch(() => {
+      contactPageFetchesRef.current = maxContactPages;
+    });
+  }, [
+    fetchNextPage,
+    hasNextPage,
+    isFetchNextPageError,
+    isFetchingNextPage,
+    normalizedDisplayEmail,
+    recentFromContact.length,
+  ]);
 
   if (!displayEmail) {
     return (
@@ -70,19 +126,6 @@ function ContactPanel({
       </div>
     );
   }
-
-  const normalizedDisplayEmail = displayEmail.trim().toLowerCase();
-  const recentFromContact = allEmails
-    .filter((e) => {
-      if (e.id === emailId) return false;
-      const participants = [e.from, ...e.to, ...(e.cc ?? []), ...(e.bcc ?? [])];
-      return participants.some(
-        (participant) =>
-          participant.email.trim().toLowerCase() === normalizedDisplayEmail,
-      );
-    })
-    .slice(0, 4)
-    .map((e) => ({ id: e.id, subject: e.subject }));
 
   return (
     <IntegrationsSidebar
