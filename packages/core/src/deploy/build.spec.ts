@@ -1797,6 +1797,7 @@ describe("sanitizeServerlessFunctionPackageManifest", () => {
           type: "module",
           dependencies: {
             "@libsql/linux-x64-gnu": "0.5.29",
+            "better-sqlite3": "12.11.1",
             electron: "41.9.0",
             "node-pty": "1.1.0",
             "playwright-core": "1.61.1",
@@ -1833,6 +1834,7 @@ describe("sanitizeServerlessFunctionPackageManifest", () => {
     );
     expect(packageJson.dependencies).toEqual({
       "@libsql/linux-x64-gnu": "0.5.29",
+      "better-sqlite3": "12.11.1",
       "playwright-core": "1.61.1",
     });
     expect(packageJson.optionalDependencies).toBeUndefined();

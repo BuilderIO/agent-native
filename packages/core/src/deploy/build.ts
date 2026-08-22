@@ -2611,14 +2611,6 @@ const SERVERLESS_FUNCTION_PACKAGE_DENYLIST = new Set([
   "puppeteer",
   "puppeteer-core",
   "chromium-bidi",
-  // Local-development driver only. Every consumer is gated on a `file:` or
-  // schemeless DATABASE_URL, and a serverless function holding a file-backed
-  // SQLite database is already broken — the filesystem is ephemeral and each
-  // container gets its own copy, so that data was never going to persist.
-  // Denying the package turns that misconfiguration into a loud failure rather
-  // than a silently empty database. This list applies to the netlify, vercel
-  // and aws-lambda presets only, so local dev against a file: URL is unaffected.
-  "better-sqlite3",
 ]);
 
 /**
