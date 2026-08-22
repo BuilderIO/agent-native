@@ -140,6 +140,91 @@ describe("server/auth", () => {
     }, 15_000);
   });
 
+  describe("auth.requireEmailVerification", () => {
+    afterEach(async () => {
+      const { resetAppConfigForTests } = await import("../app-config/index.js");
+      resetAppConfigForTests();
+    });
+
+    it("turns verification off in hosted production when declared false", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("AUTH_REQUIRE_EMAIL_VERIFICATION", "0");
+      const { resolveEmailPasswordAuthPolicy } =
+        await import("./better-auth-instance.js");
+
+      expect(resolveEmailPasswordAuthPolicy(true)).toEqual({
+        requireEmailVerification: false,
+        disableSignUp: false,
+      });
+    }, 15_000);
+
+    it("also lifts the hosted no-email signup lock, since it is the same decision", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("AUTH_REQUIRE_EMAIL_VERIFICATION", "0");
+      const { resolveEmailPasswordAuthPolicy } =
+        await import("./better-auth-instance.js");
+
+      expect(resolveEmailPasswordAuthPolicy(false)).toEqual({
+        requireEmailVerification: false,
+        disableSignUp: false,
+      });
+    }, 15_000);
+
+    it("outranks AUTH_SKIP_EMAIL_VERIFICATION in local development", async () => {
+      vi.stubEnv("NODE_ENV", "development");
+      vi.stubEnv("AUTH_SKIP_EMAIL_VERIFICATION", "1");
+      vi.stubEnv("AUTH_REQUIRE_EMAIL_VERIFICATION", "1");
+      const { resolveEmailPasswordAuthPolicy } =
+        await import("./better-auth-instance.js");
+
+      expect(resolveEmailPasswordAuthPolicy(true)).toEqual({
+        requireEmailVerification: true,
+        disableSignUp: false,
+      });
+    }, 15_000);
+
+    it("refuses signup when it requires a verification no provider can deliver", async () => {
+      vi.stubEnv("NODE_ENV", "development");
+      vi.stubEnv("AUTH_REQUIRE_EMAIL_VERIFICATION", "1");
+      const { resolveEmailPasswordAuthPolicy } =
+        await import("./better-auth-instance.js");
+
+      expect(resolveEmailPasswordAuthPolicy(false)).toEqual({
+        requireEmailVerification: false,
+        disableSignUp: true,
+      });
+    }, 15_000);
+
+    it("is settable from defineAppConfig, which beats the env alias", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("AUTH_REQUIRE_EMAIL_VERIFICATION", "1");
+      const { defineAppConfig } = await import("../app-config/index.js");
+      defineAppConfig({ auth: { requireEmailVerification: false } });
+      const { resolveEmailPasswordAuthPolicy } =
+        await import("./better-auth-instance.js");
+
+      expect(resolveEmailPasswordAuthPolicy(true)).toEqual({
+        requireEmailVerification: false,
+        disableSignUp: false,
+      });
+    }, 15_000);
+
+    it("leaves the derived policy alone when it is unset", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      const { resolveEmailPasswordAuthPolicy } =
+        await import("./better-auth-instance.js");
+
+      expect(resolveEmailPasswordAuthPolicy(true)).toEqual({
+        requireEmailVerification: true,
+        disableSignUp: false,
+      });
+      expect(resolveEmailPasswordAuthPolicy(false)).toEqual({
+        requireEmailVerification: false,
+        disableSignUp: true,
+      });
+    }, 15_000);
+  });
+
   describe("resolveAuthLoginMode", () => {
     it("defaults to magic link only when email is ready", async () => {
       const { resolveAuthLoginMode } =
