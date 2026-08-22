@@ -42,6 +42,11 @@ on:
         required: false
         default: ""
         type: string
+      key_source:
+        description: "Which OpenAI credential the agent turns bill"
+        required: false
+        default: dedicated
+        type: string
     secrets:
       BETA_E2E_EMAIL:
         required: false
@@ -282,7 +287,6 @@ jobs:
     name: Advisory findings (non-gating)
     if: ${{ always() && needs.discover.result == 'success' }}
     needs: discover
-    continue-on-error: true
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -294,9 +298,11 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: ./.github/actions/beta-e2e-setup
       - name: Advisory findings
+        continue-on-error: true
         # Always runs: it costs no credentials and no tokens, and findings that
-        # stop being reported stop being fixed. continue-on-error keeps a red
-        # here from meaning "do not promote".
+        # stop being reported stop being fixed. Step-level continue-on-error
+        # keeps the reusable workflow green while preserving the failed step
+        # and uploaded report for inspection.
         run: |
           if [ -n "$BETA_E2E_GREP" ]; then
             pnpm e2e:beta --project=advisory --grep "$BETA_E2E_GREP" --pass-with-no-tests
