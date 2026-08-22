@@ -417,14 +417,37 @@ if (grown.length > 0) {
   );
 }
 
+// Individually under the bar, together over it. Without this, an unbounded
+// number of small unrecorded functions ships unasserted, which is the same
+// hole the per-function bar closes, arrived at by addition.
+const newSmallTotal = newSmall.reduce((sum, fn) => sum + fn.bytes, 0);
 if (newSmall.length > 0) {
   console.log(
     `\n[size-baseline] ${site}: ${newSmall.length} function(s) not in the baseline, ` +
-      `each under ${mb(NEW_FUNCTION_FAIL_BYTES)}MB. Re-record to assert them.`,
+      `${mb(newSmallTotal)}MB together. Re-record to assert them.`,
+  );
+}
+if (newSmallTotal >= NEW_FUNCTION_FAIL_BYTES) {
+  console.error(
+    `\n[size-baseline] ${site}: unrecorded functions total ${mb(newSmallTotal)}MB, ` +
+      `at or over the ${mb(NEW_FUNCTION_FAIL_BYTES)}MB bar:`,
+  );
+  for (const fn of newSmall) {
+    console.error(`  - ${fn.name}: ${mb(fn.bytes)}MB`);
+  }
+  console.error(
+    "\nEach is small enough to be a conditional trigger entry, but not all of " +
+      "them are. Record them so their sizes are asserted:\n" +
+      `  pnpm check:function-size-baseline --site ${site} --dir ${functionsDir} --update`,
   );
 }
 
-if (grown.length > 0 || unrecorded.length > 0 || oversizedGated.length > 0) {
+if (
+  grown.length > 0 ||
+  unrecorded.length > 0 ||
+  oversizedGated.length > 0 ||
+  newSmallTotal >= NEW_FUNCTION_FAIL_BYTES
+) {
   process.exit(1);
 }
 
