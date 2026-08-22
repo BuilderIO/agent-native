@@ -167,9 +167,12 @@ function pruneFunction(functionDir: string): {
       bytes += statSync(file).size;
       rmSync(file);
       removed += 1;
-    } catch {
-      // Already gone: the sibling function is hardlinked in some layouts.
-    }
+      // A chunk already gone is the goal state, not a failure: the sibling
+      // function directory is hardlinked in some layouts, so the first prune
+      // removes it for both. The reported byte count stays honest because the
+      // size is read before the unlink.
+      // coercion-ok: absent and removed are the same outcome here.
+    } catch {}
   }
   return { removed, bytes };
 }
