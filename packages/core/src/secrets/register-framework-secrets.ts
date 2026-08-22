@@ -29,7 +29,7 @@ export function registerFrameworkSecrets(): void {
       id: "google_drive",
       credentialPrefix: "GOOGLE",
       oauthProvider: "google",
-      label: "Google Drive",
+      label: "Google Workspace",
       docsUrl:
         "https://developers.google.com/identity/protocols/oauth2/web-server",
     },

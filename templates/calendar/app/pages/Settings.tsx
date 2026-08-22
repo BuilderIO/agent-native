@@ -1,6 +1,8 @@
+import { agentNativePath } from "@agent-native/core/client/api-path";
 import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
 import { callAction } from "@agent-native/core/client/hooks";
 import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
+import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
 import { TeamPage } from "@agent-native/core/client/org";
 import {
   AccountSettingsCard,
@@ -51,7 +53,6 @@ import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import {
   useGoogleAuthStatus,
-  useGoogleAuthUrl,
   useGoogleDesktopAuth,
   useDisconnectGoogle,
 } from "@/hooks/use-google-auth";
@@ -86,8 +87,6 @@ export default function Settings() {
   const zoomStatus = useZoomStatus();
   const connectZoom = useConnectZoom();
   const disconnectZoom = useDisconnectZoom();
-  const [wantAuthUrl, setWantAuthUrl] = useState(false);
-  const authUrl = useGoogleAuthUrl(wantAuthUrl);
   const canOfferGoogleOAuthSetup = shouldOfferGoogleOAuthSetup();
 
   const [timezone, setTimezone] = useState("");
@@ -131,24 +130,19 @@ export default function Settings() {
       });
       return;
     }
-    setWantAuthUrl(true);
+    const returnPath = `${window.location.pathname}${window.location.search}`;
+    startWorkspaceProviderOAuth("google_calendar", {
+      appId: "calendar",
+      returnPath,
+      scope: "user",
+    });
   }
 
-  useEffect(() => {
-    if (!wantAuthUrl || !authUrl.data?.url) return;
-    setWantAuthUrl(false);
-    window.open(authUrl.data.url, "_blank");
-  }, [wantAuthUrl, authUrl.data]);
-
-  useEffect(() => {
-    if (authUrl.error) {
-      toast.error(authUrl.error.message);
-      setWantAuthUrl(false);
-    }
-  }, [authUrl.error]);
-
   async function handleDisconnect() {
-    const accounts = googleStatus.data?.accounts ?? [];
+    const accounts = (googleStatus.data?.accounts ?? []).filter(
+      (account) => !account.shared,
+    );
+    if (accounts.length === 0) return;
     try {
       for (const account of accounts) {
         await disconnectGoogle.mutateAsync(account.email);
@@ -316,7 +310,10 @@ export default function Settings() {
                   )}
                 </div>
 
-                {googleStatus.data?.connected ? (
+                {googleStatus.data?.connected &&
+                googleStatus.data.accounts.some(
+                  (account) => !account.shared,
+                ) ? (
                   <Button
                     variant="outline"
                     size="sm"
@@ -330,11 +327,7 @@ export default function Settings() {
                   <Button
                     size="sm"
                     onClick={handleConnect}
-                    disabled={
-                      authUrl.isLoading ||
-                      authUrl.isFetching ||
-                      isGoogleDesktopAuthPending
-                    }
+                    disabled={isGoogleDesktopAuthPending}
                   >
                     <IconExternalLink className="me-1.5 h-3.5 w-3.5" />
                     {t("common.connect")}
