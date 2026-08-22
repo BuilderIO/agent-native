@@ -112,7 +112,13 @@ function main() {
     // quietly publish part of it. A path absent from disk is still stageable
     // when Git tracks it; only a path that is neither is skipped, because
     // that pathspec would abort the whole `add`.
-    const tracked = new Set(git(["ls-files"]).split("\n").filter(Boolean));
+    // -z for the same reason `git status` is read with -z: without it Git
+    // C-quotes any path with non-ASCII or special characters, which would not
+    // match the raw path from the porcelain read and would silently drop that
+    // deletion — the exact failure this block was just fixed for.
+    const tracked = new Set(
+      git(["ls-files", "-z"], { raw: true }).split("\0").filter(Boolean),
+    );
     const stageable = selectStageablePaths(publishable, {
       exists: (file) => existsSync(path.join(REPO_ROOT, file)),
       isTracked: (file) => tracked.has(file),
