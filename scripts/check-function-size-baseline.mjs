@@ -61,6 +61,20 @@ const TOLERANCE_BYTES = 5 * 1024 * 1024;
  * the moment a baseline is recorded; the app is then protected like the other
  * fifteen.
  */
+/**
+ * Functions emitted only when a build flag is set, so whether they exist
+ * differs between a local build and a deploy. `agent-native-keep-warm` is
+ * emitted by the beta workflow (AGENT_NATIVE_ENABLE_KEEP_WARM=1) and not by a
+ * plain local build, so it can be neither recorded nor missed reliably.
+ *
+ * These are exempt from the new-function and removed-function checks, but only
+ * while they stay trigger-sized. The cap is what stops the exemption from
+ * becoming somewhere a payload can hide: a gated function over it fails like
+ * any other.
+ */
+const BUILD_FLAG_GATED_FUNCTIONS = new Set(["agent-native-keep-warm"]);
+const GATED_FUNCTION_SIZE_CAP_BYTES = 1024 * 1024;
+
 const UNMEASURABLE_APPS = new Map([
   [
     "crm",
@@ -203,6 +217,15 @@ const unrecorded = [];
 for (const [name, bytes] of Object.entries(measured).sort()) {
   const before = recorded[name];
   if (before === undefined) {
+    if (
+      BUILD_FLAG_GATED_FUNCTIONS.has(name) &&
+      bytes <= GATED_FUNCTION_SIZE_CAP_BYTES
+    ) {
+      console.log(
+        `  gated ${name} ${mb(bytes)}MB (build-flag gated, within cap)`,
+      );
+      continue;
+    }
     // A function the baseline has never seen is unmeasured, and unmeasured is
     // not "small": without this the build could emit a brand new 100MB
     // function and deploy it unchallenged.
@@ -221,7 +244,10 @@ for (const [name, bytes] of Object.entries(measured).sort()) {
 // is a route, cron, or background worker that silently stopped shipping, and
 // "nothing grew" is exactly the wrong thing to say about it.
 const missing = Object.keys(recorded)
-  .filter((name) => measured[name] === undefined)
+  .filter(
+    (name) =>
+      measured[name] === undefined && !BUILD_FLAG_GATED_FUNCTIONS.has(name),
+  )
   .sort();
 if (missing.length > 0) {
   console.error(
