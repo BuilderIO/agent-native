@@ -67,7 +67,13 @@ reqwest = { version = "0.12", default-features = false, features = [
   "rustls-tls",
   "json",
 ] }
-tokio = { version = "1", features = ["rt", "rt-multi-thread", "time", "sync"] }
+tokio = { version = "1", features = [
+  "rt",
+  "rt-multi-thread",
+  "time",
+  "sync",
+  "macros",
+] }
 chrono = { version = "0.4", features = ["serde"] }
 # Verify the integrity of the Whisper model we download from HuggingFace.
 sha2 = "0.10"

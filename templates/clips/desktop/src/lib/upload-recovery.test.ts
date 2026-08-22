@@ -3,17 +3,61 @@ import { describe, expect, it } from "vitest";
 import {
   buildStreamingReplayPlan,
   planStreamingRecovery,
+  retryConflictDelay,
   retryAttemptIdAfterRestartSignal,
   retryAttemptIdAfterResumeResponse,
 } from "./upload-recovery";
 
 const CHUNK_BYTES = 3_932_160;
 
-describe("retryAttemptIdAfterRestartSignal", () => {
-  it("drops the retry claim only when the server disables recovery", () => {
+describe("retryConflictDelay", () => {
+  it("accepts only a typed, bounded active-retry delay", () => {
     expect(
-      retryAttemptIdAfterRestartSignal("attempt-1", false),
-    ).toBeUndefined();
+      retryConflictDelay({
+        resumable: false,
+        recoveryEnabled: true,
+        status: "uploading",
+        reason: "retry_already_active",
+        retryAfterMs: 1_500,
+      }),
+    ).toBe(1_500);
+    expect(
+      retryConflictDelay({
+        resumable: false,
+        recoveryEnabled: true,
+        status: "uploading",
+        reason: "retry_already_active",
+        retryAfterMs: 60_000,
+      }),
+    ).toBe(30_000);
+  });
+
+  it("rejects untyped and unreadable conflict delays", () => {
+    expect(
+      retryConflictDelay({
+        resumable: false,
+        recoveryEnabled: true,
+        status: "uploading",
+        reason: "retry_already_active",
+      }),
+    ).toBeNull();
+    expect(
+      retryConflictDelay({
+        resumable: false,
+        recoveryEnabled: true,
+        status: "uploading",
+        reason: "upload_state_changed",
+        retryAfterMs: 1_000,
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("retryAttemptIdAfterRestartSignal", () => {
+  it("preserves an existing retry claim through a flag rollback", () => {
+    expect(retryAttemptIdAfterRestartSignal("attempt-1", false)).toBe(
+      "attempt-1",
+    );
     expect(retryAttemptIdAfterRestartSignal("attempt-1", true)).toBe(
       "attempt-1",
     );
@@ -45,6 +89,30 @@ describe("retryAttemptIdAfterResumeResponse", () => {
         resumable: false,
         recoveryEnabled: true,
         status: "failed",
+      }),
+    ).toBeUndefined();
+  });
+
+  it("preserves a server-acknowledged claim while the flag is rolled back", () => {
+    expect(
+      retryAttemptIdAfterResumeResponse("attempt-1", {
+        resumable: false,
+        recoveryEnabled: false,
+        status: "uploading",
+        reason: "feature_disabled",
+        attemptId: "attempt-1",
+        uploadGenerationId: "generation-1",
+      }),
+    ).toBe("attempt-1");
+  });
+
+  it("drops an unacknowledged legacy claim while the flag is rolled back", () => {
+    expect(
+      retryAttemptIdAfterResumeResponse("attempt-1", {
+        resumable: false,
+        recoveryEnabled: false,
+        status: "uploading",
+        reason: "feature_disabled",
       }),
     ).toBeUndefined();
   });

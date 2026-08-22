@@ -17,7 +17,6 @@ import {
   readAppState,
   writeAppState,
 } from "@agent-native/core/application-state";
-import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { track } from "@agent-native/core/tracking";
 import { normalizeChunkUploadNumber } from "@shared/recording-core.js";
@@ -35,7 +34,6 @@ import {
 } from "h3";
 
 import finalizeRecording from "../../../../../actions/finalize-recording.js";
-import { UPLOAD_RETRY_RESUME_FLAG } from "../../../../../shared/feature-flags.js";
 import { getDb, schema } from "../../../../db/index.js";
 import { debugLog } from "../../../../lib/debug.js";
 import {
@@ -47,15 +45,16 @@ import {
   ownerEmailMatches,
 } from "../../../../lib/recordings.js";
 import {
-  deleteResumableSession,
+  compareAndSetResumableSession,
   getResumableSession,
-  setResumableSession,
   type StoredResumableSession,
 } from "../../../../lib/resumable-session.js";
-import { abortResumableUploadSession } from "../../../../lib/resumable-upload-cleanup.js";
 import { resolveResumableUploadProvider } from "../../../../lib/resumable-upload-provider.js";
 import { isStreamingUploadDisabled } from "../../../../lib/streaming-upload-mode.js";
-import { renewUploadLease } from "../../../../lib/upload-lease.js";
+import {
+  renewUploadLease,
+  type UploadLeaseResult,
+} from "../../../../lib/upload-lease.js";
 import {
   allowsSqlRecordingChunkScratch,
   shouldRejectVideoUploadWithoutStorage,
@@ -68,6 +67,42 @@ const RECORDING_TOO_LARGE_REASON = `Recording exceeds the ${Math.round(MAX_RECOR
 // are base64 encoded by the gateway and effectively cap out around 4.5 MB.
 // Keep our own cap lower so dev/local failures match production.
 const MAX_CHUNK_BYTES = 4 * 1024 * 1024;
+const RETRY_OWNERSHIP_HEARTBEAT_MS = 10 * 1000;
+
+async function relayWithRetryOwnershipHeartbeat<T>(
+  recordingId: string,
+  attemptId: string | null,
+  generationId: string | null,
+  relay: () => Promise<T>,
+): Promise<{ result: T; ownershipFailure: UploadLeaseResult | Error | null }> {
+  if (attemptId === null)
+    return { result: await relay(), ownershipFailure: null };
+  let ownershipFailure: UploadLeaseResult | Error | null = null;
+  let pending: Promise<void> | null = null;
+  const heartbeat = () => {
+    if (pending || ownershipFailure) return;
+    pending = renewUploadLease(recordingId, { attemptId, generationId })
+      .then((lease) => {
+        if (!lease.held) ownershipFailure = lease;
+      })
+      .catch((error) => {
+        ownershipFailure =
+          error instanceof Error ? error : new Error(String(error));
+      })
+      .finally(() => {
+        pending = null;
+      });
+  };
+  const timer = setInterval(heartbeat, RETRY_OWNERSHIP_HEARTBEAT_MS);
+  let result: T;
+  try {
+    result = await relay();
+  } finally {
+    clearInterval(timer);
+    await pending;
+  }
+  return { result: result!, ownershipFailure };
+}
 
 const ALLOWED_RECORDING_MIME_TYPES = new Set([
   "video/webm",
@@ -238,23 +273,6 @@ export default defineEventHandler(async (event: H3Event) => {
     throw createError({ statusCode: 401, message: "Unauthorized" });
   }
   debugLog("[chunk] resolved owner:", ownerEmail);
-
-  if (
-    attemptId !== null &&
-    !(await isFeatureFlagEnabled(UPLOAD_RETRY_RESUME_FLAG, {
-      userEmail: ownerEmail,
-      userKey: ownerEmail,
-      orgId,
-    }))
-  ) {
-    setResponseStatus(event, 409);
-    return {
-      ok: false,
-      error: "Resumable upload retry is disabled.",
-      restartRequired: true,
-      recoveryEnabled: false,
-    };
-  }
 
   return runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
     const db = getDb();
@@ -855,21 +873,55 @@ async function handleResumableChunk(
     `[resumable-chunk-${recordingId}] resumable session exists - bytesUploaded=${session.bytesUploaded} index=${index} isFinal=${isFinal}`,
   );
 
-  const cleanupFailedFinalSession = async () => {
-    const cleaned = await abortResumableUploadSession(session, {
-      provider: uploadProvider,
-      label: `resumable-final-${recordingId}`,
-    });
-    if (cleaned) {
-      await deleteResumableSession(recordingId, uploadGenerationId).catch(
-        (error) =>
-          console.warn(
-            `[resumable-chunk-${recordingId}] failed to retire aborted session:`,
-            error,
-          ),
-      );
+  const settleAcceptedProviderEffect = async (
+    next: StoredResumableSession,
+  ): Promise<"settled" | "superseded" | "contradictory"> => {
+    if (
+      await compareAndSetResumableSession(
+        recordingId,
+        session,
+        next,
+        uploadGenerationId,
+      )
+    ) {
+      session = next;
+      return "settled";
     }
-    return !cleaned;
+
+    const current = await getResumableSession(recordingId, uploadGenerationId);
+    if (!current || current.sessionId !== session.sessionId) {
+      return "superseded";
+    }
+    const metaSettled = Object.entries(next.meta).every(
+      ([key, value]) =>
+        JSON.stringify(current.meta[key]) === JSON.stringify(value),
+    );
+    if (
+      current.bytesUploaded >= next.bytesUploaded &&
+      (current.lastCommittedIndex ?? -1) >= (next.lastCommittedIndex ?? -1) &&
+      (!next.providerClosed || current.providerClosed === true) &&
+      metaSettled
+    ) {
+      session = current;
+      return "settled";
+    }
+    return "contradictory";
+  };
+
+  const settlementFailure = (outcome: "superseded" | "contradictory") => {
+    setResponseStatus(event, 409);
+    return outcome === "superseded"
+      ? {
+          ok: false,
+          error:
+            "Upload retry ownership was lost while the provider was responding.",
+          staleAttempt: true,
+        }
+      : {
+          ok: false,
+          error: "Accepted provider state could not be reconciled safely.",
+          restartRequired: true,
+        };
   };
 
   const raw = await readRawBody(event, false);
@@ -902,40 +954,95 @@ async function handleResumableChunk(
     // 0-byte sentinel from the recorder after stop(). All data chunks have
     // already been PUT to the provider; send Content-Range: bytes */<total>
     // to close the session before handing off to finalize-recording.
-    let closeRes;
-    try {
-      closeRes = await uploadProvider.resumable.relayChunk(
-        { sessionId: session.sessionId, meta: session.meta },
-        `bytes */${session.bytesUploaded}`,
-        new Uint8Array(0),
-      );
-    } catch (error) {
-      const cleanupFailed = await cleanupFailedFinalSession();
-      const detail = error instanceof Error ? error.message : String(error);
-      console.error(
-        `[resumable-chunk-${recordingId}] session close threw:`,
-        error,
-      );
-      setResponseStatus(event, 502);
-      return {
-        ok: false,
-        error: `Resumable session close failed: ${detail}`,
-        ...(cleanupFailed ? { cleanupFailed: true } : {}),
-      };
-    }
-    if (!closeRes.ok || closeRes.status === 308) {
-      console.error(
-        `[resumable-chunk-${recordingId}] session close failed (${closeRes.status})`,
-      );
-      const cleanupFailed = await cleanupFailedFinalSession();
-      setResponseStatus(event, 502);
-      return {
-        ok: false,
-        error: `Resumable session close failed (${closeRes.status})`,
-        ...(cleanupFailed ? { cleanupFailed: true } : {}),
-      };
-    }
-    if (closeRes.updatedMeta) {
+    if (session.providerClosed) {
+      // A prior close response was accepted but its caller lost ownership.
+      // The durable marker makes replay a no-op before idempotent finalization.
+    } else {
+      let closeRes;
+      try {
+        const relayed = await relayWithRetryOwnershipHeartbeat(
+          recordingId,
+          attemptId,
+          uploadGenerationId,
+          () =>
+            uploadProvider.resumable!.relayChunk(
+              { sessionId: session.sessionId, meta: session.meta },
+              `bytes */${session.bytesUploaded}`,
+              new Uint8Array(0),
+            ),
+        );
+        closeRes = relayed.result;
+        if (closeRes.ok && closeRes.status !== 308) {
+          const settlement = await settleAcceptedProviderEffect({
+            ...session,
+            ...(closeRes.updatedMeta
+              ? { meta: { ...session.meta, ...closeRes.updatedMeta } }
+              : {}),
+            providerClosed: true,
+          });
+          if (settlement !== "settled") return settlementFailure(settlement);
+        }
+        if (relayed.ownershipFailure) {
+          setResponseStatus(event, 409);
+          return {
+            ok: false,
+            error:
+              "Upload retry ownership was lost while the provider was responding.",
+            staleAttempt: true,
+          };
+        }
+      } catch (error) {
+        const failedCloseLease = await renewUploadLease(recordingId, {
+          attemptId,
+          generationId: uploadGenerationId,
+        });
+        if (!failedCloseLease.held) {
+          setResponseStatus(event, 409);
+          return {
+            ok: false,
+            error:
+              "Upload retry ownership was lost while the provider was responding.",
+            staleAttempt: true,
+          };
+        }
+        const detail = error instanceof Error ? error.message : String(error);
+        console.error(
+          `[resumable-chunk-${recordingId}] session close threw:`,
+          error,
+        );
+        setResponseStatus(event, 409);
+        return {
+          ok: false,
+          error: `Resumable session close outcome is unknown: ${detail}`,
+          restartRequired: true,
+        };
+      }
+      if (!closeRes.ok || closeRes.status === 308) {
+        const failedCloseLease = await renewUploadLease(recordingId, {
+          attemptId,
+          generationId: uploadGenerationId,
+        });
+        if (!failedCloseLease.held) {
+          setResponseStatus(event, 409);
+          return {
+            ok: false,
+            error:
+              "Upload retry ownership was lost while the provider was responding.",
+            staleAttempt: true,
+          };
+        }
+        console.error(
+          `[resumable-chunk-${recordingId}] session close failed (${closeRes.status})`,
+        );
+        const restartRequired =
+          closeRes.status === 404 || closeRes.status === 410;
+        setResponseStatus(event, restartRequired ? 409 : 502);
+        return {
+          ok: false,
+          error: `Resumable session close failed (${closeRes.status})`,
+          ...(restartRequired ? { restartRequired: true } : {}),
+        };
+      }
       const postCloseLease = await renewUploadLease(recordingId, {
         attemptId,
         generationId: uploadGenerationId,
@@ -947,16 +1054,9 @@ async function handleResumableChunk(
           error:
             postCloseLease.failureReason ??
             "Recording upload has already failed.",
+          staleAttempt: true,
         };
       }
-      await setResumableSession(
-        recordingId,
-        {
-          ...session,
-          meta: { ...session.meta, ...closeRes.updatedMeta },
-        },
-        uploadGenerationId,
-      );
     }
   } else {
     // Idempotent replay guard: a client retry (after a lost response) can
@@ -1002,28 +1102,65 @@ async function handleResumableChunk(
       const putT0 = Date.now();
       let putResult;
       try {
-        putResult = await uploadProvider.resumable.relayChunk(
-          { sessionId: session.sessionId, meta: session.meta },
-          contentRange,
-          bytes,
-          { mimeType: mimeType.split(";")[0].trim() },
+        const relayed = await relayWithRetryOwnershipHeartbeat(
+          recordingId,
+          attemptId,
+          uploadGenerationId,
+          () =>
+            uploadProvider.resumable!.relayChunk(
+              { sessionId: session.sessionId, meta: session.meta },
+              contentRange,
+              bytes,
+              { mimeType: mimeType.split(";")[0].trim() },
+            ),
         );
-      } catch (error) {
-        if (isFinal) {
-          const cleanupFailed = await cleanupFailedFinalSession();
-          const detail = error instanceof Error ? error.message : String(error);
-          console.error(
-            `[resumable-chunk-${recordingId}] final chunk upload threw:`,
-            error,
-          );
-          setResponseStatus(event, 502);
+        putResult = relayed.result;
+        if (isFinal ? putResult.ok && putResult.status !== 308 : putResult.ok) {
+          const settlement = await settleAcceptedProviderEffect({
+            ...session,
+            ...(putResult.updatedMeta
+              ? { meta: { ...session.meta, ...putResult.updatedMeta } }
+              : {}),
+            bytesUploaded: start + bytes.byteLength,
+            lastCommittedIndex: index,
+          });
+          if (settlement !== "settled") return settlementFailure(settlement);
+          finalizedSourceSizeBytes = start + bytes.byteLength;
+        }
+        if (relayed.ownershipFailure) {
+          setResponseStatus(event, 409);
           return {
             ok: false,
-            error: `Final chunk upload failed: ${detail}`,
-            ...(cleanupFailed ? { cleanupFailed: true } : {}),
+            error:
+              "Upload retry ownership was lost while the provider was responding.",
+            staleAttempt: true,
           };
         }
-        throw error;
+      } catch (error) {
+        const failedUploadLease = await renewUploadLease(recordingId, {
+          attemptId,
+          generationId: uploadGenerationId,
+        });
+        if (!failedUploadLease.held) {
+          setResponseStatus(event, 409);
+          return {
+            ok: false,
+            error:
+              "Upload retry ownership was lost while the provider was responding.",
+            staleAttempt: true,
+          };
+        }
+        const detail = error instanceof Error ? error.message : String(error);
+        console.error(
+          `[resumable-chunk-${recordingId}] provider response was ambiguous:`,
+          error,
+        );
+        setResponseStatus(event, 409);
+        return {
+          ok: false,
+          error: `Chunk upload outcome is unknown: ${detail}`,
+          restartRequired: true,
+        };
       }
       console.log(
         `[resumable-chunk-${recordingId}] PUT ${Date.now() - putT0}ms status=${putResult.status} range="${contentRange}"`,
@@ -1033,22 +1170,26 @@ async function handleResumableChunk(
         ? putResult.ok && putResult.status !== 308
         : putResult.ok;
       if (!resultOk) {
+        const failedUploadLease = await renewUploadLease(recordingId, {
+          attemptId,
+          generationId: uploadGenerationId,
+        });
+        if (!failedUploadLease.held) {
+          setResponseStatus(event, 409);
+          return {
+            ok: false,
+            error:
+              "Upload retry ownership was lost while the provider was responding.",
+            staleAttempt: true,
+          };
+        }
         const restartRequired =
           putResult.status === 404 || putResult.status === 410;
-        const cleanupFailed = isFinal
-          ? await cleanupFailedFinalSession()
-          : false;
-        if (restartRequired && !cleanupFailed) {
-          await deleteResumableSession(recordingId, uploadGenerationId).catch(
-            () => {},
-          );
-        }
         setResponseStatus(event, restartRequired ? 409 : 502);
         return {
           ok: false,
           error: `Chunk upload failed (${putResult.status})`,
           ...(restartRequired ? { restartRequired: true } : {}),
-          ...(cleanupFailed ? { cleanupFailed: true } : {}),
         };
       }
 
@@ -1065,20 +1206,6 @@ async function handleResumableChunk(
             "Recording upload has already failed.",
         };
       }
-      await setResumableSession(
-        recordingId,
-        {
-          ...session,
-          ...(putResult.updatedMeta
-            ? { meta: { ...session.meta, ...putResult.updatedMeta } }
-            : {}),
-          bytesUploaded: start + bytes.byteLength,
-          lastCommittedIndex: index,
-        },
-        uploadGenerationId,
-      );
-      finalizedSourceSizeBytes = start + bytes.byteLength;
-
       if (!isFinal) {
         return { ok: true, finalized: false, index, bytes: bytes.byteLength };
       }

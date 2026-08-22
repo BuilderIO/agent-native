@@ -161,6 +161,7 @@ pub fn run() {
             native_screen::native_fullscreen_pending_uploads,
             native_screen::native_fullscreen_recover_orphaned_uploads,
             native_screen::native_fullscreen_recording_retry_upload,
+            native_screen::native_fullscreen_recording_cancel_retry,
             native_screen::native_fullscreen_recording_mark_upload_error,
             native_screen::native_fullscreen_recording_clear_upload,
             native_screen::native_fullscreen_recording_dismiss_upload,
