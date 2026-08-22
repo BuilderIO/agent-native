@@ -28,8 +28,9 @@
   },
   "brain": {
     "agent-native-recurring-jobs": 1758,
-    "server": 20382667,
-    "server-agent-background": 13110182
+    "brain-queue-sweep-background": 24956109,
+    "server": 24956109,
+    "server-agent-background": 17511219
   },
   "calendar": {
     "agent-native-recurring-jobs": 1758,
@@ -43,8 +44,9 @@
   },
   "clips": {
     "agent-native-recurring-jobs": 1758,
-    "server": 36328096,
-    "server-agent-background": 13539990
+    "clips-brain-export-sweep-background": 37853594,
+    "server": 37853594,
+    "server-agent-background": 17930650
   },
   "content": {
     "agent-native-recurring-jobs": 1758,
@@ -73,8 +75,8 @@
   },
   "mail": {
     "agent-native-recurring-jobs": 1758,
-    "server": 29619005,
-    "server-agent-background": 22846628
+    "server": 43725619,
+    "server-agent-background": 37119590
   },
   "plan": {
     "agent-native-recurring-jobs": 1758,
@@ -83,7 +85,7 @@
   },
   "slides": {
     "agent-native-recurring-jobs": 1758,
-    "server": 62460451,
-    "server-agent-background": 53950832
+    "server": 73610035,
+    "server-agent-background": 65116570
   }
 }
