@@ -517,6 +517,7 @@ const messages: AgentChatTranslation = {
   "share.linkCanStillOpen": "لا يزال بإمكان من لديه الرابط فتحه.",
   "share.loading": "جارٍ التحميل...",
   "share.loadMore": "تحميل المزيد",
+  "share.loadFailed": "تعذّر تحميل إعدادات المشاركة.",
   "share.loadPeopleFailed": "تعذّر تحميل الأشخاص.",
   "share.noAccess": "لا أحد لديه صلاحية الوصول حتى الآن.",
   "share.noMatches": "لا توجد نتائج مطابقة.",

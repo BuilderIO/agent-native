@@ -1754,7 +1754,12 @@ export function createCoreRoutesPlugin(
 
       for (const provider of [
         "figma",
+        "gmail",
+        "google_calendar",
+        "google_docs",
         "google_drive",
+        "google_sheets",
+        "google_slides",
         "github",
         "hubspot",
         "salesforce",

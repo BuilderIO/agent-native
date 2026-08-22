@@ -593,6 +593,7 @@ const messages: AgentChatTranslation = {
     "Les personnes disposant du lien peuvent toujours l'ouvrir.",
   "share.loading": "Chargement...",
   "share.loadMore": "Afficher plus",
+  "share.loadFailed": "Impossible de charger les paramètres de partage.",
   "share.loadPeopleFailed": "Impossible de charger des personnes.",
   "share.noAccess": "Personne n'y a encore accès.",
   "share.noMatches": "Aucun résultat.",

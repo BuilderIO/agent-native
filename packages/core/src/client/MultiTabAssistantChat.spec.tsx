@@ -448,6 +448,41 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     await view.cleanup();
   });
 
+  it("keeps a host-supplied model catalog instead of the discovered one", async () => {
+    stubCatalog(ANTHROPIC_ENGINES, ["ANTHROPIC_API_KEY"]);
+    const el = document.createElement("div");
+    document.body.appendChild(el);
+    const localRoot = createRoot(el);
+    await act(async () => {
+      localRoot.render(
+        <MultiTabAssistantChat
+          storageKey="host-catalog-test"
+          availableModels={[
+            {
+              engine: "host",
+              label: "Host",
+              models: ["host-model"],
+              configured: true,
+            },
+          ]}
+        />,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      el
+        .querySelector("[data-testid='assistant-chat']")
+        ?.getAttribute("data-model-catalog"),
+    ).toBe("host:true");
+
+    await act(async () => localRoot.unmount());
+    el.remove();
+  });
+
   // claude-sonnet-5 is also advertised under anthropic, so a model-only match
   // would bill this turn to Anthropic directly instead of the gateway.
   it("honors a submitted engine the catalog offers but does not pair with the model", async () => {

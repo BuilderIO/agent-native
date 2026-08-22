@@ -74,7 +74,10 @@ import { DEFAULT_LOCALE, useOptionalLocale, useT } from "./i18n.js";
 import { RunStuckBanner } from "./RunStuckBanner.js";
 import { callAction } from "./use-action.js";
 import { useChangeVersion } from "./use-change-version.js";
-import { CHAT_MODEL_SELECTION_CHANGED_EVENT } from "./use-chat-models.js";
+import {
+  CHAT_MODEL_SELECTION_CHANGED_EVENT,
+  chatModelSelectionStorageKey,
+} from "./use-chat-models.js";
 import {
   useChatThreads,
   type ChatThreadScope,
@@ -133,8 +136,6 @@ function deliverPendingSend(ref: AssistantChatHandle, send: PendingSend): void {
     ref.sendMessage(send.message, send.images);
   }
 }
-
-const MODEL_SELECTION_STORAGE_KEY = "agent-native:chat-models:selection";
 
 function readStoredModelSelection(key: string): ModelSelection | undefined {
   if (typeof window === "undefined") return undefined;
@@ -807,6 +808,9 @@ export function MultiTabAssistantChat({
   scope = null,
   isolateHistoryByScope = false,
   agentTeamPollMs = DEFAULT_AGENT_TEAM_POLL_MS,
+  availableModels: hostAvailableModels,
+  modelListLoading: hostModelListLoading,
+  onModelChange: hostOnModelChange,
   ...props
 }: MultiTabAssistantChatProps) {
   const translate = useT();
@@ -973,7 +977,7 @@ export function MultiTabAssistantChat({
 
   // Namespace all localStorage keys by storageKey when provided (for per-app isolation in frame)
   const keyPrefix = storageKey ? `:${storageKey}` : "";
-  const modelSelectionKey = `${MODEL_SELECTION_STORAGE_KEY}${keyPrefix}`;
+  const modelSelectionKey = chatModelSelectionStorageKey(storageKey);
 
   // Track which tabs have been focused at least once (lazy mount for sub-agent tabs)
   const mountedTabsRef = useRef<Set<string>>(new Set());
@@ -1012,10 +1016,18 @@ export function MultiTabAssistantChat({
   );
 
   // ─── Model state ─────────────────────────────────────────────────────────
-  const [availableModels, setAvailableModels] = useState<EngineModelGroup[]>(
+  // A host that supplies its own catalog owns the whole picker: the server
+  // catalog must not be discovered or merged, or a host with no engine of its
+  // own silently gets this app's models instead.
+  const hostManagedModels = hostAvailableModels !== undefined;
+  const [discoveredModels, setDiscoveredModels] = useState<EngineModelGroup[]>(
     [],
   );
-  const [modelListLoading, setModelListLoading] = useState(true);
+  const availableModels = hostAvailableModels ?? discoveredModels;
+  const [discoveredModelsLoading, setModelListLoading] = useState(true);
+  const modelListLoading = hostManagedModels
+    ? (hostModelListLoading ?? false)
+    : discoveredModelsLoading;
   const [defaultModel, setDefaultModel] = useState<string>(DEFAULT_MODEL);
   const threadModelRef = useRef<
     Map<string, { model: string; engine?: string; effort?: ReasoningEffort }>
@@ -1168,6 +1180,18 @@ export function MultiTabAssistantChat({
     ],
   );
 
+  // A host that owns the model list still needs the internal selection updated:
+  // `selectedModel`/`selectedEngine` render from it and submitted turns read it,
+  // so routing a pick only to the host snaps the picker back to the previous
+  // model and sends that one.
+  const handleModelChangeWithHost = useCallback(
+    (model: string, engine: string) => {
+      handleModelChange(model, engine);
+      hostOnModelChange?.(model, engine);
+    },
+    [handleModelChange, hostOnModelChange],
+  );
+
   const handleEffortChange = useCallback(
     (effort: ReasoningEffort) => {
       const threadId = activeThreadIdRef.current;
@@ -1194,15 +1218,20 @@ export function MultiTabAssistantChat({
   );
 
   useEffect(() => {
-    const preferredAgentModel = props.selectedAgent
-      ? resolvePreferredAgentModel(props.selectedAgent, availableModels)
-      : undefined;
-    if (!preferredAgentModel) return;
-
     const threadId = activeThreadIdRef.current;
     const current = threadId
       ? resolveThreadModelSelection(threadId)
       : persistedModelSelection;
+    // Only correct a selection the agent cannot run. This effect re-runs on
+    // every selection change, so an unconditional rewrite pins the picker and
+    // each later user pick snaps straight back.
+    const preferredAgentModel =
+      isClaudeCodeAgentId(props.selectedAgent) &&
+      isLunaModel(current?.model ?? "")
+        ? resolvePreferredAgentModel(props.selectedAgent, availableModels)
+        : undefined;
+    if (!preferredAgentModel) return;
+
     if (
       current?.model === preferredAgentModel.model &&
       current.engine === preferredAgentModel.engine
@@ -1233,6 +1262,7 @@ export function MultiTabAssistantChat({
   ]);
 
   const refreshEngines = useCallback(() => {
+    if (hostManagedModels) return;
     setModelListLoading(true);
     Promise.all([
       callAction("manage-agent-engine" as any, { action: "list" } as any).catch(
@@ -1273,12 +1303,12 @@ export function MultiTabAssistantChat({
           currentEngineName,
           currentModel,
         });
-        setAvailableModels(groups);
+        setDiscoveredModels(groups);
         setDefaultModel(currentModel ?? DEFAULT_MODEL);
       })
       .catch(() => {})
       .finally(() => setModelListLoading(false));
-  }, []);
+  }, [hostManagedModels]);
 
   useEffect(() => {
     refreshEngines();
@@ -2896,7 +2926,7 @@ export function MultiTabAssistantChat({
                   defaultModel={defaultModel}
                   availableModels={availableModels}
                   modelListLoading={modelListLoading}
-                  onModelChange={handleModelChange}
+                  onModelChange={handleModelChangeWithHost}
                   onEffortChange={handleEffortChange}
                   onForkChat={() => handleForkChat(tabId)}
                   // Sub-agent tabs are read-only: sending a new message from the

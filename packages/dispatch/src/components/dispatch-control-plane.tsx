@@ -1,4 +1,5 @@
 import {
+  chatModelSelectionStorageKey,
   navigateWithAgentChatViewTransition,
   useChatModels,
 } from "@agent-native/core/client/agent-chat";
@@ -71,7 +72,7 @@ function CommandPanel() {
     selectedEffort,
     selectedEngine,
     selectedModel,
-  } = useChatModels({ storageKey: "dispatch" });
+  } = useChatModels({ storageKey: chatModelSelectionStorageKey("dispatch") });
   const navigate = useNavigate();
   const promptSuggestions = [
     t("dispatch.pages.suggestionOnboardingApp", {

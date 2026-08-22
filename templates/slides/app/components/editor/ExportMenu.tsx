@@ -1,8 +1,6 @@
-import {
-  agentNativePath,
-  appBasePath,
-} from "@agent-native/core/client/api-path";
+import { appBasePath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
+import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
 import {
   IconDownload,
   IconUpload,
@@ -193,53 +191,12 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
       }
     };
 
-    const handleConnectGoogle = async (target?: Window | null) => {
-      const authUrl = new URL(
-        agentNativePath("/_agent-native/google-docs/auth-url"),
-        window.location.origin,
-      );
-      authUrl.searchParams.set(
-        "return",
-        window.location.pathname + window.location.search,
-      );
-
-      const popup =
-        target ??
-        window.open("", "google-docs-oauth", "popup,width=520,height=720");
-      if (!popup) {
-        toast.error(t("editorExport.exportFailed"), {
-          description: t("editorExport.exportGoogleSlidesError"),
-        });
-        return;
-      }
-
-      try {
-        const response = await fetch(authUrl.toString(), {
-          credentials: "same-origin",
-        });
-        if (!response.ok) {
-          throw new Error(
-            await readErrorMessage(
-              response,
-              t("editorExport.exportGoogleSlidesError"),
-            ),
-          );
-        }
-        const data = (await response.json()) as { url?: unknown };
-        if (typeof data.url !== "string") {
-          throw new Error(t("editorExport.exportGoogleSlidesError"));
-        }
-        popup.location.href = data.url;
-      } catch (err) {
-        popup?.close();
-        console.error("Google connection failed:", err);
-        toast.error(t("editorExport.exportFailed"), {
-          description:
-            err instanceof Error
-              ? err.message
-              : t("editorExport.exportGoogleSlidesError"),
-        });
-      }
+    const handleConnectGoogle = () => {
+      startWorkspaceProviderOAuth("google_drive", {
+        appId: "slides",
+        returnPath: `${window.location.pathname}${window.location.search}`,
+        scope: "user",
+      });
     };
 
     const handleExportGoogleSlides = async () => {
@@ -253,7 +210,8 @@ export const ExportMenu = forwardRef<ExportMenuHandle, ExportMenuProps>(
         const result = await onExportGoogleSlides();
         if ("requiresConnection" in result && result.requiresConnection) {
           googleSlidesImportTarget.current = null;
-          await handleConnectGoogle(target);
+          target?.close();
+          handleConnectGoogle();
           return;
         }
         if (result.url !== null) {

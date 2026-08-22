@@ -1456,20 +1456,16 @@ async function saveNativeTranscript(recording: ActiveRecording): Promise<void> {
   recording.nativeTranscript = captured.text.trim();
   recording.nativeTranscriptFailure = captured.failureReason;
 
-  const body = recording.nativeTranscript
-    ? {
-        recordingId: recording.recordingId,
-        fullText: recording.nativeTranscript,
-        source: "web-speech",
-      }
-    : {
-        recordingId: recording.recordingId,
-        fullText: "",
-        source: "web-speech",
-        failureReason:
-          recording.nativeTranscriptFailure ||
-          "Chrome Web Speech recognition returned no transcript.",
-      };
+  // A partial capture must carry its reason too — the server treats text
+  // without a reason as a complete transcript and skips the cloud fallback.
+  const body = {
+    recordingId: recording.recordingId,
+    fullText: recording.nativeTranscript,
+    source: "web-speech",
+    ...(recording.nativeTranscriptFailure
+      ? { failureReason: recording.nativeTranscriptFailure }
+      : {}),
+  };
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     "X-Agent-Native-Frontend": "1",

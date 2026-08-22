@@ -477,6 +477,7 @@ const messages: AgentChatTranslation = {
   "share.hideInSearch": "在搜索中隐藏",
   "share.linkCanStillOpen": "拥有链接的人员仍可打开此内容。",
   "share.loadMore": "加载更多",
+  "share.loadFailed": "无法加载共享设置。",
   "share.loadPeopleFailed": "无法加载人员。",
   "share.loading": "正在加载...",
   "share.noAccess": "尚无任何人拥有访问权限。",

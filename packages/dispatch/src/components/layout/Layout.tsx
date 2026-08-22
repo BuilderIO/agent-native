@@ -953,7 +953,6 @@ export function NavContent({
   chatFirstEmbedded = false,
   collapsed = false,
   collapsible = false,
-  reserveEnvironmentBadgeSpace = false,
   onCollapsedChange,
   chatFirstAppLayout,
   onChatFirstAppLayoutChange,
@@ -972,7 +971,6 @@ export function NavContent({
   chatFirstEmbedded?: boolean;
   collapsed?: boolean;
   collapsible?: boolean;
-  reserveEnvironmentBadgeSpace?: boolean;
   onCollapsedChange?: (collapsed: boolean) => void;
   chatFirstAppLayout?: ChatFirstAppLayoutPreference;
   onChatFirstAppLayoutChange?: (layout: ChatFirstAppLayoutPreference) => void;
@@ -1314,10 +1312,7 @@ export function NavContent({
         </div>
       ) : null}
       <div
-        className={cn(
-          "mt-auto shrink-0",
-          reserveEnvironmentBadgeSpace && "pb-10",
-        )}
+        className="mt-auto shrink-0"
         data-dispatch-sidebar-footer={chatFirstMode ? "chat-first" : "standard"}
       >
         {bottomNavigation}
@@ -2463,7 +2458,6 @@ export function Layout({
               }}
               onChatFirstAppsRetry={() => void chatFirstAppsQuery.refetch()}
               collapsible
-              reserveEnvironmentBadgeSpace
               onCollapsedChange={setSidebarCollapsed}
             />
           </aside>
@@ -2485,7 +2479,6 @@ export function Layout({
                   chatFirstMode={chatFirstMode}
                   chatFirstEmbedded={chatFirstEmbedded}
                   collapsed={false}
-                  reserveEnvironmentBadgeSpace
                   chatFirstAppLayout={chatFirstAppLayout}
                   onChatFirstAppLayoutChange={persistChatFirstAppLayout}
                   chatFirstApps={chatFirstAppItems}

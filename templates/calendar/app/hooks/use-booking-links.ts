@@ -115,7 +115,11 @@ export function useUpdateBookingLink() {
   >("update-booking-link", {
     onSuccess: (updated) => {
       queryClient.setQueryData<BookingLink[]>(LIST_KEY, (current = []) =>
-        current.map((link) => (link.id === updated.id ? updated : link)),
+        current.map((link) =>
+          link.id === updated.id
+            ? { ...updated, accessRole: updated.accessRole ?? link.accessRole }
+            : link,
+        ),
       );
       queryClient.invalidateQueries({
         queryKey: LIST_KEY,
