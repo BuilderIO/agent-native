@@ -1,5 +1,83 @@
-import { runMigrations } from "@agent-native/core/db";
+import { runMigrations, type DbExec } from "@agent-native/core/db";
 import { defineNitroPlugin } from "@agent-native/core/server";
+
+import {
+  factoryConfigSqlRowFromQuery,
+  isUniqueConstraintError,
+  planDefaultFactoryConfigReconciliation,
+  type FactoryConfigSqlRow,
+} from "../lib/factory-config-reconcile.js";
+
+async function writeReconciledFactoryConfig(
+  exec: DbExec,
+  plan: {
+    fromId: string;
+    row: FactoryConfigSqlRow;
+    deleteIds: string[];
+  },
+): Promise<void> {
+  const { row } = plan;
+  await exec.execute({
+    sql: `UPDATE factory_config SET
+      id = ?,
+      factory_id = ?,
+      slack_workspace = ?,
+      slack_channel_id = ?,
+      slack_channel_name = ?,
+      builder_slack_user_id = ?,
+      polling_enabled = ?,
+      last_slack_ts = ?,
+      slack_history_cursor = ?,
+      repository = ?,
+      github_polling_enabled = ?,
+      sentry_polling_enabled = ?,
+      sentry_org_slug = ?,
+      sentry_project_slug = ?,
+      sentry_environment = ?,
+      last_sentry_seen_at = ?,
+      automation_failure_alerts_enabled = ?,
+      automation_failure_alert_email = ?,
+      last_automation_failure_alert_key = ?,
+      last_automation_failure_alert_at = ?,
+      owner_email = ?,
+      created_at = ?,
+      updated_at = ?
+      WHERE id = ? AND org_id = ?`,
+    args: [
+      row.id,
+      row.factory_id,
+      row.slack_workspace ?? "primary",
+      row.slack_channel_id,
+      row.slack_channel_name,
+      row.builder_slack_user_id,
+      row.polling_enabled ?? 0,
+      row.last_slack_ts,
+      row.slack_history_cursor,
+      row.repository,
+      row.github_polling_enabled ?? 0,
+      row.sentry_polling_enabled ?? 0,
+      row.sentry_org_slug,
+      row.sentry_project_slug,
+      row.sentry_environment,
+      row.last_sentry_seen_at,
+      row.automation_failure_alerts_enabled ?? 1,
+      row.automation_failure_alert_email,
+      row.last_automation_failure_alert_key,
+      row.last_automation_failure_alert_at,
+      row.owner_email ?? "",
+      row.created_at ?? new Date().toISOString(),
+      row.updated_at ?? new Date().toISOString(),
+      plan.fromId,
+      row.org_id,
+    ],
+  });
+  for (const deleteId of plan.deleteIds) {
+    await exec.execute({
+      sql: `DELETE FROM factory_config WHERE id = ? AND org_id = ?`,
+      args: [deleteId, row.org_id],
+    });
+  }
+}
 
 const migrations = [
   {
@@ -339,10 +417,20 @@ const migrations = [
         const id = String(row.id ?? "");
         if (!orgId || id.includes(":")) continue;
         const nextId = `${orgId}:${defaultFactoryId}`;
-        await exec.execute({
-          sql: `UPDATE factory_config SET id = ? WHERE id = ? AND org_id = ?`,
-          args: [nextId, id, orgId],
+        const existing = await exec.execute({
+          sql: `SELECT id FROM factory_config WHERE id = ? AND org_id = ?`,
+          args: [nextId, orgId],
         });
+        if ((existing.rows?.length ?? 0) > 0) continue;
+        try {
+          await exec.execute({
+            sql: `UPDATE factory_config SET id = ? WHERE id = ? AND org_id = ?`,
+            args: [nextId, id, orgId],
+          });
+        } catch (error) {
+          if (isUniqueConstraintError(error)) continue;
+          throw error;
+        }
       }
     },
   },
@@ -382,30 +470,21 @@ const migrations = [
       const { getDbExec } = await import("@agent-native/core/db");
       const exec = getDbExec();
       const defaultFactoryId = "product-feedback";
-      const legacyRows = await exec.execute({
-        sql: `SELECT id, org_id FROM factory_config WHERE factory_id IS NULL OR factory_id = ''`,
-        args: [],
+      const configRows = await exec.execute({
+        sql: `SELECT * FROM factory_config
+          WHERE factory_id IS NULL OR factory_id = '' OR factory_id = ?`,
+        args: [defaultFactoryId],
       });
-      for (const row of legacyRows.rows ?? []) {
-        const id = String(row.id ?? "");
-        const orgId = String(row.org_id ?? "");
-        if (!id || !orgId) continue;
-        const scopedId = `${orgId}:${defaultFactoryId}`;
-        const scoped = await exec.execute({
-          sql: `SELECT id FROM factory_config WHERE id = ? AND org_id = ?`,
-          args: [scopedId, orgId],
-        });
-        if (id !== scopedId && (scoped.rows?.length ?? 0) > 0) {
-          await exec.execute({
-            sql: `DELETE FROM factory_config WHERE id = ? AND org_id = ? AND (factory_id IS NULL OR factory_id = '')`,
-            args: [id, orgId],
-          });
-          continue;
-        }
-        await exec.execute({
-          sql: `UPDATE factory_config SET id = ?, factory_id = ? WHERE id = ? AND org_id = ? AND (factory_id IS NULL OR factory_id = '')`,
-          args: [scopedId, defaultFactoryId, id, orgId],
-        });
+      const rows = (configRows.rows ?? [])
+        .map((row) =>
+          factoryConfigSqlRowFromQuery(row as Record<string, unknown>),
+        )
+        .filter((row): row is FactoryConfigSqlRow => row !== null);
+      for (const plan of planDefaultFactoryConfigReconciliation(
+        rows,
+        defaultFactoryId,
+      )) {
+        await writeReconciledFactoryConfig(exec, plan);
       }
     },
   },

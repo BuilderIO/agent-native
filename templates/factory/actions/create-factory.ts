@@ -20,6 +20,7 @@ import {
 } from "../server/lib/factory-automation-plan.js";
 import {
   assertUniqueSlackChannelForFactory,
+  builderSlackUserIdSchema,
   factoryConfigRowId,
   resolveUniqueFactoryId,
 } from "../server/lib/factory-scope.js";
@@ -43,7 +44,7 @@ export default defineAction({
     slackWorkspace: z.enum(["primary", "secondary"]).optional(),
     slackChannelId: z.string().trim().max(128).optional(),
     slackChannelName: z.string().trim().max(200).optional(),
-    builderSlackUserId: z.string().trim().max(128).optional(),
+    builderSlackUserId: builderSlackUserIdSchema.optional(),
     observeSlack: z.boolean().optional(),
     repository: z.string().trim().max(256).optional(),
     observeGithub: z.boolean().optional(),

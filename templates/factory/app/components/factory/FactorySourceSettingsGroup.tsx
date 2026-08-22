@@ -8,7 +8,7 @@ export function FactorySourceSettingsGroup({
   children,
 }: {
   title: string;
-  description: string;
+  description?: string;
   optionalLabel: string;
   children: ReactNode;
 }) {
@@ -21,9 +21,11 @@ export function FactorySourceSettingsGroup({
             {optionalLabel}
           </span>
         </div>
-        <p className="mt-1 text-xs leading-5 text-muted-foreground">
-          {description}
-        </p>
+        {description ? (
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+            {description}
+          </p>
+        ) : null}
       </header>
       <SettingsGroup variant="soft">{children}</SettingsGroup>
     </section>

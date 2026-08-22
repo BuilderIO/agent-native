@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   assertUniqueSlackChannelForFactory,
+  builderSlackUserIdSchema,
   factoryAutomationLeafName,
   factoryConfigRowId,
   readAutomationFactoryId,
@@ -105,5 +106,20 @@ describe("factoryAutomationLeafName", () => {
     expect(factoryAutomationLeafName("factory-slack-feedback")).toBe(
       "factory-slack-feedback",
     );
+  });
+});
+
+describe("builderSlackUserIdSchema", () => {
+  it("accepts empty, user, and workspace Slack member ids", () => {
+    expect(builderSlackUserIdSchema.parse("")).toBe("");
+    expect(builderSlackUserIdSchema.parse("U096KN3EL2Y")).toBe("U096KN3EL2Y");
+    expect(builderSlackUserIdSchema.parse("W01234567")).toBe("W01234567");
+  });
+
+  it("rejects values that later Settings saves would also reject", () => {
+    expect(() => builderSlackUserIdSchema.parse("not-a-slack-id")).toThrow(
+      /U01234567/,
+    );
+    expect(() => builderSlackUserIdSchema.parse("U".padEnd(33, "0"))).toThrow();
   });
 });

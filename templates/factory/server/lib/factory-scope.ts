@@ -23,6 +23,14 @@ export const factoryIdSchema = z
   .max(120)
   .regex(/^[a-z0-9][a-z0-9-]*$/);
 
+export const builderSlackUserIdSchema = z
+  .string()
+  .trim()
+  .max(32)
+  .refine((value) => value === "" || /^[UW][A-Z0-9]+$/i.test(value), {
+    message: "Builder Slack member id must look like U01234567.",
+  });
+
 export function factoryConfigRowId(orgId: string, factoryId: string): string {
   return `${orgId}:${factoryId}`;
 }

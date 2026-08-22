@@ -30,7 +30,7 @@ describe("fireInternalDispatch", () => {
     for (const key of keys) delete process.env[key];
 
     try {
-      expect(resolveSelfDispatchBaseUrl()).toBe("http://localhost:8080");
+      expect(resolveSelfDispatchBaseUrl()).toBe("http://localhost:3000");
     } finally {
       for (const key of keys) {
         const value = previous[key];
