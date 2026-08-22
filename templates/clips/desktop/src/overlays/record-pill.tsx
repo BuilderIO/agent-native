@@ -1,0 +1,993 @@
+import {
+  IconCheck,
+  IconLink,
+  IconPlayerPauseFilled,
+  IconPlayerStopFilled,
+  IconRefresh,
+  IconTrash,
+  IconX,
+} from "@tabler/icons-react";
+import { invoke } from "@tauri-apps/api/core";
+import { PhysicalPosition, PhysicalSize } from "@tauri-apps/api/dpi";
+import { emit, listen } from "@tauri-apps/api/event";
+import { currentMonitor, getCurrentWindow } from "@tauri-apps/api/window";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { open as openExternal } from "@tauri-apps/plugin-shell";
+import { useEffect, useRef, useState } from "react";
+import type { FocusEvent } from "react";
+import { flushSync } from "react-dom";
+
+const OVERLAY_SHADOW_GUTTER = 18;
+const SEG_MS = 180;
+const HOVER_INTENT_MS = 150;
+const BLINK_MS = 700;
+// Within this distance of the right screen edge the pill anchors its RIGHT
+// edge and grows left instead, so growth never runs off-screen.
+const RIGHT_EDGE_ANCHOR_PX = 200;
+const FINALIZING_RESULT_STORAGE_KEY = "clips-finalizing-result";
+
+type PillMode = "recording" | "confirm" | "done";
+type Seg = "stop" | "q" | "del" | "res" | "extras";
+type DoneStage = "finishing" | "uploading" | "uploaded" | "failed";
+
+type RecorderSession = {
+  viewUrl?: string | null;
+  localOnly?: boolean;
+};
+
+type NativeUploadFinished = {
+  recordingId?: string;
+  ok?: boolean;
+  viewUrl?: string;
+  error?: string | null;
+  localFilePath?: string | null;
+};
+
+const hasTauri = "__TAURI_INTERNALS__" in window;
+const demoMode = import.meta.env.DEV && !hasTauri;
+
+function safeEmit(event: string, payload?: unknown): Promise<void> {
+  if (!hasTauri) return Promise.resolve();
+  return emit(event, payload);
+}
+
+function safeInvoke<T = unknown>(
+  cmd: string,
+  args?: Record<string, unknown>,
+): Promise<T | undefined> {
+  if (!hasTauri) return Promise.resolve(undefined);
+  return invoke<T>(cmd, args).then(
+    (v) => v,
+    (err) => {
+      console.warn(`[record-pill] invoke ${cmd} failed:`, err);
+      return undefined;
+    },
+  );
+}
+
+function safeListen<T>(
+  event: string,
+  cb: (payload: T) => void,
+): Promise<() => void> {
+  if (!hasTauri) return Promise.resolve(() => {});
+  return listen<T>(event, (ev) => cb(ev.payload));
+}
+
+function formatTimer(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const totalMin = Math.floor(total / 60);
+  // Past 99:59 the m:ss form overflows its slot; switch to a compact h:mm so
+  // the anchored controls never shift for a marathon take.
+  if (totalMin >= 100) {
+    const h = Math.floor(totalMin / 60);
+    const m = totalMin % 60;
+    return `${h}:${m.toString().padStart(2, "0")}h`;
+  }
+  const s = total % 60;
+  return `${totalMin}:${s.toString().padStart(2, "0")}`;
+}
+
+function formatDurationCopy(ms: number): string {
+  const total = Math.max(0, Math.round(ms / 1000));
+  if (total < 60) return `${total} sec`;
+  return `${Math.round(total / 60)} min`;
+}
+
+/**
+ * The recording pill — one dark capsule with four modes: recording, paused,
+ * confirm, done. Left edge anchored: hover extras and the inline delete
+ * confirm grow rightward while the dot, timer, pause button, and Stop hold
+ * position (near the right screen edge the anchor mirrors). Stop swaps the
+ * pill for the completion card in place; the link is copied and visibly
+ * confirmed. Pure command emitter — the recorder in the popover window owns
+ * capture, and drives us through the same IPC contract the old toolbar used:
+ *
+ *   receives → `clips:recorder-state` { paused, elapsedMs },
+ *              `clips:toolbar-enabled`, `clips:toolbar-preparing`,
+ *              `clips:recorder-session` { viewUrl, localOnly },
+ *              `clips:native-upload-progress` / `-finished`,
+ *              `voice:audio-level` { level, source }
+ *   emits    → `clips:recorder-stop`, `:pause`, `:resume`, `:restart`,
+ *              `:cancel`, `clips:toolbar-ready`
+ *
+ * Stop must NOT close this window: it invokes `set_toolbar_finishing(true)`
+ * BEFORE emitting stop so every teardown path skips the toolbar label, then
+ * renders the completion card here until the user dismisses it.
+ */
+export function RecordingPill() {
+  const [mode, setMode] = useState<PillMode>("recording");
+  const [paused, setPaused] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
+  const [enabled, setEnabled] = useState(demoMode);
+  const [preparing, setPreparing] = useState(false);
+  const [popoverVisible, setPopoverVisible] = useState(true);
+  const [blinkDim, setBlinkDim] = useState(false);
+  const [micLevel, setMicLevel] = useState(0);
+  const [announcement, setAnnouncement] = useState("");
+  const [confirmQuestion, setConfirmQuestion] = useState("");
+  const [doneStage, setDoneStage] = useState<DoneStage>("finishing");
+  const [doneDurationMs, setDoneDurationMs] = useState(0);
+  const [copied, setCopied] = useState(false);
+  const [savedLocally, setSavedLocally] = useState(false);
+  const [pendingAction, setPendingAction] = useState<
+    "restart" | "cancel" | null
+  >(null);
+
+  const modeRef = useRef<PillMode>("recording");
+  const elapsedRef = useRef(0);
+  const sessionRef = useRef<RecorderSession>({});
+  const [viewUrl, setViewUrl] = useState<string | null>(null);
+  const viewUrlRef = useRef<string | null>(null);
+  const copiedRef = useRef(false);
+  const reducedRef = useRef(
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+  );
+  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const revealedRef = useRef(false);
+  const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const shrinkTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stallTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const levelDecayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const animatingUntilRef = useRef(0);
+  const pauseTransitionRef = useRef<"pause" | "resume" | null>(null);
+  const pauseTransitionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+
+  const pillRef = useRef<HTMLDivElement | null>(null);
+  const cardRef = useRef<HTMLDivElement | null>(null);
+  const segRefs = useRef<Record<Seg, HTMLSpanElement | null>>({
+    stop: null,
+    q: null,
+    del: null,
+    res: null,
+    extras: null,
+  });
+
+  modeRef.current = mode;
+  elapsedRef.current = elapsed;
+  viewUrlRef.current = viewUrl;
+  copiedRef.current = copied;
+
+  function clearPauseTransition() {
+    pauseTransitionRef.current = null;
+    if (pauseTransitionTimerRef.current) {
+      clearTimeout(pauseTransitionTimerRef.current);
+      pauseTransitionTimerRef.current = null;
+    }
+  }
+
+  // ---- segment motion: measure natural width, animate exact pixels ----
+
+  function segInnerWidth(k: Seg): number {
+    const el = segRefs.current[k];
+    const inner = el?.firstElementChild as HTMLElement | null;
+    if (!inner) return 0;
+    return Math.ceil(inner.getBoundingClientRect().width);
+  }
+
+  function segCurrentWidth(k: Seg): number {
+    const el = segRefs.current[k];
+    if (!el) return 0;
+    return el.getBoundingClientRect().width;
+  }
+
+  function setSeg(k: Seg, open: boolean, delayMs = 0) {
+    const el = segRefs.current[k];
+    if (!el) return;
+    // A segment that still sits at `auto` (the Stop capsule before its first
+    // collapse) cannot animate FROM auto — snap it to its measured pixels
+    // and force a reflow so the width transition has a number to leave from.
+    if (!open && (!el.style.width || el.style.width === "auto")) {
+      el.style.transition = "none";
+      el.style.width = `${segCurrentWidth(k)}px`;
+      void el.offsetWidth;
+    }
+    const reduced = reducedRef.current;
+    el.style.transition = reduced
+      ? "none"
+      : `width ${SEG_MS}ms var(--pill-ease), opacity ${SEG_MS}ms ease`;
+    el.style.transitionDelay = reduced ? "0ms" : `${delayMs}ms`;
+    el.style.width = open ? `${segInnerWidth(k)}px` : "0px";
+    el.style.opacity = open ? "1" : "0";
+  }
+
+  async function windowRects() {
+    const win = getCurrentWindow();
+    const [pos, size, scale, monitor] = await Promise.all([
+      win.outerPosition(),
+      win.outerSize(),
+      win.scaleFactor(),
+      currentMonitor(),
+    ]);
+    return { win, pos, size, scale, monitor };
+  }
+
+  /**
+   * Resize the native window around the content, keeping the pill's anchor
+   * edge fixed. The left edge is the anchor unless the pill sits within
+   * RIGHT_EDGE_ANCHOR_PX of the screen's right edge — then the right edge
+   * holds and growth extends left. Height keeps the bottom edge fixed so the
+   * taller completion card rises from where the pill sat.
+   */
+  async function resizeWindowTo(contentW: number, contentH: number) {
+    if (!hasTauri) return;
+    try {
+      const { win, pos, size, scale, monitor } = await windowRects();
+      const gutter = Math.round(OVERLAY_SHADOW_GUTTER * scale);
+      const w = Math.ceil(contentW * scale) + gutter * 2;
+      const h = Math.ceil(contentH * scale) + gutter * 2;
+      let x = pos.x;
+      if (monitor) {
+        const monRight = monitor.position.x + monitor.size.width;
+        const nearRightEdge =
+          pos.x + size.width >=
+          monRight - Math.round(RIGHT_EDGE_ANCHOR_PX * scale);
+        if (nearRightEdge) x = pos.x + size.width - w;
+      }
+      const y = pos.y + size.height - h;
+      // Grow before move when expanding, move before shrink when collapsing —
+      // either order that pairs setSize/setPosition atomically enough that the
+      // anchored edge never visually jumps.
+      await win.setSize(new PhysicalSize(w, h));
+      await win.setPosition(new PhysicalPosition(x, y));
+    } catch (err) {
+      console.warn("[record-pill] window resize failed", err);
+    }
+  }
+
+  function syncWindowToContent(extraContentW = 0) {
+    const el = mode === "done" ? cardRef.current : pillRef.current;
+    const rect = (el ?? pillRef.current)?.getBoundingClientRect();
+    if (!rect) return;
+    void resizeWindowTo(
+      Math.ceil(rect.width) + extraContentW,
+      Math.ceil(rect.height),
+    );
+  }
+
+  /**
+   * Run one choreographed set of segment transitions: grow the window first
+   * when the pill is about to get wider (so nothing clips), start every
+   * segment's width+opacity bar, then shrink the window to fit once the last
+   * bar lands.
+   */
+  function transitionSegs(changes: Array<[Seg, boolean, number]>) {
+    const pill = pillRef.current;
+    if (!pill) return;
+    const currentW = pill.getBoundingClientRect().width;
+    let target = currentW;
+    for (const [k, open] of changes) {
+      target += (open ? segInnerWidth(k) : 0) - segCurrentWidth(k);
+    }
+    const maxDelay = changes.reduce((m, [, , d]) => Math.max(m, d), 0);
+    const settleMs = reducedRef.current ? 0 : SEG_MS + maxDelay + 40;
+    animatingUntilRef.current = Date.now() + settleMs;
+    if (shrinkTimerRef.current) clearTimeout(shrinkTimerRef.current);
+    const start = () => {
+      for (const [k, open, delay] of changes) setSeg(k, open, delay);
+      shrinkTimerRef.current = setTimeout(() => {
+        syncWindowToContent();
+      }, settleMs);
+    };
+    if (target > currentW) {
+      void resizeWindowTo(
+        Math.ceil(target),
+        Math.ceil(pill.getBoundingClientRect().height),
+      ).then(start);
+    } else {
+      start();
+    }
+  }
+
+  // ---- reveal / confirm / done choreography ----
+
+  function reveal(open: boolean) {
+    if (open === revealedRef.current) return;
+    if (open && (modeRef.current !== "recording" || pausedRefState())) return;
+    revealedRef.current = open;
+    transitionSegs([["extras", open, 0]]);
+  }
+
+  const pausedRef = useRef(false);
+  pausedRef.current = paused;
+  function pausedRefState() {
+    return pausedRef.current;
+  }
+
+  function enterConfirm() {
+    if (modeRef.current !== "recording") return;
+    setMode("confirm");
+    // The question's segment width is measured synchronously below, so the
+    // new text must be committed to the DOM before transitionSegs runs —
+    // without flushSync it would measure the previous (empty) question.
+    flushSync(() => {
+      setConfirmQuestion(`Delete ${formatDurationCopy(elapsedRef.current)}?`);
+    });
+    // Pause at the instant of the click — the deliberation must not end up
+    // in the clip. Same optimistic-state handling as the pause button.
+    applyPauseIntent("pause");
+    revealedRef.current = false;
+    transitionSegs([
+      ["extras", false, 0],
+      ["stop", false, 0],
+      ["q", true, 0],
+      ["del", true, 20],
+      ["res", true, 40],
+    ]);
+    setAnnouncement("Paused");
+  }
+
+  function exitConfirm() {
+    if (modeRef.current !== "confirm") return;
+    setMode("recording");
+    applyPauseIntent("resume");
+    transitionSegs([
+      ["res", false, 0],
+      ["del", false, 20],
+      ["q", false, 40],
+      ["stop", true, 40],
+    ]);
+    setAnnouncement("Recording");
+  }
+
+  function applyPauseIntent(transition: "pause" | "resume") {
+    clearPauseTransition();
+    pauseTransitionRef.current = transition;
+    setPaused(transition === "pause");
+    pauseTransitionTimerRef.current = setTimeout(clearPauseTransition, 3_000);
+    void safeEmit(`clips:recorder-${transition}`).catch(() => {
+      clearPauseTransition();
+    });
+  }
+
+  function togglePause() {
+    if (!enabled || modeRef.current !== "recording") return;
+    const transition = pausedRef.current ? "resume" : "pause";
+    applyPauseIntent(transition);
+    setAnnouncement(transition === "pause" ? "Paused" : "Recording");
+  }
+
+  async function copyLink(url: string) {
+    try {
+      if (hasTauri) await writeText(url);
+      else await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setAnnouncement("Recording saved, link copied");
+    } catch (err) {
+      console.error("[record-pill] clipboard write failed:", err);
+    }
+  }
+
+  function stop() {
+    if (!enabled || modeRef.current === "done") return;
+    setDoneDurationMs(elapsedRef.current);
+    if (sessionRef.current.localOnly) {
+      setSavedLocally(true);
+      setDoneStage("uploaded");
+    } else {
+      setDoneStage("finishing");
+    }
+    // Hold the window open BEFORE the stop event so the recorder's teardown
+    // can't close us out from under the card.
+    void safeInvoke("set_toolbar_finishing", { hold: true }).then(() => {
+      void safeEmit("clips:recorder-stop");
+    });
+    // Pre-grow the window for the card so its entrance never renders clipped;
+    // the done-mode effect refits to the exact card rect one frame later.
+    void resizeWindowTo(340, 180);
+    setMode("done");
+    const url = viewUrlRef.current;
+    if (url) void copyLink(url);
+    if (demoMode) {
+      setTimeout(() => {
+        handleUploadFinished({
+          ok: true,
+          viewUrl: "https://clips.agent-native.com/r/demo",
+        });
+      }, 2_000);
+    }
+  }
+
+  function scheduleCloseFallback(action: string) {
+    fallbackTimerRef.current = setTimeout(() => {
+      console.warn(
+        `[record-pill] recorder did not close the pill within 3s after ${action} — self-closing`,
+      );
+      if (hasTauri)
+        getCurrentWindow()
+          .close()
+          .catch(() => {});
+    }, 3_000);
+  }
+
+  function restart() {
+    if (!enabled || pendingAction || modeRef.current !== "recording") return;
+    setPendingAction("restart");
+    setElapsed(0);
+    void safeEmit("clips:recorder-restart").then(() =>
+      scheduleCloseFallback("restart"),
+    );
+  }
+
+  function confirmDelete() {
+    if (pendingAction) return;
+    setPendingAction("cancel");
+    void safeEmit("clips:recorder-cancel").then(() =>
+      scheduleCloseFallback("cancel"),
+    );
+  }
+
+  function dismissCard() {
+    void safeInvoke("set_toolbar_finishing", { hold: false }).then(() => {
+      if (hasTauri)
+        getCurrentWindow()
+          .close()
+          .catch(() => {});
+    });
+  }
+
+  function handleUploadFinished(payload: NativeUploadFinished) {
+    if (stallTimerRef.current) clearTimeout(stallTimerRef.current);
+    if (payload.ok && payload.viewUrl) {
+      setViewUrl(payload.viewUrl);
+      setDoneStage("uploaded");
+      if (!copiedRef.current && modeRef.current === "done") {
+        void copyLink(payload.viewUrl);
+      }
+      return;
+    }
+    setSavedLocally(Boolean(payload.localFilePath));
+    if (payload.viewUrl) setViewUrl(payload.viewUrl);
+    setDoneStage("failed");
+  }
+
+  // ---- listeners ----
+
+  useEffect(() => {
+    const unlistens: Array<() => void> = [];
+    let stopped = false;
+    const track = (p: Promise<() => void>) => {
+      p.then((u) => {
+        if (stopped) u();
+        else unlistens.push(u);
+      }).catch(() => {});
+    };
+    track(
+      safeListen<{ paused: boolean; elapsedMs: number }>(
+        "clips:recorder-state",
+        (payload) => {
+          const nextPaused = !!payload.paused;
+          const pending = pauseTransitionRef.current;
+          const reached =
+            (pending === "pause" && nextPaused) ||
+            (pending === "resume" && !nextPaused);
+          if (!pending || reached) setPaused(nextPaused);
+          if (reached) clearPauseTransition();
+          setElapsed(payload.elapsedMs ?? 0);
+        },
+      ),
+    );
+    track(
+      safeListen<boolean>("clips:toolbar-enabled", (payload) => {
+        setEnabled(!!payload);
+        setPreparing(false);
+        setPendingAction(null);
+        if (fallbackTimerRef.current) {
+          clearTimeout(fallbackTimerRef.current);
+          fallbackTimerRef.current = null;
+        }
+        if (!payload && modeRef.current !== "done") {
+          setPaused(false);
+          setElapsed(0);
+        }
+      }),
+    );
+    track(
+      safeListen("clips:toolbar-sync", () => {
+        void safeEmit("clips:toolbar-ready", {});
+      }),
+    );
+    track(
+      safeListen<boolean>("clips:toolbar-preparing", (payload) => {
+        setPreparing(!!payload);
+      }),
+    );
+    track(
+      safeListen<boolean>("clips:popover-visible", (payload) => {
+        setPopoverVisible(!!payload);
+      }),
+    );
+    track(
+      safeListen<RecorderSession>("clips:recorder-session", (payload) => {
+        sessionRef.current = payload ?? {};
+        if (payload?.viewUrl) setViewUrl(payload.viewUrl);
+        if (payload?.localOnly) setSavedLocally(true);
+      }),
+    );
+    track(
+      safeListen<{ stage?: string; progress?: number | null }>(
+        "clips:native-upload-progress",
+        (payload) => {
+          if (modeRef.current !== "done") return;
+          if (stallTimerRef.current) clearTimeout(stallTimerRef.current);
+          stallTimerRef.current = setTimeout(() => {
+            setDoneStage((s) => (s === "uploaded" ? s : "failed"));
+          }, 120_000);
+          if (payload?.stage && payload.stage !== "opening") {
+            setDoneStage((s) =>
+              s === "uploaded" || s === "failed" ? s : "uploading",
+            );
+          }
+        },
+      ),
+    );
+    track(
+      safeListen<NativeUploadFinished>(
+        "clips:native-upload-finished",
+        (payload) => handleUploadFinished(payload ?? {}),
+      ),
+    );
+    track(
+      safeListen<{ level?: number; source?: string }>(
+        "voice:audio-level",
+        (payload) => {
+          if ((payload?.source ?? "mic") !== "mic") return;
+          const level = Math.max(0, Math.min(1, Number(payload?.level) || 0));
+          setMicLevel(level);
+          if (levelDecayRef.current) clearTimeout(levelDecayRef.current);
+          levelDecayRef.current = setTimeout(() => setMicLevel(0), 400);
+        },
+      ),
+    );
+    void safeEmit("clips:toolbar-ready", {});
+    return () => {
+      stopped = true;
+      unlistens.forEach((u) => {
+        try {
+          u();
+        } catch {
+          // coercion-ok: unlisten during window teardown has no failure mode to surface
+        }
+      });
+      for (const t of [
+        hoverTimerRef,
+        fallbackTimerRef,
+        shrinkTimerRef,
+        stallTimerRef,
+        levelDecayRef,
+        pauseTransitionTimerRef,
+      ]) {
+        if (t.current) clearTimeout(t.current);
+      }
+    };
+  }, []);
+
+  // Escape resumes during confirm — window-level, per the spec.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && modeRef.current === "confirm") {
+        e.preventDefault();
+        exitConfirm();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  // Paused/confirm dot blink: opacity 1 ↔ 0.3 on a 700ms interval. Reduced
+  // motion keeps a static amber dot.
+  const blinking = paused && !reducedRef.current;
+  useEffect(() => {
+    if (!blinking) {
+      setBlinkDim(false);
+      return;
+    }
+    const t = setInterval(() => setBlinkDim((d) => !d), BLINK_MS);
+    return () => clearInterval(t);
+  }, [blinking]);
+
+  // Fit the native window to the measured pill once fonts have settled, and
+  // pin the Stop segment to an explicit pixel width so its later collapse
+  // animates from a number instead of `auto`.
+  useEffect(() => {
+    let cancelled = false;
+    const fit = () => {
+      if (cancelled) return;
+      const el = segRefs.current.stop;
+      if (el) {
+        el.style.width = `${segInnerWidth("stop")}px`;
+        el.style.opacity = "1";
+      }
+      syncWindowToContent();
+    };
+    if (document.fonts?.ready) {
+      void document.fonts.ready.then(fit);
+    } else {
+      fit();
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Done mode: card replaces the pill in place — refit the window to the
+  // card and drain any completion result the events may have raced past.
+  useEffect(() => {
+    if (mode !== "done") return;
+    requestAnimationFrame(() => syncWindowToContent());
+    stallTimerRef.current = setTimeout(() => {
+      setDoneStage((s) =>
+        s === "uploaded" ? s : s === "failed" ? s : "failed",
+      );
+    }, 120_000);
+    try {
+      const raw = window.localStorage.getItem(FINALIZING_RESULT_STORAGE_KEY);
+      if (raw) {
+        window.localStorage.removeItem(FINALIZING_RESULT_STORAGE_KEY);
+        const parsed = JSON.parse(raw) as NativeUploadFinished;
+        if (parsed && typeof parsed === "object") handleUploadFinished(parsed);
+      }
+    } catch {
+      // coercion-ok: storage is a best-effort race fallback; the event path is authoritative
+    }
+    void safeInvoke<NativeUploadFinished | null>(
+      "native_fullscreen_take_upload_finished",
+    ).then((payload) => {
+      if (payload) handleUploadFinished(payload);
+    });
+  }, [mode]);
+
+  // Persist the dragged position, debounced, only while at rest so a grown
+  // pill never becomes the stored anchor.
+  useEffect(() => {
+    if (!hasTauri) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let unlisten: (() => void) | null = null;
+    void getCurrentWindow()
+      .onMoved(() => {
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(() => {
+          if (
+            modeRef.current !== "recording" ||
+            revealedRef.current ||
+            Date.now() < animatingUntilRef.current
+          ) {
+            return;
+          }
+          void getCurrentWindow()
+            .outerPosition()
+            .then((pos) =>
+              safeInvoke("toolbar_save_position", { x: pos.x, y: pos.y }),
+            );
+        }, 600);
+      })
+      .then((u) => {
+        unlisten = u;
+      })
+      .catch(() => {});
+    return () => {
+      if (timer) clearTimeout(timer);
+      unlisten?.();
+    };
+  }, []);
+
+  // Demo drive for browser previews (no Tauri): tick the timer and meter.
+  useEffect(() => {
+    if (!demoMode) return;
+    const t = setInterval(() => {
+      if (modeRef.current !== "done" && !pausedRef.current) {
+        setElapsed((e) => e + 500);
+        setMicLevel(Math.random());
+      }
+    }, 500);
+    return () => clearInterval(t);
+  }, []);
+
+  // ---- interactions ----
+
+  const isPreparing = preparing || (!enabled && !popoverVisible && !demoMode);
+
+  function handleMouseEnter() {
+    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+    hoverTimerRef.current = setTimeout(() => reveal(true), HOVER_INTENT_MS);
+  }
+  function handleMouseLeave() {
+    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+    reveal(false);
+  }
+  function handleFocusCapture() {
+    reveal(true);
+  }
+  function handleBlurCapture(e: FocusEvent<HTMLDivElement>) {
+    if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+    reveal(false);
+  }
+
+  function handlePillMouseDown(e: React.MouseEvent) {
+    if (e.button !== 0) return;
+    const target = e.target as HTMLElement;
+    if (target.closest("button")) return;
+    if (modeRef.current === "confirm") {
+      exitConfirm();
+      return;
+    }
+    if (hasTauri) {
+      getCurrentWindow()
+        .startDragging()
+        .catch(() => {});
+    }
+  }
+
+  const inConfirm = mode === "confirm";
+  const showPaused = paused;
+  const meterFlat = showPaused || !enabled;
+  const timerText = isPreparing ? "Preparing…" : formatTimer(elapsed);
+  const barHeights = meterFlat
+    ? [4, 4, 4]
+    : [
+        4 + Math.round(micLevel * 10 * 0.55),
+        4 + Math.round(micLevel * 10),
+        4 + Math.round(micLevel * 10 * 0.75),
+      ];
+
+  const doneCaption =
+    doneStage === "uploaded"
+      ? viewUrl
+        ? "uploaded"
+        : "saved on this device"
+      : doneStage === "failed"
+        ? savedLocally
+          ? "upload paused, saved on this device"
+          : "upload paused"
+        : doneStage === "uploading"
+          ? "uploading"
+          : "finishing up";
+
+  return (
+    <div
+      data-tw-surface
+      className="record-pill-scope flex h-screen w-screen items-end p-[18px]"
+    >
+      <div aria-live="polite" className="sr-only">
+        {announcement}
+      </div>
+      {mode === "done" ? (
+        <div
+          ref={cardRef}
+          className={`w-[340px] rounded-[14px] border-[0.5px] border-[var(--pill-card-border)] bg-[var(--pill-card-surface)] p-4 record-pill-card-shadow ${reducedRef.current ? "" : "record-pill-card-in"}`}
+        >
+          <div className="mb-3 flex items-center gap-2.5">
+            <span className="flex size-8 flex-none items-center justify-center rounded-full bg-[var(--pill-card-badge-bg)] text-[var(--pill-card-badge)]">
+              <IconCheck size={16} stroke={2.4} aria-hidden />
+            </span>
+            <div className="min-w-0">
+              <div className="text-sm font-semibold text-[var(--pill-card-ink)]">
+                Recording saved
+              </div>
+              <div className="text-xs text-[var(--pill-card-ink-2)]">
+                {formatDurationCopy(doneDurationMs)} · {doneCaption}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={dismissCard}
+              aria-label="Dismiss"
+              className="ml-auto flex size-6 flex-none items-center justify-center rounded text-[var(--pill-card-ink-3)] hover:text-[var(--pill-card-ink)]"
+            >
+              <IconX size={15} aria-hidden />
+            </button>
+          </div>
+          {viewUrl ? (
+            <div className="mb-3 flex items-center gap-2 rounded-lg bg-[var(--pill-card-well)] px-2.5 py-2 text-xs">
+              <IconLink
+                size={14}
+                className="flex-none text-[var(--pill-card-ink-2)]"
+                aria-hidden
+              />
+              <span className="record-pill-mono min-w-0 flex-1 truncate text-[var(--pill-card-ink-2)]">
+                {viewUrl.replace(/^https?:\/\//, "")}
+              </span>
+              {copied ? (
+                <span className="flex-none font-semibold text-[var(--pill-card-badge)]">
+                  Copied
+                </span>
+              ) : null}
+            </div>
+          ) : null}
+          <div className="flex gap-2">
+            {viewUrl ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (hasTauri) void openExternal(viewUrl).catch(() => {});
+                    else window.open(viewUrl, "_blank");
+                  }}
+                  className="h-[34px] flex-1 rounded-lg bg-[var(--pill-card-ink)] text-[13px] font-semibold text-[var(--pill-on-chrome)]"
+                >
+                  Open clip
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void copyLink(viewUrl)}
+                  className="h-[34px] flex-1 rounded-lg border border-[var(--pill-card-border-strong)] bg-[var(--pill-on-chrome)] text-[13px] font-semibold text-[var(--pill-card-ink)]"
+                >
+                  Copy again
+                </button>
+              </>
+            ) : null}
+          </div>
+        </div>
+      ) : (
+        <div
+          ref={pillRef}
+          onMouseDown={handlePillMouseDown}
+          onMouseEnter={handleMouseEnter}
+          onMouseLeave={handleMouseLeave}
+          onFocusCapture={handleFocusCapture}
+          onBlurCapture={handleBlurCapture}
+          className={`flex h-[42px] items-center rounded-full bg-[var(--pill-chrome)] pt-1.5 pr-2 pb-1.5 pl-4 text-[var(--pill-on-chrome)] record-pill-shadow ${enabled ? "" : "opacity-80"}`}
+        >
+          <span
+            aria-hidden
+            className="size-2 flex-none rounded-full transition-colors duration-150"
+            style={{
+              background: showPaused ? "var(--pill-paused)" : "var(--pill-rec)",
+              opacity: blinking && blinkDim ? 0.3 : 1,
+            }}
+          />
+          <span
+            aria-live="off"
+            className="record-pill-mono ml-2.5 min-w-11 flex-none text-sm font-medium"
+          >
+            {timerText}
+          </span>
+          <span
+            aria-hidden
+            className="ml-2.5 flex h-3.5 flex-none items-end gap-0.5 transition-opacity duration-150"
+            style={{ opacity: meterFlat ? 0.3 : 1 }}
+          >
+            {barHeights.map((h, i) => (
+              <i
+                key={i}
+                className="block w-[3px] rounded-[1px] bg-[var(--pill-meter)] transition-[height] duration-200"
+                style={{ height: `${h}px` }}
+              />
+            ))}
+          </span>
+          <button
+            type="button"
+            onClick={togglePause}
+            disabled={!enabled || inConfirm}
+            aria-label="Pause"
+            aria-pressed={showPaused}
+            className="ml-2.5 flex size-[30px] flex-none items-center justify-center rounded-full transition-colors duration-150 disabled:cursor-default"
+            style={{
+              background: showPaused
+                ? "var(--pill-control-paused)"
+                : "var(--pill-control)",
+            }}
+          >
+            <IconPlayerPauseFilled size={14} aria-hidden />
+          </button>
+          <span
+            ref={(el) => {
+              segRefs.current.stop = el;
+            }}
+            className="record-pill-seg"
+            style={{ width: "auto", opacity: 1 }}
+          >
+            <span className="inline-flex flex-none items-center">
+              <button
+                type="button"
+                onClick={stop}
+                disabled={!enabled}
+                aria-label="Stop and save"
+                className="ml-2.5 flex h-[30px] flex-none items-center gap-1.5 rounded-full bg-[var(--pill-on-chrome)] px-3.5 text-[13px] font-semibold text-[var(--pill-chrome)]"
+              >
+                <IconPlayerStopFilled size={13} aria-hidden />
+                Stop
+              </button>
+            </span>
+          </span>
+          <span
+            ref={(el) => {
+              segRefs.current.q = el;
+            }}
+            className="record-pill-seg"
+          >
+            <span className="inline-flex flex-none items-center">
+              <span className="pl-2.5 text-xs whitespace-nowrap text-[var(--pill-q-ink)]">
+                {confirmQuestion}
+              </span>
+            </span>
+          </span>
+          <span
+            ref={(el) => {
+              segRefs.current.del = el;
+            }}
+            className="record-pill-seg"
+          >
+            <span className="inline-flex flex-none items-center">
+              <button
+                type="button"
+                onClick={confirmDelete}
+                className="ml-2.5 flex h-7 flex-none items-center rounded-full bg-[var(--pill-rec)] px-3.5 text-xs font-semibold text-[var(--pill-on-chrome)]"
+              >
+                Delete
+              </button>
+            </span>
+          </span>
+          <span
+            ref={(el) => {
+              segRefs.current.res = el;
+            }}
+            className="record-pill-seg"
+          >
+            <span className="inline-flex flex-none items-center">
+              <button
+                type="button"
+                onClick={exitConfirm}
+                className="ml-2 flex h-7 flex-none items-center rounded-full bg-[var(--pill-soft)] px-3.5 text-xs font-semibold text-[var(--pill-on-chrome)]"
+              >
+                Resume
+              </button>
+            </span>
+          </span>
+          <span
+            ref={(el) => {
+              segRefs.current.extras = el;
+            }}
+            className="record-pill-seg"
+          >
+            <span className="inline-flex flex-none items-center">
+              <span
+                aria-hidden
+                className="ml-2.5 h-[18px] w-px flex-none bg-[var(--pill-soft)]"
+              />
+              <button
+                type="button"
+                onClick={restart}
+                disabled={!enabled || !!pendingAction}
+                aria-label="Restart recording"
+                className="ml-2 flex size-[30px] flex-none items-center justify-center rounded-full text-[var(--pill-ghost-ink)] hover:text-[var(--pill-on-chrome)]"
+              >
+                <IconRefresh size={14} stroke={2} aria-hidden />
+              </button>
+              <button
+                type="button"
+                onClick={enterConfirm}
+                disabled={!!pendingAction}
+                aria-label="Delete recording"
+                className="ml-2 flex size-[30px] flex-none items-center justify-center rounded-full text-[var(--pill-ghost-ink)] hover:text-[var(--pill-on-chrome)]"
+              >
+                <IconTrash size={14} stroke={2} aria-hidden />
+              </button>
+            </span>
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}

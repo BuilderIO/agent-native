@@ -90,6 +90,8 @@ pub fn run() {
             clips::show_finalizing,
             clips::hide_finalizing,
             clips::show_toolbar,
+            clips::toolbar_save_position,
+            clips::set_toolbar_finishing,
             clips::show_bubble,
             clips::set_bubble_capture_excluded,
             clips::hide_overlays,

@@ -40,6 +40,12 @@ const COUNTDOWN_CONTROL_HIT_PAD: f64 = 8.0;
 // Guards the single cursor-poll loop that toggles click-through on the
 // countdown overlay so only the button zones are interactive.
 static COUNTDOWN_CONTROL_TRACKING: AtomicBool = AtomicBool::new(false);
+// Set by the recording pill the instant Stop is clicked, before it emits
+// `clips:recorder-stop`. While held, `hide_overlays` / `hide_recording_chrome`
+// skip the toolbar window so the pill can swap to its completion card in
+// place; every other teardown path (cancel, restart, popover lifecycle) still
+// closes it. Cleared when the card is dismissed or the next session starts.
+static TOOLBAR_FINISHING: AtomicBool = AtomicBool::new(false);
 const BUBBLE_LABEL: &str = "bubble";
 const PREPARING_LABEL: &str = "preparing";
 const FINALIZING_LABEL: &str = "finalizing";
@@ -954,30 +960,88 @@ pub async fn set_recording_display_override(
     Ok(())
 }
 
-/// Vertical recording pill anchored to the left edge. Stop + timer + pause,
-/// with hover-revealed restart/cancel controls matching Loom's left-rail
-/// placement. Draggable, always on top.
+fn toolbar_position_path(app: &AppHandle) -> Option<PathBuf> {
+    let dir = app.path().app_data_dir().ok()?;
+    if std::fs::create_dir_all(&dir).is_err() {
+        return None;
+    }
+    Some(dir.join("toolbar-pill-position.json"))
+}
+
+fn load_toolbar_position(app: &AppHandle) -> Option<(i32, i32)> {
+    let path = toolbar_position_path(app)?;
+    let bytes = std::fs::read(&path).ok()?;
+    let value: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    let x = value.get("x")?.as_i64()? as i32;
+    let y = value.get("y")?.as_i64()? as i32;
+    Some((x, y))
+}
+
+/// Persist the pill's dragged position (outer physical px). The renderer
+/// calls this debounced from the window's move events while at rest — it
+/// skips saves mid-reveal so a grown pill never becomes the stored anchor.
+#[tauri::command]
+pub async fn toolbar_save_position(app: AppHandle, x: i32, y: i32) -> Result<(), String> {
+    let Some(path) = toolbar_position_path(&app) else {
+        return Ok(());
+    };
+    let body = serde_json::to_vec(&serde_json::json!({ "x": x, "y": y }))
+        .map_err(|e| e.to_string())?;
+    let tmp = path.with_extension("json.tmp");
+    if std::fs::write(&tmp, &body).is_err() {
+        return Ok(());
+    }
+    if std::fs::rename(&tmp, &path).is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    Ok(())
+}
+
+/// Hold or release the stop-flow toolbar preservation described on
+/// `TOOLBAR_FINISHING`. The pill sets the hold synchronously before emitting
+/// `clips:recorder-stop` so the recorder's teardown cannot race it.
+#[tauri::command]
+pub async fn set_toolbar_finishing(hold: bool) -> Result<(), String> {
+    TOOLBAR_FINISHING.store(hold, Ordering::SeqCst);
+    Ok(())
+}
+
+/// Horizontal recording pill — dot, timer, level meter, pause, and a white
+/// Stop capsule that grows rightward from an anchored left edge for hover
+/// extras and the inline delete confirm. Draggable, always on top. The
+/// renderer owns exact sizing: it measures its content and resizes this
+/// window around the fixed anchor edge, so the values here only need to fit
+/// the resting pill for first paint.
 #[tauri::command]
 pub async fn show_toolbar(app: AppHandle) -> Result<(), String> {
     dlog!("[clips-tray] show_toolbar invoked");
+    // A fresh session can never start inside the finishing hold — if a stale
+    // completion card is still open its window gets replaced below anyway.
+    TOOLBAR_FINISHING.store(false, Ordering::SeqCst);
     // Reset the blur guard — spawning an overlay can briefly steal focus
     // from the popover on some macOS versions even with .focused(false).
     mark_popover_shown(&app);
-    let (mx, my, _mw, mh) = tray_monitor_physical_rect(&app);
+    let (mx, my, mw, mh) = tray_monitor_physical_rect(&app);
     let scale = overlay_scale_factor(&app);
     let gutter = overlay_shadow_gutter_physical(&app);
     // CSS is authored in logical px, while this command sizes the native
-    // window in physical px. Keep the visible toolbar large enough for the
-    // fixed 30px circular controls on high-DPI displays.
-    let content_w: u32 = (72.0 * scale).round() as u32;
-    let collapsed_content_h: u32 = (150.0 * scale).round() as u32;
+    // window in physical px.
+    let content_w: u32 = (248.0 * scale).round() as u32;
+    let content_h: u32 = (42.0 * scale).round() as u32;
     let w: u32 = content_w + gutter * 2;
-    let h: u32 = collapsed_content_h + gutter * 2;
-    // Flush-left with a small margin; vertically center the collapsed pill.
-    // The React toolbar temporarily resizes this window while hover/focus
-    // reveals extra controls so transparent pixels don't block clicks.
-    let x: i32 = mx + 48 - gutter as i32;
-    let y: i32 = my + (mh as i32 - collapsed_content_h as i32) / 2 - gutter as i32;
+    let h: u32 = content_h + gutter * 2;
+    // Bottom-center by default; a user-dragged position wins when it still
+    // lands on the tray monitor (clamped so a monitor change can't strand
+    // the pill off-screen).
+    let default_x: i32 = mx + (mw as i32 - w as i32) / 2;
+    let default_y: i32 = my + mh as i32 - h as i32 - (48.0 * scale).round() as i32;
+    let (x, y) = match load_toolbar_position(&app) {
+        Some((sx, sy)) => (
+            sx.clamp(mx, mx + mw as i32 - w as i32),
+            sy.clamp(my, my + mh as i32 - h as i32),
+        ),
+        None => (default_x, default_y),
+    };
     dlog!("[clips-tray] toolbar pos=({},{}) size={}x{}", x, y, w, h);
     if let Some(existing) = app.get_webview_window(TOOLBAR_LABEL) {
         let _ = existing.set_size(tauri::Size::Physical(PhysicalSize::new(w, h)));
@@ -1149,10 +1213,16 @@ pub async fn set_bubble_capture_excluded(app: AppHandle, excluded: bool) -> Resu
 }
 
 fn overlay_labels_to_hide(preserve_finalizing: bool) -> impl Iterator<Item = &'static str> {
-    OVERLAY_LABELS
-        .iter()
-        .copied()
-        .filter(move |label| !preserve_finalizing || *label != FINALIZING_LABEL)
+    let preserve_toolbar = TOOLBAR_FINISHING.load(Ordering::SeqCst);
+    OVERLAY_LABELS.iter().copied().filter(move |label| {
+        if preserve_finalizing && *label == FINALIZING_LABEL {
+            return false;
+        }
+        if preserve_toolbar && *label == TOOLBAR_LABEL {
+            return false;
+        }
+        true
+    })
 }
 
 #[tauri::command]
@@ -1194,7 +1264,10 @@ pub async fn hide_recording_chrome(
     let keep_region_guides = g.always_visible && g.enabled && !g.rects.is_empty();
     // The recording-region border belongs to a single recording (never pinned),
     // so it always tears down here alongside the countdown + toolbar.
-    let mut labels: Vec<&str> = vec![COUNTDOWN_LABEL, TOOLBAR_LABEL, REGION_RECORD_BORDER_LABEL];
+    let mut labels: Vec<&str> = vec![COUNTDOWN_LABEL, REGION_RECORD_BORDER_LABEL];
+    if !TOOLBAR_FINISHING.load(Ordering::SeqCst) {
+        labels.push(TOOLBAR_LABEL);
+    }
     if !keep_region_guides {
         labels.push(REGION_GUIDES_LABEL);
     }
