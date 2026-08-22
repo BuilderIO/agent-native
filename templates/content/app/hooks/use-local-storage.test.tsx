@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { act } from "react";
+import { act, useLayoutEffect } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -126,5 +126,37 @@ describe("useLocalStorage", () => {
       root?.render(<Probe storageKey="document-b" />);
     });
     expect(renderedValues[firstTransitionRender]).toBe(false);
+  });
+
+  it("uses the new key value for functional updates before passive effects", () => {
+    let transitionSetterCalled = false;
+    window.localStorage.setItem("document-a", JSON.stringify(true));
+    window.localStorage.setItem("document-b", JSON.stringify(false));
+
+    function Probe({ storageKey }: { storageKey: string }) {
+      const [, setValue] = useLocalStorage(storageKey, false);
+
+      useLayoutEffect(() => {
+        if (storageKey !== "document-b" || transitionSetterCalled) return;
+        transitionSetterCalled = true;
+        setValue((previous) => !previous);
+      }, [setValue, storageKey]);
+
+      return null;
+    }
+
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    act(() => {
+      root?.render(<Probe storageKey="document-a" />);
+    });
+
+    flushSync(() => {
+      root?.render(<Probe storageKey="document-b" />);
+    });
+
+    expect(window.localStorage.getItem("document-b")).toBe("true");
   });
 });

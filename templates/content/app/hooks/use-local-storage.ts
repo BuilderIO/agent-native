@@ -22,6 +22,9 @@ export function useLocalStorage<T>(
   const valueRef = useRef(value);
   const keyChanged = prevKeyRef.current !== key;
   const visibleValue = keyChanged ? readStorage(key, defaultValue) : value;
+  if (keyChanged) {
+    valueRef.current = visibleValue;
+  }
 
   useEffect(() => {
     if (prevKeyRef.current !== key) {
