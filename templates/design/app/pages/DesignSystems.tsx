@@ -26,6 +26,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -89,6 +90,7 @@ interface DesignSystem {
 }
 
 interface DesignSystemData {
+  source?: string;
   colors?: {
     primary?: unknown;
     secondary?: unknown;
@@ -132,6 +134,17 @@ export default function DesignSystems() {
   const setDefaultMutation = useActionMutation("set-default-design-system");
   const deleteMutation = useActionMutation("delete-design-system");
   const updateMutation = useActionMutation("update-design-system");
+  const refreshBuilderSystemMutation = useActionMutation<
+    { synced: boolean },
+    { id: string }
+  >("refresh-design-system-with-builder", {
+    skipActionQueryInvalidation: true,
+  });
+  const refreshBuilderSystemRef = useRef(
+    refreshBuilderSystemMutation.mutateAsync,
+  );
+  refreshBuilderSystemRef.current = refreshBuilderSystemMutation.mutateAsync;
+  const attemptedBuilderRefreshesRef = useRef(new Set<string>());
 
   const designSystems = data?.designSystems ?? [];
   const selectedDesignSystemId = searchParams.get("designSystemId");
@@ -369,6 +382,56 @@ export default function DesignSystems() {
       return null;
     }
   };
+
+  useEffect(() => {
+    const builderSystemIds = designSystems
+      .filter(
+        (system) =>
+          (system.accessRole === "owner" ||
+            system.accessRole === "admin" ||
+            system.accessRole === "editor") &&
+          parseData(system.data)?.source === "builder",
+      )
+      .map((system) => system.id)
+      .filter((id) => !attemptedBuilderRefreshesRef.current.has(id));
+    if (builderSystemIds.length === 0) return;
+
+    let disposed = false;
+    const timers: Array<ReturnType<typeof setTimeout>> = [];
+    const maxAttempts = 5;
+    const retryDelayMs = 5_000;
+
+    const refresh = async (id: string, attempt: number): Promise<void> => {
+      try {
+        const result = await refreshBuilderSystemRef.current({ id });
+        if (disposed) return;
+        if (result.synced) {
+          await queryClient.invalidateQueries({
+            queryKey: ["action", "list-design-systems"],
+          });
+          return;
+        }
+        if (attempt >= maxAttempts) return;
+      } catch {
+        if (disposed || attempt >= maxAttempts) return;
+      }
+      timers.push(
+        setTimeout(() => {
+          void refresh(id, attempt + 1);
+        }, retryDelayMs),
+      );
+    };
+
+    for (const id of builderSystemIds) {
+      attemptedBuilderRefreshesRef.current.add(id);
+      void refresh(id, 0);
+    }
+
+    return () => {
+      disposed = true;
+      for (const timer of timers) clearTimeout(timer);
+    };
+  }, [designSystems, queryClient]);
 
   useSetPageTitle(t("navigation.designSystems"));
 

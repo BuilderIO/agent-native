@@ -154,7 +154,7 @@ function buildDesignSystemAgentContext({
       builder.builderUrl ? `- URL: ${builder.builderUrl}` : "",
       builder.builderStatus ? `- Status: ${builder.builderStatus}` : "",
       "- Builder DSI docs and token values override local proxy placeholders.",
-      "- Do not substitute a generic style if DSI docs or tokens are unavailable; call get-design-system again or tell the user Builder indexing is not ready.",
+      "- If no usable DSI docs or tokens are returned, call refresh-design-system-with-builder once, then call get-design-system again before generating; if it is still empty, tell the user Builder indexing is not ready.",
     );
 
     if (builder.warning) {
