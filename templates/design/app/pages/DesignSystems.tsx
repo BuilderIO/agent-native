@@ -73,6 +73,12 @@ import {
 } from "@/lib/design-system-preview";
 
 import { QueryErrorState } from "../components/QueryErrorState";
+import {
+  builderRefreshKey,
+  parseDesignSystemData,
+  shouldRefreshBuilderDesignSystem,
+  type DesignSystemData,
+} from "../lib/design-system-data";
 
 interface DesignSystem {
   id: string;
@@ -89,33 +95,6 @@ interface DesignSystem {
   updatedAt?: string;
 }
 
-interface DesignSystemData {
-  source?: string;
-  builderStatus?: string;
-  colors?: {
-    primary?: unknown;
-    secondary?: unknown;
-    accent?: unknown;
-    background?: unknown;
-    surface?: unknown;
-    text?: unknown;
-    textMuted?: unknown;
-  };
-  typography?: {
-    headingFont?: unknown;
-    bodyFont?: unknown;
-    headingWeight?: unknown;
-    bodyWeight?: unknown;
-  };
-  spacing?: Record<string, unknown>;
-  borders?: Record<string, unknown>;
-  logos?: Array<{ url?: string; name?: string; variant?: string }>;
-  defaults?: Record<string, unknown>;
-  notes?: unknown;
-  /** The source system's own named vocabulary; absent on kits predating it. */
-  tokens?: unknown;
-}
-
 type BuilderRefreshResult = {
   synced: boolean;
   status?: string;
@@ -129,19 +108,6 @@ function isTerminalBuilderStatus(status?: string): boolean {
     status === "error" ||
     status === "failed" ||
     status === "cancelled"
-  );
-}
-
-export function shouldRefreshBuilderDesignSystem(
-  system: Pick<DesignSystem, "accessRole" | "data">,
-): boolean {
-  const parsed = parseDesignSystemData(system.data);
-  return (
-    (system.accessRole === "owner" ||
-      system.accessRole === "admin" ||
-      system.accessRole === "editor") &&
-    parsed?.source === "builder" &&
-    parsed.builderStatus === "in-progress"
   );
 }
 
@@ -174,7 +140,8 @@ export default function DesignSystems() {
     refreshBuilderSystemMutation.mutateAsync,
   );
   refreshBuilderSystemRef.current = refreshBuilderSystemMutation.mutateAsync;
-  const completedBuilderRefreshesRef = useRef(new Set<string>());
+  const settledBuilderRefreshesRef = useRef(new Set<string>());
+  const stoppedBuilderRefreshesRef = useRef(new Set<string>());
   const activeBuilderRefreshesRef = useRef(new Set<string>());
 
   const designSystems = data?.designSystems ?? [];
@@ -407,50 +374,68 @@ export default function DesignSystems() {
   }, [selectedSystemIds, queryClient, exitSelectionMode, deleteMutation, t]);
 
   useEffect(() => {
-    const builderSystemIds = designSystems
+    const builderSystemEntries = designSystems
       .filter(shouldRefreshBuilderDesignSystem)
-      .map((system) => system.id)
+      .map((system) => ({
+        id: system.id,
+        key: builderRefreshKey(system),
+      }))
       .filter(
-        (id) =>
-          !completedBuilderRefreshesRef.current.has(id) &&
-          !activeBuilderRefreshesRef.current.has(id),
+        ({ key }) =>
+          !settledBuilderRefreshesRef.current.has(key) &&
+          !stoppedBuilderRefreshesRef.current.has(key) &&
+          !activeBuilderRefreshesRef.current.has(key),
       );
-    if (builderSystemIds.length === 0) return;
+    if (builderSystemEntries.length === 0) return;
 
     let disposed = false;
     const timers: Array<ReturnType<typeof setTimeout>> = [];
     const maxAttempts = 5;
+    const maxPolls = 3;
     const retryDelayMs = 5_000;
     const retryPollDelayMs = 30_000;
 
     const scheduleRetry = (
-      id: string,
+      entry: { id: string; key: string },
       delayMs: number,
       attempt: number,
+      pollCount: number,
     ): void => {
       if (disposed) return;
       timers.push(
         setTimeout(() => {
-          void refresh(id, attempt);
+          void refresh(entry, attempt, pollCount);
         }, delayMs),
       );
     };
 
-    const refresh = async (id: string, attempt: number): Promise<void> => {
+    const refresh = async (
+      entry: { id: string; key: string },
+      attempt: number,
+      pollCount: number,
+    ): Promise<void> => {
       try {
-        const result = await refreshBuilderSystemRef.current({ id });
+        const result = await refreshBuilderSystemRef.current({ id: entry.id });
         if (disposed) return;
         if (result.synced) {
-          activeBuilderRefreshesRef.current.delete(id);
-          completedBuilderRefreshesRef.current.add(id);
+          activeBuilderRefreshesRef.current.delete(entry.key);
+          settledBuilderRefreshesRef.current.add(entry.key);
+          await queryClient.invalidateQueries({
+            queryKey: ["action", "list-design-systems"],
+          });
+          return;
+        }
+        if (result.status === "conflict") {
+          activeBuilderRefreshesRef.current.delete(entry.key);
+          stoppedBuilderRefreshesRef.current.add(entry.key);
           await queryClient.invalidateQueries({
             queryKey: ["action", "list-design-systems"],
           });
           return;
         }
         if (isTerminalBuilderStatus(result.status)) {
-          activeBuilderRefreshesRef.current.delete(id);
-          completedBuilderRefreshesRef.current.add(id);
+          activeBuilderRefreshesRef.current.delete(entry.key);
+          settledBuilderRefreshesRef.current.add(entry.key);
           return;
         }
       } catch {
@@ -458,23 +443,29 @@ export default function DesignSystems() {
       }
       if (disposed) return;
       const exhausted = attempt >= maxAttempts;
+      if (exhausted && pollCount >= maxPolls) {
+        activeBuilderRefreshesRef.current.delete(entry.key);
+        stoppedBuilderRefreshesRef.current.add(entry.key);
+        return;
+      }
       scheduleRetry(
-        id,
+        entry,
         exhausted ? retryPollDelayMs : retryDelayMs,
         exhausted ? 0 : attempt + 1,
+        exhausted ? pollCount + 1 : pollCount,
       );
     };
 
-    for (const id of builderSystemIds) {
-      activeBuilderRefreshesRef.current.add(id);
-      void refresh(id, 0);
+    for (const entry of builderSystemEntries) {
+      activeBuilderRefreshesRef.current.add(entry.key);
+      void refresh(entry, 0, 0);
     }
 
     return () => {
       disposed = true;
       for (const timer of timers) clearTimeout(timer);
-      for (const id of builderSystemIds) {
-        activeBuilderRefreshesRef.current.delete(id);
+      for (const entry of builderSystemEntries) {
+        activeBuilderRefreshesRef.current.delete(entry.key);
       }
     };
   }, [designSystems, queryClient]);
@@ -1104,18 +1095,6 @@ function EmptyPreviewLine({
       {children}
     </div>
   );
-}
-
-function parseDesignSystemData(dataStr: string): DesignSystemData | null {
-  try {
-    const parsed = JSON.parse(dataStr);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return null;
-    }
-    return parsed as DesignSystemData;
-  } catch {
-    return null;
-  }
 }
 
 function parseDesignSystemAssets(

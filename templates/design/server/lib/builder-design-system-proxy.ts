@@ -2,6 +2,7 @@ import {
   friendlyTokenName,
   isColorTokenValue,
   normalizeBrandKitTokens,
+  resolveBrandKitTokens,
 } from "@agent-native/core/brand-kit";
 import {
   createBuilderDesignSystemProxyFields,
@@ -22,6 +23,7 @@ type ProxyData = Record<string, unknown> & {
   spacing?: Record<string, unknown>;
   borders?: Record<string, unknown>;
   defaults?: Record<string, unknown>;
+  customCSS?: unknown;
   tokens?: unknown;
 };
 
@@ -160,9 +162,14 @@ export function reconcileBuilderProxyData(
   );
   if (extracted.tokens.length === 0) return null;
 
-  const existing = normalizeBrandKitTokens(parsed.tokens).tokens.filter(
-    (token) => token.source !== "Builder DSI",
-  );
+  const legacyCssTokens =
+    typeof parsed.customCSS === "string"
+      ? resolveBrandKitTokens({ customCSS: parsed.customCSS }, "Local CSS")
+      : [];
+  const existing = [
+    ...legacyCssTokens,
+    ...normalizeBrandKitTokens(parsed.tokens).tokens,
+  ].filter((token) => token.source !== "Builder DSI");
   const tokensByCssVar = new Map(
     existing.map((token) => [token.cssVar, token]),
   );

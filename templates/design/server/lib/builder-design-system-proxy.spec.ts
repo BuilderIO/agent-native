@@ -117,6 +117,23 @@ describe("reconcileBuilderProxyData", () => {
     });
   });
 
+  it("preserves local tokens stored only in custom CSS", () => {
+    const result = reconcileBuilderProxyData(
+      JSON.stringify({
+        source: "builder",
+        builderStatus: "in-progress",
+        customCSS: ":root { --legacy-local: #334155; }",
+      }),
+      {
+        ...reference,
+        tokenValues: { "--brand-primary": "#123456" },
+      },
+      "2026-08-21T00:00:00.000Z",
+    );
+
+    expect(result!.data).toContain('"cssVar":"--legacy-local"');
+  });
+
   it("rejects malformed local proxy data instead of overwriting it", () => {
     expect(() =>
       reconcileBuilderProxyData(
