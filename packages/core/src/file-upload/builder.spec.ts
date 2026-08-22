@@ -2,9 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { builderFileUploadProvider } from "./builder.js";
 
+const resolveBuilderCredentialsMock = vi.hoisted(() => vi.fn());
 const resolveBuilderPrivateKeyMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../server/credential-provider.js", () => ({
+  resolveBuilderCredentials: resolveBuilderCredentialsMock,
   resolveBuilderPrivateKey: resolveBuilderPrivateKeyMock,
 }));
 
@@ -39,6 +41,10 @@ describe("builderFileUploadProvider", () => {
     delete process.env.BUILDER_PUBLIC_APP_HOST;
     vi.clearAllMocks();
     vi.useFakeTimers();
+    resolveBuilderCredentialsMock.mockResolvedValue({
+      privateKey: "bpk-secret",
+      publicKey: "public-key",
+    });
     resolveBuilderPrivateKeyMock.mockResolvedValue("bpk-secret");
     fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
@@ -56,6 +62,28 @@ describe("builderFileUploadProvider", () => {
     expect(builderFileUploadProvider.isConfigured()).toBe(false);
     process.env.BUILDER_PRIVATE_KEY = "x";
     expect(builderFileUploadProvider.isConfigured()).toBe(true);
+  });
+
+  it("deletes uploaded Builder assets by URL", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({}));
+
+    await expect(
+      builderFileUploadProvider.delete!({
+        url: "https://cdn.builder.io/api/v1/file/assets%2Fprivate.bin?token=x",
+      }),
+    ).resolves.toBe(true);
+
+    const [url, init] = fetchMock.mock.calls[0];
+    const parsed = new URL(url.toString());
+    expect(parsed.pathname).toBe("/api/v1/assets/by-url");
+    expect(parsed.searchParams.get("apiKey")).toBe("public-key");
+    expect(parsed.searchParams.get("url")).toBe(
+      "https://cdn.builder.io/api/v1/file/assets%2Fprivate.bin",
+    );
+    expect(init).toMatchObject({
+      method: "DELETE",
+      headers: { Authorization: "Bearer bpk-secret" },
+    });
   });
 
   it("throws when no private key resolves", async () => {

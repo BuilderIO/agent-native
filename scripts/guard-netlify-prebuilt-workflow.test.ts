@@ -145,6 +145,96 @@ describe("production Netlify site concurrency guard", () => {
     );
   });
 
+  it("only verifies static cache artifacts for prerendered prebuilt targets", () => {
+    const workflow = readWorkflow(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+    );
+    const jobs = workflow.jobs as Record<string, Workflow>;
+    const steps = (jobs.deploy.steps as Array<Workflow>).filter(Boolean);
+    const artifact = steps.find(
+      (step) => step.name === "Verify static SSR cache artifact",
+    );
+
+    assert(artifact);
+    assert.equal(
+      artifact.if,
+      "steps.target.outputs.source_template == 'clips' || steps.target.outputs.source_template == '@agent-native/docs'",
+    );
+    assert.match(String(artifact.run), /GUARD_SSR_CACHE_ARTIFACT_DIR/);
+  });
+
+  it("smoke-tests app health while keeping static docs on a shell-only probe", () => {
+    const workflow = readWorkflow(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+    );
+    const jobs = workflow.jobs as Record<string, Workflow>;
+    const steps = (jobs.deploy.steps as Array<Workflow>).filter(Boolean);
+    const appSmoke = steps.find(
+      (step) => step.name === "Smoke-test the uploaded deploy",
+    );
+    const docsSmoke = steps.find(
+      (step) => step.name === "Smoke-test the static docs deploy",
+    );
+
+    assert(appSmoke);
+    assert.equal(
+      appSmoke.if,
+      "inputs.deploy && inputs.smoke && steps.target.outputs.source_template != '@agent-native/docs'",
+    );
+    assert.match(String(appSmoke.run), /\/_agent-native\/health/);
+    assert.match(String(appSmoke.run), /--max-time 60/);
+
+    assert(docsSmoke);
+    assert.equal(
+      docsSmoke.if,
+      "inputs.deploy && inputs.smoke && steps.target.outputs.source_template == '@agent-native/docs'",
+    );
+    assert.doesNotMatch(String(docsSmoke.run), /\/_agent-native\/health/);
+  });
+
+  it("gives the beta branch-deploy build release and warm-runtime ownership", () => {
+    const workflow = readFileSync(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+      "utf8",
+    );
+    const buildStart = workflow.indexOf(
+      "name: Build with the Netlify project configuration",
+    );
+    const buildEnd = workflow.indexOf(
+      "name: Verify deploy directories",
+      buildStart,
+    );
+    const build = workflow.slice(buildStart, buildEnd);
+    const betaStart = build.indexOf('if [[ "$TARGET" == "beta" ]]');
+    const clipsStart = build.indexOf(
+      'if [[ "$SOURCE_TEMPLATE" == "clips" ]]',
+      betaStart,
+    );
+    const beta = build.slice(betaStart, clipsStart);
+    const nonClipsStart = beta.indexOf(
+      'if [[ "$SOURCE_TEMPLATE" != "clips" ]]',
+    );
+    const nonClipsEnd = beta.indexOf("\n          fi", nonClipsStart);
+    const nonClips = beta.slice(nonClipsStart, nonClipsEnd);
+
+    for (const flag of [
+      "AGENT_NATIVE_RELEASE_MIGRATIONS=1",
+      "AGENT_NATIVE_RUN_RELEASE_MIGRATIONS=1",
+    ]) {
+      assert.match(
+        nonClips,
+        new RegExp(`export ${flag.replace(/[=]/g, "\\=")}`),
+      );
+    }
+    for (const flag of [
+      "AGENT_NATIVE_ENABLE_KEEP_WARM=1",
+      "AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND=1",
+      "AGENT_NATIVE_HOSTED_HARNESS=true",
+    ]) {
+      assert.match(beta, new RegExp(`export ${flag.replace(/[=]/g, "\\=")}`));
+    }
+  });
+
   it("rejects a purge step that is no longer production-only and success-gated", () => {
     const workflow = readWorkflow(
       ".github/workflows/deploy-netlify-prebuilt.yml",
@@ -215,6 +305,7 @@ describe("production Netlify site concurrency guard", () => {
       },
       { id: "queued", context: "production", state: "enqueued" },
       { id: "failed", context: "production", state: "error" },
+      { id: "rejected", context: "production", state: "rejected" },
     ];
 
     assert.deepEqual(
@@ -237,7 +328,7 @@ describe("production Netlify site concurrency guard", () => {
     assert(baselineIndex >= 0 && siteLookupIndex > baselineIndex);
     assert.match(
       unlock,
-      /const preexistingDeployIds = new Set\([\s\S]*?Netlify pre-existing production ready deploy lookup[\s\S]*?Date\.now\(\) - DEPLOY_LOOKBACK_MS[\s\S]*?production: "true"[\s\S]*?state: "ready"[\s\S]*?\);\s*const site = await readJson\(/,
+      /const preexistingDeployIds = new Set\([\s\S]*?Netlify pre-existing production ready deploy lookup[\s\S]*?\["ready"\][\s\S]*?\);\s*const site = await readJson\(/,
     );
   });
 
@@ -256,7 +347,7 @@ describe("production Netlify site concurrency guard", () => {
     );
   });
 
-  it("bounds deploy pagination at the recent deploy window", async () => {
+  it("uses production state filters without an age cutoff", async () => {
     const unlock = nodeHeredocs[1];
     const listStart = unlock.indexOf("async function listDeploys");
     const pendingStart = unlock.indexOf(
@@ -290,84 +381,149 @@ describe("production Netlify site concurrency guard", () => {
       "site-id",
     ) as (
       label: string,
-      cutoff: number | null,
-      filters?: Record<string, string>,
+      states: string[],
     ) => Promise<Array<Record<string, unknown>>>;
     const requests: string[] = [];
     const pages = new Map([
       [
-        "https://netlify.test/api/sites/site-id/deploys?per_page=100",
+        "https://netlify.test/api/sites/site-id/deploys?per_page=100&production=true&state=processing",
         {
-          deploys: [{ id: "recent-1", created_at: "2026-08-20T05:00:00Z" }],
-          next: "https://netlify.test/page-2",
+          deploys: [{ id: "old-active", state: "processing" }],
+          next: null,
         },
       ],
+    ]);
+
+    const deploys = await listDeploys("test deploy lookup", ["processing"]);
+    assert.deepEqual(
+      deploys.map((deploy) => deploy.id),
+      ["old-active"],
+    );
+    assert.deepEqual(requests, [
+      "https://netlify.test/api/sites/site-id/deploys?per_page=100&production=true&state=processing",
+    ]);
+  });
+
+  it("does not treat rejected production deploys as active cutover blockers", () => {
+    const unlock = nodeHeredocs[1];
+    const statesStart = unlock.indexOf(
+      "const ACTIVE_PRODUCTION_DEPLOY_STATES = [",
+    );
+    const statesEnd = unlock.indexOf("];", statesStart);
+    assert(statesStart >= 0 && statesEnd > statesStart);
+    assert.doesNotMatch(unlock.slice(statesStart, statesEnd), /"rejected"/);
+    assert.match(unlock.slice(statesStart, statesEnd), /"pending"/);
+    assert.match(
+      unlock,
+      /\["error", "canceled", "rejected"\]\.includes\(candidate\.state\)/,
+    );
+  });
+
+  it("finds old active production deploys through filtered state requests", async () => {
+    const unlock = nodeHeredocs[1];
+    const statesStart = unlock.indexOf(
+      "const ACTIVE_PRODUCTION_DEPLOY_STATES = [",
+    );
+    const statesEnd = unlock.indexOf("];", statesStart);
+    assert(statesStart >= 0 && statesEnd > statesStart);
+    assert.deepEqual(
       [
-        "https://netlify.test/page-2",
-        {
-          deploys: [{ id: "recent-2", created_at: "2026-08-20T04:00:00Z" }],
-          next: "https://netlify.test/page-3",
-        },
+        ...unlock.slice(statesStart, statesEnd).matchAll(/\n\s+"([^"]+)",/g),
+      ].map((match) => match[1]),
+      [
+        "new",
+        "pending",
+        "enqueued",
+        "building",
+        "uploading",
+        "uploaded",
+        "preparing",
+        "prepared",
+        "processing",
+        "processed",
+        "retrying",
+        "pending_review",
+        "accepted",
       ],
+    );
+    const listStart = unlock.indexOf("async function listDeploys");
+    const pendingStart = unlock.indexOf(
+      "function pendingProductionDeploys",
+      listStart,
+    );
+    assert(listStart >= 0 && pendingStart > listStart);
+    const listDeploys = new Function(
+      "request",
+      "readJson",
+      "nextPageUrl",
+      "api",
+      "siteId",
+      `${unlock.slice(listStart, pendingStart)}; return listDeploys;`,
+    )(
+      async (url: string) => {
+        requests.push(url);
+        const page = pages.get(url);
+        assert(page, `unexpected deploy page ${url}`);
+        return {
+          headers: {
+            get: () => page.next,
+          },
+          page: page.deploys,
+        };
+      },
+      async (response: { page: Array<Record<string, unknown>> }) =>
+        response.page,
+      (link: string | null) => link,
+      "https://netlify.test/api",
+      "site-id",
+    ) as (
+      label: string,
+      states: string[],
+    ) => Promise<Array<Record<string, unknown>>>;
+    const requests: string[] = [];
+    const pages = new Map([
       [
-        "https://netlify.test/page-3",
+        "https://netlify.test/api/sites/site-id/deploys?per_page=100&production=true&state=pending",
         {
-          deploys: [{ id: "historical", created_at: "2026-08-19T00:00:00Z" }],
+          deploys: [
+            { id: "old-pending", context: "production", state: "pending" },
+          ],
           next: null,
         },
       ],
       [
-        "https://netlify.test/api/sites/site-id/deploys?per_page=100&production=true&state=ready",
-        {
-          deploys: [{ id: "ready-recent", created_at: "2026-08-20T05:00:00Z" }],
-          next: "https://netlify.test/ready-page-2",
-        },
-      ],
-      [
-        "https://netlify.test/ready-page-2",
-        {
-          deploys: [{ id: "old-ready", created_at: "2026-08-20T01:00:00Z" }],
-          next: "https://netlify.test/ready-page-3",
-        },
-      ],
-      [
-        "https://netlify.test/ready-page-3",
+        "https://netlify.test/api/sites/site-id/deploys?per_page=100&production=true&state=processing",
         {
           deploys: [
-            { id: "too-old-ready", created_at: "2020-01-01T00:00:00Z" },
+            {
+              id: "old-active",
+              context: "production",
+              state: "processing",
+              created_at: "2026-08-19T00:00:00Z",
+            },
           ],
           next: null,
         },
       ],
     ]);
 
-    const deploys = await listDeploys(
-      "test deploy lookup",
-      Date.parse("2026-08-20T02:00:00Z"),
-    );
-    assert.deepEqual(
-      deploys.map((deploy) => deploy.id),
-      ["recent-1", "recent-2", "historical"],
-    );
-    assert.deepEqual(requests, [
-      "https://netlify.test/api/sites/site-id/deploys?per_page=100",
-      "https://netlify.test/page-2",
-      "https://netlify.test/page-3",
+    const deploys = await listDeploys("test deploy lookup", [
+      "processing",
+      "pending",
     ]);
-
-    const readyBaseline = await listDeploys(
-      "pre-existing ready deploy lookup",
-      Date.parse("2026-08-20T02:00:00Z"),
-      { production: "true", state: "ready" },
-    );
-    assert.deepEqual(
-      readyBaseline.map((deploy) => deploy.id),
-      ["ready-recent", "old-ready"],
-    );
-    assert.deepEqual(requests.slice(-2), [
-      "https://netlify.test/api/sites/site-id/deploys?per_page=100&production=true&state=ready",
-      "https://netlify.test/ready-page-2",
+    assert.deepEqual(deploys.map((deploy) => deploy.id).sort(), [
+      "old-active",
+      "old-pending",
     ]);
+    assert.deepEqual(requests.sort(), [
+      "https://netlify.test/api/sites/site-id/deploys?per_page=100&production=true&state=pending",
+      "https://netlify.test/api/sites/site-id/deploys?per_page=100&production=true&state=processing",
+    ]);
+    assert(
+      requests.every((url) =>
+        /production=true&state=(pending|processing)$/.test(url),
+      ),
+    );
   });
 
   it("restores cutover state before failure lock cleanup", () => {
@@ -396,6 +552,10 @@ describe("production Netlify site concurrency guard", () => {
       String(resume?.run),
       /process\.env\.cutoverWasStopped === "true"/,
     );
+    assert.match(
+      String(resume?.run),
+      /process\.env\.cutoverHasGitConnectedBuild !== "true"/,
+    );
     assert.equal(
       (resume?.env as Record<string, unknown>).cutoverWasStopped,
       "${{ steps.pause.outputs.was_stopped }}",
@@ -403,6 +563,10 @@ describe("production Netlify site concurrency guard", () => {
     assert.equal(
       (resume?.env as Record<string, unknown>).cutoverWasPaused,
       "${{ steps.pause.outputs.cutover_acquired }}",
+    );
+    assert.equal(
+      (resume?.env as Record<string, unknown>).cutoverHasGitConnectedBuild,
+      "${{ steps.pause.outputs.has_git_connected_build }}",
     );
     assert.equal(typeof cleanup?.if, "string");
     assert.match(cleanup?.if as string, /failure\(\)/);
@@ -437,12 +601,45 @@ describe("production Netlify site concurrency guard", () => {
 
   it("records cutover acquisition before pause verification", () => {
     const pause = nodeHeredocs[0];
+    assert.match(pause, /hasGitConnectedBuild/);
+    assert.match(pause, /has_git_connected_build/);
+    assert.match(pause, /No Git-connected Netlify build is configured/);
     const acquiredIndex = pause.indexOf(
       'fs.appendFileSync(process.env.GITHUB_OUTPUT, "cutover_acquired=true\\n")',
     );
-    const verificationIndex = pause.indexOf("const paused =");
+    const verificationIndex = pause.indexOf("await waitForBuildSetting");
     assert(acquiredIndex >= 0);
     assert(verificationIndex > acquiredIndex);
+  });
+
+  it("pauses the docs site before the prebuilt publisher runs", () => {
+    const workflow = readWorkflow(
+      ".github/workflows/deploy-docs-production.yml",
+    );
+    const jobs = workflow.jobs as Record<string, Workflow>;
+    const deploy = jobs.deploy;
+    const ownership = jobs["pause-netlify-builds"];
+    assert.equal(deploy?.needs, "pause-netlify-builds");
+    const steps = (ownership?.steps as Array<Workflow>).filter(Boolean);
+    const disable = steps.find(
+      (step) =>
+        step.name === "Disable the docs site's Git-connected Netlify builds",
+    );
+    assert(disable);
+    const run = String(disable.run);
+    assert.match(run, /'Content-Type': 'application\/json'/);
+    assert.match(run, /returned an invalid JSON response/);
+    assert.match(run, /returned an invalid JSON object/);
+    assert.doesNotMatch(run, /body = text;/);
+    assert.match(run, /hasGitConnectedBuild/);
+    assert.match(run, /current\.git_provider/);
+    assert.match(run, /current\.repo\?\.repo_path/);
+    assert.match(run, /stop_builds: true/);
+    assert.match(run, /for \(let attempt = 1; attempt <= 15; attempt \+= 1\)/);
+    assert.match(run, /stop_builds=\$\{expected\}/);
+    assert.match(run, /changedStopBuilds/);
+    assert.match(run, /verificationError/);
+    assert.match(run, /Netlify docs build pause rollback/);
   });
 
   it("requires the exact shared queue on deploy, manage, and promote jobs", () => {

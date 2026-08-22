@@ -108,6 +108,39 @@ describe("ChatFirstPrimaryNavigation", () => {
     expect(container.querySelector(".code-agents-nav-list")).not.toBeNull();
   });
 
+  it("shows collapsed navigation labels immediately on hover", async () => {
+    act(() => {
+      root.render(
+        <ChatFirstPrimaryNavigation
+          collapsed
+          onNewChat={vi.fn()}
+          onOpenIntegrations={vi.fn()}
+          onOpenScheduled={vi.fn()}
+          onSearch={vi.fn()}
+        />,
+      );
+    });
+
+    const integrations = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Integrations"]',
+    );
+    expect(integrations).not.toBeNull();
+
+    await act(async () => {
+      integrations?.dispatchEvent(
+        new PointerEvent("pointermove", {
+          bubbles: true,
+          pointerType: "mouse",
+        }),
+      );
+      await new Promise((resolve) => window.setTimeout(resolve));
+    });
+
+    expect(
+      document.querySelector('[data-agent-native-tooltip="true"]')?.textContent,
+    ).toContain("Integrations");
+  });
+
   it("keeps collapsed New chat icon-only with an accessible tooltip", () => {
     act(() => {
       root.render(
@@ -127,7 +160,7 @@ describe("ChatFirstPrimaryNavigation", () => {
     expect(newChat).not.toBeNull();
     expect(newChat?.querySelector("span")?.className).toContain("sr-only");
     expect(newChat?.getAttribute("aria-label")).toBe("New chat");
-    expect(newChat?.getAttribute("title")).toBe("New chat");
+    expect(newChat?.getAttribute("title")).toBeNull();
   });
 
   it("keeps every collapsed primary action icon-only and accessible", () => {
@@ -148,7 +181,7 @@ describe("ChatFirstPrimaryNavigation", () => {
         `button[aria-label="${label}"]`,
       );
       expect(control).not.toBeNull();
-      expect(control?.getAttribute("title")).toBe(label);
+      expect(control?.getAttribute("title")).toBeNull();
       expect(control?.className).toContain("justify-center");
       expect(control?.className).toContain("px-0");
       expect(control?.querySelector("span")?.className).toContain("sr-only");

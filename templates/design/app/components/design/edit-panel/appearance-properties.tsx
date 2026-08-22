@@ -12,7 +12,7 @@ import {
   IconRadiusTopLeft,
   IconRadiusTopRight,
 } from "@tabler/icons-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
 import {

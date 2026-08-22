@@ -2,8 +2,8 @@
 name: review-latest-feedback
 description: >-
   Review the newest unhandled Slack, GitHub issue, and Sentry feedback, fix
-  clear verified repo bugs at the owning boundary, and recap every disposition.
-  Use for scheduled or manual feedback sweeps.
+  clear verified repo bugs at the owning boundary, ship verified fixes, and
+  recap every disposition. Use for scheduled or manual feedback sweeps.
 user-invocable: true
 scope: dev
 metadata:
@@ -12,13 +12,10 @@ metadata:
 
 # Review Latest Feedback
 
-Run a bounded, evidence-first sweep across the Agent-Native feedback sources.
-The goal is to resolve clear repo-owned bugs at the right seam, not to encode
-one report as a new global instruction. This skill can run from a cron or a
-worktree, but every run must leave an auditable disposition for every item it
-looked at. When several reports clearly describe the same underlying symptom,
-treat them as one similar-feedback cluster and leave one Builder thread for the
-cluster, with the representative report as its cursor anchor.
+Run a bounded, evidence-first, cross-app sweep across Agent-Native feedback
+sources. Resolve repo-owned bugs at their seam; do not encode reports
+globally or stop at triage. Every run leaves a disposition, including
+why items remain open. Cluster symptoms under a Builder thread and cursor.
 
 This is a reply-producing workflow, not a reaction-only workflow. Apply the
 reply rules in `address-feedback-with-replies` to every actionable Slack item.
@@ -53,7 +50,10 @@ That message is the start cursor. Classify it, record it if it is not
 actionable, then continue toward older messages, processing each actionable
 message that is still unhandled. Read the full parent, every reply and
 reaction, and all linked issues, PRs, screenshots, runs, and commits before
-deciding.
+deciding. The candidate worklist stays cross-app and cross-source: later scope
+clarifications add eligible categories; they never remove identified Slack,
+GitHub, or Sentry candidates. Keep non-Design alongside Design and carry every
+candidate into the final disposition, even when only some are fixed.
 
 For GitHub issues and Sentry, use their native state and links as corroborating
 cursor signals: prioritize recent open or unresolved items with no clear
@@ -285,9 +285,10 @@ evidence, likely owner, and disposition. Use this order:
    item as unavailable or unverified and do not guess or add a reaction. GitHub
    and Sentry items have no Slack parent, so apply the same evidence-first
    triage without a reaction.
-   - UX or interaction bugs in the Design app are owned by Sid. Do not
-     automatically react, investigate, fix, clarify, reply, or dispatch those
-     items; record the source and route them to Sid.
+   - Concrete small Design UI or interaction bugs are in scope. Apply the same
+     evidence, reaction, fix, verification, and reply gates without narrowing
+     the sweep to Design; route broad redesigns, subjective suggestions, or
+     non-repo bugs to Sid.
    - All Content app feedback is owned by Alice. Leave those items for Alice;
      do not automatically react, investigate, fix, clarify, reply, or dispatch
      them. Record the source and ownership in the disposition.
@@ -417,11 +418,28 @@ push, and PR creation or update. Do not copy changes into the shared checkout.
 When publishing is authorized, use `corepack pnpm ship:push` for the complete
 nonignored snapshot and update an existing PR rather than opening a second one.
 
-This skill may prepare a ready PR when the invocation grants publish
-authority. It must not merge or auto-approve its own fix unless the user also
-explicitly invokes the relevant shipping or PR-review workflow. If publishing
-authority is absent, leave the verified change in the current worktree and
-say so in the recap rather than claiming it shipped.
+## Completion and shipping
+
+A verified repo-owned fix is not complete at the handoff. When the current
+invocation has shipping authority - including an explicit user request to ship
+or a caller that has already granted that authority - continue directly into
+the `ship` workflow in the same worktree: publish the complete snapshot, open
+or update the ready PR, babysit it, merge when its gates pass, verify the
+affected production surface, and leave the worktree on the fresh post-merge
+branch. Do not stop to ask for a second shipping confirmation once that
+authority exists. Carry this skill's start cursor, grouped reports, evidence
+links, owning seam, focused verification, and dispositions into the PR and
+ship recap.
+
+An ordinary or scheduled feedback sweep does not grant publish or merge
+authority by itself. Without shipping authority, automatically prepare the
+complete ready-to-ship handoff in the current worktree and state that shipping
+is pending authorization; do not publish, merge, or imply that the fix shipped.
+
+Only enter shipping when the fix is verified and in scope. If the sweep finds
+no verified repo-owned fix, finish with the disposition recap and state why no
+ship was started. Unavailable evidence, clarification-needed items, external
+failures, and informational reports do not become code or shipping blockers.
 
 ## Ship handoff
 

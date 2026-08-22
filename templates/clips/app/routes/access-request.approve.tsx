@@ -43,16 +43,23 @@ export default function ApproveRecordingAccessRequestRoute() {
   const approvalTokenFromUrl = searchParams.get("token") ?? "";
   const approvalTokenStorageKey =
     recordingAccessApprovalSessionKey(recordingId);
-  const [approvalToken, setApprovalToken] = useState(() => {
-    if (approvalTokenFromUrl) return approvalTokenFromUrl;
-    if (typeof window === "undefined" || !recordingId) return "";
+  // Only the URL token is knowable on the server, so reading storage in the
+  // initializer makes the first client render disagree with the server's and
+  // React re-renders the page from scratch. Adopt the stored token after mount.
+  const [approvalToken, setApprovalToken] = useState(
+    () => approvalTokenFromUrl ?? "",
+  );
+
+  useEffect(() => {
+    if (approvalTokenFromUrl || !recordingId) return;
     try {
-      return sessionStorage.getItem(approvalTokenStorageKey) ?? "";
-    } catch {
-      // coercion-ok: unavailable tab storage is an absent continuation.
-      return "";
-    }
-  });
+      const stored = sessionStorage.getItem(approvalTokenStorageKey);
+      if (stored) setApprovalToken(stored);
+      // Unavailable tab storage is an absent continuation: the page then asks
+      // for the token rather than silently continuing without one.
+      // coercion-ok: the absent case is visible to the user, not swallowed.
+    } catch {}
+  }, [approvalTokenFromUrl, recordingId, approvalTokenStorageKey]);
   const [state, setState] = useState<ApprovalState>({ kind: "loading" });
 
   useEffect(() => {

@@ -1,7 +1,6 @@
 packages:
   - packages/*
   - examples/*
-  - templates/.retired/*
   - templates/*
   - templates/*/desktop
   - templates/*/chrome-extension
@@ -41,6 +40,7 @@ catalog:
   "@tiptap/extension-collaboration": 3.30.1
   "@tiptap/extension-collaboration-caret": 3.30.1
   "@tiptap/extension-color": 3.30.1
+  "@tiptap/extension-floating-menu": 3.30.1
   "@tiptap/extension-horizontal-rule": 3.30.1
   "@tiptap/extension-image": 3.30.1
   "@tiptap/extension-link": 3.30.1
@@ -104,18 +104,19 @@ onlyBuiltDependencies:
   - workerd
 
 allowBuilds:
-  "@google/genai": set this to true or false
-  "@parcel/watcher": set this to true or false
-  "@swc/core": set this to true or false
-  better-sqlite3: set this to true or false
-  canvas: set this to true or false
-  core-js: set this to true or false
-  electron: set this to true or false
-  electron-winstaller: set this to true or false
-  esbuild: set this to true or false
-  ffmpeg-static: set this to true or false
-  node-pty: set this to true or false
-  protobufjs: set this to true or false
-  puppeteer: set this to true or false
-  sharp: set this to true or false
-  workerd: set this to true or false
+  "@firebase/util": true
+  "@google/genai": true
+  "@parcel/watcher": true
+  "@swc/core": true
+  better-sqlite3: true
+  canvas: true
+  core-js: true
+  electron: true
+  electron-winstaller: true
+  esbuild: true
+  ffmpeg-static: true
+  lightningcss: true
+  node-pty: true
+  protobufjs: true
+  sharp: true
+  workerd: true

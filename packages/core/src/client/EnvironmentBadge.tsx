@@ -21,6 +21,7 @@ import {
 import { trackEvent } from "./analytics.js";
 import { injectedAgentNativeConfig } from "./app-config.js";
 import { useSession } from "./use-session.js";
+import { cn } from "./utils.js";
 
 export {
   BETA_OPT_OUT_DURATION_MS,
@@ -36,12 +37,25 @@ export function isBuilderIoEmployee(email: string | null | undefined): boolean {
   return email?.trim().toLowerCase().endsWith("@builder.io") ?? false;
 }
 
+export function isAgentNativeDesktopUserAgent(
+  userAgent: string | undefined,
+): boolean {
+  return /AgentNativeDesktop/i.test(userAgent ?? "");
+}
+
 export function resolveEnvironmentChannel(
   config: AgentNativeConfig,
   hostname: string | undefined,
-): Extract<AgentNativeDeploymentEnvironment, "beta" | "production"> | null {
+): Extract<
+  AgentNativeDeploymentEnvironment,
+  "local" | "beta" | "production"
+> | null {
   const configured = config.deployment?.environment;
-  if (configured === "beta" || configured === "production") {
+  if (
+    configured === "local" ||
+    configured === "beta" ||
+    configured === "production"
+  ) {
     return configured;
   }
 
@@ -109,6 +123,9 @@ function consumeBetaOptOutQueryParam(
   return active;
 }
 
+const environmentBadgePlacementClasses =
+  "fixed bottom-3 left-3 z-[100] h-6 min-w-0 rounded-xl px-2 text-[11px] font-semibold uppercase tracking-[0.5px] shadow-sm backdrop-blur-sm";
+
 function EnvironmentLink({ label, href }: { label: string; href: string }) {
   return (
     <Button
@@ -150,7 +167,12 @@ function EnvironmentBadgeContent({
       <PopoverTrigger asChild>
         <Button
           aria-label={`Open ${title.toLowerCase()} switcher`}
-          className="fixed bottom-3 right-3 z-[100] h-6 min-w-0 rounded-xl border-border/80 bg-background/95 px-2 text-[11px] font-semibold uppercase tracking-[0.5px] shadow-sm backdrop-blur-sm"
+          className={cn(
+            environmentBadgePlacementClasses,
+            environment === "beta"
+              ? "border-primary/80"
+              : "border-border/80 bg-background/95 text-foreground",
+          )}
           size="sm"
           variant={environment === "beta" ? "default" : "outline"}
         >
@@ -158,7 +180,7 @@ function EnvironmentBadgeContent({
         </Button>
       </PopoverTrigger>
       <PopoverContent
-        align="center"
+        align="start"
         className="w-[280px] p-5"
         side="top"
         sideOffset={8}
@@ -182,6 +204,21 @@ function EnvironmentBadgeContent({
   );
 }
 
+function LocalEnvironmentBadge() {
+  return (
+    <div
+      aria-label="Local development environment"
+      className={cn(
+        environmentBadgePlacementClasses,
+        "inline-flex items-center justify-center border border-border/80 bg-background/95 text-foreground",
+      )}
+      role="status"
+    >
+      dev
+    </div>
+  );
+}
+
 function ProductionEnvironmentBadge({
   targets,
 }: {
@@ -199,6 +236,10 @@ function ProductionEnvironmentBadge({
     if (!isEligible || didAutoRedirect.current) {
       return;
     }
+
+    // Desktop child sessions are minted against their configured production
+    // origin. Do not move that WebView to beta after the session is created.
+    if (isAgentNativeDesktopUserAgent(window.navigator.userAgent)) return;
 
     if (readBetaOptOutUntil() !== null) return;
     if (consumeBetaOptOutQueryParam(window.location.href)) return;
@@ -223,9 +264,10 @@ function ProductionEnvironmentBadge({
 }
 
 /**
- * First-party hosted lane switcher. Beta is intentionally visible before
- * authentication so a visitor can always leave beta from the sign-in page.
- * Production remains an internal auto-redirect lane for authenticated staff.
+ * Environment indicator and first-party hosted lane switcher. Beta is
+ * intentionally visible before authentication so a visitor can always leave
+ * beta from the sign-in page. Production remains an internal auto-redirect
+ * lane for authenticated staff.
  */
 export function EnvironmentBadge({
   showProduction = true,
@@ -241,11 +283,16 @@ export function EnvironmentBadge({
   if (
     typeof window === "undefined" ||
     window.parent !== window ||
-    !environment ||
-    !targets
+    !environment
   ) {
     return null;
   }
+
+  if (environment === "local") {
+    return <LocalEnvironmentBadge />;
+  }
+
+  if (!targets) return null;
 
   if (environment === "beta") {
     return <EnvironmentBadgeContent environment="beta" targets={targets} />;

@@ -62,8 +62,8 @@ export async function readFactoryDefinition(orgId: string, factoryId: string) {
 
 export async function readFactoryMetrics(
   orgId: string,
+  factoryId: string,
 ): Promise<FactoryMetricSummary> {
-  const db = getDb();
   const [
     totalItems,
     slackItems,
@@ -73,13 +73,18 @@ export async function readFactoryMetrics(
     runs,
     completedRuns,
   ] = await Promise.all([
-    countRows(triageItems, orgId),
-    countRows(triageItems, orgId, eq(triageItems.source, "slack")),
-    countRows(triageItems, orgId, eq(triageItems.source, "github")),
-    countRows(triageDecisions, orgId),
-    countRows(triageItems, orgId, eq(triageItems.status, "needs_manual")),
-    countRows(triageRuns, orgId),
-    countRows(triageRuns, orgId, eq(triageRuns.status, "completed")),
+    countRows(triageItems, orgId, factoryId),
+    countRows(triageItems, orgId, factoryId, eq(triageItems.source, "slack")),
+    countRows(triageItems, orgId, factoryId, eq(triageItems.source, "github")),
+    countRows(triageDecisions, orgId, factoryId),
+    countRows(
+      triageItems,
+      orgId,
+      factoryId,
+      eq(triageItems.status, "needs_manual"),
+    ),
+    countRows(triageRuns, orgId, factoryId),
+    countRows(triageRuns, orgId, factoryId, eq(triageRuns.status, "completed")),
   ]);
 
   return {
@@ -96,11 +101,12 @@ export async function readFactoryMetrics(
 async function countRows(
   table: typeof triageItems | typeof triageDecisions | typeof triageRuns,
   orgId: string,
+  factoryId: string,
   extra?: SQL,
 ) {
   const where = extra
-    ? and(eq(table.orgId, orgId), extra)
-    : eq(table.orgId, orgId);
+    ? and(eq(table.orgId, orgId), eq(table.factoryId, factoryId), extra)
+    : and(eq(table.orgId, orgId), eq(table.factoryId, factoryId));
   const row = (
     await getDb().select({ value: count() }).from(table).where(where)
   )[0];

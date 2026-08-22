@@ -157,6 +157,28 @@ describe("appendCanvasPrimitiveToHtml on a URL-backed live screen", () => {
     ).toBeGreaterThan(innerAt);
   });
 
+  it("positions a pen path nested in a frame in that frame's coordinates", () => {
+    const withFrame =
+      appendCanvasPrimitiveToHtml(blankScreenHtml("S"), {
+        kind: "frame",
+        nodeId: "frame",
+        geometry: { x: 40, y: 120, width: 600, height: 400 },
+      }) ?? "";
+    const html =
+      appendCanvasPrimitiveToHtml(withFrame, {
+        kind: "path",
+        nodeId: "vector",
+        geometry: { x: 100, y: 240, width: 200, height: 130 },
+        pathData: "M 100 340 L 200 240 L 300 370",
+      }) ?? "";
+    const vectorAt = html.indexOf('data-agent-native-node-id="vector"');
+    const style = html.slice(vectorAt, html.indexOf(">", vectorAt));
+    // Screen-absolute values here render the vector offset by the frame's own
+    // origin — 60,120 is 100,240 expressed inside a frame at 40,120.
+    expect(style).toContain("left:60px");
+    expect(style).toContain("top:120px");
+  });
+
   it("gives text in a dark frame a light fill even on a light page", () => {
     const withDarkFrame =
       appendCanvasPrimitiveToHtml(
@@ -234,5 +256,275 @@ describe("extractCanvasPrimitiveHtml", () => {
     expect(
       extractCanvasPrimitiveHtml(blankScreenHtml("Empty"), "missing"),
     ).toBeNull();
+  });
+});
+
+describe("a freshly drawn frame is visible", () => {
+  const drawFrame = (isBoardTarget: boolean, fill?: string): string =>
+    appendCanvasPrimitiveToHtml(
+      blankScreenHtml("S"),
+      {
+        kind: "frame",
+        nodeId: "f-1",
+        geometry: { x: 40, y: 40, width: 300, height: 200 },
+        ...(fill ? { fill } : {}),
+      },
+      { isBoardTarget },
+    ) ?? "";
+
+  const frameStyle = (html: string) =>
+    /data-agent-native-node-id="f-1"[^>]*style="([^"]*)"/i.exec(html)?.[1] ??
+    "";
+
+  it("carries a background on a light destination", () => {
+    // Deselecting a bare frame leaves nothing on screen, and a second one
+    // drawn next to it is invisible too.
+    expect(frameStyle(drawFrame(false))).toMatch(
+      /background(-color)?:\s*#fff/i,
+    );
+  });
+
+  it("is white on the dark board too, as in Figma", () => {
+    expect(frameStyle(drawFrame(true))).toMatch(/background(-color)?:\s*#fff/i);
+  });
+
+  it("still lets an explicit fill win", () => {
+    expect(frameStyle(drawFrame(false, "#ff0000"))).toContain("#ff0000");
+  });
+});
+
+describe("a primitive nested into a frame is positioned frame-relative", () => {
+  const frameAt = (x: number, y: number) =>
+    appendCanvasPrimitiveToHtml(blankScreenHtml("S"), {
+      kind: "frame",
+      nodeId: "host",
+      geometry: { x, y, width: 400, height: 400 },
+    }) ?? "";
+
+  const styleOf = (html: string, nodeId: string) =>
+    new RegExp(
+      `data-agent-native-node-id="${nodeId}"[^>]*style="([^"]*)"`,
+      "i",
+    ).exec(html)?.[1] ?? "";
+
+  const px = (style: string, prop: string) =>
+    Number(
+      new RegExp(`(?:^|;)\\s*${prop}\\s*:\\s*(-?[\\d.]+)px`, "i").exec(
+        style,
+      )?.[1] ?? NaN,
+    );
+
+  it("resolves inside a bordered frame's padding box, not its border box", () => {
+    const bordered =
+      appendCanvasPrimitiveToHtml(blankScreenHtml("S"), {
+        kind: "frame",
+        nodeId: "host",
+        geometry: { x: 100, y: 100, width: 400, height: 400 },
+        strokeWidth: 5,
+        stroke: "#000000",
+      }) ?? "";
+    const withRect =
+      appendCanvasPrimitiveToHtml(bordered, {
+        kind: "rectangle",
+        nodeId: "r",
+        geometry: { x: 150, y: 150, width: 50, height: 50 },
+      }) ?? "";
+    const style = styleOf(withRect, "r");
+    // 150 - 100 frame origin - 5 border: an absolute child starts inside the
+    // border, so ignoring it shifts everything dropped into the frame.
+    expect(px(style, "left")).toBe(45);
+    expect(px(style, "top")).toBe(45);
+  });
+
+  it("gives a line the same frame-relative origin a rectangle gets", () => {
+    const base = frameAt(100, 100);
+    const withRect =
+      appendCanvasPrimitiveToHtml(base, {
+        kind: "rectangle",
+        nodeId: "r",
+        geometry: { x: 160, y: 180, width: 80, height: 40 },
+      }) ?? "";
+    const withLine =
+      appendCanvasPrimitiveToHtml(base, {
+        kind: "line",
+        nodeId: "l",
+        geometry: { x: 160, y: 180, width: 80, height: 40 },
+        points: [
+          { x: 160, y: 180 },
+          { x: 240, y: 220 },
+        ],
+      }) ?? "";
+
+    const rect = styleOf(withRect, "r");
+    const line = styleOf(withLine, "l");
+    // Both land inside the same host, so both must be in the host's space.
+    expect(px(rect, "left")).toBe(60);
+    expect(px(rect, "top")).toBe(80);
+    expect(px(line, "left")).toBe(px(rect, "left"));
+    expect(px(line, "top")).toBe(px(rect, "top"));
+  });
+});
+
+describe("every primitive kind shares one coordinate space", () => {
+  const KINDS = [
+    "rectangle",
+    "ellipse",
+    "frame",
+    "text",
+    "line",
+    "arrow",
+    "path",
+    "polygon",
+    "star",
+  ] as const;
+
+  const build = (kind: (typeof KINDS)[number]) => {
+    const geometry = { x: 160, y: 180, width: 80, height: 40 };
+    const base = { kind, nodeId: "p", geometry } as Record<string, unknown>;
+    if (kind === "line" || kind === "arrow" || kind === "path") {
+      base.points = [
+        { x: 160, y: 180 },
+        { x: 240, y: 220 },
+      ];
+    }
+    if (kind === "text") base.text = "Hi";
+    return base as never;
+  };
+
+  it.each(KINDS)(
+    "%s drawn inside a frame is positioned relative to that frame",
+    (kind) => {
+      const base =
+        appendCanvasPrimitiveToHtml(blankScreenHtml("S"), {
+          kind: "frame",
+          nodeId: "host",
+          geometry: { x: 100, y: 100, width: 400, height: 400 },
+        }) ?? "";
+      const html = appendCanvasPrimitiveToHtml(base, build(kind)) ?? "";
+      const style =
+        /data-agent-native-node-id="p"[^>]*style="([^"]*)"/i.exec(html)?.[1] ??
+        "";
+      expect(style, `${kind} produced no positioned element`).not.toBe("");
+      const left = Number(
+        /(?:^|;)\s*left\s*:\s*(-?[\d.]+)px/i.exec(style)?.[1] ?? NaN,
+      );
+      const top = Number(
+        /(?:^|;)\s*top\s*:\s*(-?[\d.]+)px/i.exec(style)?.[1] ?? NaN,
+      );
+      // Absolute canvas coords (160/180) would put it outside the host, which
+      // clips its content — the shape then exists in Layers and nowhere else.
+      expect(left, `${kind} left`).toBe(60);
+      expect(top, `${kind} top`).toBe(80);
+    },
+  );
+});
+
+describe("text takes its colour from what it lands on", () => {
+  const styleOf = (html: string, id: string) =>
+    new RegExp(
+      `data-agent-native-node-id="${id}"[^>]*style="([^"]*)"`,
+      "i",
+    ).exec(html)?.[1] ?? "";
+
+  it("is not white when dropped into a white frame on the board", () => {
+    // isBoardTarget describes the surface BEHIND the frame, not the frame.
+    const withFrame =
+      appendCanvasPrimitiveToHtml(
+        blankScreenHtml("S"),
+        {
+          kind: "frame",
+          nodeId: "host",
+          geometry: { x: 100, y: 100, width: 400, height: 400 },
+        },
+        { isBoardTarget: true },
+      ) ?? "";
+    const html =
+      appendCanvasPrimitiveToHtml(
+        withFrame,
+        {
+          kind: "text",
+          nodeId: "t",
+          geometry: { x: 160, y: 180, width: 120, height: 24 },
+          text: "safasdsaf",
+        },
+        { isBoardTarget: true },
+      ) ?? "";
+    expect(styleOf(html, "t")).not.toMatch(/color:\s*#fff/i);
+  });
+
+  it("is not white on a board whose surface has been set to white", () => {
+    // isBoardTarget assumes the board is always dark; the body can say otherwise.
+    const white =
+      "<!doctype html><html><head><title>S</title></head>" +
+      '<body style="background-color: #ffffff"></body></html>';
+    const html =
+      appendCanvasPrimitiveToHtml(
+        white,
+        {
+          kind: "text",
+          nodeId: "t",
+          geometry: { x: 10, y: 10, width: 120, height: 24 },
+          text: "sfasfsadfsa",
+        },
+        { isBoardTarget: true },
+      ) ?? "";
+    expect(styleOf(html, "t")).not.toMatch(/color:\s*#fff/i);
+  });
+
+  it("is still white when dropped straight onto the dark board", () => {
+    const html =
+      appendCanvasPrimitiveToHtml(
+        blankScreenHtml("S"),
+        {
+          kind: "text",
+          nodeId: "t",
+          geometry: { x: 10, y: 10, width: 120, height: 24 },
+          text: "on the board",
+        },
+        { isBoardTarget: true },
+      ) ?? "";
+    expect(styleOf(html, "t")).toMatch(/color:\s*#ffffff/i);
+  });
+});
+
+describe("nesting follows where you started, not whether the box fits", () => {
+  it("nests a primitive whose box overflows the frame's edge", () => {
+    const base =
+      appendCanvasPrimitiveToHtml(blankScreenHtml("S"), {
+        kind: "frame",
+        nodeId: "host",
+        geometry: { x: 100, y: 100, width: 115, height: 71 },
+      }) ?? "";
+    // Origin inside the frame, right edge past it — a click-created text.
+    const html =
+      appendCanvasPrimitiveToHtml(base, {
+        kind: "text",
+        nodeId: "t",
+        geometry: { x: 140, y: 120, width: 200, height: 24 },
+        text: "overflows",
+      }) ?? "";
+    const hostAt = html.indexOf('data-agent-native-node-id="host"');
+    const textAt = html.indexOf('data-agent-native-node-id="t"');
+    expect(textAt).toBeGreaterThan(hostAt);
+    expect(textAt).toBeLessThan(html.indexOf("</div>", hostAt));
+  });
+
+  it("does not nest a primitive whose origin is outside the frame", () => {
+    const base =
+      appendCanvasPrimitiveToHtml(blankScreenHtml("S"), {
+        kind: "frame",
+        nodeId: "host",
+        geometry: { x: 100, y: 100, width: 115, height: 71 },
+      }) ?? "";
+    const html =
+      appendCanvasPrimitiveToHtml(base, {
+        kind: "rectangle",
+        nodeId: "r",
+        geometry: { x: 400, y: 400, width: 40, height: 40 },
+      }) ?? "";
+    const hostAt = html.indexOf('data-agent-native-node-id="host"');
+    expect(html.indexOf('data-agent-native-node-id="r"')).toBeGreaterThan(
+      html.indexOf("</div>", hostAt),
+    );
   });
 });

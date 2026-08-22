@@ -1,16 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  MAX_BACKGROUND_RUN_CONTINUATIONS,
+  MAX_TURN_WALL_CLOCK_MS,
+} from "../app-config/run-lifecycle-invariants.js";
+import {
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
   AGENT_CHAT_PROCESS_RUN_PATH,
 } from "./durable-background.js";
 import {
   chainServerDrivenContinuation,
   isLoopProtectionDispatchError,
-  MAX_BACKGROUND_RUN_CONTINUATIONS,
   MAX_NESTED_SELF_DISPATCH_DEPTH,
   AGENT_CHAT_TURN_INPUT_TOKENS_FIELD,
-  MAX_TURN_WALL_CLOCK_MS,
   resolveContinuationDispatchBudget,
   resolveSelfChainContinuationBudget,
   SELF_CHAIN_MIN_CONTINUATION_BUDGET_MS,

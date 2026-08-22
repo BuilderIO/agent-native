@@ -5,12 +5,13 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const useSessionMock = vi.fn();
+const injectedAgentNativeConfigMock = vi.fn();
 
 vi.mock("./use-session.js", () => ({
   useSession: () => useSessionMock(),
 }));
 vi.mock("./app-config.js", () => ({
-  injectedAgentNativeConfig: () => ({}),
+  injectedAgentNativeConfig: () => injectedAgentNativeConfigMock(),
 }));
 
 import { EnvironmentBadge } from "./EnvironmentBadge.js";
@@ -19,12 +20,15 @@ describe("EnvironmentBadge render", () => {
   let container: HTMLDivElement;
   let root: Root;
   let originalLocation: Location;
+  let originalUserAgent: string;
 
   beforeEach(() => {
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
+    injectedAgentNativeConfigMock.mockReturnValue({});
     originalLocation = window.location;
+    originalUserAgent = window.navigator.userAgent;
     Object.defineProperty(window, "location", {
       configurable: true,
       value: {
@@ -33,7 +37,7 @@ describe("EnvironmentBadge render", () => {
         replace: vi.fn(),
       },
     });
-    window.localStorage.removeItem("agent-native:beta-opt-out-until");
+    window.localStorage?.removeItem("agent-native:beta-opt-out-until");
   });
 
   afterEach(() => {
@@ -43,7 +47,59 @@ describe("EnvironmentBadge render", () => {
       configurable: true,
       value: originalLocation,
     });
+    Object.defineProperty(window.navigator, "userAgent", {
+      configurable: true,
+      value: originalUserAgent,
+    });
     vi.clearAllMocks();
+  });
+
+  it("renders a non-navigating dev pill for configured local development", () => {
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: {
+        hostname: "localhost",
+        href: "http://localhost:3000/dispatch",
+        replace: vi.fn(),
+      },
+    });
+    injectedAgentNativeConfigMock.mockReturnValue({
+      deployment: { environment: "local" },
+    });
+    useSessionMock.mockReturnValue({
+      session: null,
+      status: "unauthenticated",
+    });
+
+    act(() => root.render(<EnvironmentBadge />));
+
+    const badge = container.querySelector('[role="status"]');
+    expect(badge?.textContent).toBe("dev");
+    expect(badge?.getAttribute("aria-label")).toBe(
+      "Local development environment",
+    );
+    expect(badge?.className).toContain("bottom-3");
+    expect(badge?.className).toContain("left-3");
+    expect(container.querySelector("button")).toBeNull();
+    expect(container.querySelector("a")).toBeNull();
+  });
+
+  it.each([
+    ["localhost", "http://localhost:3000/dispatch"],
+    ["preview.example.com", "https://preview.example.com/dispatch"],
+  ])("hides the badge on unconfigured host %s", (hostname, href) => {
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: { hostname, href, replace: vi.fn() },
+    });
+    useSessionMock.mockReturnValue({
+      session: null,
+      status: "unauthenticated",
+    });
+
+    act(() => root.render(<EnvironmentBadge />));
+
+    expect(container.innerHTML).toBe("");
   });
 
   it("renders the beta chip for signed-out visitors", () => {
@@ -54,7 +110,14 @@ describe("EnvironmentBadge render", () => {
 
     act(() => root.render(<EnvironmentBadge />));
 
-    expect(container.querySelector("button")?.textContent).toContain("beta");
+    const trigger = container.querySelector("button");
+    expect(trigger?.textContent).toContain("beta");
+    expect(trigger?.className).toContain("border-primary/80");
+    expect(trigger?.className).toContain("bottom-3");
+    expect(trigger?.className).toContain("left-3");
+    expect(trigger?.className).not.toContain("top-3");
+    expect(trigger?.className).not.toContain("right-3");
+    expect(trigger?.className).not.toContain("bg-background/95");
     expect(container.textContent).toContain("beta");
   });
 
@@ -86,6 +149,9 @@ describe("EnvironmentBadge render", () => {
       );
       trigger?.click();
     });
+
+    const popover = document.body.querySelector('[data-side="top"]');
+    expect(popover?.getAttribute("data-align")).toBe("start");
 
     const productionLink = [...document.body.querySelectorAll("a")].find(
       (link) => link.textContent?.includes("Switch to production"),
@@ -139,6 +205,31 @@ describe("EnvironmentBadge render", () => {
     expect(replace).toHaveBeenCalledWith(
       "https://beta.plan.agent-native.com/inbox?tab=all#runs",
     );
+  });
+
+  it("keeps an Electron employee on production after sign-in", () => {
+    const replace = vi.fn();
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: {
+        hostname: "plan.agent-native.com",
+        href: "https://plan.agent-native.com/inbox?tab=all#runs",
+        replace,
+      },
+    });
+    Object.defineProperty(window.navigator, "userAgent", {
+      configurable: true,
+      value:
+        "Mozilla/5.0 AgentNative/0.1.150-nightly.253 Electron/43.4.0 AgentNativeDesktop/0.1.150-nightly.253",
+    });
+    useSessionMock.mockReturnValue({
+      session: { email: "employee@builder.io" },
+      status: "authenticated",
+    });
+
+    act(() => root.render(<EnvironmentBadge />));
+
+    expect(replace).not.toHaveBeenCalled();
   });
 
   it("does not redirect when production carries a valid opt-out", () => {

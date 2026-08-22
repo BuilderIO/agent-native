@@ -100,6 +100,13 @@ vi.mock("../secrets/storage.js", async (importOriginal) => ({
 const { BACKGROUND_RUN_HARD_TIMEOUT_MS, runBackgroundAutomation } =
   await import("./background-automation-runner.js");
 
+function abortReasonOf(runId: string): string | null {
+  const row = sqlite
+    .prepare(`SELECT abort_reason FROM agent_runs WHERE id = ?`)
+    .get(runId) as { abort_reason: string | null } | undefined;
+  return row?.abort_reason ?? null;
+}
+
 function dispatchModeOf(runId: string): string | null {
   const row = sqlite
     .prepare(`SELECT dispatch_mode FROM agent_runs WHERE id = ?`)
@@ -197,7 +204,15 @@ describe("runBackgroundAutomation — background-run self-claim", () => {
       maxRunInputTokens: 123_456,
     });
     expect(call?.[2]).toMatchObject({ backgroundFunction: true });
+    // The chunk control is what makes a checkpoint recoverable here. Without
+    // it the run manager's boundary aborts the turn and the loop's own
+    // continuation budget — which already accepts `no_progress` — is dead.
+    expect(call?.[3]).toBeDefined();
+    // Derived from this runner's OWN 10-minute hard abort, not the 13-minute
+    // durable-chat ceiling that the process is killed three minutes before.
+    expect(call?.[1]).toBeLessThan(BACKGROUND_RUN_HARD_TIMEOUT_MS);
   });
+
   // History is a record ABOUT the run. If the history table is unwritable the
   // correct outcome is a missing record, not a scheduled automation that never
   // executed and gets reported as a failure.
@@ -417,6 +432,86 @@ describe("runBackgroundAutomation — thread transcript", () => {
     );
   });
 
+  it("reports a cut-off automation to the error-capture system", async () => {
+    // The scheduler and the trigger dispatcher both swallow this into the
+    // automation's own metadata plus a console.error, so the capture seam is
+    // the only thing that puts it in front of anyone.
+    const { registerErrorCaptureProvider } =
+      await import("../server/capture-error.js");
+    const captured: Array<{ error: unknown; context: Record<string, any> }> =
+      [];
+    const unregister = registerErrorCaptureProvider(
+      "background-automation-spec",
+      (error, context) => {
+        captured.push({ error, context: context as Record<string, any> });
+        return undefined;
+      },
+    );
+
+    const { runAgentLoopDirectWithSoftTimeout } =
+      await import("../agent/run-loop-with-resume.js");
+    vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
+      async (opts) => {
+        opts.send?.({ type: "text", text: "Started polling." });
+        opts.send?.({ type: "auto_continue", reason: "no_progress" });
+        return {
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "test-model",
+        };
+      },
+    );
+
+    try {
+      await expect(
+        runBackgroundAutomation(
+          {
+            automation: {
+              name: "cut-off-digest",
+              meta: {
+                schedule: "* * * * *",
+                enabled: true,
+                model: "test-model",
+              },
+              body: "Summarize the inbox.",
+              resource: {
+                owner: "alice@agent-native.test",
+                path: "jobs/cut-off-digest.md",
+              } as any,
+            },
+            ownerEmail: "alice@agent-native.test",
+            prompt: "Summarize the inbox.",
+            threadTitle: "Job: cut-off-digest — Aug 17, 2026",
+            runIdPrefix: "job-cut-off-digest",
+            usageLabel: "recurring-job:cut-off-digest",
+          },
+          {
+            getActions: () => ({}),
+            getSystemPrompt: async () => "system",
+            engine: testEngine,
+          },
+        ),
+      ).rejects.toThrow(/cut off before finishing \(no_progress\)/);
+    } finally {
+      unregister();
+    }
+
+    expect(captured).toHaveLength(1);
+    expect(String((captured[0].error as Error).message)).toMatch(
+      /cut off before finishing \(no_progress\)/,
+    );
+    expect(captured[0].context.tags).toMatchObject({
+      area: "background-automation",
+      automation: "cut-off-digest",
+      scope: "personal",
+    });
+    // Joins the issue to its LLM trace; without it the report lands somewhere
+    // no backend can correlate with the run that produced it.
+    expect(captured[0].context.aiTraceId).toMatch(/^job-cut-off-digest-/);
+  });
+
   it("persists a partial turn when the hard timeout fires", async () => {
     const { runAgentLoopDirectWithSoftTimeout } =
       await import("../agent/run-loop-with-resume.js");
@@ -499,6 +594,19 @@ describe("runBackgroundAutomation — thread transcript", () => {
       pendingHardTimeouts[0]!();
 
       await expect(runPromise).rejects.toThrow(/timed out after 10 minutes/);
+      // Aborting the controller directly carries no reason the run manager can
+      // see, so finalization fell through to `aborted:user` and a hard timeout
+      // was filed as a person pressing Stop — in the analytics that exist to
+      // tell the two apart.
+      const hardTimedOutRunId = sqlite
+        .prepare(
+          `SELECT id FROM agent_runs WHERE id LIKE 'job-hard-timeout-digest%' ORDER BY started_at DESC LIMIT 1`,
+        )
+        .get() as { id: string } | undefined;
+      expect(hardTimedOutRunId?.id).toBeTruthy();
+      expect(abortReasonOf(hardTimedOutRunId!.id)).toBe(
+        "background_automation_hard_timeout",
+      );
       expect(updateThreadDataMock).toHaveBeenCalled();
       const [, , title] = updateThreadDataMock.mock.calls[0];
       expect(title).toBe("Job: hard-timeout-digest — Aug 18, 2026");

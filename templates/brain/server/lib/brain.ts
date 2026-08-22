@@ -643,8 +643,33 @@ export async function ensureManualSource(title = "Manual imports") {
 }
 
 function isUniqueConflict(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  return /unique constraint|duplicate key|unique/i.test(message);
+  if (!error || typeof error !== "object") {
+    return /unique constraint|duplicate key|duplicate entry|unique/i.test(
+      String(error),
+    );
+  }
+
+  const candidate = error as {
+    code?: unknown;
+    message?: unknown;
+    cause?: unknown;
+  };
+  if (
+    candidate.code === "23505" ||
+    candidate.code === "SQLITE_CONSTRAINT_UNIQUE"
+  ) {
+    return true;
+  }
+  if (typeof candidate.message === "string") {
+    if (
+      /unique constraint|duplicate key|duplicate entry|unique violation|unique/i.test(
+        candidate.message,
+      )
+    ) {
+      return true;
+    }
+  }
+  return candidate.cause !== error && isUniqueConflict(candidate.cause);
 }
 
 const UPSTREAM_DELETED_POLICY_VERSION = "upstream-deleted-v1";
@@ -755,6 +780,7 @@ export async function createCapture(values: {
       title: source.title,
       provider: source.provider as BrainSourceProvider,
       ownerEmail: source.ownerEmail,
+      orgId: source.orgId,
     },
     sourceConfig: parseJson<Record<string, unknown>>(source.configJson, {}),
     settings,

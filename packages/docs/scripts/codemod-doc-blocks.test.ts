@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  convertDocsBlocksMarkdown,
-  findDocsBlockFences,
-} from "./codemod-doc-blocks";
+import { convertDocsBlocksMarkdown } from "./codemod-doc-blocks";
 
 describe("docs block codemod helpers", () => {
   it("converts an-diagram fences to Diagram MDX child fences", () => {

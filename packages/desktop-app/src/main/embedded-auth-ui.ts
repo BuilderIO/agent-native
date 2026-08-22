@@ -25,3 +25,16 @@ export const HIDE_EMBEDDED_IDENTITY_SSO_SCRIPT = `(() => {
   }
   return true;
 })()`;
+
+export type EmbeddedIdentitySsoHideState = Readonly<{
+  url: string;
+  loadGeneration: number;
+}>;
+
+export function isEmbeddedIdentitySsoHiddenForLoad(
+  state: EmbeddedIdentitySsoHideState | null,
+  url: string,
+  loadGeneration: number,
+): boolean {
+  return state?.url === url && state.loadGeneration === loadGeneration;
+}

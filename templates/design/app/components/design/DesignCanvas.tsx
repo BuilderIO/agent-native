@@ -20,10 +20,12 @@ import {
   closePenPath,
   constrainPointTo45Degrees,
   createCornerNode,
-  createSmoothNode,
+  createPenCuspLatch,
+  createPenDragNode,
   isPenCloseTarget,
   serializePenPath,
   translatePenPath,
+  type PenCuspLatch,
   type PenPath,
   type PenPoint,
 } from "@shared/pen-path";
@@ -494,7 +496,10 @@ interface DesignCanvasProps {
     selector: string,
     styles: Record<string, string>,
     info?: ElementInfo,
-    metadata?: { originalStyles?: Record<string, string> },
+    metadata?: {
+      originalStyles?: Record<string, string>;
+      preserveSelection?: boolean;
+    },
   ) => void;
   onTextContentChange?: (
     selector: string,
@@ -956,6 +961,16 @@ function originFromUrl(value: string | undefined): string | null {
   }
 }
 
+/**
+ * JSON for embedding inside an inline `<script>`. A bare `JSON.stringify` keeps
+ * `</script>` verbatim, and the HTML parser closes the surrounding script the
+ * moment it sees that sequence — truncating the bridge for any design whose
+ * head legitimately contains one (JSON-LD, a templating snippet).
+ */
+function inlineScriptJson(value: string): string {
+  return JSON.stringify(value).replace(/</g, "\\u003c");
+}
+
 function buildEditorChromeBridgeScript(args: {
   readOnly: boolean;
   editMode: boolean;
@@ -966,6 +981,7 @@ function buildEditorChromeBridgeScript(args: {
   contentOffsetX: number;
   contentOffsetY: number;
   runtimeLayerSnapshotEnabled: boolean;
+  initialSourceHead: string;
 }) {
   return (
     createEditorBridgeThemeScript(readEditorBridgeThemeVars()) +
@@ -1001,7 +1017,16 @@ function buildEditorChromeBridgeScript(args: {
         "__SELECTED_LAYER_DRAG_PRIORITY__",
         SELECTED_LAYER_DRAG_PRIORITY_ENABLED ? "true" : "false",
       )
+      .replace(/__INITIAL_SOURCE_HEAD__/g, () =>
+        inlineScriptJson(args.initialSourceHead),
+      )
   );
+}
+
+/** The `<head>` the bridge's own srcdoc will render, so its first in-place
+ *  patch diffs against what is actually in the document. */
+function sourceHeadInnerHtml(html: string): string {
+  return /<head\b[^>]*>([\s\S]*?)<\/head\s*>/i.exec(html)?.[1] ?? "";
 }
 
 function contentHash(value: string): string {
@@ -1015,27 +1040,30 @@ function contentHash(value: string): string {
 const SCRIPT_ELEMENT_RE = /<script\b[^>]*>[\s\S]*?<\/script\s*>/gi; // i18n-ignore non-UI regex
 
 /**
- * Runtime document replacement uses `head.innerHTML` / `body.innerHTML`, which
- * intentionally preserves the iframe browsing context but cannot execute
- * newly inserted or changed scripts. Reload only when source script elements
- * change; ordinary markup/style edits continue through the no-flash bridge.
+ * Runtime document replacement morphs the live DOM, which preserves the iframe
+ * browsing context but cannot execute newly inserted or changed scripts.
+ * Reload only when source script elements change.
+ *
+ * A changed `<head>` is NOT a reload trigger: the bridge swaps only the nodes
+ * the previous source head contributed (replaceSourceHeadNodes), leaving what
+ * the page's own runtime injected in place. Treating any head edit as a reload
+ * meant every breakpoint override, motion track and token write — all of which
+ * persist into a managed `<style>` in the head — reloaded the whole frame.
  */
 function runtimeDocumentNeedsReload(
   previousContent: string,
   nextContent: string,
 ): boolean {
-  const scriptSignature = (html: string) =>
-    Array.from(html.matchAll(SCRIPT_ELEMENT_RE), (match) => match[0]).join(
-      "\n",
-    );
-  // A changed <head> is replaced wholesale, which drops whatever the page's own
-  // runtime injected there and cannot re-run the scripts that produced it.
-  const headSignature = (html: string) =>
-    /<head\b[^>]*>([\s\S]*?)<\/head\s*>/i.exec(html)?.[1] ?? "";
-  return (
-    scriptSignature(previousContent) !== scriptSignature(nextContent) ||
-    headSignature(previousContent) !== headSignature(nextContent)
-  );
+  const scriptSignature = (html: string) => {
+    const headEnd = html.search(/<\/head\s*>/i);
+    const boundary = headEnd === -1 ? 0 : headEnd;
+    return Array.from(
+      html.matchAll(SCRIPT_ELEMENT_RE),
+      (match) =>
+        `${(match.index ?? 0) < boundary ? "head" : "body"}:${match[0]}`,
+    ).join("\n");
+  };
+  return scriptSignature(previousContent) !== scriptSignature(nextContent);
 }
 
 /**
@@ -1312,7 +1340,7 @@ export function DesignCanvas({
   // twice from the same drawing.
   const [annotationCaptureBusy, setAnnotationCaptureBusy] = useState(false);
   const annotationCaptureBusyRef = useRef(false);
-  const [fetchedExternalSnapshot, setFetchedExternalSnapshot] = useState<{
+  const [, setFetchedExternalSnapshot] = useState<{
     url: string;
     html: string;
   } | null>(null);
@@ -1433,11 +1461,7 @@ export function DesignCanvas({
     (sourceType === "localhost" || sourceType === "fusion") &&
     Boolean(rawExternalPreviewUrl) &&
     Boolean(onRuntimeLayerSnapshot);
-  const activeExternalSnapshotHtml =
-    externalSnapshotHtml ??
-    (fetchedExternalSnapshot?.url === rawExternalPreviewUrl
-      ? fetchedExternalSnapshot.html
-      : undefined);
+
   // Bake a neutral scale of 1 here (not the zoom-folded scale): this script is
   // registered with the localhost bridge via a large POST, so folding live zoom
   // in would re-fire the registration effect on every zoom tick. Live scale is
@@ -1469,6 +1493,9 @@ export function DesignCanvas({
         contentOffsetX: embeddedFrame?.contentOffsetX ?? 0,
         contentOffsetY: embeddedFrame?.contentOffsetY ?? 0,
         runtimeLayerSnapshotEnabled,
+        // A live/localhost screen's document is the running app, not content
+        // this canvas rendered, so there is no source head to diff against.
+        initialSourceHead: "",
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [boardSurface, contentKey, runtimeLayerSnapshotEnabled, screenId],
@@ -2333,6 +2360,7 @@ export function DesignCanvas({
     // keyed bridge registration is pending. The loading surface waits without
     // mounting an iframe, then mounts the real `src` exactly once.
     if (rawExternalPreviewUrl) return undefined;
+    const localizedContent = withLocalRuntimes(iframeRenderContent);
     const editorChromeBridge = interactMode
       ? ""
       : createEditorBridgeThemeScript(readEditorBridgeThemeVars()) +
@@ -2373,6 +2401,9 @@ export function DesignCanvas({
           .replace(
             "__SELECTED_LAYER_DRAG_PRIORITY__",
             SELECTED_LAYER_DRAG_PRIORITY_ENABLED ? "true" : "false",
+          )
+          .replace(/__INITIAL_SOURCE_HEAD__/g, () =>
+            inlineScriptJson(sourceHeadInnerHtml(localizedContent)),
           );
     // ALWAYS injected (like the other always-on bridges above) so
     // MultiScreenCanvas's cross-screen drag hit-testing
@@ -2393,7 +2424,7 @@ export function DesignCanvas({
       editorChromeBridge +
       imageDiagBridge;
     const frameContent = getEmbeddedFrameDocumentContent({
-      content: withLocalRuntimes(iframeRenderContent),
+      content: localizedContent,
       embeddedFrameBackground,
       transparentBackground,
       contentOffsetX: embeddedFrame?.contentOffsetX ?? 0,
@@ -2414,7 +2445,7 @@ export function DesignCanvas({
           embeddedFrame?.contentOffsetY ?? 0,
         ),
       ].join("");
-      frameDocument = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${frameStyle}</head><body>${withLocalRuntimes(iframeRenderContent)}${bridgeToInject}</body></html>`;
+      frameDocument = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${frameStyle}</head><body>${localizedContent}${bridgeToInject}</body></html>`;
     }
     // Overview frames report their own content height so the canvas can
     // content-fit them (Framer-style). Embedded (overview) frames only — a
@@ -2734,6 +2765,7 @@ export function DesignCanvas({
             isElementInfoPayload(e.data.payload) ? e.data.payload : undefined,
             {
               originalStyles,
+              preserveSelection: e.data.preserveSelection === true,
             },
           );
         }
@@ -4076,8 +4108,17 @@ export function DesignCanvas({
         preserveTextEditingSession?: boolean;
       },
     ) => {
+      // Raw content here drops the injected offset/background styles, moving a
+      // frame authored at a negative offset off screen. Both channels push the
+      // same shape.
       const replaced = replacePreviewContent(
-        nextContent,
+        getEmbeddedFrameDocumentContent({
+          content: withLocalRuntimes(nextContent),
+          embeddedFrameBackground,
+          transparentBackground,
+          contentOffsetX: embeddedFrame?.contentOffsetX ?? 0,
+          contentOffsetY: embeddedFrame?.contentOffsetY ?? 0,
+        }),
         selector,
         candidates,
         options,
@@ -4091,7 +4132,13 @@ export function DesignCanvas({
       }
       return replaced;
     },
-    [replacePreviewContent],
+    [
+      embeddedFrame?.contentOffsetX,
+      embeddedFrame?.contentOffsetY,
+      embeddedFrameBackground,
+      replacePreviewContent,
+      transparentBackground,
+    ],
   );
 
   const replaceRuntimeContentInPlace = useCallback(
@@ -5099,6 +5146,7 @@ interface SingleScreenPenGestureState {
   pathBefore: PenPath | null;
   moved: boolean;
   closing: boolean;
+  cuspLatch: PenCuspLatch;
 }
 
 const SINGLE_SCREEN_PEN_HIT_RADIUS_PX = 10;
@@ -5331,6 +5379,7 @@ function SingleScreenCreationOverlay({
           pathBefore,
           moved: false,
           closing,
+          cuspLatch: createPenCuspLatch(),
         };
         const initialPath = closing
           ? closePenPath(pathBefore!)
@@ -5389,9 +5438,12 @@ function SingleScreenCreationOverlay({
           : appendPenNode(
               gesture.pathBefore,
               moved
-                ? createSmoothNode(gesture.anchor, handleOut, {
-                    breakSymmetry: e.altKey,
-                  })
+                ? createPenDragNode(
+                    gesture.anchor,
+                    handleOut,
+                    gesture.cuspLatch,
+                    e.altKey,
+                  )
                 : createCornerNode(gesture.anchor),
             );
         updatePenPath(nextPath);
@@ -5443,9 +5495,12 @@ function SingleScreenCreationOverlay({
           : appendPenNode(
               gesture.pathBefore,
               moved
-                ? createSmoothNode(gesture.anchor, handleOut, {
-                    breakSymmetry: e.altKey,
-                  })
+                ? createPenDragNode(
+                    gesture.anchor,
+                    handleOut,
+                    gesture.cuspLatch,
+                    e.altKey,
+                  )
                 : createCornerNode(gesture.anchor),
             );
         penGestureRef.current = null;

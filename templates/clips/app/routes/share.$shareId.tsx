@@ -13,13 +13,12 @@ import {
 import { useT } from "@agent-native/core/client/i18n";
 import { buildSignInReturnHref } from "@agent-native/core/client/ui";
 import { docsUrl } from "@agent-native/core/shared";
-import { ShareTrigger } from "@agent-native/toolkit/sharing";
 import {
   IconAlertTriangle,
   IconArrowLeft,
   IconDeviceDesktop,
   IconDownload,
-  IconDots,
+  IconDotsVertical,
   IconLock,
   IconLogin2,
 } from "@tabler/icons-react";
@@ -51,6 +50,7 @@ import { toast } from "sonner";
 
 import { CaptureInstallButton } from "@/components/capture-install-options";
 import { AccessPasswordPrompt } from "@/components/player/access-password-prompt";
+import { ClipsShareTrigger } from "@/components/player/clips-share-trigger";
 import { CommentsPanel } from "@/components/player/comments-panel";
 import { RecordingOptionsMenu } from "@/components/player/delete-recording-menu";
 import { InsightsPanel } from "@/components/player/insights-panel";
@@ -443,14 +443,24 @@ export default function ShareRoute() {
 
   const playerRef = useRef<VideoPlayerHandle | null>(null);
   const readyMediaPollRef = useRef<{ key: string; until: number } | null>(null);
-  const [password, setPassword] = useState<string | null>(() => {
-    if (typeof window === "undefined" || !shareId) return null;
+  // Reading sessionStorage in the initializer makes the first client render
+  // disagree with the server's, which has no storage and always renders the
+  // locked state. React answers a mismatch by throwing away the hydrated tree
+  // and re-rendering from scratch, so a returning viewer watches a blank share
+  // page while everything refetches. Start where the server started and adopt
+  // the stored password after mount.
+  const [password, setPassword] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!shareId) return;
     try {
-      return sessionStorage.getItem(STORAGE_KEY_PREFIX + shareId);
-    } catch {
-      return null;
-    }
-  });
+      const stored = sessionStorage.getItem(STORAGE_KEY_PREFIX + shareId);
+      if (stored) setPassword(stored);
+      // Unreadable storage and no stored password are the same state to this
+      // screen: both leave `password` null, which renders the password prompt.
+      // coercion-ok: the fallback is visible to the viewer, not swallowed.
+    } catch {}
+  }, [shareId]);
   const [pwError, setPwError] = useState<string | null>(null);
   const [currentMs, setCurrentMs] = useState(0);
   const [commentOpen, setCommentOpen] = useState(false);
@@ -1110,8 +1120,8 @@ export default function ShareRoute() {
   return (
     <div className="flex min-h-screen max-w-full flex-col overflow-x-hidden bg-background text-foreground lg:h-screen lg:flex-row lg:overflow-hidden">
       {agentDiscovery}
-      <div className="flex w-full min-w-0 flex-col lg:flex-1">
-        <header className="flex min-w-0 shrink-0 flex-wrap items-center gap-2 border-b border-border px-3 py-2 sm:gap-3 sm:px-4 sm:py-3 lg:flex-nowrap">
+      <div className="clips-share-content flex w-full min-w-0 flex-col lg:flex-1">
+        <header className="flex min-w-0 shrink-0 flex-wrap items-center gap-2 border-b border-border px-3 py-2 sm:px-4 sm:py-3 lg:flex-nowrap">
           {session ? (
             <Button
               asChild
@@ -1147,7 +1157,7 @@ export default function ShareRoute() {
             )}
           </div>
 
-          <div className="flex w-full min-w-0 flex-wrap items-center justify-between gap-2 sm:w-auto sm:justify-end">
+          <div className="flex w-full min-w-0 flex-wrap items-center justify-between gap-1 sm:w-auto sm:justify-end">
             <RecordingViewsBadge
               recordingId={recording.id}
               viewCount={viewCount}
@@ -1161,6 +1171,22 @@ export default function ShareRoute() {
                 onCtaClick={fireShareCtaClick}
               />
             )}
+            {viewerCanEdit || canReshareLink ? (
+              <ShareRecordingPopover
+                recordingId={recording.id}
+                recordingTitle={recording.title}
+                initialVisibility={recording.visibility}
+                initialRole={viewerIsOwner ? "owner" : undefined}
+                videoUrl={shareVideoUrl}
+                thumbnailUrl={recording.thumbnailUrl}
+                animatedThumbnailUrl={recording.animatedThumbnailUrl}
+                isLoomRecording={isLoomEmbedBacked}
+                hasPassword={Boolean(recording.hasPassword)}
+                viewerReshareOnly={viewerReshareOnly}
+              >
+                <ClipsShareTrigger label={t("sharePage.share")} />
+              </ShareRecordingPopover>
+            ) : null}
             {!viewerCanEdit && canDownloadRecording ? (
               <DropdownMenu
                 open={downloadMenuOpen}
@@ -1170,10 +1196,10 @@ export default function ShareRoute() {
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="h-9 w-9 shrink-0 px-0"
+                    className="-mx-1.5 h-auto w-auto shrink-0 px-0.5 py-1.5"
                     aria-label={t("sharePage.clipOptions")}
                   >
-                    <IconDots className="h-4 w-4" />
+                    <IconDotsVertical className="h-4 w-4" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-44">
@@ -1205,25 +1231,6 @@ export default function ShareRoute() {
                 }}
                 onDeleted={() => navigate("/library", { replace: true })}
               />
-            ) : null}
-            {viewerCanEdit || canReshareLink ? (
-              <ShareRecordingPopover
-                recordingId={recording.id}
-                recordingTitle={recording.title}
-                initialVisibility={recording.visibility}
-                initialRole={viewerIsOwner ? "owner" : undefined}
-                videoUrl={shareVideoUrl}
-                thumbnailUrl={recording.thumbnailUrl}
-                animatedThumbnailUrl={recording.animatedThumbnailUrl}
-                isLoomRecording={isLoomEmbedBacked}
-                hasPassword={Boolean(recording.hasPassword)}
-                viewerReshareOnly={viewerReshareOnly}
-              >
-                <ShareTrigger
-                  label={t("sharePage.share")}
-                  className="shrink-0"
-                />
-              </ShareRecordingPopover>
             ) : null}
           </div>
         </header>
@@ -1361,15 +1368,15 @@ export default function ShareRoute() {
               : null}
           </div>
 
-          <div className="flex shrink-0 flex-col gap-3 px-4 pb-4 sm:flex-row sm:items-start sm:px-0 sm:pb-0">
-            <div className="min-w-0 flex-1">
+          <div className="clips-share-metadata flex shrink-0 flex-col gap-3 px-4 pb-4 sm:px-0 sm:pb-0">
+            <div className="clips-share-metadata-description min-w-0 flex-1">
               {recording.description ? (
                 <p className="whitespace-pre-wrap break-words text-sm text-muted-foreground">
                   {recording.description}
                 </p>
               ) : null}
             </div>
-            <div className="flex max-w-full flex-col items-stretch gap-2 sm:items-end">
+            <div className="clips-share-metadata-actions flex max-w-full flex-col items-stretch gap-2 sm:items-end">
               <div className="flex flex-wrap items-center gap-2 sm:justify-end">
                 {recording.enableComments ? (
                   <TimestampedCommentButton

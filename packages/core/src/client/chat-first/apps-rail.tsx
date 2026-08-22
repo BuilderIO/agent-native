@@ -7,6 +7,7 @@ import {
   Skeleton,
   Tooltip,
   TooltipContent,
+  TooltipProvider,
   TooltipTrigger,
 } from "@agent-native/toolkit/ui";
 import {
@@ -366,58 +367,67 @@ export const ChatFirstAppsRail = memo(function ChatFirstAppsRail({
 
   if (collapsed) {
     return (
-      <section
-        data-chat-first-apps-rail
-        className="flex flex-col items-center gap-1 px-1.5 pt-2"
-        aria-label={copy("workspaceApps")}
-      >
-        {loading && apps.length === 0
-          ? [0, 1, 2].map((index) => (
-              <Skeleton key={index} className="size-9 rounded-md" />
-            ))
-          : visibleApps.map((app) => (
-              <button
-                key={app.id}
-                type="button"
-                data-chat-first-app
-                data-app-id={app.id}
-                className={cn(
-                  "flex size-9 items-center justify-center rounded-md",
-                  activeAppId === app.id
-                    ? "text-sidebar-foreground"
-                    : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-                )}
-                onClick={() => onOpenApp(app)}
-                aria-label={copy("openApp", { name: app.name })}
-                title={app.name}
-              >
-                <ChatFirstRailAppIcon
-                  app={app}
-                  activeAppId={activeAppId}
-                  renderIcon={renderIcon}
-                />
-              </button>
-            ))}
-        {onOpenAllApps ? (
-          <button
-            type="button"
-            data-chat-first-all-apps
-            className="flex size-9 items-center justify-center rounded-md text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-            onClick={onOpenAllApps}
-            aria-label={copy("allApps")}
-            title={copy("allApps")}
-          >
-            <IconApps size={16} aria-hidden="true" />
-          </button>
-        ) : null}
-        {error ? (
-          <span
-            className="size-1.5 rounded-full bg-destructive"
-            title={error}
-            aria-label={error}
-          />
-        ) : null}
-      </section>
+      <TooltipProvider>
+        <section
+          data-chat-first-apps-rail
+          className="flex flex-col items-center gap-1 px-1.5 pt-2"
+          aria-label={copy("workspaceApps")}
+        >
+          {loading && apps.length === 0
+            ? [0, 1, 2].map((index) => (
+                <Skeleton key={index} className="size-9 rounded-md" />
+              ))
+            : visibleApps.map((app) => (
+                <Tooltip key={app.id} delayDuration={0}>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      data-chat-first-app
+                      data-app-id={app.id}
+                      className={cn(
+                        "flex size-9 items-center justify-center rounded-md",
+                        activeAppId === app.id
+                          ? "text-sidebar-foreground"
+                          : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                      )}
+                      onClick={() => onOpenApp(app)}
+                      aria-label={copy("openApp", { name: app.name })}
+                    >
+                      <ChatFirstRailAppIcon
+                        app={app}
+                        activeAppId={activeAppId}
+                        renderIcon={renderIcon}
+                      />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="right">{app.name}</TooltipContent>
+                </Tooltip>
+              ))}
+          {onOpenAllApps ? (
+            <Tooltip delayDuration={0}>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  data-chat-first-all-apps
+                  className="flex size-9 items-center justify-center rounded-md text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                  onClick={onOpenAllApps}
+                  aria-label={copy("allApps")}
+                >
+                  <IconApps size={16} aria-hidden="true" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right">{copy("allApps")}</TooltipContent>
+            </Tooltip>
+          ) : null}
+          {error ? (
+            <span
+              className="size-1.5 rounded-full bg-destructive"
+              title={error}
+              aria-label={error}
+            />
+          ) : null}
+        </section>
+      </TooltipProvider>
     );
   }
 

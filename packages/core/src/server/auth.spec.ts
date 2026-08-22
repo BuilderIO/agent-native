@@ -899,12 +899,25 @@ describe("server/auth", () => {
       const { autoMountAuth } = await import("./auth.js");
       const app = createMockApp();
       await autoMountAuth(app);
+      const callbackPath = "/_agent-native/auth/magic-link/new-user";
+      const magicLinkPath = "/_agent-native/auth/magic-link";
       const handler = app.use.mock.calls.find(
-        (call: any[]) => call[0] === "/_agent-native/auth/magic-link/new-user",
+        (call: any[]) => call[0] === callbackPath || call[0] === magicLinkPath,
       )?.[1];
+      expect(handler).toBeTypeOf("function");
+      // Older h3/Nitro runtimes match app.use() paths as prefixes, so the
+      // first matching handler must be the specific callback route.
+      const callbackRouteIndex = app.use.mock.calls.findIndex(
+        (call: any[]) => call[0] === callbackPath,
+      );
+      const magicLinkRouteIndex = app.use.mock.calls.findIndex(
+        (call: any[]) => call[0] === magicLinkPath,
+      );
+      expect(callbackRouteIndex).toBeGreaterThanOrEqual(0);
+      expect(magicLinkRouteIndex).toBeGreaterThan(callbackRouteIndex);
 
       const event = createMockEvent({
-        path: "/_agent-native/auth/magic-link/new-user",
+        path: callbackPath,
         query: { return: "/welcome" },
       });
       const response = await handler(event);
@@ -3310,14 +3323,28 @@ describe("server/auth", () => {
       const result = await registerHandler(event);
 
       expect(result).toEqual({ ok: true });
-      expect(signUpEmail).toHaveBeenCalledWith({
+      const signUpCall = signUpEmail.mock.calls[0]?.[0];
+      expect(signUpCall).toMatchObject({
         body: {
           email: "steve+1@builder.io",
           password: "secret-password",
           name: "steve+1",
           callbackURL: "https://localhost/after",
         },
-        headers: event.headers,
+        headers: expect.any(Headers),
+      });
+      expect(signUpCall.headers.get("cookie")).toBe(
+        event.headers.get("cookie"),
+      );
+      expect(signUpCall.headers.get("x-forwarded-proto")).toBe("https");
+      const { signupAttributionContextFromHeaders } =
+        await import("./attribution.js");
+      expect(signupAttributionContextFromHeaders(signUpCall.headers)).toEqual({
+        attribution: {
+          referral_source: "plan_share",
+          referrer_user: "owner_42",
+          first_touch_path: "/plans/example",
+        },
       });
     });
 
@@ -4006,6 +4033,80 @@ describe("server/auth", () => {
       expect(forwardedPath).toBe("/_agent-native/auth/ba/sign-in/email");
     });
 
+    it("carries browser signup attribution through the direct Better Auth handler", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      let observedSignupAttribution: unknown;
+      const { getRequestContext } = await import("./request-context.js");
+      const { signupAttributionContextFromHeaders } =
+        await import("./attribution.js");
+      let observedHeaderAttribution: unknown;
+      const betterAuthHandler = vi.fn(async (request: Request) => {
+        observedSignupAttribution = getRequestContext()?.signupAttribution;
+        observedHeaderAttribution = signupAttributionContextFromHeaders(
+          request.headers,
+        );
+        await request.json();
+        return new Response(JSON.stringify({ ok: true }), {
+          headers: { "content-type": "application/json" },
+        });
+      });
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: betterAuthHandler,
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const baHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/ba",
+      )?.[1];
+      expect(baHandler).toBeTypeOf("function");
+
+      const firstTouch = encodeURIComponent(
+        JSON.stringify({
+          ref: "clip_share",
+          via: "owner_42",
+          landing_path: "/share/clip-1",
+          utm_campaign: "launch",
+        }),
+      );
+      const response = await baHandler(
+        createJsonPostEvent(
+          "/_agent-native/auth/ba/sign-up/email",
+          { email: "new@example.com", password: "secret-password" },
+          { cookie: `an_aid=anon_signup_1; an_ft=${firstTouch}` },
+        ),
+      );
+
+      expect(response).toBeInstanceOf(Response);
+      expect((response as Response).status).toBe(200);
+      expect(observedSignupAttribution).toEqual({
+        attribution: {
+          referral_source: "clip_share",
+          referrer_user: "owner_42",
+          referral_campaign: "launch",
+          utm_campaign: "launch",
+          first_touch_path: "/share/clip-1",
+        },
+        anonymousId: "anon_signup_1",
+      });
+      expect(observedHeaderAttribution).toEqual(observedSignupAttribution);
+      expect(getRequestContext()).toBeUndefined();
+    });
+
     it("sanitizes raw Better Auth JSON errors on direct auth routes", async () => {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;
@@ -4555,6 +4656,47 @@ describe("server/auth", () => {
         token: "desktop-sso-token",
       });
       expect(readDesktopSso).toHaveBeenCalledOnce();
+    });
+
+    it("can verify a desktop child session without the broker fallback", async () => {
+      vi.stubEnv("NODE_ENV", "development");
+      vi.stubEnv("AUTH_DISABLED", "1");
+      delete process.env.AGENT_NATIVE_DISABLE_DESKTOP_SSO_FALLBACK;
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      const readDesktopSso = vi.fn(async () => ({
+        email: "desktop-owner@example.com",
+        token: "desktop-sso-token",
+      }));
+      vi.doMock("./desktop-sso.js", () => ({
+        readDesktopSso,
+        writeDesktopSso: vi.fn(),
+        clearDesktopSso: vi.fn(),
+      }));
+      vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
+        ...(await importOriginal<object>()),
+        getBetterAuthSync: () => null,
+      }));
+
+      const { getSession } = await import("./auth.js");
+      const event = createMockEvent({
+        headers: {
+          "user-agent":
+            "Mozilla/5.0 Electron/41.2.2 AgentNativeDesktop/0.1.215",
+          "x-agent-native-session-check": "cookie-only",
+        },
+      });
+      const socket = { remoteAddress: "127.0.0.1" };
+      event.req.context = { clientAddress: "127.0.0.1" };
+      event.req.ip = "127.0.0.1";
+      event.node.req.socket = socket;
+      event.node.req.connection = socket;
+
+      await expect(getSession(event)).resolves.toEqual({
+        email: "dev@local.test",
+      });
+      expect(readDesktopSso).not.toHaveBeenCalled();
     });
 
     it("never consults the Desktop SSO fallback in production", async () => {

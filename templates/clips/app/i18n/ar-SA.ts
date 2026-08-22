@@ -618,12 +618,16 @@ const messages = {
     alsoFor: "متاح أيضًا لـ {{platform}}",
     backToLibrary: "العودة إلى المكتبة",
     clipsDesktop: "Clips Desktop",
+    stable: "مستقر",
+    nightly: "Nightly",
+    switchToNightly: "التبديل إلى إصدارات Nightly",
+    switchToStable: "التبديل إلى الإصدارات المستقرة",
+    retry: "إعادة المحاولة",
     heroDescription:
       "مسجل شريط القوائم للشاشة والكاميرا والشاشة + الكاميرا. البدء بنقرة واحدة، فقاعة الكاميرا القابلة للسحب، رابط المشاركة الفورية عند التوقف.",
     versionReleased: "الإصدار {{version}} — صدر {{date}}",
     version: "النسخة {{version}}",
-    manifestError:
-      "تعذر تحميل بيان الإصدار — اختر أداة التثبيت من صفحة الإصدارات.",
+    manifestError: "تعذر تحميل بيان الإصدار - حاول مرة أخرى.",
     loadingRelease: "جارٍ تحميل الإصدار الأخير…",
     chromeTitle: "ملحق Chrome لسجلات المتصفح",
     chromeDescription:
@@ -686,15 +690,6 @@ const messages = {
     viewAllUpdates: "عرض كل التحديثات",
     expand: "توسيع",
     collapse: "طي",
-    changelogMarkdown: `# سجل التغييرات
-
-يتم توثيق كل التغييرات المرئية لمستخدمي Clips هنا. يمكنك فتحه في أي وقت من قائمة الأوامر (Cmd+K -> "ما الجديد") أو من الإعدادات.
-
-## 2026-06-23
-
-### تمت الإضافة
-
-- يمكنك الآن رؤية الجديد مباشرة داخل Clips. أصبح سجل التغييرات متاحًا في قائمة الأوامر (Cmd+K) وفي الإعدادات.`,
     playback: "التشغيل",
     defaultPlaybackSpeed: "سرعة التشغيل الافتراضية",
     playbackDescription: "تُطبق تلقائيًا عند فتح تسجيل.",

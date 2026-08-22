@@ -79,6 +79,14 @@ export function normalizeDesignMode(value: unknown): EditorMode | null {
     : null;
 }
 
+/**
+ * Scale is a mode, not a one-shot: Figma keeps K armed across selection
+ * changes, while every gesture-scoped tool falls back to move.
+ */
+export function resolveToolAfterSelection(current: DesignTool): DesignTool {
+  return current === "scale" ? "scale" : "move";
+}
+
 export function isSingleScreenAnnotationTool(tool: DesignTool): boolean {
   return tool === "draw" || tool === "comment";
 }

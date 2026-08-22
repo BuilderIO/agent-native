@@ -94,6 +94,7 @@ import {
   ANALYTICS_CUSTOM_BLOCK_GUIDANCE,
   ANALYTICS_BACKGROUND_RUN_NO_PROGRESS_TIMEOUT_MS,
   ANALYTICS_ACCOUNT_HEALTH_GUIDANCE,
+  INTERNAL_PRODUCT_USAGE_GUIDANCE,
   BOUNDED_STRUCTURED_LOOKUP_GUIDANCE,
   DASHBOARD_REFERENCE_GUIDANCE,
   BUILT_IN_FIRST_PARTY_SOURCE_GUIDANCE,
@@ -187,12 +188,33 @@ describe("Analytics agent Plan mode policy", () => {
     expect(BUILT_IN_FIRST_PARTY_SOURCE_GUIDANCE).toContain("analytics_events");
   });
 
+  it("routes internal product usage through schema discovery instead of user-supplied SQL", () => {
+    expect(INTERNAL_PRODUCT_USAGE_GUIDANCE).toContain("search-bigquery-schema");
+    expect(INTERNAL_PRODUCT_USAGE_GUIDANCE).toContain(
+      "list-dispatch-usage-metrics",
+    );
+    expect(INTERNAL_PRODUCT_USAGE_GUIDANCE).toContain(
+      "named customer or account such as OCBC",
+    );
+    expect(INTERNAL_PRODUCT_USAGE_GUIDANCE).toContain(
+      "do not ask the user to name the dataset",
+    );
+    expect(
+      looksLikeAnalyticsDataRequest(
+        "Pull AI credit usage and branch creation data by user for each month",
+      ),
+    ).toBe(true);
+  });
+
   it("advertises Analytics as the owner for curated first-party product metrics", () => {
     expect(ANALYTICS_CROSS_APP_ROUTING_GUIDANCE).toContain(
       "agent-native signups",
     );
     expect(ANALYTICS_CROSS_APP_ROUTING_GUIDANCE).toContain(
       "built-in first-party source and query catalog",
+    );
+    expect(ANALYTICS_CROSS_APP_ROUTING_GUIDANCE).toContain(
+      "list-dispatch-usage-metrics",
     );
     expect(ANALYTICS_CROSS_APP_ROUTING_GUIDANCE).toContain("call-agent");
   });
@@ -224,7 +246,7 @@ describe("Analytics agent Plan mode policy", () => {
     expect(context).toContain("available through");
     expect(context).toContain("`list-data-dictionary`");
     expect(context).toContain(
-      "Call `list-data-dictionary` separately only when the user asks",
+      "Call `list-data-dictionary` separately when the catalog has no usable match",
     );
     expect(context).toContain("approved entries as canonical");
     expect(context.length).toBeLessThan(1_000);
@@ -676,6 +698,26 @@ describe("realDataFinalGuard", () => {
     );
     expect((result as { retryMessage: string }).retryMessage).not.toContain(
       "which external source is missing",
+    );
+  });
+
+  it("retries a schema request through configured discovery instead of asking the user for table names", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText:
+          "Pull AI credit usage and branch creation data by user for each month",
+        draftText:
+          "Could you provide the BigQuery dataset name, table names, column names, or the exact SQL query?",
+      }),
+    );
+
+    expect(result).toMatchObject({
+      maxRetries: 2,
+      expandToolSurface: true,
+      retryMessage: expect.stringContaining("search-bigquery-schema"),
+    });
+    expect((result as { retryMessage: string }).retryMessage).toContain(
+      "Do not ask the user for warehouse schema identifiers",
     );
   });
 

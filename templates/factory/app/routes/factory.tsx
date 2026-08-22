@@ -24,12 +24,12 @@ import { FactoryAgentsView } from "@/components/factory/FactoryAgentsView";
 import { FactoryAuditView } from "@/components/factory/FactoryAuditView";
 import {
   FactoryCanvas,
-  type FactoryCanvasEdge,
   type FactoryCanvasGraph,
   type FactoryCanvasNode,
 } from "@/components/factory/FactoryCanvas";
 import { FactoryHistoryView } from "@/components/factory/FactoryHistoryView";
 import { FactoryInspector } from "@/components/factory/FactoryInspector";
+import { FactorySettingsView } from "@/components/factory/FactorySettingsView";
 import { FactoryWorkspaceActions } from "@/components/factory/FactoryWorkspaceActions";
 import { TriageStatusPill } from "@/components/triage/triage-status-pill";
 import { Button } from "@/components/ui/button";
@@ -107,6 +107,7 @@ type WorkspaceTab =
   | "map"
   | "inbox"
   | "rules"
+  | "settings"
   | "automations"
   | "agents"
   | "audit"
@@ -125,6 +126,7 @@ type FactoryAutomationRun = {
 type FactoryAutomation = {
   id: string;
   name: string;
+  displayName: string;
   prompt?: string | null;
   body?: string | null;
   model?: string | null;
@@ -152,7 +154,6 @@ export default function FactoryRoute() {
   const activeTab = parseWorkspaceTab(searchParams.get("tab"));
   const selectedFactoryId = searchParams.get("factoryId");
   const factoryId = selectedFactoryId ?? DEFAULT_FACTORY_ID;
-  const [creating, setCreating] = useState(false);
   const [draftGraph, setDraftGraph] = useState<FactoryCanvasGraph | null>(null);
   const [dirty, setDirty] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -184,7 +185,6 @@ export default function FactoryRoute() {
     nextFactoryId: string,
     options?: { tab?: WorkspaceTab; replace?: boolean },
   ) {
-    setCreating(false);
     setDraftGraph(null);
     setDirty(false);
     setSelectedNodeId(null);
@@ -242,12 +242,12 @@ export default function FactoryRoute() {
   const factoryList = (factoryListQuery.data ?? []) as FactorySummary[];
 
   useEffect(() => {
-    if (!graphData || creating || dirty) return;
+    if (!graphData || dirty) return;
     setDraftGraph(graphData.graph);
     setDirty(false);
     setSelectedNodeId(null);
     setSelectedEdgeId(null);
-  }, [creating, dirty, graphData]);
+  }, [dirty, graphData]);
 
   useEffect(() => {
     setSelectedNodeId(searchParams.get("node"));
@@ -256,7 +256,6 @@ export default function FactoryRoute() {
 
   useEffect(() => {
     if (selectedFactoryId) return;
-    setCreating(false);
     setDraftGraph(null);
     setDirty(false);
     setSelectedNodeId(null);
@@ -353,37 +352,6 @@ export default function FactoryRoute() {
     });
   }
 
-  function startNewFactory() {
-    const id = `factory-${Date.now().toString(36)}`;
-    openFactory(id, { tab: "overview" });
-    setCreating(true);
-    setDraftGraph({
-      version: 1,
-      name: t("factoryRoute.newFactory"),
-      description: t("factoryRoute.newFactoryDescription"),
-      executionMode: "blueprint",
-      nodes: [
-        {
-          id: "start",
-          label: t("factoryRoute.newStep"),
-          description: t("factoryRoute.newStepDescription"),
-          kind: "decision",
-          provider: "factory",
-          position: { x: 240, y: 220 },
-        },
-      ],
-      edges: [],
-    });
-    setDirty(true);
-    setSelectedNodeId(null);
-    setSelectedEdgeId(null);
-  }
-
-  useEffect(() => {
-    if (searchParams.get("new") !== "1") return;
-    startNewFactory();
-  }, [searchParams]);
-
   async function saveGraph() {
     if (!graph || !selectedFactoryId) return;
     const submittedDraftRevision = draftRevisionRef.current;
@@ -393,15 +361,12 @@ export default function FactoryRoute() {
         factoryId: selectedFactoryId,
         name: graph.name,
         description: graph.description,
-        prompt: creating ? "" : (graphData?.factory.prompt ?? ""),
+        prompt: graphData?.factory.prompt ?? "",
         source: "manual",
-        changeSummary: creating
-          ? "Created from the Factory visual editor."
-          : "Updated in the Factory visual editor.",
-        expectedGraphVersion: creating ? 0 : graph.version,
+        changeSummary: "Updated in the Factory visual editor.",
+        expectedGraphVersion: graph.version,
         graph,
       });
-      setCreating(false);
       setDirty(draftRevisionRef.current !== submittedDraftRevision);
       setSaveConflictRemoteGraph(null);
       await Promise.all([graphQuery.refetch(), factoryListQuery.refetch()]);
@@ -446,13 +411,11 @@ export default function FactoryRoute() {
     setSaveConflictRemoteGraph(null);
     setSaveError(null);
     setDirty(false);
-    setCreating(false);
     setSelectedNodeId(null);
     setSelectedEdgeId(null);
   }
 
   async function handleFactoryRestored(result?: { graph: FactoryCanvasGraph }) {
-    setCreating(false);
     if (result?.graph) setDraftGraph(result.graph);
     else setDraftGraph(null);
     setDirty(false);
@@ -469,9 +432,10 @@ export default function FactoryRoute() {
     }
   }
 
-  if (searchParams.get("tab") === "settings") {
-    return <Navigate to="/factory-settings" replace />;
+  if (searchParams.get("new") === "1") {
+    return <Navigate to="/new-factory" replace />;
   }
+
   if (selectedFactoryId && searchParams.get("tab") === "agents") {
     return <Navigate to="/factory?tab=agents" replace />;
   }
@@ -489,7 +453,7 @@ export default function FactoryRoute() {
             {t("factoryRoute.agentsTitle")}
           </h1>
           <div className="ms-auto">
-            <FactoryWorkspaceActions onNewFactory={startNewFactory} />
+            <FactoryWorkspaceActions />
           </div>
         </div>
         <FactoryAgentsView />
@@ -503,7 +467,7 @@ export default function FactoryRoute() {
         <section className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-6 p-4 lg:p-6">
           <div className="flex flex-wrap items-end justify-between gap-4">
             <h1 className="text-2xl font-semibold tracking-tight">Factories</h1>
-            <FactoryWorkspaceActions onNewFactory={startNewFactory} />
+            <FactoryWorkspaceActions />
           </div>
 
           {factoryListQuery.isError ? (
@@ -599,7 +563,7 @@ export default function FactoryRoute() {
               </Button>
               <div className="h-5 w-48 animate-pulse rounded bg-muted" />
             </div>
-            <FactoryWorkspaceActions onNewFactory={startNewFactory} />
+            <FactoryWorkspaceActions />
           </div>
         </header>
         <main className="flex flex-1 items-center justify-center p-6">
@@ -646,7 +610,7 @@ export default function FactoryRoute() {
             </span>
           </div>
           <div className="flex items-center gap-2">
-            <FactoryWorkspaceActions onNewFactory={startNewFactory} />
+            <FactoryWorkspaceActions />
           </div>
         </div>
         <div className="flex items-center gap-2 overflow-x-auto px-2 py-2 sm:px-4 lg:px-6">
@@ -696,6 +660,12 @@ export default function FactoryRoute() {
             >
               {t("factoryRoute.historyTab")}
             </TabButton>
+            <TabButton
+              active={activeTab === "settings"}
+              onClick={() => setActiveTab("settings")}
+            >
+              {t("factoryRoute.factorySettings")}
+            </TabButton>
           </nav>
           {activeTab === "audit" && (
             <Button
@@ -724,6 +694,7 @@ export default function FactoryRoute() {
             onOpenAutomations={() => setActiveTab("automations")}
             onOpenActivity={() => setActiveTab("audit")}
             onOpenFlow={() => setActiveTab("map")}
+            onOpenSettings={() => setActiveTab("settings")}
           />
         ) : activeTab === "map" ? (
           <div className="grid min-h-full gap-4 p-4 lg:p-6 xl:grid-cols-[minmax(0,1fr)_360px]">
@@ -770,9 +741,11 @@ export default function FactoryRoute() {
             />
           </div>
         ) : activeTab === "inbox" ? (
-          <InboxView t={t} />
+          <InboxView factoryId={factoryId} t={t} />
         ) : activeTab === "rules" ? (
-          <RulesView t={t} />
+          <RulesView factoryId={factoryId} t={t} />
+        ) : activeTab === "settings" ? (
+          <FactorySettingsView factoryId={factoryId} />
         ) : activeTab === "automations" ? (
           <AutomationsView factoryId={factoryId} t={t} />
         ) : activeTab === "audit" ? (
@@ -818,6 +791,7 @@ function parseWorkspaceTab(value: string | null): WorkspaceTab {
   return value === "map" ||
     value === "inbox" ||
     value === "rules" ||
+    value === "settings" ||
     value === "automations" ||
     value === "agents" ||
     value === "audit" ||
@@ -835,6 +809,7 @@ function OverviewView({
   onOpenAutomations,
   onOpenActivity,
   onOpenFlow,
+  onOpenSettings,
 }: {
   graph: FactoryCanvasGraph;
   t: ReturnType<typeof useT>;
@@ -844,6 +819,7 @@ function OverviewView({
   onOpenAutomations: () => void;
   onOpenActivity: () => void;
   onOpenFlow: () => void;
+  onOpenSettings: () => void;
 }) {
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 p-4 lg:p-6">
@@ -920,10 +896,12 @@ function OverviewView({
             <Button type="button" variant="outline" onClick={onOpenActivity}>
               Activity
             </Button>
-            <Button asChild type="button" variant="outline">
-              <Link to="/factory-settings">
-                {t("factoryRoute.factorySettings")}
-              </Link>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenSettings?.()}
+            >
+              {t("factoryRoute.factorySettings")}
             </Button>
             <Button type="button" onClick={onOpenFlow}>
               {t("factoryRoute.editFlow")}
@@ -1016,6 +994,7 @@ function AutomationsView({
         current &&
         current.id === nextDraft.id &&
         current.name === nextDraft.name &&
+        current.displayName === nextDraft.displayName &&
         current.prompt === nextDraft.prompt &&
         current.body === nextDraft.body &&
         current.model === nextDraft.model &&
@@ -1036,6 +1015,7 @@ function AutomationsView({
         factoryId,
         automationId: draft.id,
         name: draft.name,
+        displayName: draft.displayName,
         prompt: draft.prompt ?? draft.body ?? "",
         model: draft.model ?? "",
         schedule: draft.schedule ?? "",
@@ -1102,8 +1082,11 @@ function AutomationsView({
                       }`}
                       onClick={() => selectAutomation(automation.id)}
                     >
-                      <span className="block truncate text-sm font-medium">
-                        {automation.name}
+                      <span
+                        className="block truncate text-sm font-medium"
+                        title={automation.name}
+                      >
+                        {automation.displayName}
                       </span>
                       <span className="mt-1 block truncate text-xs text-muted-foreground">
                         {automation.enabled
@@ -1172,6 +1155,22 @@ function AutomationsView({
               </p>
             ) : (
               <>
+                <div className="grid gap-1.5">
+                  <Label htmlFor="factory-automation-display-name">
+                    {t("factoryRoute.automationDisplayName")}
+                  </Label>
+                  <Input
+                    id="factory-automation-display-name"
+                    value={draft.displayName}
+                    onChange={(event) =>
+                      setDraft({ ...draft, displayName: event.target.value })
+                    }
+                    placeholder={t(
+                      "factoryRoute.automationDisplayNamePlaceholder",
+                    )}
+                    disabled={draft.canUpdate === false}
+                  />
+                </div>
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="grid gap-1.5">
                     <Label htmlFor="factory-automation-model">
@@ -1408,7 +1407,13 @@ function formatModelName(model: string | null | undefined) {
     .join(" ");
 }
 
-function InboxView({ t }: { t: ReturnType<typeof useT> }) {
+function InboxView({
+  factoryId,
+  t,
+}: {
+  factoryId: string;
+  t: ReturnType<typeof useT>;
+}) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [status, setStatus] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(
@@ -1418,6 +1423,7 @@ function InboxView({ t }: { t: ReturnType<typeof useT> }) {
   const [verdict, setVerdict] = useState<Verdict | null>(null);
   const selectedRowRef = useRef<HTMLButtonElement | null>(null);
   const listQuery = useActionQuery("list-triage-items", {
+    factoryId,
     limit: 50,
     ...(status.trim()
       ? {
@@ -1435,7 +1441,7 @@ function InboxView({ t }: { t: ReturnType<typeof useT> }) {
   });
   const detailQuery = useActionQuery(
     "get-triage-item",
-    selectedId ? { itemId: selectedId } : undefined,
+    selectedId ? { factoryId, itemId: selectedId } : undefined,
     { enabled: Boolean(selectedId) },
   );
   const feedbackMutation = useActionMutation("record-triage-feedback");
@@ -1658,6 +1664,7 @@ function InboxView({ t }: { t: ReturnType<typeof useT> }) {
                     ];
                   if (!decision) return;
                   approveMutation.mutate({
+                    factoryId,
                     itemId: selectedItem.itemId ?? selectedItem.id ?? "",
                     decisionId: decision.decisionId,
                     confirm: true,
@@ -1712,6 +1719,7 @@ function InboxView({ t }: { t: ReturnType<typeof useT> }) {
                         onClick={() => {
                           if (verdict)
                             feedbackMutation.mutate({
+                              factoryId,
                               decisionId: decision.decisionId,
                               verdict,
                               ...(feedbackNote.trim()
@@ -1739,11 +1747,17 @@ function InboxView({ t }: { t: ReturnType<typeof useT> }) {
   );
 }
 
-function RulesView({ t }: { t: ReturnType<typeof useT> }) {
+function RulesView({
+  factoryId,
+  t,
+}: {
+  factoryId: string;
+  t: ReturnType<typeof useT>;
+}) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [prompt, setPrompt] = useState("");
-  const rulesQuery = useActionQuery("list-triage-rules", {});
+  const rulesQuery = useActionQuery("list-triage-rules", { factoryId });
   const saveMutation = useActionMutation("save-triage-rule");
   const rules = (rulesQuery.data ?? []) as TriageRule[];
   function selectRule(rule: TriageRule) {
@@ -1829,6 +1843,7 @@ function RulesView({ t }: { t: ReturnType<typeof useT> }) {
             onClick={() => {
               if (!name.trim() || !prompt.trim()) return;
               saveMutation.mutate({
+                factoryId,
                 ...(editingId ? { id: editingId } : {}),
                 name,
                 description: "",

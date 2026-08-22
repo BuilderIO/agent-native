@@ -213,6 +213,13 @@ function isMissingLlmProviderRunError(info: RunErrorInfo): boolean {
   );
 }
 
+function isDesktopChatRelayRunError(info: RunErrorInfo): boolean {
+  return [info.message, info.details].some(
+    (value): value is string =>
+      typeof value === "string" && /desktop app chat relay failed/i.test(value),
+  );
+}
+
 // ─── BuilderConnectCta ────────────────────────────────────────────────────────
 // Renders a single row with left-aligned copy and a right-aligned action.
 // Click opens the Builder OAuth popup via the shared
@@ -505,17 +512,23 @@ export function RunErrorRecoveryCard({
   });
   const canRecover = info.recoverable === true;
   const shouldShowBuilderReconnect = isBuilderReconnectRunError(info);
-  const shouldShowMissingProviderSetup = isMissingLlmProviderRunError(info);
+  const shouldShowProviderSetup =
+    isMissingLlmProviderRunError(info) || isDesktopChatRelayRunError(info);
   const isProviderAuthError = isProviderAuthenticationError(
     [info.message, info.details].filter(Boolean).join("\n"),
     info.errorCode,
   );
   // Blocked on something the reader goes and fixes elsewhere, then comes back
-  // to. Without a retry the card is a dead end and its own copy ("then retry")
-  // points at a button that isn't there.
+  // to. Recoverable runs and email verification keep a retry path; rejected
+  // provider credentials use the setup flow below so the same bad key is not
+  // replayed.
   const isUnblockableExternally =
     info.errorCode === "email_verification_required";
-  const canRetry = canRecover || isProviderAuthError || isUnblockableExternally;
+  // Rejected provider keys already have a recovery path: update/connect the
+  // credential, then let the setup callback re-run the turn. Exposing a
+  // separate retry button here just replays the same rejected credential and
+  // turns a permanent auth failure into a loop.
+  const canRetry = canRecover || isUnblockableExternally;
   const builderReconnectResolved =
     shouldShowBuilderReconnect &&
     builderReconnect.hasFetchedStatus &&
@@ -589,7 +602,7 @@ export function RunErrorRecoveryCard({
     }
   }, [builderReconnectResolved, onDismiss]);
 
-  if (shouldShowMissingProviderSetup) {
+  if (shouldShowProviderSetup) {
     return (
       <div className="w-full">
         <BuilderSetupCard
@@ -685,7 +698,7 @@ export function RunErrorRecoveryCard({
           <IconX size={14} />
         </button>
       </div>
-      <div className="mt-3 flex flex-wrap items-center gap-2">
+      <div className="mt-3 flex min-w-0 items-center gap-2">
         {shouldShowBuilderReconnect && !builderReconnectResolved && (
           <button
             type="button"
@@ -702,78 +715,97 @@ export function RunErrorRecoveryCard({
           </button>
         )}
         {canRecover && (
-          <>
+          <button
+            type="button"
+            onClick={onContinue}
+            className="inline-flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90"
+          >
+            <IconPlayerPlay size={13} />
+            <span className="truncate">{t("agentChat.common.continue")}</span>
+          </button>
+        )}
+        <div className="flex shrink-0 items-center gap-0.5 rounded-md border border-border/70 bg-background/60 p-0.5">
+          {canRetry && (
             <button
               type="button"
-              onClick={onContinue}
-              className="inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90"
+              onClick={onRetry}
+              title={
+                isQueryError
+                  ? t("agentChat.recovery.diagnoseRetry")
+                  : t("agentChat.common.retry")
+              }
+              aria-label={
+                isQueryError
+                  ? t("agentChat.recovery.diagnoseRetry")
+                  : t("agentChat.common.retry")
+              }
+              className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
             >
-              <IconPlayerPlay size={13} />
-              {t("agentChat.common.continue")}
+              <IconRefresh size={14} />
             </button>
-          </>
-        )}
-        {canRetry && (
-          <button
-            type="button"
-            onClick={onRetry}
-            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-3 text-xs font-medium text-foreground hover:bg-accent"
-          >
-            <IconRefresh size={13} />
-            {isQueryError
-              ? t("agentChat.recovery.diagnoseRetry")
-              : t("agentChat.common.retry")}
-          </button>
-        )}
-        {canRecover && isConnectionRecoveryError && (
-          <button
-            type="button"
-            onClick={startNewChat}
-            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-3 text-xs font-medium text-foreground hover:bg-accent"
-          >
-            <IconPlus size={13} />
-            {t("agentChat.tabs.newChat")}
-          </button>
-        )}
-        {canRecover && onFork && !isConnectionRecoveryError && (
-          <button
-            type="button"
-            onClick={handleFork}
-            disabled={forking}
-            title={t("agentChat.recovery.forkDescription")}
-            aria-label={t("agentChat.recovery.forkDescription")}
-            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-3 text-xs font-medium text-foreground hover:bg-accent disabled:cursor-wait disabled:opacity-70"
-          >
-            {forking ? (
-              <IconLoader2 size={13} className="animate-spin" />
-            ) : (
-              <IconGitFork size={13} />
-            )}
-            {forking
-              ? t("agentChat.recovery.forking")
-              : t("agentChat.message.forkChat")}
-          </button>
-        )}
-        <button
-          type="button"
-          onClick={copyDetails}
-          className="ms-auto inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium text-muted-foreground hover:bg-background/80 hover:text-foreground"
-        >
-          {copyState === "copied" ? (
-            <IconCheck size={13} />
-          ) : copyState === "failed" ? (
-            <IconX size={13} />
-          ) : (
-            <IconCopy size={13} />
           )}
-          <span aria-live="polite">
-            {copyState === "copied"
-              ? t("agentChat.common.copied")
-              : copyState === "failed"
-                ? t("agentChat.recovery.copyFailed")
-                : copyLabel}
-          </span>
-        </button>
+          {canRecover && isConnectionRecoveryError && (
+            <button
+              type="button"
+              onClick={startNewChat}
+              title={t("agentChat.tabs.newChat")}
+              aria-label={t("agentChat.tabs.newChat")}
+              className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              <IconPlus size={14} />
+            </button>
+          )}
+          {canRecover && onFork && !isConnectionRecoveryError && (
+            <button
+              type="button"
+              onClick={handleFork}
+              disabled={forking}
+              title={t("agentChat.recovery.forkDescription")}
+              aria-label={t("agentChat.recovery.forkDescription")}
+              className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-wait disabled:opacity-70"
+            >
+              {forking ? (
+                <IconLoader2 size={14} className="animate-spin" />
+              ) : (
+                <IconGitFork size={14} />
+              )}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={copyDetails}
+            title={
+              copyState === "copied"
+                ? t("agentChat.common.copied")
+                : copyState === "failed"
+                  ? t("agentChat.recovery.copyFailed")
+                  : copyLabel
+            }
+            aria-label={
+              copyState === "copied"
+                ? t("agentChat.common.copied")
+                : copyState === "failed"
+                  ? t("agentChat.recovery.copyFailed")
+                  : copyLabel
+            }
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+          >
+            {copyState === "copied" ? (
+              <IconCheck size={14} />
+            ) : copyState === "failed" ? (
+              <IconX size={14} />
+            ) : (
+              <IconCopy size={14} />
+            )}
+            <span className="sr-only" aria-live="polite">
+              {copyState === "copied"
+                ? t("agentChat.common.copied")
+                : copyState === "failed"
+                  ? t("agentChat.recovery.copyFailed")
+                  : copyLabel}
+            </span>
+          </button>
+        </div>
       </div>
       {shouldShowBuilderReconnect && builderReconnect.error && (
         <p className="mt-2 text-xs leading-relaxed text-red-500">

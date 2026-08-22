@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Agent-Native Clips",
   "short_name": "Clips",
-  "version": "0.1.18",
+  "version": "0.1.19",
   "description": "Start Clips recordings from Chrome, capture optional diagnostics, and preview Clips links on GitHub and Jira.",
   "minimum_chrome_version": "116",
   "action": {
@@ -31,7 +31,8 @@
     "https://clips.agent-native.com/*",
     "https://forms.agent-native.com/*",
     "http://localhost/*",
-    "http://127.0.0.1/*"
+    "http://127.0.0.1/*",
+    "<all_urls>"
   ],
   "content_scripts": [
     {
@@ -41,6 +42,12 @@
         "https://*.jira.com/*"
       ],
       "js": ["assets/github-preview-content.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    },
+    {
+      "matches": ["<all_urls>"],
+      "js": ["assets/content-script.js"],
       "run_at": "document_idle",
       "all_frames": false
     }

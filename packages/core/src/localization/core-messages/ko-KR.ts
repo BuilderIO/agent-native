@@ -29,6 +29,12 @@ const messages: AgentChatTranslation = {
   "commands.mention": "파일, 에이전트 또는 리소스 멘션",
   "commands.new": "/clear와 동일",
   "commands.plan": "읽기 전용 계획 모드로 전환",
+  "aboutAgentNative.title": "Agent Native 정보",
+  "aboutAgentNative.version": "버전",
+  "aboutAgentNative.environment": "환경",
+  "aboutAgentNative.build": "빌드",
+  "aboutAgentNative.copyDiagnostics": "진단 정보 복사",
+  "aboutAgentNative.unknown": "알 수 없음",
   "common.agent": "에이전트",
   "common.cancel": "취소",
   "common.collapse": "접기",
@@ -284,7 +290,7 @@ const messages: AgentChatTranslation = {
   "errorMessages.invalidToolSchema":
     "도구 스키마가 올바르지 않아 모델이 요청 시작 전에 거부했습니다. 올바르지 않은 도구를 건너뛰고 요청을 다시 시도할 수 있습니다.",
   "errorMessages.noProviderConnected":
-    "연결된 LLM 제공업체가 없습니다. 이 앱의 ‘에이전트 관리’ → ‘LLM’을 연 다음 Builder.io를 연결하거나 제공업체 키를 추가하세요.",
+    "연결된 LLM 제공업체가 없습니다. 설정 > 에이전트 > AI 제공업체를 연 다음 Builder.io(무료 요금제 제공)를 연결하거나 제공업체 키를 추가하세요.",
   "errorMessages.openBuilderSpaceSettings": "Builder 스페이스 설정 열기",
   "errorMessages.providerAuthentication":
     "모델 제공업체가 저장된 API 키를 거부했습니다. 설정 → 연동 → API 키에서 키를 업데이트한 후 다시 시도하세요.",

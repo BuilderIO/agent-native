@@ -192,23 +192,25 @@ export function getH3App(nitroApp: any): H3AppShim {
 
   if (!BOOTSTRAPPED.has(nitroApp)) {
     BOOTSTRAPPED.add(nitroApp);
-    // Read before the catch below: an unknown slot name in `plugins.disabled`
-    // is an invalid deployment, not a plugin that failed to start, and the
-    // catch would turn it into an app with every default route missing.
-    const disabledPlugins = getDisabledDefaultPlugins();
-    const bootstrap = bootstrapDefaultPlugins(nitroApp, disabledPlugins).catch(
-      (err) => {
-        console.warn(
-          "[agent-native] Failed to auto-mount default plugins:",
-          (err as Error).message,
-        );
-        captureError(err, {
-          route: "default-plugin-bootstrap",
-          tags: { phase: "default-plugin-bootstrap" },
-        });
-        if (err instanceof AppConfigurationError) throw err;
-      },
-    );
+    // Parse now, decide later. An unknown slot name in `plugins.disabled` is
+    // an invalid deployment, not a plugin that failed to start, and the catch
+    // below would turn it into an app with every default route missing — so
+    // the value has to be read where it can still throw synchronously. The
+    // mount set is read again inside bootstrap: auto-mount can start before a
+    // server plugin has called `defineAppConfig()`, and this early read only
+    // sees the environment layer.
+    getDisabledDefaultPlugins();
+    const bootstrap = bootstrapDefaultPlugins(nitroApp).catch((err) => {
+      console.warn(
+        "[agent-native] Failed to auto-mount default plugins:",
+        (err as Error).message,
+      );
+      captureError(err, {
+        route: "default-plugin-bootstrap",
+        tags: { phase: "default-plugin-bootstrap" },
+      });
+      if (err instanceof AppConfigurationError) throw err;
+    });
     // The readiness gate is what observes this rejection, and it only runs on
     // a request. Without a handler attached now, Node exits on the unhandled
     // rejection before anything can report the configuration error.
@@ -845,10 +847,7 @@ function registerMiddleware(
  * there instead of from @agent-native/core — this is the middle layer of the
  * three-layer inheritance model (app local > workspace core > framework).
  */
-async function bootstrapDefaultPlugins(
-  nitroApp: any,
-  disabled: readonly string[],
-): Promise<void> {
+async function bootstrapDefaultPlugins(nitroApp: any): Promise<void> {
   IN_BOOTSTRAP.add(nitroApp);
   try {
     const cwd = process.cwd();
@@ -859,6 +858,7 @@ async function bootstrapDefaultPlugins(
     const undiscovered = provided
       ? discoveredMissing.filter((stem) => !provided.has(stem))
       : discoveredMissing;
+    const disabled: readonly string[] = getDisabledDefaultPlugins();
     const missing = undiscovered.filter((stem) => !disabled.includes(stem));
     const refused = undiscovered.filter((stem) => disabled.includes(stem));
     if (missing.length === 0) return;

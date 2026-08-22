@@ -10,6 +10,7 @@ import {
   groupCodeAgentModelOptions,
   normalizeModelSelection,
   resolveNewSessionExtensionComposerState,
+  shouldShowCodeAgentCredentialCallout,
   shouldCloseWatchedChatFirstSession,
   type CodeAgentsNewSessionExtension,
 } from "./CodeAgentsApp.js";
@@ -79,6 +80,28 @@ describe("CodeAgentsApp worktree recovery", () => {
       needsRecovery: false,
       needsNotice: true,
     });
+  });
+});
+
+describe("CodeAgentsApp credential recovery", () => {
+  it("shows setup when the selected run reports missing credentials", () => {
+    expect(
+      shouldShowCodeAgentCredentialCallout({
+        providerBlocked: false,
+        hasCredentialHistory: true,
+        phase: "missing-credentials",
+      }),
+    ).toBe(true);
+  });
+
+  it("does not keep a stale credential callout after the provider is ready", () => {
+    expect(
+      shouldShowCodeAgentCredentialCallout({
+        providerBlocked: false,
+        hasCredentialHistory: true,
+        phase: "completed",
+      }),
+    ).toBe(false);
   });
 });
 

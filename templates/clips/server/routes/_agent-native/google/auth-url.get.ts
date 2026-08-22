@@ -64,6 +64,7 @@ export default defineEventHandler(async (event: H3Event) => {
     }
     const calendarConnect =
       q.calendar === "1" || q.calendar === "true" || q.product === "calendar";
+    const desktopWebview = desktop && q.webview === "1" && !calendarConnect;
     let desktopVerifierHash: string | undefined;
     let desktopBrowserBindingHash: string | undefined;
     if (flowId && !calendarConnect) {
@@ -77,12 +78,20 @@ export default defineEventHandler(async (event: H3Event) => {
         return { error: "Invalid desktop exchange challenge." };
       }
       try {
-        desktopBrowserBindingHash = prepareDesktopOAuthBrowserBinding(event);
-        desktopVerifierHash = await registerDesktopExchange(
-          flowId,
-          verifier,
-          desktopBrowserBindingHash,
-        );
+        // The system-browser flow deliberately uses the user's existing
+        // Google cookies. The client-held verifier still gates the exchange
+        // token returned to the initiating Tauri app. Only an in-app WebView
+        // needs the additional browser-partition binding.
+        if (desktopWebview) {
+          desktopBrowserBindingHash = prepareDesktopOAuthBrowserBinding(event);
+          desktopVerifierHash = await registerDesktopExchange(
+            flowId,
+            verifier,
+            desktopBrowserBindingHash,
+          );
+        } else {
+          desktopVerifierHash = await registerDesktopExchange(flowId, verifier);
+        }
       } catch {
         setResponseStatus(event, 400);
         return { error: "Invalid desktop exchange challenge." };
@@ -116,13 +125,10 @@ export default defineEventHandler(async (event: H3Event) => {
       redirectUri,
       owner,
       desktop,
-      desktopWebview: desktop && q.webview === "1" && !calendarConnect,
+      desktopWebview,
       addAccount: calendarConnect,
       app: CLIPS_GOOGLE_OAUTH_APP_ID,
-      returnUrl:
-        desktop && q.webview === "1" && !calendarConnect
-          ? "/?desktop_auth=complete"
-          : returnUrl,
+      returnUrl: desktopWebview ? "/?desktop_auth=complete" : returnUrl,
       flowId: calendarConnect ? undefined : flowId,
       desktopVerifierHash,
       desktopBrowserBindingHash,

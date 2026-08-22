@@ -49,7 +49,11 @@ function formatAutomationDate(value: string | number | null | undefined) {
   return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
 }
 
-export function FactorySettingsView() {
+export function FactorySettingsView({
+  factoryId = "product-feedback",
+}: {
+  factoryId?: string;
+}) {
   const t = useT();
   const [workspace, setWorkspace] = useState<"primary" | "secondary">(
     "primary",
@@ -68,7 +72,7 @@ export function FactorySettingsView() {
     useState(true);
   const [automationFailureAlertEmail, setAutomationFailureAlertEmail] =
     useState("");
-  const query = useActionQuery("get-triage-config", {});
+  const query = useActionQuery("get-triage-config", { factoryId });
   const schedulerHealthQuery = useActionQuery<FactoryAutomationHealth>(
     "get-factory-automation-health",
     {},
@@ -105,6 +109,7 @@ export function FactorySettingsView() {
     }
     try {
       await mutation.mutateAsync({
+        factoryId,
         slackWorkspace: workspace,
         slackChannelId: channelId,
         slackChannelName: channelName,

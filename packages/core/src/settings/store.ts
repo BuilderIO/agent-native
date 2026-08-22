@@ -134,11 +134,17 @@ export async function ensureTable(): Promise<void> {
   return _initPromise;
 }
 
+export interface StoreReadOptions {
+  /** Skip the per-request snapshot when a cross-request race must be checked. */
+  bypassCache?: boolean;
+}
+
 export async function getSetting(
   key: string,
+  options?: StoreReadOptions,
 ): Promise<Record<string, unknown> | null> {
   const cache = requestSettingsCache();
-  if (cache?.has(key)) {
+  if (!options?.bypassCache && cache?.has(key)) {
     const cached = cache.get(key);
     return cached == null ? null : JSON.parse(cached);
   }
@@ -150,7 +156,7 @@ export async function getSetting(
     args: [key],
   });
   const raw = rows.length === 0 ? null : (rows[0].value as string);
-  cache?.set(key, raw);
+  if (!options?.bypassCache) cache?.set(key, raw);
   return raw == null ? null : JSON.parse(raw);
 }
 
@@ -264,6 +270,32 @@ export async function deleteSetting(
     return true;
   }
   return false;
+}
+
+/** Delete a setting only when its stored value still matches the inspected value. */
+export async function deleteSettingIfValue(
+  key: string,
+  expected: Record<string, unknown>,
+  options?: StoreWriteOptions,
+): Promise<boolean> {
+  await ensureTable();
+  const client = getDbExec();
+  const table = settingsTable();
+  const result = await client.execute({
+    sql: `DELETE FROM ${table} WHERE key = ? AND value = ?`,
+    args: [key, JSON.stringify(expected)],
+  });
+  if (result.rowsAffected === 0) return false;
+
+  requestSettingsCache()?.set(key, null);
+  invalidateRequestAllSettings();
+  settingsEmitter().emit("settings", {
+    source: "settings",
+    type: "delete",
+    key,
+    ...(options?.requestSource && { requestSource: options.requestSource }),
+  });
+  return true;
 }
 
 /**

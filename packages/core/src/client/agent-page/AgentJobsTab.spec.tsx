@@ -14,6 +14,7 @@ const jobMocks = vi.hoisted(() => ({
   useManageAutomation: vi.fn(),
   useManageRecurringJob: vi.fn(),
   useRecurringJobs: vi.fn(),
+  useScheduledTriggerState: vi.fn(),
 }));
 
 vi.mock("./use-jobs.js", () => ({
@@ -22,6 +23,7 @@ vi.mock("./use-jobs.js", () => ({
   useManageRecurringJob: jobMocks.useManageRecurringJob,
   useRecurringJobs: jobMocks.useRecurringJobs,
   useRunAutomationNow: jobMocks.useRunAutomationNow,
+  useScheduledTriggerState: jobMocks.useScheduledTriggerState,
 }));
 
 vi.mock("../AgentAskPopover.js", () => ({
@@ -146,6 +148,10 @@ describe("AgentJobsTab organization automations", () => {
     jobMocks.useManageAutomation.mockImplementation((scope: "user" | "org") =>
       mutationResult(jobMocks.manageAutomation[scope]),
     );
+    jobMocks.useScheduledTriggerState.mockReturnValue({
+      kind: "resolved",
+      status: { available: true, driver: "netlify-scheduled-function" },
+    });
   });
 
   afterEach(() => {
@@ -168,6 +174,93 @@ describe("AgentJobsTab organization automations", () => {
       "Scheduled and event-triggered automations shared with this organization.",
     );
     expect(container.textContent).not.toContain("personal today");
+  });
+
+  it("stays quiet about the scheduler when schedules actually fire", () => {
+    act(() => {
+      root.render(<AgentJobsTab canManageOrg />);
+    });
+
+    expect(
+      container.querySelector('[data-testid="scheduled-trigger-notice"]'),
+    ).toBeNull();
+  });
+
+  it("warns that schedules never fire when the build disabled recurring jobs", () => {
+    jobMocks.useScheduledTriggerState.mockReturnValue({
+      kind: "resolved",
+      status: { available: false, reason: "disabled-by-env" },
+    });
+
+    act(() => {
+      root.render(<AgentJobsTab canManageOrg />);
+    });
+
+    const notice = container.querySelector(
+      '[data-testid="scheduled-trigger-notice"]',
+    );
+    expect(notice).not.toBeNull();
+    expect(notice?.getAttribute("data-reason")).toBe("disabled-by-env");
+    expect(notice?.textContent).toContain("Schedules won't run in this deploy");
+    expect(notice?.textContent).toContain(
+      "AGENT_NATIVE_DISABLE_RECURRING_JOBS",
+    );
+  });
+
+  it("names the local opt-in flag instead of blaming the deploy on a dev machine", () => {
+    jobMocks.useScheduledTriggerState.mockReturnValue({
+      kind: "resolved",
+      status: { available: false, reason: "local-development" },
+    });
+
+    act(() => {
+      root.render(<AgentJobsTab canManageOrg />);
+    });
+
+    const notice = container.querySelector(
+      '[data-testid="scheduled-trigger-notice"]',
+    );
+    expect(notice?.textContent).toContain(
+      "Schedules don't run in local development",
+    );
+    expect(notice?.textContent).toContain(
+      "AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS",
+    );
+  });
+
+  // A pending status must not accuse a working deploy of being broken.
+  it("shows no warning while the scheduler status is still loading", () => {
+    jobMocks.useScheduledTriggerState.mockReturnValue({ kind: "loading" });
+
+    act(() => {
+      root.render(<AgentJobsTab canManageOrg />);
+    });
+
+    expect(
+      container.querySelector('[data-testid="scheduled-trigger-notice"]'),
+    ).toBeNull();
+  });
+
+  // A loading check and a FAILED check used to be the same thing to this page:
+  // both left `data` undefined, and `data?.available !== false` read both as
+  // healthy. A failure never resolves, so that silence was permanent.
+  it("says the check failed rather than silently vouching for the deploy", () => {
+    jobMocks.useScheduledTriggerState.mockReturnValue({
+      kind: "unknown",
+      error: new Error("403 Forbidden"),
+    });
+
+    act(() => {
+      root.render(<AgentJobsTab canManageOrg />);
+    });
+
+    const notice = container.querySelector(
+      '[data-testid="scheduled-trigger-notice"]',
+    );
+    expect(notice?.getAttribute("data-reason")).toBe("check-failed");
+    expect(notice?.textContent).toContain(
+      "Couldn't check whether schedules run here",
+    );
   });
 
   it("routes organization event updates through the organization mutation", () => {

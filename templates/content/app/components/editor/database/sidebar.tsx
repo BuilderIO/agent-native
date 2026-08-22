@@ -5,7 +5,6 @@ import type {
   ContentDatabasePersonalViewOverrides,
   ContentDatabaseResponse,
   ContentDatabaseViewConfig,
-  ContentSidebarOrderMode,
   ContentSidebarViewOrder,
 } from "@shared/api";
 import {

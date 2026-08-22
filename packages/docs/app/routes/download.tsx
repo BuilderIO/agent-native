@@ -3,8 +3,8 @@ import { useT } from "@agent-native/core/client/i18n";
 import {
   IconAppWindow,
   IconBrandApple,
-  IconBrandGithub,
   IconBrandWindows,
+  IconCheck,
   IconDownload,
   IconTerminal2,
 } from "@tabler/icons-react";
@@ -13,14 +13,11 @@ import { useEffect, useMemo, useState } from "react";
 import { trackEvent } from "../components/TemplateCard";
 
 const LATEST_JSON_URL = `${appBasePath()}/api/desktop-latest.json`;
-const RELEASES =
-  "https://github.com/BuilderIO/agent-native/releases?q=Agent-Native";
-const NIGHTLY_RELEASES =
-  "https://github.com/BuilderIO/agent-native/releases?q=Agent+Native+Nightly";
 const OPEN_DESKTOP_URL = "agentnative://open";
-const MANIFEST_STORAGE_KEY = "agent-native-desktop-download-manifest-v1";
+const MANIFEST_STORAGE_KEY = "agent-native-desktop-download-manifest-v2";
 
 type Platform = "mac" | "windows" | "linux";
+type DesktopReleaseChannel = "production" | "nightly";
 type DesktopAssetKind =
   | "mac-arm64"
   | "mac-x64"
@@ -109,6 +106,11 @@ interface Manifest {
   }[];
 }
 
+interface ConfirmedDownload {
+  asset: Manifest["assets"][number];
+  label: string;
+}
+
 function isManifestAsset(value: unknown): value is Manifest["assets"][number] {
   if (!value || typeof value !== "object") return false;
   const asset = value as Partial<Manifest["assets"][number]>;
@@ -132,10 +134,14 @@ function isManifest(value: unknown): value is Manifest {
   );
 }
 
-function readCachedManifest(): Manifest | null {
+function manifestStorageKey(channel: DesktopReleaseChannel): string {
+  return `${MANIFEST_STORAGE_KEY}-${channel}`;
+}
+
+function readCachedManifest(channel: DesktopReleaseChannel): Manifest | null {
   if (typeof window === "undefined") return null;
   try {
-    const cached = window.localStorage.getItem(MANIFEST_STORAGE_KEY);
+    const cached = window.localStorage.getItem(manifestStorageKey(channel));
     if (!cached) return null;
     const parsed: unknown = JSON.parse(cached);
     return isManifest(parsed) ? parsed : null;
@@ -144,10 +150,16 @@ function readCachedManifest(): Manifest | null {
   }
 }
 
-function writeCachedManifest(manifest: Manifest): void {
+function writeCachedManifest(
+  channel: DesktopReleaseChannel,
+  manifest: Manifest,
+): void {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(MANIFEST_STORAGE_KEY, JSON.stringify(manifest));
+    window.localStorage.setItem(
+      manifestStorageKey(channel),
+      JSON.stringify(manifest),
+    );
   } catch {
     // Storage can be unavailable in private browsing or locked-down contexts.
   }
@@ -173,8 +185,12 @@ function pickAsset(manifest: Manifest | null, option: DownloadOption) {
 export default function DownloadPage() {
   const t = useT();
   const [platform, setPlatform] = useState<Platform>("mac");
+  const [channel, setChannel] = useState<DesktopReleaseChannel>("production");
   const [manifest, setManifest] = useState<Manifest | null>(null);
   const [manifestError, setManifestError] = useState(false);
+  const [manifestRequest, setManifestRequest] = useState(0);
+  const [confirmedDownload, setConfirmedDownload] =
+    useState<ConfirmedDownload | null>(null);
   const [isDesktopApp, setIsDesktopApp] = useState(false);
 
   useEffect(() => {
@@ -184,12 +200,15 @@ export default function DownloadPage() {
 
   useEffect(() => {
     let cancelled = false;
-    const cachedManifest = readCachedManifest();
-    if (cachedManifest) {
-      setManifest(cachedManifest);
-    }
+    const cachedManifest = readCachedManifest(channel);
+    setManifest(cachedManifest);
+    setManifestError(false);
+    const manifestUrl =
+      channel === "nightly"
+        ? `${LATEST_JSON_URL}?channel=nightly`
+        : LATEST_JSON_URL;
 
-    fetch(LATEST_JSON_URL)
+    fetch(manifestUrl)
       .then((response) =>
         response.ok ? response.json() : Promise.reject(new Error("failed")),
       )
@@ -198,7 +217,7 @@ export default function DownloadPage() {
         if (!cancelled) {
           setManifest(json);
           setManifestError(false);
-          writeCachedManifest(json);
+          writeCachedManifest(channel, json);
         }
       })
       .catch(() => {
@@ -207,8 +226,9 @@ export default function DownloadPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [channel, manifestRequest]);
 
+  const isNightly = channel === "nightly";
   const info = PLATFORMS[platform];
   const downloads = useMemo(() => {
     const options = [info.primary, ...(info.alternatives ?? [])];
@@ -222,26 +242,75 @@ export default function DownloadPage() {
   const primaryAsset = primaryDownload?.asset ?? null;
   const alternativeDownloads = downloads.filter(
     (download) =>
-      download.option !== primaryDownload?.option &&
-      (download.asset || !manifest || manifestError),
+      download.option !== primaryDownload?.option && Boolean(download.asset),
   );
-  const releaseStatus = manifest
-    ? t("downloadPage.latestRelease", { version: manifest.version })
-    : manifestError
-      ? t("downloadPage.loadError")
-      : t("downloadPage.checkingRelease");
-  const primaryHref = primaryAsset?.url ?? RELEASES;
+  const releaseStatus = manifestError
+    ? t("downloadPage.loadError")
+    : !manifest
+      ? t("downloadPage.checkingRelease")
+      : null;
   const primaryLabel = primaryAsset
     ? t(primaryDownload?.option.labelKey ?? info.primary.labelKey)
-    : manifestError || !manifest
-      ? t("downloadPage.viewInstallersOnGithub")
-      : t(primaryDownload?.option.labelKey ?? info.primary.labelKey);
+    : manifestError
+      ? t("downloadPage.retry")
+      : !manifest
+        ? t("downloadPage.checkingRelease")
+        : t("downloadPage.unavailable");
   const desktopDownloadLabel = primaryAsset
     ? t("downloadPage.downloadInstaller")
-    : t("downloadPage.viewInstallers");
+    : primaryLabel;
+  const hasPrimaryDownloadStarted =
+    confirmedDownload?.asset.url === primaryAsset?.url;
+  const downloadButtonLabel = hasPrimaryDownloadStarted
+    ? t("downloadPage.downloadStarted")
+    : isDesktopApp
+      ? desktopDownloadLabel
+      : primaryLabel;
+  const isManifestLoading = !manifest && !manifestError;
+  const downloadButtonClass = isDesktopApp
+    ? "inline-flex w-full max-w-[18rem] items-center justify-center gap-2.5 whitespace-nowrap rounded-lg border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline hover:bg-[var(--sidebar-hover)] hover:no-underline"
+    : "inline-flex w-full max-w-[18rem] items-center justify-center gap-2.5 whitespace-nowrap rounded-lg bg-[var(--fg)] px-8 py-3.5 text-base font-medium text-[var(--bg)] no-underline hover:opacity-85 hover:no-underline";
+  const downloadButtonContent = isManifestLoading ? (
+    <span
+      aria-hidden="true"
+      className="h-4 w-32 animate-pulse rounded-full bg-current/20 motion-reduce:animate-none"
+    />
+  ) : hasPrimaryDownloadStarted ? (
+    <>
+      <IconCheck size={18} aria-hidden="true" />
+      <span className="truncate">{downloadButtonLabel}</span>
+    </>
+  ) : (
+    <>
+      <IconDownload size={18} aria-hidden="true" />
+      <span className="truncate">{downloadButtonLabel}</span>
+    </>
+  );
 
-  function handleDownload(label: string) {
-    trackEvent("desktop download", { platform, label });
+  function handleChannelChange(nextChannel: DesktopReleaseChannel) {
+    if (nextChannel === channel) return;
+    setManifest(null);
+    setManifestError(false);
+    setConfirmedDownload(null);
+    setChannel(nextChannel);
+  }
+
+  function handlePlatformChange(nextPlatform: Platform) {
+    if (nextPlatform === platform) return;
+    setPlatform(nextPlatform);
+    setConfirmedDownload(null);
+  }
+
+  function handleRetry() {
+    setManifest(null);
+    setManifestError(false);
+    setConfirmedDownload(null);
+    setManifestRequest((request) => request + 1);
+  }
+
+  function handleDownload(asset: Manifest["assets"][number], label: string) {
+    setConfirmedDownload({ asset, label });
+    trackEvent("desktop download", { channel, platform, label });
   }
 
   function handleOpenDesktop() {
@@ -253,6 +322,14 @@ export default function DownloadPage() {
       <div className="mb-14 text-center">
         <h1 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
           {t("downloadPage.title")}
+          {isNightly && (
+            <>
+              {" "}
+              <span className="text-blue-600 dark:text-blue-400">
+                {t("downloadPage.nightly")}
+              </span>
+            </>
+          )}
         </h1>
         <p className="mx-auto max-w-xl text-base leading-relaxed text-[var(--fg-secondary)]">
           {t("downloadPage.body")}
@@ -268,7 +345,7 @@ export default function DownloadPage() {
           return (
             <button
               key={p}
-              onClick={() => setPlatform(p)}
+              onClick={() => handlePlatformChange(p)}
               aria-label={plt.name}
               className={`group flex items-center justify-center rounded-lg p-4 ${
                 active
@@ -297,33 +374,68 @@ export default function DownloadPage() {
             </a>
           )}
 
-          <a
-            href={primaryHref}
-            onClick={() =>
-              handleDownload(
-                primaryDownload?.option.labelKey
-                  ? t(primaryDownload.option.labelKey)
-                  : t(info.primary.labelKey),
-              )
-            }
-            className={
-              isDesktopApp
-                ? "inline-flex items-center gap-2.5 rounded-lg border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline hover:bg-[var(--sidebar-hover)] hover:no-underline"
-                : "inline-flex items-center gap-2.5 rounded-lg bg-[var(--fg)] px-8 py-3.5 text-base font-medium text-[var(--bg)] no-underline hover:opacity-85 hover:no-underline"
-            }
-          >
-            <IconDownload size={18} />
-            {isDesktopApp ? desktopDownloadLabel : primaryLabel}
-          </a>
+          {primaryAsset ? (
+            <a
+              href={primaryAsset.url}
+              target="_blank"
+              rel="noreferrer"
+              onClick={() =>
+                handleDownload(
+                  primaryAsset,
+                  primaryDownload?.option.labelKey
+                    ? t(primaryDownload.option.labelKey)
+                    : t(info.primary.labelKey),
+                )
+              }
+              className={downloadButtonClass}
+            >
+              {downloadButtonContent}
+            </a>
+          ) : (
+            <button
+              type="button"
+              onClick={manifestError ? handleRetry : undefined}
+              disabled={!manifestError}
+              aria-label={primaryLabel}
+              aria-busy={isManifestLoading}
+              className={`${downloadButtonClass} ${
+                manifestError ? "" : "cursor-not-allowed opacity-60"
+              }`}
+            >
+              {downloadButtonContent}
+            </button>
+          )}
         </div>
+
+        {confirmedDownload && (
+          <p
+            aria-live="polite"
+            className="mt-3 text-xs text-[var(--fg-secondary)]"
+          >
+            <span className="sr-only">{t("downloadPage.downloadStarted")}</span>
+            <a
+              href={confirmedDownload.asset.url}
+              target="_blank"
+              rel="noreferrer"
+              onClick={() =>
+                handleDownload(confirmedDownload.asset, confirmedDownload.label)
+              }
+              className="text-[var(--fg-secondary)] underline underline-offset-2 hover:text-[var(--fg)]"
+            >
+              {t("downloadPage.downloadAgain")}
+            </a>
+          </p>
+        )}
 
         {alternativeDownloads.length > 0 && (
           <div className="mt-3 flex flex-wrap justify-center gap-x-4 gap-y-2">
             {alternativeDownloads.map(({ option, asset }) => (
               <a
                 key={option.labelKey}
-                href={asset?.url ?? RELEASES}
-                onClick={() => handleDownload(t(option.labelKey))}
+                href={asset!.url}
+                target="_blank"
+                rel="noreferrer"
+                onClick={() => handleDownload(asset!, t(option.labelKey))}
                 className="text-sm text-[var(--fg-secondary)] no-underline hover:text-[var(--fg)] hover:underline"
               >
                 {t(option.labelKey)}
@@ -332,18 +444,55 @@ export default function DownloadPage() {
           </div>
         )}
 
-        <p className="mt-4 text-xs text-[var(--fg-secondary)]">
-          {releaseStatus}
-          {info.note && <span className="block mt-1">{t(info.note)}</span>}
-        </p>
-        <a
-          href={NIGHTLY_RELEASES}
-          target="_blank"
-          rel="noreferrer"
-          className="mt-2 inline-block text-[11px] text-[var(--fg-secondary)] opacity-70 no-underline hover:text-[var(--fg)] hover:opacity-100 hover:underline"
-        >
-          {t("downloadPage.nightlyBuilds")}
-        </a>
+        <div className="mt-4 min-h-4">
+          {releaseStatus && (
+            <p className="text-xs text-[var(--fg-secondary)]">
+              {releaseStatus}
+            </p>
+          )}
+        </div>
+        {info.note && (
+          <p className="mt-4 text-xs text-[var(--fg-secondary)]">
+            {t(info.note)}
+          </p>
+        )}
+        <div className="mt-5 flex justify-center">
+          <div className="flex items-center gap-2 text-xs text-[var(--fg-secondary)]">
+            <span>{t("downloadPage.stable")}</span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={isNightly}
+              aria-label={t(
+                isNightly
+                  ? "downloadPage.switchToStable"
+                  : "downloadPage.switchToNightly",
+              )}
+              onClick={() =>
+                handleChannelChange(isNightly ? "production" : "nightly")
+              }
+              className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border border-[var(--docs-border)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 ${
+                isNightly ? "bg-[var(--fg)]" : "bg-[var(--sidebar-hover)]"
+              }`}
+            >
+              <span
+                aria-hidden="true"
+                className={`block size-3.5 rounded-full bg-white shadow-sm transition-transform ${
+                  isNightly ? "translate-x-[18px]" : "translate-x-[2px]"
+                }`}
+              />
+            </button>
+            <span
+              className={
+                isNightly
+                  ? "font-medium text-[var(--fg)]"
+                  : "text-[var(--fg-secondary)]"
+              }
+            >
+              {t("downloadPage.nightly")}
+            </span>
+          </div>
+        </div>
       </div>
 
       {/* Run from source */}
@@ -362,19 +511,6 @@ cd my-platform
 pnpm install && pnpm dev`}</code>
           </pre>
         </div>
-      </div>
-
-      {/* All releases link */}
-      <div className="mt-12 text-center">
-        <a
-          href="https://github.com/BuilderIO/agent-native/releases"
-          target="_blank"
-          rel="noreferrer"
-          className="inline-flex items-center gap-2 text-sm text-[var(--fg-secondary)] no-underline hover:text-[var(--fg)]"
-        >
-          <IconBrandGithub size={16} />
-          {t("downloadPage.viewAllReleases")}
-        </a>
       </div>
     </main>
   );

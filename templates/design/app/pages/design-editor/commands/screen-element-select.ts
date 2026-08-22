@@ -20,6 +20,7 @@ import {
   isScreenRootElementInfo,
   shouldIgnoreOverviewLayerCreationEcho,
 } from "@/pages/design-editor/selection-state";
+import { resolveToolAfterSelection } from "@/pages/design-editor/tool-state";
 import type { DesignTool, EditorMode } from "@/pages/design-editor/types";
 
 export interface ScreenElementSelectArgs {
@@ -234,8 +235,17 @@ export function runScreenElementSelect(
       }
       return dedupeStringIds([...current, node.id]);
     });
+  } else if (node) {
+    // An intent-less select is the bridge re-anchoring after a content
+    // replace, not a user picking one object, so it must not collapse a live
+    // multi-selection down to the member it re-found.
+    setSelectedLayerIdsState((current) =>
+      !intent && current.length > 1 && current.includes(node.id)
+        ? current
+        : [node.id],
+    );
   } else {
-    setSelectedLayerIdsState(node ? [node.id] : []);
+    setSelectedLayerIdsState([]);
   }
   if (viewModeRef.current === "overview") {
     setOverviewSelectedScreenIds([]);
@@ -256,7 +266,7 @@ export function runScreenElementSelect(
       handleBreakpointBarSelect(undefined);
     }
   }
-  setActiveTool("move");
+  setActiveTool(resolveToolAfterSelection);
   setMode("edit");
   focusDesignInspectorForSelection();
 }

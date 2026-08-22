@@ -4,7 +4,9 @@ export {
   mutateSetting,
   putSetting,
   deleteSetting,
+  deleteSettingIfValue,
   getAllSettings,
+  listSettingsByPrefix,
   getSettingsEmitter,
   type StoreWriteOptions,
 } from "./store.js";

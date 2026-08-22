@@ -42,6 +42,7 @@ import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { useNavigate, Link, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
+import { trace } from "@/components/design/design-trace";
 import PromptPopover from "@/components/editor/PromptDialog";
 import type {
   PromptTemplateOption,
@@ -624,8 +625,24 @@ export default function Index() {
           skipQuestions: pendingOptions?.skipQuestions,
           ...options,
         });
+        // Rejecting here is what lets PromptPopover restore the typed prompt.
+        // Navigating first strands the user in an empty editor with no error.
+        try {
+          await ready;
+        } catch (error) {
+          clearPendingGeneration(id);
+          setNewDesignHandoffPending(false);
+          trace("persist", "create-design-failed", {
+            id,
+            designSystemId,
+            message: error instanceof Error ? error.message : String(error),
+          });
+          toast.error(t("home.failedToCreateDesign"));
+          throw error;
+        }
       }
 
+      trace("persist", "new-design-handoff", { id, designSystemId });
       setNewDesignHandoffPending(true);
       navigate(`/design/${id}`);
     },
@@ -1215,7 +1232,7 @@ export default function Index() {
             </AlertDialogCancel>
             <AlertDialogAction
               onClick={bulkDeleteOpen ? handleBulkDelete : handleDelete}
-              className="bg-red-600 hover:bg-red-700 cursor-pointer"
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90 cursor-pointer"
             >
               {t("home.delete")}
             </AlertDialogAction>

@@ -70,8 +70,10 @@ provider keys per factory. Start with provider-api-catalog to discover the
 workspace's connected provider APIs, use provider-api-docs when an endpoint is
 unclear, and use provider-api-request with the shared credentials. The normalized
 poll-slack-channel, poll-github-sources, and poll-sentry-errors actions are legacy
-observer adapters for the default triage queue, not a list of Factory integrations
-or a limit on what agents can use.
+observer adapters scoped by factoryId (pass the current factory from automation
+meta or navigation), not a list of Factory integrations or a limit on what agents
+can use. Triage config, inbox, rules, automations, and activity are per-factory;
+reusable agents and workspace integrations stay shared.
 For rule or guard changes, use the triage rule actions and preserve
 normalizeTriagePolicyGuards; do not encode policy in graph JSON.
 Use add-factory-comment for durable comments attached to the selected node or edge.

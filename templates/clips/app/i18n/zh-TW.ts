@@ -591,11 +591,16 @@ const messages = {
     alsoFor: "也可用於 {{platform}}",
     backToLibrary: "返回媒體庫",
     clipsDesktop: "Clips 桌面版",
+    stable: "穩定版",
+    nightly: "Nightly",
+    switchToNightly: "切換至 Nightly 建置",
+    switchToStable: "切換至穩定版建置",
+    retry: "重試",
     heroDescription:
       "用於螢幕、相機和螢幕+相機的選單欄紀錄器。一鍵啟動，可拖動相機氣泡，停止時即時分享連結。",
     versionReleased: "版本 {{version}} — 發布 {{date}}",
     version: "版本 {{version}}",
-    manifestError: "無法載入版本清單，請從版本頁面選取安裝程式。",
+    manifestError: "無法載入版本清單，請重試。",
     loadingRelease: "正在載入最新版本...",
     chromeTitle: "Chrome 瀏覽器記錄擴充功能",
     chromeDescription:
@@ -655,8 +660,6 @@ const messages = {
     viewAllUpdates: "檢視所有更新",
     expand: "展開",
     collapse: "收起",
-    changelogMarkdown:
-      "# 更新記錄\n\nClips 中所有面向使用者的重要更改都會紀錄在這裡。你可以隨時從指令選單（Cmd+K -> “最新變化”）或設定中開啟。\n\n## 2026-06-23\n\n### 新增\n\n- 現在可以直接在 Clips 中檢視最新變化。更新記錄已加入指令選單（Cmd+K）和設定。",
     playback: "播放",
     defaultPlaybackSpeed: "預設播放速度",
     playbackDescription: "開啟錄製時會自動應用。",

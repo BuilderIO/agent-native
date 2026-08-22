@@ -28,6 +28,12 @@ const messages: AgentChatTranslation = {
   "commands.mention": "الإشارة إلى ملفات أو وكلاء أو موارد",
   "commands.new": "مثل /clear",
   "commands.plan": "التبديل إلى التخطيط للقراءة فقط",
+  "aboutAgentNative.title": "حول Agent Native",
+  "aboutAgentNative.version": "الإصدار",
+  "aboutAgentNative.environment": "البيئة",
+  "aboutAgentNative.build": "البنية",
+  "aboutAgentNative.copyDiagnostics": "نسخ بيانات التشخيص",
+  "aboutAgentNative.unknown": "غير معروف",
   "common.agent": "الوكيل",
   "common.cancel": "إلغاء",
   "common.collapse": "طي",
@@ -290,7 +296,7 @@ const messages: AgentChatTranslation = {
   "errorMessages.invalidToolSchema":
     "كان مخطط إحدى الأدوات غير صالح، لذلك رفض النموذج الطلب قبل بدئه. يمكن تخطي الأداة غير الصالحة وإعادة محاولة الطلب.",
   "errorMessages.noProviderConnected":
-    "لا يوجد مزوّد LLM متصل. افتح «إدارة الوكيل» ← «LLM» لهذا التطبيق، ثم اربط Builder.io أو أضف مفتاح مزوّد.",
+    "لا يوجد مزوّد LLM متصل. افتح الإعدادات > الوكيل > مزوّدو الذكاء الاصطناعي، ثم اربط Builder.io (تتوفر خطة مجانية) أو أضف مفتاح مزوّد.",
   "errorMessages.openBuilderSpaceSettings": "فتح إعدادات مساحة Builder",
   "errorMessages.providerAuthentication":
     "رفض مزوّد النموذج مفتاح API المحفوظ. حدّث المفتاح من الإعدادات ← عمليات التكامل ← مفاتيح API، ثم أعد المحاولة.",

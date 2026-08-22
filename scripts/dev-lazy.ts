@@ -1610,12 +1610,20 @@ const LOOPBACK_HOSTNAMES = new Set(["localhost", "127.0.0.1", "[::1]"]);
  * alias while injecting the other into `VITE_WORKSPACE_GATEWAY_URL` turns
  * otherwise same-gateway requests into CORS requests. Redirect only equivalent
  * loopback aliases on the same port; external/proxied hosts are left untouched.
+ *
+ * A cross-origin caller (the desktop app's dev renderer, another workspace app)
+ * is never redirected. A CORS preflight is not allowed to follow a redirect at
+ * all — the browser reports "Preflight response is not successful. Status code:
+ * 307" — and a redirected credentialed request loses its CORS headers. Those
+ * requests are proxied to the app instead, which answers CORS for both aliases.
  */
 export function canonicalLoopbackRedirect(
   requestHost: string | undefined,
   requestTarget: string | undefined,
   canonicalGatewayUrl: string,
+  requestOrigin?: string | undefined,
 ): string | undefined {
+  if (requestOrigin) return undefined;
   if (!requestHost || !requestTarget?.startsWith("/")) return undefined;
 
   try {
@@ -1641,6 +1649,7 @@ function createGateway(): http.Server {
       firstHeaderValue(req.headers.host),
       req.url,
       gatewayUrl,
+      firstHeaderValue(req.headers.origin),
     );
     if (canonicalRedirect) {
       res.writeHead(307, { location: canonicalRedirect });

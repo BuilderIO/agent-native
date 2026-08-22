@@ -165,7 +165,7 @@ const messages = {
       color: "顏色",
       align: "對齊",
       lineHeight: "行高",
-      tracking: "追蹤",
+      tracking: "字距",
       direction: "方向",
       justify: "證明合法",
       gap: "差距",
@@ -1280,6 +1280,9 @@ const messages = {
     continue: "繼續生成",
     starting: "正在啟動…",
     githubIndexStarted: "GitHub 索引已開始",
+    designMdIndexStarted: "design.md 索引已開始",
+    designMdUpload: "上傳 design.md",
+    designMdHelp: "將 design.md 指引匯入 Builder DSI",
     title: "設定您的設計系統",
     description:
       "透過 Builder DSI 連接 Figma、程式碼和選用的 design.md 指引。脈絡越多，代理得到的系統越準確。",
@@ -1337,6 +1340,10 @@ const messages = {
         "使用完整的 GitHub 儲存庫 URL，例如 https://github.com/org/repo。",
       githubIndex:
         "無法啟動 GitHub 索引。請檢查 Builder 連線和儲存庫存取權限。",
+      chooseDesignMd: "請選取 design.md 或 design.mdx 檔案。",
+      readDesignMd: "無法讀取 design.md 檔案。",
+      designMdTooLarge: "design.md 必須為 2 MB 或更小。",
+      designMdIndex: "無法啟動 design.md 索引。請檢查 Builder 連線。",
       noSources: "在生成設計系統之前至少新增一個來源。",
     },
     sections: {
@@ -1353,6 +1360,10 @@ const messages = {
         title: "連接程式碼",
         description:
           "GitHub 儲存庫、本機程式碼檔案或 design.md 會交給 Builder DSI 索引。",
+      },
+      designMd: {
+        title: "匯入 design.md",
+        description: "使用 design.md 檔案作為設計系統來源",
       },
       designFiles: {
         title: "參考檔案",

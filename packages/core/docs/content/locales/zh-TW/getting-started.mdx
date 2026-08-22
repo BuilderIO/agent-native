@@ -1,58 +1,174 @@
 ---
 title: "開始使用"
-description: "建立 Chat 應用程式並設定代理，然後透過動作和頁面擴充它。"
+description: "建立一個 Agent-Native 應用程式，並從代理與 UI 呼叫相同的 action。"
 ---
 
 # 開始使用
 
-Agent-Native 應用程式讓代理和 UI 共用相同的[動作](/docs/actions-overview)、SQL 資料和應用程式狀態。這條路徑從 Chat 開始，Chat 已經建立所需的框架資料表，並預設將聊天記錄儲存在本機 SQLite 中。只有當應用程式需要持久化領域資料時，才新增自己的資料表。
+Agent-Native 是一個開放原始碼 TypeScript 框架，用於建置同時服務人們與 AI 代理的應用程式。您只要將應用程式功能定義一次，作為 [actions](/docs/actions-overview)——React UI 從程式碼呼叫的具型別函式，代理則將它們當作工具使用。
 
-<Steps>
+本指南中，您將建立一個 Chat 應用程式，並從代理和 UI 呼叫其內含的 `hello` action。
 
-### 建立聊天應用程式並設定代理
+## 先決條件
 
-建立 Chat 範本、安裝相依套件、啟動開發伺服器並設定代理。您會得到一個可繼續擴充的聊天應用程式。
-**您目前在這裡。**
+- [Node.js](https://nodejs.org) 22 或更新版本
+- [pnpm](https://pnpm.io)
+- 供代理使用的 LLM 連線：Builder.io、Anthropic 或 OpenAI API 金鑰，或本機 Ollama 模型
 
-### 新增動作
+## 建立應用程式
 
-定義一個具型別的文字分析器，並在對話中將結果渲染為圖表。
-
-### 新增頁面
-
-建立一個在對話記錄之外呼叫相同動作的 React 路由。
-
-</Steps>
-
-## 1. 建立聊天應用程式 {#create-your-app}
-
-您需要 [Node.js 22+](https://nodejs.org) 和 [pnpm](https://pnpm.io)。
-
-開啟終端機，前往您要建立 Agent Native 應用程式的目錄，然後執行：
+在新目錄中建立 Chat 應用程式：
 
 ```bash
-npx @agent-native/core@latest create my-app --template chat
+npx @agent-native/core@latest create my-app --standalone --template chat
 cd my-app
 pnpm install
+```
+
+範本包含瀏覽器應用程式、驗證、持久對話、即時同步、應用程式上下文和 `actions/` 目錄。它還包含一個小型 `hello` action，您會在本指南中一直使用它。
+
+## 啟動開發伺服器
+
+啟動應用程式：
+
+```bash
 pnpm dev
 ```
 
-應用程式會在 `http://localhost:8080` 開啟。如果看到登入畫面，請使用虛構的登入資訊註冊。本機開發不需要驗證電子郵件。
+應用程式會在 `http://localhost:8080` 開啟。若未自動開啟，請在瀏覽器中造訪該 URL。
 
-Chat 範本包含持久化聊天對話串、驗證、即時同步、`actions/` 目錄，以及標準的 `view-screen` 和 `navigate` 動作。
+<Callout tone="info">
 
-### 選擇其他起點
+在歡迎畫面中，選取 **Continue as local dev**。本機開發不需要輸入電子郵件或密碼。
 
-如果 Chat 不是合適的起點，可以執行 `create` 而不使用 `--template`，並在 CLI 中選擇其他選項。其他路徑請參閱[建立範本](/docs/creating-templates)。
+</Callout>
 
-## 2. 設定代理 {#connect-ai}
+接著連線 LLM。選取 **Connect Builder.io** 使用免費額度，或選取 **Custom keys**，選擇提供者並輸入所需的連線詳細資料。
 
-Chat 範本會直接開啟對話介面。如果代理尚未準備好回應，請開啟 **Settings > Manage agent**，或使用 **Cmd/Ctrl+K > Manage agent** 來設定模型和提供者。
+## 從代理執行 action
 
-代理開始回應後，繼續閱讀[新增動作](/docs/getting-started-actions)。
+Action 是 React UI 可從程式碼呼叫、代理可作為工具使用的具型別函式。Chat 範本包含一個簡單的 `hello` action，讓您能在自行撰寫 action 前先嘗試這個模式。
 
-## 相關文件
+在應用程式中輸入：
 
-- [什麼是 Agent-Native？](/docs/what-is-agent-native)：這條路徑背後的架構。
-- [Chat 範本](/docs/template-chat)：起始應用程式包含的內容。
-- [FAQ](/docs/faq)：關於模型、託管和範本的解答。
+> Call the hello action for Alex.
+
+代理會透過描述和輸入 schema 找到 `hello`，將 `Alex` 作為 `name` 輸入傳入，並回覆：
+
+```text
+Hello, Alex!
+```
+
+## 檢視 action
+
+開啟 `actions/hello.ts`：
+
+```ts filename="actions/hello.ts"
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Return a friendly greeting.",
+  schema: z.object({
+    name: z.string().default("world").describe("Name to greet"),
+  }),
+  http: { method: "GET" },
+  run: async ({ name }) => {
+    return { message: `Hello, ${name}!` };
+  },
+});
+```
+
+目前請聚焦於四個部分：
+
+- `description` 告訴代理何時使用這個 action。
+- `schema` 驗證輸入，並向代理提供具型別的工具定義。
+- `http` 透過 `GET` 公開這個唯讀 action，讓 `useActionQuery` 可從 React 呼叫它。
+- `run` 包含由代理與 UI 共用的應用程式邏輯。
+
+完整 API 請閱讀[定義 actions](/docs/actions-defining)。
+
+## 從 React 呼叫 action
+
+在 `app/routes/hello.tsx` 新增路由：
+
+```tsx filename="app/routes/hello.tsx"
+import { useActionQuery } from "@agent-native/core/client/hooks";
+import { useState } from "react";
+
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+
+export default function HelloRoute() {
+  const [name, setName] = useState("Alex");
+  const { data } = useActionQuery("hello", { name });
+
+  return (
+    <main className="mx-auto grid w-full max-w-xl gap-6 p-6">
+      <h1 className="text-2xl font-semibold">Hello action</h1>
+      <div className="grid gap-2">
+        <Label htmlFor="name">Name</Label>
+        <Input
+          id="name"
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+        />
+      </div>
+      <p className="text-xl font-medium">{data?.message}</p>
+    </main>
+  );
+}
+```
+
+<Callout tone="warning">
+
+重新啟動開發伺服器，讓它探索新路由，然後開啟 `http://localhost:8080/hello`。
+
+</Callout>
+
+輸入名稱時，`useActionQuery` 會呼叫 `hello` 並渲染結果。它會推斷 action 的輸入與結果型別，因此頁面不需要自訂 API 路由或第二份問候語實作。
+
+## 修改 action
+
+在 `actions/hello.ts` 中，修改回傳值：
+
+```ts
+return { message: `Welcome, ${name}.` };
+```
+
+重新整理 `/hello`，接著請代理再次呼叫 `hello`。兩者都會回傳更新的問候語，因為它們呼叫的是相同 action。
+
+## 用其他方式呼叫 actions
+
+您已從代理和 UI 呼叫相同的 action。這個 action 還可以從下列位置呼叫：
+
+| 從這裡呼叫                              | 用途                                                   |
+| --------------------------------------- | ------------------------------------------------------ |
+| [HTTP API](/docs/http-api)              | 從指令碼、後端或整合呼叫 action。                      |
+| [CLI](/docs/actions-other-surfaces#cli) | 在終端機中執行或測試 action。                          |
+| [MCP](/docs/actions-other-surfaces#mcp) | 讓外部 AI 用戶端探索並以工具形式呼叫 actions。         |
+| [A2A](/docs/actions-other-surfaces#a2a) | 讓另一個 Agent-Native 應用程式請這個應用程式完成工作。 |
+
+每個呼叫端都使用相同的 action 定義。您不需要為每個呼叫端建立單獨實作。這個共用 action 模型是 Agent-Native 的核心：隨著應用程式改變，UI、代理與整合的行為、驗證及權限都會維持一致。
+
+## 您建立了什麼
+
+您建立了一個 Agent-Native 應用程式，從代理與 React UI 呼叫它的 `hello` action，接著只變更一次問候語，並看見兩者更新。您之後撰寫的每個 action 都會遵循相同模式。
+
+## 下一步
+
+<Cards>
+
+### [什麼是 Agent-Native？](/docs/what-is-agent-native)
+
+了解為何 UI 與代理共用 actions、資料和上下文。
+
+### [核心概念](/docs/key-concepts)
+
+了解 actions、SQL 資料、應用程式上下文、存取權和即時同步如何配合運作。
+
+### [Actions](/docs/actions-overview)
+
+定義讀取、寫入和核准 actions，接著從 UI、代理和外部用戶端呼叫它們。
+
+</Cards>

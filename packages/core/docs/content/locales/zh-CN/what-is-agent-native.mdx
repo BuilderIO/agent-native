@@ -1,389 +1,79 @@
 ---
 title: "什么是 Agent-Native？"
-description: "为什么大多数 AI 应用感觉只做了一半，什么让一个应用真正做到 agent-native，以及由此带来的日常使用体验是什么样的。"
+description: "Agent-Native 是什么、其共享动作架构如何工作，以及何时应以这种方式构建应用。"
 ---
 
 # 什么是 Agent-Native？
 
-Agent-native 是一种构建软件的方式，其中 AI 智能体与围绕它构建的产品界面是**平等的合作伙伴**。通常的路径从聊天开始，添加类型化操作，将结构化结果内联渲染，并在相同的 SQL 状态之上演化为持久化的应用页面。重要的是，智能体和人类共享相同的操作、数据库和状态。
+Agent-Native 是一个开源 TypeScript 框架，用于构建同时服务于人和 AI 智能体的应用。你只需将应用功能定义一次，作为[动作](/docs/actions-overview)——React UI 从代码中调用的类型化函数，智能体则将其用作工具。
 
-如果你从这个页面只记住一件事，请记住这一点：今天大多数 AI 应用距离真正有用只差一步，而这个差距正是当前该领域最大的失误。
+## 为什么要以这种方式构建应用
 
-## 作为用户，它是什么样的 {#what-it-looks-like}
+大多数应用都是围绕人通过 UI 工作而设计的。加入智能体引入了另一种使用产品的方式。要让两者作为一个产品协同工作，必须满足三件事：
 
-想象一个后台工作进程、收件箱、日历、表单构建器或分析仪表盘。通常第一个屏幕是聊天：你说出你想要的，智能体引导设置、显示表格或图表，并打开正确的应用视图。有时聊天停靠在完整应用的右侧。有时还没有自定义屏幕，因为工作流是计划任务、队列、脚本或外部智能体集成。在这些形态下，你可以：
+- **智能体需要访问产品。** 如果它得到的是较小、独立的一组工具，它仍然会受到限制。随着应用变化，你也会维护两套逐渐偏离的实现。
+- **人们仍然需要应用 UI。** 聊天很适合委派工作，但并不总适合浏览信息、比较选项、审查变更或与团队共享结果。
+- **工作需要能在两者之间流转。** 人应该能够检查或修改智能体的工作，而智能体应能从那里继续，不必重新开始。
 
-- **从真实操作开始。** 一个持久化操作可以从 CLI、HTTP、MCP、A2A、应用-智能体循环运行，以后也可以从 UI 运行。
-- **点击有 UI 时通常会点击的任何内容。** 所有按钮、列表、仪表盘、键盘快捷键——它们都调用智能体可以调用的相同操作。
-- **或者直接提问。** 在智能体中输入"回复 Sara 的邮件说我三点前到"。它打开正确的线程、起草回复，并展示给你审批——就像你手动操作一样。
-- **看到它看到的内容。** 打开一封邮件，智能体知道是哪一封。选择一个图表，智能体知道是哪个图表。高亮一段文字并按 Cmd+I，智能体只对该段落执行操作。
-- **观看它工作。** 当智能体执行操作时——打开视图、编辑草稿、运行报告——UI 实时更新。你可以随时停止它、重定向它，或用鼠标接管。
-- **像对待团队成员一样引导它。** 给出反馈、排队另一个任务、编辑它的指令，并审计它昨天做了什么。
+Agent-Native 架构围绕这些要求构建。人们可以直接通过 UI 工作，也可以将结果委派给智能体，然后在两者之间切换而不会丢失进度。
 
-这就是 agent-native 所设计的体验。现在来看看为什么大多数产品做不到这一点。
-
-## 为什么大多数"AI 应用"差强人意（阶梯原则） {#the-ladder}
-
-大多数团队都会经历一个类似爬梯子的过程，而大多数人会在差一级的地方停下来。
-
-### 第 1 级——单次 LLM 调用（反模式） {#rung-one}
-
-一个文本框发送提示词，AI 返回一个字符串，然后你显示它。也许还有一个加载动画。用户没有办法纠偏，AI 没有办法采取行动，也没有办法看到发生了什么或为什么。
-
-你到处都能看到这种模式："AI 功能"基本上就是一个"摘要"按钮拼接在 SaaS 产品上。它们在演示中看起来令人印象深刻，但一遇到复杂的现实情况就会崩溃。这不是产品；这只是一个玩具。
-
-### 第 2 级——带工具的聊天 {#rung-two}
-
-现在 AI 可以*做事情*了。它拥有工具——"起草邮件"、"搜索联系人"、"运行查询"——以及一个聊天界面，在你面前工作，边做边展示工具调用和结果。这就是 Claude、ChatGPT 和 Cursor 底层的样子。
-
-这是真正的进步。但就其本身而言，它仍然只是一个聊天窗口。没有正式的 UI。没有仪表盘、没有列表、没有表单、没有键盘快捷键、没有团队协作。如果 AI 搞混了，你只能重新输入，而不是直接点击正确的按钮。非开发人员很难用这种方式完成真正的工作。
-
-### 第 3 级——智能体 + UI 作为平等伙伴 {#rung-three}
-
-这就是 agent-native。你在智能体周围添加一个真实的、功能完整的应用——关键是，智能体可以执行的每个操作在 UI 中也是一个按钮，用户点击的每个按钮运行的是智能体使用的相同逻辑。一次实现，两种入口。
-
-当你达到第 3 级时，三件事会发生改变：
-
-- **你不再是在聊天机器人上添加按钮，而是在应用中添加了一个智能体。** 这在两端都是质量更高的产品。
-- **智能体拥有真实的上下文。** 它看到你正在查看什么、你选择了什么、你刚才做了什么。它写入 UI 读取的同一个数据库，所以它的工作会立即显示出来。
-- **外部智能体也可以使用它。** 其他 agent-native 应用可以通过 [A2A 协议](/docs/a2a-protocol) 调用此应用的操作。Claude Code、Codex、ChatGPT 自定义 MCP 应用、Cursor 和其他 MCP 宿主可以将其作为 [MCP 服务器](/docs/mcp-protocol) 来驱动。一个应用，多个入口点。
-
-这就是第 3 级。这就是 agent-native。
-
-<Diagram id="doc-block-19ku4da" title="阶梯原则" summary={"大多数团队止步于第 1 级或第 2 级。Agent-native 是第 3 级——一个真实的应用和一个真实的智能体，共享同一个操作界面。"}>
-
-```html
-<div class="diagram-ladder">
-  <div class="diagram-card rung rung-3">
-    <span class="diagram-pill accent">第 3 级 · agent-native</span
-    ><strong>智能体 + UI 作为平等伙伴</strong
-    ><small class="diagram-muted"
-      >统一的操作界面。每个智能体工具也是一个按钮；每个按钮运行智能体使用的相同逻辑。</small
-    >
-  </div>
-  <div class="diagram-card rung rung-2">
-    <span class="diagram-pill">第 2 级</span><strong>带工具的聊天</strong
-    ><small class="diagram-muted"
-      >智能体可以行动——但它仍然只是一个聊天窗口。没有仪表盘、列表或快捷键。</small
-    >
-  </div>
-  <div class="diagram-card rung rung-1">
-    <span class="diagram-pill warn">第 1 级</span><strong>单次 LLM 调用</strong
-    ><small class="diagram-muted"
-      >提示词进，字符串出。演示中令人印象深刻；一遇到复杂的现实情况就会崩溃。</small
-    >
-  </div>
-</div>
-```
-
-```css
-.diagram-ladder {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-.diagram-ladder .rung {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 16px 18px;
-}
-.diagram-ladder .rung-2 {
-  margin-inline-end: 48px;
-}
-.diagram-ladder .rung-1 {
-  margin-inline-end: 96px;
-}
-```
-
-</Diagram>
-
-参见[核心概念——协议](/docs/key-concepts#protocols)，了解所有这些如何挂载在同一个操作定义上。
-
-## 为什么每个智能体都需要 UI {#why-every-agent-needs-a-ui}
-
-即使智能体承担了所有繁重的工作，人类仍然需要：
-
-- **看到它在做什么**——进度、中间输出、它触及了什么
-- **引导它**——给出反馈、中断、排队下一个任务
-- **管理它**——编辑它的指令、技能、记忆、计划任务、已连接账户
-- **检查它的工作**——审查草稿、审计历史、回滚错误
-- **分享它的输出**——仪表盘、报告、表单、发送给团队成员的链接
-
-最低限度，"智能体的 UI"是一个可观测性和管理仪表盘。最大程度上，它是一个以智能体作为副驾驶嵌入其中的完整 SaaS 应用。两端都算作 agent-native，并且界面可以从其中一端增长而无需重写。
-
-你不必预先选择每一种界面。智能体可以从富聊天开始，渲染原生内联 UI，存在于完整应用中，或从自动化和外部智能体渠道运行，共享同一个操作界面——参见[智能体界面](/docs/agent-surfaces)了解具体形态和 API。
-
-## 为什么每个应用都受益于智能体 {#why-every-app-benefits-from-an-agent}
-
-另一面同样重要。现有的 SaaS 产品不断碰到同一堵墙：80% 的功能运行良好，20% 你就是无法改变。添加一个聊天侧边栏很少能解决这个问题——聊天通常实际上无法*做* UI 能做的事情。
-
-Agent-native 改变了这一点。因为应用中的每个操作都被定义一次，并同时暴露为按钮和智能体工具，智能体可以做按钮能做的一切——而且更多——而无需维护单独的"AI 世界"。自然语言与点击操作一起成为一等公民输入方式。
-
-这个论点不是"智能体取代 UI"，而是"**智能体应该存在于应用内部，UI 在上方，作为平等伙伴**"。即使是自动化优先的应用，仍然需要某种界面供人类监督、配置和引导——通常是聊天、任务历史或一个小的状态页面。参见[智能体界面——自动化优先应用](/docs/agent-surfaces#headless)。
-
-## 智能体 + UI 对等 {#agent-ui-parity}
-
-这是核心原则。
-
-- **从 UI**——点击按钮、填写表单、导航视图。UI 写入数据库；智能体看到结果。
-- **从智能体**——自然语言、通过 A2A 的其他智能体、Slack、Telegram。智能体写入数据库；UI 自动更新。
-
-一个好的心智模型是共享状态机。用户界面和智能体界面都提交类型化操作；这些操作就像带有 schema 和权限边界的 reducer 事件：验证输入、授权行为者、应用状态更新，然后广播/渲染结果。UI 主要是该结果状态的一个投影。智能体不是从 DOM 猜测或直接修改私有组件状态；它通过 UI 使用的相同类型化操作层进行交互。
-
-<Diagram id="doc-block-1n18itc" title="共享状态机" summary={"用户和智能体都提交类型化操作。操作经过验证、授权、应用 SQL 支持的状态更新，然后广播/渲染新状态。"}>
-
-```html
-<div class="diagram-machine">
-  <div class="diagram-card surface user" data-rough>
-    <span class="diagram-pill">用户界面</span>
-    <div class="diagram-node diagram-accent">
-      打开设计标签页<br /><small class="diagram-muted">navigate.panel</small>
-    </div>
-    <div class="diagram-node">
-      添加文本块<br /><small class="diagram-muted">plan.addBlock</small>
-    </div>
-    <div class="diagram-node">
-      删除摘要<br /><small class="diagram-muted">plan.removeBlock</small>
-    </div>
-  </div>
-  <div class="core">
-    <div class="lane-row">
-      <span class="diagram-pill">意图 -&gt; 操作</span
-      ><span class="diagram-pill">操作 &lt;- 意图</span>
-    </div>
-    <div class="diagram-panel action" data-rough>
-      <span class="diagram-pill accent">类型化操作</span
-      ><strong>navigate</strong
-      ><small class="diagram-muted"
-        >执行者：用户或智能体 &middot; 输入：panel = Design</small
-      >
-      <div class="steps">
-        <span class="diagram-pill">验证</span
-        ><span class="diagram-pill">授权</span
-        ><span class="diagram-pill">应用更新</span>
-      </div>
-    </div>
-    <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
-    <div class="diagram-panel state" data-rough>
-      <span class="diagram-pill ok">共享状态</span
-      ><strong>SQL + 应用状态</strong
-      ><code>{ panel: "Design", lastActor: "user" }</code
-      ><small class="diagram-muted">通过实时同步广播</small>
-    </div>
-    <div class="lane-row bottom">
-      <span class="diagram-pill ok">状态 -&gt; UI</span
-      ><span class="diagram-pill ok">上下文 -&gt; 智能体</span>
-    </div>
-  </div>
-  <div class="diagram-card surface agent" data-rough>
-    <span class="diagram-pill">智能体界面</span>
-    <div class="diagram-node">
-      添加图表块<br /><small class="diagram-muted">plan.addBlock</small>
-    </div>
-    <div class="diagram-node">
-      删除过时块<br /><small class="diagram-muted">plan.removeBlock</small>
-    </div>
-    <div class="diagram-node diagram-accent">
-      聚焦审查视图<br /><small class="diagram-muted">navigate.review</small>
-    </div>
-  </div>
-</div>
-```
-
-```css
-.diagram-machine {
-  display: grid;
-  grid-template-columns: minmax(150px, 1fr) minmax(300px, 1.45fr) minmax(
-      150px,
-      1fr
-    );
-  gap: 12px;
-  align-items: stretch;
-}
-.diagram-machine .surface {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 14px;
-}
-.diagram-machine .surface .diagram-pill {
-  align-self: flex-start;
-}
-.diagram-machine .diagram-node {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 10px 12px;
-}
-.diagram-machine .core {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 8px;
-  min-width: 0;
-}
-.diagram-machine .lane-row {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.diagram-machine .lane-row.bottom {
-  justify-content: center;
-}
-.diagram-machine .diagram-arrow {
-  font-size: 22px;
-  line-height: 1;
-  text-align: center;
-}
-.diagram-machine .diagram-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-width: 0;
-  padding: 14px;
-}
-.diagram-machine .steps {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-.diagram-machine code {
-  align-self: flex-start;
-  max-width: 100%;
-  white-space: normal;
-}
-@media (max-width: 760px) {
-  .diagram-machine {
-    grid-template-columns: 1fr;
-  }
-  .diagram-machine .lane-row {
-    justify-content: flex-start;
-  }
-  .diagram-machine .lane-row.bottom {
-    justify-content: flex-start;
-  }
-}
-```
-
-</Diagram>
-
-当智能体创建一封草稿邮件时，它会出现在 UI 中。当你点击"发送"时，智能体知道它已被发送。没有独立的"智能体世界"和"UI 世界"——这是一个系统。参见[核心概念](/docs/key-concepts)了解实现这一切的架构。
-
-## 通常只有高级工具才有的自定义能力 {#workspace-customization}
-
-像 Claude Code 这样的工具如此强大的原因不是模型——而是**自定义层**：按项目的指令、技能、记忆、子智能体、已连接服务。你可以根据你的代码库、你的偏好、你的团队来塑造智能体。
-
-Agent-native 给每个用户提供了相同的自定义层——无需离开应用。每个应用都附带个人**智能体资源**，你（或你团队中的任何人）可以使用这些资源来：
-
-- 编辑每个人的智能体都会读取的团队范围规则
-- 让智能体在你纠正它时自动记住偏好
-- 将可复用的操作指南写成 `/slash` 命令
-- 为特定任务保留自定义子智能体（用 `@mentions` 调用）
-- 安排按 cron 运行的任务（例如"每周一早上，总结上周内容"）
-- 通过每用户 MCP 服务器连接外部服务（Gmail、Stripe、Slack、内部 API）
-
-关键在于：这一切都存储在数据库中，而不是文件系统中。无需启动开发环境，无需每用户一个容器。每个用户都能获得自己完整的智能体资源集合——个人记忆、个人连接、个人技能——几乎免费，因为这一切都是表中的行。这就是让 Claude Code 级别的灵活性在真实的多租户 SaaS 产品中可行的原因。
-
-参见[智能体资源](/docs/agent-resources)了解完整概念。
-
-## 它有什么不同 {#what-makes-it-different}
-
-| 方式                              | 描述                                                                                              |
-| --------------------------------- | ------------------------------------------------------------------------------------------------- |
-| **附加了 AI 的传统应用**          | AI 是事后才想到的。仅限于自动补全、摘要，或一个实际上无法在应用中执行任何操作的聊天侧边栏。       |
-| **纯聊天 / 智能体界面**           | 功能强大但难以使用。没有仪表盘、没有工作流、没有持久化。非开发人员无法有效使用。                  |
-| **Claude Code / Codex 用于 SaaS** | 对在自己机器上工作的开发者来说很棒。无法转化为多租户 SaaS——每个用户在开发机上一个代码库无法扩展。 |
-| **Agent-native 应用**             | 智能体是一等公民。它共享相同的数据库、相同的状态，并且可以做 UI 能做的一切——反之亦然。            |
-
-## 全团队开发 {#whole-team-development}
-
-Agent-native 不仅仅是为开发者准备的。嵌入式智能体为整个团队提供了一种共同操作应用的方式，而源代码变更仍然是应用正常开发工作流的一部分，可以委托给明确授予工作区和写入工具的框架：
-
-- **设计师**直接通过智能体更新应用数据和工作流
-- **产品经理**配置工作流并向开发团队描述变更
-- **QA** 测试应用并通过智能体报告问题
-- **团队中的任何人**都通过自然语言做出贡献
-
-愿景：更少的交接，一个人完成一个小团队的工作。
-
-## 从模板开始并自定义 {#fork-and-customize}
-
-Agent-native 应用遵循从可运行应用开始的模型。你从一个**模板**开始——日历、内容、幻灯片、分析、邮件、视频片段、设计、表单、调度——然后把它变成你的。每一个都是完整的、可运行的 SaaS 产品，而不是空白脚手架：
-
-1. 在 [agent-native.com/templates](/templates) 上选择一个模板
-2. 许多官方模板都提供了托管应用（例如 mail.agent-native.com）
-3. 当你想要自定义时，从模板创建你自己的应用——"连接我们的 Stripe 账户"、"添加一个队列图表"
-4. 在你自己的仓库和开发工作流中自定义源代码
-5. 将你的应用部署到你自己的域名——或留在 agent-native.com 上
-
-因为这是*你的*应用，而不是共享基础设施，你拥有它的源代码，可以在不改变共享框架的情况下演进它。嵌入式智能体默认通过其操作和数据界面操作已部署的应用，并且可以在其框架被明确启用代码权限时修改源代码。参见[模板](/docs/cloneable-saas)了解完整故事。
-
-还没准备好从完整模板开始？你也可以通过向已在使用的编码智能体添加**技能**来尝试 agent-native——用 `npx @agent-native/core@latest skills add visual-plan` 安装 Plans 技能。参见[技能指南](/docs/skills-guide#app-backed-skills)。
-
-## 可组合智能体 {#composable-agents}
-
-Agent-native 应用可以互相通信。从邮件应用内部，你可以标记分析智能体来查询数据，并将结果包含在草稿邮件中。智能体会发现哪些其他智能体可用，在它们之间交接工作，并在你已经在的 UI 中呈现结果。
-
-这在底层由 [A2A](/docs/a2a-protocol) 和 [MCP](/docs/mcp-protocol) 驱动——相同的定义，多个界面——但作为用户，你只需要知道"我可以向我的任何应用寻求帮助，完成它们任何一个能做的事情"。
-
-## 在代码中是什么样的？ {#what-does-it-look-like-in-code}
-
-如果你正在构建或扩展一个 agent-native 应用，核心模式是：应用中的每个操作都是一个**action**——定义一次，同时供智能体和 UI 使用。
-
-<AnnotatedCode
-  id="doc-block-n4jy5o"
-  title="一个操作，定义一次"
-  filename="actions/reply-to-email.ts"
-  language="ts"
-  code={
-    'import { defineAction } from "@agent-native/core/action";\nimport { z } from "zod";\n\nimport { getDb, schema } from "../server/db/index.js";\n\nexport default defineAction({\n  description: "Reply to an email thread",\n  schema: z.object({ emailId: z.string(), body: z.string() }),\n  run: async ({ emailId, body }) => {\n    const db = getDb();\n    await db.insert(schema.replies).values({ emailId, body });\n  },\n});'
-  }
-  annotations={[
-    {
-      lines: "7",
-      label: "工具界面",
-      note: "`description` 是智能体读取的内容，用于决定何时将其作为工具调用。",
-    },
-    {
-      lines: "8",
-      label: "类型化契约",
-      note: "一个 zod `schema` 验证来自**每个**界面的输入——智能体、UI、HTTP、MCP 和 A2A。",
-    },
-    {
-      lines: "9-12",
-      label: "单一实现",
-      note: "`run` 主体是唯一的真相来源。UI 按钮和智能体工具都精确执行这个。`getDb()` 和 `schema` 来自你应用的 `server/db/index.ts`——参见[数据库](/docs/server-database)。",
-    },
-  ]}
+<Video
+  src="https://cdn.builder.io/o/assets%2Fc5b47d20f6a943e485717e5895739988%2Fc88d506c160142ae9b8618616ceedcea%2Fcompressed?apiKey=c5b47d20f6a943e485717e5895739988&token=c88d506c160142ae9b8618616ceedcea&alt=media&optimized=true"
+  alt="比较人员直接使用应用与通过同一应用中的 AI 智能体工作。"
+  align="full"
+  caption="观看四分钟的 Agent-Native 架构介绍。"
 />
 
-```tsx
-// 在任意 React 组件中——相同的操作，从按钮调用
-const { mutate } = useActionMutation("reply-to-email");
+## Agent-Native 如何工作
 
-<Button onClick={() => mutate({ emailId, body: "Thanks!" })}>
-  Send Reply
-</Button>;
+Agent-Native 应用为人和智能体提供两种使用同一产品的方式：
+
+- **UI** 为人们提供熟悉的浏览、编辑、审查和共享工作的方法。
+- **智能体** 处理人们委派给它的工作。
+
+三个共享基础使之成为可能：
+
+- **共享操作。** 人通过 UI 触发操作，智能体则直接调用它们。Agent-Native 将每个操作只定义一次，作为一个[动作](/docs/actions-overview)。
+- **[共享数据](/docs/server-database)** 保存应用需要保留的工作和信息。根据应用的不同，可能是客户记录、项目计划、对话或报告。UI 和智能体都读写这些共享数据。
+- **[共享应用状态](/docs/context-awareness)** 描述当前正在发生的事情，例如当前页面、选定记录或活动视图。框架将相关状态作为上下文提供给智能体，使它知道人正在处理什么。
+
+```mermaid
+graph TD
+  UI[UI] --> App[一个应用]
+  Agent[智能体] --> App
+  App --- Operations[共享操作]
+  App --- Data[共享数据]
+  App --- State[共享应用状态]
 ```
 
-```tsx
-// 以及挂载在应用任意位置的智能体面板
-import { AgentSidebar } from "@agent-native/core/client/agent-chat";
-<AgentSidebar />;
-```
+智能体不会通过点击 UI 来操作。它调用与 UI 相同的动作，使用相同的验证、权限和实现。
 
-一个操作，多种界面：智能体将其作为工具调用，UI 将其作为类型安全的 mutation 调用，[原生聊天](/docs/native-chat-ui)可以渲染明确的 widget 结果，外部智能体通过 [A2A](/docs/a2a-protocol) 访问它，MCP 宿主通过应用的 [MCP 服务器](/docs/mcp-protocol)调用它，框架可选地处理 MCP Apps UI 资源和标准远程 MCP OAuth。参见 [Actions](/docs/actions-overview) 了解完整参考。
+例如，一个人可以通过 UI 分配支持工单，也可以要求智能体完成此事。两条路径都会运行同一个动作并更新同一张工单。该人可以在 UI 中检查或修改结果，然后让智能体从那里继续。
 
-## 接下来是什么 {#whats-next}
+## 何时应使用 Agent-Native？
 
-- [**快速入门**](/docs/getting-started)——从聊天开始，添加一个操作，渲染原生结果，并演化为页面
-- [**智能体界面**](/docs/agent-surfaces)——选择聊天、原生内联 UI、完整应用页面、嵌入式 sidecar、自动化或外部智能体访问
-- [**核心概念**](/docs/key-concepts)——架构：SQL、操作、轮询同步、上下文感知、可移植性
-- [**模板**](/docs/cloneable-saas)——作为你拥有的完整产品的模板
-- [**智能体资源**](/docs/agent-resources)——由 SQL 而非文件支持的每用户自定义层（技能、记忆、指令、MCP）
-- [**Dispatch**](/docs/dispatch)——工作区控制平面：密钥保险库、Slack/邮件收件箱、跨应用委托
-- [**Extensions**](/docs/extensions)——智能体无需代码变更即可即时创建的沙箱小应用
-- [**嵌入式智能体**](/docs/drop-in-agent)——将 `<AgentPanel>` 挂载到任何 React 应用中
-- [**FAQ**](/docs/faq)——关于成本、托管、模型和模板的快速解答
+以下情况适合使用 Agent-Native：
+
+- 智能体应在应用中完成实际工作，而不仅仅是回答问题。
+- 人们需要 UI 来检查、编辑、审批或共享工作。
+- 工作应能在 UI 和智能体之间流转，而不会丢失进度或上下文。
+
+如果你只需要一次生成的回答，直接调用模型即可。如果工作流遵循固定且可预测的顺序，普通应用逻辑或自动化会更简单。当 UI 和智能体都需要在同一项工作中持续发挥作用时，请使用 Agent-Native。
+
+## 后续步骤
+
+<Cards>
+
+### [开始使用](/docs/getting-started)
+
+创建应用，并从智能体和 UI 调用同一个动作。
+
+### [核心概念](/docs/key-concepts)
+
+了解动作、SQL 数据、应用上下文、访问控制和实时同步如何协同工作。
+
+### [智能体界面](/docs/agent-surfaces)
+
+了解同一模型如何支持以 UI、聊天、自动化或其他智能体为主导的应用。
+
+</Cards>

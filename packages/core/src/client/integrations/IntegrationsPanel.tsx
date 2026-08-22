@@ -13,7 +13,6 @@ import {
   IconCircleCheck,
   IconInfoCircle,
   IconSearch,
-  IconServer,
   IconLoader2,
   IconRefresh,
 } from "@tabler/icons-react";
@@ -36,6 +35,7 @@ import {
   useReconnectMcpServer,
   type McpServer,
 } from "../resources/use-mcp-servers.js";
+import { cn } from "../utils.js";
 import { IntegrationGrid } from "./IntegrationGrid.js";
 import {
   useIntegrationStatus,
@@ -671,6 +671,18 @@ function compareMcpUrl(value: string): string {
   }
 }
 
+function startMcpOAuthReconnect(server: McpServer): void {
+  const returnUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  const params = new URLSearchParams({
+    serverId: server.id,
+    scope: server.scope,
+    return: returnUrl,
+  });
+  window.location.assign(
+    agentNativePath(`/_agent-native/mcp/servers/oauth/start?${params}`),
+  );
+}
+
 function McpServerStatus({
   server,
   onReconnect,
@@ -742,12 +754,35 @@ function McpServerStatus({
   );
 }
 
-function McpIntegrationsSection({ query }: { query: string }) {
+export interface McpIntegrationsSectionProps {
+  query?: string;
+  title?: string;
+  description?: string;
+  showTitle?: boolean;
+  showDescription?: boolean;
+  showHeader?: boolean;
+  className?: string;
+  onOAuthStart?: (url: string) => void | Promise<void>;
+  oauthReturnPath?: string;
+}
+
+export function McpIntegrationsSection({
+  query,
+  title,
+  description,
+  showTitle = true,
+  showDescription = true,
+  showHeader = true,
+  className,
+  onOAuthStart,
+  oauthReturnPath,
+}: McpIntegrationsSectionProps) {
   const t = useT();
   const serversQuery = useMcpServers();
   const createServer = useCreateMcpServer();
   const deleteServer = useDeleteMcpServer();
   const reconnectServer = useReconnectMcpServer();
+  const [localQuery, setLocalQuery] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [initialIntegrationId, setInitialIntegrationId] = useState<
     string | null
@@ -763,7 +798,8 @@ function McpIntegrationsSection({ query }: { query: string }) {
     message: string;
   } | null>(null);
   const catalog = useMemo(() => getDefaultMcpIntegrations(), []);
-  const normalizedQuery = query.trim().toLowerCase();
+  const activeQuery = query ?? localQuery;
+  const normalizedQuery = activeQuery.trim().toLowerCase();
   const filteredCatalog = useMemo(() => {
     if (!normalizedQuery) return catalog;
     return catalog.filter((integration) =>
@@ -870,28 +906,56 @@ function McpIntegrationsSection({ query }: { query: string }) {
   );
 
   return (
-    <section data-testid="mcp-integrations" className="space-y-5">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <div className="flex items-center gap-2">
-            <IconServer className="size-4 text-muted-foreground" />
-            <h2 className="text-sm font-semibold text-foreground">
-              Agent integrations
-            </h2>
-          </div>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">
-            Give your agent tools and context from the services you use.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => openCatalog()}
-          className="inline-flex w-fit items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+    <section
+      data-testid="mcp-integrations"
+      className={cn("space-y-5", className)}
+    >
+      {showHeader ? (
+        <div
+          className={cn(
+            "flex flex-col gap-4 lg:flex-row lg:items-end",
+            showTitle || showDescription
+              ? "lg:justify-between"
+              : "lg:justify-end",
+          )}
         >
-          <IconPlus className="size-3.5" />
-          Add integration
-        </button>
-      </div>
+          {showTitle || showDescription ? (
+            <div>
+              {showTitle ? (
+                <h1 className="text-2xl font-semibold tracking-[-0.04em] text-foreground">
+                  {title ?? t("mcpIntegrations.menuLabel")}
+                </h1>
+              ) : null}
+              {showDescription ? (
+                <p className="mt-1.5 max-w-2xl text-sm leading-6 text-muted-foreground">
+                  {description ?? t("mcpIntegrations.menuDescription")}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+          <div className="flex w-full flex-col gap-2 sm:flex-row lg:w-auto">
+            <label className="relative block min-w-0 flex-1 lg:w-72">
+              <IconSearch className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <input
+                type="search"
+                value={activeQuery}
+                onChange={(event) => setLocalQuery(event.target.value)}
+                placeholder={t("mcpIntegrations.searchPlaceholder")}
+                aria-label={t("mcpIntegrations.searchPlaceholder")}
+                className="h-9 w-full rounded-lg border border-border bg-background ps-9 pe-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-foreground/30 focus:ring-2 focus:ring-accent/40"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() => openCatalog()}
+              className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+            >
+              <IconPlus className="size-3.5" />
+              {t("integrations.addIntegration")}
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {deleteError && (
         <p className="border-y border-destructive/20 bg-destructive/5 py-3 text-xs text-destructive">
@@ -912,59 +976,66 @@ function McpIntegrationsSection({ query }: { query: string }) {
       ) : servers.length > 0 && !normalizedQuery ? (
         <section className="space-y-2">
           <h3 className="text-sm font-semibold text-foreground">Installed</h3>
-          <div className="overflow-hidden rounded-xl border border-border/70 bg-card text-card-foreground">
-            <div className="divide-y divide-border/60 px-4">
-              {servers.map((server) => {
-                const key = `${server.scope}:${server.id}`;
-                const canRemove =
-                  server.scope === "user" ||
-                  serversQuery.data?.role === "owner" ||
-                  serversQuery.data?.role === "admin";
-                return (
-                  <div key={key} className="flex items-start gap-3 py-3.5">
-                    <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-lg border border-border/70 bg-background text-muted-foreground">
-                      <IconServer className="size-4" />
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="truncate text-sm font-medium text-foreground">
-                          {server.name}
-                        </span>
-                        <span className="text-[11px] text-muted-foreground">
-                          {server.scope === "user"
-                            ? t("mcpIntegrations.personal")
-                            : t("mcpIntegrations.sharedWithWorkspace")}
-                        </span>
-                      </div>
-                      <McpServerStatus
-                        server={server}
-                        onReconnect={
-                          server.status.state === "error"
-                            ? () => void reconnect(server)
-                            : undefined
-                        }
-                        reconnecting={reconnectingKey === key}
-                        reconnectError={
-                          reconnectError?.key === key
-                            ? reconnectError.message
-                            : undefined
-                        }
-                      />
+          <div className="grid gap-3 sm:grid-cols-2">
+            {servers.map((server) => {
+              const key = `${server.scope}:${server.id}`;
+              const canRemove =
+                server.scope === "user" ||
+                serversQuery.data?.role === "owner" ||
+                serversQuery.data?.role === "admin";
+              return (
+                <div
+                  key={key}
+                  className="flex min-w-0 items-start gap-3 rounded-2xl bg-card px-4 py-4"
+                >
+                  <McpIntegrationLogo
+                    name={server.name}
+                    logoUrl=""
+                    integrationId={server.name.toLowerCase()}
+                    className="mt-0.5 size-9"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="truncate text-sm font-medium text-foreground">
+                        {server.name}
+                      </span>
+                      <span className="text-[11px] text-muted-foreground">
+                        {server.scope === "user"
+                          ? t("mcpIntegrations.personal")
+                          : t("mcpIntegrations.sharedWithWorkspace")}
+                      </span>
                     </div>
-                    {canRemove && (
-                      <button
-                        type="button"
-                        onClick={() => void removeServer(server)}
-                        disabled={deleteServer.isPending}
-                        className="shrink-0 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:opacity-50"
-                      >
-                        {deleteTarget === key ? "Confirm" : "Remove"}
-                      </button>
-                    )}
+                    <McpServerStatus
+                      server={server}
+                      onReconnect={
+                        server.status.state === "error"
+                          ? () =>
+                              server.authMode === "oauth"
+                                ? startMcpOAuthReconnect(server)
+                                : void reconnect(server)
+                          : undefined
+                      }
+                      reconnecting={reconnectingKey === key}
+                      reconnectError={
+                        reconnectError?.key === key
+                          ? reconnectError.message
+                          : undefined
+                      }
+                    />
                   </div>
-                );
-              })}
-            </div>
+                  {canRemove && (
+                    <button
+                      type="button"
+                      onClick={() => void removeServer(server)}
+                      disabled={deleteServer.isPending}
+                      className="shrink-0 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:opacity-50"
+                    >
+                      {deleteTarget === key ? "Confirm" : "Remove"}
+                    </button>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </section>
       ) : null}
@@ -1011,7 +1082,7 @@ function McpIntegrationsSection({ query }: { query: string }) {
 
       {filteredCatalog.length === 0 && normalizedQuery && (
         <p className="border-y border-border/60 py-4 text-xs text-muted-foreground">
-          No agent integrations match “{query}”.
+          No agent integrations match “{activeQuery}”.
         </p>
       )}
 
@@ -1030,8 +1101,30 @@ function McpIntegrationsSection({ query }: { query: string }) {
         canCreateOrgMcp={canCreateOrgMcp}
         hasOrg={hasOrg}
         onCreateMcpServer={(args) => createServer.mutateAsync(args)}
+        onOAuthStart={onOAuthStart}
+        oauthReturnPath={oauthReturnPath}
       />
     </section>
+  );
+}
+
+export interface McpIntegrationsLandingProps extends Omit<
+  McpIntegrationsSectionProps,
+  "query" | "showHeader"
+> {}
+
+export function McpIntegrationsLanding({
+  title,
+  description,
+  ...props
+}: McpIntegrationsLandingProps) {
+  return (
+    <McpIntegrationsSection
+      {...props}
+      title={title}
+      description={description}
+      showHeader
+    />
   );
 }
 
@@ -1097,7 +1190,7 @@ export function IntegrationsPanel() {
         </label>
       </div>
 
-      <McpIntegrationsSection query={normalizedQuery} />
+      <McpIntegrationsSection query={normalizedQuery} showHeader={false} />
 
       {loading ? (
         <div className="grid gap-3 sm:grid-cols-2">

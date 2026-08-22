@@ -184,7 +184,7 @@ describe("createBuilderEngine", () => {
     const stop = events.find((e) => e.type === "stop");
     expect(stop?.reason).toBe("error");
     expect(stop?.errorCode).toBe("missing_credentials");
-    expect(stop?.error).toContain("Manage agent > LLM");
+    expect(stop?.error).toContain("Settings > Agent > AI providers");
     expect(stop?.error).not.toContain("BUILDER_PRIVATE_KEY");
   });
 

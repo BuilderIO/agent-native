@@ -28,6 +28,12 @@ const messages: AgentChatTranslation = {
   "commands.mention": "Mencionar arquivos, agentes ou recursos",
   "commands.new": "O mesmo que /clear",
   "commands.plan": "Mudar para o planejamento somente leitura",
+  "aboutAgentNative.title": "Sobre o Agent Native",
+  "aboutAgentNative.version": "Versão",
+  "aboutAgentNative.environment": "Ambiente",
+  "aboutAgentNative.build": "Build",
+  "aboutAgentNative.copyDiagnostics": "Copiar diagnósticos",
+  "aboutAgentNative.unknown": "Desconhecida",
   "common.agent": "Agente",
   "common.cancel": "Cancelar",
   "common.collapse": "Recolher",
@@ -466,7 +472,7 @@ const messages: AgentChatTranslation = {
   "errorMessages.invalidToolSchema":
     "O esquema de uma ferramenta era inválido, então o modelo rejeitou a solicitação antes de iniciá-la. Você pode ignorar a ferramenta inválida e tentar novamente.",
   "errorMessages.noProviderConnected":
-    "Nenhum provedor de LLM está conectado. Abra “Gerenciar agente” → “LLM” para este app e conecte o Builder.io ou adicione uma chave de provedor.",
+    "Nenhum provedor de LLM está conectado. Abra Configurações > Agente > Provedores de IA e conecte o Builder.io (nível gratuito disponível) ou adicione uma chave de provedor.",
   "errorMessages.openBuilderSpaceSettings":
     "Abrir as configurações do espaço do Builder",
   "errorMessages.providerAuthentication":

@@ -15,11 +15,11 @@
 import { isPostgres } from "@agent-native/core/db";
 import { recordChange } from "@agent-native/core/server";
 import {
-  getAllSettings,
   getOrgSetting,
   getUserSetting,
   deleteOrgSetting,
   deleteUserSetting,
+  listSettingsByPrefix,
 } from "@agent-native/core/settings";
 import {
   accessFilter,
@@ -165,6 +165,33 @@ export interface AnalysisRevisionRecord {
 interface AccessCtx {
   email: string;
   orgId: string | null;
+}
+
+/**
+ * Legacy KV rows are only ever reachable under `o:<orgId>:` or `u:<email>:`,
+ * so a caller can match nothing else. Reading them with `getAllSettings()`
+ * pulled and JSON-parsed every tenant's settings row into the Lambda to
+ * string-match those two prefixes, putting the whole deployment's settings
+ * table on the critical path of every dashboard and analysis list read.
+ */
+async function getScopedLegacySettings(
+  ctx: Pick<AccessCtx, "email" | "orgId">,
+): Promise<Record<string, Record<string, unknown>>> {
+  // User scope first, then org: callers append these to the SQL rows in
+  // iteration order and never re-sort, so the order is user-visible. The
+  // previous full-table read inherited whatever order the settings table
+  // returned, which no query pinned.
+  const prefixes: string[] = [];
+  if (ctx.email) prefixes.push(`u:${ctx.email}:`);
+  if (ctx.orgId) prefixes.push(`o:${ctx.orgId}:`);
+  if (prefixes.length === 0) return {};
+  const scoped: Record<string, Record<string, unknown>> = {};
+  for (const entries of await Promise.all(
+    prefixes.map((prefix) => listSettingsByPrefix(prefix)),
+  )) {
+    for (const { key, value } of entries) scoped[key] = value;
+  }
+  return scoped;
 }
 
 const SQL_PREFIX = "sql-dashboard-";
@@ -666,7 +693,7 @@ export async function listDashboards(
   // entirely when the caller wants archived-only or hidden-only records.
   if (archived === "archived" || hidden === "hidden") return out;
   try {
-    const all = await getAllSettings();
+    const all = await getScopedLegacySettings(ctx);
     for (const [key, value] of Object.entries(all)) {
       let id: string | null = null;
       let kind: DashboardKind | null = null;
@@ -814,7 +841,7 @@ export async function listDashboardSummaries(
 
   if (archived === "archived" || hidden === "hidden") return out;
   try {
-    const all = await getAllSettings();
+    const all = await getScopedLegacySettings(ctx);
     for (const [key, value] of Object.entries(all)) {
       let id: string | null = null;
       let kind: DashboardKind | null = null;
@@ -962,7 +989,7 @@ export async function searchDashboardReferences(
   const seen = new Set(
     ranked.map(({ record }) => `${record.kind}:${record.id}`),
   );
-  const allSettings = await getAllSettings();
+  const allSettings = await getScopedLegacySettings(ctx);
   for (const [key, value] of Object.entries(allSettings)) {
     const scope = legacyDashboardReferenceScope(key, ctx);
     if (
@@ -2040,7 +2067,7 @@ export async function listAnalyses(
   // the legacy scan entirely.
   if (hidden === "hidden") return out;
   try {
-    const all = await getAllSettings();
+    const all = await getScopedLegacySettings(ctx);
     for (const [key, value] of Object.entries(all)) {
       let id: string | null = null;
       let ownerEmail = ctx.email;

@@ -249,8 +249,12 @@ async function main() {
           ? ` shell:${r.ms}ms`
           : "";
       const pressure = strict ? describePressure(r.pressure) : null;
-      const slow =
-        r.ms > SLOW_HEALTH_MS || (shell && shell.ms > SLOW_HEALTH_MS);
+      // The health route and the public shell are separate serverless entry
+      // points. A cold health function can take seconds while the user-facing
+      // shell is already fast, so only the shell latency should mark an app
+      // slow when that measurement exists. Keep the health response and
+      // database-pressure checks for correctness and backend degradation.
+      const slow = shell ? shell.ms > SLOW_HEALTH_MS : r.ms > SLOW_HEALTH_MS;
       const pressured = pressure ? pressure.warnings.length > 0 : false;
       console.log(
         `  ${slow || pressured ? "!" : "✓"} ${r.name.padEnd(12)} ${String(r.ms).padStart(5)}ms  ${dbState}${shellState}${

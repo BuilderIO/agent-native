@@ -272,8 +272,9 @@ export function VisualScrubInput({
     if (event.key === "Enter") {
       event.preventDefault();
       commitDraft();
-      skipNextBlurCommitRef.current = true;
-      event.currentTarget.blur();
+      // Blurring here would hand the next keystroke to whatever global
+      // shortcut owns that key while the user is still typing at the field.
+      event.currentTarget.select();
       return;
     }
 

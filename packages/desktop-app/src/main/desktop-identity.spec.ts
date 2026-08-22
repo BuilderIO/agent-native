@@ -387,6 +387,44 @@ describe("DesktopIdentityBroker", () => {
     expect(createWindow).toHaveBeenCalledOnce();
   });
 
+  it("times out while reading a stalled magic-link response body", async () => {
+    vi.useFakeTimers();
+    try {
+      const authority = authorityFixture();
+      const response = {
+        ok: true,
+        json: vi.fn(() => new Promise<never>(() => {})),
+      } as unknown as Response;
+      const identityFetch = vi.fn(async () => response);
+      const broker = new DesktopIdentityBroker({
+        identitySession: {
+          cookies: cookieStore(),
+          fetch: identityFetch,
+          clearStorageData: vi.fn(async () => {}),
+        } as unknown as Electron.Session,
+        resolveApp: (id) => (id === authority.id ? authority : null),
+        createWindow: vi.fn() as never,
+        reloadApp: vi.fn(),
+        clearLocalBroker: vi.fn(),
+      });
+
+      const request = broker.requestMagicLink({ email: "steve@example.com" });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(identityFetch).toHaveBeenCalledOnce();
+
+      await vi.advanceTimersByTimeAsync(20_000);
+
+      await expect(request).resolves.toEqual({
+        ok: false,
+        error:
+          "The identity service did not respond in time. Please try again.",
+      });
+      expect(broker.getStatus()).toBe("failed");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("adopts a normal Dispatch login into the isolated identity session", async () => {
     const authority = authorityFixture();
     const authorityCookies = cookieStore(
@@ -1786,6 +1824,7 @@ describe("DesktopIdentityBroker", () => {
         id === authority.id ? authority : id === mail.id ? mail : null,
       listApps: () => [authority, mail],
       createWindow,
+      userAgent: "Mozilla/5.0 Electron/43.4.0 AgentNativeDesktop/0.1.150",
       openExternal: vi.fn(async (url: string) => {
         openedUrls.push(url);
       }),
@@ -1796,6 +1835,13 @@ describe("DesktopIdentityBroker", () => {
     await expect(broker.signIn(mail.id)).resolves.toBe(true);
 
     expect(createWindow).toHaveBeenCalledOnce();
+    expect(createWindow).toHaveBeenCalledWith(
+      expect.objectContaining({
+        webPreferences: expect.objectContaining({
+          userAgent: expect.stringContaining("AgentNativeDesktop/"),
+        }),
+      }),
+    );
     expect(openedUrls).toHaveLength(0);
     expect(identityWindow.loadURL).toHaveBeenCalledWith(
       expect.stringContaining("accounts.google.com"),
@@ -1856,6 +1902,117 @@ describe("DesktopIdentityBroker", () => {
     expect(reloadApp).toHaveBeenCalledTimes(reloadCount);
     expect(mailCookies.set).toHaveBeenCalledTimes(cookieSetCount);
   });
+
+  it("keeps Google sign-in alive when its hosted callback closes the window", async () => {
+    const authority = authorityFixture();
+    const identityCookies = cookieStore();
+    const authorityCookies = cookieStore();
+    const identityFetch = vi.fn(async (input: string) => {
+      const path = new URL(input).pathname;
+      if (path === "/_agent-native/google/auth-url") {
+        return new Response(
+          JSON.stringify({
+            url: "https://accounts.google.com/o/oauth2/v2/auth?state=oauth-state",
+          }),
+          { status: 200 },
+        );
+      }
+      if (path === "/_agent-native/auth/desktop-exchange") {
+        const exchangeCalls = identityFetch.mock.calls.filter(
+          ([request]) =>
+            new URL(String(request)).pathname ===
+            "/_agent-native/auth/desktop-exchange",
+        ).length;
+        return exchangeCalls === 1
+          ? new Response(JSON.stringify({ pending: true }), { status: 200 })
+          : new Response(
+              JSON.stringify({
+                token: "desktop-session",
+                email: "owner@example.com",
+              }),
+              { status: 200 },
+            );
+      }
+      if (path === "/_agent-native/auth/session") {
+        return sessionResponse("owner@example.com");
+      }
+      return new Response(null, { status: 404 });
+    });
+    authority.session = {
+      cookies: authorityCookies,
+      fetch: vi.fn(async (input: string) =>
+        new URL(input).pathname === "/_agent-native/auth/session"
+          ? sessionResponse("owner@example.com")
+          : new Response(null, { status: 404 }),
+      ),
+    } as unknown as Electron.Session;
+    let closedListener: (() => void) | undefined;
+    const identityWindow = {
+      webContents: {
+        on: vi.fn(),
+        setWindowOpenHandler: vi.fn(),
+      },
+      loadURL: vi.fn(async () => {}),
+      isDestroyed: vi.fn(() => false),
+      close: vi.fn(),
+      on: vi.fn((event: string, listener: () => void) => {
+        if (event === "closed") closedListener = listener;
+      }),
+    };
+    const reloadApp = vi.fn();
+    const broker = new DesktopIdentityBroker({
+      identitySession: {
+        cookies: identityCookies,
+        fetch: identityFetch,
+        clearStorageData: vi.fn(async () => {}),
+      } as unknown as Electron.Session,
+      resolveApp: (id) => (id === authority.id ? authority : null),
+      listApps: () => [authority],
+      openExternal: vi.fn(async () => {}),
+      createWindow: () => identityWindow as never,
+      reloadApp,
+      clearLocalBroker: vi.fn(),
+      timeoutMs: 3_000,
+    });
+    const fanoutStarted = deferred<void>();
+    const releaseFanout = deferred<boolean>();
+    type SignInFanout = (
+      appId: string,
+      generation: number,
+      options?: { interactive?: boolean },
+    ) => Promise<boolean>;
+    const brokerWithFanout = broker as unknown as {
+      runSignInFanout: SignInFanout;
+    };
+    const runSignInFanout = brokerWithFanout.runSignInFanout.bind(broker);
+    vi.spyOn(brokerWithFanout, "runSignInFanout").mockImplementation(
+      async (...args) => {
+        fanoutStarted.resolve();
+        await releaseFanout.promise;
+        return runSignInFanout(...args);
+      },
+    );
+
+    const signIn = broker.signIn(authority.id);
+    await vi.waitFor(() => expect(identityWindow.loadURL).toHaveBeenCalled());
+    await vi.waitFor(() =>
+      expect(
+        identityFetch.mock.calls.some(
+          ([request]) =>
+            new URL(String(request)).pathname ===
+            "/_agent-native/auth/desktop-exchange",
+        ),
+      ).toBe(true),
+    );
+    closedListener?.();
+
+    await fanoutStarted.promise;
+    await new Promise((resolve) => setTimeout(resolve, 5_100));
+    releaseFanout.resolve(true);
+    await expect(signIn).resolves.toBe(true);
+    expect(reloadApp).toHaveBeenCalledWith(authority);
+    expect(broker.getStatus()).toBe("signed-in");
+  }, 15_000);
 
   it("retries an unauthorized embed request through the main-process transport", async () => {
     const authority = authorityFixture();

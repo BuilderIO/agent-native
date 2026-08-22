@@ -71,6 +71,38 @@ describe("prepareClonedHtmlLayersForLiveInsert", () => {
     );
   });
 
+  it("drops the Figma/Fusion source identity so deleting a copy cannot resolve to the original", () => {
+    const result = prepareClonedHtmlLayersForLiveInsert(
+      LIVE_URL,
+      [
+        `<section data-loc="Card.tsx:12:4" data-builder-id="blk-1">
+          <h3 data-loc="Card.tsx:13:6">Title</h3>
+          <p data-code-layer-id="layer-9" data-layer-id="l-2">Body</p>
+        </section>`,
+      ],
+      { stripRootPosition: true },
+    );
+
+    expect(result).not.toBeNull();
+    const clone = parseFragment(result!.htmlFragments[0]!);
+    for (const attribute of [
+      "data-loc",
+      "data-builder-id",
+      "data-code-layer-id",
+      "data-layer-id",
+    ]) {
+      expect(clone.hasAttribute(attribute)).toBe(false);
+      expect(clone.querySelector(`[${attribute}]`)).toBeNull();
+    }
+    const nodeIds = [clone, ...Array.from(clone.querySelectorAll("*"))].map(
+      (node) => node.getAttribute("data-agent-native-node-id"),
+    );
+    expect(nodeIds.every((id) => typeof id === "string" && id.length > 0)).toBe(
+      true,
+    );
+    expect(new Set(nodeIds).size).toBe(nodeIds.length);
+  });
+
   it("preserves sanitized provenance and computed portable styles", () => {
     const result = prepareClonedHtmlLayersForLiveInsert(
       LIVE_URL,

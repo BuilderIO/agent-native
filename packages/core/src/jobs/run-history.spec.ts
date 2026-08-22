@@ -13,7 +13,17 @@ vi.mock("../db/ddl-guard.js", () => ({
   ensureIndexExists: vi.fn(),
 }));
 
-import { listAutomationRuns, startAutomationRun } from "./run-history.js";
+const emitMock = vi.hoisted(() => vi.fn());
+vi.mock("../event-bus/index.js", () => ({
+  emit: emitMock,
+  registerEvent: vi.fn(),
+}));
+
+import {
+  finishAutomationRun,
+  listAutomationRuns,
+  startAutomationRun,
+} from "./run-history.js";
 
 const MINUTE = 60_000;
 
@@ -99,6 +109,72 @@ describe("automation run history", () => {
     });
 
     expect(run.status).toBe("success");
+  });
+
+  // The failure taxonomy already existed in code and survived only as English
+  // prose in a text column, so "how often are runs cut off?" was a LIKE.
+  it("persists the failure code alongside the message", async () => {
+    await finishAutomationRun(
+      "run-1",
+      "error",
+      "Background automation was cut off before finishing (no_progress).",
+      "background_automation_cut_off",
+    );
+
+    const update = executeMock.mock.calls
+      .map(([input]) => input)
+      .find(
+        (input) =>
+          typeof input === "object" && /UPDATE .* SET status/.test(input.sql),
+      );
+    expect(update.sql).toContain("error_code = ?");
+    expect(update.args).toContain("background_automation_cut_off");
+  });
+
+  it("reports an interrupted run with a code, not only a sentence", async () => {
+    executeMock.mockResolvedValue({
+      rows: [row({ started_at: Date.now() - 60 * MINUTE })],
+    });
+
+    const [run] = await listAutomationRuns({
+      owners: ["alice@example.com"],
+      automation: "digest",
+    });
+
+    expect(run.status).toBe("interrupted");
+    expect(run.errorCode).toBe("background_automation_interrupted");
+  });
+
+  // This is the framework's terminal hook for automations, and it fires from
+  // every path that records an outcome — the runner, the scheduler's dispatch
+  // failures, remote execution — not just the one the runner owns.
+  it("announces the terminal outcome with its code and duration", async () => {
+    const startedAt = Date.now() - 4_000;
+    executeMock.mockResolvedValue({
+      rows: [row({ id: "run-1", started_at: startedAt })],
+    });
+
+    await finishAutomationRun(
+      "run-1",
+      "error",
+      "Background automation was cut off before finishing (no_progress).",
+      "background_automation_cut_off",
+    );
+
+    expect(emitMock).toHaveBeenCalledWith(
+      "automation.run.finished",
+      expect.objectContaining({
+        automationRunId: "run-1",
+        status: "error",
+        errorCode: "background_automation_cut_off",
+        durationMs: expect.any(Number),
+      }),
+      expect.anything(),
+    );
+    const [, payload] = emitMock.mock.calls.at(-1) ?? [];
+    expect(
+      (payload as { durationMs: number }).durationMs,
+    ).toBeGreaterThanOrEqual(4_000);
   });
 
   it("prunes older rows for the same automation when recording a run", async () => {

@@ -143,6 +143,7 @@ import {
   getBuilderBrowserStatusForEvent,
   isBuilderConnectCallbackUrlAllowed,
   isSignedBuilderConnectState,
+  normalizeBuilderAgentContext,
   resolveBuilderBranchProjectId,
   resolveBuilderConnectCallbackUrl,
   resolveBuilderPreviewRelayParentOrigin,
@@ -191,6 +192,7 @@ import {
   trackPluginInit,
 } from "./framework-request-handler.js";
 import { createGatewayAccessCheckHandler } from "./gateway-access-check.js";
+import { checkGoogleSignInCredential } from "./google-credential-check.js";
 import { getAppBasePath, getOrigin } from "./google-oauth.js";
 import { createGoogleRealtimeSessionHandler } from "./google-realtime-session.js";
 import {
@@ -435,6 +437,35 @@ async function resolveAgentEngineStatusIdentity(
     /* org module not present in this template */
     return { userEmail, orgId: undefined };
   }
+}
+
+/**
+ * A Builder grant is shared by everyone in the caller's org, so establishing,
+ * overwriting, or revoking one requires org owner/admin authority. Returns the
+ * authorized org id and a denial message (null when allowed). The org id is
+ * captured at connect start so the grant is stored under the org that was
+ * authorized, not one re-resolved after the OAuth round trip. Fails closed: an
+ * unreadable owner/admin role is denied.
+ */
+async function resolveBuilderOrgMutation(
+  event: H3Event,
+): Promise<{ orgId: string | null; deny: string | null }> {
+  let orgId: string | null = null;
+  let role: string | null = null;
+  try {
+    const orgCtx = await getOrgContext(event);
+    orgId = orgCtx.orgId ?? null;
+    role = orgCtx.role ?? null;
+  } catch {
+    // coercion-ok: org is missing, it will fail closed
+  }
+  if (role !== "owner" && role !== "admin") {
+    return {
+      orgId,
+      deny: "Only an organization owner or admin can change the shared Builder connection.",
+    };
+  }
+  return { orgId, deny: null };
 }
 
 export function getFrameworkEnvKeys(): EnvKeyConfig[] {
@@ -1567,6 +1598,19 @@ export function createCoreRoutesPlugin(
       }
 
       if (!options.disableHealth) {
+        // Registered before `/health` because h3 matches by prefix, and the
+        // health handler would otherwise swallow this path.
+        getH3App(nitroApp).use(
+          `${P}/health/google`,
+          defineEventHandler(async (event) => {
+            setResponseHeader(event, "cache-control", "no-store");
+            const result = await checkGoogleSignInCredential();
+            // `invalid` is the fleet-wide outage shape: the deploy is up and
+            // healthy while nobody can sign in. Page on it.
+            if (result.status === "invalid") setResponseStatus(event, 503);
+            return result;
+          }),
+        );
         getH3App(nitroApp).use(
           `${P}/health`,
           defineEventHandler(async (event) => {
@@ -2616,6 +2660,31 @@ export function createCoreRoutesPlugin(
               parentOrigin: getBuilderBrowserOriginForEvent(event),
             });
           }
+          const { orgId: connectOrgId, deny: orgConnectDenied } =
+            await resolveBuilderOrgMutation(event);
+          if (orgConnectDenied) {
+            await trackBuilderLifecycle(
+              event,
+              "builder connect failed",
+              ownerEmail,
+              {
+                ...builderConnectTrackingProperties(connectTracking),
+                reason: "org_authorization_required",
+                stage: "connect",
+              },
+            );
+            setResponseStatus(event, 403);
+            setResponseHeader(
+              event,
+              "Content-Type",
+              "text/html; charset=utf-8",
+            );
+            return createBuilderBrowserCallbackErrorPage(orgConnectDenied, {
+              title: "Not allowed to connect Builder for this organization",
+              body: "Ask an organization owner or admin to connect Builder.",
+              parentOrigin: getBuilderBrowserOriginForEvent(event),
+            });
+          }
           const state = createBuilderConnectState();
 
           // The standard OAuth client discovers Builder's protected-resource
@@ -2633,7 +2702,7 @@ export function createCoreRoutesPlugin(
             authorizationUrl = started.authorizationUrl;
             await putSetting(`builder-connect-pending:${state}`, {
               ownerEmail,
-              orgId: null,
+              orgId: connectOrgId,
               role: null,
               encryptedOAuthFlow: encryptSecretValue(JSON.stringify(oauthFlow)),
               redirectUri: callbackUrl,
@@ -2699,11 +2768,21 @@ export function createCoreRoutesPlugin(
             setResponseStatus(event, 405);
             return { error: "Method not allowed" };
           }
+          await assertBodySize(event, 64 * 1024);
           const body = await readBody(event).catch(() => ({}) as any);
           const prompt = typeof body?.prompt === "string" ? body.prompt : "";
           if (!prompt.trim()) {
             setResponseStatus(event, 400);
             return { error: "prompt is required" };
+          }
+          let context: string | undefined;
+          try {
+            context = normalizeBuilderAgentContext(body?.context);
+          } catch (error) {
+            setResponseStatus(event, 400);
+            return {
+              error: error instanceof Error ? error.message : "Invalid context",
+            };
           }
           const session = await getSession(event).catch(() => null);
           if (!session?.email) {
@@ -2749,6 +2828,7 @@ export function createCoreRoutesPlugin(
               try {
                 const result = await runBuilderAgent({
                   prompt,
+                  context,
                   projectId,
                   branchName:
                     typeof body?.branchName === "string"
@@ -3160,6 +3240,8 @@ export function createCoreRoutesPlugin(
             ) as BuilderOAuthPendingFlow;
             await finishBuilderOAuthAuthorization({
               ownerEmail,
+              orgId:
+                typeof consumed.orgId === "string" ? consumed.orgId : undefined,
               code,
               iss,
               pending: oauthFlow,
@@ -3228,6 +3310,15 @@ export function createCoreRoutesPlugin(
 
           try {
             const hadOAuth = await hasBuilderOAuthSession(session.email);
+            // Revoking an org-scoped grant takes the connection offline for
+            // every member, so require org owner/admin before doing so.
+            if (hadOAuth) {
+              const { deny } = await resolveBuilderOrgMutation(event);
+              if (deny) {
+                setResponseStatus(event, 403);
+                return { error: deny };
+              }
+            }
             const oauthResult = hadOAuth
               ? await deleteBuilderOAuthSession(session.email)
               : { localDeleted: false, remoteRevoked: false };

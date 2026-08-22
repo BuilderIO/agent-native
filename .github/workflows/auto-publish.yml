@@ -1,26 +1,18 @@
 name: Publish packages
 
-# npm-package publishing flows through changesets:
+# npm packages have two deliberately separate release trains:
 #
-#   1. Contributor PR adds a `.changeset/*.md` declaring which packages
-#      changed and at what bump level (patch / minor / major). The
-#      `changeset-check.yml` workflow blocks PRs that touch publishable
-#      package source without a corresponding changeset.
-#   2. When the PR merges to `main`, this workflow runs. If any unconsumed
-#      changesets exist, `changesets/action` opens (or updates) a
-#      "Version Packages" PR that runs `pnpm changeset version` —
-#      bumping versions + writing changelogs.
-#   3. When the "Version Packages" PR itself merges, this workflow runs
-#      again — this time `changesets/action` finds no pending changesets
-#      and runs the `publish` script, which builds + `pnpm publish`es
-#      every package whose version isn't already on npm.
+#   1. Every matching ordinary merge to `main` publishes a `nightly` snapshot.
+#      It never changes the repository or moves npm's `latest` dist-tag.
+#   2. A maintainer dispatches this workflow with a patch/minor/major choice.
+#      That creates the normal all-package Version Packages PR. Its marked
+#      merge is the only path that publishes a stable release.
 #
 # Desktop-app publishing is OUT of changesets - it ships binaries via
 # electron-builder, not npm. Production desktop releases are dispatched from
 # `desktop-release.yml`; pushes to main only feed the Nightly desktop train.
-# Beta snapshots intentionally live in this workflow too: npm trusted
-# publishers are registered against this workflow file, and the beta lane must
-# use the same OIDC identity as stable publishing.
+# npm trusted publishers are registered against this workflow file, so both
+# package trains intentionally keep this workflow path.
 
 on:
   push:
@@ -47,17 +39,22 @@ on:
       # Release workflow plumbing changes should exercise the npm release job.
       - ".github/workflows/auto-publish.yml"
       - "scripts/changeset-publish-sequential.ts"
+      - "scripts/create-release-changeset.ts"
       - "scripts/guard-public-packages.ts"
       - "scripts/prebuild-workspace-packages.ts"
   workflow_dispatch:
     inputs:
+      releaseType:
+        description: "Stable release bump for all public npm packages"
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+        default: patch
       redispatchDownstream:
         description: "Recovery: re-notify downstream repos for the versions already on npm (no build, no publish)"
-        required: false
-        type: boolean
-        default: false
-      publishBeta:
-        description: "Also publish a beta snapshot and rebuild builder-workspace beta"
         required: false
         type: boolean
         default: false
@@ -69,9 +66,11 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  publish-beta:
-    name: Publish beta snapshot
-    if: ${{ (github.event_name == 'push' || inputs.publishBeta) && !inputs.redispatchDownstream }}
+  publish-nightly:
+    name: Publish nightly snapshot
+    # A stable Version Packages merge is intentionally stable-only. All other
+    # matching main pushes get the automatic nightly package snapshot.
+    if: ${{ github.event_name == 'push' && !contains(github.event.head_commit.message, '[stable-release]') }}
     runs-on: ubuntu-latest
     environment: npm-publish
     permissions:
@@ -103,7 +102,7 @@ jobs:
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
 
       # Node 24 ships with npm 11.6+, which is required for Trusted Publishing
-      # OIDC. Node 22's npm cannot complete the beta publish handshake.
+      # OIDC. Node 22's npm cannot complete the nightly publish handshake.
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24"
@@ -112,10 +111,10 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - name: Create beta snapshot versions
+      - name: Create nightly snapshot versions
         id: snapshot
         run: |
-          pnpm changeset version --snapshot beta
+          pnpm changeset version --snapshot nightly
           pnpm install --lockfile-only
           if git diff --quiet -- package.json pnpm-lock.yaml 'packages/*/package.json'; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
@@ -127,29 +126,31 @@ jobs:
         if: steps.snapshot.outputs.changed == 'true'
         run: pnpm -r build
 
-      - name: Publish beta packages sequentially
+      - name: Publish nightly packages sequentially
         if: steps.snapshot.outputs.changed == 'true'
         env:
-          AGENT_NATIVE_NPM_DIST_TAG: beta
+          AGENT_NATIVE_NPM_DIST_TAG: nightly
           # Match the stable lane's one-time escape hatch for a package that
           # has not been created on npm yet. Existing packages still use OIDC.
           AGENT_NATIVE_NPM_BOOTSTRAP_TOKEN: ${{ secrets.NPM_TOKEN }}
           NPM_CONFIG_PROVENANCE: "true"
         run: node scripts/changeset-publish-sequential.ts
 
-      - name: Rebuild builder-workspace beta
+      - name: Rebuild builder-workspace nightly
         if: steps.snapshot.outputs.changed == 'true'
         env:
           WORKSPACE_TOKEN: ${{ steps.builder-downstream-token.outputs.token }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
-          : "${WORKSPACE_TOKEN:?Builder workspace token is required for beta rebuilds}"
+          : "${WORKSPACE_TOKEN:?Builder workspace token is required for nightly rebuilds}"
 
+          # Keep the event name stable for the downstream workspace consumer;
+          # the npm version and dist-tag are the nightly contract here.
           payload="$(jq -cn \
             --arg run "$RUN_URL" \
             '{event_type:"agent-native-beta-published",client_payload:{ref:"main",sourceRunUrl:$run}}')"
-          response_file="$RUNNER_TEMP/workspace-beta-dispatch-response"
+          response_file="$RUNNER_TEMP/workspace-nightly-dispatch-response"
           delay=2
           for attempt in 1 2 3 4 5; do
             status="$(curl -sS -o "$response_file" -w '%{http_code}' -X POST \
@@ -159,11 +160,11 @@ jobs:
               --data "$payload" \
               'https://api.github.com/repos/BuilderIO/builder-agent-native-workspace/dispatches')" || status=000
             if [[ "$status" =~ ^2[0-9][0-9]$ ]]; then
-              echo "Requested a builder-workspace beta rebuild on attempt $attempt."
+              echo "Requested a builder-workspace nightly rebuild on attempt $attempt."
               exit 0
             fi
             if [[ "$status" != 000 && ! "$status" =~ ^5[0-9][0-9]$ ]]; then
-              echo "Builder workspace beta dispatch failed with HTTP $status:" >&2
+              echo "Builder workspace nightly dispatch failed with HTTP $status:" >&2
               cat "$response_file" >&2
               exit 1
             fi
@@ -173,22 +174,29 @@ jobs:
             fi
           done
 
-          echo "Builder workspace beta dispatch failed after 5 attempts (last HTTP $status)." >&2
+          echo "Builder workspace nightly dispatch failed after 5 attempts (last HTTP $status)." >&2
           exit 1
 
-      - name: Summarize beta-only publish
+      - name: Summarize nightly-only publish
         if: steps.snapshot.outputs.changed == 'true'
         run: |
           {
-            echo "Beta packages were published with the npm beta dist-tag."
-            echo "The builder-workspace beta deploy was requested after the npm publish completed."
+            echo "Nightly packages were published with the npm nightly dist-tag."
+            echo "The builder-workspace nightly deploy was requested after the npm publish completed."
           } >> "$GITHUB_STEP_SUMMARY"
 
   release:
-    name: Release npm packages
-    # A downstream redispatch only re-sends a notification for versions that
-    # are already on npm, so it must not re-enter build/publish.
-    if: ${{ !inputs.redispatchDownstream }}
+    name: Prepare or publish stable npm packages
+    # Ordinary main pushes are nightly-only. A manual dispatch creates the
+    # marked Version Packages PR; only that PR's merge can enter stable npm
+    # publication. A downstream redispatch only re-sends a notification for
+    # versions that are already on npm, so it must not re-enter build/publish.
+    if: |
+      !inputs.redispatchDownstream &&
+      (
+        github.event_name == 'workflow_dispatch' ||
+        (github.event_name == 'push' && contains(github.event.head_commit.message, '[stable-release]'))
+      )
     runs-on: ubuntu-latest
     environment: npm-publish
     permissions:
@@ -226,16 +234,23 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      - name: Create all-package release changeset
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          RELEASE_TYPE: ${{ inputs.releaseType }}
+        run: pnpm exec tsx scripts/create-release-changeset.ts "$RELEASE_TYPE"
+
       - name: Validate changesets
         run: node scripts/check-changeset.mjs
 
-      # Build everything once so changesets/action's `publish` step doesn't
-      # re-build per package. The `publish` script also re-runs build to be
-      # safe when a single package is published in isolation.
+      # The dispatch only prepares a Version Packages PR. Build everything
+      # once on the marked PR merge so stable publication does not rebuild per
+      # package. The publish wrapper also packs each package independently.
       - name: Build all packages
+        if: github.event_name == 'push'
         run: pnpm -r build
 
-      - name: Create Release PR or publish to npm
+      - name: Create stable Release PR or publish to npm
         id: changesets
         uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1.9.0
         with:
@@ -245,10 +260,14 @@ jobs:
           # same job. The wrapper keeps changesets' version-PR behavior but
           # serializes the actual npm publishes.
           publish: node scripts/changeset-publish-sequential.ts
-          # When pending changesets exist, opens this PR with the version
-          # bumps + changelog updates. Merging it triggers the publish run.
-          title: "chore: version packages [skip netlify]"
-          commit: "chore: version packages [skip netlify]"
+          # On dispatch, the generated all-package changeset opens this PR
+          # with version bumps + changelogs. Its marker survives squash merge
+          # and is required before this workflow can publish stable packages.
+          # The custom version script also keeps package CHANGELOG.md files
+          # short and archives older sections under changelog/archive/.
+          version-script: pnpm changeset version && pnpm changelog:compact
+          title: "${{ github.event_name == 'workflow_dispatch' && format('chore: release packages ({0}) [stable-release] [skip netlify]', inputs.releaseType) || 'chore: release packages [stable-release] [skip netlify]' }}"
+          commit: "${{ github.event_name == 'workflow_dispatch' && format('chore: release packages ({0}) [stable-release] [skip netlify]', inputs.releaseType) || 'chore: release packages [stable-release] [skip netlify]' }}"
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
           # `npm publish` (called by `changeset publish`) requests an OIDC
@@ -270,9 +289,15 @@ jobs:
   notify-downstream:
     name: Notify downstream repos
     needs: [release]
-    # always(): `release` is skipped on a redispatch and may fail on a bad
-    # publish; both cases still need a written answer about the notification.
-    if: always()
+    # A normal main push has no stable release job. Manual dispatches (including
+    # redispatch) and marked stable merges still need a written notification
+    # result even when the release job fails or is intentionally skipped.
+    if: |
+      always() &&
+      (
+        github.event_name == 'workflow_dispatch' ||
+        (github.event_name == 'push' && contains(github.event.head_commit.message, '[stable-release]'))
+      )
     runs-on: ubuntu-latest
     permissions: {}
     steps:

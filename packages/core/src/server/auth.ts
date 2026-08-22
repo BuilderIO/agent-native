@@ -128,9 +128,12 @@ import { injectAnalyticsIntoHtml } from "./analytics.js";
 import { getConfiguredAppBasePath } from "./app-base-path.js";
 import { getAppProductionUrl } from "./app-url.js";
 import {
+  addSignupAttributionHeader,
   readAnalyticsAnonymousId,
   readFirstTouchAttribution,
+  signupAttributionContextFromCookieHeader,
   signupAttributionFromCookieHeader,
+  type SignupAttributionContext,
 } from "./attribution.js";
 import { getAuthLoginMode } from "./auth-login-mode.js";
 import { injectBetaOptOutPersistence } from "./beta-opt-out-html.js";
@@ -193,6 +196,11 @@ import {
   getResetPasswordHtml,
   type OnboardingHtmlOptions,
 } from "./onboarding-html.js";
+import {
+  getRequestContext,
+  hasContinuationLocalRequestContext,
+  runWithRequestContext,
+} from "./request-context.js";
 import { captureAuthError } from "./sentry.js";
 import {
   forgetCachedSessionEmail,
@@ -208,6 +216,41 @@ import { isWorkspaceOAuthCallbackRelayEnabled } from "./workspace-oauth.js";
  */
 export function getSessionMaxAge(): number {
   return sessionMaxAge;
+}
+
+function withSignupAttributionContext<T>(
+  cookieHeader: string | null | undefined,
+  fn: () => T | Promise<T>,
+): T | Promise<T> {
+  const signupAttribution =
+    signupAttributionContextFromCookieHeader(cookieHeader);
+  if (!hasContinuationLocalRequestContext()) return fn();
+  return runWithRequestContext(
+    {
+      ...(getRequestContext() ?? {}),
+      signupAttribution,
+    },
+    fn,
+  );
+}
+
+function requestWithSignupAttribution(
+  request: Request,
+  signupAttribution: SignupAttributionContext,
+): Request {
+  return new Request(request, {
+    headers: addSignupAttributionHeader(request.headers, signupAttribution),
+  });
+}
+
+function headersWithSignupAttribution(
+  headers: HeadersInit | undefined,
+  cookieHeader: string | null | undefined,
+): Headers {
+  return addSignupAttributionHeader(
+    headers,
+    signupAttributionContextFromCookieHeader(cookieHeader),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -717,6 +760,10 @@ async function readDesktopSsoSafely(
   if (!isElectronRequest(event)) return null;
   if (!isLoopbackRequest(event)) return null;
   return await readDesktopSso();
+}
+
+function isDesktopSessionCookieOnlyCheck(event: H3Event): boolean {
+  return getHeader(event, "x-agent-native-session-check") === "cookie-only";
 }
 
 /**
@@ -3093,7 +3140,16 @@ function createAuthGuardFn(
     // health exposes only aggregate readiness and a trivial `SELECT 1`.
     // Without this bypass the gate below 401s anonymous /_agent-native/*
     // requests before either probe can run.
-    if (p === "/_agent-native/ping" || p === "/_agent-native/health") return;
+    if (
+      p === "/_agent-native/ping" ||
+      p === "/_agent-native/health" ||
+      // The credential self-check is read by an unauthenticated monitor. Without
+      // this the gate 401s it, the monitor reads a non-JSON body as "route not
+      // deployed", and the check silently never runs.
+      p === "/_agent-native/health/google"
+    ) {
+      return;
+    }
     if (getMethod(event) === "GET" && p.startsWith("/_agent-native/avatar/")) {
       return;
     }
@@ -3611,6 +3667,7 @@ export async function getSession(event: H3Event): Promise<AuthSession | null> {
 async function resolveSessionUncached(
   event: H3Event,
 ): Promise<AuthSession | null> {
+  const cookieOnlyDesktopCheck = isDesktopSessionCookieOnlyCheck(event);
   // 1. MCP App embed session. This is a short-lived browser session minted
   // from a one-time ticket that was scoped to the authenticated MCP caller.
   // It lets an inline MCP App iframe load the real app without reusing the
@@ -3648,8 +3705,10 @@ async function resolveSessionUncached(
     // templates too. Gated on `readDesktopSsoSafely` so a non-loopback
     // request that spoofs `User-Agent: ... Electron/...` cannot read the
     // home-dir broker file (and so production builds never consult it).
-    const sso = await readDesktopSsoSafely(event);
-    if (sso?.email) return { email: sso.email, token: sso.token };
+    if (!cookieOnlyDesktopCheck) {
+      const sso = await readDesktopSsoSafely(event);
+      if (sso?.email) return { email: sso.email, token: sso.token };
+    }
     // Fall through to mobile _session check
   } else {
     // 4. Bearer session. Desktop/native clients can persist a legacy session
@@ -3687,9 +3746,11 @@ async function resolveSessionUncached(
     // a loopback (127.0.0.1 / ::1) source IP, and a non-production NODE_ENV
     // — anything else is rejected so a hostile network request cannot
     // impersonate whichever email last signed into the desktop app.
-    const sso = await readDesktopSsoSafely(event);
-    if (sso?.email) {
-      return { email: sso.email, token: sso.token };
+    if (!cookieOnlyDesktopCheck) {
+      const sso = await readDesktopSsoSafely(event);
+      if (sso?.email) {
+        return { email: sso.email, token: sso.token };
+      }
     }
   }
 
@@ -4793,11 +4854,19 @@ async function mountBetterAuthRoutes(
         reqPath.includes("/sign-in/magic-link") && getMethod(event) === "POST";
       const isMagicLinkVerification =
         reqPath.includes("/magic-link/verify") && getMethod(event) === "GET";
+      const isEmailSignup =
+        reqPath.includes("/sign-up/email") && getMethod(event) === "POST";
       const isSignOut =
         reqPath.includes("sign-out") && getMethod(event) === "POST";
       if (isSignOut) optOutOfAuthDisabledSession(event);
       const authRequest = toWebRequest(event);
       let requestForAuth = authRequest;
+      const signupCookieHeader = isEmailSignup
+        ? authRequest.headers.get("cookie")
+        : undefined;
+      const signupAttribution = isEmailSignup
+        ? signupAttributionContextFromCookieHeader(signupCookieHeader)
+        : undefined;
       let magicLinkPreConsume: Record<string, unknown> | undefined;
 
       if (isMagicLinkVerification) {
@@ -4934,9 +5003,20 @@ async function mountBetterAuthRoutes(
         }
       }
 
+      if (signupAttribution) {
+        requestForAuth = requestWithSignupAttribution(
+          requestForAuth,
+          signupAttribution,
+        );
+      }
+
       let response: Response;
       try {
-        response = await auth.handler(requestForAuth);
+        response = await (isEmailSignup
+          ? withSignupAttributionContext(signupCookieHeader, () =>
+              auth.handler(requestForAuth),
+            )
+          : auth.handler(requestForAuth));
       } catch (error) {
         if (isMagicLinkVerification) {
           logMagicLinkDebug(event, "verify-exception", {
@@ -5165,6 +5245,28 @@ async function mountBetterAuthRoutes(
     }),
   );
 
+  // Better Auth redirects new magic-link users through this small public
+  // callback so first-run onboarding is marked only for newly created users.
+  // Keep this before the generic magic-link handler for runtimes whose
+  // app.use() middleware paths match descendants as prefixes.
+  app.use(
+    "/_agent-native/auth/magic-link/new-user",
+    defineEventHandler(async (event) => {
+      if (!isReadMethod(event)) {
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }
+      const query = getQuery(event);
+      const rawReturn = Array.isArray(query.return)
+        ? query.return[0]
+        : query.return;
+      if (await getSession(event)) {
+        setFirstRunOnboardingCookie(event);
+      }
+      return redirectWithStagedCookies(event, safeReturnPath(rawReturn), 302);
+    }),
+  );
+
   // Passwordless login via Better Auth's rate-limited magic-link plugin.
   app.use(
     "/_agent-native/auth/magic-link",
@@ -5314,10 +5416,22 @@ async function mountBetterAuthRoutes(
       }
 
       try {
-        await auth.api.signUpEmail({
-          body: { email, password, name: email.split("@")[0], callbackURL },
-          headers: event.headers,
-        });
+        await withSignupAttributionContext(
+          getHeader(event, "cookie") ?? null,
+          () =>
+            auth.api.signUpEmail({
+              body: {
+                email,
+                password,
+                name: email.split("@")[0],
+                callbackURL,
+              },
+              headers: headersWithSignupAttribution(
+                event.headers,
+                getHeader(event, "cookie") ?? null,
+              ),
+            }),
+        );
         setFirstRunOnboardingCookie(event);
         return { ok: true };
       } catch (e: any) {
@@ -5465,26 +5579,6 @@ async function mountBetterAuthRoutes(
     }),
   );
 
-  // Better Auth redirects new magic-link users through this small public
-  // callback so first-run onboarding is marked only for newly created users.
-  app.use(
-    "/_agent-native/auth/magic-link/new-user",
-    defineEventHandler(async (event) => {
-      if (!isReadMethod(event)) {
-        setResponseStatus(event, 405);
-        return { error: "Method not allowed" };
-      }
-      const query = getQuery(event);
-      const rawReturn = Array.isArray(query.return)
-        ? query.return[0]
-        : query.return;
-      if (await getSession(event)) {
-        setFirstRunOnboardingCookie(event);
-      }
-      return redirectWithStagedCookies(event, safeReturnPath(rawReturn), 302);
-    }),
-  );
-
   // Auth guard — stored both in framework middleware registry AND in
   // _authGuardFn so the server middleware can enforce it on ALL routes.
   const loginHtmlConfig = getOnboardingLoginHtmlConfig(options, authLoginMode);
@@ -5605,10 +5699,17 @@ function mountAuthFallbackRoutes(app: H3App): void {
 
       try {
         const auth = await getBetterAuth();
-        await auth.api.signUpEmail({
-          body: { email, password, name: email.split("@")[0] },
-          headers: event.headers,
-        });
+        await withSignupAttributionContext(
+          getHeader(event, "cookie") ?? null,
+          () =>
+            auth.api.signUpEmail({
+              body: { email, password, name: email.split("@")[0] },
+              headers: headersWithSignupAttribution(
+                event.headers,
+                getHeader(event, "cookie") ?? null,
+              ),
+            }),
+        );
         setFirstRunOnboardingCookie(event);
         return { ok: true };
       } catch (e: any) {

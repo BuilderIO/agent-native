@@ -29,6 +29,11 @@ A few are entry points rather than area guides:
   moment you are tempted to stop and ask. Chasing status is the single most
   frequent correction in this repo.
 - `concurrent-agents` — read before working in a shared checkout.
+- `ship` — normal guarded ship through merge and branch rotation; beta and docs
+  production deploys are automatic, while other production promotion is manual.
+- `ship-and-monitor` — read when the normal ship flow also needs post-merge
+  beta/release monitoring or explicit production-promotion verification.
+- `ship-now` — fast admin-merge path with post-merge monitoring.
 
 Spawning a read-only investigator? Use `/sidecar <task>` instead of retyping the
 contract.
@@ -44,6 +49,23 @@ contract.
 - Never add `Co-Authored-By` or other agent attribution to commits.
 - PRs use the current branch unless the user explicitly requests a new branch.
   PRs are ready for review by default, not drafts, unless requested.
+- Deployment split: `.github/workflows/deploy-beta-sites-prebuilt.yml` is the
+  sole automatic beta publisher. It builds in GitHub Actions and uploads
+  prebuilt artifacts to the independent Netlify beta sites at
+  `beta.*.agent-native.com`; Netlify Git-connected auto-builds are disabled.
+  Do not wait for Netlify build queues or deploy-preview checks. Verify the
+  GitHub Actions run and its per-site smoke checks instead. Normal `/ship` does
+  not monitor post-merge deployments or claim beta health; use
+  `/ship-and-monitor` to verify beta. The public docs site is the temporary
+  production exception: `.github/workflows/deploy-docs-production.yml` builds
+  and publishes `fw` / `www.agent-native.com` from matching `main` changes,
+  then disables the site's Git-connected Netlify builds. There is no beta docs
+  site or beta docs hostname today. Other production promotion is manual, and
+  critical fixes must be explicitly promoted to production through the manual
+  `.github/workflows/deploy-production-sites-prebuilt.yml` or targeted
+  `promote-netlify-deploy.yml` workflows. Let the workflow manage Netlify lock
+  transitions; do not manually remove a lock or imply that clearing one makes
+  production live.
 - Worktrees are valid PR sources. When the user authorizes shipping or opening
   or updating a PR from a worktree, use that worktree's current branch and cwd
   for the commit, push, and PR operation; do not copy changes into the shared
@@ -85,6 +107,12 @@ contract.
   meaning changes. If translations cannot be updated in the same change, call
   out the specific locales that need follow-up; reviewers should flag docs
   changes that only update one language.
+- During review, treat any user-facing copy change as a localization change:
+  UI labels, buttons, tooltips, placeholders, errors, empty states,
+  accessibility text, prompts, and documentation prose all need their English
+  source and configured locale translations updated together. Run
+  `pnpm guard:i18n-catalogs` and `pnpm guard:i18n-changed-copy`; do not approve
+  an unexplained `i18n-copy-ignore` marker or localization baseline update.
 - Docs-only commits start with `docs: ` in the present tense, e.g.
   `docs: fix broken link in provider API guide`, not `docs: fixed broken link`.
 
@@ -140,6 +168,12 @@ their change; never force past it. It is a Claude Code mechanism only: it gives
 Codex sessions and plain human edits nothing, so it is a backstop, not a
 guarantee. Read `concurrent-agents` before working in a shared checkout.
 `guard:hooks-registered` keeps this section and that file from drifting apart.
+`guard:i18n-catalogs` checks catalog shape, placeholders, raw UI literals,
+English-value debt, and localized docs coverage. `guard:i18n-changed-copy`
+checks the changed-source side of the contract: a changed English catalog or
+source doc must have the corresponding configured locale files/sections changed
+in the same diff. Use `i18n-copy-ignore` only for reviewed non-translatable or
+source-only edits, with the reason visible in the diff.
 
 Everything else is guidance — but guidance nobody measures is guidance nobody
 can tell is working. `node scripts/agent-friction-report.mjs --weeks 2` counts

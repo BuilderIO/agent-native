@@ -38,6 +38,8 @@ vi.mock("../resources/use-mcp-servers.js", () => ({
   useMcpServersApi: mocks.useMcpServersApi,
   formatMcpServerError: (error: unknown) =>
     error instanceof Error ? error.message : String(error),
+  formatMcpServersLoadError: (error: unknown) =>
+    error instanceof Error ? error.message : String(error),
 }));
 
 describe("FirstRunOnboarding", () => {
@@ -64,6 +66,10 @@ describe("FirstRunOnboarding", () => {
     mocks.useMcpServers.mockReturnValue({
       data: { user: [], org: [], orgId: null, role: null },
       isSuccess: true,
+      isError: false,
+      error: null,
+      isFetching: false,
+      refetch: vi.fn().mockResolvedValue(undefined),
     });
     mocks.useMcpServersApi.mockReturnValue({ test: mocks.testMcpServer });
     mocks.createMcpServerMutation.mockReset();
@@ -286,6 +292,56 @@ describe("FirstRunOnboarding", () => {
     expect(document.body.textContent).not.toContain("Agent integrations");
   });
 
+  it("keeps first-run integrations disabled until scope metadata is ready", () => {
+    const refetch = vi.fn().mockResolvedValue(undefined);
+    mocks.useMcpServers.mockReturnValue({
+      data: { user: [], org: [], orgId: null, role: null },
+      isSuccess: false,
+      isError: true,
+      error: new Error("Scope metadata unavailable"),
+      isFetching: false,
+      refetch,
+    });
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue")
+        ?.click();
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-use-own-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue to tools")
+        ?.click();
+    });
+
+    expect(
+      document.body.querySelector('[role="alert"]')?.textContent,
+    ).toContain("Scope metadata unavailable");
+    expect(
+      document.body.querySelector('button[aria-label="Connect Context7"]'),
+    ).toHaveProperty("disabled", true);
+
+    const retry = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent === "Retry",
+    );
+    act(() => retry?.click());
+    expect(refetch).toHaveBeenCalledOnce();
+    expect(mocks.createMcpServerMutation).not.toHaveBeenCalled();
+  });
+
   it("asks a workspace admin for scope before connecting a shared-capable integration", () => {
     mocks.useMcpServers.mockReturnValue({
       data: { user: [], org: [], orgId: "org-builder", role: "owner" },
@@ -336,9 +392,68 @@ describe("FirstRunOnboarding", () => {
         ?.click();
     });
 
+    expect(document.body.textContent).toContain("Who should use this?");
+    expect(mocks.createMcpServerMutation).not.toHaveBeenCalled();
+  });
+
+  it("shows the workspace permission requirement to a non-admin", () => {
+    mocks.useMcpServers.mockReturnValue({
+      data: { user: [], org: [], orgId: "org-builder", role: "member" },
+      isSuccess: true,
+    });
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue")
+        ?.click();
+    });
+    act(() => {
+      document.body
+        .querySelector("[data-testid='first-run-use-own-keys']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    act(() => {
+      [...document.body.querySelectorAll("button")]
+        .find((button) => button.textContent === "Continue to tools")
+        ?.click();
+    });
+
+    const search = document.body.querySelector(
+      'input[aria-label="Search integrations"]',
+    ) as HTMLInputElement | null;
+    expect(search).toBeTruthy();
+
+    act(() => {
+      if (!search) return;
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      setter?.call(search, "Context7");
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    act(() => {
+      document.body
+        .querySelector('button[aria-label="Connect Context7"]')
+        ?.click();
+    });
+
+    expect(document.body.textContent).toContain("Who should use this?");
     expect(document.body.textContent).toContain(
-      "Who should be able to use this connection?",
+      "Workspace owner or admin required.",
     );
+    const workspace = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent?.includes("Set up for workspace") ?? false,
+    );
+    expect(workspace).toHaveProperty("disabled", true);
     expect(mocks.createMcpServerMutation).not.toHaveBeenCalled();
   });
 

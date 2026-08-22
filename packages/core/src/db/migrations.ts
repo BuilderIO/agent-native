@@ -1,3 +1,4 @@
+import { getAppConfig } from "../app-config/index.js";
 import {
   getDbExec,
   createDbExec,
@@ -353,8 +354,15 @@ function isServerlessRequestRuntime(): boolean {
  * migration skipping is safe only when that runner owns schema setup.
  */
 function appMigratesAtRelease(): boolean {
-  const raw = process.env.AGENT_NATIVE_RELEASE_MIGRATIONS?.trim();
-  return !!raw && ["1", "true", "yes", "on"].includes(raw.toLowerCase());
+  const { migration } = getAppConfig();
+  if (migration.releaseMigrations) return true;
+
+  // Clips beta uses the production-owned schema but its masked prebuilt build
+  // must not run migrate:production against the fake build database. The
+  // owner marker is embedded into the deployed server bundle and therefore
+  // carries the same request-path skip decision without pretending the masked
+  // build performed the release migration.
+  return migration.betaSchemaOwner?.toLowerCase() === "production";
 }
 
 /**
