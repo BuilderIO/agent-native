@@ -163,6 +163,46 @@ describe("refresh-design-system-with-builder", () => {
     });
   });
 
+  it("settles a completed Builder import even when it has no storable tokens", async () => {
+    mockHydrate.mockResolvedValue({
+      source: "builder",
+      builderDesignSystemId: "ds-1",
+      builderJobId: "job-1",
+      builderStatus: "complete",
+      docs: [],
+      docCount: 0,
+      tokenValues: {},
+      completionConfirmed: true,
+    });
+
+    await expect(action.run({ id: "local-ds-1" })).resolves.toMatchObject({
+      id: "local-ds-1",
+      synced: true,
+      status: "ready",
+      tokenCount: 0,
+    });
+    expect(mockUpdate).toHaveBeenCalled();
+  });
+
+  it("stops on a terminal Builder failure instead of retrying it", async () => {
+    mockHydrate.mockResolvedValue({
+      source: "builder",
+      builderDesignSystemId: "ds-1",
+      builderJobId: "job-1",
+      builderStatus: "failed",
+      docs: [],
+      docCount: 0,
+      tokenValues: {},
+    });
+
+    await expect(action.run({ id: "local-ds-1" })).resolves.toMatchObject({
+      id: "local-ds-1",
+      synced: false,
+      status: "failed",
+    });
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
   it("surfaces rejected Builder tokens without writing the proxy", async () => {
     mockHydrate.mockResolvedValue({
       source: "builder",

@@ -213,6 +213,8 @@ export interface BuilderDesignSystemDecodeJobStatus {
 
 const DEFAULT_MAX_CODE_FILES = 50;
 const DEFAULT_MAX_TOTAL_CODE_BYTES = 2 * 1024 * 1024;
+const DEFAULT_BUILDER_DOC_PAGE_SIZE = 40;
+const MAX_BUILDER_DOC_PAGES = 100;
 const MAX_DOC_CONTENT_CHARS = 4_000;
 const MAX_GITHUB_FILES = 50;
 const MAX_GITHUB_TOTAL_BYTES = 2 * 1024 * 1024;
@@ -1060,14 +1062,16 @@ function normalizeBuilderDesignSystemStatus(
     case "ready":
       return "ready";
     case "complete":
-    case "completed":
     case "done":
     case "success":
       return "complete";
+    case "completed":
+      return "completed";
     case "error":
+      return "error";
     case "failed":
     case "failure":
-      return "error";
+      return "failed";
     default:
       return "in-progress";
   }
@@ -1081,6 +1085,7 @@ function isConfirmedBuilderDesignSystemStatus(value: unknown): boolean {
 interface BuilderDesignSystemDocsResponse {
   docs: BuilderDesignSystemDocument[];
   completionConfirmed: boolean;
+  status?: BuilderDesignSystemStatus;
 }
 
 async function fetchBuilderDesignSystemDocsResponse(
@@ -1124,14 +1129,18 @@ async function fetchBuilderDesignSystemDocsResponse(
       "Builder design-system docs fetch returned an invalid response.",
     );
   }
+  const rawStatus = envelope.status ?? envelope.builderStatus;
+  const status =
+    typeof rawStatus === "string"
+      ? normalizeBuilderDesignSystemStatus(rawStatus)
+      : undefined;
   return {
     docs: rawDocs.map(normalizeBuilderDesignSystemDocument),
     completionConfirmed:
       envelope.complete === true ||
       envelope.completed === true ||
-      isConfirmedBuilderDesignSystemStatus(
-        envelope.status ?? envelope.builderStatus,
-      ),
+      isConfirmedBuilderDesignSystemStatus(status),
+    ...(status ? { status } : {}),
   };
 }
 
@@ -1145,13 +1154,35 @@ export async function fetchBuilderDesignSystemDocs(
 
 export async function hydrateBuilderDesignSystemReference(
   reference: BuilderDesignSystemProxyReference,
-  options: BuilderDesignSystemDocsOptions = { page: 0, pageSize: 40 },
+  options: BuilderDesignSystemDocsOptions = {
+    page: 0,
+    pageSize: DEFAULT_BUILDER_DOC_PAGE_SIZE,
+  },
 ): Promise<BuilderDesignSystemHydratedReference> {
-  const response = await fetchBuilderDesignSystemDocsResponse(
-    reference.builderDesignSystemId,
-    options,
-  );
-  const docs = response.docs;
+  const pageSize =
+    options.pageSize && options.pageSize > 0
+      ? options.pageSize
+      : DEFAULT_BUILDER_DOC_PAGE_SIZE;
+  const docs: BuilderDesignSystemDocument[] = [];
+  let page = Math.max(0, options.page ?? 0);
+  let completionConfirmed = false;
+  let builderStatus = reference.builderStatus;
+  for (let pageNumber = 0; pageNumber < MAX_BUILDER_DOC_PAGES; pageNumber++) {
+    const response = await fetchBuilderDesignSystemDocsResponse(
+      reference.builderDesignSystemId,
+      { ...options, page, pageSize },
+    );
+    docs.push(...response.docs);
+    completionConfirmed ||= response.completionConfirmed;
+    builderStatus = response.status ?? builderStatus;
+    if (response.docs.length < pageSize) break;
+    page += 1;
+    if (pageNumber === MAX_BUILDER_DOC_PAGES - 1) {
+      throw new Error(
+        "Builder design-system docs fetch exceeded the safe pagination limit.",
+      );
+    }
+  }
   const tokenValues: Record<string, string> = {};
   for (const doc of docs) {
     if (!doc.tokenValues) continue;
@@ -1161,12 +1192,13 @@ export async function hydrateBuilderDesignSystemReference(
   }
   return {
     ...reference,
+    ...(builderStatus ? { builderStatus } : {}),
     docs,
     tokenValues,
     docCount: docs.length,
     completionConfirmed:
-      response.completionConfirmed ||
-      isConfirmedBuilderDesignSystemStatus(reference.builderStatus),
+      completionConfirmed ||
+      isConfirmedBuilderDesignSystemStatus(builderStatus),
   };
 }
 

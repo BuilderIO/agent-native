@@ -2,6 +2,7 @@ export interface DesignSystemData {
   source?: string;
   builderJobId?: string;
   builderStatus?: string;
+  builderSyncedAt?: string;
   colors?: {
     primary?: unknown;
     secondary?: unknown;
@@ -50,7 +51,11 @@ export function shouldRefreshBuilderDesignSystem(
       system.accessRole === "admin" ||
       system.accessRole === "editor") &&
     parsed?.source === "builder" &&
-    parsed.builderStatus === "in-progress"
+    (parsed.builderStatus === "in-progress" ||
+      ((parsed.builderStatus === "ready" ||
+        parsed.builderStatus === "complete" ||
+        parsed.builderStatus === "completed") &&
+        typeof parsed.builderSyncedAt !== "string"))
   );
 }
 

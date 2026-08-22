@@ -83,10 +83,37 @@ describe("reconcileBuilderProxyData", () => {
     expect(
       reconcileBuilderProxyData(
         JSON.stringify({ source: "builder", builderStatus: "in-progress" }),
-        { ...reference, tokenValues: {}, docCount: 0 },
+        {
+          ...reference,
+          completionConfirmed: false,
+          tokenValues: {},
+          docCount: 0,
+        },
         "2026-08-21T00:00:00.000Z",
       ),
     ).toBeNull();
+  });
+
+  it("marks an explicitly completed tokenless import as ready", () => {
+    const result = reconcileBuilderProxyData(
+      JSON.stringify({
+        source: "builder",
+        builderStatus: "in-progress",
+        colors: { primary: "var(--primary)" },
+      }),
+      { ...reference, completionConfirmed: true, tokenValues: {} },
+      "2026-08-21T00:00:00.000Z",
+    );
+
+    expect(result).toMatchObject({
+      completionConfirmed: true,
+      tokenCount: 0,
+      rejectedTokenCount: 0,
+    });
+    const data = JSON.parse(result!.data) as Record<string, any>;
+    expect(data.builderStatus).toBe("ready");
+    expect(data.builderSyncedAt).toBe("2026-08-21T00:00:00.000Z");
+    expect(data.colors.primary).toBe("var(--primary)");
   });
 
   it("keeps valid tokens in progress until Builder confirms completion", () => {

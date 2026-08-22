@@ -22,7 +22,11 @@ describe("shouldRefreshBuilderDesignSystem", () => {
     expect(
       shouldRefreshBuilderDesignSystem({
         accessRole: "editor",
-        data: JSON.stringify({ source: "builder", builderStatus: "ready" }),
+        data: JSON.stringify({
+          source: "builder",
+          builderStatus: "ready",
+          builderSyncedAt: "2026-08-21T00:00:00.000Z",
+        }),
       }),
     ).toBe(false);
     expect(
@@ -34,6 +38,18 @@ describe("shouldRefreshBuilderDesignSystem", () => {
         }),
       }),
     ).toBe(false);
+  });
+
+  it("refreshes terminal Builder imports that have not synced local values", () => {
+    expect(
+      shouldRefreshBuilderDesignSystem({
+        accessRole: "editor",
+        data: JSON.stringify({
+          source: "builder",
+          builderStatus: "complete",
+        }),
+      }),
+    ).toBe(true);
   });
 
   it("starts a new refresh cycle for a re-indexed Builder job", () => {

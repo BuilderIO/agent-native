@@ -27,6 +27,11 @@ type ProxyData = Record<string, unknown> & {
   tokens?: unknown;
 };
 
+type HydratedBuilderDesignSystemReference =
+  BuilderDesignSystemHydratedReference & {
+    completionConfirmed?: boolean;
+  };
+
 export interface BuilderProxyReconciliation {
   data: string;
   tokenCount: number;
@@ -159,7 +164,7 @@ function findTokenByPattern(
  */
 export function reconcileBuilderProxyData(
   data: string,
-  hydrated: BuilderDesignSystemHydratedReference,
+  hydrated: HydratedBuilderDesignSystemReference,
   syncedAt: string,
 ): BuilderProxyReconciliation | null {
   const parsed = parseProxyData(data);
@@ -177,14 +182,25 @@ export function reconcileBuilderProxyData(
     hydrated.builderStatus === "complete" ||
     hydrated.builderStatus === "completed";
   if (extracted.tokens.length === 0) {
-    return extracted.rejected.length > 0
-      ? {
-          data,
-          tokenCount: 0,
-          rejectedTokenCount: extracted.rejected.length,
-          completionConfirmed: false,
-        }
-      : null;
+    if (extracted.rejected.length > 0) {
+      return {
+        data,
+        tokenCount: 0,
+        rejectedTokenCount: extracted.rejected.length,
+        completionConfirmed: false,
+      };
+    }
+    if (!completionConfirmed) return null;
+    return {
+      data: JSON.stringify({
+        ...parsed,
+        builderStatus: "ready",
+        builderSyncedAt: syncedAt,
+      }),
+      tokenCount: 0,
+      rejectedTokenCount: 0,
+      completionConfirmed: true,
+    };
   }
 
   const legacyCssTokens =

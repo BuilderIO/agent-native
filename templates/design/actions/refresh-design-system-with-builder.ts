@@ -55,7 +55,8 @@ export default defineAction({
       return {
         id,
         synced: false,
-        status: reference.builderStatus ?? "in-progress",
+        status:
+          hydrated.builderStatus ?? reference.builderStatus ?? "in-progress",
         docCount: hydrated.docCount,
         tokenCount: 0,
         message: "Builder DSI has not returned usable token values yet.",
@@ -78,7 +79,8 @@ export default defineAction({
       return {
         id,
         synced: false,
-        status: reference.builderStatus ?? "in-progress",
+        status:
+          hydrated.builderStatus ?? reference.builderStatus ?? "in-progress",
         docCount: hydrated.docCount,
         tokenCount: reconciliation.tokenCount,
         rejectedTokenCount: 0,

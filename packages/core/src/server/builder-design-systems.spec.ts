@@ -205,6 +205,71 @@ describe("Builder design-system helpers", () => {
     });
   });
 
+  it("hydrates every Builder docs page and preserves terminal failure status", async () => {
+    process.env.BUILDER_PRIVATE_KEY = "builder-private";
+    process.env.BUILDER_PUBLIC_KEY = "builder-public";
+    process.env.BUILDER_DESIGN_SYSTEMS_BASE_URL =
+      "https://builder.example.test/design-systems/v1";
+    let requestCount = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        requestCount += 1;
+        if (requestCount === 1) {
+          return new Response(
+            JSON.stringify(
+              Array.from({ length: 40 }, (_, index) => ({
+                id: `doc-${index}`,
+              })),
+            ),
+            { status: 200 },
+          );
+        }
+        return new Response(
+          JSON.stringify({
+            docs: [{ id: "doc-40" }],
+            status: "complete",
+          }),
+          { status: 200 },
+        );
+      }),
+    );
+
+    await expect(
+      hydrateBuilderDesignSystemReference({
+        source: "builder",
+        builderDesignSystemId: "ds-1",
+        builderJobId: "job-1",
+        builderStatus: "in-progress",
+      }),
+    ).resolves.toMatchObject({
+      docCount: 41,
+      completionConfirmed: true,
+    });
+    expect(requestCount).toBe(2);
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ docs: [], status: "failed" }), {
+            status: 200,
+          }),
+      ),
+    );
+    await expect(
+      hydrateBuilderDesignSystemReference({
+        source: "builder",
+        builderDesignSystemId: "ds-1",
+        builderJobId: "job-1",
+        builderStatus: "in-progress",
+      }),
+    ).resolves.toMatchObject({
+      builderStatus: "failed",
+      completionConfirmed: false,
+    });
+  });
+
   it("persists replayable GitHub source scope in the local proxy", () => {
     const fields = createBuilderDesignSystemProxyFields({
       result: {
