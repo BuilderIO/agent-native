@@ -51,12 +51,6 @@ export const CLIPS_ORGANIZATION_INVITE_EMAIL_ID = "clips.organization-invite";
 const CLIPS_SENDER =
   'From is the configured EMAIL_FROM with the display name "Agent-Native Clips"; on first-party agent-native.com deployments it becomes clips@agent-native.com. Reply-to is hello@agent-native.com.';
 
-let registered = false;
-const GLOBAL_REGISTRATION_KEY =
-  "__agentNativeClipsTransactionalEmailCatalogRegistered";
-const globalRegistrationState = globalThis as typeof globalThis &
-  Record<string, boolean | undefined>;
-
 function defineClipsTransactionalEmail(
   definition: Parameters<typeof defineTransactionalEmail>[0],
 ): ReturnType<typeof defineTransactionalEmail> {
@@ -288,18 +282,5 @@ function registerClipsEmailDefinitions(): void {
 }
 
 export function registerClipsEmails(): void {
-  // Nitro/Vite can evaluate the same server module through two module
-  // instances during dev reloads. Keep the catalog registration process-wide
-  // so those instances cannot submit the same id twice.
-  if (registered || globalRegistrationState[GLOBAL_REGISTRATION_KEY]) return;
-
-  try {
-    registerClipsEmailDefinitions();
-    registered = true;
-    globalRegistrationState[GLOBAL_REGISTRATION_KEY] = true;
-  } catch (error) {
-    registered = false;
-    delete globalRegistrationState[GLOBAL_REGISTRATION_KEY];
-    throw error;
-  }
+  registerClipsEmailDefinitions();
 }

@@ -32,6 +32,7 @@ describe("Clips transactional email registration", () => {
 
     resetTransactionalEmailRegistry();
     expect(() => registerClipsEmails()).not.toThrow();
+    expect(() => registerClipsEmails()).not.toThrow();
 
     expect(
       listTransactionalEmails().filter((email) =>
