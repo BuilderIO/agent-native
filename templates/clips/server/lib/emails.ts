@@ -59,7 +59,7 @@ function registerClipsEmailDefinitions(): void {
   const defineClipsTransactionalEmail = (
     definition: TransactionalEmailDefinition,
   ): void => {
-    definitions.push(definition);
+    definitions.push({ ...definition, app: "clips" });
   };
 
   defineClipsTransactionalEmail({
