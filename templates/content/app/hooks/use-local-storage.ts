@@ -1,6 +1,14 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 
 const LOCAL_STORAGE_CHANGE_EVENT = "content-local-storage-change";
+const useIsomorphicLayoutEffect =
+  typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 function readStorage<T>(key: string, defaultValue: T): T {
   if (typeof window === "undefined") return defaultValue;
@@ -22,18 +30,16 @@ export function useLocalStorage<T>(
   const valueRef = useRef(value);
   const keyChanged = prevKeyRef.current !== key;
   const visibleValue = keyChanged ? readStorage(key, defaultValue) : value;
-  if (keyChanged) {
-    valueRef.current = visibleValue;
-  }
 
-  useEffect(() => {
+  useIsomorphicLayoutEffect(() => {
     if (prevKeyRef.current !== key) {
       prevKeyRef.current = key;
-      const fresh = readStorage(key, defaultValue);
-      valueRef.current = fresh;
-      setValue(fresh);
+      valueRef.current = visibleValue;
+      setValue(visibleValue);
     }
+  }, [key, visibleValue]);
 
+  useEffect(() => {
     function handleStorage(event: StorageEvent) {
       if (event.key === key) {
         const next = readStorage(key, defaultValue);
