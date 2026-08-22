@@ -198,6 +198,87 @@ export function pruneSsrIslandFromRewritingClone(
   return bytes;
 }
 
+/**
+ * Read a package's manifest, or null when it has none. Shared with build.ts's
+ * copyRuntimePackageTree, which is why this lives here rather than there:
+ * build.ts already imports from this file, and the reverse import would be
+ * circular.
+ */
+export function readPackageManifest(
+  packageDir: string,
+): Record<string, unknown> | null {
+  const packageJsonPath = path.join(packageDir, "package.json");
+  if (!fs.existsSync(packageJsonPath)) return null;
+  const manifest: unknown = JSON.parse(
+    fs.readFileSync(packageJsonPath, "utf8"),
+  );
+  if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) {
+    return null;
+  }
+  return manifest as Record<string, unknown>;
+}
+
+/** Every installed package name directly under `nodeModulesDir`, scoped packages expanded to `@scope/name`. */
+function listTopLevelPackageNames(nodeModulesDir: string): string[] {
+  if (!fs.existsSync(nodeModulesDir)) return [];
+  const names: string[] = [];
+  for (const entry of fs.readdirSync(nodeModulesDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    if (!entry.name.startsWith("@")) {
+      names.push(entry.name);
+      continue;
+    }
+    const scopeDir = path.join(nodeModulesDir, entry.name);
+    for (const scoped of fs.readdirSync(scopeDir, { withFileTypes: true })) {
+      if (scoped.isDirectory()) names.push(`${entry.name}/${scoped.name}`);
+    }
+  }
+  return names;
+}
+
+/**
+ * Every package name reachable from `roots` by walking installed
+ * `dependencies` fields — the same edge copyRuntimePackageTree
+ * (build.ts) follows to build the browser runtime tree in the first place, so
+ * a package that tree copied in is exactly a package this walk can find again.
+ * Only "dependencies": a dev/optional/peer-only listing must never wrongly
+ * prove an orphan still alive.
+ *
+ * A dependency name with no directory here was never installed — the same
+ * BARE_RUNTIME_ONLY_PACKAGES / SERVERLESS_FUNCTION_PACKAGE_DENYLIST exclusions
+ * upstream leave real, expected gaps in a package's own "dependencies" field,
+ * and a gap is not a resolution failure. A directory that DOES exist without a
+ * readable package.json is one: the closure can no longer be trusted, so that
+ * throws instead of guessing which way is safe.
+ */
+function reachablePackageNames(
+  nodeModulesDir: string,
+  roots: Iterable<string>,
+): Set<string> {
+  const seen = new Set<string>();
+  const visit = (packageName: string): void => {
+    if (seen.has(packageName)) return;
+    seen.add(packageName);
+    const packageDir = path.join(nodeModulesDir, ...packageName.split("/"));
+    if (!fs.existsSync(packageDir)) return;
+    const manifest = readPackageManifest(packageDir);
+    if (!manifest) {
+      throw new Error(
+        `[deploy] ${packageDir} has no readable package.json; cannot compute the runtime dependency closure it belongs to.`,
+      );
+    }
+    const dependencies = manifest.dependencies;
+    if (!dependencies || typeof dependencies !== "object") return;
+    for (const dependencyName of Object.keys(
+      dependencies as Record<string, unknown>,
+    )) {
+      visit(dependencyName);
+    }
+  };
+  for (const root of roots) visit(root);
+  return seen;
+}
+
 /** Copied by copyInstalledBrowserRuntimePackages; see SERVERLESS_BROWSER_RUNTIME_PACKAGES. */
 const BROWSER_RUNTIME_DIRS = ["@sparticuz", "playwright-core"];
 
@@ -238,14 +319,21 @@ function dirSize(dir: string): number {
 }
 
 /**
- * Drop the serverless browser runtime from a clone that can never run an agent
- * turn.
+ * Drop the serverless browser runtime — and everything installed only because
+ * the runtime needed it — from a clone that can never run an agent turn.
  *
  * Playwright and @sparticuz/chromium are reached only through NON-LITERAL
  * dynamic imports in creative-context's rendered-page connector, so no static
  * walk can prove them dead. The caller asserts it instead, and this refuses the
  * prune when the entry rewrites to a route that could reach an agent — a
- * scheduled report sweep can drop 79MB, an agent worker cannot.
+ * scheduled report sweep can drop the runtime, an agent worker cannot.
+ *
+ * Deleting just the two known directories used to leave their whole
+ * dependency closure behind — packages like tar-fs and pump that exist in
+ * `node_modules` for no other reason than @sparticuz/chromium-min or
+ * playwright-core needing them. Those are orphaned the instant the runtime is
+ * gone, so this walks the closure and removes it too, keeping only what a
+ * still-present, unrelated package also depends on.
  */
 export function pruneBrowserRuntimeFromNonAgentClone(
   dest: string,
@@ -262,9 +350,50 @@ export function pruneBrowserRuntimeFromNonAgentClone(
     );
   }
 
+  const nodeModulesDir = path.join(dest, "node_modules");
+  // Expand before deleting anything: once @sparticuz is gone there is nothing
+  // left to list its scoped children from.
+  const browserRoots = BROWSER_RUNTIME_DIRS.flatMap((name) =>
+    name.startsWith("@")
+      ? listTopLevelPackageNames(nodeModulesDir).filter((pkg) =>
+          pkg.startsWith(`${name}/`),
+        )
+      : [name],
+  );
+
   let bytes = 0;
+  if (browserRoots.length > 0) {
+    // Everything reachable from the runtime being deleted — e.g.
+    // @sparticuz/chromium-min's tar-fs, and everything tar-fs needs. A member
+    // of this set is dead UNLESS some other, unrelated top-level package also
+    // depends on it — `stillNeeded` proves that by walking every package that
+    // ISN'T itself downstream of the runtime, so it can never trivially
+    // "prove itself" reachable.
+    const browserClosure = reachablePackageNames(nodeModulesDir, browserRoots);
+    const otherRoots = listTopLevelPackageNames(nodeModulesDir).filter(
+      (name) => !browserClosure.has(name),
+    );
+    const stillNeeded = reachablePackageNames(nodeModulesDir, otherRoots);
+
+    for (const packageName of browserClosure) {
+      // The roots themselves are deleted below, by directory name rather than
+      // package name, so a whole scope goes with them even if a future
+      // dependency adds a sibling under it.
+      if (browserRoots.includes(packageName)) continue;
+      if (stillNeeded.has(packageName)) continue;
+      const packageDir = path.join(nodeModulesDir, ...packageName.split("/"));
+      if (!fs.existsSync(packageDir)) continue;
+      bytes += dirSize(packageDir);
+      fs.rmSync(packageDir, { recursive: true, force: true });
+      const scopeDir = path.dirname(packageDir);
+      if (scopeDir !== nodeModulesDir && fs.readdirSync(scopeDir).length === 0) {
+        fs.rmSync(scopeDir, { recursive: true, force: true });
+      }
+    }
+  }
+
   for (const name of BROWSER_RUNTIME_DIRS) {
-    const dir = path.join(dest, "node_modules", name);
+    const dir = path.join(nodeModulesDir, name);
     if (!fs.existsSync(dir)) continue;
     bytes += dirSize(dir);
     // Hard links: deleting the clone's link never touches the source bundle.

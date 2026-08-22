@@ -17,3 +17,8 @@ Cut and ratchet serverless function payload size.
   build's function size report and budget previously measured a directory that
   app-owned pruning then changed, reporting sizes up to 19MB above what
   actually shipped.
+- Drop the orphaned dependency closure when the serverless browser runtime is
+  pruned from a clone that can never run an agent turn. Deleting the two known
+  directories left packages behind that existed only because
+  `@sparticuz/chromium-min` or `playwright-core` needed them; the prune now
+  walks the closure and removes what nothing still-present depends on.
