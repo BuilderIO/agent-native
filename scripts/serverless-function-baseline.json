@@ -1,0 +1,34 @@
+{
+  "analytics": {
+    "agent-native-recurring-jobs": 1758,
+    "analytics-alert-cron": 1566,
+    "analytics-alert-sweep-background": 27687208,
+    "analytics-bigquery-backfill-background": 27687242,
+    "analytics-bigquery-backfill-cron": 1049,
+    "analytics-rollup-backfill-background": 27687235,
+    "analytics-rollup-backfill-cron": 1044,
+    "dashboard-report-cron": 1065,
+    "dashboard-report-sweep-background": 27688058,
+    "server": 119457065,
+    "server-agent-background": 110070254,
+    "session-replay-retention-cron": 1197,
+    "session-replay-retention-sweep-background": 27687239,
+    "uptime-monitor-cron": 1560,
+    "uptime-monitor-sweep-background": 27687204
+  },
+  "calendar": {
+    "agent-native-recurring-jobs": 1758,
+    "server": 22139899,
+    "server-agent-background": 15361339
+  },
+  "docs": {
+    "agent-native-recurring-jobs": 1758,
+    "server": 25052433,
+    "server-agent-background": 25057097
+  },
+  "slides": {
+    "agent-native-recurring-jobs": 1758,
+    "server": 62460451,
+    "server-agent-background": 53950832
+  }
+}

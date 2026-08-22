@@ -278,6 +278,18 @@ jobs:
           set -euo pipefail
           GUARD_SSR_CACHE_ARTIFACT_DIR="$PUBLISH_DIRECTORY" pnpm guard:ssr-cache-artifact
 
+      # Every byte here is unzipped on each cold start, and Netlify uploads each
+      # function separately. The existing 120MB ceiling never fired because it
+      # sat above the whole fleet; this measures growth from where each app
+      # actually is. An app with no recorded baseline is named, not passed.
+      - name: Check serverless function sizes against their baseline
+        env:
+          FUNCTIONS_DIRECTORY: ${{ steps.target.outputs.functions_directory }}
+          SITE: ${{ inputs.site }}
+        run: |
+          set -euo pipefail
+          node scripts/check-function-size-baseline.mjs --site "$SITE" --dir "$FUNCTIONS_DIRECTORY"
+
       - name: Pause automatic Netlify builds for production cutover
         id: pause
         if: inputs.target == 'production' && inputs.deploy && inputs.deploy_mode == 'production'

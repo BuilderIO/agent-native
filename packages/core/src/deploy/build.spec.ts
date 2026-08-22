@@ -1824,7 +1824,7 @@ describe("sanitizeServerlessFunctionPackageManifest", () => {
     return functionDir;
   }
 
-  it("removes desktop-only packages but keeps serverless runtime packages", () => {
+  it("removes desktop-only and local-only packages but keeps serverless runtime packages", () => {
     const functionDir = setupFunctionDir();
 
     sanitizeServerlessFunctionPackageManifest(functionDir);
@@ -1832,9 +1832,11 @@ describe("sanitizeServerlessFunctionPackageManifest", () => {
     const packageJson = JSON.parse(
       fs.readFileSync(path.join(functionDir, "package.json"), "utf8"),
     );
+    // better-sqlite3 is a local-development driver: a serverless function
+    // holding a file-backed SQLite database is already broken, so shipping the
+    // driver only buys a silently empty database instead of a loud failure.
     expect(packageJson.dependencies).toEqual({
       "@libsql/linux-x64-gnu": "0.5.29",
-      "better-sqlite3": "12.11.1",
       "playwright-core": "1.61.1",
     });
     expect(packageJson.optionalDependencies).toBeUndefined();
