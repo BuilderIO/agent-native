@@ -72,6 +72,10 @@ export interface OnboardingStep {
   /** Required steps block onboarding dismissal when incomplete. */
   required?: boolean;
   methods: OnboardingMethod[];
+  /** Hide the step when its backing capability is not configured. */
+  isAvailable?: (
+    context?: OnboardingResolveContext,
+  ) => boolean | Promise<boolean>;
   /** Resolver — called on every `GET /_agent-native/onboarding/steps` request. */
   isComplete: (
     context?: OnboardingResolveContext,

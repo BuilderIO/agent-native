@@ -93,6 +93,14 @@ export function isGoogleWorkspaceOAuthProvider(provider: string): boolean {
   );
 }
 
+export async function hasWorkspaceProviderOAuthCredentials(
+  provider: GenericWorkspaceOAuthProvider,
+): Promise<boolean> {
+  const [clientId, clientSecret] =
+    await resolveProviderClientCredentials(provider);
+  return Boolean(clientId && clientSecret);
+}
+
 export interface WorkspaceProviderOAuthFlow {
   provider: GenericWorkspaceOAuthProvider;
   flowId: string;

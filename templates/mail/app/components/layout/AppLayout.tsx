@@ -83,6 +83,7 @@ import {
 } from "@/hooks/use-keyboard-shortcuts";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { runUndo } from "@/hooks/use-undo";
+import { shouldOfferGoogleOAuthSetup } from "@/lib/google-oauth-setup";
 import {
   OTHER_INBOX_TAB_ID,
   OTHER_INBOX_TAB_PARAM,
@@ -329,6 +330,11 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   const googleStatus = useGoogleAuthStatus();
   const accounts = googleStatus.data?.accounts ?? [];
   const hasAccounts = accounts.length > 0;
+  const googleConfigured = googleStatus.data?.configured === true;
+  const canOfferGoogleOAuthSetup = useMemo(
+    () => shouldOfferGoogleOAuthSetup(),
+    [],
+  );
   const googleStatusReady = !googleStatus.isLoading && !googleStatus.isError;
   const [accountPopoverOpen, setAccountPopoverOpen] = useState(false);
   // Account filter: which accounts' emails to show. Empty set = all accounts.
@@ -1495,6 +1501,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
               >
                 <AccountPopover
                   accounts={accounts}
+                  canAddAccount={googleConfigured || canOfferGoogleOAuthSetup}
                   activeAccounts={activeAccounts}
                   onToggleAccount={(email) => {
                     setActiveAccounts((prev) => {
@@ -1906,7 +1913,8 @@ function AppLayoutInner({ children }: AppLayoutProps) {
           !hasAccounts &&
           !hasLocalMailboxData &&
           view !== "settings" &&
-          view !== "draft-queue" ? (
+          view !== "draft-queue" &&
+          (googleConfigured || canOfferGoogleOAuthSetup) ? (
             <GoogleConnectBanner variant="hero" />
           ) : (
             <main className="agent-native-app-main flex flex-1 overflow-hidden">
@@ -2562,6 +2570,7 @@ function TabSettingsPopover({
 
 function AccountPopover({
   accounts,
+  canAddAccount,
   activeAccounts,
   onToggleAccount,
   onRemoveAccount,
@@ -2572,6 +2581,7 @@ function AccountPopover({
     photoUrl?: string;
     shared?: boolean;
   }>;
+  canAddAccount: boolean;
   activeAccounts: Set<string>;
   onToggleAccount: (email: string) => void;
   onRemoveAccount: (email: string) => void;
@@ -2690,25 +2700,27 @@ function AccountPopover({
         })}
       </div>
 
-      <div className="border-t border-border/30 px-3 py-2">
-        <button
-          onClick={() => {
-            const returnPath = `${window.location.pathname}${window.location.search}`;
-            startWorkspaceProviderOAuth("gmail", {
-              appId: "mail",
-              returnPath,
-              scope: "user",
-            });
-          }}
-          disabled={authUrl.isLoading || authUrl.isFetching}
-          className="flex items-center gap-2 w-full text-[13px] text-muted-foreground hover:text-foreground transition-colors py-1"
-        >
-          <IconPlus className="h-3.5 w-3.5" />
-          {authUrl.isFetching
-            ? t("mail.accounts.connecting")
-            : t("mail.accounts.addAccount")}
-        </button>
-      </div>
+      {canAddAccount ? (
+        <div className="border-t border-border/30 px-3 py-2">
+          <button
+            onClick={() => {
+              const returnPath = `${window.location.pathname}${window.location.search}`;
+              startWorkspaceProviderOAuth("gmail", {
+                appId: "mail",
+                returnPath,
+                scope: "user",
+              });
+            }}
+            disabled={authUrl.isLoading || authUrl.isFetching}
+            className="flex items-center gap-2 w-full text-[13px] text-muted-foreground hover:text-foreground transition-colors py-1"
+          >
+            <IconPlus className="h-3.5 w-3.5" />
+            {authUrl.isFetching
+              ? t("mail.accounts.connecting")
+              : t("mail.accounts.addAccount")}
+          </button>
+        </div>
+      ) : null}
     </>
   );
 }

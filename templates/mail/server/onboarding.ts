@@ -10,6 +10,7 @@
 
 import { listOAuthAccountsByOwner } from "@agent-native/core/oauth-tokens";
 import { registerOnboardingStep } from "@agent-native/core/onboarding";
+import { hasWorkspaceProviderOAuthCredentials } from "@agent-native/core/server";
 import { resolveWorkspaceConnectionForApp } from "@agent-native/core/workspace-connections";
 
 const GMAIL_SCOPES = [
@@ -35,6 +36,7 @@ registerOnboardingStep({
   required: false,
   title: "Connect Gmail",
   description: "Send, read, and organize real email.",
+  isAvailable: () => hasWorkspaceProviderOAuthCredentials("gmail"),
   methods: [
     {
       id: "oauth",
