@@ -50,16 +50,20 @@ describe("refresh-design-system-with-builder", () => {
       builderJobId: "job-1",
       builderStatus: "in-progress",
     });
-    mockResolveAccess.mockResolvedValue({
+    const initialData = JSON.stringify({
+      source: "builder",
+      builderStatus: "in-progress",
+      colors: { primary: "var(--primary)" },
+    });
+    mockResolveAccess.mockResolvedValueOnce({
+      resource: { id: "local-ds-1", data: initialData },
+    });
+    mockResolveAccess.mockImplementationOnce(async () => ({
       resource: {
         id: "local-ds-1",
-        data: JSON.stringify({
-          source: "builder",
-          builderStatus: "in-progress",
-          colors: { primary: "var(--primary)" },
-        }),
+        data: mockSet.mock.calls[0]?.[0]?.data ?? initialData,
       },
-    });
+    }));
     mockHydrate.mockResolvedValue({
       source: "builder",
       builderDesignSystemId: "ds-1",
@@ -120,5 +124,34 @@ describe("refresh-design-system-with-builder", () => {
       status: "in-progress",
     });
     expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it("reports a concurrent local edit instead of claiming synchronization", async () => {
+    mockResolveAccess.mockReset();
+    mockResolveAccess.mockResolvedValueOnce({
+      resource: {
+        id: "local-ds-1",
+        data: JSON.stringify({
+          source: "builder",
+          builderStatus: "in-progress",
+        }),
+      },
+    });
+    mockResolveAccess.mockResolvedValueOnce({
+      resource: {
+        id: "local-ds-1",
+        data: JSON.stringify({
+          source: "builder",
+          builderStatus: "in-progress",
+          colors: { primary: "#654321" },
+        }),
+      },
+    });
+
+    await expect(action.run({ id: "local-ds-1" })).resolves.toMatchObject({
+      id: "local-ds-1",
+      synced: false,
+      status: "conflict",
+    });
   });
 });

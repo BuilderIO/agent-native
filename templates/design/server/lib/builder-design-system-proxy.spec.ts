@@ -34,6 +34,20 @@ describe("reconcileBuilderProxyData", () => {
         borders: { radius: "12px", accentWidth: "1px" },
         defaults: { background: "var(--background)" },
         logos: [],
+        tokens: [
+          {
+            name: "Old Builder token",
+            cssVar: "--old-builder-token",
+            value: "#111111",
+            source: "Builder DSI",
+          },
+          {
+            name: "Local token",
+            cssVar: "--local-token",
+            value: "#222222",
+            source: "Local",
+          },
+        ],
       }),
       reference,
       "2026-08-21T00:00:00.000Z",
@@ -51,7 +65,17 @@ describe("reconcileBuilderProxyData", () => {
     });
     expect(data.borders.radius).toBe("16px");
     expect(data.spacing.elementGap).toBe("20px");
-    expect(data.tokens).toHaveLength(6);
+    expect(data.tokens).toHaveLength(7);
+    expect(data.tokens).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ cssVar: "--old-builder-token" }),
+      ]),
+    );
+    expect(data.tokens).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ cssVar: "--local-token" }),
+      ]),
+    );
   });
 
   it("does not mark an incomplete Builder response as synchronized", () => {

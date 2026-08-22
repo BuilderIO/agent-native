@@ -10,6 +10,18 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { reconcileBuilderProxyData } from "../server/lib/builder-design-system-proxy.js";
 
+function persistedBuilderSyncMatches(data: unknown, syncedAt: string): boolean {
+  if (typeof data !== "string") return false;
+  try {
+    const parsed = JSON.parse(data) as Record<string, unknown>;
+    return (
+      parsed.builderStatus === "ready" && parsed.builderSyncedAt === syncedAt
+    );
+  } catch {
+    return false;
+  }
+}
+
 export default defineAction({
   description:
     "Refresh a Builder-backed design-system proxy after DSI indexing finishes. " +
@@ -58,6 +70,19 @@ export default defineAction({
           eq(schema.designSystems.data, access.resource.data),
         ),
       );
+
+    const persisted = await resolveAccess("design-system", id);
+    if (!persistedBuilderSyncMatches(persisted?.resource?.data, syncedAt)) {
+      return {
+        id,
+        synced: false,
+        status: "conflict",
+        docCount: hydrated.docCount,
+        tokenCount: 0,
+        message:
+          "The design system changed while Builder DSI was syncing. Retry the refresh.",
+      };
+    }
 
     return {
       id,

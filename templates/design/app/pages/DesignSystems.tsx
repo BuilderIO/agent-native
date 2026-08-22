@@ -91,6 +91,7 @@ interface DesignSystem {
 
 interface DesignSystemData {
   source?: string;
+  builderStatus?: string;
   colors?: {
     primary?: unknown;
     secondary?: unknown;
@@ -113,6 +114,19 @@ interface DesignSystemData {
   notes?: unknown;
   /** The source system's own named vocabulary; absent on kits predating it. */
   tokens?: unknown;
+}
+
+export function shouldRefreshBuilderDesignSystem(
+  system: Pick<DesignSystem, "accessRole" | "data">,
+): boolean {
+  const parsed = parseDesignSystemData(system.data);
+  return (
+    (system.accessRole === "owner" ||
+      system.accessRole === "admin" ||
+      system.accessRole === "editor") &&
+    parsed?.source === "builder" &&
+    parsed.builderStatus === "in-progress"
+  );
 }
 
 export default function DesignSystems() {
@@ -144,7 +158,8 @@ export default function DesignSystems() {
     refreshBuilderSystemMutation.mutateAsync,
   );
   refreshBuilderSystemRef.current = refreshBuilderSystemMutation.mutateAsync;
-  const attemptedBuilderRefreshesRef = useRef(new Set<string>());
+  const completedBuilderRefreshesRef = useRef(new Set<string>());
+  const activeBuilderRefreshesRef = useRef(new Set<string>());
 
   const designSystems = data?.designSystems ?? [];
   const selectedDesignSystemId = searchParams.get("designSystemId");
@@ -375,25 +390,15 @@ export default function DesignSystems() {
       });
   }, [selectedSystemIds, queryClient, exitSelectionMode, deleteMutation, t]);
 
-  const parseData = (dataStr: string): DesignSystemData | null => {
-    try {
-      return JSON.parse(dataStr);
-    } catch {
-      return null;
-    }
-  };
-
   useEffect(() => {
     const builderSystemIds = designSystems
-      .filter(
-        (system) =>
-          (system.accessRole === "owner" ||
-            system.accessRole === "admin" ||
-            system.accessRole === "editor") &&
-          parseData(system.data)?.source === "builder",
-      )
+      .filter(shouldRefreshBuilderDesignSystem)
       .map((system) => system.id)
-      .filter((id) => !attemptedBuilderRefreshesRef.current.has(id));
+      .filter(
+        (id) =>
+          !completedBuilderRefreshesRef.current.has(id) &&
+          !activeBuilderRefreshesRef.current.has(id),
+      );
     if (builderSystemIds.length === 0) return;
 
     let disposed = false;
@@ -406,15 +411,27 @@ export default function DesignSystems() {
         const result = await refreshBuilderSystemRef.current({ id });
         if (disposed) return;
         if (result.synced) {
+          activeBuilderRefreshesRef.current.delete(id);
+          completedBuilderRefreshesRef.current.add(id);
           await queryClient.invalidateQueries({
             queryKey: ["action", "list-design-systems"],
           });
           return;
         }
-        if (attempt >= maxAttempts) return;
+        if (attempt >= maxAttempts) {
+          activeBuilderRefreshesRef.current.delete(id);
+          completedBuilderRefreshesRef.current.add(id);
+          return;
+        }
       } catch {
-        if (disposed || attempt >= maxAttempts) return;
+        if (disposed) return;
+        if (attempt >= maxAttempts) {
+          activeBuilderRefreshesRef.current.delete(id);
+          completedBuilderRefreshesRef.current.add(id);
+          return;
+        }
       }
+      if (disposed) return;
       timers.push(
         setTimeout(() => {
           void refresh(id, attempt + 1);
@@ -423,13 +440,16 @@ export default function DesignSystems() {
     };
 
     for (const id of builderSystemIds) {
-      attemptedBuilderRefreshesRef.current.add(id);
+      activeBuilderRefreshesRef.current.add(id);
       void refresh(id, 0);
     }
 
     return () => {
       disposed = true;
       for (const timer of timers) clearTimeout(timer);
+      for (const id of builderSystemIds) {
+        activeBuilderRefreshesRef.current.delete(id);
+      }
     };
   }, [designSystems, queryClient]);
 
@@ -549,7 +569,7 @@ export default function DesignSystems() {
 
                   {/* Design system cards */}
                   {designSystems.map((ds) => {
-                    const parsed = parseData(ds.data);
+                    const parsed = parseDesignSystemData(ds.data);
                     const colors = parsed?.colors;
                     const primaryColor = getCssColorToken(colors?.primary);
                     const secondaryColor = getCssColorToken(colors?.secondary);

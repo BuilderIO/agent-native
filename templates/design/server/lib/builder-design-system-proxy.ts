@@ -100,7 +100,9 @@ export function reconcileBuilderProxyData(
   );
   if (extracted.tokens.length === 0) return null;
 
-  const existing = normalizeBrandKitTokens(parsed.tokens).tokens;
+  const existing = normalizeBrandKitTokens(parsed.tokens).tokens.filter(
+    (token) => token.source !== "Builder DSI",
+  );
   const tokensByCssVar = new Map(
     existing.map((token) => [token.cssVar, token]),
   );
