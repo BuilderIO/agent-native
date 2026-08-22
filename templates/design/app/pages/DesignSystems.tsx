@@ -26,6 +26,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -72,6 +73,12 @@ import {
 } from "@/lib/design-system-preview";
 
 import { QueryErrorState } from "../components/QueryErrorState";
+import {
+  builderRefreshKey,
+  parseDesignSystemData,
+  shouldRefreshBuilderDesignSystem,
+  type DesignSystemData,
+} from "../lib/design-system-data";
 
 interface DesignSystem {
   id: string;
@@ -88,29 +95,21 @@ interface DesignSystem {
   updatedAt?: string;
 }
 
-interface DesignSystemData {
-  colors?: {
-    primary?: unknown;
-    secondary?: unknown;
-    accent?: unknown;
-    background?: unknown;
-    surface?: unknown;
-    text?: unknown;
-    textMuted?: unknown;
-  };
-  typography?: {
-    headingFont?: unknown;
-    bodyFont?: unknown;
-    headingWeight?: unknown;
-    bodyWeight?: unknown;
-  };
-  spacing?: Record<string, unknown>;
-  borders?: Record<string, unknown>;
-  logos?: Array<{ url?: string; name?: string; variant?: string }>;
-  defaults?: Record<string, unknown>;
-  notes?: unknown;
-  /** The source system's own named vocabulary; absent on kits predating it. */
-  tokens?: unknown;
+type BuilderRefreshResult = {
+  synced: boolean;
+  status?: string;
+  rejectedTokenCount?: number;
+};
+
+function isTerminalBuilderStatus(status?: string): boolean {
+  return (
+    status === "ready" ||
+    status === "complete" ||
+    status === "completed" ||
+    status === "error" ||
+    status === "failed" ||
+    status === "cancelled"
+  );
 }
 
 export default function DesignSystems() {
@@ -132,6 +131,19 @@ export default function DesignSystems() {
   const setDefaultMutation = useActionMutation("set-default-design-system");
   const deleteMutation = useActionMutation("delete-design-system");
   const updateMutation = useActionMutation("update-design-system");
+  const refreshBuilderSystemMutation = useActionMutation<
+    BuilderRefreshResult,
+    { id: string }
+  >("refresh-design-system-with-builder", {
+    skipActionQueryInvalidation: true,
+  });
+  const refreshBuilderSystemRef = useRef(
+    refreshBuilderSystemMutation.mutateAsync,
+  );
+  refreshBuilderSystemRef.current = refreshBuilderSystemMutation.mutateAsync;
+  const settledBuilderRefreshesRef = useRef(new Set<string>());
+  const stoppedBuilderRefreshesRef = useRef(new Set<string>());
+  const activeBuilderRefreshesRef = useRef(new Set<string>());
 
   const designSystems = data?.designSystems ?? [];
   const selectedDesignSystemId = searchParams.get("designSystemId");
@@ -362,13 +374,107 @@ export default function DesignSystems() {
       });
   }, [selectedSystemIds, queryClient, exitSelectionMode, deleteMutation, t]);
 
-  const parseData = (dataStr: string): DesignSystemData | null => {
-    try {
-      return JSON.parse(dataStr);
-    } catch {
-      return null;
+  useEffect(() => {
+    const builderSystemEntries = designSystems
+      .filter(shouldRefreshBuilderDesignSystem)
+      .map((system) => ({
+        id: system.id,
+        key: builderRefreshKey(system),
+      }))
+      .filter(
+        ({ key }) =>
+          !settledBuilderRefreshesRef.current.has(key) &&
+          !stoppedBuilderRefreshesRef.current.has(key) &&
+          !activeBuilderRefreshesRef.current.has(key),
+      );
+    if (builderSystemEntries.length === 0) return;
+
+    let disposed = false;
+    const timers: Array<ReturnType<typeof setTimeout>> = [];
+    const maxAttempts = 5;
+    const maxPolls = 3;
+    const retryDelayMs = 5_000;
+    const retryPollDelayMs = 30_000;
+
+    const scheduleRetry = (
+      entry: { id: string; key: string },
+      delayMs: number,
+      attempt: number,
+      pollCount: number,
+    ): void => {
+      if (disposed) return;
+      timers.push(
+        setTimeout(() => {
+          void refresh(entry, attempt, pollCount);
+        }, delayMs),
+      );
+    };
+
+    const refresh = async (
+      entry: { id: string; key: string },
+      attempt: number,
+      pollCount: number,
+    ): Promise<void> => {
+      try {
+        const result = await refreshBuilderSystemRef.current({ id: entry.id });
+        if (disposed) return;
+        if (result.synced) {
+          activeBuilderRefreshesRef.current.delete(entry.key);
+          settledBuilderRefreshesRef.current.add(entry.key);
+          await queryClient.invalidateQueries({
+            queryKey: ["action", "list-design-systems"],
+          });
+          return;
+        }
+        if (result.status === "conflict") {
+          activeBuilderRefreshesRef.current.delete(entry.key);
+          stoppedBuilderRefreshesRef.current.add(entry.key);
+          await queryClient.invalidateQueries({
+            queryKey: ["action", "list-design-systems"],
+          });
+          return;
+        }
+        if (result.status === "incomplete" || result.rejectedTokenCount) {
+          activeBuilderRefreshesRef.current.delete(entry.key);
+          stoppedBuilderRefreshesRef.current.add(entry.key);
+          return;
+        }
+        if (isTerminalBuilderStatus(result.status)) {
+          activeBuilderRefreshesRef.current.delete(entry.key);
+          settledBuilderRefreshesRef.current.add(entry.key);
+          return;
+        }
+      } catch {
+        if (disposed) return;
+      }
+      if (disposed) return;
+      const exhausted = attempt >= maxAttempts;
+      if (exhausted && pollCount >= maxPolls) {
+        activeBuilderRefreshesRef.current.delete(entry.key);
+        stoppedBuilderRefreshesRef.current.add(entry.key);
+        return;
+      }
+      scheduleRetry(
+        entry,
+        exhausted ? retryPollDelayMs : retryDelayMs,
+        exhausted ? 0 : attempt + 1,
+        exhausted ? pollCount + 1 : pollCount,
+      );
+    };
+
+    for (const entry of builderSystemEntries) {
+      activeBuilderRefreshesRef.current.add(entry.key);
+      void refresh(entry, 0, 0);
     }
-  };
+
+    return () => {
+      disposed = true;
+      for (const timer of timers) clearTimeout(timer);
+      for (const entry of builderSystemEntries) {
+        activeBuilderRefreshesRef.current.delete(entry.key);
+      }
+    };
+  }, [designSystems, queryClient]);
 
   useSetPageTitle(t("navigation.designSystems"));
 
@@ -486,7 +592,7 @@ export default function DesignSystems() {
 
                   {/* Design system cards */}
                   {designSystems.map((ds) => {
-                    const parsed = parseData(ds.data);
+                    const parsed = parseDesignSystemData(ds.data);
                     const colors = parsed?.colors;
                     const primaryColor = getCssColorToken(colors?.primary);
                     const secondaryColor = getCssColorToken(colors?.secondary);
@@ -995,18 +1101,6 @@ function EmptyPreviewLine({
       {children}
     </div>
   );
-}
-
-function parseDesignSystemData(dataStr: string): DesignSystemData | null {
-  try {
-    const parsed = JSON.parse(dataStr);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return null;
-    }
-    return parsed as DesignSystemData;
-  } catch {
-    return null;
-  }
 }
 
 function parseDesignSystemAssets(
