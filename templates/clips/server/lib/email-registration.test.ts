@@ -29,6 +29,11 @@ describe("Clips transactional email registration", () => {
     expect(() => registerClipsEmails()).toThrow(
       /Duplicate transactional email/,
     );
+    expect(
+      listTransactionalEmails()
+        .filter((email) => email.id.startsWith("clips."))
+        .map((email) => email.id),
+    ).toEqual([CLIPS_FIRST_VIEW_EMAIL_ID]);
 
     resetTransactionalEmailRegistry();
     expect(() => registerClipsEmails()).not.toThrow();

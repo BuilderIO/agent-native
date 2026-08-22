@@ -9,7 +9,10 @@
  * than a copy of it.
  */
 
-import { defineTransactionalEmail } from "@agent-native/core/email-catalog";
+import {
+  defineTransactionalEmails,
+  type TransactionalEmailDefinition,
+} from "@agent-native/core/email-catalog";
 
 import { renderClipsInviteEmail } from "../../actions/invite-member.js";
 import {
@@ -51,13 +54,14 @@ export const CLIPS_ORGANIZATION_INVITE_EMAIL_ID = "clips.organization-invite";
 const CLIPS_SENDER =
   'From is the configured EMAIL_FROM with the display name "Agent-Native Clips"; on first-party agent-native.com deployments it becomes clips@agent-native.com. Reply-to is hello@agent-native.com.';
 
-function defineClipsTransactionalEmail(
-  definition: Parameters<typeof defineTransactionalEmail>[0],
-): ReturnType<typeof defineTransactionalEmail> {
-  return defineTransactionalEmail(definition);
-}
-
 function registerClipsEmailDefinitions(): void {
+  const definitions: TransactionalEmailDefinition[] = [];
+  const defineClipsTransactionalEmail = (
+    definition: TransactionalEmailDefinition,
+  ): void => {
+    definitions.push(definition);
+  };
+
   defineClipsTransactionalEmail({
     id: CLIPS_ACCESS_REQUEST_EMAIL_ID,
     name: "Clip access request",
@@ -279,6 +283,8 @@ function registerClipsEmailDefinitions(): void {
         inviteUrl: "https://example.com/invite/sample-token",
       }),
   });
+
+  defineTransactionalEmails(definitions);
 }
 
 export function registerClipsEmails(): void {

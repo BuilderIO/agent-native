@@ -67,19 +67,19 @@ export type RegisteredTransactionalEmail = TransactionalEmailDefinition & {
 
 const registry = new Map<string, RegisteredTransactionalEmail>();
 
-/**
- * Register a transactional email. Returns the definition so the call site can
- * export it and reuse `id` when sending.
- */
-export function defineTransactionalEmail(
+function resolveDefinition(
   definition: TransactionalEmailDefinition,
 ): RegisteredTransactionalEmail {
-  const resolved: RegisteredTransactionalEmail = {
+  return {
     ...definition,
     app: definition.app ?? getAppSlug() ?? "unknown",
   };
-  const existing = registry.get(definition.id);
-  // HMR recreates preview functions, so stable catalog metadata is the collision boundary.
+}
+
+function assertCanRegister(
+  resolved: RegisteredTransactionalEmail,
+  existing: RegisteredTransactionalEmail | undefined,
+): void {
   if (
     existing &&
     (existing.app !== resolved.app ||
@@ -93,10 +93,45 @@ export function defineTransactionalEmail(
     // Two emails sharing an id would silently merge their metrics and make the
     // catalog claim one exists when the other actually sent.
     throw new Error(
-      `Duplicate transactional email id "${definition.id}". Ids must be unique across the app.`,
+      `Duplicate transactional email id "${resolved.id}". Ids must be unique across the app.`,
     );
   }
+}
+
+/**
+ * Register a transactional email. Returns the definition so the call site can
+ * export it and reuse `id` when sending.
+ */
+export function defineTransactionalEmail(
+  definition: TransactionalEmailDefinition,
+): RegisteredTransactionalEmail {
+  const resolved = resolveDefinition(definition);
+  // HMR recreates preview functions, so stable catalog metadata is the collision boundary.
+  assertCanRegister(resolved, registry.get(resolved.id));
   registry.set(definition.id, resolved);
+  return resolved;
+}
+
+/** Register a catalog as one atomic operation, allowing safe HMR refreshes. */
+export function defineTransactionalEmails(
+  definitions: readonly TransactionalEmailDefinition[],
+): RegisteredTransactionalEmail[] {
+  const resolved = definitions.map(resolveDefinition);
+  const seen = new Set<string>();
+
+  for (const definition of resolved) {
+    if (seen.has(definition.id)) {
+      throw new Error(
+        `Duplicate transactional email id "${definition.id}". Ids must be unique across the app.`,
+      );
+    }
+    seen.add(definition.id);
+    assertCanRegister(definition, registry.get(definition.id));
+  }
+
+  for (const definition of resolved) {
+    registry.set(definition.id, definition);
+  }
   return resolved;
 }
 
