@@ -61,4 +61,23 @@ export const CHAT_THREAD_SCHEMA_MIGRATIONS: MigrationEntry[] = [
         ON chat_threads (share_token_hash)
     `,
   },
+  {
+    version: 3,
+    name: "chat-threads-source-backfill-and-lower-email-indexes",
+    // The backfill retires a `thread_data NOT LIKE '%…%'` filter the local-only
+    // list used to carry for integration rows written before `source_platform`
+    // existed. That predicate forced Postgres to detoast the full message-history
+    // blob for every scanned row, so the sidebar list cost seconds regardless of
+    // LIMIT. Paying the scan once here keeps the read path off the blob forever.
+    sql: `
+      UPDATE chat_threads
+        SET source_platform = 'integration'
+        WHERE source_platform IS NULL
+          AND thread_data LIKE '%"integrationDeliveryAttempted":true%';
+      CREATE INDEX IF NOT EXISTS chat_threads_owner_lower_updated_idx
+        ON chat_threads (LOWER(owner_email), updated_at);
+      CREATE INDEX IF NOT EXISTS chat_thread_shares_principal_lower_idx
+        ON chat_thread_shares (resource_id, principal_type, LOWER(principal_id))
+    `,
+  },
 ];

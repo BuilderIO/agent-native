@@ -151,6 +151,18 @@ async function ensureTable(): Promise<void> {
           "chat_threads_owner_updated_idx",
           `CREATE INDEX IF NOT EXISTS chat_threads_owner_updated_idx ON chat_threads (owner_email, updated_at)`,
         );
+        // `owner_email` is stored as the user typed it, so access scoping
+        // compares `LOWER(owner_email)`. A plain btree on the raw column cannot
+        // serve that predicate — without the expression index the list falls
+        // back to scanning every row in the (shared, multi-tenant) table.
+        await ensureIndexExists(
+          "chat_threads_owner_lower_updated_idx",
+          `CREATE INDEX IF NOT EXISTS chat_threads_owner_lower_updated_idx ON chat_threads (LOWER(owner_email), updated_at)`,
+        );
+        await ensureIndexExists(
+          "chat_thread_shares_principal_lower_idx",
+          `CREATE INDEX IF NOT EXISTS chat_thread_shares_principal_lower_idx ON chat_thread_shares (resource_id, principal_type, LOWER(principal_id))`,
+        );
         await ensureIndexExists(
           "chat_threads_scope_updated_idx",
           `CREATE INDEX IF NOT EXISTS chat_threads_scope_updated_idx ON chat_threads (scope_type, scope_id, updated_at)`,
@@ -221,6 +233,8 @@ async function ensureTable(): Promise<void> {
       // idempotent across restarts.
       for (const ddl of [
         `CREATE INDEX IF NOT EXISTS chat_threads_owner_updated_idx ON chat_threads (owner_email, updated_at)`,
+        `CREATE INDEX IF NOT EXISTS chat_threads_owner_lower_updated_idx ON chat_threads (LOWER(owner_email), updated_at)`,
+        `CREATE INDEX IF NOT EXISTS chat_thread_shares_principal_lower_idx ON chat_thread_shares (resource_id, principal_type, LOWER(principal_id))`,
         `CREATE INDEX IF NOT EXISTS chat_threads_scope_updated_idx ON chat_threads (scope_type, scope_id, updated_at)`,
         `CREATE INDEX IF NOT EXISTS chat_threads_source_updated_idx ON chat_threads (owner_email, source_app_id, updated_at)`,
         `CREATE INDEX IF NOT EXISTS chat_threads_share_token_idx ON chat_threads (share_token_hash)`,
@@ -811,8 +825,11 @@ export async function listThreads(
   const offset = opts.offset ?? 0;
   const client = getDbExec();
   // `message_count > 0` is the authoritative "has messages" signal maintained
-  // on every write. The local-only view adds a narrowly scoped legacy marker
-  // check below because older integration rows predate persisted source fields.
+  // on every write. `source_platform` is the authoritative external-source
+  // signal: schema migration 3 backfilled the integration rows that predate the
+  // column, so nothing here may filter on `thread_data`. Matching that blob
+  // detoasts the whole message history for every scanned row — before LIMIT
+  // applies — which is what made this list cost seconds instead of milliseconds.
   const access = chatThreadAccessSql(
     ownerEmail,
     opts.orgId ?? getRequestOrgId(),
@@ -824,9 +841,6 @@ export async function listThreads(
   }
   if (opts.includeExternal === false) {
     filters.push(`source_platform IS NULL`);
-    filters.push(
-      `thread_data NOT LIKE '%"integrationDeliveryAttempted":true%'`,
-    );
     if (opts.sourceAppId) {
       filters.push(`(source_app_id IS NULL OR source_app_id = ?)`);
       args.push(opts.sourceAppId);
@@ -888,9 +902,6 @@ export async function searchThreads(
   }
   if (options.includeExternal === false) {
     filters.push(`source_platform IS NULL`);
-    filters.push(
-      `thread_data NOT LIKE '%"integrationDeliveryAttempted":true%'`,
-    );
     if (options.sourceAppId) {
       filters.push(`(source_app_id IS NULL OR source_app_id = ?)`);
       args.push(options.sourceAppId);
