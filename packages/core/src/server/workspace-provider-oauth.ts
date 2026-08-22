@@ -38,7 +38,12 @@ import { runWithRequestContext } from "./request-context.js";
 
 export type GenericWorkspaceOAuthProvider =
   | "figma"
+  | "gmail"
+  | "google_calendar"
+  | "google_docs"
   | "google_drive"
+  | "google_sheets"
+  | "google_slides"
   | "github"
   | "hubspot"
   | "salesforce"
@@ -48,7 +53,12 @@ export type GenericWorkspaceOAuthProvider =
 
 const SUPPORTED_PROVIDERS = new Set<GenericWorkspaceOAuthProvider>([
   "figma",
+  "gmail",
+  "google_calendar",
+  "google_docs",
   "google_drive",
+  "google_sheets",
+  "google_slides",
   "github",
   "hubspot",
   "salesforce",
@@ -62,9 +72,26 @@ const PROVIDER_RESPONSE_MAX_BYTES = 256 * 1024;
 const SALESFORCE_PRODUCTION_LOGIN_URL = "https://login.salesforce.com";
 const SALESFORCE_SANDBOX_LOGIN_URL = "https://test.salesforce.com";
 const WORKSPACE_OAUTH_ADMIN_ERROR =
-  "Only organization admins or the relevant app admin can connect shared OAuth accounts.";
+  "This shared connection requires organization or app-admin access. Personal connections can be connected by any workspace member.";
 
-type WorkspaceProviderOAuthScope = "organization" | "app";
+export type WorkspaceProviderOAuthScope = "user" | "organization" | "app";
+
+export function isWorkspaceProviderOAuthScope(
+  value: unknown,
+): value is WorkspaceProviderOAuthScope {
+  return value === "user" || value === "organization" || value === "app";
+}
+
+export function isGoogleWorkspaceOAuthProvider(provider: string): boolean {
+  return (
+    provider === "gmail" ||
+    provider === "google_calendar" ||
+    provider === "google_docs" ||
+    provider === "google_drive" ||
+    provider === "google_sheets" ||
+    provider === "google_slides"
+  );
+}
 
 export interface WorkspaceProviderOAuthFlow {
   provider: GenericWorkspaceOAuthProvider;
@@ -74,6 +101,7 @@ export interface WorkspaceProviderOAuthFlow {
   owner: string;
   orgId?: string;
   appId: string;
+  scope: WorkspaceProviderOAuthScope;
   salesforceLoginUrl?: string;
   expiresAt: number;
 }
@@ -110,7 +138,18 @@ export async function handleWorkspaceProviderOAuthStart(
   const appId = normalizeAppId(
     text(query.appId) ?? getAppConfig().app.workspaceId ?? "creative-context",
   );
-  const orgContext = await requireWorkspaceProviderOAuthAdmin(event, appId);
+  const requestedScope = parseWorkspaceProviderOAuthScope(text(query.scope));
+  if (!requestedScope) {
+    setResponseStatus(event, 400);
+    return {
+      error: "OAuth connection scope must be user, organization, or app.",
+    };
+  }
+  const orgContext = await requireWorkspaceProviderOAuthAccess(
+    event,
+    appId,
+    requestedScope,
+  );
   if (!orgContext) {
     return { error: WORKSPACE_OAUTH_ADMIN_ERROR };
   }
@@ -162,6 +201,7 @@ export async function handleWorkspaceProviderOAuthStart(
         owner: session.email,
         orgId,
         app: appId,
+        scope: orgContext.oauthScope,
         returnUrl,
         flowId,
       });
@@ -173,6 +213,7 @@ export async function handleWorkspaceProviderOAuthStart(
         owner: session.email,
         orgId,
         appId,
+        scope: orgContext.oauthScope,
         ...(salesforceLoginUrl ? { salesforceLoginUrl } : {}),
         expiresAt: Date.now() + FLOW_TTL_SECONDS * 1_000,
       };
@@ -216,9 +257,14 @@ export async function handleWorkspaceProviderOAuthCallback(
   const session = await getSession(event).catch(() => null);
   if (!session?.email) return unauthorized(event);
   const flow = readStoredFlow(event, providerId);
-  const orgContext = await requireWorkspaceProviderOAuthAdmin(
+  if (!flow || !isWorkspaceProviderOAuthScope(flow.scope)) {
+    setResponseStatus(event, 400);
+    return { error: "OAuth state is invalid or expired." };
+  }
+  const orgContext = await requireWorkspaceProviderOAuthAccess(
     event,
-    flow?.appId,
+    flow.appId,
+    flow.scope,
   );
   if (!orgContext) {
     return { error: WORKSPACE_OAUTH_ADMIN_ERROR };
@@ -317,11 +363,18 @@ export async function handleWorkspaceProviderOAuthCallback(
         const existing = existingConnections.find(
           (connection) =>
             connection.accountId === accountId &&
-            (orgContext.oauthScope === "organization" ||
-              connection.allowedApps.some(
-                (allowedApp) =>
-                  allowedApp.toLowerCase() === flow.appId.toLowerCase(),
-              )),
+            (flow.scope === "user"
+              ? connection.allowedUsers.some(
+                  (allowedUser) =>
+                    allowedUser.toLowerCase() === session.email.toLowerCase(),
+                )
+              : flow.scope === "organization"
+                ? connection.allowedUsers.length === 0 &&
+                  (connection.allowedUserGroups?.length ?? 0) === 0
+                : connection.allowedApps.some(
+                    (allowedApp) =>
+                      allowedApp.toLowerCase() === flow.appId.toLowerCase(),
+                  )),
         );
         const scopes = mergeWorkspaceOAuthValues(
           existing?.scopes ?? [],
@@ -351,8 +404,11 @@ export async function handleWorkspaceProviderOAuthCallback(
           status: "connected",
           scopes,
           allowedApps:
-            existing?.allowedApps ??
-            (orgContext.oauthScope === "app" ? [flow.appId] : []),
+            existing?.allowedApps ?? (flow.scope === "app" ? [flow.appId] : []),
+          allowedUsers:
+            flow.scope === "user"
+              ? [session.email]
+              : (existing?.allowedUsers ?? []),
           config: connectionConfig,
           lastCheckedAt: new Date(),
           lastError: null,
@@ -401,7 +457,7 @@ export function buildWorkspaceProviderAuthorizationUrl(input: {
     url.searchParams.set("audience", "api.atlassian.com");
     url.searchParams.set("prompt", "consent");
   }
-  if (input.provider.id === "google_drive") {
+  if (isGoogleWorkspaceOAuthProvider(input.provider.id)) {
     url.searchParams.set("access_type", "offline");
     url.searchParams.set("include_granted_scopes", "true");
     url.searchParams.set("prompt", "consent");
@@ -559,7 +615,7 @@ export async function exchangeWorkspaceProviderOAuthCode(input: {
     ...(input.providerId === "sentry"
       ? { client_id: input.clientId, client_secret: input.clientSecret }
       : {}),
-    ...(input.providerId === "google_drive"
+    ...(isGoogleWorkspaceOAuthProvider(input.providerId)
       ? { client_id: input.clientId, client_secret: input.clientSecret }
       : {}),
   };
@@ -796,26 +852,22 @@ async function resolveWorkspaceProviderIdentitySingle(
       label: text(user?.email) ?? text(user?.name) ?? "Sentry account",
     };
   }
-  if (providerId === "google_drive") {
+  if (isGoogleWorkspaceOAuthProvider(providerId)) {
     const accessToken = text(tokens.access_token)!;
     const { response, body } = await fetchBoundedProviderJson(
-      "https://www.googleapis.com/drive/v3/about?fields=user(displayName,emailAddress,permissionId)",
+      "https://openidconnect.googleapis.com/v1/userinfo",
       { headers: { Authorization: `Bearer ${accessToken}` } },
-      "Google Drive",
+      "Google Workspace",
     );
-    const user = record(body.user);
-    const accountId = text(user?.permissionId) ?? text(user?.emailAddress);
+    const accountId = text(body.email) ?? text(body.sub);
     if (!response.ok || !accountId) {
       throw new Error(
-        "Google Drive OAuth response did not identify the connected account.",
+        "Google OAuth response did not identify the connected account.",
       );
     }
     return {
       accountId,
-      label:
-        text(user?.emailAddress) ??
-        text(user?.displayName) ??
-        "Google Drive account",
+      label: text(body.email) ?? text(body.name) ?? "Google account",
     };
   }
   const accessToken = text(tokens.access_token)!;
@@ -874,6 +926,7 @@ export function isWorkspaceProviderOAuthFlowValid(input: {
     input.state.flowId === input.flow.flowId &&
     input.state.redirectUri === input.flow.redirectUri &&
     input.state.owner === input.flow.owner &&
+    input.state.scope === input.flow.scope &&
     input.sessionEmail === input.flow.owner &&
     input.state.orgId === input.flow.orgId &&
     input.sessionOrgId === input.flow.orgId &&
@@ -991,8 +1044,9 @@ function clientCredentialKeys(
   provider: GenericWorkspaceOAuthProvider,
   field: "id" | "secret",
 ): string[] {
-  const prefix =
-    provider === "google_drive" ? "GOOGLE" : provider.toUpperCase();
+  const prefix = isGoogleWorkspaceOAuthProvider(provider)
+    ? "GOOGLE"
+    : provider.toUpperCase();
   const suffix = field === "id" ? "ID" : "SECRET";
   if (provider === "github") {
     const integrationPrefix = `GITHUB_INTEGRATION_CLIENT_${suffix}`;
@@ -1115,6 +1169,13 @@ function text(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
+function parseWorkspaceProviderOAuthScope(
+  value: string | undefined,
+): WorkspaceProviderOAuthScope | null {
+  if (value === undefined) return "organization";
+  return isWorkspaceProviderOAuthScope(value) ? value : null;
+}
+
 function scalarText(value: unknown): string | undefined {
   if (typeof value === "number" && Number.isFinite(value)) return String(value);
   return text(value);
@@ -1136,9 +1197,10 @@ function unauthorized(event: H3Event) {
   return { error: "Authentication required" };
 }
 
-async function requireWorkspaceProviderOAuthAdmin(
+async function requireWorkspaceProviderOAuthAccess(
   event: H3Event,
   appId?: string,
+  requestedScope: WorkspaceProviderOAuthScope = "organization",
 ): Promise<
   | (Awaited<ReturnType<typeof getOrgContext>> & {
       oauthScope: WorkspaceProviderOAuthScope;
@@ -1150,8 +1212,20 @@ async function requireWorkspaceProviderOAuthAdmin(
     setResponseStatus(event, 403);
     return null;
   }
-  if (canConnectWorkspaceProviderOAuth(context.orgId, context.role)) {
+  if (requestedScope === "user") {
+    return { ...context, oauthScope: "user" };
+  }
+  if (
+    requestedScope === "organization" &&
+    canConnectWorkspaceProviderOAuth(context.orgId, context.role)
+  ) {
     return { ...context, oauthScope: "organization" };
+  }
+  if (
+    requestedScope === "app" &&
+    canConnectWorkspaceProviderOAuth(context.orgId, context.role)
+  ) {
+    return { ...context, oauthScope: "app" };
   }
   if (appId) {
     const descriptor = getRegisteredAppRoles(appId);

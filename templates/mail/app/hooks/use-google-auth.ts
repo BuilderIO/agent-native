@@ -8,6 +8,7 @@ export interface GoogleAuthAccount {
   displayName?: string;
   expiresAt?: string;
   photoUrl?: string;
+  shared?: boolean;
 }
 
 export interface GoogleAuthStatus {

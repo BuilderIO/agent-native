@@ -21,7 +21,11 @@ describe("workspace connection provider catalog", () => {
       "figma",
       "notion",
       "gmail",
+      "google_calendar",
       "google_drive",
+      "google_docs",
+      "google_sheets",
+      "google_slides",
       "hubspot",
       "salesforce",
       "jira",
@@ -44,7 +48,32 @@ describe("workspace connection provider catalog", () => {
     });
     expect(
       getWorkspaceConnectionProvider("google_drive")?.oauth?.scopes,
-    ).toEqual(["https://www.googleapis.com/auth/drive.file"]);
+    ).toEqual(
+      expect.arrayContaining([
+        "openid",
+        "email",
+        "profile",
+        "https://www.googleapis.com/auth/drive.file",
+      ]),
+    );
+    expect(getWorkspaceConnectionProvider("gmail")?.oauth?.scopes).toEqual(
+      expect.arrayContaining([
+        "openid",
+        "email",
+        "profile",
+        "https://www.googleapis.com/auth/gmail.modify",
+      ]),
+    );
+    expect(
+      getWorkspaceConnectionProvider("google_calendar")?.oauth?.scopes,
+    ).toEqual(
+      expect.arrayContaining([
+        "openid",
+        "email",
+        "profile",
+        "https://www.googleapis.com/auth/calendar.events",
+      ]),
+    );
     expect(getWorkspaceConnectionProvider("github")?.oauth).toMatchObject({
       provider: "github",
       authorizationUrl: "https://github.com/login/oauth/authorize",
