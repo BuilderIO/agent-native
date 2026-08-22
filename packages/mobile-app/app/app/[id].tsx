@@ -41,7 +41,7 @@ export default function AppScreen() {
     );
   }
 
-  if (appsError) {
+  if (appsError && !isWorkspaceApp) {
     return (
       <View
         className="flex-1 justify-center items-center p-6"

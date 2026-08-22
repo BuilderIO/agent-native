@@ -21,6 +21,7 @@ describe("mobile app inventory recovery", () => {
 
   it("offers retry and back controls after an inventory failure", () => {
     expect(appScreenSource).toContain("appsError");
+    expect(appScreenSource).toContain("appsError && !isWorkspaceApp");
     expect(appScreenSource).toContain("reloadApps");
     expect(appScreenSource).toContain(
       'accessibilityLabel="Retry loading apps"',
