@@ -2370,6 +2370,99 @@ describe("durable-background Netlify function emit (single-template, default-on)
     expect(entry).not.toMatch(/^\s*path:/m);
   });
 
+  it("warms several containers CONCURRENTLY, not one after another", async () => {
+    // Executing the emitted module, not just grepping its text: this is
+    // generated code, and one sequential request is exactly the bug — it holds
+    // a single container while a cold render occupies it for seconds, so the
+    // next visitor still cold-starts. Overlap is the whole mechanism.
+    process.env.AGENT_NATIVE_ENABLE_KEEP_WARM = "1";
+    process.env.AGENT_NATIVE_KEEP_WARM_CONCURRENCY = "3";
+    const cwd = setupNetlifyOutput();
+    emitSingleTemplateNetlifyKeepWarmFunction(cwd);
+    const entryPath = path.join(keepWarmDir(cwd), "agent-native-keep-warm.mjs");
+
+    let inFlight = 0;
+    let maxInFlight = 0;
+    let healthCalls = 0;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: any) => {
+      const url = String(input);
+      if (!url.includes("/_agent-native/health")) {
+        return new Response(null, { status: 200 });
+      }
+      healthCalls++;
+      inFlight++;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      inFlight--;
+      return new Response(null, { status: 200 });
+    }) as typeof fetch;
+
+    try {
+      const mod = await import(
+        `${pathToFileURL(entryPath).href}?t=${Date.now()}`
+      );
+      const response = await mod.default(
+        new Request(
+          "https://example.test/.netlify/functions/agent-native-keep-warm",
+        ),
+      );
+      expect(response.status).toBe(204);
+      expect(healthCalls).toBe(3);
+      // The assertion that matters: they overlapped.
+      expect(maxInFlight).toBe(3);
+    } finally {
+      globalThis.fetch = originalFetch;
+      delete process.env.AGENT_NATIVE_KEEP_WARM_CONCURRENCY;
+    }
+  });
+
+  it("fails loudly when every warm request fails, and reports a partial warm", async () => {
+    process.env.AGENT_NATIVE_ENABLE_KEEP_WARM = "1";
+    process.env.AGENT_NATIVE_KEEP_WARM_CONCURRENCY = "2";
+    const cwd = setupNetlifyOutput();
+    emitSingleTemplateNetlifyKeepWarmFunction(cwd);
+    const entryPath = path.join(keepWarmDir(cwd), "agent-native-keep-warm.mjs");
+
+    const originalFetch = globalThis.fetch;
+    let mode: "all-fail" | "partial" = "all-fail";
+    let health = 0;
+    globalThis.fetch = (async (input: any) => {
+      const url = String(input);
+      if (!url.includes("/_agent-native/health")) {
+        return new Response(null, { status: 200 });
+      }
+      health++;
+      if (mode === "all-fail") return new Response("nope", { status: 500 });
+      return health === 1
+        ? new Response("nope", { status: 500 })
+        : new Response(null, { status: 200 });
+    }) as typeof fetch;
+
+    try {
+      const mod = await import(
+        `${pathToFileURL(entryPath).href}?t=${Date.now()}`
+      );
+      const req = () =>
+        new Request(
+          "https://example.test/.netlify/functions/agent-native-keep-warm",
+        );
+      // Zero warmed is a failure and must not read as success.
+      await expect(mod.default(req())).rejects.toThrow(
+        /All 2 warm requests failed/,
+      );
+
+      // One warmed is a real but reduced success — distinguishable from both.
+      mode = "partial";
+      health = 0;
+      const partial = await mod.default(req());
+      expect(partial.status).toBe(207);
+    } finally {
+      globalThis.fetch = originalFetch;
+      delete process.env.AGENT_NATIVE_KEEP_WARM_CONCURRENCY;
+    }
+  });
+
   it("emits a durable recurring-job handoff beside the background worker", () => {
     const cwd = setupNetlifyOutput();
 
