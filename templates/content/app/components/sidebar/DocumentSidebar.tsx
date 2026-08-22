@@ -65,6 +65,7 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { afterBodyPointerUnlock } from "@/components/ui/pointer-lock";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -211,17 +212,6 @@ const SIDEBAR_SECTION_COLLAPSE_STORAGE_KEY =
 const TRASH_COLLAPSED_DEFAULT_MIGRATION_KEY =
   "content-sidebar-trash-collapsed-default-v2";
 const CONTENT_SIDEBAR_STATE_VERSION = 1 as const;
-
-function afterBodyPointerUnlock(callback: () => void) {
-  const run = () => {
-    if (document.body.style.pointerEvents === "none") {
-      window.requestAnimationFrame(run);
-      return;
-    }
-    callback();
-  };
-  window.requestAnimationFrame(run);
-}
 
 interface ContentSidebarStateSnapshot {
   version: typeof CONTENT_SIDEBAR_STATE_VERSION;
@@ -376,7 +366,12 @@ function useDeferredFilesDatabaseId(
     return () => window.clearTimeout(timeout);
   }, [databaseId, deferUntilDocumentId, expanded]);
 
-  return expanded && ready ? databaseId : null;
+  // `databaseId` stays stable across the defer window so the query key never
+  // changes; only `enabled` pauses the fetch. Swapping `databaseId` itself to
+  // null here would move the tree to a disabled, never-fetched query key and
+  // drop the rows already on screen for the whole deferred window instead of
+  // just holding off the refetch.
+  return { databaseId: expanded ? databaseId : null, enabled: ready };
 }
 
 function WorkspaceSidebarItem({
@@ -472,12 +467,15 @@ function WorkspaceSidebarItem({
       removeActivation();
     };
   }, []);
-  const activeFilesDatabaseId = useDeferredFilesDatabaseId(
+  const deferredFilesDatabase = useDeferredFilesDatabaseId(
     space.filesDatabaseId,
     expanded,
     deferInitialReadUntilDocumentId,
   );
-  const filesDatabase = useContentDatabaseById(activeFilesDatabaseId);
+  const filesDatabase = useContentDatabaseById(
+    deferredFilesDatabase.databaseId,
+    { enabled: deferredFilesDatabase.enabled },
+  );
   const filesDatabaseData = isContentDatabaseUnavailable(filesDatabase.data)
     ? undefined
     : filesDatabase.data;

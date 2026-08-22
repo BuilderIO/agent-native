@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import { act } from "react";
+import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -23,6 +24,7 @@ describe("EnvironmentBadge render", () => {
   let originalUserAgent: string;
 
   beforeEach(() => {
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true;
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -82,6 +84,36 @@ describe("EnvironmentBadge render", () => {
     expect(badge?.className).toContain("left-3");
     expect(container.querySelector("button")).toBeNull();
     expect(container.querySelector("a")).toBeNull();
+  });
+
+  it("defers the dev pill to a post-mount effect so the first client commit matches SSR's null output", async () => {
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: {
+        hostname: "localhost",
+        href: "http://localhost:3000/dispatch",
+        replace: vi.fn(),
+      },
+    });
+    injectedAgentNativeConfigMock.mockReturnValue({
+      deployment: { environment: "local" },
+    });
+    useSessionMock.mockReturnValue({
+      session: null,
+      status: "unauthenticated",
+    });
+
+    // flushSync commits the render synchronously without flushing passive
+    // effects, so this captures exactly what React reconciles against the
+    // server-rendered HTML: the server (no window) always renders nothing,
+    // so this first commit must too, or React logs a hydration mismatch and
+    // discards the subtree.
+    flushSync(() => root.render(<EnvironmentBadge />));
+    expect(container.querySelector('[role="status"]')).toBeNull();
+
+    await act(async () => {});
+
+    expect(container.querySelector('[role="status"]')?.textContent).toBe("dev");
   });
 
   it.each([

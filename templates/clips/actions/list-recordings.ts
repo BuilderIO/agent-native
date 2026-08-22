@@ -188,12 +188,18 @@ export default defineAction({
       // Meeting recordings are transcript-only (no playable media) and live on
       // the /meetings surface, so keep them out of clip library views. The link
       // is meetings.recordingId (no meetingId column on recordings), so exclude
-      // any recording referenced by a meeting. The subquery filters out NULLs
-      // so NOT IN doesn't collapse to an empty result under SQL NULL semantics.
-      const meetingRecordingIds = db
+      // any recording referenced by a meeting. Await this subquery into a real
+      // id array before handing it to notInArray() — embedding the query chain
+      // itself as a raw value only works once the db handle has resolved, and
+      // on a cold-start request `db` is still the lazy proxy from
+      // create-get-db.ts, which throws rather than silently building wrong SQL.
+      const meetingRecordingRows = await db
         .select({ id: schema.meetings.recordingId })
         .from(schema.meetings)
         .where(isNotNull(schema.meetings.recordingId));
+      const meetingRecordingIds = meetingRecordingRows
+        .map((row) => row.id)
+        .filter((id): id is string => id != null);
       whereClauses.push(notInArray(schema.recordings.id, meetingRecordingIds));
     }
 

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockCountWhere = vi.hoisted(() => vi.fn(async () => [{ count: 3 }]));
 const mockMeetingWhere = vi.hoisted(() =>
-  vi.fn(() => ({ kind: "meeting-recording-subquery" })),
+  vi.fn(async () => [{ id: "meeting-rec-1" }, { id: null }]),
 );
 const mockFrom = vi.hoisted(() =>
   vi.fn((table: unknown) => {
@@ -210,5 +210,34 @@ describe("list-recordings shared view", () => {
       ]),
     });
     expect(result).toEqual({ recordings: [], total: 3 });
+  });
+
+  it("awaits the meeting-recording subquery into a real id array before excluding it", async () => {
+    const parsed = action.schema.parse({
+      view: "shared",
+      countOnly: true,
+    });
+
+    await action.run(parsed);
+
+    // Regression: an earlier version handed the un-awaited query-builder
+    // chain straight to notInArray(). That works once the db handle has
+    // warmed up (drizzle can pull SQL off a real chain synchronously) but
+    // throws on a cold-start request, where `getDb()` is still a lazy proxy
+    // — see the "unresolved query chain" guard in
+    // packages/core/src/db/create-get-db.ts. Asserting the mocked
+    // notInArray() received a resolved, null-filtered array (not the
+    // thenable mockMeetingWhere() returns) proves the chain was awaited.
+    expect(mockCountWhere).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conditions: expect.arrayContaining([
+          {
+            kind: "not-in-array",
+            column: "recordings.id",
+            values: ["meeting-rec-1"],
+          },
+        ]),
+      }),
+    );
   });
 });

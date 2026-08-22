@@ -27,7 +27,7 @@ import {
 } from "drizzle-orm/sqlite-core";
 
 import { TEMPLATES } from "../cli/templates-meta.js";
-import { getDbExec, isPostgres } from "../db/client.js";
+import { getDbExec, isPostgres, retrySqliteBusy } from "../db/client.js";
 import {
   getDialect,
   getCloudflareD1Binding,
@@ -1671,11 +1671,24 @@ async function createBetterAuthInstance(
  * as the shared app connection. Better Auth uses its own SQLite handle, so the
  * app connection's busy timeout does not protect first-run account creation.
  */
-export function configureLocalSqlite(sqlite: {
+export async function configureLocalSqlite(sqlite: {
   pragma(statement: string): unknown;
-}): void {
+  close(): void;
+}): Promise<void> {
   sqlite.pragma("busy_timeout = 10000");
-  sqlite.pragma("journal_mode = WAL");
+  try {
+    // The shared app connection can still be mid-migration-burst (org,
+    // chat-threads, context-xray, observational-memory, better-auth's own
+    // bookkeeping) on first boot. This connection's own busy_timeout can
+    // expire during that window, so retry the idempotent WAL negotiation
+    // before declaring auth bootstrap failed.
+    await retrySqliteBusy(async () => sqlite.pragma("journal_mode = WAL"), {
+      rethrow: true,
+    });
+  } catch (error) {
+    sqlite.close();
+    throw error;
+  }
 }
 
 export async function buildDatabaseConfig(
@@ -1774,7 +1787,7 @@ export async function buildDatabaseConfig(
     const { default: Database } = await import("better-sqlite3");
     const filePath = url.replace(/^file:/, "");
     const sqlite = new Database(filePath);
-    configureLocalSqlite(sqlite);
+    await configureLocalSqlite(sqlite);
     const { drizzle } = await import("drizzle-orm/better-sqlite3");
     const db = drizzle(sqlite, { schema: sqliteAuthSchema });
     const { drizzleAdapter } = await import("better-auth/adapters/drizzle");

@@ -91,13 +91,17 @@ export function computeTimedEventLayout(
   }
 
   const totalCols = overlapLayers.length;
+  // Give every overlap column a proportional slice of the day column so an
+  // event's right edge stays visible instead of being covered by whichever
+  // card renders on top of it.
+  const width = 100 / totalCols;
 
   for (const [stackOrder, entry] of sorted.entries()) {
     const col = eventColumns.get(entry.event)!;
 
     result.set(entry.event.id, {
-      left: 0,
-      width: 100,
+      left: col * width,
+      width,
       indent: col * OVERLAP_INDENT_PX,
       col,
       totalCols,

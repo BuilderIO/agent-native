@@ -488,6 +488,9 @@ const generateDesignAction = defineAction({
     "The agent calls this after generating HTML/CSS/JSX content to persist it " +
     "as files in the design project. Creates or updates files as needed. " +
     "Returns the saved files and design URL path for iframe rendering. " +
+    "A file rejected by a concurrent edit or an HTML-integrity check does not " +
+    "fail the whole call — it is listed in `fileErrors` instead, while every " +
+    "other file in the same call still saves; resend just the named file(s). " +
     "Keep the first save compact and working; for large designs, persist a minimal " +
     "version then refine individual files with `edit-design` (search/replace) rather " +
     "than resending a big multi-file payload — a single oversized payload can get cut " +
@@ -793,14 +796,23 @@ const generateDesignAction = defineAction({
       // takes the lenient edit transition instead, so a legacy-malformed screen
       // stays repairable — but its advisories are still reported, or the same
       // content would warn as a new file and save silently as a regeneration.
-      const advisory =
-        !existing || becomesHtml
-          ? assertDesignHtmlCreateIntegrity({
-              content: file.content,
-              fileType: "html",
-              filename: file.filename,
-            })
-          : (inspectDesignHtmlDocumentIntegrity(file.content).advisory ?? []);
+      let advisory: ReturnType<typeof assertDesignHtmlCreateIntegrity>;
+      if (!existing || becomesHtml) {
+        advisory = assertDesignHtmlCreateIntegrity({
+          content: file.content,
+          fileType: "html",
+          filename: file.filename,
+        });
+      } else {
+        // `inspectDesignHtmlDocumentIntegrity` only sets `.advisory` when
+        // valid:true; an invalid existing file's issues live in `.detail`
+        // instead, so `.advisory ?? []` was silently dropping them — the
+        // opposite of the comment above promising they are still reported.
+        const inspected = inspectDesignHtmlDocumentIntegrity(file.content);
+        advisory = inspected.valid
+          ? (inspected.advisory ?? [])
+          : (inspected.detail ?? []);
+      }
       for (const entry of advisory) {
         integrityWarnings.push({
           filename: file.filename,
@@ -809,6 +821,10 @@ const generateDesignAction = defineAction({
       }
     }
 
+    // Populated when a per-file write is rejected below (conflict or
+    // integrity failure); surfaced in the return payload so a partial batch
+    // is reported as partial, never silently read back as complete.
+    const fileErrors: Array<{ filename: string; message: string }> = [];
     for (const file of annotatedFiles) {
       const existing = existingByName.get(file.filename);
       if (existing) {
@@ -820,49 +836,63 @@ const generateDesignAction = defineAction({
         });
 
         try {
-          // `file.content` here is LLM-generated content produced upstream of
-          // this action call, so there can be a large async window (the full
-          // generation time) between whenever this file's content was last
-          // known and this write. Read the LIVE base (collab text when
-          // present, else the SQL row) right before persisting and carry its
-          // versionHash through to writeInlineSourceFile, which re-reads the
-          // live text immediately before its own applyText/DB write and
-          // rejects if it no longer matches — closing the race window where a
-          // concurrent editor/agent write lands mid-generation. See
-          // insert-design-native-asset.ts and insert-asset.ts for the
-          // identical pattern.
-          const workspaceFile: SourceWorkspaceFile = {
-            id: existing.id,
-            designId: existing.designId,
-            filename: existing.filename ?? "",
-            fileType: existing.fileType ?? "html",
-            content: existing.content,
-            createdAt: null,
-            updatedAt: null,
-          };
-          const live = await readLiveSourceFile(workspaceFile);
+          try {
+            // `file.content` here is LLM-generated content produced upstream of
+            // this action call, so there can be a large async window (the full
+            // generation time) between whenever this file's content was last
+            // known and this write. Read the LIVE base (collab text when
+            // present, else the SQL row) right before persisting and carry its
+            // versionHash through to writeInlineSourceFile, which re-reads the
+            // live text immediately before its own applyText/DB write and
+            // rejects if it no longer matches — closing the race window where a
+            // concurrent editor/agent write lands mid-generation. See
+            // insert-design-native-asset.ts and insert-asset.ts for the
+            // identical pattern.
+            const workspaceFile: SourceWorkspaceFile = {
+              id: existing.id,
+              designId: existing.designId,
+              filename: existing.filename ?? "",
+              fileType: existing.fileType ?? "html",
+              content: existing.content,
+              createdAt: null,
+              updatedAt: null,
+            };
+            const live = await readLiveSourceFile(workspaceFile);
 
-          assertLockedLayersPreserved(live.content, file.content);
+            assertLockedLayersPreserved(live.content, file.content);
 
-          await writeInlineSourceFile({
-            designId: existing.designId,
-            file: workspaceFile,
-            content: file.content,
-            expectedVersionHash: live.versionHash,
-          });
+            await writeInlineSourceFile({
+              designId: existing.designId,
+              file: workspaceFile,
+              content: file.content,
+              expectedVersionHash: live.versionHash,
+            });
 
-          // writeInlineSourceFile only persists content/updatedAt; keep
-          // fileType in sync separately when the caller changed it (e.g.
-          // html -> jsx), matching the original update behavior.
-          const nextFileType = file.fileType ?? "html";
-          if (nextFileType !== (existing.fileType ?? "html")) {
-            await db
-              .update(schema.designFiles)
-              .set({ fileType: nextFileType, updatedAt: now })
-              .where(eq(schema.designFiles.id, existing.id));
+            // writeInlineSourceFile only persists content/updatedAt; keep
+            // fileType in sync separately when the caller changed it (e.g.
+            // html -> jsx), matching the original update behavior.
+            const nextFileType = file.fileType ?? "html";
+            if (nextFileType !== (existing.fileType ?? "html")) {
+              await db
+                .update(schema.designFiles)
+                .set({ fileType: nextFileType, updatedAt: now })
+                .where(eq(schema.designFiles.id, existing.id));
+            }
+          } finally {
+            agentLeaveDocument(existing.id);
           }
-        } finally {
-          agentLeaveDocument(existing.id);
+        } catch (error) {
+          // A legitimate optimistic-concurrency conflict or an HTML-integrity
+          // rejection on THIS file must not discard files earlier in this
+          // batch that already committed durably, and must not disappear
+          // either — record it as a distinct, loud failure so the caller can
+          // tell "saved" from "failed" and retry just this file, instead of a
+          // later read seeing a mixed batch with no marker explaining why.
+          fileErrors.push({
+            filename: file.filename,
+            message: error instanceof Error ? error.message : String(error),
+          });
+          continue;
         }
 
         savedFiles.push({
@@ -1241,6 +1271,9 @@ const generateDesignAction = defineAction({
       // Non-blocking: a well-formed screen with no Tailwind runtime renders
       // unstyled, which reads as a layout bug rather than a missing runtime.
       ...(integrityWarnings.length > 0 ? { warnings: integrityWarnings } : {}),
+      // Per-file conflicts/rejections caught above: these files were NOT
+      // saved and still need a retry, unlike everything in `savedFiles`.
+      ...(fileErrors.length > 0 ? { fileErrors } : {}),
       ...creativeContextProvenance,
     };
   },

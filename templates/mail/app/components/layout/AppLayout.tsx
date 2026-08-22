@@ -92,6 +92,7 @@ import {
 } from "@/lib/inbox-tabs";
 import { isMcpEmbedSurface } from "@/lib/mcp-embed";
 import { cn } from "@/lib/utils";
+import { isKnownMailView } from "@/routes/$view";
 
 import { CommandPalette } from "./CommandPalette";
 import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
@@ -1900,13 +1901,16 @@ function AppLayoutInner({ children }: AppLayoutProps) {
             </div>
           )}
 
-          {/* Show full-page takeover when no accounts connected (except on settings page) */}
+          {/* Show full-page takeover when no accounts connected (except on
+              settings page, or on an unknown route — an unmatched path must
+              still reach the routed NotFound content, not this gate). */}
           {!googleStatus.isLoading &&
           !googleStatus.isError &&
           !hasAccounts &&
           !hasLocalMailboxData &&
           view !== "settings" &&
-          view !== "draft-queue" ? (
+          view !== "draft-queue" &&
+          isKnownMailView(view) ? (
             <GoogleConnectBanner variant="hero" />
           ) : (
             <main className="agent-native-app-main flex flex-1 overflow-hidden">

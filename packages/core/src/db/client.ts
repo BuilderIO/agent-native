@@ -1335,6 +1335,11 @@ interface ClosablePool {
 const _sharedDbPools = new Map<string, ClosablePool>();
 const _sharedDbPoolCloseHooks = new Set<() => void>();
 const _sharedDbPoolReplacementHooks = new Map<string, Set<() => void>>();
+// In-flight creations for `sharedDbPoolAsync`, keyed the same as `_sharedDbPools`.
+// Without this, two callers racing before the first `create()` settles both see
+// a cache miss and each open their own connection — the exact bug this function
+// exists to close, just moved one await later.
+const _sharedDbPoolPending = new Map<string, Promise<ClosablePool>>();
 
 /**
  * One connection pool per (driver, URL) for the whole process.
@@ -1363,6 +1368,65 @@ export function sharedDbPool<T extends ClosablePool>(
   const created = create();
   _sharedDbPools.set(key, created);
   return created;
+}
+
+/**
+ * Async twin of {@link sharedDbPool}, for a connection whose setup can't be
+ * synchronous — better-sqlite3's WAL-mode pragma needs a busy-retry loop.
+ * Same one-per-(driver, URL) registry, same close/replacement hooks; only
+ * `create` differs in that it may await before the connection is cached.
+ */
+export async function sharedDbPoolAsync<T extends ClosablePool>(
+  driver: string,
+  url: string,
+  create: () => Promise<T>,
+): Promise<T> {
+  const key = `${driver}\u0000${url}`;
+  const existing = _sharedDbPools.get(key);
+  if (existing) return existing as T;
+  const pending = _sharedDbPoolPending.get(key);
+  if (pending) return pending as Promise<T>;
+  const promise = create()
+    .then((created) => {
+      _sharedDbPools.set(key, created);
+      return created;
+    })
+    .finally(() => {
+      _sharedDbPoolPending.delete(key);
+    });
+  _sharedDbPoolPending.set(key, promise);
+  return promise;
+}
+
+/**
+ * Open a local SQLite file with the pragmas every consumer needs, and hand
+ * back the raw better-sqlite3 handle extended with `end()` so it can go
+ * through {@link sharedDbPoolAsync}. Exported so create-get-db.ts's
+ * `createGetDb()` schema stores share the same handle as this module's
+ * `getDbExec()` singleton instead of each opening their own — see the
+ * "database is locked" note where this is called from `createDbExecInternal`.
+ */
+export async function openLocalSqlite(filename: string): Promise<any> {
+  const { default: Database } = await import("better-sqlite3");
+  const db = new Database(filename);
+  db.pragma("busy_timeout = 10000");
+  try {
+    // Vite can start a replacement Nitro runtime while the previous instance
+    // is still releasing app.db. The 10s busy_timeout can expire during that
+    // handoff, so retry the idempotent WAL negotiation before declaring the
+    // whole auth/database bootstrap failed.
+    await retrySqliteBusy(async () => db.pragma("journal_mode = WAL"), {
+      rethrow: true,
+    });
+  } catch (error) {
+    db.close();
+    throw error;
+  }
+  return Object.assign(db, {
+    async end() {
+      db.close();
+    },
+  });
 }
 
 /**
@@ -1451,7 +1515,6 @@ function disposePostgresPoolEventually(
 // ---------------------------------------------------------------------------
 
 let _exec: DbExec | undefined;
-let _sqlite: any;
 let _initPromise: Promise<void> | undefined;
 
 async function executePglite(
@@ -1986,22 +2049,23 @@ async function createDbExecInternal(
     url = await prepareLocalSqliteUrl(
       url.startsWith("file:") ? url : `file:${url}`,
     );
-    const { default: Database } = await import("better-sqlite3");
-    const sqlite = new Database(sqliteFilenameFromUrl(url));
-    sqlite.pragma("busy_timeout = 10000");
-    try {
-      // Vite can start a replacement Nitro runtime while the previous instance
-      // is still releasing app.db. The 10s busy_timeout can expire during that
-      // handoff, so retry the idempotent WAL negotiation before declaring the
-      // whole auth/database bootstrap failed.
-      await retrySqliteBusy(async () => sqlite.pragma("journal_mode = WAL"), {
-        rethrow: true,
-      });
-    } catch (error) {
-      sqlite.close();
-      throw error;
-    }
-    if (trackSingletonResources) _sqlite = sqlite;
+    const filename = sqliteFilenameFromUrl(url);
+
+    // Every consumer of this file (this singleton, Better Auth, plus every
+    // schema module behind `createGetDb()` in create-get-db.ts) used to open
+    // its own better-sqlite3 handle to the same on-disk file. SQLite's write
+    // lock is exclusive across connections even in WAL mode, so ordinary
+    // concurrent writes from separate handles contended for up to the shared
+    // busy_timeout and surfaced as "database is locked" 500s. Share one
+    // handle per file instead, the same way `sharedDbPool` already does for
+    // Neon/postgres-js. `createDbExec()` callers own a `close()` and so must
+    // not be handed the shared handle — see the TRAP note on `sharedDbPool`.
+    const sqlite = trackSingletonResources
+      ? await sharedDbPoolAsync("better-sqlite3", filename, () =>
+          openLocalSqlite(filename),
+        )
+      : await openLocalSqlite(filename);
+
     const execute: DbExec["execute"] = async (sql) => {
       const { rawSql, args } = sqlAndArgs(sql);
       const stmt = sqlite.prepare(rawSql);
@@ -2022,6 +2086,7 @@ async function createDbExecInternal(
       execute,
       transaction: explicitTransaction(execute, "BEGIN IMMEDIATE"),
       async close() {
+        if (trackSingletonResources) return closeSharedDbPools();
         sqlite.close();
       },
     };
@@ -2290,13 +2355,9 @@ export function getDbExec(): DbExec {
 
 /** Close the database connection (for scripts that need cleanup). */
 export async function closeDbExec(): Promise<void> {
-  // Both Postgres pools live in the shared registry, which also notifies the
-  // Drizzle / Better Auth consumers bound to them.
+  // Postgres and local-sqlite connections all live in the shared registry,
+  // which also notifies the Drizzle / Better Auth consumers bound to them.
   await closeSharedDbPools();
-  if (_sqlite) {
-    _sqlite.close();
-    _sqlite = undefined;
-  }
   await closePgliteClients();
   _exec = undefined;
   _initPromise = undefined;

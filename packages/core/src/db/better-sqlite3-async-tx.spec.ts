@@ -300,6 +300,52 @@ describe("async transaction concurrency (real implementation)", () => {
     expect(rows).toHaveLength(6);
   });
 
+  it("serializes concurrent top-level transactions across two stores sharing one connection (regression: no such savepoint)", async () => {
+    const { drizzle } = await import("drizzle-orm/better-sqlite3");
+    const { patchBetterSqliteTransactions } =
+      await import("./create-get-db.js");
+    const sqlite = new Database(":memory:");
+    sqlite.exec(
+      "CREATE TABLE items (id INTEGER PRIMARY KEY AUTOINCREMENT, value TEXT NOT NULL)",
+    );
+
+    // Two `createGetDb()` schema stores now share one physical connection
+    // (see startInit()'s local-sqlite branch) — each patches its own drizzle
+    // instance but must serialize against the SAME queue, or a concurrent
+    // top-level transaction from one store opens a SAVEPOINT inside the
+    // other's still-open BEGIN IMMEDIATE.
+    const dbA = patchBetterSqliteTransactions(
+      drizzle(sqlite, { schema: { items } }) as never,
+      sqlite,
+    ) as unknown as {
+      transaction: (cb: (tx: unknown) => Promise<unknown>) => Promise<unknown>;
+    };
+    const dbB = patchBetterSqliteTransactions(
+      drizzle(sqlite, { schema: { items } }) as never,
+      sqlite,
+    ) as unknown as {
+      transaction: (cb: (tx: unknown) => Promise<unknown>) => Promise<unknown>;
+    };
+
+    const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    const runTx = (db: typeof dbA, value: string) =>
+      db.transaction(async () => {
+        sqlite.prepare("INSERT INTO items (value) VALUES (?)").run(value);
+        await delay(15);
+        sqlite.prepare("INSERT INTO items (value) VALUES (?)").run(value);
+        return value;
+      });
+
+    const results = await Promise.all([
+      runTx(dbA, "a"),
+      runTx(dbB, "b"),
+      runTx(dbA, "c"),
+    ]);
+    expect(results).toEqual(["a", "b", "c"]);
+    const rows = sqlite.prepare("SELECT value FROM items ORDER BY id").all();
+    expect(rows).toHaveLength(6);
+  });
+
   it("still supports same-task nesting via savepoints under the queue", async () => {
     const { drizzle } = await import("drizzle-orm/better-sqlite3");
     const { patchBetterSqliteTransactions } =

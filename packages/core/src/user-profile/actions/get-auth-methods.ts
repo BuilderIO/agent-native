@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { defineAction } from "../../action.js";
-import { getBetterAuth } from "../../server/better-auth-instance.js";
+import { getBetterAuthInternalAdapter } from "../../server/better-auth-instance.js";
 
 export interface AuthMethods {
   hasPassword: boolean;
@@ -18,21 +18,25 @@ export default defineAction({
       throw new Error("Not authenticated.");
     }
 
-    const auth = await getBetterAuth();
-    const accounts = await (
-      auth.api as unknown as {
-        listUserAccounts: (options: {
-          headers: Headers;
-        }) => Promise<Array<{ providerId: string }>>;
-      }
-    ).listUserAccounts({
-      headers: ctx.requestHeaders,
+    // Look accounts up by the framework-resolved ctx.userEmail through
+    // Better Auth's internal adapter rather than replaying ctx.requestHeaders
+    // through auth.api.listUserAccounts: that call re-derives identity from
+    // its own cookie-based session lookup, which throws for any caller the
+    // framework authenticated without a Better Auth session cookie (an
+    // AUTH_DISABLED dev session, a BYOA identity, ...) even though
+    // ctx.userEmail is already a trustworthy resolved identity. A missing
+    // adapter or user record means there is no Better Auth credential to
+    // report, not an unknown failure.
+    const adapter = await getBetterAuthInternalAdapter();
+    const existing = await adapter?.findUserByEmail(ctx.userEmail, {
+      includeAccounts: true,
     });
 
     return {
-      hasPassword: accounts.some(
-        (account) => account.providerId === "credential",
-      ),
+      hasPassword:
+        existing?.accounts.some(
+          (account) => account.providerId === "credential",
+        ) ?? false,
     };
   },
 });

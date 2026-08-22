@@ -4,7 +4,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@agent-native/toolkit/ui/popover";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import type {
   AgentNativeDeploymentEnvironment,
@@ -275,12 +275,21 @@ export function EnvironmentBadge({
   showProduction?: boolean;
 } = {}) {
   const config = useMemo(injectedAgentNativeConfig, []);
+  // The server always renders null (no window), so the first client render
+  // must match that exactly. Gating on mount — not on `typeof window` — is
+  // what keeps that first render in sync with SSR; deferring the real
+  // content to this effect is what actually prevents the hydration
+  // mismatch, not the window check below (which is already true on both
+  // passes once mounted).
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
   const hostname =
     typeof window === "undefined" ? undefined : window.location.hostname;
   const environment = resolveEnvironmentChannel(config, hostname);
   const targets = resolveEnvironmentTargets(hostname);
 
   if (
+    !mounted ||
     typeof window === "undefined" ||
     window.parent !== window ||
     !environment

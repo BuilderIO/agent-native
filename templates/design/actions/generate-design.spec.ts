@@ -471,7 +471,7 @@ describe("generate-design: existing-file update path (hash-guarded write)", () =
     );
   });
 
-  it("rejects the update when the live content changed since it was read (concurrent write)", async () => {
+  it("reports (never throws) the conflict when the live content changed since it was read (concurrent write)", async () => {
     setExistingFile("<html><body>old</body></html>");
 
     // Simulate a concurrent writer's collab mutation landing in the exact
@@ -501,22 +501,111 @@ describe("generate-design: existing-file update path (hash-guarded write)", () =
         : "<html><body>concurrent-edit</body></html>";
     });
 
-    await expect(
-      action.run({
-        designId: "design-1",
-        prompt: "Update copy",
-        files: [
-          {
-            filename: "index.html",
-            fileType: "html",
-            content: "<html><body>stale-generated</body></html>",
-          },
-        ],
-      }),
-    ).rejects.toThrow(/changed since it was read/);
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Update copy",
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<html><body>stale-generated</body></html>",
+        },
+      ],
+    });
 
-    // Must fail loud: the stale content must never be persisted.
+    // Must fail loud: the stale content must never be persisted...
     expect(mocks.fileUpdateChain.set).not.toHaveBeenCalled();
+    // ...but a single-file batch is just a batch of size one — the conflict
+    // is reported the same retryable way a multi-file batch reports it, not
+    // as a thrown error, so the caller has one consistent shape to check.
+    expect(result.savedFiles).toEqual([]);
+    expect(result.fileErrors).toEqual([
+      {
+        filename: "index.html",
+        message: expect.stringContaining("changed since it was read"),
+      },
+    ]);
+  });
+
+  it("keeps an earlier file's save and reports a later file's write conflict instead of discarding both", async () => {
+    mocks.setFileRows([
+      {
+        id: "file-1",
+        designId: "design-1",
+        filename: "index.html",
+        fileType: "html",
+        content: "<html><body>old-1</body></html>",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+      {
+        id: "file-2",
+        designId: "design-1",
+        filename: "details.html",
+        fileType: "html",
+        content: "<html><body>old-2</body></html>",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    ]);
+
+    // Only file-2 gets the "concurrent write" race from the test above: its
+    // collab doc already exists, and the live content differs between this
+    // action's own pre-write read and writeInlineSourceFile's internal
+    // re-check, so its write is rejected as a genuine conflict. file-1 has no
+    // collab doc and takes the plain seedFromText path used by every other
+    // test in this block, so it must save normally in the same batch.
+    const collab = await import("@agent-native/core/collab");
+    let file2GetTextCalls = 0;
+    (collab.hasCollabState as any).mockImplementation(
+      async (docId: string) => docId === "file-2",
+    );
+    (collab.getText as any).mockImplementation(async (docId: string) => {
+      if (docId !== "file-2") return mocks.seededCollabText.get(docId) ?? "";
+      file2GetTextCalls += 1;
+      return file2GetTextCalls === 1
+        ? "<html><body>old-2</body></html>"
+        : "<html><body>concurrent-edit</body></html>";
+    });
+
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Update two screens",
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<html><body>new-1</body></html>",
+        },
+        {
+          filename: "details.html",
+          fileType: "html",
+          content: "<html><body>new-2</body></html>",
+        },
+      ],
+    });
+
+    // file-1 saved (and got its canvas frame placed) even though file-2
+    // failed later in the same batch — a partial failure must not discard an
+    // already-committed sibling's bookkeeping.
+    expect(result.savedFiles).toEqual([
+      { id: "file-1", filename: "index.html", fileType: "html" },
+    ]);
+    expect(mocks.fileUpdateChain.set).toHaveBeenCalledWith(
+      expect.objectContaining({ content: expect.stringContaining("new-1") }),
+    );
+    const data = mocks.getDesignData();
+    expect(
+      (data.canvasFrames as Record<string, unknown> | undefined)?.["file-1"],
+    ).toBeDefined();
+
+    // file-2's conflict is reported back, not thrown and not swallowed.
+    expect(result.fileErrors).toEqual([
+      {
+        filename: "details.html",
+        message: expect.stringContaining("changed since it was read"),
+      },
+    ]);
   });
 
   it("updates fileType separately when it changes, alongside the guarded content write", async () => {

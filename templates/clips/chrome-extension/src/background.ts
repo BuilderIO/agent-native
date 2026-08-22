@@ -1330,8 +1330,7 @@ async function armRecording(args: {
       sourceAppName: "Chrome",
       sourceWindowTitle: tab.title ?? null,
       hasCamera: cameraInvolved,
-      hasAudio:
-        settings.includeMicrophone || settings.captureSurface !== "camera",
+      hasAudio: settings.includeMicrophone,
       mimeType: "video/webm",
       requestStreaming: true,
     });

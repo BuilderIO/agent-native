@@ -1578,3 +1578,86 @@ describe("db/client shared connection pools", () => {
     expect(sharedDbPool("postgres-js", url, () => original)).toBe(replacement);
   });
 });
+
+describe("db/client local SQLite connection sharing", () => {
+  afterEach(() => {
+    vi.resetModules();
+    vi.unstubAllEnvs();
+  });
+
+  it("sharedDbPoolAsync hands every consumer of one URL the same connection, awaiting create only once", async () => {
+    const { sharedDbPoolAsync } = await import("./client.js");
+    let createCalls = 0;
+    const make = async () => {
+      createCalls += 1;
+      return { id: Symbol(), end: async () => {} };
+    };
+
+    const [first, second] = await Promise.all([
+      sharedDbPoolAsync("better-sqlite3", "./data/a.db", make),
+      sharedDbPoolAsync("better-sqlite3", "./data/a.db", make),
+    ]);
+    const other = await sharedDbPoolAsync(
+      "better-sqlite3",
+      "./data/b.db",
+      make,
+    );
+
+    expect(second).toBe(first);
+    expect(other).not.toBe(first);
+  });
+
+  /**
+   * Reproduces the "database is locked" defect: getDbExec() (client.ts) and
+   * every createGetDb() schema store (create-get-db.ts) each used to open
+   * their own better-sqlite3 handle to the same file. SQLite's write lock is
+   * exclusive across connections even in WAL mode, so ordinary concurrent
+   * writes from separate handles contended for up to the shared busy_timeout.
+   */
+  it("getDbExec() and a createGetDb() store for the same file share one better-sqlite3 connection", async () => {
+    vi.stubEnv("DATABASE_URL", "file:./data/app.db");
+
+    let openCount = 0;
+    vi.doMock("better-sqlite3", () => ({
+      default: class MockDatabase {
+        inTransaction = false;
+        constructor(_filename: string) {
+          openCount += 1;
+        }
+        pragma() {
+          return [];
+        }
+        exec() {}
+        close() {}
+        prepare() {
+          return {
+            reader: false,
+            run: () => ({ changes: 0 }),
+            all: () => [],
+          };
+        }
+      },
+    }));
+    // Stub the drizzle wrapper too — this test is about connection sharing,
+    // not query building, and the real wrapper's feature probing isn't worth
+    // satisfying with a fake Database.
+    vi.doMock("drizzle-orm/better-sqlite3", () => ({
+      drizzle: (sqlite: any) => ({
+        transaction: (fn: any) => fn,
+        session: {},
+        $sqlite: sqlite,
+      }),
+    }));
+
+    const { getDbExec } = await import("./client.js");
+    const { createGetDb } = await import("./create-get-db.js");
+
+    // client.ts's local-sqlite branch, via the getDbExec() singleton.
+    await getDbExec().execute("SELECT 1");
+    // create-get-db.ts's local-sqlite branch, via a createGetDb() schema store.
+    const getDb = createGetDb({});
+    await getDb();
+
+    expect(openCount).toBe(1);
+  });
+});

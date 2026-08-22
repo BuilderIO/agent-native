@@ -1968,10 +1968,19 @@ function frameworkDevDynamicForwarder(): Plugin {
               ? `text/html,${accept}`
               : "text/html";
           }
-          // Embed-start uses document/iframe to select its transplant response.
-          // Only supply the classifier hint when the browser did not provide a
-          // destination; never overwrite the request's original intent.
-          if (req.headers["sec-fetch-dest"] === undefined) {
+          // Embed-start uses document/iframe to select its transplant response,
+          // and Nitro's own dev classifier already treats document/iframe/frame
+          // as non-asset, so those (and an already-"empty" value) pass through
+          // untouched. Everything else — undefined, or a real browser's
+          // destination for a fetch this route never anticipated, like
+          // "speculationrules" for the native Speculation-Rules auto-fetch —
+          // gets normalized to "empty" so Nitro's classifier falls back to its
+          // extension check instead of treating the request as a static asset.
+          const fetchDest = req.headers["sec-fetch-dest"];
+          if (
+            fetchDest === undefined ||
+            !/^(document|iframe|frame|empty)$/.test(String(fetchDest))
+          ) {
             req.headers["sec-fetch-dest"] = "empty";
           }
         }
