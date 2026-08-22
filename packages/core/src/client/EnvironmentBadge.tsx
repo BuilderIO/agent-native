@@ -4,13 +4,15 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@agent-native/toolkit/ui/popover";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import type {
   AgentNativeDeploymentEnvironment,
   AgentNativeConfig,
 } from "../config.js";
 import {
+  BETA_FORCE_QUERY_PARAM,
+  BETA_FORCE_SESSION_STORAGE_KEY,
   BETA_OPT_OUT_QUERY_PARAM,
   BETA_OPT_OUT_STORAGE_KEY,
   buildEnvironmentOptOutUrl,
@@ -24,6 +26,8 @@ import { useSession } from "./use-session.js";
 import { cn } from "./utils.js";
 
 export {
+  BETA_FORCE_QUERY_PARAM,
+  BETA_FORCE_SESSION_STORAGE_KEY,
   BETA_OPT_OUT_DURATION_MS,
   BETA_OPT_OUT_QUERY_PARAM,
   BETA_OPT_OUT_STORAGE_KEY,
@@ -91,6 +95,31 @@ function readBetaOptOutUntil(now = Date.now()): number | null {
   return null;
 }
 
+function rememberForcedProductionSession(sourceHref: string): boolean {
+  let forcedByQuery = false;
+  try {
+    forcedByQuery =
+      new URL(sourceHref).searchParams.get(BETA_FORCE_QUERY_PARAM) === "true";
+  } catch {
+    // coercion-ok: the browser supplied an invalid location.
+  }
+
+  if (typeof window === "undefined") return forcedByQuery;
+
+  try {
+    if (forcedByQuery) {
+      window.sessionStorage.setItem(BETA_FORCE_SESSION_STORAGE_KEY, "1");
+    }
+    return (
+      forcedByQuery ||
+      window.sessionStorage.getItem(BETA_FORCE_SESSION_STORAGE_KEY) === "1"
+    );
+  } catch {
+    // coercion-ok: session storage is optional; the current URL remains authoritative.
+    return forcedByQuery;
+  }
+}
+
 function consumeBetaOptOutQueryParam(
   sourceHref: string,
   now = Date.now(),
@@ -146,7 +175,10 @@ function EnvironmentBadgeContent({
   environment: "beta" | "production";
   targets: EnvironmentBadgeTargets;
 }) {
+  const [isHidden, setIsHidden] = useState(false);
+
   if (typeof window === "undefined") return null;
+  if (isHidden) return null;
 
   const currentHref = window.location.href;
   const betaHref = buildEnvironmentUrl(currentHref, targets.betaHost);
@@ -198,6 +230,15 @@ function EnvironmentBadgeContent({
           ) : (
             <EnvironmentLink href={betaHref!} label="Go to beta" />
           )}
+          <Button
+            className="w-full justify-center text-muted-foreground"
+            onClick={() => setIsHidden(true)}
+            size="sm"
+            type="button"
+            variant="ghost"
+          >
+            Hide badge
+          </Button>
         </div>
       </PopoverContent>
     </Popover>
@@ -233,6 +274,8 @@ function ProductionEnvironmentBadge({
   const didAutoRedirect = useRef(false);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (rememberForcedProductionSession(window.location.href)) return;
     if (!isEligible || didAutoRedirect.current) {
       return;
     }

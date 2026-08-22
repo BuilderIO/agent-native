@@ -28,6 +28,13 @@ export {
 export { injectDocumentMarkup } from "./html-document.js";
 export { withBuilderUtmTrackingParams } from "./builder-link-tracking.js";
 export {
+  BETA_FORCE_QUERY_PARAM,
+  BETA_FORCE_SESSION_STORAGE_KEY,
+  BETA_OPT_OUT_DURATION_MS,
+  BETA_OPT_OUT_QUERY_PARAM,
+  BETA_OPT_OUT_STORAGE_KEY,
+} from "./environment-lanes.js";
+export {
   SSR_HTML_CONTENT_TYPE,
   SSR_QUERY_CACHE_KEY_HEADER,
   type SsrHtmlContentTypeOptions,
