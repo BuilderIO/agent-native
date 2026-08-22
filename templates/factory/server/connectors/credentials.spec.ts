@@ -98,4 +98,14 @@ describe("resolveConnectorSecret", () => {
     );
     expect(mocks.readAppSecret).not.toHaveBeenCalled();
   });
+
+  it("does not use deployment env fallbacks for standard provider keys", async () => {
+    vi.stubEnv("SENTRY_AUTH_TOKEN", "deployment-sentry-token");
+
+    await expect(
+      resolveConnectorSecret("SENTRY_AUTH_TOKEN", userEmail, {
+        orgId: "active-org",
+      }),
+    ).resolves.toBeUndefined();
+  });
 });
