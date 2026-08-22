@@ -63,14 +63,7 @@ function defineClipsTransactionalEmail(
   return defineTransactionalEmail(definition);
 }
 
-export function registerClipsEmails(): void {
-  // Nitro/Vite can evaluate the same server module through two module
-  // instances during dev reloads. Keep the catalog registration process-wide
-  // so those instances cannot submit the same id twice.
-  if (registered || globalRegistrationState[GLOBAL_REGISTRATION_KEY]) return;
-  registered = true;
-  globalRegistrationState[GLOBAL_REGISTRATION_KEY] = true;
-
+function registerClipsEmailDefinitions(): void {
   defineClipsTransactionalEmail({
     id: CLIPS_ACCESS_REQUEST_EMAIL_ID,
     name: "Clip access request",
@@ -292,4 +285,21 @@ export function registerClipsEmails(): void {
         inviteUrl: "https://example.com/invite/sample-token",
       }),
   });
+}
+
+export function registerClipsEmails(): void {
+  // Nitro/Vite can evaluate the same server module through two module
+  // instances during dev reloads. Keep the catalog registration process-wide
+  // so those instances cannot submit the same id twice.
+  if (registered || globalRegistrationState[GLOBAL_REGISTRATION_KEY]) return;
+
+  try {
+    registerClipsEmailDefinitions();
+    registered = true;
+    globalRegistrationState[GLOBAL_REGISTRATION_KEY] = true;
+  } catch (error) {
+    registered = false;
+    delete globalRegistrationState[GLOBAL_REGISTRATION_KEY];
+    throw error;
+  }
 }
