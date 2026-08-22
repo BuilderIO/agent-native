@@ -18,7 +18,10 @@ describe("injectBetaOptOutPersistence", () => {
     expect(html).toContain("window.history.replaceState");
     expect(html).toContain('id="environment-switcher"');
     expect(html).toContain('id="environment-production-link"');
+    expect(html).toContain('id="environment-hide-badge"');
     expect(html).toContain("__anInitEnvironmentBadge");
+    expect(html).toContain("agent-native:force-production");
+    expect(html).toContain("switcher.hidden = true");
     expect(html).toContain("betaHosts");
     expect(html).toContain("agent-native-environment-switcher-style");
     expect(html).toContain("left: max(0.75rem, env(safe-area-inset-left));");
@@ -50,6 +53,7 @@ describe("injectBetaOptOutPersistence", () => {
     expect(reinjected.match(/id="environment-production-link"/g)).toHaveLength(
       1,
     );
+    expect(reinjected.match(/id="environment-hide-badge"/g)).toHaveLength(1);
     expect(reinjected.match(/__anInitEnvironmentBadge/g)).toHaveLength(1);
   });
 
@@ -58,6 +62,7 @@ describe("injectBetaOptOutPersistence", () => {
       <html><head></head><body>
         <div class="environment-switcher" id="environment-switcher" hidden>
           <a id="environment-production-link" href="">Switch to production</a>
+          <button id="environment-hide-badge" type="button">Hide badge</button>
         </div>
         <script>function __anInitEnvironmentBadge() {}</script>
       </body></html>
@@ -66,6 +71,7 @@ describe("injectBetaOptOutPersistence", () => {
     expect(html).toContain(BETA_OPT_OUT_PERSISTENCE_MARKER);
     expect(html.match(/id="environment-switcher"/g)).toHaveLength(1);
     expect(html.match(/id="environment-production-link"/g)).toHaveLength(1);
+    expect(html.match(/id="environment-hide-badge"/g)).toHaveLength(1);
     expect(html.match(/__anInitEnvironmentBadge/g)).toHaveLength(1);
     expect(html).not.toContain(
       'data-agent-native-environment-switcher-style="1"',
