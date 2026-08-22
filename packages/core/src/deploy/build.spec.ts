@@ -3559,7 +3559,6 @@ describe("pruneBrowserRuntimeFromNonAgentClone", () => {
     ).toThrow(/rewrites url\.pathname/);
   });
 });
-
 describe("serverless bundle trimming", () => {
   let dir: string;
 
