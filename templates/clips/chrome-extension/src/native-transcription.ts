@@ -124,6 +124,10 @@ export function createNativeTranscriptionCapture(options?: {
       try {
         recognition.start();
         restartFailures = 0;
+        // Recognition recovered, so the earlier restart error is no longer the
+        // transcript's outcome. Leaving it set makes the server treat a
+        // complete transcript as partial and re-run cloud transcription.
+        failureReason = null;
       } catch (error) {
         failureReason =
           error instanceof Error

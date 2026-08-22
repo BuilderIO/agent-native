@@ -11,6 +11,14 @@ export function isReconcileLeadClient(
   if (localClientId == null) return false;
   if (!awareness) return true;
 
+  // The peer loop below skips the local client, so its own capability has to be
+  // checked here — otherwise a read-only viewer that is alone, or that holds the
+  // lowest id, still wins the election and then applies nothing.
+  const localState = awareness.getStates().get(localClientId) as
+    | { canFlushDocument?: boolean }
+    | undefined;
+  if (localState?.canFlushDocument === false) return false;
+
   let hasPeer = false;
   let minVisible = localClientId;
   awareness.getStates().forEach((state, clientId) => {

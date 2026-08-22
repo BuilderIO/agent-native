@@ -387,7 +387,11 @@ function SharePanel(
 
   // `data` stays undefined after a failed read, so a stuck skeleton is
   // indistinguishable from loading unless the error comes off the query itself.
-  const loadFailed = controller.sharesQuery.isError;
+  // `isError` alone is not that signal: it is also true when a refetch fails
+  // while React Query still holds usable data, and this panel refetches on open
+  // and after every mutation — blocking on that would swap a working panel for
+  // a retry screen on one transient failure.
+  const loadFailed = controller.sharesQuery.isError && data === undefined;
   const isLoading = !loadFailed && data === undefined;
   const meta = visibilityMeta(visibility, t, props.visibilityCopy);
   const peopleAccessLabel =

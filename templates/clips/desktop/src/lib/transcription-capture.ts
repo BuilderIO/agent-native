@@ -245,6 +245,12 @@ async function startBrowserTranscriptionCapture(): Promise<TranscriptionCapture 
 
   recognition.onerror = (event) => {
     if (event.error === "no-speech" || event.error === "aborted") return;
+    // A non-benign error drops audio until `onend` restarts recognition. That
+    // restart usually succeeds, so without recording the gap here the transcript
+    // saves as complete and the server never schedules cloud transcription for
+    // the missing stretch. Deliberately not cleared by a later successful
+    // restart: recovering the engine does not recover the lost speech.
+    failureReason ??= `Web Speech transcription dropped audio after a "${event.error}" error.`;
     console.warn(
       "[clips-recorder] Web Speech transcription error:",
       event.error,
