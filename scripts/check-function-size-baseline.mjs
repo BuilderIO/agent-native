@@ -49,21 +49,26 @@ const TOLERANCE_RATIO = 1.1;
 const TOLERANCE_BYTES = 5 * 1024 * 1024;
 
 /**
- * Apps that currently cannot be measured, and why. Each entry lets one deploy
- * through with no size assertion, so it belongs in the diff where a reviewer
- * sees it — not implied by a key missing from the baseline file.
+ * Apps with no recorded baseline that may still deploy, and why none exists.
  *
- * Remove an entry as soon as its build works: record the baseline and the app
- * is protected like every other.
+ * This waives only this check. It cannot rescue a deploy that failed earlier —
+ * a build that never emitted functions never reaches here — so an entry means
+ * exactly one thing: if this app does build, its size ships unasserted until
+ * someone records a baseline.
+ *
+ * Both entries are here because the app could not be built locally to measure,
+ * not because anything about them is unmeasurable in principle. Remove an entry
+ * the moment a baseline is recorded; the app is then protected like the other
+ * fifteen.
  */
 const UNMEASURABLE_APPS = new Map([
   [
     "crm",
-    "build/client is not prebuilt, so the deploy guard rejects the publish dir before functions are emitted",
+    "no baseline yet: templates/crm has no prebuilt build/client locally, so a local netlify build stops at the publish-dir guard before emitting functions",
   ],
   [
     "design",
-    "the electron package traces a Squirrel.framework path that does not exist, crashing the Nitro server bundle",
+    "no baseline yet: a local netlify build crashes tracing electron's Squirrel.framework, which does not exist on disk",
   ],
 ]);
 
