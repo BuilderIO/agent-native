@@ -118,6 +118,8 @@ export interface BuilderDesignSystemHydratedReference extends BuilderDesignSyste
   docs: BuilderDesignSystemDocument[];
   tokenValues: Record<string, string>;
   docCount: number;
+  /** True only when Builder explicitly confirms that indexing is complete. */
+  completionConfirmed?: boolean;
 }
 
 export interface BuilderDesignSystemIndexOptions {
@@ -148,8 +150,16 @@ export interface BuilderDesignSystemIndexResult {
   designSystemId: string;
   suggestedTitle: string | null;
   builderUrl: string;
-  status: "in-progress";
+  status: BuilderDesignSystemStatus;
 }
+
+export type BuilderDesignSystemStatus =
+  | "in-progress"
+  | "ready"
+  | "complete"
+  | "completed"
+  | "error"
+  | "failed";
 
 interface BuilderDesignSystemCredentials {
   privateKey: string;
@@ -167,6 +177,7 @@ interface IndexResponse {
   projectId?: string;
   branchUrl?: string;
   branchName?: string;
+  status?: unknown;
 }
 
 export interface BuilderDesignSystemUploadAttachment {
@@ -1041,10 +1052,41 @@ function normalizeBuilderDesignSystemDocument(
   };
 }
 
-export async function fetchBuilderDesignSystemDocs(
+function normalizeBuilderDesignSystemStatus(
+  value: unknown,
+): BuilderDesignSystemStatus {
+  if (typeof value !== "string") return "in-progress";
+  switch (value.trim().toLowerCase()) {
+    case "ready":
+      return "ready";
+    case "complete":
+    case "completed":
+    case "done":
+    case "success":
+      return "complete";
+    case "error":
+    case "failed":
+    case "failure":
+      return "error";
+    default:
+      return "in-progress";
+  }
+}
+
+function isConfirmedBuilderDesignSystemStatus(value: unknown): boolean {
+  const status = normalizeBuilderDesignSystemStatus(value);
+  return status === "ready" || status === "complete" || status === "completed";
+}
+
+interface BuilderDesignSystemDocsResponse {
+  docs: BuilderDesignSystemDocument[];
+  completionConfirmed: boolean;
+}
+
+async function fetchBuilderDesignSystemDocsResponse(
   designSystemId: string,
-  options: BuilderDesignSystemDocsOptions = {},
-): Promise<BuilderDesignSystemDocument[]> {
+  options: BuilderDesignSystemDocsOptions,
+): Promise<BuilderDesignSystemDocsResponse> {
   const credentials = await resolveBuilderDesignSystemCredentials();
   const url = makeBuilderDesignSystemUrl(
     `${encodeURIComponent(designSystemId)}/docs`,
@@ -1064,22 +1106,52 @@ export async function fetchBuilderDesignSystemDocs(
   });
   await assertOk(response, "Builder design-system docs fetch failed");
   const json = (await response.json()) as unknown;
-  if (!Array.isArray(json)) {
+  if (Array.isArray(json)) {
+    return {
+      docs: json.map(normalizeBuilderDesignSystemDocument),
+      completionConfirmed: false,
+    };
+  }
+  if (!json || typeof json !== "object") {
     throw new Error(
       "Builder design-system docs fetch returned an invalid response.",
     );
   }
-  return json.map(normalizeBuilderDesignSystemDocument);
+  const envelope = json as Record<string, unknown>;
+  const rawDocs = envelope.docs ?? envelope.items;
+  if (!Array.isArray(rawDocs)) {
+    throw new Error(
+      "Builder design-system docs fetch returned an invalid response.",
+    );
+  }
+  return {
+    docs: rawDocs.map(normalizeBuilderDesignSystemDocument),
+    completionConfirmed:
+      envelope.complete === true ||
+      envelope.completed === true ||
+      isConfirmedBuilderDesignSystemStatus(
+        envelope.status ?? envelope.builderStatus,
+      ),
+  };
+}
+
+export async function fetchBuilderDesignSystemDocs(
+  designSystemId: string,
+  options: BuilderDesignSystemDocsOptions = {},
+): Promise<BuilderDesignSystemDocument[]> {
+  return (await fetchBuilderDesignSystemDocsResponse(designSystemId, options))
+    .docs;
 }
 
 export async function hydrateBuilderDesignSystemReference(
   reference: BuilderDesignSystemProxyReference,
   options: BuilderDesignSystemDocsOptions = { page: 0, pageSize: 40 },
 ): Promise<BuilderDesignSystemHydratedReference> {
-  const docs = await fetchBuilderDesignSystemDocs(
+  const response = await fetchBuilderDesignSystemDocsResponse(
     reference.builderDesignSystemId,
     options,
   );
+  const docs = response.docs;
   const tokenValues: Record<string, string> = {};
   for (const doc of docs) {
     if (!doc.tokenValues) continue;
@@ -1092,6 +1164,9 @@ export async function hydrateBuilderDesignSystemReference(
     docs,
     tokenValues,
     docCount: docs.length,
+    completionConfirmed:
+      response.completionConfirmed ||
+      isConfirmedBuilderDesignSystemStatus(reference.builderStatus),
   };
 }
 
@@ -1189,7 +1264,7 @@ export async function indexBuilderDesignSystem(
       branchUrl ||
       builderProjectBranchUrl(indexed.projectId, indexed.branchName) ||
       builderDesignSystemUrl(indexed.designSystemId),
-    status: "in-progress",
+    status: normalizeBuilderDesignSystemStatus(indexed.status),
   };
 }
 

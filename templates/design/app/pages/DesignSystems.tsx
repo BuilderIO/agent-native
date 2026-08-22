@@ -98,6 +98,7 @@ interface DesignSystem {
 type BuilderRefreshResult = {
   synced: boolean;
   status?: string;
+  rejectedTokenCount?: number;
 };
 
 function isTerminalBuilderStatus(status?: string): boolean {
@@ -431,6 +432,11 @@ export default function DesignSystems() {
           await queryClient.invalidateQueries({
             queryKey: ["action", "list-design-systems"],
           });
+          return;
+        }
+        if (result.status === "incomplete" || result.rejectedTokenCount) {
+          activeBuilderRefreshesRef.current.delete(entry.key);
+          stoppedBuilderRefreshesRef.current.add(entry.key);
           return;
         }
         if (isTerminalBuilderStatus(result.status)) {

@@ -62,14 +62,58 @@ export default defineAction({
       };
     }
 
+    if (reconciliation.rejectedTokenCount > 0) {
+      return {
+        id,
+        synced: false,
+        status: "incomplete",
+        docCount: hydrated.docCount,
+        tokenCount: reconciliation.tokenCount,
+        rejectedTokenCount: reconciliation.rejectedTokenCount,
+        message: `Builder DSI returned ${reconciliation.rejectedTokenCount} token(s) that could not be safely imported.`,
+      };
+    }
+
+    if (!reconciliation.completionConfirmed) {
+      return {
+        id,
+        synced: false,
+        status: reference.builderStatus ?? "in-progress",
+        docCount: hydrated.docCount,
+        tokenCount: reconciliation.tokenCount,
+        rejectedTokenCount: 0,
+        message:
+          "Builder DSI returned token values without confirming that indexing is complete. Retry after Builder reports completion.",
+      };
+    }
+
+    await assertAccess("design-system", id, "editor");
+    const latestAccess = await resolveAccess("design-system", id);
+    if (!latestAccess) throw new Error("Design system not found");
+    if (
+      latestAccess.resource.id !== access.resource.id ||
+      latestAccess.resource.data !== access.resource.data
+    ) {
+      return {
+        id,
+        synced: false,
+        status: "conflict",
+        docCount: hydrated.docCount,
+        tokenCount: reconciliation.tokenCount,
+        rejectedTokenCount: 0,
+        message:
+          "The design system changed while Builder DSI was syncing. Retry the refresh.",
+      };
+    }
+
     const db = getDb();
     await db
       .update(schema.designSystems)
       .set({ data: reconciliation.data, updatedAt: syncedAt })
       .where(
         and(
-          eq(schema.designSystems.id, access.resource.id),
-          eq(schema.designSystems.data, access.resource.data),
+          eq(schema.designSystems.id, latestAccess.resource.id),
+          eq(schema.designSystems.data, latestAccess.resource.data),
         ),
       );
 
@@ -80,7 +124,8 @@ export default defineAction({
         synced: false,
         status: "conflict",
         docCount: hydrated.docCount,
-        tokenCount: 0,
+        tokenCount: reconciliation.tokenCount,
+        rejectedTokenCount: 0,
         message:
           "The design system changed while Builder DSI was syncing. Retry the refresh.",
       };

@@ -4,6 +4,7 @@ import {
   buildBuilderDesignSystemIndexFiles,
   collectBuilderDesignSystemGitHubFiles,
   createBuilderDesignSystemProxyFields,
+  hydrateBuilderDesignSystemReference,
   localBuilderDesignSystemId,
   mimeTypeForBuilderDesignSystemFilename,
   parseBuilderDesignSystemProxyReference,
@@ -168,6 +169,39 @@ describe("Builder design-system helpers", () => {
       builderProjectId: "project-1",
       builderUrl: "https://builder.io/app/design-system-intelligence/ds-1",
       builderStatus: "in-progress",
+    });
+  });
+
+  it("requires an explicit Builder completion signal when hydrating docs", async () => {
+    process.env.BUILDER_PRIVATE_KEY = "builder-private";
+    process.env.BUILDER_PUBLIC_KEY = "builder-public";
+    process.env.BUILDER_DESIGN_SYSTEMS_BASE_URL =
+      "https://builder.example.test/design-systems/v1";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              docs: [{ tokenValues: { "--brand-primary": "#123456" } }],
+              status: "complete",
+            }),
+            { status: 200 },
+          ),
+      ),
+    );
+
+    await expect(
+      hydrateBuilderDesignSystemReference({
+        source: "builder",
+        builderDesignSystemId: "ds-1",
+        builderJobId: "job-1",
+        builderStatus: "in-progress",
+      }),
+    ).resolves.toMatchObject({
+      docCount: 1,
+      tokenValues: { "--brand-primary": "#123456" },
+      completionConfirmed: true,
     });
   });
 

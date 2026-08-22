@@ -58,7 +58,13 @@ describe("refresh-design-system-with-builder", () => {
     mockResolveAccess.mockResolvedValueOnce({
       resource: { id: "local-ds-1", data: initialData },
     });
-    mockResolveAccess.mockImplementationOnce(async () => ({
+    mockResolveAccess.mockResolvedValueOnce({
+      resource: {
+        id: "local-ds-1",
+        data: initialData,
+      },
+    });
+    mockResolveAccess.mockImplementation(async () => ({
       resource: {
         id: "local-ds-1",
         data: mockSet.mock.calls[0]?.[0]?.data ?? initialData,
@@ -72,6 +78,7 @@ describe("refresh-design-system-with-builder", () => {
       docs: [],
       docCount: 1,
       tokenValues: { "--brand-primary": "#123456" },
+      completionConfirmed: true,
     });
   });
 
@@ -89,6 +96,7 @@ describe("refresh-design-system-with-builder", () => {
       "local-ds-1",
       "editor",
     );
+    expect(mockAssertAccess).toHaveBeenCalledTimes(2);
     expect(mockSet).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.stringContaining('"builderStatus":"ready"'),
@@ -153,5 +161,26 @@ describe("refresh-design-system-with-builder", () => {
       synced: false,
       status: "conflict",
     });
+  });
+
+  it("surfaces rejected Builder tokens without writing the proxy", async () => {
+    mockHydrate.mockResolvedValue({
+      source: "builder",
+      builderDesignSystemId: "ds-1",
+      builderJobId: "job-1",
+      builderStatus: "in-progress",
+      docs: [],
+      docCount: 1,
+      tokenValues: { "--bad token": "#123456" },
+      completionConfirmed: true,
+    });
+
+    await expect(action.run({ id: "local-ds-1" })).resolves.toMatchObject({
+      id: "local-ds-1",
+      synced: false,
+      status: "incomplete",
+      rejectedTokenCount: 1,
+    });
+    expect(mockUpdate).not.toHaveBeenCalled();
   });
 });

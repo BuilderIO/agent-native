@@ -31,6 +31,7 @@ export interface BuilderProxyReconciliation {
   data: string;
   tokenCount: number;
   rejectedTokenCount: number;
+  completionConfirmed: boolean;
 }
 
 function parseProxyData(data: string): ProxyData {
@@ -80,7 +81,7 @@ function findTokenValue(
     );
   const exactCandidates = candidates
     .filter((candidate) => names.includes(candidate.name))
-    .sort((a, b) => a.score - b.score);
+    .sort((a, b) => b.score - a.score);
   if (exactCandidates.length > 0) {
     return exactCandidates[0].token.value;
   }
@@ -141,6 +142,16 @@ function findTypedTokenValue(
   return candidates[0]?.token.value;
 }
 
+function findTokenByPattern(
+  tokens: Array<{ cssVar: string; value: string; type: string }>,
+  type: string,
+  pattern: RegExp,
+): string | undefined {
+  return tokens.find(
+    (token) => token.type === type && pattern.test(token.cssVar),
+  )?.value;
+}
+
 /**
  * Merge completed Builder token extraction into the local selectable proxy.
  * The Builder docs remain the source of truth, but the local row must carry
@@ -160,7 +171,21 @@ export function reconcileBuilderProxyData(
       source: "Builder DSI",
     })),
   );
-  if (extracted.tokens.length === 0) return null;
+  const completionConfirmed =
+    hydrated.completionConfirmed === true ||
+    hydrated.builderStatus === "ready" ||
+    hydrated.builderStatus === "complete" ||
+    hydrated.builderStatus === "completed";
+  if (extracted.tokens.length === 0) {
+    return extracted.rejected.length > 0
+      ? {
+          data,
+          tokenCount: 0,
+          rejectedTokenCount: extracted.rejected.length,
+          completionConfirmed: false,
+        }
+      : null;
+  }
 
   const legacyCssTokens =
     typeof parsed.customCSS === "string"
@@ -178,6 +203,9 @@ export function reconcileBuilderProxyData(
   }
   const tokens = [...tokensByCssVar.values()];
   const colorTokens = tokens.filter((token) => token.type === "color");
+  const builderColorTokens = extracted.tokens.filter(
+    (token) => token.type === "color",
+  );
   const nextColors = { ...(parsed.colors ?? {}) };
   const colorRoles: Record<string, string[]> = {
     primary: ["primary", "color-primary", "brand-primary"],
@@ -189,51 +217,69 @@ export function reconcileBuilderProxyData(
     textMuted: ["text-muted", "muted-foreground", "text-secondary", "muted"],
   };
   for (const [role, names] of Object.entries(colorRoles)) {
-    const value = findTokenValue(
-      colorTokens,
-      names,
-      role === "primary" ? /(?:^|-)text(?:-|$)/i : undefined,
-    );
+    const excludedNamePattern =
+      role === "primary" ? /(?:^|-)text(?:-|$)/i : undefined;
+    const value =
+      findTokenValue(builderColorTokens, names, excludedNamePattern) ??
+      findTokenValue(colorTokens, names, excludedNamePattern);
     if (value) nextColors[role] = value;
   }
 
   const nextTypography = { ...(parsed.typography ?? {}) };
-  const headingFont = findTypedTokenValue(tokens, [
+  const builderTypographyTokens = extracted.tokens.filter(
+    (token) => token.type === "typography",
+  );
+  const headingPatterns = [
     /(?:^|-)heading(?:-|$)/i,
     /(?:^|-)display(?:-|$)/i,
     /(?:^|-)title(?:-|$)/i,
-  ]);
-  const bodyFont = findTypedTokenValue(
-    tokens,
-    [
-      /(?:^|-)body(?:-|$)/i,
-      /(?:^|-)base(?:-|$)/i,
-      /(?:^|-)text(?:-|$)/i,
-      /(?:^|-)font-family(?:-|$)/i,
-    ],
-    /(?:^|-)heading(?:-|$)|(?:^|-)display(?:-|$)|(?:^|-)title(?:-|$)/i,
-  );
+  ];
+  const bodyPatterns = [
+    /(?:^|-)body(?:-|$)/i,
+    /(?:^|-)base(?:-|$)/i,
+    /(?:^|-)text(?:-|$)/i,
+    /(?:^|-)font-family(?:-|$)/i,
+  ];
+  const headingFont =
+    findTypedTokenValue(builderTypographyTokens, headingPatterns) ??
+    findTypedTokenValue(tokens, headingPatterns);
+  const bodyFont =
+    findTypedTokenValue(
+      builderTypographyTokens,
+      bodyPatterns,
+      /(?:^|-)heading(?:-|$)|(?:^|-)display(?:-|$)|(?:^|-)title(?:-|$)/i,
+    ) ??
+    findTypedTokenValue(
+      tokens,
+      bodyPatterns,
+      /(?:^|-)heading(?:-|$)|(?:^|-)display(?:-|$)|(?:^|-)title(?:-|$)/i,
+    );
   if (headingFont) nextTypography.headingFont = headingFont;
   if (bodyFont) nextTypography.bodyFont = bodyFont;
 
   const nextSpacing = { ...(parsed.spacing ?? {}) };
-  const gap = tokens.find(
-    (token) =>
-      /gap|gutter|spacing/i.test(token.cssVar) && token.type === "spacing",
-  )?.value;
-  const pagePadding = tokens.find(
-    (token) =>
-      /padding|page-space|outer-space/i.test(token.cssVar) &&
-      token.type === "spacing",
-  )?.value;
+  const builderSpacingTokens = extracted.tokens.filter(
+    (token) => token.type === "spacing",
+  );
+  const spacingGapPattern = /gap|gutter|spacing/i;
+  const spacingPaddingPattern = /padding|page-space|outer-space/i;
+  const gap =
+    findTokenByPattern(builderSpacingTokens, "spacing", spacingGapPattern) ??
+    findTokenByPattern(tokens, "spacing", spacingGapPattern);
+  const pagePadding =
+    findTokenByPattern(
+      builderSpacingTokens,
+      "spacing",
+      spacingPaddingPattern,
+    ) ?? findTokenByPattern(tokens, "spacing", spacingPaddingPattern);
   if (gap) nextSpacing.elementGap = gap;
   if (pagePadding) nextSpacing.pagePadding = pagePadding;
 
   const nextBorders = { ...(parsed.borders ?? {}) };
-  const radius = tokens.find(
-    (token) =>
-      /radius|rounded|corner/i.test(token.cssVar) && token.type === "radius",
-  )?.value;
+  const radiusPattern = /radius|rounded|corner/i;
+  const radius =
+    findTokenByPattern(extracted.tokens, "radius", radiusPattern) ??
+    findTokenByPattern(tokens, "radius", radiusPattern);
   if (radius) nextBorders.radius = radius;
 
   const nextDefaults = { ...(parsed.defaults ?? {}) };
@@ -244,8 +290,8 @@ export function reconcileBuilderProxyData(
   return {
     data: JSON.stringify({
       ...parsed,
-      builderStatus: "ready",
-      builderSyncedAt: syncedAt,
+      builderStatus: completionConfirmed ? "ready" : "in-progress",
+      ...(completionConfirmed ? { builderSyncedAt: syncedAt } : {}),
       colors: nextColors,
       typography: nextTypography,
       spacing: nextSpacing,
@@ -255,6 +301,7 @@ export function reconcileBuilderProxyData(
     }),
     tokenCount: extracted.tokens.length,
     rejectedTokenCount: extracted.rejected.length,
+    completionConfirmed,
   };
 }
 

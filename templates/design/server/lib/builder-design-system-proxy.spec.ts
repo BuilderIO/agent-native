@@ -8,6 +8,7 @@ describe("reconcileBuilderProxyData", () => {
     builderDesignSystemId: "ds-1",
     builderJobId: "job-1",
     builderStatus: "in-progress",
+    completionConfirmed: true,
     docs: [],
     tokenValues: {
       "--brand-primary": "#123456",
@@ -88,6 +89,27 @@ describe("reconcileBuilderProxyData", () => {
     ).toBeNull();
   });
 
+  it("keeps valid tokens in progress until Builder confirms completion", () => {
+    const result = reconcileBuilderProxyData(
+      JSON.stringify({ source: "builder", builderStatus: "in-progress" }),
+      {
+        ...reference,
+        completionConfirmed: false,
+        tokenValues: { "--brand-primary": "#123456" },
+      },
+      "2026-08-21T00:00:00.000Z",
+    );
+
+    expect(result).toMatchObject({
+      completionConfirmed: false,
+      tokenCount: 1,
+      rejectedTokenCount: 0,
+    });
+    const data = JSON.parse(result!.data) as Record<string, any>;
+    expect(data.builderStatus).toBe("in-progress");
+    expect(data.builderSyncedAt).toBeUndefined();
+  });
+
   it("chooses semantic color shades and explicit font-family tokens", () => {
     const result = reconcileBuilderProxyData(
       JSON.stringify({ source: "builder", builderStatus: "in-progress" }),
@@ -114,6 +136,51 @@ describe("reconcileBuilderProxyData", () => {
     expect(data.typography).toMatchObject({
       headingFont: "Inter",
       bodyFont: "Arial",
+    });
+  });
+
+  it("gives Builder semantic aliases precedence over local aliases", () => {
+    const result = reconcileBuilderProxyData(
+      JSON.stringify({
+        source: "builder",
+        builderStatus: "in-progress",
+        tokens: [
+          {
+            name: "Local primary",
+            cssVar: "--primary",
+            value: "#111111",
+            source: "Local",
+          },
+        ],
+      }),
+      {
+        ...reference,
+        tokenValues: {
+          "--brand-primary": "#222222",
+          "--primary": "#333333",
+        },
+      },
+      "2026-08-21T00:00:00.000Z",
+    );
+
+    const data = JSON.parse(result!.data) as Record<string, any>;
+    expect(data.colors.primary).toBe("#333333");
+  });
+
+  it("surfaces rejected Builder tokens instead of returning a ready proxy", () => {
+    const result = reconcileBuilderProxyData(
+      JSON.stringify({ source: "builder", builderStatus: "in-progress" }),
+      {
+        ...reference,
+        tokenValues: { "--bad token": "#123456" },
+      },
+      "2026-08-21T00:00:00.000Z",
+    );
+
+    expect(result).toMatchObject({
+      completionConfirmed: false,
+      tokenCount: 0,
+      rejectedTokenCount: 1,
     });
   });
 

@@ -591,6 +591,7 @@ export {
   type BuilderDesignSystemIndexFromSourcesOptions,
   type BuilderDesignSystemIndexOptions,
   type BuilderDesignSystemIndexResult,
+  type BuilderDesignSystemStatus,
   type BuilderDesignSystemGitHubFile,
   type BuilderDesignSystemGitHubFileCollection,
   type BuilderDesignSystemGitHubSource,
