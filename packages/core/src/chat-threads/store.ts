@@ -10,6 +10,7 @@ import { createGetDb } from "../db/create-get-db.js";
 import {
   ensureColumnExists,
   ensureIndexExists,
+  ensureIndexExistsConcurrently,
   ensureTableExists,
 } from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
@@ -155,13 +156,19 @@ async function ensureTable(): Promise<void> {
         // compares `LOWER(owner_email)`. A plain btree on the raw column cannot
         // serve that predicate — without the expression index the list falls
         // back to scanning every row in the (shared, multi-tenant) table.
-        await ensureIndexExists(
+        //
+        // Built CONCURRENTLY: these land on tables that already hold every
+        // tenant's threads, and a plain `CREATE INDEX` holds a SHARE lock for
+        // the whole build, queueing chat writes behind it. That is why they are
+        // not in the migration list — `runMigrations` wraps statements in a
+        // transaction, and Postgres forbids CONCURRENTLY inside one.
+        await ensureIndexExistsConcurrently(
           "chat_threads_owner_lower_updated_idx",
-          `CREATE INDEX IF NOT EXISTS chat_threads_owner_lower_updated_idx ON chat_threads (LOWER(owner_email), updated_at)`,
+          `CREATE INDEX CONCURRENTLY IF NOT EXISTS chat_threads_owner_lower_updated_idx ON chat_threads (LOWER(owner_email), updated_at)`,
         );
-        await ensureIndexExists(
+        await ensureIndexExistsConcurrently(
           "chat_thread_shares_principal_lower_idx",
-          `CREATE INDEX IF NOT EXISTS chat_thread_shares_principal_lower_idx ON chat_thread_shares (resource_id, principal_type, LOWER(principal_id))`,
+          `CREATE INDEX CONCURRENTLY IF NOT EXISTS chat_thread_shares_principal_lower_idx ON chat_thread_shares (resource_id, principal_type, LOWER(principal_id))`,
         );
         await ensureIndexExists(
           "chat_threads_scope_updated_idx",

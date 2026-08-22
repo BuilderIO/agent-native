@@ -11,6 +11,7 @@ import { getDbExec, intType, isPostgres } from "../db/client.js";
 import {
   ensureColumnExists,
   ensureIndexExists,
+  ensureIndexExistsConcurrently,
   ensureTableExists,
 } from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
@@ -294,9 +295,12 @@ export async function ensureUsageTable(): Promise<void> {
         // serve a function-wrapped predicate: without this expression index the
         // usage panel scans the whole table, which is the highest-row-count one
         // in the system (a row per LLM call, every app and org).
-        await ensureIndexExists(
+        // Built CONCURRENTLY: `token_usage` is the highest-row-count table in
+        // the system, so a SHARE-locking build would queue every usage write
+        // for its duration.
+        await ensureIndexExistsConcurrently(
           "idx_token_usage_lower_owner_created",
-          `CREATE INDEX IF NOT EXISTS idx_token_usage_lower_owner_created ON token_usage (LOWER(owner_email), created_at)`,
+          `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_token_usage_lower_owner_created ON token_usage (LOWER(owner_email), created_at)`,
         );
         return;
       }

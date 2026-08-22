@@ -63,21 +63,22 @@ export const CHAT_THREAD_SCHEMA_MIGRATIONS: MigrationEntry[] = [
   },
   {
     version: 3,
-    name: "chat-threads-source-backfill-and-lower-email-indexes",
-    // The backfill retires a `thread_data NOT LIKE '%…%'` filter the local-only
-    // list used to carry for integration rows written before `source_platform`
-    // existed. That predicate forced Postgres to detoast the full message-history
-    // blob for every scanned row, so the sidebar list cost seconds regardless of
-    // LIMIT. Paying the scan once here keeps the read path off the blob forever.
+    name: "chat-threads-source-backfill",
+    // Retires a `thread_data NOT LIKE '%…%'` filter the local-only list used to
+    // carry for integration rows written before `source_platform` existed. That
+    // predicate forced Postgres to detoast the full message-history blob for
+    // every scanned row, so the sidebar list cost seconds regardless of LIMIT.
+    // Paying the scan once here keeps the read path off the blob forever.
+    //
+    // The matching `LOWER(...)` expression indexes deliberately do NOT live
+    // here: they are built CONCURRENTLY in the store's ensure path, and
+    // Postgres forbids that inside the transaction `runMigrations` wraps
+    // around these statements.
     sql: `
       UPDATE chat_threads
         SET source_platform = 'integration'
         WHERE source_platform IS NULL
-          AND thread_data LIKE '%"integrationDeliveryAttempted":true%';
-      CREATE INDEX IF NOT EXISTS chat_threads_owner_lower_updated_idx
-        ON chat_threads (LOWER(owner_email), updated_at);
-      CREATE INDEX IF NOT EXISTS chat_thread_shares_principal_lower_idx
-        ON chat_thread_shares (resource_id, principal_type, LOWER(principal_id))
+          AND thread_data LIKE '%"integrationDeliveryAttempted":true%'
     `,
   },
 ];
