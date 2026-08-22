@@ -114,6 +114,27 @@ describe("mergeFactoryConfigRows", () => {
     expect(merged.last_slack_ts).toBe("100.1");
     expect(merged.slack_history_cursor).toBe("cursor-a");
   });
+
+  it("keeps the Slack workspace with the adopted channel", () => {
+    const merged = mergeFactoryConfigRows(
+      row({
+        id: "keep",
+        slack_workspace: "primary",
+        slack_channel_id: null,
+      }),
+      row({
+        id: "other",
+        slack_workspace: "secondary",
+        slack_channel_id: "C-SEC",
+        last_slack_ts: "9.0",
+        slack_history_cursor: "cursor-sec",
+      }),
+    );
+    expect(merged.slack_workspace).toBe("secondary");
+    expect(merged.slack_channel_id).toBe("C-SEC");
+    expect(merged.last_slack_ts).toBe("9.0");
+    expect(merged.slack_history_cursor).toBe("cursor-sec");
+  });
 });
 
 describe("planSlackChannelConflictClears", () => {

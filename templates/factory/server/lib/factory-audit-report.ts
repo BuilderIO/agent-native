@@ -308,7 +308,7 @@ function eventItemIds(event: FactoryAuditEventRecord): string[] {
   const raw = event.details.itemIds;
   if (!Array.isArray(raw)) return [];
   return raw.filter(
-    (value): value is string => typeof value === "string" && value,
+    (value): value is string => typeof value === "string" && value.length > 0,
   );
 }
 

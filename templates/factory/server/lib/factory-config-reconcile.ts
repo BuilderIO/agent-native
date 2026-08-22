@@ -137,7 +137,7 @@ export function mergeFactoryConfigRows(
   const slackIdentity = mergeSlackIdentity(keep, other);
   return {
     ...keep,
-    slack_workspace: pickText(keep.slack_workspace, other.slack_workspace),
+    slack_workspace: slackIdentity.slack_workspace,
     slack_channel_id: slackIdentity.slack_channel_id,
     slack_channel_name: slackIdentity.slack_channel_name,
     builder_slack_user_id: pickText(
@@ -244,6 +244,7 @@ function mergeSlackIdentity(
   other: FactoryConfigSqlRow,
 ): Pick<
   FactoryConfigSqlRow,
+  | "slack_workspace"
   | "slack_channel_id"
   | "slack_channel_name"
   | "last_slack_ts"
@@ -253,6 +254,7 @@ function mergeSlackIdentity(
   const otherChannel = asText(other.slack_channel_id);
   if (!otherChannel || keepChannel === otherChannel) {
     return {
+      slack_workspace: pickText(keep.slack_workspace, other.slack_workspace),
       slack_channel_id: keepChannel ?? otherChannel,
       slack_channel_name: pickText(
         keep.slack_channel_name,
@@ -267,6 +269,7 @@ function mergeSlackIdentity(
   }
   if (!keepChannel) {
     return {
+      slack_workspace: other.slack_workspace,
       slack_channel_id: other.slack_channel_id,
       slack_channel_name: other.slack_channel_name,
       last_slack_ts: other.last_slack_ts,
@@ -274,6 +277,7 @@ function mergeSlackIdentity(
     };
   }
   return {
+    slack_workspace: keep.slack_workspace,
     slack_channel_id: keep.slack_channel_id,
     slack_channel_name: keep.slack_channel_name,
     last_slack_ts: keep.last_slack_ts,
