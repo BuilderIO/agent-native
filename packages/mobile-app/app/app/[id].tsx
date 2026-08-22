@@ -12,7 +12,12 @@ import { useWorkspaceApps } from "@/lib/workspace-apps";
 export default function AppScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const { apps, loading: appsLoading } = useApps();
+  const {
+    apps,
+    error: appsError,
+    loading: appsLoading,
+    reload: reloadApps,
+  } = useApps();
   const workspace = useWorkspaceApps();
   const webviewRef = useRef<AppWebViewHandle>(null);
   const { background, foreground } = useMobileThemeColors();
@@ -32,6 +37,40 @@ export default function AppScreen() {
         style={{ backgroundColor: background }}
       >
         <ActivityIndicator color={foreground} />
+      </View>
+    );
+  }
+
+  if (appsError) {
+    return (
+      <View
+        className="flex-1 justify-center items-center p-6"
+        style={{ backgroundColor: background }}
+      >
+        <Text
+          className="text-lg font-semibold mt-4 mb-1.5"
+          style={{ color: foreground }}
+        >
+          Unable to load apps
+        </Text>
+        <TouchableOpacity
+          accessibilityRole="button"
+          accessibilityLabel="Retry loading apps"
+          onPress={() => void reloadApps()}
+          className="mt-4 rounded-lg bg-primary px-4 py-2 active:opacity-75"
+        >
+          <Text className="font-medium text-white">Retry</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          accessibilityRole="button"
+          accessibilityLabel="Back to apps"
+          onPress={() => router.replace("/" as never)}
+          className="mt-3 rounded-lg px-4 py-2 active:opacity-75"
+        >
+          <Text className="font-medium" style={{ color: foreground }}>
+            Back to apps
+          </Text>
+        </TouchableOpacity>
       </View>
     );
   }

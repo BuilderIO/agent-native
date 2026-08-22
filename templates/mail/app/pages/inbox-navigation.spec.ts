@@ -94,6 +94,10 @@ describe("Inbox pagination", () => {
     expect(source).toContain('useEmails("all", normalizedDisplayEmail');
     expect(source).toContain("fetchNextPage");
     expect(source).toContain("contactPageFetchesRef");
+    expect(source).toContain("contactGenerationRef");
+    expect(source).toContain(
+      "contactGenerationRef.current === contactGeneration",
+    );
     expect(source).toContain("recentFromContact.length >= 4");
   });
 });

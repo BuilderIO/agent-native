@@ -68,9 +68,11 @@ function ContactPanel({
     enabled: Boolean(normalizedDisplayEmail),
   });
   const contactPageFetchesRef = useRef(0);
+  const contactGenerationRef = useRef(0);
 
   useEffect(() => {
     contactPageFetchesRef.current = 0;
+    contactGenerationRef.current += 1;
   }, [normalizedDisplayEmail]);
 
   const recentFromContact = displayEmail
@@ -104,9 +106,12 @@ function ContactPanel({
     ) {
       return;
     }
+    const contactGeneration = contactGenerationRef.current;
     contactPageFetchesRef.current += 1;
     void fetchNextPage().catch(() => {
-      contactPageFetchesRef.current = maxContactPages;
+      if (contactGenerationRef.current === contactGeneration) {
+        contactPageFetchesRef.current = maxContactPages;
+      }
     });
   }, [
     fetchNextPage,
