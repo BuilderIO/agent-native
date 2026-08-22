@@ -108,14 +108,24 @@ const ssoFlagInFlight = new Map<string, Promise<boolean>>();
  * whether the credential is still live.
  */
 const EMBED_SESSION_REUSE_MS = 55 * 60 * 1000;
-const LIVE_EMBED_SESSIONS_KEY = "agent-native:live-workspace-app-sessions-v1";
-const liveEmbedSessions = new Map<string, { establishedAt: number }>();
+const LIVE_EMBED_SESSIONS_KEY = "agent-native:live-workspace-app-sessions-v2";
+/**
+ * Keyed by app, NOT by app+owner. The React Native cookie jar is shared per
+ * origin, so only one account can hold a live session for an app at a time —
+ * signing in as B overwrites A's child cookie in place. A per-owner map let
+ * A → B → A reuse A's stale marker against B's cookie and show one account the
+ * other's data, so the map has to mirror what the jar can actually hold.
+ */
+const liveEmbedSessions = new Map<
+  string,
+  { establishedAt: number; owner: string }
+>();
 let hydration: Promise<void> | null = null;
 
 function persistLiveEmbedSessions(): void {
-  const entries: Record<string, number> = {};
+  const entries: Record<string, { establishedAt: number; owner: string }> = {};
   for (const [key, value] of liveEmbedSessions) {
-    entries[key] = value.establishedAt;
+    entries[key] = value;
   }
   void AsyncStorage.setItem(
     LIVE_EMBED_SESSIONS_KEY,
@@ -140,10 +150,14 @@ export function ensureLiveWorkspaceAppSessionsHydrated(): Promise<void> {
       const parsed: unknown = JSON.parse(raw);
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
         return;
-      for (const [key, establishedAt] of Object.entries(parsed)) {
-        if (typeof establishedAt !== "number") continue;
+      for (const [key, value] of Object.entries(parsed)) {
+        if (!value || typeof value !== "object") continue;
+        const { establishedAt, owner } = value as Record<string, unknown>;
+        if (typeof establishedAt !== "number" || typeof owner !== "string") {
+          continue;
+        }
         if (liveEmbedSessions.has(key)) continue;
-        liveEmbedSessions.set(key, { establishedAt });
+        liveEmbedSessions.set(key, { establishedAt, owner });
       }
     })
     .catch(() => {
@@ -158,6 +172,10 @@ export function ensureLiveWorkspaceAppSessionsHydrated(): Promise<void> {
  * parent session so an account switch cannot inherit the previous user's
  * rollout decision or reuse their session, and none of them may hold a bearer.
  */
+export function mobileSessionFingerprint(parentSessionToken: string): string {
+  return sessionFingerprint(parentSessionToken);
+}
+
 function sessionFingerprint(parentSessionToken: string): string {
   let hash = 0;
   for (let index = 0; index < parentSessionToken.length; index += 1) {
@@ -166,18 +184,17 @@ function sessionFingerprint(parentSessionToken: string): string {
   return String(hash);
 }
 
-function embedSessionKey(app: string, parentSessionToken: string): string {
-  return `${app}:${sessionFingerprint(parentSessionToken)}`;
-}
-
 /** Record that `app` now holds a live embed session in the shared cookie store. */
 export function rememberLiveWorkspaceAppSession(
   app: string,
   parentSessionToken: string,
   establishedAt = Date.now(),
 ): void {
-  liveEmbedSessions.set(embedSessionKey(app, parentSessionToken), {
+  // Overwrites whatever another account had recorded for this app, exactly as
+  // establishing the session overwrote their cookie in the shared jar.
+  liveEmbedSessions.set(app, {
     establishedAt,
+    owner: sessionFingerprint(parentSessionToken),
   });
   persistLiveEmbedSessions();
 }
@@ -187,7 +204,9 @@ export function forgetLiveWorkspaceAppSession(
   app: string,
   parentSessionToken: string,
 ): void {
-  liveEmbedSessions.delete(embedSessionKey(app, parentSessionToken));
+  const entry = liveEmbedSessions.get(app);
+  if (!entry || entry.owner !== sessionFingerprint(parentSessionToken)) return;
+  liveEmbedSessions.delete(app);
   persistLiveEmbedSessions();
 }
 
@@ -200,11 +219,13 @@ export function hasLiveWorkspaceAppSession(
   parentSessionToken: string,
   now = Date.now(),
 ): boolean {
-  const key = embedSessionKey(app, parentSessionToken);
-  const entry = liveEmbedSessions.get(key);
+  const entry = liveEmbedSessions.get(app);
   if (!entry) return false;
+  // A marker another account established says nothing about this one — the
+  // cookie in the jar belongs to them, not to the caller.
+  if (entry.owner !== sessionFingerprint(parentSessionToken)) return false;
   if (now - entry.establishedAt >= EMBED_SESSION_REUSE_MS) {
-    liveEmbedSessions.delete(key);
+    liveEmbedSessions.delete(app);
     return false;
   }
   return true;

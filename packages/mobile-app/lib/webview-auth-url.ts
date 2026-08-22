@@ -71,11 +71,17 @@ export function buildMobileWebViewAuthUrl(
  */
 export function resolveStickyWebViewUrl(options: {
   requestedUrl: string;
-  loadedUrl: string | null;
+  loaded: { owner: string | null; url: string } | null;
+  /** Fingerprint of the parent session this render belongs to. */
+  owner: string | null;
   workspaceHandshakeInFlight: boolean;
 }): string {
-  if (options.loadedUrl && options.workspaceHandshakeInFlight) {
-    return options.loadedUrl;
+  // A document loaded for a different account is not ours to keep. Without
+  // this, signing in as someone else re-mounted the previous account's URL
+  // while their own handshake was still pending.
+  const mine = options.loaded && options.loaded.owner === options.owner;
+  if (mine && options.workspaceHandshakeInFlight) {
+    return options.loaded!.url;
   }
   return options.requestedUrl;
 }

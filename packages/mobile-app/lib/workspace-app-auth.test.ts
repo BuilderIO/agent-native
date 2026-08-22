@@ -325,4 +325,35 @@ describe("live workspace app session reuse cache", () => {
   // true/false for a token the caller already holds. The "different token"
   // case above is the honest form of this assertion: a near-miss token gets
   // no reuse, so there is nothing recoverable to read back.
+
+  it("does not let one account reuse a marker after another signed in", async () => {
+    // The React Native cookie jar is shared per origin, so B signing in
+    // overwrote A's child cookie in place. If A's marker survived, A would be
+    // reusing B's cookie and reading B's data.
+    rememberLiveWorkspaceAppSession("mail", "token-a", 1_000);
+    expect(hasLiveWorkspaceAppSession("mail", "token-a", 2_000)).toBe(true);
+
+    rememberLiveWorkspaceAppSession("mail", "token-b", 3_000);
+
+    expect(hasLiveWorkspaceAppSession("mail", "token-b", 4_000)).toBe(true);
+    expect(hasLiveWorkspaceAppSession("mail", "token-a", 4_000)).toBe(false);
+  });
+
+  it("keeps a second app's marker independent of the first", async () => {
+    rememberLiveWorkspaceAppSession("mail", "token-a", 1_000);
+    rememberLiveWorkspaceAppSession("calendar", "token-b", 1_000);
+
+    expect(hasLiveWorkspaceAppSession("mail", "token-a", 2_000)).toBe(true);
+    expect(hasLiveWorkspaceAppSession("calendar", "token-b", 2_000)).toBe(true);
+  });
+
+  it("only the owning account can forget a marker", async () => {
+    rememberLiveWorkspaceAppSession("mail", "token-a", 1_000);
+
+    forgetLiveWorkspaceAppSession("mail", "token-b");
+    expect(hasLiveWorkspaceAppSession("mail", "token-a", 2_000)).toBe(true);
+
+    forgetLiveWorkspaceAppSession("mail", "token-a");
+    expect(hasLiveWorkspaceAppSession("mail", "token-a", 2_000)).toBe(false);
+  });
 });

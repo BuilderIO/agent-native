@@ -83,11 +83,15 @@ describe("buildMobileWebViewAuthUrl", () => {
 });
 
 describe("resolveStickyWebViewUrl", () => {
+  const EMBED_START =
+    "https://calendar.example/_agent-native/embed/start?ticket=new";
+
   it("returns requestedUrl when no URL is loaded yet", () => {
     expect(
       resolveStickyWebViewUrl({
         requestedUrl: "https://calendar.example/events",
-        loadedUrl: null,
+        loaded: null,
+        owner: "owner-a",
         workspaceHandshakeInFlight: true,
       }),
     ).toBe("https://calendar.example/events");
@@ -98,9 +102,9 @@ describe("resolveStickyWebViewUrl", () => {
     // just because the workspace handshake happens to be re-running.
     expect(
       resolveStickyWebViewUrl({
-        requestedUrl:
-          "https://calendar.example/_agent-native/embed/start?ticket=new",
-        loadedUrl: "https://calendar.example/events",
+        requestedUrl: EMBED_START,
+        loaded: { owner: "owner-a", url: "https://calendar.example/events" },
+        owner: "owner-a",
         workspaceHandshakeInFlight: true,
       }),
     ).toBe("https://calendar.example/events");
@@ -109,11 +113,35 @@ describe("resolveStickyWebViewUrl", () => {
   it("returns requestedUrl once the handshake settles, even with a URL loaded", () => {
     expect(
       resolveStickyWebViewUrl({
-        requestedUrl:
-          "https://calendar.example/_agent-native/embed/start?ticket=new",
-        loadedUrl: "https://calendar.example/events",
+        requestedUrl: EMBED_START,
+        loaded: { owner: "owner-a", url: "https://calendar.example/events" },
+        owner: "owner-a",
         workspaceHandshakeInFlight: false,
       }),
-    ).toBe("https://calendar.example/_agent-native/embed/start?ticket=new");
+    ).toBe(EMBED_START);
+  });
+
+  it("never serves a document loaded for a different account", () => {
+    // A newly signed-in account must not mount the previous account's page
+    // while its own handshake is still pending.
+    expect(
+      resolveStickyWebViewUrl({
+        requestedUrl: EMBED_START,
+        loaded: { owner: "owner-a", url: "https://calendar.example/events" },
+        owner: "owner-b",
+        workspaceHandshakeInFlight: true,
+      }),
+    ).toBe(EMBED_START);
+  });
+
+  it("does not treat a signed-out render as owning a signed-in document", () => {
+    expect(
+      resolveStickyWebViewUrl({
+        requestedUrl: EMBED_START,
+        loaded: { owner: "owner-a", url: "https://calendar.example/events" },
+        owner: null,
+        workspaceHandshakeInFlight: true,
+      }),
+    ).toBe(EMBED_START);
   });
 });

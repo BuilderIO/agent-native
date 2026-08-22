@@ -58,6 +58,7 @@ import {
 import {
   createWorkspaceAppEmbedSession,
   ensureLiveWorkspaceAppSessionsHydrated,
+  mobileSessionFingerprint,
   forgetLiveWorkspaceAppSession,
   hasLiveWorkspaceAppSession,
   peekWorkspaceSsoEnabled,
@@ -250,7 +251,15 @@ function embedTargetPath(rawUrl: string): string {
   }
 }
 
-const SIGN_IN_ENTRY_PATHS = ["/sign-in", "/_agent-native/sign-in"] as const;
+// Mirrors the framework's auth-entry grammar (see core's sign-in-journey):
+// an app can land on any of these when its session is gone.
+const SIGN_IN_ENTRY_PATHS = [
+  "/sign-in",
+  "/_agent-native/sign-in",
+  "/login",
+  "/_agent-native/login",
+  "/signup",
+] as const;
 
 function urlPathOnly(rawUrl: string): string {
   const queryOrFragmentIndex = rawUrl.search(/[?#]/);
@@ -311,8 +320,14 @@ function AppWebView(
   const oauthInFlightRef = useRef(false);
   const sessionUrlLoadedRef = useRef(false);
   const isFocusedRef = useRef(false);
-  /** The URL the mounted WebView is actually showing; see webviewUrl below. */
-  const loadedWebviewUrlRef = useRef<string | null>(null);
+  /**
+   * The URL the mounted WebView is showing, and which account it belongs to.
+   * The owner matters: a document loaded for a previous account must never be
+   * re-served to the next one. See webviewUrl below.
+   */
+  const loadedWebviewRef = useRef<{ owner: string | null; url: string } | null>(
+    null,
+  );
   const trustedOrigin = useMemo(() => parseTrustedOrigin(url), [url]);
   const { enabled: nativeAuthEnabled, ready: nativeAuthReady } =
     useNativeAppAuthState();
@@ -888,9 +903,13 @@ function AppWebView(
     Boolean(workspaceAppId) &&
     effectiveCaptureSessionToken &&
     (workspaceEmbedState === "idle" || workspaceEmbedState === "loading");
+  const webviewOwner = parentSessionToken
+    ? mobileSessionFingerprint(parentSessionToken)
+    : null;
   const webviewUrl = resolveStickyWebViewUrl({
     requestedUrl: requestedWebviewUrl,
-    loadedUrl: loadedWebviewUrlRef.current,
+    loaded: loadedWebviewRef.current,
+    owner: webviewOwner,
     workspaceHandshakeInFlight,
   });
 
@@ -948,7 +967,10 @@ function AppWebView(
   // Only blank the screen when there is genuinely nothing to show yet.
   // Returning a loading view here once a WebView exists destroys it and every
   // bit of app state the user had in it.
-  if (workspaceSessionPending && !loadedWebviewUrlRef.current) {
+  if (
+    workspaceSessionPending &&
+    loadedWebviewRef.current?.owner !== webviewOwner
+  ) {
     return <MobileWebViewLoading label="Opening your workspace app…" />;
   }
 
@@ -1002,7 +1024,7 @@ function AppWebView(
   // "a WebView is showing this", and setting it before one is actually
   // rendered would let a mid-handshake fallback URL satisfy the pending gate
   // and then get navigated away from.
-  loadedWebviewUrlRef.current = webviewUrl;
+  loadedWebviewRef.current = { owner: webviewOwner, url: webviewUrl };
 
   return (
     <View className="flex-1 bg-background-pure">
