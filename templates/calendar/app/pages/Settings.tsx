@@ -1,4 +1,3 @@
-import { agentNativePath } from "@agent-native/core/client/api-path";
 import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
 import { callAction } from "@agent-native/core/client/hooks";
 import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
