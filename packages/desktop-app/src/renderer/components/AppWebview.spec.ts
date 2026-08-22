@@ -236,7 +236,7 @@ describe("Desktop identity activation", () => {
       const firstUrl = webview?.getAttribute("src");
       expect(
         Number(new URL(firstUrl!).searchParams.get("agentNativeBetaOptOut")),
-      ).toBe(87_400_000);
+      ).toBe(29_800_000);
 
       now.mockReturnValue(2_000_000);
       act(() => {
