@@ -119,8 +119,6 @@ export function RecordingPill() {
   const [paused, setPaused] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [enabled, setEnabled] = useState(demoMode);
-  const [preparing, setPreparing] = useState(false);
-  const [popoverVisible, setPopoverVisible] = useState(true);
   const [blinkDim, setBlinkDim] = useState(false);
   const [micLevel, setMicLevel] = useState(0);
   const [announcement, setAnnouncement] = useState("");
@@ -212,15 +210,18 @@ export function RecordingPill() {
     el.style.opacity = open ? "1" : "0";
   }
 
-  async function windowRects() {
-    const win = getCurrentWindow();
-    const [pos, size, scale, monitor] = await Promise.all([
-      win.outerPosition(),
-      win.outerSize(),
-      win.scaleFactor(),
-      currentMonitor(),
-    ]);
-    return { win, pos, size, scale, monitor };
+  // Native window ops run strictly one at a time. Concurrent
+  // setSize/setPosition sequences read stale rects out from under each other
+  // and strand the window clipped and offset (a half-cut pill with content
+  // painting past the window edge). Every op re-reads geometry at execution
+  // time inside the chain.
+  const windowOpChainRef = useRef<Promise<void>>(Promise.resolve());
+  function queueWindowOp(op: () => Promise<void>) {
+    windowOpChainRef.current = windowOpChainRef.current
+      .then(op)
+      .catch((err) => {
+        console.warn("[record-pill] window op failed", err);
+      });
   }
 
   /**
@@ -230,10 +231,16 @@ export function RecordingPill() {
    * holds and growth extends left. Height keeps the bottom edge fixed so the
    * taller completion card rises from where the pill sat.
    */
-  async function resizeWindowTo(contentW: number, contentH: number) {
+  function resizeWindowTo(contentW: number, contentH: number) {
     if (!hasTauri) return;
-    try {
-      const { win, pos, size, scale, monitor } = await windowRects();
+    queueWindowOp(async () => {
+      const win = getCurrentWindow();
+      const [pos, size, scale, monitor] = await Promise.all([
+        win.outerPosition(),
+        win.outerSize(),
+        win.scaleFactor(),
+        currentMonitor(),
+      ]);
       const gutter = Math.round(OVERLAY_SHADOW_GUTTER * scale);
       const w = Math.ceil(contentW * scale) + gutter * 2;
       const h = Math.ceil(contentH * scale) + gutter * 2;
@@ -246,58 +253,88 @@ export function RecordingPill() {
         if (nearRightEdge) x = pos.x + size.width - w;
       }
       const y = pos.y + size.height - h;
-      // Grow before move when expanding, move before shrink when collapsing —
-      // either order that pairs setSize/setPosition atomically enough that the
-      // anchored edge never visually jumps.
       await win.setSize(new PhysicalSize(w, h));
       await win.setPosition(new PhysicalPosition(x, y));
-    } catch (err) {
-      console.warn("[record-pill] window resize failed", err);
-    }
+    });
   }
 
-  function syncWindowToContent(extraContentW = 0) {
+  function syncWindowToContent() {
     const el = mode === "done" ? cardRef.current : pillRef.current;
     const rect = (el ?? pillRef.current)?.getBoundingClientRect();
     if (!rect) return;
-    void resizeWindowTo(
-      Math.ceil(rect.width) + extraContentW,
-      Math.ceil(rect.height),
-    );
+    resizeWindowTo(Math.ceil(rect.width), Math.ceil(rect.height));
   }
 
+  // Which segments are (or are animating toward) open. Live rects mid-flight
+  // under-measure a transition target, so the window budget is computed from
+  // this intent instead of from the DOM.
+  const openSegsRef = useRef<Record<Seg, boolean>>({
+    stop: true,
+    q: false,
+    del: false,
+    res: false,
+    extras: false,
+  });
+
   /**
-   * Run one choreographed set of segment transitions: grow the window first
-   * when the pill is about to get wider (so nothing clips), start every
-   * segment's width+opacity bar, then shrink the window to fit once the last
-   * bar lands.
+   * Run one choreographed set of segment transitions: pre-grow the window to
+   * the post-transition budget (plus slack) so nothing clips, start every
+   * segment's width+opacity bar, then shrink to the exact measured rect once
+   * the last bar lands.
    */
   function transitionSegs(changes: Array<[Seg, boolean, number]>) {
     const pill = pillRef.current;
     if (!pill) return;
-    const currentW = pill.getBoundingClientRect().width;
-    let target = currentW;
-    for (const [k, open] of changes) {
-      target += (open ? segInnerWidth(k) : 0) - segCurrentWidth(k);
-    }
+    for (const [k, open] of changes) openSegsRef.current[k] = open;
+    const pillW = pill.getBoundingClientRect().width;
+    const segsW = (Object.keys(openSegsRef.current) as Seg[]).reduce(
+      (sum, k) => sum + segCurrentWidth(k),
+      0,
+    );
+    const staticW = pillW - segsW;
+    const targetW = (Object.keys(openSegsRef.current) as Seg[]).reduce(
+      (sum, k) => sum + (openSegsRef.current[k] ? segInnerWidth(k) : 0),
+      staticW,
+    );
     const maxDelay = changes.reduce((m, [, , d]) => Math.max(m, d), 0);
-    const settleMs = reducedRef.current ? 0 : SEG_MS + maxDelay + 40;
+    const settleMs = reducedRef.current ? 16 : SEG_MS + maxDelay + 40;
     animatingUntilRef.current = Date.now() + settleMs;
     if (shrinkTimerRef.current) clearTimeout(shrinkTimerRef.current);
-    const start = () => {
-      for (const [k, open, delay] of changes) setSeg(k, open, delay);
-      shrinkTimerRef.current = setTimeout(() => {
-        syncWindowToContent();
-      }, settleMs);
-    };
-    if (target > currentW) {
-      void resizeWindowTo(
-        Math.ceil(target),
-        Math.ceil(pill.getBoundingClientRect().height),
-      ).then(start);
-    } else {
-      start();
+    // Budget the window for whichever is wider, plus slack for measurement
+    // rounding — the settle pass snaps to the exact rect.
+    resizeWindowTo(
+      Math.ceil(Math.max(pillW, targetW)) + 12,
+      Math.ceil(pill.getBoundingClientRect().height),
+    );
+    for (const [k, open, delay] of changes) setSeg(k, open, delay);
+    shrinkTimerRef.current = setTimeout(() => {
+      syncWindowToContent();
+    }, settleMs);
+  }
+
+  /** Snap every segment to its resting state (Stop visible, all confirm and
+   * hover segments collapsed) with no animation — used when the recorder
+   * disables the pill (restart teardown, session reset). */
+  function resetToRest() {
+    revealedRef.current = false;
+    for (const k of ["q", "del", "res", "extras"] as Seg[]) {
+      const el = segRefs.current[k];
+      if (!el) continue;
+      el.style.transition = "none";
+      el.style.width = "0px";
+      el.style.opacity = "0";
+      openSegsRef.current[k] = false;
     }
+    const stopEl = segRefs.current.stop;
+    if (stopEl) {
+      stopEl.style.transition = "none";
+      stopEl.style.width = "auto";
+      stopEl.style.opacity = "1";
+      openSegsRef.current.stop = true;
+    }
+    setMode("recording");
+    clearPauseTransition();
+    setPaused(false);
   }
 
   // ---- reveal / confirm / done choreography ----
@@ -395,7 +432,7 @@ export function RecordingPill() {
     });
     // Pre-grow the window for the card so its entrance never renders clipped;
     // the done-mode effect refits to the exact card rect one frame later.
-    void resizeWindowTo(340, 180);
+    resizeWindowTo(340, 180);
     setMode("done");
     const url = viewUrlRef.current;
     if (url) void copyLink(url);
@@ -425,9 +462,26 @@ export function RecordingPill() {
     if (!enabled || pendingAction || modeRef.current !== "recording") return;
     setPendingAction("restart");
     setElapsed(0);
-    void safeEmit("clips:recorder-restart").then(() =>
-      scheduleCloseFallback("restart"),
-    );
+    // Hide immediately — the restart teardown and fresh countdown follow, and
+    // recording controls must not sit on screen while no capture is live. The
+    // replacement session's `clips:toolbar-enabled` re-shows the pill at 0:00.
+    setEnabled(false);
+    // Hold the window through the restart teardown so the replacement
+    // session reuses it instead of paying a webview respawn; the pill hides
+    // itself while disabled and the next `clips:toolbar-enabled` re-shows it.
+    void safeInvoke("set_toolbar_finishing", { hold: true }).then(() => {
+      void safeEmit("clips:recorder-restart");
+    });
+    fallbackTimerRef.current = setTimeout(() => {
+      console.warn(
+        "[record-pill] recorder did not restart within 15s — self-closing",
+      );
+      void safeInvoke("set_toolbar_finishing", { hold: false });
+      if (hasTauri)
+        getCurrentWindow()
+          .close()
+          .catch(() => {});
+    }, 15_000);
   }
 
   function confirmDelete() {
@@ -491,31 +545,33 @@ export function RecordingPill() {
     track(
       safeListen<boolean>("clips:toolbar-enabled", (payload) => {
         setEnabled(!!payload);
-        setPreparing(false);
         setPendingAction(null);
         if (fallbackTimerRef.current) {
           clearTimeout(fallbackTimerRef.current);
           fallbackTimerRef.current = null;
         }
-        if (!payload && modeRef.current !== "done") {
-          setPaused(false);
+        if (payload) {
+          // A live session owns the pill now: release any restart hold, and
+          // if a completion card from the previous session is still up, this
+          // reused window becomes the new session's pill.
+          void safeInvoke("set_toolbar_finishing", { hold: false });
+          if (modeRef.current === "done") {
+            setViewUrl(null);
+            setCopied(false);
+            setSavedLocally(false);
+            setDoneStage("finishing");
+            sessionRef.current = {};
+            resetToRest();
+          }
+        } else if (modeRef.current !== "done") {
           setElapsed(0);
+          resetToRest();
         }
       }),
     );
     track(
       safeListen("clips:toolbar-sync", () => {
         void safeEmit("clips:toolbar-ready", {});
-      }),
-    );
-    track(
-      safeListen<boolean>("clips:toolbar-preparing", (payload) => {
-        setPreparing(!!payload);
-      }),
-    );
-    track(
-      safeListen<boolean>("clips:popover-visible", (payload) => {
-        setPopoverVisible(!!payload);
       }),
     );
     track(
@@ -704,9 +760,22 @@ export function RecordingPill() {
     return () => clearInterval(t);
   }, []);
 
-  // ---- interactions ----
+  // The pill owns its window's visibility: hidden through pre-record and the
+  // countdown, shown the moment capture is live, and kept up while the
+  // completion card is open. Rust never shows this window itself.
+  const visibleRef = useRef(false);
+  useEffect(() => {
+    if (!hasTauri) return;
+    const visible = enabled || mode === "done";
+    if (visibleRef.current === visible) return;
+    visibleRef.current = visible;
+    if (visible) syncWindowToContent();
+    queueWindowOp(async () => {
+      await invoke("toolbar_set_visible", { visible });
+    });
+  }, [enabled, mode]);
 
-  const isPreparing = preparing || (!enabled && !popoverVisible && !demoMode);
+  // ---- interactions ----
 
   function handleMouseEnter() {
     if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
@@ -742,7 +811,7 @@ export function RecordingPill() {
   const inConfirm = mode === "confirm";
   const showPaused = paused;
   const meterFlat = showPaused || !enabled;
-  const timerText = isPreparing ? "Preparing…" : formatTimer(elapsed);
+  const timerText = formatTimer(elapsed);
   const barHeights = meterFlat
     ? [4, 4, 4]
     : [
@@ -978,7 +1047,7 @@ export function RecordingPill() {
               <button
                 type="button"
                 onClick={enterConfirm}
-                disabled={!!pendingAction}
+                disabled={!enabled || !!pendingAction}
                 aria-label="Delete recording"
                 className="ml-2 flex size-[30px] flex-none items-center justify-center rounded-full text-[var(--pill-ghost-ink)] hover:text-[var(--pill-on-chrome)]"
               >

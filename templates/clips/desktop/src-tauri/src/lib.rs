@@ -91,6 +91,7 @@ pub fn run() {
             clips::hide_finalizing,
             clips::show_toolbar,
             clips::toolbar_save_position,
+            clips::toolbar_set_visible,
             clips::set_toolbar_finishing,
             clips::show_bubble,
             clips::set_bubble_capture_excluded,

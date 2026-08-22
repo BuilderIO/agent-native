@@ -1049,7 +1049,6 @@ pub async fn show_toolbar(app: AppHandle) -> Result<(), String> {
         set_capture_excluded(&existing);
         configure_overlay_behavior(&existing);
         raise_to_status_level(&existing);
-        crate::util::show_without_activation(&existing);
         return Ok(());
     }
     #[allow(unused_mut)]
@@ -1086,9 +1085,30 @@ pub async fn show_toolbar(app: AppHandle) -> Result<(), String> {
     set_capture_excluded(&win);
     configure_overlay_behavior(&win);
     raise_to_status_level(&win);
-    let _ = win.show();
-    dlog!("[clips-tray] toolbar shown");
+    // Deliberately NOT shown here. The pill owns its visibility through
+    // `toolbar_set_visible`: it stays hidden through pre-record and the
+    // countdown and appears only once the recorder reports capture live —
+    // recording controls before recording exists read as a broken state.
+    dlog!("[clips-tray] toolbar created (hidden until capture is live)");
 
+    Ok(())
+}
+
+/// Show or hide the recording pill without activating it. Visibility is
+/// driven entirely by the pill renderer: hidden while the recorder is
+/// preparing or counting down, visible while capture is live or the
+/// completion card is up.
+#[tauri::command]
+pub async fn toolbar_set_visible(app: AppHandle, visible: bool) -> Result<(), String> {
+    let Some(win) = app.get_webview_window(TOOLBAR_LABEL) else {
+        return Ok(());
+    };
+    if visible {
+        raise_to_status_level(&win);
+        crate::util::show_without_activation(&win);
+    } else {
+        let _ = win.hide();
+    }
     Ok(())
 }
 
