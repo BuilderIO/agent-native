@@ -751,6 +751,62 @@ describe("ddl-guard", () => {
     expect(dropAt).toBeLessThan(createAt);
   });
 
+  it("drops an INVALID index in the concurrent path too", async () => {
+    // The concurrent helper is what leaves an index invalid, so it must be able
+    // to clear one. Without this it is the only caller that cannot recover from
+    // its own failure mode — `sync_events_created_at_id_idx` in production.
+    vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
+    const { ensureIndexExistsConcurrently } = await import("./ddl-guard.js");
+    const concurrentCalls: string[] = [];
+    let concurrentDropped = false;
+    let concurrentCreated = false;
+    const concurrentClient = {
+      execute: async (sql: string | { sql: string; args?: unknown[] }) => {
+        const text = typeof sql === "string" ? sql : sql.sql;
+        concurrentCalls.push(text);
+        if (/NOT index_state\.indisvalid/.test(text)) {
+          return {
+            rows: concurrentDropped ? [] : [{ "?column?": 1 }],
+            rowsAffected: 0,
+          };
+        }
+        if (/^DROP INDEX/.test(text)) {
+          concurrentDropped = true;
+          return { rows: [], rowsAffected: 0 };
+        }
+        if (/CREATE INDEX CONCURRENTLY/.test(text)) {
+          concurrentCreated = true;
+          return { rows: [], rowsAffected: 0 };
+        }
+        if (/FROM information_schema\.columns/.test(text)) {
+          return { rows: [], rowsAffected: 0 };
+        }
+        if (/FROM pg_indexes/.test(text)) {
+          return { rows: concurrentCreated ? [{ indexname: "sync_idx" }] : [] };
+        }
+        return { rows: [], rowsAffected: 0 };
+      },
+      transaction: async () => {
+        throw new Error("concurrent index creation must not use a transaction");
+      },
+    } as any;
+
+    await expect(
+      ensureIndexExistsConcurrently(
+        "sync_idx",
+        "CREATE INDEX CONCURRENTLY IF NOT EXISTS sync_idx ON t (a)",
+        { injectedClient: concurrentClient, dialectIsPostgres: true },
+      ),
+    ).resolves.toBe(true);
+
+    const cDropAt = concurrentCalls.findIndex((sql) => /^DROP INDEX/.test(sql));
+    const cCreateAt = concurrentCalls.findIndex((sql) =>
+      /CREATE INDEX CONCURRENTLY/.test(sql),
+    );
+    expect(cDropAt).toBeGreaterThanOrEqual(0);
+    expect(cDropAt).toBeLessThan(cCreateAt);
+  });
+
   it("does not drop an index that is valid", async () => {
     vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
     const { ensureIndexExists } = await import("./ddl-guard.js");

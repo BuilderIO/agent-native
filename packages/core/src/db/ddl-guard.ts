@@ -586,6 +586,14 @@ export async function ensureIndexExistsConcurrently(
     );
   }
 
+  // This helper is what STRANDS an invalid index in the first place: an
+  // interrupted concurrent build leaves the name taken and the index unusable,
+  // and `CREATE INDEX CONCURRENTLY IF NOT EXISTS` then skips it forever. Clear
+  // it here too, or the one caller that creates the mess is the one caller that
+  // cannot recover from it — which is how `sync_events_created_at_id_idx` has
+  // stayed invalid in production.
+  await dropInvalidIndex(indexName, client);
+
   await client.execute(createIndexSql);
   invalidateSchemaSnapshot(client);
   const existsAfterCreate = await pgIndexExists(
