@@ -70,6 +70,7 @@ import {
   shouldBundleFfmpegStaticForServerless,
   writeSingleTemplateNetlifyRedirects,
 } from "./build.js";
+import { pruneSsrIslandFromRewritingClone } from "./function-bundle.js";
 import { IMMUTABLE_ASSET_CACHE_CONTROL } from "./immutable-assets.js";
 import {
   renderNetlifyStaticHeaders,
@@ -3442,5 +3443,69 @@ describe("bundleImportsLibsqlNativeAddon", () => {
     fs.writeFileSync(path.join(pkg, "index.js"), 'require("libsql");\n');
 
     expect(bundleImportsLibsqlNativeAddon(dir)).toBe(false);
+  });
+});
+
+describe("pruneSsrIslandFromRewritingClone", () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "ssr-island-"));
+  });
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  const REWRITING_ENTRY =
+    'const url = new URL(req.url);\nurl.pathname = "/_x";\n';
+
+  function scaffold(): void {
+    fs.writeFileSync(
+      path.join(dir, "main.mjs"),
+      'import "./_...page_.get.mjs";\nimport "./_process-run.mjs";\n',
+    );
+    // Rolldown emits backtick dynamic imports; a quote-only scan would miss this
+    // edge and delete a chunk the background function still needs.
+    fs.writeFileSync(
+      path.join(dir, "_process-run.mjs"),
+      "export const run = () => import(`./keep.mjs`);\n",
+    );
+    fs.writeFileSync(path.join(dir, "keep.mjs"), "export default 1;\n");
+    fs.writeFileSync(
+      path.join(dir, "_...page_.get.mjs"),
+      'import "./page-only.mjs";\n',
+    );
+    fs.writeFileSync(path.join(dir, "page-only.mjs"), "export default 2;\n");
+  }
+
+  it("drops the page island and keeps what the background entry still reaches", () => {
+    scaffold();
+
+    pruneSsrIslandFromRewritingClone(dir, REWRITING_ENTRY);
+
+    expect(fs.existsSync(path.join(dir, "_...page_.get.mjs"))).toBe(false);
+    expect(fs.existsSync(path.join(dir, "page-only.mjs"))).toBe(false);
+    expect(fs.existsSync(path.join(dir, "main.mjs"))).toBe(true);
+    expect(fs.existsSync(path.join(dir, "keep.mjs"))).toBe(true);
+  });
+
+  it("refuses to prune a clone whose entry does not rewrite the pathname", () => {
+    scaffold();
+
+    expect(() =>
+      pruneSsrIslandFromRewritingClone(dir, "export default handler;\n"),
+    ).toThrow(/rewrites url\.pathname/);
+  });
+
+  it("prunes nothing when a relative dynamic import cannot be resolved", () => {
+    scaffold();
+    fs.writeFileSync(
+      path.join(dir, "_process-run.mjs"),
+      "export const run = (n) => import(`./${n}.mjs`);\n",
+    );
+
+    expect(pruneSsrIslandFromRewritingClone(dir, REWRITING_ENTRY)).toBe(0);
+    expect(fs.existsSync(path.join(dir, "page-only.mjs"))).toBe(true);
   });
 });

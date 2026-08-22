@@ -18,7 +18,7 @@
     "migrate:production": "tsx scripts/migrate-production.ts",
     "validate-doc-blocks": "vitest run app/components/docBlocks.validate.test.tsx",
     "prebuild": "tsx scripts/generate-source-index.ts && vitest run app/components/docBlocks.validate.test.tsx",
-    "build": "agent-native build",
+    "build": "agent-native build && tsx scripts/prune-locale-doc-chunks.ts",
     "start": "agent-native start",
     "typecheck": "agent-native typecheck",
     "test": "vitest run --passWithNoTests"
