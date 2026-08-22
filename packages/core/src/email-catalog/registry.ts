@@ -112,8 +112,7 @@ export function defineTransactionalEmail(
   return resolved;
 }
 
-/** Register a catalog as one atomic operation, allowing safe HMR refreshes. */
-export function defineTransactionalEmails(
+function validateDefinitions(
   definitions: readonly TransactionalEmailDefinition[],
 ): RegisteredTransactionalEmail[] {
   const resolved = definitions.map(resolveDefinition);
@@ -129,10 +128,51 @@ export function defineTransactionalEmails(
     assertCanRegister(definition, registry.get(definition.id));
   }
 
-  for (const definition of resolved) {
+  return resolved;
+}
+
+function commitDefinitions(
+  definitions: readonly RegisteredTransactionalEmail[],
+): RegisteredTransactionalEmail[] {
+  for (const definition of definitions) {
     registry.set(definition.id, definition);
   }
-  return resolved;
+  return [...definitions];
+}
+
+/** Register a catalog as one atomic operation, allowing safe HMR refreshes. */
+export function defineTransactionalEmails(
+  definitions: readonly TransactionalEmailDefinition[],
+): RegisteredTransactionalEmail[] {
+  return commitDefinitions(validateDefinitions(definitions));
+}
+
+/** Replace one app-owned catalog snapshot after validating the full replacement. */
+export function replaceTransactionalEmails(
+  idPrefix: string,
+  definitions: readonly TransactionalEmailDefinition[],
+): RegisteredTransactionalEmail[] {
+  if (!idPrefix) {
+    throw new Error(
+      "Transactional email replacement requires a non-empty id prefix.",
+    );
+  }
+
+  const resolved = validateDefinitions(definitions);
+  if (resolved.some(({ id }) => !id.startsWith(idPrefix))) {
+    throw new Error(
+      `Transactional email replacement contains an id outside the "${idPrefix}" scope.`,
+    );
+  }
+
+  const nextIds = new Set(resolved.map(({ id }) => id));
+  for (const id of registry.keys()) {
+    if (id.startsWith(idPrefix) && !nextIds.has(id)) {
+      registry.delete(id);
+    }
+  }
+
+  return commitDefinitions(resolved);
 }
 
 /** Every registered email, sorted by app then name. */

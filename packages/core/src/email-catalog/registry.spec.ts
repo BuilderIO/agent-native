@@ -5,6 +5,7 @@ import {
   defineTransactionalEmails,
   getTransactionalEmail,
   listTransactionalEmails,
+  replaceTransactionalEmails,
   renderTransactionalEmailPreview,
   resetTransactionalEmailRegistry,
 } from "./registry.js";
@@ -98,6 +99,27 @@ describe("transactional email registry", () => {
     expect(listTransactionalEmails().map((email) => email.id)).toEqual([
       "test.conflict",
     ]);
+  });
+
+  it("replaces only the requested catalog scope", () => {
+    define("test.stale");
+    define("other.keep");
+    const current = {
+      id: "test.current",
+      name: "test.current",
+      app: "test-app",
+      trigger: "trigger",
+      recipient: "recipient",
+      recipientLabel: "Recipient",
+      sender: "sender",
+      senderLabel: "Sender",
+      preview: () => ({ subject: "current", html: "", text: "" }),
+    };
+
+    expect(replaceTransactionalEmails("test.", [current])).toHaveLength(1);
+    expect(getTransactionalEmail("test.stale")).toBeUndefined();
+    expect(getTransactionalEmail("test.current")?.name).toBe("test.current");
+    expect(getTransactionalEmail("other.keep")?.name).toBe("other.keep");
   });
 
   it("renders a preview by id", () => {

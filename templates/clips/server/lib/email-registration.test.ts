@@ -1,5 +1,6 @@
 import {
   defineTransactionalEmail,
+  getTransactionalEmail,
   listTransactionalEmails,
   resetTransactionalEmailRegistry,
 } from "@agent-native/core/email-catalog";
@@ -36,9 +37,21 @@ describe("Clips transactional email registration", () => {
     ).toEqual([CLIPS_FIRST_VIEW_EMAIL_ID]);
 
     resetTransactionalEmailRegistry();
+    defineTransactionalEmail({
+      id: "clips.removed-definition",
+      name: "Removed definition",
+      app: "clips",
+      trigger: "trigger",
+      recipient: "recipient",
+      recipientLabel: "Recipient",
+      sender: "sender",
+      senderLabel: "Sender",
+      preview: () => ({ subject: "removed", html: "", text: "" }),
+    });
     expect(() => registerClipsEmails()).not.toThrow();
     expect(() => registerClipsEmails()).not.toThrow();
 
+    expect(getTransactionalEmail("clips.removed-definition")).toBeUndefined();
     expect(
       listTransactionalEmails().filter((email) =>
         email.id.startsWith("clips."),

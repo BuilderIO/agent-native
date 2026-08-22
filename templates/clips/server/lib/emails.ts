@@ -10,7 +10,7 @@
  */
 
 import {
-  defineTransactionalEmails,
+  replaceTransactionalEmails,
   type TransactionalEmailDefinition,
 } from "@agent-native/core/email-catalog";
 
@@ -284,7 +284,7 @@ function registerClipsEmailDefinitions(): void {
       }),
   });
 
-  defineTransactionalEmails(definitions);
+  replaceTransactionalEmails("clips.", definitions);
 }
 
 export function registerClipsEmails(): void {

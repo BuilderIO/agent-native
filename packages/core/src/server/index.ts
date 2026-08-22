@@ -645,6 +645,7 @@ export {
 export {
   defineTransactionalEmail,
   defineTransactionalEmails,
+  replaceTransactionalEmails,
   listTransactionalEmails,
   getTransactionalEmail,
   renderTransactionalEmailPreview,
