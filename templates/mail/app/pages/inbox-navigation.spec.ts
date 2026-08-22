@@ -95,6 +95,8 @@ describe("Inbox pagination", () => {
     expect(source).toContain("fetchNextPage");
     expect(source).toContain("contactPageFetchesRef");
     expect(source).toContain("contactGenerationRef");
+    expect(source).toContain("isError: allEmailsError");
+    expect(source).toContain("recentEmailsError={allEmailsError}");
     expect(source).toContain(
       "contactGenerationRef.current === contactGeneration",
     );

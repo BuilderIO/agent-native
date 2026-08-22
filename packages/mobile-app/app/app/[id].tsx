@@ -64,7 +64,7 @@ export default function AppScreen() {
         <TouchableOpacity
           accessibilityRole="button"
           accessibilityLabel="Back to apps"
-          onPress={() => router.replace("/" as never)}
+          onPress={() => router.replace("/more" as never)}
           className="mt-3 rounded-lg px-4 py-2 active:opacity-75"
         >
           <Text className="font-medium" style={{ color: foreground }}>
@@ -90,7 +90,7 @@ export default function AppScreen() {
         <TouchableOpacity
           accessibilityRole="button"
           accessibilityLabel="Back to apps"
-          onPress={() => router.replace("/" as never)}
+          onPress={() => router.replace("/more" as never)}
           className="mt-4 rounded-lg bg-primary px-4 py-2 active:opacity-75"
         >
           <Text className="font-medium text-white">Back to apps</Text>

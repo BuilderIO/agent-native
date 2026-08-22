@@ -60,6 +60,7 @@ function ContactPanel({
   // the entire mailbox. The bounded follow-up fetches cover sparse histories.
   const {
     data: allEmails = [],
+    isError: allEmailsError,
     hasNextPage,
     fetchNextPage,
     isFetchingNextPage,
@@ -137,6 +138,7 @@ function ContactPanel({
       email={displayEmail}
       displayName={displayName || displayEmail}
       recentEmails={recentFromContact}
+      recentEmailsError={allEmailsError}
       threadId={email?.threadId}
       focusedEmailId={email?.id ?? emailId}
     />
