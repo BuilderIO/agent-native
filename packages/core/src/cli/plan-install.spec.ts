@@ -92,13 +92,15 @@ beforeEach(() => {
   process.chdir(tmpDir);
 });
 
-afterEach(() => {
+afterEach(async () => {
   process.chdir(origCwd);
-  fs.rmSync(tmpDir, {
+  // The full core lane runs this filesystem-heavy scaffold suite under load;
+  // let pending writes settle between recursive removal retries.
+  await fs.promises.rm(tmpDir, {
     recursive: true,
     force: true,
-    maxRetries: 5,
-    retryDelay: 100,
+    maxRetries: 20,
+    retryDelay: 250,
   });
 });
 
