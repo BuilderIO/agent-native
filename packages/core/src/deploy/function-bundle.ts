@@ -279,8 +279,37 @@ function reachablePackageNames(
   return seen;
 }
 
-/** Copied by copyInstalledBrowserRuntimePackages; see SERVERLESS_BROWSER_RUNTIME_PACKAGES. */
-const BROWSER_RUNTIME_DIRS = ["@sparticuz", "playwright-core"];
+/**
+ * Drop a now-empty `@scope` directory. Never remove a scope that still holds a
+ * package: an unrelated `@sparticuz/*` some other dependency needs lives in the
+ * same scope as the browser runtime, and the closure walk cannot protect what a
+ * scope-wide delete takes.
+ */
+function removeScopeIfEmpty(nodeModulesDir: string, packageDir: string): void {
+  const scopeDir = path.dirname(packageDir);
+  if (scopeDir === nodeModulesDir) return;
+  if (fs.readdirSync(scopeDir).length > 0) return;
+  fs.rmSync(scopeDir, { recursive: true, force: true });
+}
+
+/**
+ * The browser runtime copied into serverless functions, by exact package name.
+ *
+ * Exact names, never the `@sparticuz` scope: another dependency can install an
+ * unrelated package into the same scope, and a scope-wide delete takes it with
+ * no way for the closure walk to prove it is still needed. build.ts imports
+ * this rather than declaring its own copy, so the list that is copied in and
+ * the list that is pruned out cannot drift apart.
+ */
+export const SERVERLESS_BROWSER_RUNTIME_PACKAGES = [
+  // chromium-min, not chromium: the full package embeds a 66MB browser in every
+  // emitted function, paid on every cold start to serve a fallback most requests
+  // never take. The min package is 46KB and fetches the same pinned pack on
+  // first launch. See chromiumPackUrl() in creative-context's rendered-page.
+  // guard:allow-serverless-function-payload — -66.4MB per function, replaces "@sparticuz/chromium"
+  "@sparticuz/chromium-min",
+  "playwright-core",
+] as const;
 
 /**
  * Any path whose handler can reach an agent turn, directly or transitively.
@@ -351,14 +380,8 @@ export function pruneBrowserRuntimeFromNonAgentClone(
   }
 
   const nodeModulesDir = path.join(dest, "node_modules");
-  // Expand before deleting anything: once @sparticuz is gone there is nothing
-  // left to list its scoped children from.
-  const browserRoots = BROWSER_RUNTIME_DIRS.flatMap((name) =>
-    name.startsWith("@")
-      ? listTopLevelPackageNames(nodeModulesDir).filter((pkg) =>
-          pkg.startsWith(`${name}/`),
-        )
-      : [name],
+  const browserRoots: string[] = SERVERLESS_BROWSER_RUNTIME_PACKAGES.filter(
+    (name) => fs.existsSync(path.join(nodeModulesDir, ...name.split("/"))),
   );
 
   let bytes = 0;
@@ -376,31 +399,28 @@ export function pruneBrowserRuntimeFromNonAgentClone(
     const stillNeeded = reachablePackageNames(nodeModulesDir, otherRoots);
 
     for (const packageName of browserClosure) {
-      // The roots themselves are deleted below, by directory name rather than
-      // package name, so a whole scope goes with them even if a future
-      // dependency adds a sibling under it.
+      // The roots are deleted below, after their closure.
       if (browserRoots.includes(packageName)) continue;
       if (stillNeeded.has(packageName)) continue;
       const packageDir = path.join(nodeModulesDir, ...packageName.split("/"));
       if (!fs.existsSync(packageDir)) continue;
       bytes += dirSize(packageDir);
       fs.rmSync(packageDir, { recursive: true, force: true });
-      const scopeDir = path.dirname(packageDir);
-      if (
-        scopeDir !== nodeModulesDir &&
-        fs.readdirSync(scopeDir).length === 0
-      ) {
-        fs.rmSync(scopeDir, { recursive: true, force: true });
-      }
+      removeScopeIfEmpty(nodeModulesDir, packageDir);
     }
   }
 
-  for (const name of BROWSER_RUNTIME_DIRS) {
-    const dir = path.join(nodeModulesDir, name);
+  // Delete the roots themselves by package name, never by scope directory: an
+  // unrelated @sparticuz/* package that some other dependency still needs would
+  // otherwise go with the scope, and `stillNeeded` has no way to protect it.
+  // The scope is removed afterwards only once nothing is left in it.
+  for (const name of browserRoots) {
+    const dir = path.join(nodeModulesDir, ...name.split("/"));
     if (!fs.existsSync(dir)) continue;
     bytes += dirSize(dir);
     // Hard links: deleting the clone's link never touches the source bundle.
     fs.rmSync(dir, { recursive: true, force: true });
+    removeScopeIfEmpty(nodeModulesDir, dir);
   }
   return bytes;
 }

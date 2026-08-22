@@ -285,7 +285,12 @@ jobs:
       - name: Check serverless function sizes against their baseline
         env:
           FUNCTIONS_DIRECTORY: ${{ steps.target.outputs.functions_directory }}
-          SITE: ${{ inputs.site }}
+          # source_template, not inputs.site: the input is a caller-facing alias
+          # (docs production dispatches "fw", the starter site dispatches
+          # "starter") and would miss the baseline recorded under the app's own
+          # name, taking the unmeasured branch on exactly the deploys that most
+          # need asserting.
+          SITE: ${{ steps.target.outputs.source_template }}
         run: |
           set -euo pipefail
           node scripts/check-function-size-baseline.mjs --site "$SITE" --dir "$FUNCTIONS_DIRECTORY"

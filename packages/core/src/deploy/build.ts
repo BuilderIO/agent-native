@@ -77,6 +77,7 @@ import {
   copyDir,
   pruneSsrIslandFromRewritingClone,
   readPackageManifest,
+  SERVERLESS_BROWSER_RUNTIME_PACKAGES,
 } from "./function-bundle.js";
 import {
   collectImmutableAssetPaths,
@@ -2544,15 +2545,6 @@ const LIBSQL_NATIVE_PACKAGE_NAMES = [
 const FFMPEG_STATIC_PACKAGE_NAME = "ffmpeg-static";
 const RESVG_SCOPE = "@resvg";
 const RESVG_PACKAGE_PREFIX = "resvg-js";
-const SERVERLESS_BROWSER_RUNTIME_PACKAGES = [
-  // chromium-min, not chromium: the full package embeds a 66MB browser in every
-  // emitted function, paid on every cold start to serve a fallback most requests
-  // never take. The min package is 46KB and fetches the same pinned pack on
-  // first launch. See chromiumPackUrl() in creative-context's rendered-page.
-  // guard:allow-serverless-function-payload — -66.4MB per function, replaces "@sparticuz/chromium"
-  "@sparticuz/chromium-min",
-  "playwright-core",
-] as const;
 const SERVERLESS_BROWSER_RUNTIME_CONSUMER = "@agent-native/creative-context";
 const PACKAGE_DEPENDENCY_FIELDS = [
   "dependencies",
@@ -4082,7 +4074,13 @@ function runAppServerlessFunctionPruning(cwd: string): void {
   console.log(
     `[deploy] Running app serverless pruning: ${path.relative(cwd, script)}`,
   );
-  execFileSync("npx", ["tsx", script], { cwd, stdio: "inherit" });
+  // Resolve tsx's own entry rather than shelling out to `npx`: npm's Windows
+  // shim is `npx.cmd`, which execFileSync cannot resolve, and running the
+  // resolved script under the current interpreter avoids the question.
+  const tsxCli = createRequire(path.join(cwd, "package.json")).resolve(
+    "tsx/cli",
+  );
+  execFileSync(process.execPath, [tsxCli, script], { cwd, stdio: "inherit" });
 }
 
 function reportNetlifyFunctionSizes(

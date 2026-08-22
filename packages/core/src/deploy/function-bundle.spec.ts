@@ -107,6 +107,27 @@ describe("pruneBrowserRuntimeFromNonAgentClone orphan closure", () => {
     );
   });
 
+  it("keeps an unrelated package sharing the browser runtime's scope", () => {
+    writePackage("@sparticuz/chromium-min");
+    writePackage("playwright-core");
+    // Same @sparticuz scope, nothing to do with the browser runtime. Deleting
+    // the scope directory wholesale would take it, and the closure walk that
+    // proves what is still needed never gets a say.
+    writePackage("@sparticuz/unrelated");
+    writePackage("keeps-it", { "@sparticuz/unrelated": "^1.0.0" });
+
+    pruneBrowserRuntimeFromNonAgentClone(dir, REWRITING_ENTRY);
+
+    expect(
+      fs.existsSync(path.join(dir, "node_modules", "@sparticuz", "unrelated")),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(dir, "node_modules", "@sparticuz", "chromium-min"),
+      ),
+    ).toBe(false);
+  });
+
   it("keeps a closure member an unrelated surviving package also depends on", () => {
     writePackage("@sparticuz/chromium-min", { "shared-lib": "^1.0.0" });
     writePackage("playwright-core");

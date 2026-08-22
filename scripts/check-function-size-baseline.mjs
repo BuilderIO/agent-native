@@ -9,9 +9,11 @@
  * measures nothing; growth from where an app actually is, does.
  *
  * This compares each emitted function against a committed per-app baseline and
- * fails on growth beyond the tolerance. It deliberately does NOT fail on an app
- * it has no baseline for — it names it instead, so an unmeasured app can never
- * be mistaken for a passing one.
+ * fails on growth beyond the tolerance. An app with no baseline fails too: a
+ * deploy nothing has measured is unmeasured, not small, and letting it exit 0
+ * would rebuild the same "everything passes" signal this replaces. The only
+ * apps allowed through unmeasured are the ones named in UNMEASURABLE_APPS, so
+ * every gap is a line in the diff a reviewer can see.
  *
  * Usage:
  *   node scripts/check-function-size-baseline.mjs --site slides --dir <functions-internal>
@@ -46,6 +48,25 @@ const BASELINE_FILE = path.join(
 const TOLERANCE_RATIO = 1.1;
 const TOLERANCE_BYTES = 5 * 1024 * 1024;
 
+/**
+ * Apps that currently cannot be measured, and why. Each entry lets one deploy
+ * through with no size assertion, so it belongs in the diff where a reviewer
+ * sees it — not implied by a key missing from the baseline file.
+ *
+ * Remove an entry as soon as its build works: record the baseline and the app
+ * is protected like every other.
+ */
+const UNMEASURABLE_APPS = new Map([
+  [
+    "crm",
+    "build/client is not prebuilt, so the deploy guard rejects the publish dir before functions are emitted",
+  ],
+  [
+    "design",
+    "the electron package traces a Squirrel.framework path that does not exist, crashing the Nitro server bundle",
+  ],
+]);
+
 function arg(name) {
   const index = process.argv.indexOf(`--${name}`);
   if (index === -1) return undefined;
@@ -53,6 +74,14 @@ function arg(name) {
   return value && !value.startsWith("--") ? value : undefined;
 }
 
+/**
+ * Total bytes under `dir`, or a throw.
+ *
+ * An unreadable entry must never be counted as zero here: this number decides
+ * whether a payload grew, so a permissions or filesystem error that silently
+ * shrinks the measurement is the one direction the check cannot fail in. A
+ * partial measurement is not a small one.
+ */
 function dirSize(dir) {
   let total = 0;
   const stack = [dir];
@@ -61,19 +90,25 @@ function dirSize(dir) {
     let entries;
     try {
       entries = readdirSync(cur, { withFileTypes: true });
-    } catch {
-      continue;
+    } catch (error) {
+      throw new Error(
+        `[size-baseline] Could not read ${cur}: ${error.message}. Refusing to ` +
+          "report a size measured from an incomplete tree.",
+      );
     }
     for (const entry of entries) {
       const full = path.join(cur, entry.name);
-      if (entry.isDirectory()) stack.push(full);
-      else {
-        try {
-          total += statSync(full).size;
-        } catch {
-          // coercion-ok: an unreadable entry adds no measurable bytes and must
-          // not abort a size report.
-        }
+      if (entry.isDirectory()) {
+        stack.push(full);
+        continue;
+      }
+      try {
+        total += statSync(full).size;
+      } catch (error) {
+        throw new Error(
+          `[size-baseline] Could not stat ${full}: ${error.message}. Refusing ` +
+            "to report a size measured from an incomplete tree.",
+        );
       }
     }
   }
@@ -136,23 +171,38 @@ if (update) {
 
 const recorded = baseline[site];
 if (!recorded) {
-  // Named, never silently passed: an app with no baseline is unmeasured, not
-  // verified. Record one with --update.
-  console.log(
-    `[size-baseline] No baseline recorded for ${site}; sizes not asserted. ` +
-      `Record with: pnpm check:function-size-baseline --site ${site} --dir ${functionsDir} --update`,
-  );
+  const allowed = UNMEASURABLE_APPS.get(site);
   for (const [name, bytes] of Object.entries(measured).sort()) {
     console.log(`    ${name} ${mb(bytes)}MB`);
   }
-  process.exit(0);
+  if (allowed) {
+    console.log(
+      `[size-baseline] ${site} has no baseline and is a known exception: ${allowed}. ` +
+        "Sizes above are reported, not asserted.",
+    );
+    process.exit(0);
+  }
+  console.error(
+    `\n[size-baseline] No baseline recorded for ${site}, so nothing about this ` +
+      "deploy's size is asserted. Record the current sizes once you have " +
+      "confirmed they are what you intend:\n" +
+      `  pnpm check:function-size-baseline --site ${site} --dir ${functionsDir} --update\n` +
+      "If the app genuinely cannot be built and measured, add it to " +
+      "UNMEASURABLE_APPS with the reason so the gap is visible in review.",
+  );
+  process.exit(1);
 }
 
 const grown = [];
+const unrecorded = [];
 for (const [name, bytes] of Object.entries(measured).sort()) {
   const before = recorded[name];
   if (before === undefined) {
-    console.log(`  new  ${name} ${mb(bytes)}MB (not in baseline)`);
+    // A function the baseline has never seen is unmeasured, and unmeasured is
+    // not "small": without this the build could emit a brand new 100MB
+    // function and deploy it unchallenged.
+    console.log(`  NEW  ${name} ${mb(bytes)}MB (not in baseline)`);
+    unrecorded.push({ name, bytes });
     continue;
   }
   const overRatio = bytes > before * TOLERANCE_RATIO;
@@ -160,6 +210,20 @@ for (const [name, bytes] of Object.entries(measured).sort()) {
   const label = overRatio && overBytes ? "GREW" : "ok  ";
   console.log(`  ${label} ${name} ${mb(before)}MB -> ${mb(bytes)}MB`);
   if (overRatio && overBytes) grown.push({ name, before, bytes });
+}
+
+if (unrecorded.length > 0) {
+  console.error(
+    `\n[size-baseline] ${site}: ${unrecorded.length} function(s) are not in the baseline:`,
+  );
+  for (const fn of unrecorded) {
+    console.error(`  - ${fn.name}: ${mb(fn.bytes)}MB, never recorded`);
+  }
+  console.error(
+    "\nA function nothing has measured cannot be asserted small. Record the " +
+      "current sizes once you have confirmed they are what you intend:\n" +
+      `  pnpm check:function-size-baseline --site ${site} --dir ${functionsDir} --update`,
+  );
 }
 
 if (grown.length > 0) {
@@ -175,7 +239,8 @@ if (grown.length > 0) {
       "the growth is intended, re-record with --update so the new size is the\n" +
       "thing future builds are measured against.",
   );
-  process.exit(1);
 }
+
+if (grown.length > 0 || unrecorded.length > 0) process.exit(1);
 
 console.log(`\n[size-baseline] ${site}: no function grew past its baseline.`);
