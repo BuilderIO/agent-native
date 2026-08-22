@@ -386,7 +386,11 @@ export function SlideContextToolbar({
                   </TooltipTrigger>
                   <TooltipContent>{t("styleInspector.weight")}</TooltipContent>
                 </Tooltip>
-                <DropdownMenuContent align="start" className="w-36">
+                <DropdownMenuContent
+                  align="start"
+                  className="w-36"
+                  {...inlineEditSurfaceProps}
+                >
                   {fontWeightOptions(t).map((option) => (
                     <DropdownMenuItem
                       key={option.value}
@@ -481,7 +485,11 @@ export function SlideContextToolbar({
                   </TooltipTrigger>
                   <TooltipContent>{t("styleInspector.align")}</TooltipContent>
                 </Tooltip>
-                <DropdownMenuContent align="start" className="w-36">
+                <DropdownMenuContent
+                  align="start"
+                  className="w-36"
+                  {...inlineEditSurfaceProps}
+                >
                   {textAlignOptions(t).map((option) => (
                     <DropdownMenuItem
                       key={option.value}

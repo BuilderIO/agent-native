@@ -39,8 +39,12 @@ const environmentSwitcherMarkup = `<div class="environment-switcher" id="environ
 </div>`;
 
 const environmentSwitcherStyles = `<style ${ENVIRONMENT_SWITCHER_STYLE_MARKER}>
-  color-scheme: dark;
   .environment-switcher {
+    /* Must stay inside a rule. A bare declaration at stylesheet top level does
+       not end at its semicolon: the next qualified rule's prelude swallows it,
+       taking this selector with it, so the badge loses position/left/bottom and
+       drops into normal flow at the bottom of the page. */
+    color-scheme: dark;
     position: fixed;
     left: max(0.75rem, env(safe-area-inset-left));
     bottom: max(0.75rem, env(safe-area-inset-bottom));

@@ -589,6 +589,7 @@ const messages: AgentChatTranslation = {
   "share.linkCanStillOpen": "Las personas con el enlace aún pueden abrirlo.",
   "share.loading": "Cargando...",
   "share.loadMore": "Cargar más",
+  "share.loadFailed": "No se pudo cargar la configuración de uso compartido.",
   "share.loadPeopleFailed": "No se pudieron cargar las personas.",
   "share.noAccess": "Nadie tiene acceso todavía.",
   "share.noMatches": "Sin coincidencias.",

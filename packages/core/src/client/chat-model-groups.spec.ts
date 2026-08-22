@@ -273,4 +273,28 @@ describe("buildChatModelGroups", () => {
       },
     ]);
   });
+
+  it("trusts the server's readiness over the env-key list", () => {
+    const groups = buildChatModelGroups({
+      currentEngineName: "builder",
+      engines: [
+        {
+          name: "builder",
+          label: "Builder.io Gateway",
+          supportedModels: ["claude-sonnet-5"],
+          requiredEnvVars: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
+          configured: true,
+        },
+      ],
+    });
+
+    expect(groups).toEqual([
+      {
+        engine: "builder",
+        label: "Builder.io Gateway",
+        models: ["claude-sonnet-5"],
+        configured: true,
+      },
+    ]);
+  });
 });
