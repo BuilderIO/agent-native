@@ -1600,15 +1600,15 @@ describe("copyInstalledBrowserRuntimePackages", () => {
     const chromiumDir = path.join(
       nodeModules,
       ".pnpm",
-      "@sparticuz+chromium@149.0.0",
+      "@sparticuz+chromium-min@149.0.0",
       "node_modules",
       "@sparticuz",
-      "chromium",
+      "chromium-min",
     );
     const chromiumDependenciesDir = path.join(
       nodeModules,
       ".pnpm",
-      "@sparticuz+chromium@149.0.0",
+      "@sparticuz+chromium-min@149.0.0",
       "node_modules",
     );
     const tarFsDir = path.join(chromiumDependenciesDir, "tar-fs");
@@ -1619,19 +1619,17 @@ describe("copyInstalledBrowserRuntimePackages", () => {
       "node_modules",
       "playwright-core",
     );
-    fs.mkdirSync(path.join(chromiumDir, "bin"), { recursive: true });
     fs.mkdirSync(path.join(chromiumDir, "build"), { recursive: true });
     fs.mkdirSync(tarFsDir, { recursive: true });
     fs.mkdirSync(playwrightCoreDir, { recursive: true });
     fs.writeFileSync(
       path.join(chromiumDir, "package.json"),
       JSON.stringify({
-        name: "@sparticuz/chromium",
+        name: "@sparticuz/chromium-min",
         dependencies: { "tar-fs": "3.1.3" },
         main: "build/index.js",
       }),
     );
-    fs.writeFileSync(path.join(chromiumDir, "bin", "chromium.br"), "binary");
     fs.writeFileSync(path.join(chromiumDir, "build", "index.js"), "export {};");
     fs.writeFileSync(
       path.join(tarFsDir, "package.json"),
@@ -1659,22 +1657,22 @@ describe("copyInstalledBrowserRuntimePackages", () => {
         "@agent-native/creative-context": "workspace:*",
       });
 
-    expect(findInstalledPackageRoot("@sparticuz/chromium", [nodeModules])).toBe(
-      chromiumDir,
-    );
+    expect(
+      findInstalledPackageRoot("@sparticuz/chromium-min", [nodeModules]),
+    ).toBe(chromiumDir);
     expect(copyInstalledBrowserRuntimePackages(serverDir, root)).toBe(3);
+    // chromium-min carries no browser binary — it fetches the pinned pack at
+    // launch, which is what takes 66MB out of every emitted function.
     expect(
       fs.existsSync(
-        path.join(
-          serverDir,
-          "node_modules",
-          "@sparticuz",
-          "chromium",
-          "bin",
-          "chromium.br",
-        ),
+        path.join(serverDir, "node_modules", "@sparticuz", "chromium-min"),
       ),
     ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(serverDir, "node_modules", "@sparticuz", "chromium", "bin"),
+      ),
+    ).toBe(false);
     expect(fs.existsSync(path.join(serverDir, "node_modules", "tar-fs"))).toBe(
       true,
     );
@@ -1689,9 +1687,9 @@ describe("copyInstalledBrowserRuntimePackages", () => {
     const { root, nodeModules, chromiumDir, serverDir } =
       setupBrowserRuntimeStore({ "some-unrelated-package": "1.0.0" });
 
-    expect(findInstalledPackageRoot("@sparticuz/chromium", [nodeModules])).toBe(
-      chromiumDir,
-    );
+    expect(
+      findInstalledPackageRoot("@sparticuz/chromium-min", [nodeModules]),
+    ).toBe(chromiumDir);
     expect(findServerlessBrowserRuntimeConsumer(root)).toBeNull();
     expect(copyInstalledBrowserRuntimePackages(serverDir, root)).toBe(0);
     expect(fs.existsSync(path.join(serverDir, "node_modules"))).toBe(false);
@@ -1799,6 +1797,7 @@ describe("sanitizeServerlessFunctionPackageManifest", () => {
           type: "module",
           dependencies: {
             "@libsql/linux-x64-gnu": "0.5.29",
+            "better-sqlite3": "12.11.1",
             electron: "41.9.0",
             "node-pty": "1.1.0",
             "playwright-core": "1.61.1",
@@ -1835,6 +1834,7 @@ describe("sanitizeServerlessFunctionPackageManifest", () => {
     );
     expect(packageJson.dependencies).toEqual({
       "@libsql/linux-x64-gnu": "0.5.29",
+      "better-sqlite3": "12.11.1",
       "playwright-core": "1.61.1",
     });
     expect(packageJson.optionalDependencies).toBeUndefined();
@@ -3559,5 +3559,28 @@ describe("pruneBrowserRuntimeFromNonAgentClone", () => {
     expect(() =>
       pruneBrowserRuntimeFromNonAgentClone(dir, "export default handler;\n"),
     ).toThrow(/rewrites url\.pathname/);
+  });
+});
+describe("serverless bundle trimming", () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "trim-"));
+  });
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("strips declaration files, which no runtime resolver reads", () => {
+    const pkg = path.join(dir, "node_modules", "some-pkg");
+    fs.mkdirSync(pkg, { recursive: true });
+    fs.writeFileSync(path.join(pkg, "index.js"), "module.exports = 1;\n");
+    fs.writeFileSync(path.join(pkg, "index.d.ts"), "export default 1;\n");
+
+    pruneServerlessFunctionDeadWeight(dir);
+
+    expect(fs.existsSync(path.join(pkg, "index.d.ts"))).toBe(false);
+    expect(fs.existsSync(path.join(pkg, "index.js"))).toBe(true);
   });
 });

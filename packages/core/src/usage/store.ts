@@ -11,6 +11,7 @@ import { getDbExec, intType, isPostgres } from "../db/client.js";
 import {
   ensureColumnExists,
   ensureIndexExists,
+  ensureIndexExistsConcurrently,
   ensureTableExists,
 } from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
@@ -289,6 +290,18 @@ export async function ensureUsageTable(): Promise<void> {
           "idx_token_usage_owner_created",
           `CREATE INDEX IF NOT EXISTS idx_token_usage_owner_created ON token_usage (owner_email, created_at)`,
         );
+        // `owner_email` is written as the caller supplied it, so the metrics
+        // queries scope with `LOWER(owner_email) IN (…)`. A plain btree cannot
+        // serve a function-wrapped predicate: without this expression index the
+        // usage panel scans the whole table, which is the highest-row-count one
+        // in the system (a row per LLM call, every app and org).
+        // Built CONCURRENTLY: `token_usage` is the highest-row-count table in
+        // the system, so a SHARE-locking build would queue every usage write
+        // for its duration.
+        await ensureIndexExistsConcurrently(
+          "idx_token_usage_lower_owner_created",
+          `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_token_usage_lower_owner_created ON token_usage (LOWER(owner_email), created_at)`,
+        );
         return;
       }
 
@@ -310,11 +323,18 @@ export async function ensureUsageTable(): Promise<void> {
       // the `Date.now()` written per run by recordUsage() overflows int4. Widen
       // it in place (no-op once done / on fresh BIGINT databases).
       await widenIntColumnsToBigInt("token_usage", ["created_at"]);
-      try {
-        await client.execute(
-          `CREATE INDEX IF NOT EXISTS idx_token_usage_owner_created ON token_usage (owner_email, created_at)`,
-        );
-      } catch {}
+      for (const ddl of [
+        `CREATE INDEX IF NOT EXISTS idx_token_usage_owner_created ON token_usage (owner_email, created_at)`,
+        `CREATE INDEX IF NOT EXISTS idx_token_usage_lower_owner_created ON token_usage (LOWER(owner_email), created_at)`,
+      ]) {
+        try {
+          await client.execute(ddl);
+        } catch {
+          // coercion-ok: index already exists, or this dialect rejected the
+          // duplicate. Local-dev SQLite only — the hosted path creates these
+          // through the Postgres branch above, which probes before creating.
+        }
+      }
     })().catch((err) => {
       // Retry init on the next call after a failed startup.
       _initPromise = undefined;

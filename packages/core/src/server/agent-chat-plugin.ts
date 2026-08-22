@@ -38,6 +38,7 @@ import {
 } from "../a2a/task-store.js";
 import type { Message as A2AMessage } from "../a2a/types.js";
 import type { ActionHttpConfig } from "../action.js";
+import { clientAbortReason } from "../agent/abort-reasons.js";
 import {
   canUpdateAgentAppModelDefaultSettings,
   normalizeAgentAppModelDefaultAppId,
@@ -86,7 +87,6 @@ import {
   type AgentLoopOutcome,
   type ResolvedOwnerApiKey,
 } from "../agent/production-agent.js";
-import { clientAbortReason } from "../agent/run-loop-with-resume.js";
 import {
   callerHasRunAccess,
   callerHasThreadAccess,
