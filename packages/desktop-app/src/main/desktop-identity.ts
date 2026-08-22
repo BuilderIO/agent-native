@@ -1607,7 +1607,7 @@ export class DesktopIdentityBroker {
     // Status notifications can arrive again after the child reloads. Keep a
     // matching session in place instead of minting another one-time ticket
     // and reloading the same WebView forever.
-    if (await this.hasMatchingIdentitySession(app)) {
+    if (await this.hasMatchingIdentitySession(app, identityEmail)) {
       await this.syncAlternateSessionCookies(app);
       // The OAuth callback can install the child cookie before its WebView is
       // mounted. Reload once when the broker first adopts that session so the
@@ -2792,12 +2792,16 @@ export class DesktopIdentityBroker {
 
   private async hasMatchingIdentitySession(
     app: DesktopIdentityApp,
+    // The caller usually verified the authority moments ago; re-verifying it
+    // here made the already-signed-in path pay for the same round trip twice
+    // before the WebView was allowed to load anything.
+    expectedIdentityEmail?: string,
   ): Promise<boolean> {
     const authority = this.resolveIdentityAuthority();
     if (!authority || !(await this.hasAppSession(app))) return false;
 
     const [authorityEmail, appEmail] = await Promise.all([
-      this.verifyIdentitySession(authority),
+      expectedIdentityEmail ?? this.verifyIdentitySession(authority),
       this.verifyIdentitySession(app, app.session),
     ]);
     return Boolean(

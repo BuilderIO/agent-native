@@ -332,6 +332,22 @@ export function shouldDeferDesktopAppWebviewLoad(input: {
   );
 }
 
+/**
+ * Whether reactivating a tab must hide its guest page behind the identity
+ * loading gate again.
+ *
+ * Returning to an app used to re-gate unconditionally, so a page that was
+ * already loaded and verified vanished behind "Loading …" on every switch —
+ * the whole reason coming back to a tab read as a full reload. A page is only
+ * re-gated when there is nothing usable on screen to preserve.
+ */
+export function shouldClearDesktopIdentitySessionOnActivation(input: {
+  hasLoadedGuestPage: boolean;
+  sessionReady: boolean;
+}): boolean {
+  return !(input.hasLoadedGuestPage && input.sessionReady);
+}
+
 const DESKTOP_IDENTITY_STATUS_CACHE_TTL_MS = 5 * 60 * 1000;
 const DESKTOP_IDENTITY_STATUS_POLL_INTERVAL_MS = 750;
 const DESKTOP_IDENTITY_STATUS_POLL_ATTEMPTS = 40;
@@ -851,7 +867,19 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       );
       setDesktopIdentityEnabled(rememberedSignedIn ? true : null);
       setDesktopIdentityStatus(rememberedSignedIn ? "signed-in" : "idle");
-      updateDesktopIdentitySessionReady(false);
+      // Reactivating a tab whose guest page is already loaded and verified must
+      // not hide it behind the loading gate again — the recheck below is cheap
+      // and runs fine underneath a usable page. Clearing this on every
+      // activation is what made returning to a tab look like a full reload.
+      // Same rule applyStatus already uses when a child-session event repeats.
+      if (
+        shouldClearDesktopIdentitySessionOnActivation({
+          hasLoadedGuestPage: hasLoadedGuestPageRef.current,
+          sessionReady: desktopIdentitySessionReadyRef.current,
+        })
+      ) {
+        updateDesktopIdentitySessionReady(false);
+      }
 
       const applyStatus = async (
         status: DesktopIdentityStatus,

@@ -31,6 +31,7 @@ import {
   resolveGuestChatCommand,
   resolveDesktopIdentityLazySyncStatus,
   shouldDeferDesktopAppWebviewLoad,
+  shouldClearDesktopIdentitySessionOnActivation,
   resolveDesktopIdentityStatusForChat,
   rememberDesktopIdentityStatus,
   invalidateRememberedDesktopIdentityStatus,
@@ -1055,5 +1056,53 @@ describe("AppWebview theme propagation", () => {
     } finally {
       window.removeEventListener("agent-native:theme-change", onThemeChange);
     }
+  });
+});
+
+describe("Returning to an already loaded app tab", () => {
+  it("keeps a loaded, verified guest page out of the identity loading gate", () => {
+    expect(
+      shouldClearDesktopIdentitySessionOnActivation({
+        hasLoadedGuestPage: true,
+        sessionReady: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("re-gates when there is no usable page to preserve", () => {
+    // First activation: nothing has loaded yet, so the gate is what the user
+    // should see rather than a blank webview.
+    expect(
+      shouldClearDesktopIdentitySessionOnActivation({
+        hasLoadedGuestPage: false,
+        sessionReady: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldClearDesktopIdentitySessionOnActivation({
+        hasLoadedGuestPage: false,
+        sessionReady: true,
+      }),
+    ).toBe(true);
+    // A loaded page whose session was already invalidated is not usable.
+    expect(
+      shouldClearDesktopIdentitySessionOnActivation({
+        hasLoadedGuestPage: true,
+        sessionReady: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("leaves a preserved page unblocked for loading", () => {
+    // The reactivation path must not reintroduce the deferral that keeps the
+    // webview on about:blank.
+    expect(
+      shouldDeferDesktopAppWebviewLoad({
+        eligible: true,
+        enabled: true,
+        sessionReady: true,
+        status: "signed-in",
+      }),
+    ).toBe(false);
   });
 });
