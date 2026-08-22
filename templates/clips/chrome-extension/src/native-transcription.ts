@@ -254,10 +254,18 @@ export function createNativeTranscriptionCapture(options?: {
   const resume = (): void => {
     if (!recognition || stopped || disposed) return;
     paused = false;
+    restartFailures = 0;
     try {
       recognition.start();
     } catch {
-      failureReason = "Chrome Web Speech recognition could not resume.";
+      // Chrome throws a transient InvalidStateError if the previous session has
+      // not finished tearing down. Nothing started, so no `onend` will arrive to
+      // drive the bounded retry loop — schedule it here or transcription stays
+      // dead for the rest of the recording. The gap is recorded durably because
+      // audio is already live: `paused` is false above.
+      failureReason =
+        failureReason || "Chrome Web Speech recognition could not resume.";
+      scheduleRestart();
     }
   };
 

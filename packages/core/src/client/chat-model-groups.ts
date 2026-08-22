@@ -15,8 +15,14 @@ export interface ChatModelEngineEntry {
    * Server-resolved readiness. The env-key fallback below cannot see
    * vault-stored credentials or the deploy-injected Builder gateway lane, so
    * an engine running on either is reported unconfigured without this.
+   *
+   * Undefined means the server could not resolve it — including a credential
+   * read that threw, reported in `configuredError`. That deliberately falls
+   * through to the env heuristic rather than reading as "needs an API key".
    */
   configured?: boolean;
+  /** Why readiness is unknown, when the server's lookup failed. */
+  configuredError?: string;
 }
 
 export interface BuildChatModelGroupsOptions {
