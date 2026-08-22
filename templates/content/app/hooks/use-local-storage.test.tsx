@@ -55,33 +55,48 @@ describe("useLocalStorage", () => {
   it("updates same-tab hooks that share a key", () => {
     const values: Record<string, boolean> = {};
     const setters: Record<string, (value: boolean) => void> = {};
+    const renderPhaseWarnings: unknown[][] = [];
+    const originalError = console.error;
+    console.error = (...args: unknown[]) => {
+      if (
+        typeof args[0] === "string" &&
+        args[0].includes("Cannot update a component")
+      ) {
+        renderPhaseWarnings.push(args);
+      }
+    };
 
-    function Probe({ id }: { id: string }) {
-      const [value, setValue] = useLocalStorage("shared-key", false);
-      values[id] = value;
-      setters[id] = setValue;
-      return null;
+    try {
+      function Probe({ id }: { id: string }) {
+        const [value, setValue] = useLocalStorage("shared-key", false);
+        values[id] = value;
+        setters[id] = setValue;
+        return null;
+      }
+
+      container = document.createElement("div");
+      document.body.appendChild(container);
+      root = createRoot(container);
+
+      act(() => {
+        root?.render(
+          <>
+            <Probe id="a" />
+            <Probe id="b" />
+          </>,
+        );
+      });
+
+      expect(values).toEqual({ a: false, b: false });
+
+      act(() => {
+        setters.a(true);
+      });
+
+      expect(values).toEqual({ a: true, b: true });
+      expect(renderPhaseWarnings).toEqual([]);
+    } finally {
+      console.error = originalError;
     }
-
-    container = document.createElement("div");
-    document.body.appendChild(container);
-    root = createRoot(container);
-
-    act(() => {
-      root?.render(
-        <>
-          <Probe id="a" />
-          <Probe id="b" />
-        </>,
-      );
-    });
-
-    expect(values).toEqual({ a: false, b: false });
-
-    act(() => {
-      setters.a(true);
-    });
-
-    expect(values).toEqual({ a: true, b: true });
   });
 });

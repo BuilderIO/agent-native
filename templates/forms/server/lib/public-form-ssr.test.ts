@@ -181,6 +181,10 @@ describe("public form SSR", () => {
     expect(first.html).toContain(
       'fetch(PUBLIC_FORM_API, { cache: "no-store" })',
     );
+    expect(first.html).toContain("if (response.status === 404)");
+    expect(first.html).toContain(
+      'currentUrl.searchParams.set("v", String(Date.now()));',
+    );
 
     rows[0] = {
       ...rows[0],

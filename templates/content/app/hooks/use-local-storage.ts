@@ -19,25 +19,30 @@ export function useLocalStorage<T>(
 ): [T, (val: T | ((prev: T) => T)) => void] {
   const prevKeyRef = useRef(key);
   const [value, setValue] = useState<T>(() => readStorage(key, defaultValue));
-
-  // Synchronously update value when key changes (no stale render)
-  if (prevKeyRef.current !== key) {
-    prevKeyRef.current = key;
-    const fresh = readStorage(key, defaultValue);
-    setValue(fresh);
-  }
+  const valueRef = useRef(value);
 
   useEffect(() => {
+    if (prevKeyRef.current !== key) {
+      prevKeyRef.current = key;
+      const fresh = readStorage(key, defaultValue);
+      valueRef.current = fresh;
+      setValue(fresh);
+    }
+
     function handleStorage(event: StorageEvent) {
       if (event.key === key) {
-        setValue(readStorage(key, defaultValue));
+        const next = readStorage(key, defaultValue);
+        valueRef.current = next;
+        setValue(next);
       }
     }
 
     function handleLocalStorageChange(event: Event) {
       const detail = (event as CustomEvent<{ key?: string; value?: T }>).detail;
       if (detail?.key === key) {
-        setValue(detail.value as T);
+        const next = detail.value as T;
+        valueRef.current = next;
+        setValue(next);
       }
     }
 
@@ -58,18 +63,18 @@ export function useLocalStorage<T>(
 
   const set = useCallback(
     (val: T | ((prev: T) => T)) => {
-      setValue((prev) => {
-        const next = val instanceof Function ? val(prev) : val;
-        try {
-          window.localStorage.setItem(key, JSON.stringify(next));
-          window.dispatchEvent(
-            new CustomEvent(LOCAL_STORAGE_CHANGE_EVENT, {
-              detail: { key, value: next },
-            }),
-          );
-        } catch {}
-        return next;
-      });
+      const next = val instanceof Function ? val(valueRef.current) : val;
+      valueRef.current = next;
+      setValue(next);
+      try {
+        window.localStorage.setItem(key, JSON.stringify(next));
+        window.dispatchEvent(
+          new CustomEvent(LOCAL_STORAGE_CHANGE_EVENT, {
+            detail: { key, value: next },
+          }),
+        );
+        // coercion-ok: local persistence is optional; the in-memory value remains available.
+      } catch {}
     },
     [key],
   );

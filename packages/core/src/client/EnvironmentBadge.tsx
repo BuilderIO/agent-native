@@ -4,7 +4,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@agent-native/toolkit/ui/popover";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import type {
   AgentNativeDeploymentEnvironment,
@@ -274,13 +274,19 @@ export function EnvironmentBadge({
 }: {
   showProduction?: boolean;
 } = {}) {
+  const [hydrated, setHydrated] = useState(false);
   const config = useMemo(injectedAgentNativeConfig, []);
   const hostname =
     typeof window === "undefined" ? undefined : window.location.hostname;
   const environment = resolveEnvironmentChannel(config, hostname);
   const targets = resolveEnvironmentTargets(hostname);
 
+  useEffect(() => {
+    setHydrated(true);
+  }, []);
+
   if (
+    !hydrated ||
     typeof window === "undefined" ||
     window.parent !== window ||
     !environment

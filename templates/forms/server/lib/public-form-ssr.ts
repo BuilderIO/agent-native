@@ -472,7 +472,15 @@ function renderFormPage(
 
   function revalidateFormVersion() {
     fetch(PUBLIC_FORM_API, { cache: "no-store" })
-      .then(function(response) { return response.ok ? response.json() : null; })
+      .then(function(response) {
+        if (response.status === 404) {
+          var currentUrl = new URL(window.location.href);
+          currentUrl.searchParams.set("v", String(Date.now()));
+          window.location.replace(currentUrl.toString());
+          return null;
+        }
+        return response.ok ? response.json() : null;
+      })
       .then(function(latest) {
         if (!latest || typeof latest.updatedAt !== "string" || !latest.updatedAt || latest.updatedAt === FORM_VERSION) return;
         var currentUrl = new URL(window.location.href);
