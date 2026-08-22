@@ -145,37 +145,29 @@ async function readSessionIdentity(
   context: BrowserContext,
   origin: string,
 ): Promise<{ identity?: SessionIdentity; status: number; body: string }> {
-  const page = await context.newPage();
-  try {
-    await page.goto(`${origin}/sign-in`, {
-      waitUntil: "domcontentloaded",
+  const response = await context.request.get(
+    `${origin}/_agent-native/auth/session`,
+    {
+      headers: { accept: "application/json" },
       timeout: 60_000,
-    });
-    const raw = await page.evaluate(async () => {
-      const response = await fetch("/_agent-native/auth/session", {
-        headers: { accept: "application/json" },
-      });
-      const body = await response.text();
-      return { status: response.status, body };
-    });
+    },
+  );
+  const body = await response.text();
 
-    let identity: SessionIdentity | undefined;
-    try {
-      const parsed = JSON.parse(raw.body) as { email?: string; orgId?: string };
-      if (parsed?.email) {
-        identity = {
-          email: parsed.email,
-          ...(parsed.orgId ? { orgId: parsed.orgId } : {}),
-        };
-      }
-    } catch {
-      identity = undefined;
+  let identity: SessionIdentity | undefined;
+  try {
+    const parsed = JSON.parse(body) as { email?: string; orgId?: string };
+    if (parsed?.email) {
+      identity = {
+        email: parsed.email,
+        ...(parsed.orgId ? { orgId: parsed.orgId } : {}),
+      };
     }
-
-    return { identity, status: raw.status, body: raw.body.slice(0, 400) };
-  } finally {
-    await page.close();
+  } catch {
+    identity = undefined;
   }
+
+  return { identity, status: response.status(), body: body.slice(0, 400) };
 }
 
 /**
@@ -203,31 +195,26 @@ export async function bootstrapAppSession(
       // `promoteQuerySession` (packages/core/src/server/auth.ts) exchanges the
       // token for this host's own session cookie on any request carrying it.
       //
-      // Issued as an in-page fetch rather than a navigation on purpose. A
-      // navigation URL is echoed verbatim by Playwright into error messages,
-      // the HTML report, and CI logs — none of which are masked — so a live
-      // 30-day session token would end up in plain text on every failure.
-      // A fetch response's Set-Cookie is honoured identically.
-      const page = await context.newPage();
+      // Use the browser context's API client so Set-Cookie is shared with the
+      // stored browser state without navigating a page that may redirect an
+      // authenticated user away from `/sign-in` while the check is running.
+      let promoted;
       try {
-        await page.goto(`${origin}/sign-in`, {
-          waitUntil: "domcontentloaded",
-          timeout: 60_000,
-        });
-        const promoted = await page.evaluate(async (sessionToken: string) => {
-          const response = await fetch(
-            `/_agent-native/auth/session?_session=${encodeURIComponent(sessionToken)}`,
-            { redirect: "manual", credentials: "include" },
-          );
-          return response.status;
-        }, token);
-        if (promoted >= 500) {
-          throw new Error(
-            `${origin} answered HTTP ${promoted} while exchanging the session token.`,
-          );
-        }
-      } finally {
-        await page.close();
+        promoted = await context.request.get(
+          `${origin}/_agent-native/auth/session?_session=${encodeURIComponent(token)}`,
+          {
+            headers: { accept: "application/json" },
+            timeout: 60_000,
+          },
+        );
+      } catch {
+        // Keep the live query token out of Playwright's error and report text.
+        throw new Error(`${origin} failed while exchanging the session token.`);
+      }
+      if (promoted.status() >= 500) {
+        throw new Error(
+          `${origin} answered HTTP ${promoted.status()} while exchanging the session token.`,
+        );
       }
     }
 
