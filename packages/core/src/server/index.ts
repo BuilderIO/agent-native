@@ -529,6 +529,8 @@ export {
   exchangeWorkspaceProviderOAuthCode,
   handleWorkspaceProviderOAuthCallback,
   handleWorkspaceProviderOAuthStart,
+  hasWorkspaceProviderOAuthCredentials,
+  isGoogleWorkspaceOAuthProvider,
   isWorkspaceProviderOAuthFlowValid,
   mergeWorkspaceOAuthValues,
   resolveWorkspaceProviderIdentity,

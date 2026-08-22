@@ -9,6 +9,10 @@ import {
   listProviderApiCatalog,
 } from "@agent-native/core/provider-api";
 import {
+  hasWorkspaceProviderOAuthCredentials,
+  isGoogleWorkspaceOAuthProvider,
+} from "@agent-native/core/server";
+import {
   getWorkspaceConnectionAppAccess,
   listWorkspaceConnectionGrants,
   listWorkspaceConnections,
@@ -117,12 +121,18 @@ export default defineAction({
   }),
   http: { method: "GET" },
   run: async (args) => {
-    const providers = listWorkspaceConnectionProviders({
+    const catalogProviders = listWorkspaceConnectionProviders({
       capability: args.capability as WorkspaceConnectionCapability | undefined,
       templateUse: args.templateUse as
         | WorkspaceConnectionTemplateUse
         | undefined,
     });
+    const googleOAuthConfigured =
+      await hasWorkspaceProviderOAuthCredentials("gmail");
+    const providers = catalogProviders.filter(
+      (provider) =>
+        googleOAuthConfigured || !isGoogleWorkspaceOAuthProvider(provider.id),
+    );
     const connections = await listWorkspaceConnections({
       provider: args.provider,
       appId: args.appId,

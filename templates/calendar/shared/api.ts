@@ -315,6 +315,7 @@ export interface BookingLink {
 }
 
 export interface GoogleAuthStatus {
+  configured?: boolean;
   connected: boolean;
   accounts: Array<{
     email: string;

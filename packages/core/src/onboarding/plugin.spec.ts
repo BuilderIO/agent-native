@@ -131,6 +131,27 @@ describe("onboarding plugin routes", () => {
     ]);
   });
 
+  it("omits unavailable steps without running their completion resolver", async () => {
+    const isComplete = vi.fn(() => true);
+    registerOnboardingStep({
+      id: "google",
+      order: 10,
+      title: "Connect Google",
+      description: "Requires managed Google OAuth.",
+      methods: [],
+      isAvailable: () => false,
+      isComplete,
+    });
+    const nitroApp = createNitroApp();
+    await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
+
+    const result = await dispatch(nitroApp, "/_agent-native/onboarding/steps");
+
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual([]);
+    expect(isComplete).not.toHaveBeenCalled();
+  });
+
   it("uses the same request context when reporting dismissed/allComplete state", async () => {
     registerRequestContextProbeStep();
     appStateGetMock.mockImplementation(async (_sessionId, key) =>

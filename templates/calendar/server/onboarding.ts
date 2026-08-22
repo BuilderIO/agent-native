@@ -1,5 +1,6 @@
 import { listOAuthAccountsByOwner } from "@agent-native/core/oauth-tokens";
 import { registerOnboardingStep } from "@agent-native/core/onboarding";
+import { hasWorkspaceProviderOAuthCredentials } from "@agent-native/core/server";
 import { resolveWorkspaceConnectionForApp } from "@agent-native/core/workspace-connections";
 
 const CALENDAR_SCOPES = [
@@ -23,6 +24,7 @@ registerOnboardingStep({
   required: false,
   title: "Connect Google Calendar",
   description: "Manage events and availability with your Google account.",
+  isAvailable: () => hasWorkspaceProviderOAuthCredentials("google_calendar"),
   methods: [
     {
       id: "oauth",

@@ -98,8 +98,19 @@ async function serializeSteps(
   // chain of credential/settings reads — walking them one at a time made this
   // route cost the SUM of every step's round trips against a remote database
   // instead of the slowest one. `Promise.all` preserves `steps` order.
-  return Promise.all(
+  const serialized = await Promise.all(
     steps.map(async (step) => {
+      if (!options.preview && step.isAvailable) {
+        try {
+          // Fail closed: a capability without a proven configuration should
+          // not render a CTA that can only end in a provider error. The next
+          // poll retries the availability check.
+          if (!(await step.isAvailable(context))) return null;
+          // coercion-ok: hide unavailable OAuth setup and retry on the next poll.
+        } catch {
+          return null;
+        }
+      }
       let complete = false;
       if (!options.preview) {
         try {
@@ -121,6 +132,9 @@ async function serializeSteps(
         methods: step.methods,
       };
     }),
+  );
+  return serialized.filter(
+    (step): step is OnboardingStepStatus => step !== null,
   );
 }
 

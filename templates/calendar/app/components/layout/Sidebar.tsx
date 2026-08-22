@@ -422,9 +422,11 @@ function ColorPickerPopover({
 
 function GoogleAccountsSection({
   accounts,
+  canAddAccount,
   onClose,
 }: {
   accounts: Array<{ email: string }>;
+  canAddAccount: boolean;
   onClose: () => void;
 }) {
   const t = useT();
@@ -507,19 +509,21 @@ function GoogleAccountsSection({
               {t("sidebar.googleCalendarSettings")}
             </TooltipContent>
           </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                onClick={handleAddAccount}
-                disabled={isGoogleDesktopAuthPending}
-                className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
-              >
-                <IconPlus className="h-3.5 w-3.5" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>{t("sidebar.addGoogleAccount")}</TooltipContent>
-          </Tooltip>
+          {canAddAccount && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={handleAddAccount}
+                  disabled={isGoogleDesktopAuthPending}
+                  className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+                >
+                  <IconPlus className="h-3.5 w-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>{t("sidebar.addGoogleAccount")}</TooltipContent>
+            </Tooltip>
+          )}
         </div>
       </div>
 
@@ -878,14 +882,17 @@ export function Sidebar({
               </nav>
 
               {/* Google status / connect CTA */}
-              {!googleStatus.isLoading && !isConnected && (
-                <GoogleConnectSidebarButton />
-              )}
+              {!googleStatus.isLoading &&
+                !isConnected &&
+                googleStatus.data?.configured === true && (
+                  <GoogleConnectSidebarButton />
+                )}
 
               {isConnected &&
                 (googleStatus.data?.accounts?.length ?? 0) > 0 && (
                   <GoogleAccountsSection
                     accounts={googleStatus.data!.accounts!}
+                    canAddAccount={googleStatus.data?.configured === true}
                     onClose={onClose}
                   />
                 )}

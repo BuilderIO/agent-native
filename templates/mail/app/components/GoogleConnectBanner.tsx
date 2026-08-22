@@ -136,6 +136,7 @@ export function GoogleConnectBanner({
 
   const accounts = googleStatus.data?.accounts ?? [];
   const hasAccounts = accounts.length > 0;
+  const googleConfigured = googleStatus.data?.configured === true;
   const canOfferOAuthSetup = useMemo(() => shouldOfferGoogleOAuthSetup(), []);
 
   const isBuilderFrame = useMemo(() => isInBuilderFrame(), []);
@@ -433,6 +434,7 @@ export function GoogleConnectBanner({
   }, [wantAddAccount, addAccountUrl.data, isBuilderFrame]);
 
   function handleConnect() {
+    if (!googleConfigured && !canOfferOAuthSetup) return;
     setDesktopAuthIssue(null);
     if (useDesktopAuth) {
       signInViaDesktopBrowser();
@@ -442,6 +444,7 @@ export function GoogleConnectBanner({
   }
 
   function handleAddAccount() {
+    if (!googleConfigured && !canOfferOAuthSetup) return;
     if (useDesktopAuth) {
       signInViaDesktopBrowser(true);
       return;
@@ -503,6 +506,8 @@ export function GoogleConnectBanner({
   }
 
   if (dismissed) return null;
+  if (!googleStatus.data && !canOfferOAuthSetup) return null;
+  if (!googleConfigured && !canOfferOAuthSetup && !hasAccounts) return null;
 
   // Full-page hero for setup / reconnection
   if (variant === "hero") {
@@ -517,22 +522,24 @@ export function GoogleConnectBanner({
         <p className="mt-2 max-w-sm text-sm text-muted-foreground leading-relaxed">
           {t("mail.googleConnect.heroDescription")}
         </p>
-        <Button
-          size="sm"
-          className="mt-8 gap-2 px-5 h-9 text-sm font-medium bg-white text-black hover:bg-white/90"
-          onClick={() => {
-            setAuthError(null);
-            handleConnect();
-          }}
-          disabled={authUrl.isLoading || authUrl.isFetching}
-        >
-          <GoogleIcon className="h-4 w-4" />
-          {authUrl.isLoading
-            ? t("mail.accounts.connecting")
-            : allConfigured
-              ? t("mail.accounts.signInWithGoogle")
-              : t("mail.accounts.connectGoogle")}
-        </Button>
+        {(googleConfigured || canOfferOAuthSetup) && (
+          <Button
+            size="sm"
+            className="mt-8 gap-2 px-5 h-9 text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90"
+            onClick={() => {
+              setAuthError(null);
+              handleConnect();
+            }}
+            disabled={authUrl.isLoading || authUrl.isFetching}
+          >
+            <GoogleIcon className="h-4 w-4" />
+            {authUrl.isLoading
+              ? t("mail.accounts.connecting")
+              : allConfigured
+                ? t("mail.accounts.signInWithGoogle")
+                : t("mail.accounts.connectGoogle")}
+          </Button>
+        )}
 
         <GoogleAuthIssuePanel
           issue={desktopAuthIssue}
@@ -735,13 +742,15 @@ export function GoogleConnectBanner({
                 )}
               </div>
             ))}
-            <button
-              onClick={handleAddAccount}
-              disabled={addAccountUrl.isLoading || addAccountUrl.isFetching}
-              className="text-xs text-foreground/40 hover:text-foreground/60 transition-colors whitespace-nowrap"
-            >
-              + {t("mail.accounts.addAccount")}
-            </button>
+            {(googleConfigured || canOfferOAuthSetup) && (
+              <button
+                onClick={handleAddAccount}
+                disabled={addAccountUrl.isLoading || addAccountUrl.isFetching}
+                className="text-xs text-foreground/40 hover:text-foreground/60 transition-colors whitespace-nowrap"
+              >
+                + {t("mail.accounts.addAccount")}
+              </button>
+            )}
           </div>
           <Button
             variant="ghost"
