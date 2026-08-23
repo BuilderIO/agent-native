@@ -1,5 +1,3 @@
-import { AsyncLocalStorage } from "node:async_hooks";
-
 import { drizzle as drizzleD1 } from "drizzle-orm/d1";
 import type { LibSQLDatabase } from "drizzle-orm/libsql";
 
@@ -26,6 +24,8 @@ import {
   openLocalSqlite,
   onSharedDbPoolsClosed,
   onSharedDbPoolReplaced,
+  runQueuedSqliteTransaction,
+  nextSqliteSavepointName,
 } from "./client.js";
 
 // Lazy driver loaders — cached promises so dynamic import only runs once.
@@ -384,34 +384,17 @@ function getBetterSqliteDrizzle() {
  *
  * The patched transaction also patches the tx object it passes to the callback
  * so that nested async calls (tx.transaction(async …)) work recursively.
+ *
+ * Top-level admission (serializing against every other top-level transaction
+ * on this connection, including `getDbExec()`'s own, and letting genuine
+ * same-task nesting bypass the queue) is delegated to
+ * `runQueuedSqliteTransaction` in client.ts — see that function's doc for why
+ * this can't keep a private per-store queue.
  */
 /** @internal exported for the async-tx concurrency spec */
 export function patchBetterSqliteTransactions<
   DB extends { transaction: (...args: any[]) => any; session: any },
 >(db: DB, sqlite: { inTransaction: boolean; exec: (sql: string) => void }): DB {
-  // Concurrent TOP-LEVEL async transactions on the single better-sqlite3
-  // connection must not interleave: a second transaction starting while the
-  // first is open would see `inTransaction` and open a savepoint INSIDE the
-  // first transaction, which then commits out from under it ("no such
-  // savepoint"). Serialize top-level transactions through a promise chain;
-  // genuine same-task nesting (tx.transaction or db.transaction inside an
-  // open callback) is detected via AsyncLocalStorage and keeps the direct
-  // savepoint path so it cannot deadlock on the queue.
-  //
-  // This state lives on `sqlite` (see `_sqliteTxState`), not in this
-  // function's closure, so every store sharing this connection serializes
-  // against the same queue instead of each running its own.
-  const existingState = _sqliteTxState.get(sqlite);
-  // `const` (not the `let` this narrows) so the closures below keep TypeScript's
-  // non-undefined narrowing instead of re-widening at the capture point.
-  const state = existingState ?? {
-    txChain: Promise.resolve(),
-    txContext: new AsyncLocalStorage<boolean>(),
-    savepointSeq: { current: 0 },
-  };
-  if (!existingState) _sqliteTxState.set(sqlite, state);
-  const { txContext, savepointSeq } = state;
-
   function makeAsyncTransaction(
     originalTransaction: (...args: any[]) => any,
   ): (...args: any[]) => Promise<unknown> {
@@ -440,7 +423,7 @@ export function patchBetterSqliteTransactions<
 
       const nested = sqlite.inTransaction;
       if (nested) {
-        const sp = `sp_async_${++savepointSeq.current}`;
+        const sp = nextSqliteSavepointName(sqlite);
         sqlite.exec(`SAVEPOINT ${sp}`);
         let released = false;
         try {
@@ -484,18 +467,7 @@ export function patchBetterSqliteTransactions<
     return function asyncTransaction(
       cb: (tx: unknown) => unknown,
     ): Promise<unknown> {
-      if (txContext.getStore()) {
-        // Same-task nesting: run directly (savepoint path inside the open
-        // transaction). Queueing here would deadlock behind the outer tx.
-        return runTransactionBody(cb);
-      }
-      const run = () => txContext.run(true, () => runTransactionBody(cb));
-      const next = state.txChain.then(run, run);
-      state.txChain = next.then(
-        () => undefined,
-        () => undefined,
-      );
-      return next;
+      return runQueuedSqliteTransaction(sqlite, () => runTransactionBody(cb));
     };
   }
 
@@ -505,26 +477,6 @@ export function patchBetterSqliteTransactions<
 
 /** Sentinel thrown inside the tx-extraction stub — never escapes the catch. */
 const _EXTRACT_TX = Symbol("extract-tx");
-
-/**
- * Transaction-serialization state for one better-sqlite3 connection, keyed
- * off the connection object itself. Several `createGetDb()` schema stores
- * can now share one physical connection (see `startInit()`'s local-sqlite
- * branch and `sharedDbPoolAsync` in client.ts) — if each store's
- * `patchBetterSqliteTransactions` call kept its own private queue, a
- * concurrent top-level transaction from a second store would see the first
- * store's still-open BEGIN IMMEDIATE, open a SAVEPOINT inside it, and an
- * unrelated ROLLBACK in the first store would silently take the second
- * store's already-"committed" work down with it. One connection, one queue.
- */
-const _sqliteTxState = new WeakMap<
-  object,
-  {
-    txChain: Promise<unknown>;
-    txContext: AsyncLocalStorage<boolean>;
-    savepointSeq: { current: number };
-  }
->();
 
 export function createGetDb<T extends Record<string, unknown>>(schema: T) {
   let _db: any;

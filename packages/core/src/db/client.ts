@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import path from "path";
 
 /**
@@ -1429,6 +1430,77 @@ export async function openLocalSqlite(filename: string): Promise<any> {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Local SQLite transaction coordination
+// ---------------------------------------------------------------------------
+
+/**
+ * Transaction-serialization state for one better-sqlite3 connection, keyed
+ * off the connection object itself. `getDbExec()`'s own transactions and
+ * every `createGetDb()` schema store's transactions now run on this SAME
+ * connection (see `openLocalSqlite`/`sharedDbPoolAsync`) and MUST share this
+ * one queue instead of each keeping a private one — otherwise a concurrent
+ * top-level transaction from the other API would see this one's still-open
+ * BEGIN IMMEDIATE, open a SAVEPOINT inside it, and this one's own
+ * ROLLBACK/COMMIT would take that savepoint holder's work down with it.
+ */
+interface SqliteTxState {
+  txChain: Promise<unknown>;
+  txContext: AsyncLocalStorage<boolean>;
+  savepointSeq: { current: number };
+}
+
+const _sqliteTxState = new WeakMap<object, SqliteTxState>();
+
+function getSqliteTxState(sqlite: object): SqliteTxState {
+  let state = _sqliteTxState.get(sqlite);
+  if (!state) {
+    state = {
+      txChain: Promise.resolve(),
+      txContext: new AsyncLocalStorage<boolean>(),
+      savepointSeq: { current: 0 },
+    };
+    _sqliteTxState.set(sqlite, state);
+  }
+  return state;
+}
+
+/**
+ * Admit `body` onto `sqlite`'s transaction queue.
+ *
+ * Genuine same-task nesting (a transaction opened from inside an
+ * already-running transaction's own callback on this connection) is detected
+ * via AsyncLocalStorage and runs `body` immediately — queueing it here would
+ * deadlock it behind the very transaction it is nested in. Every other
+ * (top-level) call serializes behind the connection's queue so two unrelated
+ * top-level transactions — whether both from `createGetDb()` stores, both
+ * from `getDbExec()`, or one of each — can never have their BEGIN/COMMIT
+ * interleave. `body` is responsible for reading `sqlite.inTransaction` once
+ * it actually runs and choosing BEGIN vs. SAVEPOINT accordingly; this
+ * function only decides whether `body` runs now or waits its turn.
+ */
+export function runQueuedSqliteTransaction<T>(
+  sqlite: object,
+  body: () => Promise<T>,
+): Promise<T> {
+  const state = getSqliteTxState(sqlite);
+  if (state.txContext.getStore()) {
+    return body();
+  }
+  const run = () => state.txContext.run(true, body);
+  const next = state.txChain.then(run, run);
+  state.txChain = next.then(
+    () => undefined,
+    () => undefined,
+  );
+  return next;
+}
+
+/** Next unique SAVEPOINT name for this connection's nested transactions. */
+export function nextSqliteSavepointName(sqlite: object): string {
+  return `sp_async_${++getSqliteTxState(sqlite).savepointSeq.current}`;
+}
+
 /**
  * Swap the pool registered for a key, for the postgres.js recycle path that
  * replaces a pool whose query timed out. Without this the registry would keep
@@ -2094,38 +2166,45 @@ async function createDbExecInternal(
 
     const execute = makeSqliteExecute(sqlite);
 
-    // DbExec's own .transaction() must not run BEGIN IMMEDIATE / COMMIT /
-    // ROLLBACK on the `sqlite` handle above once it is shared with
-    // createGetDb() stores: patchBetterSqliteTransactions (create-get-db.ts)
-    // treats `sqlite.inTransaction === true` as proof that ITS OWN caller is
-    // recursively nested and silently opens a SAVEPOINT instead of BEGIN — if
-    // that state actually belongs to this unrelated DbExec transaction, this
-    // transaction's own COMMIT/ROLLBACK then takes the savepoint holder's
-    // already-"released" work down with it. Give DbExec's transactions a
-    // second connection to the same file, so the createGetDb handle's
-    // `inTransaction` only ever reflects create-get-db.ts's own transactions.
-    // Routed through `sharedDbPoolAsync` (under a distinct driver key) so a
-    // dropped-and-reinitialized singleton reuses one extra connection instead
-    // of opening a new one per init, and so `closeSharedDbPools()` closes it
-    // the same way it closes `sqlite` above.
-    let txSqlitePromise: Promise<typeof sqlite> | undefined;
-    const getTxSqlite = (): Promise<typeof sqlite> =>
-      trackSingletonResources
-        ? (txSqlitePromise ??= sharedDbPoolAsync(
-            "better-sqlite3-tx",
-            filename,
-            () => openLocalSqlite(filename),
-          ))
-        : Promise.resolve(sqlite);
-
+    // DbExec's own .transaction() runs on the SAME `sqlite` handle shared
+    // with createGetDb() stores, so it must go through the same
+    // `runQueuedSqliteTransaction` queue those stores' patched
+    // db.transaction() uses (see patchBetterSqliteTransactions in
+    // create-get-db.ts). Without that shared queue, a concurrent unrelated
+    // top-level transaction from the other API would see this one's
+    // still-open BEGIN IMMEDIATE via `sqlite.inTransaction`, open a SAVEPOINT
+    // inside it, and this one's own COMMIT/ROLLBACK would take that
+    // savepoint holder's work down with it. A second connection would avoid
+    // that, but the two handles share no write mutex: this one holding
+    // BEGIN IMMEDIATE would make a concurrent write on the other block
+    // synchronously for the full busy_timeout and then fail SQLITE_BUSY. One
+    // connection, one queue, for both APIs.
     return {
       execute,
       async transaction(fn) {
-        const txSqlite = await getTxSqlite();
-        return explicitTransaction(
-          makeSqliteExecute(txSqlite),
-          "BEGIN IMMEDIATE",
-        )(fn);
+        return runQueuedSqliteTransaction(sqlite, async () => {
+          if (sqlite.inTransaction) {
+            // Same-task nesting under an already-open transaction (from
+            // either API) — savepoint instead of BEGIN, matching
+            // patchBetterSqliteTransactions' nested path.
+            const sp = nextSqliteSavepointName(sqlite);
+            await execute(`SAVEPOINT ${sp}`);
+            let released = false;
+            try {
+              const result = await fn({ execute });
+              await execute(`RELEASE SAVEPOINT ${sp}`);
+              released = true;
+              return result;
+            } catch (err) {
+              if (!released) {
+                await execute(`ROLLBACK TO SAVEPOINT ${sp}`).catch(() => {});
+                await execute(`RELEASE SAVEPOINT ${sp}`).catch(() => {});
+              }
+              throw err;
+            }
+          }
+          return explicitTransaction(execute, "BEGIN IMMEDIATE")(fn);
+        });
       },
       async close() {
         if (trackSingletonResources) return closeSharedDbPools();

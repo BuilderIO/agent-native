@@ -1581,6 +1581,14 @@ describe("db/client shared connection pools", () => {
 
 describe("db/client local SQLite connection sharing", () => {
   afterEach(() => {
+    // The connection-sharing test below vi.doMock()s "better-sqlite3" and
+    // "drizzle-orm/better-sqlite3". vi.resetModules() alone clears the
+    // module registry cache but NOT a vi.doMock() factory registration, so
+    // without doUnmock every later test in this file that dynamically
+    // imports "better-sqlite3" would keep getting the fake no-op Database
+    // (whose exec() never touches inTransaction) instead of the real driver.
+    vi.doUnmock("better-sqlite3");
+    vi.doUnmock("drizzle-orm/better-sqlite3");
     vi.resetModules();
     vi.unstubAllEnvs();
   });
@@ -1662,85 +1670,164 @@ describe("db/client local SQLite connection sharing", () => {
   });
 });
 
-describe("db/client local SQLite transaction isolation", () => {
+describe("db/client local SQLite transaction coordination", () => {
   afterEach(() => {
     vi.resetModules();
     vi.unstubAllEnvs();
   });
 
+  const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
   /**
-   * Reproduces the corruption risk from sharing one better-sqlite3 handle
-   * between getDbExec()'s raw explicitTransaction() and createGetDb()'s
-   * patchBetterSqliteTransactions: the latter treats `sqlite.inTransaction`
-   * as proof its own caller recursively nested and silently opens a
-   * SAVEPOINT instead of BEGIN. If that flag is actually an unrelated
-   * getDbExec() transaction, an unrelated ROLLBACK on that same handle would
-   * take the savepoint holder's already-"released" work down with it.
-   *
-   * Exercising the full interleaving with two genuinely concurrent
-   * transactions isn't practical here: better-sqlite3 is synchronous, so a
-   * real lock conflict between two connections blocks the whole Node event
-   * loop for up to `busy_timeout` (10s) with no way for test code to
-   * intervene. Instead this asserts the observable contract the corruption
-   * depends on: the connection createGetDb() stores check via
-   * `sqlite.inTransaction` must never read true because of a getDbExec()
-   * transaction that connection did not open.
+   * getDbExec()'s SQLite transaction() and a createGetDb() store's
+   * db.transaction() now run on the SAME better-sqlite3 handle (see
+   * `openLocalSqlite`/`sharedDbPoolAsync` in client.ts) instead of each
+   * opening its own connection. Sharing raw SQL against a real file DB and
+   * inspecting the process-wide registry directly reproduces the actual
+   * setup both APIs use in production.
    */
-  it("keeps getDbExec().transaction() off the connection createGetDb() stores read .inTransaction on", async () => {
+  async function setupSharedSqlite() {
     const os = await import("node:os");
     const path = await import("node:path");
     const fs = await import("node:fs");
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-db-tx-"));
     const filename = path.join(tmpDir, "app.db");
+    vi.stubEnv("DATABASE_URL", `file:${filename}`);
 
+    const { getDbExec, sharedDbPoolAsync, openLocalSqlite } =
+      await import("./client.js");
+    const { createGetDb } = await import("./create-get-db.js");
+
+    const sqlite = await sharedDbPoolAsync("better-sqlite3", filename, () =>
+      openLocalSqlite(filename),
+    );
+    sqlite.exec(
+      "CREATE TABLE items (id INTEGER PRIMARY KEY AUTOINCREMENT, value TEXT NOT NULL)",
+    );
+
+    // Resolve to the real (already-patched) drizzle instance rather than the
+    // lazy init-recording proxy, so `.transaction` is available synchronously.
+    const db = (await createGetDb({})()) as unknown as {
+      transaction: (cb: (tx: unknown) => Promise<unknown>) => Promise<unknown>;
+    };
+
+    return {
+      cleanup: () => fs.rmSync(tmpDir, { recursive: true, force: true }),
+      sqlite,
+      getDbExec,
+      db,
+    };
+  }
+
+  it("serializes an unrelated getDbExec() transaction and a createGetDb() store transaction instead of nesting a savepoint inside one another (regression: cross-API corruption)", async () => {
+    const { cleanup, sqlite, getDbExec, db } = await setupSharedSqlite();
     try {
-      vi.stubEnv("DATABASE_URL", `file:${filename}`);
-
-      const { getDbExec, sharedDbPoolAsync, openLocalSqlite } =
-        await import("./client.js");
-
-      // The connection createGetDb() stores share and check `.inTransaction`
-      // on (patchBetterSqliteTransactions, create-get-db.ts) — obtained the
-      // same way createGetDb() does, via the process-wide registry keyed by
-      // (driver, filename). getDbExec() below resolves to this identical
-      // handle for its own ordinary execute()s.
-      const storeConnection = await sharedDbPoolAsync(
-        "better-sqlite3",
-        filename,
-        () => openLocalSqlite(filename),
-      );
-      storeConnection.exec(
-        "CREATE TABLE items (id INTEGER PRIMARY KEY AUTOINCREMENT, value TEXT NOT NULL)",
-      );
-
-      let releaseDbExecTx!: () => void;
-      const gate = new Promise<void>((resolve) => {
-        releaseDbExecTx = resolve;
-      });
-
+      // getDbExec()'s transaction opens first and is still in flight (past
+      // its own BEGIN IMMEDIATE) when the store transaction below is called.
       const dbExecTx = getDbExec().transaction!(async (tx) => {
         await tx.execute("INSERT INTO items (value) VALUES ('dbexec-doomed')");
-        await gate;
+        await delay(15);
         throw new Error("dbexec rollback");
-      }).catch((e) => e as Error);
+      }).catch((e: unknown) => e as Error);
+      await delay(5);
 
-      // Flush microtasks so getDbExec()'s BEGIN IMMEDIATE has actually run
-      // before we inspect the store connection's transaction state.
-      await new Promise((r) => setTimeout(r, 0));
+      // Pre-coordinator, this would see `sqlite.inTransaction === true` from
+      // the still-open getDbExec() transaction above, open a SAVEPOINT
+      // inside it, and get rolled back when the getDbExec() transaction's
+      // own ROLLBACK ran — even though this transaction commits cleanly on
+      // its own. With the shared queue this instead waits its turn and runs
+      // as its own top-level BEGIN IMMEDIATE once the doomed one is done.
+      const storeResult = await db.transaction(async () => {
+        sqlite.prepare("INSERT INTO items (value) VALUES ('store-kept')").run();
+        return "ok";
+      });
 
-      expect(storeConnection.inTransaction).toBe(false);
+      const dbExecResult = await dbExecTx;
+      expect(dbExecResult).toBeInstanceOf(Error);
+      expect(storeResult).toBe("ok");
 
-      releaseDbExecTx();
-      const result = await dbExecTx;
-      expect(result).toBeInstanceOf(Error);
-
-      // Sanity: the doomed transaction actually ran and rolled back.
-      const rows = storeConnection
-        .prepare("SELECT value FROM items")
+      const rows = sqlite
+        .prepare("SELECT value FROM items ORDER BY id")
         .all() as Array<{ value: string }>;
-      expect(rows).toHaveLength(0);
+      expect(rows.map((r) => r.value)).toEqual(["store-kept"]);
     } finally {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
+      cleanup();
+    }
+  });
+
+  it("never interleaves two concurrent top-level transactions across the two APIs", async () => {
+    const { cleanup, sqlite, getDbExec, db } = await setupSharedSqlite();
+    try {
+      const order: string[] = [];
+
+      const runViaDbExec = () =>
+        getDbExec().transaction!(async () => {
+          order.push("dbexec-start");
+          sqlite.prepare("INSERT INTO items (value) VALUES ('dbexec')").run();
+          await delay(15);
+          sqlite.prepare("INSERT INTO items (value) VALUES ('dbexec')").run();
+          order.push("dbexec-end");
+          return "dbexec";
+        });
+
+      const runViaStore = () =>
+        db.transaction(async () => {
+          order.push("store-start");
+          sqlite.prepare("INSERT INTO items (value) VALUES ('store')").run();
+          await delay(15);
+          sqlite.prepare("INSERT INTO items (value) VALUES ('store')").run();
+          order.push("store-end");
+          return "store";
+        });
+
+      const results = await Promise.all([runViaDbExec(), runViaStore()]);
+      expect(results.sort()).toEqual(["dbexec", "store"]);
+
+      // Whichever ran first must fully finish (both inserts, its "-end")
+      // before the other's callback is ever entered — no interleaved BEGIN.
+      expect(order).toHaveLength(4);
+      const first = order[0].replace("-start", "");
+      const second = first === "dbexec" ? "store" : "dbexec";
+      expect(order).toEqual([
+        `${first}-start`,
+        `${first}-end`,
+        `${second}-start`,
+        `${second}-end`,
+      ]);
+
+      const rows = sqlite.prepare("SELECT value FROM items").all();
+      expect(rows).toHaveLength(4);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("still supports same-task nesting across the two APIs via a savepoint, without deadlocking on the queue", async () => {
+    const { cleanup, sqlite, getDbExec, db } = await setupSharedSqlite();
+    try {
+      await getDbExec().transaction!(async (tx) => {
+        await tx.execute("INSERT INTO items (value) VALUES ('outer')");
+
+        // Same-task nested call into the OTHER api. Queueing this behind the
+        // still-open outer transaction would deadlock forever; it must take
+        // the direct savepoint path instead (shared AsyncLocalStorage
+        // context in runQueuedSqliteTransaction, client.ts).
+        await expect(
+          db.transaction(async () => {
+            sqlite
+              .prepare("INSERT INTO items (value) VALUES ('inner-gone')")
+              .run();
+            throw new Error("inner rollback");
+          }),
+        ).rejects.toThrow("inner rollback");
+      });
+
+      const rows = sqlite
+        .prepare("SELECT value FROM items ORDER BY id")
+        .all() as Array<{ value: string }>;
+      expect(rows.map((r) => r.value)).toEqual(["outer"]);
+    } finally {
+      cleanup();
     }
   });
 });
