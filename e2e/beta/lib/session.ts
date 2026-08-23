@@ -211,17 +211,21 @@ export async function bootstrapAppSession(
       // `promoteQuerySession` (packages/core/src/server/auth.ts) exchanges the
       // token for this host's own session cookie on any request carrying it.
       //
-      // Use the browser context's API client so Set-Cookie is shared with the
-      // stored browser state without navigating a page that may redirect an
-      // authenticated user away from `/sign-in` while the check is running.
-      const exchangeSession = () =>
-        context.request.get(
+      // Navigate a real browser page so Set-Cookie is persisted by the same
+      // cookie jar that is saved and reused by the authenticated specs.
+      const page = await context.newPage();
+      const exchangeSession = async () => {
+        const response = await page.goto(
           `${origin}/_agent-native/auth/session?_session=${encodeURIComponent(token)}`,
-          {
-            headers: { accept: "application/json" },
-            timeout: 60_000,
-          },
+          { waitUntil: "domcontentloaded", timeout: 60_000 },
         );
+        if (!response) {
+          throw new Error(
+            `${origin} returned no response while exchanging the session token.`,
+          );
+        }
+        return response;
+      };
       let promoted: Awaited<ReturnType<typeof exchangeSession>>;
       try {
         promoted = await exchangeSession();
@@ -235,8 +239,10 @@ export async function bootstrapAppSession(
         }
       } catch {
         // Keep the live query token out of Playwright's error and report text.
+        await page.close();
         throw new Error(`${origin} failed while exchanging the session token.`);
       }
+      await page.close();
       if (promoted.status() >= 500) {
         throw new Error(
           `${origin} answered HTTP ${promoted.status()} while exchanging the session token.`,
