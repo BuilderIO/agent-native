@@ -325,7 +325,10 @@ describe("Desktop identity activation", () => {
   });
 
   it("reconciles a loaded app without replacing its session on activation", async () => {
-    const ensureAppSession = vi.fn(async () => true);
+    const ensureAppSession = vi
+      .fn<() => Promise<boolean>>()
+      .mockResolvedValueOnce(true)
+      .mockResolvedValue(false);
     Object.defineProperty(window, "electronAPI", {
       configurable: true,
       value: {
@@ -407,6 +410,32 @@ describe("Desktop identity activation", () => {
     });
     expect(ensureAppSession).toHaveBeenCalledTimes(2);
     expect(ensureAppSession).toHaveBeenNthCalledWith(2, "mail", {
+      preserveExistingSession: true,
+    });
+
+    act(() => {
+      root.render(
+        React.createElement(AppWebview, {
+          app,
+          appConfig,
+          isActive: false,
+          theme: "dark" as const,
+        }),
+      );
+    });
+    act(() => {
+      root.render(
+        React.createElement(AppWebview, {
+          app,
+          appConfig,
+          isActive: true,
+          theme: "dark" as const,
+        }),
+      );
+    });
+
+    await vi.waitFor(() => expect(ensureAppSession).toHaveBeenCalledTimes(3));
+    expect(ensureAppSession).toHaveBeenNthCalledWith(3, "mail", {
       preserveExistingSession: true,
     });
   });

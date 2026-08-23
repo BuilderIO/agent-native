@@ -689,6 +689,7 @@ export class DesktopIdentityBroker {
     const pendingKey = this.pendingOperationKey(
       appId,
       options.expectedSessionValue,
+      options.preserveExistingSession,
     );
     const existing = this.pendingByApp.get(pendingKey);
     if (existing) return existing;
@@ -777,7 +778,7 @@ export class DesktopIdentityBroker {
     expectedEmail?: string,
     options: DesktopIdentityEnsureAppSessionOptions = {},
   ): Promise<boolean> {
-    const pendingKey = `${generation}:${appId}`;
+    const pendingKey = `${generation}:${appId}:${options.preserveExistingSession ? "preserve" : "replace"}`;
     if (this.completedModernAppSessions.has(pendingKey)) {
       const app = this.options.resolveApp(appId);
       if (!app) return Promise.resolve(false);
@@ -1534,7 +1535,9 @@ export class DesktopIdentityBroker {
           });
         }
         if (succeeded && this.isCeremonyCurrent(generation)) {
-          this.completedModernAppSessions.add(`${generation}:${app.id}`);
+          this.completedModernAppSessions.add(
+            `${generation}:${app.id}:replace`,
+          );
         }
         if (app.id === appId && !requestedResultSettled) {
           requestedResultSettled = true;
@@ -3491,8 +3494,9 @@ export class DesktopIdentityBroker {
   private pendingOperationKey(
     appId: string,
     expectedSessionValue?: string,
+    preserveExistingSession = false,
   ): string {
-    return `${appId}\u0000${expectedSessionValue ?? ""}`;
+    return `${appId}\u0000${expectedSessionValue ?? ""}\u0000${preserveExistingSession ? "preserve" : "replace"}`;
   }
 
   private assertCeremonyCurrent(generation: number): void {
