@@ -220,6 +220,10 @@ describe("EnvironmentBadge render", () => {
       (button) => button.textContent?.includes("Hide badge"),
     );
     expect(hideButton).not.toBeUndefined();
+    expect(hideButton?.className).toContain("mt-2");
+    expect(hideButton?.className).toContain("-mb-2");
+    expect(hideButton?.className).toContain("w-full");
+    expect(hideButton?.className).toContain("justify-center");
 
     act(() => hideButton?.click());
 
