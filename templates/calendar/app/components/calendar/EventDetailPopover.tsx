@@ -489,7 +489,7 @@ export function EventDetailPopover({
   const t = useT();
   const workingLocationLabels = createWorkingLocationDisplayLabels(t);
   const isMobile = useIsMobile();
-  const eventTimezone = event.startTimeZone || timezone || getLocalTimezone();
+  const eventTimezone = timezone || event.startTimeZone || getLocalTimezone();
   const [open, setOpen] = useState(defaultOpen);
   const [editingTitle, setEditingTitle] = useState(
     defaultOpen ? getEditableEventTitle(event) : "",

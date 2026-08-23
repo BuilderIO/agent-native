@@ -20,6 +20,7 @@ import {
   fetchCompleteContentDatabaseList,
   invalidateBuilderBodyHydrationQueries,
   invalidateContentDatabaseSourceRefreshQueries,
+  isContentDatabaseByIdQueryEnabled,
   moveOptimisticContentDatabaseItem,
   preserveScopedDatabasePlaceholder,
   readCachedContentDatabaseResponse,
@@ -117,6 +118,30 @@ describe("preserveScopedDatabasePlaceholder", () => {
         { databaseId: "personal-files" },
       ),
     ).toBeUndefined();
+  });
+});
+
+describe("isContentDatabaseByIdQueryEnabled", () => {
+  it("fetches when a databaseId is present and the caller doesn't pause it", () => {
+    expect(isContentDatabaseByIdQueryEnabled("files-db")).toBe(true);
+  });
+
+  it("stays disabled when there is no databaseId to query", () => {
+    expect(isContentDatabaseByIdQueryEnabled(null)).toBe(false);
+    expect(isContentDatabaseByIdQueryEnabled(null, { enabled: true })).toBe(
+      false,
+    );
+  });
+
+  it("pauses fetching for a still-known databaseId instead of requiring the caller to null it out", () => {
+    // A caller that wants to briefly hold off refetching (e.g. a deferred
+    // sidebar read) must be able to do so by passing `enabled: false` while
+    // keeping the same databaseId — nulling databaseId out instead would move
+    // the query to its disabled, uncached key and read as empty rather than
+    // paused. See DocumentSidebar.tsx's useDeferredFilesDatabaseId.
+    expect(
+      isContentDatabaseByIdQueryEnabled("files-db", { enabled: false }),
+    ).toBe(false);
   });
 });
 

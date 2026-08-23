@@ -8,9 +8,11 @@ import { AdminShell } from "../admin-navigation";
 import { TooltipProvider } from "../ui/tooltip";
 import {
   buildChatFirstEmbedSessionInput,
+  CHAT_FIRST_SURFACE_PANEL_TOGGLE_CLASS_NAME,
   formatThreadAge,
   isElectronEmbeddedSearch,
   NavContent,
+  renderChatFirstAppSurfaceTab,
   shouldAutoCollapseDispatchSidebar,
 } from "./Layout";
 
@@ -19,10 +21,17 @@ const clientState = vi.hoisted(() => ({
   switchThread: vi.fn(),
   threads: [] as Array<Record<string, unknown>>,
   workspaceApps: [] as Array<Record<string, unknown>>,
+  // Stable identity: WorkspaceAppFrame's embed effect depends on this
+  // function, so a fresh mock per render would re-run the effect forever.
+  createEmbedSessionMutateAsync: vi
+    .fn()
+    .mockResolvedValue({ startUrl: "about:blank" }),
 }));
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
-  AgentSidebar: ({ children }: { children: React.ReactNode }) => children,
+  AgentSidebar: ({ children }: { children: React.ReactNode }) => (
+    <div data-agent-sidebar>{children}</div>
+  ),
   focusAgentChat: vi.fn(),
   navigateWithAgentChatViewTransition: (
     navigate: (path: string) => void,
@@ -53,6 +62,17 @@ vi.mock("@agent-native/core/client/hooks", () => ({
       action === "list-workspace-apps" ? clientState.workspaceApps : undefined,
     isLoading: false,
   }),
+  useActionMutation: () => ({
+    mutateAsync: clientState.createEmbedSessionMutateAsync,
+  }),
+}));
+
+vi.mock("@agent-native/core/client/feature-flags", () => ({
+  useFeatureFlag: () => false,
+}));
+
+vi.mock("next-themes", () => ({
+  useTheme: () => ({ resolvedTheme: "light" }),
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -599,5 +619,124 @@ describe("Dispatch NavContent", () => {
     });
     expect(clientState.createThread).toHaveBeenCalledOnce();
     expect(clientState.switchThread).toHaveBeenCalledWith("new-thread");
+  });
+});
+
+function readUnprefixedZIndexClass(className: string): number | null {
+  const match = className.match(/(?:^|\s)z-\[?(\d+)\]?(?=\s|$)/);
+  return match ? Number(match[1]) : null;
+}
+
+function readMobileZIndexClass(className: string): number | null {
+  const match = className.match(/max-\[767px\]:z-\[?(\d+)\]?(?=\s|$)/);
+  return match ? Number(match[1]) : null;
+}
+
+describe("chat-first surface panel toggle stacking", () => {
+  it("keeps the toggle above the mobile full-screen surface panel overlay", async () => {
+    const { ChatFirstSurfacePanelToggle: RealChatFirstSurfacePanelToggle } =
+      await vi.importActual<
+        typeof import("@agent-native/core/client/agent-chat")
+      >("@agent-native/core/client/agent-chat");
+    const { ChatFirstSurfacePanel } =
+      await import("@agent-native/core/client/chat-first");
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        <>
+          <ChatFirstSurfacePanel width={320} onResizePointerDown={() => {}}>
+            <div>side surface content</div>
+          </ChatFirstSurfacePanel>
+          <RealChatFirstSurfacePanelToggle
+            open={false}
+            onToggle={() => {}}
+            className={CHAT_FIRST_SURFACE_PANEL_TOGGLE_CLASS_NAME}
+          />
+        </>,
+      );
+    });
+
+    const panelClassName =
+      container.querySelector("[data-chat-first-surface-panel]")?.className ??
+      "";
+    const toggleClassName =
+      container.querySelector("[data-chat-first-surface-toggle]")?.className ??
+      "";
+
+    // Below 768px the panel becomes a full-screen absolute overlay at this
+    // z-index (surface-panel.tsx). The toggle is the only control that can
+    // dismiss it, so it must always paint above that overlay.
+    const panelMobileZIndex = readMobileZIndexClass(panelClassName);
+    const toggleZIndex = readUnprefixedZIndexClass(toggleClassName);
+    expect(panelMobileZIndex).not.toBeNull();
+    expect(toggleZIndex).not.toBeNull();
+    expect(toggleZIndex as number).toBeGreaterThan(panelMobileZIndex as number);
+
+    act(() => root.unmount());
+    container.remove();
+  });
+});
+
+describe("chat-first app surface tab chat rail", () => {
+  const registration = { id: "mail", name: "Mail", path: "/mail" };
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  async function renderAppTab(isMobileSurface: boolean) {
+    const { defaultChatFirstCopy } =
+      await import("@agent-native/core/client/chat-first");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response("{}", { status: 200 })),
+    );
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        renderChatFirstAppSurfaceTab({
+          registration,
+          embedPath: "/mail",
+          loading: false,
+          isMobileSurface,
+          copy: defaultChatFirstCopy,
+        }),
+      );
+    });
+    return { container, root };
+  }
+
+  it("does not mount a second full-screen chat rail while the mobile surface panel already covers the screen", async () => {
+    const { container, root } = await renderAppTab(true);
+
+    // ChatFirstSurfacePanel is already a full-screen overlay below 768px
+    // (surface-panel.tsx). A nested AgentSidebar chat rail here would stack a
+    // second full-screen shell on top of it.
+    expect(container.querySelector("[data-agent-sidebar]")).toBeNull();
+    expect(
+      container.querySelector("[data-chat-first-app-pane]"),
+    ).not.toBeNull();
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it("still gives the app its own chat rail on desktop, where the surface panel is inline", async () => {
+    const { container, root } = await renderAppTab(false);
+
+    expect(container.querySelector("[data-agent-sidebar]")).not.toBeNull();
+
+    act(() => root.unmount());
+    container.remove();
   });
 });

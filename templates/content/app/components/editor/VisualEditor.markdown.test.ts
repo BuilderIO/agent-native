@@ -1217,6 +1217,29 @@ describe("VisualEditor markdown round-tripping", () => {
         }),
       );
 
+    const editorParagraphs = () =>
+      Array.from(
+        container.querySelectorAll<HTMLElement>(".notion-editor > p"),
+        (node) => node.textContent,
+      );
+    // The seed → reconcile handoff inside useCollabReconcile is a chain of
+    // real (unfaked) setTimeout hops — never a fixed number of React ticks —
+    // so its wall-clock latency has no tight upper bound under load. Poll for
+    // the DOM it actually produces instead of sleeping a guessed duration:
+    // that keeps this fast when the machine is idle and merely patient (never
+    // silently wrong) when it is not. Confirmed against this exact test with
+    // an artificially widened reconcile retry interval: with a blind sleep it
+    // fails on stale content; with this poll it converges to the right
+    // content every time, proving the reconcile itself is not racy — only a
+    // fixed sleep waiting on it was.
+    const waitForParagraphs = (expected: string[]) =>
+      vi.waitFor(
+        () => {
+          expect(editorParagraphs()).toEqual(expected);
+        },
+        { timeout: 5000, interval: 20 },
+      );
+
     try {
       // Match a real reload after an external version was previously live: seed
       // the persisted Y.Doc through the actual VisualEditor, unmount the page,
@@ -1224,7 +1247,14 @@ describe("VisualEditor markdown round-tripping", () => {
       act(() => {
         root.render(renderEditor(incoming, "2026-07-09T19:59:59.000Z"));
       });
-      await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+      await act(() =>
+        waitForParagraphs([
+          "→ → slack questions",
+          'much simpler "what"',
+          "what is it and how different from other app builders",
+          "when to engage prospects",
+        ]),
+      );
       act(() => root.unmount());
       root = createRoot(container);
 
@@ -1233,30 +1263,19 @@ describe("VisualEditor markdown round-tripping", () => {
           renderEditor("Initial local block", "2026-07-09T20:00:00.000Z"),
         );
       });
-      await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
-      expect(
-        Array.from(
-          container.querySelectorAll<HTMLElement>(".notion-editor > p"),
-          (node) => node.textContent,
-        ),
-      ).toEqual(["Initial local block"]);
+      await act(() => waitForParagraphs(["Initial local block"]));
 
       act(() => {
         root.render(renderEditor(incoming, "2026-07-09T20:00:01.000Z"));
       });
-      await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
-
-      expect(
-        Array.from(
-          container.querySelectorAll<HTMLElement>(".notion-editor > p"),
-          (node) => node.textContent,
-        ),
-      ).toEqual([
-        "→ → slack questions",
-        'much simpler "what"',
-        "what is it and how different from other app builders",
-        "when to engage prospects",
-      ]);
+      await act(() =>
+        waitForParagraphs([
+          "→ → slack questions",
+          'much simpler "what"',
+          "what is it and how different from other app builders",
+          "when to engage prospects",
+        ]),
+      );
       expect(emitted).not.toContain("<empty-block/>");
     } finally {
       await act(async () => root.unmount());

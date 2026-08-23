@@ -338,6 +338,35 @@ describe("dev server mounted path helpers", () => {
     expect(assetRequest.headers.accept).toBe("image/png");
   });
 
+  it("normalizes the browser's real speculation-rules auto-fetch destination", () => {
+    const plugin = findPlugin("agent-native-framework-dev-dynamic-forwarder");
+    let middleware: Function | null = null;
+    const server = {
+      config: { base: "/" },
+      middlewares: {
+        use: vi.fn((fn: Function) => {
+          middleware = fn;
+        }),
+      },
+    };
+    plugin.configureServer(server as any);
+
+    // Real Chromium tags its native speculation-rules auto-fetch with this
+    // exact destination, never absent — the forwarder must still normalize
+    // it, or Nitro's dev classifier treats it as a static asset and 404s.
+    const request: any = {
+      url: "/_agent-native/speculation-rules.json",
+      headers: {
+        accept: "application/speculationrules+json",
+        "sec-fetch-dest": "speculationrules",
+      },
+    };
+    const next = vi.fn();
+    middleware?.(request, {}, next);
+    expect(request.headers["sec-fetch-dest"]).toBe("empty");
+    expect(next).toHaveBeenCalledOnce();
+  });
+
   it("preserves document and iframe destinations for embed-start", () => {
     const plugin = findPlugin("agent-native-framework-dev-dynamic-forwarder");
     let middleware: Function | null = null;

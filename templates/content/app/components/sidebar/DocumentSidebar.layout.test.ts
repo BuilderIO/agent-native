@@ -325,6 +325,28 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain("scroll={false}");
   });
 
+  it("never empties the Files tree while a deferred database read is paused", () => {
+    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
+    const hooks = readSidebarSource("../../hooks/use-content-database.ts");
+
+    // useDeferredFilesDatabaseId must keep returning the real databaseId
+    // while paused (only `enabled` toggles) — swapping databaseId itself to
+    // null moves the query to a disabled key with no cached rows and flashes
+    // the tree empty for the whole deferred window (see the New page repro
+    // in this file's other Files-tree tests).
+    expect(sidebar).not.toContain(
+      "return expanded && ready ? databaseId : null",
+    );
+    expect(sidebar).toContain(
+      "return { databaseId: expanded ? databaseId : null, enabled: ready }",
+    );
+    expect(sidebar).toContain("deferredFilesDatabase.databaseId");
+    expect(sidebar).toContain("{ enabled: deferredFilesDatabase.enabled }");
+    expect(hooks).toContain(
+      "isContentDatabaseByIdQueryEnabled(databaseId, options)",
+    );
+  });
+
   it("uses the full row width until right-side actions are revealed", () => {
     const databaseSidebar = readSidebarSource("../editor/database/sidebar.tsx");
     const reorder = readSidebarSource("./sidebar-reorder.tsx");
@@ -468,13 +490,22 @@ describe("document sidebar layout", () => {
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
     const treeItem = readSidebarSource("./DocumentTreeItem.tsx");
     const databaseSidebar = readSidebarSource("../editor/database/sidebar.tsx");
+    const pointerLock = readSidebarSource(
+      "../../../../../packages/toolkit/src/ui/pointer-lock.ts",
+    );
 
     expect(sidebar).toContain("const [pendingDelete, setPendingDelete]");
     expect(sidebar).toContain("open={pendingDelete !== null}");
     expect(sidebar).toContain("confirmedDeleteIdRef");
-    expect(sidebar).toContain("window.requestAnimationFrame");
-    expect(sidebar).toContain('document.body.style.pointerEvents === "none"');
+    expect(sidebar).toContain(
+      'import { afterBodyPointerUnlock } from "@/components/ui/pointer-lock"',
+    );
+    expect(sidebar).toContain("afterBodyPointerUnlock(() => {");
     expect(sidebar).toContain("void handleDelete(confirmedDeleteId)");
+    expect(pointerLock).toContain("window.requestAnimationFrame");
+    expect(pointerLock).toContain(
+      'document.body.style.pointerEvents === "none"',
+    );
     expect(treeItem).not.toContain("deleteDialogOpen");
     expect(treeItem).not.toContain("<AlertDialog");
     expect(databaseSidebar).not.toContain("deleteDialogOpen");

@@ -603,4 +603,9 @@ export const codeTabsBlock = defineBlock<CodeTabsData>({
   icon: IconCode,
   description:
     "A vertical file tab rail of syntax-highlighted code snippets, one tab per file with an optional language and caption.",
+  // `tabs` has schema min(1), so a fresh insert needs one starter tab — same
+  // shape `addTab` mints for a second tab.
+  empty: () => ({
+    tabs: [{ id: newCodeTabId(), label: "file-1.ts", code: "" }],
+  }),
 });
