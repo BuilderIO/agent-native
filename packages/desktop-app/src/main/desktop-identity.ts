@@ -501,6 +501,7 @@ export class DesktopIdentityBroker {
   private readonly internalRevocationNonce =
     randomBytes(16).toString("base64url");
   private status: DesktopIdentityStatus = "idle";
+  private verifiedIdentityEmail: string | null = null;
   private statusVerifiedAt = 0;
   private statusRevalidationRetryAt = 0;
   private ceremonyGeneration = 0;
@@ -596,6 +597,7 @@ export class DesktopIdentityBroker {
         this.reloadedModernAppSessions.clear();
         this.synchronizedAlternateSessionCookies.clear();
         this.availability = "available";
+        this.verifiedIdentityEmail = verifiedEmail;
         this.setStatus("signed-in");
       }
       return;
@@ -665,7 +667,13 @@ export class DesktopIdentityBroker {
     ) {
       return;
     }
+    if (verifiedEmail) this.verifiedIdentityEmail = verifiedEmail;
     this.setStatus(verifiedEmail ? "signed-in" : "sign-in-required");
+  }
+
+  /** Verified signed-in email, or null when no session has been verified. */
+  getVerifiedEmail(): string | null {
+    return this.verifiedIdentityEmail;
   }
 
   private ensureAppSessionInternal(
@@ -3497,6 +3505,7 @@ export class DesktopIdentityBroker {
       this.synchronizedAlternateSessionCookies.clear();
     }
     this.status = status;
+    if (status !== "signed-in") this.verifiedIdentityEmail = null;
     this.statusVerifiedAt = status === "signed-in" ? Date.now() : 0;
     this.statusRevalidationRetryAt = 0;
     this.options.onStatus?.(status);

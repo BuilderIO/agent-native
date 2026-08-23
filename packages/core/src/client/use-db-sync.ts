@@ -8,6 +8,11 @@ import {
   REALTIME_SSE_HANDSHAKE_EVENT,
   REALTIME_SSE_TOKEN_EVENT,
 } from "../realtime-protocol.js";
+import {
+  addSurfaceVisibilityListener,
+  isHostSurfaceHidden,
+  isSurfaceHidden,
+} from "../shared/surface-visibility.js";
 import { agentNativePath } from "./api-path.js";
 import { getBrowserTabId } from "./browser-tab-id.js";
 import {
@@ -195,9 +200,7 @@ function getPollAbortMs(interval: number): number {
 }
 
 function isDocumentHidden(): boolean {
-  return (
-    typeof document !== "undefined" && document.visibilityState === "hidden"
-  );
+  return isSurfaceHidden();
 }
 
 function resolveSseUrl(sseUrl: string | false | undefined): string | false {
@@ -444,6 +447,7 @@ class SyncTransport {
   private subscribers = new Map<symbol, TransportSubscription>();
   private cursorRef: SyncCursor = { ...INITIAL_SYNC_CURSOR };
   private timer: ReturnType<typeof setTimeout> | null = null;
+  private removeVisibilityListener?: () => void;
   private stopped = false;
   private inFlight = false;
   private eventSource: EventSource | null = null;
@@ -648,6 +652,17 @@ class SyncTransport {
   // Derived settings (aggregate over active subscribers)
   // -------------------------------------------------------------------------
 
+  /**
+   * Whether this transport must do nothing at all right now. A host that has
+   * stashed the surface off screen is a stronger statement than a backgrounded
+   * browser tab, so it pauses regardless of `pauseWhenHidden` — an embedder
+   * only sets it for a surface the user genuinely cannot see.
+   */
+  private shouldStayIdle(): boolean {
+    if (isHostSurfaceHidden()) return true;
+    return this.effectivePauseWhenHidden && isDocumentHidden();
+  }
+
   private get effectivePauseWhenHidden(): boolean {
     // Pause only if every subscriber has opted in.
     for (const sub of this.subscribers.values()) {
@@ -737,7 +752,7 @@ class SyncTransport {
 
   private schedulePoll(): void {
     if (this.stopped) return;
-    if (this.effectivePauseWhenHidden && isDocumentHidden()) return;
+    if (this.shouldStayIdle()) return;
     if (this.timer) clearTimeout(this.timer);
     const authDelay = this.authFailureDelayMs();
     if (authDelay > 0) {
@@ -944,7 +959,7 @@ class SyncTransport {
       this.stopped ||
       this.eventSource ||
       typeof EventSource === "undefined" ||
-      (this.effectivePauseWhenHidden && isDocumentHidden())
+      this.shouldStayIdle()
     ) {
       return;
     }
@@ -1148,7 +1163,7 @@ class SyncTransport {
   }
 
   private pollNow(): void {
-    if (this.effectivePauseWhenHidden && isDocumentHidden()) return;
+    if (this.shouldStayIdle()) return;
     if (this.authFailureDelayMs() > 0) {
       this.schedulePoll();
       return;
@@ -1162,10 +1177,10 @@ class SyncTransport {
   }
 
   private handleVisibilityChange = (): void => {
-    if (document.visibilityState === "visible") {
+    if (!isSurfaceHidden()) {
       this.connectEvents();
       this.pollNow();
-    } else if (this.effectivePauseWhenHidden) {
+    } else if (this.shouldStayIdle()) {
       this.closeEvents();
       // A hidden leader stops streaming, so it must not keep holding the
       // origin's stream slot — that would leave every visible tab following a
@@ -1238,13 +1253,15 @@ class SyncTransport {
     ensureEmbedAuthFetchInterceptor();
     ensureDemoModeFetchInterceptor();
 
-    if (!this.effectivePauseWhenHidden || !isDocumentHidden()) {
+    if (!this.shouldStayIdle()) {
       this.connectEvents();
       void this.poll();
     }
     window.addEventListener("focus", this.handleFocus);
     window.addEventListener("agentNative.chatRunning", this.handleChatRunning);
-    document.addEventListener("visibilitychange", this.handleVisibilityChange);
+    this.removeVisibilityListener = addSurfaceVisibilityListener(
+      this.handleVisibilityChange,
+    );
   }
 
   private teardown(): void {
@@ -1272,10 +1289,8 @@ class SyncTransport {
       "agentNative.chatRunning",
       this.handleChatRunning,
     );
-    document.removeEventListener(
-      "visibilitychange",
-      this.handleVisibilityChange,
-    );
+    this.removeVisibilityListener?.();
+    this.removeVisibilityListener = undefined;
   }
 }
 

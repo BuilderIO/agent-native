@@ -121,6 +121,7 @@ import {
   type DesktopPlanFilesWriteRequest,
   type DesktopPlanMdxFolder,
   type DesktopIdentityStatus,
+  type DesktopEnvironmentLaneState,
   type DesktopIdentitySettings,
   type DesktopIdentityMagicLinkRequest,
 } from "@shared/ipc-channels";
@@ -142,6 +143,7 @@ import {
   webContents,
   type IpcMainEvent,
   type IpcMainInvokeEvent,
+  type Session,
   type WebContents,
 } from "electron";
 
@@ -176,7 +178,13 @@ import {
   loadMcpConfig,
   type McpServerConfig,
 } from "../../../core/src/mcp-client/config.js";
+import {
+  isBetaLaneEmail,
+  resolveDesktopEnvironmentLane,
+  withDesktopEnvironmentLane,
+} from "../../shared/environment-lane";
 import * as AppStore from "./app-store";
+import { isDesktopEnvironmentLanePreference } from "./app-store";
 import { BrowserControlLoopbackBridge } from "./browser-control/bridge";
 import {
   AGENT_NATIVE_BROWSER_EXTENSION_IDS_ENV,
@@ -1383,6 +1391,113 @@ ipcMain.handle(IPC.IDENTITY_SSO_ENABLED_SET, async (event, enabled) => {
   return true;
 });
 
+// ---------- Hosted origin warmup ----------
+// The hosted apps run on serverless functions, and their first request after
+// an idle period pays a container cold start. Measured against production:
+// /_agent-native/auth/session takes 4-7s cold and 0.17s warm, it is sent
+// `no-store`, and the app's whole first render blocks on it — which is most
+// of the ~12s a cold tab click used to cost. Paying it in the background,
+// before the user clicks, is what makes the click feel instant.
+const WARM_ORIGIN_TTL_MS = 4 * 60 * 1000;
+const WARM_ORIGIN_TIMEOUT_MS = 12_000;
+const warmedOriginAt = new Map<string, number>();
+let originWarmupInFlight: Promise<void> | null = null;
+
+async function warmDesktopAppOrigin(
+  origin: string,
+  appSession: Session,
+): Promise<void> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), WARM_ORIGIN_TIMEOUT_MS);
+  try {
+    await appSession.fetch(
+      new URL("/_agent-native/auth/session", origin).href,
+      {
+        method: "GET",
+        headers: { Accept: "application/json" },
+        signal: controller.signal,
+      },
+    );
+    warmedOriginAt.set(origin, Date.now());
+  } catch (error) {
+    // coercion-ok: a failed warmup leaves the origin unmarked, so the next
+    // pass retries it. The tab still loads; it just pays the cold start.
+    console.debug("[desktop-warmup] origin warmup failed", {
+      origin,
+      reason: error instanceof Error ? error.message : "unknown error",
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function warmDesktopAppOrigins(): void {
+  if (originWarmupInFlight || appIsQuitting) return;
+  if (!isDesktopSsoEnabled()) return;
+  if (desktopIdentityBroker?.getStatus() !== "signed-in") return;
+
+  const lane = resolveDesktopEnvironmentLaneState().lane;
+  const now = Date.now();
+  const targets: { origin: string; session: Session }[] = [];
+  for (const app of listDesktopIdentityApps()) {
+    const origin = withDesktopEnvironmentLane(app.origin, lane);
+    const warmedAt = warmedOriginAt.get(origin) ?? 0;
+    if (now - warmedAt < WARM_ORIGIN_TTL_MS) continue;
+    targets.push({ origin, session: app.session });
+  }
+  if (targets.length === 0) return;
+
+  originWarmupInFlight = (async () => {
+    for (const target of targets) {
+      if (appIsQuitting) break;
+      // Serial on purpose. runModernIdentityFanout already documents that
+      // parallel child session work against the hosted origins turns a valid
+      // parent session into a batch of opaque 500s; a warmup must not be the
+      // thing that reintroduces it.
+      await warmDesktopAppOrigin(target.origin, target.session);
+    }
+  })()
+    .catch(() => {})
+    .finally(() => {
+      originWarmupInFlight = null;
+    });
+}
+
+function resolveDesktopEnvironmentLaneState(): DesktopEnvironmentLaneState {
+  const preference =
+    AppStore.loadDesktopAppPreferences().desktopEnvironmentLane;
+  const email = isDesktopSsoEnabled()
+    ? (desktopIdentityBroker?.getVerifiedEmail() ?? null)
+    : null;
+  return {
+    preference,
+    lane: resolveDesktopEnvironmentLane({ preference, email }),
+    eligible: isBetaLaneEmail(email),
+  };
+}
+
+ipcMain.handle(IPC.IDENTITY_ENVIRONMENT_LANE_GET, (event) => {
+  if (!isShellIdentityIpc(event)) {
+    return {
+      preference: "production",
+      lane: "production",
+      eligible: false,
+    } satisfies DesktopEnvironmentLaneState;
+  }
+  return resolveDesktopEnvironmentLaneState();
+});
+
+ipcMain.handle(IPC.IDENTITY_ENVIRONMENT_LANE_SET, (event, preference) => {
+  if (
+    !isShellIdentityIpc(event) ||
+    !isDesktopEnvironmentLanePreference(preference)
+  ) {
+    return resolveDesktopEnvironmentLaneState();
+  }
+  AppStore.saveDesktopAppPreferences({ desktopEnvironmentLane: preference });
+  return resolveDesktopEnvironmentLaneState();
+});
+
 ipcMain.handle(IPC.IDENTITY_APP_SESSION_ENSURE, async (event, appId) => {
   if (
     !isShellIdentityIpc(event) ||
@@ -1513,6 +1628,7 @@ function ensureDesktopIdentityBroker(): DesktopIdentityBroker | null {
       if (status === "idle" || status === "sign-in-required") {
         clearDesktopWorkspaceApps();
       }
+      if (status === "signed-in") warmDesktopAppOrigins();
       if (mainWindow && !mainWindow.isDestroyed()) {
         try {
           mainWindow.webContents.send(IPC.IDENTITY_STATUS_CHANGED, status);
@@ -1591,6 +1707,12 @@ function createWindow(): BrowserWindow {
   }
 
   mainWindow = win;
+  // Coming back to the window is the strongest available signal that a tab
+  // click is imminent, and it costs nothing while the app is in the
+  // background. The TTL keeps repeated focus events from re-warming.
+  win.on("focus", () => {
+    warmDesktopAppOrigins();
+  });
   win.on("closed", () => {
     disposeWindowDragController();
     desktopDesignPreviewManager?.destroy();

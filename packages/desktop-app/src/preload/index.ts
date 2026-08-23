@@ -69,6 +69,8 @@ import {
   type DesktopIdentityMagicLinkRequest,
   type DesktopIdentityMagicLinkResult,
   type DesktopIdentityStatus,
+  type DesktopEnvironmentLaneState,
+  type DesktopEnvironmentLanePreference,
   type DesktopIdentitySettings,
   type DesktopCreateAppRequest,
   type DesktopCreateAppResult,
@@ -277,6 +279,12 @@ const electronAPI = {
       ipcRenderer.invoke(IPC.IDENTITY_SETTINGS_GET),
     setSsoEnabled: (enabled: boolean): Promise<boolean> =>
       ipcRenderer.invoke(IPC.IDENTITY_SSO_ENABLED_SET, enabled),
+    getEnvironmentLane: (): Promise<DesktopEnvironmentLaneState> =>
+      ipcRenderer.invoke(IPC.IDENTITY_ENVIRONMENT_LANE_GET),
+    setEnvironmentLane: (
+      preference: DesktopEnvironmentLanePreference,
+    ): Promise<DesktopEnvironmentLaneState> =>
+      ipcRenderer.invoke(IPC.IDENTITY_ENVIRONMENT_LANE_SET, preference),
     ensureAppSession: (appId: string): Promise<boolean> =>
       ipcRenderer.invoke(IPC.IDENTITY_APP_SESSION_ENSURE, appId),
     getAvailability: (): Promise<boolean> =>

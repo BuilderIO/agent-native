@@ -5,6 +5,7 @@ import {
 import {
   BETA_OPT_OUT_DURATION_MS,
   BETA_OPT_OUT_QUERY_PARAM,
+  buildSurfaceVisibilityScript,
 } from "@agent-native/core/shared";
 import {
   DESKTOP_DEFAULT_APPS,
@@ -32,6 +33,10 @@ import {
   useImperativeHandle,
 } from "react";
 
+import {
+  withDesktopEnvironmentLane,
+  type DesktopEnvironmentLane,
+} from "../../../shared/environment-lane.js";
 import { buildContentDirectoryPickerBridgeScript } from "../lib/content-directory-picker-bridge.js";
 import { buildGuestThemeScript, type RendererTheme } from "../lib/theme.js";
 import DesktopIdentityGate from "./DesktopIdentityGate.js";
@@ -445,6 +450,21 @@ export interface AppWebviewHandle {
  * Dev mode: load the app's local dev URL directly. The Electron shell owns
  * chat now, so installed apps no longer need the local dev frame as a wrapper.
  */
+let rememberedEnvironmentLane: DesktopEnvironmentLane = "production";
+
+/**
+ * Cache the resolved lane at module scope, the same way the identity status is
+ * cached: `resolveAppWebviewUrl` is a pure helper called from several places
+ * that have no access to component state.
+ */
+export function rememberDesktopEnvironmentLane(
+  lane: DesktopEnvironmentLane,
+): boolean {
+  if (rememberedEnvironmentLane === lane) return false;
+  rememberedEnvironmentLane = lane;
+  return true;
+}
+
 export function resolveAppWebviewUrl(
   app: AppDefinition,
   appConfig?: AppConfig,
@@ -458,14 +478,19 @@ export function resolveAppWebviewUrl(
     return "about:blank";
   }
 
-  // Production mode (default): use the production URL
+  // Production mode (default): use the production URL, on the lane the shell
+  // resolved. Loading the lane directly is what keeps the hosted page from
+  // redirecting a Builder account to beta after its session resolves.
   if (appConfig?.url) {
-    return appConfig.url;
+    return withDesktopEnvironmentLane(appConfig.url, rememberedEnvironmentLane);
   }
 
   const template = getTemplate(app.id);
   if (template?.prodUrl) {
-    return template.prodUrl;
+    return withDesktopEnvironmentLane(
+      template.prodUrl,
+      rememberedEnvironmentLane,
+    );
   }
 
   // Keep incomplete custom entries on a stable blank document instead of
@@ -785,6 +810,20 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         buildGuestThemeScript(theme),
       );
     }, [app.placeholder, executeGuestScript, syncTheme, theme]);
+
+    // A <webview> guest never sees its own element hidden: display:none on the
+    // element or any ancestor leaves document.visibilityState "visible" and
+    // fires no visibilitychange. Without this the framework's polling and event
+    // stream keep running at foreground cadence in every backgrounded tab, and
+    // preloaded tabs would each hold one open forever.
+    const applyGuestSurfaceVisibility = useCallback(() => {
+      const wv = webviewRef.current;
+      if (!wv || app.placeholder) return;
+      void executeGuestScript(
+        `guest-surface-visibility:${isActive ? "visible" : "hidden"}`,
+        buildSurfaceVisibilityScript(!isActive),
+      );
+    }, [app.placeholder, executeGuestScript, isActive]);
 
     const syncGuestAppChatSidebar = useCallback(
       (force = false) => {
@@ -1226,6 +1265,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
           if (!currentUrl || currentUrl === "about:blank") return;
         }
         applyGuestTheme();
+        applyGuestSurfaceVisibility();
         syncGuestAppChatSidebar(true);
         if (app.id === "content") {
           void executeGuestScript(
@@ -1250,6 +1290,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       };
       const onNavigation = () => {
         applyGuestTheme();
+        applyGuestSurfaceVisibility();
         syncGuestAppChatSidebar(true);
         emitCurrentTitleSoon();
         emitAuthState();
@@ -1322,6 +1363,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       app.placeholder,
       isActive,
       applyGuestTheme,
+      applyGuestSurfaceVisibility,
       executeGuestScript,
       syncGuestAppChatSidebar,
       deferDesktopWebviewLoad,
@@ -1330,6 +1372,10 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     useEffect(() => {
       applyGuestTheme();
     }, [applyGuestTheme]);
+
+    useEffect(() => {
+      applyGuestSurfaceVisibility();
+    }, [applyGuestSurfaceVisibility]);
 
     useEffect(() => {
       const handleChatState = (event: Event) => {
