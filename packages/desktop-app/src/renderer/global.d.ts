@@ -940,7 +940,9 @@ interface ElectronAPI {
     deleteSchedule(input: unknown): Promise<CodeAgentScheduleResult>;
     runScheduleNow(input: unknown): Promise<CodeAgentScheduleResult>;
     listWorktrees(cwd?: string): Promise<CodeAgentWorktreeListResult>;
-    listModels(): Promise<CodeAgentModelListResult>;
+    listModels(options?: {
+      refresh?: boolean;
+    }): Promise<CodeAgentModelListResult>;
     createRun(
       request: CodeAgentCreateRunRequest,
     ): Promise<CodeAgentCreateRunResult>;

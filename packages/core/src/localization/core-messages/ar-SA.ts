@@ -35,6 +35,8 @@ const messages: AgentChatTranslation = {
   "aboutAgentNative.copyDiagnostics": "نسخ بيانات التشخيص",
   "aboutAgentNative.unknown": "غير معروف",
   "common.agent": "الوكيل",
+  "agentPanel.mode": "الوضع",
+  "agentPanel.uiMode": "واجهة المستخدم",
   "common.cancel": "إلغاء",
   "common.collapse": "طي",
   "common.connect": "اتصال",

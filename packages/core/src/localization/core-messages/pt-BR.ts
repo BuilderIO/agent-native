@@ -35,6 +35,8 @@ const messages: AgentChatTranslation = {
   "aboutAgentNative.copyDiagnostics": "Copiar diagnósticos",
   "aboutAgentNative.unknown": "Desconhecida",
   "common.agent": "Agente",
+  "agentPanel.mode": "Modo",
+  "agentPanel.uiMode": "Interface",
   "common.cancel": "Cancelar",
   "common.collapse": "Recolher",
   "common.connect": "Conectar",

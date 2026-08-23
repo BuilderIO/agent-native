@@ -35,6 +35,8 @@ const messages: AgentChatTranslation = {
   "aboutAgentNative.copyDiagnostics": "डायग्नोस्टिक कॉपी करें",
   "aboutAgentNative.unknown": "अज्ञात",
   "common.agent": "एजेंट",
+  "agentPanel.mode": "मोड",
+  "agentPanel.uiMode": "यूआई",
   "common.cancel": "रद्द करें",
   "common.collapse": "समेटें",
   "common.connect": "कनेक्ट करें",
