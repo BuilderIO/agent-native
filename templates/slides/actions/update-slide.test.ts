@@ -327,6 +327,32 @@ describe("update-slide", () => {
     );
   });
 
+  it("surfaces per-edit results so a skipped optional edit is distinguishable from the batch's aggregate success", async () => {
+    const result = (await action.run({
+      deckId: "deck-1",
+      slideId: "slide-1",
+      edits: [
+        { find: "Old", replace: "New" },
+        {
+          op: "insert-after",
+          marker: "<marker-not-present>",
+          content: '<img src="x">',
+          required: false,
+        },
+      ],
+    })) as Record<string, unknown>;
+
+    // The required find/replace matched and the batch is reported applied,
+    // but the optional image insert never found its marker and silently
+    // no-opped -- a caller trusting only the aggregate `applied` boolean has
+    // no way to tell the image was never inserted.
+    expect(result).toMatchObject({ ok: true, applied: true });
+    const deck = JSON.parse(lastUpdateSet!.data as string);
+    expect(deck.slides[0].content).toBe("<div>New</div>");
+
+    expect(result.editResults).toEqual(["replace:first", "insert-after:0"]);
+  });
+
   it("does not write a partial edit list when a later edit fails", async () => {
     await expect(
       action.run({

@@ -1082,6 +1082,22 @@ export function shouldShowOnlyConnectPath(
   return showBuilderCta && groups.every((group) => !group.configured);
 }
 
+/**
+ * When nothing is routable yet, the model hook resolves `selectedModel` to
+ * `""` rather than pre-selecting something unusable — that reflects "nothing
+ * chosen," not "nothing to show." The picker itself still has a job to do in
+ * that state (its connect-provider CTAs), so gate on there being engines to
+ * list and a way to change the selection, not on a model already being set.
+ */
+export function shouldRenderModelSelector(
+  availableModels: ReadonlyArray<unknown> | undefined,
+  onModelChange: unknown,
+): boolean {
+  return Boolean(
+    availableModels && availableModels.length > 0 && onModelChange,
+  );
+}
+
 function friendlyModelName(model: string, t?: ComposerTranslate): string {
   if (model === "auto") {
     return (
@@ -3679,19 +3695,19 @@ export function TiptapComposer({
           ))}
         {toolbarSlot ?? modeControl}
         <div data-agent-composer-slot="toolbar-spacer" className="flex-1" />
-        {selectedModel && availableModels && onModelChange && (
+        {shouldRenderModelSelector(availableModels, onModelChange) && (
           <ModelSelector
-            model={selectedModel}
+            model={selectedModel ?? ""}
             open={modelSelectorOpen}
             effort={selectedEffort}
-            engines={availableModels}
+            engines={availableModels!}
             agents={availableAgents}
             selectedAgent={selectedAgent}
             agentOnly={agentOnly}
             hostedHarness={hostedHarness}
             showAutoModelOption={showAutoModelOption}
             modelListLoading={modelListLoading}
-            onChange={onModelChange}
+            onChange={onModelChange!}
             onEffortChange={onEffortChange}
             onAgentChange={onAgentChange}
             onModelSelectorOpenChange={onModelSelectorOpenChange}

@@ -147,7 +147,7 @@ function AppRows({
                 className={cn(
                   "group flex h-8 w-full min-w-0 items-center gap-1 rounded-md px-0 text-sm",
                   active
-                    ? "font-medium text-sidebar-foreground"
+                    ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
                     : "text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
                 )}
                 onDragStart={(event) => {
@@ -387,7 +387,7 @@ export const ChatFirstAppsRail = memo(function ChatFirstAppsRail({
                       className={cn(
                         "flex size-9 items-center justify-center rounded-md",
                         activeAppId === app.id
-                          ? "text-sidebar-foreground"
+                          ? "bg-sidebar-accent text-sidebar-accent-foreground"
                           : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
                       )}
                       onClick={() => onOpenApp(app)}

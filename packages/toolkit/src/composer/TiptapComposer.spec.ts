@@ -24,6 +24,7 @@ import {
   MODEL_SELECTOR_POPOVER_STYLE,
   resolveContextChipBackspaceAction,
   resolveComposerPrimaryAction,
+  shouldRenderModelSelector,
   shouldShowModelSelectorSkeleton,
   shouldShowOnlyConnectPath,
 } from "./TiptapComposer.js";
@@ -527,6 +528,26 @@ describe("createTiptapComposerExtensions", () => {
     ).toBe(false);
     // No CTA to fall back on — keep the list rather than empty the popover.
     expect(shouldShowOnlyConnectPath(false, unconfigured)).toBe(false);
+  });
+
+  it("still renders the picker when nothing is configured, even though that leaves selectedModel empty", () => {
+    // Nothing routable yet means useChatModels() resolves selectedModel to
+    // "" (never null/undefined) so it can't be pre-selected — that must not
+    // read as "no picker to show": the connect-provider CTAs still live
+    // inside the picker itself.
+    const unconfigured = [
+      {
+        engine: "openai",
+        label: "OpenAI",
+        models: ["gpt-5"],
+        configured: false,
+      },
+    ];
+    expect(shouldRenderModelSelector(unconfigured, () => {})).toBe(true);
+    // Genuinely nothing to show: no engines, or no way to change the model.
+    expect(shouldRenderModelSelector([], () => {})).toBe(false);
+    expect(shouldRenderModelSelector(unconfigured, undefined)).toBe(false);
+    expect(shouldRenderModelSelector(undefined, () => {})).toBe(false);
   });
 });
 
