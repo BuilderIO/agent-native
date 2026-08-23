@@ -1963,7 +1963,10 @@ ${
     display: flex;
     align-items: center;
     justify-content: center;
+    width: 100%;
     min-height: 2rem;
+    margin-top: 0.5rem;
+    margin-bottom: -0.5rem;
     padding: 0.375rem 0.75rem;
     color: inherit;
     opacity: 0.65;
