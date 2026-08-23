@@ -7,13 +7,14 @@
  * separately from any total-request deadline turns a silent multi-minute hang
  * into a fast abort-and-retry.
  *
- * AUDIENCE: direct `engine.stream()` callers — `completeText`, voice
- * transcription, sentiment, evals, observational memory. It is EXPECTED to be
- * shadowed inside `runAgentLoop`, whose own `MODEL_STREAM_NO_PROGRESS_TIMEOUT_MS`
- * (90s) races the same first frame and always wins. That does not make it
- * redundant: `completeText` takes `timeoutMs` as optional, so a caller that
- * omits one has no other bound between it and an unbounded hang. Do not
- * "clean it up" as unreachable — check the non-loop callers first.
+ * AUDIENCE: every `engine.stream()` caller, `runAgentLoop` INCLUDED. This used
+ * to be described as shadowed inside the loop by a 90s in-loop watchdog that
+ * "always wins"; that watchdog is gone (see run-lifecycle-invariants.ts), so
+ * this is now the PRIMARY bound on a model call that opens and never speaks.
+ * It is the one stall check that survives the deletion because it keys off a
+ * fact the transport can actually establish — the stream produced nothing at
+ * all — rather than off the absence of a particular event mid-generation.
+ * Do not "clean it up" as redundant.
  */
 export const FIRST_STREAM_EVENT_TIMEOUT_MS = 120_000;
 

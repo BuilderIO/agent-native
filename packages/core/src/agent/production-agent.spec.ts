@@ -2606,7 +2606,17 @@ describe("runAgentLoop", () => {
     );
   });
 
-  it("checkpoints when action input preparation stops streaming bytes", async () => {
+  it("does NOT checkpoint when a tool input goes quiet — that is a big argument, not a stall", async () => {
+    // THE REGRESSION THIS FILE USED TO ASSERT THE OPPOSITE OF.
+    //
+    // Only a tool declared for eager input streaming emits `input_json_delta`
+    // while its arguments are generated. Everything else produces
+    // `tool-input-start` and then NOTHING until the whole argument blob is
+    // ready — for a large file or a long structured result that is minutes of
+    // legitimate silence. The retired action-preparation watchdog read the
+    // stalled byte counter as a dead stream and cut the turn off at 90s; on the
+    // Anthropic transport it could not have known better, because the SDK drops
+    // the provider pings that would have proved liveness.
     let now = 1_000_000;
     const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
     const engine: AgentEngine = {
@@ -2627,9 +2637,10 @@ describe("runAgentLoop", () => {
           id: "tool-edit",
           name: "edit-design",
         };
-        now += 91_000;
+        // Five minutes composing the argument, not one byte forwarded.
+        now += 5 * 60_000;
         yield { type: "gateway-heartbeat" };
-        yield { type: "text-delta", text: "should not continue" };
+        yield { type: "text-delta", text: "the turn continues" };
       },
     };
     const events: AgentChatEvent[] = [];
@@ -2651,109 +2662,28 @@ describe("runAgentLoop", () => {
       dateNow.mockRestore();
     }
 
+    // The preparation activity still reaches the UI — the user sees progress.
     expect(events).toContainEqual({
       type: "activity",
       label: "Preparing edit-design action",
       tool: "edit-design",
       id: "tool-edit",
     });
+    // Nothing cut the turn off DURING the quiet stretch, and the text that
+    // followed it still reached the client.
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ type: "auto_continue", reason: "no_progress" }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "text", text: "the turn continues" }),
+    );
+    // The stream still ends with an undelivered tool input, which is a real
+    // truncation and keeps its own boundary — that guard reads the STREAM
+    // ENDING, not a clock, so it cannot fire on slow work.
     expect(events.at(-1)).toEqual({
       type: "auto_continue",
-      reason: "no_progress",
+      reason: "stream_ended",
     });
-    expect(events).not.toContainEqual({ type: "stream_keepalive" });
-    expect(events).not.toContainEqual({ type: "done" });
-    expect(events).not.toContainEqual(
-      expect.objectContaining({ type: "text", text: "should not continue" }),
-    );
-  });
-
-  it("continues main chat internally after a no-progress action preparation checkpoint", async () => {
-    let now = 1_000_000;
-    let attempts = 0;
-    const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
-    const engine: AgentEngine = {
-      name: "test",
-      label: "Test",
-      defaultModel: "test-model",
-      supportedModels: ["test-model"],
-      capabilities: {
-        thinking: false,
-        promptCaching: false,
-        vision: false,
-        computerUse: false,
-        parallelToolCalls: true,
-      },
-      async *stream(): AsyncIterable<EngineEvent> {
-        attempts++;
-        if (attempts === 1) {
-          yield {
-            type: "tool-input-start",
-            id: "tool-edit",
-            name: "edit-design",
-          };
-          now += 91_000;
-          yield { type: "gateway-heartbeat" };
-          yield { type: "text-delta", text: "should not continue" };
-          return;
-        }
-        yield { type: "text-delta", text: "continued" };
-        yield {
-          type: "assistant-content",
-          parts: [{ type: "text" as const, text: "continued" }],
-        };
-        yield { type: "stop", reason: "end_turn" };
-      },
-    };
-    const events: AgentChatEvent[] = [];
-    const guard = vi.fn(() => null);
-    const messages = [
-      {
-        role: "user" as const,
-        content: [{ type: "text" as const, text: "go" }],
-      },
-    ];
-
-    try {
-      await runAgentLoopWithMainChatInternalContinuations({
-        engine,
-        model: "test-model",
-        systemPrompt: "system",
-        tools: [],
-        messages,
-        actions: {
-          "edit-design": actionEntry({ readOnly: false }),
-        },
-        send: (event) => events.push(event),
-        signal: new AbortController().signal,
-        finalResponseGuard: guard,
-      });
-    } finally {
-      dateNow.mockRestore();
-    }
-
-    expect(attempts).toBe(2);
-    const continuationText = messages
-      .map((message) =>
-        message.content[0]?.type === "text" ? message.content[0].text : "",
-      )
-      .find((text) => text.includes(AGENT_INTERNAL_CONTINUE_PROMPT));
-    expect(continuationText).toContain(AGENT_INTERNAL_CONTINUE_PROMPT);
-    expect(continuationText).toContain(
-      "preparing the `edit-design` action input",
-    );
-    expect(events).toContainEqual({ type: "clear" });
-    expect(events).toContainEqual({ type: "text", text: "continued" });
-    expect(events).toContainEqual({ type: "done" });
-    expect(guard).toHaveBeenCalledTimes(1);
-    expect(guard.mock.calls[0]?.[0].requestText).toBe("go");
-    expect(events).not.toContainEqual({
-      type: "auto_continue",
-      reason: "no_progress",
-    });
-    expect(events).not.toContainEqual(
-      expect.objectContaining({ type: "text", text: "should not continue" }),
-    );
   });
 
   it("auto-continues when a stream ends with a partial action input", async () => {
@@ -2934,7 +2864,12 @@ describe("runAgentLoop", () => {
     expect(events).not.toContainEqual({ type: "done" });
   });
 
-  it("checkpoints when zero-byte action input preparation goes silent", async () => {
+  it("does NOT checkpoint a zero-byte tool input that stays quiet", async () => {
+    // The zero-byte restart tripwire is gone with the rest of the
+    // action-preparation machinery. A tool input announced with no bytes yet is
+    // the ORDINARY opening of a non-eagerly-streamed tool call, not evidence of
+    // a wedge — and on this transport nothing distinguishes the two, because
+    // the provider's pings never reach us.
     vi.useFakeTimers({ now: 1_000_000 });
     const engine: AgentEngine = {
       name: "test",
@@ -2959,6 +2894,7 @@ describe("runAgentLoop", () => {
       },
     };
     const events: AgentChatEvent[] = [];
+    const controller = new AbortController();
 
     try {
       const run = runAgentLoop({
@@ -2971,31 +2907,18 @@ describe("runAgentLoop", () => {
           "edit-design": actionEntry({ readOnly: false }),
         },
         send: (event) => events.push(event),
-        signal: new AbortController().signal,
+        signal: controller.signal,
       });
+      void run.catch(() => undefined);
 
-      await vi.advanceTimersByTimeAsync(0);
-      expect(events).toContainEqual({
-        type: "activity",
-        label: "Preparing edit-design action",
-        tool: "edit-design",
-        id: "tool-edit",
-        progressBytes: 0,
-      });
-
-      await vi.advanceTimersByTimeAsync(90_000);
-      await run;
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+      expect(events).not.toContainEqual(
+        expect.objectContaining({ type: "auto_continue" }),
+      );
+      controller.abort();
     } finally {
       vi.useRealTimers();
     }
-
-    expect(events.at(-1)).toEqual({
-      type: "auto_continue",
-      reason: "no_progress",
-    });
-    expect(events).not.toContainEqual(
-      expect.objectContaining({ type: "tool_start" }),
-    );
   });
 
   it("clears the action-preparation timeout when the stream rejects", async () => {
@@ -3234,14 +3157,14 @@ describe("runAgentLoop", () => {
     });
   });
 
-  it("FIX 2: a hung FIRST model event keeps the full 90s window on a NON-HOSTED runtime (local dev / self-hosted)", async () => {
-    // All hosted markers cleared — resolveRunSoftTimeoutMs resolves to 0
-    // here (no soft-timeout regime, no platform wall), so a genuinely slow
-    // first token (large local contexts, slow local providers) must NOT be
-    // chopped at 25s.
+  it("a hung FIRST model event has NO in-loop bound on a NON-HOSTED runtime (local dev / self-hosted)", async () => {
+    // All hosted markers cleared — no soft-timeout regime, no platform wall.
+    // The in-loop watchdogs are gone entirely; a hung stream is the engine's
+    // own `FIRST_STREAM_EVENT_TIMEOUT_MS` to catch, not this loop's.
     const restoreEnv = snapshotAndClearRuntimePredicateEnv();
     vi.useFakeTimers({ now: 1_000_000 });
     const events: AgentChatEvent[] = [];
+    const controller = new AbortController();
 
     try {
       const run = runAgentLoop({
@@ -3252,34 +3175,28 @@ describe("runAgentLoop", () => {
         messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
         actions: {},
         send: (event) => events.push(event),
-        signal: new AbortController().signal,
+        signal: controller.signal,
       });
+      void run.catch(() => undefined);
 
-      // Past the 25s cap — a non-hosted runtime must be unaffected by it.
-      await vi.advanceTimersByTimeAsync(26_000);
+      // Well past both retired 90s watchdogs: nothing may checkpoint here.
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
       expect(events).toEqual([{ type: "model_stream", status: "start" }]);
-
-      // The normal 90s in-loop watchdog still applies and eventually fires.
-      await vi.advanceTimersByTimeAsync(90_000 - 26_000);
-      await run;
+      controller.abort();
     } finally {
       vi.useRealTimers();
       restoreEnv();
     }
-
-    expect(events.at(-1)).toEqual({
-      type: "auto_continue",
-      reason: "no_progress",
-    });
   });
 
-  it("FIX 2: a hung FIRST model event does NOT fire early when proven to be running inside a background function", async () => {
+  it("a hung FIRST model event has NO in-loop bound inside a background function", async () => {
     const restoreEnv = snapshotAndClearRuntimePredicateEnv();
     // Hosted AND proven background-function runtime (`-background` Lambda
-    // name) — the 15-min budget applies, so the cap must stay off.
+    // name) — the 15-min budget applies, so no in-loop cap may arm.
     process.env.AWS_LAMBDA_FUNCTION_NAME = "server-agent-background";
     vi.useFakeTimers({ now: 1_000_000 });
     const events: AgentChatEvent[] = [];
+    const controller = new AbortController();
 
     try {
       const run = runAgentLoop({
@@ -3290,29 +3207,26 @@ describe("runAgentLoop", () => {
         messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
         actions: {},
         send: (event) => events.push(event),
-        signal: new AbortController().signal,
+        signal: controller.signal,
       });
+      void run.catch(() => undefined);
 
-      // Past the 25s foreground cap — a proven background-function worker
-      // must be unaffected by it.
-      await vi.advanceTimersByTimeAsync(26_000);
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
       expect(events).toEqual([{ type: "model_stream", status: "start" }]);
-
-      // The normal 90s watchdog still applies and eventually fires.
-      await vi.advanceTimersByTimeAsync(90_000 - 26_000);
-      await run;
+      controller.abort();
     } finally {
       vi.useRealTimers();
       restoreEnv();
     }
-
-    expect(events.at(-1)).toEqual({
-      type: "auto_continue",
-      reason: "no_progress",
-    });
   });
 
-  it("FIX 2: a gap AFTER the first event keeps the normal 90s window on the HOSTED foreground runtime", async () => {
+  it("a gap AFTER the first event is NEVER bounded in-loop, even on hosted foreground", async () => {
+    // THE CASE THE RETIRED WATCHDOGS GOT WRONG. Once a model call has produced
+    // anything, a silent stretch is normal work — extended thinking, or a tool
+    // whose input is not eagerly streamed and so emits nothing at all while the
+    // provider composes its arguments. The Anthropic SDK swallows the pings
+    // that would prove liveness, so this loop cannot tell slow from wedged and
+    // must not try: it is the run budget's job to bound cost, not this one's.
     const restoreEnv = snapshotAndClearRuntimePredicateEnv();
     process.env.AWS_LAMBDA_FUNCTION_NAME = "server";
     vi.useFakeTimers({ now: 1_000_000 });
@@ -3329,15 +3243,15 @@ describe("runAgentLoop", () => {
         parallelToolCalls: true,
       },
       async *stream(): AsyncIterable<EngineEvent> {
-        // A real first event arrives promptly...
+        // A real first event arrives promptly, releasing the only remaining
+        // in-loop cap...
         yield { type: "text-delta", text: "thinking" };
-        // ...then the stream goes silent. Only the FIRST await on a fresh
-        // model call is capped at 25s — this gap must ride the normal 90s
-        // watchdog even though it also exceeds 25s.
+        // ...then a long content-silent stretch, which must survive.
         await new Promise(() => {});
       },
     };
     const events: AgentChatEvent[] = [];
+    const controller = new AbortController();
 
     try {
       const run = runAgentLoop({
@@ -3348,25 +3262,21 @@ describe("runAgentLoop", () => {
         messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
         actions: {},
         send: (event) => events.push(event),
-        signal: new AbortController().signal,
+        signal: controller.signal,
       });
+      void run.catch(() => undefined);
 
-      await vi.advanceTimersByTimeAsync(26_000);
+      // Ten minutes of content silence: a large tool input is exactly this
+      // shape, and nothing here may cut it off.
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
       expect(events).not.toContainEqual(
         expect.objectContaining({ type: "auto_continue" }),
       );
-
-      await vi.advanceTimersByTimeAsync(90_000 - 26_000);
-      await run;
+      controller.abort();
     } finally {
       vi.useRealTimers();
       restoreEnv();
     }
-
-    expect(events.at(-1)).toEqual({
-      type: "auto_continue",
-      reason: "no_progress",
-    });
   });
 
   it("FIX 2: a stream of only gateway keepalives still trips the 25s cap on the HOSTED foreground runtime", async () => {

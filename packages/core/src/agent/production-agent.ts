@@ -20,11 +20,9 @@ import {
   stripUnsupportedSchemaKeywords,
 } from "../action.js";
 import {
-  ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS,
   MAX_BACKGROUND_RUN_CONTINUATIONS,
   MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS,
   MAX_TURN_WALL_CLOCK_MS,
-  MODEL_STREAM_NO_PROGRESS_TIMEOUT_MS,
 } from "../app-config/run-lifecycle-invariants.js";
 import { readAppState } from "../application-state/script-helpers.js";
 import { isReadOnlyShellCommand } from "../coding-tools/index.js";
@@ -1424,7 +1422,6 @@ function maxRetriesForError(err: unknown): number {
   return MAX_RETRIES;
 }
 const TOOL_INPUT_ACTIVITY_INTERVAL_MS = 1500;
-const ACTION_PREPARATION_ZERO_BYTE_RESTART_LIMIT = 2;
 /**
  * How long an attempt must have run before its retry is worth narrating.
  *
@@ -4984,14 +4981,7 @@ export async function runAgentLoop(opts: {
           lastProgressAt: number;
           bytes: number;
         };
-        type ZeroByteToolInputRestart = {
-          toolName: string;
-          firstStartedAt: number;
-          lastStartedAt: number;
-          count: number;
-        };
         const activeToolInputs = new Map<string, ActiveToolInputPreparation>();
-        let zeroByteToolInputRestart: ZeroByteToolInputRestart | undefined;
         let endedForNoProgress = false;
         // Bracket the engine call for the run manager's no-progress backstop
         // (`inFlightWorkDelta` in run-manager.ts). That backstop measures the
@@ -5049,63 +5039,55 @@ export async function runAgentLoop(opts: {
             ...(typeof progressBytes === "number" ? { progressBytes } : {}),
           });
         };
-        const actionPreparationDeadlineAt = () => {
-          let deadlineAt = Number.POSITIVE_INFINITY;
-          if (zeroByteToolInputRestart) {
-            deadlineAt = Math.min(
-              deadlineAt,
-              zeroByteToolInputRestart.firstStartedAt +
-                ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS,
-            );
-          }
-          let earliestStartedAt = Number.POSITIVE_INFINITY;
-          let latestPositiveProgressAt = 0;
-          for (const active of activeToolInputs.values()) {
-            if (active.startedAt < earliestStartedAt) {
-              earliestStartedAt = active.startedAt;
-            }
-            if (
-              active.bytes > 0 &&
-              active.lastProgressAt > latestPositiveProgressAt
-            ) {
-              latestPositiveProgressAt = active.lastProgressAt;
-            }
-          }
-          const progressAt =
-            latestPositiveProgressAt > 0
-              ? latestPositiveProgressAt
-              : earliestStartedAt;
-          if (Number.isFinite(progressAt)) {
-            deadlineAt = Math.min(
-              deadlineAt,
-              progressAt + ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS,
-            );
-          }
-          return Number.isFinite(deadlineAt) ? deadlineAt : undefined;
-        };
-        const modelStreamNoProgressDeadlineAt = () => {
-          const baseDeadlineAt =
-            lastModelStreamProgressAt + MODEL_STREAM_NO_PROGRESS_TIMEOUT_MS;
-          // FIX 2: cap the FIRST event's deadline tighter on the clamped
-          // foreground runtime — see FOREGROUND_FIRST_MODEL_EVENT_TIMEOUT_MS
-          // for the ordering invariant this protects.
+        /**
+         * The ONLY in-loop stall bound left, and it covers exactly one thing:
+         * a model call whose stream opened and produced NOTHING AT ALL.
+         *
+         * WHAT WAS HERE, AND WHY IT IS GONE. Two 90s watchdogs used to run for
+         * the whole stream — one on silence between engine frames, one on a
+         * tool input whose byte count stopped growing — plus a zero-byte
+         * restart tripwire. Each inferred death from the ABSENCE of a
+         * particular event, and that inference is unsound on this transport:
+         * the Anthropic SDK drops the provider's `ping` keepalives before they
+         * reach any consumer (`core/streaming.js`: `if (sse.event === 'ping')
+         * continue;`, with no opt-out), so a healthy stream mid-generation is
+         * byte-for-byte indistinguishable from a wedged one.
+         *
+         * That is not an edge case, it is normal operation. A tool whose input
+         * is not eagerly streamed emits no `input_json_delta` at all while the
+         * provider composes its arguments, so writing a large file or filing a
+         * long structured result is a content-silent window whose length is set
+         * by the size of the argument. Production bore it out: of 27 one-shot
+         * analyst runs, 2 completed. Guards added for reliability were the
+         * thing taking it away.
+         *
+         * WHAT STILL CATCHES A REAL WEDGE — none of which can fire on
+         * slow-but-healthy work:
+         *   • the engine's own first-event abort
+         *     (`FIRST_STREAM_EVENT_TIMEOUT_MS`, 120s): a connection that opens
+         *     and never speaks
+         *   • the run-manager backstop, for the segments OUTSIDE the stream
+         *     (`inFlightWorkDelta` suspends it while the stream is open)
+         *   • the per-tool timeout, which bounds tool EXECUTION at the tool
+         *   • the chunk / run budget, which bounds COST rather than health
+         *   • the stale reaper, which bounds worker liveness
+         *
+         * The cap below survives only because it guards the "nothing has
+         * happened yet" window on the clamped hosted FOREGROUND runtime, where
+         * the ~57s platform wall arrives before the engine's 120s bound could.
+         * The first real frame releases it, so long thinking, long tool inputs
+         * and long outputs are all past it by construction.
+         */
+        const noProgressDeadlineAt = () => {
           if (
             hasReceivedFirstEngineEvent ||
             !isClampedForegroundRuntimeForThisCall
           ) {
-            return baseDeadlineAt;
+            return Number.POSITIVE_INFINITY;
           }
-          return Math.min(
-            baseDeadlineAt,
-            lastModelStreamProgressAt + FOREGROUND_FIRST_MODEL_EVENT_TIMEOUT_MS,
+          return (
+            lastModelStreamProgressAt + FOREGROUND_FIRST_MODEL_EVENT_TIMEOUT_MS
           );
-        };
-        const noProgressDeadlineAt = () => {
-          const actionDeadlineAt = actionPreparationDeadlineAt();
-          const modelDeadlineAt = modelStreamNoProgressDeadlineAt();
-          return actionDeadlineAt === undefined
-            ? modelDeadlineAt
-            : Math.min(actionDeadlineAt, modelDeadlineAt);
         };
         const hasNoProgressStalled = () => Date.now() >= noProgressDeadlineAt();
         const checkpointNoProgress = () => {
@@ -5143,6 +5125,13 @@ export async function runAgentLoop(opts: {
           iterator: AsyncIterator<EngineEvent>,
         ): Promise<IteratorResult<EngineEvent>> => {
           const deadlineAt = noProgressDeadlineAt();
+          // No deadline at all is the COMMON case now — every runtime except a
+          // clamped hosted foreground call that has not yet seen its first
+          // frame. Await the iterator directly rather than racing it: a
+          // `setTimeout` of Infinity is coerced to 1ms by Node and would
+          // checkpoint instantly, turning "no bound" into "the tightest bound
+          // there is".
+          if (!Number.isFinite(deadlineAt)) return iterator.next();
           const timeoutMs = Math.max(0, deadlineAt - Date.now());
           if (timeoutMs <= 0) {
             checkpointNoProgress();
@@ -5182,36 +5171,6 @@ export async function runAgentLoop(opts: {
             lastProgressAt: now,
             bytes,
           });
-        };
-        const resetZeroByteToolInputRestart = (toolName?: string) => {
-          if (!zeroByteToolInputRestart) return;
-          if (!toolName || zeroByteToolInputRestart.toolName === toolName) {
-            zeroByteToolInputRestart = undefined;
-          }
-        };
-        const noteZeroByteToolInputStart = (toolName?: string) => {
-          if (!toolName) return false;
-          const now = Date.now();
-          if (zeroByteToolInputRestart?.toolName === toolName) {
-            zeroByteToolInputRestart = {
-              ...zeroByteToolInputRestart,
-              lastStartedAt: now,
-              count: zeroByteToolInputRestart.count + 1,
-            };
-          } else {
-            zeroByteToolInputRestart = {
-              toolName,
-              firstStartedAt: now,
-              lastStartedAt: now,
-              count: 1,
-            };
-          }
-          return (
-            zeroByteToolInputRestart.count >=
-              ACTION_PREPARATION_ZERO_BYTE_RESTART_LIMIT &&
-            now - zeroByteToolInputRestart.firstStartedAt >=
-              ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS
-          );
         };
         const eventIterator = eventStream[Symbol.asyncIterator]();
         let eventIteratorDone = false;
@@ -5254,7 +5213,6 @@ export async function runAgentLoop(opts: {
               }
             }
             if (event.type === "text-delta") {
-              resetZeroByteToolInputRestart();
               streamedAssistantText += event.text;
               send({ type: "text", text: event.text });
             } else if (event.type === "thinking-delta") {
@@ -5276,17 +5234,12 @@ export async function runAgentLoop(opts: {
                 ...(event.id ? { id: event.id } : {}),
               });
               sendToolInputActivity(event.name, key, undefined, true);
-              if (noteZeroByteToolInputStart(event.name)) {
-                checkpointNoProgress();
-                break;
-              }
             } else if (event.type === "tool-input-delta") {
               const key = event.id ?? event.name;
               const toolName =
                 event.name ??
                 (event.id ? toolInputNames.get(event.id) : undefined);
               let progressBytes: number | undefined;
-              let startedZeroByteInput = false;
               if (key) {
                 const hadByteRecord = toolInputBytes.has(key);
                 const previous = hadByteRecord
@@ -5298,11 +5251,6 @@ export async function runAgentLoop(opts: {
                 toolInputBytes.set(key, progressBytes);
                 if (!hadByteRecord || progressBytes > previous) {
                   trackActiveToolInput(key, toolName, progressBytes);
-                  if (progressBytes > 0) {
-                    resetZeroByteToolInputRestart();
-                  } else if (!hadByteRecord) {
-                    startedZeroByteInput = true;
-                  }
                 }
               }
               if (event.text) {
@@ -5314,14 +5262,6 @@ export async function runAgentLoop(opts: {
                 });
               }
               sendToolInputActivity(toolName, key, progressBytes);
-              if (
-                startedZeroByteInput &&
-                toolName &&
-                noteZeroByteToolInputStart(toolName)
-              ) {
-                checkpointNoProgress();
-                break;
-              }
             } else if (event.type === "gateway-heartbeat") {
               send({ type: "stream_keepalive" });
             } else if (event.type === "tool-call") {
