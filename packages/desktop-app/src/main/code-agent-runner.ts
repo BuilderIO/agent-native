@@ -212,10 +212,12 @@ export function withResolvedExecutablePaths(
   environment: NodeJS.ProcessEnv,
   executables: readonly string[],
 ): NodeJS.ProcessEnv {
-  const resolvedDirectories = ["node", ...executables]
+  const resolvedDirectories = executables
     .map((executable) => resolveExecutable(executable, environment))
     .filter((resolved): resolved is string => Boolean(resolved))
     .map((resolved) => path.dirname(resolved));
+  const resolvedNode = resolveExecutable("node", environment);
+  if (resolvedNode) resolvedDirectories.push(path.dirname(resolvedNode));
   const existingPath = (environment.PATH ?? "")
     .split(path.delimiter)
     .filter(Boolean);

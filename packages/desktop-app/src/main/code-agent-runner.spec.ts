@@ -261,7 +261,48 @@ describe("resolveExecutable", () => {
         { HOME: root, PATH: "/usr/bin", PNPM_HOME: pnpmHome },
         ["pi"],
       ).PATH?.split(path.delimiter),
-    ).toEqual([nodeBin, pnpmHome, "/usr/bin"]);
+    ).toEqual([pnpmHome, nodeBin, "/usr/bin"]);
+  });
+
+  it("keeps an NVM CLI ahead of another Node version already on PATH", () => {
+    const root = createTempRoot();
+    const oldNodeBin = path.join(
+      root,
+      ".nvm",
+      "versions",
+      "node",
+      "v20.0.0",
+      "bin",
+    );
+    const selectedNodeBin = path.join(
+      root,
+      ".nvm",
+      "versions",
+      "node",
+      "v24.0.0",
+      "bin",
+    );
+    fs.mkdirSync(oldNodeBin, { recursive: true });
+    fs.mkdirSync(selectedNodeBin, { recursive: true });
+    fs.writeFileSync(path.join(oldNodeBin, "node"), "#!/bin/sh\n", {
+      mode: 0o755,
+    });
+    fs.writeFileSync(path.join(selectedNodeBin, "node"), "#!/bin/sh\n", {
+      mode: 0o755,
+    });
+    fs.writeFileSync(
+      path.join(selectedNodeBin, "pi"),
+      "#!/usr/bin/env node\n",
+      {
+        mode: 0o755,
+      },
+    );
+
+    expect(
+      withResolvedExecutablePaths({ HOME: root, PATH: oldNodeBin }, [
+        "pi",
+      ]).PATH?.split(path.delimiter),
+    ).toEqual([selectedNodeBin, oldNodeBin]);
   });
 
   it("finds CLIs installed under an NVM-managed Node version", () => {
