@@ -301,7 +301,6 @@ export default function DesktopAppChatShell({
     let cancelled = false;
     setApiUrl(null);
     setDesktopChatRelayBase(appId, null);
-    setDesktopChatRelayActive(appId, false);
 
     const getApiUrl = window.electronAPI?.desktopChat?.getApiUrl;
     if (!getApiUrl) return () => undefined;
@@ -310,33 +309,30 @@ export default function DesktopAppChatShell({
       .then((nextApiUrl) => {
         if (cancelled) return;
         setDesktopChatRelayBase(appId, nextApiUrl);
-        setDesktopChatRelayActive(appId, isActive);
         setApiUrl(nextApiUrl);
       })
       .catch(() => {
         if (cancelled) return;
         setDesktopChatRelayBase(appId, null);
-        setDesktopChatRelayActive(appId, false);
         setApiUrl(null);
       });
 
     return () => {
       cancelled = true;
       setDesktopChatRelayBase(appId, null);
-      setDesktopChatRelayActive(appId, false);
     };
-  }, [appId, isActive]);
+  }, [appId]);
 
   useEffect(() => {
     void preloadAgentChatSurface();
   }, []);
 
   useEffect(() => {
-    setDesktopChatRelayActive(appId, isActive);
+    setDesktopChatRelayActive(appId, isActive && Boolean(apiUrl));
     return () => {
       setDesktopChatRelayActive(appId, false);
     };
-  }, [appId, isActive]);
+  }, [apiUrl, appId, isActive]);
 
   const startLocalCodeChange = useCallback(
     async (prompt: string) => {

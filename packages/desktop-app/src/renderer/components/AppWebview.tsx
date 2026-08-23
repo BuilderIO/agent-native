@@ -897,6 +897,13 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
           const preserveLoadedSession =
             hasLoadedGuestPageRef.current &&
             desktopIdentitySessionReadyRef.current;
+          if (preserveLoadedSession && fromRememberedSession) {
+            // Tab activation is a visibility change, not a new child-session
+            // ceremony that can safely replace a verified cookie.
+            updateDesktopIdentitySessionReady(true);
+            setDesktopIdentityStatus("signed-in");
+            return;
+          }
           if (!preserveLoadedSession) {
             updateDesktopIdentitySessionReady(false);
           }

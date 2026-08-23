@@ -10,6 +10,7 @@ import {
   MIGRATION_APP_ID,
   getCodeAgentGoal,
 } from "@shared/code-agents";
+import { isDesktopSettingsShortcut } from "@shared/desktop-shortcuts";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Toaster, toast } from "sonner";
 
@@ -122,6 +123,24 @@ export default function App() {
     setSettingsTab(tab ?? "general");
     setShowSettings(true);
   }, []);
+
+  useEffect(() => {
+    const onKeydown = window.electronAPI?.shortcuts?.onKeydown;
+    if (!onKeydown) return;
+    return onKeydown((input) => {
+      if (
+        !isDesktopSettingsShortcut({
+          key: input.key,
+          code: input.code,
+          shift: input.shiftKey,
+          alt: input.altKey,
+        })
+      ) {
+        return;
+      }
+      handleOpenSettings();
+    });
+  }, [handleOpenSettings]);
 
   const handleChatFirstAppSelectionChange = useCallback((appId?: string) => {
     setActiveChatFirstAppId(appId ?? "");

@@ -324,6 +324,90 @@ describe("Desktop identity activation", () => {
     ).toHaveLength(initialSourceAssignmentCount);
   });
 
+  it("does not resynchronize a loaded app during remembered tab activation", async () => {
+    const ensureAppSession = vi.fn(async () => true);
+    Object.defineProperty(window, "electronAPI", {
+      configurable: true,
+      value: {
+        identity: {
+          getSettings: vi.fn(async () => ({ ssoEnabled: true })),
+          getStatus: vi.fn(async () => "signed-in"),
+          ensureAppSession,
+          onStatusChange: vi.fn(() => () => {}),
+        },
+      },
+    });
+    rememberDesktopIdentityStatus("signed-in");
+    root = createRoot(container);
+
+    const app = {
+      id: "mail",
+      name: "Mail",
+      icon: "mail",
+      description: "",
+      devPort: 3000,
+    };
+    const appConfig = {
+      ...app,
+      url: "https://mail.agent-native.com",
+      isBuiltIn: true,
+      enabled: true,
+      mode: "prod" as const,
+    };
+
+    act(() => {
+      root.render(
+        React.createElement(AppWebview, {
+          app,
+          appConfig,
+          isActive: true,
+          theme: "dark" as const,
+        }),
+      );
+    });
+
+    await vi.waitFor(() => expect(ensureAppSession).toHaveBeenCalledTimes(1));
+    const webview = container.querySelector("webview");
+    expect(webview).not.toBeNull();
+    Object.defineProperties(webview!, {
+      getTitle: { configurable: true, value: () => "" },
+      getURL: {
+        configurable: true,
+        value: () => webview!.getAttribute("src") ?? "",
+      },
+    });
+    await act(async () => {
+      webview?.dispatchEvent(new Event("dom-ready"));
+      await Promise.resolve();
+    });
+
+    act(() => {
+      root.render(
+        React.createElement(AppWebview, {
+          app,
+          appConfig,
+          isActive: false,
+          theme: "dark" as const,
+        }),
+      );
+    });
+    act(() => {
+      root.render(
+        React.createElement(AppWebview, {
+          app,
+          appConfig,
+          isActive: true,
+          theme: "dark" as const,
+        }),
+      );
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(ensureAppSession).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps a remembered session gated until child synchronization completes", async () => {
     let resolveSynchronization!: (synchronized: boolean) => void;
     const ensureAppSession = vi.fn(

@@ -282,8 +282,10 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(hubSource).toContain(
       "https://forms.agent-native.com/f/agent-native-feedback/_16ewV",
     );
-    expect(hubSource).not.toContain("desktop-chat-first-rail-settings");
-    expect(hubSource).not.toContain('<DesktopRailTooltip label="Settings">');
+    expect(hubSource).toContain("desktop-chat-first-rail-settings");
+    expect(hubSource).toContain('<DesktopRailTooltip label="Settings">');
+    expect(hubSource).toContain("onClick={() => onOpenSettings()}");
+    expect(hubSource).toContain("<IconSettings");
     expect(hubSource).toContain("<TooltipProvider delayDuration={0}>");
     expect(hubSource).toContain("IconLayoutSidebarLeftCollapse");
     expect(hubSource).toContain("desktop-chat-first-rail-collapse");
@@ -306,6 +308,7 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(shellCss).toMatch(
       /\.desktop-chat-first-rail-footer-actions\s*>\s*\.desktop-chat-first-rail-feedback\s*\{[\s\S]*?flex: 1 1 auto;/,
     );
+    expect(shellCss).toContain("desktop-chat-first-rail-settings");
     expect(shellCss).toContain("visibility: hidden;");
     expect(shellCss).toContain("margin-top: auto;");
     expect(shellCss).toContain("height: 100%;");
@@ -332,6 +335,16 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
       "if (forwardDesktopNavigationShortcut(event, input)) return;",
     );
     expect(mainSource).toContain("if (isDesktopChatToggleShortcut(input)) {");
+  });
+
+  it("routes Cmd+, to the desktop settings surface", () => {
+    const appSource = readFileSync("src/renderer/App.tsx", "utf8");
+    const mainSource = readFileSync("src/main/index.ts", "utf8");
+
+    expect(appSource).toContain("isDesktopSettingsShortcut");
+    expect(appSource).toContain("handleOpenSettings();");
+    expect(mainSource).toContain("isSettingsShortcut");
+    expect(mainSource).toContain('? ","');
   });
 
   it("orders pinned desktop apps ahead of unpinned apps and filters by name or description", () => {

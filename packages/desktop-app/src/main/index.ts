@@ -40,6 +40,7 @@ import {
 import {
   formatDesktopShortcutAccelerator,
   isDesktopChatToggleShortcut,
+  isDesktopSettingsShortcut,
   normalizeDesktopShortcutAccelerator,
   shortcutOpenPathForBinding,
   type DesktopShortcutBinding,
@@ -420,13 +421,22 @@ function forwardDesktopNavigationShortcut(
     input.code === "BracketRight" || key === "]" || key === "}";
   const isBracketShortcut =
     Boolean(input.shift) && !input.alt && (isBracketLeft || isBracketRight);
-  if (!isNumericShortcut && !isBracketShortcut) return false;
+  const isSettingsShortcut = isDesktopSettingsShortcut(input);
+  if (!isNumericShortcut && !isBracketShortcut && !isSettingsShortcut) {
+    return false;
+  }
 
   event.preventDefault();
   const win = mainWindow;
   if (!win || win.isDestroyed() || win.webContents.isDestroyed()) return true;
   win.webContents.send("shortcut:keydown", {
-    key: isNumericShortcut ? key : isBracketLeft ? "[" : "]",
+    key: isSettingsShortcut
+      ? ","
+      : isNumericShortcut
+        ? key
+        : isBracketLeft
+          ? "["
+          : "]",
     code: input.code,
     shiftKey: Boolean(input.shift),
     altKey: Boolean(input.alt),
