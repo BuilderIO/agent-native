@@ -1377,9 +1377,19 @@ const WARM_ORIGIN_TTL_MS = 4 * 60 * 1000;
 const WARM_ORIGIN_TIMEOUT_MS = 12_000;
 const WARM_ORIGIN_FANOUT_WAIT_MS = 60_000;
 const WARM_ORIGIN_FANOUT_POLL_MS = 500;
+const WARM_ORIGIN_RETRY_MS = 30_000;
 const warmedOriginAt = new Map<string, number>();
 let originWarmupInFlight: Promise<void> | null = null;
 let originWarmupRerunRequested = false;
+let originWarmupRetryTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleWarmupRetry(): void {
+  if (originWarmupRetryTimer || appIsQuitting) return;
+  originWarmupRetryTimer = setTimeout(() => {
+    originWarmupRetryTimer = null;
+    warmDesktopAppOrigins();
+  }, WARM_ORIGIN_RETRY_MS);
+}
 
 async function warmDesktopAppOrigin(
   origin: string,
@@ -1450,9 +1460,10 @@ function warmDesktopAppOrigins(): void {
     }
     if (desktopIdentityBroker?.hasPendingAppSessionWork()) {
       // Still minting after the cap. Overlapping it is the exact hazard this
-      // wait exists for, so give up this pass and let the next trigger
-      // (focus, lane change, sign-in) retry. Deliberately does not re-arm:
-      // that would spin this wait in a loop for as long as work is stuck.
+      // wait exists for, so abandon this pass. A single bounded retry is
+      // scheduled rather than re-arming immediately, which would spin the
+      // wait in a loop for as long as the work stays stuck.
+      scheduleWarmupRetry();
       return;
     }
     for (const target of targets) {
@@ -1477,9 +1488,10 @@ function warmDesktopAppOrigins(): void {
 function resolveDesktopEnvironmentLaneState(): DesktopEnvironmentLaneState {
   const preference =
     AppStore.loadDesktopAppPreferences().desktopEnvironmentLane;
-  const email = isDesktopSsoEnabled()
-    ? (desktopIdentityBroker?.getVerifiedEmail() ?? null)
-    : null;
+  const email =
+    isDesktopSsoEnabled() && desktopIdentityBroker?.getStatus() === "signed-in"
+      ? (desktopIdentityBroker.getVerifiedEmail() ?? null)
+      : null;
   return {
     preference,
     lane: resolveDesktopEnvironmentLane({ preference, email }),

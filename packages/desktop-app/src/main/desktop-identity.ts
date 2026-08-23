@@ -2307,6 +2307,7 @@ export class DesktopIdentityBroker {
     authority: DesktopIdentityApp,
     identitySession: Session = this.options.identitySession,
   ): Promise<string | null> {
+    const requestGeneration = this.ceremonyGeneration;
     const controller = new AbortController();
     const timeoutMs = this.options.statusTimeoutMs ?? DEFAULT_STATUS_TIMEOUT_MS;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -2421,7 +2422,13 @@ export class DesktopIdentityBroker {
       // interactive, legacy, and adoption fan-outs all verify through this
       // method, and threading the email through every one of them is how a
       // path gets missed and `auto` silently resolves to production.
-      if (verified) this.verifiedIdentityEmail = verified;
+      //
+      // Only for a still-current ceremony: a response that lands after
+      // sign-out or an account switch would otherwise restore the previous
+      // account's email and route the next account onto its lane.
+      if (verified && this.isCeremonyCurrent(requestGeneration)) {
+        this.verifiedIdentityEmail = verified;
+      }
       return verified;
     } finally {
       if (timer) clearTimeout(timer);
