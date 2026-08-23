@@ -284,6 +284,7 @@ secrets only. See `e2e/beta/README.md` for how they are minted.
 | `BETA_E2E_REPORT_SLOT`           | Names this invocation's report directory. The workflow sets one per lane so three sequential runs do not overwrite each other's results.           |
 | `BETA_E2E_EMAIL`                 | The identity every authenticated spec asserts it is running as. Setup fails if the resolved session is anyone else.                                |
 | `BETA_E2E_SESSION_TOKENS`        | JSON map of app id to framework session token (`{"*": "…"}` applies fleet-wide), replayed through `?_session=`. Minted by `pnpm e2e:beta:capture`. |
+| `BETA_E2E_SESSION_TOKEN_MACROS`  | Optional Macros framework session token override, used to refresh that host without replacing the fleet token map. Store it as a GitHub Actions secret. |
 | `BETA_E2E_STORAGE_STATE`         | Alternative to the token map: a Playwright storageState JSON blob.                                                                                 |
 | `BETA_E2E_STORAGE_STATE_FILE`    | Path to a storageState file, for local runs.                                                                                                       |
 | `BETA_E2E_OPENAI_API_KEY`        | Dedicated, separately-limited OpenAI key installed at **user** scope on the e2e account so agent-turn spend is attributable to this suite.         |
