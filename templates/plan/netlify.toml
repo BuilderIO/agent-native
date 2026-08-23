@@ -1,6 +1,6 @@
 [build]
 ignore = "node ./scripts/netlify-ignore-build.mjs plan"
-command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && if [ \"${agentNativePrebuiltBuild:-}\" = \"true\" ]; then export BETTER_AUTH_SECRET=\"${agentNativePrebuiltAuthSecret:?}\"; fi && pnpm install && NITRO_PRESET=netlify pnpm --filter plan build && if [ \"${CONTEXT:-}\" = \"production\" ] || [ \"${AGENT_NATIVE_RUN_RELEASE_MIGRATIONS:-}\" = \"1\" ]; then pnpm --filter plan migrate:production; fi"
+command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && if [ \"${agentNativePrebuiltBuild:-}\" = \"true\" ]; then export BETTER_AUTH_SECRET=\"${agentNativePrebuiltAuthSecret:?}\"; fi && pnpm install && NITRO_PRESET=netlify pnpm --filter plan build && if { [ \"${CONTEXT:-}\" = \"production\" ] || [ \"${AGENT_NATIVE_RUN_RELEASE_MIGRATIONS:-}\" = \"1\" ]; } && [ \"${agentNativePrebuiltBuild:-}\" != \"true\" ]; then pnpm --filter plan migrate:production; fi"
 publish = "templates/plan/dist"
 functions = "templates/plan/.netlify/functions-internal"
 
