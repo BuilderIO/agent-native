@@ -270,6 +270,91 @@ if (workflow) {
   }
 }
 
+// The lanes share a database in production. Keep them ordered so a full
+// promotion run cannot turn its own anonymous and authenticated checks into a
+// connection-pool burst.
+if (workflow) {
+  try {
+    type WorkflowJob = {
+      needs?: string | string[];
+      if?: string;
+      strategy?: { "max-parallel"?: unknown };
+    };
+    const parsed = parse(workflow) as {
+      jobs?: Record<string, WorkflowJob>;
+    };
+    const jobs = parsed.jobs ?? {};
+    const hasNeed = (job: string, dependency: string): boolean => {
+      const needs = jobs[job]?.needs;
+      return Array.isArray(needs)
+        ? needs.includes(dependency)
+        : needs === dependency;
+    };
+
+    for (const [job, dependency] of [
+      ["public", "discover"],
+      ["fleet", "public"],
+      ["advisory", "fleet"],
+      ["authed", "advisory"],
+    ] as const) {
+      if (!hasNeed(job, dependency)) {
+        issues.push(
+          `${workflowPath} must run ${job} after ${dependency}; the beta lanes share database capacity and must not fan out concurrently.`,
+        );
+      }
+    }
+
+    if (jobs.public?.strategy?.["max-parallel"] !== 4) {
+      issues.push(
+        `${workflowPath} must cap the public matrix at four runners so the sharded sweep cannot burst shared backend capacity.`,
+      );
+    }
+
+    const conjunctionParts = (condition: unknown): string[] | null => {
+      if (typeof condition !== "string") return null;
+      const expression = condition.match(
+        /^\s*\$\{\{\s*([\s\S]*?)\s*\}\}\s*$/,
+      )?.[1];
+      if (!expression || expression.includes("||")) return null;
+      const parts = expression
+        .split("&&")
+        .map((part) => part.trim())
+        .filter(Boolean);
+      return parts.length === 0 ? null : parts;
+    };
+
+    for (const job of ["fleet", "advisory", "authed"] as const) {
+      const parts = conjunctionParts(jobs[job]?.if);
+      if (!parts?.includes("always()") || !parts.includes("!cancelled()")) {
+        issues.push(
+          `${workflowPath} ${job} must use always() and !cancelled() as top-level conjunctions so ordinary failures do not suppress later evidence or cancellation starts new work.`,
+        );
+      }
+    }
+
+    for (const job of ["public", "fleet", "advisory"] as const) {
+      if (
+        !conjunctionParts(jobs[job]?.if)?.includes("inputs.lane != 'authed'")
+      ) {
+        issues.push(
+          `${workflowPath} ${job} must use inputs.lane != 'authed' as a top-level conjunction so authenticated-only runs skip it.`,
+        );
+      }
+    }
+    if (
+      !conjunctionParts(jobs.authed?.if)?.includes("inputs.lane != 'public'")
+    ) {
+      issues.push(
+        `${workflowPath} authed must use inputs.lane != 'public' as a top-level conjunction so public-only runs skip it.`,
+      );
+    }
+  } catch (error) {
+    issues.push(
+      `${workflowPath} lane dependency graph could not be checked: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
 // 9. An unrequested pre-flight must never hold up a deploy.
 const prodDeployPath = ".github/workflows/deploy-production-sites-prebuilt.yml";
 const prodDeploy = read(prodDeployPath);

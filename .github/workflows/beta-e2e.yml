@@ -158,12 +158,18 @@ jobs:
           NODE
 
   public:
+    # Lane jobs below are ordered because several beta apps share production
+    # databases; always() keeps later evidence running after ordinary failure.
     name: ${{ matrix.app }} public sweep
     needs: discover
+    if: ${{ needs.discover.result == 'success' && inputs.lane != 'authed' }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     strategy:
       fail-fast: false
+      # Keep public shards bounded: independent hosts can still share backend
+      # capacity, and the fleet-wide lanes run after this matrix completes.
+      max-parallel: 4
       matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
     env:
       BETA_E2E_APPS: ${{ matrix.app }}
@@ -194,7 +200,8 @@ jobs:
 
   fleet:
     name: Fleet-wide checks
-    needs: discover
+    needs: [discover, public]
+    if: ${{ always() && !cancelled() && needs.discover.result == 'success' && inputs.lane != 'authed' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -222,8 +229,8 @@ jobs:
 
   authed:
     name: Authenticated journeys
-    needs: discover
-    if: ${{ inputs.lane != 'public' }}
+    needs: [discover, advisory]
+    if: ${{ always() && !cancelled() && needs.discover.result == 'success' && inputs.lane != 'public' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -289,8 +296,8 @@ jobs:
 
   advisory:
     name: Advisory findings (non-gating)
-    if: ${{ always() && needs.discover.result == 'success' }}
-    needs: discover
+    if: ${{ always() && !cancelled() && needs.discover.result == 'success' && inputs.lane != 'authed' }}
+    needs: [discover, fleet]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
