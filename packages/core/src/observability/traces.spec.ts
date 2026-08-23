@@ -889,6 +889,144 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(events.filter((e) => e.name === "$ai_trace")).toHaveLength(1);
   });
 
+  // `captureLlmSpans` and `captureToolArgs` gate different things, and review
+  // has already read the first as if it were the second. `captureLlmSpans`
+  // decides whether each tool gets its own `$ai_span` event; what a tool call
+  // is allowed to SAY is `captureToolArgs`. Dropping the generation's tool list
+  // along with the span events would leave a trace showing a model that
+  // answered without any sign it called anything.
+  it("keeps tool calls in the generation when only span emission is off", async () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        events.push(event);
+      },
+    });
+
+    const loopOpts: any = {
+      engine: { name: "anthropic" },
+      model: "claude-test",
+      systemPrompt: "",
+      tools: [],
+      messages: [],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    };
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ send }) => {
+        send({
+          type: "tool_start",
+          id: "a",
+          tool: "search",
+          input: { query: "pricing", apiKey: "sk-should-not-appear" },
+        });
+        send({ type: "tool_done", id: "a", tool: "search", result: "ok" });
+        return {
+          inputTokens: 1,
+          outputTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "claude-test",
+        };
+      },
+      loopOpts,
+      runId: "run-spans-off-args-on",
+      threadId: null,
+      userId: null,
+      config: {
+        ...DEFAULT_OBSERVABILITY_CONFIG,
+        enabled: true,
+        captureLlmSpans: false,
+        captureToolArgs: true,
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(events.filter((e) => e.name === "$ai_span")).toHaveLength(0);
+
+    const generation = events.find((e) => e.name === "$ai_generation");
+    const choices = generation?.properties?.["$ai_output_choices"] as Array<{
+      tool_calls?: Array<{ function: { name: string; arguments?: unknown } }>;
+    }>;
+    const call = choices?.[0]?.tool_calls?.[0];
+    expect(call?.function.name).toBe("search");
+    // Arguments ride on `captureToolArgs`, which is on here — and the span's
+    // own redaction still applies to them.
+    expect(call?.function.arguments).toEqual({
+      query: "pricing",
+      apiKey: "[REDACTED]",
+    });
+  });
+
+  // The other half of the same contract: turning span emission back ON must not
+  // start exporting arguments that `captureToolArgs` withheld.
+  it("omits tool arguments when captureToolArgs is off, spans or not", async () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        events.push(event);
+      },
+    });
+
+    const loopOpts: any = {
+      engine: { name: "anthropic" },
+      model: "claude-test",
+      systemPrompt: "",
+      tools: [],
+      messages: [],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    };
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ send }) => {
+        send({
+          type: "tool_start",
+          id: "a",
+          tool: "search",
+          input: { query: "pricing" },
+        });
+        send({ type: "tool_done", id: "a", tool: "search", result: "ok" });
+        return {
+          inputTokens: 1,
+          outputTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "claude-test",
+        };
+      },
+      loopOpts,
+      runId: "run-spans-on-args-off",
+      threadId: null,
+      userId: null,
+      config: {
+        ...DEFAULT_OBSERVABILITY_CONFIG,
+        enabled: true,
+        captureLlmSpans: true,
+        captureToolArgs: false,
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(events.filter((e) => e.name === "$ai_span")).toHaveLength(1);
+
+    const generation = events.find((e) => e.name === "$ai_generation");
+    const choices = generation?.properties?.["$ai_output_choices"] as Array<{
+      tool_calls?: Array<{ function: Record<string, unknown> }>;
+    }>;
+    const call = choices?.[0]?.tool_calls?.[0];
+    // The call is still visible — that it happened is not the secret.
+    expect(call?.function.name).toBe("search");
+    expect(call?.function).not.toHaveProperty("arguments");
+  });
+
   it("keeps tool detail in invocation order and pairs parallel calls by id", async () => {
     const events: TrackingEvent[] = [];
     registerTrackingProvider({
