@@ -1810,6 +1810,150 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(generationLatency).toBeLessThan(runSeconds);
   });
 
+  // The engine already brackets each LLM round-trip with `model_stream`
+  // start/end, and that bracket closes before any tool of the turn starts. When
+  // it is present the generation's latency is measured, so none of the
+  // subtraction machinery below applies — overlapping tools cannot distort it.
+  it("measures generation latency from model_stream brackets when present", async () => {
+    const byName = new Map<string, TrackingEvent[]>();
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        if (!event.name.startsWith("$ai_")) return;
+        const list = byName.get(event.name) ?? [];
+        list.push(event);
+        byName.set(event.name, list);
+      },
+    });
+
+    const loopOpts: any = {
+      engine: { name: "anthropic" },
+      model: "claude-test",
+      systemPrompt: "",
+      tools: [],
+      messages: [],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    };
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ send }) => {
+        // Two round-trips of ~20ms each, with a ~40ms parallel tool fan-out in
+        // between. Model time is ~40ms; the run is ~80ms.
+        send({ type: "model_stream", status: "start" });
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        send({ type: "model_stream", status: "end" });
+
+        send({ type: "tool_start", id: "a", tool: "read", input: {} });
+        send({ type: "tool_start", id: "b", tool: "search", input: {} });
+        await new Promise((resolve) => setTimeout(resolve, 40));
+        send({ type: "tool_done", id: "a", tool: "read", result: "ok" });
+        send({ type: "tool_done", id: "b", tool: "search", result: "ok" });
+
+        send({ type: "model_stream", status: "start" });
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        send({ type: "model_stream", status: "end" });
+        return {
+          inputTokens: 10,
+          outputTokens: 5,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "claude-test",
+          usageReported: true,
+          llmCalls: 2,
+        };
+      },
+      loopOpts,
+      runId: "run-measured",
+      threadId: "thread-measured",
+      userId: null,
+      config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const trace = byName.get("$ai_trace")?.[0];
+    const generation = byName.get("$ai_generation")?.[0];
+    const spans = byName.get("$ai_span") ?? [];
+    expect(spans).toHaveLength(2);
+
+    expect(generation?.properties?.latency_source).toBe("measured");
+    const generationLatency = generation?.properties?.["$ai_latency"] as number;
+    const runSeconds = (trace?.properties?.duration_ms as number) / 1000;
+
+    // The two brackets, and neither of the tool windows between them.
+    expect(generationLatency).toBeGreaterThan(0.03);
+    expect(generationLatency).toBeLessThan(0.06);
+
+    // Each tool reports its own real duration, so two tools sharing one 40ms
+    // window contribute ~80ms of work to a ~80ms run. Summed children exceeding
+    // the wall clock is the honest result of concurrency, not an error: the
+    // trace's own `duration_ms` is what reports elapsed time, and the waterfall
+    // places each span by its timestamp. Shrinking the generation to force the
+    // sum down would only trade a true number for a flattering one.
+    const spanLatencies = spans.map(
+      (e) => e.properties?.["$ai_latency"] as number,
+    );
+    for (const latency of spanLatencies) {
+      expect(latency).toBeGreaterThan(0.03);
+    }
+    expect(runSeconds).toBeGreaterThan(0.06);
+  });
+
+  // The fallback still has to exist for engines that never bracket their model
+  // calls, but a latency built on it must not be mistaken for a measured one.
+  it("labels a derived latency when the engine emits no model_stream", async () => {
+    const byName = new Map<string, TrackingEvent[]>();
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        if (!event.name.startsWith("$ai_")) return;
+        const list = byName.get(event.name) ?? [];
+        list.push(event);
+        byName.set(event.name, list);
+      },
+    });
+
+    const loopOpts: any = {
+      engine: { name: "anthropic" },
+      model: "claude-test",
+      systemPrompt: "",
+      tools: [],
+      messages: [],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    };
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ send }) => {
+        send({ type: "tool_start", id: "a", tool: "read", input: {} });
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        send({ type: "tool_done", id: "a", tool: "read", result: "ok" });
+        return {
+          inputTokens: 10,
+          outputTokens: 5,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "claude-test",
+          usageReported: true,
+        };
+      },
+      loopOpts,
+      runId: "run-derived",
+      threadId: "thread-derived",
+      userId: null,
+      config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(byName.get("$ai_generation")?.[0]?.properties?.latency_source).toBe(
+      "derived",
+    );
+  });
+
   // Tools run in parallel all the time. Summing sibling durations subtracts
   // more than the run spent in tools, which drove the generation's remainder to
   // zero and left the trace total short of the wall clock.

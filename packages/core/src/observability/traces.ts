@@ -39,24 +39,24 @@ function costUsdFromCenticents(value: number): number {
   return Math.round((value / 10_000) * 1_000_000) / 1_000_000;
 }
 
+interface TimeInterval {
+  start: number;
+  end: number;
+}
+
 /**
- * Wall-clock time covered by these spans, counting overlap once.
+ * Wall-clock time covered by these intervals, counting overlap once.
  *
- * Tools run concurrently, so summing durations reports more time in tools than
- * the run actually spent there — enough to drive the generation's remainder to
- * zero on a parallel fan-out.
+ * Tools run concurrently, so summing durations reports more elapsed time than
+ * actually passed — enough to drive a derived remainder to zero on a parallel
+ * fan-out.
  */
-function coveredDurationMs(spans: TraceSpan[]): number {
-  if (spans.length === 0) return 0;
-  const intervals = spans
-    .map((s) => {
-      const start = s.createdAt;
-      return { start, end: start + Math.max(0, s.durationMs) };
-    })
-    .sort((a, b) => a.start - b.start);
+function coveredDurationMs(intervals: TimeInterval[]): number {
+  if (intervals.length === 0) return 0;
+  const sorted = [...intervals].sort((a, b) => a.start - b.start);
   let covered = 0;
-  let { start: openStart, end: openEnd } = intervals[0];
-  for (const { start, end } of intervals.slice(1)) {
+  let { start: openStart, end: openEnd } = sorted[0];
+  for (const { start, end } of sorted.slice(1)) {
     if (start > openEnd) {
       covered += openEnd - openStart;
       openStart = start;
@@ -66,6 +66,13 @@ function coveredDurationMs(spans: TraceSpan[]): number {
     }
   }
   return covered + (openEnd - openStart);
+}
+
+function spanIntervals(spans: TraceSpan[]): TimeInterval[] {
+  return spans.map((s) => ({
+    start: s.createdAt,
+    end: s.createdAt + Math.max(0, s.durationMs),
+  }));
 }
 
 /**
@@ -171,9 +178,8 @@ function emitLlmGenerationTrackingEvent(args: {
   costCentsX100: number | undefined;
   durationMs: number;
   /**
-   * Wall-clock ms spent in the model: the run duration with tool-execution
-   * time removed. This is what `$ai_latency` reports, and it is deliberately
-   * NOT `durationMs`.
+   * Wall-clock ms spent in the model. This is what `$ai_latency` reports, and
+   * it is deliberately NOT `durationMs`.
    *
    * PostHog sums `$ai_latency` across a trace's direct children, and every
    * tool call is emitted as one of those children. Reporting the full run
@@ -181,6 +187,10 @@ function emitLlmGenerationTrackingEvent(args: {
    * than the run it describes.
    */
   llmDurationMs: number;
+  /** False when `llmDurationMs` was derived by subtracting tool time from the
+   *  run because the engine never bracketed its model calls. Emitted so a
+   *  latency built on that estimate can be told apart from a measured one. */
+  llmDurationMeasured: boolean;
   /** LLM round-trips in the run. Feeds `$ai_request_count`, which PostHog
    *  multiplies by per-request pricing — a hardcoded 1 undercharged every
    *  multi-step run on a request-priced model. */
@@ -314,6 +324,7 @@ function emitLlmGenerationTrackingEvent(args: {
     $ai_tools: args.aiTools,
     input_truncated: args.aiInputTruncated || undefined,
     output_truncated: args.aiOutputTruncated || undefined,
+    latency_source: args.llmDurationMeasured ? "measured" : "derived",
     // Seconds, per PostHog's schema — `time_to_first_token_ms` above is the
     // millisecond field this framework's own dashboards read.
     $ai_time_to_first_token:
@@ -654,6 +665,14 @@ export async function instrumentAgentLoop(opts: {
   let successfulTools = 0;
   let failedTools = 0;
 
+  // One `model_stream` start/end bracket is emitted per LLM round-trip, and it
+  // closes before any tool of that turn is started — so these intervals ARE the
+  // model's wall clock, not an estimate of it. Recording them is what lets the
+  // generation report a measured `$ai_latency` instead of backing tool time out
+  // of the run duration.
+  const modelStreamIntervals: TimeInterval[] = [];
+  let modelStreamOpenedAt: number | null = null;
+
   // Track in-flight OTel tool spans so they're all ended even if the loop
   // throws before a matching `tool_done` arrives.
   const openOtelToolSpans = new Set<AgentSpan>();
@@ -734,6 +753,20 @@ export async function instrumentAgentLoop(opts: {
         runStatus = "error";
         errorMessage = "Missing API key";
       }
+      if (event.type === "model_stream") {
+        // The emitter brackets these itself, so a repeated start or an
+        // unmatched end is a no-op here rather than a fabricated interval.
+        if (event.status === "start") {
+          modelStreamOpenedAt ??= Date.now();
+        } else if (modelStreamOpenedAt !== null) {
+          modelStreamIntervals.push({
+            start: modelStreamOpenedAt,
+            end: Date.now(),
+          });
+          modelStreamOpenedAt = null;
+        }
+      }
+
       if (event.type === "tool_start") {
         const counter = toolInvocationCounter++;
         const sid = spanId();
@@ -951,6 +984,20 @@ export async function instrumentAgentLoop(opts: {
       const runEnd = Date.now();
       const totalDurationMs = runEnd - runStart;
 
+      // The loop threw or was killed mid-stream, so no `end` ever arrived. The
+      // model was still running when the run stopped, so the interval closes at
+      // the run's end rather than being dropped.
+      if (modelStreamOpenedAt !== null) {
+        modelStreamIntervals.push({ start: modelStreamOpenedAt, end: runEnd });
+        modelStreamOpenedAt = null;
+      }
+      // Undefined means the engine never bracketed its model calls, NOT that
+      // the model took no time — the two must stay distinguishable, because
+      // only the first may fall back to backing tool time out of the run.
+      const measuredModelDurationMs = modelStreamIntervals.length
+        ? coveredDurationMs(modelStreamIntervals)
+        : undefined;
+
       if (pendingTools.size > 0) {
         if (runStatus === "success") {
           runStatus = "error";
@@ -1083,15 +1130,20 @@ export async function instrumentAgentLoop(opts: {
             : undefined;
         const llmSpanId = spanId();
         const generationToolSpans = collectedToolSpans;
-        // Tool calls are emitted as sibling `$ai_span`s under the same trace,
-        // and PostHog adds their latency to this generation's. Subtracting the
-        // time those siblings cover keeps the trace total equal to the run, not
-        // to the run plus its tools counted a second time. Clamped at 0 because
-        // tool spans are timed independently of the run window.
-        const llmDurationMs = Math.max(
-          0,
-          totalDurationMs - coveredDurationMs(emittedToolSpans),
-        );
+        // Measured model time when the engine bracketed its round-trips.
+        //
+        // The fallback backs tool time out of the run instead, which is an
+        // estimate and behaves like one: it has to net out overlapping tools,
+        // skip tools PostHog will not receive, and clamp at zero. Engines that
+        // report `model_stream` need none of that, so `latency_source` records
+        // which of the two a given `$ai_latency` came from.
+        const llmDurationMs =
+          measuredModelDurationMs ??
+          Math.max(
+            0,
+            totalDurationMs -
+              coveredDurationMs(spanIntervals(emittedToolSpans)),
+          );
         const generationContent = buildGenerationContent({
           config,
           messages: loopOpts.messages,
@@ -1143,6 +1195,7 @@ export async function instrumentAgentLoop(opts: {
           costCentsX100: usageReported ? costCentsX100 : undefined,
           durationMs: totalDurationMs,
           llmDurationMs,
+          llmDurationMeasured: measuredModelDurationMs !== undefined,
           llmCallCount,
           firstTokenMs,
           status: runStatus,
