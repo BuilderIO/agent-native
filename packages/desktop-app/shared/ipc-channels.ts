@@ -7,6 +7,10 @@ import type {
   DesktopShortcutUpsertRequest,
 } from "./desktop-shortcuts";
 import type {
+  DesktopEnvironmentLane,
+  DesktopEnvironmentLanePreference,
+} from "./environment-lane";
+import type {
   QuickPromptSettings,
   QuickPromptPreferences,
 } from "./quick-prompt";
@@ -37,6 +41,8 @@ export const IPC = {
   IDENTITY_STATUS_CHANGED: "identity:status:changed",
   IDENTITY_SETTINGS_GET: "identity:settings:get",
   IDENTITY_SSO_ENABLED_SET: "identity:sso-enabled:set",
+  IDENTITY_ENVIRONMENT_LANE_GET: "identity:environment-lane:get",
+  IDENTITY_ENVIRONMENT_LANE_SET: "identity:environment-lane:set",
   IDENTITY_APP_SESSION_ENSURE: "identity:app-session:ensure",
   IDENTITY_SIGN_IN: "identity:sign-in",
   IDENTITY_AUTHENTICATE: "identity:authenticate",
@@ -214,6 +220,11 @@ export type UpdateStatus =
   | { state: "downloaded"; version: string; releaseNotes?: string }
   | { state: "error"; message: string };
 
+export type {
+  DesktopEnvironmentLane,
+  DesktopEnvironmentLanePreference,
+} from "./environment-lane";
+
 export type DesktopIdentityStatus =
   | "idle"
   | "signing-in"
@@ -223,6 +234,15 @@ export type DesktopIdentityStatus =
 
 export interface DesktopIdentitySettings {
   ssoEnabled: boolean;
+}
+
+export interface DesktopEnvironmentLaneState {
+  /** What the user chose. "auto" follows the signed-in email. */
+  preference: DesktopEnvironmentLanePreference;
+  /** What "auto" currently resolves to, and what webviews will load. */
+  lane: DesktopEnvironmentLane;
+  /** Whether the signed-in account is eligible for the automatic beta lane. */
+  eligible: boolean;
 }
 
 export interface ActiveWebviewTarget {

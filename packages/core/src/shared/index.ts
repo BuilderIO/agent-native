@@ -33,6 +33,9 @@ export {
   BETA_OPT_OUT_DURATION_MS,
   BETA_OPT_OUT_QUERY_PARAM,
   BETA_OPT_OUT_STORAGE_KEY,
+  ENVIRONMENT_BETA_HOSTS,
+  resolveEnvironmentTargets,
+  type EnvironmentBadgeTargets,
 } from "./environment-lanes.js";
 export {
   SSR_HTML_CONTENT_TYPE,
@@ -40,6 +43,14 @@ export {
   type SsrHtmlContentTypeOptions,
   withSsrHtmlContentType,
 } from "./cache-control.js";
+export {
+  SURFACE_HIDDEN_FLAG,
+  SURFACE_VISIBILITY_EVENT,
+  addSurfaceVisibilityListener,
+  buildSurfaceVisibilityScript,
+  isHostSurfaceHidden,
+  isSurfaceHidden,
+} from "./surface-visibility.js";
 export {
   AGENT_NATIVE_DOCS_ORIGIN,
   docsUrl,

@@ -19,7 +19,10 @@ import type {
   DesktopWorkspaceAppListResult,
 } from "../../shared/ipc-channels.js";
 import AppSettings, { AddAppDialog } from "./components/AppSettings.js";
-import { rememberDesktopIdentityStatus } from "./components/AppWebview.js";
+import {
+  rememberDesktopEnvironmentLane,
+  rememberDesktopIdentityStatus,
+} from "./components/AppWebview.js";
 import CodeAgentsHub from "./components/CodeAgentsHub.js";
 import WindowControls, {
   CollapsedMacWindowControls,
@@ -74,18 +77,6 @@ export default function App() {
     setPendingDesktopShortcutActivation,
   ] = useState<DesktopShortcutActivationRequest | null>(null);
 
-  useEffect(() => {
-    async function load() {
-      if (window.electronAPI?.appConfig) {
-        setApps(await window.electronAPI.appConfig.load());
-      } else {
-        setApps(DESKTOP_DEFAULT_APPS);
-      }
-      setLoading(false);
-    }
-    void load();
-  }, []);
-
   const refreshWorkspaceAppList = useCallback(async () => {
     const loader = window.electronAPI?.appConfig?.loadWorkspace;
     if (!loader) {
@@ -99,6 +90,42 @@ export default function App() {
     }
   }, []);
 
+  // The lane depends on the verified email, so it is only known once identity
+  // has resolved. A change has to remount webviews — they are already pointed
+  // at the previous origin.
+  const refreshEnvironmentLane = useCallback(async () => {
+    const getLane = window.electronAPI?.identity?.getEnvironmentLane;
+    if (!getLane) return;
+    try {
+      const state = await getLane();
+      if (rememberDesktopEnvironmentLane(state.lane)) {
+        setRefreshKey((current) => current + 1);
+      }
+    } catch (error) {
+      // coercion-ok: the lane keeps its last known value, which is the same
+      // origin every webview is already pointed at. A failed read must not
+      // move a signed-in user between lanes.
+      console.debug("[desktop-environment] lane read failed", {
+        reason: error instanceof Error ? error.message : "unknown error",
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    async function load() {
+      const loaded = window.electronAPI?.appConfig
+        ? await window.electronAPI.appConfig.load()
+        : DESKTOP_DEFAULT_APPS;
+      // Resolve the lane before clearing the loading state: mounting first
+      // would load production and then remount onto beta, which is the extra
+      // document and session load this is meant to remove.
+      await refreshEnvironmentLane();
+      setApps(loaded);
+      setLoading(false);
+    }
+    void load();
+  }, [refreshEnvironmentLane]);
+
   useEffect(() => {
     void refreshWorkspaceAppList();
     const onStatusChange = window.electronAPI?.identity?.onStatusChange;
@@ -108,8 +135,9 @@ export default function App() {
       // renderer cache even while every individual app webview is inactive.
       rememberDesktopIdentityStatus(status);
       void refreshWorkspaceAppList();
+      void refreshEnvironmentLane();
     });
-  }, [refreshWorkspaceAppList]);
+  }, [refreshWorkspaceAppList, refreshEnvironmentLane]);
 
   const visibleEnabledApps = getDesktopVisibleApps(
     apps.filter((app) => app.enabled),

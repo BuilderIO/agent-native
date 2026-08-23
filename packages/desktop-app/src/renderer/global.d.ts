@@ -28,6 +28,13 @@ type DesktopIdentitySettings = {
   ssoEnabled: boolean;
 };
 
+type DesktopEnvironmentLane =
+  import("../../shared/environment-lane.js").DesktopEnvironmentLane;
+type DesktopEnvironmentLanePreference =
+  import("../../shared/environment-lane.js").DesktopEnvironmentLanePreference;
+type DesktopEnvironmentLaneState =
+  import("../../shared/ipc-channels.js").DesktopEnvironmentLaneState;
+
 type CodeAgentRunStatus =
   | "queued"
   | "running"
@@ -872,6 +879,10 @@ interface ElectronAPI {
     getStatus(): Promise<DesktopIdentityStatus>;
     getSettings(): Promise<DesktopIdentitySettings>;
     setSsoEnabled(enabled: boolean): Promise<boolean>;
+    getEnvironmentLane(): Promise<DesktopEnvironmentLaneState>;
+    setEnvironmentLane(
+      preference: DesktopEnvironmentLanePreference,
+    ): Promise<DesktopEnvironmentLaneState>;
     ensureAppSession(
       appId: string,
       options?: { preserveExistingSession?: boolean },

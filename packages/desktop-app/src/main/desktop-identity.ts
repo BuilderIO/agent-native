@@ -505,6 +505,7 @@ export class DesktopIdentityBroker {
   private readonly internalRevocationNonce =
     randomBytes(16).toString("base64url");
   private status: DesktopIdentityStatus = "idle";
+  private verifiedIdentityEmail: string | null = null;
   private statusVerifiedAt = 0;
   private statusRevalidationRetryAt = 0;
   private ceremonyGeneration = 0;
@@ -670,6 +671,20 @@ export class DesktopIdentityBroker {
       return;
     }
     this.setStatus(verifiedEmail ? "signed-in" : "sign-in-required");
+  }
+
+  /**
+   * Whether child app sessions are still being minted. The first-run fan-out
+   * is deliberately serial because concurrent hosted-origin session work
+   * produces opaque 500s, so background work must wait it out.
+   */
+  hasPendingAppSessionWork(): boolean {
+    return this.pendingModernAppSessions.size > 0;
+  }
+
+  /** Verified signed-in email, or null when no session has been verified. */
+  getVerifiedEmail(): string | null {
+    return this.verifiedIdentityEmail;
   }
 
   private ensureAppSessionInternal(
@@ -2292,6 +2307,7 @@ export class DesktopIdentityBroker {
     authority: DesktopIdentityApp,
     identitySession: Session = this.options.identitySession,
   ): Promise<string | null> {
+    const requestGeneration = this.ceremonyGeneration;
     const controller = new AbortController();
     const timeoutMs = this.options.statusTimeoutMs ?? DEFAULT_STATUS_TIMEOUT_MS;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -2398,9 +2414,22 @@ export class DesktopIdentityBroker {
           );
         }
       }
-      return typeof body?.email === "string" && body.email.trim().length > 0
-        ? body.email.trim()
-        : null;
+      const verified =
+        typeof body?.email === "string" && body.email.trim().length > 0
+          ? body.email.trim()
+          : null;
+      // Recorded here rather than at each signed-in transition: the
+      // interactive, legacy, and adoption fan-outs all verify through this
+      // method, and threading the email through every one of them is how a
+      // path gets missed and `auto` silently resolves to production.
+      //
+      // Only for a still-current ceremony: a response that lands after
+      // sign-out or an account switch would otherwise restore the previous
+      // account's email and route the next account onto its lane.
+      if (verified && this.isCeremonyCurrent(requestGeneration)) {
+        this.verifiedIdentityEmail = verified;
+      }
+      return verified;
     } finally {
       if (timer) clearTimeout(timer);
     }
@@ -3523,6 +3552,7 @@ export class DesktopIdentityBroker {
       this.synchronizedAlternateSessionCookies.clear();
     }
     this.status = status;
+    if (status !== "signed-in") this.verifiedIdentityEmail = null;
     this.statusVerifiedAt = status === "signed-in" ? Date.now() : 0;
     this.statusRevalidationRetryAt = 0;
     this.options.onStatus?.(status);
