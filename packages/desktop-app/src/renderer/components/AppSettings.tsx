@@ -593,14 +593,22 @@ export default function AppSettings({
     void identity.getSettings().then((settings) => {
       if (active) setDesktopSsoEnabled(settings.ssoEnabled);
     });
-    void identity.getEnvironmentLane?.().then((state) => {
-      if (active) setEnvironmentLane(state);
-    });
+    const loadEnvironmentLane = () => {
+      void identity.getEnvironmentLane?.().then((state) => {
+        if (active) setEnvironmentLane(state);
+      });
+    };
+    loadEnvironmentLane();
     void identity.getStatus().then((status) => {
       if (active) setIdentityStatus(status);
     });
     const unsubscribe = identity.onStatusChange((status) => {
-      if (active) setIdentityStatus(status);
+      if (!active) return;
+      setIdentityStatus(status);
+      // Eligibility comes from the verified email, so signing in while
+      // Settings is already open has to re-resolve it — otherwise the beta
+      // control stays hidden until Settings is reopened.
+      loadEnvironmentLane();
     });
     return () => {
       active = false;
