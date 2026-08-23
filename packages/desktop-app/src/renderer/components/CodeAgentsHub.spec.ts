@@ -340,11 +340,17 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
   it("routes Cmd+, to the desktop settings surface", () => {
     const appSource = readFileSync("src/renderer/App.tsx", "utf8");
     const mainSource = readFileSync("src/main/index.ts", "utf8");
+    const shortcutSource = readFileSync(
+      "src/main/desktop-navigation-shortcuts.ts",
+      "utf8",
+    );
 
     expect(appSource).toContain("isDesktopSettingsShortcut");
     expect(appSource).toContain("handleOpenSettings();");
-    expect(mainSource).toContain("isSettingsShortcut");
-    expect(mainSource).toContain('? ","');
+    expect(mainSource).toContain('contents.on("before-input-event"');
+    expect(mainSource).toContain('win.webContents.on("before-input-event"');
+    expect(shortcutSource).toContain("isDesktopSettingsShortcut");
+    expect(shortcutSource).toContain('? ","');
   });
 
   it("orders pinned desktop apps ahead of unpinned apps and filters by name or description", () => {

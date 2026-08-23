@@ -897,19 +897,17 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
           const preserveLoadedSession =
             hasLoadedGuestPageRef.current &&
             desktopIdentitySessionReadyRef.current;
-          if (preserveLoadedSession && fromRememberedSession) {
-            // Tab activation is a visibility change, not a new child-session
-            // ceremony that can safely replace a verified cookie.
-            updateDesktopIdentitySessionReady(true);
-            setDesktopIdentityStatus("signed-in");
-            return;
-          }
           if (!preserveLoadedSession) {
             updateDesktopIdentitySessionReady(false);
           }
           let synchronized: boolean | null;
           try {
-            synchronized = await identity.ensureAppSession(app.id);
+            synchronized =
+              preserveLoadedSession && fromRememberedSession
+                ? await identity.ensureAppSession(app.id, {
+                    preserveExistingSession: true,
+                  })
+                : await identity.ensureAppSession(app.id);
           } catch (error) {
             console.warn("[desktop-identity] lazy app synchronization failed", {
               appId: app.id,

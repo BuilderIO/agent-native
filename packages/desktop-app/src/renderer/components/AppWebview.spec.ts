@@ -324,7 +324,7 @@ describe("Desktop identity activation", () => {
     ).toHaveLength(initialSourceAssignmentCount);
   });
 
-  it("does not resynchronize a loaded app during remembered tab activation", async () => {
+  it("reconciles a loaded app without replacing its session on activation", async () => {
     const ensureAppSession = vi.fn(async () => true);
     Object.defineProperty(window, "electronAPI", {
       configurable: true,
@@ -405,7 +405,10 @@ describe("Desktop identity activation", () => {
     await act(async () => {
       await Promise.resolve();
     });
-    expect(ensureAppSession).toHaveBeenCalledTimes(1);
+    expect(ensureAppSession).toHaveBeenCalledTimes(2);
+    expect(ensureAppSession).toHaveBeenNthCalledWith(2, "mail", {
+      preserveExistingSession: true,
+    });
   });
 
   it("keeps a remembered session gated until child synchronization completes", async () => {
