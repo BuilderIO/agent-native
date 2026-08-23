@@ -379,12 +379,15 @@ async function handleRunNow(
     return "Error: an automation cannot run another automation.";
   }
   try {
+    const path = typeof args.path === "string" ? args.path.trim() : "";
+    const name = typeof args.name === "string" ? args.name : "";
     const result = await queueAutomationRunNow({
       userEmail: getCurrentUser(),
       orgId: getRequestOrgId(),
       appId,
       scope: automationScope(args.scope),
-      name: typeof args.name === "string" ? args.name : "",
+      ...(path ? { path } : { name }),
+      requestHeaders: context?.requestHeaders,
     });
     return JSON.stringify(result);
   } catch (error) {
@@ -423,7 +426,7 @@ export function createAutomationToolEntries(
 - **update**: Update an existing automation's settings without changing its creator (enabled, schedule, timezone, condition, body, policy, model, execution host, MCP allowlist). Required param: name. Use the same scope it was created in.
 - **delete**: Delete an automation. Always confirm with the user first. Required param: name.
 - **fire-test**: Fire a test event to validate automations. Emits a test.event.fired event. Optional param: data (JSON string).
-- **run-now**: Run one automation immediately using its real actions and side effects. This is an explicit user-authorized run and returns a durable run id; it does not change the automation's next scheduled run. Required params: name; optional scope.`,
+- **run-now**: Run one automation immediately using its real actions and side effects. This is an explicit user-authorized run and returns a durable run id; it does not change the automation's next scheduled run. Required params: name or path (not both); optional scope. Use path for automations nested under jobs/ (for example jobs/factories/<id>/factory-slack-feedback.md); those names contain a slash and cannot round-trip through name.`,
         parameters: {
           type: "object" as const,
           properties: {
@@ -436,7 +439,12 @@ export function createAutomationToolEntries(
             name: {
               type: "string",
               description:
-                "Slug name for the automation (lowercase, hyphens). Used by define, update, delete, and run-now.",
+                "Slug name for the automation (lowercase, hyphens). Used by define, update, delete, and run-now for flat automations. For nested automations, pass path to run-now instead.",
+            },
+            path: {
+              type: "string",
+              description:
+                "Full jobs resource path (jobs/...md) for a nested automation. Use with run-now instead of name when the automation name contains a slash.",
             },
             scope: {
               type: "string",

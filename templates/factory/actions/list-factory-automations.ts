@@ -43,7 +43,8 @@ export default defineAction({
     const scoped = definitions.filter(
       ({ meta, resource }) =>
         meta.domain === "factory" &&
-        readAutomationFactoryId(meta, resource.content) === factoryId,
+        readAutomationFactoryId(meta, resource.content, resource.path) ===
+          factoryId,
     );
     return Promise.all(
       scoped.map(async ({ resource, name, meta, body, canUpdate }) => {
