@@ -563,6 +563,114 @@ describe("connector-catalog tier", () => {
     });
   });
 
+  describe("action-declared `mcpTool`", () => {
+    /** Two actions the config catalog says nothing about: one opts itself in,
+     *  one opts itself out of the external surface entirely. */
+    const declaringActions = {
+      ...(fullActions as Record<string, any>),
+      "share-plan-externally": {
+        tool: { description: "Share a plan with an external agent" },
+        mcpTool: true,
+        run: async () => ({ ok: true }),
+      },
+      "open-plan-inspector": {
+        tool: { description: "Open the in-app inspector panel" },
+        mcpTool: false,
+        run: async () => ({ ok: true }),
+      },
+    };
+    const declaringConfig = {
+      ...connectorConfig,
+      actions: declaringActions,
+      productionActions: declaringActions,
+    };
+
+    it("advertises `mcpTool: true` alongside the configured catalog", async () => {
+      const token = await signA2AToken("alice@example.com");
+      const out = await call(
+        { jsonrpc: "2.0", id: 60, method: "tools/list", params: {} },
+        {
+          headers: { authorization: `Bearer ${token}` },
+          mcpConfig: declaringConfig,
+        },
+      );
+      const names: string[] = out.result.tools.map((t: any) => t.name);
+      expect(names).toContain("share-plan-externally");
+      for (const tool of CONNECTOR_CATALOG) expect(names).toContain(tool);
+      expect(names).not.toContain("db-exec");
+    });
+
+    it("activates the connector tier with no configured catalog at all", async () => {
+      const token = await signA2AToken("alice@example.com");
+      const { connectorCatalog: _dropped, ...noCatalogConfig } =
+        declaringConfig;
+      const out = await call(
+        { jsonrpc: "2.0", id: 61, method: "tools/list", params: {} },
+        {
+          headers: { authorization: `Bearer ${token}` },
+          mcpConfig: noCatalogConfig,
+        },
+      );
+      const names: string[] = out.result.tools.map((t: any) => t.name);
+      expect(names).toContain("share-plan-externally");
+      // The tier is real, not a fallback to "everything": the actions the
+      // config catalog used to carry are gone with it.
+      expect(names).not.toContain("create-plan");
+      expect(names).not.toContain("db-exec");
+    });
+
+    it("hides `mcpTool: false` from tools/list and tools/call", async () => {
+      const token = await signA2AToken("alice@example.com");
+      const headers = { authorization: `Bearer ${token}` };
+      const listed = await call(
+        { jsonrpc: "2.0", id: 62, method: "tools/list", params: {} },
+        { headers, mcpConfig: declaringConfig },
+      );
+      expect(listed.result.tools.map((t: any) => t.name)).not.toContain(
+        "open-plan-inspector",
+      );
+      const called = await call(
+        {
+          jsonrpc: "2.0",
+          id: 63,
+          method: "tools/call",
+          params: { name: "open-plan-inspector", arguments: {} },
+        },
+        { headers, mcpConfig: declaringConfig },
+      );
+      expect(called.result.isError).toBe(true);
+      expect(called.result.content[0].text).toMatch(/Unknown tool/);
+    });
+
+    it("keeps `mcpTool: false` uncallable on the full-catalog opt-in", async () => {
+      // The veto has to bite on the tier where `actions` IS the callable
+      // surface, or "hidden" would only mean "not listed".
+      const token = await signA2AToken("alice@example.com", {
+        catalog_scope: "full",
+      });
+      const headers = { authorization: `Bearer ${token}` };
+      const listed = await call(
+        { jsonrpc: "2.0", id: 64, method: "tools/list", params: {} },
+        { headers, mcpConfig: declaringConfig },
+      );
+      const names: string[] = listed.result.tools.map((t: any) => t.name);
+      expect(names).toContain("db-exec");
+      expect(names).not.toContain("open-plan-inspector");
+
+      const called = await call(
+        {
+          jsonrpc: "2.0",
+          id: 65,
+          method: "tools/call",
+          params: { name: "open-plan-inspector", arguments: {} },
+        },
+        { headers, mcpConfig: declaringConfig },
+      );
+      expect(called.result.isError).toBe(true);
+      expect(called.result.content[0].text).toMatch(/Unknown tool/);
+    });
+  });
+
   describe("per-token opt-up: catalog_scope: 'full' in A2A JWT", () => {
     it("serves full catalog when catalog_scope: 'full' is in the A2A token", async () => {
       const token = await signA2AToken("alice@example.com", {

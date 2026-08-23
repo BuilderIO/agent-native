@@ -140,7 +140,11 @@ export function filterDirectA2AActions(
   return Object.fromEntries(
     Object.entries(actions).filter(([name, entry]) => {
       const exposure = entry.publicAgent;
+      // `mcpTool` is the action-owned half of this surface: `true` is catalog
+      // membership declared beside the action, `false` a veto no config list
+      // can re-open (checked below, alongside `agentTool`).
       const selected =
+        entry.mcpTool === true ||
         catalog.has(name) ||
         (autoReads &&
           isAuthenticatedReadAction(entry) &&
@@ -152,6 +156,7 @@ export function filterDirectA2AActions(
         rawQueryAllowed &&
         !denied.has(name) &&
         entry.agentTool !== false &&
+        entry.mcpTool !== false &&
         entry.readOnly === true &&
         exposure?.expose === true &&
         exposure.readOnly === true &&
@@ -181,6 +186,7 @@ export function filterDelegatedA2ACapabilityActions(
       return (
         !denied.has(name) &&
         entry.agentTool !== false &&
+        entry.mcpTool !== false &&
         entry.readOnly !== true &&
         exposure?.expose === true &&
         exposure.readOnly === false &&
@@ -689,22 +695,44 @@ The caller already selected this app to own the current objective. Start with th
 }
 
 /**
- * The first-request tool catalog: an explicit `initialToolNames` verbatim, or
- * the app's OWN actions by default.
+ * The first-request tool catalog, in precedence order:
+ *
+ *  1. An explicit `initialToolNames`, plus every action that declares
+ *     `important: true`. The configured list stays authoritative — an action
+ *     it names is never dropped by an `important: false` — so a template can
+ *     annotate its actions before deleting the array, not after.
+ *  2. Otherwise, the actions marked `important: true`, if any app action is.
+ *  3. Otherwise, the app's OWN actions, minus any marked `important: false`.
+ *
+ * Step 2 is what makes `important` a replacement for the array rather than a
+ * second copy of it: marking the starter actions on an app that has no
+ * configured list narrows the first request to those, instead of leaving the
+ * whole registry in and the annotation decorative.
  *
  * "Its own actions" excludes the framework kits. They arrive in this same
  * registry through `autoDiscoverActions` -> `mergeCoreSharingActions`, so the
  * plain `Object.keys` default promoted ~45 sharing/review/history/flag schemas
  * into every app's first request whether or not the app had those surfaces. They
  * remain in `availableTools` and are still found by `tool-search`; an app that
- * wants one on turn one names it in `initialToolNames`.
+ * wants one on turn one marks it `important` or names it in `initialToolNames`.
  */
 export function resolveInitialToolNames(
   templateActions: Record<string, ActionEntry>,
   configured?: string[],
 ): string[] {
-  if (configured) return configured;
-  return Object.entries(templateActions)
-    .filter(([name, entry]) => !isFrameworkGroupedAction(name, entry))
+  const entries = Object.entries(templateActions);
+  // A framework-grouped action stays out of the DERIVED set, but an explicit
+  // `important: true` on one is a declaration, not a leak: it is the same
+  // opt-in `initialToolNames` already gave apps for these names.
+  const important = entries
+    .filter(([, entry]) => entry.important === true)
+    .map(([name]) => name);
+  if (configured) return [...new Set([...configured, ...important])];
+  if (important.length > 0) return important;
+  return entries
+    .filter(
+      ([name, entry]) =>
+        !isFrameworkGroupedAction(name, entry) && entry.important !== false,
+    )
     .map(([name]) => name);
 }

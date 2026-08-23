@@ -116,6 +116,21 @@ description: "defineAction() の構造 (スキーマ、run、HTTP 設定) と、
             "`false` に設定すると、すべてのエージェント ツール一覧から非表示になります。「アクセスと認可」を参照してください。",
         },
         {
+          name: "mcpTool",
+          type: "boolean",
+          optional: true,
+          default: "true",
+          description:
+            "`false` に設定すると、MCP と A2A 経由の外部エージェントから非表示になります。`true` に設定すると、厳選されたカタログに属することを宣言します。「アクセスと認可」を参照してください。",
+        },
+        {
+          name: "important",
+          type: "boolean",
+          optional: true,
+          description:
+            "`true` に設定すると、そのアクションがエージェントの最初のツール一覧に入ります。下記の「アクションのサーフェスを小さく保つ」を参照してください。",
+        },
+        {
           name: "toolCallable",
           type: "boolean",
           optional: true,
@@ -261,6 +276,7 @@ POST がデフォルトで、`http: { method: "GET" }` を指定すると GET �
 - `update-name`、`update-order`、`update-color` のようなフィールドごとの複数のアクションよりも、オプション フィールドのパッチを受け取る **CRUD スタイルの `update` アクションを1つ** 用意することを優先してください。呼び出し元は、変更されたフィールドだけを送信すればよくなります。
 - クエリやフィルターごとに新しい読み取りアクションを追加する前に、まずより汎用的な選択肢を検討してください。プロバイダー データには [provider API トリオ](/docs/template-dispatch-vault-integrations#provider-api) (`provider-api-catalog`、`provider-api-docs`、`provider-api-request`)、アプリ データには開発用の `db-query` ツールがあります。
 - UI 専用またはプログラム的なアクションには、[`agentTool: false`](/docs/actions-access-control#agent-tool) を付けてください。フロントエンドや HTTP からは引き続き呼び出せますが、モデルのツール一覧の枠は消費しません。
+- エージェントが常に使うごく少数のアクションには `important: true` を付けてください。最初のモデル リクエストで送られるのは、それらのスキーマです。それ以外は、エージェントが必要としたときに `tool-search` を通じてオンデマンドで読み込まれます。1つでも印を付けると、その最初のリクエストは印の付いた集合だけに絞られるので、1つずつではなく、開始時に必要な一式をまとめて印を付けてください。これはアクセス制御ではなく、最初のターンのコストの話です。印を付けていないアクションも、`tool-search` が返した時点で呼び出せます。プラグインの `initialToolNames` 配列をアクション側で表現したもので、アプリはどちらを使ってもかまいません。
 - UI がもう使わなくなったアクションは、モデルに公開したままにせず、削除するか非表示にしてください。
 
 このリポジトリには、助言用のヘルパー `node scripts/audit-template-actions.mjs [template ...]` (エイリアス `pnpm actions:audit`) が含まれています。これはテンプレートの `actions/` フォルダをスキャンし、UI がもう使っていない可能性のあるアクションと、1つにまとめられそうなフィールドごとのアクション群にフラグを立てます。常に終了コード 0 を返して CI を落とすことはなく、そのヒューリスティックは控えめなので、その出力はエラーではなく提案として扱ってください。

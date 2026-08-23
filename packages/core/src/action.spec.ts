@@ -196,6 +196,38 @@ describe("defineAction", () => {
     expect(action.agentTool).toBeUndefined();
   });
 
+  it("threads through mcpTool and important, and leaves both undefined by default", () => {
+    const external = defineAction({
+      description: "share a plan with an external agent",
+      parameters: { id: { type: "string" } },
+      mcpTool: true,
+      important: true,
+      run: async () => "ok",
+    });
+    expect(external.mcpTool).toBe(true);
+    expect(external.important).toBe(true);
+
+    const inAppOnly = defineAction({
+      description: "open the inspector panel",
+      parameters: { id: { type: "string" } },
+      mcpTool: false,
+      important: false,
+      run: async () => "ok",
+    });
+    expect(inAppOnly.mcpTool).toBe(false);
+    expect(inAppOnly.important).toBe(false);
+
+    // Undefined is a third state both surfaces read — it must not collapse to
+    // the default value here, or the declaration becomes unreadable.
+    const plain = defineAction({
+      description: "normal action",
+      parameters: { id: { type: "string" } },
+      run: async () => "ok",
+    });
+    expect(plain.mcpTool).toBeUndefined();
+    expect(plain.important).toBeUndefined();
+  });
+
   it("preserves valid MCP Apps resource metadata", () => {
     const action = defineAction({
       description: "review draft",

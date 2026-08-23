@@ -115,6 +115,28 @@ describe("filterDirectA2AActions", () => {
     ).toEqual(["search-text", "semantic"]);
   });
 
+  it("reads `mcpTool` as catalog membership and as a veto", () => {
+    const actions = {
+      "list-plans": action({ mcpTool: true }),
+      "get-plan": action(),
+      "open-inspector": action({ mcpTool: false }),
+    };
+
+    // No configured catalog: the action's own `mcpTool: true` selects it.
+    expect(Object.keys(filterDirectA2AActions(actions, {}))).toEqual([
+      "list-plans",
+    ]);
+
+    // A configured catalog cannot re-open an action that vetoed itself.
+    expect(
+      Object.keys(
+        filterDirectA2AActions(actions, {
+          connectorCatalog: ["get-plan", "open-inspector"],
+        }),
+      ).sort(),
+    ).toEqual(["get-plan", "list-plans"]);
+  });
+
   it("allows a raw query input only with an explicit opt-in", () => {
     const actions = {
       "raw-sql": action({
@@ -293,5 +315,58 @@ describe("resolveInitialToolNames", () => {
         "share-resource",
       ]),
     ).toEqual(["share-resource"]);
+  });
+
+  it("narrows the derived list to the actions marked important", () => {
+    expect(
+      resolveInitialToolNames({
+        "list-forms": action({ important: true }),
+        "create-form": action({ important: true }),
+        "export-form-archive": action(),
+      }),
+    ).toEqual(["list-forms", "create-form"]);
+  });
+
+  it("drops `important: false` from the derived list", () => {
+    expect(
+      resolveInitialToolNames({
+        "list-forms": action(),
+        "export-form-archive": action({ important: false }),
+      }),
+    ).toEqual(["list-forms"]);
+  });
+
+  it("adds important actions to a configured list without duplicating it", () => {
+    expect(
+      resolveInitialToolNames(
+        {
+          "list-forms": action({ important: true }),
+          "create-form": action({ important: true }),
+          "export-form-archive": action(),
+        },
+        ["list-forms", "export-form-archive"],
+      ),
+    ).toEqual(["list-forms", "export-form-archive", "create-form"]);
+  });
+
+  it("keeps a configured name that the action marked unimportant", () => {
+    // The array is the app's explicit, current statement; an annotation must
+    // not silently delete a name the app still lists.
+    expect(
+      resolveInitialToolNames(
+        { "export-form-archive": action({ important: false }) },
+        ["export-form-archive"],
+      ),
+    ).toEqual(["export-form-archive"]);
+  });
+
+  it("honors `important: true` on a framework kit action", () => {
+    const [kitName] = Object.keys(CORE_ACTION_GROUPS);
+    expect(
+      resolveInitialToolNames({
+        [kitName]: action({ important: true }),
+        "create-form": action(),
+      }),
+    ).toEqual([kitName]);
   });
 });

@@ -116,6 +116,21 @@ The framework auto-discovers every file in `actions/` and mounts it on startup. 
             "Set false to hide from every agent tool list. See Access & Authorization.",
         },
         {
+          name: "mcpTool",
+          type: "boolean",
+          optional: true,
+          default: "true",
+          description:
+            "Set false to hide from external agents over MCP and A2A, or true to declare curated catalog membership. See Access & Authorization.",
+        },
+        {
+          name: "important",
+          type: "boolean",
+          optional: true,
+          description:
+            "Set true to put the action in the agent's first tool list. See Keep the action surface small below.",
+        },
+        {
           name: "toolCallable",
           type: "boolean",
           optional: true,
@@ -261,6 +276,7 @@ Every action the agent can see takes up a slot in the model's tool list, and a l
 - Prefer **one CRUD-style `update` action** that takes a patch of optional fields, over many per-field actions like `update-name`, `update-order`, and `update-color`. The caller only sends the fields that changed.
 - Before adding a new read action for every query or filter, consider a more general option first: the [provider API trio](/docs/template-dispatch-vault-integrations#provider-api) (`provider-api-catalog`, `provider-api-docs`, and `provider-api-request`) for provider data, or the dev `db-query` tool for app data.
 - Mark UI-only or programmatic actions [`agentTool: false`](/docs/actions-access-control#agent-tool). They stay callable from the frontend or over HTTP, without taking a slot in the model's tool list.
+- Mark the handful of actions the agent reaches for constantly `important: true`. Those are the schemas sent on the first model request; everything else loads on demand through `tool-search` when the agent needs it. Marking even one action narrows that first request to the marked set, so mark the whole starter set at once, not one action at a time. This is about what the first turn costs, not about access: an unmarked action is callable the moment `tool-search` returns it. It is the per-action form of the plugin's `initialToolNames` array, and an app can use either.
 - Delete or hide actions the UI no longer uses, instead of leaving them exposed to the model.
 
 The repo includes an advisory helper, `node scripts/audit-template-actions.mjs [template ...]` (alias `pnpm actions:audit`). It scans a template's `actions/` folder and flags actions the UI may no longer use, along with groups of per-field actions that could be combined into one. It always exits with code 0 and never fails CI, and its heuristics are conservative, so treat its output as a suggestion, not an error.

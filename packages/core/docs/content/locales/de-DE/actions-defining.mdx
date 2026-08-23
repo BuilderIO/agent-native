@@ -116,6 +116,21 @@ Das Framework entdeckt jede Datei in `actions/` automatisch und bindet sie beim 
             "Auf false setzen, um sie aus jeder Agent-Tool-Liste auszublenden. Siehe Zugriff & Autorisierung.",
         },
         {
+          name: "mcpTool",
+          type: "boolean",
+          optional: true,
+          default: "true",
+          description:
+            "`false` verbirgt sie vor externen Agenten über MCP und A2A, `true` deklariert die Zugehörigkeit zum kuratierten Katalog. Siehe Zugriff & Autorisierung.",
+        },
+        {
+          name: "important",
+          type: "boolean",
+          optional: true,
+          description:
+            "`true` nimmt die Action in die erste Tool-Liste des Agenten auf. Siehe „Die Action-Oberfläche klein halten“ unten.",
+        },
+        {
           name: "toolCallable",
           type: "boolean",
           optional: true,
@@ -261,6 +276,7 @@ Jede Action, die der Agent sehen kann, belegt einen Platz in der Tool-Liste des 
 - Bevorzugen Sie **eine CRUD-artige `update`-Action**, die ein Patch aus optionalen Feldern annimmt, gegenüber vielen Pro-Feld-Actions wie `update-name`, `update-order` und `update-color`. Der Aufrufer sendet nur die Felder, die sich geändert haben.
 - Bevor Sie für jede Abfrage oder jeden Filter eine neue Lese-Action hinzufügen, ziehen Sie zuerst eine allgemeinere Option in Betracht: das [Provider-API-Trio](/docs/template-dispatch-vault-integrations#provider-api) (`provider-api-catalog`, `provider-api-docs` und `provider-api-request`) für Provider-Daten, oder das Dev-Tool `db-query` für App-Daten.
 - Markieren Sie reine UI- oder programmatische Actions als [`agentTool: false`](/docs/actions-access-control#agent-tool). Sie bleiben vom Frontend oder über HTTP aufrufbar, ohne einen Platz in der Tool-Liste des Modells zu belegen.
+- Markieren Sie die wenigen Actions, zu denen der Agent ständig greift, mit `important: true`. Genau deren Schemas werden mit der ersten Modellanfrage gesendet; alles andere lädt bei Bedarf über `tool-search` nach. Schon eine einzige Markierung verengt diese erste Anfrage auf die markierte Menge, markieren Sie also den ganzen Startsatz auf einmal, nicht eine Action nach der anderen. Es geht darum, was der erste Zug kostet, nicht um Zugriff: Eine nicht markierte Action ist aufrufbar, sobald `tool-search` sie zurückgibt. Das ist die Action-eigene Form des Plugin-Arrays `initialToolNames`, und eine App kann beides nutzen.
 - Löschen oder verbergen Sie Actions, die die UI nicht mehr verwendet, statt sie dem Modell weiterhin auszusetzen.
 
 Das Repo enthält einen beratenden Helfer, `node scripts/audit-template-actions.mjs [template ...]` (Alias `pnpm actions:audit`). Er durchsucht den `actions/`-Ordner eines Templates und markiert Actions, die die UI möglicherweise nicht mehr verwendet, zusammen mit Gruppen von Pro-Feld-Actions, die zu einer zusammengefasst werden könnten. Er endet immer mit Code 0 und lässt CI nie fehlschlagen, und seine Heuristiken sind konservativ, behandeln Sie seine Ausgabe also als Vorschlag, nicht als Fehler.

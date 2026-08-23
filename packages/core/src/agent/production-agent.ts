@@ -701,6 +701,19 @@ export interface ActionEntry {
    *  MCP, A2A, job/trigger runners) while leaving it frontend/HTTP-callable.
    *  Set by `defineAction`'s `agentTool` option. */
   agentTool?: boolean;
+  /** Whether the action is exposed to EXTERNAL agents over MCP and the direct
+   *  A2A action surface. `false` is a hard veto on every MCP tier (including
+   *  the `--full-catalog` opt-in) while the in-app agent keeps calling it;
+   *  `true` declares curated connector-catalog membership, the action-owned
+   *  form of `mcp.connectorCatalog`. Narrows `agentTool`, never widens it.
+   *  Set by `defineAction`'s `mcpTool` option. */
+  mcpTool?: boolean;
+  /** Whether the action belongs in the agent's first-request tool list — the
+   *  action-owned form of the plugin's `initialToolNames`. `true` always
+   *  includes it (and narrows the derived default to the marked actions);
+   *  `false` keeps it out of the DERIVED set, reachable through `tool-search`.
+   *  Context cost, not access. Set by `defineAction`'s `important` option. */
+  important?: boolean;
   /** Explicit opt-in metadata for public agent protocols. Public routes never
    *  imply public tool exposure; MCP/A2A/OpenAPI surfaces must filter for this. */
   publicAgent?: import("../action.js").PublicAgentActionConfig;

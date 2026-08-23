@@ -177,6 +177,7 @@ import {
   getHubStatus,
   isHubServeEnabled,
 } from "../mcp-client/index.js";
+import { declaredMcpToolNames } from "../mcp/build-server.js";
 import { setProgressPreListHook } from "../progress/store.js";
 import { getSkillNameFromPath } from "../resources/metadata.js";
 import {
@@ -2041,7 +2042,14 @@ export function createAgentChatPlugin(
             effectiveInitialToolNames,
             {
               receiverOwnsObjective,
-              localCapabilityNames: mcpOptions.connectorCatalog,
+              // Same curated set the MCP mount serves: config names plus the
+              // actions that declare `mcpTool: true` themselves.
+              localCapabilityNames: [
+                ...new Set([
+                  ...(mcpOptions.connectorCatalog ?? []),
+                  ...declaredMcpToolNames(a2aActions),
+                ]),
+              ],
             },
           );
 

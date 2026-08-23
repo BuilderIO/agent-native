@@ -1,25 +1,26 @@
 ---
 title: "Access & Authorization"
-description: "Who can call an action: exposure flags (agentTool, toolCallable), ctx-based scoping, accessFilter/assertAccess, and the authorize guard."
+description: "Who can call an action: exposure flags (agentTool, mcpTool, toolCallable), ctx-based scoping, accessFilter/assertAccess, and the authorize guard."
 ---
 
 # Access & Authorization
 
-Five settings decide who can call an action: the agent, the frontend, an extension, an outside API caller, or nobody without a human's approval first. Most actions never need to touch any of these, since the defaults already fit normal UI-and-agent use.
+Six settings decide who can call an action: the agent, the frontend, an extension, an outside API caller, or nobody without a human's approval first. Most actions never need to touch any of these, since the defaults already fit normal UI-and-agent use.
 
 ### Exposure flags {#exposure-flags}
 
-All five flags default to the permissive value, so you only set one when you need to tighten a specific surface. The table below is a quick summary. The sections after it add the one detail each flag needs.
+All six flags default to the permissive value, so you only set one when you need to tighten a specific surface. The table below is a quick summary. The sections after it add the one detail each flag needs.
 
 | Flag            | Default       | Restrictive value → who can still call                                      | Typical use                                                          |
 | --------------- | ------------- | --------------------------------------------------------------------------- | -------------------------------------------------------------------- |
 | `agentTool`     | `true`        | `false` → UI, HTTP, and CLI only (hidden from the model, MCP, and A2A)      | UI-only or programmatic actions that shouldn't take up a tool slot   |
+| `mcpTool`       | `true`        | `false` → your own app's agent only (hidden from MCP and A2A)               | Actions that need an in-app screen or session on the other end       |
 | `toolCallable`  | `true`        | `false` → everything **except** the sandboxed extension iframe bridge (403) | Sensitive account or org changes (delete account, change membership) |
 | `publicAgent`   | off (private) | `{ expose: true }` → adds the action to **public** MCP/A2A/OpenAPI surfaces | Safe read or ingest tools that don't require authentication          |
 | `needsApproval` | `false`       | `true` → the agent **pauses**, and a human must approve the specific call   | Consequential side effects (send email, charge a card, delete)       |
 | `authorize`     | none          | a guard function → only callers it accepts, on **every** surface            | Operations restricted to a role (per-app RBAC, admin-only ops)       |
 
-These flags are independent, so setting one doesn't change the others. `agentTool` controls what the model sees, see [Hide from the model](#agent-tool) below. `toolCallable` controls only the extension iframe, see [Block extension iframes](#tool-callable) below. `publicAgent` adds an opt-in public surface, and a public web route never implies public tool exposure, see [Expose to public agents](#public-agent) below. `needsApproval` gates execution after the call is already made, see [Require human approval](#needs-approval) below. `authorize` decides whether this caller may run the action at all, on every dispatch path, before `run()` is entered, see [Restrict callers by role](#authorize) below.
+These flags are independent, so setting one doesn't change the others. `agentTool` controls what the model sees, see [Hide from the model](#agent-tool) below. `mcpTool` narrows that to outside agents only, see [Hide from external agents](#mcp-tool) below. `toolCallable` controls only the extension iframe, see [Block extension iframes](#tool-callable) below. `publicAgent` adds an opt-in public surface, and a public web route never implies public tool exposure, see [Expose to public agents](#public-agent) below. `needsApproval` gates execution after the call is already made, see [Require human approval](#needs-approval) below. `authorize` decides whether this caller may run the action at all, on every dispatch path, before `run()` is entered, see [Restrict callers by role](#authorize) below.
 
 ## Hide from the model {#agent-tool}
 
@@ -38,6 +39,40 @@ export default defineAction({
 ```
 
 Use this when you add a UI-only or purely programmatic action, or when the UI stops using an action that would otherwise stay exposed to the model.
+
+## Hide from external agents {#mcp-tool}
+
+`agentTool` is all-or-nothing: an action is a tool for every agent, or for none. `mcpTool` splits that in two, so an action can stay a normal tool for your own app's agent while never reaching Claude, Cursor, or a sibling app over MCP and A2A:
+
+```ts
+export default defineAction({
+  description: "Open the record inspector beside the current selection.",
+  mcpTool: false, // needs a live screen on the other end
+  schema: z.object({ recordId: z.string() }),
+  run: async ({ recordId }) => {
+    /* ... */
+  },
+});
+```
+
+Use it for actions whose result only means something with your app's UI, an open session, or the current selection in front of the caller. `mcpTool` can only narrow `agentTool`, never widen it: an action with `agentTool: false` stays hidden everywhere. It governs the external tool surface itself, not what your own agent may do while answering an `ask_app` question — that run is your agent's, and it keeps its whole tool list.
+
+The opposite value has a second job. External agents are served a small, curated catalog by default rather than your whole action registry, and `mcpTool: true` is how an action declares itself part of it:
+
+```ts
+export default defineAction({
+  description: "List the databases connected to this workspace.",
+  mcpTool: true, // served to external agents, not just discoverable
+  http: { method: "GET" },
+  run: async () => {
+    /* ... */
+  },
+});
+```
+
+This is the same catalog as the plugin's `mcp: { connectorCatalog: [...] }` list, declared on the action instead of in a separate array that has to be kept in sync as actions are renamed. Both forms work, and an app can move over one action at a time. Everything left out stays discoverable through `tool-search`.
+
+Membership is not permission. An external caller still has to pass the OAuth scope check, the `externalAgents` policy, and — for the direct, no-model A2A path — the `publicAgent` opt-in below.
 
 ## Block extension iframes {#tool-callable}
 

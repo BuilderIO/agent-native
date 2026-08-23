@@ -511,6 +511,41 @@ interface DefineActionWithSchema<
    *  tool list. Distinct from `toolCallable`, which only governs the sandboxed
    *  extension ("tools") iframe bridge. See `packages/core/docs/content/actions.mdx`. */
   agentTool?: boolean;
+  /** Whether this action is exposed to EXTERNAL agents over MCP (and the direct
+   *  A2A action surface, which shares the same policy). Narrows `agentTool`; it
+   *  can never widen it, so `agentTool: false` stays hidden everywhere.
+   *
+   *  - `false` — hard veto. The action is absent from `tools/list` AND from
+   *    `tools/call` on every MCP tier, including the rare `--full-catalog`
+   *    opt-in, while the in-app agent still calls it normally. Use it for
+   *    actions that only make sense with an in-app screen, a live session, or
+   *    the framework's own UI on the other end.
+   *  - `true` — the action-owned form of `mcp.connectorCatalog` membership:
+   *    this action is served on the curated external catalog. Declaring it on
+   *    any action activates the connector tier for the app, which is what lets
+   *    a template delete its hand-maintained `connectorCatalog` name list.
+   *  - `undefined` (default) — today's tier rules decide; the action stays
+   *    reachable through `tool-search` on a trimmed catalog.
+   *
+   *  Membership is not permission: an external caller still passes the OAuth
+   *  scope, `externalAgents` policy, and `publicAgent` checks. */
+  mcpTool?: boolean;
+  /** Put this action in the agent's FIRST-REQUEST tool list rather than leaving
+   *  it to `tool-search`. The action-owned form of the plugin's
+   *  `initialToolNames` array, so the app's starter surface is declared beside
+   *  each action instead of in a list that drifts as actions are renamed.
+   *
+   *  - `true` — always in the initial set. As soon as ANY action declares this,
+   *    the derived default flips from "every one of the app's own actions" to
+   *    "the ones marked important", which is what makes deleting
+   *    `initialToolNames` a real trim rather than a rename.
+   *  - `false` — never in the DERIVED set. An explicit `initialToolNames` entry
+   *    still wins, so a stale list is never silently overridden.
+   *  - `undefined` (default) — unchanged behavior.
+   *
+   *  This is about first-turn context cost, not access: an omitted action is
+   *  still callable the moment `tool-search` returns it. */
+  important?: boolean;
   /** If true, the framework will NOT emit a screen-refresh change event after a
    *  successful call. Auto-inferred as `true` when `http.method === "GET"`.
    *  Only set this manually when you need to override the inference — e.g. a
@@ -680,6 +715,13 @@ interface DefineActionWithParams<
    *  explicit `false` hides it from every agent tool list while keeping it
    *  frontend/HTTP-callable. See the schema overload above and actions.md. */
   agentTool?: boolean;
+  /** Whether this action is exposed to external agents over MCP / direct A2A.
+   *  `false` is a hard veto on every MCP tier; `true` declares curated
+   *  connector-catalog membership. See the schema overload above. */
+  mcpTool?: boolean;
+  /** Put this action in the agent's first-request tool list. The action-owned
+   *  form of the plugin's `initialToolNames`. See the schema overload above. */
+  important?: boolean;
   /** If true, the framework will NOT emit a screen-refresh change event after a
    *  successful call. Auto-inferred as `true` when `http.method === "GET"`. */
   readOnly?: boolean;
@@ -762,6 +804,8 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly requiresAuth?: boolean;
   readonly maxBodyBytes?: number;
   readonly agentTool?: boolean;
+  readonly mcpTool?: boolean;
+  readonly important?: boolean;
   readonly readOnly?: boolean;
   readonly grounding?: boolean;
   readonly allowInPlanMode?: boolean;
@@ -968,6 +1012,16 @@ export function defineAction(options: any) {
   // from the agent tool surfaces; undefined is preserved (treated as exposed).
   const agentTool: boolean | undefined =
     typeof options.agentTool === "boolean" ? options.agentTool : undefined;
+  // mcpTool / important: like `agentTool`, `undefined` is a distinct third
+  // state and must survive to the entry. Both flags mean something different
+  // when declared than when omitted — an explicit `mcpTool: true` puts the
+  // action on the curated external catalog, and an explicit `important: true`
+  // narrows the derived first-request set — so collapsing undefined to the
+  // default here would erase the declaration the surfaces read.
+  const mcpTool: boolean | undefined =
+    typeof options.mcpTool === "boolean" ? options.mcpTool : undefined;
+  const important: boolean | undefined =
+    typeof options.important === "boolean" ? options.important : undefined;
   const parallelSafe: boolean | undefined =
     typeof options.parallelSafe === "boolean"
       ? options.parallelSafe
@@ -1023,6 +1077,8 @@ export function defineAction(options: any) {
       ? { maxBodyBytes: options.maxBodyBytes }
       : {}),
     ...(typeof agentTool === "boolean" ? { agentTool } : {}),
+    ...(typeof mcpTool === "boolean" ? { mcpTool } : {}),
+    ...(typeof important === "boolean" ? { important } : {}),
     ...(typeof readOnly === "boolean" ? { readOnly } : {}),
     ...(typeof options.grounding === "boolean"
       ? { grounding: options.grounding }
