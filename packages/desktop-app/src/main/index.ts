@@ -1379,6 +1379,7 @@ const WARM_ORIGIN_FANOUT_WAIT_MS = 60_000;
 const WARM_ORIGIN_FANOUT_POLL_MS = 500;
 const warmedOriginAt = new Map<string, number>();
 let originWarmupInFlight: Promise<void> | null = null;
+let originWarmupRerunRequested = false;
 
 async function warmDesktopAppOrigin(
   origin: string,
@@ -1409,7 +1410,14 @@ async function warmDesktopAppOrigin(
 }
 
 function warmDesktopAppOrigins(): void {
-  if (originWarmupInFlight || appIsQuitting) return;
+  if (appIsQuitting) return;
+  // A pass already targeting the old lane cannot serve a lane that changed
+  // underneath it, so coalesce the request and recompute once it settles
+  // rather than dropping it.
+  if (originWarmupInFlight) {
+    originWarmupRerunRequested = true;
+    return;
+  }
   if (!isDesktopSsoEnabled()) return;
   if (desktopIdentityBroker?.getStatus() !== "signed-in") return;
 
@@ -1452,6 +1460,10 @@ function warmDesktopAppOrigins(): void {
     .catch(() => {})
     .finally(() => {
       originWarmupInFlight = null;
+      if (originWarmupRerunRequested && !appIsQuitting) {
+        originWarmupRerunRequested = false;
+        warmDesktopAppOrigins();
+      }
     });
 }
 
