@@ -250,6 +250,11 @@ if (workflow) {
       `${workflowPath} no longer shards the public lane across runners. A page load against a beta host costs 20-40s from a GitHub runner, so one runner for the whole fleet is a ~28 minute gate nobody waits for.`,
     );
   }
+  if (!workflow.includes("max-parallel: 4")) {
+    issues.push(
+      `${workflowPath} must cap public matrix parallelism at four runners so the sharded sweep cannot burst shared backend capacity.`,
+    );
+  }
   if (
     !workflow.includes("apps = [...new Set(known)]") ||
     !workflow.includes("...new Set(\n                raw")

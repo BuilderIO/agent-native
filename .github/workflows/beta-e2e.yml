@@ -167,6 +167,9 @@ jobs:
     timeout-minutes: 25
     strategy:
       fail-fast: false
+      # Keep public shards bounded: independent hosts can still share backend
+      # capacity, and the fleet-wide lanes run after this matrix completes.
+      max-parallel: 4
       matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
     env:
       BETA_E2E_APPS: ${{ matrix.app }}
