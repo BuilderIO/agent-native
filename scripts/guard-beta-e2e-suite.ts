@@ -310,6 +310,17 @@ if (workflow) {
       );
     }
 
+    if (
+      !config.includes(
+        'const isAuthedCiRun = isCi && process.env.BETA_E2E_AUTHED === "1";',
+      ) ||
+      !config.includes("workers: isCi ? (isAuthedCiRun ? 1 : 3) : 4")
+    ) {
+      issues.push(
+        `${configPath} must serialize CI authenticated workers so shared beta databases cannot be exhausted by parallel journeys.`,
+      );
+    }
+
     const conjunctionParts = (condition: unknown): string[] | null => {
       if (typeof condition !== "string") return null;
       const expression = condition.match(
