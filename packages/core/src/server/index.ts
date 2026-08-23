@@ -644,6 +644,8 @@ export {
 } from "./email.js";
 export {
   defineTransactionalEmail,
+  defineTransactionalEmails,
+  replaceTransactionalEmails,
   listTransactionalEmails,
   getTransactionalEmail,
   renderTransactionalEmailPreview,
