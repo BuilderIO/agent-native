@@ -50,7 +50,7 @@ const AUTH_DIR = path.join(
   ".auth",
 );
 const SESSION_EXCHANGE_MAX_ATTEMPTS = 3;
-const RETRYABLE_SESSION_EXCHANGE_STATUSES = new Set([502, 503, 504]);
+const RETRYABLE_SESSION_EXCHANGE_STATUSES = new Set([500, 502, 503, 504]);
 
 export function shouldRetrySessionExchange(
   status: number,
@@ -270,10 +270,16 @@ export async function bootstrapAppSession(
       }
     }
 
-    const { identity, status, body } = await readSessionIdentity(
-      context,
-      origin,
-    );
+    let session = await readSessionIdentity(context, origin);
+    for (
+      let attempt = 1;
+      shouldRetrySessionExchange(session.status, attempt);
+      attempt++
+    ) {
+      await sleep(1_000 * attempt);
+      session = await readSessionIdentity(context, origin);
+    }
+    const { identity, status, body } = session;
 
     if (!identity) {
       throw new Error(
