@@ -6,6 +6,7 @@ import {
   discoverAgents,
   findWorkspaceDispatchAgent,
   getBuiltinAgents,
+  normalizeAgentId,
   shouldIncludeRemoteAgentManifest,
 } from "./agent-discovery.js";
 import { runWithRequestContext } from "./request-context.js";
@@ -113,6 +114,10 @@ describe("agent discovery", () => {
     expect(
       shouldIncludeRemoteAgentManifest({ id: "custom-qa" }, "dispatch"),
     ).toBe(true);
+  });
+
+  it("maps the retired videos agent to the current clips agent", () => {
+    expect(normalizeAgentId("videos")).toBe("clips");
   });
 
   it("seeds built-in remote agents with production URLs only", () => {
@@ -521,6 +526,64 @@ describe("agent discovery", () => {
 
     expect(agents.find((agent) => agent.id === "slides")).toMatchObject({
       url: "https://slides.agent-native.com",
+    });
+  });
+
+  it("normalizes retired workspace app IDs", async () => {
+    process.env.APP_URL = "https://content.agent-native.com";
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
+      version: 1,
+      apps: [
+        {
+          id: "videos",
+          name: "Videos",
+          description: "Retired videos app",
+          path: "/videos",
+          url: "http://localhost:8087",
+        },
+      ],
+    });
+
+    const agents = await discoverAgents("content");
+
+    expect(agents.some((agent) => agent.id === "videos")).toBe(false);
+    expect(agents.find((agent) => agent.id === "clips")).toMatchObject({
+      id: "clips",
+      url: "https://clips.agent-native.com",
+    });
+  });
+
+  it("applies legacy metadata overrides to normalized workspace app IDs", async () => {
+    process.env.APP_URL = "https://content.agent-native.com";
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
+      version: 1,
+      apps: [
+        {
+          id: "videos",
+          name: "Videos",
+          description: "Retired videos app",
+          path: "/videos",
+        },
+      ],
+    });
+    getSettingMock.mockResolvedValue({
+      apps: {
+        videos: {
+          name: "Clips workspace",
+          description: "Edited clips description",
+        },
+      },
+    });
+
+    const agents = await runWithRequestContext(
+      { userEmail: "dev@example.test" },
+      () => discoverAgents("content"),
+    );
+
+    expect(agents.find((agent) => agent.id === "clips")).toMatchObject({
+      id: "clips",
+      name: "Clips workspace",
+      description: "Edited clips description",
     });
   });
 
