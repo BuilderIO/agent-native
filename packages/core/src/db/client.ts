@@ -1502,6 +1502,41 @@ export function nextSqliteSavepointName(sqlite: object): string {
 }
 
 /**
+ * Admit an ordinary (non-transactional) WRITE onto `sqlite`'s connection.
+ *
+ * Fast path — no transaction is open on this connection, or we ARE that
+ * transaction's own callback (the same AsyncLocalStorage nesting check
+ * `runQueuedSqliteTransaction` uses): run `body` immediately, exactly like
+ * before this existed. This is the overwhelming majority of calls, so it
+ * must cost nothing extra — no queueing, no added await.
+ *
+ * Otherwise a different top-level transaction is mid BEGIN…COMMIT/ROLLBACK
+ * on this shared connection. SQLite has no notion of "outside" that
+ * transaction on the same connection, so running `body` now would execute
+ * inside it: a later ROLLBACK could silently discard this unrelated write,
+ * or a COMMIT could commit it under the wrong caller. Queue `body` onto the
+ * same chain `runQueuedSqliteTransaction` uses instead of racing it — it
+ * runs once every transaction ahead of it has settled, and anything queued
+ * after it (transaction or write) waits its turn behind it in FIFO order.
+ */
+function runOrdinarySqliteWrite<T>(
+  sqlite: { inTransaction: boolean },
+  body: () => T,
+): T | Promise<T> {
+  const state = getSqliteTxState(sqlite);
+  if (!sqlite.inTransaction || state.txContext.getStore()) {
+    return body();
+  }
+  const run = () => body();
+  const next = state.txChain.then(run, run);
+  state.txChain = next.then(
+    () => undefined,
+    () => undefined,
+  );
+  return next;
+}
+
+/**
  * Swap the pool registered for a key, for the postgres.js recycle path that
  * replaces a pool whose query timed out. Without this the registry would keep
  * handing out the discarded pool.
@@ -2152,16 +2187,28 @@ async function createDbExecInternal(
         const { rawSql, args } = sqlAndArgs(sql);
         const stmt = handle.prepare(rawSql);
         if (stmt.reader) {
+          // Not gated through runOrdinarySqliteWrite: a read on this
+          // connection always sees this connection's current state (an open
+          // transaction's own uncommitted writes, or committed data
+          // otherwise) — the same read-your-own-connection semantics every
+          // statement here already has. A later rollback doesn't "discard" a
+          // read the way it discards a write; gating reads would only add
+          // latency without closing a correctness gap.
           return {
             rows: stmt.all(...args),
             rowsAffected: 0,
           };
         }
-        const result = stmt.run(...args);
-        return {
-          rows: [],
-          rowsAffected: result.changes ?? 0,
-        };
+        // An ordinary (non-transactional) WRITE must not silently become
+        // part of someone else's still-open transaction on this shared
+        // connection — see runOrdinarySqliteWrite.
+        return runOrdinarySqliteWrite(handle, () => {
+          const result = stmt.run(...args);
+          return {
+            rows: [],
+            rowsAffected: result.changes ?? 0,
+          };
+        });
       };
 
     const execute = makeSqliteExecute(sqlite);

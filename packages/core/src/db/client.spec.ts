@@ -1830,6 +1830,43 @@ describe("db/client local SQLite transaction coordination", () => {
       cleanup();
     }
   });
+
+  it("does not let an ordinary getDbExec().execute() write join an unrelated open createGetDb() store transaction (regression: rollback discards unrelated write)", async () => {
+    const { cleanup, sqlite, getDbExec, db } = await setupSharedSqlite();
+    try {
+      // A store transaction opens BEGIN IMMEDIATE, writes its own doomed
+      // row, then awaits — leaving the connection's transaction open while
+      // unrelated code runs.
+      const txResult = db
+        .transaction(async () => {
+          sqlite
+            .prepare("INSERT INTO items (value) VALUES ('tx-doomed')")
+            .run();
+          await delay(15);
+          throw new Error("tx rollback");
+        })
+        .catch((e: unknown) => e as Error);
+      await delay(5);
+
+      // Pre-fix, `execute()` ran `stmt.run()` directly with no regard for
+      // `sqlite.inTransaction`, so this ordinary write landed inside the
+      // still-open transaction above and was discarded when its ROLLBACK
+      // ran, even though this call itself reported success.
+      const ordinaryResult = await getDbExec().execute(
+        "INSERT INTO items (value) VALUES ('ordinary-should-survive')",
+      );
+      expect(ordinaryResult.rowsAffected).toBe(1);
+
+      expect(await txResult).toBeInstanceOf(Error);
+
+      const rows = sqlite
+        .prepare("SELECT value FROM items ORDER BY id")
+        .all() as Array<{ value: string }>;
+      expect(rows.map((r) => r.value)).toEqual(["ordinary-should-survive"]);
+    } finally {
+      cleanup();
+    }
+  });
 });
 
 describe("db/client shared pool close vs. a pending async creation", () => {
