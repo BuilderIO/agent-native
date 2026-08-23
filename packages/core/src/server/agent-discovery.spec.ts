@@ -6,6 +6,7 @@ import {
   discoverAgents,
   findWorkspaceDispatchAgent,
   getBuiltinAgents,
+  normalizeAgentId,
   shouldIncludeRemoteAgentManifest,
 } from "./agent-discovery.js";
 import { runWithRequestContext } from "./request-context.js";
@@ -113,6 +114,10 @@ describe("agent discovery", () => {
     expect(
       shouldIncludeRemoteAgentManifest({ id: "custom-qa" }, "dispatch"),
     ).toBe(true);
+  });
+
+  it("maps the retired videos agent to the current clips agent", () => {
+    expect(normalizeAgentId("videos")).toBe("clips");
   });
 
   it("seeds built-in remote agents with production URLs only", () => {

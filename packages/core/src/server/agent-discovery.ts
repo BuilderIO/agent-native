@@ -89,6 +89,7 @@ export function normalizeAgentId(id: string): string {
   ) {
     return "assets";
   }
+  if (normalized === "videos") return "clips";
   return normalized;
 }
 
