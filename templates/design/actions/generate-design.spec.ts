@@ -628,6 +628,40 @@ describe("generate-design: existing-file update path (hash-guarded write)", () =
     );
     expect(fileTypeCall).toBeDefined();
   });
+
+  it("rethrows an unclassified infrastructure failure instead of reporting it as a fileError", async () => {
+    setExistingFile("<html><body>old</body></html>");
+
+    // The first assertAccess call is this action's own top-level access
+    // check (line ~709); the second is writeInlineSourceFile's internal
+    // check for this one file. Reject only the second call, simulating a
+    // transient provider/DB failure unrelated to any conflict or integrity
+    // rule — the kind of failure a caller must be able to tell apart from a
+    // legitimate per-file rejection so it retries the WHOLE call instead of
+    // reading "index.html" as durably rejected.
+    mocks.assertAccess
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("ECONNREFUSED: connection lost"));
+
+    await expect(
+      action.run({
+        designId: "design-1",
+        prompt: "Update copy",
+        files: [
+          {
+            filename: "index.html",
+            fileType: "html",
+            content: "<html><body>new</body></html>",
+          },
+        ],
+      }),
+    ).rejects.toThrow("ECONNREFUSED");
+
+    // Nothing about this failure is a legitimate per-file outcome: the write
+    // never happened and the caller must see a failed action call, not a
+    // successful response with the DB error text tucked into fileErrors.
+    expect(mocks.fileUpdateChain.set).not.toHaveBeenCalled();
+  });
 });
 
 describe("generate-design: generation-session lock guards concurrent fan-out", () => {

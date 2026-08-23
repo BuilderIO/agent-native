@@ -31,6 +31,7 @@ import { getDb, schema } from "../server/db/index.js";
 import { mutateDesignData } from "../server/lib/design-data-mutation.js";
 import {
   readLiveSourceFile,
+  SourceWorkspaceEditConflictError,
   writeInlineSourceFile,
   type SourceWorkspaceFile,
 } from "../server/source-workspace.js";
@@ -48,6 +49,7 @@ import {
   assertDesignHtmlCreateIntegrity,
   describeDesignHtmlIntegrityIssue,
   inspectDesignHtmlDocumentIntegrity,
+  isDesignHtmlIntegrityError,
 } from "../shared/html-integrity.js";
 import { assertLockedLayersPreserved } from "../shared/locked-layers.js";
 import { widthToPrefix } from "../shared/responsive-classes.js";
@@ -882,6 +884,22 @@ const generateDesignAction = defineAction({
             agentLeaveDocument(existing.id);
           }
         } catch (error) {
+          // Only the two rejection reasons the tool description above
+          // promises — a version-hash conflict and an HTML-integrity
+          // rejection — are reported per-file. Anything else (a DB/provider
+          // failure from the read, the write, or the follow-up fileType
+          // update) is not a caller-diagnosable rejection of THIS file's
+          // content; swallowing it here would report a transient
+          // infrastructure failure as an ordinary "resend this file"
+          // outcome, or hide that the content write actually succeeded and
+          // only the fileType update failed. Rethrow so it fails the whole
+          // call loud instead.
+          if (
+            !(error instanceof SourceWorkspaceEditConflictError) &&
+            !isDesignHtmlIntegrityError(error)
+          ) {
+            throw error;
+          }
           // A legitimate optimistic-concurrency conflict or an HTML-integrity
           // rejection on THIS file must not discard files earlier in this
           // batch that already committed durably, and must not disappear

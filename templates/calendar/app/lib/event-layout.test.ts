@@ -175,6 +175,35 @@ describe("computeTimedEventLayout", () => {
     });
   });
 
+  it("keeps a later isolated event at full width despite an earlier overlap", () => {
+    const layout = computeTimedEventLayout(
+      [
+        event("morning-a", "09:00", "09:30"),
+        event("morning-b", "09:00", "09:30"),
+        event("afternoon", "15:00", "16:00"),
+      ],
+      DAY,
+    );
+
+    expect(layout.get("morning-a")).toMatchObject({
+      left: 0,
+      width: 50,
+      totalCols: 2,
+    });
+    expect(layout.get("morning-b")).toMatchObject({
+      left: 50,
+      width: 50,
+      totalCols: 2,
+    });
+    expect(layout.get("afternoon")).toMatchObject({
+      left: 0,
+      width: 100,
+      indent: 0,
+      col: 0,
+      totalCols: 1,
+    });
+  });
+
   it("uses the pinned timezone across a DST boundary", () => {
     const overnight = event("overnight-dst", "00:00", "10:00");
     overnight.start = "2026-03-08T06:30:00.000Z";

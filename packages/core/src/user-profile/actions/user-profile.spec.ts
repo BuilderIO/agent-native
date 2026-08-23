@@ -169,6 +169,26 @@ describe("user profile actions", () => {
     ).resolves.toEqual({ hasPassword: false });
   });
 
+  it("throws instead of reporting no password when the internal adapter is unavailable", async () => {
+    // getBetterAuthInternalAdapter returns undefined when $context resolution
+    // fails or has an unexpected shape — an unreadable auth backend, not
+    // confirmation that the user has no credential account. An existing
+    // credential user must not see the "set password" state for this.
+    getBetterAuthInternalAdapterMock.mockResolvedValue(undefined);
+
+    await expect(
+      getAuthMethods.run(
+        {},
+        {
+          caller: "frontend",
+          userEmail: "alice@example.com",
+          requestHeaders: new Headers(),
+        },
+      ),
+    ).rejects.toThrow();
+    expect(internalAdapter.findUserByEmail).not.toHaveBeenCalled();
+  });
+
   it("adds and changes passwords without exposing credential values", async () => {
     const headers = new Headers();
     await expect(

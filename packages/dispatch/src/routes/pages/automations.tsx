@@ -248,9 +248,12 @@ export default function AutomationsRoute() {
     : null;
 
   function selectAutomation(item: DispatchAutomationItem) {
+    // Push, don't replace: each row click is an explicit selection the user
+    // should be able to Back out of one step at a time, not a URL
+    // canonicalization that should collapse into the current entry.
     const next = new URLSearchParams(searchParams);
     next.set("automationId", automationIdentity(item));
-    setSearchParams(next, { replace: true });
+    setSearchParams(next);
   }
 
   return (

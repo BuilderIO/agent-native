@@ -24,11 +24,15 @@ export default defineAction({
     // its own cookie-based session lookup, which throws for any caller the
     // framework authenticated without a Better Auth session cookie (an
     // AUTH_DISABLED dev session, a BYOA identity, ...) even though
-    // ctx.userEmail is already a trustworthy resolved identity. A missing
-    // adapter or user record means there is no Better Auth credential to
-    // report, not an unknown failure.
+    // ctx.userEmail is already a trustworthy resolved identity. An unresolved
+    // adapter means the auth backend couldn't be read at all and must fail
+    // loudly — only a resolved adapter finding no matching user record means
+    // there is no Better Auth credential to report.
     const adapter = await getBetterAuthInternalAdapter();
-    const existing = await adapter?.findUserByEmail(ctx.userEmail, {
+    if (!adapter) {
+      throw new Error("Better Auth internal adapter is unavailable.");
+    }
+    const existing = await adapter.findUserByEmail(ctx.userEmail, {
       includeAccounts: true,
     });
 

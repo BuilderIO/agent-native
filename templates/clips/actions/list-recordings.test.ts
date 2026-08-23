@@ -212,7 +212,7 @@ describe("list-recordings shared view", () => {
     expect(result).toEqual({ recordings: [], total: 3 });
   });
 
-  it("awaits the meeting-recording subquery into a real id array before excluding it", async () => {
+  it("excludes meeting recordings via a database-side subquery, not a materialized id array", async () => {
     const parsed = action.schema.parse({
       view: "shared",
       countOnly: true,
@@ -220,21 +220,31 @@ describe("list-recordings shared view", () => {
 
     await action.run(parsed);
 
-    // Regression: an earlier version handed the un-awaited query-builder
-    // chain straight to notInArray(). That works once the db handle has
-    // warmed up (drizzle can pull SQL off a real chain synchronously) but
-    // throws on a cold-start request, where `getDb()` is still a lazy proxy
-    // — see the "unresolved query chain" guard in
-    // packages/core/src/db/create-get-db.ts. Asserting the mocked
-    // notInArray() received a resolved, null-filtered array (not the
-    // thenable mockMeetingWhere() returns) proves the chain was awaited.
+    // Regression (two directions):
+    // 1. An earlier version awaited the meeting-recording query into a plain
+    //    `string[]` and bound the whole array through notInArray(). That
+    //    grows with the entire meetings table and can hit SQLite variable /
+    //    Postgres parameter limits for large libraries. The fix hands
+    //    notInArray() the query-builder chain itself (the exact object
+    //    mockMeetingWhere() returned), so real drizzle-orm compiles it to
+    //    `NOT IN (SELECT ...)` — database-side, no id list in memory.
+    // 2. An even earlier version built that chain off the possibly-still-lazy
+    //    `db` returned by getDb() and embedded it unresolved, which throws on
+    //    a cold-start request — see the "unresolved query chain" guard in
+    //    packages/core/src/db/create-get-db.ts. The fix resolves `db` first
+    //    (`await db`) and only then builds the chain, so it's never the lazy
+    //    proxy being embedded.
+    const meetingQueryResult = mockMeetingWhere.mock.results[0]?.value;
+    expect(meetingQueryResult).toBeDefined();
+    expect(Array.isArray(meetingQueryResult)).toBe(false);
+
     expect(mockCountWhere).toHaveBeenCalledWith(
       expect.objectContaining({
         conditions: expect.arrayContaining([
           {
             kind: "not-in-array",
             column: "recordings.id",
-            values: ["meeting-rec-1"],
+            values: meetingQueryResult,
           },
         ]),
       }),

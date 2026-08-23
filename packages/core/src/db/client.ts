@@ -1477,6 +1477,14 @@ export function onSharedDbPoolsClosed(hook: () => void): void {
 }
 
 export async function closeSharedDbPools(): Promise<void> {
+  // A `sharedDbPoolAsync` creation still in flight when this runs must finish
+  // (and then be closed below) instead of resolving afterward and quietly
+  // repopulating the registry we are about to clear — see
+  // `_sharedDbPoolPending`. `allSettled` so a create() that fails here still
+  // lets the close proceed; its own caller sees the rejection separately.
+  if (_sharedDbPoolPending.size > 0) {
+    await Promise.allSettled([..._sharedDbPoolPending.values()]);
+  }
   const pools = [..._sharedDbPools.values()];
   _sharedDbPools.clear();
   for (const hook of _sharedDbPoolCloseHooks) {
@@ -2066,25 +2074,59 @@ async function createDbExecInternal(
         )
       : await openLocalSqlite(filename);
 
-    const execute: DbExec["execute"] = async (sql) => {
-      const { rawSql, args } = sqlAndArgs(sql);
-      const stmt = sqlite.prepare(rawSql);
-      if (stmt.reader) {
+    const makeSqliteExecute =
+      (handle: typeof sqlite): DbExec["execute"] =>
+      async (sql) => {
+        const { rawSql, args } = sqlAndArgs(sql);
+        const stmt = handle.prepare(rawSql);
+        if (stmt.reader) {
+          return {
+            rows: stmt.all(...args),
+            rowsAffected: 0,
+          };
+        }
+        const result = stmt.run(...args);
         return {
-          rows: stmt.all(...args),
-          rowsAffected: 0,
+          rows: [],
+          rowsAffected: result.changes ?? 0,
         };
-      }
-      const result = stmt.run(...args);
-      return {
-        rows: [],
-        rowsAffected: result.changes ?? 0,
       };
-    };
+
+    const execute = makeSqliteExecute(sqlite);
+
+    // DbExec's own .transaction() must not run BEGIN IMMEDIATE / COMMIT /
+    // ROLLBACK on the `sqlite` handle above once it is shared with
+    // createGetDb() stores: patchBetterSqliteTransactions (create-get-db.ts)
+    // treats `sqlite.inTransaction === true` as proof that ITS OWN caller is
+    // recursively nested and silently opens a SAVEPOINT instead of BEGIN — if
+    // that state actually belongs to this unrelated DbExec transaction, this
+    // transaction's own COMMIT/ROLLBACK then takes the savepoint holder's
+    // already-"released" work down with it. Give DbExec's transactions a
+    // second connection to the same file, so the createGetDb handle's
+    // `inTransaction` only ever reflects create-get-db.ts's own transactions.
+    // Routed through `sharedDbPoolAsync` (under a distinct driver key) so a
+    // dropped-and-reinitialized singleton reuses one extra connection instead
+    // of opening a new one per init, and so `closeSharedDbPools()` closes it
+    // the same way it closes `sqlite` above.
+    let txSqlitePromise: Promise<typeof sqlite> | undefined;
+    const getTxSqlite = (): Promise<typeof sqlite> =>
+      trackSingletonResources
+        ? (txSqlitePromise ??= sharedDbPoolAsync(
+            "better-sqlite3-tx",
+            filename,
+            () => openLocalSqlite(filename),
+          ))
+        : Promise.resolve(sqlite);
 
     return {
       execute,
-      transaction: explicitTransaction(execute, "BEGIN IMMEDIATE"),
+      async transaction(fn) {
+        const txSqlite = await getTxSqlite();
+        return explicitTransaction(
+          makeSqliteExecute(txSqlite),
+          "BEGIN IMMEDIATE",
+        )(fn);
+      },
       async close() {
         if (trackSingletonResources) return closeSharedDbPools();
         sqlite.close();

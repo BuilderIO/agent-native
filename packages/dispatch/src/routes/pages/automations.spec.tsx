@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { MemoryRouter, useLocation } from "react-router";
+import { MemoryRouter, useLocation, useNavigate } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { automationIdentity } from "../../lib/automation-display";
@@ -96,6 +96,15 @@ function LocationProbe() {
   );
 }
 
+function GoBackProbe() {
+  const navigate = useNavigate();
+  return (
+    <button type="button" data-testid="go-back" onClick={() => navigate(-1)}>
+      Back
+    </button>
+  );
+}
+
 describe("AutomationsRoute", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -160,6 +169,54 @@ describe("AutomationsRoute", () => {
     expect(locationText()).toBe(
       `/automations?automationId=${encodeURIComponent(automationIdentity(automationB))}`,
     );
+  });
+
+  it("pushes a history entry per row selection so Back steps through prior selections", async () => {
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/automations"]}>
+          <AutomationsRoute />
+          <LocationProbe />
+          <GoBackProbe />
+        </MemoryRouter>,
+      );
+    });
+
+    const goBack = container.querySelector<HTMLButtonElement>(
+      '[data-testid="go-back"]',
+    );
+    expect(goBack).toBeTruthy();
+
+    await act(async () => {
+      findRowButton(automationA.name)?.click();
+    });
+    expect(locationText()).toBe(
+      `/automations?automationId=${encodeURIComponent(automationIdentity(automationA))}`,
+    );
+
+    await act(async () => {
+      findRowButton(automationB.name)?.click();
+    });
+    expect(locationText()).toBe(
+      `/automations?automationId=${encodeURIComponent(automationIdentity(automationB))}`,
+    );
+
+    // A row click is an explicit user selection, not URL canonicalization —
+    // it must push a new history entry so Back steps back through the prior
+    // selection (A) instead of skipping past the whole page's history in one
+    // jump. Replacing on every click (the bug this guards against) collapses
+    // all selections into a single entry.
+    await act(async () => {
+      goBack?.click();
+    });
+    expect(locationText()).toBe(
+      `/automations?automationId=${encodeURIComponent(automationIdentity(automationA))}`,
+    );
+
+    await act(async () => {
+      goBack?.click();
+    });
+    expect(locationText()).toBe("/automations");
   });
 
   it("reopens the matching detail panel when automationId is already in the URL", async () => {

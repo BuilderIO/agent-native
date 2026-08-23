@@ -1661,3 +1661,135 @@ describe("db/client local SQLite connection sharing", () => {
     expect(openCount).toBe(1);
   });
 });
+
+describe("db/client local SQLite transaction isolation", () => {
+  afterEach(() => {
+    vi.resetModules();
+    vi.unstubAllEnvs();
+  });
+
+  /**
+   * Reproduces the corruption risk from sharing one better-sqlite3 handle
+   * between getDbExec()'s raw explicitTransaction() and createGetDb()'s
+   * patchBetterSqliteTransactions: the latter treats `sqlite.inTransaction`
+   * as proof its own caller recursively nested and silently opens a
+   * SAVEPOINT instead of BEGIN. If that flag is actually an unrelated
+   * getDbExec() transaction, an unrelated ROLLBACK on that same handle would
+   * take the savepoint holder's already-"released" work down with it.
+   *
+   * Exercising the full interleaving with two genuinely concurrent
+   * transactions isn't practical here: better-sqlite3 is synchronous, so a
+   * real lock conflict between two connections blocks the whole Node event
+   * loop for up to `busy_timeout` (10s) with no way for test code to
+   * intervene. Instead this asserts the observable contract the corruption
+   * depends on: the connection createGetDb() stores check via
+   * `sqlite.inTransaction` must never read true because of a getDbExec()
+   * transaction that connection did not open.
+   */
+  it("keeps getDbExec().transaction() off the connection createGetDb() stores read .inTransaction on", async () => {
+    const os = await import("node:os");
+    const path = await import("node:path");
+    const fs = await import("node:fs");
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-db-tx-"));
+    const filename = path.join(tmpDir, "app.db");
+
+    try {
+      vi.stubEnv("DATABASE_URL", `file:${filename}`);
+
+      const { getDbExec, sharedDbPoolAsync, openLocalSqlite } =
+        await import("./client.js");
+
+      // The connection createGetDb() stores share and check `.inTransaction`
+      // on (patchBetterSqliteTransactions, create-get-db.ts) — obtained the
+      // same way createGetDb() does, via the process-wide registry keyed by
+      // (driver, filename). getDbExec() below resolves to this identical
+      // handle for its own ordinary execute()s.
+      const storeConnection = await sharedDbPoolAsync(
+        "better-sqlite3",
+        filename,
+        () => openLocalSqlite(filename),
+      );
+      storeConnection.exec(
+        "CREATE TABLE items (id INTEGER PRIMARY KEY AUTOINCREMENT, value TEXT NOT NULL)",
+      );
+
+      let releaseDbExecTx!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        releaseDbExecTx = resolve;
+      });
+
+      const dbExecTx = getDbExec().transaction!(async (tx) => {
+        await tx.execute("INSERT INTO items (value) VALUES ('dbexec-doomed')");
+        await gate;
+        throw new Error("dbexec rollback");
+      }).catch((e) => e as Error);
+
+      // Flush microtasks so getDbExec()'s BEGIN IMMEDIATE has actually run
+      // before we inspect the store connection's transaction state.
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(storeConnection.inTransaction).toBe(false);
+
+      releaseDbExecTx();
+      const result = await dbExecTx;
+      expect(result).toBeInstanceOf(Error);
+
+      // Sanity: the doomed transaction actually ran and rolled back.
+      const rows = storeConnection
+        .prepare("SELECT value FROM items")
+        .all() as Array<{ value: string }>;
+      expect(rows).toHaveLength(0);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("db/client shared pool close vs. a pending async creation", () => {
+  afterEach(() => {
+    vi.resetModules();
+  });
+
+  /**
+   * Reproduces the leak: sharedDbPoolAsync() only inserts into
+   * `_sharedDbPools` once its `create()` resolves. If `closeSharedDbPools()`
+   * runs while that create() is still pending, the pre-fix implementation
+   * cleared and closed only what was already registered, then let the
+   * late-arriving connection quietly repopulate the registry — leaked
+   * (never closed) and handed to whichever caller asks next.
+   */
+  it("closes a connection whose async creation was still pending when closeSharedDbPools() ran", async () => {
+    const { sharedDbPoolAsync, closeSharedDbPools } =
+      await import("./client.js");
+
+    let releaseCreate!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      releaseCreate = resolve;
+    });
+    let ended = false;
+    const make = async () => {
+      await gate; // still "connecting" while closeSharedDbPools() runs below
+      return { end: async () => void (ended = true) };
+    };
+
+    const pending = sharedDbPoolAsync("better-sqlite3", "race.db", make);
+    const closePromise = closeSharedDbPools();
+    await Promise.resolve();
+    releaseCreate();
+
+    const created = await pending;
+    await closePromise;
+
+    // The late-arriving connection must not be leaked.
+    expect(ended).toBe(true);
+
+    // A later caller must get a genuinely fresh connection, not the one that
+    // was supposed to have been shut down.
+    const rebuilt = await sharedDbPoolAsync(
+      "better-sqlite3",
+      "race.db",
+      async () => ({ end: async () => {} }),
+    );
+    expect(rebuilt).not.toBe(created);
+  });
+});
