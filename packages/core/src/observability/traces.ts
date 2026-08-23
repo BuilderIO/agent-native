@@ -141,6 +141,21 @@ function emitLlmGenerationTrackingEvent(args: {
    *  them and is equally unmeasurable when they were never reported. */
   costCentsX100: number | undefined;
   durationMs: number;
+  /**
+   * Wall-clock ms spent in the model: the run duration with tool-execution
+   * time removed. This is what `$ai_latency` reports, and it is deliberately
+   * NOT `durationMs`.
+   *
+   * PostHog sums `$ai_latency` across a trace's direct children, and every
+   * tool call is emitted as one of those children. Reporting the full run
+   * duration here counted tool time twice and made the trace waterfall wider
+   * than the run it describes.
+   */
+  llmDurationMs: number;
+  /** LLM round-trips in the run. Feeds `$ai_request_count`, which PostHog
+   *  multiplies by per-request pricing — a hardcoded 1 undercharged every
+   *  multi-step run on a request-priced model. */
+  llmCallCount: number;
   /** Elapsed ms from run start to the first non-heartbeat engine event.
    *  Undefined when no such event ever arrived (the run never produced a
    *  token before being aborted) — never coerced to 0. */
@@ -248,7 +263,7 @@ function emitLlmGenerationTrackingEvent(args: {
     $ai_provider: provider,
     $ai_input_tokens: args.inputTokens,
     $ai_output_tokens: args.outputTokens,
-    $ai_latency: Math.round((args.durationMs / 1000) * 1000) / 1000,
+    $ai_latency: Math.round(args.llmDurationMs) / 1000,
     $ai_is_error: args.status === "error",
     $ai_error:
       args.status === "error"
@@ -260,14 +275,19 @@ function emitLlmGenerationTrackingEvent(args: {
         : undefined,
     $ai_cache_read_input_tokens: args.cacheReadTokens,
     $ai_cache_creation_input_tokens: args.cacheWriteTokens,
-    $ai_request_count: 1,
+    $ai_request_count: args.llmCallCount,
     $ai_total_cost_usd: costUsd,
     $ai_input: args.aiInput,
     $ai_output_choices: args.aiOutputChoices,
     $ai_tools: args.aiTools,
     $ai_input_truncated: args.aiInputTruncated || undefined,
     $ai_output_truncated: args.aiOutputTruncated || undefined,
-    $ai_time_to_first_token: args.firstTokenMs,
+    // Seconds, per PostHog's schema — `time_to_first_token_ms` above is the
+    // millisecond field this framework's own dashboards read.
+    $ai_time_to_first_token:
+      args.firstTokenMs === undefined
+        ? undefined
+        : Math.round(args.firstTokenMs) / 1000,
     $session_id: args.browserSessionId,
   };
   if (args.experimentAssignments?.length) {
@@ -293,6 +313,7 @@ function emitLlmGenerationTrackingEvent(args: {
       .then(({ track }) => {
         track("$ai_generation", properties, {
           userId: args.userId ?? undefined,
+          occurredAt: args.createdAt,
         });
       })
       .catch(() => {});
@@ -809,6 +830,30 @@ export async function instrumentAgentLoop(opts: {
           pending.endResult = otelEndResult;
         }
 
+        const spanMetadataFields: Record<string, unknown> = {};
+        if (config.captureToolArgs && pending) {
+          // Strip Authorization/api-key/token-shaped values before persisting
+          // (M14 in the MCP/A2A audit). Tool-runtime execution still sees the
+          // unredacted input — only the long-lived span row is sanitized.
+          spanMetadataFields.input = redactSensitiveFields(pending.input);
+        }
+        // A failed tool's content reaches the span through `errorMessage`; a
+        // successful one had nowhere to go, so every healthy tool span shipped
+        // an input and no output — indistinguishable from a tool that returned
+        // nothing. Same redaction and truncation as the error path.
+        if (
+          !isError &&
+          config.captureToolResults &&
+          typeof event.result === "string"
+        ) {
+          spanMetadataFields.output = truncateToolErrorMessage(
+            redactToolErrorMessage(event.result),
+          );
+        }
+        const spanMetadata = Object.keys(spanMetadataFields).length
+          ? spanMetadataFields
+          : null;
+
         const span: TraceSpan = {
           id: pending?.spanId ?? spanId(),
           runId,
@@ -825,19 +870,7 @@ export async function instrumentAgentLoop(opts: {
           durationMs: pending ? Math.max(0, finishedAt - pending.startMs) : 0,
           status: isError ? "error" : "success",
           errorMessage: isError ? event.result : null,
-          metadata:
-            config.captureToolArgs && pending
-              ? // Strip Authorization/api-key/token-shaped values before
-                // persisting (M14 in the MCP/A2A audit). Tool-runtime
-                // execution still sees the unredacted input — only the
-                // long-lived span row is sanitized.
-                {
-                  input: redactSensitiveFields(pending.input) as Record<
-                    string,
-                    string
-                  >,
-                }
-              : null,
+          metadata: spanMetadata,
           createdAt: Date.now(),
         };
         spans.push(span);
@@ -995,12 +1028,25 @@ export async function instrumentAgentLoop(opts: {
             ? Math.max(0, usage.firstEngineEventAtMs - runStart)
             : undefined;
         const llmSpanId = spanId();
+        const generationToolSpans = spans.filter(
+          (s) => s.spanType === "tool_call",
+        );
+        // Tool calls are emitted as sibling `$ai_span`s under the same trace,
+        // and PostHog adds their latency to this generation's. Subtracting
+        // their duration keeps the trace total equal to the run, not to the
+        // run plus its tools counted a second time. Clamped at 0 because tool
+        // spans are timed independently and can overlap.
+        const llmDurationMs = Math.max(
+          0,
+          totalDurationMs -
+            generationToolSpans.reduce((sum, s) => sum + s.durationMs, 0),
+        );
         const generationContent = buildGenerationContent({
           config,
           messages: loopOpts.messages,
           tools: loopOpts.tools,
           assistantText: assistantTextParts.join(""),
-          toolSpans: spans.filter((s) => s.spanType === "tool_call"),
+          toolSpans: generationToolSpans,
         });
         const llmSpan: TraceSpan = {
           id: llmSpanId,
@@ -1045,6 +1091,8 @@ export async function instrumentAgentLoop(opts: {
             : undefined,
           costCentsX100: usageReported ? costCentsX100 : undefined,
           durationMs: totalDurationMs,
+          llmDurationMs,
+          llmCallCount,
           firstTokenMs,
           status: runStatus,
           errorMessage,
@@ -1120,6 +1168,24 @@ export async function instrumentAgentLoop(opts: {
         const emittedToolSpans = toolSpans.slice(0, MAX_AI_SPANS_PER_RUN);
         const droppedToolSpans = toolSpans.length - emittedToolSpans.length;
 
+        // PostHog reads a trace's input/output state ONLY from the `$ai_trace`
+        // event — never from its children — so a trace whose detail view should
+        // show what the run was asked and what it answered has to carry them
+        // here. Gated on `capturePrompts` and omitted, not emptied, when off.
+        const traceInputState = config.capturePrompts
+          ? redactSensitiveFields(loopOpts.messages)
+          : undefined;
+        const traceAssistantText = assistantTextParts.join("");
+        const traceOutputState =
+          config.capturePrompts && traceAssistantText
+            ? [
+                {
+                  role: "assistant",
+                  content: redactToolErrorMessage(traceAssistantText),
+                },
+              ]
+            : undefined;
+
         emitAiTraceEvent({
           runId,
           threadId,
@@ -1127,7 +1193,7 @@ export async function instrumentAgentLoop(opts: {
           spanName,
           model: usage?.model ?? loopOpts.model,
           provider,
-          latencySeconds: Math.round(totalDurationMs) / 1000,
+          durationMs: totalDurationMs,
           isError: runStatus === "error",
           error: aiError,
           inputTokens: usage?.usageReported ? usage.inputTokens : undefined,
@@ -1137,6 +1203,8 @@ export async function instrumentAgentLoop(opts: {
             : undefined,
           createdAt: runStart,
           browserSessionId,
+          inputState: traceInputState,
+          outputState: traceOutputState,
           extraProperties: {
             ...trackingIdentityProperties(),
             source: "agent_observability",
@@ -1187,10 +1255,13 @@ export async function instrumentAgentLoop(opts: {
               : undefined,
             createdAt: span.createdAt,
             browserSessionId,
-            // `metadata.input` is already redacted and only present when
-            // `captureToolArgs` is on; absent stays absent.
+            // `metadata.input` / `metadata.output` are already redacted and
+            // only present when `captureToolArgs` / `captureToolResults` are
+            // on; absent stays absent.
             inputState: (span.metadata as { input?: unknown } | null)?.input,
-            outputState: toolErrorMessage,
+            outputState:
+              toolErrorMessage ??
+              (span.metadata as { output?: unknown } | null)?.output,
             extraProperties: {
               ...trackingIdentityProperties(),
               source: "agent_observability",

@@ -12,6 +12,14 @@
  * PostHog's `$session_id`: the latter is the browser session used for session
  * replay, and the two are different lifetimes.
  *
+ * PostHog DERIVES a trace's latency, tokens and cost from its children — its
+ * trace query sums `$ai_latency` over every event whose `$ai_parent_id` is the
+ * trace or absent, and sums tokens/cost over `$ai_generation` / `$ai_embedding`
+ * only. So the `$ai_trace` event carries none of those: an `$ai_latency` here
+ * was counted *in addition to* the generation's and reported roughly twice the
+ * real duration. Run totals ride along under plain names for the non-PostHog
+ * backends, which have no such aggregation.
+ *
  * Content (`$ai_input` / `$ai_output_choices` / `$ai_input_state` /
  * `$ai_output_state`) is gated on config and always OMITTED when disabled.
  * Sending `[]` instead would be indistinguishable from a run that genuinely had
@@ -40,6 +48,7 @@ function trackAiEvent(
   name: string,
   properties: Record<string, unknown>,
   userId: string | null,
+  occurredAt: number,
 ): void {
   for (const key of Object.keys(properties)) {
     if (properties[key] === undefined) delete properties[key];
@@ -47,7 +56,7 @@ function trackAiEvent(
   try {
     void import("../tracking/registry.js")
       .then(({ track }) => {
-        track(name, properties, { userId: userId ?? undefined });
+        track(name, properties, { userId: userId ?? undefined, occurredAt });
       })
       .catch(() => {});
     // coercion-ok: a throw here would break the run it is observing
@@ -95,7 +104,9 @@ export interface AiTraceEventInput {
   spanName: string;
   model: string;
   provider: string;
-  latencySeconds: number;
+  /** Wall-clock duration of the whole run. Reported under `duration_ms`, not
+   *  `$ai_latency` — see the aggregation note at the top of this file. */
+  durationMs: number;
   isError: boolean;
   error?: AiErrorDetail;
   inputTokens?: number;
@@ -130,12 +141,12 @@ export function emitAiTraceEvent(input: AiTraceEventInput): void {
       $ai_span_name: input.spanName,
       $ai_model: input.model,
       $ai_provider: input.provider,
-      $ai_latency: input.latencySeconds,
       $ai_is_error: input.isError,
       $ai_error: input.error,
-      $ai_input_tokens: input.inputTokens,
-      $ai_output_tokens: input.outputTokens,
-      $ai_total_cost_usd: input.costUsd,
+      duration_ms: Math.round(input.durationMs),
+      input_tokens: input.inputTokens,
+      output_tokens: input.outputTokens,
+      cost_usd: input.costUsd,
       $ai_input_state: inputContent?.value,
       $ai_output_state: outputContent?.value,
       $ai_input_truncated: inputContent?.truncated || undefined,
@@ -144,6 +155,7 @@ export function emitAiTraceEvent(input: AiTraceEventInput): void {
       created_at: new Date(input.createdAt).toISOString(),
     },
     input.userId,
+    input.createdAt,
   );
 }
 
@@ -196,6 +208,7 @@ export function emitAiSpanEvent(input: AiSpanEventInput): void {
       created_at: new Date(input.createdAt).toISOString(),
     },
     input.userId,
+    input.createdAt,
   );
 }
 
