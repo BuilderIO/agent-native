@@ -182,6 +182,17 @@ describe("transactional email registry", () => {
     ).toThrow(/only test-app email definitions/);
   });
 
+  it("rejects an unknown runtime from deleting an owner scope", () => {
+    define("test-app.stale");
+
+    expect(() =>
+      replaceTransactionalEmails("test-app", "test-app.", []),
+    ).toThrow(
+      /recognized runtime owner or a non-empty snapshot with explicit owner metadata/,
+    );
+    expect(getTransactionalEmail("test-app.stale")).toBeDefined();
+  });
+
   it("renders a preview by id", () => {
     define("test.preview");
     expect(renderTransactionalEmailPreview("test.preview").subject).toBe(

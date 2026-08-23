@@ -163,12 +163,7 @@ export function replaceTransactionalEmails(
   definitions: readonly TransactionalEmailDefinition[],
 ): RegisteredTransactionalEmail[] {
   const runtimeApp = getAppSlug();
-  if (
-    !ownerApp ||
-    ownerApp.includes(".") ||
-    idPrefix !== `${ownerApp}.` ||
-    (runtimeApp && runtimeApp !== ownerApp)
-  ) {
+  if (!ownerApp || ownerApp.includes(".") || idPrefix !== `${ownerApp}.`) {
     throw new Error(
       "Transactional email replacement requires an owner app and its exact namespace prefix.",
     );
@@ -189,6 +184,17 @@ export function replaceTransactionalEmails(
         `Transactional email replacement cannot modify "${id}" owned by "${existing.app}".`,
       );
     }
+  }
+
+  const hasExplicitOwner =
+    resolved.length > 0 && resolved.every(({ app }) => app === ownerApp);
+  if (
+    (runtimeApp && runtimeApp !== ownerApp) ||
+    (!runtimeApp && !hasExplicitOwner)
+  ) {
+    throw new Error(
+      "Transactional email replacement requires a recognized runtime owner or a non-empty snapshot with explicit owner metadata.",
+    );
   }
 
   const nextIds = new Set(resolved.map(({ id }) => id));
