@@ -24,7 +24,10 @@ jobs:
       apps: all
       lane: public+authed
       grep: ""
-      key_source: dedicated
+      # Scheduled health checks use the same repository credential as the
+      # hosted beta sites. Manual promotion runs can still opt into the
+      # separately limited dedicated key.
+      key_source: shared
     secrets: inherit
     permissions:
       contents: read

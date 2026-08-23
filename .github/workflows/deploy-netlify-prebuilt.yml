@@ -96,6 +96,8 @@ on:
     secrets:
       NETLIFY_AUTH_TOKEN:
         required: true
+      PLAN_DATABASE_URL:
+        required: false
 
 permissions:
   contents: read
@@ -253,10 +255,21 @@ jobs:
             agentNativePrebuiltAuthSecret="$(node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("hex"))')"
             export agentNativePrebuiltAuthSecret
           fi
-          if [[ "$SOURCE_TEMPLATE" == "clips" ]]; then
+          if [[ "$SOURCE_TEMPLATE" == "clips" || "$SOURCE_TEMPLATE" == "plan" ]]; then
             export agentNativePrebuiltDatabaseUrl="postgresql://build-only.invalid/agent_native"
           fi
           netlify build --context "$BUILD_CONTEXT" --filter "$SOURCE_TEMPLATE"
+
+      - name: Run Plan release migrations
+        if: >-
+          inputs.deploy && inputs.deploy_mode == 'production' &&
+          steps.target.outputs.source_template == 'plan'
+        env:
+          DATABASE_URL: ${{ secrets.PLAN_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          : "${DATABASE_URL:?PLAN_DATABASE_URL secret is required for prebuilt Plan deployments}"
+          pnpm --filter plan migrate:production
 
       - name: Verify deploy directories
         env:
