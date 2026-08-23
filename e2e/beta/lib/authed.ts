@@ -45,7 +45,11 @@ export async function signedInContext(
     );
   }
   const context = await browser.newContext({ storageState: statePath });
-  if (seedModel) await seedModelSelection(context);
+  if (seedModel) {
+    const namespaces =
+      site.id === "chat" || site.id === "analytics" ? [site.id] : [];
+    await seedModelSelection(context, undefined, namespaces);
+  }
   return context;
 }
 
