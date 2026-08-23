@@ -529,6 +529,30 @@ describe("agent discovery", () => {
     });
   });
 
+  it("normalizes retired workspace app IDs", async () => {
+    process.env.APP_URL = "https://content.agent-native.com";
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
+      version: 1,
+      apps: [
+        {
+          id: "videos",
+          name: "Videos",
+          description: "Retired videos app",
+          path: "/videos",
+          url: "http://localhost:8087",
+        },
+      ],
+    });
+
+    const agents = await discoverAgents("content");
+
+    expect(agents.some((agent) => agent.id === "videos")).toBe(false);
+    expect(agents.find((agent) => agent.id === "clips")).toMatchObject({
+      id: "clips",
+      url: "https://clips.agent-native.com",
+    });
+  });
+
   it("ignores stale IPv6 loopback workspace URLs on public runtimes", async () => {
     process.env.APP_URL = "https://content.agent-native.com";
     process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({

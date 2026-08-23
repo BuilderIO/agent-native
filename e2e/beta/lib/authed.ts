@@ -47,7 +47,9 @@ export async function signedInContext(
   const context = await browser.newContext({ storageState: statePath });
   if (seedModel) {
     const namespaces =
-      site.id === "chat" || site.id === "analytics" ? [site.id] : [];
+      site.id === "chat" || site.id === "analytics" || site.id === "dispatch"
+        ? [site.id]
+        : [];
     await seedModelSelection(context, undefined, namespaces);
   }
   return context;
