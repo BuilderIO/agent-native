@@ -27,6 +27,9 @@ describe("injectBetaOptOutPersistence", () => {
     expect(html).toContain("left: max(0.75rem, env(safe-area-inset-left));");
     expect(html).toContain("left: 0;");
     expect(html).toContain(
+      "width: 100%;\n    min-height: 2rem;\n    margin-top: 0.5rem;\n    margin-bottom: -0.5rem;",
+    );
+    expect(html).toContain(
       "width: min(17.5rem, calc(100vw - 1.5rem));\n    box-sizing: border-box;\n    padding: 1.25rem;",
     );
     expect(html).not.toContain("safe-area-inset-right");
