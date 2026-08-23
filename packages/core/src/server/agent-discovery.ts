@@ -356,11 +356,9 @@ export async function discoverAgents(
         // "fetch failed" instantly. The override still wins for non-localhost
         // URLs (the supported case for self-hosted custom agents).
         let url = manifest.url;
-        const isProduction =
-          typeof process !== "undefined" &&
-          process.env?.NODE_ENV === "production";
+        const isHosted = isHostedRuntime();
         if (
-          isProduction &&
+          isHosted &&
           typeof url === "string" &&
           /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)(:|\/|$)/.test(url)
         ) {
