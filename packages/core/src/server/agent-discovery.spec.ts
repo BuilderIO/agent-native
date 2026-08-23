@@ -230,6 +230,25 @@ describe("agent discovery", () => {
     expect(ids).toContain("custom-qa");
   });
 
+  it("ignores stale loopback custom agents on public runtimes", async () => {
+    process.env.APP_URL = "https://design.agent-native.com";
+    resourceListMock.mockResolvedValue([
+      { id: "codex-resource", path: "remote-agents/codex.json" },
+    ]);
+    resourceGetMock.mockResolvedValue({
+      id: "codex-resource",
+      content: JSON.stringify({
+        id: "codex",
+        name: "Codex",
+        url: "http://127.0.0.1:8789",
+      }),
+    });
+
+    const agents = await discoverAgents("design");
+
+    expect(agents.find((agent) => agent.id === "codex")).toBeUndefined();
+  });
+
   it("discovers legacy agents/*.json remote-agent resources", async () => {
     resourceListMock.mockImplementation(
       async (_owner: string, prefix: string) => {

@@ -371,6 +371,7 @@ export async function discoverAgents(
         if (isHosted && typeof url === "string" && isLoopbackUrl(url)) {
           const builtin = agentsById.get(manifestId);
           if (builtin?.url) url = builtin.url;
+          else continue;
         }
 
         const builtin = agentsById.get(manifestId);
