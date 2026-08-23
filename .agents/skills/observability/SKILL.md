@@ -321,6 +321,10 @@ Constraints that are not visible from the emit site:
   `duration_ms` and `time_to_first_token_ms` are the millisecond siblings the
   first-party dashboards read. Feeding a millisecond value to a seconds field is
   invisible in the payload and inflates the metric 1000x.
+- **Custom properties never take an `$ai_` prefix.** That namespace belongs to
+  PostHog's schema; a name it does not define today it may define tomorrow with
+  a different meaning. Ours are plain (`duration_ms`, `input_truncated`,
+  `spans_dropped`), which also keeps them out of PostHog's `$ai_*` aggregation.
 - **Trace-level input/output state lives only on `$ai_trace`.** PostHog reads a
   trace's input and output from that event and never from its children, so
   `$ai_input_state` / `$ai_output_state` have to be set there or the trace
@@ -335,7 +339,7 @@ Constraints that are not visible from the emit site:
 - **Disabled capture omits the field rather than sending an empty one.** An
   empty array is indistinguishable from a run that genuinely had no messages.
   Truncated content is marked, and a run over the span cap stamps
-  `$ai_spans_dropped` — a truncated run must not read as a complete one.
+  `spans_dropped` — a truncated run must not read as a complete one.
 - **The structural tool-call list ships even when content capture is off.**
   Backends derive their tool tags from tool-call blocks inside the output
   choices and from nothing else, so tool names (without arguments) are always

@@ -273,6 +273,9 @@ function emitLlmGenerationTrackingEvent(args: {
             retryable: terminalRetryable,
           })
         : undefined,
+    // Every engine here streams (`messages.stream`, `streamText`, gateway SSE),
+    // which is also what makes `$ai_time_to_first_token` meaningful.
+    $ai_stream: true,
     $ai_cache_read_input_tokens: args.cacheReadTokens,
     $ai_cache_creation_input_tokens: args.cacheWriteTokens,
     $ai_request_count: args.llmCallCount,
@@ -280,8 +283,8 @@ function emitLlmGenerationTrackingEvent(args: {
     $ai_input: args.aiInput,
     $ai_output_choices: args.aiOutputChoices,
     $ai_tools: args.aiTools,
-    $ai_input_truncated: args.aiInputTruncated || undefined,
-    $ai_output_truncated: args.aiOutputTruncated || undefined,
+    input_truncated: args.aiInputTruncated || undefined,
+    output_truncated: args.aiOutputTruncated || undefined,
     // Seconds, per PostHog's schema — `time_to_first_token_ms` above is the
     // millisecond field this framework's own dashboards read.
     $ai_time_to_first_token:
@@ -351,6 +354,10 @@ function buildGenerationContent(args: {
 } {
   const { config } = args;
 
+  // `$ai_input` is the conversation, not the system prompt. PostHog accepts a
+  // `system` role, but the prompt is app configuration rather than content and
+  // is near-identical on every run — shipping it would repeat kilobytes on each
+  // generation for no analytical gain.
   const input = config.capturePrompts
     ? boundAiContent(redactSensitiveFields(args.messages))
     : undefined;
@@ -1218,8 +1225,8 @@ export async function instrumentAgentLoop(opts: {
             // A truncated run must not read as a complete one.
             ...(droppedToolSpans > 0
               ? {
-                  $ai_spans_dropped: droppedToolSpans,
-                  $ai_spans_emitted: emittedToolSpans.length,
+                  spans_dropped: droppedToolSpans,
+                  spans_emitted: emittedToolSpans.length,
                 }
               : {}),
           },

@@ -2081,4 +2081,216 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(at("$ai_generation")).toBeCloseTo(startedAt, -2);
     expect(at("$ai_span")).toBeGreaterThan(at("$ai_trace"));
   });
+  // Two different identifiers with two different lifetimes. `$ai_session_id`
+  // is the thread (backend-owned, groups traces into a conversation);
+  // `$session_id` is PostHog's frontend session, propagated from the
+  // `X-Agent-Native-Session-Id` header so a trace joins session replay.
+  // Collapsing them would break whichever one lost.
+  it("sends $ai_session_id (thread) and $session_id (browser) as distinct ids on every AI event", async () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        if (event.name.startsWith("$ai_")) events.push(event);
+      },
+    });
+
+    const loopOpts: any = {
+      engine: { name: "anthropic" },
+      model: "claude-test",
+      systemPrompt: "",
+      tools: [],
+      messages: [],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    };
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ send }) => {
+        send({ type: "tool_start", id: "a", tool: "read", input: {} });
+        send({ type: "tool_done", id: "a", tool: "read", result: "ok" });
+        return {
+          inputTokens: 1,
+          outputTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "claude-test",
+        };
+      },
+      loopOpts,
+      runId: "run-sessions",
+      threadId: "thread-sessions",
+      userId: null,
+      config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+      browserSessionId: "browser-session-xyz",
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const names = events.map((e) => e.name).sort();
+    expect(names).toEqual(["$ai_generation", "$ai_span", "$ai_trace"]);
+    for (const event of events) {
+      expect(event.properties?.["$ai_session_id"]).toBe("thread-sessions");
+      expect(event.properties?.["$session_id"]).toBe("browser-session-xyz");
+      expect(event.properties?.["$ai_trace_id"]).toBe("run-sessions");
+    }
+  });
+
+  // PostHog rejects ids outside this set, and a rejected id silently detaches
+  // the event from its trace.
+  it("emits trace and session ids within PostHog's allowed character set", async () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        if (event.name.startsWith("$ai_")) events.push(event);
+      },
+    });
+
+    await instrumentAgentLoop({
+      runAgentLoop: async () => ({
+        inputTokens: 1,
+        outputTokens: 1,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: "claude-test",
+      }),
+      loopOpts: {
+        engine: { name: "anthropic" },
+        model: "claude-test",
+        systemPrompt: "",
+        tools: [],
+        messages: [],
+        actions: {},
+        send: () => {},
+        signal: new AbortController().signal,
+      } as any,
+      runId: "run-1770000000000-a1b2c3",
+      threadId: "thread-1770000000000-d4e5f6",
+      userId: null,
+      config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const allowed = /^[A-Za-z0-9\-_~.@()!':|]+$/;
+    for (const event of events) {
+      expect(String(event.properties?.["$ai_trace_id"])).toMatch(allowed);
+      expect(String(event.properties?.["$ai_session_id"])).toMatch(allowed);
+    }
+  });
+
+  // `$ai_trace` has exactly eight schema properties. Anything else that PostHog
+  // aggregates from elsewhere (tokens, cost, latency) must not appear under an
+  // `$ai_*` name here or it is counted twice.
+  it("keeps the $ai_trace event to PostHog's trace schema", async () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        if (event.name === "$ai_trace") events.push(event);
+      },
+    });
+
+    await instrumentAgentLoop({
+      runAgentLoop: async () => ({
+        inputTokens: 10,
+        outputTokens: 5,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: "claude-test",
+        usageReported: true,
+      }),
+      loopOpts: {
+        engine: { name: "anthropic" },
+        model: "claude-test",
+        systemPrompt: "",
+        tools: [],
+        messages: [],
+        actions: {},
+        send: () => {},
+        signal: new AbortController().signal,
+      } as any,
+      runId: "run-trace-schema",
+      threadId: "thread-trace-schema",
+      userId: null,
+      config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const aiKeys = Object.keys(events[0]?.properties ?? {})
+      .filter((k) => k.startsWith("$ai_"))
+      .sort();
+    // No `$ai_error`: the run succeeded, and undefined properties are dropped
+    // rather than sent as null.
+    expect(aiKeys).toEqual([
+      "$ai_is_error",
+      "$ai_model",
+      "$ai_provider",
+      "$ai_session_id",
+      "$ai_span_name",
+      "$ai_trace_id",
+    ]);
+    // Metrics PostHog derives from the trace's children never appear here.
+    for (const derived of [
+      "$ai_latency",
+      "$ai_input_tokens",
+      "$ai_output_tokens",
+      "$ai_total_cost_usd",
+    ]) {
+      expect(events[0]?.properties).not.toHaveProperty(derived);
+    }
+  });
+
+  // PostHog accepts a `system` role in `$ai_input`, but the prompt is app
+  // configuration rather than conversation content and is near-identical on
+  // every run. Keeping it out is deliberate, not an oversight.
+  it("keeps the system prompt out of $ai_input even when capturePrompts is on", async () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        if (event.name === "$ai_generation") events.push(event);
+      },
+    });
+
+    await instrumentAgentLoop({
+      runAgentLoop: async () => ({
+        inputTokens: 10,
+        outputTokens: 5,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: "claude-test",
+        usageReported: true,
+      }),
+      loopOpts: {
+        engine: { name: "anthropic" },
+        model: "claude-test",
+        systemPrompt: "You are a careful assistant.",
+        tools: [],
+        messages: [{ role: "user", content: "hi" }],
+        actions: {},
+        send: () => {},
+        signal: new AbortController().signal,
+      } as any,
+      runId: "run-system-prompt",
+      threadId: null,
+      userId: null,
+      config: {
+        ...DEFAULT_OBSERVABILITY_CONFIG,
+        enabled: true,
+        capturePrompts: true,
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(events[0]?.properties?.["$ai_input"]).toEqual([
+      { role: "user", content: "hi" },
+    ]);
+    expect(JSON.stringify(events[0])).not.toContain("careful assistant");
+    expect(events[0]?.properties?.["$ai_stream"]).toBe(true);
+  });
 });

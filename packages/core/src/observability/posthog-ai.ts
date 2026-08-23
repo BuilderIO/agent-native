@@ -20,6 +20,10 @@
  * real duration. Run totals ride along under plain names for the non-PostHog
  * backends, which have no such aggregation.
  *
+ * Custom properties do NOT take an `$ai_` prefix. That namespace is PostHog's
+ * schema, and a name it does not define today it may define tomorrow with
+ * different meaning — `input_truncated` / `spans_dropped` cannot collide.
+ *
  * Content (`$ai_input` / `$ai_output_choices` / `$ai_input_state` /
  * `$ai_output_state`) is gated on config and always OMITTED when disabled.
  * Sending `[]` instead would be indistinguishable from a run that genuinely had
@@ -149,8 +153,8 @@ export function emitAiTraceEvent(input: AiTraceEventInput): void {
       cost_usd: input.costUsd,
       $ai_input_state: inputContent?.value,
       $ai_output_state: outputContent?.value,
-      $ai_input_truncated: inputContent?.truncated || undefined,
-      $ai_output_truncated: outputContent?.truncated || undefined,
+      input_truncated: inputContent?.truncated || undefined,
+      output_truncated: outputContent?.truncated || undefined,
       $session_id: input.browserSessionId,
       created_at: new Date(input.createdAt).toISOString(),
     },
@@ -202,8 +206,8 @@ export function emitAiSpanEvent(input: AiSpanEventInput): void {
       $ai_error: input.error,
       $ai_input_state: inputContent?.value,
       $ai_output_state: outputContent?.value,
-      $ai_input_truncated: inputContent?.truncated || undefined,
-      $ai_output_truncated: outputContent?.truncated || undefined,
+      input_truncated: inputContent?.truncated || undefined,
+      output_truncated: outputContent?.truncated || undefined,
       $session_id: input.browserSessionId,
       created_at: new Date(input.createdAt).toISOString(),
     },
