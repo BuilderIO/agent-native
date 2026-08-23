@@ -44,6 +44,22 @@ const AUTH_DIR = path.join(
   "..",
   ".auth",
 );
+const SESSION_EXCHANGE_MAX_ATTEMPTS = 3;
+const RETRYABLE_SESSION_EXCHANGE_STATUSES = new Set([502, 503, 504]);
+
+export function shouldRetrySessionExchange(
+  status: number,
+  attempt: number,
+): boolean {
+  return (
+    attempt < SESSION_EXCHANGE_MAX_ATTEMPTS &&
+    RETRYABLE_SESSION_EXCHANGE_STATUSES.has(status)
+  );
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 export interface SessionIdentity {
   email: string;
@@ -198,15 +214,25 @@ export async function bootstrapAppSession(
       // Use the browser context's API client so Set-Cookie is shared with the
       // stored browser state without navigating a page that may redirect an
       // authenticated user away from `/sign-in` while the check is running.
-      let promoted;
-      try {
-        promoted = await context.request.get(
+      const exchangeSession = () =>
+        context.request.get(
           `${origin}/_agent-native/auth/session?_session=${encodeURIComponent(token)}`,
           {
             headers: { accept: "application/json" },
             timeout: 60_000,
           },
         );
+      let promoted: Awaited<ReturnType<typeof exchangeSession>>;
+      try {
+        promoted = await exchangeSession();
+        for (
+          let attempt = 1;
+          shouldRetrySessionExchange(promoted.status(), attempt);
+          attempt++
+        ) {
+          await sleep(1_000 * attempt);
+          promoted = await exchangeSession();
+        }
       } catch {
         // Keep the live query token out of Playwright's error and report text.
         throw new Error(`${origin} failed while exchanging the session token.`);
