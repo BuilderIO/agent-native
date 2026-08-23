@@ -737,7 +737,7 @@ async function selectGrantedWorkspaceResourceRows(
 
   const contentSelect =
     options.includeContent === false
-      ? `${isPostgres() ? "octet_length" : "length"}(wr.content) AS content_size`
+      ? `${isPostgres() ? "octet_length(wr.content)" : "length(CAST(wr.content AS BLOB))"} AS content_size`
       : "wr.content";
   const client = getDbExec();
   const { rows } = await client.execute({
