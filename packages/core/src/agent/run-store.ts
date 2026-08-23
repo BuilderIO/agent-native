@@ -784,6 +784,81 @@ function backgroundAwareStaleCutoffSql(): string {
   return `(CAST(? AS BIGINT) - CASE WHEN dispatch_mode = 'background-processing' AND dispatch_payload IS NOT NULL THEN ${BACKGROUND_PROCESSING_RUN_STALE_MS} WHEN dispatch_mode LIKE 'background%' THEN ${BACKGROUND_RUN_STALE_MS} ELSE ${RUN_STALE_MS} END)`;
 }
 
+/**
+ * Which stale window the reaper applied to a row, in ms.
+ *
+ * MIRRORS `backgroundAwareStaleCutoffSql`, which decides the same thing in SQL
+ * because it has to run inside the conditional UPDATE. Kept beside it and
+ * covered by a test asserting the three cases agree — a drift here reports the
+ * wrong window on a real incident, which is worse than reporting none.
+ */
+export function staleWindowMsForRow(row: {
+  dispatchMode?: string | null;
+  hasDispatchPayload?: boolean;
+  maxStaleMs?: number;
+}): number {
+  if (typeof row.maxStaleMs === "number") return row.maxStaleMs;
+  const mode = row.dispatchMode ?? "";
+  if (mode === "background-processing" && row.hasDispatchPayload)
+    return BACKGROUND_PROCESSING_RUN_STALE_MS;
+  if (mode.startsWith("background")) return BACKGROUND_RUN_STALE_MS;
+  return RUN_STALE_MS;
+}
+
+/**
+ * The liveness forensics for one reap, as a compact `key=value` line.
+ *
+ * THE FIELD THAT MATTERS IS `hbAheadOfProgress`. A worker that died takes its
+ * heartbeat with it, so heartbeat and last-progress stop together and this is
+ * ~0. A worker still running while the agent loop stops producing keeps
+ * heartbeating, and this grows without bound — those are opposite bugs that
+ * look identical in `agent_runs` today. Production showed runs where the
+ * heartbeat ran 3,000s past the last progress; nothing recorded that, so
+ * nothing could act on it.
+ *
+ * Numbers, booleans and an enum only — no prompt, no result, no user content —
+ * so this obeys the same privacy rule as event properties and log lines.
+ */
+export function describeStaleReap(row: {
+  startedAt?: number | null;
+  heartbeatAt?: number | null;
+  lastProgressAt?: number | null;
+  inFlightSince?: number | null;
+  dispatchMode?: string | null;
+  hasDispatchPayload?: boolean;
+  maxStaleMs?: number;
+  now: number;
+}): string {
+  const { now } = row;
+  const started = row.startedAt ?? null;
+  const heartbeat = row.heartbeatAt ?? null;
+  const progress = row.lastProgressAt ?? null;
+  const liveness = Math.max(
+    progress ?? started ?? 0,
+    heartbeat ?? started ?? 0,
+  );
+  const parts: string[] = [
+    `window=${staleWindowMsForRow(row)}`,
+    `dispatch=${row.dispatchMode ?? "none"}`,
+    `redispatchable=${row.hasDispatchPayload ? "1" : "0"}`,
+  ];
+  if (heartbeat != null) parts.push(`sinceHeartbeat=${now - heartbeat}`);
+  if (progress != null) parts.push(`sinceProgress=${now - progress}`);
+  // The discriminator. Negative would mean progress outlived the heartbeat,
+  // which is possible and equally worth seeing.
+  if (heartbeat != null && progress != null)
+    parts.push(`hbAheadOfProgress=${heartbeat - progress}`);
+  // Only when it is a real duration. A liveness basis before `started_at` means
+  // clock skew or a mocked row, and printing a negative age reads as a fact
+  // about the run rather than a fact about the clock.
+  if (started != null && liveness >= started)
+    parts.push(`runAge=${liveness - started}`);
+  parts.push(`inFlight=${row.inFlightSince != null ? "1" : "0"}`);
+  if (row.inFlightSince != null)
+    parts.push(`inFlightFor=${now - row.inFlightSince}`);
+  return parts.join(" ");
+}
+
 function terminalRunEventExclusionSql(runIdColumn = "id"): string {
   return `NOT EXISTS (
     SELECT 1 FROM agent_run_events terminal_events
@@ -1457,6 +1532,24 @@ export const RUN_DIAG_STAGE = {
    * no boundary previously recorded anywhere.
    */
   runBoundaryReached: "run_boundary_reached",
+  /**
+   * A stale reaper flipped this run to `errored`. Detail carries the liveness
+   * forensics — see `describeStaleReap`.
+   *
+   * WHY THIS EXISTS. `stale_run` is the single largest terminal outcome on the
+   * one-shot automation path (14 of 27 runs in one production deployment) and
+   * the row records nothing about WHY: `error_detail` is a fixed sentence for
+   * every reap, so a correct reap and a false one are indistinguishable after
+   * the fact. Every question worth asking needed a number nobody stored — was
+   * the worker dead, or was it heartbeating happily while the loop stopped
+   * producing? which of the three stale windows fired? was the in-flight grace
+   * in play? One production run heartbeated 3,309s past a 600s hard abort and
+   * there is no way to tell from the row what kept it alive.
+   *
+   * Diagnostics only: nothing reads this to make a decision, and it cannot
+   * change whether a row is reaped.
+   */
+  staleRunReaped: "stale_run_reaped",
 } as const;
 
 export type RunDiagStage = (typeof RUN_DIAG_STAGE)[keyof typeof RUN_DIAG_STAGE];
@@ -1964,6 +2057,45 @@ async function reapSingleStaleRun(
     reaped = (rowsAffected ?? 0) > 0;
   }
 
+  // FORENSICS, on the reap path only. A speculative `reapIfStale` that reaps
+  // nothing does no extra work; an actual reap is rare enough to afford one
+  // read.
+  //
+  // ONE diagnostic write, not two. `diag_stage` holds a single value, so an
+  // independent forensics write would overwrite the recovery outcome that
+  // already lands here — trading the answer to "did a successor get created"
+  // for the answer to "why did it die". Both fit in one line, so both are
+  // recorded: the recovery outcome keeps its own stage name and leading
+  // position, and the liveness numbers are appended.
+  let forensics = "";
+  if (reaped) {
+    forensics = await client
+      .execute({
+        sql: `SELECT started_at, heartbeat_at, last_progress_at, in_flight_since,
+                     dispatch_mode, dispatch_payload
+                FROM agent_runs WHERE id = ?`,
+        args: [runId],
+      })
+      .then((res) => {
+        const row = (res.rows as unknown as Array<Record<string, unknown>>)[0];
+        if (!row) return "";
+        const num = (v: unknown) => (v == null ? null : Number(v));
+        return describeStaleReap({
+          startedAt: num(row.started_at),
+          heartbeatAt: num(row.heartbeat_at),
+          lastProgressAt: num(row.last_progress_at),
+          inFlightSince: num(row.in_flight_since),
+          dispatchMode: (row.dispatch_mode as string | null) ?? null,
+          hasDispatchPayload: row.dispatch_payload != null,
+          ...(typeof maxStaleMs === "number" ? { maxStaleMs } : {}),
+          now: completedAt,
+        });
+      })
+      // Best-effort throughout: a diagnostic that could fail a reap would be
+      // strictly worse than no diagnostic.
+      .catch(() => "");
+  }
+
   if (reaped && outcome && outcome.outcome !== "not_background") {
     const detail =
       outcome.outcome === "recovered"
@@ -1972,12 +2104,19 @@ async function reapSingleStaleRun(
     await recordRunDiagnostic(
       runId,
       RUN_DIAG_STAGE.staleRunRecoveryAttempted,
-      detail,
+      forensics ? `${detail} ${forensics}` : detail,
     ).catch(() => {});
     if (outcome.outcome === "recovered") {
       attemptStaleRunRecoveryDispatch(outcome.successorRunId);
     }
+  } else if (reaped && forensics) {
+    await recordRunDiagnostic(
+      runId,
+      RUN_DIAG_STAGE.staleRunReaped,
+      forensics,
+    ).catch(() => {});
   }
+
   return reaped;
 }
 
