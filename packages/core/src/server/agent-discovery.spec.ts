@@ -553,6 +553,40 @@ describe("agent discovery", () => {
     });
   });
 
+  it("applies legacy metadata overrides to normalized workspace app IDs", async () => {
+    process.env.APP_URL = "https://content.agent-native.com";
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
+      version: 1,
+      apps: [
+        {
+          id: "videos",
+          name: "Videos",
+          description: "Retired videos app",
+          path: "/videos",
+        },
+      ],
+    });
+    getSettingMock.mockResolvedValue({
+      apps: {
+        videos: {
+          name: "Clips workspace",
+          description: "Edited clips description",
+        },
+      },
+    });
+
+    const agents = await runWithRequestContext(
+      { userEmail: "dev@example.test" },
+      () => discoverAgents("content"),
+    );
+
+    expect(agents.find((agent) => agent.id === "clips")).toMatchObject({
+      id: "clips",
+      name: "Clips workspace",
+      description: "Edited clips description",
+    });
+  });
+
   it("ignores stale IPv6 loopback workspace URLs on public runtimes", async () => {
     process.env.APP_URL = "https://content.agent-native.com";
     process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({

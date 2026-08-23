@@ -143,9 +143,12 @@ export function parseWorkspaceAppMetadataSettings(
       ? (record.apps as Record<string, unknown>)
       : {};
   const apps: Record<string, WorkspaceAppMetadataOverride> = {};
+  const canonicalIds = new Set<string>();
 
-  for (const [id, value] of Object.entries(rawApps)) {
-    if (!id.trim() || !value || typeof value !== "object") continue;
+  for (const [rawId, value] of Object.entries(rawApps)) {
+    const id = rawId.trim();
+    const normalizedId = id ? normalizeAgentId(id) : "";
+    if (!normalizedId || !value || typeof value !== "object") continue;
     const item = value as Record<string, unknown>;
     const override: WorkspaceAppMetadataOverride = {};
     const name = cleanOptionalText(item.name);
@@ -161,7 +164,13 @@ export function parseWorkspaceAppMetadataSettings(
     if (updatedAt) override.updatedAt = updatedAt;
     if (updatedBy) override.updatedBy = updatedBy;
 
-    if (Object.keys(override).length > 0) apps[id.trim()] = override;
+    if (Object.keys(override).length > 0) {
+      const isCanonical = id.toLowerCase() === normalizedId;
+      if (isCanonical || !canonicalIds.has(normalizedId)) {
+        apps[normalizedId] = override;
+      }
+      if (isCanonical) canonicalIds.add(normalizedId);
+    }
   }
 
   return { apps };
@@ -190,7 +199,7 @@ export async function writeWorkspaceAppMetadataOverride(input: {
   const key = workspaceAppMetadataSettingsKey();
   if (!key) throw new Error("no authenticated user");
 
-  const appId = input.appId.trim();
+  const appId = normalizeAgentId(input.appId);
   if (!appId) throw new Error("appId is required");
 
   const { getSetting, putSetting } = await import("../settings/index.js");
@@ -227,7 +236,8 @@ export function applyWorkspaceAppMetadataOverride<
     description?: string | null;
   },
 >(app: T, settings: WorkspaceAppMetadataSettings): T {
-  const override = settings.apps[app.id];
+  const override =
+    settings.apps[normalizeAgentId(app.id)] ?? settings.apps[app.id];
   if (!override) return app;
 
   const name = cleanOptionalText(override.name);
