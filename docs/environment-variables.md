@@ -276,21 +276,22 @@ application runtime code. `BETA_E2E_SESSION_TOKENS` and
 `BETA_E2E_OPENAI_API_KEY` are live credentials: supply them as GitHub Actions
 secrets only. See `e2e/beta/README.md` for how they are minted.
 
-| Variable                         | Purpose                                                                                                                                            |
-| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `BETA_E2E_APPS`                  | Comma-separated beta app ids to test, or `all`. An unknown id fails the run rather than selecting nothing.                                         |
-| `BETA_E2E_AUTHED`                | `1`/`0` to force the authenticated lane on or off. Unset means "run it when a session credential was supplied".                                    |
-| `BETA_E2E_GREP`                  | Optional Playwright title filter from the workflow `grep` input. Passed through the environment so a dispatch input never reaches a shell line.    |
-| `BETA_E2E_REPORT_SLOT`           | Names this invocation's report directory. The workflow sets one per lane so three sequential runs do not overwrite each other's results.           |
-| `BETA_E2E_EMAIL`                 | The identity every authenticated spec asserts it is running as. Setup fails if the resolved session is anyone else.                                |
-| `BETA_E2E_SESSION_TOKENS`        | JSON map of app id to framework session token (`{"*": "…"}` applies fleet-wide), replayed through `?_session=`. Minted by `pnpm e2e:beta:capture`. |
-| `BETA_E2E_STORAGE_STATE`         | Alternative to the token map: a Playwright storageState JSON blob.                                                                                 |
-| `BETA_E2E_STORAGE_STATE_FILE`    | Path to a storageState file, for local runs.                                                                                                       |
-| `BETA_E2E_OPENAI_API_KEY`        | Dedicated, separately-limited OpenAI key installed at **user** scope on the e2e account so agent-turn spend is attributable to this suite.         |
-| `BETA_E2E_SHARED_OPENAI_API_KEY` | The repository's shared `OPENAI_API_KEY`, passed through by the workflow. Used only when `BETA_E2E_ALLOW_SHARED_KEY` is set, never implicitly.     |
-| `BETA_E2E_ALLOW_SHARED_KEY`      | Set by the workflow when the dispatch chooses `key_source=shared`. Opts a run into billing the shared key instead of the dedicated one.            |
-| `BETA_E2E_MODEL`                 | Overrides the luna model id. Rejected unless it is a luna model — the suite is budgeted for luna.                                                  |
-| `BETA_E2E_ENGINE`                | Engine for the model selection (`ai-sdk:openai` by default, or `builder`). Decides which luna spelling is used.                                    |
+| Variable                         | Purpose                                                                                                                                                 |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BETA_E2E_APPS`                  | Comma-separated beta app ids to test, or `all`. An unknown id fails the run rather than selecting nothing.                                              |
+| `BETA_E2E_AUTHED`                | `1`/`0` to force the authenticated lane on or off. Unset means "run it when a session credential was supplied".                                         |
+| `BETA_E2E_GREP`                  | Optional Playwright title filter from the workflow `grep` input. Passed through the environment so a dispatch input never reaches a shell line.         |
+| `BETA_E2E_REPORT_SLOT`           | Names this invocation's report directory. The workflow sets one per lane so three sequential runs do not overwrite each other's results.                |
+| `BETA_E2E_EMAIL`                 | The identity every authenticated spec asserts it is running as. Setup fails if the resolved session is anyone else.                                     |
+| `BETA_E2E_SESSION_TOKENS`        | JSON map of app id to framework session token (`{"*": "…"}` applies fleet-wide), replayed through `?_session=`. Minted by `pnpm e2e:beta:capture`.      |
+| `BETA_E2E_SESSION_TOKEN_MACROS`  | Optional Macros framework session token override, used to refresh that host without replacing the fleet token map. Store it as a GitHub Actions secret. |
+| `BETA_E2E_STORAGE_STATE`         | Alternative to the token map: a Playwright storageState JSON blob.                                                                                      |
+| `BETA_E2E_STORAGE_STATE_FILE`    | Path to a storageState file, for local runs.                                                                                                            |
+| `BETA_E2E_OPENAI_API_KEY`        | Dedicated, separately-limited OpenAI key installed at **user** scope on the e2e account so agent-turn spend is attributable to this suite.              |
+| `BETA_E2E_SHARED_OPENAI_API_KEY` | The repository's shared `OPENAI_API_KEY`, passed through by the workflow. Used only when `BETA_E2E_ALLOW_SHARED_KEY` is set, never implicitly.          |
+| `BETA_E2E_ALLOW_SHARED_KEY`      | Set by the workflow when the dispatch chooses `key_source=shared`. Opts a run into billing the shared key instead of the dedicated one.                 |
+| `BETA_E2E_MODEL`                 | Overrides the luna model id. Rejected unless it is a luna model — the suite is budgeted for luna.                                                       |
+| `BETA_E2E_ENGINE`                | Engine for the model selection (`ai-sdk:openai` by default, or `builder`). Decides which luna spelling is used.                                         |
 
 GitHub Actions also creates short-lived step handoff variables such as
 `HEAD_SHA`, `MATRIX`, `PLAN_JSON`, `PLAN_URL`, `PR_NUMBER`, `RUN_URL`,
