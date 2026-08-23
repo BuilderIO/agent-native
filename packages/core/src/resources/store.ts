@@ -530,15 +530,19 @@ function physicalWorkspaceResourceId(id: string): string | null {
 }
 
 function rowToGrantedWorkspaceResource(row: any): Resource {
+  const contentLoaded = Object.prototype.hasOwnProperty.call(row, "content");
   const content = String(row.content ?? "");
   const path = String(row.path ?? "");
+  const size = contentLoaded
+    ? Buffer.byteLength(content, "utf8")
+    : Number(row.content_size ?? 0);
   return {
     id: syntheticWorkspaceResourceId(String(row.id)),
     path,
     owner: WORKSPACE_OWNER,
     content,
     mimeType: workspaceResourceMimeType(path),
-    size: Buffer.byteLength(content, "utf8"),
+    size: Number.isFinite(size) ? size : 0,
     createdAt: Number(row.created_at ?? Date.now()),
     updatedAt: Number(row.updated_at ?? Date.now()),
     createdBy: "system",
@@ -687,14 +691,17 @@ function mergeResourceMetas(
   return merged;
 }
 
-async function selectGrantedWorkspaceResourceRows(input: {
-  resourceId?: string;
-  path?: string;
-  pathPrefix?: string;
-  workspaceAppId?: string | null;
-  userEmail?: string | null;
-  orgId?: string | null;
-}): Promise<any[]> {
+async function selectGrantedWorkspaceResourceRows(
+  input: {
+    resourceId?: string;
+    path?: string;
+    pathPrefix?: string;
+    workspaceAppId?: string | null;
+    userEmail?: string | null;
+    orgId?: string | null;
+  },
+  options: { includeContent?: boolean } = {},
+): Promise<any[]> {
   const appId = currentWorkspaceAppId(input.workspaceAppId);
   const { userEmail, orgId } = requestScopedResourceIdentity(input);
   if (!appId || (!userEmail && !orgId)) return [];
@@ -728,6 +735,10 @@ async function selectGrantedWorkspaceResourceRows(input: {
     args.push(userEmail, userEmail);
   }
 
+  const contentSelect =
+    options.includeContent === false
+      ? `${isPostgres() ? "octet_length" : "length"}(wr.content) AS content_size`
+      : "wr.content";
   const client = getDbExec();
   const { rows } = await client.execute({
     sql: `
@@ -737,7 +748,7 @@ async function selectGrantedWorkspaceResourceRows(input: {
         wr.name,
         wr.description,
         wr.path,
-        wr.content,
+        ${contentSelect},
         wr.created_at,
         wr.updated_at,
         wg.id AS grant_id,
@@ -759,7 +770,9 @@ async function grantedWorkspaceResources(input: {
   orgId?: string | null;
 }): Promise<Resource[]> {
   try {
-    const rows = await selectGrantedWorkspaceResourceRows(input);
+    const rows = await selectGrantedWorkspaceResourceRows(input, {
+      includeContent: false,
+    });
     return rows.map(rowToGrantedWorkspaceResource);
   } catch {
     // Dispatch workspace-resource tables are optional for standalone apps.
