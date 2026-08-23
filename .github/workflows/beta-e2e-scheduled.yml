@@ -24,7 +24,7 @@ jobs:
       apps: all
       lane: public+authed
       grep: ""
-      key_source: shared
+      key_source: dedicated
     secrets: inherit
     permissions:
       contents: read

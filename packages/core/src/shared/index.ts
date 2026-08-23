@@ -89,6 +89,7 @@ export {
   AGENT_NATIVE_OPEN_PATH,
   AGENT_SIDEBAR_QUERY_PARAM,
   AGENT_SIDEBAR_QUERY_VALUE_CLOSED,
+  AGENT_SIDEBAR_QUERY_VALUE_OPEN,
   isAgentNativeOpenDeepLink,
   withCollapsedAgentSidebarParam,
 } from "./agent-sidebar-url.js";

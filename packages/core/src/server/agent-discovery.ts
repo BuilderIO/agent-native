@@ -371,6 +371,7 @@ export async function discoverAgents(
         if (isHosted && typeof url === "string" && isLoopbackUrl(url)) {
           const builtin = agentsById.get(manifestId);
           if (builtin?.url) url = builtin.url;
+          else continue;
         }
 
         const builtin = agentsById.get(manifestId);
@@ -446,13 +447,20 @@ function hostnameFromUrlLike(value: string | undefined): string | null {
 
 function isLoopbackUrl(value: string | undefined): boolean {
   const hostname = hostnameFromUrlLike(value);
-  return (
-    hostname === "localhost" ||
-    hostname === "127.0.0.1" ||
-    hostname === "0.0.0.0" ||
-    hostname === "::1" ||
-    hostname === "[::1]"
-  );
+  if (!hostname) return false;
+  const normalized = hostname.replace(/^\[|\]$/g, "");
+  if (
+    normalized === "localhost" ||
+    normalized.startsWith("127.") ||
+    normalized === "0.0.0.0" ||
+    normalized === "::1"
+  ) {
+    return true;
+  }
+
+  const mapped = normalized.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i);
+  if (!mapped) return false;
+  return Number.parseInt(mapped[1], 16) >>> 8 === 0x7f;
 }
 
 function hasPublicRuntimeUrl(): boolean {
