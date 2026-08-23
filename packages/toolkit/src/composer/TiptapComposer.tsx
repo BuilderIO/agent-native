@@ -1024,6 +1024,14 @@ const LOCAL_RUNTIME_ENGINES = new Set([
   "opencode-cli",
 ]);
 
+export function hasConfiguredCloudProvider(
+  groups: ReadonlyArray<{ engine: string; configured: boolean }>,
+): boolean {
+  return groups.some(
+    (group) => group.configured && !LOCAL_RUNTIME_ENGINES.has(group.engine),
+  );
+}
+
 function isOpenAiModelId(model: string): boolean {
   const normalizedModel = model.toLowerCase();
   return (
@@ -1493,8 +1501,14 @@ function ModelSelector({
   const hasConfiguredBuilderModels = providerGroups.some(
     (group) => group.engine === "builder" && group.configured,
   );
+  const hasConfiguredCloudProviderReady =
+    hasConfiguredCloudProvider(providerGroups);
   const hasConnectedSubscription = providerGroups.some(
-    (group) => group.configured && group.isSubscription,
+    (group) =>
+      hasConfiguredCloudProviderReady &&
+      group.configured &&
+      group.isSubscription &&
+      !LOCAL_RUNTIME_ENGINES.has(group.engine),
   );
   const hasUnconfiguredVisibleModels = modelProviderGroups.some(
     (group) => !group.configured,
@@ -1503,7 +1517,7 @@ function ModelSelector({
     (group) => group.configured,
   );
   const showBuilderAction =
-    !hasConfiguredProvider &&
+    !hasConfiguredCloudProviderReady &&
     (Boolean(onConnectProvider) ||
       (providerConnectStatusEnabled &&
         !builderFlow.configured &&
@@ -1511,7 +1525,7 @@ function ModelSelector({
         !hasConfiguredBuilderModels &&
         !hasConnectedSubscription));
   const showAddKeysAction =
-    !hasConfiguredProvider &&
+    !hasConfiguredCloudProviderReady &&
     (hasUnconfiguredVisibleModels || showBuilderAction);
   const showProviderActions = showBuilderAction || showAddKeysAction;
   const onlyConnectPathAvailable = shouldShowOnlyConnectPath(

@@ -117,4 +117,54 @@ describe("cachedCliStatus", () => {
 
     expect(cachedCliStatus(cache, probe, async () => value)).toBe("signed in");
   });
+
+  it("does not let an older refresh overwrite an explicit refresh", async () => {
+    const cache = createCliStatusCache<string>();
+    let clock = 0;
+    let releaseOldProbe!: (value: string) => void;
+    const oldProbe = new Promise<string>((resolve) => {
+      releaseOldProbe = resolve;
+    });
+
+    cachedCliStatus(
+      cache,
+      () => "initial",
+      () => oldProbe,
+      () => clock,
+      1000,
+    );
+    clock = 5000;
+    expect(
+      cachedCliStatus(
+        cache,
+        () => "initial",
+        () => oldProbe,
+        () => clock,
+        1000,
+      ),
+    ).toBe("initial");
+
+    invalidateCliStatusCache(cache);
+    expect(
+      cachedCliStatus(
+        cache,
+        () => "explicit refresh",
+        async () => "unexpected stale result",
+        () => clock,
+        1000,
+      ),
+    ).toBe("explicit refresh");
+
+    releaseOldProbe("old async result");
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(
+      cachedCliStatus(
+        cache,
+        () => "explicit refresh",
+        async () => "unexpected stale result",
+        () => clock,
+        1000,
+      ),
+    ).toBe("explicit refresh");
+  });
 });
