@@ -19112,7 +19112,10 @@ function DesignEditor() {
               motionDisabled={!activeFile || initialGenerationChromeLimited}
               projectMenu={hostEmbeddedEditor ? null : projectMenu}
               onMotionToggle={() => setMotionDockOpenAnimated(!motionDockOpen)}
-              onPanelChange={setActiveLeftPanel}
+              onPanelChange={(panel) => {
+                if (panel === null && initialGenerationChromeLimited) return;
+                setActiveLeftPanel(panel);
+              }}
             />
             <div
               ref={leftSidebarContentRef}

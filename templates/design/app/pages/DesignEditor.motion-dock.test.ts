@@ -59,5 +59,8 @@ describe("DesignEditor motion dock transition", () => {
     expect(source).toContain(
       'if (!initialGenerationChromeLimited) return;\n    setActiveLeftPanel("agent");\n  }, [initialGenerationChromeLimited]);',
     );
+    expect(source).toContain(
+      "if (panel === null && initialGenerationChromeLimited) return;",
+    );
   });
 });
