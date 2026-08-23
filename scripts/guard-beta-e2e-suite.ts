@@ -270,6 +270,67 @@ if (workflow) {
   }
 }
 
+// The lanes share a database in production. Keep them ordered so a full
+// promotion run cannot turn its own anonymous and authenticated checks into a
+// connection-pool burst.
+if (workflow) {
+  try {
+    type WorkflowJob = { needs?: string | string[]; if?: string };
+    const parsed = parse(workflow) as {
+      jobs?: Record<string, WorkflowJob>;
+    };
+    const jobs = parsed.jobs ?? {};
+    const hasNeed = (job: string, dependency: string): boolean => {
+      const needs = jobs[job]?.needs;
+      return Array.isArray(needs)
+        ? needs.includes(dependency)
+        : needs === dependency;
+    };
+
+    for (const [job, dependency] of [
+      ["public", "discover"],
+      ["fleet", "public"],
+      ["advisory", "fleet"],
+      ["authed", "advisory"],
+    ] as const) {
+      if (!hasNeed(job, dependency)) {
+        issues.push(
+          `${workflowPath} must run ${job} after ${dependency}; the beta lanes share database capacity and must not fan out concurrently.`,
+        );
+      }
+    }
+
+    for (const job of ["fleet", "advisory", "authed"] as const) {
+      const condition = jobs[job]?.if ?? "";
+      if (
+        !condition.includes("always()") ||
+        !condition.includes("!cancelled()")
+      ) {
+        issues.push(
+          `${workflowPath} ${job} must use always() and !cancelled() so an earlier ordinary failure does not suppress later evidence or a cancellation causes new work to start.`,
+        );
+      }
+    }
+
+    for (const job of ["public", "fleet", "advisory"] as const) {
+      if (!(jobs[job]?.if ?? "").includes("inputs.lane != 'authed'")) {
+        issues.push(
+          `${workflowPath} ${job} must be skipped for an authenticated-only lane.`,
+        );
+      }
+    }
+    if (!(jobs.authed?.if ?? "").includes("inputs.lane != 'public'")) {
+      issues.push(
+        `${workflowPath} authed must be skipped for a public-only lane.`,
+      );
+    }
+  } catch (error) {
+    issues.push(
+      `${workflowPath} lane dependency graph could not be checked: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
 // 9. An unrequested pre-flight must never hold up a deploy.
 const prodDeployPath = ".github/workflows/deploy-production-sites-prebuilt.yml";
 const prodDeploy = read(prodDeployPath);

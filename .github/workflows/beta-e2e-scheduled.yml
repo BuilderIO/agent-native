@@ -1,8 +1,9 @@
 name: Beta E2E (scheduled)
 
 # Keep the promotion gate in beta-e2e.yml manually invokable while running the
-# same browser job on a fixed cadence. The issue reporter is deliberately a
-# separate job so a failing test run still gets a chance to report itself.
+# same reusable browser job on a fixed cadence. The issue reporter is
+# deliberately a separate job so a failing test run still gets a chance to
+# report itself.
 
 on:
   schedule:
