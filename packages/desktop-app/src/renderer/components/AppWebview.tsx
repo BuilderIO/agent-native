@@ -866,8 +866,12 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         undefined,
         rememberedDesktopIdentityStatusAt,
       );
+      const preserveLoadedSession =
+        hasLoadedGuestPageRef.current && desktopIdentitySessionReadyRef.current;
       setDesktopIdentityEnabled(rememberedSignedIn ? true : null);
-      setDesktopIdentityStatus(rememberedSignedIn ? "signed-in" : "idle");
+      setDesktopIdentityStatus(
+        rememberedSignedIn || preserveLoadedSession ? "signed-in" : "idle",
+      );
       // Reactivating a tab whose guest page is already loaded and verified must
       // not hide it behind the loading gate again — the recheck below is cheap
       // and runs fine underneath a usable page. Clearing this on every
@@ -902,7 +906,11 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
           }
           let synchronized: boolean | null;
           try {
-            synchronized = await identity.ensureAppSession(app.id);
+            synchronized = preserveLoadedSession
+              ? await identity.ensureAppSession(app.id, {
+                  preserveExistingSession: true,
+                })
+              : await identity.ensureAppSession(app.id);
           } catch (error) {
             console.warn("[desktop-identity] lazy app synchronization failed", {
               appId: app.id,
@@ -911,7 +919,10 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
             synchronized = null;
           }
           if (!active || request !== statusRequest) return;
-          if (fromRememberedSession && synchronized !== true) {
+          if (
+            (preserveLoadedSession || fromRememberedSession) &&
+            synchronized !== true
+          ) {
             // A failed lazy sync can mean the broker is in the middle of
             // sign-out while its public status is still signed-in. Do not
             // keep reusing this renderer cache during that ceremony. Keep the
@@ -950,7 +961,9 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
           }
           setDesktopIdentityEnabled(true);
           const needsRemoteStatus =
-            nextStatus === undefined && !reuseRememberedSession;
+            nextStatus === undefined &&
+            !reuseRememberedSession &&
+            !preserveLoadedSession;
           if (needsRemoteStatus) {
             setDesktopIdentityStatus("checking");
             updateDesktopIdentitySessionReady(false);
@@ -963,6 +976,12 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
           // An older or unavailable preload must fail closed to the legacy
           // app-owned login surface rather than strand the WebView behind SSO.
           if (active && request === statusRequest) {
+            if (preserveLoadedSession) {
+              setDesktopIdentityEnabled(true);
+              setDesktopIdentityStatus("signed-in");
+              updateDesktopIdentitySessionReady(true);
+              return;
+            }
             if (
               shouldReuseRememberedDesktopIdentitySession(
                 rememberedDesktopIdentityStatus,

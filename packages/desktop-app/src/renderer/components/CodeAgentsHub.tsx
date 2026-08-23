@@ -92,6 +92,7 @@ import {
   IconPlus,
   IconPin,
   IconSearch,
+  IconSettings,
   IconWorld,
 } from "@tabler/icons-react";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -2922,6 +2923,24 @@ export default function CodeAgentsHub({
               <>
                 <UpdatePrompt />
                 <UpdateIndicator />
+                {onOpenSettings ? (
+                  <DesktopRailTooltip label="Settings">
+                    <button
+                      type="button"
+                      className="code-agents-nav-link desktop-chat-first-rail-settings"
+                      onClick={() => onOpenSettings()}
+                      aria-label="Settings"
+                      title="Settings"
+                    >
+                      <IconSettings
+                        size={15}
+                        strokeWidth={1.8}
+                        aria-hidden="true"
+                      />
+                      <span>Settings</span>
+                    </button>
+                  </DesktopRailTooltip>
+                ) : null}
                 <div className="desktop-chat-first-rail-footer-actions">
                   <FeedbackButton
                     url={DESKTOP_FEEDBACK_FORM_URL}

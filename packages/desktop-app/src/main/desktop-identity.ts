@@ -147,6 +147,10 @@ export type DesktopIdentityStatus =
   | "sign-in-required"
   | "failed";
 
+export interface DesktopIdentityEnsureAppSessionOptions {
+  preserveExistingSession?: boolean;
+}
+
 export function shouldStartDesktopIdentitySignIn(
   status: DesktopIdentityStatus,
   authorityApp: Pick<DesktopIdentityApp, "origin"> | null,
@@ -679,11 +683,13 @@ export class DesktopIdentityBroker {
       waitForSignOut?: boolean;
       skipAvailabilityProbe?: boolean;
       preserveStatus?: boolean;
+      preserveExistingSession?: boolean;
     } = {},
   ): Promise<boolean> {
     const pendingKey = this.pendingOperationKey(
       appId,
       options.expectedSessionValue,
+      options.preserveExistingSession,
     );
     const existing = this.pendingByApp.get(pendingKey);
     if (existing) return existing;
@@ -708,7 +714,10 @@ export class DesktopIdentityBroker {
           await this.syncAlternateSessionCookies(app);
           return true;
         }
-        if (hasExistingSession) await this.clearAppSessionCookies(app);
+        if (hasExistingSession) {
+          if (options.preserveExistingSession) return false;
+          await this.clearAppSessionCookies(app);
+        }
       }
       return this.runCeremony(appId, generation, options);
     });
@@ -730,7 +739,10 @@ export class DesktopIdentityBroker {
    * signed in. This stays in the main process and is intentionally a no-op
    * while the broker is unavailable or signed out.
    */
-  ensureAppSession(appId: string): Promise<boolean> {
+  ensureAppSession(
+    appId: string,
+    options: DesktopIdentityEnsureAppSessionOptions = {},
+  ): Promise<boolean> {
     if (
       this.status !== "signed-in" ||
       this.signOutOperation ||
@@ -742,11 +754,17 @@ export class DesktopIdentityBroker {
     }
 
     const operation = this.options.openExternal
-      ? this.ensureModernAppSessionDeduped(appId)
+      ? this.ensureModernAppSessionDeduped(
+          appId,
+          this.ceremonyGeneration,
+          undefined,
+          options,
+        )
       : this.ensureAppSessionInternal(appId, {
           interactive: false,
           skipIfPresent: true,
           verifyExistingSession: true,
+          preserveExistingSession: options.preserveExistingSession,
           // Lazy child synchronization is scoped to the requested WebView. Do
           // not replace the workspace-level signed-in state while it runs.
           preserveStatus: true,
@@ -758,8 +776,9 @@ export class DesktopIdentityBroker {
     appId: string,
     generation = this.ceremonyGeneration,
     expectedEmail?: string,
+    options: DesktopIdentityEnsureAppSessionOptions = {},
   ): Promise<boolean> {
-    const pendingKey = `${generation}:${appId}`;
+    const pendingKey = `${generation}:${appId}:${options.preserveExistingSession ? "preserve" : "replace"}`;
     if (this.completedModernAppSessions.has(pendingKey)) {
       const app = this.options.resolveApp(appId);
       if (!app) return Promise.resolve(false);
@@ -770,6 +789,7 @@ export class DesktopIdentityBroker {
           appId,
           generation,
           expectedEmail,
+          options,
         );
       });
     }
@@ -780,6 +800,7 @@ export class DesktopIdentityBroker {
       appId,
       generation,
       expectedEmail,
+      options,
     );
     this.pendingModernAppSessions.set(pendingKey, operation);
     void operation.then(
@@ -1514,7 +1535,9 @@ export class DesktopIdentityBroker {
           });
         }
         if (succeeded && this.isCeremonyCurrent(generation)) {
-          this.completedModernAppSessions.add(`${generation}:${app.id}`);
+          this.completedModernAppSessions.add(
+            `${generation}:${app.id}:replace`,
+          );
         }
         if (app.id === appId && !requestedResultSettled) {
           requestedResultSettled = true;
@@ -1596,6 +1619,7 @@ export class DesktopIdentityBroker {
     appId: string,
     generation = this.ceremonyGeneration,
     expectedEmail?: string,
+    options: DesktopIdentityEnsureAppSessionOptions = {},
   ): Promise<boolean> {
     const app = this.options.resolveApp(appId);
     const authority = this.resolveIdentityAuthority();
@@ -1616,6 +1640,7 @@ export class DesktopIdentityBroker {
       return true;
     }
     if (await this.hasAppSession(app)) {
+      if (options.preserveExistingSession) return false;
       await this.clearAppSessionCookies(app);
     }
     this.reloadedModernAppSessions.delete(`${generation}:${app.id}`);
@@ -3469,8 +3494,9 @@ export class DesktopIdentityBroker {
   private pendingOperationKey(
     appId: string,
     expectedSessionValue?: string,
+    preserveExistingSession = false,
   ): string {
-    return `${appId}\u0000${expectedSessionValue ?? ""}`;
+    return `${appId}\u0000${expectedSessionValue ?? ""}\u0000${preserveExistingSession ? "preserve" : "replace"}`;
   }
 
   private assertCeremonyCurrent(generation: number): void {
