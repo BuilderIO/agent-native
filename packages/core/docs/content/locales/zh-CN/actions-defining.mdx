@@ -115,9 +115,9 @@ description: "defineAction() 的结构:schema、run,以及 HTTP 配置,还有如
           name: "mcpTool",
           type: "boolean",
           optional: true,
-          default: "true",
+          default: "agentTool",
           description:
-            "设为 false 可对经由 MCP 和 A2A 的外部代理隐藏,设为 true 则声明它属于精选目录。见“访问与授权”。",
+            "继承 `agentTool`。设为 false 可对经由 MCP 和 A2A 的外部代理隐藏,设为 true 则声明它属于精选目录。见“访问与授权”。",
         },
         {
           name: "important",

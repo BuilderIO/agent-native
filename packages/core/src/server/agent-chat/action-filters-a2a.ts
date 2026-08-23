@@ -9,6 +9,7 @@ import {
 } from "../../a2a/artifact-response.js";
 import { collectFinalResponseTextFromAgentEvents } from "../../a2a/response-text.js";
 import type { AgentSkill } from "../../a2a/types.js";
+import { isActionExposedToExternalAgents } from "../../action.js";
 import { resolveMainChatMaxOutputTokens } from "../../agent/engine/output-tokens.js";
 import type { EngineTool } from "../../agent/engine/types.js";
 import {
@@ -54,6 +55,27 @@ export function filterAgentTools(
 ): Record<string, ActionEntry> {
   return Object.fromEntries(
     Object.entries(actions).filter(([, entry]) => entry.agentTool !== false),
+  );
+}
+
+/**
+ * The MCP-only actions: `agentTool: false` paired with an explicit
+ * `mcpTool: true`.
+ *
+ * `filterAgentTools` drops these, which is right for every in-app surface and
+ * wrong for the two external ones. Rather than have the MCP and A2A mounts
+ * read the unfiltered registry — and re-derive which agent-hidden actions are
+ * safe to serve — the plugin re-merges exactly this set into those two mounts.
+ * A caller that wants "everything external" merges this with the agent surface;
+ * nobody has to remember which raw fields make an action MCP-only.
+ */
+export function filterMcpOnlyActions(
+  actions: Record<string, ActionEntry>,
+): Record<string, ActionEntry> {
+  return Object.fromEntries(
+    Object.entries(actions).filter(
+      ([, entry]) => entry.agentTool === false && entry.mcpTool === true,
+    ),
   );
 }
 
@@ -140,9 +162,8 @@ export function filterDirectA2AActions(
   return Object.fromEntries(
     Object.entries(actions).filter(([name, entry]) => {
       const exposure = entry.publicAgent;
-      // `mcpTool` is the action-owned half of this surface: `true` is catalog
-      // membership declared beside the action, `false` a veto no config list
-      // can re-open (checked below, alongside `agentTool`).
+      // `mcpTool: true` is catalog membership declared beside the action; the
+      // exposure resolver below is the veto no config list can re-open.
       const selected =
         entry.mcpTool === true ||
         catalog.has(name) ||
@@ -155,8 +176,7 @@ export function filterDirectA2AActions(
         selected &&
         rawQueryAllowed &&
         !denied.has(name) &&
-        entry.agentTool !== false &&
-        entry.mcpTool !== false &&
+        isActionExposedToExternalAgents(entry) &&
         entry.readOnly === true &&
         exposure?.expose === true &&
         exposure.readOnly === true &&
@@ -185,8 +205,7 @@ export function filterDelegatedA2ACapabilityActions(
       const exposure = entry.publicAgent;
       return (
         !denied.has(name) &&
-        entry.agentTool !== false &&
-        entry.mcpTool !== false &&
+        isActionExposedToExternalAgents(entry) &&
         entry.readOnly !== true &&
         exposure?.expose === true &&
         exposure.readOnly === false &&

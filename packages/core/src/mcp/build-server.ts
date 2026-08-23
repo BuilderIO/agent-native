@@ -33,6 +33,7 @@ import {
   type ActionMcpAppCsp,
   type ActionMcpAppResourceConfig,
 } from "../action.js";
+import { isActionExposedToExternalAgents } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { isMcpActionResult } from "../mcp-client/app-result.js";
 import { getConfiguredAppBasePath } from "../server/app-base-path.js";
@@ -427,7 +428,7 @@ function scopeToolSearchToAdvertised(
 }
 
 /**
- * Drop every action that declared `mcpTool: false`.
+ * Drop every action this request's surface must not reach at all.
  *
  * Applied to `actions` — the whole surface this request can reach — and not
  * just to the advertised listing, because on the `--full-catalog` tier
@@ -442,7 +443,9 @@ function withoutExternalOptOuts(
   actions: Record<string, ActionEntry>,
 ): Record<string, ActionEntry> {
   return Object.fromEntries(
-    Object.entries(actions).filter(([, entry]) => entry.mcpTool !== false),
+    Object.entries(actions).filter(([, entry]) =>
+      isActionExposedToExternalAgents(entry),
+    ),
   );
 }
 

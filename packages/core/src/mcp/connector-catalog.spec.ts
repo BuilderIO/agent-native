@@ -642,6 +642,83 @@ describe("connector-catalog tier", () => {
       expect(called.result.content[0].text).toMatch(/Unknown tool/);
     });
 
+    it("inherits `agentTool: false` when `mcpTool` is not declared", async () => {
+      const inheriting = {
+        ...(fullActions as Record<string, any>),
+        "sidebar-width": {
+          tool: { description: "Persist the sidebar width" },
+          agentTool: false,
+          run: async () => ({ ok: true }),
+        },
+      };
+      const cfg = {
+        ...connectorConfig,
+        actions: inheriting,
+        productionActions: inheriting,
+      };
+      const token = await signA2AToken("alice@example.com", {
+        catalog_scope: "full",
+      });
+      const headers = { authorization: `Bearer ${token}` };
+      const listed = await call(
+        { jsonrpc: "2.0", id: 66, method: "tools/list", params: {} },
+        { headers, mcpConfig: cfg },
+      );
+      expect(listed.result.tools.map((t: any) => t.name)).not.toContain(
+        "sidebar-width",
+      );
+      const called = await call(
+        {
+          jsonrpc: "2.0",
+          id: 67,
+          method: "tools/call",
+          params: { name: "sidebar-width", arguments: {} },
+        },
+        { headers, mcpConfig: cfg },
+      );
+      expect(called.result.isError).toBe(true);
+      expect(called.result.content[0].text).toMatch(/Unknown tool/);
+    });
+
+    it("serves an MCP-only action: `agentTool: false` with `mcpTool: true`", async () => {
+      const mcpOnly = {
+        ...(fullActions as Record<string, any>),
+        "export-plan-archive": {
+          tool: { description: "Export a plan archive for an external agent" },
+          agentTool: false,
+          mcpTool: true,
+          run: async () => ({ archived: true }),
+        },
+      };
+      const cfg = {
+        ...connectorConfig,
+        actions: mcpOnly,
+        productionActions: mcpOnly,
+      };
+      const token = await signA2AToken("alice@example.com");
+      const headers = { authorization: `Bearer ${token}` };
+      const listed = await call(
+        { jsonrpc: "2.0", id: 68, method: "tools/list", params: {} },
+        { headers, mcpConfig: cfg },
+      );
+      expect(listed.result.tools.map((t: any) => t.name)).toContain(
+        "export-plan-archive",
+      );
+      const called = await call(
+        {
+          jsonrpc: "2.0",
+          id: 69,
+          method: "tools/call",
+          params: { name: "export-plan-archive", arguments: {} },
+        },
+        { headers, mcpConfig: cfg },
+      );
+      expect(called.result.isError).toBeFalsy();
+      expect(called.result.content.map((c: any) => c.text).join(" ")).toContain(
+        "archived",
+      );
+    });
+
     it("keeps `mcpTool: false` uncallable on the full-catalog opt-in", async () => {
       // The veto has to bite on the tier where `actions` IS the callable
       // surface, or "hidden" would only mean "not listed".

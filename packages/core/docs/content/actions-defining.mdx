@@ -119,9 +119,9 @@ The framework auto-discovers every file in `actions/` and mounts it on startup. 
           name: "mcpTool",
           type: "boolean",
           optional: true,
-          default: "true",
+          default: "agentTool",
           description:
-            "Set false to hide from external agents over MCP and A2A, or true to declare curated catalog membership. See Access & Authorization.",
+            "Defaults to agentTool. Set false to hide from external agents over MCP and A2A, or true to declare curated catalog membership (with agentTool: false, MCP-only). See Access & Authorization.",
         },
         {
           name: "important",

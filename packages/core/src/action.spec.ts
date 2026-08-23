@@ -7,6 +7,8 @@ import {
   isActionContractError,
   AgentActionStopError,
   isAgentActionStopError,
+  isActionExposedToExternalAgents,
+  isActionHiddenFromEveryAgentSurface,
 } from "./action.js";
 
 describe("ActionContractError", () => {
@@ -226,6 +228,30 @@ describe("defineAction", () => {
     });
     expect(plain.mcpTool).toBeUndefined();
     expect(plain.important).toBeUndefined();
+  });
+
+  it("resolves external exposure from mcpTool, falling back to agentTool", () => {
+    // Inheritance, not a flat default: one flag stays one decision until an
+    // action says otherwise.
+    expect(isActionExposedToExternalAgents({})).toBe(true);
+    expect(isActionExposedToExternalAgents({ agentTool: false })).toBe(false);
+    expect(isActionExposedToExternalAgents({ mcpTool: false })).toBe(false);
+    expect(
+      isActionExposedToExternalAgents({ agentTool: false, mcpTool: true }),
+    ).toBe(true);
+    expect(
+      isActionExposedToExternalAgents({ agentTool: true, mcpTool: false }),
+    ).toBe(false);
+
+    // The runtime backstop refuses only what no surface may run, so an
+    // MCP-only action stays callable through the external registries.
+    expect(isActionHiddenFromEveryAgentSurface({ agentTool: false })).toBe(
+      true,
+    );
+    expect(
+      isActionHiddenFromEveryAgentSurface({ agentTool: false, mcpTool: true }),
+    ).toBe(false);
+    expect(isActionHiddenFromEveryAgentSurface({ mcpTool: false })).toBe(false);
   });
 
   it("preserves valid MCP Apps resource metadata", () => {

@@ -7,6 +7,7 @@ import {
   buildPublicAgentA2ASkills,
   filterDelegatedA2ACapabilityActions,
   filterDirectA2AActions,
+  filterMcpOnlyActions,
   resolveInitialToolNames,
 } from "./action-filters-a2a.js";
 
@@ -135,6 +136,40 @@ describe("filterDirectA2AActions", () => {
         }),
       ).sort(),
     ).toEqual(["get-plan", "list-plans"]);
+  });
+
+  it("inherits agentTool when mcpTool is undefined, and lets mcpTool override it", () => {
+    const actions = {
+      "hidden-read": action({ agentTool: false }),
+      "mcp-only-read": action({ agentTool: false, mcpTool: true }),
+    };
+
+    // A configured catalog does not resurrect an agent-hidden action...
+    expect(
+      Object.keys(
+        filterDirectA2AActions(actions, {
+          connectorCatalog: ["hidden-read", "mcp-only-read"],
+        }),
+      ),
+    ).toEqual(["mcp-only-read"]);
+
+    // ...and the MCP-only one needs no catalog entry at all.
+    expect(Object.keys(filterDirectA2AActions(actions, {}))).toEqual([
+      "mcp-only-read",
+    ]);
+  });
+
+  it("collects only the MCP-only actions for the external mounts", () => {
+    expect(
+      Object.keys(
+        filterMcpOnlyActions({
+          "mcp-only": action({ agentTool: false, mcpTool: true }),
+          "agent-hidden": action({ agentTool: false }),
+          "catalog-member": action({ mcpTool: true }),
+          normal: action(),
+        }),
+      ),
+    ).toEqual(["mcp-only"]);
   });
 
   it("allows a raw query input only with an explicit opt-in", () => {

@@ -315,6 +315,7 @@ import {
   DEFAULT_DELEGATED_MAX_RUN_INPUT_TOKENS,
   DEFAULT_DELEGATED_MAX_TOOL_RESULT_CHARS,
   filterAgentTools,
+  filterMcpOnlyActions,
   filterPublicAgentActions,
   filterDirectA2AActions,
   filterReadOnlyActions,
@@ -1106,6 +1107,20 @@ export function createAgentChatPlugin(
         filterAgentTools(discoveredActionsAll),
         disabledFrameworkGroups,
       );
+      // MCP-only actions: `agentTool: false` with an explicit `mcpTool: true`.
+      // `filterAgentTools` above just dropped them — correctly, since the app's
+      // own agent must not see them — so the external surfaces below re-merge
+      // this set instead of reading the unfiltered registries. Keep it OUT of
+      // `allScripts`, the chat/A2A/ask_app loops, and every prompt: an
+      // `ask_app` run is the app's own agent, which `agentTool: false` already
+      // answered. Only the direct MCP and A2A tool surfaces get these.
+      const mcpOnlyActions = filterFrameworkToolGroups(
+        filterMcpOnlyActions({
+          ...discoveredActionsAll,
+          ...templateScriptsAll,
+        }),
+        disabledFrameworkGroups,
+      );
       // Per-request owner is read from the AsyncLocalStorage run context
       // (populated by prepareRun). Module-scope `let` would race across
       // concurrent requests on a long-lived Node process — overlapping
@@ -1618,6 +1633,15 @@ export function createAgentChatPlugin(
           })
         : undefined;
 
+      // The surface external agents get: everything the app's agent has, plus
+      // the MCP-only actions the agent filter removed. The agent sets win on a
+      // name collision, which by construction cannot happen — an action is in
+      // one set or the other, never both.
+      const externalActions = { ...mcpOnlyActions, ...allScripts };
+      const externalFullActions = mcpFullActions
+        ? { ...mcpOnlyActions, ...mcpFullActions }
+        : undefined;
+
       const { mountA2A } = await import("../a2a/server.js");
       mountA2A(nitroApp, {
         appId: options?.appId,
@@ -1625,9 +1649,9 @@ export function createAgentChatPlugin(
           ? options.appId.charAt(0).toUpperCase() + options.appId.slice(1)
           : "Agent",
         description: `Agent-native ${options?.appId ?? "app"} agent`,
-        skills: buildPublicAgentA2ASkills(allScripts),
+        skills: buildPublicAgentA2ASkills(externalActions),
         authenticatedSkills: buildAuthenticatedAgentA2ASkills(
-          mcpFullActions ?? allScripts,
+          externalFullActions ?? externalActions,
           mcpOptions,
         ),
         publicSkillsOnly: true,
@@ -1635,7 +1659,7 @@ export function createAgentChatPlugin(
         durableBackgroundRuns: options?.durableBackgroundRuns,
         executeReadOnlyAction: async ({ action, input, invocationId }) => {
           const actions = filterDirectA2AActions(
-            mcpFullActions ?? allScripts,
+            externalFullActions ?? externalActions,
             mcpOptions,
           );
           const entry = actions[action];
@@ -1668,7 +1692,7 @@ export function createAgentChatPlugin(
         },
         executeApproval: async (approval) => {
           const result = await executeAgentToolCall({
-            actions: mcpFullActions ?? allScripts,
+            actions: externalFullActions ?? externalActions,
             name: approval.tool,
             input: approval.input,
             callId: approval.callId,
@@ -2463,8 +2487,8 @@ export function createAgentChatPlugin(
             `Agent-native ${options?.appId ?? "app"} agent`,
           websiteUrl: mcpOptions.websiteUrl,
           icons: mcpOptions.icons,
-          actions: allScripts,
-          productionActions: mcpFullActions,
+          actions: externalActions,
+          productionActions: externalFullActions,
           ...(mcpOptions.catalog ? { catalogMode: mcpOptions.catalog } : {}),
           ...(mcpOptions.builtinCrossAppTools !== undefined
             ? { builtinCrossAppTools: mcpOptions.builtinCrossAppTools }

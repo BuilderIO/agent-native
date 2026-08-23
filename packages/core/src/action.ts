@@ -512,8 +512,11 @@ interface DefineActionWithSchema<
    *  extension ("tools") iframe bridge. See `packages/core/docs/content/actions.mdx`. */
   agentTool?: boolean;
   /** Whether this action is exposed to EXTERNAL agents over MCP (and the direct
-   *  A2A action surface, which shares the same policy). Narrows `agentTool`; it
-   *  can never widen it, so `agentTool: false` stays hidden everywhere.
+   *  A2A action surface, which shares the same policy).
+   *
+   *  **Defaults to `agentTool`, not to `true`**: an action hidden from the
+   *  agent is hidden from outside agents too, so one flag stays one decision.
+   *  Declaring `mcpTool` overrides that inheritance in both directions.
    *
    *  - `false` — hard veto. The action is absent from `tools/list` AND from
    *    `tools/call` on every MCP tier, including the rare `--full-catalog`
@@ -524,11 +527,15 @@ interface DefineActionWithSchema<
    *    this action is served on the curated external catalog. Declaring it on
    *    any action activates the connector tier for the app, which is what lets
    *    a template delete its hand-maintained `connectorCatalog` name list.
-   *  - `undefined` (default) — today's tier rules decide; the action stays
-   *    reachable through `tool-search` on a trimmed catalog.
+   *    Paired with `agentTool: false` it makes the action MCP-only — external
+   *    agents get it, the app's own agent does not.
+   *  - `undefined` (default) — follows `agentTool`; the tier rules then decide
+   *    whether it is advertised up front or found through `tool-search`.
    *
    *  Membership is not permission: an external caller still passes the OAuth
-   *  scope, `externalAgents` policy, and `publicAgent` checks. */
+   *  scope, `externalAgents` policy, and `publicAgent` checks. Resolved by
+   *  `isActionExposedToExternalAgents` below, which every external surface
+   *  reads instead of testing these two fields itself. */
   mcpTool?: boolean;
   /** Put this action in the agent's FIRST-REQUEST tool list rather than leaving
    *  it to `tool-search`. The action-owned form of the plugin's
@@ -716,8 +723,9 @@ interface DefineActionWithParams<
    *  frontend/HTTP-callable. See the schema overload above and actions.md. */
   agentTool?: boolean;
   /** Whether this action is exposed to external agents over MCP / direct A2A.
-   *  `false` is a hard veto on every MCP tier; `true` declares curated
-   *  connector-catalog membership. See the schema overload above. */
+   *  Defaults to `agentTool`. `false` is a hard veto on every MCP tier; `true`
+   *  declares curated connector-catalog membership, and with `agentTool:
+   *  false` makes the action MCP-only. See the schema overload above. */
   mcpTool?: boolean;
   /** Put this action in the agent's first-request tool list. The action-owned
    *  form of the plugin's `initialToolNames`. See the schema overload above. */
@@ -1123,6 +1131,51 @@ export function defineAction(options: any) {
       : {}),
     ...(auditConfig ? { audit: auditConfig } : {}),
   };
+}
+
+/**
+ * Whether an action is exposed to EXTERNAL agents — MCP and the direct A2A
+ * action surface. The one resolver every surface asks; nothing downstream
+ * re-derives this from the two raw fields.
+ *
+ * `mcpTool` DEFAULTS TO `agentTool` rather than to a flat `true`, so hiding an
+ * action from the agent hides it from outside agents too and one flag stays
+ * one decision. Declaring `mcpTool` overrides that inheritance in both
+ * directions:
+ *
+ *   agentTool: false                → hidden from every agent surface
+ *   agentTool: false, mcpTool: true → MCP-only: external agents get it, the
+ *                                     app's own agent does not
+ *   mcpTool: false                  → in-app only, whatever `agentTool` says
+ *
+ * The MCP-only combination needs the plugin to route those actions around the
+ * `filterAgentTools` gate — see `mcpOnlyActions` in `agent-chat-plugin.ts`.
+ */
+export function isActionExposedToExternalAgents(entry: {
+  agentTool?: boolean;
+  mcpTool?: boolean;
+}): boolean {
+  return typeof entry.mcpTool === "boolean"
+    ? entry.mcpTool
+    : entry.agentTool !== false;
+}
+
+/**
+ * Whether an action is hidden from EVERY agent surface — the in-app agent and
+ * external agents alike.
+ *
+ * The runtime backstops (`executeAgentToolCall`, `searchToolRegistry`) use
+ * this rather than `agentTool === false`: each caller already passes a
+ * surface-scoped registry, so the backstop's job is to catch an entry that no
+ * surface should ever run, not to re-litigate which surface this is. Testing
+ * `agentTool` alone made those two refuse the MCP-only actions their own
+ * caller had deliberately handed them.
+ */
+export function isActionHiddenFromEveryAgentSurface(entry: {
+  agentTool?: boolean;
+  mcpTool?: boolean;
+}): boolean {
+  return entry.agentTool === false && entry.mcpTool !== true;
 }
 
 /**
