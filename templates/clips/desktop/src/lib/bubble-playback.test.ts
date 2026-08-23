@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   BUBBLE_RENDER_GRACE_MS,
   isRenderingWebrtc,
+  shouldClaimWebrtcPath,
   shouldReportUnrendered,
 } from "./bubble-playback";
 
@@ -19,6 +20,26 @@ describe("isRenderingWebrtc", () => {
     expect(isRenderingWebrtc({ paused: false, videoWidth: 0 })).toBe(false);
     expect(isRenderingWebrtc({ paused: false, videoWidth: 1280 })).toBe(true);
     expect(isRenderingWebrtc({ paused: true, videoWidth: 1280 })).toBe(false);
+  });
+});
+
+describe("shouldClaimWebrtcPath", () => {
+  it("takes the surface once frames are decoded", () => {
+    expect(
+      shouldClaimWebrtcPath({ fallbackRequested: false, videoWidth: 1280 }),
+    ).toBe(true);
+  });
+
+  it("refuses a playing event that decoded nothing", () => {
+    expect(
+      shouldClaimWebrtcPath({ fallbackRequested: false, videoWidth: 0 }),
+    ).toBe(false);
+  });
+
+  it("refuses a late playing event after the canvas pump was requested", () => {
+    expect(
+      shouldClaimWebrtcPath({ fallbackRequested: true, videoWidth: 1280 }),
+    ).toBe(false);
   });
 });
 

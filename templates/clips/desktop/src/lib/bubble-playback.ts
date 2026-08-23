@@ -43,6 +43,22 @@ export function isRenderingWebrtc(
   return !probe.paused && probe.videoWidth > 0;
 }
 
+/**
+ * Whether a `playing` event may give the WebRTC `<video>` the visible surface.
+ *
+ * Once the bubble has asked for the canvas pump the popover stops sending, so
+ * a later `playing` is the tail of a dead stream. Taking the surface there
+ * would park a still frame over the pump's live output. Only a fresh track
+ * clears `fallbackRequested` and re-arms this.
+ */
+export function shouldClaimWebrtcPath(input: {
+  fallbackRequested: boolean;
+  videoWidth: number;
+}): boolean {
+  if (input.fallbackRequested) return false;
+  return input.videoWidth > 0;
+}
+
 /** Whether the bubble should ask the popover to fall back to the canvas pump. */
 export function shouldReportUnrendered(probe: BubblePlaybackProbe): boolean {
   if (probe.alreadyReported) return false;

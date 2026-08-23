@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   BUBBLE_PLAY_HEARTBEAT_MS,
   BUBBLE_RENDER_GRACE_MS,
+  shouldClaimWebrtcPath,
   shouldReportUnrendered,
 } from "../lib/bubble-playback";
 
@@ -82,6 +83,11 @@ export function Bubble() {
   // Assigned by the playback watchdog effect; called from `ontrack`, which
   // lives in a different effect and must not own the retry policy.
   const attemptPlayRef = useRef<() => void>(() => {});
+  // True once we've told the popover this track is dead and asked for the
+  // canvas pump. Shared across both effects: the watchdog sets it, and only a
+  // fresh track clears it, so the surface can't be handed back to a stream the
+  // popover has already stopped sending.
+  const fallbackRequestedRef = useRef(false);
   // Which transport last put pixels on screen. Starts as "none"; the
   // playback watchdog flips it to "webrtc" on a `playing` event with real
   // frame dimensions, and the canvas sink flips it on the first JPEG frame.
@@ -188,7 +194,6 @@ export function Bubble() {
     if (!video) return;
     let stopped = false;
     let lastFailure: string | null = null;
-    let reportedUnrendered = false;
 
     const attemptPlay = () => {
       if (stopped) return;
@@ -213,8 +218,11 @@ export function Bubble() {
     const onPlaying = () => {
       if (stopped) return;
       lastFailure = null;
-      reportedUnrendered = false;
-      if (video.videoWidth === 0) return;
+      const claims = shouldClaimWebrtcPath({
+        fallbackRequested: fallbackRequestedRef.current,
+        videoWidth: video.videoWidth,
+      });
+      if (!claims) return;
       setActivePath((current) => {
         if (current !== "webrtc") {
           console.log(
@@ -248,10 +256,10 @@ export function Bubble() {
         now: Date.now(),
         paused: video.paused,
         videoWidth: video.videoWidth,
-        alreadyReported: reportedUnrendered,
+        alreadyReported: fallbackRequestedRef.current,
       });
       if (!unrendered) return;
-      reportedUnrendered = true;
+      fallbackRequestedRef.current = true;
       console.warn(
         "[bubble] webrtc track is not rendering after %dms (paused=%o readyState=%d videoWidth=%d) — asking popover for the canvas pump",
         BUBBLE_RENDER_GRACE_MS,
@@ -404,6 +412,9 @@ export function Bubble() {
         // playback watchdog below, which owns that transition and the
         // fallback when playback never starts.
         trackArrivedAtRef.current = Date.now();
+        // A fresh track is a fresh chance: re-arm the watchdog so it can both
+        // grant this one the surface and report it dead in turn.
+        fallbackRequestedRef.current = false;
         attemptPlayRef.current();
         if (firstTrackAtRef.current == null) {
           firstTrackAtRef.current = Date.now();
