@@ -285,8 +285,13 @@ const electronAPI = {
       preference: DesktopEnvironmentLanePreference,
     ): Promise<DesktopEnvironmentLaneState> =>
       ipcRenderer.invoke(IPC.IDENTITY_ENVIRONMENT_LANE_SET, preference),
-    ensureAppSession: (appId: string): Promise<boolean> =>
-      ipcRenderer.invoke(IPC.IDENTITY_APP_SESSION_ENSURE, appId),
+    ensureAppSession: (
+      appId: string,
+      options?: { preserveExistingSession?: boolean },
+    ): Promise<boolean> =>
+      options
+        ? ipcRenderer.invoke(IPC.IDENTITY_APP_SESSION_ENSURE, appId, options)
+        : ipcRenderer.invoke(IPC.IDENTITY_APP_SESSION_ENSURE, appId),
     getAvailability: (): Promise<boolean> =>
       ipcRenderer.invoke(IPC.IDENTITY_AVAILABILITY_GET),
     signIn: (): Promise<boolean> => ipcRenderer.invoke(IPC.IDENTITY_SIGN_IN),

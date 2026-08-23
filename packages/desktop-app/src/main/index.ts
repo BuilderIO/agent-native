@@ -258,6 +258,10 @@ import {
   getLogFilePath,
 } from "./desktop-logger";
 import {
+  forwardDesktopNavigationShortcutInput,
+  type DesktopNavigationShortcutInput,
+} from "./desktop-navigation-shortcuts.js";
+import {
   desktopRequestedUserDataPath,
   initializeDesktopStartup,
   resolveDesktopSsoBrokerStatePath,
@@ -404,44 +408,15 @@ const desktopWebviewAppIds = new WeakMap<Electron.WebContents, string>();
 let browserNativeHostManifestPath: string | null = null;
 const pendingOpenRequests: DesktopOpenRequest[] = [];
 
-type DesktopNavigationShortcutInput = {
-  type: string;
-  key: string;
-  code?: string;
-  meta?: boolean;
-  control?: boolean;
-  shift?: boolean;
-  alt?: boolean;
-};
-
 function forwardDesktopNavigationShortcut(
   event: { preventDefault(): void },
   input: DesktopNavigationShortcutInput,
 ): boolean {
-  if (!(input.meta || input.control) || input.type !== "keyDown") return false;
-
-  const key = input.key.toLowerCase();
-  const isNumericShortcut = !input.shift && !input.alt && /^[1-9]$/.test(key);
-  const isBracketLeft =
-    input.code === "BracketLeft" || key === "[" || key === "{";
-  const isBracketRight =
-    input.code === "BracketRight" || key === "]" || key === "}";
-  const isBracketShortcut =
-    Boolean(input.shift) && !input.alt && (isBracketLeft || isBracketRight);
-  if (!isNumericShortcut && !isBracketShortcut) return false;
-
-  event.preventDefault();
-  const win = mainWindow;
-  if (!win || win.isDestroyed() || win.webContents.isDestroyed()) return true;
-  win.webContents.send("shortcut:keydown", {
-    key: isNumericShortcut ? key : isBracketLeft ? "[" : "]",
-    code: input.code,
-    shiftKey: Boolean(input.shift),
-    altKey: Boolean(input.alt),
-    ctrlKey: Boolean(input.control),
-    metaKey: Boolean(input.meta),
+  return forwardDesktopNavigationShortcutInput(event, input, (payload) => {
+    const win = mainWindow;
+    if (!win || win.isDestroyed() || win.webContents.isDestroyed()) return;
+    win.webContents.send("shortcut:keydown", payload);
   });
-  return true;
 }
 
 const PENDING_OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
@@ -1498,18 +1473,29 @@ ipcMain.handle(IPC.IDENTITY_ENVIRONMENT_LANE_SET, (event, preference) => {
   return resolveDesktopEnvironmentLaneState();
 });
 
-ipcMain.handle(IPC.IDENTITY_APP_SESSION_ENSURE, async (event, appId) => {
-  if (
-    !isShellIdentityIpc(event) ||
-    !isDesktopSsoEnabled() ||
-    typeof appId !== "string" ||
-    !appId.trim()
-  ) {
-    return false;
-  }
-  const broker = ensureDesktopIdentityBroker();
-  return broker?.ensureAppSession(appId.trim()) ?? false;
-});
+ipcMain.handle(
+  IPC.IDENTITY_APP_SESSION_ENSURE,
+  async (event, appId, options) => {
+    if (
+      !isShellIdentityIpc(event) ||
+      !isDesktopSsoEnabled() ||
+      typeof appId !== "string" ||
+      !appId.trim()
+    ) {
+      return false;
+    }
+    const broker = ensureDesktopIdentityBroker();
+    const preserveExistingSession =
+      typeof options === "object" &&
+      options !== null &&
+      (options as { preserveExistingSession?: unknown })
+        .preserveExistingSession === true;
+    return (
+      broker?.ensureAppSession(appId.trim(), { preserveExistingSession }) ??
+      false
+    );
+  },
+);
 
 ipcMain.handle(IPC.IDENTITY_SIGN_IN, async (event) => {
   if (!isShellIdentityIpc(event) || !isDesktopSsoEnabled()) return false;

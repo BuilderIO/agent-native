@@ -883,7 +883,10 @@ interface ElectronAPI {
     setEnvironmentLane(
       preference: DesktopEnvironmentLanePreference,
     ): Promise<DesktopEnvironmentLaneState>;
-    ensureAppSession(appId: string): Promise<boolean>;
+    ensureAppSession(
+      appId: string,
+      options?: { preserveExistingSession?: boolean },
+    ): Promise<boolean>;
     getAvailability(): Promise<boolean>;
     signIn(): Promise<boolean>;
     authenticate(
