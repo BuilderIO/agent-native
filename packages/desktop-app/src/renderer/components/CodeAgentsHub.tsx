@@ -2704,6 +2704,7 @@ export default function CodeAgentsHub({
                       app={toAppDefinition(surfaceApp)}
                       appConfig={surfaceApp}
                       isActive={isTabActive}
+                      surfaceHidden={!showNativeIntegrationsGuest}
                       theme={theme}
                       urlPath={tab.path}
                       urlParams={

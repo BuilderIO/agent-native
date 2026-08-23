@@ -263,6 +263,18 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     );
   });
 
+  it("declares the app guest hidden while the integrations overlay covers it", () => {
+    // The guest stays isActive while the wrapper is `invisible`, and an
+    // Electron guest never observes CSS hiding — without this it keeps
+    // polling and holding its event stream underneath the overlay.
+    const hubSource = readFileSync(
+      "src/renderer/components/CodeAgentsHub.tsx",
+      "utf8",
+    );
+
+    expect(hubSource).toContain("surfaceHidden={!showNativeIntegrationsGuest}");
+  });
+
   it("keeps the chat-first rail collapse control at the bottom of the rail", () => {
     const hubSource = readFileSync(
       "src/renderer/components/CodeAgentsHub.tsx",

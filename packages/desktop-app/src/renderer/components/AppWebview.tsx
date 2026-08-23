@@ -391,6 +391,12 @@ interface AppWebviewProps {
   /** Full app config with URL overrides (optional for backward compat) */
   appConfig?: AppConfig;
   isActive: boolean;
+  /**
+   * Set when the host hides this guest while it is still the active tab, e.g.
+   * behind a full-surface overlay. An Electron guest never observes CSS
+   * hiding, so the host has to say so or the page keeps polling underneath.
+   */
+  surfaceHidden?: boolean;
   /** Resolved shell theme to apply inside the guest document. */
   theme: RendererTheme;
   /** Only same-origin app surfaces should inherit the shell theme. */
@@ -670,6 +676,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       app,
       appConfig,
       isActive,
+      surfaceHidden = false,
       theme,
       syncTheme = true,
       sourceUrl,
@@ -824,14 +831,15 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     // fires no visibilitychange. Without this the framework's polling and event
     // stream keep running at foreground cadence in every backgrounded tab, and
     // preloaded tabs would each hold one open forever.
+    const guestVisible = isActive && !surfaceHidden;
     const applyGuestSurfaceVisibility = useCallback(() => {
       const wv = webviewRef.current;
       if (!wv || app.placeholder) return;
       void executeGuestScript(
-        `guest-surface-visibility:${isActive ? "visible" : "hidden"}`,
-        buildSurfaceVisibilityScript(!isActive),
+        `guest-surface-visibility:${guestVisible ? "visible" : "hidden"}`,
+        buildSurfaceVisibilityScript(!guestVisible),
       );
-    }, [app.placeholder, executeGuestScript, isActive]);
+    }, [app.placeholder, executeGuestScript, guestVisible]);
 
     const syncGuestAppChatSidebar = useCallback(
       (force = false) => {

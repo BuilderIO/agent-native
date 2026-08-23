@@ -1451,13 +1451,20 @@ function resolveDesktopEnvironmentLaneState(): DesktopEnvironmentLaneState {
   };
 }
 
-ipcMain.handle(IPC.IDENTITY_ENVIRONMENT_LANE_GET, (event) => {
+ipcMain.handle(IPC.IDENTITY_ENVIRONMENT_LANE_GET, async (event) => {
   if (!isShellIdentityIpc(event)) {
     return {
       preference: "production",
       lane: "production",
       eligible: false,
     } satisfies DesktopEnvironmentLaneState;
+  }
+  // The broker is otherwise created lazily by the first webview status
+  // request, which lands after the shell has already resolved a lane — a
+  // persisted Builder session would load production once before switching.
+  if (isDesktopSsoEnabled()) {
+    const broker = ensureDesktopIdentityBroker();
+    await broker?.refreshStatus(resolveDesktopIdentityApp("dispatch"));
   }
   return resolveDesktopEnvironmentLaneState();
 });
