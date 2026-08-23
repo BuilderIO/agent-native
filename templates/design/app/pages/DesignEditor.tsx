@@ -19109,7 +19109,7 @@ function DesignEditor() {
                   : undefined
               }
               motionOpen={motionDockOpen}
-              motionDisabled={!activeFile}
+              motionDisabled={!activeFile || initialGenerationChromeLimited}
               projectMenu={hostEmbeddedEditor ? null : projectMenu}
               onMotionToggle={() => setMotionDockOpenAnimated(!motionDockOpen)}
               onPanelChange={setActiveLeftPanel}
@@ -20504,6 +20504,7 @@ function DesignEditor() {
           canvas iframe; track/duration edits autosave through apply-motion-edit. */}
       {!hostOwnsChrome &&
       SHOW_DESIGN_SECONDARY_LEFT_PANELS &&
+      !initialGenerationChromeLimited &&
       activeFile &&
       motionDockMounted ? (
         <MotionDock

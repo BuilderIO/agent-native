@@ -42,7 +42,10 @@ describe("DesignEditor motion dock transition", () => {
 
   it("keeps the motion dock behind the secondary-panel experiment", () => {
     expect(source).toContain(
-      "SHOW_DESIGN_SECONDARY_LEFT_PANELS &&\n      activeFile &&\n      motionDockMounted",
+      "SHOW_DESIGN_SECONDARY_LEFT_PANELS &&\n      !initialGenerationChromeLimited &&\n      activeFile &&\n      motionDockMounted",
+    );
+    expect(source).toContain(
+      "motionDisabled={!activeFile || initialGenerationChromeLimited}",
     );
   });
 
