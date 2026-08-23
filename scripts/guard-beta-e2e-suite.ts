@@ -250,11 +250,6 @@ if (workflow) {
       `${workflowPath} no longer shards the public lane across runners. A page load against a beta host costs 20-40s from a GitHub runner, so one runner for the whole fleet is a ~28 minute gate nobody waits for.`,
     );
   }
-  if (!workflow.includes("max-parallel: 4")) {
-    issues.push(
-      `${workflowPath} must cap public matrix parallelism at four runners so the sharded sweep cannot burst shared backend capacity.`,
-    );
-  }
   if (
     !workflow.includes("apps = [...new Set(known)]") ||
     !workflow.includes("...new Set(\n                raw")
@@ -280,7 +275,11 @@ if (workflow) {
 // connection-pool burst.
 if (workflow) {
   try {
-    type WorkflowJob = { needs?: string | string[]; if?: string };
+    type WorkflowJob = {
+      needs?: string | string[];
+      if?: string;
+      strategy?: { "max-parallel"?: unknown };
+    };
     const parsed = parse(workflow) as {
       jobs?: Record<string, WorkflowJob>;
     };
@@ -305,28 +304,48 @@ if (workflow) {
       }
     }
 
+    if (jobs.public?.strategy?.["max-parallel"] !== 4) {
+      issues.push(
+        `${workflowPath} must cap the public matrix at four runners so the sharded sweep cannot burst shared backend capacity.`,
+      );
+    }
+
+    const conjunctionParts = (condition: unknown): string[] | null => {
+      if (typeof condition !== "string") return null;
+      const expression = condition.match(
+        /^\s*\$\{\{\s*([\s\S]*?)\s*\}\}\s*$/,
+      )?.[1];
+      if (!expression || expression.includes("||")) return null;
+      const parts = expression
+        .split("&&")
+        .map((part) => part.trim())
+        .filter(Boolean);
+      return parts.length === 0 ? null : parts;
+    };
+
     for (const job of ["fleet", "advisory", "authed"] as const) {
-      const condition = jobs[job]?.if ?? "";
-      if (
-        !condition.includes("always()") ||
-        !condition.includes("!cancelled()")
-      ) {
+      const parts = conjunctionParts(jobs[job]?.if);
+      if (!parts?.includes("always()") || !parts.includes("!cancelled()")) {
         issues.push(
-          `${workflowPath} ${job} must use always() and !cancelled() so an earlier ordinary failure does not suppress later evidence or a cancellation causes new work to start.`,
+          `${workflowPath} ${job} must use always() and !cancelled() as top-level conjunctions so ordinary failures do not suppress later evidence or cancellation starts new work.`,
         );
       }
     }
 
     for (const job of ["public", "fleet", "advisory"] as const) {
-      if (!(jobs[job]?.if ?? "").includes("inputs.lane != 'authed'")) {
+      if (
+        !conjunctionParts(jobs[job]?.if)?.includes("inputs.lane != 'authed'")
+      ) {
         issues.push(
-          `${workflowPath} ${job} must be skipped for an authenticated-only lane.`,
+          `${workflowPath} ${job} must use inputs.lane != 'authed' as a top-level conjunction so authenticated-only runs skip it.`,
         );
       }
     }
-    if (!(jobs.authed?.if ?? "").includes("inputs.lane != 'public'")) {
+    if (
+      !conjunctionParts(jobs.authed?.if)?.includes("inputs.lane != 'public'")
+    ) {
       issues.push(
-        `${workflowPath} authed must be skipped for a public-only lane.`,
+        `${workflowPath} authed must use inputs.lane != 'public' as a top-level conjunction so public-only runs skip it.`,
       );
     }
   } catch (error) {
