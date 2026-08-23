@@ -1470,6 +1470,10 @@ ipcMain.handle(IPC.IDENTITY_ENVIRONMENT_LANE_SET, (event, preference) => {
     return resolveDesktopEnvironmentLaneState();
   }
   AppStore.saveDesktopAppPreferences({ desktopEnvironmentLane: preference });
+  // The focus handler will not fire: the window is already focused and the
+  // renderer just reloads in place, so the newly selected lane would stay
+  // cold until something else happened to trigger a warmup.
+  warmDesktopAppOrigins();
   return resolveDesktopEnvironmentLaneState();
 });
 

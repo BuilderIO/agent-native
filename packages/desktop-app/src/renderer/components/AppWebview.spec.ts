@@ -22,6 +22,7 @@ import {
   resolveAppWebviewAuthState,
   resolveAppWebviewAuthStateFromProbe,
   resolveAppWebviewUrl,
+  rememberDesktopEnvironmentLane,
   withDesktopEnvironmentOptOut,
   isDesktopIdentityAuthenticated,
   isDesktopIdentityGateEligible,
@@ -1105,6 +1106,21 @@ describe("AppWebview URL resolution", () => {
     expect(
       withDesktopEnvironmentOptOut("https://beta.mail.agent-native.com/inbox"),
     ).toBe("https://beta.mail.agent-native.com/inbox");
+  });
+
+  it("still recognizes production URLs while the shell is on the beta lane", () => {
+    // resolveAppWebviewUrl follows the active lane, so a production URL must
+    // not stop matching (and silently lose its opt-out) once beta is picked.
+    rememberDesktopEnvironmentLane("beta");
+    try {
+      const parsed = new URL(
+        withDesktopEnvironmentOptOut("https://mail.agent-native.com/inbox"),
+      );
+      expect(parsed.origin).toBe("https://mail.agent-native.com");
+      expect(parsed.searchParams.has("agentNativeBetaOptOut")).toBe(true);
+    } finally {
+      rememberDesktopEnvironmentLane("production");
+    }
   });
 });
 

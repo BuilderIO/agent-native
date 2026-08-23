@@ -505,8 +505,16 @@ function isFirstPartyProductionOrigin(rawUrl: string): boolean {
     if (parsed.hostname.toLowerCase().startsWith("beta.")) return false;
     return DESKTOP_DEFAULT_APPS.some((candidate) => {
       try {
+        // Normalize to production explicitly. `resolveAppWebviewUrl` follows
+        // the active lane, so while the shell is on beta a real production
+        // URL would match nothing here and silently lose its opt-out.
         return (
-          new URL(resolveAppWebviewUrl(candidate)).origin === parsed.origin
+          new URL(
+            withDesktopEnvironmentLane(
+              resolveAppWebviewUrl(candidate),
+              "production",
+            ),
+          ).origin === parsed.origin
         );
       } catch {
         // coercion-ok: an invalid configured app URL is not a trusted first-party origin.

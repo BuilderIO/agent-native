@@ -601,7 +601,6 @@ export class DesktopIdentityBroker {
         this.reloadedModernAppSessions.clear();
         this.synchronizedAlternateSessionCookies.clear();
         this.availability = "available";
-        this.verifiedIdentityEmail = verifiedEmail;
         this.setStatus("signed-in");
       }
       return;
@@ -671,7 +670,6 @@ export class DesktopIdentityBroker {
     ) {
       return;
     }
-    if (verifiedEmail) this.verifiedIdentityEmail = verifiedEmail;
     this.setStatus(verifiedEmail ? "signed-in" : "sign-in-required");
   }
 
@@ -2406,9 +2404,16 @@ export class DesktopIdentityBroker {
           );
         }
       }
-      return typeof body?.email === "string" && body.email.trim().length > 0
-        ? body.email.trim()
-        : null;
+      const verified =
+        typeof body?.email === "string" && body.email.trim().length > 0
+          ? body.email.trim()
+          : null;
+      // Recorded here rather than at each signed-in transition: the
+      // interactive, legacy, and adoption fan-outs all verify through this
+      // method, and threading the email through every one of them is how a
+      // path gets missed and `auto` silently resolves to production.
+      if (verified) this.verifiedIdentityEmail = verified;
+      return verified;
     } finally {
       if (timer) clearTimeout(timer);
     }
