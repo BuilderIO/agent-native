@@ -333,8 +333,19 @@ export async function runAgentLoopDirectWithSoftTimeout(
   const finalResponseGuardRequestText =
     opts.finalResponseGuardRequestText ??
     resolveFinalResponseGuardRequestText(opts.messages);
-  const stableOpts = { ...opts, finalResponseGuardRequestText };
   const timeoutMs = resolveRunSoftTimeoutMs(softTimeoutMs, timeoutOptions);
+  // Hand the loop the budget it is ACTUALLY running inside, so a per-tool
+  // timeout is clamped under this chunk rather than under a re-derived generic
+  // ceiling. A background automation's budget is its own hard abort minus
+  // headroom and is materially smaller than the background chat ceiling; the
+  // loop had no way to know that and guessed high, which made every per-tool
+  // timeout on that path unreachable. `0` means "no soft-timeout regime"
+  // (local dev), where the loop's own fallback is the right answer.
+  const stableOpts = {
+    ...opts,
+    finalResponseGuardRequestText,
+    ...(timeoutMs > 0 ? { runSoftTimeoutMs: timeoutMs } : {}),
+  };
   let finalOutcomeReported = false;
   const reportFinalOutcome = (outcome: AgentLoopOutcome) => {
     if (finalOutcomeReported) return;

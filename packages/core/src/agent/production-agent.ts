@@ -4586,6 +4586,14 @@ export async function runAgentLoop(opts: {
    * App-level default limits applied to every tool call unless the individual
    * ActionEntry overrides them with its own timeoutMs / maxResultChars.
    */
+  /**
+   * The chunk's REAL soft-timeout budget, when the caller has one.
+   *
+   * Only `runToolTimeoutCeilingMs` reads it, and only so a per-tool timeout
+   * stays under the budget it actually runs inside. Absent, the generic hosted
+   * ceiling is used — right for callers that have no chunk of their own.
+   */
+  runSoftTimeoutMs?: number;
   toolLimits?: {
     timeoutMs?: number;
     maxResultChars?: number;
@@ -4710,13 +4718,23 @@ export async function runAgentLoop(opts: {
       : 0;
   // A per-tool timeout above the chunk's own soft timeout can never fire — the
   // chunk boundary always wins — so the 12-minute default is dead code on a
-  // ~40s hosted foreground chunk. Background-function runs resolve to a ~13min
-  // ceiling and keep the default unchanged.
+  // ~40s hosted foreground chunk.
+  //
+  // TAKEN FROM THE CALLER'S ACTUAL BUDGET, not re-derived. Re-deriving it asked
+  // `resolveRunSoftTimeoutMs` for the generic background ceiling (13 min) even
+  // when the caller was a background AUTOMATION, whose real budget is its own
+  // hard abort minus headroom (10 min − 20s = 9m40s via
+  // `resolveBackgroundAutomationSoftTimeoutMs`). The ceiling came out ABOVE the
+  // run budget, so every per-tool timeout on that path was dead code and the
+  // chunk boundary won instead — which is the exact failure
+  // `RUN_TOOL_TIMEOUT_HEADROOM_MS` exists to prevent, reintroduced by guessing
+  // at a number the caller already knew.
   const runToolTimeoutCeilingMs = resolveRunToolTimeoutCeilingMs(
-    resolveRunSoftTimeoutMs(undefined, {
-      useHostedDefault: true,
-      backgroundFunction: isInBackgroundFunctionRuntime(),
-    }),
+    opts.runSoftTimeoutMs ??
+      resolveRunSoftTimeoutMs(undefined, {
+        useHostedDefault: true,
+        backgroundFunction: isInBackgroundFunctionRuntime(),
+      }),
   );
   const toolCallHistory: AgentLoopToolCallSummary[] = [];
   const sourceSweepToolCallHistory = seedSourceSweepToolCallsFromHistory(
