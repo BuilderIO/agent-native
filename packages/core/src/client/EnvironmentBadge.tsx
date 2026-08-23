@@ -231,7 +231,7 @@ function EnvironmentBadgeContent({
             <EnvironmentLink href={betaHref!} label="Go to beta" />
           )}
           <Button
-            className="w-full justify-center text-muted-foreground"
+            className="mt-2 -mb-2 w-full justify-center text-muted-foreground"
             onClick={() => setIsHidden(true)}
             size="sm"
             type="button"
