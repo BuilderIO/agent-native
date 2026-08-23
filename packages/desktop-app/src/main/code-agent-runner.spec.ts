@@ -226,6 +226,7 @@ describe("resolveExecutable", () => {
     const bin = path.join(root, ".local", "bin");
     fs.mkdirSync(bin, { recursive: true });
     fs.writeFileSync(path.join(bin, "codex"), "#!/bin/sh\n", { mode: 0o755 });
+    fs.writeFileSync(path.join(bin, "node"), "#!/bin/sh\n", { mode: 0o755 });
 
     expect(
       withResolvedExecutablePaths({ HOME: root, PATH: "/usr/bin" }, [
@@ -233,6 +234,34 @@ describe("resolveExecutable", () => {
         "claude",
       ]).PATH?.split(path.delimiter),
     ).toEqual([bin, "/usr/bin"]);
+  });
+
+  it("propagates the Node runtime directory for package-manager shims", () => {
+    const root = createTempRoot();
+    const pnpmHome = path.join(root, ".local", "share", "pnpm");
+    const nodeBin = path.join(
+      root,
+      ".nvm",
+      "versions",
+      "node",
+      "v24.0.0",
+      "bin",
+    );
+    fs.mkdirSync(pnpmHome, { recursive: true });
+    fs.mkdirSync(nodeBin, { recursive: true });
+    fs.writeFileSync(path.join(pnpmHome, "pi"), "#!/usr/bin/env node\n", {
+      mode: 0o755,
+    });
+    fs.writeFileSync(path.join(nodeBin, "node"), "#!/bin/sh\n", {
+      mode: 0o755,
+    });
+
+    expect(
+      withResolvedExecutablePaths(
+        { HOME: root, PATH: "/usr/bin", PNPM_HOME: pnpmHome },
+        ["pi"],
+      ).PATH?.split(path.delimiter),
+    ).toEqual([nodeBin, pnpmHome, "/usr/bin"]);
   });
 
   it("finds CLIs installed under an NVM-managed Node version", () => {
