@@ -1112,6 +1112,9 @@ class SyncTransport {
 
   private async poll(): Promise<void> {
     if (this.stopped || this.inFlight) return;
+    // Re-checked here, not only at the schedule sites: whatever path
+    // reached poll(), a host-hidden surface must not issue a request.
+    if (this.shouldStayIdle()) return;
     this.inFlight = true;
     try {
       if (this.mode === "hosted" && this.gateway && !this.token) {

@@ -77,18 +77,6 @@ export default function App() {
     setPendingDesktopShortcutActivation,
   ] = useState<DesktopShortcutActivationRequest | null>(null);
 
-  useEffect(() => {
-    async function load() {
-      if (window.electronAPI?.appConfig) {
-        setApps(await window.electronAPI.appConfig.load());
-      } else {
-        setApps(DESKTOP_DEFAULT_APPS);
-      }
-      setLoading(false);
-    }
-    void load();
-  }, []);
-
   const refreshWorkspaceAppList = useCallback(async () => {
     const loader = window.electronAPI?.appConfig?.loadWorkspace;
     if (!loader) {
@@ -124,7 +112,18 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    void refreshEnvironmentLane();
+    async function load() {
+      const loaded = window.electronAPI?.appConfig
+        ? await window.electronAPI.appConfig.load()
+        : DESKTOP_DEFAULT_APPS;
+      // Resolve the lane before clearing the loading state: mounting first
+      // would load production and then remount onto beta, which is the extra
+      // document and session load this is meant to remove.
+      await refreshEnvironmentLane();
+      setApps(loaded);
+      setLoading(false);
+    }
+    void load();
   }, [refreshEnvironmentLane]);
 
   useEffect(() => {
