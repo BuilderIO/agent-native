@@ -1448,6 +1448,13 @@ function warmDesktopAppOrigins(): void {
         setTimeout(resolve, WARM_ORIGIN_FANOUT_POLL_MS),
       );
     }
+    if (desktopIdentityBroker?.hasPendingAppSessionWork()) {
+      // Still minting after the cap. Overlapping it is the exact hazard this
+      // wait exists for, so give up this pass and let the next trigger
+      // (focus, lane change, sign-in) retry. Deliberately does not re-arm:
+      // that would spin this wait in a loop for as long as work is stuck.
+      return;
+    }
     for (const target of targets) {
       if (appIsQuitting) break;
       // Serial on purpose. runModernIdentityFanout already documents that

@@ -3001,7 +3001,9 @@ export default function CodeAgentsHub({
                 isActive={isActive}
                 theme={theme}
                 urlParams={urlParams}
-                refreshKey={appRefreshKey}
+                // Shell key folded in: a lane change remounts every hosted
+                // surface, not just the ones with their own refresh reason.
+                refreshKey={appRefreshKey + refreshKey}
               />
             </div>
           )}

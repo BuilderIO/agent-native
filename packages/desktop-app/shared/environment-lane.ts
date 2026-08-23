@@ -21,9 +21,15 @@ export function resolveDesktopEnvironmentLane(input: {
   preference: DesktopEnvironmentLanePreference;
   email: string | null | undefined;
 }): DesktopEnvironmentLane {
-  if (input.preference === "beta") return "beta";
   if (input.preference === "production") return "production";
-  return isBetaLaneEmail(input.email) ? "beta" : "production";
+  // Eligibility gates the beta lane even for an explicit preference. A stored
+  // "beta" outlives sign-out, and the Settings control is hidden for an
+  // ineligible account — so honoring it would pin the next account on this
+  // profile to beta with no way back.
+  if (!isBetaLaneEmail(input.email)) return "production";
+  return input.preference === "beta" || input.preference === "auto"
+    ? "beta"
+    : "production";
 }
 
 /**

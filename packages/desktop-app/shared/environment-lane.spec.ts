@@ -28,17 +28,32 @@ describe("resolveDesktopEnvironmentLane", () => {
     ).toBe("production");
   });
 
-  it("lets an explicit preference override the email", () => {
+  it("lets an explicit production preference override the email", () => {
     expect(
       resolveDesktopEnvironmentLane({
         preference: "production",
         email: "steve@builder.io",
       }),
     ).toBe("production");
+  });
+
+  it("never resolves an ineligible account onto beta", () => {
+    // The stored preference outlives sign-out and the Settings control is
+    // hidden for an ineligible account, so honoring a stale "beta" would pin
+    // the next account on this profile to beta with no way back.
     expect(
       resolveDesktopEnvironmentLane({
         preference: "beta",
         email: "someone@example.com",
+      }),
+    ).toBe("production");
+    expect(
+      resolveDesktopEnvironmentLane({ preference: "beta", email: null }),
+    ).toBe("production");
+    expect(
+      resolveDesktopEnvironmentLane({
+        preference: "beta",
+        email: "steve@builder.io",
       }),
     ).toBe("beta");
   });
