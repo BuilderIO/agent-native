@@ -261,7 +261,9 @@ jobs:
           netlify build --context "$BUILD_CONTEXT" --filter "$SOURCE_TEMPLATE"
 
       - name: Run Plan release migrations
-        if: inputs.deploy && steps.target.outputs.source_template == 'plan'
+        if: >-
+          inputs.deploy && inputs.deploy_mode == 'production' &&
+          steps.target.outputs.source_template == 'plan'
         env:
           DATABASE_URL: ${{ secrets.PLAN_DATABASE_URL }}
         run: |

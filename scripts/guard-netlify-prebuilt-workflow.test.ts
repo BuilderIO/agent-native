@@ -165,7 +165,7 @@ describe("production Netlify site concurrency guard", () => {
     assert.ok(uploadStart > migrationStart);
     assert.match(
       workflow,
-      /if: inputs\.deploy && steps\.target\.outputs\.source_template == 'plan'/,
+      /if: >-\s+inputs\.deploy && inputs\.deploy_mode == 'production'/,
     );
     assert.match(workflow, /SOURCE_TEMPLATE.*clips.*plan/);
     assert.match(workflow, /agentNativePrebuiltDatabaseUrl=/);
