@@ -1,4 +1,3 @@
-import { AsyncLocalStorage } from "node:async_hooks";
 import path from "path";
 
 /**
@@ -1336,11 +1335,6 @@ interface ClosablePool {
 const _sharedDbPools = new Map<string, ClosablePool>();
 const _sharedDbPoolCloseHooks = new Set<() => void>();
 const _sharedDbPoolReplacementHooks = new Map<string, Set<() => void>>();
-// In-flight creations for `sharedDbPoolAsync`, keyed the same as `_sharedDbPools`.
-// Without this, two callers racing before the first `create()` settles both see
-// a cache miss and each open their own connection — the exact bug this function
-// exists to close, just moved one await later.
-const _sharedDbPoolPending = new Map<string, Promise<ClosablePool>>();
 
 /**
  * One connection pool per (driver, URL) for the whole process.
@@ -1369,171 +1363,6 @@ export function sharedDbPool<T extends ClosablePool>(
   const created = create();
   _sharedDbPools.set(key, created);
   return created;
-}
-
-/**
- * Async twin of {@link sharedDbPool}, for a connection whose setup can't be
- * synchronous — better-sqlite3's WAL-mode pragma needs a busy-retry loop.
- * Same one-per-(driver, URL) registry, same close/replacement hooks; only
- * `create` differs in that it may await before the connection is cached.
- */
-export async function sharedDbPoolAsync<T extends ClosablePool>(
-  driver: string,
-  url: string,
-  create: () => Promise<T>,
-): Promise<T> {
-  const key = `${driver}\u0000${url}`;
-  const existing = _sharedDbPools.get(key);
-  if (existing) return existing as T;
-  const pending = _sharedDbPoolPending.get(key);
-  if (pending) return pending as Promise<T>;
-  const promise = create()
-    .then((created) => {
-      _sharedDbPools.set(key, created);
-      return created;
-    })
-    .finally(() => {
-      _sharedDbPoolPending.delete(key);
-    });
-  _sharedDbPoolPending.set(key, promise);
-  return promise;
-}
-
-/**
- * Open a local SQLite file with the pragmas every consumer needs, and hand
- * back the raw better-sqlite3 handle extended with `end()` so it can go
- * through {@link sharedDbPoolAsync}. Exported so create-get-db.ts's
- * `createGetDb()` schema stores share the same handle as this module's
- * `getDbExec()` singleton instead of each opening their own — see the
- * "database is locked" note where this is called from `createDbExecInternal`.
- */
-export async function openLocalSqlite(filename: string): Promise<any> {
-  const { default: Database } = await import("better-sqlite3");
-  const db = new Database(filename);
-  db.pragma("busy_timeout = 10000");
-  try {
-    // Vite can start a replacement Nitro runtime while the previous instance
-    // is still releasing app.db. The 10s busy_timeout can expire during that
-    // handoff, so retry the idempotent WAL negotiation before declaring the
-    // whole auth/database bootstrap failed.
-    await retrySqliteBusy(async () => db.pragma("journal_mode = WAL"), {
-      rethrow: true,
-    });
-  } catch (error) {
-    db.close();
-    throw error;
-  }
-  return Object.assign(db, {
-    async end() {
-      db.close();
-    },
-  });
-}
-
-// ---------------------------------------------------------------------------
-// Local SQLite transaction coordination
-// ---------------------------------------------------------------------------
-
-/**
- * Transaction-serialization state for one better-sqlite3 connection, keyed
- * off the connection object itself. `getDbExec()`'s own transactions and
- * every `createGetDb()` schema store's transactions now run on this SAME
- * connection (see `openLocalSqlite`/`sharedDbPoolAsync`) and MUST share this
- * one queue instead of each keeping a private one — otherwise a concurrent
- * top-level transaction from the other API would see this one's still-open
- * BEGIN IMMEDIATE, open a SAVEPOINT inside it, and this one's own
- * ROLLBACK/COMMIT would take that savepoint holder's work down with it.
- */
-interface SqliteTxState {
-  txChain: Promise<unknown>;
-  txContext: AsyncLocalStorage<boolean>;
-  savepointSeq: { current: number };
-}
-
-const _sqliteTxState = new WeakMap<object, SqliteTxState>();
-
-function getSqliteTxState(sqlite: object): SqliteTxState {
-  let state = _sqliteTxState.get(sqlite);
-  if (!state) {
-    state = {
-      txChain: Promise.resolve(),
-      txContext: new AsyncLocalStorage<boolean>(),
-      savepointSeq: { current: 0 },
-    };
-    _sqliteTxState.set(sqlite, state);
-  }
-  return state;
-}
-
-/**
- * Admit `body` onto `sqlite`'s transaction queue.
- *
- * Genuine same-task nesting (a transaction opened from inside an
- * already-running transaction's own callback on this connection) is detected
- * via AsyncLocalStorage and runs `body` immediately — queueing it here would
- * deadlock it behind the very transaction it is nested in. Every other
- * (top-level) call serializes behind the connection's queue so two unrelated
- * top-level transactions — whether both from `createGetDb()` stores, both
- * from `getDbExec()`, or one of each — can never have their BEGIN/COMMIT
- * interleave. `body` is responsible for reading `sqlite.inTransaction` once
- * it actually runs and choosing BEGIN vs. SAVEPOINT accordingly; this
- * function only decides whether `body` runs now or waits its turn.
- */
-export function runQueuedSqliteTransaction<T>(
-  sqlite: object,
-  body: () => Promise<T>,
-): Promise<T> {
-  const state = getSqliteTxState(sqlite);
-  if (state.txContext.getStore()) {
-    return body();
-  }
-  const run = () => state.txContext.run(true, body);
-  const next = state.txChain.then(run, run);
-  state.txChain = next.then(
-    () => undefined,
-    () => undefined,
-  );
-  return next;
-}
-
-/** Next unique SAVEPOINT name for this connection's nested transactions. */
-export function nextSqliteSavepointName(sqlite: object): string {
-  return `sp_async_${++getSqliteTxState(sqlite).savepointSeq.current}`;
-}
-
-/**
- * Admit an ordinary (non-transactional) WRITE onto `sqlite`'s connection.
- *
- * Fast path — no transaction is open on this connection, or we ARE that
- * transaction's own callback (the same AsyncLocalStorage nesting check
- * `runQueuedSqliteTransaction` uses): run `body` immediately, exactly like
- * before this existed. This is the overwhelming majority of calls, so it
- * must cost nothing extra — no queueing, no added await.
- *
- * Otherwise a different top-level transaction is mid BEGIN…COMMIT/ROLLBACK
- * on this shared connection. SQLite has no notion of "outside" that
- * transaction on the same connection, so running `body` now would execute
- * inside it: a later ROLLBACK could silently discard this unrelated write,
- * or a COMMIT could commit it under the wrong caller. Queue `body` onto the
- * same chain `runQueuedSqliteTransaction` uses instead of racing it — it
- * runs once every transaction ahead of it has settled, and anything queued
- * after it (transaction or write) waits its turn behind it in FIFO order.
- */
-function runOrdinarySqliteWrite<T>(
-  sqlite: { inTransaction: boolean },
-  body: () => T,
-): T | Promise<T> {
-  const state = getSqliteTxState(sqlite);
-  if (!sqlite.inTransaction || state.txContext.getStore()) {
-    return body();
-  }
-  const run = () => body();
-  const next = state.txChain.then(run, run);
-  state.txChain = next.then(
-    () => undefined,
-    () => undefined,
-  );
-  return next;
 }
 
 /**
@@ -1584,14 +1413,6 @@ export function onSharedDbPoolsClosed(hook: () => void): void {
 }
 
 export async function closeSharedDbPools(): Promise<void> {
-  // A `sharedDbPoolAsync` creation still in flight when this runs must finish
-  // (and then be closed below) instead of resolving afterward and quietly
-  // repopulating the registry we are about to clear — see
-  // `_sharedDbPoolPending`. `allSettled` so a create() that fails here still
-  // lets the close proceed; its own caller sees the rejection separately.
-  if (_sharedDbPoolPending.size > 0) {
-    await Promise.allSettled([..._sharedDbPoolPending.values()]);
-  }
   const pools = [..._sharedDbPools.values()];
   _sharedDbPools.clear();
   for (const hook of _sharedDbPoolCloseHooks) {
@@ -1630,6 +1451,7 @@ function disposePostgresPoolEventually(
 // ---------------------------------------------------------------------------
 
 let _exec: DbExec | undefined;
+let _sqlite: any;
 let _initPromise: Promise<void> | undefined;
 
 async function executePglite(
@@ -2164,97 +1986,42 @@ async function createDbExecInternal(
     url = await prepareLocalSqliteUrl(
       url.startsWith("file:") ? url : `file:${url}`,
     );
-    const filename = sqliteFilenameFromUrl(url);
-
-    // Every consumer of this file (this singleton, Better Auth, plus every
-    // schema module behind `createGetDb()` in create-get-db.ts) used to open
-    // its own better-sqlite3 handle to the same on-disk file. SQLite's write
-    // lock is exclusive across connections even in WAL mode, so ordinary
-    // concurrent writes from separate handles contended for up to the shared
-    // busy_timeout and surfaced as "database is locked" 500s. Share one
-    // handle per file instead, the same way `sharedDbPool` already does for
-    // Neon/postgres-js. `createDbExec()` callers own a `close()` and so must
-    // not be handed the shared handle — see the TRAP note on `sharedDbPool`.
-    const sqlite = trackSingletonResources
-      ? await sharedDbPoolAsync("better-sqlite3", filename, () =>
-          openLocalSqlite(filename),
-        )
-      : await openLocalSqlite(filename);
-
-    const makeSqliteExecute =
-      (handle: typeof sqlite): DbExec["execute"] =>
-      async (sql) => {
-        const { rawSql, args } = sqlAndArgs(sql);
-        const stmt = handle.prepare(rawSql);
-        if (stmt.reader) {
-          // Not gated through runOrdinarySqliteWrite: a read on this
-          // connection always sees this connection's current state (an open
-          // transaction's own uncommitted writes, or committed data
-          // otherwise) — the same read-your-own-connection semantics every
-          // statement here already has. A later rollback doesn't "discard" a
-          // read the way it discards a write; gating reads would only add
-          // latency without closing a correctness gap.
-          return {
-            rows: stmt.all(...args),
-            rowsAffected: 0,
-          };
-        }
-        // An ordinary (non-transactional) WRITE must not silently become
-        // part of someone else's still-open transaction on this shared
-        // connection — see runOrdinarySqliteWrite.
-        return runOrdinarySqliteWrite(handle, () => {
-          const result = stmt.run(...args);
-          return {
-            rows: [],
-            rowsAffected: result.changes ?? 0,
-          };
-        });
+    const { default: Database } = await import("better-sqlite3");
+    const sqlite = new Database(sqliteFilenameFromUrl(url));
+    sqlite.pragma("busy_timeout = 10000");
+    try {
+      // Vite can start a replacement Nitro runtime while the previous instance
+      // is still releasing app.db. The 10s busy_timeout can expire during that
+      // handoff, so retry the idempotent WAL negotiation before declaring the
+      // whole auth/database bootstrap failed.
+      await retrySqliteBusy(async () => sqlite.pragma("journal_mode = WAL"), {
+        rethrow: true,
+      });
+    } catch (error) {
+      sqlite.close();
+      throw error;
+    }
+    if (trackSingletonResources) _sqlite = sqlite;
+    const execute: DbExec["execute"] = async (sql) => {
+      const { rawSql, args } = sqlAndArgs(sql);
+      const stmt = sqlite.prepare(rawSql);
+      if (stmt.reader) {
+        return {
+          rows: stmt.all(...args),
+          rowsAffected: 0,
+        };
+      }
+      const result = stmt.run(...args);
+      return {
+        rows: [],
+        rowsAffected: result.changes ?? 0,
       };
+    };
 
-    const execute = makeSqliteExecute(sqlite);
-
-    // DbExec's own .transaction() runs on the SAME `sqlite` handle shared
-    // with createGetDb() stores, so it must go through the same
-    // `runQueuedSqliteTransaction` queue those stores' patched
-    // db.transaction() uses (see patchBetterSqliteTransactions in
-    // create-get-db.ts). Without that shared queue, a concurrent unrelated
-    // top-level transaction from the other API would see this one's
-    // still-open BEGIN IMMEDIATE via `sqlite.inTransaction`, open a SAVEPOINT
-    // inside it, and this one's own COMMIT/ROLLBACK would take that
-    // savepoint holder's work down with it. A second connection would avoid
-    // that, but the two handles share no write mutex: this one holding
-    // BEGIN IMMEDIATE would make a concurrent write on the other block
-    // synchronously for the full busy_timeout and then fail SQLITE_BUSY. One
-    // connection, one queue, for both APIs.
     return {
       execute,
-      async transaction(fn) {
-        return runQueuedSqliteTransaction(sqlite, async () => {
-          if (sqlite.inTransaction) {
-            // Same-task nesting under an already-open transaction (from
-            // either API) — savepoint instead of BEGIN, matching
-            // patchBetterSqliteTransactions' nested path.
-            const sp = nextSqliteSavepointName(sqlite);
-            await execute(`SAVEPOINT ${sp}`);
-            let released = false;
-            try {
-              const result = await fn({ execute });
-              await execute(`RELEASE SAVEPOINT ${sp}`);
-              released = true;
-              return result;
-            } catch (err) {
-              if (!released) {
-                await execute(`ROLLBACK TO SAVEPOINT ${sp}`).catch(() => {});
-                await execute(`RELEASE SAVEPOINT ${sp}`).catch(() => {});
-              }
-              throw err;
-            }
-          }
-          return explicitTransaction(execute, "BEGIN IMMEDIATE")(fn);
-        });
-      },
+      transaction: explicitTransaction(execute, "BEGIN IMMEDIATE"),
       async close() {
-        if (trackSingletonResources) return closeSharedDbPools();
         sqlite.close();
       },
     };
@@ -2523,9 +2290,13 @@ export function getDbExec(): DbExec {
 
 /** Close the database connection (for scripts that need cleanup). */
 export async function closeDbExec(): Promise<void> {
-  // Postgres and local-sqlite connections all live in the shared registry,
-  // which also notifies the Drizzle / Better Auth consumers bound to them.
+  // Both Postgres pools live in the shared registry, which also notifies the
+  // Drizzle / Better Auth consumers bound to them.
   await closeSharedDbPools();
+  if (_sqlite) {
+    _sqlite.close();
+    _sqlite = undefined;
+  }
   await closePgliteClients();
   _exec = undefined;
   _initPromise = undefined;

@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+
 import { drizzle as drizzleD1 } from "drizzle-orm/d1";
 import type { LibSQLDatabase } from "drizzle-orm/libsql";
 
@@ -20,12 +22,8 @@ import {
   retryOnConnectionError,
   dbOpTimeoutMs,
   sharedDbPool,
-  sharedDbPoolAsync,
-  openLocalSqlite,
   onSharedDbPoolsClosed,
   onSharedDbPoolReplaced,
-  runQueuedSqliteTransaction,
-  nextSqliteSavepointName,
 } from "./client.js";
 
 // Lazy driver loaders — cached promises so dynamic import only runs once.
@@ -384,17 +382,23 @@ function getBetterSqliteDrizzle() {
  *
  * The patched transaction also patches the tx object it passes to the callback
  * so that nested async calls (tx.transaction(async …)) work recursively.
- *
- * Top-level admission (serializing against every other top-level transaction
- * on this connection, including `getDbExec()`'s own, and letting genuine
- * same-task nesting bypass the queue) is delegated to
- * `runQueuedSqliteTransaction` in client.ts — see that function's doc for why
- * this can't keep a private per-store queue.
  */
 /** @internal exported for the async-tx concurrency spec */
 export function patchBetterSqliteTransactions<
   DB extends { transaction: (...args: any[]) => any; session: any },
 >(db: DB, sqlite: { inTransaction: boolean; exec: (sql: string) => void }): DB {
+  let savepointSeq = 0;
+  // Concurrent TOP-LEVEL async transactions on the single better-sqlite3
+  // connection must not interleave: a second transaction starting while the
+  // first is open would see `inTransaction` and open a savepoint INSIDE the
+  // first transaction, which then commits out from under it ("no such
+  // savepoint"). Serialize top-level transactions through a promise chain;
+  // genuine same-task nesting (tx.transaction or db.transaction inside an
+  // open callback) is detected via AsyncLocalStorage and keeps the direct
+  // savepoint path so it cannot deadlock on the queue.
+  const txContext = new AsyncLocalStorage<boolean>();
+  let txChain: Promise<unknown> = Promise.resolve();
+
   function makeAsyncTransaction(
     originalTransaction: (...args: any[]) => any,
   ): (...args: any[]) => Promise<unknown> {
@@ -423,7 +427,7 @@ export function patchBetterSqliteTransactions<
 
       const nested = sqlite.inTransaction;
       if (nested) {
-        const sp = nextSqliteSavepointName(sqlite);
+        const sp = `sp_async_${++savepointSeq}`;
         sqlite.exec(`SAVEPOINT ${sp}`);
         let released = false;
         try {
@@ -467,7 +471,18 @@ export function patchBetterSqliteTransactions<
     return function asyncTransaction(
       cb: (tx: unknown) => unknown,
     ): Promise<unknown> {
-      return runQueuedSqliteTransaction(sqlite, () => runTransactionBody(cb));
+      if (txContext.getStore()) {
+        // Same-task nesting: run directly (savepoint path inside the open
+        // transaction). Queueing here would deadlock behind the outer tx.
+        return runTransactionBody(cb);
+      }
+      const run = () => txContext.run(true, () => runTransactionBody(cb));
+      const next = txChain.then(run, run);
+      txChain = next.then(
+        () => undefined,
+        () => undefined,
+      );
+      return next;
     };
   }
 
@@ -566,18 +581,12 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
       _dbReady = Promise.all([
         prepareLocalSqliteUrl(url.startsWith("file:") ? url : `file:${url}`),
         getBetterSqliteDrizzle(),
-      ]).then(async ([sqliteUrl, { drizzle }]) => {
-        const filename = sqliteFilenameFromUrl(sqliteUrl);
-        // Shared with the DbExec singleton, Better Auth, and every other
-        // `createGetDb` store: one connection per process instead of one per
-        // schema module — see `openLocalSqlite`/`sharedDbPoolAsync` in
-        // client.ts. SQLite's write lock is exclusive across connections even
-        // in WAL mode, so separate handles to the same file contended for up
-        // to the shared busy_timeout under ordinary concurrent writes.
-        resetOnPoolClose("better-sqlite3", filename);
-        const sqlite = await sharedDbPoolAsync("better-sqlite3", filename, () =>
-          openLocalSqlite(filename),
-        );
+      ]).then(([sqliteUrl, { drizzle, Database }]) => {
+        const sqlite = new Database(sqliteFilenameFromUrl(sqliteUrl));
+        // Wait up to 10s for a concurrent writer instead of failing fast
+        // with SQLITE_BUSY — mirrors the raw DbExec SQLite path in client.ts.
+        sqlite.pragma("busy_timeout = 10000");
+        sqlite.pragma("journal_mode = WAL");
         const db = drizzle(sqlite, { schema });
         _db = patchBetterSqliteTransactions(db, sqlite);
       });
@@ -618,26 +627,6 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
             return result;
           });
           return (promise as any)[prop].bind(promise);
-        }
-        // drizzle-orm duck-types "is this an SQL entity" by reading these two
-        // properties directly off a value — synchronously, without awaiting
-        // (see `isSQLWrapper` in drizzle-orm/sql/sql.js). Because this proxy's
-        // target is a function, answering that probe with another proxy would
-        // make an un-awaited chain (e.g. a subquery chain embedded as a raw
-        // value instead of being awaited — the pattern that broke
-        // list-recordings.ts) masquerade as a resolved SQL entity. drizzle
-        // then calls `.getSQL()` on it, which duck-types as a wrapper again,
-        // forever — `RangeError: Maximum call stack size exceeded` deep
-        // inside drizzle internals instead of a message pointing at the
-        // actual bug. Fail loudly here instead, at the point of misuse.
-        if (prop === "getSQL" || prop === "shouldOmitSQLParens") {
-          throw new Error(
-            "getDb(): accessed an unresolved query chain synchronously " +
-              `(reading '${String(prop)}'). This chain was embedded as a raw ` +
-              "value instead of being awaited first — e.g. a subquery passed " +
-              "straight into another expression. Await the chain before " +
-              "using its result.",
-          );
         }
         // Symbol.toStringTag, Symbol.iterator, etc. — return another proxy
         // Property access (e.g. db.query) — record and return another proxy
