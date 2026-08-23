@@ -183,8 +183,39 @@ function createRecordingTracer() {
   return { tracer, spans };
 }
 
+/**
+ * A hand-advanced `Date.now`.
+ *
+ * The latency tests below are about arithmetic on timestamps — which interval
+ * gets subtracted, which one is measured, where a span is stamped. Sleeping for
+ * real makes that arithmetic race the scheduler, and a loaded CI runner stretches
+ * a 20ms sleep into a 200ms one, so the assertions have to be either exact and
+ * deterministic or loose enough to stop testing anything. This buys the first.
+ */
+function manualClock(startMs = 1_700_000_000_000) {
+  const realNow = Date.now;
+  let now = startMs;
+  Date.now = () => now;
+  const clock = {
+    advance(ms: number) {
+      now += ms;
+    },
+    restore() {
+      Date.now = realNow;
+    },
+  };
+  activeClock = clock;
+  return clock;
+}
+
+let activeClock: { restore: () => void } | null = null;
+
 describe("instrumentAgentLoop OpenTelemetry export", () => {
   afterEach(() => {
+    // Restored here rather than in each test so a failing assertion cannot
+    // leak the patched clock into the rest of the file.
+    activeClock?.restore();
+    activeClock = null;
     __resetAgentTracerCache();
     unregisterTrackingProvider("qa-ai-generation");
   });
@@ -1740,6 +1771,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
   // itself is. Emitting it there reported roughly twice the real duration, and
   // a generation claiming the whole run counted tool time a second time.
   it("reports trace latency through children only, with tool time removed from the generation", async () => {
+    const clock = manualClock();
     const byName = new Map<string, TrackingEvent[]>();
     registerTrackingProvider({
       name: "qa-ai-generation",
@@ -1765,9 +1797,9 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     await instrumentAgentLoop({
       runAgentLoop: async ({ send }) => {
         send({ type: "tool_start", id: "a", tool: "read", input: {} });
-        await new Promise((resolve) => setTimeout(resolve, 20));
+        clock.advance(20);
         send({ type: "tool_done", id: "a", tool: "read", result: "ok" });
-        await new Promise((resolve) => setTimeout(resolve, 5));
+        clock.advance(5);
         return {
           inputTokens: 10,
           outputTokens: 5,
@@ -1798,16 +1830,15 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     // ...but the run duration is still recorded for the other backends.
     expect(trace?.properties?.duration_ms).toEqual(expect.any(Number));
 
-    // What PostHog will sum: the generation plus its sibling tool spans.
+    // What PostHog will sum: the generation plus its sibling tool spans. One
+    // 20ms tool inside a 25ms run, so the children account for the run exactly
+    // once. Before this the generation also claimed the full 25ms.
     const spanLatency = span?.properties?.["$ai_latency"] as number;
     const generationLatency = generation?.properties?.["$ai_latency"] as number;
-    const summed = generationLatency + spanLatency;
     const runSeconds = (trace?.properties?.duration_ms as number) / 1000;
-    expect(spanLatency).toBeGreaterThan(0);
-    expect(summed).toBeLessThanOrEqual(runSeconds + 0.01);
-    // The generation is model time only, so it cannot span the whole run once
-    // a tool has taken a measurable slice of it.
-    expect(generationLatency).toBeLessThan(runSeconds);
+    expect(runSeconds).toBe(0.025);
+    expect(spanLatency).toBe(0.02);
+    expect(generationLatency).toBe(0.005);
   });
 
   // The engine already brackets each LLM round-trip with `model_stream`
@@ -1815,6 +1846,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
   // it is present the generation's latency is measured, so none of the
   // subtraction machinery below applies — overlapping tools cannot distort it.
   it("measures generation latency from model_stream brackets when present", async () => {
+    const clock = manualClock();
     const byName = new Map<string, TrackingEvent[]>();
     registerTrackingProvider({
       name: "qa-ai-generation",
@@ -1842,17 +1874,17 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
         // Two round-trips of ~20ms each, with a ~40ms parallel tool fan-out in
         // between. Model time is ~40ms; the run is ~80ms.
         send({ type: "model_stream", status: "start" });
-        await new Promise((resolve) => setTimeout(resolve, 20));
+        clock.advance(20);
         send({ type: "model_stream", status: "end" });
 
         send({ type: "tool_start", id: "a", tool: "read", input: {} });
         send({ type: "tool_start", id: "b", tool: "search", input: {} });
-        await new Promise((resolve) => setTimeout(resolve, 40));
+        clock.advance(40);
         send({ type: "tool_done", id: "a", tool: "read", result: "ok" });
         send({ type: "tool_done", id: "b", tool: "search", result: "ok" });
 
         send({ type: "model_stream", status: "start" });
-        await new Promise((resolve) => setTimeout(resolve, 20));
+        clock.advance(20);
         send({ type: "model_stream", status: "end" });
         return {
           inputTokens: 10,
@@ -1882,9 +1914,10 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     const generationLatency = generation?.properties?.["$ai_latency"] as number;
     const runSeconds = (trace?.properties?.duration_ms as number) / 1000;
 
-    // The two brackets, and neither of the tool windows between them.
-    expect(generationLatency).toBeGreaterThan(0.03);
-    expect(generationLatency).toBeLessThan(0.06);
+    // Exactly the two 20ms brackets, and none of the 40ms tool window between
+    // them. Under the old subtraction this run reported 80 - 80 = 0.
+    expect(generationLatency).toBe(0.04);
+    expect(runSeconds).toBe(0.08);
 
     // Each tool reports its own real duration, so two tools sharing one 40ms
     // window contribute ~80ms of work to a ~80ms run. Summed children exceeding
@@ -1892,18 +1925,15 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     // trace's own `duration_ms` is what reports elapsed time, and the waterfall
     // places each span by its timestamp. Shrinking the generation to force the
     // sum down would only trade a true number for a flattering one.
-    const spanLatencies = spans.map(
-      (e) => e.properties?.["$ai_latency"] as number,
-    );
-    for (const latency of spanLatencies) {
-      expect(latency).toBeGreaterThan(0.03);
-    }
-    expect(runSeconds).toBeGreaterThan(0.06);
+    expect(spans.map((e) => e.properties?.["$ai_latency"] as number)).toEqual([
+      0.04, 0.04,
+    ]);
   });
 
   // The fallback still has to exist for engines that never bracket their model
   // calls, but a latency built on it must not be mistaken for a measured one.
   it("labels a derived latency when the engine emits no model_stream", async () => {
+    const clock = manualClock();
     const byName = new Map<string, TrackingEvent[]>();
     registerTrackingProvider({
       name: "qa-ai-generation",
@@ -1929,7 +1959,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     await instrumentAgentLoop({
       runAgentLoop: async ({ send }) => {
         send({ type: "tool_start", id: "a", tool: "read", input: {} });
-        await new Promise((resolve) => setTimeout(resolve, 20));
+        clock.advance(20);
         send({ type: "tool_done", id: "a", tool: "read", result: "ok" });
         return {
           inputTokens: 10,
@@ -1958,6 +1988,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
   // more than the run spent in tools, which drove the generation's remainder to
   // zero and left the trace total short of the wall clock.
   it("counts overlapping tool spans once when deriving generation latency", async () => {
+    const clock = manualClock();
     const byName = new Map<string, TrackingEvent[]>();
     registerTrackingProvider({
       name: "qa-ai-generation",
@@ -1987,11 +2018,11 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
         send({ type: "tool_start", id: "a", tool: "read", input: {} });
         send({ type: "tool_start", id: "b", tool: "search", input: {} });
         send({ type: "tool_start", id: "c", tool: "fetch", input: {} });
-        await new Promise((resolve) => setTimeout(resolve, 40));
+        clock.advance(40);
         send({ type: "tool_done", id: "a", tool: "read", result: "ok" });
         send({ type: "tool_done", id: "b", tool: "search", result: "ok" });
         send({ type: "tool_done", id: "c", tool: "fetch", result: "ok" });
-        await new Promise((resolve) => setTimeout(resolve, 30));
+        clock.advance(30);
         return {
           inputTokens: 10,
           outputTokens: 5,
@@ -2017,22 +2048,25 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
 
     const runSeconds = (trace?.properties?.duration_ms as number) / 1000;
     const generationLatency = generation?.properties?.["$ai_latency"] as number;
-    const spanLatencies = spans.map(
-      (e) => e.properties?.["$ai_latency"] as number,
+    const summedSpans = spans.reduce(
+      (sum, e) => sum + (e.properties?.["$ai_latency"] as number),
+      0,
     );
-    const summedSpans = spanLatencies.reduce((a, b) => a + b, 0);
 
-    // The premise: naive summing would have over-subtracted.
-    expect(summedSpans).toBeGreaterThan(runSeconds);
-    // Only the ~30ms tail was outside the tool window, and it survives.
-    expect(generationLatency).toBeGreaterThan(0.01);
-    expect(generationLatency).toBeLessThanOrEqual(runSeconds);
+    // Three tools share one 40ms window inside a 70ms run, so the premise
+    // holds: summing their durations claims 120ms of a 70ms run, and the old
+    // code subtracted all of it and clamped the generation to zero.
+    expect(runSeconds).toBe(0.07);
+    expect(summedSpans).toBe(0.12);
+    // Counting the shared window once leaves exactly the 30ms tail.
+    expect(generationLatency).toBe(0.03);
   });
 
   // Tool time is only subtracted from the generation because sibling `$ai_span`
   // events carry it. When those events are not emitted, nothing else holds the
   // run's tool time and the generation has to keep it.
   it("keeps full generation latency when tool spans are not exported", async () => {
+    const clock = manualClock();
     const byName = new Map<string, TrackingEvent[]>();
     registerTrackingProvider({
       name: "qa-ai-generation",
@@ -2058,7 +2092,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     await instrumentAgentLoop({
       runAgentLoop: async ({ send }) => {
         send({ type: "tool_start", id: "a", tool: "read", input: {} });
-        await new Promise((resolve) => setTimeout(resolve, 30));
+        clock.advance(30);
         send({ type: "tool_done", id: "a", tool: "read", result: "ok" });
         return {
           inputTokens: 10,
@@ -2088,14 +2122,17 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
 
     const runSeconds = (trace?.properties?.duration_ms as number) / 1000;
     const generationLatency = generation?.properties?.["$ai_latency"] as number;
-    // The generation is the trace's only child, so it carries the whole run.
-    expect(generationLatency).toBeCloseTo(runSeconds, 3);
+    // The generation is the trace's only child, so it carries the whole run
+    // rather than losing the 30ms of tool time nothing else reports.
+    expect(runSeconds).toBe(0.03);
+    expect(generationLatency).toBe(0.03);
   });
 
   // PostHog plots a span from its event timestamp forward by `$ai_latency`. A
   // span stamped at completion therefore drew the tool starting where it ended
   // and running past the end of the run that contains it.
   it("timestamps a tool span at its start, not its completion", async () => {
+    const clock = manualClock();
     const byName = new Map<string, TrackingEvent[]>();
     registerTrackingProvider({
       name: "qa-ai-generation",
@@ -2121,7 +2158,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     await instrumentAgentLoop({
       runAgentLoop: async ({ send }) => {
         send({ type: "tool_start", id: "a", tool: "read", input: {} });
-        await new Promise((resolve) => setTimeout(resolve, 40));
+        clock.advance(40);
         send({ type: "tool_done", id: "a", tool: "read", result: "ok" });
         return {
           inputTokens: 10,
@@ -2145,15 +2182,17 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     const span = byName.get("$ai_span")?.[0];
     expect(span).toBeDefined();
 
-    // The trace is stamped at run start; every child has to fit inside it.
+    // The trace is stamped at run start; the tool ran for the whole 40ms of it,
+    // so the span starts exactly where the trace does. Stamped at completion it
+    // started at the run's end and ran 40ms past it.
     const runStartMs = Date.parse(trace!.timestamp);
     const runEndMs = runStartMs + (trace!.properties?.duration_ms as number);
     const spanStartMs = Date.parse(span!.timestamp);
     const spanEndMs =
       spanStartMs + (span!.properties?.["$ai_latency"] as number) * 1000;
 
-    expect(spanStartMs).toBeGreaterThanOrEqual(runStartMs);
-    expect(spanEndMs).toBeLessThanOrEqual(runEndMs);
+    expect(spanStartMs).toBe(runStartMs);
+    expect(spanEndMs).toBe(runEndMs);
   });
 
   // `$ai_time_to_first_token` is a SECONDS field. It was being handed the
@@ -2376,6 +2415,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
   // Every event in a run is emitted in one burst at the end. Stamping them all
   // with the flush time collapses the trace tree's timeline into an instant.
   it("stamps each AI event with when it happened, not when the run flushed", async () => {
+    const clock = manualClock();
     const events: TrackingEvent[] = [];
     registerTrackingProvider({
       name: "qa-ai-generation",
@@ -2398,7 +2438,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     const startedAt = Date.now();
     await instrumentAgentLoop({
       runAgentLoop: async ({ send }) => {
-        await new Promise((resolve) => setTimeout(resolve, 30));
+        clock.advance(30);
         send({ type: "tool_start", id: "a", tool: "read", input: {} });
         send({ type: "tool_done", id: "a", tool: "read", result: "ok" });
         return {
