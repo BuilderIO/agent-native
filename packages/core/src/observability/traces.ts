@@ -40,6 +40,35 @@ function costUsdFromCenticents(value: number): number {
 }
 
 /**
+ * Wall-clock time covered by these spans, counting overlap once.
+ *
+ * Tools run concurrently, so summing durations reports more time in tools than
+ * the run actually spent there — enough to drive the generation's remainder to
+ * zero on a parallel fan-out.
+ */
+function coveredDurationMs(spans: TraceSpan[]): number {
+  if (spans.length === 0) return 0;
+  const intervals = spans
+    .map((s) => {
+      const start = s.createdAt;
+      return { start, end: start + Math.max(0, s.durationMs) };
+    })
+    .sort((a, b) => a.start - b.start);
+  let covered = 0;
+  let { start: openStart, end: openEnd } = intervals[0];
+  for (const { start, end } of intervals.slice(1)) {
+    if (start > openEnd) {
+      covered += openEnd - openStart;
+      openStart = start;
+      openEnd = end;
+    } else if (end > openEnd) {
+      openEnd = end;
+    }
+  }
+  return covered + (openEnd - openStart);
+}
+
+/**
  * Project run metadata onto flat PostHog trace properties.
  *
  * Prefixed and shallow on purpose: this is operational context (which
@@ -878,7 +907,10 @@ export async function instrumentAgentLoop(opts: {
           status: isError ? "error" : "success",
           errorMessage: isError ? event.result : null,
           metadata: spanMetadata,
-          createdAt: Date.now(),
+          // The span's start, not its completion: `durationMs` is measured from
+          // here, so stamping the end instead places the tool after the run
+          // ended in any timeline that plots start + duration.
+          createdAt: pending?.startMs ?? finishedAt,
         };
         spans.push(span);
       }
@@ -970,7 +1002,7 @@ export async function instrumentAgentLoop(opts: {
             status: "error",
             errorMessage: interruptedMessage,
             metadata: null,
-            createdAt: runEnd,
+            createdAt: pending.startMs,
           });
         }
         pendingTools.clear();
@@ -1010,6 +1042,21 @@ export async function instrumentAgentLoop(opts: {
             }
           : undefined);
 
+      const collectedToolSpans = spans.filter(
+        (s) => s.spanType === "tool_call",
+      );
+      // Resolved before the generation event, not just before the span events:
+      // the generation's latency is the run minus the tool time PostHog will
+      // actually see, so it has to be computed against the same set. Tools
+      // dropped by `captureLlmSpans` or the per-run cap have no sibling span to
+      // hold their time, and subtracting them would lose it from the trace.
+      const emittedToolSpans = (
+        config.captureLlmSpans ? collectedToolSpans : []
+      ).slice(0, MAX_AI_SPANS_PER_RUN);
+      const droppedToolSpans =
+        (config.captureLlmSpans ? collectedToolSpans.length : 0) -
+        emittedToolSpans.length;
+
       let llmCallCount = 0;
       if (usage || runStatus === "error") {
         llmCallCount =
@@ -1035,18 +1082,15 @@ export async function instrumentAgentLoop(opts: {
             ? Math.max(0, usage.firstEngineEventAtMs - runStart)
             : undefined;
         const llmSpanId = spanId();
-        const generationToolSpans = spans.filter(
-          (s) => s.spanType === "tool_call",
-        );
+        const generationToolSpans = collectedToolSpans;
         // Tool calls are emitted as sibling `$ai_span`s under the same trace,
-        // and PostHog adds their latency to this generation's. Subtracting
-        // their duration keeps the trace total equal to the run, not to the
-        // run plus its tools counted a second time. Clamped at 0 because tool
-        // spans are timed independently and can overlap.
+        // and PostHog adds their latency to this generation's. Subtracting the
+        // time those siblings cover keeps the trace total equal to the run, not
+        // to the run plus its tools counted a second time. Clamped at 0 because
+        // tool spans are timed independently of the run window.
         const llmDurationMs = Math.max(
           0,
-          totalDurationMs -
-            generationToolSpans.reduce((sum, s) => sum + s.durationMs, 0),
+          totalDurationMs - coveredDurationMs(emittedToolSpans),
         );
         const generationContent = buildGenerationContent({
           config,
@@ -1168,12 +1212,6 @@ export async function instrumentAgentLoop(opts: {
             : undefined,
           usage?.model ?? loopOpts.model,
         );
-
-        const toolSpans = config.captureLlmSpans
-          ? spans.filter((s) => s.spanType === "tool_call")
-          : [];
-        const emittedToolSpans = toolSpans.slice(0, MAX_AI_SPANS_PER_RUN);
-        const droppedToolSpans = toolSpans.length - emittedToolSpans.length;
 
         // PostHog reads a trace's input/output state ONLY from the `$ai_trace`
         // event — never from its children — so a trace whose detail view should

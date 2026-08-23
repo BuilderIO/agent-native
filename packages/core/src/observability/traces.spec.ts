@@ -1810,6 +1810,208 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(generationLatency).toBeLessThan(runSeconds);
   });
 
+  // Tools run in parallel all the time. Summing sibling durations subtracts
+  // more than the run spent in tools, which drove the generation's remainder to
+  // zero and left the trace total short of the wall clock.
+  it("counts overlapping tool spans once when deriving generation latency", async () => {
+    const byName = new Map<string, TrackingEvent[]>();
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        if (!event.name.startsWith("$ai_")) return;
+        const list = byName.get(event.name) ?? [];
+        list.push(event);
+        byName.set(event.name, list);
+      },
+    });
+
+    const loopOpts: any = {
+      engine: { name: "anthropic" },
+      model: "claude-test",
+      systemPrompt: "",
+      tools: [],
+      messages: [],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    };
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ send }) => {
+        // Three tools covering the same ~40ms window: summed they are ~120ms,
+        // which is longer than the run itself.
+        send({ type: "tool_start", id: "a", tool: "read", input: {} });
+        send({ type: "tool_start", id: "b", tool: "search", input: {} });
+        send({ type: "tool_start", id: "c", tool: "fetch", input: {} });
+        await new Promise((resolve) => setTimeout(resolve, 40));
+        send({ type: "tool_done", id: "a", tool: "read", result: "ok" });
+        send({ type: "tool_done", id: "b", tool: "search", result: "ok" });
+        send({ type: "tool_done", id: "c", tool: "fetch", result: "ok" });
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        return {
+          inputTokens: 10,
+          outputTokens: 5,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "claude-test",
+          usageReported: true,
+        };
+      },
+      loopOpts,
+      runId: "run-overlap",
+      threadId: "thread-overlap",
+      userId: null,
+      config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const trace = byName.get("$ai_trace")?.[0];
+    const generation = byName.get("$ai_generation")?.[0];
+    const spans = byName.get("$ai_span") ?? [];
+    expect(spans).toHaveLength(3);
+
+    const runSeconds = (trace?.properties?.duration_ms as number) / 1000;
+    const generationLatency = generation?.properties?.["$ai_latency"] as number;
+    const spanLatencies = spans.map(
+      (e) => e.properties?.["$ai_latency"] as number,
+    );
+    const summedSpans = spanLatencies.reduce((a, b) => a + b, 0);
+
+    // The premise: naive summing would have over-subtracted.
+    expect(summedSpans).toBeGreaterThan(runSeconds);
+    // Only the ~30ms tail was outside the tool window, and it survives.
+    expect(generationLatency).toBeGreaterThan(0.01);
+    expect(generationLatency).toBeLessThanOrEqual(runSeconds);
+  });
+
+  // Tool time is only subtracted from the generation because sibling `$ai_span`
+  // events carry it. When those events are not emitted, nothing else holds the
+  // run's tool time and the generation has to keep it.
+  it("keeps full generation latency when tool spans are not exported", async () => {
+    const byName = new Map<string, TrackingEvent[]>();
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        if (!event.name.startsWith("$ai_")) return;
+        const list = byName.get(event.name) ?? [];
+        list.push(event);
+        byName.set(event.name, list);
+      },
+    });
+
+    const loopOpts: any = {
+      engine: { name: "anthropic" },
+      model: "claude-test",
+      systemPrompt: "",
+      tools: [],
+      messages: [],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    };
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ send }) => {
+        send({ type: "tool_start", id: "a", tool: "read", input: {} });
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        send({ type: "tool_done", id: "a", tool: "read", result: "ok" });
+        return {
+          inputTokens: 10,
+          outputTokens: 5,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "claude-test",
+          usageReported: true,
+        };
+      },
+      loopOpts,
+      runId: "run-no-span-latency",
+      threadId: "thread-no-span-latency",
+      userId: null,
+      config: {
+        ...DEFAULT_OBSERVABILITY_CONFIG,
+        enabled: true,
+        captureLlmSpans: false,
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const trace = byName.get("$ai_trace")?.[0];
+    const generation = byName.get("$ai_generation")?.[0];
+    expect(byName.get("$ai_span") ?? []).toHaveLength(0);
+
+    const runSeconds = (trace?.properties?.duration_ms as number) / 1000;
+    const generationLatency = generation?.properties?.["$ai_latency"] as number;
+    // The generation is the trace's only child, so it carries the whole run.
+    expect(generationLatency).toBeCloseTo(runSeconds, 3);
+  });
+
+  // PostHog plots a span from its event timestamp forward by `$ai_latency`. A
+  // span stamped at completion therefore drew the tool starting where it ended
+  // and running past the end of the run that contains it.
+  it("timestamps a tool span at its start, not its completion", async () => {
+    const byName = new Map<string, TrackingEvent[]>();
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        if (!event.name.startsWith("$ai_")) return;
+        const list = byName.get(event.name) ?? [];
+        list.push(event);
+        byName.set(event.name, list);
+      },
+    });
+
+    const loopOpts: any = {
+      engine: { name: "anthropic" },
+      model: "claude-test",
+      systemPrompt: "",
+      tools: [],
+      messages: [],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    };
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ send }) => {
+        send({ type: "tool_start", id: "a", tool: "read", input: {} });
+        await new Promise((resolve) => setTimeout(resolve, 40));
+        send({ type: "tool_done", id: "a", tool: "read", result: "ok" });
+        return {
+          inputTokens: 10,
+          outputTokens: 5,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "claude-test",
+          usageReported: true,
+        };
+      },
+      loopOpts,
+      runId: "run-span-timestamp",
+      threadId: "thread-span-timestamp",
+      userId: null,
+      config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const trace = byName.get("$ai_trace")?.[0];
+    const span = byName.get("$ai_span")?.[0];
+    expect(span).toBeDefined();
+
+    // The trace is stamped at run start; every child has to fit inside it.
+    const runStartMs = Date.parse(trace!.timestamp);
+    const runEndMs = runStartMs + (trace!.properties?.duration_ms as number);
+    const spanStartMs = Date.parse(span!.timestamp);
+    const spanEndMs =
+      spanStartMs + (span!.properties?.["$ai_latency"] as number) * 1000;
+
+    expect(spanStartMs).toBeGreaterThanOrEqual(runStartMs);
+    expect(spanEndMs).toBeLessThanOrEqual(runEndMs);
+  });
+
   // `$ai_time_to_first_token` is a SECONDS field. It was being handed the
   // millisecond value verbatim, inflating every TTFT in LLM analytics 1000x.
   it("reports $ai_time_to_first_token in seconds while keeping the ms property", async () => {
