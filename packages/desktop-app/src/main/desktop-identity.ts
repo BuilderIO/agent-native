@@ -673,6 +673,15 @@ export class DesktopIdentityBroker {
     this.setStatus(verifiedEmail ? "signed-in" : "sign-in-required");
   }
 
+  /**
+   * Whether child app sessions are still being minted. The first-run fan-out
+   * is deliberately serial because concurrent hosted-origin session work
+   * produces opaque 500s, so background work must wait it out.
+   */
+  hasPendingAppSessionWork(): boolean {
+    return this.pendingModernAppSessions.size > 0;
+  }
+
   /** Verified signed-in email, or null when no session has been verified. */
   getVerifiedEmail(): string | null {
     return this.verifiedIdentityEmail;

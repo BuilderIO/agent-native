@@ -275,6 +275,17 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(hubSource).toContain("surfaceHidden={!showNativeIntegrationsGuest}");
   });
 
+  it("remounts chat-first app surfaces when the shell refresh key changes", () => {
+    // A lane switch bumps refreshKey; without this the app surfaces kept
+    // their old origin and only the preview path reloaded.
+    const hubSource = readFileSync(
+      "src/renderer/components/CodeAgentsHub.tsx",
+      "utf8",
+    );
+
+    expect(hubSource).toContain("refreshKey={refreshKey}");
+  });
+
   it("keeps the chat-first rail collapse control at the bottom of the rail", () => {
     const hubSource = readFileSync(
       "src/renderer/components/CodeAgentsHub.tsx",

@@ -1375,6 +1375,8 @@ ipcMain.handle(IPC.IDENTITY_SSO_ENABLED_SET, async (event, enabled) => {
 // before the user clicks, is what makes the click feel instant.
 const WARM_ORIGIN_TTL_MS = 4 * 60 * 1000;
 const WARM_ORIGIN_TIMEOUT_MS = 12_000;
+const WARM_ORIGIN_FANOUT_WAIT_MS = 60_000;
+const WARM_ORIGIN_FANOUT_POLL_MS = 500;
 const warmedOriginAt = new Map<string, number>();
 let originWarmupInFlight: Promise<void> | null = null;
 
@@ -1423,6 +1425,21 @@ function warmDesktopAppOrigins(): void {
   if (targets.length === 0) return;
 
   originWarmupInFlight = (async () => {
+    // The signed-in transition fires while runModernIdentityFanout is still
+    // running its unawaited serial child-session loop. Warming every origin
+    // underneath that reintroduces exactly the concurrent hosted-origin
+    // session work it serializes to avoid, so wait it out first.
+    for (
+      let waited = 0;
+      waited < WARM_ORIGIN_FANOUT_WAIT_MS &&
+      desktopIdentityBroker?.hasPendingAppSessionWork();
+      waited += WARM_ORIGIN_FANOUT_POLL_MS
+    ) {
+      if (appIsQuitting) return;
+      await new Promise((resolve) =>
+        setTimeout(resolve, WARM_ORIGIN_FANOUT_POLL_MS),
+      );
+    }
     for (const target of targets) {
       if (appIsQuitting) break;
       // Serial on purpose. runModernIdentityFanout already documents that
