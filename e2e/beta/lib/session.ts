@@ -148,9 +148,18 @@ function storageStateBlob(): string | undefined {
   return undefined;
 }
 
+function hasPerAppSessionToken(): boolean {
+  return Object.entries(process.env).some(
+    ([name, value]) =>
+      name.startsWith("BETA_E2E_SESSION_TOKEN_") && Boolean(value?.trim()),
+  );
+}
+
 /** True when this run has been given something to authenticate with. */
 export function hasSessionCredentials(): boolean {
-  return Boolean(sessionTokens() || storageStateBlob());
+  return Boolean(
+    sessionTokens() || storageStateBlob() || hasPerAppSessionToken(),
+  );
 }
 
 /**
