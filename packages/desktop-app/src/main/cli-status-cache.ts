@@ -18,6 +18,12 @@ export function createCliStatusCache<T>(): CliStatusCache<T> {
   return { probedAt: 0, refreshing: false };
 }
 
+export function invalidateCliStatusCache<T>(cache: CliStatusCache<T>): void {
+  cache.value = undefined;
+  cache.probedAt = 0;
+  cache.refreshing = false;
+}
+
 /**
  * Returns the cached probe result, refreshing in the background once it is
  * older than `ttlMs`.

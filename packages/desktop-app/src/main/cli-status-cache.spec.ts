@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { cachedCliStatus, createCliStatusCache } from "./cli-status-cache.js";
+import {
+  cachedCliStatus,
+  createCliStatusCache,
+  invalidateCliStatusCache,
+} from "./cli-status-cache.js";
 
 describe("cachedCliStatus", () => {
   it("probes synchronously only on the first call, then serves the cache", () => {
@@ -100,5 +104,17 @@ describe("cachedCliStatus", () => {
         1000,
       ),
     ).toBe("fresh");
+  });
+
+  it("allows an explicit refresh to re-probe immediately", () => {
+    const cache = createCliStatusCache<string>();
+    let value = "signed out";
+    const probe = () => value;
+
+    expect(cachedCliStatus(cache, probe, async () => value)).toBe("signed out");
+    value = "signed in";
+    invalidateCliStatusCache(cache);
+
+    expect(cachedCliStatus(cache, probe, async () => value)).toBe("signed in");
   });
 });

@@ -159,7 +159,7 @@ export function resolveCodeAgentRunnerInvocation(
   };
 }
 
-function resolveExecutable(
+export function resolveExecutable(
   executable: string,
   environment: NodeJS.ProcessEnv | undefined,
 ): string | null {
@@ -172,8 +172,25 @@ function resolveExecutable(
   const searchDirectories = [
     ...pathEntries,
     environment.PNPM_HOME,
+    home ? path.join(home, ".local", "bin") : undefined,
     home ? path.join(home, ".local", "share", "pnpm") : undefined,
     home ? path.join(home, "Library", "pnpm") : undefined,
+    home ? path.join(home, ".opencode", "bin") : undefined,
+    home ? path.join(home, ".cargo", "bin") : undefined,
+    ...(home
+      ? (() => {
+          try {
+            return fs
+              .readdirSync(path.join(home, ".nvm", "versions", "node"))
+              .map((version) =>
+                path.join(home, ".nvm", "versions", "node", version, "bin"),
+              );
+          } catch {
+            // coercion-ok: NVM is optional in desktop launch environments.
+            return [];
+          }
+        })()
+      : []),
     "/opt/homebrew/bin",
     "/usr/local/bin",
   ].filter((value): value is string => Boolean(value));

@@ -2249,7 +2249,7 @@ export default function CodeAgentsHub({
         }
         return api.submitRemoteWaitlist(request);
       },
-      async listModels() {
+      async listModels(options?: { refresh?: boolean }) {
         const api = window.electronAPI?.codeAgents;
         if (!api?.listModels) {
           return {
@@ -2258,7 +2258,7 @@ export default function CodeAgentsHub({
             error: "Desktop bridge is not available.",
           };
         }
-        return api.listModels() as Promise<CodeAgentModelListResult>;
+        return api.listModels(options) as Promise<CodeAgentModelListResult>;
       },
       async getHostMetadata() {
         const api = window.electronAPI?.codeAgents;

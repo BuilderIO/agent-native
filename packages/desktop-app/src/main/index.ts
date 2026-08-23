@@ -187,11 +187,13 @@ import { isClaudeSubscriptionAuthMethod } from "./claude-subscription.js";
 import {
   cachedCliStatus,
   createCliStatusCache,
+  invalidateCliStatusCache,
   type CliStatusCache,
 } from "./cli-status-cache.js";
 import { guardCodeAgentPersistence } from "./code-agent-persistence-guard.js";
 import {
   isCodeAgentRunnerInFlight,
+  resolveExecutable,
   resolveCodeAgentRunnerInvocation,
 } from "./code-agent-runner.js";
 import { DesktopCodeAgentScheduler } from "./code-agent-scheduler.js";
@@ -10930,6 +10932,12 @@ function getCodeAgentLlmProviderStatus(): NonNullable<
   const settings = AppStore.getCodeAgentProviderSettingsStatus();
   const codex = getLocalCodexCliStatus();
   const claude = getLocalClaudeCliStatus();
+  const pi = getLocalCliAvailability("pi", "Pi", localPiCliAvailabilityCache);
+  const opencode = getLocalCliAvailability(
+    "opencode",
+    "OpenCode",
+    localOpenCodeCliAvailabilityCache,
+  );
   const configuredCredentialKeys = new Set(
     settings.providers.flatMap((provider) => provider.configuredKeys),
   );
@@ -10937,6 +10945,8 @@ function getCodeAgentLlmProviderStatus(): NonNullable<
     ...(process.env.AGENT_ENGINE ? ["Custom"] : []),
     ...(codex.authenticated ? [codex.label] : []),
     ...(claude.authenticated ? [claude.label] : []),
+    ...(pi.available ? [pi.label] : []),
+    ...(opencode.available ? [opencode.label] : []),
     ...settings.configuredProviders,
   ];
 
@@ -11044,10 +11054,14 @@ interface CliRun {
 }
 
 function runCliSync(command: string, args: string[]): CliRun {
-  const result = spawnSync(command, args, {
-    encoding: "utf-8",
-    timeout: CLI_PROBE_TIMEOUT_MS,
-  });
+  const result = spawnSync(
+    resolveExecutable(command, process.env) ?? command,
+    args,
+    {
+      encoding: "utf-8",
+      timeout: CLI_PROBE_TIMEOUT_MS,
+    },
+  );
   return {
     status: result.status,
     stdout: result.stdout ?? "",
@@ -11059,7 +11073,7 @@ function runCliSync(command: string, args: string[]): CliRun {
 function runCliAsync(command: string, args: string[]): Promise<CliRun> {
   return new Promise((resolve) => {
     execFile(
-      command,
+      resolveExecutable(command, process.env) ?? command,
       args,
       { encoding: "utf-8", timeout: CLI_PROBE_TIMEOUT_MS },
       (error, stdout, stderr) => {
@@ -11312,6 +11326,13 @@ function getCodeAgentProviderSettings(): CodeAgentProviderSettings {
   );
 }
 
+function invalidateLocalCliStatusCaches(): void {
+  invalidateCliStatusCache(localCodexCliStatusCache);
+  invalidateCliStatusCache(localClaudeCliStatusCache);
+  invalidateCliStatusCache(localPiCliAvailabilityCache);
+  invalidateCliStatusCache(localOpenCodeCliAvailabilityCache);
+}
+
 function withLocalCodexProviderStatus(
   settings: CodeAgentProviderSettings,
 ): CodeAgentProviderSettings {
@@ -11404,9 +11425,12 @@ function pushCodeAgentModelOptions(
   }
 }
 
-function getCodeAgentModelList(): CodeAgentModelListResult {
+function getCodeAgentModelList(input?: unknown): CodeAgentModelListResult {
   try {
-    const settings = AppStore.getCodeAgentProviderSettingsStatus();
+    if (isObject(input) && input.refresh === true) {
+      invalidateLocalCliStatusCaches();
+    }
+    const settings = getCodeAgentProviderSettings();
     const models: CodeAgentModelOption[] = [];
     const builderConfigured = Boolean(
       providerStatusById(settings, "builder")?.configured,

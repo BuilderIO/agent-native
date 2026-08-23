@@ -412,8 +412,10 @@ const electronAPI = {
       ipcRenderer.invoke(IPC.CODE_AGENTS_RUN_SCHEDULE_NOW, input),
     listWorktrees: (cwd?: string): Promise<CodeAgentWorktreeListResult> =>
       ipcRenderer.invoke(IPC.CODE_AGENTS_LIST_WORKTREES, cwd),
-    listModels: (): Promise<CodeAgentModelListResult> =>
-      ipcRenderer.invoke(IPC.CODE_AGENTS_LIST_MODELS),
+    listModels: (options?: {
+      refresh?: boolean;
+    }): Promise<CodeAgentModelListResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_LIST_MODELS, options),
     createRun: (
       request: CodeAgentCreateRunRequest,
     ): Promise<CodeAgentCreateRunResult> =>

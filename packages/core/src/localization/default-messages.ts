@@ -479,6 +479,8 @@ const messages = {
     downloadDesktop: "Download Desktop",
     chatMode: "Chat mode",
     chat: "Chat",
+    mode: "Mode",
+    uiMode: "UI",
     cliTerminalMode: "CLI terminal mode",
     cli: "CLI",
     workspaceMode: "Files, agents, skills, and tasks",

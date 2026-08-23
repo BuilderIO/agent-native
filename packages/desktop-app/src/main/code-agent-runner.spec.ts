@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { dispatchCodeAgentRunnerCommand } from "./code-agent-runner-dispatch.js";
 import {
   isCodeAgentRunnerInFlight,
+  resolveExecutable,
   resolveCodeAgentRunnerInvocation,
   runCodeAgentRunnerWithSignal,
 } from "./code-agent-runner.js";
@@ -203,6 +204,32 @@ describe("resolveCodeAgentRunnerInvocation", () => {
       repoRoot,
       "--filter",
     ]);
+  });
+});
+
+describe("resolveExecutable", () => {
+  it("finds CLIs in the standard desktop user-bin directory", () => {
+    const root = createTempRoot();
+    const bin = path.join(root, ".local", "bin");
+    const executable = path.join(bin, "codex");
+    fs.mkdirSync(bin, { recursive: true });
+    fs.writeFileSync(executable, "#!/bin/sh\n", { mode: 0o755 });
+
+    expect(resolveExecutable("codex", { HOME: root, PATH: "/usr/bin" })).toBe(
+      executable,
+    );
+  });
+
+  it("finds CLIs installed under an NVM-managed Node version", () => {
+    const root = createTempRoot();
+    const bin = path.join(root, ".nvm", "versions", "node", "v24.0.0", "bin");
+    const executable = path.join(bin, "codex");
+    fs.mkdirSync(bin, { recursive: true });
+    fs.writeFileSync(executable, "#!/bin/sh\n", { mode: 0o755 });
+
+    expect(resolveExecutable("codex", { HOME: root, PATH: "/usr/bin" })).toBe(
+      executable,
+    );
   });
 });
 

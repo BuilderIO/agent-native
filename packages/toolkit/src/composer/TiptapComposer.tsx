@@ -1336,6 +1336,7 @@ function ModelSelector({
   providerConnectStatusEnabled = true,
   onConnectProvider,
   onConnectLocalRuntime,
+  terminalModeControl,
   imageModel,
 }: {
   model: string;
@@ -1360,6 +1361,7 @@ function ModelSelector({
   providerConnectStatusEnabled?: boolean;
   onConnectProvider?: () => void;
   onConnectLocalRuntime?: (engine: string) => void;
+  terminalModeControl?: ComposerTerminalModeControl;
   onModelSelectorOpenChange?: (open: boolean) => void;
   imageModel?: ComposerImageModelMenu;
   open?: boolean;
@@ -1463,7 +1465,7 @@ function ModelSelector({
   const selectedModelLabel = friendlyModelName(model, t).replace(/^GPT-/, "");
 
   const [detailSection, setDetailSection] = useState<
-    "agent" | "model" | "effort" | null
+    "agent" | "model" | "effort" | "mode" | null
   >(null);
   const resolvedSection = detailSection ?? (agentOnly ? "agent" : "model");
 
@@ -1482,9 +1484,8 @@ function ModelSelector({
     engines.length,
   );
 
-  // Keep setup actions beside model choices while any visible provider still
-  // needs configuration. The model rows remain visible so the user can see
-  // what becomes available after connecting or adding a key.
+  // Keep setup actions visible, but do not show unusable model rows until one
+  // provider or local agent is ready.
   const builderFlow = adapters.builder!.useConnectFlow!({
     enabled: providerConnectStatusEnabled,
     trackingSource: "composer_builder_cta",
@@ -1498,19 +1499,25 @@ function ModelSelector({
   const hasUnconfiguredVisibleModels = modelProviderGroups.some(
     (group) => !group.configured,
   );
+  const hasConfiguredProvider = providerGroups.some(
+    (group) => group.configured,
+  );
   const showBuilderAction =
-    hasUnconfiguredVisibleModels &&
+    !hasConfiguredProvider &&
     (Boolean(onConnectProvider) ||
       (providerConnectStatusEnabled &&
         !builderFlow.configured &&
         !builderFlow.envManaged &&
         !hasConfiguredBuilderModels &&
         !hasConnectedSubscription));
-  const showAddKeysAction = hasUnconfiguredVisibleModels;
+  const showAddKeysAction =
+    !hasConfiguredProvider &&
+    (hasUnconfiguredVisibleModels || showBuilderAction);
   const showProviderActions = showBuilderAction || showAddKeysAction;
-  const onlyConnectPathAvailable =
-    shouldShowOnlyConnectPath(showBuilderAction, providerGroups) &&
-    modelProviderGroups.length === 0;
+  const onlyConnectPathAvailable = shouldShowOnlyConnectPath(
+    showProviderActions,
+    providerGroups,
+  );
   const openLlmSettings = useCallback(() => {
     try {
       window.location.hash = "llm";
@@ -1617,7 +1624,7 @@ function ModelSelector({
                           />
                         </span>
                       </TooltipTrigger>
-                      <TooltipContent side="right" className="z-[400] max-w-xs">
+                      <TooltipContent side="right" className="max-w-xs">
                         <span className="block">
                           {hostedHarness
                             ? t("agentChat.composer.hostedHarnessDescription", {
@@ -1690,6 +1697,30 @@ function ModelSelector({
                   </span>
                   <span className="ms-auto min-w-0 max-w-[6rem] truncate text-end text-[11px] text-muted-foreground/80">
                     {effortLabel(selectedEffort)}
+                  </span>
+                  <IconChevronRight className="h-3 w-3 shrink-0 opacity-60 rtl:-scale-x-100" />
+                </button>
+              )}
+              {terminalModeControl && (
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={resolvedSection === "mode"}
+                  onClick={() => setDetailSection("mode")}
+                  onMouseEnter={() => setDetailSection("mode")}
+                  className={`flex w-full min-w-0 items-center gap-1 rounded-md px-2 py-2 text-start transition-colors ${
+                    resolvedSection === "mode"
+                      ? "bg-accent text-foreground"
+                      : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                  }`}
+                >
+                  <span className="shrink-0 text-[12px] font-medium">
+                    {t("agentPanel.mode", { defaultValue: "Mode" })}
+                  </span>
+                  <span className="ms-auto min-w-0 max-w-[6rem] truncate text-end text-[11px] text-muted-foreground/80">
+                    {terminalModeControl.enabled
+                      ? t("agentPanel.cli", { defaultValue: "CLI" })
+                      : t("agentPanel.uiMode", { defaultValue: "UI" })}
                   </span>
                   <IconChevronRight className="h-3 w-3 shrink-0 opacity-60 rtl:-scale-x-100" />
                 </button>
@@ -1777,7 +1808,7 @@ function ModelSelector({
                                 </TooltipTrigger>
                                 <TooltipContent
                                   side="left"
-                                  className="z-[400] max-w-xs"
+                                  className="max-w-xs"
                                 >
                                   {agent.description}
                                 </TooltipContent>
@@ -1881,42 +1912,47 @@ function ModelSelector({
                         )}
                       </>
                     )}
-                    {imageModel && imageModel.options.length > 0 && (
-                      <div className="mt-2 pt-1">
-                        <div className="px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                          {imageModel.label ??
-                            t("agentChat.composer.imageModel", {
-                              defaultValue: "Image model",
-                            })}
-                        </div>
-                        {imageModel.options.map((option) => (
-                          <button
-                            key={option.value}
-                            type="button"
-                            onClick={() => {
-                              imageModel.onChange(option.value);
-                              setPickerOpen(false);
-                            }}
-                            className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-start hover:bg-accent/50"
-                          >
-                            <span
-                              className={`min-w-0 flex-1 truncate text-[12px] ${
-                                option.value === imageModel.value
-                                  ? "text-foreground"
-                                  : "text-muted-foreground"
-                              }`}
+                    {hasConfiguredProvider &&
+                      imageModel &&
+                      imageModel.options.length > 0 && (
+                        <div className="mt-2 pt-1">
+                          <div className="px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                            {imageModel.label ??
+                              t("agentChat.composer.imageModel", {
+                                defaultValue: "Image model",
+                              })}
+                          </div>
+                          {imageModel.options.map((option) => (
+                            <button
+                              key={option.value}
+                              type="button"
+                              onClick={() => {
+                                imageModel.onChange(option.value);
+                                setPickerOpen(false);
+                              }}
+                              className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-start hover:bg-accent/50"
                             >
-                              {option.label}
-                            </span>
-                            {option.value === imageModel.value && (
-                              <IconCheck className="size-4 shrink-0 text-primary" />
-                            )}
-                          </button>
-                        ))}
-                      </div>
+                              <span
+                                className={`min-w-0 flex-1 truncate text-[12px] ${
+                                  option.value === imageModel.value
+                                    ? "text-foreground"
+                                    : "text-muted-foreground"
+                                }`}
+                              >
+                                {option.label}
+                              </span>
+                              {option.value === imageModel.value && (
+                                <IconCheck className="size-4 shrink-0 text-primary" />
+                              )}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    {hasConfiguredProvider && showModelListSkeleton && (
+                      <ModelSelectorSkeleton />
                     )}
-                    {showModelListSkeleton && <ModelSelectorSkeleton />}
-                    {isCodexAgent &&
+                    {hasConfiguredProvider &&
+                      isCodexAgent &&
                       !showModelListSkeleton &&
                       !onlyConnectPathAvailable &&
                       modelProviderGroups.length === 0 && (
@@ -1935,32 +1971,35 @@ function ModelSelector({
                           </span>
                         </button>
                       )}
-                    {autoModelGroup && !onlyConnectPathAvailable && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onChange("auto", autoModelGroup.engine);
-                          setPickerOpen(false);
-                        }}
-                        className="mt-1 flex w-full items-center gap-3 rounded-md px-2 py-1.5 text-start hover:bg-accent/50"
-                      >
-                        <span
-                          className={`min-w-0 flex-1 truncate text-[13px] ${
-                            model === "auto"
-                              ? "text-foreground"
-                              : "text-muted-foreground"
-                          }`}
+                    {hasConfiguredProvider &&
+                      autoModelGroup &&
+                      !onlyConnectPathAvailable && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onChange("auto", autoModelGroup.engine);
+                            setPickerOpen(false);
+                          }}
+                          className="mt-1 flex w-full items-center gap-3 rounded-md px-2 py-1.5 text-start hover:bg-accent/50"
                         >
-                          {t("agentChat.composer.auto", {
-                            defaultValue: "Auto",
-                          })}
-                        </span>
-                        {model === "auto" && (
-                          <IconCheck className="size-4 shrink-0 text-primary" />
-                        )}
-                      </button>
-                    )}
-                    {!onlyConnectPathAvailable &&
+                          <span
+                            className={`min-w-0 flex-1 truncate text-[13px] ${
+                              model === "auto"
+                                ? "text-foreground"
+                                : "text-muted-foreground"
+                            }`}
+                          >
+                            {t("agentChat.composer.auto", {
+                              defaultValue: "Auto",
+                            })}
+                          </span>
+                          {model === "auto" && (
+                            <IconCheck className="size-4 shrink-0 text-primary" />
+                          )}
+                        </button>
+                      )}
+                    {hasConfiguredProvider &&
+                      !onlyConnectPathAvailable &&
                       visibleProviderGroups.map((group, groupIndex) => {
                         const models = latestModelsOnly(group.models);
                         const showProviderLabels =
@@ -2094,6 +2133,43 @@ function ModelSelector({
                           {effortLabel(option)}
                         </span>
                         {option === selectedEffort && (
+                          <IconCheck className="size-4 shrink-0 text-primary" />
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {resolvedSection === "mode" && terminalModeControl && (
+                  <div className="flex flex-col">
+                    {[
+                      {
+                        enabled: false,
+                        label: t("agentPanel.uiMode", { defaultValue: "UI" }),
+                      },
+                      {
+                        enabled: true,
+                        label: t("agentPanel.cli", { defaultValue: "CLI" }),
+                      },
+                    ].map((option) => (
+                      <button
+                        key={option.label}
+                        type="button"
+                        onClick={() => {
+                          terminalModeControl.onChange(option.enabled);
+                          setPickerOpen(false);
+                        }}
+                        className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-start hover:bg-accent/50"
+                      >
+                        <span
+                          className={`min-w-0 flex-1 truncate text-[12px] ${
+                            option.enabled === terminalModeControl.enabled
+                              ? "text-foreground"
+                              : "text-muted-foreground"
+                          }`}
+                        >
+                          {option.label}
+                        </span>
+                        {option.enabled === terminalModeControl.enabled && (
                           <IconCheck className="size-4 shrink-0 text-primary" />
                         )}
                       </button>
@@ -3714,6 +3790,7 @@ export function TiptapComposer({
             providerConnectStatusEnabled={providerConnectStatusEnabled}
             onConnectProvider={onConnectProvider}
             onConnectLocalRuntime={onConnectLocalRuntime}
+            terminalModeControl={terminalModeControl}
             imageModel={imageModelMenu}
           />
         )}
