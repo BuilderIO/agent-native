@@ -361,6 +361,7 @@ const messages = {
   },
   meetingDetail: {
     untitledMeeting: "無題の会議",
+    recordedBy: "{{name}} が記録",
     unassigned: "未割り当て",
     them: "彼ら",
     me: "自分",
