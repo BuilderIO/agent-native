@@ -207,3 +207,20 @@ export function resolveExecutable(
   }
   return null;
 }
+
+export function withResolvedExecutablePaths(
+  environment: NodeJS.ProcessEnv,
+  executables: readonly string[],
+): NodeJS.ProcessEnv {
+  const resolvedDirectories = executables
+    .map((executable) => resolveExecutable(executable, environment))
+    .filter((resolved): resolved is string => Boolean(resolved))
+    .map((resolved) => path.dirname(resolved));
+  const existingPath = (environment.PATH ?? "")
+    .split(path.delimiter)
+    .filter(Boolean);
+  const pathEntries = [...new Set([...resolvedDirectories, ...existingPath])];
+  return pathEntries.length > 0
+    ? { ...environment, PATH: pathEntries.join(path.delimiter) }
+    : environment;
+}

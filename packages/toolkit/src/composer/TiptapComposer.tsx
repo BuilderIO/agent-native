@@ -1926,7 +1926,7 @@ function ModelSelector({
                         )}
                       </>
                     )}
-                    {hasConfiguredProvider &&
+                    {hasConfiguredCloudProviderReady &&
                       imageModel &&
                       imageModel.options.length > 0 && (
                         <div className="mt-2 pt-1">

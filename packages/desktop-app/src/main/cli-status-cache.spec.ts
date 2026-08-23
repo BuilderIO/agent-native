@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  CLI_STATUS_TTL_MS,
   cachedCliStatus,
   createCliStatusCache,
   invalidateCliStatusCache,
@@ -58,6 +59,46 @@ describe("cachedCliStatus", () => {
     expect(asyncProbes).toBe(1);
     expect(
       cachedCliStatus(cache, probeSync, probeAsync, () => clock, 1000),
+    ).toBe("fresh");
+  });
+
+  it("refreshes explicitly without clearing the current value", async () => {
+    const cache = createCliStatusCache<string>();
+    let asyncProbes = 0;
+    let releaseProbe!: (value: string) => void;
+    const probe = new Promise<string>((resolve) => {
+      releaseProbe = resolve;
+    });
+
+    expect(
+      cachedCliStatus(
+        cache,
+        () => "stale",
+        async () => "initial async result",
+      ),
+    ).toBe("stale");
+    const current = cachedCliStatus(
+      cache,
+      () => "stale",
+      async () => {
+        asyncProbes += 1;
+        return probe;
+      },
+      Date.now,
+      CLI_STATUS_TTL_MS,
+      { refresh: true },
+    );
+
+    expect(current).toBe("stale");
+    expect(asyncProbes).toBe(1);
+    releaseProbe("fresh");
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(
+      cachedCliStatus(
+        cache,
+        () => "stale",
+        async () => "unexpected second probe",
+      ),
     ).toBe("fresh");
   });
 

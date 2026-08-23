@@ -185,9 +185,9 @@ import {
 } from "./browser-control/native-host";
 import { isClaudeSubscriptionAuthMethod } from "./claude-subscription.js";
 import {
+  CLI_STATUS_TTL_MS,
   cachedCliStatus,
   createCliStatusCache,
-  invalidateCliStatusCache,
   type CliStatusCache,
 } from "./cli-status-cache.js";
 import { guardCodeAgentPersistence } from "./code-agent-persistence-guard.js";
@@ -195,6 +195,7 @@ import {
   isCodeAgentRunnerInFlight,
   resolveExecutable,
   resolveCodeAgentRunnerInvocation,
+  withResolvedExecutablePaths,
 } from "./code-agent-runner.js";
 import { DesktopCodeAgentScheduler } from "./code-agent-scheduler.js";
 import {
@@ -5471,6 +5472,21 @@ function persistCodeAgentChildEvent(
   guardCodeAgentPersistence({ runId, source }, persist);
 }
 
+const LOCAL_CODE_AGENT_EXECUTABLES = [
+  "codex",
+  "claude",
+  "pi",
+  "opencode",
+] as const;
+
+function getCodeAgentChildEnvironment(
+  ...sources: Array<NodeJS.ProcessEnv | undefined>
+): NodeJS.ProcessEnv {
+  const environment: NodeJS.ProcessEnv = {};
+  for (const source of sources) Object.assign(environment, source);
+  return withResolvedExecutablePaths(environment, LOCAL_CODE_AGENT_EXECUTABLES);
+}
+
 async function spawnCodeAgentRunner(
   runId: string,
   cwd: string,
@@ -5586,14 +5602,16 @@ async function spawnCodeAgentRunner(
       cwd: invocation.cwd,
       detached: true,
       stdio: ["ignore", "pipe", "pipe"],
-      env: {
-        ...AppStore.getCodeAgentProviderProcessEnv(process.env),
-        AGENT_NATIVE_CODE_AGENTS_HOME: codeAgentStoreRoot(),
-        AGENT_NATIVE_CODE_AGENT_PERMISSION_MODE: normalizedPermissionMode,
-        ...invocation.env,
-        ...mcpEnvironment.env,
-        ...computerEnv,
-      },
+      env: getCodeAgentChildEnvironment(
+        AppStore.getCodeAgentProviderProcessEnv(process.env),
+        {
+          AGENT_NATIVE_CODE_AGENTS_HOME: codeAgentStoreRoot(),
+          AGENT_NATIVE_CODE_AGENT_PERMISSION_MODE: normalizedPermissionMode,
+        },
+        invocation.env,
+        mcpEnvironment.env,
+        computerEnv,
+      ),
     });
     const runnerStartedAt = new Date().toISOString();
     const runnerCommand = `${command} ${args.join(" ")}`;
@@ -5789,13 +5807,15 @@ function spawnCodeAgentApprovalRunner(
       cwd: invocation.cwd,
       detached: true,
       stdio: ["ignore", "pipe", "pipe"],
-      env: {
-        ...AppStore.getCodeAgentProviderProcessEnv(process.env),
-        AGENT_NATIVE_CODE_AGENTS_HOME: codeAgentStoreRoot(),
-        AGENT_NATIVE_CODE_AGENT_PERMISSION_MODE: normalizedPermissionMode,
-        ...invocation.env,
-        ...computerEnv,
-      },
+      env: getCodeAgentChildEnvironment(
+        AppStore.getCodeAgentProviderProcessEnv(process.env),
+        {
+          AGENT_NATIVE_CODE_AGENTS_HOME: codeAgentStoreRoot(),
+          AGENT_NATIVE_CODE_AGENT_PERMISSION_MODE: normalizedPermissionMode,
+        },
+        invocation.env,
+        computerEnv,
+      ),
     });
     const runnerStartedAt = new Date().toISOString();
     const runnerCommand = `${command} ${args.join(" ")}`;
@@ -11106,9 +11126,13 @@ interface LocalCodexCliStatus {
   error?: string;
 }
 
+type CliStatusReadOptions = { refresh?: boolean };
+
 const localCodexCliStatusCache = createCliStatusCache<LocalCodexCliStatus>();
 
-function getLocalCodexCliStatus(): LocalCodexCliStatus {
+function getLocalCodexCliStatus(
+  options?: CliStatusReadOptions,
+): LocalCodexCliStatus {
   return cachedCliStatus(
     localCodexCliStatusCache,
     () => {
@@ -11127,6 +11151,9 @@ function getLocalCodexCliStatus(): LocalCodexCliStatus {
         await runCliAsync("codex", ["login", "status"]),
       );
     },
+    Date.now,
+    CLI_STATUS_TTL_MS,
+    options,
   );
 }
 
@@ -11199,7 +11226,9 @@ interface LocalClaudeCliStatus {
 
 const localClaudeCliStatusCache = createCliStatusCache<LocalClaudeCliStatus>();
 
-function getLocalClaudeCliStatus(): LocalClaudeCliStatus {
+function getLocalClaudeCliStatus(
+  options?: CliStatusReadOptions,
+): LocalClaudeCliStatus {
   return cachedCliStatus(
     localClaudeCliStatusCache,
     () => {
@@ -11218,6 +11247,9 @@ function getLocalClaudeCliStatus(): LocalClaudeCliStatus {
         await runCliAsync("claude", ["auth", "status", "--json"]),
       );
     },
+    Date.now,
+    CLI_STATUS_TTL_MS,
+    options,
   );
 }
 
@@ -11281,6 +11313,7 @@ function getLocalCliAvailability(
   command: string,
   label: string,
   cache: CliStatusCache<LocalCliAvailability>,
+  options?: CliStatusReadOptions,
 ): LocalCliAvailability {
   return cachedCliStatus(
     cache,
@@ -11296,6 +11329,9 @@ function getLocalCliAvailability(
         label,
         await runCliAsync(command, ["--version"]),
       ),
+    Date.now,
+    CLI_STATUS_TTL_MS,
+    options,
   );
 }
 
@@ -11324,13 +11360,6 @@ function getCodeAgentProviderSettings(): CodeAgentProviderSettings {
   return withLocalCodexProviderStatus(
     AppStore.getCodeAgentProviderSettingsStatus(),
   );
-}
-
-function invalidateLocalCliStatusCaches(): void {
-  invalidateCliStatusCache(localCodexCliStatusCache);
-  invalidateCliStatusCache(localClaudeCliStatusCache);
-  invalidateCliStatusCache(localPiCliAvailabilityCache);
-  invalidateCliStatusCache(localOpenCodeCliAvailabilityCache);
 }
 
 function withLocalCodexProviderStatus(
@@ -11427,21 +11456,28 @@ function pushCodeAgentModelOptions(
 
 function getCodeAgentModelList(input?: unknown): CodeAgentModelListResult {
   try {
-    if (isObject(input) && input.refresh === true) {
-      invalidateLocalCliStatusCaches();
-    }
+    const refreshLocalCliStatus = isObject(input) && input.refresh === true;
+    const cliStatusOptions = refreshLocalCliStatus
+      ? { refresh: true }
+      : undefined;
+    const codex = getLocalCodexCliStatus(cliStatusOptions);
     const settings = getCodeAgentProviderSettings();
     const models: CodeAgentModelOption[] = [];
     const builderConfigured = Boolean(
       providerStatusById(settings, "builder")?.configured,
     );
-    const codex = getLocalCodexCliStatus();
-    const claude = getLocalClaudeCliStatus();
-    const pi = getLocalCliAvailability("pi", "Pi", localPiCliAvailabilityCache);
+    const claude = getLocalClaudeCliStatus(cliStatusOptions);
+    const pi = getLocalCliAvailability(
+      "pi",
+      "Pi",
+      localPiCliAvailabilityCache,
+      cliStatusOptions,
+    );
     const opencode = getLocalCliAvailability(
       "opencode",
       "OpenCode",
       localOpenCodeCliAvailabilityCache,
+      cliStatusOptions,
     );
     const anthropicConfigured = Boolean(
       providerStatusById(settings, "anthropic")?.configured,

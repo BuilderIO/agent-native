@@ -11,6 +11,7 @@ import {
   resolveExecutable,
   resolveCodeAgentRunnerInvocation,
   runCodeAgentRunnerWithSignal,
+  withResolvedExecutablePaths,
 } from "./code-agent-runner.js";
 
 const tempRoots: string[] = [];
@@ -218,6 +219,20 @@ describe("resolveExecutable", () => {
     expect(resolveExecutable("codex", { HOME: root, PATH: "/usr/bin" })).toBe(
       executable,
     );
+  });
+
+  it("propagates GUI-only CLI directories into child PATH", () => {
+    const root = createTempRoot();
+    const bin = path.join(root, ".local", "bin");
+    fs.mkdirSync(bin, { recursive: true });
+    fs.writeFileSync(path.join(bin, "codex"), "#!/bin/sh\n", { mode: 0o755 });
+
+    expect(
+      withResolvedExecutablePaths({ HOME: root, PATH: "/usr/bin" }, [
+        "codex",
+        "claude",
+      ]).PATH?.split(path.delimiter),
+    ).toEqual([bin, "/usr/bin"]);
   });
 
   it("finds CLIs installed under an NVM-managed Node version", () => {
