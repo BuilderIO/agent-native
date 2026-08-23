@@ -349,7 +349,7 @@ export async function discoverAgents(
         const manifestId = normalizeAgentId(manifest.id);
 
         // If the resource override carries a localhost URL but we're running
-        // in production (e.g. a stale dev-time seed got promoted to the prod
+        // in a hosted runtime (e.g. a stale dev-time seed got promoted to the prod
         // DB), fall back to the matching built-in's prod URL instead of
         // letting the override win — otherwise outbound `call-agent` fetches
         // from a serverless function would target localhost and fail with
@@ -357,11 +357,7 @@ export async function discoverAgents(
         // URLs (the supported case for self-hosted custom agents).
         let url = manifest.url;
         const isHosted = isHostedRuntime();
-        if (
-          isHosted &&
-          typeof url === "string" &&
-          /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)(:|\/|$)/.test(url)
-        ) {
+        if (isHosted && typeof url === "string" && isLoopbackUrl(url)) {
           const builtin = agentsById.get(manifestId);
           if (builtin?.url) url = builtin.url;
         }
@@ -443,7 +439,8 @@ function isLoopbackUrl(value: string | undefined): boolean {
     hostname === "localhost" ||
     hostname === "127.0.0.1" ||
     hostname === "0.0.0.0" ||
-    hostname === "::1"
+    hostname === "::1" ||
+    hostname === "[::1]"
   );
 }
 
@@ -470,6 +467,7 @@ function hasPublicRuntimeUrl(): boolean {
 }
 
 function isHostedRuntime(): boolean {
+  if (process.env.NETLIFY_LOCAL === "true") return false;
   return (
     process.env.NODE_ENV === "production" ||
     !!process.env.NETLIFY ||
