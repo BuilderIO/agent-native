@@ -30,6 +30,11 @@ import { type BetaSite, originFor } from "./fleet";
  *                            `pnpm e2e:beta:capture`. Use when a host issues
  *                            cookies the token path cannot reproduce.
  *
+ *   BETA_E2E_SESSION_TOKEN_<APP>
+ *                            an optional per-app token override, useful when
+ *                            one host needs refreshing without replacing the
+ *                            fleet map.
+ *
  * Both expire — the framework session is 30 days (`DEFAULT_MAX_AGE` in
  * packages/core/src/server/auth.ts). `pnpm e2e:beta:capture` re-mints them.
  *
@@ -123,7 +128,13 @@ function sessionTokens(): Record<string, string> | undefined {
   return parseJsonEnv<Record<string, string>>("BETA_E2E_SESSION_TOKENS");
 }
 
-function sessionTokenFor(appId: string): string | undefined {
+function sessionTokenEnvName(appId: string): string {
+  return `BETA_E2E_SESSION_TOKEN_${appId.replace(/[^a-z0-9]/gi, "_").toUpperCase()}`;
+}
+
+export function sessionTokenFor(appId: string): string | undefined {
+  const appToken = process.env[sessionTokenEnvName(appId)]?.trim();
+  if (appToken) return appToken;
   const tokens = sessionTokens();
   if (!tokens) return undefined;
   return tokens[appId] ?? tokens["*"];
