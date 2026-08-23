@@ -1364,7 +1364,7 @@ function DesignEditor() {
   } | null>(null);
   const reviewFocusNonceRef = useRef(0);
   const [activeLeftPanel, setActiveLeftPanel] =
-    useState<DesignLeftPanel>("file");
+    useState<DesignLeftPanel | null>("file");
   const [activeCodeFile, setActiveCodeFile] =
     useState<CodeWorkbenchActiveFile | null>(null);
   const initialSearchCommandAppliedForIdRef = useRef<string | null>(null);
@@ -19113,8 +19113,13 @@ function DesignEditor() {
             />
             <div
               ref={leftSidebarContentRef}
-              className="flex min-h-0 max-w-[calc(100dvw-57px)] shrink-0 flex-col border-r border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)] transition-[width] duration-150 ease-out md:max-w-none"
-              style={{ width: leftContentWidth }}
+              aria-hidden={activeLeftPanel === null}
+              className={cn(
+                "flex min-h-0 max-w-[calc(100dvw-57px)] shrink-0 flex-col overflow-hidden border-r border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)] transition-[width] duration-150 ease-out md:max-w-none",
+                activeLeftPanel === null &&
+                  "pointer-events-none invisible border-r-0",
+              )}
+              style={{ width: activeLeftPanel ? leftContentWidth : 0 }}
             >
               <div
                 className={cn(
@@ -19348,13 +19353,15 @@ function DesignEditor() {
                 </>
               ) : null}
             </div>
-            <div
-              role="separator"
-              aria-orientation="vertical"
-              aria-label={t("layersPanel.title")}
-              className="absolute right-[-2px] top-0 z-[80] h-full w-1 cursor-col-resize bg-transparent transition-colors hover:bg-[var(--design-editor-selection-color)]"
-              onPointerDown={(event) => startSidebarResize("left", event)}
-            />
+            {activeLeftPanel ? (
+              <div
+                role="separator"
+                aria-orientation="vertical"
+                aria-label={t("layersPanel.title")}
+                className="absolute right-[-2px] top-0 z-[80] h-full w-1 cursor-col-resize bg-transparent transition-colors hover:bg-[var(--design-editor-selection-color)]"
+                onPointerDown={(event) => startSidebarResize("left", event)}
+              />
+            ) : null}
           </div>
         ) : null}
 
@@ -20492,7 +20499,10 @@ function DesignEditor() {
           closing. Canvas remains visible above.
           Preview-only scrubbing fires a motion-preview postMessage to the
           canvas iframe; track/duration edits autosave through apply-motion-edit. */}
-      {!hostOwnsChrome && activeFile && motionDockMounted ? (
+      {!hostOwnsChrome &&
+      SHOW_DESIGN_SECONDARY_LEFT_PANELS &&
+      activeFile &&
+      motionDockMounted ? (
         <MotionDock
           tracks={motionTracks}
           durationMs={motionDurationMs}

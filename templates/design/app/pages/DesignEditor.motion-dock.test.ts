@@ -39,4 +39,10 @@ describe("DesignEditor motion dock transition", () => {
     expect(source).toContain("window.cancelAnimationFrame");
     expect(source).toContain("clearMotionDockOpenAnimationFrame();\n    },");
   });
+
+  it("keeps the motion dock behind the secondary-panel experiment", () => {
+    expect(source).toContain(
+      "SHOW_DESIGN_SECONDARY_LEFT_PANELS &&\n      activeFile &&\n      motionDockMounted",
+    );
+  });
 });
