@@ -165,7 +165,10 @@ describe("production Netlify site concurrency guard", () => {
     assert.ok(uploadStart > migrationStart);
     assert.match(workflow, /SOURCE_TEMPLATE.*clips.*plan/);
     assert.match(workflow, /agentNativePrebuiltDatabaseUrl=/);
-    assert.match(workflow, /DATABASE_URL: \$\{\{ secrets\.PLAN_DATABASE_URL \}\}/);
+    assert.match(
+      workflow,
+      /DATABASE_URL: \$\{\{ secrets\.PLAN_DATABASE_URL \}\}/,
+    );
     assert.match(planNetlify, /agentNativePrebuiltDatabaseUrl/);
     assert.match(
       planNetlify,
