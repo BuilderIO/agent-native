@@ -234,15 +234,22 @@ describe("agent discovery", () => {
     process.env.APP_URL = "https://design.agent-native.com";
     resourceListMock.mockResolvedValue([
       { id: "codex-resource", path: "remote-agents/codex.json" },
+      {
+        id: "codex-mapped-resource",
+        path: "remote-agents/codex-mapped.json",
+      },
     ]);
-    resourceGetMock.mockResolvedValue({
-      id: "codex-resource",
+    resourceGetMock.mockImplementation(async (id: string) => ({
+      id,
       content: JSON.stringify({
         id: "codex",
         name: "Codex",
-        url: "http://127.0.0.1:8789",
+        url:
+          id === "codex-mapped-resource"
+            ? "http://[::ffff:127.0.0.1]:8789"
+            : "http://127.0.0.1:8789",
       }),
-    });
+    }));
 
     const agents = await discoverAgents("design");
 
