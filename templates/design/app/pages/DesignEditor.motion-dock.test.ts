@@ -45,4 +45,16 @@ describe("DesignEditor motion dock transition", () => {
       "SHOW_DESIGN_SECONDARY_LEFT_PANELS &&\n      activeFile &&\n      motionDockMounted",
     );
   });
+
+  it("keeps inspector motion controls gated and preserves explicit collapse", () => {
+    expect(source).toContain(
+      "motionKeyframeState: SHOW_DESIGN_SECONDARY_LEFT_PANELS\n      ? motionKeyframeState\n      : undefined,",
+    );
+    expect(source).toContain(
+      "onToggleMotionKeyframe:\n      SHOW_DESIGN_SECONDARY_LEFT_PANELS && canEditDesign\n        ? handleToggleMotionKeyframe",
+    );
+    expect(source).toContain(
+      'if (!initialGenerationChromeLimited) return;\n    setActiveLeftPanel("agent");\n  }, [initialGenerationChromeLimited]);',
+    );
+  });
 });

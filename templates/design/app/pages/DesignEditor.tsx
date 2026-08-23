@@ -6096,9 +6096,9 @@ function DesignEditor() {
     latestActiveContentRef.current = activeContent;
   }, [activeContent]);
   useEffect(() => {
-    if (!initialGenerationChromeLimited || activeLeftPanel === "agent") return;
+    if (!initialGenerationChromeLimited) return;
     setActiveLeftPanel("agent");
-  }, [activeLeftPanel, initialGenerationChromeLimited]);
+  }, [initialGenerationChromeLimited]);
   const fileContentById = useMemo(() => {
     const map = new Map<string, string>();
     for (const file of files) {
@@ -19030,10 +19030,13 @@ function DesignEditor() {
     onRequestTweaks: handleRequestTweaks,
     onStyleChange: handleStyleChange,
     onStylesChange: handleStylesChange,
-    motionKeyframeState,
-    onToggleMotionKeyframe: canEditDesign
-      ? handleToggleMotionKeyframe
+    motionKeyframeState: SHOW_DESIGN_SECONDARY_LEFT_PANELS
+      ? motionKeyframeState
       : undefined,
+    onToggleMotionKeyframe:
+      SHOW_DESIGN_SECONDARY_LEFT_PANELS && canEditDesign
+        ? handleToggleMotionKeyframe
+        : undefined,
     breakpointContext,
     onExport: handleInspectorExport,
     onRenderExportPreview: handleRenderExportPreview,
