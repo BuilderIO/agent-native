@@ -133,7 +133,7 @@ describe("production Netlify site concurrency guard", () => {
       buildStart,
     );
     const build = workflow.slice(buildStart, buildEnd);
-    assert.match(build, /\[\[ \"\$SOURCE_TEMPLATE\" == \"clips\" \]\]/);
+    assert.match(build, /\[\[ \"\$SOURCE_TEMPLATE\" == \"clips\"/);
     assert.match(build, /agentNativePrebuiltBuild=true/);
     assert.match(build, /agentNativePrebuiltDatabaseUrl=/);
     assert.match(build, /agentNativePrebuiltAuthSecret=/);
@@ -141,6 +141,34 @@ describe("production Netlify site concurrency guard", () => {
     assert.match(clipsNetlify, /agentNativePrebuiltAuthSecret/);
     assert.match(
       clipsNetlify,
+      /agentNativePrebuiltBuild:-\}.*migrate:production/,
+    );
+  });
+
+  it("runs Plan migrations after masked prebuilt assembly", () => {
+    const workflow = readFileSync(
+      ".github/workflows/deploy-netlify-prebuilt.yml",
+      "utf8",
+    );
+    const planNetlify = readFileSync("templates/plan/netlify.toml", "utf8");
+    const buildStart = workflow.indexOf(
+      "name: Build with the Netlify project configuration",
+    );
+    const migrationStart = workflow.indexOf(
+      "name: Run Plan release migrations",
+    );
+    const verifyStart = workflow.indexOf("name: Verify deploy directories");
+    const uploadStart = workflow.indexOf("name: Upload the prebuilt deploy");
+
+    assert.ok(buildStart >= 0);
+    assert.ok(migrationStart > buildStart && migrationStart < verifyStart);
+    assert.ok(uploadStart > migrationStart);
+    assert.match(workflow, /SOURCE_TEMPLATE.*clips.*plan/);
+    assert.match(workflow, /agentNativePrebuiltDatabaseUrl=/);
+    assert.match(workflow, /DATABASE_URL: \$\{\{ secrets\.PLAN_DATABASE_URL \}\}/);
+    assert.match(planNetlify, /agentNativePrebuiltDatabaseUrl/);
+    assert.match(
+      planNetlify,
       /agentNativePrebuiltBuild:-\}.*migrate:production/,
     );
   });

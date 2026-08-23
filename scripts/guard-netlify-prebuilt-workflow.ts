@@ -143,8 +143,13 @@ const clipsBuild =
   buildStepStart >= 0 && buildStepEnd > buildStepStart
     ? reusable.slice(buildStepStart, buildStepEnd)
     : "";
+const hasClipsBuildOverride =
+  clipsBuild.includes('[[ "$SOURCE_TEMPLATE" == "clips" ]]') ||
+  clipsBuild.includes(
+    '[[ "$SOURCE_TEMPLATE" == "clips" || "$SOURCE_TEMPLATE" == "plan" ]]',
+  );
 if (
-  !clipsBuild.includes('[[ "$SOURCE_TEMPLATE" == "clips" ]]') ||
+  !hasClipsBuildOverride ||
   !clipsBuild.includes("agentNativePrebuiltBuild=true") ||
   !clipsBuild.includes("agentNativePrebuiltDatabaseUrl=") ||
   !clipsBuild.includes("agentNativePrebuiltAuthSecret=") ||
