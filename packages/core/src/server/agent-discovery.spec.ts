@@ -30,6 +30,7 @@ const DISCOVERY_ENV_KEYS = [
   "VERCEL_URL",
   "VERCEL_PROJECT_PRODUCTION_URL",
   "NETLIFY",
+  "NETLIFY_LOCAL",
   "AWS_LAMBDA_FUNCTION_NAME",
 ] as const;
 let previousEnv: Record<
@@ -163,6 +164,18 @@ describe("agent discovery", () => {
   it("does not treat generic URL env vars alone as hosted runtime signals", () => {
     process.env.URL = "https://branch-preview.example.test";
     process.env.DEPLOY_URL = "https://deploy-preview.example.test";
+
+    const slides = getBuiltinAgents("content").find(
+      (agent) => agent.id === "slides",
+    );
+
+    expect(slides?.url).toBe("http://localhost:8086");
+  });
+
+  it("keeps local URLs when netlify dev marks the runtime local", () => {
+    process.env.NETLIFY = "true";
+    process.env.NETLIFY_LOCAL = "true";
+    process.env.APP_URL = "https://content.agent-native.com";
 
     const slides = getBuiltinAgents("content").find(
       (agent) => agent.id === "slides",
@@ -500,6 +513,28 @@ describe("agent discovery", () => {
           description: "Slides workspace app",
           path: "/slides",
           url: "http://localhost:8086",
+        },
+      ],
+    });
+
+    const agents = await discoverAgents("content");
+
+    expect(agents.find((agent) => agent.id === "slides")).toMatchObject({
+      url: "https://slides.agent-native.com",
+    });
+  });
+
+  it("ignores stale IPv6 loopback workspace URLs on public runtimes", async () => {
+    process.env.APP_URL = "https://content.agent-native.com";
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
+      version: 1,
+      apps: [
+        {
+          id: "slides",
+          name: "Slides",
+          description: "Slides workspace app",
+          path: "/slides",
+          url: "http://[::1]:8086",
         },
       ],
     });
