@@ -4,7 +4,7 @@ import {
   resolveAgentChatProcessRunDispatchPath,
 } from "../agent/durable-background.js";
 import {
-  canUpdateAutomationResource,
+  canQueueAutomationRunNow,
   type AutomationScope,
 } from "../automations/service.js";
 import { isLocalDatabase } from "../db/client.js";
@@ -134,7 +134,7 @@ export async function queueAutomationRunNow(
       statusCode: 404,
     });
   }
-  if (!(await canUpdateAutomationResource(input, resource))) {
+  if (!(await canQueueAutomationRunNow(input, resource, input.scope))) {
     throw Object.assign(
       new Error(
         "Only the automation's creator or an organization admin can run it.",
