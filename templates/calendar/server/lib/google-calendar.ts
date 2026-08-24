@@ -1768,7 +1768,6 @@ export async function deleteEvent(
       "primary",
       recurringEventId,
       {
-        timeMin: master.start?.dateTime || master.start?.date,
         maxResults: 2500,
         pageToken,
       },

@@ -389,13 +389,12 @@ export function calendarListEventInstances(
   calendarId: string,
   eventId: string,
   params: {
-    timeMin?: string;
     maxResults?: number;
     pageToken?: string;
   } = {},
 ) {
   return googleFetch(
-    `${CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}/instances${qs({ ...params, supportsAttachments: true })}`,
+    `${CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}/instances${qs(params)}`,
     accessToken,
   );
 }

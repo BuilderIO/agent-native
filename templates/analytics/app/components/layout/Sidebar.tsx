@@ -2475,6 +2475,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                         ? t("sidebar.collapseDashboards")
                         : t("sidebar.expandDashboards")
                     }
+                    aria-expanded={dashOpen}
                   >
                     <IconChevronDown
                       className={cn(

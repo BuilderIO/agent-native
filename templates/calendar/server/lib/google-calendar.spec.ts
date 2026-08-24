@@ -1154,6 +1154,7 @@ describe("calendar recurring event updates", () => {
           {
             id: "instance-2",
             originalStartTime: { dateTime: "2026-05-27T15:00:00Z" },
+            start: { dateTime: "2026-05-02T15:00:00Z" },
           },
         ],
       });
@@ -1198,7 +1199,6 @@ describe("calendar recurring event updates", () => {
       "primary",
       "series-1",
       {
-        timeMin: "2026-05-06T15:00:00Z",
         maxResults: 2500,
         pageToken: undefined,
       },
@@ -1209,10 +1209,55 @@ describe("calendar recurring event updates", () => {
       "primary",
       "series-1",
       {
-        timeMin: "2026-05-06T15:00:00Z",
         maxResults: 2500,
         pageToken: "page-2",
       },
+    );
+  });
+
+  it("uses no date-only timeMin when cleaning up all-day recurrences", async () => {
+    calendarGetEventMock
+      .mockResolvedValueOnce({
+        id: "instance-1",
+        recurringEventId: "series-1",
+        start: { date: "2026-05-20" },
+        originalStartTime: { date: "2026-05-20" },
+      })
+      .mockResolvedValueOnce({
+        id: "series-1",
+        start: { date: "2026-05-06" },
+        recurrence: ["RRULE:FREQ=WEEKLY"],
+      });
+    calendarListEventInstancesMock.mockResolvedValue({
+      items: [
+        {
+          id: "instance-1",
+          originalStartTime: { date: "2026-05-20" },
+        },
+      ],
+    });
+
+    await deleteEvent(
+      "instance-1",
+      {
+        ownerEmail: "steve@example.com",
+        accountEmail: "steve@example.com",
+      },
+      { scope: "thisAndFollowing" },
+    );
+
+    expect(calendarPatchEventMock).toHaveBeenCalledWith(
+      "access-token",
+      "primary",
+      "series-1",
+      { recurrence: ["RRULE:FREQ=WEEKLY;UNTIL=20260519"] },
+      { sendUpdates: undefined },
+    );
+    expect(calendarListEventInstancesMock).toHaveBeenCalledWith(
+      "access-token",
+      "primary",
+      "series-1",
+      { maxResults: 2500, pageToken: undefined },
     );
   });
 
