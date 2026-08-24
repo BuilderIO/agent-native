@@ -90,11 +90,9 @@ export function MeetingHistoryRow({
   const { session } = useSession();
   const participants = meeting.participants ?? [];
   const ownerHint = formatOwnerHint(meeting.ownerEmail, session?.email, t);
-  const subtitle =
-    snippet?.trim() ||
-    [formatParticipantNames(participants, session?.email), ownerHint]
-      .filter(Boolean)
-      .join(" · ");
+  const primaryText =
+    snippet?.trim() || formatParticipantNames(participants, session?.email);
+  const subtitle = [primaryText, ownerHint].filter(Boolean).join(" · ");
   const time = formatTime(
     meeting.actualStart ?? meeting.scheduledStart ?? meeting.createdAt,
   );
