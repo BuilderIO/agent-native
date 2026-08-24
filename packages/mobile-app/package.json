@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/mobile-app",
-  "version": "0.1.99",
+  "version": "0.1.100",
   "private": true,
   "bugs": {
     "url": "https://github.com/BuilderIO/agent-native/issues"
