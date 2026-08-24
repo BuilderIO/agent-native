@@ -3692,23 +3692,26 @@ export function App() {
   const showCameraRow = mode !== "screen"; // screen-only has no camera
   const showSourceRow = mode !== "camera"; // camera-only has no screen source
 
-  const pendingUploadBanner = recordingStopFinalizing ? (
-    <FinalizingUploadBanner />
-  ) : pendingUploads.length > 0 ? (
-    <PendingUploadBanner
-      uploads={pendingUploads}
-      retryingUploadId={retryingUploadId}
-      retryingUploadStatus={retryingUploadStatus}
-      exportingUploadId={exportingUploadId}
-      dismissingUploadId={dismissingUploadId}
-      onExport={exportPendingUpload}
-      onRetry={retryPendingUpload}
-      onCancelRetry={cancelPendingUploadRetry}
-      onDismiss={dismissPendingUpload}
-      onOpenFolder={openPendingUploadFolder}
-      onConnectStorage={(upload) => openVideoStorageSetup(upload.serverUrl)}
-    />
-  ) : null;
+  const pendingUploadBanner =
+    authStatus === "authed" ? (
+      recordingStopFinalizing ? (
+        <FinalizingUploadBanner />
+      ) : pendingUploads.length > 0 ? (
+        <PendingUploadBanner
+          uploads={pendingUploads}
+          retryingUploadId={retryingUploadId}
+          retryingUploadStatus={retryingUploadStatus}
+          exportingUploadId={exportingUploadId}
+          dismissingUploadId={dismissingUploadId}
+          onExport={exportPendingUpload}
+          onRetry={retryPendingUpload}
+          onCancelRetry={cancelPendingUploadRetry}
+          onDismiss={dismissPendingUpload}
+          onOpenFolder={openPendingUploadFolder}
+          onConnectStorage={(upload) => openVideoStorageSetup(upload.serverUrl)}
+        />
+      ) : null
+    ) : null;
 
   async function copyRewindAgentPrompt() {
     try {
