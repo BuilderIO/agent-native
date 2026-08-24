@@ -156,7 +156,7 @@ export function PeopleSearchDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[440px] gap-0 p-0 top-[15vh] !translate-y-0">
+      <DialogContent className="sm:max-w-[440px] max-h-[calc(85vh-1rem)] gap-0 overflow-y-auto p-0 top-[15vh] !translate-y-0">
         <DialogHeader className="px-4 pt-4 pb-0">
           <DialogTitle className="text-base">
             {t("eventForm.people")}
