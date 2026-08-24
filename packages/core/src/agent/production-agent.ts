@@ -5084,6 +5084,10 @@ export async function runAgentLoop(opts: {
          *   • the engine's own first-event abort
          *     (`FIRST_STREAM_EVENT_TIMEOUT_MS`, 120s): a connection that opens
          *     and never speaks
+         *   • the engine's total-stream deadline (`STREAM_TOTAL_TIMEOUT_MS`,
+         *     14min): one model call end to end, which is what bounds a socket
+         *     that wedges MID-stream on the runtimes with no outer budget
+         *     (local dev and self-hosted resolve the soft timeout to 0)
          *   • the run-manager backstop, for the segments OUTSIDE the stream
          *     (`inFlightWorkDelta` suspends it while the stream is open)
          *   • the per-tool timeout, which bounds tool EXECUTION at the tool
@@ -10194,6 +10198,24 @@ export function createProductionAgentHandler(
         )
       : null;
 
+    // The budget this run ACTUALLY executes inside, resolved once and used by
+    // both `startRun` (which arms the chunk timer with it) and the agent loop
+    // (which clamps per-tool timeouts under it). Resolving it only inside
+    // `startRun` left the loop to re-derive a generic hosted/background
+    // ceiling, so an app-configured chunk shorter than that ceiling got
+    // per-tool timeouts longer than the chunk containing them — dead code, and
+    // the chunk boundary won instead. `resolveRunSoftTimeoutMs` clamps an
+    // already-resolved number to itself, so passing it back in is a no-op.
+    const resolvedRunSoftTimeoutMs = resolveRunSoftTimeoutMs(
+      selfChainBudget && !selfChainBudget.skipToBoundary
+        ? selfChainBudget.softTimeoutMs
+        : options.runSoftTimeoutMs,
+      {
+        useHostedDefault: true,
+        backgroundFunction: runsInBackgroundFunction,
+      },
+    );
+
     const startedRun = startRun(
       runId,
       effectiveThreadId,
@@ -10495,6 +10517,13 @@ export function createProductionAgentHandler(
           priorTurnInputTokens: turnInputTokens,
           finalResponseGuard: options.finalResponseGuard,
           finalResponseGuardRequestText: messageToPersist,
+          // The chunk this loop is running inside, so a per-tool timeout is
+          // clamped under the budget it can actually spend rather than under a
+          // re-derived generic ceiling. `0` (local dev) keeps the loop's own
+          // fallback.
+          ...(resolvedRunSoftTimeoutMs > 0
+            ? { runSoftTimeoutMs: resolvedRunSoftTimeoutMs }
+            : {}),
           ...(options.toolLimits ? { toolLimits: options.toolLimits } : {}),
           ...(threadId
             ? { threadId: effectiveThreadId, turnId: effectiveTurnId }
@@ -10664,10 +10693,7 @@ export function createProductionAgentHandler(
         // (durable-background worker, plain foreground POST) is unaffected:
         // `selfChainBudget` is `null` for them and this falls through to the
         // exact prior value.
-        softTimeoutMs:
-          selfChainBudget && !selfChainBudget.skipToBoundary
-            ? selfChainBudget.softTimeoutMs
-            : options.runSoftTimeoutMs,
+        softTimeoutMs: resolvedRunSoftTimeoutMs,
         useHostedSoftTimeoutDefault: true,
         // Lift the soft-timeout clamp to ~13min ONLY when this run is actually
         // executing inside a real Netlify `-background` function (15-min budget,

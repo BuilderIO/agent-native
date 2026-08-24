@@ -575,6 +575,14 @@ export async function runAgentLoopDirectWithSoftTimeout(
       let attemptOutcome: AgentLoopOutcome | undefined;
       const nextUsage = await runAgentLoop({
         ...stableOpts,
+        // THIS round's budget, not the invocation's. `stableOpts` carries the
+        // full `timeoutMs`, but round 2+ runs inside `roundTimeoutMs` — what
+        // is left after the earlier rounds spent wall-clock. Clamping a
+        // per-tool timeout against the full window puts it above the round
+        // that contains it, so the round timer wins and the per-tool timeout
+        // is unreachable — the same inversion `RUN_TOOL_TIMEOUT_HEADROOM_MS`
+        // exists to prevent, one scope down.
+        runSoftTimeoutMs: roundTimeoutMs,
         send,
         signal: controller.signal,
         onOutcome: (outcome) => {

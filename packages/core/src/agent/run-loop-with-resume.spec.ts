@@ -606,6 +606,52 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     }
   });
 
+  // `stableOpts` carries the FULL invocation budget, but round 2+ runs inside
+  // `roundTimeoutMs` — what is left after the earlier rounds spent wall-clock.
+  // Handing the loop the full window let it clamp a per-tool timeout above the
+  // round containing it, so the round timer won and the per-tool timeout was
+  // unreachable: the inversion `RUN_TOOL_TIMEOUT_HEADROOM_MS` exists to
+  // prevent, one scope down.
+  it("gives each resumed round the budget actually left, not the invocation's", async () => {
+    vi.useFakeTimers();
+    try {
+      const seenBudgets: (number | undefined)[] = [];
+      let attempts = 0;
+      mockRunAgentLoop.mockImplementation(async (opts) => {
+        attempts++;
+        seenBudgets.push(opts.runSoftTimeoutMs);
+        if (attempts === 1) {
+          // Round 1 spends two minutes of the invocation, then checkpoints.
+          vi.setSystemTime(Date.now() + 120_000);
+          opts.send({ type: "auto_continue", reason: "stream_ended" });
+        } else {
+          opts.send({ type: "text", text: "finished" });
+        }
+        return {
+          inputTokens: 1,
+          outputTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "test-model",
+        };
+      });
+
+      await runAgentLoopDirectWithSoftTimeout(
+        makeOpts(
+          [{ role: "user", content: [{ type: "text", text: "go" }] }],
+          new AbortController().signal,
+        ),
+        600_000,
+        { backgroundFunction: true },
+      );
+
+      expect(attempts).toBe(2);
+      expect(seenBudgets[0]).toBe(600_000);
+      expect(seenBudgets[1]).toBe(480_000);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it("lets a proven background delegated run finish after the foreground continuation cap", async () => {
     const sentEvents: AgentChatEvent[] = [];
     const outcomes: AgentLoopOutcome[] = [];

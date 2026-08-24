@@ -2078,7 +2078,7 @@ async function reapSingleStaleRun(
       })
       .then((res) => {
         const row = (res.rows as unknown as Array<Record<string, unknown>>)[0];
-        if (!row) return "";
+        if (!row) return "forensics=row_missing";
         const num = (v: unknown) => (v == null ? null : Number(v));
         return describeStaleReap({
           startedAt: num(row.started_at),
@@ -2092,8 +2092,13 @@ async function reapSingleStaleRun(
         });
       })
       // Best-effort throughout: a diagnostic that could fail a reap would be
-      // strictly worse than no diagnostic.
-      .catch(() => "");
+      // strictly worse than no diagnostic. But an empty string reads as "reaped
+      // with nothing worth saying" — the exact ambiguity these forensics exist
+      // to remove — so an unreadable row says so instead of going quiet.
+      .catch(
+        (err) =>
+          `forensics=unreadable ${(err instanceof Error ? err.message : String(err)).slice(0, 120)}`,
+      );
   }
 
   if (reaped && outcome && outcome.outcome !== "not_background") {
