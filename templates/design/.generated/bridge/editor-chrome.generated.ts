@@ -4301,6 +4301,44 @@ export const editorChromeBridgeScript: string = `"use strict";
         'input, textarea, select, [contenteditable], [role="textbox"], [data-agent-native-text-editing]'
       );
     }
+    var ALT_CODE_KEYS = {
+      KeyA: "a",
+      KeyB: "b",
+      KeyC: "c",
+      KeyD: "d",
+      KeyE: "e",
+      KeyF: "f",
+      KeyG: "g",
+      KeyH: "h",
+      KeyI: "i",
+      KeyJ: "j",
+      KeyK: "k",
+      KeyL: "l",
+      KeyM: "m",
+      KeyN: "n",
+      KeyO: "o",
+      KeyP: "p",
+      KeyQ: "q",
+      KeyR: "r",
+      KeyS: "s",
+      KeyT: "t",
+      KeyU: "u",
+      KeyV: "v",
+      KeyW: "w",
+      KeyX: "x",
+      KeyY: "y",
+      KeyZ: "z",
+      BracketRight: "]",
+      BracketLeft: "["
+    };
+    function normalizedHotkeyChar(e) {
+      if (e.altKey) {
+        var fromCode = ALT_CODE_KEYS[e.code];
+        if (fromCode) return fromCode;
+      }
+      var key = e.key;
+      return key && key.length === 1 ? key.toLowerCase() : key;
+    }
     function isShowShortcutsChord(e) {
       if (!(e.metaKey || e.ctrlKey) || !e.shiftKey || e.altKey) return false;
       return e.key === "?" || e.key === "/";
@@ -4311,7 +4349,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (activeTextEditEl || isEditorTypingTarget(e.target) || e.isComposing)
         return false;
       var key = e.key;
-      var normalized = key && key.length === 1 ? key.toLowerCase() : key;
+      var normalized = normalizedHotkeyChar(e);
       var primary = e.metaKey || e.ctrlKey;
       if (key === "Escape" || key === "Enter") return true;
       if (key === " " && e.code === "Space") {
@@ -4361,17 +4399,40 @@ export const editorChromeBridgeScript: string = `"use strict";
         e.shiftKey && (normalized === "h" || normalized === "l") || e.shiftKey && normalized === "r" || // Cmd/Ctrl+Alt+B detach instance / Cmd/Ctrl+Alt+K create component
         // (onDetachInstance / onCreateComponent). Gated on altKey so bare
         // Cmd+B is left alone — the host has no bare-primary binding for it.
-        e.altKey && (normalized === "b" || normalized === "k") || // Ctrl+Alt+H / Ctrl+Alt+T — distribute horizontal / tidy up
-        // (onDistributeSelection / onTidyUp). useDesignHotkeys.ts keeps these
-        // on LITERAL Control on every platform (never remapped to Cmd), so
-        // this mirrors that exact gate instead of the generic "primary" flag
-        // — a blanket "t" entry above would otherwise swallow the common
-        // Cmd+T "new tab" browser shortcut for a combo the host never binds.
-        e.ctrlKey && e.altKey && !e.metaKey && !e.shiftKey && (normalized === "h" || normalized === "t");
+        e.altKey && (normalized === "b" || normalized === "k") || // Ctrl+Alt+H/V/T distribute + tidy up: LITERAL Control on every
+        // platform, so gate on ctrlKey rather than \`primary\` — a blanket "t"
+        // above would swallow Cmd+T, a combo the host never binds.
+        e.ctrlKey && e.altKey && !e.metaKey && !e.shiftKey && ["h", "v", "t"].indexOf(normalized) !== -1;
       }
-      if (e.shiftKey && (e.code === "Digit1" || e.code === "Digit2" || key === "1" || key === "2"))
-        return true;
-      return !e.altKey && !e.shiftKey && ["v", "f", "r", "t", "p", "h", "c", "k"].indexOf(normalized) !== -1;
+      if (e.altKey) {
+        if (e.shiftKey) return false;
+        return ["a", "d", "w", "s", "h", "v"].indexOf(normalized) !== -1 || e.code === "Digit1" || e.code === "Digit2";
+      }
+      if (e.shiftKey) {
+        return ["a", "h", "v", "x", "c", "l", "y", "n", "=", "+"].indexOf(
+          normalized
+        ) !== -1 || e.code === "Digit1" || e.code === "Digit2" || key === "1" || key === "2";
+      }
+      return [
+        "v",
+        "f",
+        "r",
+        "o",
+        "l",
+        "t",
+        "p",
+        "h",
+        "k",
+        "c",
+        "i",
+        "n",
+        "\\\\",
+        "]",
+        "[",
+        "=",
+        "+",
+        "-"
+      ].indexOf(normalized) !== -1 || /^Digit[0-9]$/.test(e.code || "") || /^[0-9]$/.test(key || "");
     }
     function blurActiveTextEditor() {
       var active = document.activeElement;
@@ -5694,6 +5755,43 @@ export const editorChromeBridgeScript: string = `"use strict";
       nextRange.selectNodeContents(span);
       selection.addRange(nextRange);
       return true;
+    }
+    var TEXT_EDIT_FORMATS = {
+      b: {
+        property: "font-weight",
+        on: "700",
+        off: "400",
+        isOn: function(styles) {
+          var weight = styles.fontWeight;
+          return weight === "bold" || Number(weight) >= 600;
+        }
+      },
+      i: {
+        property: "font-style",
+        on: "italic",
+        off: "normal",
+        isOn: function(styles) {
+          return styles.fontStyle === "italic";
+        }
+      },
+      u: {
+        property: "text-decoration",
+        on: "underline",
+        off: "none",
+        isOn: function(styles) {
+          return (styles.textDecorationLine || "").indexOf("underline") !== -1;
+        }
+      }
+    };
+    function applyTextEditFormat(key) {
+      var spec = TEXT_EDIT_FORMATS[key];
+      if (!spec) return false;
+      var selection = window.getSelection ? window.getSelection() : null;
+      if (!selection || selection.rangeCount === 0) return false;
+      var node = selection.getRangeAt(0).commonAncestorContainer;
+      var el = node && node.nodeType === 1 ? node : node && node.parentElement;
+      var next = el && spec.isOn(window.getComputedStyle(el)) ? spec.off : spec.on;
+      return applyTextRangeStyle(spec.property, next);
     }
     function showTransformBadge(text, clientX, clientY) {
       var line = chromeLineScale();
@@ -9620,21 +9718,10 @@ export const editorChromeBridgeScript: string = `"use strict";
           postDesignHotkey(ev);
           return;
         }
-        if (metaOrCtrl && !ev.altKey && ev.key.toLowerCase() === "b") {
+        var formatKey = metaOrCtrl && !ev.altKey ? ev.key.toLowerCase() : "";
+        if (TEXT_EDIT_FORMATS[formatKey]) {
           ev.preventDefault();
-          document.execCommand("bold");
-          scheduleTextEditingChromeUpdate();
-          return;
-        }
-        if (metaOrCtrl && !ev.altKey && ev.key.toLowerCase() === "i") {
-          ev.preventDefault();
-          document.execCommand("italic");
-          scheduleTextEditingChromeUpdate();
-          return;
-        }
-        if (metaOrCtrl && !ev.altKey && ev.key.toLowerCase() === "u") {
-          ev.preventDefault();
-          document.execCommand("underline");
+          applyTextEditFormat(formatKey);
           scheduleTextEditingChromeUpdate();
           return;
         }

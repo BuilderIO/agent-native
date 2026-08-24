@@ -26,9 +26,11 @@ import {
   ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import { useApplePlatform } from "@/hooks/use-shortcut-label";
 import { cn } from "@/lib/utils";
 
 import { IconText } from "./inspector/design-icons";
+import { formatShortcutLabel } from "./keyboard-shortcuts";
 import type { CanvasLayerHitCandidate } from "./types";
 
 // LIVE-VERIFIED (real Figma, UI3) canvas context menus:
@@ -423,47 +425,67 @@ const DEFAULT_LABELS: CanvasContextMenuLabels = {
   toggleCommentsHide: "Hide comments",
 };
 
-const DEFAULT_SHORTCUTS: CanvasContextMenuShortcuts = {
+// Platform-agnostic bindings, rendered through formatShortcutLabel at draw
+// time: a Mac glyph written in here renders verbatim to Windows users.
+const DEFAULT_SHORTCUT_BINDINGS: Record<
+  keyof CanvasContextMenuShortcuts,
+  string
+> = {
   pasteHere: "",
-  selectAll: "⌘A",
-  zoomToFit: "⇧1",
-  zoomToSelection: "⇧2",
+  selectAll: "$mod+a",
+  zoomToFit: "shift+1",
+  zoomToSelection: "shift+2",
   zoomIn: "+",
   zoomOut: "-",
-  copy: "⌘C",
-  paste: "⌘V",
-  pasteOver: "⇧⌘V",
-  pasteToReplace: "⇧⌘R",
-  duplicate: "⌘D",
-  delete: "⌫",
-  bringForward: "⌘]",
+  copy: "$mod+c",
+  paste: "$mod+v",
+  pasteOver: "$mod+shift+v",
+  pasteToReplace: "$mod+shift+r",
+  duplicate: "$mod+d",
+  delete: "backspace",
+  bringForward: "$mod+]",
   bringToFront: "]",
-  sendBackward: "⌘[",
+  sendBackward: "$mod+[",
   sendToBack: "[",
-  group: "⌘G",
-  ungroup: "⇧⌘G",
-  frameSelection: "⌥⌘G",
-  addAutoLayout: "⇧A",
-  createComponent: "⌥⌘K",
+  group: "$mod+g",
+  ungroup: "$mod+shift+g",
+  frameSelection: "$mod+alt+g",
+  addAutoLayout: "shift+a",
+  createComponent: "$mod+alt+k",
   goToMainComponent: "",
   swapInstance: "",
-  detachInstance: "⌥⌘B",
-  rename: "⌘R",
-  toggleLock: "⇧⌘L",
-  toggleHide: "⇧⌘H",
-  copyProps: "⌥⌘C",
-  pasteProps: "⌥⌘V",
+  detachInstance: "$mod+alt+b",
+  rename: "$mod+r",
+  toggleLock: "$mod+shift+l",
+  toggleHide: "$mod+shift+h",
+  copyProps: "$mod+alt+c",
+  pasteProps: "$mod+alt+v",
   copyAnimation: "",
   pasteAnimation: "",
   copyAsCode: "",
   copyAsSvg: "",
-  copyAsPng: "⇧⌘C",
+  copyAsPng: "$mod+shift+c",
   rotateClockwise: "",
-  flipHorizontal: "⇧H",
-  flipVertical: "⇧V",
-  toggleUi: "⇧\\",
-  toggleComments: "⇧C",
+  flipHorizontal: "shift+h",
+  flipVertical: "shift+v",
+  toggleUi: "shift+\\",
+  toggleComments: "shift+c",
 };
+
+function defaultShortcutLabels(
+  applePlatform: boolean,
+): CanvasContextMenuShortcuts {
+  const labels = {} as CanvasContextMenuShortcuts;
+  for (const action of Object.keys(
+    DEFAULT_SHORTCUT_BINDINGS,
+  ) as (keyof CanvasContextMenuShortcuts)[]) {
+    labels[action] = formatShortcutLabel(
+      DEFAULT_SHORTCUT_BINDINGS[action],
+      applePlatform,
+    );
+  }
+  return labels;
+}
 
 type ActionCallbackMap = Partial<
   Record<CanvasContextMenuAction, CanvasContextMenuActionHandler>
@@ -511,7 +533,7 @@ export const CanvasContextMenu = forwardRef<
     canPasteOver = hasClipboard && selectedCount > 0,
     canPasteToReplace = hasClipboard && selectedCount > 0,
     canReorder = selectedCount > 0,
-    canGroup = selectedCount > 1,
+    canGroup = selectedCount > 0,
     canUngroup = false,
     canFrameSelection = selectedCount > 0,
     canAddAutoLayout = selectedCount > 0,
@@ -586,9 +608,10 @@ export const CanvasContextMenu = forwardRef<
     () => ({ ...DEFAULT_LABELS, ...labelsProp }),
     [labelsProp],
   );
+  const applePlatform = useApplePlatform();
   const shortcuts = useMemo(
-    () => ({ ...DEFAULT_SHORTCUTS, ...shortcutsProp }),
-    [shortcutsProp],
+    () => ({ ...defaultShortcutLabels(applePlatform), ...shortcutsProp }),
+    [applePlatform, shortcutsProp],
   );
   const hiddenActionSet = useMemo(
     () => new Set(hiddenActions),

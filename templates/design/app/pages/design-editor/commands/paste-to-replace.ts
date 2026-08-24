@@ -120,11 +120,27 @@ export function runPasteToReplace({
     targetNode,
   );
   if (!contentWithoutTarget) return;
+  // insertClonedHtmlLayers writes authored, parent-relative left/top, but
+  // targetPosition is iframe-document space. A board surface renders its
+  // content at ~4000,4000, so passing that through drops the copy thousands
+  // of pixels away from the layer it replaced. The target's own authored
+  // offsets are already in the space being written to; the parent-rect
+  // subtraction is the fallback for a target positioned by class or transform.
+  const authoredLeft = Number.parseFloat(targetNode.style.left ?? "");
+  const authoredTop = Number.parseFloat(targetNode.style.top ?? "");
+  const parentRect = selectedElement?.parentBoundingRect;
+  const position =
+    Number.isFinite(authoredLeft) && Number.isFinite(authoredTop)
+      ? { x: authoredLeft, y: authoredTop }
+      : {
+          x: targetPosition.x - (parentRect?.x ?? 0),
+          y: targetPosition.y - (parentRect?.y ?? 0),
+        };
   const result = insertClonedHtmlLayers(
     contentWithoutTarget,
     [entries[0]!.html],
     {
-      positions: [{ x: targetPosition.x, y: targetPosition.y }],
+      positions: [position],
       styleSnapshots: [entries[0]!.portableStyleSnapshot],
       managedStyleSnapshots: [entries[0]!.managedStyleSnapshot],
     },

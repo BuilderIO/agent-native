@@ -811,4 +811,61 @@ describe("useDesignHotkeys — minimize UI and show/hide comments", () => {
     expect(onCommentTool).toHaveBeenCalledTimes(1);
     expect(onToggleComments).not.toHaveBeenCalled();
   });
+  it("consumes Cmd+U even with no underline handler so the browser cannot open View Source", async () => {
+    let event: KeyboardEvent | undefined;
+    await withHotkeys({}, () => {
+      event = dispatchKey("u", { metaKey: true, code: "KeyU" });
+    });
+    expect(event?.defaultPrevented).toBe(true);
+  });
+
+  it("consumes Cmd+Shift+R when paste-to-replace is available", async () => {
+    const onPasteToReplace = vi.fn();
+    let event: KeyboardEvent | undefined;
+    await withHotkeys({ onPasteToReplace }, () => {
+      event = dispatchKey("r", { metaKey: true, shiftKey: true, code: "KeyR" });
+    });
+    expect(onPasteToReplace).toHaveBeenCalledTimes(1);
+    expect(event?.defaultPrevented).toBe(true);
+  });
+
+  it("leaves Cmd+Shift+R to the browser on a read-only design", async () => {
+    let event: KeyboardEvent | undefined;
+    await withHotkeys({}, () => {
+      event = dispatchKey("r", { metaKey: true, shiftKey: true, code: "KeyR" });
+    });
+    expect(event?.defaultPrevented).toBe(false);
+  });
+
+  it.each([
+    ["Cmd+D duplicate", "d", { metaKey: true }],
+    ["Cmd+G group", "g", { metaKey: true }],
+    ["Cmd+0 zoom reset", "0", { metaKey: true }],
+    ["Cmd+Alt+B detach instance", "b", { metaKey: true, altKey: true }],
+  ] as const)(
+    "consumes %s with no handler attached",
+    async (_name, key, modifiers) => {
+      let event: KeyboardEvent | undefined;
+      await withHotkeys({}, () => {
+        event = dispatchKey(key, { ...modifiers });
+      });
+      expect(event?.defaultPrevented).toBe(true);
+    },
+  );
+
+  it("leaves Escape to the running app when onEscape is withheld", async () => {
+    let event: KeyboardEvent | undefined;
+    await withHotkeys({}, () => {
+      event = dispatchKey("Escape");
+    });
+    expect(event?.defaultPrevented).toBe(false);
+  });
+
+  it("leaves Cmd+V alone with no paste handler so the native paste event still fires", async () => {
+    let event: KeyboardEvent | undefined;
+    await withHotkeys({}, () => {
+      event = dispatchKey("v", { metaKey: true, code: "KeyV" });
+    });
+    expect(event?.defaultPrevented).toBe(false);
+  });
 });

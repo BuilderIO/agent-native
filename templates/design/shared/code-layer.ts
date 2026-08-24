@@ -3613,9 +3613,7 @@ function applyWrapNodes(
   // Falls back to the previous flow/auto-layout wrapper when any child isn't
   // absolutely positioned (there is no meaningful bounding box to compute
   // without a layout pass).
-  const targetGeometry = !autoLayout
-    ? computeAbsoluteUnionBounds(targetElements)
-    : null;
+  const targetGeometry = computeAbsoluteUnionBounds(targetElements);
 
   // Collect the source fragments for all targets.
   const fragments = targetElements.map((el) => {
@@ -3646,8 +3644,14 @@ function applyWrapNodes(
     return frag;
   });
 
+  // An auto-layout wrapper takes the union's origin but no width/height, so
+  // it hugs its children the way Figma's does. Omitting the origin drops the
+  // wrapper at the parent's flow start and teleports the selection to 0,0.
+  const autoLayoutStyle = "display: flex; flex-direction: column; gap: 8px";
   const wrapperStyle = autoLayout
-    ? "display: flex; flex-direction: column; gap: 8px"
+    ? targetGeometry
+      ? `position: absolute; left: ${targetGeometry.left}px; top: ${targetGeometry.top}px; ${autoLayoutStyle}`
+      : autoLayoutStyle
     : targetGeometry
       ? `position: absolute; left: ${targetGeometry.left}px; top: ${targetGeometry.top}px; width: ${targetGeometry.width}px; height: ${targetGeometry.height}px;`
       : null;

@@ -243,6 +243,7 @@ import {
   hasEyeDropperSupport,
   type ExportSettingsValue,
 } from "@/components/design/inspector";
+import { formatShortcutLabel } from "@/components/design/keyboard-shortcuts";
 import { KeyboardShortcutsPanel } from "@/components/design/KeyboardShortcutsPanel";
 import {
   LayersPanel,
@@ -353,6 +354,7 @@ import {
   type DesignEditorCommand,
 } from "@/hooks/use-navigation-state";
 import { useQuestionFlow } from "@/hooks/use-question-flow";
+import { useApplePlatform } from "@/hooks/use-shortcut-label";
 import {
   isDesignHotkeyEditableTarget,
   isShowKeyboardShortcutsHotkey,
@@ -822,6 +824,9 @@ export default function DesignEditorRoute() {
 function DesignEditor() {
   // ── Session, route params, design identity ─────────────────────────────────
   const t = useT();
+  const applePlatform = useApplePlatform();
+  const shortcut = (binding: string) =>
+    formatShortcutLabel(binding, applePlatform);
   const { id } = useParams<{ id: string }>();
   const { session, isLoading: sessionLoading } = useSession();
   const isSignedIn = Boolean(session?.email);
@@ -16677,7 +16682,8 @@ function DesignEditor() {
     ],
   );
 
-  // canGroup: 2+ DOM-node layers selected in the active screen (not file rows).
+  // canGroup: 1+ DOM-node layers selected in the active screen (not file
+  // rows). Figma groups a single object too — the wrapper takes its bounds.
   const fileIdSet = new Set(files.map((f) => f.id));
   const selectedDomLayerIds = selectedLayerIds.filter(
     (id) => !id.startsWith("__") && !fileIdSet.has(id),
@@ -16698,7 +16704,7 @@ function DesignEditor() {
     canEditDesign &&
     viewMode === "single" &&
     Boolean(activeFile) &&
-    selectedDomLayerIds.length >= 2 &&
+    selectedDomLayerIds.length >= 1 &&
     selectedLayersUseCompatibleSourceBackend;
   // canUngroup: one or more DOM-node layers selected (L16: handleUngroupSelection
   // loops all selected containers), and EVERY selected layer must be a
@@ -18346,12 +18352,12 @@ function DesignEditor() {
           <DropdownMenuSubContent className="design-editor-app-menu-content w-52">
             <DropdownMenuItem onClick={handleUndo} disabled={!canUndo}>
               {t("designEditor.undo")}
-              <DropdownMenuShortcut>⌘Z</DropdownMenuShortcut>
+              <DropdownMenuShortcut>{shortcut("$mod+z")}</DropdownMenuShortcut>
             </DropdownMenuItem>
             <DropdownMenuItem onClick={handleRedo} disabled={!canRedo}>
               {t("designEditor.redo")}
               <DropdownMenuShortcut>
-                {"⇧⌘Z" /* i18n-ignore keyboard shortcut */}
+                {shortcut("$mod+shift+z")}
               </DropdownMenuShortcut>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
@@ -18360,7 +18366,7 @@ function DesignEditor() {
               disabled={!activeFile}
             >
               {"Duplicate" /* i18n-ignore design menu command */}
-              <DropdownMenuShortcut>⌘D</DropdownMenuShortcut>
+              <DropdownMenuShortcut>{shortcut("$mod+d")}</DropdownMenuShortcut>
             </DropdownMenuItem>
             <DropdownMenuItem
               onClick={handleDeleteSelection}
@@ -18407,7 +18413,7 @@ function DesignEditor() {
           <DropdownMenuShortcut>
             {/* Control, not Command: ⌘⇧? is the macOS Help-menu shortcut and
                 the browser consumes it before the page ever sees it. */}
-            {"⌃⇧?" /* i18n-ignore keyboard shortcut */}
+            {shortcut("ctrl+shift+?")}
           </DropdownMenuShortcut>
         </DropdownMenuItem>
         {isSignedIn && (
@@ -18523,7 +18529,7 @@ function DesignEditor() {
         >
           <span className="flex-1">{"Zoom in" /* i18n-ignore */}</span>
           <DropdownMenuShortcut className="tracking-normal">
-            {"Cmd Plus" /* i18n-ignore shortcut key label */}
+            {shortcut("$mod+=")}
           </DropdownMenuShortcut>
         </DropdownMenuItem>
         <DropdownMenuItem
@@ -18532,7 +18538,7 @@ function DesignEditor() {
         >
           <span className="flex-1">{"Zoom out" /* i18n-ignore */}</span>
           <DropdownMenuShortcut className="tracking-normal">
-            {"Cmd Minus" /* i18n-ignore shortcut key label */}
+            {shortcut("$mod+-")}
           </DropdownMenuShortcut>
         </DropdownMenuItem>
         <DropdownMenuItem
@@ -18541,7 +18547,7 @@ function DesignEditor() {
         >
           <span className="flex-1">{"Zoom to fit" /* i18n-ignore */}</span>
           <DropdownMenuShortcut className="tracking-normal">
-            ⇧1
+            {shortcut("shift+1")}
           </DropdownMenuShortcut>
         </DropdownMenuItem>
         {[50, 100, 200].map((preset) => (
@@ -18565,7 +18571,7 @@ function DesignEditor() {
             </span>
             {preset === 100 ? (
               <DropdownMenuShortcut className="tracking-normal">
-                ⌘0
+                {shortcut("$mod+0")}
               </DropdownMenuShortcut>
             ) : null}
           </DropdownMenuItem>
