@@ -26,13 +26,15 @@
  *     identity hub). When *neither* is set the feature is simply inactive —
  *     `fetchOrgApps()` returns `[]` and nothing changes anywhere (asserted by
  *     a test). This makes the whole feature opt-in and back-compat.
- *   - On ANY error (no env, unreachable, 401, non-2xx, bad JSON, no signed
- *     token) `fetchOrgApps()` returns `[]` and NEVER throws — the cross-app
- *     verbs degrade silently to their exact current local-only behavior.
+ *   - `fetchOrgAppsResult()` preserves directory availability for callers
+ *     that cannot mistake a failed lookup for an empty directory.
+ *     `fetchOrgApps()` remains the best-effort compatibility wrapper: on ANY
+ *     error it returns `[]` and NEVER throws, so cross-app verbs still degrade
+ *     silently to their exact current local-only behavior.
  *   - A short in-memory TTL cache (default 60s) keyed by directory origin and
  *     caller identity/org scope so sibling app lists never cross tenants.
- *     Empty authenticated results are cached too (with a shorter TTL) so a
- *     transient failure doesn't hammer the directory on every call.
+ *     Only successful authenticated responses are cached; unavailable results
+ *     remain immediately retryable.
  *   - No secrets are ever logged.
  *
  * Bundled alongside `mountMCP` (no Node-only top-level imports). The A2A
@@ -57,13 +59,24 @@ export interface OrgApp {
 
 /** Default cache TTL for a successful directory fetch. */
 const SUCCESS_TTL_MS = 60_000;
-/** Shorter TTL for an empty/failed fetch so transient errors recover fast. */
-const EMPTY_TTL_MS = 10_000;
-
 interface CacheEntry {
   apps: OrgApp[];
   expiresAt: number;
 }
+
+export type OrgDirectoryUnavailableReason =
+  | "not-configured"
+  | "authentication"
+  | "authorization"
+  | "timeout"
+  | "network"
+  | "invalid-response"
+  | "server-error"
+  | "http-error";
+
+export type OrgDirectoryFetchResult =
+  | { status: "available"; apps: OrgApp[] }
+  | { status: "unavailable"; reason: OrgDirectoryUnavailableReason };
 
 /** In-memory cache keyed by resolved directory origin (+ identity scope). */
 const cache = new Map<string, CacheEntry>();
@@ -184,17 +197,20 @@ function serviceScopedCacheKey(
  *   server keeps legacy self-filtering unless this explicit signal is present.
  * @param opts.env         Injectable env (tests). Defaults to `process.env`.
  */
-export async function fetchOrgApps(opts?: {
+export interface FetchOrgAppsOptions {
   selfId?: string;
   selfOrigin?: string;
   includeDirectoryApp?: boolean;
   serviceOrgId?: string;
   env?: NodeJS.ProcessEnv;
-}): Promise<OrgApp[]> {
+}
+
+export async function fetchOrgAppsResult(
+  opts?: FetchOrgAppsOptions,
+): Promise<OrgDirectoryFetchResult> {
   const env = opts?.env ?? process.env;
   const origin = resolveOrgDirectoryOrigin(env);
-  // Feature inactive: no directory configured ⇒ behave exactly as before.
-  if (!origin) return [];
+  if (!origin) return { status: "unavailable", reason: "not-configured" };
 
   const selfId = (opts?.selfId ?? "").trim().toLowerCase();
   const selfOrigin = (opts?.selfOrigin ?? "").trim();
@@ -207,8 +223,6 @@ export async function fetchOrgApps(opts?: {
     });
 
   let cacheKey: string | null = null;
-  let apps: OrgApp[] = [];
-  let ttl = EMPTY_TTL_MS;
   const serviceOrgId = opts?.serviceOrgId?.trim();
   if (serviceOrgId) {
     const serviceCacheKey = serviceScopedCacheKey(
@@ -218,7 +232,7 @@ export async function fetchOrgApps(opts?: {
     );
     const cached = cache.get(serviceCacheKey);
     if (cached && cached.expiresAt > Date.now()) {
-      return stripSelf(cached.apps);
+      return { status: "available", apps: stripSelf(cached.apps) };
     }
     cacheKey = serviceCacheKey;
   }
@@ -228,9 +242,7 @@ export async function fetchOrgApps(opts?: {
       : await resolveOrgDirectoryCallerAuth();
     const attempts = authTokenAttempts(auth);
     if (attempts.length === 0) {
-      // No signed token available (no A2A secret / no caller identity) — the
-      // directory requires the org bearer, so degrade silently to local-only.
-      return [];
+      return { status: "unavailable", reason: "authentication" };
     }
 
     if (!cacheKey) {
@@ -238,7 +250,7 @@ export async function fetchOrgApps(opts?: {
       cacheKey = scopedCacheKey(origin, auth, opts?.includeDirectoryApp);
       const cached = cache.get(cacheKey);
       if (cached && cached.expiresAt > now) {
-        return stripSelf(cached.apps);
+        return { status: "available", apps: stripSelf(cached.apps) };
       }
     }
 
@@ -256,27 +268,50 @@ export async function fetchOrgApps(opts?: {
       });
       if (res.ok) {
         const json = (await res.json()) as { apps?: unknown };
-        const list = Array.isArray(json?.apps) ? json.apps : [];
-        apps = list.map(normalizeApp).filter((a): a is OrgApp => a !== null);
-        ttl = SUCCESS_TTL_MS;
-        break;
+        if (!Array.isArray(json?.apps))
+          return { status: "unavailable", reason: "invalid-response" };
+        const apps = json.apps
+          .map(normalizeApp)
+          .filter((a): a is OrgApp => a !== null);
+        if (cacheKey) {
+          cache.set(cacheKey, {
+            apps,
+            expiresAt: Date.now() + SUCCESS_TTL_MS,
+          });
+        }
+        return { status: "available", apps: stripSelf(apps) };
       }
-      if (res.status !== 401 || i >= attempts.length - 1) break;
+      if (res.status === 401 && i < attempts.length - 1) continue;
+      return {
+        status: "unavailable",
+        reason:
+          res.status === 401 || res.status === 403
+            ? "authorization"
+            : res.status === 429 || res.status >= 500
+              ? "server-error"
+              : "http-error",
+      };
     }
-    // Non-2xx ⇒ leave apps=[] with the short EMPTY_TTL (silent degrade).
-  } catch {
-    // Unreachable / parse error / abort ⇒ silent degrade to local-only.
-    apps = [];
-    ttl = EMPTY_TTL_MS;
+  } catch (error) {
+    return {
+      status: "unavailable",
+      reason:
+        error instanceof Error &&
+        (error.name === "TimeoutError" || error.name === "AbortError")
+          ? "timeout"
+          : error instanceof SyntaxError
+            ? "invalid-response"
+            : "network",
+    };
   }
+  return { status: "unavailable", reason: "authorization" };
+}
 
-  if (cacheKey) {
-    cache.set(cacheKey, {
-      apps,
-      expiresAt: Date.now() + ttl,
-    });
-  }
-  return stripSelf(apps);
+export async function fetchOrgApps(
+  opts?: FetchOrgAppsOptions,
+): Promise<OrgApp[]> {
+  const result = await fetchOrgAppsResult(opts);
+  return result.status === "available" ? result.apps : [];
 }
 
 /** Test-only: clear the in-memory cache between cases. */

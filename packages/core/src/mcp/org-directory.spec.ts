@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   _resetOrgDirectoryCache,
   fetchOrgApps,
+  fetchOrgAppsResult,
   resolveOrgDirectoryOrigin,
 } from "./org-directory.js";
 
@@ -108,6 +109,13 @@ describe("fetchOrgApps", () => {
     const apps = await fetchOrgApps({ selfId: "mail" });
     expect(apps).toEqual([]);
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("distinguishes an unconfigured strict directory lookup", async () => {
+    await expect(fetchOrgAppsResult({ selfId: "mail" })).resolves.toEqual({
+      status: "unavailable",
+      reason: "not-configured",
+    });
   });
 
   it("fetches the directory and normalizes the app list", async () => {
@@ -235,6 +243,25 @@ describe("fetchOrgApps", () => {
     await expect(fetchOrgApps({ selfId: "mail" })).resolves.toEqual([]);
   });
 
+  it.each([
+    [404, "http-error"],
+    [429, "server-error"],
+    [503, "server-error"],
+  ] as const)(
+    "classifies strict directory HTTP %s as %s",
+    async (status, reason) => {
+      process.env.AGENT_NATIVE_ORG_DIRECTORY_URL = "https://dispatch.acme.com";
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => new Response("unavailable", { status })),
+      );
+      await expect(fetchOrgAppsResult({ selfId: "mail" })).resolves.toEqual({
+        status: "unavailable",
+        reason,
+      });
+    },
+  );
+
   it("retries the org directory with fallback bearer tokens on auth rejection", async () => {
     process.env.AGENT_NATIVE_ORG_DIRECTORY_URL = "https://dispatch.acme.com";
     const mod = await import("../a2a/caller-auth.js");
@@ -351,6 +378,29 @@ describe("fetchOrgApps", () => {
     await expect(fetchOrgApps({ selfId: "mail" })).resolves.toEqual([]);
   });
 
+  it("reports a strict directory transport failure without caching it", async () => {
+    process.env.AGENT_NATIVE_ORG_DIRECTORY_URL = "https://dispatch.acme.com";
+    const fetchSpy = vi
+      .fn()
+      .mockRejectedValueOnce(
+        Object.assign(new Error("private timeout"), { name: "TimeoutError" }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ apps: [] }), { status: 200 }),
+      );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(fetchOrgAppsResult({ selfId: "mail" })).resolves.toEqual({
+      status: "unavailable",
+      reason: "timeout",
+    });
+    await expect(fetchOrgAppsResult({ selfId: "mail" })).resolves.toEqual({
+      status: "available",
+      apps: [],
+    });
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+
   it("returns [] silently on bad JSON (no throw)", async () => {
     process.env.AGENT_NATIVE_ORG_DIRECTORY_URL = "https://dispatch.acme.com";
     vi.stubGlobal(
@@ -358,6 +408,18 @@ describe("fetchOrgApps", () => {
       vi.fn(async () => new Response("<<not json>>", { status: 200 })),
     );
     await expect(fetchOrgApps({ selfId: "mail" })).resolves.toEqual([]);
+  });
+
+  it("distinguishes an invalid strict directory response", async () => {
+    process.env.AGENT_NATIVE_ORG_DIRECTORY_URL = "https://dispatch.acme.com";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ nope: true }))),
+    );
+    await expect(fetchOrgAppsResult({ selfId: "mail" })).resolves.toEqual({
+      status: "unavailable",
+      reason: "invalid-response",
+    });
   });
 
   it("caches a successful fetch (not re-fetched on every call)", async () => {
