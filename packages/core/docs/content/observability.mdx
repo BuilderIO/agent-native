@@ -297,11 +297,11 @@ All endpoints support `?since=N` (ms timestamp) and `?limit=N` query params.
 When `POSTHOG_API_KEY` is set, every instrumented run is mirrored to PostHog's
 LLM analytics as a full trace tree:
 
-| Event            | Emitted per       | Carries                                                       |
-| ---------------- | ----------------- | ------------------------------------------------------------- |
-| `$ai_trace`      | agent run         | Run name, totals, terminal state, run-level failure           |
-| `$ai_generation` | model round-trip  | Prompt, answer, model, tokens, cost, latency, stop reason     |
-| `$ai_span`       | tool call         | Tool name, duration, failure class                            |
+| Event            | Emitted per      | Carries                                                   |
+| ---------------- | ---------------- | --------------------------------------------------------- |
+| `$ai_trace`      | agent run        | Run name, totals, terminal state, run-level failure       |
+| `$ai_generation` | model round-trip | Prompt, answer, model, tokens, cost, latency, stop reason |
+| `$ai_span`       | tool call        | Tool name, duration, failure class                        |
 
 Nodes share the run id as `$ai_trace_id`, so PostHog renders one tree per run,
 with each tool span under the generation that requested it. A run's tool
