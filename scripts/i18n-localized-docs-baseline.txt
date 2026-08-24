@@ -11,6 +11,9 @@ packages/core/docs/content/locales/ar-SA/progress.mdx|Ingest 1M rows
 packages/core/docs/content/locales/ar-SA/progress.mdx|Triage 128 unread emails
 packages/core/docs/content/locales/ar-SA/progress.mdx|Writing to target DB
 packages/core/docs/content/locales/ar-SA/recurring-jobs.mdx|, recompute
+packages/core/docs/content/locales/ar-SA/template-calendar-developers.mdx|confirmed | cancelled
+packages/core/docs/content/locales/ar-SA/template-calendar-developers.mdx|none | google_meet | zoom | custom
+packages/core/docs/content/locales/ar-SA/template-calendar-developers.mdx|viewer | editor | admin
 packages/core/docs/content/locales/ar-SA/template-content.mdx|At a glance · owner, window, status
 packages/core/docs/content/locales/ar-SA/template-content.mdx|Engineering wiki
 packages/core/docs/content/locales/ar-SA/template-content.mdx|Launch goals
@@ -40,6 +43,7 @@ packages/core/docs/content/locales/de-DE/progress.mdx|Ingest 1M rows
 packages/core/docs/content/locales/de-DE/progress.mdx|Triage 128 unread emails
 packages/core/docs/content/locales/de-DE/progress.mdx|Writing to target DB
 packages/core/docs/content/locales/de-DE/recurring-jobs.mdx|, recompute
+packages/core/docs/content/locales/de-DE/template-calendar-developers.mdx|none | google_meet | zoom | custom
 packages/core/docs/content/locales/de-DE/template-content.mdx|At a glance · owner, window, status
 packages/core/docs/content/locales/de-DE/template-content.mdx|Engineering wiki
 packages/core/docs/content/locales/de-DE/template-content.mdx|Launch goals
@@ -65,6 +69,9 @@ packages/core/docs/content/locales/es-ES/progress.mdx|Ingest 1M rows
 packages/core/docs/content/locales/es-ES/progress.mdx|Triage 128 unread emails
 packages/core/docs/content/locales/es-ES/progress.mdx|Writing to target DB
 packages/core/docs/content/locales/es-ES/recurring-jobs.mdx|, recompute
+packages/core/docs/content/locales/es-ES/template-calendar-developers.mdx|confirmed | cancelled
+packages/core/docs/content/locales/es-ES/template-calendar-developers.mdx|none | google_meet | zoom | custom
+packages/core/docs/content/locales/es-ES/template-calendar-developers.mdx|viewer | editor | admin
 packages/core/docs/content/locales/es-ES/template-content.mdx|At a glance · owner, window, status
 packages/core/docs/content/locales/es-ES/template-content.mdx|Engineering wiki
 packages/core/docs/content/locales/es-ES/template-content.mdx|Launch goals
@@ -91,6 +98,9 @@ packages/core/docs/content/locales/fr-FR/progress.mdx|Ingest 1M rows
 packages/core/docs/content/locales/fr-FR/progress.mdx|Triage 128 unread emails
 packages/core/docs/content/locales/fr-FR/progress.mdx|Writing to target DB
 packages/core/docs/content/locales/fr-FR/recurring-jobs.mdx|, recompute
+packages/core/docs/content/locales/fr-FR/template-calendar-developers.mdx|confirmed | cancelled
+packages/core/docs/content/locales/fr-FR/template-calendar-developers.mdx|none | google_meet | zoom | custom
+packages/core/docs/content/locales/fr-FR/template-calendar-developers.mdx|viewer | editor | admin
 packages/core/docs/content/locales/fr-FR/template-content.mdx|At a glance · owner, window, status
 packages/core/docs/content/locales/fr-FR/template-content.mdx|Engineering wiki
 packages/core/docs/content/locales/fr-FR/template-content.mdx|Launch goals
@@ -134,6 +144,9 @@ packages/core/docs/content/locales/hi-IN/progress.mdx|Ingest 1M rows
 packages/core/docs/content/locales/hi-IN/progress.mdx|Triage 128 unread emails
 packages/core/docs/content/locales/hi-IN/progress.mdx|Writing to target DB
 packages/core/docs/content/locales/hi-IN/recurring-jobs.mdx|, recompute
+packages/core/docs/content/locales/hi-IN/template-calendar-developers.mdx|confirmed | cancelled
+packages/core/docs/content/locales/hi-IN/template-calendar-developers.mdx|none | google_meet | zoom | custom
+packages/core/docs/content/locales/hi-IN/template-calendar-developers.mdx|viewer | editor | admin
 packages/core/docs/content/locales/hi-IN/template-content.mdx|At a glance · owner, window, status
 packages/core/docs/content/locales/hi-IN/template-content.mdx|Engineering wiki
 packages/core/docs/content/locales/hi-IN/template-content.mdx|Launch goals
@@ -163,6 +176,9 @@ packages/core/docs/content/locales/ja-JP/progress.mdx|Ingest 1M rows
 packages/core/docs/content/locales/ja-JP/progress.mdx|Triage 128 unread emails
 packages/core/docs/content/locales/ja-JP/progress.mdx|Writing to target DB
 packages/core/docs/content/locales/ja-JP/recurring-jobs.mdx|, recompute
+packages/core/docs/content/locales/ja-JP/template-calendar-developers.mdx|confirmed | cancelled
+packages/core/docs/content/locales/ja-JP/template-calendar-developers.mdx|none | google_meet | zoom | custom
+packages/core/docs/content/locales/ja-JP/template-calendar-developers.mdx|viewer | editor | admin
 packages/core/docs/content/locales/ja-JP/template-content.mdx|At a glance · owner, window, status
 packages/core/docs/content/locales/ja-JP/template-content.mdx|Engineering wiki
 packages/core/docs/content/locales/ja-JP/template-content.mdx|Launch goals
@@ -190,6 +206,9 @@ packages/core/docs/content/locales/ko-KR/progress.mdx|Ingest 1M rows
 packages/core/docs/content/locales/ko-KR/progress.mdx|Triage 128 unread emails
 packages/core/docs/content/locales/ko-KR/progress.mdx|Writing to target DB
 packages/core/docs/content/locales/ko-KR/recurring-jobs.mdx|, recompute
+packages/core/docs/content/locales/ko-KR/template-calendar-developers.mdx|confirmed | cancelled
+packages/core/docs/content/locales/ko-KR/template-calendar-developers.mdx|none | google_meet | zoom | custom
+packages/core/docs/content/locales/ko-KR/template-calendar-developers.mdx|viewer | editor | admin
 packages/core/docs/content/locales/ko-KR/template-content.mdx|At a glance · owner, window, status
 packages/core/docs/content/locales/ko-KR/template-content.mdx|Engineering wiki
 packages/core/docs/content/locales/ko-KR/template-content.mdx|Launch goals
@@ -218,6 +237,9 @@ packages/core/docs/content/locales/pt-BR/progress.mdx|Ingest 1M rows
 packages/core/docs/content/locales/pt-BR/progress.mdx|Triage 128 unread emails
 packages/core/docs/content/locales/pt-BR/progress.mdx|Writing to target DB
 packages/core/docs/content/locales/pt-BR/recurring-jobs.mdx|, recompute
+packages/core/docs/content/locales/pt-BR/template-calendar-developers.mdx|confirmed | cancelled
+packages/core/docs/content/locales/pt-BR/template-calendar-developers.mdx|none | google_meet | zoom | custom
+packages/core/docs/content/locales/pt-BR/template-calendar-developers.mdx|viewer | editor | admin
 packages/core/docs/content/locales/pt-BR/template-content.mdx|At a glance · owner, window, status
 packages/core/docs/content/locales/pt-BR/template-content.mdx|Engineering wiki
 packages/core/docs/content/locales/pt-BR/template-content.mdx|Launch goals
@@ -248,6 +270,9 @@ packages/core/docs/content/locales/zh-CN/progress.mdx|Ingest 1M rows
 packages/core/docs/content/locales/zh-CN/progress.mdx|Triage 128 unread emails
 packages/core/docs/content/locales/zh-CN/progress.mdx|Writing to target DB
 packages/core/docs/content/locales/zh-CN/recurring-jobs.mdx|, recompute
+packages/core/docs/content/locales/zh-CN/template-calendar-developers.mdx|confirmed | cancelled
+packages/core/docs/content/locales/zh-CN/template-calendar-developers.mdx|none | google_meet | zoom | custom
+packages/core/docs/content/locales/zh-CN/template-calendar-developers.mdx|viewer | editor | admin
 packages/core/docs/content/locales/zh-CN/template-content.mdx|At a glance · owner, window, status
 packages/core/docs/content/locales/zh-CN/template-content.mdx|Engineering wiki
 packages/core/docs/content/locales/zh-CN/template-content.mdx|Launch goals
@@ -278,6 +303,9 @@ packages/core/docs/content/locales/zh-TW/progress.mdx|Ingest 1M rows
 packages/core/docs/content/locales/zh-TW/progress.mdx|Triage 128 unread emails
 packages/core/docs/content/locales/zh-TW/progress.mdx|Writing to target DB
 packages/core/docs/content/locales/zh-TW/recurring-jobs.mdx|, recompute
+packages/core/docs/content/locales/zh-TW/template-calendar-developers.mdx|confirmed | cancelled
+packages/core/docs/content/locales/zh-TW/template-calendar-developers.mdx|none | google_meet | zoom | custom
+packages/core/docs/content/locales/zh-TW/template-calendar-developers.mdx|viewer | editor | admin
 packages/core/docs/content/locales/zh-TW/template-content.mdx|At a glance · owner, window, status
 packages/core/docs/content/locales/zh-TW/template-content.mdx|Engineering wiki
 packages/core/docs/content/locales/zh-TW/template-content.mdx|Launch goals

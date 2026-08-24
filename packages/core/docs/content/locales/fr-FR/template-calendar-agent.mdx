@@ -1,0 +1,170 @@
+---
+title: "Calendrier : Parler à l'agent"
+description: "Ce que l'agent voit quand vous êtes dans Calendrier, les invites organisées par tâche, et quand il fait appel à l'API brute de Google Calendar plutôt qu'à une action prédéfinie."
+---
+
+# Parler à l'agent
+
+Tout dans Calendrier est accessible à l'agent via les mêmes actions que celles utilisées par l'interface, si bien que tout ce que vous pouvez cliquer, vous pouvez aussi le demander en langage courant. Cette page couvre comment l'agent voit votre écran, des invites utiles par tâche, et où il dépasse les actions intégrées. Consultez [Calendrier](/docs/template-calendar) pour la vue d'ensemble.
+
+## Comment l'agent voit votre écran
+
+L'agent connaît toujours la vue actuelle du calendrier, la plage de dates que vous regardez, et l'événement que vous avez sélectionné. C'est pourquoi « reprogramme ceci » ou « qui est sur cet appel » se résout correctement sans que vous ayez à nommer l'événement. L'agent sait déjà à quoi « ceci » fait référence.
+
+## Invites utiles par tâche
+
+Chaque invite ci-dessous devient une véritable action sur votre calendrier réel, le
+même que celui que l'interface lit et écrit. Voici un exemple détaillé :
+
+<Comparison>
+
+### :blue: Vous demandez
+
+« Suis-je libre jeudi après-midi ? »
+
+### :green: Ce qui se passe
+
+C'est une question en lecture seule. L'agent vérifie votre véritable calendrier et vos
+règles de disponibilité, puis répond directement dans le chat, par exemple « Vous êtes libre
+de 13h à 16h. » Rien sur votre écran ne change, puisque rien n'a été créé ou
+déplacé.
+
+</Comparison>
+
+<Cards columns={2}>
+
+### Planifier
+
+- **« Planifie un appel de 30 minutes avec Alex demain à 14h. »** L'événement
+  apparaît sur votre calendrier au moment où il est créé. Aucune boîte de dialogue nécessaire.
+- **« Crée une réunion Zoom avec l'équipe design jeudi à 10h. »** Comme
+  ci-dessus, et un lien Zoom est joint automatiquement.
+- **« Mets-moi absent du bureau vendredi. »** Un événement d'absence sur toute la journée
+  apparaît sur votre calendrier immédiatement.
+
+### Trouver un créneau
+
+- **« Trouve un créneau d'une heure la semaine prochaine avec Sam et Priya et réserve
+  'Planification' sur celui-ci. »** L'agent vérifie la disponibilité réelle de tout le monde, puis
+  le nouvel événement apparaît sur votre calendrier en direct. Aucune boîte de dialogue nécessaire.
+
+### Gérer les événements
+
+_Avec un événement sélectionné, « ceci » et « cette réunion » se résolvent d'eux-mêmes._
+
+- **« Déplace cet événement à vendredi à 14h. »** L'événement se déplace sur la
+  grille de votre calendrier en direct.
+- **« Ajoute Jordan à cette réunion comme invité facultatif. »** Jordan apparaît dans
+  la liste des participants immédiatement.
+- **« Accepte cette invitation. » / « Décline avec une note disant que je suis absent ce
+  jour-là. »** Votre réponse se met à jour sur l'événement immédiatement.
+- **« Supprime cette réunion, juste pour moi. Je ne suis pas l'organisateur. »** La
+  réunion disparaît de votre calendrier. Les autres participants la voient toujours sur le leur.
+
+### Liens de réservation
+
+- **« Crée un lien de réservation d'intro de 15 minutes avec un champ de nom. »** Le
+  nouveau type de réunion apparaît dans votre liste de liens de réservation en direct.
+- **« Ajoute Brent comme co-hôte requis sur mon lien 'Steve + Brent'. »** Brent
+  apparaît comme co-hôte immédiatement, et les futurs créneaux ne s'ouvrent que quand vous êtes
+  tous les deux libres.
+- **« Mets en pause mon lien 'démo de 30 min'. »** Le lien s'affiche comme en pause
+  immédiatement et arrête d'accepter de nouvelles réservations.
+- **« Montre-moi les réservations de cette semaine. »** Une question en lecture seule. L'agent
+  répond dans le chat avec la liste.
+
+### Personnes et vue
+
+- « Qui est jane chez acme.com ? »
+- « Ajoute le calendrier de Priya à ma vue. »
+- « Passe en vue jour et va au lundi prochain. »
+
+</Cards>
+
+## Liens de réservation en groupe et avec co-hôte
+
+Quand un lien de réservation a des co-hôtes requis, l'agent (et l'interface) ne propose un créneau que quand le propriétaire _et_ chaque co-hôte sont libres. Il vérifie tous leurs calendriers, pas seulement celui du propriétaire. Une fois que quelqu'un réserve, l'agent invite chaque co-hôte à l'événement Google Calendar créé aux côtés du visiteur.
+
+<Diagram id="doc-block-calendar5" title="Comment se déroule une demande de planification" summary="Que vous cliquiez dans le calendrier ou demandiez à l'agent, les mêmes actions sont lues en direct depuis Google Calendar et réécrites dans la même vue. Zoom et la recherche de personnes s'intègrent au même flux.">
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      Vous cliquez<br /><small class="diagram-muted"
+        >glisser, barre d'outils, raccourcis</small
+      >
+    </div>
+    <div class="diagram-node">
+      Vous demandez à l'agent<br /><small class="diagram-muted"
+        >"trouver un créneau d'une heure la semaine prochaine"</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Actions</span
+    ><small class="diagram-muted"
+      >list-events · find-a-time · search-people · create-event</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box">
+      Google Calendar<br /><small class="diagram-muted"
+        >en direct, multi-comptes</small
+      >
+    </div>
+    <div class="diagram-box">
+      Zoom<br /><small class="diagram-muted">réunion créée à la réservation</small>
+    </div>
+    <div class="diagram-box">
+      SQL<br /><small class="diagram-muted">réservations · disponibilité</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&#8635;</div>
+  <div class="diagram-box">La vue calendrier se met à jour en direct</div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+## Quand l'agent fait appel directement à l'API Google Calendar
+
+Les actions intégrées (`list-events`, `search-events`, `find-a-time`, et ainsi de suite) couvrent la planification du quotidien. Certaines demandes nécessitent un point de terminaison, un filtre ou un mode de pagination Google Calendar précis que les actions n'exposent pas, comme balayer chaque événement sur six mois pour un rapport, ou une requête de liste de calendriers inhabituelle. Pour cela, l'agent peut appeler directement la véritable API Google Calendar plutôt que de forcer la réponse à passer par une action trop étroite. Pour les grands balayages, il met en scène les résultats dans un jeu de données provisoire et travaille à partir d'un résumé compact plutôt que de déverser des milliers d'événements dans la conversation. Vous le remarquerez généralement sous la forme de « laisse-moi récupérer ça directement depuis Google Calendar » pour les demandes qui vont au-delà d'une question d'horaire normale.
+
+## Extensions
+
+Calendrier prend en charge les Extensions : de petits widgets sandboxés que vous ou l'agent pouvez créer et déposer dans l'application. Le panneau de détail d'événement expose un emplacement en bas où une extension peut s'afficher, avec l'id de l'événement, son titre, ses heures, ses fuseaux horaires, son lieu, ses participants et son compte déjà disponibles pour elle. Consultez [Extensions](/docs/extensions) pour savoir comment en créer une.
+
+## Et ensuite
+
+- [**Calendrier**](/docs/template-calendar) — la vue d'ensemble et les étapes de démarrage
+- [**Fonctionnalités**](/docs/template-calendar-features) — vues, disponibilité, recherche de créneaux et liens de réservation, avec les étapes de configuration pour chacune
+- [**Calendrier dans un espace de travail multi-apps**](/docs/template-calendar-integrations) — les stratégies d'intégration et la connexion à Dispatch
+- [**Guide développeur**](/docs/template-calendar-developers) — chaque action, le modèle de données, et comment étendre l'application
+- [**Extensions**](/docs/extensions) — créer un widget pour l'emplacement de détail d'événement
