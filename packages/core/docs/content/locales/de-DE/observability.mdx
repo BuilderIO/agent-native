@@ -136,6 +136,12 @@ Das Framework berechnet einen Frustrationsindex (0-100) aus Gesprächssignalen:
 
 Bewertungsinterpretation: 0–20 = gesund, 20–40 = Reibung, 40–60 = unzufrieden, 60+ = abgebrochene Sitzung.
 
+### Feedback in PostHog {#posthog-feedback}
+
+Daumen, Kategorie und Freitext senden alle ein `$ai_feedback`. Die Feedback-Ansicht der LLM-Analytics von PostHog liest stattdessen ein `survey sent`-Ereignis. Setze deshalb `POSTHOG_AI_FEEDBACK_SURVEY_ID` auf die Umfrage, die PostHog über den Tab **Feedback** eines Trace anlegt. Diese eine ID ist die gesamte Konfiguration; ohne sie wird kein Umfrage-Ereignis gesendet.
+
+Eine Daumenbewertung beantwortet die erste Frage der Umfrage als PostHogs Auswahlindex (`1` hoch, `2` runter), der Freitext nach einem Daumen nach unten beantwortet die Rückfrage — der Text landet also nie dort, wo die Bewertung hingehört. Beide tragen eine Submission-ID pro bewerteter Nachricht, so fügt PostHog sie zu einer Antwort zusammen, und ein Daumen nach unten gilt bis zum Eintreffen seiner Rückfrage als unvollständig.
+
 ## Automatisierte Auswertungen {#evals}
 
 Fünf deterministische Scorer werden nach jedem Agentenlauf ausgeführt:
