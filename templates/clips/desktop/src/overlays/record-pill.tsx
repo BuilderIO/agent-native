@@ -101,10 +101,10 @@ function formatDurationCopy(ms: number): string {
 
 /**
  * The recording pill — one dark capsule with four modes: recording, paused,
- * confirm, done. The leading ring — a stop square inside a circle outline,
- * both in one color — is the recording indicator and the stop/save action:
- * red while live, grey-white while paused. The timer sits plain against the
- * chrome beside it. Left edge anchored: hover extras
+ * confirm, done. The leading stop square is the recording indicator and the
+ * stop/save action — red while live, grey-white while paused — with the
+ * timer sharing its color, plain against the chrome. Every control is a bare
+ * glyph; no rings or fills. Left edge anchored: hover extras
  * and the inline confirms grow rightward while the stop circle, timer, and
  * pause button hold position (near the right screen edge the anchor
  * mirrors). Stop swaps the
@@ -1011,10 +1011,8 @@ export function RecordingPill() {
           >
             <span
               aria-hidden
-              className="flex size-6 items-center justify-center rounded-full border-[1.5px] border-current"
-            >
-              <span className="size-2 rounded-[1.5px] bg-current" />
-            </span>
+              className="size-[13px] rounded-[3px] bg-current"
+            />
           </button>
           <span
             aria-live="off"
@@ -1045,16 +1043,11 @@ export function RecordingPill() {
             aria-label={showPaused ? "Resume" : "Pause"}
             className="ml-2.5 flex size-[30px] flex-none items-center justify-center rounded-full text-[var(--pill-ghost-ink)] transition-colors duration-150 hover:text-[var(--pill-on-chrome)] disabled:cursor-default disabled:opacity-50"
           >
-            <span
-              aria-hidden
-              className="flex size-6 items-center justify-center rounded-full border-[1.5px] border-current"
-            >
-              {showPaused ? (
-                <IconPlayerPlayFilled size={11} />
-              ) : (
-                <IconPlayerPauseFilled size={11} />
-              )}
-            </span>
+            {showPaused ? (
+              <IconPlayerPlayFilled size={14} aria-hidden />
+            ) : (
+              <IconPlayerPauseFilled size={14} aria-hidden />
+            )}
           </button>
           <span
             ref={(el) => {
