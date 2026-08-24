@@ -797,16 +797,21 @@ export class DesktopIdentityBroker {
     if (this.completedModernAppSessions.has(pendingKey)) {
       const app = this.options.resolveApp(appId);
       if (!app) return Promise.resolve(false);
-      return this.hasAppSession(app).then((hasSession) => {
-        if (hasSession) return true;
-        this.completedModernAppSessions.delete(pendingKey);
-        return this.ensureModernAppSessionDeduped(
-          appId,
-          generation,
-          expectedEmail,
-          options,
-        );
-      });
+      return this.inspectCachedModernAppSession(app, expectedEmail).then(
+        (sessionState) => {
+          if (sessionState === "matching") return true;
+          // A transient session-check failure must not turn a known-good
+          // completed handoff into an unnecessary sign-in ceremony.
+          if (sessionState === "unavailable") return this.hasAppSession(app);
+          this.completedModernAppSessions.delete(pendingKey);
+          return this.ensureModernAppSessionDeduped(
+            appId,
+            generation,
+            expectedEmail,
+            options,
+          );
+        },
+      );
     }
     const existing = this.pendingModernAppSessions.get(pendingKey);
     if (existing) return existing;
@@ -2864,6 +2869,19 @@ export class DesktopIdentityBroker {
       normalizeIdentityEmail(authorityEmail) ===
         normalizeIdentityEmail(appEmail),
     );
+  }
+
+  private async inspectCachedModernAppSession(
+    app: DesktopIdentityApp,
+    expectedIdentityEmail?: string,
+  ): Promise<"matching" | "mismatch" | "unavailable"> {
+    try {
+      return (await this.hasMatchingIdentitySession(app, expectedIdentityEmail))
+        ? "matching"
+        : "mismatch";
+    } catch {
+      return "unavailable";
+    }
   }
 
   private async pollDesktopOAuthExchange(

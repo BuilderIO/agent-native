@@ -2017,6 +2017,26 @@ function getActiveWebviewContents() {
   );
 }
 
+function reloadWebviewContents(contents?: Electron.WebContents): boolean {
+  if (!contents) return false;
+  try {
+    if (contents.isDestroyed() || contents.getType() !== "webview") {
+      return false;
+    }
+    contents.reloadIgnoringCache();
+    return true;
+  } catch (error) {
+    console.debug("[desktop] webview reload skipped", {
+      reason: error instanceof Error ? error.message : "unknown error",
+    });
+    return false;
+  }
+}
+
+function reloadActiveWebview(): boolean {
+  return reloadWebviewContents(getActiveWebviewContents());
+}
+
 function getDesktopShortcutSettings(): DesktopShortcutSettings {
   const bindings = AppStore.loadDesktopShortcutBindings();
   return {
@@ -13483,6 +13503,14 @@ app.on("web-contents-created", (_event, contents) => {
       return;
     }
 
+    // Cmd+R reloads the guest that received the key instead of asking the
+    // shell renderer to rediscover the active tab.
+    if (key === "r" && !input.alt && !input.shift) {
+      event.preventDefault();
+      reloadWebviewContents(contents);
+      return;
+    }
+
     // Cmd+Option+Up/Down — previous/next app
     if (input.alt && (key === "arrowup" || key === "arrowdown")) {
       event.preventDefault();
@@ -13517,13 +13545,9 @@ app.on("web-contents-created", (_event, contents) => {
 
     const isAgentSidebarToggleShortcut = isDesktopChatToggleShortcut(input);
 
-    // Forward other Cmd+ shortcuts: F, L, R, T, Shift+T, \
+    // Forward other Cmd+ shortcuts: F, L, T, Shift+T, \
     const isShortcut =
-      key === "f" ||
-      key === "l" ||
-      key === "r" ||
-      key === "t" ||
-      isAgentSidebarToggleShortcut;
+      key === "f" || key === "l" || key === "t" || isAgentSidebarToggleShortcut;
 
     if (isShortcut) {
       event.preventDefault();
@@ -14217,13 +14241,9 @@ app.whenReady().then(async () => {
     }
 
     // Cmd+R — refresh active webview, not the shell
-    if (key === "r") {
+    if (key === "r" && !input.alt && !input.shift) {
       _event.preventDefault();
-      win.webContents.send("shortcut:keydown", {
-        key: "r",
-        shiftKey: input.shift,
-        ctrlKey: input.control,
-      });
+      reloadActiveWebview();
       return;
     }
 

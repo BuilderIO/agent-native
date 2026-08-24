@@ -129,6 +129,7 @@ import AppWebview, {
   isDesktopIdentityGateUnauthenticated,
   resolveAppWebviewUrl,
   type AppWebviewAuthState,
+  type AppWebviewHandle,
 } from "./AppWebview.js";
 import CodeAgentsAppIcon from "./CodeAgentsAppIcon.js";
 import CodeAgentSchedulesPanel from "./CodeAgentSchedulesPanel.js";
@@ -731,6 +732,7 @@ export default function CodeAgentsHub({
   const [webContentsIdByTab, setWebContentsIdByTab] = useState<
     Record<string, number>
   >({});
+  const appWebviewRefs = useRef<Record<string, AppWebviewHandle | null>>({});
   const [nativeOAuthActiveByTab, setNativeOAuthActiveByTab] = useState<
     Record<string, boolean>
   >({});
@@ -1173,6 +1175,20 @@ export default function CodeAgentsHub({
       ),
     [openChatFirstApp, terminalPreferences.enabled],
   );
+  const reloadChatFirstApp = useCallback(
+    (app: ChatFirstAppItem) => {
+      let reloaded = false;
+      for (const tab of chatFirstSurfaceTabs.tabs) {
+        if (tab.kind !== "app" || tab.appId !== app.id) continue;
+        const webview = appWebviewRefs.current[tab.id];
+        if (!webview) continue;
+        webview.reload();
+        reloaded = true;
+      }
+      if (!reloaded) openChatFirstAppFromRail(app);
+    },
+    [chatFirstSurfaceTabs.tabs, openChatFirstAppFromRail],
+  );
   const openChatFirstAppFromGrid = useCallback(
     (app: AppConfig) =>
       openChatFirstApp(
@@ -1291,6 +1307,7 @@ export default function CodeAgentsHub({
             setChatFirstAppLayout(layout);
           }}
           onRemoveApp={onChatFirstAppRemove}
+          onReloadApp={reloadChatFirstApp}
           onOpenAllApps={openChatFirstAllApps}
           onOpenApp={openChatFirstAppFromRail}
           renderIcon={renderChatFirstAppIcon}
@@ -1309,6 +1326,7 @@ export default function CodeAgentsHub({
     onCreateApp,
     openChatFirstAllApps,
     openChatFirstAppFromRail,
+    reloadChatFirstApp,
     renderChatFirstAppIcon,
   ]);
 
@@ -2701,6 +2719,10 @@ export default function CodeAgentsHub({
                     aria-hidden={!showNativeIntegrationsGuest}
                   >
                     <AppWebview
+                      ref={(webview) => {
+                        if (webview) appWebviewRefs.current[tab.id] = webview;
+                        else delete appWebviewRefs.current[tab.id];
+                      }}
                       app={toAppDefinition(surfaceApp)}
                       appConfig={surfaceApp}
                       isActive={isTabActive}
