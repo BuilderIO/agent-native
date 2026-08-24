@@ -883,7 +883,7 @@ h1 {
 .capture-surface-control::after {
   position: absolute;
   top: 50%;
-  right: 14px;
+  right: 28px;
   width: 8px;
   height: 8px;
   border-right: 2px solid var(--fg-muted);
