@@ -1368,6 +1368,10 @@ describe("database row batch actions", () => {
   it("normalizes string MAX results before assigning the next position", () => {
     expect(nextPosition("41")).toBe(42);
     expect(nextPosition(-1)).toBe(0);
+    expect(nextPosition(2_147_483_646)).toBe(2_147_483_647);
+    expect(() => nextPosition(2_147_483_647)).toThrow(
+      "Database position is outside the supported range.",
+    );
     expect(() => nextPosition("not-a-position")).toThrow(
       "Database position is outside the supported range.",
     );

@@ -872,10 +872,16 @@ async function withMutationLocks<T>(
 
 export function nextPosition(max: unknown): number {
   const value = Number(max ?? -1);
-  if (!Number.isSafeInteger(value) || value < -1) {
+  const next = value + 1;
+  if (
+    !Number.isSafeInteger(value) ||
+    value < -1 ||
+    !Number.isSafeInteger(next) ||
+    next > 2_147_483_647
+  ) {
     throw new Error("Database position is outside the supported range.");
   }
-  return value + 1;
+  return next;
 }
 
 async function createInsideTransaction(
