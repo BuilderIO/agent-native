@@ -1545,9 +1545,9 @@ export default function DeckEditor() {
         onTogglePinMode={togglePinMode}
         textBoxMode={textBoxMode}
         onToggleTextBoxMode={toggleTextBoxMode}
-        onDuplicateDeck={() => {
+        onDuplicateDeck={async () => {
           const newId = `deck-${nanoid()}`;
-          const optimistic = duplicateDeck(id, newId, undefined, () => {
+          const optimistic = await duplicateDeck(id, newId, undefined, () => {
             // The background duplicate-deck action failed after we already
             // navigated to the optimistic copy. If the user is still there,
             // send them back instead of stranding them on a "Deck
