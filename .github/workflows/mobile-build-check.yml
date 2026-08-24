@@ -8,6 +8,8 @@ on:
     paths:
       - "packages/mobile-app/**"
       - "packages/core/**"
+      - "packages/toolkit/**"
+      - "packages/recap-cli/**"
       - "packages/shared-app-config/**"
       - "pnpm-lock.yaml"
       - ".github/workflows/mobile-build-check.yml"
