@@ -145,6 +145,7 @@ const messages = {
     recordingNotFound: "Enregistrement introuvable",
     noAccess: "Vous n’aurez peut-être pas accès à ce clip.",
     backToLibrary: "Retour à la bibliothèque",
+    sharedWithYou: "Partagé avec vous",
     storageStillDisconnected: "Le stockage n'est toujours pas connecté",
     finishBuilderOrS3:
       "Terminez la fenêtre contextuelle Builder.io ou configurez le stockage S3, puis réessayez.",

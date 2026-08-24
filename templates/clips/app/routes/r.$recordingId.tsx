@@ -615,6 +615,9 @@ export default function RecordingPage() {
   const viewerReshareOnly =
     (role === "viewer" || role === "commenter") &&
     (recording?.visibility === "public" || recording?.visibility === "org");
+  const isPrivateRecipient =
+    (role === "viewer" || role === "commenter") &&
+    recording?.visibility === "private";
   const shareVideoUrl =
     canDownloadRecording || isLoomEmbedBacked
       ? (recording?.videoUrl ?? null)
@@ -1064,16 +1067,22 @@ export default function RecordingPage() {
                 ) : null}
               </p>
             </div>
-            <ShareRecordingPopover
-              recordingId={recording.id}
-              recordingTitle={recording.title}
-              initialVisibility={recording.visibility}
-              initialRole={role}
-              hasPassword={Boolean(recording.hasPassword)}
-              viewerReshareOnly={viewerReshareOnly}
-            >
-              <ClipsShareTrigger label={t("recordingPage.share")} />
-            </ShareRecordingPopover>
+            {isPrivateRecipient ? (
+              <span className="shrink-0 whitespace-nowrap text-sm font-medium text-muted-foreground">
+                {t("recordingPage.sharedWithYou")}
+              </span>
+            ) : (
+              <ShareRecordingPopover
+                recordingId={recording.id}
+                recordingTitle={recording.title}
+                initialVisibility={recording.visibility}
+                initialRole={role}
+                hasPassword={Boolean(recording.hasPassword)}
+                viewerReshareOnly={viewerReshareOnly}
+              >
+                <ClipsShareTrigger label={t("recordingPage.share")} />
+              </ShareRecordingPopover>
+            )}
           </header>
 
           <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-5 p-4 sm:p-6">
@@ -1602,20 +1611,26 @@ export default function RecordingPage() {
           ) : null}
 
           {!editing ? (
-            <ShareRecordingPopover
-              recordingId={recording.id}
-              recordingTitle={recording.title}
-              initialVisibility={recording.visibility}
-              initialRole={role}
-              videoUrl={shareVideoUrl}
-              thumbnailUrl={recording.thumbnailUrl}
-              animatedThumbnailUrl={recording.animatedThumbnailUrl}
-              isLoomRecording={isLoomEmbedBacked}
-              hasPassword={Boolean(recording.hasPassword)}
-              viewerReshareOnly={viewerReshareOnly}
-            >
-              <ClipsShareTrigger label={t("recordingPage.share")} />
-            </ShareRecordingPopover>
+            isPrivateRecipient ? (
+              <span className="shrink-0 whitespace-nowrap text-sm font-medium text-muted-foreground">
+                {t("recordingPage.sharedWithYou")}
+              </span>
+            ) : (
+              <ShareRecordingPopover
+                recordingId={recording.id}
+                recordingTitle={recording.title}
+                initialVisibility={recording.visibility}
+                initialRole={role}
+                videoUrl={shareVideoUrl}
+                thumbnailUrl={recording.thumbnailUrl}
+                animatedThumbnailUrl={recording.animatedThumbnailUrl}
+                isLoomRecording={isLoomEmbedBacked}
+                hasPassword={Boolean(recording.hasPassword)}
+                viewerReshareOnly={viewerReshareOnly}
+              >
+                <ClipsShareTrigger label={t("recordingPage.share")} />
+              </ShareRecordingPopover>
+            )
           ) : null}
 
           {canDelete || canDownloadRecording ? (

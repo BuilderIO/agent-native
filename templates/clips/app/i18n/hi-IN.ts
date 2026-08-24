@@ -144,6 +144,7 @@ const messages = {
     recordingNotFound: "रिकॉर्डिंग नहीं मिली",
     noAccess: "हो सकता है कि आपके पास इस क्लिप तक पहुंच न हो.",
     backToLibrary: "लाइब्रेरी पर वापस जाएँ",
+    sharedWithYou: "आपके साथ साझा किया गया",
     storageStillDisconnected: "संग्रहण अभी भी कनेक्ट नहीं है",
     finishBuilderOrS3:
       "Builder.io पॉपअप समाप्त करें या S3 स्टोरेज कॉन्फ़िगर करें, फिर पुनः प्रयास करें।",

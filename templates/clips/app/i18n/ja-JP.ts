@@ -145,6 +145,7 @@ const messages = {
     recordingNotFound: "録画が見つかりません",
     noAccess: "このクリップにアクセスできない可能性があります。",
     backToLibrary: "ライブラリに戻る",
+    sharedWithYou: "あなたと共有",
     storageStillDisconnected: "ストレージがまだ接続されていません",
     finishBuilderOrS3:
       "Builder.io ポップアップを終了するか、S3 ストレージを構成してから、再試行してください。",

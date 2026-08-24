@@ -143,6 +143,7 @@ const messages = {
     recordingNotFound: "لم يتم العثور على التسجيل",
     noAccess: "قد لا يكون لديك حق الوصول إلى هذا المقطع.",
     backToLibrary: "العودة إلى المكتبة",
+    sharedWithYou: "تمت مشاركته معك",
     storageStillDisconnected: "وحدة التخزين لا تزال غير متصلة",
     finishBuilderOrS3:
       "قم بإنهاء النافذة المنبثقة Builder.io أو قم بتكوين مساحة تخزين S3، ثم حاول مرة أخرى.",
