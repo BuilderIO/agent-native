@@ -896,6 +896,9 @@ export default function CalendarView() {
       createEvent.mutate(payload, {
         onSuccess: (result) => {
           discardedCommittingDraftsRef.current.delete(draftId);
+          if (result?.videoConferenceError === "zoom") {
+            toast.error(t("eventForm.zoomAddFailed"));
+          }
           const createdEventId = result?.id;
           if (createdEventId) {
             const undo = () => {

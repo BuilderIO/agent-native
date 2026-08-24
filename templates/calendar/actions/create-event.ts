@@ -216,10 +216,16 @@ export default defineAction({
     };
 
     let zoomMeetingLink: string | undefined;
+    let videoConferenceError: CalendarEvent["videoConferenceError"];
     if (args.addZoom) {
-      const zoom = await prepareZoomMeetingPatch(email, calEvent);
-      zoomMeetingLink = zoom.meetingLink;
-      Object.assign(calEvent, zoom.patch);
+      try {
+        const zoom = await prepareZoomMeetingPatch(email, calEvent);
+        zoomMeetingLink = zoom.meetingLink;
+        Object.assign(calEvent, zoom.patch);
+      } catch (error) {
+        videoConferenceError = "zoom";
+        console.error("[create-event] Zoom meeting provisioning failed", error);
+      }
     }
 
     const result = await googleCalendar.createEvent(calEvent, {
@@ -238,6 +244,8 @@ export default defineAction({
     if (result.meetLink) calEvent.hangoutLink = result.meetLink;
     if (result.conferenceData) calEvent.conferenceData = result.conferenceData;
     if (zoomMeetingLink) calEvent.meetingLink = zoomMeetingLink;
+    if (videoConferenceError)
+      calEvent.videoConferenceError = videoConferenceError;
 
     try {
       emit(
