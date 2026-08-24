@@ -157,6 +157,7 @@ describe("AssistantChat thread restore and composer recovery", () => {
     expect(source).toContain(
       "writeAssistantChatComposerDraft(composerDraftScope, text)",
     );
+    expect(source).toContain("const composerDraftScope = tabId || threadId;");
     expect(source).toContain("initialTextKey={composerDraftScope}");
     expect(source).toContain("draftScope={composerDraftScope}");
   });

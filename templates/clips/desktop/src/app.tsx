@@ -1087,8 +1087,6 @@ export function App({
   );
   const [micOn, setMicOn] = useState<boolean>(() => loadBool(MIC_ON_KEY, true));
   const [micOffConfirmOpen, setMicOffConfirmOpen] = useState(false);
-  const pendingStartOptionsRef =
-    useRef<Parameters<typeof handleStartRecording>[0]>(undefined);
   const [systemAudioOn, setSystemAudioOn] = useState<boolean>(() =>
     loadBool(SYSTEM_AUDIO_KEY, true),
   );
@@ -3591,16 +3589,14 @@ export function App({
   }, []);
 
   // Gates every start-recording gesture (button, global shortcut, permission
-  // retry) on the mic toggle. When the mic is off we hold the actual
-  // getDisplayMedia/getUserMedia call until the user confirms in
-  // micOffConfirmOpen — the confirm button's own click supplies the user
-  // activation handleStartRecording needs, same as the direct gesture would.
+  // retry) on the mic toggle. When the mic is off we show the informational
+  // mic-off screen and wait for the user to go back and change that setting
+  // before the actual getDisplayMedia/getUserMedia call runs.
   function beginRecording(
     options?: Parameters<typeof handleStartRecording>[0],
     beginOptions?: { revealPopoverIfMicOff?: boolean },
   ) {
     if (!micOn) {
-      pendingStartOptionsRef.current = options;
       if (beginOptions?.revealPopoverIfMicOff) {
         invoke("show_popover").catch(() => {});
       }
@@ -3611,19 +3607,7 @@ export function App({
   }
 
   function closeMicOffConfirmation() {
-    pendingStartOptionsRef.current = undefined;
     setMicOffConfirmOpen(false);
-  }
-
-  function unmuteFromConfirmation() {
-    setMicOn(true);
-    closeMicOffConfirmation();
-  }
-
-  function continueWithoutMic() {
-    const options = pendingStartOptionsRef.current;
-    closeMicOffConfirmation();
-    void handleStartRecording(options);
   }
 
   recordShortcutHandlerRef.current = () => {
@@ -4319,11 +4303,7 @@ export function App({
   return (
     <div className="app app-recorder" ref={appRef}>
       {micOffConfirmOpen ? (
-        <MicOffConfirmation
-          onBack={closeMicOffConfirmation}
-          onUnmute={unmuteFromConfirmation}
-          onContinue={continueWithoutMic}
-        />
+        <MicOffConfirmation onBack={closeMicOffConfirmation} />
       ) : null}
 
       <div
