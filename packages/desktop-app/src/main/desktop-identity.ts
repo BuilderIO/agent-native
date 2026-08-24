@@ -797,16 +797,21 @@ export class DesktopIdentityBroker {
     if (this.completedModernAppSessions.has(pendingKey)) {
       const app = this.options.resolveApp(appId);
       if (!app) return Promise.resolve(false);
-      return this.hasAppSession(app).then((hasSession) => {
-        if (hasSession) return true;
-        this.completedModernAppSessions.delete(pendingKey);
-        return this.ensureModernAppSessionDeduped(
-          appId,
-          generation,
-          expectedEmail,
-          options,
-        );
-      });
+      return this.inspectCachedModernAppSession(app, expectedEmail).then(
+        (sessionState) => {
+          if (sessionState === "matching") return true;
+          // A transient session-check failure must not turn a known-good
+          // completed handoff into an unnecessary sign-in ceremony.
+          if (sessionState === "unavailable") return false;
+          this.completedModernAppSessions.delete(pendingKey);
+          return this.ensureModernAppSessionDeduped(
+            appId,
+            generation,
+            expectedEmail,
+            options,
+          );
+        },
+      );
     }
     const existing = this.pendingModernAppSessions.get(pendingKey);
     if (existing) return existing;
@@ -2729,16 +2734,24 @@ export class DesktopIdentityBroker {
   }
 
   private async hasAppSession(app: DesktopIdentityApp): Promise<boolean> {
+    return (await this.inspectAppSession(app)) === "present";
+  }
+
+  private async inspectAppSession(
+    app: DesktopIdentityApp,
+  ): Promise<"present" | "absent" | "unavailable"> {
     try {
       const cookies = await app.session.cookies.get({});
       const allowed = new Set(app.cookieNames);
       return cookies.some(
         (cookie) =>
           cookieMatchesOrigin(cookie, app.origin) && allowed.has(cookie.name),
-      );
+      )
+        ? "present"
+        : "absent";
     } catch (error) {
       void error;
-      return false;
+      return "unavailable";
     }
   }
 
@@ -2852,7 +2865,14 @@ export class DesktopIdentityBroker {
     expectedIdentityEmail?: string,
   ): Promise<boolean> {
     const authority = this.resolveIdentityAuthority();
-    if (!authority || !(await this.hasAppSession(app))) return false;
+    if (!authority) return false;
+    const appSessionState = await this.inspectAppSession(app);
+    if (appSessionState === "unavailable") {
+      throw new Error(
+        `[desktop identity] app session cookie check unavailable for ${app.id}`,
+      );
+    }
+    if (appSessionState === "absent") return false;
 
     const [authorityEmail, appEmail] = await Promise.all([
       expectedIdentityEmail ?? this.verifyIdentitySession(authority),
@@ -2864,6 +2884,19 @@ export class DesktopIdentityBroker {
       normalizeIdentityEmail(authorityEmail) ===
         normalizeIdentityEmail(appEmail),
     );
+  }
+
+  private async inspectCachedModernAppSession(
+    app: DesktopIdentityApp,
+    expectedIdentityEmail?: string,
+  ): Promise<"matching" | "mismatch" | "unavailable"> {
+    try {
+      return (await this.hasMatchingIdentitySession(app, expectedIdentityEmail))
+        ? "matching"
+        : "mismatch";
+    } catch {
+      return "unavailable";
+    }
   }
 
   private async pollDesktopOAuthExchange(

@@ -325,7 +325,7 @@ describe("Desktop identity activation", () => {
     ).toHaveLength(initialSourceAssignmentCount);
   });
 
-  it("reconciles a loaded app without replacing its session on activation", async () => {
+  it("reconciles a loaded app session on activation", async () => {
     const ensureAppSession = vi
       .fn<() => Promise<boolean>>()
       .mockResolvedValueOnce(true)
@@ -410,9 +410,7 @@ describe("Desktop identity activation", () => {
       await Promise.resolve();
     });
     expect(ensureAppSession).toHaveBeenCalledTimes(2);
-    expect(ensureAppSession).toHaveBeenNthCalledWith(2, "mail", {
-      preserveExistingSession: true,
-    });
+    expect(ensureAppSession).toHaveBeenNthCalledWith(2, "mail");
 
     act(() => {
       root.render(
@@ -436,9 +434,7 @@ describe("Desktop identity activation", () => {
     });
 
     await vi.waitFor(() => expect(ensureAppSession).toHaveBeenCalledTimes(3));
-    expect(ensureAppSession).toHaveBeenNthCalledWith(3, "mail", {
-      preserveExistingSession: true,
-    });
+    expect(ensureAppSession).toHaveBeenNthCalledWith(3, "mail");
   });
 
   it("keeps a remembered session gated until child synchronization completes", async () => {

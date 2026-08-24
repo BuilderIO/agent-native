@@ -957,7 +957,8 @@ body {
 }
 
 .code-agents-rail-footer {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 1px;
   border-top: 1px solid hsl(var(--sidebar-border));
   padding: 8px;
