@@ -384,6 +384,75 @@ describe("mountActionRoutes", () => {
     });
   });
 
+  it("preserves safe action contract metadata for retryable server failures", async () => {
+    const { ActionContractError } = await import("../action.js");
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const unavailable = new ActionContractError("Directory unavailable", {
+      errorCode: "workspace_feature_flag_directory",
+      details: { phase: "directory" },
+      statusCode: 503,
+    });
+    const actions = {
+      updateItem: {
+        run: vi.fn().mockRejectedValue(unavailable),
+        http: { method: "POST" as const },
+      },
+    };
+    mountActionRoutes(nitroApp, actions as any, {
+      getOwnerFromEvent: async () => "owner@example.com",
+    });
+    const event = { _method: "POST", req: { json: async () => ({}) } };
+    const result = await mounted[0].handler(event);
+
+    expect(event._status).toBe(503);
+    expect(result).toEqual({
+      error: "Directory unavailable",
+      errorCode: "workspace_feature_flag_directory",
+      details: { phase: "directory" },
+    });
+  });
+
+  it("preserves safe stopped-action metadata without exposing its tool result", async () => {
+    const { AgentActionStopError } = await import("../action.js");
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const stopped = new AgentActionStopError("Verification timed out", {
+      errorCode: "workspace_feature_flag_verification_timeout",
+      details: { phase: "verification-timeout" },
+      toolResult: "private agent-only context",
+    });
+    const actions = {
+      updateItem: {
+        run: vi.fn().mockRejectedValue(stopped),
+        http: { method: "POST" as const },
+      },
+    };
+    mountActionRoutes(nitroApp, actions as any, {
+      getOwnerFromEvent: async () => "owner@example.com",
+    });
+    const event = { _method: "POST", req: { json: async () => ({}) } };
+    const result = await mounted[0].handler(event);
+
+    expect(event._status).toBe(500);
+    expect(result).toEqual({
+      error: "Verification timed out",
+      errorCode: "workspace_feature_flag_verification_timeout",
+      details: { phase: "verification-timeout" },
+    });
+    expect(JSON.stringify(result)).not.toContain("private agent-only context");
+  });
+
   it("captures uncategorized action failures with low-cardinality context", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
     const { registerErrorCaptureProvider } = await import("./capture-error.js");

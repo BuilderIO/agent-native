@@ -80,6 +80,33 @@ describe("serializeActionQueryParams", () => {
 });
 
 describe("callAction", () => {
+  it("preserves safe structured action error metadata", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse(
+          {
+            error: "Verification timed out",
+            errorCode: "workspace_feature_flag_verification_timeout",
+            details: { phase: "verification-timeout" },
+          },
+          { status: 500 },
+        ),
+      ),
+    );
+
+    const error = await callAction("set-workspace-feature-flag", {}).catch(
+      (caught) => caught,
+    );
+
+    expect(error).toMatchObject({
+      status: 500,
+      errorCode: "workspace_feature_flag_verification_timeout",
+      details: { phase: "verification-timeout" },
+    });
+    expect(error.message).toContain("Verification timed out");
+  });
+
   it("sends build compatibility and hard-refreshes once on a mismatch", async () => {
     Object.assign(globalThis, {
       __AGENT_NATIVE_BUILD_ID__: "client-build",
