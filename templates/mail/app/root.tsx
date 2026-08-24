@@ -1,5 +1,9 @@
 import { configureTracking } from "@agent-native/core/client/analytics";
 import { appPath, appApiPath } from "@agent-native/core/client/api-path";
+import {
+  isDynamicImportFailureMessage,
+  recoverFromStaleChunkError,
+} from "@agent-native/core/client/route-chunk-recovery";
 import { useDbSync } from "@agent-native/core/client/hooks";
 import {
   AppProviders,
@@ -14,6 +18,7 @@ import {
   type LocaleCode,
 } from "@agent-native/core/client/i18n";
 import {
+  DefaultSpinner,
   ErrorReportActions,
   getThemeInitScript,
 } from "@agent-native/core/client/ui";
@@ -469,6 +474,18 @@ export function ErrorBoundary() {
   const copy =
     MAIL_ERROR_COPY[activeErrorLocale()] ?? MAIL_ERROR_COPY[DEFAULT_LOCALE];
   const message = routeErrorMessage(error, copy.fallback);
+  const staleChunk = isDynamicImportFailureMessage(message);
+  const [recovering, setRecovering] = useState(staleChunk);
+
+  useEffect(() => {
+    if (!staleChunk) {
+      setRecovering(false);
+      return;
+    }
+    if (!recoverFromStaleChunkError(error)) setRecovering(false);
+  }, [error, staleChunk]);
+
+  if (recovering) return <DefaultSpinner />;
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-6 text-foreground">
