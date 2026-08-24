@@ -135,8 +135,9 @@ export function RecordingPill() {
   const [announcement, setAnnouncement] = useState("");
   const [confirmQuestion, setConfirmQuestion] = useState("");
   // What the confirm's action button does. Both intents share the confirm
-  // strip, but only delete is destructive-red; restart is the macOS-blue
-  // "cancel this and start a new one" action (CleanShot's convention).
+  // strip, but only delete is destructive-red; restart is a start-fresh
+  // action and wears the pill's white affirmative treatment, same family
+  // as Stop.
   const [confirmIntent, setConfirmIntent] = useState<"delete" | "restart">(
     "delete",
   );
@@ -1109,7 +1110,7 @@ export function RecordingPill() {
               <button
                 type="button"
                 onClick={confirmDestructive}
-                className={`ml-2.5 flex h-7 flex-none items-center rounded-full px-3.5 text-xs font-semibold text-[var(--pill-on-chrome)] ${confirmIntent === "delete" ? "bg-[var(--pill-rec)]" : "bg-[var(--pill-restart)]"}`}
+                className={`ml-2.5 flex h-7 flex-none items-center rounded-full px-3.5 text-xs font-semibold ${confirmIntent === "delete" ? "bg-[var(--pill-rec)] text-[var(--pill-on-chrome)]" : "bg-[var(--pill-on-chrome)] text-[var(--pill-chrome)]"}`}
               >
                 {confirmIntent === "delete" ? "Delete" : "Restart"}
               </button>
