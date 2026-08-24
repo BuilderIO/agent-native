@@ -49,6 +49,7 @@ import React, {
 
 import { createPollEngine } from "../shared/poll-engine.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
+import type { ThinkingDisplay } from "../shared/thinking-display.js";
 import {
   clearPendingTurnIfMatches,
   clearActiveRunIfMatches,
@@ -211,6 +212,7 @@ import {
   readSSEStreamRaw,
   settleInterruptedToolCalls,
 } from "./sse-event-processor.js";
+import { ThinkingDisplayProvider } from "./thinking-display.js";
 import { callAction } from "./use-action.js";
 import { useAgentEngineConfigured } from "./use-agent-engine-configured.js";
 import {
@@ -2123,6 +2125,13 @@ export interface AssistantChatProps {
     ) => void | Promise<void>;
     alwaysAllowScope?: "action" | "exact-command";
   };
+  /**
+   * Pin how much model reasoning this chat shows: "expanded" opens the live
+   * cell, "collapsed" keeps it one click away, "hidden" renders none. Omit to
+   * let the reader's own preference apply, which is what surfaces the in-chat
+   * control — a pinned mode hides it rather than leaving a dead menu item.
+   */
+  thinkingDisplay?: ThinkingDisplay;
 }
 
 export function shouldShowAssistantChatModelSelector(
@@ -6693,26 +6702,28 @@ export const AssistantChat = forwardRef<
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
-      <TooltipProvider delayDuration={200}>
-        <ThreadPrimitive.Root className="flex flex-1 flex-col h-full min-h-0 overflow-x-hidden">
-          <AssistantUiStaleIndexErrorBoundary
-            resetKey={`${tabId ?? ""}:${threadId ?? ""}`}
-            componentName="AssistantChat"
-          >
-            <AssistantChatInner
-              ref={ref}
-              {...props}
-              browserTabId={browserTabId}
-              contextScope={contextScope}
-              contextNamespace={contextNamespace}
-              isActiveComposer={isActiveComposer}
-              apiUrl={apiUrl}
-              tabId={tabId}
-              threadId={threadId}
-            />
-          </AssistantUiStaleIndexErrorBoundary>
-        </ThreadPrimitive.Root>
-      </TooltipProvider>
+      <ThinkingDisplayProvider value={props.thinkingDisplay}>
+        <TooltipProvider delayDuration={200}>
+          <ThreadPrimitive.Root className="flex flex-1 flex-col h-full min-h-0 overflow-x-hidden">
+            <AssistantUiStaleIndexErrorBoundary
+              resetKey={`${tabId ?? ""}:${threadId ?? ""}`}
+              componentName="AssistantChat"
+            >
+              <AssistantChatInner
+                ref={ref}
+                {...props}
+                browserTabId={browserTabId}
+                contextScope={contextScope}
+                contextNamespace={contextNamespace}
+                isActiveComposer={isActiveComposer}
+                apiUrl={apiUrl}
+                tabId={tabId}
+                threadId={threadId}
+              />
+            </AssistantUiStaleIndexErrorBoundary>
+          </ThreadPrimitive.Root>
+        </TooltipProvider>
+      </ThinkingDisplayProvider>
     </AssistantRuntimeProvider>
   );
 });
