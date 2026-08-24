@@ -17,6 +17,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { inspectNfmFidelity } from "../shared/nfm.js";
 import {
   lockPrimaryBlocksFields,
   persistBlocksFieldIdentity,
@@ -310,6 +311,7 @@ export default defineAction({
       applied: changeCount,
       total: edits.length,
       results,
+      contentFidelity: inspectNfmFidelity(content),
       ...(creativeContext
         ? {
             contextMode: creativeContext.contextMode,

@@ -15,6 +15,7 @@ import {
   parseContentSourceFile,
   type ParsedContentSourceFile,
 } from "../shared/content-source.js";
+import { inspectNfmFidelity } from "../shared/nfm.js";
 import {
   favoriteDocumentIds,
   setFavoriteMembership,
@@ -214,6 +215,9 @@ export default defineAction({
     const parsed: ParsedContentSourceFile[] = entries.map(
       ([filePath, source]) => parseContentSourceFile(filePath, source),
     );
+    const fidelityByPath = new Map(
+      parsed.map((file) => [file.path, inspectNfmFidelity(file.content)]),
+    );
     const importPaths = [...new Set(parsed.map((file) => file.path))];
     const existingLocalDocs =
       importPaths.length > 0
@@ -289,6 +293,14 @@ export default defineAction({
         errors.push({
           path: file.path,
           reason: `Document body exceeds the ${MAX_DOCUMENT_BODY_BYTES}-byte import limit.`,
+        });
+        continue;
+      }
+      const fidelity = fidelityByPath.get(file.path);
+      if (fidelity?.status === "failed") {
+        errors.push({
+          path: file.path,
+          reason: `Document conversion failed: ${fidelity.error ?? "unreadable content"}.`,
         });
         continue;
       }
@@ -544,6 +556,7 @@ export default defineAction({
       skipped,
       errors,
       idByPath: Object.fromEntries(idByPath),
+      fidelity: Object.fromEntries(fidelityByPath),
     };
   },
 });

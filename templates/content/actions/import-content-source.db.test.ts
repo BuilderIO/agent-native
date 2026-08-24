@@ -80,6 +80,41 @@ function sourceWithFavorite(isFavorite: boolean) {
 }
 
 describe("import-content-source descriptions", () => {
+  it("reports structural MDX transformations during a dry-run import", async () => {
+    const path = "content/mixed-mdx.mdx";
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      importContentSourceAction.run({
+        files: {
+          [path]: [
+            '<Aside type="note">',
+            "Keep this source.",
+            "</Aside>",
+            "",
+            "| Component | Responsibility |",
+            "| --- | --- |",
+            "| Content | Preserve structure |",
+            "",
+            "```mermaid",
+            "flowchart TD",
+            "  Import --> Repair",
+            "```",
+            "",
+            "Trailing content.",
+          ].join("\n"),
+        },
+        dryRun: true,
+      }),
+    );
+
+    expect(result.errors).toEqual([]);
+    expect(result.fidelity[path]).toEqual({
+      status: "transformed",
+      normalizedChanged: true,
+      conversions: [{ kind: "gfm-pipe-table-to-content-table", count: 1 }],
+      unresolved: [],
+    });
+  });
+
   it("requires editor access before importing into an organization space", async () => {
     await getDbExec().execute({
       sql: "INSERT INTO organizations (id, name, created_by, created_at) VALUES (?, ?, ?, ?)",
