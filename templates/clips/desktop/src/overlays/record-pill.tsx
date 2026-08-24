@@ -190,31 +190,30 @@ export function RecordingPill() {
   elapsedRef.current = elapsed;
   viewUrlRef.current = viewUrl;
 
+  // Auto-gain state: raw mic peaks rarely pass ~0.3 even when shouting, so a
+  // fixed scale leaves the meter nearly flat. Levels are normalized against a
+  // slowly-decaying rolling peak, like a real meter's AGC.
+  const meterGainRef = useRef(0.04);
+  const meterHistoryRef = useRef<number[]>([0, 0, 0, 0, 0]);
+
   /**
-   * Turn a raw mic level into three lively bar heights. Square-root scaling
-   * keeps quiet speech visible (raw peaks hover low), and a fresh random
-   * spread per event makes the meter shimmer instead of breathing one shape.
+   * Each level event pushes one normalized sample through a five-slot
+   * history, so the lines are the actual signal scrolling by — a waveform,
+   * not a glyph — and shouting pins them to the top of the range.
    */
   function applyMicLevel(raw: number) {
-    const boosted = Math.min(
-      1,
-      Math.sqrt(Math.max(0, Math.min(1, raw))) * 1.15,
-    );
-    // Five thin lines with a center-weighted random spread — a waveform, not
-    // a glyph, so the meter can't be misread as the two-bar pause icon.
-    const spread = [0.4, 0.7, 0.95, 0.7, 0.4];
-    setBarHeights(
-      spread.map(
-        (base) =>
-          3 +
-          Math.round(boosted * 11 * Math.min(1, base + Math.random() * 0.35)),
-      ),
-    );
+    const level = Math.max(0, Math.min(1, raw));
+    meterGainRef.current = Math.max(level, meterGainRef.current * 0.985, 0.04);
+    const norm = Math.min(1, level / meterGainRef.current) ** 0.7;
+    const history = meterHistoryRef.current;
+    history.shift();
+    history.push(norm);
+    setBarHeights(history.map((v) => 3 + Math.round(v * 11)));
     if (levelDecayRef.current) clearTimeout(levelDecayRef.current);
-    levelDecayRef.current = setTimeout(
-      () => setBarHeights([4, 4, 4, 4, 4]),
-      350,
-    );
+    levelDecayRef.current = setTimeout(() => {
+      meterHistoryRef.current = [0, 0, 0, 0, 0];
+      setBarHeights([4, 4, 4, 4, 4]);
+    }, 350);
   }
 
   function clearPauseTransition() {
@@ -844,10 +843,17 @@ export function RecordingPill() {
     const t = setInterval(() => {
       if (modeRef.current !== "done" && !pausedRef.current) {
         setElapsed((e) => e + 500);
-        applyMicLevel(0.2 + Math.random() * 0.8);
       }
     }, 500);
-    return () => clearInterval(t);
+    const levels = setInterval(() => {
+      if (modeRef.current !== "done" && !pausedRef.current) {
+        applyMicLevel(0.05 + Math.random() * 0.3);
+      }
+    }, 90);
+    return () => {
+      clearInterval(t);
+      clearInterval(levels);
+    };
   }, []);
 
   // Self-healing size net: whatever strands the window at the wrong size —
