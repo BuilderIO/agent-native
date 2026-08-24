@@ -11,8 +11,10 @@ import { runWithRequestContext } from "../server/request-context.js";
 import {
   BASH_OUTPUT_HEAD_CHARS,
   BASH_OUTPUT_TAIL_CHARS,
+  canonicalizeShellCommand,
   createCodingToolRegistry,
   isReadOnlyShellCommand,
+  runCodingCommand,
   spawnBackgroundCommand,
   truncateBashOutput,
   truncateCodingOutput,
@@ -444,6 +446,54 @@ describe("bash background execution", () => {
       background: "true",
     });
     expect(result).toBe("Error: blocked by policy");
+  });
+
+  // `close` waits on every inherited pipe, so a surviving grandchild kept this
+  // promise pending forever — past the timeout too, whose SIGTERM went to an
+  // `sh -c` wrapper that had already exited.
+  it("settles when a backgrounded grandchild keeps the output pipe open", async () => {
+    const started = Date.now();
+    const result = await runCodingCommand(
+      "(sleep 30 &) ; echo started",
+      process.cwd(),
+      20_000,
+    );
+    expect(Date.now() - started).toBeLessThan(5_000);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("started");
+    expect(result.outputStillOpen).toBe(true);
+    expect(result.timedOut).toBe(false);
+  }, 15_000);
+
+  it("reports a clean finish as fully closed", async () => {
+    const result = await runCodingCommand("echo done", process.cwd(), 20_000);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("done");
+    expect(result.outputStillOpen).toBeUndefined();
+  }, 15_000);
+
+  it("kills the whole process group on timeout", async () => {
+    const result = await runCodingCommand(
+      "sleep 30 | cat",
+      process.cwd(),
+      1_000,
+    );
+    expect(result.timedOut).toBe(true);
+  }, 15_000);
+
+  it("canonicalizes shell quoting and flags what it cannot decode", () => {
+    expect(canonicalizeShellCommand("git 'checkout' main").canonical).toBe(
+      "git checkout main",
+    );
+    expect(canonicalizeShellCommand("gi''t checkout").canonical).toBe(
+      "git checkout",
+    );
+    expect(canonicalizeShellCommand('rm -"r"f x').canonical).toBe("rm -rf x");
+    expect(canonicalizeShellCommand("rm -r\\f x").canonical).toBe("rm -rf x");
+    expect(canonicalizeShellCommand("$'\\x67it' status").unanalyzable).toBe(
+      true,
+    );
+    expect(canonicalizeShellCommand("rg pattern src").unanalyzable).toBe(false);
   });
 
   it("default timeout is 120000 ms", () => {

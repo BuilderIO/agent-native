@@ -35,6 +35,7 @@ import {
 } from "../code-agents/prompt-attachments.js";
 import {
   createCodingToolRegistry,
+  canonicalizeShellCommand,
   isReadOnlyShellCommand,
   runCodingCommand,
   truncateBashOutput,
@@ -2826,6 +2827,15 @@ export function classifyCodeAgentCommandPermission(
   const normalized = command.trim().toLowerCase();
   if (!normalized) return { kind: "read" };
 
+  // Match every rule below against the quote-stripped form as well as the raw
+  // one. The shell removes quoting before the command word exists, so
+  // `git 'checkout' main` runs the branch operation these rules forbid while
+  // matching none of them verbatim.
+  const { canonical, unanalyzable } = canonicalizeShellCommand(command);
+  const canonicalized = canonical.trim().toLowerCase();
+  const matches = (pattern: RegExp): boolean =>
+    pattern.test(normalized) || pattern.test(canonicalized);
+
   const blockedPatterns: Array<[RegExp, string]> = [
     [
       /\bgit\s+(checkout|switch|reset|rebase|stash|clean|worktree)\b/,
@@ -2838,7 +2848,7 @@ export function classifyCodeAgentCommandPermission(
     [/\bdrizzle-kit\s+push\b/, "drizzle-kit push is not allowed"],
   ];
   for (const [pattern, reason] of blockedPatterns) {
-    if (pattern.test(normalized)) return { kind: "forbidden", reason };
+    if (matches(pattern)) return { kind: "forbidden", reason };
   }
 
   const approvalPatterns: Array<[RegExp, string]> = [
@@ -2854,9 +2864,18 @@ export function classifyCodeAgentCommandPermission(
     [/\bdelete\s+from\b(?![\s\S]*\bwhere\b)/, "unscoped delete command"],
   ];
   for (const [pattern, reason] of approvalPatterns) {
-    if (pattern.test(normalized)) {
+    if (matches(pattern)) {
       return { kind: "approval-required", reason };
     }
+  }
+
+  // A command whose real text this pass cannot recover is not a command we can
+  // clear. Ask rather than fall through to `write` on a guess.
+  if (unanalyzable) {
+    return {
+      kind: "approval-required",
+      reason: "command uses $'…' escaping that policy matching cannot decode",
+    };
   }
 
   if (isReadOnlyShellCommand(command)) {
