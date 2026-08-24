@@ -5042,7 +5042,11 @@ export async function runAgentLoop(opts: {
         const closeModelStreamBracket = () => {
           if (!modelStreamBracketOpen) return;
           modelStreamBracketOpen = false;
-          send({ type: "model_stream", status: "end" });
+          send({
+            type: "model_stream",
+            status: "end",
+            ...(terminalStopReason ? { reason: terminalStopReason } : {}),
+          });
         };
         let lastModelStreamProgressAt = Date.now();
         // FIX 2: true once a real (non-heartbeat) engine-stream event has been

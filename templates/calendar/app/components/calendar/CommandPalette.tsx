@@ -1,6 +1,7 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { CommandMenu } from "@agent-native/core/client/navigation";
 import type { CalendarEvent } from "@shared/api";
+import { timezoneFormatter } from "@shared/timezone";
 import {
   IconCalendar,
   IconClock,
@@ -28,6 +29,7 @@ interface CommandPaletteProps {
   open: boolean;
   onClose: () => void;
   events: CalendarEvent[];
+  timezone?: string;
   onGoToDate: (date: Date) => void;
   onEventClick: (event: CalendarEvent) => void;
   onCreateEvent: () => void;
@@ -80,6 +82,7 @@ export function CommandPalette({
   open,
   onClose,
   events,
+  timezone,
   onGoToDate,
   onEventClick,
   onCreateEvent,
@@ -192,7 +195,10 @@ export function CommandPalette({
                 />
                 <span className="flex-1 truncate">{event.title}</span>
                 <span className="ml-2 text-xs text-muted-foreground">
-                  {format(parseISO(event.start), "MMM d")}
+                  {timezoneFormatter(event.allDay ? "UTC" : timezone, {
+                    month: "short",
+                    day: "numeric",
+                  }).format(new Date(event.start))}
                 </span>
               </CommandMenu.Item>
             ))}

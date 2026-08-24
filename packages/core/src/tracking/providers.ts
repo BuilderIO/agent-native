@@ -193,11 +193,16 @@ function createPostHogProvider(
       JSON.stringify({
         api_key: apiKey,
         event: event.name,
+        // Top level, NOT inside `properties`: PostHog reads the event time from
+        // the payload root and treats a `properties.timestamp` as an ordinary
+        // custom property, stamping the event with its ingestion time instead.
+        // An agent run emits its whole tree in one burst at the end, so that
+        // collapsed a five-minute waterfall into the 100ms it took to flush.
+        timestamp: event.timestamp,
         properties: {
           distinct_id: distinctId,
           ...properties,
           ...(event.sessionId ? { $session_id: event.sessionId } : {}),
-          timestamp: event.timestamp,
         },
       }),
     );
@@ -234,10 +239,10 @@ function createPostHogProvider(
           api_key: apiKey,
           event: event.name,
           distinct_id: distinctId,
+          timestamp: event.timestamp,
           properties: {
             ...event.properties,
             ...(event.sessionId ? { $session_id: event.sessionId } : {}),
-            timestamp: event.timestamp,
           },
         }),
       );
@@ -289,7 +294,8 @@ export function sendPostHogEvent(
       api_key: apiKey,
       event: name,
       distinct_id: distinctId,
-      properties: { ...properties, timestamp: new Date().toISOString() },
+      timestamp: new Date().toISOString(),
+      properties,
     }),
   );
   return true;
