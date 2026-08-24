@@ -147,6 +147,8 @@ export interface Deck {
   starred?: boolean;
   /** Slide aspect ratio (defaults to 16:9 when absent for backwards compat) */
   aspectRatio?: AspectRatio;
+  /** First slide returned by the light deck listing for home-page previews. */
+  previewSlide?: Slide;
 }
 
 export type DeckPersistenceResult =
@@ -199,19 +201,18 @@ interface DeckContextType {
   ) => Deck;
   ensureDeckPersisted: (id: string) => Promise<DeckPersistenceResult>;
   /**
-   * Optimistically duplicate a deck. Inserts a copy into local state with the
-   * supplied `newId` immediately so the UI can navigate without awaiting the
-   * server, then fires the duplicate-deck action in the background. On error,
-   * the optimistic deck is rolled back.
+   * Duplicate a deck, hydrating a preview-only source before creating the
+   * optimistic copy. On error, the optimistic deck is rolled back.
    *
-   * Returns the optimistic deck (or `null` if the source deck isn't found).
+   * Returns the optimistic deck (or `null` if the source deck isn't found or
+   * could not be hydrated).
    */
   duplicateDeck: (
     sourceDeckId: string,
     newId: string,
     title?: string,
     onFailure?: () => void,
-  ) => Deck | null;
+  ) => Promise<Deck | null>;
   deleteDeck: (id: string) => void;
   updateDeck: (
     id: string,
@@ -325,6 +326,8 @@ function normalizeActionDeck(value: unknown): Deck | null {
   const deckRecord = deck as unknown as Record<string, unknown>;
   const cleanedDeck = { ...deckRecord };
   for (const field of GET_DECK_ONLY_DECK_FIELDS) delete cleanedDeck[field];
+  const previewSlide = deckRecord.previewSlide;
+  delete cleanedDeck.previewSlide;
 
   // Strip the same decorative fields from every slide, so a deck fetched from
   // `get-deck` is structurally identical to one built by local mutations —
@@ -356,7 +359,18 @@ function normalizeActionDeck(value: unknown): Deck | null {
         ? deck.updatedAt
         : deck.createdAt || "",
     slides,
+    ...(previewSlide && typeof previewSlide === "object"
+      ? { previewSlide: previewSlide as Slide }
+      : {}),
   } as Deck;
+}
+
+export function getDuplicateSourceSlides(deck: Deck): Slide[] {
+  return deck.slides.length > 0
+    ? deck.slides
+    : deck.previewSlide
+      ? [deck.previewSlide]
+      : [];
 }
 
 // Debounced save to API + save-state listeners (so the toolbar indicator
@@ -1040,7 +1054,7 @@ async function fetchDecksFromAPI(): Promise<Deck[] | null> {
   try {
     const result = await callAction<DeckListActionResult>(
       "list-decks",
-      { light: "true" },
+      { light: "true", includePreview: "true" },
       { method: "GET" },
     );
     if (!Array.isArray(result?.decks)) {
@@ -1172,7 +1186,7 @@ async function fetchDecksForCurrentRoute(): Promise<Deck[] | null> {
   }
   if (!currentOpenDeckId) return loaded;
 
-  // The list is intentionally metadata-only. Hydrate just the deck the user
+  // The list has only first-slide previews. Hydrate just the deck the user
   // opened so the editor gets full slide content without making the home page
   // download every deck body.
   const directDeck = await fetchDeckFromAPI(currentOpenDeckId);
@@ -2143,15 +2157,27 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   );
 
   const duplicateDeck = useCallback(
-    (
+    async (
       sourceDeckId: string,
       newId: string,
       title?: string,
       onFailure?: () => void,
-    ): Deck | null => {
+    ): Promise<Deck | null> => {
       if (pendingDuplicateSourceIdsRef.current.has(sourceDeckId)) return null;
-      const source = decks.find((d) => d.id === sourceDeckId);
-      if (!source) return null;
+      pendingDuplicateSourceIdsRef.current.add(sourceDeckId);
+      let source = decks.find((d) => d.id === sourceDeckId);
+      if (!source) {
+        pendingDuplicateSourceIdsRef.current.delete(sourceDeckId);
+        return null;
+      }
+      if (source.slides.length === 0 && source.previewSlide) {
+        const hydrated = await fetchDeckFromAPI(sourceDeckId);
+        if (!hydrated) {
+          pendingDuplicateSourceIdsRef.current.delete(sourceDeckId);
+          return null;
+        }
+        source = hydrated;
+      }
 
       const now = new Date().toISOString();
       const newTitle = title || `Copy of ${source.title}`;
@@ -2172,7 +2198,8 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         createdByMe: true,
         shareToken: undefined,
       };
-      optimistic.slides = optimistic.slides.map((s) => ({
+      delete optimistic.previewSlide;
+      optimistic.slides = getDuplicateSourceSlides(source).map((s) => ({
         ...s,
         id: `slide-${nanoid(8)}`,
       }));
@@ -2181,7 +2208,6 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       // the duplicate-deck action's INSERT lands.
       pendingCreateIdsRef.current.add(newId);
       noteLocalCreate(newId);
-      pendingDuplicateSourceIdsRef.current.add(sourceDeckId);
 
       // Fire the action in the background. On error, roll back.
       const duplicatePromise = callAction<DuplicateDeckActionResult>(
@@ -2190,10 +2216,12 @@ export function DeckProvider({ children }: { children: ReactNode }) {
           deckId: sourceDeckId,
           newId,
           title,
-          // The user can start editing the copy before this resolves, so the
-          // persisted slides must carry the ids the optimistic ones already
-          // have — otherwise those edits address slides the server never had.
-          slideIds: optimistic.slides.map((s) => s.id),
+          // Preview-only sources were hydrated above. An empty array is not
+          // a valid optimistic slide-id projection, so omit it for empty
+          // decks and let the server generate ids for any uncovered slides.
+          ...(optimistic.slides.length > 0
+            ? { slideIds: optimistic.slides.map((s) => s.id) }
+            : {}),
         },
       ).then(() => undefined);
       pendingCreatePromisesRef.current.set(newId, duplicatePromise);
@@ -2213,9 +2241,9 @@ export function DeckProvider({ children }: { children: ReactNode }) {
           }
           console.error("Duplicate failed:", err);
           // Roll back: drop the optimistic deck from local state. The caller
-          // (via onFailure) is responsible for navigating away if the user is
-          // still sitting on this now-gone deck's route — otherwise they're
-          // stranded on a "Deck unavailable" screen with no way back.
+          // (via onFailure) is responsible for navigating away if the user
+          // is still sitting on this now-gone deck's route — otherwise
+          // they're stranded on a "Deck unavailable" screen with no way back.
           setDecks((prev) => prev.filter((d) => d.id !== newId));
           onFailure?.();
         })
