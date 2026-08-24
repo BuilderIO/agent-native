@@ -164,28 +164,26 @@ describe("boundAiContent", () => {
     expect(boundAiContent(value)).toEqual({ value, truncated: false });
   });
 
-  it("keeps the newest messages and says how many it dropped", () => {
-    // ~2KB each, so the tail fits and the head cannot.
+  it("keeps the last user message and says how much it dropped", () => {
+    // ~2KB each, far past the ceiling in total.
     const messages = Array.from({ length: 200 }, (_, index) => ({
       role: index % 2 === 0 ? "user" : "assistant",
       content: `message ${index} ${"x".repeat(2000)}`,
     }));
+    messages.push({ role: "user", content: "so what changed?" });
+    messages.push({ role: "assistant", content: `answer ${"y".repeat(2000)}` });
 
     const result = boundAiContent(messages);
     const kept = result.value as Array<{ role: string; content: string }>;
 
     expect(result.truncated).toBe(true);
+    // The marker, then what was asked. Nothing else: keeping as much as fits
+    // would ship the ceiling on every event.
+    expect(kept).toHaveLength(2);
     expect(kept[0].content).toMatch(
-      /^\[\d+ earlier message\(s\) omitted: \d+ bytes exceeded the \d+-byte/,
+      /^\[\d+ message\(s\) omitted: \d+ bytes exceeded the \d+-byte/,
     );
-    // The last turn — the one a trace is opened for — survives.
-    expect(kept[kept.length - 1].content).toContain("message 199");
-    expect(kept.length).toBeGreaterThan(1);
-    expect(kept.length).toBeLessThan(messages.length);
-    // And what survives still fits the ceiling.
-    expect(JSON.stringify(kept).length).toBeLessThanOrEqual(
-      MAX_AI_CONTENT_BYTES,
-    );
+    expect(kept[1]).toEqual({ role: "user", content: "so what changed?" });
   });
 
   it("marks a single oversized message rather than shipping half of it", () => {
@@ -200,7 +198,7 @@ describe("boundAiContent", () => {
     expect(JSON.stringify(result.value)).not.toContain("xxxx");
   });
 
-  it("still placeholders an oversized value that has no tail to keep", () => {
+  it("still placeholders an oversized value with no message to keep", () => {
     const result = boundAiContent("y".repeat(MAX_AI_CONTENT_BYTES + 10));
 
     expect(result.truncated).toBe(true);

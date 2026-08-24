@@ -100,15 +100,14 @@ const OMISSION_MARKER_BYTES = 512;
 /**
  * Serialize a content value under a byte ceiling.
  *
- * A message list is cut from the FRONT and keeps as many of the newest messages
- * as fit, led by a marker entry naming what was dropped. The last turns are the
- * ones a trace is read for, and replacing the whole conversation with a
- * placeholder — which is what this did — threw away a debuggable 128KB along
- * with the 115KB that did not fit.
+ * A message list keeps the last user message behind a marker entry naming what
+ * was dropped — what was asked is what a trace is opened for, and it stays
+ * small. Replacing the whole conversation with a placeholder, which is what
+ * this did, left nothing at all.
  *
  * Anything else (a string, an object) still becomes a placeholder: there is no
- * meaningful tail to keep. Either way `truncated` is true, so a cut payload can
- * never be read as a complete one.
+ * message to keep. Either way `truncated` is true, so a cut payload can never
+ * be read as a complete one.
  */
 export function boundAiContent(value: unknown): {
   value: unknown;
@@ -126,28 +125,26 @@ export function boundAiContent(value: unknown): {
   if (bytes <= MAX_AI_CONTENT_BYTES) return { value, truncated: false };
 
   if (Array.isArray(value)) {
-    const budget = MAX_AI_CONTENT_BYTES - OMISSION_MARKER_BYTES;
-    const kept: unknown[] = [];
-    let used = 0;
-    let firstKept = value.length;
-    for (let index = value.length - 1; index >= 0; index -= 1) {
-      let entry: string;
-      try {
-        entry = JSON.stringify(value[index]) ?? "null";
-      } catch {
-        break;
-      }
-      const entryBytes = utf8Bytes(entry) + 1; // the separating comma
-      if (used + entryBytes > budget) break;
-      used += entryBytes;
-      kept.unshift(value[index]);
-      firstKept = index;
-    }
+    // What was ASKED is the one thing worth rescuing from an oversized
+    // transcript: the rest is context the thread itself still holds, and
+    // keeping as much of it as fits just ships the ceiling on every event.
+    const lastUser = value.findLast(
+      (entry) =>
+        !!entry &&
+        typeof entry === "object" &&
+        (entry as { role?: unknown }).role === "user",
+    );
+    const kept =
+      lastUser !== undefined &&
+      utf8Bytes(JSON.stringify(lastUser) ?? "null") <=
+        MAX_AI_CONTENT_BYTES - OMISSION_MARKER_BYTES
+        ? [lastUser]
+        : [];
     return {
       value: [
         {
           role: "system",
-          content: `[${firstKept} earlier message(s) omitted: ${bytes} bytes exceeded the ${MAX_AI_CONTENT_BYTES}-byte trace content limit]`,
+          content: `[${value.length - kept.length} message(s) omitted: ${bytes} bytes exceeded the ${MAX_AI_CONTENT_BYTES}-byte trace content limit]`,
         },
         ...kept,
       ],
