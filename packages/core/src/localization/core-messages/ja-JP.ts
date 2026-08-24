@@ -36,6 +36,8 @@ const messages: AgentChatTranslation = {
   "aboutAgentNative.copyDiagnostics": "診断情報をコピー",
   "aboutAgentNative.unknown": "不明",
   "common.agent": "エージェント",
+  "agentPanel.mode": "モード",
+  "agentPanel.uiMode": "UI",
   "common.cancel": "キャンセル",
   "common.collapse": "折りたたむ",
   "common.connect": "接続",

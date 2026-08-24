@@ -33,6 +33,8 @@ const messages = {
   "aboutAgentNative.copyDiagnostics": "Copy diagnostics",
   "aboutAgentNative.unknown": "Unknown",
   "common.agent": "Agent",
+  "agentPanel.mode": "Mode",
+  "agentPanel.uiMode": "UI",
   "common.cancel": "Cancel",
   "common.collapse": "Collapse",
   "common.connect": "Connect",

@@ -32,7 +32,7 @@ await putSetting("observability-config", {
   enabled: true,
   capturePrompts: false,
   captureToolArgs: true,    // capture action input args
-  captureToolResults: false, // include failed tool error text on tracked $ai_generation tool call entries
+  captureToolResults: false, // include tool results/error text on tool spans and $ai_generation entries
   evalSampleRate: 0.05,     // 5% of runs get LLM-as-judge eval
   inferredSentimentEnabled: false,
   inferredSentimentSampleRate: 0,
@@ -288,6 +288,9 @@ same best-effort fan-out as other tracking events.
   visit share a session. `setAnalyticsSessionId()` from
   `@agent-native/core/client/analytics` pins a custom id and opts it out of the
   30-minute idle rotation. Emission lives in `posthog-ai.ts`.
+- Each event is stamped with when it happened, not when the run flushed. The
+  whole tree is emitted in one burst at run end, so `track()` takes an
+  `occurredAt` and the trace tree keeps a real timeline.
 - Agent Native Analytics shape: the same event lands in `analytics_events` with
   mirrored query-friendly properties such as `run_id`, `thread_id`,
   `cost_cents_x100`, `duration_ms`, `tool_calls`, `successful_tools`,
@@ -301,6 +304,32 @@ same best-effort fan-out as other tracking events.
 
 Constraints that are not visible from the emit site:
 
+- **The trace event carries no latency, tokens, or cost under `$ai_*`.** PostHog
+  DERIVES those from a trace's children: its trace query sums `$ai_latency` over
+  every event whose `$ai_parent_id` is the trace or is absent, and sums
+  tokens/cost over `$ai_generation` / `$ai_embedding` only. An `$ai_latency` on
+  the `$ai_trace` event is therefore added to its own children's and reports
+  roughly twice the real duration. Run totals ride along as `duration_ms`,
+  `input_tokens`, `output_tokens`, and `cost_usd` for the backends that do no
+  such aggregation.
+- **The generation's `$ai_latency` is model time, not run time.** Tool calls are
+  siblings under the same trace and PostHog adds their latency to the
+  generation's, so tool duration is subtracted out. `duration_ms` on the same
+  event is still the full run — the two differ on purpose.
+- **PostHog's `$ai_*` latency fields are seconds; ours are milliseconds.**
+  `$ai_latency` and `$ai_time_to_first_token` are seconds;
+  `duration_ms` and `time_to_first_token_ms` are the millisecond siblings the
+  first-party dashboards read. Feeding a millisecond value to a seconds field is
+  invisible in the payload and inflates the metric 1000x.
+- **Custom properties never take an `$ai_` prefix.** That namespace belongs to
+  PostHog's schema; a name it does not define today it may define tomorrow with
+  a different meaning. Ours are plain (`duration_ms`, `input_truncated`,
+  `spans_dropped`), which also keeps them out of PostHog's `$ai_*` aggregation.
+- **Trace-level input/output state lives only on `$ai_trace`.** PostHog reads a
+  trace's input and output from that event and never from its children, so
+  `$ai_input_state` / `$ai_output_state` have to be set there or the trace
+  detail view is empty.
+
 - **One generation per run, not per model round-trip.** The engine layer reports
   aggregate usage through `onUsage` and exposes no per-step hook, so a multi-step
   run collapses into a single generation carrying the whole message list.
@@ -310,7 +339,7 @@ Constraints that are not visible from the emit site:
 - **Disabled capture omits the field rather than sending an empty one.** An
   empty array is indistinguishable from a run that genuinely had no messages.
   Truncated content is marked, and a run over the span cap stamps
-  `$ai_spans_dropped` — a truncated run must not read as a complete one.
+  `spans_dropped` — a truncated run must not read as a complete one.
 - **The structural tool-call list ships even when content capture is off.**
   Backends derive their tool tags from tool-call blocks inside the output
   choices and from nothing else, so tool names (without arguments) are always

@@ -1,8 +1,9 @@
 name: Beta E2E (scheduled)
 
 # Keep the promotion gate in beta-e2e.yml manually invokable while running the
-# same browser job on a fixed cadence. The issue reporter is deliberately a
-# separate job so a failing test run still gets a chance to report itself.
+# same reusable browser job on a fixed cadence. The issue reporter is
+# deliberately a separate job so a failing test run still gets a chance to
+# report itself.
 
 on:
   schedule:
@@ -24,10 +25,9 @@ jobs:
       apps: all
       lane: public+authed
       grep: ""
-      # Scheduled health checks use the same repository credential as the
-      # hosted beta sites. Manual promotion runs can still opt into the
-      # separately limited dedicated key.
-      key_source: shared
+      # Scheduled health checks use the separately limited E2E credential so
+      # they cannot spend or inherit the repository-wide provider key.
+      key_source: dedicated
     secrets: inherit
     permissions:
       contents: read

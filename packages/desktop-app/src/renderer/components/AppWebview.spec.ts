@@ -22,6 +22,7 @@ import {
   resolveAppWebviewAuthState,
   resolveAppWebviewAuthStateFromProbe,
   resolveAppWebviewUrl,
+  rememberDesktopEnvironmentLane,
   withDesktopEnvironmentOptOut,
   isDesktopIdentityAuthenticated,
   isDesktopIdentityGateEligible,
@@ -322,6 +323,122 @@ describe("Desktop identity activation", () => {
     expect(
       sourceAssignments.mock.calls.filter(([name]) => name === "src"),
     ).toHaveLength(initialSourceAssignmentCount);
+  });
+
+  it("reconciles a loaded app without replacing its session on activation", async () => {
+    const ensureAppSession = vi
+      .fn<() => Promise<boolean>>()
+      .mockResolvedValueOnce(true)
+      .mockResolvedValue(false);
+    Object.defineProperty(window, "electronAPI", {
+      configurable: true,
+      value: {
+        identity: {
+          getSettings: vi.fn(async () => ({ ssoEnabled: true })),
+          getStatus: vi.fn(async () => "signed-in"),
+          ensureAppSession,
+          onStatusChange: vi.fn(() => () => {}),
+        },
+      },
+    });
+    rememberDesktopIdentityStatus("signed-in");
+    root = createRoot(container);
+
+    const app = {
+      id: "mail",
+      name: "Mail",
+      icon: "mail",
+      description: "",
+      devPort: 3000,
+    };
+    const appConfig = {
+      ...app,
+      url: "https://mail.agent-native.com",
+      isBuiltIn: true,
+      enabled: true,
+      mode: "prod" as const,
+    };
+
+    act(() => {
+      root.render(
+        React.createElement(AppWebview, {
+          app,
+          appConfig,
+          isActive: true,
+          theme: "dark" as const,
+        }),
+      );
+    });
+
+    await vi.waitFor(() => expect(ensureAppSession).toHaveBeenCalledTimes(1));
+    const webview = container.querySelector("webview");
+    expect(webview).not.toBeNull();
+    Object.defineProperties(webview!, {
+      getTitle: { configurable: true, value: () => "" },
+      getURL: {
+        configurable: true,
+        value: () => webview!.getAttribute("src") ?? "",
+      },
+    });
+    await act(async () => {
+      webview?.dispatchEvent(new Event("dom-ready"));
+      await Promise.resolve();
+    });
+
+    act(() => {
+      root.render(
+        React.createElement(AppWebview, {
+          app,
+          appConfig,
+          isActive: false,
+          theme: "dark" as const,
+        }),
+      );
+    });
+    act(() => {
+      root.render(
+        React.createElement(AppWebview, {
+          app,
+          appConfig,
+          isActive: true,
+          theme: "dark" as const,
+        }),
+      );
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(ensureAppSession).toHaveBeenCalledTimes(2);
+    expect(ensureAppSession).toHaveBeenNthCalledWith(2, "mail", {
+      preserveExistingSession: true,
+    });
+
+    act(() => {
+      root.render(
+        React.createElement(AppWebview, {
+          app,
+          appConfig,
+          isActive: false,
+          theme: "dark" as const,
+        }),
+      );
+    });
+    act(() => {
+      root.render(
+        React.createElement(AppWebview, {
+          app,
+          appConfig,
+          isActive: true,
+          theme: "dark" as const,
+        }),
+      );
+    });
+
+    await vi.waitFor(() => expect(ensureAppSession).toHaveBeenCalledTimes(3));
+    expect(ensureAppSession).toHaveBeenNthCalledWith(3, "mail", {
+      preserveExistingSession: true,
+    });
   });
 
   it("keeps a remembered session gated until child synchronization completes", async () => {
@@ -989,6 +1106,21 @@ describe("AppWebview URL resolution", () => {
     expect(
       withDesktopEnvironmentOptOut("https://beta.mail.agent-native.com/inbox"),
     ).toBe("https://beta.mail.agent-native.com/inbox");
+  });
+
+  it("still recognizes production URLs while the shell is on the beta lane", () => {
+    // resolveAppWebviewUrl follows the active lane, so a production URL must
+    // not stop matching (and silently lose its opt-out) once beta is picked.
+    rememberDesktopEnvironmentLane("beta");
+    try {
+      const parsed = new URL(
+        withDesktopEnvironmentOptOut("https://mail.agent-native.com/inbox"),
+      );
+      expect(parsed.origin).toBe("https://mail.agent-native.com");
+      expect(parsed.searchParams.has("agentNativeBetaOptOut")).toBe(true);
+    } finally {
+      rememberDesktopEnvironmentLane("production");
+    }
   });
 });
 

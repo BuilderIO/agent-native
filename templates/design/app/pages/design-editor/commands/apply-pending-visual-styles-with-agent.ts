@@ -50,7 +50,7 @@ export interface ApplyPendingVisualStylesWithAgentArgs {
   pendingStructureVerificationStatus: PendingStructureVerificationStatus;
   pendingVisualStyleEdits: PendingVisualStyleEdit[];
   pendingVisualStylePrompt: string;
-  setActiveLeftPanel: Dispatch<SetStateAction<DesignLeftPanel>>;
+  setActiveLeftPanel: Dispatch<SetStateAction<DesignLeftPanel | null>>;
   setApplyingViaHost: Dispatch<SetStateAction<boolean>>;
   setPendingAgentHandoffBusy: Dispatch<SetStateAction<boolean>>;
   setPendingStructureAckRequest: Dispatch<

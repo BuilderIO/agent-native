@@ -30,6 +30,11 @@ import { type BetaSite, originFor } from "./fleet";
  *                            `pnpm e2e:beta:capture`. Use when a host issues
  *                            cookies the token path cannot reproduce.
  *
+ *   BETA_E2E_SESSION_TOKEN_<APP>
+ *                            an optional per-app token override, useful when
+ *                            one host needs refreshing without replacing the
+ *                            fleet map.
+ *
  * Both expire — the framework session is 30 days (`DEFAULT_MAX_AGE` in
  * packages/core/src/server/auth.ts). `pnpm e2e:beta:capture` re-mints them.
  *
@@ -45,7 +50,7 @@ const AUTH_DIR = path.join(
   ".auth",
 );
 const SESSION_EXCHANGE_MAX_ATTEMPTS = 3;
-const RETRYABLE_SESSION_EXCHANGE_STATUSES = new Set([502, 503, 504]);
+const RETRYABLE_SESSION_EXCHANGE_STATUSES = new Set([500, 502, 503, 504]);
 
 export function shouldRetrySessionExchange(
   status: number,
@@ -123,7 +128,13 @@ function sessionTokens(): Record<string, string> | undefined {
   return parseJsonEnv<Record<string, string>>("BETA_E2E_SESSION_TOKENS");
 }
 
-function sessionTokenFor(appId: string): string | undefined {
+function sessionTokenEnvName(appId: string): string {
+  return `BETA_E2E_SESSION_TOKEN_${appId.replace(/[^a-z0-9]/gi, "_").toUpperCase()}`;
+}
+
+export function sessionTokenFor(appId: string): string | undefined {
+  const appToken = process.env[sessionTokenEnvName(appId)]?.trim();
+  if (appToken) return appToken;
   const tokens = sessionTokens();
   if (!tokens) return undefined;
   return tokens[appId] ?? tokens["*"];
@@ -137,9 +148,18 @@ function storageStateBlob(): string | undefined {
   return undefined;
 }
 
+function hasPerAppSessionToken(): boolean {
+  return Object.entries(process.env).some(
+    ([name, value]) =>
+      name.startsWith("BETA_E2E_SESSION_TOKEN_") && Boolean(value?.trim()),
+  );
+}
+
 /** True when this run has been given something to authenticate with. */
 export function hasSessionCredentials(): boolean {
-  return Boolean(sessionTokens() || storageStateBlob());
+  return Boolean(
+    sessionTokens() || storageStateBlob() || hasPerAppSessionToken(),
+  );
 }
 
 /**
@@ -250,10 +270,16 @@ export async function bootstrapAppSession(
       }
     }
 
-    const { identity, status, body } = await readSessionIdentity(
-      context,
-      origin,
-    );
+    let session = await readSessionIdentity(context, origin);
+    for (
+      let attempt = 1;
+      shouldRetrySessionExchange(session.status, attempt);
+      attempt++
+    ) {
+      await sleep(1_000 * attempt);
+      session = await readSessionIdentity(context, origin);
+    }
+    const { identity, status, body } = session;
 
     if (!identity) {
       throw new Error(

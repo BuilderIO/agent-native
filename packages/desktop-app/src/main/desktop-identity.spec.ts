@@ -3069,6 +3069,45 @@ describe("DesktopIdentityBroker", () => {
     );
   });
 
+  it("does not replace an existing child session during activation reconciliation", async () => {
+    const authority = authorityFixture();
+    const mail = appFixture();
+    const mailCookies = cookieStore([
+      sessionCookie("an_session_mail", mail.origin, "mail-session"),
+    ]);
+    mail.session = {
+      cookies: mailCookies,
+      fetch: vi.fn(async () => new Response(null, { status: 401 })),
+    } as unknown as Electron.Session;
+    const identityCookies = cookieStore([
+      sessionCookie(
+        "an_session_dispatch",
+        authority.origin,
+        "dispatch-session",
+      ),
+    ]);
+    const broker = new DesktopIdentityBroker({
+      identitySession: {
+        cookies: identityCookies,
+        fetch: vi.fn(async () => sessionResponse("steve@example.com")),
+        clearStorageData: vi.fn(async () => {}),
+      } as unknown as Electron.Session,
+      openExternal: vi.fn(),
+      resolveApp: (id) =>
+        id === authority.id ? authority : id === mail.id ? mail : null,
+      listApps: () => [authority, mail],
+      createWindow: vi.fn() as never,
+      reloadApp: vi.fn(),
+      clearLocalBroker: vi.fn(),
+    });
+    broker.setStatusForSetting("signed-in");
+
+    await expect(
+      broker.ensureAppSession(mail.id, { preserveExistingSession: true }),
+    ).resolves.toBe(false);
+    expect(mailCookies.remove).not.toHaveBeenCalled();
+  });
+
   it("keeps a failed lazy app synchronization scoped to the child", async () => {
     const authority = authorityFixture();
     const custom = {

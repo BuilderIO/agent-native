@@ -34,6 +34,8 @@ const messages: AgentChatTranslation = {
   "aboutAgentNative.copyDiagnostics": "复制诊断信息",
   "aboutAgentNative.unknown": "未知",
   "common.agent": "智能体",
+  "agentPanel.mode": "模式",
+  "agentPanel.uiMode": "界面",
   "common.cancel": "取消",
   "common.collapse": "收起",
   "common.connect": "连接",

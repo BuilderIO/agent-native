@@ -36,6 +36,8 @@ const messages: AgentChatTranslation = {
   "aboutAgentNative.copyDiagnostics": "진단 정보 복사",
   "aboutAgentNative.unknown": "알 수 없음",
   "common.agent": "에이전트",
+  "agentPanel.mode": "모드",
+  "agentPanel.uiMode": "UI",
   "common.cancel": "취소",
   "common.collapse": "접기",
   "common.connect": "연결",

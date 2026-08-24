@@ -39,6 +39,42 @@ function costUsdFromCenticents(value: number): number {
   return Math.round((value / 10_000) * 1_000_000) / 1_000_000;
 }
 
+interface TimeInterval {
+  start: number;
+  end: number;
+}
+
+/**
+ * Wall-clock time covered by these intervals, counting overlap once.
+ *
+ * Tools run concurrently, so summing durations reports more elapsed time than
+ * actually passed — enough to drive a derived remainder to zero on a parallel
+ * fan-out.
+ */
+function coveredDurationMs(intervals: TimeInterval[]): number {
+  if (intervals.length === 0) return 0;
+  const sorted = [...intervals].sort((a, b) => a.start - b.start);
+  let covered = 0;
+  let { start: openStart, end: openEnd } = sorted[0];
+  for (const { start, end } of sorted.slice(1)) {
+    if (start > openEnd) {
+      covered += openEnd - openStart;
+      openStart = start;
+      openEnd = end;
+    } else if (end > openEnd) {
+      openEnd = end;
+    }
+  }
+  return covered + (openEnd - openStart);
+}
+
+function spanIntervals(spans: TraceSpan[]): TimeInterval[] {
+  return spans.map((s) => ({
+    start: s.createdAt,
+    end: s.createdAt + Math.max(0, s.durationMs),
+  }));
+}
+
 /**
  * Project run metadata onto flat PostHog trace properties.
  *
@@ -141,6 +177,24 @@ function emitLlmGenerationTrackingEvent(args: {
    *  them and is equally unmeasurable when they were never reported. */
   costCentsX100: number | undefined;
   durationMs: number;
+  /**
+   * Wall-clock ms spent in the model. This is what `$ai_latency` reports, and
+   * it is deliberately NOT `durationMs`.
+   *
+   * PostHog sums `$ai_latency` across a trace's direct children, and every
+   * tool call is emitted as one of those children. Reporting the full run
+   * duration here counted tool time twice and made the trace waterfall wider
+   * than the run it describes.
+   */
+  llmDurationMs: number;
+  /** False when `llmDurationMs` was derived by subtracting tool time from the
+   *  run because the engine never bracketed its model calls. Emitted so a
+   *  latency built on that estimate can be told apart from a measured one. */
+  llmDurationMeasured: boolean;
+  /** LLM round-trips in the run. Feeds `$ai_request_count`, which PostHog
+   *  multiplies by per-request pricing — a hardcoded 1 undercharged every
+   *  multi-step run on a request-priced model. */
+  llmCallCount: number;
   /** Elapsed ms from run start to the first non-heartbeat engine event.
    *  Undefined when no such event ever arrived (the run never produced a
    *  token before being aborted) — never coerced to 0. */
@@ -248,7 +302,7 @@ function emitLlmGenerationTrackingEvent(args: {
     $ai_provider: provider,
     $ai_input_tokens: args.inputTokens,
     $ai_output_tokens: args.outputTokens,
-    $ai_latency: Math.round((args.durationMs / 1000) * 1000) / 1000,
+    $ai_latency: Math.round(args.llmDurationMs) / 1000,
     $ai_is_error: args.status === "error",
     $ai_error:
       args.status === "error"
@@ -258,16 +312,25 @@ function emitLlmGenerationTrackingEvent(args: {
             retryable: terminalRetryable,
           })
         : undefined,
+    // Every engine here streams (`messages.stream`, `streamText`, gateway SSE),
+    // which is also what makes `$ai_time_to_first_token` meaningful.
+    $ai_stream: true,
     $ai_cache_read_input_tokens: args.cacheReadTokens,
     $ai_cache_creation_input_tokens: args.cacheWriteTokens,
-    $ai_request_count: 1,
+    $ai_request_count: args.llmCallCount,
     $ai_total_cost_usd: costUsd,
     $ai_input: args.aiInput,
     $ai_output_choices: args.aiOutputChoices,
     $ai_tools: args.aiTools,
-    $ai_input_truncated: args.aiInputTruncated || undefined,
-    $ai_output_truncated: args.aiOutputTruncated || undefined,
-    $ai_time_to_first_token: args.firstTokenMs,
+    input_truncated: args.aiInputTruncated || undefined,
+    output_truncated: args.aiOutputTruncated || undefined,
+    latency_source: args.llmDurationMeasured ? "measured" : "derived",
+    // Seconds, per PostHog's schema — `time_to_first_token_ms` above is the
+    // millisecond field this framework's own dashboards read.
+    $ai_time_to_first_token:
+      args.firstTokenMs === undefined
+        ? undefined
+        : Math.round(args.firstTokenMs) / 1000,
     $session_id: args.browserSessionId,
   };
   if (args.experimentAssignments?.length) {
@@ -293,6 +356,7 @@ function emitLlmGenerationTrackingEvent(args: {
       .then(({ track }) => {
         track("$ai_generation", properties, {
           userId: args.userId ?? undefined,
+          occurredAt: args.createdAt,
         });
       })
       .catch(() => {});
@@ -330,6 +394,10 @@ function buildGenerationContent(args: {
 } {
   const { config } = args;
 
+  // `$ai_input` is the conversation, not the system prompt. PostHog accepts a
+  // `system` role, but the prompt is app configuration rather than content and
+  // is near-identical on every run — shipping it would repeat kilobytes on each
+  // generation for no analytical gain.
   const input = config.capturePrompts
     ? boundAiContent(redactSensitiveFields(args.messages))
     : undefined;
@@ -597,6 +665,14 @@ export async function instrumentAgentLoop(opts: {
   let successfulTools = 0;
   let failedTools = 0;
 
+  // One `model_stream` start/end bracket is emitted per LLM round-trip, and it
+  // closes before any tool of that turn is started — so these intervals ARE the
+  // model's wall clock, not an estimate of it. Recording them is what lets the
+  // generation report a measured `$ai_latency` instead of backing tool time out
+  // of the run duration.
+  const modelStreamIntervals: TimeInterval[] = [];
+  let modelStreamOpenedAt: number | null = null;
+
   // Track in-flight OTel tool spans so they're all ended even if the loop
   // throws before a matching `tool_done` arrives.
   const openOtelToolSpans = new Set<AgentSpan>();
@@ -677,6 +753,20 @@ export async function instrumentAgentLoop(opts: {
         runStatus = "error";
         errorMessage = "Missing API key";
       }
+      if (event.type === "model_stream") {
+        // The emitter brackets these itself, so a repeated start or an
+        // unmatched end is a no-op here rather than a fabricated interval.
+        if (event.status === "start") {
+          modelStreamOpenedAt ??= Date.now();
+        } else if (modelStreamOpenedAt !== null) {
+          modelStreamIntervals.push({
+            start: modelStreamOpenedAt,
+            end: Date.now(),
+          });
+          modelStreamOpenedAt = null;
+        }
+      }
+
       if (event.type === "tool_start") {
         const counter = toolInvocationCounter++;
         const sid = spanId();
@@ -809,6 +899,30 @@ export async function instrumentAgentLoop(opts: {
           pending.endResult = otelEndResult;
         }
 
+        const spanMetadataFields: Record<string, unknown> = {};
+        if (config.captureToolArgs && pending) {
+          // Strip Authorization/api-key/token-shaped values before persisting
+          // (M14 in the MCP/A2A audit). Tool-runtime execution still sees the
+          // unredacted input — only the long-lived span row is sanitized.
+          spanMetadataFields.input = redactSensitiveFields(pending.input);
+        }
+        // A failed tool's content reaches the span through `errorMessage`; a
+        // successful one had nowhere to go, so every healthy tool span shipped
+        // an input and no output — indistinguishable from a tool that returned
+        // nothing. Same redaction and truncation as the error path.
+        if (
+          !isError &&
+          config.captureToolResults &&
+          typeof event.result === "string"
+        ) {
+          spanMetadataFields.output = truncateToolErrorMessage(
+            redactToolErrorMessage(event.result),
+          );
+        }
+        const spanMetadata = Object.keys(spanMetadataFields).length
+          ? spanMetadataFields
+          : null;
+
         const span: TraceSpan = {
           id: pending?.spanId ?? spanId(),
           runId,
@@ -825,20 +939,11 @@ export async function instrumentAgentLoop(opts: {
           durationMs: pending ? Math.max(0, finishedAt - pending.startMs) : 0,
           status: isError ? "error" : "success",
           errorMessage: isError ? event.result : null,
-          metadata:
-            config.captureToolArgs && pending
-              ? // Strip Authorization/api-key/token-shaped values before
-                // persisting (M14 in the MCP/A2A audit). Tool-runtime
-                // execution still sees the unredacted input — only the
-                // long-lived span row is sanitized.
-                {
-                  input: redactSensitiveFields(pending.input) as Record<
-                    string,
-                    string
-                  >,
-                }
-              : null,
-          createdAt: Date.now(),
+          metadata: spanMetadata,
+          // The span's start, not its completion: `durationMs` is measured from
+          // here, so stamping the end instead places the tool after the run
+          // ended in any timeline that plots start + duration.
+          createdAt: pending?.startMs ?? finishedAt,
         };
         spans.push(span);
       }
@@ -878,6 +983,20 @@ export async function instrumentAgentLoop(opts: {
     try {
       const runEnd = Date.now();
       const totalDurationMs = runEnd - runStart;
+
+      // The loop threw or was killed mid-stream, so no `end` ever arrived. The
+      // model was still running when the run stopped, so the interval closes at
+      // the run's end rather than being dropped.
+      if (modelStreamOpenedAt !== null) {
+        modelStreamIntervals.push({ start: modelStreamOpenedAt, end: runEnd });
+        modelStreamOpenedAt = null;
+      }
+      // Undefined means the engine never bracketed its model calls, NOT that
+      // the model took no time — the two must stay distinguishable, because
+      // only the first may fall back to backing tool time out of the run.
+      const measuredModelDurationMs = modelStreamIntervals.length
+        ? coveredDurationMs(modelStreamIntervals)
+        : undefined;
 
       if (pendingTools.size > 0) {
         if (runStatus === "success") {
@@ -930,7 +1049,7 @@ export async function instrumentAgentLoop(opts: {
             status: "error",
             errorMessage: interruptedMessage,
             metadata: null,
-            createdAt: runEnd,
+            createdAt: pending.startMs,
           });
         }
         pendingTools.clear();
@@ -970,6 +1089,21 @@ export async function instrumentAgentLoop(opts: {
             }
           : undefined);
 
+      const collectedToolSpans = spans.filter(
+        (s) => s.spanType === "tool_call",
+      );
+      // Resolved before the generation event, not just before the span events:
+      // the generation's latency is the run minus the tool time PostHog will
+      // actually see, so it has to be computed against the same set. Tools
+      // dropped by `captureLlmSpans` or the per-run cap have no sibling span to
+      // hold their time, and subtracting them would lose it from the trace.
+      const emittedToolSpans = (
+        config.captureLlmSpans ? collectedToolSpans : []
+      ).slice(0, MAX_AI_SPANS_PER_RUN);
+      const droppedToolSpans =
+        (config.captureLlmSpans ? collectedToolSpans.length : 0) -
+        emittedToolSpans.length;
+
       let llmCallCount = 0;
       if (usage || runStatus === "error") {
         llmCallCount =
@@ -995,12 +1129,27 @@ export async function instrumentAgentLoop(opts: {
             ? Math.max(0, usage.firstEngineEventAtMs - runStart)
             : undefined;
         const llmSpanId = spanId();
+        const generationToolSpans = collectedToolSpans;
+        // Measured model time when the engine bracketed its round-trips.
+        //
+        // The fallback backs tool time out of the run instead, which is an
+        // estimate and behaves like one: it has to net out overlapping tools,
+        // skip tools PostHog will not receive, and clamp at zero. Engines that
+        // report `model_stream` need none of that, so `latency_source` records
+        // which of the two a given `$ai_latency` came from.
+        const llmDurationMs =
+          measuredModelDurationMs ??
+          Math.max(
+            0,
+            totalDurationMs -
+              coveredDurationMs(spanIntervals(emittedToolSpans)),
+          );
         const generationContent = buildGenerationContent({
           config,
           messages: loopOpts.messages,
           tools: loopOpts.tools,
           assistantText: assistantTextParts.join(""),
-          toolSpans: spans.filter((s) => s.spanType === "tool_call"),
+          toolSpans: generationToolSpans,
         });
         const llmSpan: TraceSpan = {
           id: llmSpanId,
@@ -1045,6 +1194,9 @@ export async function instrumentAgentLoop(opts: {
             : undefined,
           costCentsX100: usageReported ? costCentsX100 : undefined,
           durationMs: totalDurationMs,
+          llmDurationMs,
+          llmDurationMeasured: measuredModelDurationMs !== undefined,
+          llmCallCount,
           firstTokenMs,
           status: runStatus,
           errorMessage,
@@ -1114,11 +1266,23 @@ export async function instrumentAgentLoop(opts: {
           usage?.model ?? loopOpts.model,
         );
 
-        const toolSpans = config.captureLlmSpans
-          ? spans.filter((s) => s.spanType === "tool_call")
-          : [];
-        const emittedToolSpans = toolSpans.slice(0, MAX_AI_SPANS_PER_RUN);
-        const droppedToolSpans = toolSpans.length - emittedToolSpans.length;
+        // PostHog reads a trace's input/output state ONLY from the `$ai_trace`
+        // event — never from its children — so a trace whose detail view should
+        // show what the run was asked and what it answered has to carry them
+        // here. Gated on `capturePrompts` and omitted, not emptied, when off.
+        const traceInputState = config.capturePrompts
+          ? redactSensitiveFields(loopOpts.messages)
+          : undefined;
+        const traceAssistantText = assistantTextParts.join("");
+        const traceOutputState =
+          config.capturePrompts && traceAssistantText
+            ? [
+                {
+                  role: "assistant",
+                  content: redactToolErrorMessage(traceAssistantText),
+                },
+              ]
+            : undefined;
 
         emitAiTraceEvent({
           runId,
@@ -1127,7 +1291,7 @@ export async function instrumentAgentLoop(opts: {
           spanName,
           model: usage?.model ?? loopOpts.model,
           provider,
-          latencySeconds: Math.round(totalDurationMs) / 1000,
+          durationMs: totalDurationMs,
           isError: runStatus === "error",
           error: aiError,
           inputTokens: usage?.usageReported ? usage.inputTokens : undefined,
@@ -1137,6 +1301,8 @@ export async function instrumentAgentLoop(opts: {
             : undefined,
           createdAt: runStart,
           browserSessionId,
+          inputState: traceInputState,
+          outputState: traceOutputState,
           extraProperties: {
             ...trackingIdentityProperties(),
             source: "agent_observability",
@@ -1150,8 +1316,8 @@ export async function instrumentAgentLoop(opts: {
             // A truncated run must not read as a complete one.
             ...(droppedToolSpans > 0
               ? {
-                  $ai_spans_dropped: droppedToolSpans,
-                  $ai_spans_emitted: emittedToolSpans.length,
+                  spans_dropped: droppedToolSpans,
+                  spans_emitted: emittedToolSpans.length,
                 }
               : {}),
           },
@@ -1187,10 +1353,13 @@ export async function instrumentAgentLoop(opts: {
               : undefined,
             createdAt: span.createdAt,
             browserSessionId,
-            // `metadata.input` is already redacted and only present when
-            // `captureToolArgs` is on; absent stays absent.
+            // `metadata.input` / `metadata.output` are already redacted and
+            // only present when `captureToolArgs` / `captureToolResults` are
+            // on; absent stays absent.
             inputState: (span.metadata as { input?: unknown } | null)?.input,
-            outputState: toolErrorMessage,
+            outputState:
+              toolErrorMessage ??
+              (span.metadata as { output?: unknown } | null)?.output,
             extraProperties: {
               ...trackingIdentityProperties(),
               source: "agent_observability",
