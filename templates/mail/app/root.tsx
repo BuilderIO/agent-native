@@ -95,6 +95,7 @@ const MAIL_ERROR_COPY: Record<
     fallback: string;
     back: string;
     reload: string;
+    loading: string;
     sendFeedback: string;
     feedbackPlaceholder: string;
     openGitHubIssue: string;
@@ -105,6 +106,7 @@ const MAIL_ERROR_COPY: Record<
     fallback: "Something went wrong while loading Mail.",
     back: "Back",
     reload: "Reload",
+    loading: "Reloading Mail...",
     sendFeedback: "Send feedback",
     feedbackPlaceholder:
       "Describe what happened before this Mail error appeared.",
@@ -115,6 +117,7 @@ const MAIL_ERROR_COPY: Record<
     fallback: "加载 Mail 时出现问题。",
     back: "返回",
     reload: "重新加载",
+    loading: "正在重新加载 Mail...",
     sendFeedback: "发送反馈",
     feedbackPlaceholder: "描述此 Mail 错误出现前发生了什么。",
     openGitHubIssue: "打开 GitHub issue",
@@ -124,6 +127,7 @@ const MAIL_ERROR_COPY: Record<
     fallback: "載入 Mail 時發生問題。",
     back: "返回",
     reload: "重新載入",
+    loading: "正在重新載入 Mail...",
     sendFeedback: "傳送意見回饋",
     feedbackPlaceholder: "描述此 Mail 錯誤出現前發生了什麼。",
     openGitHubIssue: "開啟 GitHub issue",
@@ -133,6 +137,7 @@ const MAIL_ERROR_COPY: Record<
     fallback: "Algo salió mal al cargar Mail.",
     back: "Atrás",
     reload: "Recargar",
+    loading: "Recargando Mail...",
     sendFeedback: "Enviar comentarios",
     feedbackPlaceholder:
       "Describe qué pasó antes de que apareciera este error de Mail.",
@@ -143,6 +148,7 @@ const MAIL_ERROR_COPY: Record<
     fallback: "Un problème est survenu lors du chargement de Mail.",
     back: "Retour",
     reload: "Recharger",
+    loading: "Rechargement de Mail...",
     sendFeedback: "Envoyer un retour",
     feedbackPlaceholder:
       "Décrivez ce qui s'est passé avant cette erreur de Mail.",
@@ -153,6 +159,7 @@ const MAIL_ERROR_COPY: Record<
     fallback: "Beim Laden von Mail ist ein Fehler aufgetreten.",
     back: "Zurück",
     reload: "Neu laden",
+    loading: "Mail wird neu geladen...",
     sendFeedback: "Feedback senden",
     feedbackPlaceholder:
       "Beschreiben Sie, was vor diesem Mail-Fehler passiert ist.",
@@ -163,6 +170,7 @@ const MAIL_ERROR_COPY: Record<
     fallback: "Mail の読み込み中に問題が発生しました。",
     back: "戻る",
     reload: "再読み込み",
+    loading: "Mail を再読み込み中...",
     sendFeedback: "フィードバックを送信",
     feedbackPlaceholder:
       "この Mail エラーの直前に起きたことを説明してください。",
@@ -173,6 +181,7 @@ const MAIL_ERROR_COPY: Record<
     fallback: "Mail을 불러오는 중 문제가 발생했습니다.",
     back: "뒤로",
     reload: "새로고침",
+    loading: "Mail 새로고침 중...",
     sendFeedback: "피드백 보내기",
     feedbackPlaceholder:
       "이 Mail 오류가 나타나기 전에 무슨 일이 있었는지 적어 주세요.",
@@ -183,6 +192,7 @@ const MAIL_ERROR_COPY: Record<
     fallback: "Algo deu errado ao carregar o Mail.",
     back: "Voltar",
     reload: "Recarregar",
+    loading: "Recarregando o Mail...",
     sendFeedback: "Enviar feedback",
     feedbackPlaceholder:
       "Descreva o que aconteceu antes deste erro do Mail aparecer.",
@@ -193,6 +203,7 @@ const MAIL_ERROR_COPY: Record<
     fallback: "Mail लोड करते समय कुछ गलत हुआ।",
     back: "वापस",
     reload: "रीलोड",
+    loading: "Mail रीलोड हो रहा है...",
     sendFeedback: "फ़ीडबैक भेजें",
     feedbackPlaceholder: "इस Mail त्रुटि से पहले क्या हुआ, उसका वर्णन करें।",
     openGitHubIssue: "GitHub issue खोलें",
@@ -202,6 +213,7 @@ const MAIL_ERROR_COPY: Record<
     fallback: "حدث خطأ أثناء تحميل Mail.",
     back: "رجوع",
     reload: "إعادة التحميل",
+    loading: "جارٍ إعادة تحميل Mail...",
     sendFeedback: "إرسال الملاحظات",
     feedbackPlaceholder: "صف ما حدث قبل ظهور خطأ Mail هذا.",
     openGitHubIssue: "فتح مشكلة في GitHub",
@@ -485,7 +497,7 @@ export function ErrorBoundary() {
     if (!recoverFromStaleChunkError(error)) setRecovering(false);
   }, [error, staleChunk]);
 
-  if (recovering) return <DefaultSpinner />;
+  if (recovering) return <DefaultSpinner ariaLabel={copy.loading} />;
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-6 text-foreground">
