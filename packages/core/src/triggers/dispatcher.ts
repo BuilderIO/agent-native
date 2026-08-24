@@ -86,6 +86,8 @@ const _dispatchingTriggers = new Set<string>();
 // unbounded external event should not be able to push the automation's own
 // instructions out of the model's attention.
 const MAX_TRIGGER_PAYLOAD_PROMPT_CHARS = 4_000;
+/** Cap for event-derived header fields, which sit outside the payload fence. */
+const MAX_TRIGGER_META_CHARS = 200;
 let _deps: TriggerDispatcherDeps | null = null;
 
 /**
@@ -95,10 +97,13 @@ let _deps: TriggerDispatcherDeps | null = null;
  * has the full tool surface, so the payload is capped, fenced, and preceded by
  * an explicit untrusted-data instruction — the same defense
  * `condition-evaluator.ts` already applies to this data on its way to a
- * tool-less classifier. Any literal `</event_payload>` in the body is broken so
- * the payload cannot close its own fence and continue as instructions, and the
- * automation's own body goes last so the trusted instruction, not attacker
- * text, occupies the recency slot.
+ * tool-less classifier. Anything in the body that could read as the fence tag is
+ * broken — in any spacing, not just the exact bytes — so the payload cannot
+ * close its own fence and continue as instructions. Event-derived header fields
+ * are collapsed to one bounded line, since they sit above the untrusted-data
+ * warning where extra lines would read as trusted framing. The automation's own
+ * body goes last so the trusted instruction, not attacker text, occupies the
+ * recency slot.
  */
 export function buildAutomationTriggerPrompt(input: {
   triggerName: string;
@@ -121,12 +126,23 @@ export function buildAutomationTriggerPrompt(input: {
   if (payloadStr.length > MAX_TRIGGER_PAYLOAD_PROMPT_CHARS) {
     payloadStr = `${payloadStr.slice(0, MAX_TRIGGER_PAYLOAD_PROMPT_CHARS)}\n... (truncated)`;
   }
+  // Neutralize the `<` of anything that could read as the fence tag, in any
+  // spacing the model would still parse — `</event_payload >` and `< /
+  // event_payload>` close the fence just as convincingly as the exact bytes.
   const fencedPayload = payloadStr.replace(
-    /<\/event_payload>/gi,
-    "</_payload>",
+    /<(?=\s*\/?\s*event_payload\b)/gi,
+    "&lt;",
   );
-  const known = (value: string | undefined): string =>
-    value != null && value !== "" ? value : "(unknown)";
+  // The header sits above the untrusted-data warning, so anything event-derived
+  // that reaches it must not be able to add lines there and read as trusted
+  // framing. One line, bounded.
+  const known = (value: string | undefined): string => {
+    const line = (value ?? "").replace(/\s+/g, " ").trim();
+    if (!line) return "(unknown)";
+    return line.length > MAX_TRIGGER_META_CHARS
+      ? `${line.slice(0, MAX_TRIGGER_META_CHARS)}…`
+      : line;
+  };
   return `[Automation Trigger: ${input.triggerName}]
 Event: ${known(input.event)}
 Event ID: ${known(input.eventId)}

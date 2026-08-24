@@ -428,9 +428,10 @@ export function promptResourceBlock(input: {
   // pages and tool output. Escaping only the closing tag is not enough: a
   // forged OPENING tag survives verbatim and the real trailing `</resource>`
   // closes it, so the smuggled text still reads as its own framework-issued
-  // block. Escape any `<resource`/`</resource` so the body cannot address the
-  // fence at all.
-  const fenced = content.replace(/<(\/?)resource\b/gi, "&lt;$1resource");
+  // block. Neutralize the `<` of anything that could read as the fence tag, in
+  // any spacing a model would still parse (`< /resource >` closes it just as
+  // convincingly), so the body cannot address the fence at all.
+  const fenced = content.replace(/<(?=\s*\/?\s*resource\b)/gi, "&lt;");
   return `<resource name="${escapeXmlAttribute(input.name)}" scope="${escapeXmlAttribute(input.scope)}"${pathAttr}>\n${fenced}\n</resource>`;
 }
 
