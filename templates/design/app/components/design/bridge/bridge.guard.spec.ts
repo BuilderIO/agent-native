@@ -82,7 +82,8 @@ function hydratedEditorChromeBridgeScript(
     .replace(
       "__RUNTIME_LAYER_SNAPSHOT_ENABLED__",
       runtimeLayerSnapshotEnabled ? "true" : "false",
-    );
+    )
+    .replace(/__INITIAL_SOURCE_HEAD__/g, '""');
 }
 
 function hydratedReadOnlyEditorChromeBridgeScript(): string {
@@ -2301,6 +2302,375 @@ it(
       expect(afterScaleResize.height).toBe("100px");
       expect(afterScaleResize.borderWidth).toBe("1px");
       expect(afterScaleResize.fontSize).toBe("8px");
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "editor chrome bridge K-scale tool scales the type inside the resized element and commits each scaled node",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; font-size: 16px; }
+      body { background: white; }
+      #card {
+        position: absolute; left: 150px; top: 150px; width: 200px; height: 200px;
+        background: #e9eef8; border: 2px solid #333;
+      }
+      #heading { font-size: 24px; margin: 0; }
+      #inherited { margin: 0; }
+    </style>
+  </head>
+  <body>
+    <div id="card" data-agent-native-node-id="card">
+      <p id="heading" data-agent-native-node-id="heading">hello there</p>
+      <p id="inherited" data-agent-native-node-id="inherited">inherits</p>
+    </div>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+
+      await page.evaluate(() => {
+        (window as unknown as { __styleChanges: unknown[] }).__styleChanges =
+          [];
+        window.addEventListener("message", (event) => {
+          const data = event.data as { type?: string };
+          if (data?.type === "visual-style-change") {
+            (
+              window as unknown as { __styleChanges: unknown[] }
+            ).__styleChanges.push(event.data);
+          }
+        });
+        window.postMessage({ type: "scale-tool-mode", enabled: true }, "*");
+      });
+
+      await page.mouse.click(340, 340);
+      await page.waitForFunction(() => {
+        const overlay = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="selection"]',
+        );
+        return overlay && window.getComputedStyle(overlay).display === "block";
+      });
+
+      const seHandle = page.locator('[data-agent-native-edit-handle="se"]');
+      const seBox = await seHandle.boundingBox();
+      if (!seBox) throw new Error("resize handle not found");
+      const handleX = seBox.x + seBox.width / 2;
+      const handleY = seBox.y + seBox.height / 2;
+      await page.mouse.move(handleX, handleY);
+      await page.mouse.down();
+      await page.mouse.move(handleX - 100, handleY - 100);
+      await page.mouse.up();
+      await page.waitForTimeout(30);
+
+      const result = await page.evaluate(() => {
+        const changes = (
+          window as unknown as {
+            __styleChanges: Array<{
+              selector: string;
+              styles: Record<string, string>;
+              originalStyles?: Record<string, string>;
+              preserveSelection?: boolean;
+            }>;
+          }
+        ).__styleChanges;
+        const heading = changes.find((change) =>
+          change.selector.includes("heading"),
+        );
+        return {
+          cardWidth: document.querySelector<HTMLElement>("#card")!.style.width,
+          headingFontSize:
+            document.querySelector<HTMLElement>("#heading")!.style.fontSize,
+          // Inherits the card's own scaled font-size — writing a px value here
+          // too would scale it twice.
+          inheritedFontSize:
+            document.querySelector<HTMLElement>("#inherited")!.style.fontSize,
+          committedHeadingFontSize: heading?.styles.fontSize,
+          headingRevertBaseline: heading?.originalStyles?.fontSize,
+          headingPreservesSelection: heading?.preserveSelection,
+        };
+      });
+
+      expect(result.cardWidth).toBe("100px");
+      expect(result.headingFontSize).toBe("12px");
+      expect(result.inheritedFontSize).toBe("");
+      expect(result.committedHeadingFontSize).toBe("12px");
+      // The revert baseline is the authored value, not the scaled preview.
+      expect(result.headingRevertBaseline).toBe("");
+      expect(result.headingPreservesSelection).toBe(true);
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "editor chrome bridge scales a multi-selection from the group bounds handle, with the K tool scaling stroke and type too",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      body { background: white; }
+      .box {
+        position: absolute; box-sizing: border-box;
+        width: 100px; height: 100px;
+        border: 2px solid #333; font-size: 16px;
+      }
+      #boxA { left: 100px; top: 100px; background: #6366f1; }
+      #boxB { left: 300px; top: 100px; background: #22c55e; }
+    </style>
+  </head>
+  <body>
+    <div id="boxA" class="box" data-agent-native-node-id="boxA">A</div>
+    <div id="boxB" class="box" data-agent-native-node-id="boxB">B</div>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+
+      await page.evaluate(() => {
+        (window as unknown as { __styleChanges: unknown[] }).__styleChanges =
+          [];
+        window.addEventListener("message", (event) => {
+          const data = event.data as { type?: string };
+          if (data?.type === "visual-style-change") {
+            (
+              window as unknown as { __styleChanges: unknown[] }
+            ).__styleChanges.push(event.data);
+          }
+        });
+        window.postMessage({ type: "scale-tool-mode", enabled: true }, "*");
+      });
+
+      await page.mouse.click(150, 150);
+      await page.keyboard.down("Shift");
+      await page.mouse.click(350, 150);
+      await page.keyboard.up("Shift");
+      await page.waitForFunction(() => {
+        const bounds = document.querySelector<HTMLElement>(
+          "[data-agent-native-multi-selection-bounds]",
+        );
+        return bounds && window.getComputedStyle(bounds).display === "block";
+      });
+
+      // The group box spans (100,100)-(400,200): 300x100. Dragging its SE
+      // corner to half width scales every member around the NW corner.
+      const seHandle = page.locator(
+        "[data-agent-native-multi-selection-bounds] [data-corner='se']",
+      );
+      const seBox = await seHandle.boundingBox();
+      if (!seBox) throw new Error("group handle not found");
+      const handleX = seBox.x + seBox.width / 2;
+      const handleY = seBox.y + seBox.height / 2;
+      await page.mouse.move(handleX, handleY);
+      await page.mouse.down();
+      await page.mouse.move(handleX - 150, handleY, { steps: 6 });
+      await page.mouse.up();
+      await page.waitForTimeout(30);
+
+      const result = await page.evaluate(() => {
+        const a = document.querySelector<HTMLElement>("#boxA")!;
+        const b = document.querySelector<HTMLElement>("#boxB")!;
+        const changes = (
+          window as unknown as {
+            __styleChanges: Array<{
+              selector: string;
+              styles: Record<string, string>;
+            }>;
+          }
+        ).__styleChanges;
+        return {
+          a: {
+            left: a.style.left,
+            top: a.style.top,
+            width: a.style.width,
+            height: a.style.height,
+            borderWidth: a.style.borderWidth,
+            fontSize: a.style.fontSize,
+          },
+          b: { left: b.style.left, width: b.style.width },
+          committedSelectors: changes.map((change) => change.selector),
+        };
+      });
+
+      expect(result.a.left).toBe("100px");
+      expect(result.a.top).toBe("100px");
+      expect(result.a.width).toBe("50px");
+      // Uniform under the K tool: the height follows the width's factor.
+      expect(result.a.height).toBe("50px");
+      expect(result.a.borderWidth).toBe("1px");
+      expect(result.a.fontSize).toBe("8px");
+      expect(result.b.left).toBe("200px");
+      expect(result.b.width).toBe("50px");
+      expect(result.committedSelectors.length).toBe(2);
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "editor chrome bridge group scale keeps a rotated member centred and restores an in-flow member on Escape",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      body { background: white; }
+      #anchorBox {
+        position: absolute; box-sizing: border-box;
+        left: 100px; top: 100px; width: 100px; height: 100px;
+        background: #6366f1;
+      }
+      #spun {
+        position: absolute; box-sizing: border-box;
+        left: 300px; top: 100px; width: 100px; height: 100px;
+        background: #22c55e; transform: rotate(45deg);
+      }
+      #flow { margin: 400px 0 0 20px; width: 60px; height: 20px; background: #f59e0b; }
+    </style>
+  </head>
+  <body>
+    <div id="anchorBox" data-agent-native-node-id="anchorBox">A</div>
+    <div id="spun" data-agent-native-node-id="spun">B</div>
+    <div id="flow" data-agent-native-node-id="flow">C</div>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await page.evaluate(() => {
+        window.postMessage({ type: "scale-tool-mode", enabled: true }, "*");
+      });
+
+      const groupHandle = page.locator(
+        "[data-agent-native-multi-selection-bounds] [data-corner='se']",
+      );
+
+      // Phase 1: an in-flow member must come back exactly as authored when the
+      // drag is cancelled, not carrying the position the gesture needed.
+      await page.mouse.click(150, 150);
+      await page.keyboard.down("Shift");
+      await page.mouse.click(50, 410);
+      await page.keyboard.up("Shift");
+      await page.waitForFunction(() => {
+        const bounds = document.querySelector<HTMLElement>(
+          "[data-agent-native-multi-selection-bounds]",
+        );
+        return bounds && window.getComputedStyle(bounds).display === "block";
+      });
+      const flowHandleBox = (await groupHandle.boundingBox())!;
+      await page.mouse.move(
+        flowHandleBox.x + flowHandleBox.width / 2,
+        flowHandleBox.y + flowHandleBox.height / 2,
+      );
+      await page.mouse.down();
+      await page.mouse.move(
+        flowHandleBox.x + flowHandleBox.width / 2 - 40,
+        flowHandleBox.y + flowHandleBox.height / 2 - 40,
+        { steps: 6 },
+      );
+      await page.keyboard.press("Escape");
+      await page.mouse.up();
+
+      const flowAfterEscape = await page.evaluate(() => {
+        const el = document.querySelector<HTMLElement>("#flow")!;
+        return {
+          position: el.style.position,
+          left: el.style.left,
+          width: el.style.width,
+        };
+      });
+      expect(flowAfterEscape).toEqual({ position: "", left: "", width: "" });
+
+      // Phase 2: a rotated member scales around its own centre, so the centre
+      // lands exactly where the group factor puts it.
+      await page.mouse.click(600, 600);
+      await page.mouse.click(150, 150);
+      await page.keyboard.down("Shift");
+      await page.mouse.click(350, 150);
+      await page.keyboard.up("Shift");
+      await page.waitForFunction(() => {
+        const bounds = document.querySelector<HTMLElement>(
+          "[data-agent-native-multi-selection-bounds]",
+        );
+        return bounds && window.getComputedStyle(bounds).display === "block";
+      });
+
+      const before = await page.evaluate(() => {
+        const rect = document
+          .querySelector<HTMLElement>("#spun")!
+          .getBoundingClientRect();
+        return { centerX: rect.left + rect.width / 2 };
+      });
+      const spunHandleBox = (await groupHandle.boundingBox())!;
+      const startX = spunHandleBox.x + spunHandleBox.width / 2;
+      const startY = spunHandleBox.y + spunHandleBox.height / 2;
+      const groupBounds = (await page
+        .locator("[data-agent-native-multi-selection-bounds]")
+        .boundingBox())!;
+      await page.mouse.move(startX, startY);
+      await page.mouse.down();
+      await page.mouse.move(startX - 100, startY, { steps: 8 });
+      await page.mouse.up();
+      await page.waitForTimeout(30);
+
+      const after = await page.evaluate(() => {
+        const el = document.querySelector<HTMLElement>("#spun")!;
+        const rect = el.getBoundingClientRect();
+        return {
+          centerX: rect.left + rect.width / 2,
+          width: el.style.width,
+          transform: window.getComputedStyle(el).transform,
+        };
+      });
+      const factor = (groupBounds.width - 100) / groupBounds.width;
+      const expectedCenterX =
+        groupBounds.x + (before.centerX - groupBounds.x) * factor;
+      expect(Math.abs(after.centerX - expectedCenterX)).toBeLessThan(3);
+      expect(after.width).toBe(`${Math.round(100 * factor)}px`);
+      // The rotation itself is untouched by the scale.
+      expect(after.transform).not.toBe("none");
       expect(pageErrors).toEqual([]);
     } finally {
       await browser.close();
@@ -9494,7 +9864,6 @@ const PRIMARY_HOTKEY_FORWARDING_CASES: Array<{
   { name: "Cmd/Ctrl+Alt+V paste properties", key: "v", alt: true },
   { name: "Cmd/Ctrl+Shift+V paste over", key: "v", shift: true },
   { name: "Cmd/Ctrl+D duplicate", key: "d" },
-  { name: "Cmd/Ctrl+R rename", key: "r" },
   { name: "Cmd/Ctrl+Shift+R paste to replace", key: "r", shift: true },
   { name: "Cmd/Ctrl+Shift+H toggle hidden", key: "h", shift: true },
   { name: "Cmd/Ctrl+Shift+L toggle locked", key: "l", shift: true },
@@ -9675,6 +10044,26 @@ it(
       await page.evaluate(() => {
         (window as any).__bridgeMessages = [];
       });
+
+      // Bare Cmd+R is the browser's refresh shortcut and must stay native;
+      // dispatch it synthetically so this guard does not reload the test page.
+      await page.evaluate(() => {
+        document.body.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "r",
+            code: "KeyR",
+            metaKey: true,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      });
+      await page.waitForTimeout(60);
+      expect(
+        (await readBridgeMessages(page)).some(
+          (message) => message.type === "design-hotkey",
+        ),
+      ).toBe(false);
 
       // Bare Cmd+T has no host binding — only the literal Ctrl+Alt+T "tidy
       // up" combo does (see useDesignHotkeys.ts). Forwarding bare Cmd+T

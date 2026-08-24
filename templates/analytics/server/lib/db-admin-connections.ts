@@ -69,15 +69,20 @@ async function resolveOrgRole(
   userEmail: string,
   orgId: string,
 ): Promise<string | null> {
-  try {
-    const { rows } = await getDbExec().execute({
+  // A failed lookup must never collapse into "no role": that reads downstream as
+  // a denial and 403s org owners whenever the database is briefly unreachable.
+  const { rows } = await getDbExec()
+    .execute({
       sql: `SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
       args: [orgId, userEmail.toLowerCase()],
+    })
+    .catch((error: unknown) => {
+      throw new DbAdminConnectionError(
+        503,
+        `Couldn't verify your organization role: ${redactDbAdminError(error)}`,
+      );
     });
-    return readString((rows[0] ?? {}) as Record<string, unknown>, "role");
-  } catch {
-    return null;
-  }
+  return readString((rows[0] ?? {}) as Record<string, unknown>, "role");
 }
 
 export async function requireAnalyticsAdminContext(input?: {

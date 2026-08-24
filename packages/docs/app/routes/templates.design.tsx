@@ -1,9 +1,7 @@
-import { useLocale, useT } from "@agent-native/core/client/i18n";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconCheck } from "@tabler/icons-react";
-import { Link } from "react-router";
 
 import { BuilderImage } from "../components/builder-image";
-import { sitePathForLocale } from "../components/docs-locale";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { SectionDivider } from "../components/SectionDivider";
 import {
@@ -53,7 +51,6 @@ const template = templates.find((t) => t.slug === "design")!;
 
 export default function DesignTemplate() {
   const t = useT();
-  const { locale } = useLocale();
   const capabilities = [
     {
       title: t("templateLanding.design.s012"),
@@ -98,7 +95,7 @@ export default function DesignTemplate() {
       <TemplateHero
         eyebrow={
           <span style={{ color: template.color }}>
-            Agent-Native {template.name}
+            {t("common.freeAndOpenSource")}
           </span>
         }
         title={t("templateLanding.design.s006")}
@@ -117,13 +114,12 @@ export default function DesignTemplate() {
               });
             }}
           >
-            {t("templateLanding.design.s008")}
+            {t("common.designForFree")}
           </a>
         }
         media={
           <BuilderImage
-            src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fac64659497d24eacad0777227843535f"
-            sizes="(max-width: 900px) 100vw, 800px"
+            src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F91a780695c114be6b4686d04385b982e"
             crossOrigin="anonymous"
             alt={t("templateLanding.design.s001")}
             loading="lazy"
@@ -334,25 +330,7 @@ export default function DesignTemplate() {
 
       <TemplateFinalCta
         title={t("templateLanding.design.s057")}
-        actions={
-          <>
-            <a
-              href={`${template.demoUrl}/_agent-native/sign-in`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="primary-button"
-            >
-              {t("common.signIn")}
-            </a>
-            <Link
-              data-an-prefetch="viewport"
-              to={sitePathForLocale("/apps", locale)}
-              className="inline-flex items-center gap-2 rounded-xl border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
-            >
-              View more apps
-            </Link>
-          </>
-        }
+        template={template}
       >
         <p className="m-0 max-w-2xl px-6 text-lg leading-[1.4] text-[var(--fg-secondary)] sm:px-8">
           {t("templateLanding.design.s058")}

@@ -8,7 +8,7 @@ import type {
 import type { DesignLeftPanel } from "@/pages/design-editor/types";
 
 export interface StartSidebarResizeArgs {
-  activeLeftPanel: DesignLeftPanel;
+  activeLeftPanel: DesignLeftPanel | null;
   leftSidebarContentRef: RefObject<HTMLDivElement | null>;
   leftSidebarWidth: number;
   rightSidebarContentRef: RefObject<HTMLDivElement | null>;

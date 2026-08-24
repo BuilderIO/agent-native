@@ -424,6 +424,12 @@ const arSA = {
     source: "المصدر",
     readDocs: "اقرأ المستندات",
     signIn: "تسجيل الدخول",
+    tryTemplateFree: "جرّب {{name}} مجانًا",
+    designForFree: "صمّم مجانًا",
+    recordForFree: "سجّل مجانًا",
+    getStarted: "ابدأ",
+    freeAndOpenSource: "مجاني 100% • مفتوح المصدر",
+    viewAllApps: "عرض جميع التطبيقات",
   },
   templatesPage: {
     title: "تطبيقات الوكيل الأصلية مفتوحة المصدر التي تمتلكها",

@@ -1,6 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
 import type { TweakDefinition } from "@shared/api";
-import { alphaToOpacity, parseCssColor } from "@shared/color-utils";
 import {
   listInteractionStates,
   readResolvedStateStyles,
@@ -66,7 +65,6 @@ import {
   type DocumentColorSourceFile,
   extractDocumentColorPalette,
   selectionColorValues,
-  selectionDisplayHex,
 } from "./edit-panel/document-colors";
 import { EffectsProperties } from "./edit-panel/effects-properties";
 import {
@@ -1536,52 +1534,22 @@ function SelectionColorsProperties({
       {expanded ? (
         <div className="space-y-1.5">
           {colors.map((color, index) => {
-            const parsed = parseCssColor(color.value);
-            const opacity = parsed ? alphaToOpacity(parsed.a) : 100;
             return (
-              <Popover key={`${color.value}-${index}`}>
-                <PopoverTrigger asChild>
-                  <button
-                    type="button"
-                    className="flex h-6 w-full items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 !text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
-                    aria-label={color.value}
-                  >
-                    <span
-                      className="size-4 shrink-0 rounded-[3px] border border-border/60"
-                      style={swatchStyle(color.value)}
-                    />
-                    <span className="min-w-0 flex-1 truncate text-left uppercase tabular-nums">
-                      {selectionDisplayHex(color.value)}
-                    </span>
-                    <span className="shrink-0 tabular-nums text-muted-foreground">
-                      {opacity}%
-                    </span>
-                  </button>
-                </PopoverTrigger>
-                <PopoverContent
-                  side="left"
-                  align="start"
-                  sideOffset={8}
-                  className="w-80 p-0"
-                >
-                  <DesignColorPicker
-                    value={cssColorOrFallback(color.value, "#000000")}
-                    // PF12: per-tick drag preview vs. one authoritative
-                    // commit on gesture-end — same split as ColorInput's
-                    // setNext (see its PF12 comment above).
-                    onChange={(value) =>
-                      onStyleChange(color.property, value, {
-                        phase: "preview",
-                      })
-                    }
-                    onChangeComplete={(value) =>
-                      onStyleChange(color.property, value, {
-                        phase: "commit",
-                      })
-                    }
-                  />
-                </PopoverContent>
-              </Popover>
+              <DesignColorPicker
+                key={`${color.value}-${index}`}
+                // guard:allow-raw-color - neutral picker fallback for an invalid stored color
+                value={cssColorOrFallback(color.value, "#000000")}
+                className="w-full"
+                // PF12: per-tick drag preview vs. one authoritative commit
+                // on gesture-end — same split as ColorInput's setNext (see
+                // its PF12 comment above).
+                onChange={(value) =>
+                  onStyleChange(color.property, value, { phase: "preview" })
+                }
+                onChangeComplete={(value) =>
+                  onStyleChange(color.property, value, { phase: "commit" })
+                }
+              />
             );
           })}
         </div>

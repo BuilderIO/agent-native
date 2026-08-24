@@ -199,7 +199,22 @@ test.describe("keyboard selection traversal", () => {
     ).toMatch(/Kid/);
   });
 
-  test("Escape selects the parent of the current selection", async ({
+  test("Backslash selects the parent of the current selection", async ({
+    page,
+  }) => {
+    const id = await newDesign(page);
+    await openEditor(page, id);
+    await selectViaTree(page, "Kid One");
+    await page.keyboard.press("\\");
+    await page.waitForTimeout(1500);
+    const name = await selectedLayerName(page);
+    expect(
+      name,
+      `Figma: "\\" selects the parent. Selection is "${name}".`,
+    ).toBe("Wrap");
+  });
+
+  test("Escape deselects rather than walking up to the parent", async ({
     page,
   }) => {
     const id = await newDesign(page);
@@ -207,11 +222,31 @@ test.describe("keyboard selection traversal", () => {
     await selectViaTree(page, "Kid One");
     await page.keyboard.press("Escape");
     await page.waitForTimeout(1500);
-    const name = await selectedLayerName(page);
-    expect(
-      name,
-      `Escape should walk up to the parent; selection is "${name}".`,
-    ).toBe("Wrap");
+    await expect(
+      page.locator('[role="treeitem"][aria-selected="true"]'),
+      `Figma: Esc is "select none". Selection is "${await selectedLayerName(page)}".`,
+    ).toHaveCount(0);
+  });
+
+  // A top-level layer's parent is the collapsed <body>, which the layers panel
+  // never shows — the pop walk treated that as "no parent" and selected the
+  // containing screen instead of clearing.
+  test("Escape on a top-level layer does not select the containing screen", async ({
+    page,
+  }) => {
+    const id = await newDesign(page);
+    await openEditor(page, id);
+    await selectViaTree(page, "Loose A");
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(1500);
+    await expect(
+      page.locator('[role="treeitem"][aria-selected="true"]'),
+      `Selection is "${await selectedLayerName(page)}".`,
+    ).toHaveCount(0);
+    await expect(
+      page.locator("[data-frame-selection-box]"),
+      "Escape promoted the selection to the screen frame instead of clearing it",
+    ).toHaveCount(0);
   });
 
   test("Tab selects the next sibling", async ({ page }) => {

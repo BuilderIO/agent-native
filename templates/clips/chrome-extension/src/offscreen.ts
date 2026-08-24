@@ -25,7 +25,7 @@ import {
 import { scheduleReadyChime } from "@shared/recording-audio";
 import {
   SCREEN_CAPTURE_FRAME_RATE,
-  screenCaptureVideoConstraints,
+  screenCaptureDisplayOptions,
   type ScreenCaptureSurface,
 } from "@shared/recording-capture";
 import {
@@ -327,17 +327,17 @@ async function streamDimensions(
   };
 }
 
-function displayConstraints(
+// Gates screen/tab audio on the same "Include microphone" toggle the popup
+// shows for the mic stream — see screenCaptureDisplayOptions for why: mic off
+// is the only signal the user gets to say "capture no audio at all".
+export function displayConstraints(
   surface: ScreenCaptureSurface,
+  wantsMic: boolean,
 ): MediaStreamConstraints {
-  return {
-    video: screenCaptureVideoConstraints(surface),
-    audio: {
-      echoCancellation: false,
-      noiseSuppression: false,
-      autoGainControl: false,
-    },
-  } as MediaStreamConstraints;
+  return screenCaptureDisplayOptions(
+    surface,
+    wantsMic,
+  ) as MediaStreamConstraints;
 }
 
 // The user's chosen camera/mic devices (set in the popup, saved to storage).
@@ -1133,7 +1133,7 @@ async function acquire(message: AcquireMessage): Promise<{
     } else {
       // Native "Choose what to share" picker. This is the screenshot Steve showed.
       displayStream = await navigator.mediaDevices.getDisplayMedia(
-        displayConstraints(message.surface),
+        displayConstraints(message.surface, message.includeMicrophone),
       );
       if (message.includeMicrophone) {
         const audioLabel = await lookupAudioDeviceLabel(devices.audio);
@@ -1456,20 +1456,16 @@ async function saveNativeTranscript(recording: ActiveRecording): Promise<void> {
   recording.nativeTranscript = captured.text.trim();
   recording.nativeTranscriptFailure = captured.failureReason;
 
-  const body = recording.nativeTranscript
-    ? {
-        recordingId: recording.recordingId,
-        fullText: recording.nativeTranscript,
-        source: "web-speech",
-      }
-    : {
-        recordingId: recording.recordingId,
-        fullText: "",
-        source: "web-speech",
-        failureReason:
-          recording.nativeTranscriptFailure ||
-          "Chrome Web Speech recognition returned no transcript.",
-      };
+  // A partial capture must carry its reason too — the server treats text
+  // without a reason as a complete transcript and skips the cloud fallback.
+  const body = {
+    recordingId: recording.recordingId,
+    fullText: recording.nativeTranscript,
+    source: "web-speech",
+    ...(recording.nativeTranscriptFailure
+      ? { failureReason: recording.nativeTranscriptFailure }
+      : {}),
+  };
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     "X-Agent-Native-Frontend": "1",

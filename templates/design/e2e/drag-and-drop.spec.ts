@@ -290,6 +290,75 @@ test.describe("selection chrome", () => {
     expect(await activeOverlays(page)).toContain("selection");
   });
 
+  test("a selected screen still lets you click an element inside it", async ({
+    page,
+  }) => {
+    const id = await newDesign(page);
+    await openEditor(page, id);
+    await page.locator("[data-frame-label]").first().click();
+    await page.waitForTimeout(1200);
+
+    const target = (await node(page, "box-a").boundingBox())!;
+    await page.mouse.click(
+      target.x + target.width / 2,
+      target.y + target.height / 2,
+    );
+    await page.waitForTimeout(1600);
+    const selected = await layersTree(page)
+      .getByRole("treeitem")
+      .filter({ has: page.locator('[aria-selected="true"]') })
+      .first()
+      .textContent()
+      .catch(() => null);
+    await expect(
+      page.locator('[role="treeitem"][aria-selected="true"]'),
+      `clicking into a selected screen selected "${selected}" instead of the element`,
+    ).toHaveCount(1);
+    await expect(
+      page.locator('[role="treeitem"][aria-selected="true"]'),
+    ).toContainText("Box A");
+  });
+
+  test("a layer row selection leaves the screen frame unselected", async ({
+    page,
+  }) => {
+    const id = await newDesign(page);
+    await openEditor(page, id);
+    await selectViaTree(page, "Box A");
+    expect(
+      await page.locator("[data-frame-drag-surface]").count(),
+      "the frame's full-bleed drag surface covers the layer you selected, so " +
+        "the next drag moves the whole screen instead of the layer",
+    ).toBe(0);
+  });
+
+  test("dragging a layer-row selection moves the layer, not the screen", async ({
+    page,
+  }) => {
+    const id = await newDesign(page);
+    await openEditor(page, id);
+    await selectViaTree(page, "Box A");
+    const cardBefore = (await page
+      .locator("[data-screen-card]")
+      .first()
+      .boundingBox())!;
+    const before = await geom(page, id, "box-a");
+    await dragBy(page, (await node(page, "box-a").boundingBox())!, 120, 60);
+    const after = await geom(page, id, "box-a");
+    const cardAfter = (await page
+      .locator("[data-screen-card]")
+      .first()
+      .boundingBox())!;
+    expect(
+      [after.left - before.left > 60, after.top - before.top > 30],
+      `the layer did not move: (${before.left},${before.top}) → (${after.left},${after.top})`,
+    ).toEqual([true, true]);
+    expect(
+      [Math.round(cardAfter.x), Math.round(cardAfter.y)],
+      "the screen frame moved with the drag",
+    ).toEqual([Math.round(cardBefore.x), Math.round(cardBefore.y)]);
+  });
+
   test("selecting a different element moves the chrome to it", async ({
     page,
   }) => {

@@ -9,6 +9,7 @@ import {
   getOverviewScreenIdsFromLayerSelection,
   getSidebarCodeLayerSelectionState,
 } from "@/pages/design-editor/selection-state";
+import { resolveToolAfterSelection } from "@/pages/design-editor/tool-state";
 import type {
   DesignFile,
   DesignTool,
@@ -130,13 +131,13 @@ export function runLayerSelectionChange(
     if (layerCanvasBlocked) {
       setSelectedElement(null);
       focusDesignInspectorForSelection();
-      setActiveTool("move");
+      setActiveTool(resolveToolAfterSelection);
       setMode("edit");
       return;
     }
     setSelectedElement(elementInfoFromCodeLayerNode(codeLayerOwner.node));
     focusDesignInspectorForSelection();
-    setActiveTool("move");
+    setActiveTool(resolveToolAfterSelection);
     setMode("edit");
     return;
   }
@@ -153,7 +154,7 @@ export function runLayerSelectionChange(
         ? nextLayerIds
         : [fileId],
     );
-    setActiveTool("move");
+    setActiveTool(resolveToolAfterSelection);
     setMode("edit");
     viewModeRef.current = "overview";
     setViewMode("overview");

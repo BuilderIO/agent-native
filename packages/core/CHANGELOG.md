@@ -1,5 +1,381 @@
 # @agent-native/core
 
+## 0.170.0
+
+### Minor Changes
+
+- 185cd15: Add managed, service-specific Google OAuth connections with personal or workspace sharing.
+- ac1b0df: Let a deployment refuse framework default plugins and narrow which integration
+  platforms mount, without writing a stub plugin file.
+
+  `plugins.disabled` (env `AGENT_NATIVE_DISABLED_PLUGINS`) names default plugin
+  slots the framework should not auto-mount — the same list that shows up as
+  `[agent-native] Auto-mounting N default plugin(s)` under `DEBUG`. It is honored
+  by the runtime bootstrap and by the generated edge worker entry, so a slot is
+  withheld on every host. An app that ships its own `server/plugins/<slot>.ts` is
+  unaffected.
+
+  `integrations.platforms` (env `AGENT_NATIVE_INTEGRATION_PLATFORMS`) is an
+  allow-list of platforms for the integrations plugin, matched against each
+  adapter's `platform` id. Unset mounts every adapter, as before; a name no
+  adapter provides throws at plugin init rather than silently mounting a set
+  nobody asked for.
+
+  Both switches withhold registration rather than reject at request time: a
+  refused slot never runs its plugin, so its routes are absent from the
+  middleware chain and its background jobs and pollers never start. The
+  allow-list now also gates the routes mounted under a platform's literal name —
+  `/slack/interactions`, `/slack/manifest`, and the two Slack OAuth endpoints
+  previously stayed mounted whatever the adapter set was. They are gated only
+  when `integrations.platforms` is declared, so a deployment that does not set it
+  keeps today's behavior.
+
+  A misconfigured value in either switch is reported, not absorbed. An unknown
+  slot name in `plugins.disabled` fails at `getH3App()` rather than inside the
+  best-effort auto-mount catch, and the allow-list mismatch throws a typed
+  `AppConfigurationError` that the auto-mount catch rethrows — otherwise a typo
+  left the deployment reporting success with whole route trees missing.
+
+### Patch Changes
+
+- 0dc3cdd: Add `mcpTool` and `important` to `defineAction`, so an action declares its external-agent exposure and its first-request tool slot beside itself instead of in a plugin-level name list. `mcpTool` defaults to `agentTool`, so hiding an action from the agent hides it from outside agents too; declaring it overrides that inheritance in both directions. `mcpTool: false` hides an action from every MCP tier and the direct A2A surface (including the `--full-catalog` opt-in) while the in-app agent keeps calling it, `mcpTool: true` is the action-owned form of `mcp.connectorCatalog` membership, and `agentTool: false` with `mcpTool: true` makes an action MCP-only — external agents get it, the app's own agent does not. `deferLoading: false` keeps an action in the agent's first tool list and narrows the derived default to the actions that opted out of deferral, the action-owned form of `initialToolNames`; `deferLoading: true` pushes one behind `tool-search`. Both name lists keep working, so an app can migrate one action at a time.
+- c595519: Fix the chat-first workspace apps rail's active app having no visible selection indicator in both the collapsed and expanded rail layouts.
+- af1b3bb: Stop a transient boot failure from permanently breaking sign-in. `getBetterAuth()` cached its init promise before that promise settled, so one failed
+  initialization — a busy SQLite file, a momentary pool error — was replayed as a rejection to every later caller for the life of the process, and the only
+  recovery was a restart. The failed attempt is now cleared so the next request re-initializes.
+
+  Also in the local-SQLite boot path: Better Auth opens the database through the shared `prepareLocalSqliteUrl()` / `sqliteFilenameFromUrl()` pair instead of
+  trimming the `file:` prefix by hand, so on serverless runtimes it lands on the same writable file as the app; and the `journal_mode = WAL` pragma is retried
+  on `SQLITE_BUSY` the way its documented sibling in `db/client.ts` already is.
+
+  Separately, the injected beta environment switcher opened its stylesheet with a bare `color-scheme: dark;` declaration. A declaration at stylesheet top level
+  is not a parse error that ends at its semicolon — the next qualified rule's prelude absorbs it, so `.environment-switcher` was dropped entirely and the badge
+  lost `position: fixed`, rendering in normal flow at the bottom-left of the page instead of pinned to the viewport corner.
+
+- c595519: Fix `get-auth-methods` returning a 401 for callers the framework authenticated without a Better Auth session cookie (e.g. AUTH_DISABLED dev sessions), which made the Account settings password row always show the no-password state.
+- 163d02c: Center the beta badge hide control and balance its surrounding spacing.
+- 1253471: Route new-user magic-link callbacks before the generic handler so signup links with nested query parameters do not receive a 405.
+- 9735e4d: Add localized fallback labels for the desktop agent picker mode options.
+- c595519: Fix the Builder connection-status route's OAuth-custody branch silently reporting a failed key-pair lookup the same way as confirmed-absent keys, by resolving the detailed credential lookup and surfacing a distinct `keyLookupFailed` flag.
+- da0e7b8: Builder OAuth now relies on the shared credential lifecycle for refresh single-flight and reconnect state instead of duplicating them in `settings` rows. The `builder-oauth-refresh:*` lease and `builder-oauth-reconnect:*` flag are gone; a failed refresh latches `reconnect_required` on the credential itself. Adds `markOAuthReconnectRequired` (and the `markMcpOAuthReconnectRequired` MCP wrapper) so a server-side 401/403 rejection can force reconnect through the credential rather than a side channel.
+
+  Builder OAuth is scoped to the caller's organization: every member of an org shares one Builder connection and token, resolved from the authenticated user's own org membership. Every user belongs to an org, so there is no per-user fallback — a missing org is a broken invariant that fails loudly rather than silently creating a personal connection. Previously every user shared one `account_id`, so under the `(provider, account_id)` primary key only the first person to connect could hold a grant and everyone else was refused.
+
+  Because the grant is shared, connecting (which overwrites it) and disconnecting (which revokes it for everyone) require org owner/admin authority.
+
+- 6c2e431: Show a terminal raw-source error when a persisted registry block cannot hydrate instead of leaving it indefinitely loading.
+- baedb60: Fetch the headless browser at launch instead of embedding it in every serverless function. `@agent-native/creative-context` now depends on `@sparticuz/chromium-min` (46KB) rather than `@sparticuz/chromium` (66.4MB), and passes a version-pinned pack URL to `executablePath()`. The hosted Builder Browser path is unchanged and still preferred; this only affects the local-launch fallback, which now downloads the pack once per container. Set `AGENT_NATIVE_CHROMIUM_PACK_URL` to serve the pack from your own mirror. Measured on slides: server function 126.0MB → 59.6MB, total upload 243.8MB → 111.0MB.
+- c595519: Fix the shared `code` and `code-tabs` block specs so inserting one from a slash menu seeds real content instead of an empty `__raw` string — previously the freshly inserted block got permanently stuck on "Loading code block…" (or a terminal load error) because neither spec had an `empty()` factory.
+- aba438a: docs: correct the Clips Rewind documentation. Rewind is Clips' own local rolling recording, not a rewind.ai integration, and the pre-roll section is renamed to the product's "Add what happened before" and nested under Rewind.
+- baedb60: Stop shipping `better-sqlite3` in serverless function bundles. It is a local-development driver: every consumer is gated on a `file:` or schemeless `DATABASE_URL`, and a serverless function holding a file-backed SQLite database is already broken, since the filesystem is ephemeral and each container gets its own copy. Denying the package turns that misconfiguration into a loud failure instead of a silently empty database. The denylist applies to the netlify, vercel and aws-lambda presets only, so local development is unaffected. ~1.9MB per emitted function dir.
+- c595519: Fix the dev-server speculation-rules endpoint 404ing on the browser's real `Sec-Fetch-Dest: speculationrules` auto-fetch, logging a console error on every page load in `pnpm dev`.
+- 43c4adb: Allow transactional email definitions to re-register after a development hot reload while still rejecting conflicting catalog metadata for the same id. Add atomic, app-owned snapshot registration so conflicting or deleted catalog entries cannot leave partial or stale definitions behind while owned metadata changes refresh safely.
+- c595519: Fix EnvironmentBadge causing a React hydration mismatch on public SSR pages by deferring its content to a post-mount effect instead of branching on `typeof window` during render.
+- 8f6fd63: Shorten production lane opt-out to eight hours, add a per-page badge hide control, and support `?force=true` for a browser-session production override.
+- cdd69e8: Stop background polling and event streams in app surfaces an embedding host has hidden. An Electron `<webview>` guest keeps reporting `document.visibilityState === "visible"` while its element is `display: none`, so every visibility-based pause in the client was inert inside the desktop shell and each backgrounded app tab kept polling at its foreground cadence and holding its event stream open. Hosts can now declare visibility explicitly with `buildSurfaceVisibilityScript`, and `useDbSync` treats a host-hidden surface as paused regardless of `pauseWhenHidden`.
+- 1390bed: Use production agent URLs for stale localhost peer manifests on every hosted runtime, including beta Netlify functions.
+- 49a2ab5: Honor explicit sidebar-open deep links and ignore stale loopback remote agents in hosted runtimes.
+- c759425: Restore the loud failure when an unresolved `getDb()` query chain is embedded as a raw value instead of being awaited. drizzle duck-types SQL entities by reading `getSQL`/`shouldOmitSQLParens` synchronously, so the lazy cold-start proxy answering that probe with another proxy produced `RangeError: Maximum call stack size exceeded` deep inside drizzle instead of naming the misuse. The guard was lost as collateral in a wholesale revert of `packages/core/src/db`.
+- 8be5618: Cut seconds off chat list reads and serverless cold starts.
+  - `listThreads`/`searchThreads` no longer filter on `thread_data`. Matching that
+    blob detoasted the entire message history for every scanned row before `LIMIT`
+    applied; measured on production beta, the same 20-row response went 2207ms →
+    222ms with the predicate removed. Schema migration 3 backfills
+    `source_platform` for the legacy integration rows the predicate used to catch.
+  - Added expression indexes for the access-scoping predicates that wrap columns in
+    `LOWER()` — `chat_threads`, `chat_thread_shares`, and `token_usage`. A plain
+    btree cannot serve a function-wrapped comparison, so these lists were scanning
+    whole shared tables.
+  - Moved `clientAbortReason` into a leaf module so the agent chat server plugin no
+    longer pulls the agent run loop into its static import graph. That graph costs
+    ~1.2s to evaluate and every cold serverless start paid it, including requests
+    that only render a page.
+
+- 7a87f76: Build the `LOWER(...)` expression indexes without `CONCURRENTLY`.
+
+  The release schema step runs over the pooled Neon endpoint, and a
+  transaction-pooled connection cannot carry `CREATE INDEX CONCURRENTLY` to
+  completion. The statement returned without creating the index, the verifying
+  probe then failed the whole release, and every docs production deploy was
+  blocked. Plain `CREATE INDEX` is the form that actually lands here.
+
+- ee03f3c: Fix PostHog LLM analytics events so trace, span, and generation metrics match PostHog's schema and aggregation.
+  - `$ai_time_to_first_token` is now sent in seconds. It was being handed the millisecond value verbatim, inflating every time-to-first-token in LLM analytics 1000x.
+  - The `$ai_trace` event no longer carries `$ai_latency`, `$ai_input_tokens`, `$ai_output_tokens`, or `$ai_total_cost_usd`. PostHog derives all four from a trace's children, and summed the trace's own `$ai_latency` alongside them — reporting roughly twice the real run duration. The run totals now ride along as `duration_ms`, `input_tokens`, `output_tokens`, and `cost_usd` for backends that do no such aggregation.
+  - The generation's `$ai_latency` is measured model time rather than the whole run, so tool duration is no longer counted both in the generation and in its sibling tool spans. It is read from the `model_stream` start/end brackets the agent loop already emits once per LLM round-trip, which close before any tool of that turn starts. Engines that do not bracket their model calls fall back to backing tool time out of the run duration — counting overlapping tools once, and leaving in the time of tools that `captureLlmSpans` or the per-run span cap keeps out of PostHog, since no sibling span would carry it. The new `latency_source` property records which of the two produced a given `$ai_latency`.
+  - A tool `$ai_span` is timestamped at the tool's start rather than its completion. PostHog draws a span forward from its event timestamp by `$ai_latency`, so a completion-stamped span rendered the tool beginning where it ended and running past the end of its own trace.
+  - `$ai_request_count` reports the run's real LLM round-trip count instead of a hardcoded `1`, which undercharged multi-step runs on request-priced models.
+  - `$ai_trace` now carries `$ai_input_state` / `$ai_output_state` when `capturePrompts` is on. PostHog reads a trace's input and output only from that event, so the trace detail view was empty.
+  - Successful tool calls now record their result on the span under `captureToolResults`, so a healthy tool span reports an output instead of looking like a tool that returned nothing.
+  - AI events are stamped with when they happened rather than when the run flushed. `track()` accepts an `occurredAt`, so a trace tree keeps a real timeline instead of collapsing into one instant.
+  - `$ai_stream` is set, which is what makes `$ai_time_to_first_token` meaningful.
+  - Custom properties no longer use an `$ai_` prefix (`$ai_input_truncated` → `input_truncated`, `$ai_spans_dropped` → `spans_dropped`). That namespace is PostHog's schema and a name it does not define today it may define tomorrow.
+
+- 6078255: Stop shipping unreachable browser and SSR modules in scheduled-sweep function clones, and deny-list puppeteer. `pruneBrowserRuntimeFromNonAgentClone` drops `@sparticuz/chromium` and `playwright-core` from a clone whose entry rewrites the pathname to a route that cannot reach an agent turn — it throws rather than guessing when the entry names an agent-capable path, because the browser is loaded through a non-literal dynamic import that no static walk can prove dead. Analytics' six cron sweep clones each shed 87.5MB. Separately, `puppeteer`, `puppeteer-core` and `chromium-bidi` join the serverless package denylist: Nitro traced them from officeparser's PDF-output branch, which nothing in this repo reaches.
+- 6e647cb: Stop shipping the SSR page/asset module island inside the background and integration-recovery function clones. Those entries overwrite `url.pathname` unconditionally before delegating to `main.mjs`, so they can never route to the page or asset handlers they inherited — yet Netlify zips and uploads every function separately, so the island was paid for on every deploy. The pruner walks the clone's real import graph (including backtick dynamic imports) and refuses to prune at all when a relative dynamic import cannot be resolved statically. Measured on calendar: total upload 42.2MB → 35.8MB.
+- 9f4efc1: Prevent the environment badge from changing the server-rendered tree before hydration completes.
+- 9895d21: Keep Builder design-system hydration in progress until the provider confirms completion, including explicit status metadata from docs responses.
+- cc4d122: Hide managed Google OAuth integrations and onboarding until the shared client credentials are available.
+- d14cffb: Revert keep-warm concurrency. Measured on production and it changed nothing:
+  before 8/10 requests cold, after 9/10 and 8/10, and 6/6 cold at 25s spacing.
+  Netlify does not hold these containers long enough for warming to matter — a
+  container is reused at a 2s gap and already cold again by 8s — so no cron
+  cadence or concurrency can help. Restores one warm request per minute rather
+  than paying 3x the scheduled invocations and health-probe round trips for no
+  effect.
+- cbc95d4: Avoid loading full workspace resource content during metadata list reads.
+- 628b822: Remove the in-loop no-progress watchdogs, which were failing healthy runs far more often than they caught wedged ones.
+
+  Two 90s bounds ran for the whole model stream — one on silence between engine frames (`MODEL_STREAM_NO_PROGRESS_TIMEOUT_MS`), one on a tool input whose byte count stopped growing (`ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS`) — plus a zero-byte tool-input restart tripwire. Each inferred a dead stream from the absence of a particular event, and that inference cannot be made on the Anthropic transport: the SDK drops the provider's `ping` keepalives before any consumer sees them (`core/streaming.js`: `if (sse.event === 'ping') continue;`, with no opt-out), so a model composing a large tool argument is indistinguishable from a wedged socket.
+
+  That is normal operation, not an edge case. Only a tool declared for eager input streaming emits anything at all while its arguments are generated, so a long file write or a long structured result is a content-silent window whose length is set by the size of the argument. In one production deployment, 2 of 27 one-shot analyst runs completed; the guards added for reliability were the thing taking it away.
+  - `ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS` and its deadline are gone, including the `earliestStartedAt` fallback that anchored the bound to a start time it never advanced past, and the `Math.min` that let it override a demonstrably live stream.
+  - `MODEL_STREAM_NO_PROGRESS_TIMEOUT_MS` and its deadline are gone.
+  - The zero-byte restart tripwire is gone (`ACTION_PREPARATION_ZERO_BYTE_RESTART_LIMIT`, `noteZeroByteToolInputStart`, `resetZeroByteToolInputRestart`).
+  - The two run-lifecycle invariants asserting an ordering between those bounds and the run-manager backstop are gone with them.
+
+  One in-loop bound survives: the pre-first-frame cap on the clamped hosted foreground runtime, where the ~57s platform wall arrives before the engine's own 120s abort could. The first real frame releases it, so long first tokens, long thinking, long tool inputs and long outputs are all past it by construction; off that runtime there is no in-loop deadline at all.
+
+  Real failures keep the bounds that key off evidence rather than absence: the engine's `FIRST_STREAM_EVENT_TIMEOUT_MS` for a stream that opens and never speaks, the run-manager backstop outside the stream, the per-tool execution timeout, the chunk/run budget, and the stale reaper. The trade is explicit: an in-stream wedge after the first frame is now caught by the run budget rather than at 90s, because no clock in the loop could tell it apart from a model writing a large tool call.
+
+  Separately, `runAgentLoop` now takes the caller's real chunk budget instead of re-deriving one. It asked `resolveRunSoftTimeoutMs` for the generic background ceiling (13 min) even when the caller was a background automation, whose budget is its own hard abort minus headroom (10 min − 20s). The per-tool ceiling came out above the run budget, so every per-tool timeout on that path was dead code and the chunk boundary won instead — the exact inversion `RUN_TOOL_TIMEOUT_HEADROOM_MS` exists to prevent, reintroduced by guessing at a number the caller already had.
+
+  Also records liveness forensics when a stale reaper flips a run to `errored`. `stale_run` is the largest terminal outcome on the one-shot automation path and the row said nothing about why — `error_detail` is a fixed sentence for every reap, so a correct reap and a false one were indistinguishable afterwards. The reap now records which of the three stale windows applied, whether the row was redispatchable, time since heartbeat and since progress, whether the in-flight grace was in play, and — the discriminator — how far the heartbeat ran AHEAD of the last real progress. A worker that died takes its heartbeat with it and scores ~0 there; a worker still alive while the agent loop stopped producing scores in the thousands of seconds. Those are opposite bugs that look identical in `agent_runs` today. Diagnostics only: nothing reads it to make a decision, it cannot change whether a row is reaped, and it shares the single `diag_stage` write with the existing recovery outcome rather than overwriting it.
+
+  Also gives the direct-provider engines the total-request deadline they never had, and the resumed rounds the budget they actually have. `createFirstEventAbortController` is now two-stage: the first real frame releases the 120s first-event bound and arms a 14-minute `STREAM_TOTAL_TIMEOUT_MS` on the whole call, mirroring what builder-engine already applies to its own gateway requests. That matters for the runtimes with no outer budget — local dev and self-hosted resolve the soft timeout to `0`, so the deleted watchdog was the only thing standing between them and a socket that wedges after the first frame. It is a total-request bound, not a no-progress bound, so it cannot fire on healthy content-silent generation. The AI SDK path now also reports a deadline abort as an error rather than letting it fall through as a clean `end_turn`, which is a truncated turn reported as a complete one. Alongside it, `runAgentLoopWithResume` hands each round its own `roundTimeoutMs` rather than the whole invocation's, and the main chat handler passes the chunk budget it already resolved into the loop instead of leaving it to re-derive a generic ceiling — the same inversion as the automation case, two call sites over.
+
+  A cancelled request is also no longer classifiable as a timeout. `fireTimeout` recorded its message before checking whether the composed controller had already been aborted, and the parent-abort path left the deadline armed — so a timer firing while the provider settled after a user Stop or a run-budget abort set `didTimeout()`, which is exactly what the engines read to decide a failure was the transport's fault and retryable. The ordering was pre-existing, but harmless while the first frame cleared the timer outright; a deadline that now runs for the whole stream made the window the whole stream. A timeout is recorded only when this controller wins the abort race, parent cancellation clears the deadline, and a frame that lands after a Stop cannot re-arm one.
+
+- 41aa6e2: Let a manual automation run target a resource path, including the generic `run-automation-now` action and manage-automations `run-now` tool, so automations nested under `jobs/` (such as per-factory jobs) can be run immediately instead of failing with "A valid automation name is required." Preserve application-owned frontmatter when automation status is written back after a run, and dispatch local runs back to the inbound request host when present.
+- efbde51: Cut and ratchet serverless function payload size.
+  - Replace `better-sqlite3` with a throwing stub in serverless function bundles.
+    Every consumer is gated on a `file:` or schemeless `DATABASE_URL`, and a
+    function holding a file-backed SQLite database is already broken — the
+    filesystem is ephemeral and each container gets its own copy. The stub drops
+    the 1.9MB native binding from every emitted function and turns that
+    misconfiguration into a loud, specific error instead of a silently empty
+    database. Only the netlify, vercel and aws-lambda presets are affected; local
+    development against a `file:` URL is unchanged.
+  - Run an app's `scripts/prune-serverless-functions.ts`, when it exists, as part
+    of `agent-native build` rather than leaving it to be chained afterwards. The
+    build's function size report and budget previously measured a directory that
+    app-owned pruning then changed, reporting sizes up to 19MB above what
+    actually shipped.
+  - Drop the orphaned dependency closure when the serverless browser runtime is
+    pruned from a clone that can never run an agent turn. Deleting the two known
+    directories left packages behind that existed only because
+    `@sparticuz/chromium-min` or `playwright-core` needed them; the prune now
+    walks the closure and removes what nothing still-present depends on.
+
+- c595519: Fix `SettingsTabsPage` merging tabs into duplicate, non-adjacent settings nav sections (with duplicate React keys) whenever a different group's tabs sat between two tabs sharing the same group id.
+- af1b3bb: Derive the chat model selection localStorage key through one exported helper, `chatModelSelectionStorageKey`. `useChatModels` takes the raw key while `MultiTabAssistantChat` takes only the namespace suffix, so a hero composer that passed the same string to both wrote to a different key than the chat beside it and never saw its model picks.
+- af1b3bb: Show a retryable error in the share popover when the shares read fails, instead of leaving the panel in a permanent loading skeleton.
+- 6e647cb: Cut serverless function payloads across every app. `@xterm/*` is now stubbed out of the SSR graph by default (it is only reachable through a `React.lazy` boundary the server can never take), and `formatExtensionHtml` loads `prettier/standalone` plus the four plugins the HTML printer actually reaches instead of prettier's main entry, which `import()`s all 13 parsers and inlines ~3.5MB of flow/typescript/yaml parsers. Measured: calendar 46.7MB → 21.1MB, docs 51MB → 26MB.
+- baedb60: Trim dead weight from every serverless function: skip the six Bare-runtime-only packages the browser tree declares but Node can never load, delete playwright-core's trace viewer / HTML reporter / codegen recorder / CLI (`lib/vite`, `lib/tools`, `bin`, `cli.js`), and strip `.d.ts` files from bundled `node_modules` — no runtime resolver reads the `types` condition. Measured on slides: playwright-core 13MB → 7MB, total upload 268.7MB → 247.6MB.
+- Updated dependencies [6c2e431]
+- Updated dependencies [af1b3bb]
+- Updated dependencies [c595519]
+- Updated dependencies [9735e4d]
+- Updated dependencies [15b86eb]
+  - @agent-native/toolkit@0.16.11
+
+## 0.169.1
+
+### Patch Changes
+
+- 4de4af3: Point missing-provider recovery errors to Settings > Agent > AI providers.
+- 4de4af3: Keep Dispatch workspace-app URLs shareable by seeding embedded apps from deep links and reflecting child route changes in the Dispatch URL.
+- 4de4af3: Stop shipping the 9.3MB libsql native driver to deployments that never load it. `copyInstalledLibsqlNativePackages` ran unconditionally for netlify/vercel/aws-lambda, unlike its Chromium sibling which is gated on a real consumer probe. It is now gated the same way, on whether the emitted bundle actually imports the bare `libsql` addon — the only gate that cannot be wrong, since `getDialect()` reads `DATABASE_URL` at runtime and build-time dialect is unknowable. The one importer in the server graph was the `db-check-scoping` maintenance script, which now uses the existing `createSqliteScriptClient` (dynamic `better-sqlite3` / `@libsql/client/web`) instead of the static node entry. Measured on the docs app: server function 55.9MB → 46.6MB.
+- Release all public npm packages with a patch version bump.
+- 4de4af3: Keep chat turns queued through transient server-run handoffs and delay missing-final warnings until the run state settles.
+- 4de4af3: Show the Connect AI setup for desktop chat relay failures and keep other recovery actions compact.
+- Updated dependencies
+  - @agent-native/recap-cli@0.5.8
+  - @agent-native/toolkit@0.16.10
+
+## 0.169.0
+
+### Minor Changes
+
+- c90e034: Make background agent runs recoverable, observable, and tunable.
+
+  A scheduled or queued automation runs the agent loop in-process, with no HTTP
+  body to re-POST and no server-driven continuation behind it. The run manager's
+  no-progress backstop nevertheless checkpointed for a continuation nobody was
+  going to run: it aborted the run's top-level controller, which is the same
+  signal the in-invocation recovery loop is gated on, so a healthy run that went
+  quiet for 150s between a completed tool and the next token was recorded as a
+  terminal `no_progress` failure.
+  - A checkpoint on a run that opts into `recoverChunkBoundaries` now ends the
+    CHUNK, not the turn. `runAgentLoopDirectWithSoftTimeout` accepts the
+    `RunChunkControl` `startRun` hands its `runFn` and continues, using the
+    continuation budget that was already there. A user Stop, a hard timeout, and
+    the cross-isolate abort check still end the turn immediately.
+  - The background automation runner is instrumented with `instrumentAgentLoop`,
+    so scheduled runs produce `$ai_trace` / `$ai_span` events and local trace-store
+    rows under their real owner instead of nothing. `instrumentAgentLoop` gained a
+    `spanName` option and now forwards `metadata` to PostHog, so an automation is
+    identifiable there.
+  - Boundaries are recorded: a `run_boundary_reached` diagnostic naming the
+    segment that went silent, an `agent_run_boundary` analytics event dimensioned
+    by reason and by whether a continuation followed, and a `captureError` for a
+    checkpoint that terminates a run.
+  - `automation_runs` gained an `error_code` column, written from the code the
+    failure taxonomy already computed. That code, and the run's duration, now ride
+    the existing `automation.run.finished` event — which already fires from every
+    path that records a terminal outcome (the runner, the scheduler's dispatch
+    failures, remote execution), and is therefore the terminal hook an application
+    needs.
+  - The run-lifecycle bounds live in one place each, beside the ordering
+    relationships that constrain them, and those relationships are asserted. Two
+    are configuration — `agent.backgroundRunHardTimeoutMs` and
+    `agent.backgroundNoProgressTimeoutMs` — because those are facts about the host
+    and the deployment; the rest stay constants, because a number with two homes
+    needs a test to keep them in step and that test is the tell that it should
+    have had one home. The background no-progress default is clamped to the chunk
+    it guards, so lowering the global soft timeout cannot leave it unreachable.
+  - On a run that recovers boundaries in-invocation the run manager no longer arms
+    its own soft-timeout timer: the agent-loop wrapper already races that same
+    wall with a cumulative per-round budget, so a second timer fired exactly when
+    the wrapper had nothing left to continue with. One wall, one clock.
+  - Trace finalization can no longer alter the run it observes. Assembly ran
+    unguarded inside a `finally`, where a throw replaces the block's result — so a
+    malformed payload could report a completed run as failed. That check
+    catches the pair that shipped violated: the automation runner took a 13-minute
+    chunk budget under its own 10-minute hard abort, so its recoverable boundary
+    was dead code. The runner now derives that budget from its own hard abort.
+
+- c90e034: Give the continuation-chain guard and stale-run recovery one turn-run budget.
+
+  The ceiling on run rows for a logical turn was written three times: the chain
+  bound `MAX_BACKGROUND_RUN_CONTINUATIONS` (20), an inline
+  `turnRunCount > MAX_BACKGROUND_RUN_CONTINUATIONS + 5` in `production-agent.ts`,
+  and a hand-maintained literal `25` in `run-store.ts` whose own comment asked the
+  next editor to keep it in sync, because importing back would have been circular.
+
+  The cycle is gone now that the base value is configuration and `app-config`
+  imports no agent code, so both sites read `resolveTurnRunLedgerBudget()` with
+  the slack named `TURN_RUN_LEDGER_SLACK` and its reason recorded: the two bounds
+  count different things — handoffs a chunk decided to make versus every run row
+  the turn produced, including sweep redispatches and recoveries — which is why
+  the ledger must sit strictly above the chain bound. A spec pins the
+  relationship.
+
+  Both call sites compared `turnRunCount > budget` while the current run's row was
+  already inserted and counted, and the successor's row is inserted after the
+  check — so at equality they permitted one row past the documented ceiling. They
+  now call a `turnRunLedgerExhausted()` predicate, so the two cannot disagree
+  about the boundary again.
+
+  Also removes `DEFAULT_BACKGROUND_RUN_SOFT_TIMEOUT_MS`, an exported alias for
+  `BACKGROUND_SOFT_TIMEOUT_CEILING_MS` with no source caller; use the ceiling (or
+  `resolveBackgroundSoftTimeoutCeilingMs()`) directly.
+
+  No behaviour change: every resolved value is what it was.
+
+### Patch Changes
+
+- c90e034: Enforce the client-above-server follow budgets against resolved configuration.
+
+  The browser's per-turn follow budgets must stay above the server's own ceilings,
+  because the client fires on a clock and cannot tell looping from working while
+  the server can. They shipped inverted once — 10 min / 6 runs against a 13-minute
+  legal chunk — and killed healthy turns the server was still streaming, which was
+  the top non-auth cause of "the chat just stopped".
+
+  That relationship was pinned in `agent-chat-adapter.spec.ts` against the
+  server's module constants. Making those constants configurable moved the real
+  values out from under the test without moving the test: a deployment could raise
+  `maxTurnWallClockMs`, `maxBackgroundRunContinuations`, or
+  `backgroundSoftTimeoutCeilingMs` past what the shipped client can follow, and
+  every check still passed.
+
+  The client budgets now live in `app-config/run-lifecycle-invariants.ts` (which
+  has no runtime imports, so the browser bundle is unaffected) and
+  `assertRunLifecycleInvariants` asserts all three relationships against the
+  resolved configuration. The spec keeps pinning the defaults — one fails fast on
+  a bad default, the other on a bad deploy.
+
+  Comparing the configured numbers alone also hid a real inversion in the shipped
+  values, so the check now uses the EFFECTIVE server limits: the turn ceiling is
+  tested at chunk boundaries, so a turn passing it one chunk short still gets a
+  whole further chunk (90min + 13min against a client following 95min), and the
+  durable ledger allows the chain bound plus the recovery slack in run rows
+  (20 + 5 = 25 against a client following 24). Both were inverted. The client
+  follow budgets move to 110 minutes and 30 runs so the shipped defaults are
+  consistent; killing a turn that is not progressing is still covered by the 210s
+  idle timeout and the repeated-terminal-reason detector, neither of which is a
+  clock on the whole turn.
+
+- c90e034: Close two acceptance-criteria gaps from the background-run hardening.
+
+  A hard-aborted run reached PostHog carrying "Agent run was aborted" —
+  byte-identical to what a user pressing Stop produces, because the abort is what
+  the loop observes and `$ai_error` derives its code from the terminal outcome.
+
+  Fixed at that source rather than per-caller: the agent-loop wrapper now reports
+  a server-owned abort reason as a `failed` outcome carrying that reason as its
+  code, which is what its own no-timeout path has always done. The code therefore
+  reaches `$ai_error` through the existing construction, for every entry point
+  rather than just automations. The reason set is an allowlist, not "anything that
+  isn't `user`", because the abort route accepts a client-supplied reason string
+  and an inverted test would relabel a genuine Stop.
+
+  `backgroundSoftTimeoutCeilingMs` is not merely a bound — it IS the clamp
+  `resolveRunSoftTimeoutMs` reduces every background soft timeout to. Making it
+  configurable therefore left the one number that keeps a chunk inside the host's
+  background-function wall unbounded, so a deployment could raise it past that
+  wall and turn every long background turn back into the silent platform kill the
+  ceiling exists to prevent. The invariant check now asserts it against
+  `BACKGROUND_FUNCTION_WALL_MS` minus the headroom a chunk needs to checkpoint;
+  the shipped 13-minute value sits exactly on that margin.
+
+- c90e034: Stop reporting every unlabelled agent run as `foreground`.
+
+  `emitRunTerminalTrackingEvent` defaulted `dispatch_mode` to `"foreground"` when
+  a caller passed none — and the interactive chat handler is the only caller that
+  passes one. Five others (background automations, agent teams, webhook handlers,
+  harness runs, the docs poller) passed nothing, so the default was wrong every
+  single time it applied.
+
+  Measured consequence: on one deployment, scheduled and manually-dispatched
+  automation runs were failing with `no_progress` at 6 of 7 while interactive chat
+  sat at 2 of 190 — and both were labelled `foreground`, so the failing path was
+  indistinguishable from the healthy one in the only view where anyone would have
+  looked.
+
+  `dispatch_mode` is now absent when the caller did not supply one, so "not
+  recorded" and "was foreground" stop being the same value; the background
+  automation runner passes the `"background"` it already writes onto its own run
+  row; and the durable background worker, which reaches the interactive handler's
+  `startRun` call site, reports `"background"` instead of inheriting the
+  foreground label from a flag that only describes self-chaining. Passing it cannot disturb the runner's self-claim: `insertRun` is
+  `ON CONFLICT DO NOTHING`, so `startRun`'s insert is a no-op for a claimed row.
+
+## 0.168.13
+
+### Patch Changes
+
+- f2f60b9: Move the environment badge to the bottom-left, show a truthful dev badge during configured local development, raise Dispatch controls above it, and give default notifications enough clearance to avoid overlap.
+
+## 0.168.12
+
+### Patch Changes
+
+- 51b31ed: Format localized core documentation after the release sync.
+
+## 0.168.11
+
+### Patch Changes
+
+- dc0978d: Fix action request context to use the forwarded workspace gateway origin instead of the internal dev proxy host.
+
+## 0.168.10
+
+### Patch Changes
+
+- d9b6279: Fix desktop Google sign-in against a local dev server. `X-Agent-Native-Desktop-Verifier` is now in the shared CORS allow-header list used by every preflight short-circuit (the Tauri dev renderer origin `http://localhost:1420` is answered by the dev server, which never reached the auth CORS handler that already allowed the header), and a localhost origin receives `Access-Control-Allow-Credentials` when `NODE_ENV === "development"` so the desktop app's credentialed calls work locally. Production credential rules are unchanged.
+
 ## 0.168.9
 
 ### Patch Changes

@@ -191,7 +191,9 @@ export interface CodeAgentsHost {
   updateSchedule?: (input: unknown) => Promise<CodeAgentScheduleResult>;
   deleteSchedule?: (input: unknown) => Promise<CodeAgentScheduleResult>;
   runScheduleNow?: (input: unknown) => Promise<CodeAgentScheduleResult>;
-  listModels?: () => Promise<CodeAgentModelListResult>;
+  listModels?: (options?: {
+    refresh?: boolean;
+  }) => Promise<CodeAgentModelListResult>;
   getHostMetadata?: () => Promise<CodeAgentHostMetadata>;
   runComputerSetupAction?: (
     action: CodeAgentComputerSetupAction,
@@ -952,9 +954,7 @@ export default function CodeAgentsApp({
     useState<CodeAgentPermissionMode>(DEFAULT_CODE_AGENT_PERMISSION_MODE);
   const [selectedPermissionMode, setSelectedPermissionMode] =
     useState<CodeAgentPermissionMode>(DEFAULT_CODE_AGENT_PERMISSION_MODE);
-  const [modelOptions, setModelOptions] = useState<CodeAgentModelOption[]>(
-    DEFAULT_CODE_AGENT_MODEL_OPTIONS,
-  );
+  const [modelOptions, setModelOptions] = useState<CodeAgentModelOption[]>([]);
   const [projects, setProjects] = useState<CodeAgentProjectFolder[]>([]);
   const [selectedProjectPath, setSelectedProjectPath] = useState<string>("");
   const [newRunExecutionTarget, setNewRunExecutionTarget] =
@@ -1422,9 +1422,9 @@ export default function CodeAgentsApp({
         });
       }
       await loadHostMetadata();
-      const modelResult = await host.listModels?.();
+      const modelResult = await host.listModels?.({ refresh: true });
       let retrySelection = selectedModelSelection;
-      if (modelResult?.status === "ok" && modelResult.models.length > 0) {
+      if (modelResult?.status === "ok") {
         setModelOptions(modelResult.models);
         if (
           modelResult.selected &&
@@ -1534,8 +1534,8 @@ export default function CodeAgentsApp({
 
         let attempts = 0;
         const refresh = async (): Promise<void> => {
-          const modelResult = await host.listModels?.();
-          if (modelResult?.status === "ok" && modelResult.models.length > 0) {
+          const modelResult = await host.listModels?.({ refresh: true });
+          if (modelResult?.status === "ok") {
             setModelOptions(modelResult.models);
             if (modelResult.selected) {
               setModelSelection((current) =>
@@ -1763,7 +1763,7 @@ export default function CodeAgentsApp({
     void host
       .listModels?.()
       .then((result) => {
-        if (cancelled || result.status !== "ok" || result.models.length === 0) {
+        if (cancelled || result.status !== "ok") {
           return;
         }
         setModelOptions(result.models);

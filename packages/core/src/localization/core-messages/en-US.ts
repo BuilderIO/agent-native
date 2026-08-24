@@ -33,6 +33,8 @@ const messages = {
   "aboutAgentNative.copyDiagnostics": "Copy diagnostics",
   "aboutAgentNative.unknown": "Unknown",
   "common.agent": "Agent",
+  "agentPanel.mode": "Mode",
+  "agentPanel.uiMode": "UI",
   "common.cancel": "Cancel",
   "common.collapse": "Collapse",
   "common.connect": "Connect",
@@ -290,7 +292,7 @@ const messages = {
   "errorMessages.invalidToolSchema":
     "A tool schema was invalid, so the model rejected the request before it started. The invalid tool can be skipped and the request retried.",
   "errorMessages.noProviderConnected":
-    "No LLM provider is connected. Open this app's Manage agent > LLM, then connect Builder.io or add a provider key.",
+    "No LLM provider is connected. Open Settings > Agent > AI providers, then connect Builder.io (free tier available) or add a provider key.",
   "errorMessages.openBuilderSpaceSettings": "Open Builder space settings",
   "errorMessages.providerAuthentication":
     "The model provider rejected the saved API key. Update the key in Settings → Integrations → API keys, then retry.",
@@ -503,6 +505,7 @@ const messages = {
   "share.linkCanStillOpen": "People with the link can still open this.",
   "share.loading": "Loading...",
   "share.loadMore": "Load more",
+  "share.loadFailed": "Couldn't load sharing settings.",
   "share.loadPeopleFailed": "Could not load people.",
   "share.noAccess": "No one has access yet.",
   "share.noMatches": "No matches.",

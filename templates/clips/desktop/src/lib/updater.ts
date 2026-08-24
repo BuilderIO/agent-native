@@ -96,8 +96,9 @@ async function runCheck() {
   // made "Restart to update" land on a binary that was already out of date and
   // immediately ask to restart again — every check runs against the *running*
   // version, so it re-offers the staged version until a newer one ships.
-  const staged =
-    cachedStatus.state === "downloaded" ? cachedStatus.version : null;
+  const stagedStatus =
+    cachedStatus.state === "downloaded" ? cachedStatus : null;
+  const staged = stagedStatus?.version ?? null;
 
   lastCheckStartedAt = Date.now();
   checkInFlight = (async () => {
@@ -114,7 +115,11 @@ async function runCheck() {
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      setStatus({ state: "error", message });
+      // A staged bundle is already on disk and `pendingUpdate` still points at
+      // it. Reporting the check failure here would replace the Restart banner
+      // with an error card that has no way back to it, and would make the next
+      // successful check re-download the same version from scratch.
+      setStatus(stagedStatus ?? { state: "error", message });
     } finally {
       checkInFlight = null;
     }

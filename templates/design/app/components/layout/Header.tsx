@@ -94,3 +94,18 @@ export function Header() {
     </header>
   );
 }
+
+/**
+ * Mobile counterpart of the header actions slot: <Header> is `md:flex`, so
+ * without this every control a page publishes through `useSetHeaderActions`
+ * is unmounted below the `md` breakpoint.
+ */
+export function MobileHeaderActions() {
+  const actions = useHeaderActions();
+  if (!actions) return null;
+  return (
+    <div className="flex h-12 shrink-0 items-center gap-2 overflow-x-auto border-b border-border bg-background px-4 md:hidden">
+      {actions}
+    </div>
+  );
+}

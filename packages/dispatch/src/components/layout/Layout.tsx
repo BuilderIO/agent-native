@@ -99,6 +99,7 @@ import {
 import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
+import { useIsMobile } from "../../hooks/use-mobile";
 import { cn } from "../../lib/utils";
 import {
   isDispatchWorkspaceAppId,
@@ -211,6 +212,12 @@ const DISPATCH_SIDEBAR_LABEL = "Dispatch";
 const CHROMELESS_PATHS = ["/approval", "/browser-chat", "/browser-connect"];
 const SIDEBAR_COLLAPSE_KEY = "dispatch.sidebar.collapsed";
 const CHAT_HISTORY_SOURCE_KEY = "dispatch.chat-history.source";
+// Below 768px, ChatFirstSurfacePanel becomes a max-[767px]:z-10 full-screen
+// overlay (surface-panel.tsx). This toggle is the only way to dismiss it, so
+// its z-index must stay above that overlay in every stacking context or the
+// panel becomes undismissable on mobile.
+export const CHAT_FIRST_SURFACE_PANEL_TOGGLE_CLASS_NAME =
+  "absolute right-3 top-2 z-20";
 
 interface DispatchChatFirstPane {
   appId: string;
@@ -1298,36 +1305,86 @@ export function NavContent({
           />
         </div>
       ) : null}
-      <div
-        className={cn(
-          "flex min-h-0 flex-1 flex-col overflow-y-auto",
-          chatFirstMode && "hidden",
-        )}
-      >
-        <nav className={cn("py-2", collapsed ? "px-1.5" : "px-2")}>
-          <ul
-            className={cn(
-              collapsed ? "flex flex-col items-center gap-1" : "space-y-0.5",
-            )}
-          >
-            {primaryNavItems.map(renderNavItem)}
-          </ul>
-        </nav>
-
-        <div className="mt-auto shrink-0">
-          {bottomNavigation}
-          {organizationPicker}
-        </div>
-        {sidebarFooterActions}
-      </div>
-      {chatFirstMode ? (
-        <div className="mt-auto shrink-0">
-          {bottomNavigation}
-          {organizationPicker}
-          {sidebarFooterActions}
+      {!chatFirstMode ? (
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <nav className={cn("py-2", collapsed ? "px-1.5" : "px-2")}>
+            <ul
+              className={cn(
+                collapsed ? "flex flex-col items-center gap-1" : "space-y-0.5",
+              )}
+            >
+              {primaryNavItems.map(renderNavItem)}
+            </ul>
+          </nav>
         </div>
       ) : null}
+      <div
+        className="mt-auto shrink-0"
+        data-dispatch-sidebar-footer={chatFirstMode ? "chat-first" : "standard"}
+      >
+        {bottomNavigation}
+        {organizationPicker}
+        {sidebarFooterActions}
+      </div>
     </>
+  );
+}
+
+/**
+ * Below 768px `ChatFirstSurfacePanel` is already a full-screen overlay
+ * (surface-panel.tsx). Mounting the sub-app's own `AgentSidebar` chat rail
+ * inside it too would stack a second full-screen shell on top of it, so the
+ * rail only gets its own chat surface once there is room beside the panel.
+ */
+export function renderChatFirstAppSurfaceTab({
+  registration,
+  embedPath,
+  loading,
+  isMobileSurface,
+  copy,
+}: {
+  registration: ChatFirstAppRegistration | null;
+  embedPath: string;
+  loading: boolean;
+  isMobileSurface: boolean;
+  copy: ChatFirstCopy;
+}): ReactNode {
+  if (!registration) {
+    return (
+      <ChatFirstAppPane
+        app={null}
+        status={loading ? "loading" : "unresolved"}
+        renderEmbed={() => null}
+        copy={copy}
+      />
+    );
+  }
+  if (!embedPath.startsWith("/")) {
+    return (
+      <ChatFirstAppPane
+        app={{
+          id: registration.id,
+          name: registration.name ?? registration.id,
+        }}
+        status="error"
+        errorMessage={copy("appUnavailable")}
+        renderEmbed={() => null}
+        copy={copy}
+      />
+    );
+  }
+  return (
+    <WorkspaceAppFrame
+      app={{
+        id: registration.id,
+        name: registration.name ?? registration.id,
+        path: registration.path,
+        url: registration.url,
+      }}
+      embedPath={embedPath}
+      chatSidebar={!isMobileSurface}
+      copy={copy}
+    />
   );
 }
 
@@ -1344,6 +1401,10 @@ export function Layout({
   const location = useLocation();
   const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
+  // Drives renderChatFirstSurfaceTab's app-tab chatSidebar decision below —
+  // the chat-first surface panel is already a full-screen overlay at this
+  // width, so an app tab must not also mount its own full-screen chat rail.
+  const isMobileSurface = useIsMobile();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     if (typeof window === "undefined") return false;
     try {
@@ -2096,44 +2157,13 @@ export function Layout({
               (candidate) => candidate.id === tab.appId,
             ) ?? null)
           : null;
-        if (!registration) {
-          return (
-            <ChatFirstAppPane
-              app={null}
-              status={chatFirstAppsQuery.isLoading ? "loading" : "unresolved"}
-              renderEmbed={() => null}
-              copy={chatFirstCopy}
-            />
-          );
-        }
-        const embedPath = tab.path ?? registration.path ?? "/";
-        if (!embedPath.startsWith("/")) {
-          return (
-            <ChatFirstAppPane
-              app={{
-                id: registration.id,
-                name: registration.name ?? registration.id,
-              }}
-              status="error"
-              errorMessage={chatFirstCopy("appUnavailable")}
-              renderEmbed={() => null}
-              copy={chatFirstCopy}
-            />
-          );
-        }
-        return (
-          <WorkspaceAppFrame
-            app={{
-              id: registration.id,
-              name: registration.name ?? registration.id,
-              path: registration.path,
-              url: registration.url,
-            }}
-            embedPath={embedPath}
-            chatSidebar
-            copy={chatFirstCopy}
-          />
-        );
+        return renderChatFirstAppSurfaceTab({
+          registration,
+          embedPath: tab.path ?? registration?.path ?? "/",
+          loading: chatFirstAppsQuery.isLoading,
+          isMobileSurface,
+          copy: chatFirstCopy,
+        });
       }
       if (tab.kind === "browser" && tab.url) {
         return (
@@ -2206,6 +2236,7 @@ export function Layout({
       chatFirstSurfaceTabs.activeTabId,
       chatFirstAppRegistrations,
       closeChatFirstSurfaceTab,
+      isMobileSurface,
       renderChatFirstWatchChat,
     ],
   );
@@ -2273,7 +2304,7 @@ export function Layout({
         <ChatFirstSurfacePanelToggle
           open={chatFirstSurfacePanel.open}
           onToggle={chatFirstSurfacePanel.toggle}
-          className="absolute right-3 top-2 z-[4]"
+          className={CHAT_FIRST_SURFACE_PANEL_TOGGLE_CLASS_NAME}
         />
       ) : null}
       {isChatRoute && chatFirstMode && chatFirstNotice ? (

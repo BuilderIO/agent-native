@@ -76,6 +76,34 @@ describe("assertWorkspaceEmbedSessionCaller", () => {
     });
   });
 
+  it("allows a workspace gateway caller when requestOrigin matches forwarded host", async () => {
+    server.getRequestContext.mockReturnValue({
+      requestOrigin: "http://127.0.0.1:8080",
+    });
+    await expect(
+      assertWorkspaceEmbedSessionCaller(
+        new Headers({
+          Referer: "http://127.0.0.1:8080/dispatch/apps/calendar",
+          "Sec-Fetch-Site": "same-origin",
+        }),
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it("rejects when the browser gateway origin does not match requestOrigin", async () => {
+    server.getRequestContext.mockReturnValue({
+      requestOrigin: "http://127.0.0.1:8092",
+    });
+    await expect(
+      assertWorkspaceEmbedSessionCaller(
+        new Headers({
+          Referer: "http://127.0.0.1:8080/dispatch/apps/calendar",
+          "Sec-Fetch-Site": "same-origin",
+        }),
+      ),
+    ).rejects.toThrow("requested by Dispatch");
+  });
+
   it("rejects cross-site and child-app browser callers", async () => {
     await expect(
       assertWorkspaceEmbedSessionCaller(

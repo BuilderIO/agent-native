@@ -748,6 +748,7 @@ import {
   PngCaptureError,
   type PngCaptureScope,
 } from "./design-editor/png-export-render";
+import { openPreviewUrl } from "./design-editor/preview-navigation";
 import {
   computeInteractZoomToFit,
   DEFAULT_INTERACT_DEVICE_PRESET,
@@ -786,6 +787,7 @@ import { postShaderFillPreviewClearToPreviewIframes } from "./design-editor/text
 import {
   getDesignBottomToolbarMode,
   getSingleScreenCreationTool,
+  resolveToolAfterSelection,
   shouldAutoEnableDrawOverlay,
 } from "./design-editor/tool-state";
 import {
@@ -955,6 +957,9 @@ function DesignEditor() {
   // Editor state
   const [mode, setMode] = useState<EditorMode>("edit");
   const [activeTool, setActiveTool] = useState<DesignTool>("move");
+  // Drawing drops activeTool back to move (Figma parity), so the shape group
+  // button cannot read its own identity off it.
+  const [shapeTool, setShapeTool] = useState<ShapeTool>("rect");
   // The frame tool draws a top-level SCREEN or a plain FRAME container. Made
   // explicit because deciding it from where the drag started is unguessable.
   const [frameToolDraws, setFrameToolDraws] = useState<"screen" | "frame">(
@@ -1359,7 +1364,7 @@ function DesignEditor() {
   } | null>(null);
   const reviewFocusNonceRef = useRef(0);
   const [activeLeftPanel, setActiveLeftPanel] =
-    useState<DesignLeftPanel>("file");
+    useState<DesignLeftPanel | null>("file");
   const [activeCodeFile, setActiveCodeFile] =
     useState<CodeWorkbenchActiveFile | null>(null);
   const initialSearchCommandAppliedForIdRef = useRef<string | null>(null);
@@ -6091,9 +6096,9 @@ function DesignEditor() {
     latestActiveContentRef.current = activeContent;
   }, [activeContent]);
   useEffect(() => {
-    if (!initialGenerationChromeLimited || activeLeftPanel === "agent") return;
+    if (!initialGenerationChromeLimited) return;
     setActiveLeftPanel("agent");
-  }, [activeLeftPanel, initialGenerationChromeLimited]);
+  }, [initialGenerationChromeLimited]);
   const fileContentById = useMemo(() => {
     const map = new Map<string, string>();
     for (const file of files) {
@@ -8109,13 +8114,18 @@ function DesignEditor() {
    * engine handles persistence identically to in-screen elements.
    */
   const handleBoardDrawPrimitive = useCallback(
-    (primitive: CanvasPrimitiveInsert) => {
+    (
+      primitive: CanvasPrimitiveInsert,
+      options?: { nextTool?: "move" | "pen" },
+    ) => {
       if (!boardFileId || !canEditDesign) return false;
       const result = handleCreatePrimitive(boardFileId, primitive);
       if (!result) return false;
       const nodeId = typeof result === "string" ? result : primitive.nodeId;
       if (nodeId) {
-        handlePrimitiveCreated(boardFileId, nodeId);
+        // Without the caller's tool intent a board pen commit lands on Move,
+        // which disarms the Pen mid-path — a screen insert keeps it.
+        handlePrimitiveCreated(boardFileId, nodeId, options);
       }
 
       return result;
@@ -8368,6 +8378,7 @@ function DesignEditor() {
       blurActiveDesignEditableTarget();
       flushSync(() => {
         setActiveTool(tool);
+        setShapeTool(tool);
         if (viewModeRef.current === "single" && activeFile) {
           setMode("edit");
           setDrawMode(false);
@@ -9009,7 +9020,7 @@ function DesignEditor() {
           handleBreakpointBarSelect(undefined);
         }
       }
-      setActiveTool("move");
+      setActiveTool(resolveToolAfterSelection);
       setMode("edit");
     },
     [clearPendingOverviewLayerSelectionTimer, handleBreakpointBarSelect],
@@ -9390,6 +9401,7 @@ function DesignEditor() {
         elementInfo?: ElementInfo;
         /** Pre-gesture values, for the pending-edit revert stack. */
         originalStyles?: Record<string, string>;
+        preserveSelection?: boolean;
       } = {},
     ) =>
       runCommitVisualStyles(
@@ -9888,7 +9900,10 @@ function DesignEditor() {
       selector: string,
       styles: Record<string, string>,
       elementInfo?: ElementInfo,
-      metadata?: { originalStyles?: Record<string, string> },
+      metadata?: {
+        originalStyles?: Record<string, string>;
+        preserveSelection?: boolean;
+      },
     ) => {
       if (!activeFile?.id) return;
       // The gesture already moved the live DOM, so this never needs the
@@ -9900,6 +9915,7 @@ function DesignEditor() {
         runtimeApplied: true,
         elementInfo,
         originalStyles: metadata?.originalStyles,
+        preserveSelection: metadata?.preserveSelection,
       });
     },
     [activeFile?.id, commitVisualStyles],
@@ -10047,7 +10063,10 @@ function DesignEditor() {
       selector: string,
       styles: Record<string, string>,
       elementInfo?: ElementInfo,
-      metadata?: { originalStyles?: Record<string, string> },
+      metadata?: {
+        originalStyles?: Record<string, string>;
+        preserveSelection?: boolean;
+      },
     ) =>
       runScreenVisualStyleChange(
         {
@@ -13178,7 +13197,6 @@ function DesignEditor() {
         activeBreakpointWidthStateRef,
         activeTool,
         cancelActiveEditorDrag,
-        codeLayerOwnerByNodeIdRef,
         drawMode,
         enterOverviewFromZoom,
         focusedAnnotationSending,
@@ -13191,11 +13209,8 @@ function DesignEditor() {
         overviewAnnotationSending,
         pinMode,
         selectedElement,
-        selectedLayerIdsState,
-        setActiveFileId,
         setActiveTool,
         setDrawMode,
-        setExpandedLayerIds,
         setHoveredElement,
         setMode,
         setOverviewClearSelectionRequest,
@@ -13220,7 +13235,6 @@ function DesignEditor() {
       overviewAnnotationSending,
       pinMode,
       selectedElement,
-      selectedLayerIdsState,
       viewMode,
     ],
   );
@@ -13477,12 +13491,8 @@ function DesignEditor() {
       owner.node.parentId,
     );
     if (!parentOwner || parentOwner.fileId !== owner.fileId) return;
-    // BUG-ESCAPE-SHELL (same mechanism as handleEscapeHotkey's pop walk): the
-    // flat ownership map still resolves a top-level layer's parentId to the
-    // collapsed <html>/<body> shell node, which the layers panel never shows
-    // as selectable. Without this guard, Shift+Enter/"\\" on a top-level
-    // layer would select <body> instead of no-op'ing like the comment above
-    // already documents.
+    // The flat ownership map still resolves a top-level layer's parentId to
+    // the collapsed <html>/<body> shell node the layers panel never shows.
     if (!hasSelectableCodeLayerParent({ parentNode: parentOwner.node })) {
       return;
     }
@@ -13524,7 +13534,7 @@ function DesignEditor() {
     setOverviewSelectAllRequest((request) => request + 1);
   }, [activeFile, getFreshActiveContent, overviewScreens]);
 
-  // L12: shared by Cmd+R and the canvas context-menu Rename item — the single
+  // Shared by the canvas context-menu Rename item — the single
   // currently-selected layer id eligible for the layers-panel inline rename,
   // or null when zero or more-than-one layers are selected (screen/file rows
   // are excluded; renaming those is a separate flow). `__`-prefixed and file
@@ -13620,14 +13630,9 @@ function DesignEditor() {
           handleDeleteOverviewSelection(selectedLayerIdsState);
         }
       : undefined,
-    // L12: Cmd+R (and the context-menu Rename item, both routed through
-    // useDesignHotkeys' onRename) previously always renamed the DESIGN
-    // TITLE, even while a layer was selected — surprising when the user's
-    // focus is clearly on a specific layer. Route to the layer's real inline
-    // rename editor (LayersPanel ref's beginRename) when exactly one
-    // selectable (non-file-row) layer is selected; only fall back to
-    // renaming the design title when nothing (or more than one layer) is
-    // selected.
+    // The context-menu Rename item routes to the layer's real inline rename
+    // editor (LayersPanel ref's beginRename) when exactly one selectable
+    // (non-file-row) layer is selected.
     onRename: () => {
       if (!canEditDesign) return;
       const layerId = getSingleSelectedRenamableLayerId();
@@ -15628,6 +15633,20 @@ function DesignEditor() {
     selectedLayerTargetsRef.current = selectedLayerTargets;
   }, [selectedLayerTargets]);
 
+  /** The overview canvas keeps a layer's owning screen in `selectedScreenIds`
+   *  (z-order and "topmost screen" read it), so without this the screen's own
+   *  full-bleed SelectionBox stays mounted over the element and its drag
+   *  surface swallows the gesture — the frame moves instead of the layer. */
+  const selectedElementScreenId = useMemo(() => {
+    const first = selectedLayerTargets[0];
+    if (!first) return null;
+    return selectedLayerTargets.every(
+      (target) => target.fileId === first.fileId,
+    )
+      ? first.fileId
+      : null;
+  }, [selectedLayerTargets]);
+
   const selectedLayerSelectorGroupsByScreen = useMemo(() => {
     const groupsByScreen: Record<string, string[][]> = {};
     selectedLayerTargets.forEach((target) => {
@@ -16017,19 +16036,24 @@ function DesignEditor() {
 
   // ── Preview, publish waitlist, gradient, interaction states ────────────────
   const handleOpenDesignPreview = useCallback(() => {
-    if (activeScreenPreviewUrl) {
-      window.open(activeScreenPreviewUrl, "_blank", "noopener,noreferrer");
-      return;
+    let previewUrl = activeScreenPreviewUrl;
+    let blobUrl: string | null = null;
+    if (!previewUrl) {
+      if (!activeContent.trim()) return;
+      blobUrl = URL.createObjectURL(
+        new Blob([fullPreviewHtml(activeContent)], { type: "text/html" }),
+      );
+      previewUrl = blobUrl;
     }
 
-    const content = activeContent.trim();
-    if (!content) return;
-
-    const blobUrl = URL.createObjectURL(
-      new Blob([fullPreviewHtml(activeContent)], { type: "text/html" }),
+    openPreviewUrl(
+      previewUrl,
+      (url, target) => window.open(url, target),
+      (url) => window.location.assign(url),
     );
-    window.open(blobUrl, "_blank", "noopener,noreferrer");
-    window.setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+    if (blobUrl) {
+      window.setTimeout(() => URL.revokeObjectURL(blobUrl!), 60_000);
+    }
   }, [activeContent, activeScreenPreviewUrl]);
 
   const handleJoinPublishWaitlist = useCallback(async () => {
@@ -17868,7 +17892,7 @@ function DesignEditor() {
         }),
       );
       setActiveFileId(pickedId);
-      setActiveTool("move");
+      setActiveTool(resolveToolAfterSelection);
       setMode("edit");
       if (activeBreakpointWidthStateRef.current !== undefined) {
         handleBreakpointBarSelect(undefined);
@@ -19006,10 +19030,13 @@ function DesignEditor() {
     onRequestTweaks: handleRequestTweaks,
     onStyleChange: handleStyleChange,
     onStylesChange: handleStylesChange,
-    motionKeyframeState,
-    onToggleMotionKeyframe: canEditDesign
-      ? handleToggleMotionKeyframe
+    motionKeyframeState: SHOW_DESIGN_SECONDARY_LEFT_PANELS
+      ? motionKeyframeState
       : undefined,
+    onToggleMotionKeyframe:
+      SHOW_DESIGN_SECONDARY_LEFT_PANELS && canEditDesign
+        ? handleToggleMotionKeyframe
+        : undefined,
     breakpointContext,
     onExport: handleInspectorExport,
     onRenderExportPreview: handleRenderExportPreview,
@@ -19082,15 +19109,23 @@ function DesignEditor() {
                   : undefined
               }
               motionOpen={motionDockOpen}
-              motionDisabled={!activeFile}
+              motionDisabled={!activeFile || initialGenerationChromeLimited}
               projectMenu={hostEmbeddedEditor ? null : projectMenu}
               onMotionToggle={() => setMotionDockOpenAnimated(!motionDockOpen)}
-              onPanelChange={setActiveLeftPanel}
+              onPanelChange={(panel) => {
+                if (panel === null && initialGenerationChromeLimited) return;
+                setActiveLeftPanel(panel);
+              }}
             />
             <div
               ref={leftSidebarContentRef}
-              className="flex min-h-0 max-w-[calc(100dvw-57px)] shrink-0 flex-col border-r border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)] transition-[width] duration-150 ease-out md:max-w-none"
-              style={{ width: leftContentWidth }}
+              aria-hidden={activeLeftPanel === null}
+              className={cn(
+                "flex min-h-0 max-w-[calc(100dvw-57px)] shrink-0 flex-col overflow-hidden border-r border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)] transition-[width] duration-150 ease-out md:max-w-none",
+                activeLeftPanel === null &&
+                  "pointer-events-none invisible border-r-0",
+              )}
+              style={{ width: activeLeftPanel ? leftContentWidth : 0 }}
             >
               <div
                 className={cn(
@@ -19324,13 +19359,15 @@ function DesignEditor() {
                 </>
               ) : null}
             </div>
-            <div
-              role="separator"
-              aria-orientation="vertical"
-              aria-label={t("layersPanel.title")}
-              className="absolute right-[-2px] top-0 z-[80] h-full w-1 cursor-col-resize bg-transparent transition-colors hover:bg-[var(--design-editor-selection-color)]"
-              onPointerDown={(event) => startSidebarResize("left", event)}
-            />
+            {activeLeftPanel ? (
+              <div
+                role="separator"
+                aria-orientation="vertical"
+                aria-label={t("layersPanel.title")}
+                className="absolute right-[-2px] top-0 z-[80] h-full w-1 cursor-col-resize bg-transparent transition-colors hover:bg-[var(--design-editor-selection-color)]"
+                onPointerDown={(event) => startSidebarResize("left", event)}
+              />
+            ) : null}
           </div>
         ) : null}
 
@@ -19349,6 +19386,7 @@ function DesignEditor() {
               pinMode={pinMode}
               drawMode={drawMode}
               activeTool={activeTool}
+              shapeTool={shapeTool}
               isOverview={viewMode === "overview"}
               hasActiveFile={Boolean(activeFile)}
               onMove={handleMoveTool}
@@ -19458,9 +19496,8 @@ function DesignEditor() {
                 (selectedScreenIds.length > 0 && files.length > 1)),
             )}
             canReorder={canEditDesign && Boolean(selectedElement)}
-            // L12: rename is only offered for a single selectable layer
-            // target (matching Cmd+R's routing) — the design-title rename
-            // flow lives elsewhere (the title control), not this menu.
+            // Rename is only offered for a single selectable layer target;
+            // design-title rename lives in the title control, not this menu.
             canRename={
               canEditDesign && Boolean(getSingleSelectedRenamableLayerId())
             }
@@ -19813,6 +19850,7 @@ function DesignEditor() {
                         cameraCommand={cameraCommand}
                         activeId={activeFileId}
                         selectedScreenIds={overviewSelectedScreenIds}
+                        selectedElementScreenId={selectedElementScreenId}
                         hiddenScreenIds={hiddenLayerIds}
                         lockedScreenIds={lockedLayerIds}
                         fullViewScreenIds={fullViewScreenIds}
@@ -20467,7 +20505,11 @@ function DesignEditor() {
           closing. Canvas remains visible above.
           Preview-only scrubbing fires a motion-preview postMessage to the
           canvas iframe; track/duration edits autosave through apply-motion-edit. */}
-      {!hostOwnsChrome && activeFile && motionDockMounted ? (
+      {!hostOwnsChrome &&
+      SHOW_DESIGN_SECONDARY_LEFT_PANELS &&
+      !initialGenerationChromeLimited &&
+      activeFile &&
+      motionDockMounted ? (
         <MotionDock
           tracks={motionTracks}
           durationMs={motionDurationMs}

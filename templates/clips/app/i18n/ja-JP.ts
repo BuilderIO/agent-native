@@ -361,6 +361,7 @@ const messages = {
   },
   meetingDetail: {
     untitledMeeting: "無題の会議",
+    recordedBy: "{{name}} が記録",
     unassigned: "未割り当て",
     them: "彼ら",
     me: "自分",
@@ -368,6 +369,10 @@ const messages = {
     meetingRemoved: "会議が削除されました",
     couldNotRemoveMeeting: "会議を削除できませんでした",
     couldNotLoadMeeting: "この会議を読み込めませんでした。",
+    retry: "再試行",
+    meetingNotFound: "会議が見つかりません",
+    meetingUnavailable: "この会議は利用できません。",
+    noAccess: "この会議にアクセスできない可能性があります。",
     transcriptCopied: "トランスクリプトをコピーしました",
     couldNotCopyTranscript: "トランスクリプトをコピーできませんでした",
     allMeetings: "すべての会議",

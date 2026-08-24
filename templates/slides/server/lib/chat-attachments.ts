@@ -47,7 +47,10 @@ export async function prepareSlidesChatAttachments(args: {
     path: string;
     url?: string;
     type: string;
-    size: number;
+    // Unset (not 0) for an attachment we never downloaded — an already-hosted
+    // URL-only attachment has no known byte size, and "0" would misreport it
+    // as an empty file instead of an unmeasured one.
+    size?: number;
   }> = [];
   const failed: Array<{ name: string; reason: string }> = [];
   const nextAttachments = [...args.attachments];
@@ -55,10 +58,33 @@ export async function prepareSlidesChatAttachments(args: {
   for (let index = 0; index < args.attachments.length; index++) {
     const attachment = args.attachments[index];
     if (!attachment) continue;
+    const ext = path.extname(attachment.name).toLowerCase();
+
+    // An attachment can arrive already durably hosted — a plain `url` with no
+    // inline `data` (e.g. `referenceImagePaths`/image content parts wrap an
+    // uploaded file as `{ type: "image", url }`, per
+    // packages/core/src/client/agent-chat-adapter.ts). There are no bytes to
+    // save, but the file IS attached; skipping it here because only `data`
+    // was ever recognized as "attached" is what silently drops it and leaves
+    // the agent with no signal it exists.
+    if (
+      typeof attachment.data !== "string" &&
+      typeof attachment.url === "string"
+    ) {
+      if (isSlidesReferenceFileExtension(ext)) {
+        uploaded.push({
+          originalName: attachment.name,
+          path: attachment.url,
+          url: attachment.url,
+          type: attachment.contentType || "application/octet-stream",
+        });
+      }
+      continue;
+    }
+
     const dataUrl = attachmentDataUrl(attachment);
     if (!dataUrl) continue;
 
-    const ext = path.extname(attachment.name).toLowerCase();
     if (!isSlidesReferenceFileExtension(ext)) continue;
 
     const decoded = decodeDataUrl(dataUrl);
@@ -93,7 +119,7 @@ export async function prepareSlidesChatAttachments(args: {
   const fileList = uploaded
     .map(
       (file) =>
-        `- ${file.originalName} (${file.type}, ${(file.size / 1024).toFixed(1)}KB) at path: ${file.path}${file.url ? `; embeddable URL: ${file.url}` : ""}`,
+        `- ${file.originalName} (${file.type}${typeof file.size === "number" ? `, ${(file.size / 1024).toFixed(1)}KB` : ""}) at path: ${file.path}${file.url ? `; embeddable URL: ${file.url}` : ""}`,
     )
     .join("\n");
   const failureList = failed

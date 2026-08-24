@@ -21,6 +21,7 @@ import { defineConfig, devices } from "@playwright/test";
  */
 
 const isCi = Boolean(process.env.CI);
+const isAuthedCiRun = isCi && process.env.BETA_E2E_AUTHED === "1";
 
 /**
  * Names this invocation's report directory.
@@ -61,7 +62,9 @@ export default defineConfig({
   // more Chromium instances than that thrash. And the fleet sits behind one
   // CDN that throttles a bursty datacenter caller, which shows up as stalled
   // navigations rather than refusals. Fewer workers is faster here.
-  workers: isCi ? 3 : 4,
+  // Authenticated journeys also share production-backed databases with the
+  // beta fleet, so keep that lane serial while the public lanes stay bounded.
+  workers: isCi ? (isAuthedCiRun ? 1 : 3) : 4,
   timeout: 240_000,
   expect: { timeout: 30_000 },
   // Per-lane report paths. The workflow invokes this config once per lane, and

@@ -23,7 +23,10 @@ export function meta() {
 
 export default function SettingsRoute() {
   const t = useT();
-  const agentSettingsTabs = useAgentSettingsTabs();
+  // /extensions redirects here and navigation.view supports "extensions"
+  // (see use-navigation-state.ts), so the settings tab must exist too —
+  // otherwise /settings/extensions silently falls back to General.
+  const agentSettingsTabs = useAgentSettingsTabs({ extensionTools: true });
   useSetPageTitle(t("settings.title"));
 
   const generalSearchEntries = useMemo<SettingsSearchEntry[]>(

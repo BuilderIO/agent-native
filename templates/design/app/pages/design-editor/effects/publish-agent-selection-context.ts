@@ -20,7 +20,7 @@ export interface PublishAgentSelectionContextArgs {
   activeCodeFile: CodeWorkbenchActiveFile | null;
   activeFile: DesignFile;
   activeInspectorTab: InspectorTab;
-  activeLeftPanel: DesignLeftPanel;
+  activeLeftPanel: DesignLeftPanel | null;
   activeTool: DesignTool;
   design: DesignData | null;
   designDataJson: Record<string, unknown>;

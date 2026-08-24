@@ -37,6 +37,8 @@ const messages: AgentChatTranslation = {
   "aboutAgentNative.copyDiagnostics": "Diagnosedaten kopieren",
   "aboutAgentNative.unknown": "Unbekannt",
   "common.agent": "Agent",
+  "agentPanel.mode": "Modus",
+  "agentPanel.uiMode": "Benutzeroberfläche",
   "common.cancel": "Abbrechen",
   "common.collapse": "Einklappen",
   "common.connect": "Verbinden",
@@ -470,7 +472,7 @@ const messages: AgentChatTranslation = {
   "errorMessages.invalidToolSchema":
     "Ein Tool-Schema war ungültig. Deshalb hat das Modell die Anfrage abgelehnt, bevor sie gestartet wurde. Das ungültige Tool kann übersprungen und die Anfrage erneut gesendet werden.",
   "errorMessages.noProviderConnected":
-    "Es ist kein LLM-Anbieter verbunden. Öffne für diese App „Agent verwalten“ → „LLM“ und verbinde anschließend Builder.io oder füge einen Anbieterschlüssel hinzu.",
+    "Es ist kein LLM-Anbieter verbunden. Öffne Einstellungen > Agent > KI-Anbieter und verbinde anschließend Builder.io (kostenloser Tarif verfügbar) oder füge einen Anbieterschlüssel hinzu.",
   "errorMessages.openBuilderSpaceSettings":
     "Builder-Space-Einstellungen öffnen",
   "errorMessages.providerAuthentication":
@@ -582,6 +584,7 @@ const messages: AgentChatTranslation = {
     "Personen mit dem Link können dies weiterhin öffnen.",
   "share.loading": "Laden...",
   "share.loadMore": "Mehr laden",
+  "share.loadFailed": "Freigabeeinstellungen konnten nicht geladen werden.",
   "share.loadPeopleFailed": "Es konnten keine Personen geladen werden.",
   "share.noAccess": "Noch hat niemand Zugriff.",
   "share.noMatches": "Keine Übereinstimmungen.",

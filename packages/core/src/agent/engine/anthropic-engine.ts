@@ -25,10 +25,7 @@ import {
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "./credential-errors.js";
 import { describeErrorWithCauses } from "./error-detail.js";
-import {
-  createFirstEventAbortController,
-  FIRST_STREAM_EVENT_TIMEOUT_MS,
-} from "./first-event-timeout.js";
+import { createFirstEventAbortController } from "./first-event-timeout.js";
 import {
   clampThinkingBudgetTokens,
   resolveMaxOutputTokensForEngine,
@@ -314,12 +311,14 @@ class AnthropicEngine implements AgentEngine {
           : typeof err?.statusCode === "number"
             ? err.statusCode
             : undefined;
-      // A first-event abort surfaces from the SDK as a generic
-      // APIUserAbortError ("Request was aborted.") — replace it with a
-      // message that actually explains what happened.
+      // A deadline abort surfaces from the SDK as a generic APIUserAbortError
+      // ("Request was aborted.") — replace it with a message that actually
+      // explains what happened. Which deadline fired comes from the
+      // controller: a total-deadline abort is a socket that wedged MID-stream,
+      // not a connection that never spoke.
       const rawMessage: string = err?.message ?? String(err);
       const errorMessage = timedOut
-        ? `Model request produced no stream events within ${FIRST_STREAM_EVENT_TIMEOUT_MS / 1000}s; the connection appears wedged.`
+        ? `${firstEventAbort.timeoutMessage()}; the connection appears wedged.`
         : describeErrorWithCauses(err);
       // Anthropic SDK APIConnectionError defaults to "Connection error." with
       // no HTTP status. Tag it so in-run retries and run-level resume treat

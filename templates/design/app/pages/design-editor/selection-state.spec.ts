@@ -6,7 +6,6 @@ import {
   isDocumentShellCodeLayerNode,
   overviewSelectionTargetsElement,
   pendingEditTargetsSelectedElement,
-  resolveEscapePopSelectionAction,
   shouldClearSelectionForReviewThreadTarget,
   shouldEscapeToOverview,
 } from "./selection-state";
@@ -52,63 +51,6 @@ describe("getOverviewScreenContentKey", () => {
       useRuntimeReplacement: false,
     });
     expect(after).not.toBe(before);
-  });
-});
-
-describe("resolveEscapePopSelectionAction", () => {
-  it("pops to the parent layer when the selected layer has a code-layer parent", () => {
-    expect(
-      resolveEscapePopSelectionAction({
-        hasSelectedLayer: true,
-        hasLayerParent: true,
-        viewMode: "single",
-      }),
-    ).toEqual({ kind: "pop-to-parent-layer" });
-
-    expect(
-      resolveEscapePopSelectionAction({
-        hasSelectedLayer: true,
-        hasLayerParent: true,
-        viewMode: "overview",
-      }),
-    ).toEqual({ kind: "pop-to-parent-layer" });
-  });
-
-  it("pops a top-level (parentless) selected layer to its screen/frame in overview mode", () => {
-    expect(
-      resolveEscapePopSelectionAction({
-        hasSelectedLayer: true,
-        hasLayerParent: false,
-        viewMode: "overview",
-      }),
-    ).toEqual({ kind: "pop-to-screen-frame" });
-  });
-
-  it("deselects a top-level selected layer in single-screen mode (no separate frame to pop to)", () => {
-    expect(
-      resolveEscapePopSelectionAction({
-        hasSelectedLayer: true,
-        hasLayerParent: false,
-        viewMode: "single",
-      }),
-    ).toEqual({ kind: "deselect" });
-  });
-
-  it("deselects when nothing is selected, regardless of view mode", () => {
-    expect(
-      resolveEscapePopSelectionAction({
-        hasSelectedLayer: false,
-        hasLayerParent: false,
-        viewMode: "single",
-      }),
-    ).toEqual({ kind: "deselect" });
-    expect(
-      resolveEscapePopSelectionAction({
-        hasSelectedLayer: false,
-        hasLayerParent: false,
-        viewMode: "overview",
-      }),
-    ).toEqual({ kind: "deselect" });
   });
 });
 

@@ -84,6 +84,20 @@ describe("dev-lazy canonical loopback origin", () => {
     );
   });
 
+  it("does not redirect a cross-origin request", () => {
+    // A preflight cannot follow a redirect, so the desktop app's dev renderer
+    // would see "Preflight response is not successful. Status code: 307".
+    assert.equal(
+      canonicalLoopbackRedirect(
+        "localhost:8080",
+        "/clips/_agent-native/google/auth-url?desktop=1",
+        "http://127.0.0.1:8080",
+        "http://localhost:1420",
+      ),
+      undefined,
+    );
+  });
+
   it("does not redirect an already canonical request", () => {
     assert.equal(
       canonicalLoopbackRedirect(

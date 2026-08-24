@@ -165,7 +165,7 @@ const messages = {
       color: "顏色",
       align: "對齊",
       lineHeight: "行高",
-      tracking: "追蹤",
+      tracking: "字距",
       direction: "方向",
       justify: "證明合法",
       gap: "差距",

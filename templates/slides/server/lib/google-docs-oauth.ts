@@ -14,7 +14,8 @@ const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const USERINFO_URL = "https://www.googleapis.com/oauth2/v2/userinfo";
 
-export const GOOGLE_DOCS_PROVIDER = "google-docs";
+export const GOOGLE_DOCS_PROVIDER = "google";
+const LEGACY_GOOGLE_DOCS_PROVIDER = "google-docs";
 export const GOOGLE_DRIVE_READONLY_SCOPE =
   "https://www.googleapis.com/auth/drive.readonly";
 export const GOOGLE_DOCS_SCOPES = [
@@ -33,6 +34,18 @@ export function hasGoogleDriveExportScope(scope?: string): boolean {
     grantedScopes.has("https://www.googleapis.com/auth/drive") ||
     grantedScopes.has(GOOGLE_DRIVE_READONLY_SCOPE)
   );
+}
+
+function hasGoogleDriveAccessScope(scope?: string): boolean {
+  if (!scope?.trim()) return true;
+  const grantedScopes = new Set(
+    (scope ?? "").split(/\s+/).filter((value) => value.length > 0),
+  );
+  return [
+    "https://www.googleapis.com/auth/drive",
+    "https://www.googleapis.com/auth/drive.file",
+    GOOGLE_DRIVE_READONLY_SCOPE,
+  ].some((requiredScope) => grantedScopes.has(requiredScope));
 }
 
 interface GoogleDocsTokens {
@@ -130,6 +143,7 @@ export async function getGoogleDocsAuthUrl(
 }
 
 async function refreshGoogleDocsToken(
+  provider: string,
   accountId: string,
   owner: string,
   tokens: GoogleDocsTokens,
@@ -143,7 +157,7 @@ async function refreshGoogleDocsToken(
   }
 
   if (!tokens.refresh_token) {
-    await deleteOAuthTokens(GOOGLE_DOCS_PROVIDER, accountId);
+    await deleteOAuthTokens(provider, accountId, owner);
     throw new Error("Google Docs connection expired. Please reconnect.");
   }
 
@@ -190,7 +204,7 @@ async function refreshGoogleDocsToken(
 
   if (!data?.access_token) {
     if (isPermanentGoogleRefreshError(data?.error)) {
-      await deleteOAuthTokens(GOOGLE_DOCS_PROVIDER, accountId);
+      await deleteOAuthTokens(provider, accountId, owner);
     }
     throw new Error(
       data?.error_description ||
@@ -208,7 +222,7 @@ async function refreshGoogleDocsToken(
     scope: data.scope ?? tokens.scope,
   };
   await saveOAuthTokens(
-    GOOGLE_DOCS_PROVIDER,
+    provider,
     accountId,
     updated as unknown as Record<string, unknown>,
     owner,
@@ -286,23 +300,26 @@ export async function listGoogleDocsAccounts(owner: string): Promise<
   Array<{
     email: string;
     scope?: string;
+    shared?: boolean;
   }>
 > {
-  const accounts = await listOAuthAccountsByOwner(GOOGLE_DOCS_PROVIDER, owner);
-  return accounts.map((account) => ({
-    email: account.accountId,
-    scope:
-      typeof account.tokens.scope === "string"
-        ? account.tokens.scope
-        : undefined,
-  }));
+  const accounts = await listGoogleProviderAccounts(owner);
+  return accounts
+    .map((account) => ({
+      email: account.accountId,
+      scope:
+        typeof account.tokens.scope === "string"
+          ? account.tokens.scope
+          : undefined,
+    }))
+    .filter((account) => hasGoogleDriveAccessScope(account.scope));
 }
 
 export async function disconnectGoogleDocs(owner: string): Promise<void> {
-  const accounts = await listOAuthAccountsByOwner(GOOGLE_DOCS_PROVIDER, owner);
+  const accounts = await listGoogleProviderAccounts(owner);
   await Promise.all(
     accounts.map((account) =>
-      deleteOAuthTokens(GOOGLE_DOCS_PROVIDER, account.accountId),
+      deleteOAuthTokens(account.provider, account.accountId, owner),
     ),
   );
 }
@@ -311,17 +328,50 @@ export async function getGoogleDocsAccessToken(owner: string): Promise<{
   accessToken: string;
   accountEmail: string;
 } | null> {
-  const accounts = await listOAuthAccountsByOwner(GOOGLE_DOCS_PROVIDER, owner);
+  const accounts = await listGoogleProviderAccounts(owner);
   if (accounts.length === 0) return null;
 
   const account = accounts[0];
-  const stored = await getOAuthTokens(GOOGLE_DOCS_PROVIDER, account.accountId);
+  const stored = await getOAuthTokens(
+    account.provider,
+    account.accountId,
+    owner,
+  );
   if (!stored) return null;
 
   const accessToken = await refreshGoogleDocsToken(
+    account.provider,
     account.accountId,
     owner,
     stored as unknown as GoogleDocsTokens,
   );
   return { accessToken, accountEmail: account.accountId };
+}
+
+async function listGoogleProviderAccounts(owner: string): Promise<
+  Array<{
+    provider: string;
+    accountId: string;
+    tokens: Record<string, unknown>;
+  }>
+> {
+  const accounts = await Promise.all(
+    [GOOGLE_DOCS_PROVIDER, LEGACY_GOOGLE_DOCS_PROVIDER].map(async (provider) =>
+      (await listOAuthAccountsByOwner(provider, owner)).map((account) => ({
+        provider,
+        accountId: account.accountId,
+        tokens: account.tokens,
+      })),
+    ),
+  );
+  const seen = new Set<string>();
+  return accounts.flat().filter((account) => {
+    if (!hasGoogleDriveAccessScope(String(account.tokens.scope ?? ""))) {
+      return false;
+    }
+    const key = account.accountId.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }

@@ -153,6 +153,8 @@ describe("resourceEffectiveContext", () => {
         updated_at INTEGER NOT NULL
       );
     `);
+    const skillContent =
+      "---\nname: analytics-review\ndescription: Review analytics work\n---\n\n# Analytics Review \u{1F4CA}";
     sqlite
       .prepare("DELETE FROM workspace_resource_grants WHERE id = ?")
       .run("grant_skill_analytics");
@@ -175,7 +177,7 @@ describe("resourceEffectiveContext", () => {
         "Analytics Review",
         "Review analytics work",
         skillPath,
-        "---\nname: analytics-review\ndescription: Review analytics work\n---\n\n# Analytics Review",
+        skillContent,
         "selected",
         "owner@example.test",
         1,
@@ -213,6 +215,7 @@ describe("resourceEffectiveContext", () => {
       owner: WORKSPACE_OWNER,
       path: skillPath,
       mimeType: "text/markdown",
+      size: Buffer.byteLength(skillContent, "utf8"),
     });
 
     await expect(

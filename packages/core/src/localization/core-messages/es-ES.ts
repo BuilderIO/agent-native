@@ -36,6 +36,8 @@ const messages: AgentChatTranslation = {
   "aboutAgentNative.copyDiagnostics": "Copiar diagnóstico",
   "aboutAgentNative.unknown": "Desconocida",
   "common.agent": "Agente",
+  "agentPanel.mode": "Modo",
+  "agentPanel.uiMode": "Interfaz de usuario",
   "common.cancel": "Cancelar",
   "common.collapse": "Contraer",
   "common.connect": "Conectar",
@@ -478,7 +480,7 @@ const messages: AgentChatTranslation = {
   "errorMessages.invalidToolSchema":
     "El esquema de una herramienta no era válido, así que el modelo rechazó la solicitud antes de iniciarla. Puedes omitir la herramienta no válida y volver a intentarlo.",
   "errorMessages.noProviderConnected":
-    "No hay ningún proveedor de LLM conectado. Abre «Administrar agente» → «LLM» para esta aplicación y, a continuación, conecta Builder.io o añade una clave de proveedor.",
+    "No hay ningún proveedor de LLM conectado. Abre Configuración > Agente > Proveedores de IA y, a continuación, conecta Builder.io (nivel gratuito disponible) o añade una clave de proveedor.",
   "errorMessages.openBuilderSpaceSettings":
     "Abrir los ajustes del espacio de Builder",
   "errorMessages.providerAuthentication":
@@ -589,6 +591,7 @@ const messages: AgentChatTranslation = {
   "share.linkCanStillOpen": "Las personas con el enlace aún pueden abrirlo.",
   "share.loading": "Cargando...",
   "share.loadMore": "Cargar más",
+  "share.loadFailed": "No se pudo cargar la configuración de uso compartido.",
   "share.loadPeopleFailed": "No se pudieron cargar las personas.",
   "share.noAccess": "Nadie tiene acceso todavía.",
   "share.noMatches": "Sin coincidencias.",

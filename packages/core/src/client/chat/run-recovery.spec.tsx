@@ -263,7 +263,7 @@ describe("run recovery surfaces", () => {
         >
           <RunErrorRecoveryCard
             info={{
-              message: "Desktop app chat relay failed",
+              message: "The agent connection was interrupted.",
               errorCode: "connection_error",
               runId: "run-123",
               recoverable: true,
@@ -294,6 +294,42 @@ describe("run recovery surfaces", () => {
     expect(copyButton?.title).toBe("Copy debug info");
     expect(retryButton?.textContent).toBe("");
     expect(newChatButton?.textContent).toBe("");
+  });
+
+  it("shows Connect AI instead of recovery warnings for desktop relay failures", async () => {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <RunErrorRecoveryCard
+            info={{
+              message: "Desktop app chat relay failed",
+              errorCode: "connection_error",
+              runId: "run-123",
+              recoverable: true,
+            }}
+            onContinue={vi.fn()}
+            onRetry={vi.fn()}
+            onDismiss={vi.fn()}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    expect(container.textContent).toContain("Connect AI");
+    expect(container.textContent).toContain("Connect Builder.io");
+    expect(container.textContent).toContain("Custom keys");
+    expect(container.textContent).not.toContain(
+      "The agent stopped before finishing",
+    );
+    expect(container.querySelector('button[aria-label="Retry"]')).toBeNull();
+    expect(container.querySelector('button[aria-label="New chat"]')).toBeNull();
+    expect(
+      container.querySelector('button[aria-label="Copy debug info"]'),
+    ).toBeNull();
   });
 
   it("shows the searchable provider setup while disclosing API keys", async () => {

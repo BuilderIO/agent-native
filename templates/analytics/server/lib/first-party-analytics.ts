@@ -1,4 +1,4 @@
-import { getDbExec } from "@agent-native/core/db";
+import { getDbExec, isPostgres } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq, isNull, lt, or } from "drizzle-orm";
 
@@ -1072,6 +1072,130 @@ export function scopedAnalyticsSql(
   return { sql: rewritten, args };
 }
 
+/**
+ * Dashboard panel SQL (seeded and agent/user-authored) is written against
+ * PostgreSQL date/JSON syntax — `to_char`/`INTERVAL`/`::date`/`::jsonb ->>` —
+ * because that's the dialect this app runs against in production. A local
+ * SQLite dev database doesn't understand any of that and throws a syntax
+ * error before a row is ever read. Rather than hand-rewrite every seeded
+ * panel's SQL (this app also lets the agent/UI author new first-party SQL
+ * panels through this exact same execution path), translate the handful of
+ * Postgres-only shapes this query surface actually produces into SQLite
+ * equivalents right here at the execution boundary. PostgreSQL SQL is never
+ * touched: this only runs when the active database is not Postgres.
+ */
+export function toSqliteCompatibleFirstPartySql(sql: string): string {
+  let out = sql;
+
+  // properties::jsonb ->> 'key'  ->  json_extract(properties, '$."key"')
+  // (a quoted JSON path member tolerates keys like "$ai_model" that start
+  // with a character SQLite's unquoted path syntax can't lead with).
+  out = out.replace(
+    /([A-Za-z_][A-Za-z0-9_.]*)::jsonb\s*->>\s*'([^']*)'/g,
+    (_match, column: string, key: string) =>
+      `json_extract(${column}, '$."${key}"')`,
+  );
+
+  // Postgres chr(N) -> SQLite char(N).
+  out = out.replace(/\bchr\(/g, "char(");
+
+  // Any other Postgres type cast (::date, ::float, ::timestamptz, ...) is a
+  // no-op on SQLite's dynamically-typed columns.
+  out = out.replace(/::[A-Za-z_][A-Za-z0-9_]*/g, "");
+
+  // to_char(date_trunc('week', X), 'YYYY-MM-DD') -> Monday of X's week.
+  // ('weekday 0' finds the next Sunday, '-6 days' steps back to that week's
+  // Monday, matching Postgres's ISO week truncation.)
+  out = out.replace(
+    /to_char\(\s*date_trunc\(\s*'week'\s*,\s*([^()]+?)\s*\)\s*,\s*'YYYY-MM-DD'\s*\)/g,
+    (_match, expr: string) => `date(${expr}, 'weekday 0', '-6 days')`,
+  );
+
+  // <dateish-expr> (+|-) INTERVAL 'N days'  ->  the same day count applied
+  // through SQLite's julian-day arithmetic, immediately reformatted back to
+  // 'YYYY-MM-DD' text. Re-wrapping right away (instead of leaving a bare
+  // julian-day number) matters: this expression sometimes appears outside
+  // any to_char() call, compared directly against a text date column, and
+  // SQLite treats any numeric value as less than any text value — a bare
+  // number here would make that comparison silently always-true.
+  out = out.replace(
+    /([A-Za-z_][A-Za-z0-9_.]*|CURRENT_DATE)\s*(\+|-)\s*INTERVAL\s*'(\d+)\s*days?'/g,
+    (_match, base: string, op: string, days: string) => {
+      const juliandayBase = base === "CURRENT_DATE" ? "'now'" : base;
+      return `date(julianday(${juliandayBase}) ${op} ${days})`;
+    },
+  );
+
+  // <dateish-expr ending in "date"> (+|-) <identifier>  (no INTERVAL
+  // keyword) — e.g. `bounds.start_date + offsets.n` in a generated date
+  // series. Scoped to identifiers ending in "date" so unrelated integer
+  // arithmetic (e.g. building the offsets themselves) is left alone.
+  out = out.replace(
+    /([A-Za-z_][A-Za-z0-9_.]*date)\s*(\+|-)\s*([A-Za-z_][A-Za-z0-9_.]*)/g,
+    (_match, base: string, op: string, rhs: string) =>
+      `date(julianday(${base}) ${op} ${rhs})`,
+  );
+
+  // Every surviving to_char(expr, 'YYYY-MM-DD') now wraps an expr that
+  // already evaluates to 'YYYY-MM-DD' text (a bare CURRENT_DATE, or one of
+  // the date(...) forms produced above) — unwrap the call instead of
+  // re-wrapping it. A regex can't balance the arbitrarily nested parens
+  // `date(julianday(...) ...)` can produce, so walk the string instead.
+  out = unwrapPostgresToChar(out);
+
+  return out;
+}
+
+/**
+ * Finds each top-level `to_char(expr, 'YYYY-MM-DD')` call and replaces it
+ * with `expr` alone. Balances parens by hand rather than by regex so nested
+ * calls (`date(julianday(...) - 7)`) unwrap correctly regardless of depth.
+ */
+function unwrapPostgresToChar(sql: string): string {
+  const marker = "to_char(";
+  let out = "";
+  let i = 0;
+  while (i < sql.length) {
+    const idx = sql.indexOf(marker, i);
+    if (idx === -1) {
+      out += sql.slice(i);
+      break;
+    }
+    out += sql.slice(i, idx);
+    const openParen = idx + marker.length - 1;
+    let depth = 0;
+    let closeParen = openParen;
+    for (; closeParen < sql.length; closeParen++) {
+      if (sql[closeParen] === "(") depth++;
+      else if (sql[closeParen] === ")") {
+        depth--;
+        if (depth === 0) break;
+      }
+    }
+    const inner = sql.slice(openParen + 1, closeParen);
+    let innerDepth = 0;
+    let topLevelCommaIdx = -1;
+    for (let k = 0; k < inner.length; k++) {
+      if (inner[k] === "(") innerDepth++;
+      else if (inner[k] === ")") innerDepth--;
+      else if (inner[k] === "," && innerDepth === 0) topLevelCommaIdx = k;
+    }
+    const expr =
+      topLevelCommaIdx === -1 ? inner : inner.slice(0, topLevelCommaIdx);
+    const format =
+      topLevelCommaIdx === -1 ? "" : inner.slice(topLevelCommaIdx + 1).trim();
+    if (format === "'YYYY-MM-DD'") {
+      out += expr.trim();
+    } else {
+      // Not the to_char(expr, 'YYYY-MM-DD') shape this app's SQL uses;
+      // leave it untouched rather than guess at unfamiliar formats.
+      out += sql.slice(idx, closeParen + 1);
+    }
+    i = closeParen + 1;
+  }
+  return out;
+}
+
 function valueType(value: unknown): string {
   if (typeof value === "number") return "number";
   if (typeof value === "boolean") return "boolean";
@@ -1141,7 +1265,13 @@ export async function queryFirstPartyAnalytics(
     return queryFirstPartyAnalyticsInBigQuery(scoped.sql, scoped.args, table);
   }
   const scoped = scopedAnalyticsSql(sql, scope);
-  const wrappedSql = `SELECT * FROM (${scoped.sql}) AS first_party_analytics_query LIMIT ${MAX_QUERY_ROWS}`;
+  // Dashboard SQL is authored against Postgres date/JSON syntax; translate
+  // it for a non-Postgres sql-store (local SQLite dev) at the last possible
+  // moment so Postgres itself never sees a rewritten query.
+  const dialectSql = isPostgres()
+    ? scoped.sql
+    : toSqliteCompatibleFirstPartySql(scoped.sql);
+  const wrappedSql = `SELECT * FROM (${dialectSql}) AS first_party_analytics_query LIMIT ${MAX_QUERY_ROWS}`;
   const timeoutMs = Math.max(
     1,
     options.timeoutMs ?? FIRST_PARTY_ANALYTICS_QUERY_TIMEOUT_MS,

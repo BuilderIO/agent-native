@@ -17,6 +17,7 @@ import {
   navigateWithAgentChatViewTransition,
   type AgentChatViewTransitionOptions,
 } from "./chat-view-transition.js";
+import { postAgentNativeWorkspaceAppRoute } from "./workspace-app-navigation.js";
 
 const SAFE_BROWSER_TAB_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;
 
@@ -434,6 +435,14 @@ export function useAgentRouteState<
     () => normalizeBrowserTabId(options.browserTabId),
     [options.browserTabId],
   );
+
+  useEffect(() => {
+    if (options.enabled === false) return;
+    postAgentNativeWorkspaceAppRoute(
+      `${location.pathname}${location.search}${location.hash}`,
+    );
+  }, [location.hash, location.pathname, location.search, options.enabled]);
+
   const navigationKeys = useMemo(() => {
     const scopedKey = appStateKeyForBrowserTab(navigationKey, browserTabId);
     const keys = [scopedKey];

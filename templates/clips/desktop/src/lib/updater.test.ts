@@ -70,6 +70,28 @@ beforeEach(() => {
   });
 });
 
+describe("runCheck", () => {
+  it("keeps a downloaded update staged when a later check fails", async () => {
+    mocks.check.mockResolvedValueOnce(makeUpdate());
+    const { retryUpdateCheck, isUpdatePendingRestart } = await loadUpdater();
+
+    await retryUpdateCheck();
+    expect(isUpdatePendingRestart()).toBe(true);
+
+    mocks.check.mockRejectedValue(new Error("network down"));
+    vi.useFakeTimers();
+    try {
+      const pending = retryUpdateCheck();
+      await vi.advanceTimersByTimeAsync(10_000);
+      await pending;
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(isUpdatePendingRestart()).toBe(true);
+  });
+});
+
 describe("installAndRestart", () => {
   it("captures the stable bundle path before install and hands off on macOS", async () => {
     const update = makeUpdate();

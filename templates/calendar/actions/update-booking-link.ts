@@ -57,7 +57,7 @@ export default defineAction({
     isActive: z.boolean().optional().describe("Whether the link is active"),
   }),
   run: async (args) => {
-    await assertAccess("booking-link", args.id, "editor");
+    const access = await assertAccess("booking-link", args.id, "editor");
 
     const durationInput = normalizeBookingDurationInput({
       duration: args.duration,
@@ -90,6 +90,7 @@ export default defineAction({
       .select({
         slug: schema.bookingLinks.slug,
         ownerEmail: schema.bookingLinks.ownerEmail,
+        isActive: schema.bookingLinks.isActive,
       })
       .from(schema.bookingLinks)
       .where(eq(schema.bookingLinks.id, args.id));
@@ -116,7 +117,7 @@ export default defineAction({
           ? JSON.stringify(args.conferencing)
           : null,
         color: args.color ? args.color.trim() : null,
-        isActive: args.isActive ?? true,
+        isActive: args.isActive ?? current.isActive,
         updatedAt: new Date().toISOString(),
       })
       .where(eq(schema.bookingLinks.id, args.id));
@@ -140,6 +141,6 @@ export default defineAction({
       .where(eq(schema.bookingLinks.id, args.id));
 
     if (!updated) throw new Error("Booking link not found");
-    return rowToBookingLink(updated);
+    return { ...rowToBookingLink(updated), accessRole: access.role };
   },
 });
