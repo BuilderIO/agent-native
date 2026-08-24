@@ -788,6 +788,13 @@ export async function instrumentAgentLoop(opts: {
               // results to the same array as the run continues, so a reference
               // held here would report the whole transcript as this call's
               // prompt.
+              //
+              // This is the loop's message list, which is not byte-for-byte
+              // what the engine received: Context X-Ray, observational memory
+              // and overflow trimming build a separate `contextMessages` for
+              // the provider. Reporting a prompt the model never saw is a
+              // known gap, and closing it needs the loop to hand its
+              // per-call request to instrumentation.
               ...(config.capturePrompts
                 ? { input: [...loopOpts.messages] }
                 : {}),
@@ -809,6 +816,15 @@ export async function instrumentAgentLoop(opts: {
       if (event.type === "tool_start") {
         const counter = toolInvocationCounter++;
         const sid = spanId();
+        // Recorded here, not at `tool_done`: a tool the run's death interrupts
+        // never reaches that path, and would then hang under the trace root
+        // instead of the call that asked for it. The model_stream bracket
+        // closes before the turn's tools start, so the last round-trip is the
+        // requesting call.
+        if (modelRoundTrips.length > 0) {
+          toolSpanRoundTrip.set(sid, modelRoundTrips.length - 1);
+          toolCounterRoundTrip.set(counter, modelRoundTrips.length - 1);
+        }
         // Start the OTel tool span synchronously-ish: kick off the async
         // resolution and stash the span once it lands. Tool spans are short
         // and the api tracer is synchronous in practice, but we tolerate the
@@ -967,12 +983,6 @@ export async function instrumentAgentLoop(opts: {
         const toolSpanId = pending?.spanId ?? spanId();
         // The model_stream bracket closes before the turn's tools start, so the
         // last recorded round-trip is the call that requested this one.
-        if (modelRoundTrips.length > 0) {
-          toolSpanRoundTrip.set(toolSpanId, modelRoundTrips.length - 1);
-          if (counter !== undefined) {
-            toolCounterRoundTrip.set(counter, modelRoundTrips.length - 1);
-          }
-        }
         if (isError) {
           toolSpanErrorClass.set(
             toolSpanId,
@@ -1258,9 +1268,11 @@ export async function instrumentAgentLoop(opts: {
                 latencyMs: Math.max(0, trip.end - trip.start),
                 callUsage: trip.usage,
                 stopReason: trip.stopReason,
-                // A run's usage is reported per call, so a round-trip without
-                // one is a call whose tokens are unknown — not a free call.
-                tokensKnown: trip.usage !== undefined && usageReported,
+                // The engine reported this call's usage as the call happened,
+                // so its presence IS the report — the loop's aggregate return
+                // value never arrives when a later call throws, and gating on
+                // it dropped the tokens of every call that had succeeded.
+                tokensKnown: trip.usage !== undefined,
                 input: trip.input,
                 assistantText: trip.assistantText.join(""),
                 toolSpans: collectedToolSpans.filter(
@@ -1324,7 +1336,12 @@ export async function instrumentAgentLoop(opts: {
           // and nothing else can account for the failure — no run boundary, no
           // failed tool.
           const generationStatus =
-            generation.isLast && runStatus === "error" && modelCallFailed
+            // The engine reported this call itself as failed. Its bracket
+            // closes on the way out, so waiting for an open stream at
+            // finalization would report a provider error as a healthy call —
+            // and a later retry would leave the failed attempt green.
+            generation.stopReason === "error" ||
+            (generation.isLast && runStatus === "error" && modelCallFailed)
               ? "error"
               : "success";
           const generationError =

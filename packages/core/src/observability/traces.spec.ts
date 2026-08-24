@@ -2420,6 +2420,119 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     }
   });
 
+  it("keeps a failed call red and a finished call's tokens after a later throw", async () => {
+    const byName = new Map<string, TrackingEvent[]>();
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        if (!event.name.startsWith("$ai_")) return;
+        const list = byName.get(event.name) ?? [];
+        list.push(event);
+        byName.set(event.name, list);
+      },
+    });
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ send, onUsage }) => {
+        // A call that finished and reported its tokens.
+        send({ type: "model_stream", status: "start" });
+        onUsage?.({
+          inputTokens: 100,
+          outputTokens: 10,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "claude-test",
+        } as any);
+        send({ type: "model_stream", status: "end", reason: "tool_use" });
+        send({ type: "tool_start", id: "a", tool: "read", input: {} });
+        send({ type: "tool_done", id: "a", tool: "read", result: "ok" });
+        // A call the provider failed. The loop closes the bracket on its way
+        // out and never returns its aggregate usage.
+        send({ type: "model_stream", status: "start" });
+        send({ type: "model_stream", status: "end", reason: "error" });
+        throw new Error("provider stream error");
+      },
+      loopOpts: {
+        engine: { name: "anthropic" },
+        model: "claude-test",
+        systemPrompt: "",
+        tools: [],
+        messages: [],
+        actions: {},
+        send: () => {},
+        signal: new AbortController().signal,
+      } as any,
+      runId: "run-late-throw",
+      threadId: null,
+      userId: null,
+      config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+    }).catch(() => {});
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const generations = byName.get("$ai_generation") ?? [];
+    expect(generations).toHaveLength(2);
+    // The engine reported this call's usage as it happened; the loop's
+    // aggregate never arrived, and that must not erase it.
+    expect(generations[0]?.properties?.["$ai_input_tokens"]).toBe(100);
+    expect(generations[0]?.properties?.["$ai_is_error"]).toBe(false);
+    // The failed call closed its bracket before finalization, and is still red.
+    expect(generations[1]?.properties?.["$ai_is_error"]).toBe(true);
+    expect(generations[1]?.properties?.["$ai_stop_reason"]).toBe("error");
+    // The tool ran under the call that requested it, not the trace root.
+    expect(byName.get("$ai_span")?.[0]?.properties?.["$ai_parent_id"]).toBe(
+      generations[0]?.properties?.["$ai_span_id"],
+    );
+  });
+
+  it("keeps an interrupted tool under the call that requested it", async () => {
+    const byName = new Map<string, TrackingEvent[]>();
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        if (!event.name.startsWith("$ai_")) return;
+        const list = byName.get(event.name) ?? [];
+        list.push(event);
+        byName.set(event.name, list);
+      },
+    });
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ send }) => {
+        send({ type: "model_stream", status: "start" });
+        send({ type: "model_stream", status: "end", reason: "tool_use" });
+        send({ type: "tool_start", id: "hung", tool: "slow-read", input: {} });
+        // Killed with the tool still in flight: it never reaches `tool_done`.
+        throw new Error("run timed out");
+      },
+      loopOpts: {
+        engine: { name: "anthropic" },
+        model: "claude-test",
+        systemPrompt: "",
+        tools: [],
+        messages: [],
+        actions: {},
+        send: () => {},
+        signal: new AbortController().signal,
+      } as any,
+      runId: "run-interrupted-parent",
+      threadId: null,
+      userId: null,
+      config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+    }).catch(() => {});
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const generation = byName.get("$ai_generation")?.[0];
+    const span = byName.get("$ai_span")?.[0];
+    expect(span?.properties?.["$ai_parent_id"]).toBe(
+      generation?.properties?.["$ai_span_id"],
+    );
+    expect(span?.properties?.["$ai_error_type"]).toBe("interrupted");
+    // And it counts against the call that asked for it.
+    expect(generation?.properties?.tool_calls).toBe(1);
+  });
+
   // The fallback still has to exist for engines that never bracket their model
   // calls, but a latency built on it must not be mistaken for a measured one.
   it("labels a derived latency when the engine emits no model_stream", async () => {
