@@ -9,7 +9,14 @@ vi.mock("h3", () => ({
   ) => {
     event.headers = { ...event.headers, ...headers };
   },
-  setResponseStatus: () => undefined,
+  setResponseStatus: (
+    event: { status?: number; statusMessage?: string },
+    status: number,
+    statusMessage?: string,
+  ) => {
+    event.status = status;
+    event.statusMessage = statusMessage;
+  },
   createError: (options: { statusCode: number; statusMessage?: string }) =>
     Object.assign(new Error(options.statusMessage), options),
 }));
@@ -26,7 +33,12 @@ function jsonResponse(json: unknown): Response {
 }
 
 function createEvent(query: Record<string, unknown> = {}) {
-  return { query, headers: {} as Record<string, string> };
+  return {
+    query,
+    headers: {} as Record<string, string>,
+    status: 200,
+    statusMessage: "",
+  };
 }
 
 describe("desktop latest manifest route", () => {

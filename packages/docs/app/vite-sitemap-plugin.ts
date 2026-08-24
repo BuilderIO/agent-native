@@ -57,12 +57,83 @@ export function sitemapPlugin(): Plugin {
     description:
       "Open source framework for building apps where AI agents and UI share one state model.",
     pages: () => buildAgentWebPages(rootDir),
+    whenToUse: [
+      "Use Agent-Native when an AI agent and a user-facing UI need to share the same actions, SQL data, and application state.",
+      "Start with the documentation when you are building an agentic app, adding an action, or exposing a safe capability to external agents.",
+      "Connect the MCP server when an external host such as Claude, ChatGPT, Codex, or Cursor should drive the app through its actions.",
+    ],
+    developerResources: [
+      {
+        title: "When to use Agent-Native",
+        url: "/docs/external-agents",
+        description:
+          "Use Agent-Native when an agent and a UI need to work against the same actions, SQL state, and application state.",
+      },
+      {
+        title: "OpenAPI specification",
+        url: "/openapi.json",
+        description:
+          "Typed HTTP operations, parameters, responses, and structured errors.",
+      },
+      {
+        title: "Authentication",
+        url: "/docs/authentication",
+        description: "Browser, MCP OAuth, and hosted-agent authentication.",
+      },
+      {
+        title: "MCP server",
+        url: "/docs/mcp-protocol",
+        description:
+          "Connect an MCP-compatible host to the Streamable HTTP server at /mcp.",
+      },
+      {
+        title: "External agents",
+        url: "/docs/external-agents",
+        description:
+          "Connect Claude, ChatGPT, Codex, Cursor, or another MCP-compatible host.",
+      },
+      {
+        title: "Webhook and messaging integrations",
+        url: "/docs/messaging",
+        description: "Inbound webhook routes and channel integrations.",
+      },
+      {
+        title: "Agent card",
+        url: "/.well-known/agent-card.json",
+        description: "Machine-readable A2A capability discovery.",
+      },
+      {
+        title: "CLI package",
+        url: "https://www.npmjs.com/package/@agent-native/core",
+        description:
+          "Install the official Agent-Native CLI and framework package from npm.",
+      },
+      {
+        title: "Source repository",
+        url: "https://github.com/BuilderIO/agent-native",
+        description: "Open-source framework source and issue tracker.",
+      },
+    ],
     agentWeb: pkg["agent-native"]?.workspaceApp?.agentWeb,
     outputDirs: ["build/client", "dist", "dist/client", "dist/server/public"],
     organization: {
       name: "Builder.io",
       url: "https://builder.io",
       sameAs: ["https://github.com/BuilderIO/agent-native"],
+      contactPoint: {
+        "@type": "ContactPoint",
+        contactType: "customer support",
+        email: "support@builder.io",
+        url: "https://www.agent-native.com/contact",
+      },
+      address: {
+        "@type": "PostalAddress",
+        streetAddress: "95 3rd Street, 2nd Floor",
+        addressLocality: "San Francisco",
+        addressRegion: "CA",
+        postalCode: "94103",
+        addressCountry: "US",
+      },
     },
   }) as unknown as Plugin;
 }
@@ -80,6 +151,8 @@ export function buildSitemapPaths(rootDir: string): string[] {
  *   `<meta http-equiv="refresh">` 200 page;
  * - draft docs, hidden by `VITE_SHOW_DRAFTS` — including every translation of a
  *   canonically-draft slug, matching `loadDocRespectingDraftVisibility`.
+ * - docs pages, which must reach the SSR handler so `Accept: text/markdown`
+ *   can select the Markdown representation before a CDN serves HTML.
  *
  * Both keep falling through to the SSR function, which still answers 301/404.
  */
@@ -91,9 +164,17 @@ export function buildPrerenderPaths(): string[] {
   return pages
     .filter(
       (page) =>
-        !draftSlugs.has(page.docSlug) && !isRedirectedDocsPath(page.path),
+        !draftSlugs.has(page.docSlug) &&
+        !isRedirectedDocsPath(page.path) &&
+        !isDocsPagePath(page.path),
     )
     .map((page) => page.path);
+}
+
+function isDocsPagePath(pagePath: string): boolean {
+  const segments = pagePath.split("/").filter(Boolean);
+  const docsIndex = segments[0] === "docs" ? 0 : 1;
+  return segments[docsIndex] === "docs";
 }
 
 export function buildAgentWebPages(rootDir: string): AgentWebPage[] {
@@ -221,6 +302,42 @@ Agent-Native is an open source framework for building apps where AI agents and U
       markdown:
         "# Agent-Native Brand Assets\n\nDownload official Agent-Native horizontal logos and symbols as SVG files for light and dark backgrounds.\n",
       lastmod: gitLastmod(path.resolve(rootDir, "app/routes/brand.tsx")),
+    },
+    {
+      path: "/about",
+      title: enUS.legal.about.title,
+      description: enUS.legal.about.intro,
+      markdown: [
+        `# ${enUS.legal.about.title}`,
+        "",
+        enUS.legal.about.intro,
+        "",
+        ...Object.values(enUS.legal.about.sections).flatMap((section) => [
+          `## ${section.title}`,
+          "",
+          section.body,
+          "",
+        ]),
+      ].join("\n"),
+      lastmod: gitLastmod(path.resolve(rootDir, "app/routes/about.tsx")),
+    },
+    {
+      path: "/contact",
+      title: enUS.legal.contact.title,
+      description: enUS.legal.contact.intro,
+      markdown: [
+        `# ${enUS.legal.contact.title}`,
+        "",
+        enUS.legal.contact.intro,
+        "",
+        ...Object.values(enUS.legal.contact.sections).flatMap((section) => [
+          `## ${section.title}`,
+          "",
+          section.body,
+          "",
+        ]),
+      ].join("\n"),
+      lastmod: gitLastmod(path.resolve(rootDir, "app/routes/contact.tsx")),
     },
     {
       path: "/privacy",
