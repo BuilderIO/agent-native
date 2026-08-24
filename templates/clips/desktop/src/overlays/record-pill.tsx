@@ -134,6 +134,10 @@ export function RecordingPill() {
   const [micLevel, setMicLevel] = useState(0);
   const [announcement, setAnnouncement] = useState("");
   const [confirmQuestion, setConfirmQuestion] = useState("");
+  // Whether the delete confirm was entered from an already-paused recording:
+  // its safe exit then KEEPS the pause, so the button says Cancel, not Resume.
+  const [confirmFromPaused, setConfirmFromPaused] = useState(false);
+  const confirmFromPausedRef = useRef(false);
   const [doneStage, setDoneStage] = useState<DoneStage>("finishing");
   const [doneDurationMs, setDoneDurationMs] = useState(0);
   const [copied, setCopied] = useState(false);
@@ -396,29 +400,32 @@ export function RecordingPill() {
 
   function reveal(open: boolean) {
     if (open === revealedRef.current) return;
-    if (open && (modeRef.current !== "recording" || pausedRefState())) return;
+    if (open && modeRef.current !== "recording") return;
     revealedRef.current = open;
     transitionSegs([["extras", open, 0]]);
   }
 
   const pausedRef = useRef(false);
   pausedRef.current = paused;
-  function pausedRefState() {
-    return pausedRef.current;
-  }
 
   function enterConfirm() {
     if (modeRef.current !== "recording") return;
+    const wasPaused = pausedRef.current;
+    confirmFromPausedRef.current = wasPaused;
     setMode("confirm");
     // The question's segment width is measured synchronously below, so the
-    // new text must be committed to the DOM before transitionSegs runs —
-    // without flushSync it would measure the previous (empty) question.
+    // new text (and the exit button's label) must be committed to the DOM
+    // before transitionSegs runs — without flushSync it would measure the
+    // previous (empty) question.
     flushSync(() => {
       setConfirmQuestion(`Delete ${formatDurationCopy(elapsedRef.current)}?`);
+      setConfirmFromPaused(wasPaused);
     });
     // Pause at the instant of the click — the deliberation must not end up
-    // in the clip. Same optimistic-state handling as the pause button.
-    applyPauseIntent("pause");
+    // in the clip. A recording already paused by hand stays exactly as the
+    // user left it, and exiting the confirm restores that state instead of
+    // resuming behind their back.
+    if (!wasPaused) applyPauseIntent("pause");
     revealedRef.current = false;
     transitionSegs([
       ["extras", false, 0],
@@ -433,14 +440,14 @@ export function RecordingPill() {
   function exitConfirm() {
     if (modeRef.current !== "confirm") return;
     setMode("recording");
-    applyPauseIntent("resume");
+    if (!confirmFromPausedRef.current) applyPauseIntent("resume");
     transitionSegs([
       ["res", false, 0],
       ["del", false, 20],
       ["q", false, 40],
       ["stop", true, 40],
     ]);
-    setAnnouncement("Recording");
+    setAnnouncement(confirmFromPausedRef.current ? "Paused" : "Recording");
   }
 
   function applyPauseIntent(transition: "pause" | "resume") {
@@ -1111,7 +1118,7 @@ export function RecordingPill() {
                 onClick={exitConfirm}
                 className="ml-2 flex h-7 flex-none items-center rounded-full bg-[var(--pill-soft)] px-3.5 text-xs font-semibold text-[var(--pill-on-chrome)]"
               >
-                Resume
+                {confirmFromPaused ? "Cancel" : "Resume"}
               </button>
             </span>
           </span>
