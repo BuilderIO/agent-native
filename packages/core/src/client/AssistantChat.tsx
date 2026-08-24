@@ -2111,9 +2111,9 @@ export interface AssistantChatProps {
   externalStreaming?: boolean;
   /**
    * Optional host hooks for the inline `needsApproval` affordance beyond the
-   * built-in Approve and action-type policy. Code sessions pass these through
-   * to the same `host.controlRun` commands their standalone approval banner
-   * already uses (see CodeAgentsApp).
+   * built-in Approve and action-type policy. Code sessions pass their
+   * exact-command callback through for the standalone banner, but suppress the
+   * shared action-type menu (see CodeAgentsApp).
    */
   approvalActions?: {
     onDeny?: (approvalKey: string) => void;
@@ -2121,6 +2121,7 @@ export interface AssistantChatProps {
       approvalKey: string,
       toolName: string,
     ) => void | Promise<void>;
+    alwaysAllowScope?: "action" | "exact-command";
   };
 }
 
@@ -5866,12 +5867,16 @@ const AssistantChatInner = forwardRef<
     },
     [approvalActions, approveToolCall],
   );
+  const showActionTypeApprovalPolicy =
+    approvalActions?.alwaysAllowScope !== "exact-command";
   const approvalCtx = useMemo<ApprovalContextValue>(
     () => ({
       getApprovalResolution,
       onApprovalResolved: recordApprovalResolution,
       onApprove: approveToolCall,
-      onAlwaysAllow: alwaysAllowToolCall,
+      ...(showActionTypeApprovalPolicy
+        ? { onAlwaysAllow: alwaysAllowToolCall }
+        : {}),
       ...(approvalActions?.onDeny ? { onDeny: approvalActions.onDeny } : {}),
     }),
     [
@@ -5880,6 +5885,7 @@ const AssistantChatInner = forwardRef<
       approveToolCall,
       getApprovalResolution,
       recordApprovalResolution,
+      showActionTypeApprovalPolicy,
     ],
   );
 
