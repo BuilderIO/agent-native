@@ -309,6 +309,10 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(hubSource).toContain('<DesktopRailTooltip label="Settings">');
     expect(hubSource).toContain("onClick={() => onOpenSettings()}");
     expect(hubSource).toContain("<IconSettings");
+    expect(hubSource).toContain("desktop-chat-first-rail-chat");
+    expect(hubSource).toContain('aria-label="Toggle chat sidebar"');
+    expect(hubSource).toContain('new CustomEvent("agent-panel:toggle"');
+    expect(hubSource).toContain("scopeId: activeChatFirstSurfaceTab?.id");
     expect(hubSource).toContain("<TooltipProvider delayDuration={0}>");
     expect(hubSource).toContain("IconLayoutSidebarLeftCollapse");
     expect(hubSource).toContain("desktop-chat-first-rail-collapse");
@@ -337,6 +341,8 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(shellCss).toContain("min-height: 0;");
     expect(shellCss).toContain("z-index: 1;");
     expect(shellCss).toContain("[data-chat-first-rail-collapse]");
+    expect(shellCss).toContain("[data-chat-first-app][data-app-id]:hover");
+    expect(shellCss).toContain("background-color: transparent;");
   });
 
   it("removes the hidden chat list from the collapsed rail layout", () => {
