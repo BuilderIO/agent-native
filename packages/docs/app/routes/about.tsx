@@ -4,7 +4,7 @@ import { withDefaultSocialImage } from "../seo";
 
 export const meta = () =>
   withDefaultSocialImage([
-    { title: enUS.legal.about.title },
+    { title: `Agent-Native - ${enUS.legal.about.title}` },
     { name: "description", content: enUS.legal.about.intro },
   ]);
 
