@@ -1206,6 +1206,10 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
     { specifier: "clsx" },
     { specifier: "cmdk" },
     { specifier: "date-fns" },
+    // Pure CJS with no ESM entry, reached from source-aliased core collab
+    // modules that dep discovery does not scan. Unprebundled it is served
+    // verbatim and its `module.exports` lines throw in the browser.
+    { specifier: "diff-match-patch" },
     { specifier: "drizzle-orm" },
     { specifier: "drizzle-orm/pg-core", packageName: "drizzle-orm" },
     { specifier: "drizzle-orm/sqlite-core", packageName: "drizzle-orm" },
