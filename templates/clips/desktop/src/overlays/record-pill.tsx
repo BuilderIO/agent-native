@@ -1004,12 +1004,17 @@ export function RecordingPill() {
             onClick={stop}
             disabled={!enabled || inConfirm}
             aria-label="Stop and save"
-            className="flex size-[30px] flex-none items-center justify-center rounded-full border-[1.5px] border-current transition-colors duration-150 disabled:cursor-default"
+            className="flex size-[30px] flex-none items-center justify-center rounded-full transition-colors duration-150 disabled:cursor-default"
             style={{
               color: showPaused ? "var(--pill-ghost-ink)" : "var(--pill-rec)",
             }}
           >
-            <span aria-hidden className="size-[9px] rounded-[2px] bg-current" />
+            <span
+              aria-hidden
+              className="flex size-6 items-center justify-center rounded-full border-[1.5px] border-current"
+            >
+              <span className="size-2 rounded-[1.5px] bg-current" />
+            </span>
           </button>
           <span
             aria-live="off"
@@ -1035,13 +1040,18 @@ export function RecordingPill() {
             onClick={togglePause}
             disabled={!enabled || inConfirm}
             aria-label={showPaused ? "Resume" : "Pause"}
-            className="ml-2.5 flex size-[30px] flex-none items-center justify-center rounded-full border-[1.5px] border-current text-[var(--pill-ghost-ink)] transition-colors duration-150 hover:text-[var(--pill-on-chrome)] disabled:cursor-default disabled:opacity-50"
+            className="ml-2.5 flex size-[30px] flex-none items-center justify-center rounded-full text-[var(--pill-ghost-ink)] transition-colors duration-150 hover:text-[var(--pill-on-chrome)] disabled:cursor-default disabled:opacity-50"
           >
-            {showPaused ? (
-              <IconPlayerPlayFilled size={13} aria-hidden />
-            ) : (
-              <IconPlayerPauseFilled size={13} aria-hidden />
-            )}
+            <span
+              aria-hidden
+              className="flex size-6 items-center justify-center rounded-full border-[1.5px] border-current"
+            >
+              {showPaused ? (
+                <IconPlayerPlayFilled size={11} />
+              ) : (
+                <IconPlayerPauseFilled size={11} />
+              )}
+            </span>
           </button>
           <span
             ref={(el) => {
