@@ -80,7 +80,9 @@ pub fn set_tray_recording_mode(app: &tauri::AppHandle, active: bool) {
             let _ = tray.set_icon_as_template(true);
         }
         #[cfg(target_os = "macos")]
-        let _ = tray.set_title(Some("0:00"));
+        if crate::config::menu_bar_timer_enabled(app) {
+            let _ = tray.set_title(Some("0:00"));
+        }
     } else {
         if let Ok(base) = tauri::image::Image::from_bytes(TRAY_PNG) {
             let _ = tray.set_icon(Some(base));
@@ -422,6 +424,12 @@ pub fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             let Some(tray) = timer_handle.tray_by_id("main") else {
                 return;
             };
+            if !crate::config::menu_bar_timer_enabled(&timer_handle) {
+                // Also clears a stale title if the setting is switched off
+                // mid-recording.
+                let _ = tray.set_title(None::<String>);
+                return;
+            }
             let time = format_tray_timer(payload.elapsed_ms.unwrap_or(0.0));
             let title = if payload.paused.unwrap_or(false) {
                 format!("⏸ {time}")
