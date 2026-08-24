@@ -12,6 +12,25 @@ export type AgentHarnessSessionStatus =
   | "errored"
   | "destroyed";
 
+export class AgentHarnessSessionConflictError extends Error {
+  constructor(sessionId: string) {
+    super(
+      `Harness session ${sessionId} changed concurrently; retry the operation.`,
+    );
+    this.name = "AgentHarnessSessionConflictError";
+  }
+}
+
+export function isAgentHarnessSessionConflictError(
+  error: unknown,
+): error is AgentHarnessSessionConflictError {
+  return (
+    error instanceof AgentHarnessSessionConflictError ||
+    (error instanceof Error &&
+      error.name === "AgentHarnessSessionConflictError")
+  );
+}
+
 export interface StoredAgentHarnessSession {
   id: string;
   harnessName: string;
@@ -47,6 +66,8 @@ export interface SaveAgentHarnessSessionInput {
   stoppedAt?: number | null;
   /** Internal optimistic-concurrency token used by updateAgentHarnessSession. */
   expectedGeneration?: number;
+  /** Snapshot used by updateAgentHarnessSession so merge and CAS share a read. */
+  existingSession?: StoredAgentHarnessSession | null;
 }
 
 let initPromise: Promise<void> | undefined;
@@ -124,9 +145,8 @@ export async function ensureAgentHarnessSessionTables(): Promise<void> {
         await client.execute(
           `ALTER TABLE agent_harness_sessions ADD COLUMN generation ${intType()} NOT NULL DEFAULT 0`,
         );
-        // coercion-ok: SQLite has no ADD COLUMN IF NOT EXISTS; duplicate-column means the schema is current.
-      } catch {
-        // Column already exists.
+      } catch (error) {
+        if (!isDuplicateColumnError(error)) throw error;
       }
 
       // SQLite (local dev): no lock problem — keep the original behaviour.
@@ -190,7 +210,10 @@ export async function saveAgentHarnessSession(
 ): Promise<StoredAgentHarnessSession> {
   await ensureAgentHarnessSessionTables();
   const now = Date.now();
-  const existing = await getAgentHarnessSession(input.id);
+  const existing =
+    input.existingSession === undefined
+      ? await getAgentHarnessSession(input.id)
+      : input.existingSession;
   const record: StoredAgentHarnessSession = {
     id: input.id,
     harnessName: input.harnessName,
@@ -211,7 +234,7 @@ export async function saveAgentHarnessSession(
       input.resolvedApprovalIds ?? existing?.resolvedApprovalIds ?? [],
     ownerEmail: input.ownerEmail ?? existing?.ownerEmail ?? null,
     orgId: input.orgId ?? existing?.orgId ?? null,
-    generation: (existing?.generation ?? 0) + 1,
+    generation: (input.expectedGeneration ?? existing?.generation ?? 0) + 1,
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
     stoppedAt: input.stoppedAt ?? existing?.stoppedAt ?? null,
@@ -248,7 +271,11 @@ export async function saveAgentHarnessSession(
     if (inserted.rowsAffected === 1) return record;
     const current = await getAgentHarnessSession(input.id);
     if (!current) throw new Error("Harness session insert did not persist.");
-    return saveAgentHarnessSession({ ...input, expectedGeneration: undefined });
+    return saveAgentHarnessSession({
+      ...input,
+      expectedGeneration: undefined,
+      existingSession: undefined,
+    });
   }
 
   const expectedGeneration = input.expectedGeneration ?? existing.generation;
@@ -279,9 +306,7 @@ export async function saveAgentHarnessSession(
     ],
   });
   if (updated.rowsAffected !== 1) {
-    throw new Error(
-      `Harness session ${record.id} changed concurrently; retry the operation.`,
-    );
+    throw new AgentHarnessSessionConflictError(record.id);
   }
   return record;
 }
@@ -315,6 +340,7 @@ export async function updateAgentHarnessSession(
     orgId: patch.orgId ?? existing.orgId ?? null,
     stoppedAt: patch.stoppedAt ?? existing.stoppedAt ?? null,
     expectedGeneration: existing.generation,
+    existingSession: existing,
   });
 }
 
@@ -511,4 +537,13 @@ function stringOrNull(value: unknown): string | null {
 
 function numberValue(value: unknown): number {
   return typeof value === "number" ? value : Number(value ?? 0);
+}
+
+function isDuplicateColumnError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const message = (error as { message?: unknown }).message;
+  return (
+    typeof message === "string" &&
+    /duplicate column name|column .* already exists/i.test(message)
+  );
 }

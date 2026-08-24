@@ -1014,6 +1014,8 @@ export function startRun(
     ? new AbortController()
     : null;
   let chunkBoundaryReason: string | null = null;
+  let chunkSoftTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
+  let armChunkSoftTimeout: () => void = () => {};
   let recoveredChunkBoundaries = 0;
   /** A boundary that has been reached but not yet proven recovered. */
   let pendingBoundary: {
@@ -1063,7 +1065,9 @@ export function startRun(
       if (abort.signal.aborted || !chunkAbort) return abort.signal;
       settleBoundary(true);
       chunkBoundaryReason = null;
+      if (chunkSoftTimeoutTimer) clearTimeout(chunkSoftTimeoutTimer);
       chunkAbort = new AbortController();
+      armChunkSoftTimeout();
       // The boundary is behind us; the silence clock restarts with the chunk,
       // or the backstop fires again on the elapsed time of the chunk it just
       // ended and every recovery round dies instantly.
@@ -1728,6 +1732,25 @@ export function startRun(
           });
         }, softTimeoutMs)
       : null;
+  if (recoverChunkBoundaries && softTimeoutMs > 0) {
+    const runDeadlineAt = Date.now() + softTimeoutMs;
+    armChunkSoftTimeout = () => {
+      if (chunkSoftTimeoutTimer) clearTimeout(chunkSoftTimeoutTimer);
+      if (abort.signal.aborted || run.status !== "running") return;
+      chunkSoftTimeoutTimer = setTimeout(
+        () => {
+          chunkSoftTimeoutTimer = null;
+          reachRunBoundary("run_timeout", {
+            lastEventType: run.events.at(-1)?.event.type,
+          });
+        },
+        Math.max(0, runDeadlineAt - Date.now()),
+      );
+    };
+    // Boundary recovery disables the ordinary one-shot timer, so arm the
+    // cumulative invocation deadline on the initial chunk and each successor.
+    armChunkSoftTimeout();
+  }
   let pendingTerminalEvent: RunEvent | null = null;
 
   const captureRunError = (error: unknown, phase: "run" | "completion") => {
@@ -2117,6 +2140,7 @@ export function startRun(
       // 4. Stop the heartbeat — all liveness writes are done.
       clearInterval(heartbeatTimer);
       if (softTimeoutTimer) clearTimeout(softTimeoutTimer);
+      if (chunkSoftTimeoutTimer) clearTimeout(chunkSoftTimeoutTimer);
       if (progressWriteTimer) clearTimeout(progressWriteTimer);
       progressWriteTimer = null;
       progressWritePending = false;

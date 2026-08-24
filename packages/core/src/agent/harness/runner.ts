@@ -11,6 +11,7 @@ import {
 } from "./lifecycle.js";
 import {
   getAgentHarnessSession,
+  isAgentHarnessSessionConflictError,
   markAgentHarnessSessionStopped,
   saveAgentHarnessSession,
   updateAgentHarnessSession,
@@ -174,7 +175,7 @@ export function startAgentHarnessRun(
               opts.createSession?.resumeState,
               detachOnComplete,
             );
-            if (detachOnComplete && harnessSession.detach) {
+            if (detachOnComplete) {
               releaseLiveAgentHarnessSession(storedSessionId, harnessSession);
             } else {
               keepLiveSession = true;
@@ -207,6 +208,21 @@ export function startAgentHarnessRun(
           pendingApproval: null,
         });
       } catch (error) {
+        if (isAgentHarnessSessionConflictError(error)) {
+          keepLiveSession = true;
+          const latest = storedSessionId
+            ? await getAgentHarnessSession(storedSessionId)
+            : null;
+          const terminal =
+            latest?.status === "stopped" ||
+            latest?.status === "errored" ||
+            latest?.status === "destroyed";
+          keepLiveSession = !terminal;
+          if (terminal && storedSessionId) {
+            releaseLiveAgentHarnessSession(storedSessionId, harnessSession);
+          }
+          return;
+        }
         if (harnessSession && !keepLiveSession) {
           await stopHarnessSession(harnessSession).catch(() => undefined);
         }
@@ -229,6 +245,8 @@ export function startAgentHarnessRun(
       ...(opts.runOptions ?? {}),
       turnId: opts.turnId ?? opts.runOptions?.turnId,
       recoverChunkBoundaries: opts.runOptions?.recoverChunkBoundaries ?? true,
+      useHostedSoftTimeoutDefault:
+        opts.runOptions?.useHostedSoftTimeoutDefault ?? true,
       // A harness adapter (e.g. Claude Code, Codex) owns its own model
       // selection internally and does not expose it here, so `model` is
       // left for the caller to supply via `runOptions` if it knows one.
