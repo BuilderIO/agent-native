@@ -9836,11 +9836,14 @@ const PRIMARY_HOTKEY_FORWARDING_CASES: Array<{
   shift?: boolean;
   alt?: boolean;
   ctrlOnly?: boolean;
+  /** Chord the bridge gates on the platform's own primary modifier, so the
+   *  test has to press Cmd on darwin and Ctrl everywhere else. */
+  platformPrimary?: boolean;
 }> = [
   { name: "Cmd/Ctrl+Z undo", key: "z" },
   { name: "Cmd/Ctrl+Shift+Z redo", key: "z", shift: true },
   { name: "Cmd/Ctrl+Y redo", key: "y" },
-  { name: "Cmd/Ctrl+F find", key: "f" },
+  { name: "Cmd/Ctrl+F find", key: "f", platformPrimary: true },
   { name: "Cmd/Ctrl+A select all", key: "a" },
   { name: "Cmd/Ctrl+X cut", key: "x" },
   { name: "Cmd/Ctrl+Shift+X strikethrough", key: "x", shift: true },
@@ -9927,7 +9930,11 @@ it(
         await page.evaluate(() => {
           (window as any).__bridgeMessages = [];
         });
-        const modifier = testCase.ctrlOnly ? "Control" : "Meta";
+        const modifier =
+          testCase.ctrlOnly ||
+          (testCase.platformPrimary && process.platform !== "darwin")
+            ? "Control"
+            : "Meta";
         await page.keyboard.down(modifier);
         if (testCase.alt) await page.keyboard.down("Alt");
         if (testCase.shift) await page.keyboard.down("Shift");

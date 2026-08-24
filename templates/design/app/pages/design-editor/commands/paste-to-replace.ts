@@ -53,6 +53,17 @@ export interface PasteToReplaceArgs {
   t: (key: string, options?: Record<string, unknown>) => string;
 }
 
+/** Pixel lengths only: `10%` or `2rem` parsed loosely would be re-serialized
+ *  as `10px` and visibly move the replacement. */
+function pixelLength(value: string | undefined): number | null {
+  const raw = (value ?? "").trim();
+  if (raw === "0") return 0;
+  const match = /^(-?[\d.]+)px$/.exec(raw);
+  if (!match) return null;
+  const parsed = Number(match[1]);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 export function runPasteToReplace({
   activeFile,
   applyLocalContentUpdate,
@@ -126,11 +137,11 @@ export function runPasteToReplace({
   // of pixels away from the layer it replaced. The target's own authored
   // offsets are already in the space being written to; the parent-rect
   // subtraction is the fallback for a target positioned by class or transform.
-  const authoredLeft = Number.parseFloat(targetNode.style.left ?? "");
-  const authoredTop = Number.parseFloat(targetNode.style.top ?? "");
+  const authoredLeft = pixelLength(targetNode.style.left);
+  const authoredTop = pixelLength(targetNode.style.top);
   const parentRect = selectedElement?.parentBoundingRect;
   const position =
-    Number.isFinite(authoredLeft) && Number.isFinite(authoredTop)
+    authoredLeft !== null && authoredTop !== null
       ? { x: authoredLeft, y: authoredTop }
       : {
           x: targetPosition.x - (parentRect?.x ?? 0),

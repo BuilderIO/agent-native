@@ -395,6 +395,7 @@ test.describe("canvas chords", () => {
       expect(tag).toMatch(/underline/i);
     });
   });
+
   test("Cmd+Shift+R drops the replacement where the old layer stood", async ({
     page,
     context,
@@ -586,6 +587,46 @@ test.describe("canvas chords", () => {
       // A layer clone must never end up nested inside a text layer.
       expect(tag).not.toContain("data-agent-native-preserve-styles");
       expect((tag!.match(/klsajfk/g) ?? []).length).toBe(1);
+    });
+  });
+  test("Cmd+U twice in one session leaves the text un-underlined", async ({
+    page,
+    request,
+    baseURL,
+  }) => {
+    designId = await createChordsDesign(
+      request,
+      baseURL,
+      "E2E Chords Underline Toggle",
+      TEXT_HTML,
+    );
+    await gotoEditor(page, designId);
+
+    const label = designFrame(page)
+      .locator('[data-agent-native-node-id="tx-label"]')
+      .first();
+    await label.waitFor({ state: "visible", timeout: 10_000 });
+    const box = (await label.boundingBox())!;
+    await page.mouse.dblclick(box.x + box.width / 2, box.y + box.height / 2);
+    await expect(
+      designFrame(page).locator("[data-agent-native-text-editing]"),
+    ).toHaveCount(1, { timeout: 10_000 });
+
+    await page.keyboard.press(`${PRIMARY}+A`);
+    await page.keyboard.press(`${PRIMARY}+U`);
+    await page.waitForTimeout(200);
+    await page.keyboard.press(`${PRIMARY}+A`);
+    await page.keyboard.press(`${PRIMARY}+U`);
+    await page.keyboard.press("Escape");
+
+    await expectFileContent(request, baseURL, designId, (html) => {
+      const tag =
+        /<div[^>]*data-agent-native-node-id="tx-label"[\s\S]*?<\/div>/.exec(
+          html,
+        )?.[0];
+      expect(tag, "tx-label not found").toBeDefined();
+      expect((tag!.match(/klsajfk/g) ?? []).length).toBe(1);
+      expect(tag).not.toMatch(/text-decoration:\s*underline/i);
     });
   });
 });

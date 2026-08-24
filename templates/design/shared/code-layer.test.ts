@@ -1120,6 +1120,23 @@ describe("wrapNodes", () => {
     expect(wrapperStyle).not.toContain("height:");
   });
 
+  it("keeps an autoLayout wrapper at the origin even when children have no width/height", () => {
+    const html = `<main><div data-agent-native-node-id="x" style="position: absolute; left: 240px; top: 180px">Hello</div></main>`;
+    const patch = applyVisualEdit(html, {
+      kind: "wrapNodes",
+      targetIds: ["x"],
+      autoLayout: true,
+    });
+
+    expect(patch.result.status).toBe("applied");
+    const wrapperStyle = new RegExp(
+      `data-agent-native-node-id="${patch.result.wrapperNodeId}"[^>]*style="([^"]*)"`,
+    ).exec(patch.content)?.[1];
+    expect(wrapperStyle).toContain("left: 240px");
+    expect(wrapperStyle).toContain("top: 180px");
+    expect(wrapperStyle).toContain("display: flex");
+  });
+
   it("wraps a single absolutely-positioned node at its own bounds", () => {
     const html = `<main><div data-agent-native-node-id="x" style="position: absolute; left: 64px; top: 32px; width: 100px; height: 40px">X</div></main>`;
     const patch = applyVisualEdit(html, {

@@ -5890,6 +5890,21 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return key && key.length === 1 ? key.toLowerCase() : key;
   }
 
+  function isApplePlatformBridge(): boolean {
+    var nav = navigator as Navigator & {
+      userAgentData?: { platform?: string };
+    };
+    var platform =
+      (nav.userAgentData && nav.userAgentData.platform) || nav.platform || "";
+    return /Mac|iPhone|iPad|iPod/i.test(platform);
+  }
+
+  function isPlatformPrimaryChord(e): boolean {
+    return isApplePlatformBridge()
+      ? e.metaKey && !e.ctrlKey
+      : e.ctrlKey && !e.metaKey;
+  }
+
   function isShowShortcutsChord(e) {
     if (!(e.metaKey || e.ctrlKey) || !e.shiftKey || e.altKey) return false;
     // macOS delivers Control+Shift+/ as "/" — Control suppresses the shifted
@@ -5963,10 +5978,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           "[",
           // Cmd/Ctrl+U — toggle underline (useDesignHotkeys.ts onToggleUnderline).
           "u",
-          // Cmd/Ctrl+F — find (onFind). Bridge's "primary" doesn't distinguish
-          // Cmd from Ctrl the way isPlatformPrimaryModifier does host-side, but
-          // forwarding is harmless when the host has no match for the combo.
-          "f",
           // Cmd/Ctrl+Shift+R paste-to-replace. Bare primary+r stays native
           // so browser refresh keeps its expected meaning.
           // Cmd/Ctrl+K — open the host command menu even while the iframe has
@@ -5982,6 +5993,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         // Cmd+H / Cmd+L — common OS "Hide app" / browser "focus address bar"
         // shortcuts the host has no bare-primary binding for — are left
         // alone (see useDesignHotkeys.ts: both require event.shiftKey).
+        // Cmd/Ctrl+F — find (onFind). Gated on the platform's own primary
+        // modifier, matching isPlatformPrimaryModifier host-side: forwarding
+        // is NOT harmless, because the shield preventDefaults before posting,
+        // so a forwarded-then-ignored macOS Ctrl+F loses browser Find.
+        (isPlatformPrimaryChord(e) &&
+          !e.altKey &&
+          !e.shiftKey &&
+          normalized === "f") ||
         (e.shiftKey && (normalized === "h" || normalized === "l")) ||
         (e.shiftKey && normalized === "r") ||
         // Cmd/Ctrl+Alt+B detach instance / Cmd/Ctrl+Alt+K create component
@@ -7929,20 +7948,46 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     },
   };
 
+  // Select-all puts the common ancestor on the editable, not on the inline
+  // span carrying the format, so the toggle has to read every text run the
+  // range actually covers or Cmd+U stops being able to turn underline off.
+  function rangeFormatIsOn(
+    range: Range,
+    spec: { isOn: (styles: CSSStyleDeclaration) => boolean },
+  ): boolean {
+    var root = range.commonAncestorContainer;
+    var rootEl = root.nodeType === 1 ? (root as Element) : root.parentElement;
+    if (!rootEl) return false;
+    var walker = document.createTreeWalker(rootEl, NodeFilter.SHOW_TEXT, null);
+    var sawText = false;
+    var current = walker.nextNode();
+    while (current) {
+      if (
+        current.nodeValue &&
+        current.nodeValue.trim() &&
+        range.intersectsNode(current)
+      ) {
+        sawText = true;
+        var parent = current.parentElement;
+        if (!parent || !spec.isOn(window.getComputedStyle(parent))) {
+          return false;
+        }
+      }
+      current = walker.nextNode();
+    }
+    return sawText ? true : spec.isOn(window.getComputedStyle(rootEl));
+  }
+
   function applyTextEditFormat(key: string): boolean {
     var spec = TEXT_EDIT_FORMATS[key];
     if (!spec) return false;
     var selection = window.getSelection ? window.getSelection() : null;
     if (!selection || selection.rangeCount === 0) return false;
-    var node = selection.getRangeAt(0).commonAncestorContainer;
-    var el =
-      node && node.nodeType === 1
-        ? (node as Element)
-        : node && node.parentElement;
-    var next =
-      el && spec.isOn(window.getComputedStyle(el as Element))
-        ? spec.off
-        : spec.on;
+    var range = selection.getRangeAt(0);
+    // Known gap: applyTextRangeStyle can only SET a property, so an "off"
+    // value cannot beat an inner run that sets the format itself. Toggling off
+    // works for a single covering run, not for a format split across several.
+    var next = rangeFormatIsOn(range, spec) ? spec.off : spec.on;
     return applyTextRangeStyle(spec.property, next);
   }
 

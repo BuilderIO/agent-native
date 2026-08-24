@@ -207,6 +207,12 @@ export interface UseDesignHotkeysProps {
   onAddAutoLayout?: DesignHotkeyHandler;
   /** Figma's Shift+\ "Minimize UI" shortcut, applied here to the full Design
    *  chrome (left rail, right panel, and bottom toolbar). */
+  /**
+   * Whether Design can act on its own chords at all. False on a read-only or
+   * signed-out prototype, where consuming Cmd+Z/Cmd+D/Cmd+G would cost the
+   * viewer their browser defaults in exchange for nothing.
+   */
+  canClaimBoundChords?: boolean;
   onToggleUi?: DesignHotkeyHandler;
   /** Figma's Shift+C — toggle Show/Hide comments (comment pins). */
   onToggleComments?: DesignHotkeyHandler;
@@ -402,10 +408,12 @@ export function handleDesignHotkey(
   };
 
   /** Consume a Design-bound chord even with no handler attached: "bound but
-   *  inapplicable" must not reach the browser (Cmd+U opens View Source,
-   *  Cmd+Shift+R hard-reloads mid-edit). Clipboard chords stay on `run` —
-   *  they need the native copy/cut/paste event. */
+   *  inapplicable" must not reach the browser (Cmd+U opens View Source).
+   *  Clipboard chords stay on `run` — they need the native copy/cut/paste
+   *  event — and a canvas the user cannot edit claims nothing, because there
+   *  is no Design action to trade the browser default for. */
   const claim = (handler: DesignHotkeyHandler | undefined) => {
+    if (!handler && props.canClaimBoundChords === false) return false;
     prevent();
     handler?.(details);
     return true;
@@ -540,7 +548,9 @@ export function handleDesignHotkey(
     !event.shiftKey &&
     key === "f"
   ) {
-    return claim(props.onFind);
+    // `run`, not `claim`: Find is withheld during initial generation, and
+    // browser Find is better than nothing while Design cannot offer its own.
+    return run(props.onFind);
   }
   if (primary && !event.altKey && !event.shiftKey && key === "a") {
     return runSharedCanvasCommand() || run(props.onSelectAll);

@@ -13590,6 +13590,7 @@ function DesignEditor() {
       !responsiveInteractActive &&
       !(pendingQuestions && pendingQuestions.length > 0),
     shouldHandleEvent: shouldHandleEditorHotkey,
+    canClaimBoundChords: canEditDesign,
     onMoveTool: canEditDesign ? handleMoveTool : undefined,
     // F always means Frame; without forcing the mode it would reuse whichever
     // sub-tool the dropdown last selected.

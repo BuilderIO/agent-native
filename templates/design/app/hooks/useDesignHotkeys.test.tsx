@@ -853,6 +853,14 @@ describe("useDesignHotkeys — minimize UI and show/hide comments", () => {
     },
   );
 
+  it("leaves bound chords to the browser on a design the viewer cannot edit", async () => {
+    let event: KeyboardEvent | undefined;
+    await withHotkeys({ canClaimBoundChords: false }, () => {
+      event = dispatchKey("d", { metaKey: true, code: "KeyD" });
+    });
+    expect(event?.defaultPrevented).toBe(false);
+  });
+
   it("leaves Escape to the running app when onEscape is withheld", async () => {
     let event: KeyboardEvent | undefined;
     await withHotkeys({}, () => {

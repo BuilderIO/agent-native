@@ -2386,9 +2386,7 @@ const LayerRow = memo(function LayerRow({
               >
                 <IconStackFront className="size-3.5 text-muted-foreground" />
                 {labels.bringToFront}
-                <ContextMenuShortcut>
-                  {shortcut("$mod+shift+]")}
-                </ContextMenuShortcut>
+                <ContextMenuShortcut>{shortcut("]")}</ContextMenuShortcut>
               </ContextMenuItem>
               <ContextMenuItem
                 className="gap-2 text-[12px]"
@@ -2398,9 +2396,7 @@ const LayerRow = memo(function LayerRow({
               >
                 <IconStackBack className="size-3.5 text-muted-foreground" />
                 {labels.sendToBack}
-                <ContextMenuShortcut>
-                  {shortcut("$mod+shift+[")}
-                </ContextMenuShortcut>
+                <ContextMenuShortcut>{shortcut("[")}</ContextMenuShortcut>
               </ContextMenuItem>
             </>
           ) : null}
