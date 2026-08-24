@@ -225,6 +225,40 @@ describe("tracking providers", () => {
     });
   });
 
+  it("sends a buffered event's own time to PostHog, not the flush time", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("POSTHOG_API_KEY", "ph_test");
+    vi.stubEnv("POSTHOG_HOST", "https://us.i.posthog.com");
+    const { flushTracking, registerBuiltinProviders, track } =
+      await freshTrackingModules();
+
+    registerBuiltinProviders();
+    const toolStartedAt = Date.parse("2026-08-24T17:53:18.793Z");
+    track(
+      "$ai_span",
+      { $ai_trace_id: "run-1", $ai_span_name: "run-query" },
+      { userId: "u1", occurredAt: toolStartedAt },
+    );
+    track(
+      "page_viewed",
+      { path: "/" },
+      { userId: "u1", occurredAt: toolStartedAt },
+    );
+    await flushTracking();
+
+    // Top level, not inside `properties`: a `properties.timestamp` is an
+    // ordinary custom property to PostHog, and the event lands at its
+    // ingestion time. An agent run flushes its whole tree at the end, so that
+    // collapsed every span in a multi-minute run onto the same instant.
+    for (const [, init] of fetchMock.mock.calls) {
+      const body = JSON.parse(init.body);
+      expect(body.timestamp).toBe("2026-08-24T17:53:18.793Z");
+      expect(body.properties).not.toHaveProperty("timestamp");
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("reshapes tracked exceptions into PostHog's $exception_list", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
     vi.stubGlobal("fetch", fetchMock);

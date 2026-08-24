@@ -136,6 +136,12 @@ export default function ObservabilityPage() {
 
 分数解释：0-20 = 健康，20-40 = 摩擦，40-60 = 不满意，60+ = 中断的训练。
 
+### PostHog 中的反馈 {#posthog-feedback}
+
+点赞/点踩、分类和自由文本都会发送 `$ai_feedback`。而 PostHog LLM 分析的反馈视图读取的是 `survey sent` 事件，因此请把 `POSTHOG_AI_FEEDBACK_SURVEY_ID` 设为 PostHog 从追踪的 **Feedback** 标签页创建的调查。这一个 id 就是全部配置；未设置时不会发送任何调查事件。
+
+点赞/点踩以 PostHog 的选项序号回答调查的第一个问题（`1` 为赞，`2` 为踩），点踩之后的自由文本则回答追问，因此文本绝不会落在评分的位置。两者对同一条被评价的消息使用同一个提交 id，PostHog 正是据此把它们合并为一条回答；在追问到达之前，点踩会一直标记为未完成。
+
 ## 自动评估 {#evals}
 
 每次代理运行后都会运行五个确定性记分器：

@@ -115,7 +115,7 @@ describe("emitAiFeedbackSurveyEvent", () => {
     expect(body.distinct_id).toBe("alice@example.test");
     expect(body.properties).toMatchObject({
       $survey_id: "survey-abc",
-      $survey_response: "the answer cited the wrong doc",
+      $survey_response_1: "the answer cited the wrong doc",
       $survey_submission_id: "sub-1",
       $survey_completed: true,
       $ai_trace_id: "run-1",
@@ -124,24 +124,37 @@ describe("emitAiFeedbackSurveyEvent", () => {
     });
   });
 
-  it("uses the per-question response key when a question id is configured", async () => {
+  it("answers the rating question with PostHog's choice index, not a label", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
     vi.stubGlobal("fetch", fetchMock);
     vi.stubEnv("POSTHOG_AI_FEEDBACK_SURVEY_ID", "survey-abc");
-    vi.stubEnv("POSTHOG_AI_FEEDBACK_SURVEY_QUESTION_ID", "q1");
     vi.stubEnv("POSTHOG_API_KEY", "phc_test");
     const mod = await freshModules();
 
+    mod.emitAiFeedbackSurveyEvent({ ...base, feedbackType: "thumbs_up" });
+    mod.emitAiFeedbackSurveyEvent({ ...base, feedbackType: "thumbs_down" });
     mod.emitAiFeedbackSurveyEvent({
       ...base,
       feedbackType: "text",
-      value: "slow",
+      value: "cited the wrong doc",
     });
     await mod.flushTracking();
 
-    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
-    expect(body.properties["$survey_response_q1"]).toBe("slow");
-    expect(body.properties).not.toHaveProperty("$survey_response");
+    const [up, down, followUp] = fetchMock.mock.calls.map(
+      (call) => JSON.parse(call[1].body).properties,
+    );
+    // 1 = thumbs up, 2 = thumbs down, on the survey's first question.
+    expect(up.$survey_response).toBe(1);
+    expect(down.$survey_response).toBe(2);
+    // The free text answers the follow-up question, never the rating.
+    expect(followUp.$survey_response_1).toBe("cited the wrong doc");
+    expect(followUp).not.toHaveProperty("$survey_response");
+    // A thumbs-down opens that follow-up, so the response stays open until the
+    // text lands under the same submission id.
+    expect(up.$survey_completed).toBe(true);
+    expect(down.$survey_completed).toBe(false);
+    expect(followUp.$survey_completed).toBe(true);
+    expect(followUp.$survey_submission_id).toBe(down.$survey_submission_id);
   });
 });
 
@@ -151,14 +164,48 @@ describe("boundAiContent", () => {
     expect(boundAiContent(value)).toEqual({ value, truncated: false });
   });
 
-  it("replaces oversized payloads with a marker instead of a partial one", () => {
+  it("keeps the newest messages and says how many it dropped", () => {
+    // ~2KB each, so the tail fits and the head cannot.
+    const messages = Array.from({ length: 200 }, (_, index) => ({
+      role: index % 2 === 0 ? "user" : "assistant",
+      content: `message ${index} ${"x".repeat(2000)}`,
+    }));
+
+    const result = boundAiContent(messages);
+    const kept = result.value as Array<{ role: string; content: string }>;
+
+    expect(result.truncated).toBe(true);
+    expect(kept[0].content).toMatch(
+      /^\[\d+ earlier message\(s\) omitted: \d+ bytes exceeded the \d+-byte/,
+    );
+    // The last turn — the one a trace is opened for — survives.
+    expect(kept[kept.length - 1].content).toContain("message 199");
+    expect(kept.length).toBeGreaterThan(1);
+    expect(kept.length).toBeLessThan(messages.length);
+    // And what survives still fits the ceiling.
+    expect(JSON.stringify(kept).length).toBeLessThanOrEqual(
+      MAX_AI_CONTENT_BYTES,
+    );
+  });
+
+  it("marks a single oversized message rather than shipping half of it", () => {
     const huge = [{ role: "user", content: "x".repeat(MAX_AI_CONTENT_BYTES) }];
     const result = boundAiContent(huge);
+    const kept = result.value as Array<{ content: string }>;
+
+    expect(result.truncated).toBe(true);
+    expect(kept).toHaveLength(1);
+    expect(kept[0].content).toContain("omitted");
+    // Never a silently shortened version of the real content.
+    expect(JSON.stringify(result.value)).not.toContain("xxxx");
+  });
+
+  it("still placeholders an oversized value that has no tail to keep", () => {
+    const result = boundAiContent("y".repeat(MAX_AI_CONTENT_BYTES + 10));
 
     expect(result.truncated).toBe(true);
     expect(String(result.value)).toContain("truncated");
-    // Never a silently shortened version of the real content.
-    expect(String(result.value)).not.toContain("xxxx");
+    expect(String(result.value)).not.toContain("yyyy");
   });
 
   it("marks unserializable values rather than dropping them silently", () => {

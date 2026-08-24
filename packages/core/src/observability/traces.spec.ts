@@ -279,12 +279,13 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
       }),
     });
 
+    // A `no_progress` cut-off is OUR boundary, not a failed model call: the
+    // run is marked failed, the generation that answered normally is not.
+    expect(trace!.properties?.["$ai_error_type"]).toBe("no_progress");
     const generation = events.find((event) => event.name === "$ai_generation");
-    expect(generation!.properties).toMatchObject({
-      status: "error",
-      terminal_state: "failed",
-      terminal_code: "no_progress",
-    });
+    expect(generation!.properties?.status).toBe("success");
+    expect(generation!.properties?.["$ai_is_error"]).toBe(false);
+    expect(generation!.properties).not.toHaveProperty("terminal_state");
   });
 
   // A trace from a scheduled automation was indistinguishable from a chat turn
@@ -561,7 +562,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(JSON.stringify(choices)).not.toContain("must-not-be-tracked");
   });
 
-  it("exports messages and tool definitions when capturePrompts is on", async () => {
+  it("exports messages when capturePrompts is on", async () => {
     const events: TrackingEvent[] = [];
     registerTrackingProvider({
       name: "qa-ai-generation",
@@ -616,12 +617,75 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(events[0]?.properties?.["$ai_output_choices"]).toEqual([
       { role: "assistant", content: "Run pnpm deploy." },
     ]);
-    expect(events[0]?.properties?.["$ai_tools"]).toEqual([
-      {
-        type: "function",
-        function: { name: "search", description: "Search the docs" },
+    // The app's tool catalogue is never shipped: it is identical on every call
+    // and the calls that happened are already named in `$ai_output_choices`
+    // and in their own spans.
+    expect(events[0]?.properties).not.toHaveProperty("$ai_tools");
+  });
+
+  it("captures the request messages, not the transcript the loop appended to", async () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        if (event.name === "$ai_generation" || event.name === "$ai_trace") {
+          events.push(event);
+        }
       },
+    });
+
+    const loopOpts: any = {
+      engine: { name: "anthropic" },
+      model: "claude-test",
+      systemPrompt: "",
+      tools: [],
+      messages: [{ role: "user", content: "hello!" }],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    };
+
+    await instrumentAgentLoop({
+      // Every engine loop in this framework appends its own turns to the array
+      // it was handed — assistant replies, tool results, continuation prompts.
+      runAgentLoop: async ({ send, messages }) => {
+        send({ type: "text", text: "Hi there." });
+        messages.push({ role: "assistant", content: "Hi there." });
+        return {
+          inputTokens: 5,
+          outputTokens: 3,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "claude-test",
+          usageReported: true,
+        };
+      },
+      loopOpts,
+      runId: "run-mutated",
+      threadId: "thread-mutated",
+      userId: "user@example.com",
+      config: {
+        ...DEFAULT_OBSERVABILITY_CONFIG,
+        enabled: true,
+        capturePrompts: true,
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const generation = events.find((e) => e.name === "$ai_generation");
+    const trace = events.find((e) => e.name === "$ai_trace");
+    expect(generation?.properties?.["$ai_input"]).toEqual([
+      { role: "user", content: "hello!" },
     ]);
+    // The reply belongs to the output side only; PostHog rendered it as part of
+    // the prompt when the mutated array was read back after the run.
+    expect(generation?.properties?.["$ai_output_choices"]).toEqual([
+      { role: "assistant", content: "Hi there." },
+    ]);
+    // Content rides the generations, never a second copy on the trace.
+    expect(trace?.properties).not.toHaveProperty("$ai_input_state");
+    expect(trace?.properties).not.toHaveProperty("$ai_output_state");
   });
 
   it("emits an $ai_trace for the run and an $ai_span per tool call", async () => {
@@ -710,9 +774,12 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     ]);
     const failed = spans.find((s) => s.properties?.["$ai_is_error"] === true);
     expect(failed?.properties?.["$ai_span_name"]).toBe("write");
-    // The failure is visible, but the tool's result text is withheld: this run
-    // has the default `captureToolResults: false`.
-    expect(failed?.properties).not.toHaveProperty("$ai_error");
+    // The failure is visible and classified, but the tool's result text is
+    // withheld: this run has the default `captureToolResults: false`.
+    expect(failed?.properties?.["$ai_error_type"]).toBe("tool_error");
+    expect(
+      (failed?.properties?.["$ai_error"] as { message: string })?.message,
+    ).toContain("withheld");
   });
 
   it("omits tool span content unless capture is enabled", async () => {
@@ -822,10 +889,15 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
 
     await run(false);
     await new Promise((resolve) => setTimeout(resolve, 0));
-    // Withheld entirely, but the failure is still visible.
+    // The tool's text is withheld, but the span says so and says what kind of
+    // failure it was — never just a bare `$ai_is_error`.
     expect(events).toHaveLength(1);
     expect(events[0]?.properties?.["$ai_is_error"]).toBe(true);
-    expect(events[0]?.properties).not.toHaveProperty("$ai_error");
+    expect(events[0]?.properties?.["$ai_error_type"]).toBe("tool_error");
+    expect(
+      (events[0]?.properties?.["$ai_error"] as { message: string })?.message,
+    ).toContain("withheld");
+    expect(JSON.stringify(events[0])).not.toContain("abcdef123456");
     expect(events[0]?.properties).not.toHaveProperty("$ai_output_state");
 
     events.length = 0;
@@ -2044,17 +2116,34 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     const trace = byName.get("$ai_trace")?.[0];
-    const generation = byName.get("$ai_generation")?.[0];
+    const generations = byName.get("$ai_generation") ?? [];
     const spans = byName.get("$ai_span") ?? [];
     expect(spans).toHaveLength(2);
 
-    expect(generation?.properties?.latency_source).toBe("measured");
-    const generationLatency = generation?.properties?.["$ai_latency"] as number;
-    const runSeconds = (trace?.properties?.duration_ms as number) / 1000;
+    // One generation per round-trip, each carrying its own bracket and none of
+    // the 40ms tool window between them. Under the old aggregate the run was a
+    // single generation covering all 80ms.
+    expect(generations).toHaveLength(2);
+    expect(
+      generations.map((e) => e.properties?.["$ai_latency"] as number),
+    ).toEqual([0.02, 0.02]);
+    expect(generations.map((e) => e.properties?.latency_source)).toEqual([
+      "measured",
+      "measured",
+    ]);
+    // Both tools were requested by the first call, so PostHog draws them under
+    // it rather than under the trace root.
+    expect(spans.map((e) => e.properties?.["$ai_parent_id"])).toEqual([
+      generations[0]?.properties?.["$ai_span_id"],
+      generations[0]?.properties?.["$ai_span_id"],
+    ]);
+    // Every generation is one request: `$ai_request_count` prices this call,
+    // not the run.
+    expect(generations.map((e) => e.properties?.["$ai_request_count"])).toEqual(
+      [1, 1],
+    );
 
-    // Exactly the two 20ms brackets, and none of the 40ms tool window between
-    // them. Under the old subtraction this run reported 80 - 80 = 0.
-    expect(generationLatency).toBe(0.04);
+    const runSeconds = (trace?.properties?.duration_ms as number) / 1000;
     expect(runSeconds).toBe(0.08);
 
     // Each tool reports its own real duration, so two tools sharing one 40ms
@@ -2066,6 +2155,269 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(spans.map((e) => e.properties?.["$ai_latency"] as number)).toEqual([
       0.04, 0.04,
     ]);
+  });
+
+  it("gives each round-trip its own prompt, answer, and tokens", async () => {
+    const byName = new Map<string, TrackingEvent[]>();
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        if (!event.name.startsWith("$ai_")) return;
+        const list = byName.get(event.name) ?? [];
+        list.push(event);
+        byName.set(event.name, list);
+      },
+    });
+
+    const loopOpts: any = {
+      engine: { name: "anthropic" },
+      model: "claude-test",
+      systemPrompt: "",
+      tools: [{ name: "read", description: "Read a file", inputSchema: {} }],
+      messages: [{ role: "user", content: "read the config" }],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    };
+
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ send, messages, onUsage }) => {
+        send({ type: "model_stream", status: "start" });
+        send({ type: "text", text: "Let me look." });
+        onUsage?.({
+          inputTokens: 100,
+          outputTokens: 10,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "claude-test",
+        } as any);
+        send({ type: "model_stream", status: "end", reason: "tool_use" });
+        messages.push({ role: "assistant", content: "Let me look." });
+
+        send({ type: "tool_start", id: "a", tool: "read", input: {} });
+        send({ type: "tool_done", id: "a", tool: "read", result: "ok" });
+        messages.push({ role: "user", content: "ok" });
+
+        send({ type: "model_stream", status: "start" });
+        send({ type: "text", text: "Port 8080." });
+        onUsage?.({
+          inputTokens: 300,
+          outputTokens: 20,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "claude-test",
+        } as any);
+        send({ type: "model_stream", status: "end", reason: "end_turn" });
+        return {
+          inputTokens: 400,
+          outputTokens: 30,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "claude-test",
+          usageReported: true,
+          llmCalls: 2,
+        };
+      },
+      loopOpts,
+      runId: "run-split",
+      threadId: "thread-split",
+      userId: "user@example.com",
+      config: {
+        ...DEFAULT_OBSERVABILITY_CONFIG,
+        enabled: true,
+        capturePrompts: true,
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const generations = byName.get("$ai_generation") ?? [];
+    expect(generations).toHaveLength(2);
+
+    // Each call reports the tokens it actually used, not the run's total split
+    // or repeated.
+    expect(generations.map((e) => e.properties?.["$ai_input_tokens"])).toEqual([
+      100, 300,
+    ]);
+    expect(generations.map((e) => e.properties?.["$ai_output_tokens"])).toEqual(
+      [10, 20],
+    );
+
+    // The first call saw only the user's message; the second saw the answer and
+    // the tool result the loop appended in between.
+    expect(generations[0]?.properties?.["$ai_input"]).toEqual([
+      { role: "user", content: "read the config" },
+    ]);
+    expect(generations[1]?.properties?.["$ai_input"]).toEqual([
+      { role: "user", content: "read the config" },
+      { role: "assistant", content: "Let me look." },
+      { role: "user", content: "ok" },
+    ]);
+    expect(generations[0]?.properties?.["$ai_output_choices"]).toEqual([
+      {
+        role: "assistant",
+        content: "Let me look.",
+        tool_calls: [
+          {
+            type: "function",
+            id: expect.any(String),
+            function: { name: "read" },
+          },
+        ],
+      },
+    ]);
+    expect(generations[1]?.properties?.["$ai_output_choices"]).toEqual([
+      { role: "assistant", content: "Port 8080." },
+    ]);
+
+    // Why each call stopped: the first handed off to a tool, the second was
+    // done. A `max_tokens` here is the only signal that an answer was cut off.
+    expect(generations.map((e) => e.properties?.["$ai_stop_reason"])).toEqual([
+      "tool_use",
+      "end_turn",
+    ]);
+
+    // The tool catalogue rides no event at all.
+    expect(generations[0]?.properties).not.toHaveProperty("$ai_tools");
+    expect(generations[1]?.properties).not.toHaveProperty("$ai_tools");
+  });
+
+  it("marks the failing layer: the model call, the tool, or the run", async () => {
+    const byName = new Map<string, TrackingEvent[]>();
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        if (!event.name.startsWith("$ai_")) return;
+        const list = byName.get(event.name) ?? [];
+        list.push(event);
+        byName.set(event.name, list);
+      },
+    });
+
+    const loopOpts: any = {
+      engine: { name: "anthropic" },
+      model: "claude-test",
+      systemPrompt: "",
+      tools: [],
+      messages: [],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    };
+
+    // The model answered; a tool then failed and stopped the run.
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ send }) => {
+        send({ type: "model_stream", status: "start" });
+        send({ type: "model_stream", status: "end" });
+        send({ type: "tool_start", id: "a", tool: "read", input: {} });
+        send({
+          type: "tool_done",
+          id: "a",
+          tool: "read",
+          result: "boom",
+          isError: true,
+        });
+        send({ type: "error", error: "read failed" } as any);
+        return {
+          inputTokens: 10,
+          outputTokens: 5,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "claude-test",
+          usageReported: true,
+          llmCalls: 1,
+        };
+      },
+      loopOpts,
+      runId: "run-tool-failed",
+      threadId: null,
+      userId: null,
+      config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // The tool failed and the run failed; the model call did not.
+    expect(byName.get("$ai_span")?.[0]?.properties?.["$ai_is_error"]).toBe(
+      true,
+    );
+    expect(byName.get("$ai_trace")?.[0]?.properties?.["$ai_is_error"]).toBe(
+      true,
+    );
+    expect(
+      byName.get("$ai_generation")?.[0]?.properties?.["$ai_is_error"],
+    ).toBe(false);
+
+    byName.clear();
+
+    // The run died with the model's stream still open — that call failed.
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ send }) => {
+        send({ type: "model_stream", status: "start" });
+        throw new Error("provider stream reset");
+      },
+      loopOpts,
+      runId: "run-model-failed",
+      threadId: null,
+      userId: null,
+      config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+    }).catch(() => {});
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const failed = byName.get("$ai_generation")?.[0];
+    expect(failed?.properties?.["$ai_is_error"]).toBe(true);
+    expect(
+      (failed?.properties?.["$ai_error"] as { message: string })?.message,
+    ).toBe("provider stream reset");
+  });
+
+  it("never reports a failure with nothing in $ai_error", async () => {
+    const byName = new Map<string, TrackingEvent[]>();
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        if (!event.name.startsWith("$ai_")) return;
+        const list = byName.get(event.name) ?? [];
+        list.push(event);
+        byName.set(event.name, list);
+      },
+    });
+
+    await instrumentAgentLoop({
+      runAgentLoop: async () => {
+        throw new Error("boom");
+      },
+      loopOpts: {
+        engine: { name: "anthropic" },
+        model: "claude-test",
+        systemPrompt: "",
+        tools: [],
+        messages: [],
+        actions: {},
+        send: () => {},
+        signal: new AbortController().signal,
+      } as any,
+      runId: "run-silent-failure",
+      threadId: null,
+      userId: null,
+      config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+      // A classifier may report a failure with no message of its own.
+      classifyError: () => ({ status: "error", errorMessage: null }),
+    }).catch(() => {});
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // `$ai_is_error` alone tells the reader something broke and nothing else.
+    for (const event of [
+      byName.get("$ai_trace")?.[0],
+      byName.get("$ai_generation")?.[0],
+    ]) {
+      expect(event?.properties?.["$ai_is_error"]).toBe(true);
+      expect(
+        (event?.properties?.["$ai_error"] as { message: string })?.message,
+      ).toBeTruthy();
+      expect(event?.properties?.["$ai_error_type"]).toBeTruthy();
+    }
   });
 
   // The fallback still has to exist for engines that never bracket their model
@@ -2423,64 +2775,62 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(events[0]?.properties?.["$ai_request_count"]).toBe(4);
   });
 
-  // PostHog reads a trace's input/output state ONLY from the `$ai_trace`
-  // event, so a trace that never carried them showed an empty detail view.
-  it("carries trace input/output state when capturePrompts is on, and omits it when off", async () => {
+  // Every round-trip emits a generation carrying its own prompt and answer, so
+  // a trace-level copy was the first call's prompt and the last call's answer
+  // shipped a second time.
+  it("keeps run content on the generations rather than repeating it on the trace", async () => {
     const events: TrackingEvent[] = [];
     registerTrackingProvider({
       name: "qa-ai-generation",
       track(event) {
-        if (event.name === "$ai_trace") events.push(event);
+        if (event.name === "$ai_trace" || event.name === "$ai_generation") {
+          events.push(event);
+        }
       },
     });
 
-    const run = (capturePrompts: boolean) =>
-      instrumentAgentLoop({
-        runAgentLoop: async ({ send }: any) => {
-          send({ type: "text", text: "the weather is fine" });
-          return {
-            inputTokens: 10,
-            outputTokens: 5,
-            cacheReadTokens: 0,
-            cacheWriteTokens: 0,
-            model: "claude-test",
-            usageReported: true,
-          };
-        },
-        loopOpts: {
-          engine: { name: "anthropic" },
+    await instrumentAgentLoop({
+      runAgentLoop: async ({ send }: any) => {
+        send({ type: "text", text: "the weather is fine" });
+        return {
+          inputTokens: 10,
+          outputTokens: 5,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
           model: "claude-test",
-          systemPrompt: "",
-          tools: [],
-          messages: [{ role: "user", content: "what is the weather?" }],
-          actions: {},
-          send: () => {},
-          signal: new AbortController().signal,
-        } as any,
-        runId: `run-trace-state-${capturePrompts}`,
-        threadId: null,
-        userId: null,
-        config: {
-          ...DEFAULT_OBSERVABILITY_CONFIG,
-          enabled: true,
-          capturePrompts,
-        },
-      });
+          usageReported: true,
+        };
+      },
+      loopOpts: {
+        engine: { name: "anthropic" },
+        model: "claude-test",
+        systemPrompt: "",
+        tools: [],
+        messages: [{ role: "user", content: "what is the weather?" }],
+        actions: {},
+        send: () => {},
+        signal: new AbortController().signal,
+      } as any,
+      runId: "run-trace-state",
+      threadId: null,
+      userId: null,
+      config: {
+        ...DEFAULT_OBSERVABILITY_CONFIG,
+        enabled: true,
+        capturePrompts: true,
+      },
+    });
 
-    await run(false);
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    // Absent, not empty — an empty array reads as "the run had no messages".
-    expect(events[0]?.properties).not.toHaveProperty("$ai_input_state");
-    expect(events[0]?.properties).not.toHaveProperty("$ai_output_state");
-
-    events.length = 0;
-    await run(true);
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(events[0]?.properties?.["$ai_input_state"]).toEqual([
+    const trace = events.find((e) => e.name === "$ai_trace");
+    const generation = events.find((e) => e.name === "$ai_generation");
+    expect(trace?.properties).not.toHaveProperty("$ai_input_state");
+    expect(trace?.properties).not.toHaveProperty("$ai_output_state");
+    expect(generation?.properties?.["$ai_input"]).toEqual([
       { role: "user", content: "what is the weather?" },
     ]);
-    expect(events[0]?.properties?.["$ai_output_state"]).toEqual([
+    expect(generation?.properties?.["$ai_output_choices"]).toEqual([
       { role: "assistant", content: "the weather is fine" },
     ]);
   });

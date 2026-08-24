@@ -24,10 +24,10 @@
  * schema, and a name it does not define today it may define tomorrow with
  * different meaning — `input_truncated` / `spans_dropped` cannot collide.
  *
- * Content (`$ai_input` / `$ai_output_choices` / `$ai_input_state` /
- * `$ai_output_state`) is gated on config and always OMITTED when disabled.
- * Sending `[]` instead would be indistinguishable from a run that genuinely had
- * no messages.
+ * Content (a generation's `$ai_input` / `$ai_output_choices`, a span's
+ * `$ai_input_state` / `$ai_output_state`) is gated on config and always OMITTED
+ * when disabled. Sending `[]` instead would be indistinguishable from a run
+ * that genuinely had no messages.
  *
  * @see https://posthog.com/docs/ai-observability/traces
  * @see https://posthog.com/docs/ai-observability/spans
@@ -46,6 +46,25 @@ export interface AiErrorDetail {
   terminal_code?: string;
   terminal_state?: string;
   retryable?: boolean;
+}
+
+/**
+ * `$ai_is_error: true` with no `$ai_error` is a dead end: the reader learns
+ * something broke and nothing else, which is how a failed tool span reached
+ * PostHog saying only "error". Emitters fall back to this rather than shipping
+ * the flag alone — a layer that failed without reporting a message is itself
+ * worth seeing, and is not the same as a message we chose to withhold.
+ */
+const UNREPORTED_ERROR: AiErrorDetail = {
+  message: "failed without a reported error message",
+};
+
+export function resolveAiError(
+  isError: boolean,
+  error: AiErrorDetail | undefined,
+): AiErrorDetail | undefined {
+  if (!isError) return undefined;
+  return error ?? UNREPORTED_ERROR;
 }
 
 function trackAiEvent(
@@ -69,12 +88,27 @@ function trackAiEvent(
   }
 }
 
+function utf8Bytes(text: string): number {
+  return typeof Buffer !== "undefined"
+    ? Buffer.byteLength(text, "utf8")
+    : new TextEncoder().encode(text).length;
+}
+
+/** Room reserved for the marker entry that reports what was dropped. */
+const OMISSION_MARKER_BYTES = 512;
+
 /**
  * Serialize a content value under a byte ceiling.
  *
- * Returns `{ truncated: true }` with a placeholder rather than a silently
- * shortened payload — a trace that shows half a conversation as if it were the
- * whole one is worse than one that says it was cut.
+ * A message list is cut from the FRONT and keeps as many of the newest messages
+ * as fit, led by a marker entry naming what was dropped. The last turns are the
+ * ones a trace is read for, and replacing the whole conversation with a
+ * placeholder — which is what this did — threw away a debuggable 128KB along
+ * with the 115KB that did not fit.
+ *
+ * Anything else (a string, an object) still becomes a placeholder: there is no
+ * meaningful tail to keep. Either way `truncated` is true, so a cut payload can
+ * never be read as a complete one.
  */
 export function boundAiContent(value: unknown): {
   value: unknown;
@@ -88,11 +122,38 @@ export function boundAiContent(value: unknown): {
   }
   if (serialized === undefined) return { value: undefined, truncated: false };
 
-  const bytes =
-    typeof Buffer !== "undefined"
-      ? Buffer.byteLength(serialized, "utf8")
-      : new TextEncoder().encode(serialized).length;
+  const bytes = utf8Bytes(serialized);
   if (bytes <= MAX_AI_CONTENT_BYTES) return { value, truncated: false };
+
+  if (Array.isArray(value)) {
+    const budget = MAX_AI_CONTENT_BYTES - OMISSION_MARKER_BYTES;
+    const kept: unknown[] = [];
+    let used = 0;
+    let firstKept = value.length;
+    for (let index = value.length - 1; index >= 0; index -= 1) {
+      let entry: string;
+      try {
+        entry = JSON.stringify(value[index]) ?? "null";
+      } catch {
+        break;
+      }
+      const entryBytes = utf8Bytes(entry) + 1; // the separating comma
+      if (used + entryBytes > budget) break;
+      used += entryBytes;
+      kept.unshift(value[index]);
+      firstKept = index;
+    }
+    return {
+      value: [
+        {
+          role: "system",
+          content: `[${firstKept} earlier message(s) omitted: ${bytes} bytes exceeded the ${MAX_AI_CONTENT_BYTES}-byte trace content limit]`,
+        },
+        ...kept,
+      ],
+      truncated: true,
+    };
+  }
 
   return {
     value: `[truncated: ${bytes} bytes exceeded the ${MAX_AI_CONTENT_BYTES}-byte trace content limit]`,
@@ -113,6 +174,10 @@ export interface AiTraceEventInput {
   durationMs: number;
   isError: boolean;
   error?: AiErrorDetail;
+  /** What KIND of failure this was — a terminal code, a cut-off reason, an
+   *  engine error code. A classification, never content, so it ships even when
+   *  the message is withheld. */
+  errorType?: string;
   inputTokens?: number;
   outputTokens?: number;
   costUsd?: number;
@@ -120,22 +185,17 @@ export interface AiTraceEventInput {
   /** Browser session id, when the run originated from a page. Links the trace
    *  to PostHog session replay. */
   browserSessionId?: string;
-  /** Omitted unless `capturePrompts` is on. */
-  inputState?: unknown;
-  outputState?: unknown;
   extraProperties?: Record<string, unknown>;
 }
 
+/**
+ * The run's prompt and answer are NOT carried here. Every round-trip emits a
+ * generation with its own `$ai_input` / `$ai_output_choices`, so a trace-level
+ * copy repeated the first call's prompt and the last call's answer on a second
+ * event. The trace owns what only it knows: the run's name, failure, metadata
+ * and totals.
+ */
 export function emitAiTraceEvent(input: AiTraceEventInput): void {
-  const inputContent =
-    input.inputState === undefined
-      ? undefined
-      : boundAiContent(input.inputState);
-  const outputContent =
-    input.outputState === undefined
-      ? undefined
-      : boundAiContent(input.outputState);
-
   trackAiEvent(
     "$ai_trace",
     {
@@ -146,15 +206,14 @@ export function emitAiTraceEvent(input: AiTraceEventInput): void {
       $ai_model: input.model,
       $ai_provider: input.provider,
       $ai_is_error: input.isError,
-      $ai_error: input.error,
+      $ai_error: resolveAiError(input.isError, input.error),
+      $ai_error_type: input.isError
+        ? (input.errorType ?? "run_error")
+        : undefined,
       duration_ms: Math.round(input.durationMs),
       input_tokens: input.inputTokens,
       output_tokens: input.outputTokens,
       cost_usd: input.costUsd,
-      $ai_input_state: inputContent?.value,
-      $ai_output_state: outputContent?.value,
-      input_truncated: inputContent?.truncated || undefined,
-      output_truncated: outputContent?.truncated || undefined,
       $session_id: input.browserSessionId,
       created_at: new Date(input.createdAt).toISOString(),
     },
@@ -174,6 +233,9 @@ export interface AiSpanEventInput {
   latencySeconds: number;
   isError: boolean;
   error?: AiErrorDetail;
+  /** The tool failure's class — `tool_error`, `interrupted`. A classification,
+   *  never the tool's output, so it ships with `captureToolResults` off. */
+  errorType?: string;
   createdAt: number;
   browserSessionId?: string;
   /** Omitted unless `captureToolArgs` / `captureToolResults` are on. */
@@ -203,7 +265,10 @@ export function emitAiSpanEvent(input: AiSpanEventInput): void {
       $ai_span_name: input.spanName,
       $ai_latency: input.latencySeconds,
       $ai_is_error: input.isError,
-      $ai_error: input.error,
+      $ai_error: resolveAiError(input.isError, input.error),
+      $ai_error_type: input.isError
+        ? (input.errorType ?? "tool_error")
+        : undefined,
       $ai_input_state: inputContent?.value,
       $ai_output_state: outputContent?.value,
       input_truncated: inputContent?.truncated || undefined,
@@ -221,12 +286,25 @@ export interface AiFeedbackSurveyInput {
   threadId: string | null;
   userId: string | null;
   feedbackType: "thumbs_up" | "thumbs_down" | "category" | "text";
-  /** The submitted value: sentiment label, chosen category, or free text. */
+  /** The submitted value: chosen category or free text. Ignored for thumbs,
+   *  which answer a rating question and travel as PostHog's choice index. */
   value: string;
+  /** Groups the events of one response. A thumbs-down and the follow-up text
+   *  it opens are two `survey sent` events answering two questions of the SAME
+   *  response, so they must share this id. */
   submissionId: string;
   model?: string;
   browserSessionId?: string;
 }
+
+/**
+ * PostHog's thumbs survey is a choice question, and the response is the
+ * choice's 1-based index — not a label. Sending "thumbs_up" put a string where
+ * the rating belongs, so the vote counted as an unrecognized answer.
+ *
+ * @see https://posthog.com/docs/ai-observability/user-feedback/manual-event-capture
+ */
+const THUMB_RESPONSE_INDEX = { thumbs_up: 1, thumbs_down: 2 } as const;
 
 /**
  * Emit PostHog's documented manual feedback event for an LLM trace.
@@ -235,6 +313,10 @@ export interface AiFeedbackSurveyInput {
  * to a real survey id — `$ai_feedback` is not a PostHog event and renders
  * nowhere. Returns `false` and emits nothing when no survey id is configured:
  * inventing one would produce events attached to a survey that does not exist.
+ *
+ * A thumbs vote answers the survey's first question; a category or free-text
+ * answer answers the follow-up question after it. Both share the caller's
+ * `submissionId`, which is how PostHog joins them into one response.
  *
  * Sent to PostHog ONLY, not through `track()`. The survey response carries the
  * user's free-text feedback verbatim, and configuring a PostHog survey id must
@@ -250,18 +332,27 @@ export function emitAiFeedbackSurveyEvent(
   const surveyId = process.env.POSTHOG_AI_FEEDBACK_SURVEY_ID?.trim();
   if (!surveyId) return false;
 
-  const questionId = process.env.POSTHOG_AI_FEEDBACK_SURVEY_QUESTION_ID?.trim();
-  // PostHog accepts `$survey_response` for a single-question survey and
-  // `$survey_response_<questionId>` when the survey has named questions.
-  const responseKey = questionId
-    ? `$survey_response_${questionId}`
-    : "$survey_response";
+  const thumbResponse =
+    input.feedbackType === "thumbs_up" || input.feedbackType === "thumbs_down"
+      ? THUMB_RESPONSE_INDEX[input.feedbackType]
+      : undefined;
+
+  // `$survey_response` is the survey's first question — the thumbs — and
+  // `$survey_response_1` the follow-up asked after a thumbs-down. Putting the
+  // free text on the first key instead would file prose where the rating
+  // belongs and skew every thumbs metric in the survey.
+  const responses =
+    thumbResponse !== undefined
+      ? { $survey_response: thumbResponse }
+      : { $survey_response_1: input.value };
 
   const properties: Record<string, unknown> = {
     $survey_id: surveyId,
-    [responseKey]: input.value,
+    ...responses,
     $survey_submission_id: input.submissionId,
-    $survey_completed: true,
+    // A thumbs-down opens the follow-up question, so the response is not
+    // complete until that answer arrives (or the user closes it without one).
+    $survey_completed: input.feedbackType !== "thumbs_down",
     $ai_trace_id: input.runId ?? undefined,
     $ai_session_id: input.threadId ?? undefined,
     $ai_model: input.model,

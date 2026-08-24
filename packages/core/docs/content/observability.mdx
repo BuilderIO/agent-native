@@ -297,13 +297,24 @@ All endpoints support `?since=N` (ms timestamp) and `?limit=N` query params.
 When `POSTHOG_API_KEY` is set, every instrumented run is mirrored to PostHog's
 LLM analytics as a full trace tree:
 
-| Event            | Emitted per | Carries                                                 |
-| ---------------- | ----------- | ------------------------------------------------------- |
-| `$ai_trace`      | agent run   | Latency, error state, token totals, cost                |
-| `$ai_generation` | model call  | Model, provider, tokens, cost, tool definitions offered |
-| `$ai_span`       | tool call   | Tool name, duration, error state                        |
+| Event            | Emitted per       | Carries                                                       |
+| ---------------- | ----------------- | ------------------------------------------------------------- |
+| `$ai_trace`      | agent run         | Run name, totals, terminal state, run-level failure           |
+| `$ai_generation` | model round-trip  | Prompt, answer, model, tokens, cost, latency, stop reason     |
+| `$ai_span`       | tool call         | Tool name, duration, failure class                            |
 
-Nodes share the run id as `$ai_trace_id`, so PostHog renders one tree per run.
+Nodes share the run id as `$ai_trace_id`, so PostHog renders one tree per run,
+with each tool span under the generation that requested it. A run's tool
+definitions are never sent: they are the same catalogue on every call, and a
+call is identified by its name in `$ai_output_choices` and by its own span.
+
+`$ai_is_error` means a different thing at each level, and never travels without
+`$ai_error` and `$ai_error_type`. On a generation it is the model call itself
+failing — a provider error, a dropped stream. On a span it is a tool that
+crashed or returned an error. On the trace it is the run: a step budget, a
+timeout, a no-progress cut-off, or a tool that stopped the run. A run that
+failed after the model answered leaves its generations green, because they did
+not fail.
 `$ai_session_id` is the conversation thread; the browser session is sent
 separately as `$session_id` so a trace links to its session replay.
 
@@ -337,9 +348,15 @@ to each other.
 
 Thumbs, category, and free-text feedback all emit `$ai_feedback`. PostHog's LLM
 analytics feedback view reads a `survey sent` event instead, so set
-`POSTHOG_AI_FEEDBACK_SURVEY_ID` (and `POSTHOG_AI_FEEDBACK_SURVEY_QUESTION_ID`
-for multi-question surveys) to populate it. Without a survey id no survey event
-is sent.
+`POSTHOG_AI_FEEDBACK_SURVEY_ID` to the survey PostHog creates from a trace's
+**Feedback** tab. That one id is the whole configuration; without it no survey
+event is sent.
+
+A thumbs vote answers the survey's first question as PostHog's choice index
+(`1` up, `2` down) and the free text after a thumbs-down answers the follow-up
+question, so the text never lands where the rating belongs. Both carry one
+submission id per rated message, which is how PostHog joins them into a single
+response, and a thumbs-down stays marked incomplete until its follow-up arrives.
 
 ## Export to external platforms {#export}
 
