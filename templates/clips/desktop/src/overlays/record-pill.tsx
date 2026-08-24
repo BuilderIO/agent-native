@@ -33,7 +33,7 @@ const RIGHT_EDGE_ANCHOR_PX = 200;
 const FINALIZING_RESULT_STORAGE_KEY = "clips-finalizing-result";
 
 type PillMode = "recording" | "confirm" | "done";
-type Seg = "q" | "del" | "res" | "extras";
+type Seg = "mid" | "q" | "del" | "res" | "extras";
 type DoneStage = "finishing" | "uploading" | "uploaded" | "failed";
 
 type RecorderSession = {
@@ -181,6 +181,7 @@ export function RecordingPill() {
   const pillRef = useRef<HTMLDivElement | null>(null);
   const cardRef = useRef<HTMLDivElement | null>(null);
   const segRefs = useRef<Record<Seg, HTMLSpanElement | null>>({
+    mid: null,
     q: null,
     del: null,
     res: null,
@@ -314,6 +315,7 @@ export function RecordingPill() {
   // under-measure a transition target, so the window budget is computed from
   // this intent instead of from the DOM.
   const openSegsRef = useRef<Record<Seg, boolean>>({
+    mid: true,
     q: false,
     del: false,
     res: false,
@@ -410,6 +412,13 @@ export function RecordingPill() {
       el.style.opacity = "0";
       openSegsRef.current[k] = false;
     }
+    const mid = segRefs.current.mid;
+    if (mid) {
+      mid.style.transition = "none";
+      mid.style.width = "auto";
+      mid.style.opacity = "1";
+      openSegsRef.current.mid = true;
+    }
     setMode("recording");
     clearPauseTransition();
     setPaused(false);
@@ -452,6 +461,7 @@ export function RecordingPill() {
     revealedRef.current = false;
     transitionSegs([
       ["extras", false, 0],
+      ["mid", false, 0],
       ["q", true, 0],
       ["del", true, 20],
       ["res", true, 40],
@@ -470,6 +480,7 @@ export function RecordingPill() {
       ["res", false, 0],
       ["del", false, 20],
       ["q", false, 40],
+      ["mid", true, 40],
     ]);
     setAnnouncement(pausedRef.current ? "Paused" : "Recording");
   }
@@ -1038,31 +1049,41 @@ export function RecordingPill() {
             {timerText}
           </span>
           <span
-            aria-hidden
-            className="ml-3.5 flex h-3.5 w-[13px] flex-none items-center justify-center gap-0.5 transition-opacity duration-150"
-            style={{ opacity: meterFlat ? 0.3 : 1 }}
+            ref={(el) => {
+              segRefs.current.mid = el;
+            }}
+            className="record-pill-seg"
+            style={{ width: "auto", opacity: 1 }}
           >
-            {shownBarHeights.map((h, i) => (
-              <i
-                key={i}
-                className="block w-[3px] rounded-[1px] bg-[var(--pill-meter)] transition-[height] duration-100 ease-out"
-                style={{ height: `${h}px` }}
-              />
-            ))}
+            <span className="inline-flex flex-none items-center">
+              <span
+                aria-hidden
+                className="ml-3.5 flex h-3.5 w-[13px] flex-none items-center justify-center gap-0.5 transition-opacity duration-150"
+                style={{ opacity: meterFlat ? 0.3 : 1 }}
+              >
+                {shownBarHeights.map((h, i) => (
+                  <i
+                    key={i}
+                    className="block w-[3px] rounded-[1px] bg-[var(--pill-meter)] transition-[height] duration-100 ease-out"
+                    style={{ height: `${h}px` }}
+                  />
+                ))}
+              </span>
+              <button
+                type="button"
+                onClick={togglePause}
+                disabled={!enabled || inConfirm}
+                aria-label={showPaused ? "Resume" : "Pause"}
+                className="ml-1.5 flex size-[30px] flex-none items-center justify-center rounded-full text-[var(--pill-ghost-ink)] transition-colors duration-150 hover:text-[var(--pill-on-chrome)] disabled:cursor-default disabled:opacity-50"
+              >
+                {showPaused ? (
+                  <IconPlayerPlayFilled size={14} aria-hidden />
+                ) : (
+                  <IconPlayerPauseFilled size={14} aria-hidden />
+                )}
+              </button>
+            </span>
           </span>
-          <button
-            type="button"
-            onClick={togglePause}
-            disabled={!enabled || inConfirm}
-            aria-label={showPaused ? "Resume" : "Pause"}
-            className="ml-1.5 flex size-[30px] flex-none items-center justify-center rounded-full text-[var(--pill-ghost-ink)] transition-colors duration-150 hover:text-[var(--pill-on-chrome)] disabled:cursor-default disabled:opacity-50"
-          >
-            {showPaused ? (
-              <IconPlayerPlayFilled size={14} aria-hidden />
-            ) : (
-              <IconPlayerPauseFilled size={14} aria-hidden />
-            )}
-          </button>
           <span
             ref={(el) => {
               segRefs.current.q = el;
