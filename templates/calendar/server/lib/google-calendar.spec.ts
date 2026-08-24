@@ -9,6 +9,7 @@ const oauth2GetUserInfoMock = vi.hoisted(() => vi.fn());
 const peopleGetProfileMock = vi.hoisted(() => vi.fn());
 const calendarGetEventMock = vi.hoisted(() => vi.fn());
 const calendarListEventsMock = vi.hoisted(() => vi.fn());
+const calendarListEventInstancesMock = vi.hoisted(() => vi.fn());
 const calendarFreeBusyMock = vi.hoisted(() => vi.fn());
 const calendarInsertEventMock = vi.hoisted(() => vi.fn());
 const calendarDeleteEventMock = vi.hoisted(() => vi.fn());
@@ -82,14 +83,16 @@ vi.mock("./google-api.js", () => ({
   oauth2GetUserInfo: oauth2GetUserInfoMock,
   peopleGetProfile: peopleGetProfileMock,
   calendarListEvents: calendarListEventsMock,
+  calendarListEventInstances: calendarListEventInstancesMock,
   calendarGetEvent: calendarGetEventMock,
   calendarInsertEvent: calendarInsertEventMock,
   calendarDeleteEvent: calendarDeleteEventMock,
   calendarPatchEvent: calendarPatchEventMock,
   calendarUpdateEvent: calendarUpdateEventMock,
   calendarFreeBusy: calendarFreeBusyMock,
-  isGoogleNotFoundError: (error: unknown) =>
-    error instanceof Error && /^Google API error \(404\):/.test(error.message),
+  isGoogleEventAbsentError: (error: unknown) =>
+    error instanceof Error &&
+    /^Google API error \((?:404|410)\):/.test(error.message),
 }));
 
 import {
@@ -1060,6 +1063,7 @@ describe("calendar event creation", () => {
 describe("calendar recurring event updates", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    calendarListEventInstancesMock.mockReset();
     listOAuthAccountsByOwnerMock.mockResolvedValue([
       {
         accountId: "steve@example.com",
@@ -1117,16 +1121,41 @@ describe("calendar recurring event updates", () => {
     );
   });
 
-  it("removes a selected exception when deleting this and following", async () => {
+  it("removes selected and later materialized exceptions when deleting this and following", async () => {
     calendarGetEventMock
       .mockResolvedValueOnce({
         id: "instance-1",
         recurringEventId: "series-1",
-        start: { dateTime: "2026-05-20T15:00:00Z" },
+        start: { dateTime: "2026-05-01T15:00:00Z" },
+        originalStartTime: { dateTime: "2026-05-20T15:00:00Z" },
       })
       .mockResolvedValueOnce({
         id: "series-1",
+        start: { dateTime: "2026-05-06T15:00:00Z" },
         recurrence: ["RRULE:FREQ=WEEKLY"],
+      });
+    calendarListEventInstancesMock
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: "instance-1",
+            originalStartTime: { dateTime: "2026-05-20T15:00:00Z" },
+            start: { dateTime: "2026-05-01T15:00:00Z" },
+          },
+          {
+            id: "instance-before",
+            originalStartTime: { dateTime: "2026-05-13T15:00:00Z" },
+          },
+        ],
+        nextPageToken: "page-2",
+      })
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: "instance-2",
+            originalStartTime: { dateTime: "2026-05-27T15:00:00Z" },
+          },
+        ],
       });
 
     await deleteEvent(
@@ -1151,6 +1180,68 @@ describe("calendar recurring event updates", () => {
       "instance-1",
       undefined,
     );
+    expect(calendarDeleteEventMock).toHaveBeenCalledWith(
+      "access-token",
+      "primary",
+      "instance-2",
+      undefined,
+    );
+    expect(calendarDeleteEventMock).not.toHaveBeenCalledWith(
+      "access-token",
+      "primary",
+      "instance-before",
+      undefined,
+    );
+    expect(calendarListEventInstancesMock).toHaveBeenNthCalledWith(
+      1,
+      "access-token",
+      "primary",
+      "series-1",
+      {
+        timeMin: "2026-05-06T15:00:00Z",
+        maxResults: 2500,
+        pageToken: undefined,
+      },
+    );
+    expect(calendarListEventInstancesMock).toHaveBeenNthCalledWith(
+      2,
+      "access-token",
+      "primary",
+      "series-1",
+      {
+        timeMin: "2026-05-06T15:00:00Z",
+        maxResults: 2500,
+        pageToken: "page-2",
+      },
+    );
+  });
+
+  it("treats a gone occurrence as already absent after truncating the series", async () => {
+    calendarGetEventMock
+      .mockResolvedValueOnce({
+        id: "instance-1",
+        recurringEventId: "series-1",
+        start: { dateTime: "2026-05-20T15:00:00Z" },
+      })
+      .mockResolvedValueOnce({
+        id: "series-1",
+        start: { dateTime: "2026-05-06T15:00:00Z" },
+        recurrence: ["RRULE:FREQ=WEEKLY"],
+      });
+    calendarDeleteEventMock.mockRejectedValue(
+      new Error("Google API error (410): Gone"),
+    );
+
+    await expect(
+      deleteEvent(
+        "instance-1",
+        {
+          ownerEmail: "steve@example.com",
+          accountEmail: "steve@example.com",
+        },
+        { scope: "thisAndFollowing" },
+      ),
+    ).resolves.toBeUndefined();
   });
 });
 

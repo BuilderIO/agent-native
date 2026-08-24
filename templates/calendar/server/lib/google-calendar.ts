@@ -24,13 +24,14 @@ import {
   createOAuth2Client,
   oauth2GetUserInfo,
   calendarListEvents,
+  calendarListEventInstances,
   calendarFreeBusy,
   calendarGetEvent,
   calendarInsertEvent,
   calendarDeleteEvent,
   calendarPatchEvent,
   calendarUpdateEvent,
-  isGoogleNotFoundError,
+  isGoogleEventAbsentError,
   peopleGetProfile,
 } from "./google-api.js";
 import { getCalendarProviderApiRuntime } from "./provider-api.js";
@@ -1708,8 +1709,14 @@ export async function deleteEvent(
     return;
   }
 
-  const instanceStart = instance.start?.dateTime || instance.start?.date || "";
-  const isAllDay = !instance.start?.dateTime;
+  const instanceStart =
+    instance.originalStartTime?.dateTime ||
+    instance.originalStartTime?.date ||
+    instance.start?.dateTime ||
+    instance.start?.date ||
+    "";
+  const isAllDay =
+    !instance.originalStartTime?.dateTime && !instance.start?.dateTime;
 
   // Compute UNTIL value (day before this instance)
   const cutoff = new Date(instanceStart);
@@ -1750,18 +1757,57 @@ export async function deleteEvent(
     { sendUpdates },
   );
 
-  // Truncating the master does not remove a previously materialized exception
-  // for the selected occurrence, so delete that occurrence as well.
-  try {
-    await calendarDeleteEvent(
+  // Truncating the master does not remove materialized exceptions after the
+  // cutoff, so remove those exceptions as well.
+  const instanceStartMs = Date.parse(instanceStart);
+  const exceptionIds = new Set<string>([googleEventId]);
+  let pageToken: string | undefined;
+  do {
+    const response = await calendarListEventInstances(
       client.accessToken,
       "primary",
-      googleEventId,
-      sendUpdates,
+      recurringEventId,
+      {
+        timeMin: master.start?.dateTime || master.start?.date,
+        maxResults: 2500,
+        pageToken,
+      },
     );
-  } catch (error) {
-    // A generated occurrence may already be gone once the master is trimmed.
-    if (!isGoogleNotFoundError(error)) throw error;
+    for (const event of response?.items || []) {
+      const originalStart =
+        event.originalStartTime?.dateTime ||
+        event.originalStartTime?.date ||
+        event.start?.dateTime ||
+        event.start?.date;
+      const originalStartMs =
+        typeof originalStart === "string" ? Date.parse(originalStart) : NaN;
+      if (
+        event.id &&
+        Number.isFinite(instanceStartMs) &&
+        Number.isFinite(originalStartMs) &&
+        originalStartMs >= instanceStartMs
+      ) {
+        exceptionIds.add(event.id);
+      }
+    }
+    pageToken =
+      typeof response?.nextPageToken === "string"
+        ? response.nextPageToken
+        : undefined;
+  } while (pageToken);
+
+  for (const eventId of exceptionIds) {
+    try {
+      await calendarDeleteEvent(
+        client.accessToken,
+        "primary",
+        eventId,
+        sendUpdates,
+      );
+    } catch (error) {
+      // A generated occurrence may already be gone once the master is trimmed.
+      if (!isGoogleEventAbsentError(error)) throw error;
+    }
   }
 }
 
