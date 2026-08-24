@@ -1,6 +1,6 @@
 //! Background poller for upcoming meetings.
 //!
-//! Runs as a tokio task spawned from `lib.rs::run` setup. Every 30s it calls
+//! Runs as a tokio task spawned from `lib.rs::run` setup. Every 10s it calls
 //! the backend's `list-meetings` action for the next handful of live Google
 //! Calendar meetings. For any meeting in the Granola-style reminder window
 //! (1 minute before start through 5 minutes after) that we haven't already
@@ -134,19 +134,19 @@ impl MeetingsWatcherState {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-struct MeetingItem {
-    id: String,
-    title: Option<String>,
+pub(crate) struct MeetingItem {
+    pub(crate) id: String,
+    pub(crate) title: Option<String>,
     #[serde(default, alias = "scheduledStart")]
-    scheduled_start: Option<String>,
+    pub(crate) scheduled_start: Option<String>,
     #[serde(default, alias = "scheduledEnd")]
-    scheduled_end: Option<String>,
+    pub(crate) scheduled_end: Option<String>,
     #[serde(default, alias = "joinUrl")]
-    join_url: Option<String>,
+    pub(crate) join_url: Option<String>,
     #[serde(default)]
-    platform: Option<String>,
+    pub(crate) platform: Option<String>,
     #[serde(default)]
-    source: Option<String>,
+    pub(crate) source: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -245,7 +245,7 @@ pub fn spawn_watcher(app: AppHandle) {
 }
 
 async fn run_watcher(app: AppHandle) {
-    let mut interval = tokio::time::interval(Duration::from_secs(30));
+    let mut interval = tokio::time::interval(Duration::from_secs(10));
     // Skip the first tick — gives the frontend time to push us a server URL.
     interval.tick().await;
     let client = match reqwest::Client::builder()
@@ -316,7 +316,7 @@ async fn tick_once(app: &AppHandle, client: &reqwest::Client) -> Result<(), Stri
     let status = resp.status();
     if status == reqwest::StatusCode::UNAUTHORIZED {
         // Tell the renderer to re-push a fresh cookie or surface a
-        // re-login prompt. We keep silently retrying every 30s — once
+        // re-login prompt. We keep silently retrying every 10s - once
         // the renderer pushes a new cookie via
         // `meetings_watcher_set_session` we'll succeed on the next tick.
         let _ = app.emit("meetings:auth-needed", serde_json::json!({}));
@@ -454,8 +454,38 @@ fn is_calendar_reminder_candidate(meeting: &MeetingItem) -> bool {
     meeting.source.as_deref() != Some("adhoc")
 }
 
-fn parse_meetings(body: &serde_json::Value) -> Vec<MeetingItem> {
-    if let Ok(parsed) = serde_json::from_value::<ListMeetingsResponse>(body.clone()) {
+pub(crate) fn find_matching_calendar_meeting(
+    meetings: &[MeetingItem],
+    platform: &str,
+    started_at: chrono::DateTime<chrono::Utc>,
+) -> Option<MeetingItem> {
+    meetings
+        .iter()
+        .filter_map(|meeting| {
+            if !is_calendar_reminder_candidate(meeting)
+                || meeting
+                    .platform
+                    .as_deref()
+                    .is_none_or(|value| !value.eq_ignore_ascii_case(platform))
+                || meeting.join_url.as_deref().is_none_or(str::is_empty)
+            {
+                return None;
+            }
+            let scheduled_start = meeting
+                .scheduled_start
+                .as_deref()
+                .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())?
+                .with_timezone(&chrono::Utc);
+            let distance = (scheduled_start - started_at).num_seconds().abs();
+            (distance <= 15 * 60).then(|| (distance, meeting.clone()))
+        })
+        .min_by_key(|(distance, _)| *distance)
+        .map(|(_, meeting)| meeting)
+}
+
+pub(crate) fn parse_meetings(body: &serde_json::Value) -> Vec<MeetingItem> {
+    let payload = body.get("result").unwrap_or(body);
+    if let Ok(parsed) = serde_json::from_value::<ListMeetingsResponse>(payload.clone()) {
         if let Some(v) = parsed.upcoming {
             return v;
         }
@@ -466,7 +496,7 @@ fn parse_meetings(body: &serde_json::Value) -> Vec<MeetingItem> {
             return v;
         }
     }
-    if let Ok(arr) = serde_json::from_value::<Vec<MeetingItem>>(body.clone()) {
+    if let Ok(arr) = serde_json::from_value::<Vec<MeetingItem>>(payload.clone()) {
         return arr;
     }
     Vec::new()
@@ -474,7 +504,9 @@ fn parse_meetings(body: &serde_json::Value) -> Vec<MeetingItem> {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_calendar_reminder_candidate, parse_meetings};
+    use chrono::{TimeZone, Utc};
+
+    use super::{find_matching_calendar_meeting, is_calendar_reminder_candidate, parse_meetings};
 
     #[test]
     fn excludes_adhoc_meetings_from_calendar_reminders() {
@@ -511,5 +543,51 @@ mod tests {
 
         assert_eq!(meetings.len(), 1);
         assert!(is_calendar_reminder_candidate(&meetings[0]));
+    }
+
+    #[test]
+    fn finds_the_nearest_joinable_calendar_meeting_for_adhoc_detection() {
+        let meetings = parse_meetings(&serde_json::json!({
+            "result": {
+                "meetings": [
+                    {
+                        "id": "too-far",
+                        "title": "Later Zoom",
+                        "scheduledStart": "2026-07-22T19:40:00Z",
+                        "joinUrl": "https://zoom.us/j/2",
+                        "platform": "zoom",
+                        "source": "calendar"
+                    },
+                    {
+                        "id": "nearest",
+                        "title": "Product sync",
+                        "scheduledStart": "2026-07-22T19:11:00Z",
+                        "joinUrl": "https://zoom.us/j/1",
+                        "platform": "zoom",
+                        "source": "calendar"
+                    },
+                    {
+                        "id": "adhoc",
+                        "title": "Zoom meeting",
+                        "scheduledStart": "2026-07-22T19:10:00Z",
+                        "joinUrl": "https://zoom.us/j/3",
+                        "platform": "zoom",
+                        "source": "adhoc"
+                    }
+                ]
+            }
+        }));
+
+        let started_at = Utc.with_ymd_and_hms(2026, 7, 22, 19, 10, 0).unwrap();
+        let matched = find_matching_calendar_meeting(&meetings, "zoom", started_at);
+
+        assert_eq!(
+            matched.as_ref().map(|meeting| meeting.id.as_str()),
+            Some("nearest")
+        );
+        assert_eq!(
+            matched.and_then(|meeting| meeting.title),
+            Some("Product sync".to_string())
+        );
     }
 }

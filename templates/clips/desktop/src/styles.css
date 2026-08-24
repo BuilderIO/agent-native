@@ -1620,7 +1620,7 @@ body[data-clips-route="recording-pill"] #root {
   flex-direction: column;
   gap: 6px;
   margin-bottom: 4px;
-  max-height: 280px;
+  max-height: 420px;
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior: contain;

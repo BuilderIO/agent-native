@@ -17,13 +17,15 @@ use tauri::{AppHandle, Emitter, Manager};
 
 use crate::config::{feature_config, MeetingTranscriptionMode};
 use crate::dlog;
-use crate::meetings_watcher::MeetingsWatcherState;
+use crate::meetings_watcher::{
+    find_matching_calendar_meeting, parse_meetings, MeetingItem, MeetingsWatcherState,
+};
 
 /// How often to sample the frontmost app.
-const POLL_SECS: u64 = 4;
+const POLL_SECS: u64 = 2;
 
 /// Require this many consecutive frontmost seconds before firing.
-const DWELL_SECS: u64 = 9;
+const DWELL_SECS: u64 = 3;
 
 /// After dismiss / fire, suppress re-prompts for this platform until the
 /// cooldown elapses (or the VC app leaves front — see tick logic).
@@ -202,7 +204,7 @@ async fn tick_macos(
     let front = crate::util::frontmost_bundle_id();
     let matched = front.as_deref().and_then(match_vc_bundle);
 
-    let Some((platform, title)) = matched else {
+    let Some((platform, fallback_title)) = matched else {
         // VC app left front — clear session dedupe so a later re-focus can
         // fire again (cooldown still applies).
         clear_session_if_left(app, None);
@@ -294,8 +296,8 @@ async fn tick_macos(
         platform
     );
 
-    let meeting_id = match create_adhoc_meeting(app, client, platform).await {
-        Ok(id) => id,
+    let meeting = match create_adhoc_meeting(app, client, platform).await {
+        Ok(meeting) => meeting,
         Err(err) => {
             // Allow retry on next dwell if create failed.
             if let Some(state) = app.try_state::<AdhocMeetingsWatcherState>() {
@@ -315,22 +317,34 @@ async fn tick_macos(
 
     if show_widget {
         let app_clone = app.clone();
-        let id_clone = meeting_id.clone();
-        let title_clone = title.to_string();
-        let platform_clone = platform.to_string();
-        let scheduled_start = chrono::Utc::now().to_rfc3339();
+        let id_clone = meeting.id.clone();
+        let title_clone = meeting
+            .title
+            .clone()
+            .unwrap_or_else(|| fallback_title.to_string());
+        let platform_clone = meeting
+            .platform
+            .clone()
+            .unwrap_or_else(|| platform.to_string());
+        let scheduled_start = meeting
+            .scheduled_start
+            .clone()
+            .or_else(|| Some(chrono::Utc::now().to_rfc3339()));
+        let scheduled_end = meeting.scheduled_end.clone();
+        let join_url = meeting.join_url.clone();
+        let source = meeting.source.clone().or_else(|| Some("adhoc".to_string()));
         tauri::async_runtime::spawn(async move {
             let _ = crate::notifications::notify_meeting_starting(
                 app_clone,
                 id_clone,
                 title_clone,
                 0,
-                None,
-                Some(scheduled_start),
-                None,
+                join_url,
+                scheduled_start,
+                scheduled_end,
                 Some(platform_clone),
                 Some(auto_start),
-                Some("adhoc".to_string()),
+                source,
             )
             .await;
         });
@@ -340,9 +354,10 @@ async fn tick_macos(
         let _ = app.emit(
             "meetings:start-transcription",
             serde_json::json!({
-                "meetingId": meeting_id,
-                "joinUrl": null,
+                "meetingId": meeting.id,
+                "joinUrl": meeting.join_url,
                 "reason": "adhoc-auto",
+                "scheduledStart": meeting.scheduled_start,
             }),
         );
     }
@@ -472,14 +487,36 @@ async fn create_adhoc_meeting(
     app: &AppHandle,
     client: &reqwest::Client,
     platform: &str,
-) -> Result<String, String> {
+) -> Result<MeetingItem, String> {
     let session = app
         .try_state::<MeetingsWatcherState>()
         .map(|s| s.session_snapshot())
         .unwrap_or_default();
-    let Some(server_url) = session.server_url else {
+    let Some(server_url) = session.server_url.as_deref() else {
         return Err("no server_url for create-meeting".to_string());
     };
+
+    // The native watcher knows which conferencing app is active, but not the
+    // calendar event title. Resolve the nearest joinable event first so a
+    // calendar-backed meeting keeps its title, URL, and scheduled span. A
+    // disconnected calendar only loses that enrichment and still gets an
+    // adhoc meeting below.
+    match find_calendar_meeting(app, client, server_url, &session, platform).await {
+        Ok(Some(meeting)) => {
+            dlog!(
+                "[clips-tray] adhoc matched calendar meeting {} for {}",
+                meeting.id,
+                platform
+            );
+            return Ok(meeting);
+        }
+        Ok(None) => {}
+        Err(error) => dlog!(
+            "[clips-tray] adhoc calendar title lookup skipped for {}: {}",
+            platform,
+            error
+        ),
+    }
 
     let url = format!("{}/_agent-native/actions/create-meeting", server_url);
     let row_title = if platform == "zoom" {
@@ -487,11 +524,12 @@ async fn create_adhoc_meeting(
     } else {
         "Teams meeting"
     };
+    let scheduled_start = chrono::Utc::now().to_rfc3339();
     let body = serde_json::json!({
         "title": row_title,
         "platform": platform,
         "source": "adhoc",
-        "scheduledStart": chrono::Utc::now().to_rfc3339(),
+        "scheduledStart": scheduled_start,
     });
 
     let mut req = client
@@ -524,12 +562,66 @@ async fn create_adhoc_meeting(
         ));
     }
     let body: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
-    extract_meeting_id(&body).ok_or_else(|| {
+    let id = extract_meeting_id(&body).ok_or_else(|| {
         format!(
             "create-meeting response missing meeting id: {}",
             body.to_string().chars().take(200).collect::<String>()
         )
+    })?;
+    Ok(MeetingItem {
+        id,
+        title: Some(row_title.to_string()),
+        scheduled_start: Some(scheduled_start),
+        scheduled_end: None,
+        join_url: None,
+        platform: Some(platform.to_string()),
+        source: Some("adhoc".to_string()),
     })
+}
+
+async fn find_calendar_meeting(
+    app: &AppHandle,
+    client: &reqwest::Client,
+    server_url: &str,
+    session: &crate::meetings_watcher::MeetingsSessionSnapshot,
+    platform: &str,
+) -> Result<Option<MeetingItem>, String> {
+    let url = format!("{server_url}/_agent-native/actions/list-meetings");
+    let mut req = client.get(url).query(&[
+        ("view", "upcoming"),
+        ("limit", "20"),
+        ("upcomingWithinMin", "5"),
+        ("includeStartedWithinMin", "15"),
+        ("excludePersonalSoloEvents", "true"),
+        ("excludeDeclinedEvents", "true"),
+    ]);
+    req = req.header("X-Request-Source", "clips-desktop");
+    if let Some(cookie) = session.session_cookie.as_deref() {
+        req = req.header("Cookie", cookie);
+    }
+    if let Some(token) = session.auth_token.as_deref() {
+        req = req.bearer_auth(token);
+    }
+    let response = req
+        .send()
+        .await
+        .map_err(|error| format!("list-meetings fetch: {error}"))?;
+    if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+        let _ = app.emit("meetings:auth-needed", serde_json::json!({}));
+        return Err("list-meetings http 401".to_string());
+    }
+    if !response.status().is_success() {
+        return Err(format!("list-meetings http {}", response.status()));
+    }
+    let body: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|error| format!("list-meetings response: {error}"))?;
+    Ok(find_matching_calendar_meeting(
+        &parse_meetings(&body),
+        platform,
+        chrono::Utc::now(),
+    ))
 }
 
 fn extract_meeting_id(body: &serde_json::Value) -> Option<String> {
