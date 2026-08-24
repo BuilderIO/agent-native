@@ -714,7 +714,7 @@ function ApprovalAffordance({
       </button>
       {alwaysAllowFailed && (
         <span role="alert" className="basis-full text-xs text-destructive">
-          {t("common.saveFailed")}
+          {t("agentChat.common.saveFailed")}
         </span>
       )}
     </div>
