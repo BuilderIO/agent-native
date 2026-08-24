@@ -29,6 +29,10 @@ describe("authenticated recording route loading", () => {
     expect(route).toContain("...(userEmail ? { viewerEmail: userEmail } : {})");
     expect(route).toContain("apiAccessDeniedStatus");
     expect(route).toContain("accessDeniedStatus");
+    expect(route).toContain('const startAt = searchParams.get("at")');
+    expect(route).toContain(
+      "buildShareContinuationQuery(attribution, startAt)",
+    );
     expect(route).toContain('IconLock className="h-5 w-5"');
   });
 

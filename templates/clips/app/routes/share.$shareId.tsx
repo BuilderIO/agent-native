@@ -387,10 +387,8 @@ export default function ShareRoute() {
   const { shareId } = useParams<{ shareId: string }>();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const startMs = useMemo(
-    () => parseTimeParam(searchParams.get("at")),
-    [searchParams],
-  );
+  const startAt = searchParams.get("at");
+  const startMs = useMemo(() => parseTimeParam(startAt), [startAt]);
 
   // Viral attribution: read the `ref`/`via` the visitor arrived on (the tagged
   // share link) so we can fire funnel events and forward attribution into the
@@ -519,9 +517,9 @@ export default function ShareRoute() {
   const shareReturnTo = useMemo(() => {
     const path = `/share/${encodeURIComponent(recordingId)}`;
     if (typeof window === "undefined") return path;
-    const query = buildShareContinuationQuery(attribution);
+    const query = buildShareContinuationQuery(attribution, startAt);
     return query ? `${path}?${query}` : path;
-  }, [attribution, recordingId]);
+  }, [attribution, recordingId, startAt]);
   const signInHref = buildSignInReturnHref({ returnTo: shareReturnTo });
 
   const submitAccessRequest = useCallback(
@@ -1174,7 +1172,7 @@ export default function ShareRoute() {
             {session ? null : (
               <SignedOutShareActions
                 recordingId={recording.id}
-                startAt={searchParams.get("at")}
+                startAt={startAt}
                 onCtaClick={fireShareCtaClick}
               />
             )}
