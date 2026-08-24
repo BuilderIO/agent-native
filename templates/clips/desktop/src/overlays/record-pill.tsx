@@ -4,7 +4,6 @@ import {
   IconLink,
   IconPlayerPauseFilled,
   IconPlayerPlayFilled,
-  IconPlayerStopFilled,
   IconRefresh,
   IconTrash,
   IconX,
@@ -28,7 +27,6 @@ import { flushSync } from "react-dom";
 const OVERLAY_SHADOW_GUTTER = 40;
 const SEG_MS = 180;
 const HOVER_INTENT_MS = 150;
-const BLINK_MS = 700;
 // Within this distance of the right screen edge the pill anchors its RIGHT
 // edge and grows left instead, so growth never runs off-screen.
 const RIGHT_EDGE_ANCHOR_PX = 200;
@@ -103,9 +101,10 @@ function formatDurationCopy(ms: number): string {
 
 /**
  * The recording pill — one dark capsule with four modes: recording, paused,
- * confirm, done. The leading circle is both the recording indicator and the
- * stop/save action (red while live, amber blinking while paused), with the
- * timer plain against the chrome beside it. Left edge anchored: hover extras
+ * confirm, done. The leading ring — a stop square inside a circle outline,
+ * both in one color — is the recording indicator and the stop/save action:
+ * red while live, grey-white while paused. The timer sits plain against the
+ * chrome beside it. Left edge anchored: hover extras
  * and the inline confirms grow rightward while the stop circle, timer, and
  * pause button hold position (near the right screen edge the anchor
  * mirrors). Stop swaps the
@@ -133,7 +132,6 @@ export function RecordingPill() {
   const [paused, setPaused] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [enabled, setEnabled] = useState(demoMode);
-  const [blinkDim, setBlinkDim] = useState(false);
   const [micLevel, setMicLevel] = useState(0);
   const [announcement, setAnnouncement] = useState("");
   const [confirmQuestion, setConfirmQuestion] = useState("");
@@ -727,18 +725,6 @@ export function RecordingPill() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // Paused/confirm dot blink: opacity 1 ↔ 0.3 on a 700ms interval. Reduced
-  // motion keeps a static amber dot.
-  const blinking = paused && !reducedRef.current;
-  useEffect(() => {
-    if (!blinking) {
-      setBlinkDim(false);
-      return;
-    }
-    const t = setInterval(() => setBlinkDim((d) => !d), BLINK_MS);
-    return () => clearInterval(t);
-  }, [blinking]);
-
   // Fit the native window to the measured pill once fonts have settled.
   useEffect(() => {
     let cancelled = false;
@@ -1018,13 +1004,12 @@ export function RecordingPill() {
             onClick={stop}
             disabled={!enabled || inConfirm}
             aria-label="Stop and save"
-            className="flex size-[30px] flex-none items-center justify-center rounded-full text-[var(--pill-on-chrome)] transition-colors duration-150 disabled:cursor-default"
+            className="flex size-[30px] flex-none items-center justify-center rounded-full border-2 border-current transition-colors duration-150 disabled:cursor-default"
             style={{
-              background: showPaused ? "var(--pill-paused)" : "var(--pill-rec)",
-              opacity: blinking && blinkDim ? 0.55 : 1,
+              color: showPaused ? "var(--pill-ghost-ink)" : "var(--pill-rec)",
             }}
           >
-            <IconPlayerStopFilled size={12} aria-hidden />
+            <span aria-hidden className="size-2.5 rounded-[2px] bg-current" />
           </button>
           <span
             aria-live="off"

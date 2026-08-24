@@ -293,8 +293,6 @@
   /* guard:allow-raw-color — theme-invariant capture chrome, spec-contractual palette */
   --pill-rec: #e0473f;
   /* guard:allow-raw-color — theme-invariant capture chrome, spec-contractual palette */
-  --pill-paused: #fac775;
-  /* guard:allow-raw-color — theme-invariant capture chrome, spec-contractual palette */
   --pill-meter: #97c459;
   /* guard:allow-raw-color — theme-invariant capture chrome, spec-contractual palette */
   --pill-card-surface: rgba(252, 252, 252, 0.98);
