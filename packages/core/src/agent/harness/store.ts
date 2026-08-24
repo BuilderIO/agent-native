@@ -141,6 +141,8 @@ export async function ensureAgentHarnessSessionTables(): Promise<void> {
         );
         return;
       }
+      // SQLite (local dev): no lock problem — keep the original behaviour.
+      await client.execute(createSql);
       try {
         await client.execute(
           `ALTER TABLE agent_harness_sessions ADD COLUMN generation ${intType()} NOT NULL DEFAULT 0`,
@@ -148,9 +150,6 @@ export async function ensureAgentHarnessSessionTables(): Promise<void> {
       } catch (error) {
         if (!isDuplicateColumnError(error)) throw error;
       }
-
-      // SQLite (local dev): no lock problem — keep the original behaviour.
-      await client.execute(createSql);
       for (const col of [
         "run_id",
         "provider_session_id",

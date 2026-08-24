@@ -1016,6 +1016,7 @@ export function startRun(
   let chunkBoundaryReason: string | null = null;
   let chunkSoftTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
   let armChunkSoftTimeout: () => void = () => {};
+  let recoverableRunDeadlineAt: number | null = null;
   let recoveredChunkBoundaries = 0;
   /** A boundary that has been reached but not yet proven recovered. */
   let pendingBoundary: {
@@ -1509,8 +1510,13 @@ export function startRun(
     diagnostic: { silentForMs?: number; lastEventType?: string } = {},
   ) => {
     if (run.status !== "running" || abort.signal.aborted) return;
-    if (chunkAbort) {
-      if (chunkAbort.signal.aborted) return;
+    const activeChunkAbort = chunkAbort;
+    const canRecoverChunk =
+      activeChunkAbort !== null &&
+      (recoverableRunDeadlineAt === null ||
+        Date.now() < recoverableRunDeadlineAt);
+    if (canRecoverChunk) {
+      if (activeChunkAbort.signal.aborted) return;
       recoveredChunkBoundaries += 1;
       console.warn(
         `[run-manager] chunk boundary (${reason}) — recovering in-invocation`,
@@ -1525,9 +1531,10 @@ export function startRun(
       // direction that hides the failure.
       pendingBoundary = { reason, diagnostic, index: recoveredChunkBoundaries };
       chunkBoundaryReason = reason;
-      chunkAbort.abort(reason);
+      activeChunkAbort.abort(reason);
       return;
     }
+    if (chunkAbort) chunkBoundaryReason = reason;
     // Mirror the soft-timeout semantics exactly: the chunk completes (not
     // aborts) at an auto_continue boundary, so the continuation machinery —
     // server-chained for background workers, client-driven for foreground —
@@ -1732,6 +1739,7 @@ export function startRun(
       : null;
   if (recoverChunkBoundaries && softTimeoutMs > 0) {
     const runDeadlineAt = Date.now() + softTimeoutMs;
+    recoverableRunDeadlineAt = runDeadlineAt;
     armChunkSoftTimeout = () => {
       if (chunkSoftTimeoutTimer) clearTimeout(chunkSoftTimeoutTimer);
       if (abort.signal.aborted || run.status !== "running") return;

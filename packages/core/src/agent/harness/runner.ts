@@ -58,6 +58,7 @@ export function startAgentHarnessRun(
         beginChunk: () => signal,
       };
       let storedSessionId: string | undefined;
+      let harnessSessionRegistered = false;
       let keepLiveSession = false;
       try {
         send({
@@ -95,6 +96,7 @@ export function startAgentHarnessRun(
           ownerEmail: opts.ownerEmail ?? opts.createSession?.ownerEmail ?? null,
           orgId: opts.orgId ?? opts.createSession?.orgId ?? null,
         });
+        harnessSessionRegistered = true;
 
         const input: AgentHarnessTurnInput = {
           ...opts.input,
@@ -209,6 +211,10 @@ export function startAgentHarnessRun(
         });
       } catch (error) {
         if (isAgentHarnessSessionConflictError(error)) {
+          if (!harnessSessionRegistered) {
+            await stopHarnessSession(harnessSession);
+            return;
+          }
           keepLiveSession = true;
           const latest = storedSessionId
             ? await getAgentHarnessSession(storedSessionId)

@@ -314,6 +314,49 @@ describe("startAgentHarnessRun", () => {
     expect(mocks.markAgentHarnessSessionStopped).not.toHaveBeenCalled();
     expect(mocks.updateAgentHarnessSession).toHaveBeenCalledTimes(1);
   });
+
+  it("disposes a newly created session when its initial save loses the CAS race", async () => {
+    const session = fakeSession("native-initial-race", []);
+    const adapter = fakeAdapter(session);
+    let capturedRunFn:
+      | ((
+          send: (event: AgentChatEvent) => void,
+          signal: AbortSignal,
+        ) => Promise<void>)
+      | undefined;
+    mocks.saveAgentHarnessSession.mockRejectedValueOnce(
+      Object.assign(new Error("Harness session changed concurrently"), {
+        name: "AgentHarnessSessionConflictError",
+      }),
+    );
+    mocks.startRun.mockImplementation((runId, threadId, runFn) => {
+      capturedRunFn = runFn;
+      return {
+        runId,
+        threadId,
+        turnId: runId,
+        events: [],
+        status: "running",
+        subscribers: new Set(),
+        abort: new AbortController(),
+        startedAt: Date.now(),
+      };
+    });
+
+    startAgentHarnessRun({
+      runId: "run-initial-race",
+      threadId: "thread-initial-race",
+      adapter,
+      input: { prompt: "work" },
+      createSession: { sessionId: "stored-initial-race" },
+    });
+
+    await capturedRunFn?.(() => {}, new AbortController().signal);
+
+    expect(session.stop).toHaveBeenCalledOnce();
+    expect(session.destroy).not.toHaveBeenCalled();
+    expect(mocks.getAgentHarnessSession).not.toHaveBeenCalled();
+  });
 });
 
 function fakeAdapter(

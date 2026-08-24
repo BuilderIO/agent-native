@@ -4351,6 +4351,7 @@ describe("run manager soft timeout", () => {
 
       expect(signalReason).toBe("run_timeout");
       expect(boundaryReason).toBe("run_timeout");
+      expect(run.abort.signal.aborted).toBe(true);
     });
 
     it("ends only the chunk on a no-progress boundary, leaving the turn alive", async () => {
