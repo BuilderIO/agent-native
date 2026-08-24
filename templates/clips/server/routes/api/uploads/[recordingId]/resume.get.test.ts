@@ -54,6 +54,10 @@ vi.mock("@agent-native/core/server", () => ({
   runWithRequestContext: (_ctx: unknown, fn: () => unknown) => fn(),
 }));
 
+vi.mock("node:crypto", () => ({
+  randomUUID: () => "generation-2",
+}));
+
 vi.mock("drizzle-orm", () => ({
   and: vi.fn(() => "and"),
   eq: vi.fn(() => "eq"),
@@ -447,7 +451,7 @@ describe("/api/uploads/:recordingId/resume route", () => {
       expect.objectContaining({
         resumable: true,
         attemptId: "client-attempt-0001",
-        uploadGenerationId: "generation-1",
+        uploadGenerationId: "generation-2",
         uploadMode: "buffered",
         bytesReceived: 0,
         nextChunkIndex: 0,
@@ -458,7 +462,7 @@ describe("/api/uploads/:recordingId/resume route", () => {
       expect.anything(),
       expect.objectContaining({
         uploadAttemptId: "client-attempt-0001",
-        uploadGenerationId: "generation-1",
+        uploadGenerationId: "generation-2",
       }),
     );
     expect(mockAbortResumableUploadSession).toHaveBeenCalledOnce();
@@ -468,7 +472,7 @@ describe("/api/uploads/:recordingId/resume route", () => {
     );
   });
 
-  it("restores an expired claim when its provider session cannot be invalidated", async () => {
+  it("keeps the replacement generation fenced when retired-session cleanup fails", async () => {
     mockSelectRows.rows = [
       {
         id: "rec-1",
@@ -491,11 +495,11 @@ describe("/api/uploads/:recordingId/resume route", () => {
       status: "uploading",
       reason: "stale_provider_session_invalidation_failed",
     });
-    expect(mockUpdateSets).toHaveLength(2);
-    expect(mockUpdateSets[1]).toEqual(
+    expect(mockUpdateSets).toHaveLength(1);
+    expect(mockUpdateSets[0]).toEqual(
       expect.objectContaining({
-        uploadAttemptId: "stale-attempt-0001",
-        uploadLeaseExpiresAt: "2000-01-01T00:00:00.000Z",
+        uploadAttemptId: "client-attempt-0001",
+        uploadGenerationId: "generation-2",
       }),
     );
     expect(mockDeleteResumableSession).not.toHaveBeenCalled();

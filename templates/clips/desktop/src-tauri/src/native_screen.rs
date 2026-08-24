@@ -996,6 +996,13 @@ fn clear_native_upload_retry_cancelled(recording_id: &str) {
     }
 }
 
+fn take_native_upload_retry_cancelled(recording_id: &str) -> bool {
+    cancelled_native_upload_retries()
+        .lock()
+        .map(|mut cancelled| cancelled.remove(recording_id))
+        .unwrap_or(true)
+}
+
 async fn wait_for_native_upload_retry_cancel(recording_id: &str) {
     while !native_upload_retry_cancelled(recording_id) {
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -3674,7 +3681,10 @@ pub async fn native_fullscreen_recording_retry_upload(
     auth_token: Option<String>,
     cookie: Option<String>,
 ) -> Result<NativeFullscreenUploadResult, String> {
-    clear_native_upload_retry_cancelled(&recording_id);
+    if take_native_upload_retry_cancelled(&recording_id) {
+        emit_native_upload_progress(&app, "paused", "Retry cancelled", None, None);
+        return Err(NATIVE_UPLOAD_RETRY_CANCELLED.to_string());
+    }
     let mut saved = read_saved_recording_metadata(&app, &recording_id)?;
     saved.server_url = server_url.trim_end_matches('/').to_string();
     saved.last_attempt_at = Some(now_iso());
@@ -6104,14 +6114,27 @@ fn native_retry_interruption_payload(
 mod native_retry_upload_plan_tests {
     use super::{
         accept_native_retry_reset, is_native_upload_restart_required,
-        is_native_upload_unfenced_restart_required, native_replay_attempt_id,
-        native_retry_attempt_id, native_retry_conflict_delay, native_retry_interruption_payload,
-        plan_native_retry_upload, preserve_native_retry_fence_during_rollback,
-        saved_native_retry_attempt_id, upload_url, NativeFullscreenUploadResult,
+        is_native_upload_unfenced_restart_required, native_fullscreen_recording_cancel_retry,
+        native_replay_attempt_id, native_retry_attempt_id, native_retry_conflict_delay,
+        native_retry_interruption_payload, native_upload_retry_cancelled, plan_native_retry_upload,
+        preserve_native_retry_fence_during_rollback, saved_native_retry_attempt_id,
+        take_native_upload_retry_cancelled, upload_url, NativeFullscreenUploadResult,
         NativeRetryUploadPlan, NativeUploadResetResponse, NativeUploadResumeResponse,
         NATIVE_UPLOAD_RESTART_REQUIRED, NATIVE_UPLOAD_RETRY_CANCELLED,
         NATIVE_UPLOAD_UNFENCED_RESTART_REQUIRED, UPLOAD_CHUNK_BYTES,
     };
+
+    #[test]
+    fn consumes_a_cancellation_that_arrives_before_retry_startup() {
+        let recording_id = "pre-start-cancel-recording".to_string();
+        assert!(!take_native_upload_retry_cancelled(&recording_id));
+
+        native_fullscreen_recording_cancel_retry(recording_id.clone())
+            .expect("record pre-start cancellation");
+        assert!(native_upload_retry_cancelled(&recording_id));
+        assert!(take_native_upload_retry_cancelled(&recording_id));
+        assert!(!native_upload_retry_cancelled(&recording_id));
+    }
 
     #[test]
     fn cancellation_after_a_committed_reset_preserves_the_authoritative_response() {

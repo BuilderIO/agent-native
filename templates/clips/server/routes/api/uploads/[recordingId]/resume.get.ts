@@ -11,6 +11,8 @@
  * Route: GET /api/uploads/:recordingId/resume
  */
 
+import { randomUUID } from "node:crypto";
+
 import {
   compareAndSetAppState,
   readAppState,
@@ -180,7 +182,7 @@ export default defineEventHandler(async (event: H3Event) => {
     // Legacy rows keep their null generation and unscoped scratch. A reset
     // upgrades them by installing a fresh generation before it deletes data.
     const existingGenerationId = recording.uploadGenerationId ?? null;
-    const generationId = existingGenerationId;
+    let generationId = existingGenerationId;
     let session = generationId
       ? await getResumableSession(recordingId, generationId)
       : await getResumableSession(recordingId);
@@ -238,6 +240,9 @@ export default defineEventHandler(async (event: H3Event) => {
     const uploadState = uploadStateRaw ?? {};
     const attemptId = requestedAttemptId;
     const takingOverStaleRetryClaim = differentRetryClaim;
+    const claimedGenerationId = takingOverStaleRetryClaim
+      ? randomUUID()
+      : generationId;
     const claimedLeaseExpiry = uploadLeaseExpiry(nowMs);
     const claimed = await getDb()
       .update(schema.recordings)
@@ -245,7 +250,9 @@ export default defineEventHandler(async (event: H3Event) => {
         status: "uploading",
         failureReason: null,
         uploadAttemptId: attemptId,
-        ...(generationId ? { uploadGenerationId: generationId } : {}),
+        ...(claimedGenerationId
+          ? { uploadGenerationId: claimedGenerationId }
+          : {}),
         uploadLeaseExpiresAt: claimedLeaseExpiry,
         updatedAt: now,
       })
@@ -289,25 +296,6 @@ export default defineEventHandler(async (event: H3Event) => {
         label: `upload-resume-takeover-${recordingId}`,
       });
       if (!invalidated) {
-        await getDb()
-          .update(schema.recordings)
-          .set({
-            uploadAttemptId: existingAttemptId,
-            uploadLeaseExpiresAt: recording.uploadLeaseExpiresAt,
-            updatedAt: new Date(claimHeartbeatMs).toISOString(),
-          })
-          .where(
-            and(
-              eq(schema.recordings.id, recordingId),
-              ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
-              eq(schema.recordings.status, "uploading"),
-              eq(schema.recordings.uploadAttemptId, attemptId),
-              generationId === null
-                ? isNull(schema.recordings.uploadGenerationId)
-                : eq(schema.recordings.uploadGenerationId, generationId),
-              eq(schema.recordings.uploadLeaseExpiresAt, claimedLeaseExpiry),
-            ),
-          );
         setResponseStatus(event, 409);
         return {
           resumable: false,
@@ -320,6 +308,7 @@ export default defineEventHandler(async (event: H3Event) => {
       await deleteResumableSession(recordingId, generationId);
       session = null;
     }
+    generationId = claimedGenerationId;
 
     const uploadStateUpdated = await compareAndSetAppState(
       uploadStateKey,
