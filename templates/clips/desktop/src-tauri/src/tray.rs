@@ -96,8 +96,15 @@ fn apply_tray_mode(app: &tauri::AppHandle, active: bool, title: Option<String>) 
         let _ = tray.set_icon(Some(icon));
         let _ = tray.set_icon_as_template(true);
     }
+    // ALWAYS Some(...): tray-icon's macOS set_title is a silent no-op for
+    // None (its Some-only branch never clears the NSStatusItem text), so a
+    // reset must pass an empty string or the stale timer sticks forever.
     #[cfg(target_os = "macos")]
-    let _ = tray.set_title(if active { title } else { None });
+    let _ = tray.set_title(Some(if active {
+        title.unwrap_or_default()
+    } else {
+        String::new()
+    }));
     #[cfg(not(target_os = "macos"))]
     let _ = title;
 }
