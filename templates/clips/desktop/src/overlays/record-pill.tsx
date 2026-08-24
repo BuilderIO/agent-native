@@ -134,6 +134,11 @@ export function RecordingPill() {
   const [micLevel, setMicLevel] = useState(0);
   const [announcement, setAnnouncement] = useState("");
   const [confirmQuestion, setConfirmQuestion] = useState("");
+  // What the confirm's red button does — restart discards the take exactly
+  // like delete does, so both route through the same destructive confirm.
+  const [confirmIntent, setConfirmIntent] = useState<"delete" | "restart">(
+    "delete",
+  );
   // Whether the delete confirm was entered from an already-paused recording:
   // Esc then backs out to that pause, while the Resume button always resumes.
   const confirmFromPausedRef = useRef(false);
@@ -407,17 +412,21 @@ export function RecordingPill() {
   const pausedRef = useRef(false);
   pausedRef.current = paused;
 
-  function enterConfirm() {
+  function enterConfirm(intent: "delete" | "restart") {
     if (modeRef.current !== "recording") return;
     const wasPaused = pausedRef.current;
     confirmFromPausedRef.current = wasPaused;
     setMode("confirm");
+    const dur = formatDurationCopy(elapsedRef.current);
     // The question's segment width is measured synchronously below, so the
-    // new text (and the exit button's label) must be committed to the DOM
+    // new text (and the red button's label) must be committed to the DOM
     // before transitionSegs runs — without flushSync it would measure the
     // previous (empty) question.
     flushSync(() => {
-      setConfirmQuestion(`Delete ${formatDurationCopy(elapsedRef.current)}?`);
+      setConfirmIntent(intent);
+      setConfirmQuestion(
+        intent === "delete" ? `Delete ${dur}?` : `Restart and delete ${dur}?`,
+      );
     });
     // Pause at the instant of the click — the deliberation must not end up
     // in the clip. A recording already paused by hand stays exactly as the
@@ -525,34 +534,31 @@ export function RecordingPill() {
     }, 3_000);
   }
 
-  function restart() {
-    if (!enabled || pendingAction || modeRef.current !== "recording") return;
-    setPendingAction("restart");
-    setElapsed(0);
-    // Hide immediately — the restart teardown and fresh countdown follow, and
-    // recording controls must not sit on screen while no capture is live. The
-    // replacement session's `clips:toolbar-enabled` re-shows the pill at 0:00.
-    setEnabled(false);
-    // Hold the window through the restart teardown so the replacement
-    // session reuses it instead of paying a webview respawn; the pill hides
-    // itself while disabled and the next `clips:toolbar-enabled` re-shows it.
-    void safeInvoke("set_toolbar_finishing", { hold: true }).then(() => {
-      void safeEmit("clips:recorder-restart");
-    });
-    fallbackTimerRef.current = setTimeout(() => {
-      console.warn(
-        "[record-pill] recorder did not restart within 15s — self-closing",
-      );
-      void safeInvoke("set_toolbar_finishing", { hold: false });
-      if (hasTauri)
-        getCurrentWindow()
-          .close()
-          .catch(() => {});
-    }, 15_000);
-  }
-
-  function confirmDelete() {
+  function confirmDestructive() {
     if (pendingAction) return;
+    if (confirmIntent === "restart") {
+      setPendingAction("restart");
+      setElapsed(0);
+      // Hide immediately — the restart teardown and fresh countdown follow,
+      // and recording controls must not sit on screen while no capture is
+      // live. The replacement session's `clips:toolbar-enabled` re-shows the
+      // pill at 0:00, reusing this window thanks to the finishing hold.
+      setEnabled(false);
+      void safeInvoke("set_toolbar_finishing", { hold: true }).then(() => {
+        void safeEmit("clips:recorder-restart");
+      });
+      fallbackTimerRef.current = setTimeout(() => {
+        console.warn(
+          "[record-pill] recorder did not restart within 15s — self-closing",
+        );
+        void safeInvoke("set_toolbar_finishing", { hold: false });
+        if (hasTauri)
+          getCurrentWindow()
+            .close()
+            .catch(() => {});
+      }, 15_000);
+      return;
+    }
     setPendingAction("cancel");
     void safeEmit("clips:recorder-cancel").then(() =>
       scheduleCloseFallback("cancel"),
@@ -1100,10 +1106,10 @@ export function RecordingPill() {
             <span className="inline-flex flex-none items-center">
               <button
                 type="button"
-                onClick={confirmDelete}
+                onClick={confirmDestructive}
                 className="ml-2.5 flex h-7 flex-none items-center rounded-full bg-[var(--pill-rec)] px-3.5 text-xs font-semibold text-[var(--pill-on-chrome)]"
               >
-                Delete
+                {confirmIntent === "delete" ? "Delete" : "Restart"}
               </button>
             </span>
           </span>
@@ -1136,7 +1142,7 @@ export function RecordingPill() {
               />
               <button
                 type="button"
-                onClick={restart}
+                onClick={() => enterConfirm("restart")}
                 disabled={!enabled || !!pendingAction}
                 aria-label="Restart recording"
                 className="ml-2 flex size-[30px] flex-none items-center justify-center rounded-full text-[var(--pill-ghost-ink)] hover:text-[var(--pill-on-chrome)]"
@@ -1145,7 +1151,7 @@ export function RecordingPill() {
               </button>
               <button
                 type="button"
-                onClick={enterConfirm}
+                onClick={() => enterConfirm("delete")}
                 disabled={!enabled || !!pendingAction}
                 aria-label="Delete recording"
                 className="ml-2 flex size-[30px] flex-none items-center justify-center rounded-full text-[var(--pill-ghost-ink)] hover:text-[var(--pill-on-chrome)]"
