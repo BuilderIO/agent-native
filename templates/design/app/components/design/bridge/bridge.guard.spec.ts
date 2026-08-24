@@ -10602,3 +10602,164 @@ it(
     }
   },
 );
+
+const STACKED_DROP_TARGET_PAGE = `<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; background: white; }
+      #source {
+        position: absolute; left: 20px; top: 20px; width: 180px;
+        display: flex; flex-direction: column; gap: 8px;
+      }
+      #source > div { height: 40px; background: #6366f1; }
+      #stack {
+        position: absolute; left: 320px; top: 20px; width: 400px;
+        padding: 12px; background: #eee;
+      }
+      #stack > div { height: 40px; background: #22c55e; }
+      #stack > div + div { margin-top: 12px; }
+      #empty {
+        position: absolute; left: 320px; top: 320px;
+        width: 400px; height: 200px; background: #ddd;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="source" data-agent-native-node-id="source">
+      <div id="dragme" data-agent-native-node-id="dragme">A</div>
+      <div id="stay" data-agent-native-node-id="stay">B</div>
+    </div>
+    <div id="stack" data-agent-native-node-id="stack">
+      <div id="r1" data-agent-native-node-id="r1">Row 1</div>
+      <div id="r2" data-agent-native-node-id="r2">Row 2</div>
+      <div id="r3" data-agent-native-node-id="r3">Row 3</div>
+    </div>
+    <div id="empty" data-agent-native-node-id="empty"></div>
+  </body>
+</html>`;
+
+async function dragFlowChildOnto(
+  page: import("@playwright/test").Page,
+  targetSelector: string,
+) {
+  const from = (await page.locator("#dragme").boundingBox())!;
+  const to = (await page.locator(targetSelector).boundingBox())!;
+  await page.mouse.click(from.x + from.width / 2, from.y + from.height / 2);
+  await page.waitForFunction(() => {
+    const overlay = document.querySelector<HTMLElement>(
+      '[data-agent-native-edit-overlay="selection"]',
+    );
+    return overlay && window.getComputedStyle(overlay).display === "block";
+  });
+  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(from.x + 20, from.y + 20, { steps: 4 });
+  await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, {
+    steps: 8,
+  });
+  await page.mouse.up();
+  await page.waitForTimeout(30);
+}
+
+it(
+  "editor chrome bridge leaves a plain drop target that already has children in normal flow",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+      await page.setContent(STACKED_DROP_TARGET_PAGE);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+
+      const spacingBefore = await page.evaluate(() => {
+        const r1 = document.querySelector("#r1")!.getBoundingClientRect();
+        const r2 = document.querySelector("#r2")!.getBoundingClientRect();
+        return Math.round(r2.top - r1.bottom);
+      });
+      await dragFlowChildOnto(page, "#r2");
+
+      const result = await page.evaluate(() => {
+        const stack = document.querySelector<HTMLElement>("#stack")!;
+        const r1 = document.querySelector("#r1")!.getBoundingClientRect();
+        const r2 = document.querySelector("#r2")!.getBoundingClientRect();
+        return {
+          draggedParentId: document.querySelector("#dragme")?.parentElement?.id,
+          display: window.getComputedStyle(stack).display,
+          inlineStyle: stack.getAttribute("style"),
+          spacing: Math.round(r2.top - r1.bottom),
+        };
+      });
+
+      expect(result.draggedParentId).toBe("stack");
+      expect(result.display).toBe("block");
+      expect(result.inlineStyle).toBeNull();
+      expect(result.spacing).toBe(spacingBefore);
+
+      const messages = await readBridgeMessages(page);
+      const conversion = messages.find(
+        (message) =>
+          message.type === "visual-style-change" &&
+          (message as any).selector?.includes("stack"),
+      );
+      expect(conversion).toBeFalsy();
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "editor chrome bridge converts an empty plain drop target to column auto layout",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+      await page.setContent(STACKED_DROP_TARGET_PAGE);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+      await dragFlowChildOnto(page, "#empty");
+
+      const result = await page.evaluate(() => {
+        const empty = document.querySelector<HTMLElement>("#empty")!;
+        return {
+          draggedParentId: document.querySelector("#dragme")?.parentElement?.id,
+          display: window.getComputedStyle(empty).display,
+          flexDirection: window.getComputedStyle(empty).flexDirection,
+        };
+      });
+
+      expect(result.draggedParentId).toBe("empty");
+      expect(result.display).toBe("flex");
+      expect(result.flexDirection).toBe("column");
+
+      const messages = await readBridgeMessages(page);
+      const conversion = messages.find(
+        (message) =>
+          message.type === "visual-style-change" &&
+          (message as any).selector?.includes("empty"),
+      ) as any;
+      expect(conversion?.styles).toMatchObject({
+        display: "flex",
+        "flex-direction": "column",
+        gap: "10px",
+      });
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);

@@ -5800,74 +5800,32 @@ export const editorChromeBridgeScript: string = `"use strict";
       var cs = window.getComputedStyle(el);
       return cs.position === "absolute" || cs.position === "fixed";
     }
-    function inferAutoLayoutConversionForContainer(container, excludeEls) {
-      var siblings = draggableElementChildren(container).filter(function(child) {
-        return excludeEls.indexOf(child) === -1;
-      });
-      if (siblings.length === 0) {
-        return { direction: "column", gap: 10 };
+    function isEmptyDropContainer(container, dragged) {
+      for (var i = 0; i < dragged.length; i += 1) {
+        if (dragged[i] && dragged[i].parentElement === container) return false;
       }
-      var rects = siblings.map(function(child) {
-        return child.getBoundingClientRect();
-      });
-      var minX = Math.min.apply(
-        null,
-        rects.map(function(r) {
-          return r.left;
-        })
-      );
-      var maxX = Math.max.apply(
-        null,
-        rects.map(function(r) {
-          return r.left + r.width;
-        })
-      );
-      var minY = Math.min.apply(
-        null,
-        rects.map(function(r) {
-          return r.top;
-        })
-      );
-      var maxY = Math.max.apply(
-        null,
-        rects.map(function(r) {
-          return r.top + r.height;
-        })
-      );
-      var direction = maxX - minX >= maxY - minY ? "row" : "column";
-      if (rects.length < 2) {
-        return { direction, gap: 10 };
+      var nodes = container.childNodes;
+      for (var j = 0; j < nodes.length; j += 1) {
+        var node = nodes[j];
+        if (node.nodeType === 3) {
+          if ((node.textContent || "").trim()) return false;
+          continue;
+        }
+        if (node.nodeType !== 1) continue;
+        if (isOverlayElement(node)) continue;
+        return false;
       }
-      var sorted = rects.slice().sort(function(a, b) {
-        return direction === "row" ? a.left - b.left : a.top - b.top;
-      });
-      var gaps = [];
-      for (var i = 1; i < sorted.length; i += 1) {
-        var prev = sorted[i - 1];
-        var current = sorted[i];
-        var gapValue = direction === "row" ? current.left - (prev.left + prev.width) : current.top - (prev.top + prev.height);
-        if (isFinite(gapValue) && gapValue > 0) gaps.push(gapValue);
-      }
-      if (gaps.length === 0) {
-        return { direction, gap: 10 };
-      }
-      gaps.sort(function(a, b) {
-        return a - b;
-      });
-      var mid = Math.floor(gaps.length / 2);
-      var median = gaps.length % 2 === 0 ? (gaps[mid - 1] + gaps[mid]) / 2 : gaps[mid];
-      return { direction, gap: Math.round(median) };
+      return true;
     }
-    function applyAutoLayoutConversionForDrop(container, excludeEls) {
-      var inferred = inferAutoLayoutConversionForContainer(container, excludeEls);
+    function applyAutoLayoutConversionForDrop(container) {
       var el = container;
       el.style.display = "flex";
-      el.style.flexDirection = inferred.direction;
-      el.style.gap = inferred.gap + "px";
+      el.style.flexDirection = "column";
+      el.style.gap = "10px";
       var styles = {
         display: "flex",
-        "flex-direction": inferred.direction,
-        gap: inferred.gap + "px"
+        "flex-direction": "column",
+        gap: "10px"
       };
       window.parent.postMessage(
         {
@@ -6269,7 +6227,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           dropMode: "absolute-container"
         };
       }
-      if (target && target.dropMode === "flow-insert" && container && container !== document.body && isContainerDropTarget(container) && !isAutoLayoutElement(container)) {
+      if (target && target.dropMode === "flow-insert" && container && container !== document.body && isContainerDropTarget(container) && !isAutoLayoutElement(container) && isEmptyDropContainer(container, dragged)) {
         target.needsAutoLayoutConversion = true;
         target.conversionTarget = container;
       }
@@ -7786,10 +7744,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             return;
           }
           if (currentTarget.needsAutoLayoutConversion && currentTarget.conversionTarget) {
-            applyAutoLayoutConversionForDrop(
-              currentTarget.conversionTarget,
-              groupEls
-            );
+            applyAutoLayoutConversionForDrop(currentTarget.conversionTarget);
           }
           prepareFlowMembersForAbsoluteDrop(
             groupEls,
