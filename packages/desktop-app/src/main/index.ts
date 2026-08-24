@@ -13505,7 +13505,7 @@ app.on("web-contents-created", (_event, contents) => {
 
     // Cmd+R reloads the guest that received the key instead of asking the
     // shell renderer to rediscover the active tab.
-    if (key === "r" && !input.alt && !input.shift) {
+    if (key === "r" && !input.alt) {
       event.preventDefault();
       reloadWebviewContents(contents);
       return;
@@ -14241,7 +14241,7 @@ app.whenReady().then(async () => {
     }
 
     // Cmd+R — refresh active webview, not the shell
-    if (key === "r" && !input.alt && !input.shift) {
+    if (key === "r" && !input.alt) {
       _event.preventDefault();
       reloadActiveWebview();
       return;

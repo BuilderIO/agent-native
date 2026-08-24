@@ -2184,7 +2184,7 @@ describe("DesktopIdentityBroker", () => {
         "/_agent-native/actions/create-workspace-app-embed-session",
     ).length;
 
-    await expect(broker.ensureAppSession(mail.id)).resolves.toBe(true);
+    await expect(broker.ensureAppSession(mail.id)).resolves.toBe(false);
 
     expect(
       identityFetch.mock.calls.filter(
@@ -2194,6 +2194,18 @@ describe("DesktopIdentityBroker", () => {
       ),
     ).toHaveLength(embedSessionRequestCount);
     expect(reloadApp).toHaveBeenCalledTimes(1);
+
+    mailCookies.get.mockRejectedValueOnce(
+      new Error("cookie store unavailable"),
+    );
+    await expect(broker.ensureAppSession(mail.id)).resolves.toBe(false);
+    expect(
+      identityFetch.mock.calls.filter(
+        ([input]) =>
+          new URL(String(input)).pathname ===
+          "/_agent-native/actions/create-workspace-app-embed-session",
+      ),
+    ).toHaveLength(embedSessionRequestCount);
   });
 
   it("dedupes a completed workspace embed session", async () => {
