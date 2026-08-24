@@ -1,4 +1,3 @@
-import { callAction } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   IconSearch,
@@ -8,7 +7,7 @@ import {
   IconLink,
   IconCalendarPlus,
 } from "@tabler/icons-react";
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -31,17 +30,12 @@ import {
   useAddOverlayPerson,
   useRemoveOverlayPerson,
 } from "@/hooks/use-overlay-people";
-
-interface SearchResult {
-  name: string;
-  email: string;
-  photoUrl?: string;
-}
-
-interface SearchResponse {
-  results: SearchResult[];
-  scopeRequired?: boolean;
-}
+import {
+  filterPeopleResults,
+  mergePeopleResults,
+  usePeopleContacts,
+  usePeopleSearch,
+} from "@/hooks/use-people";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const URL_REGEX = /^(https?|webcal):\/\/.+/i;
@@ -67,7 +61,7 @@ export function AddCalendarDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[440px] gap-0 p-0 top-[8%] translate-y-0">
+      <DialogContent className="sm:max-w-[440px] gap-0 p-0 top-[15vh] !translate-y-0">
         <DialogHeader className="px-4 pt-4 pb-0">
           <DialogTitle className="text-base">
             {t("eventForm.addCalendar")}
@@ -89,7 +83,7 @@ export function AddCalendarDialog({
           </TabsList>
 
           <TabsContent value="people" className="mt-0">
-            <PeopleTab onClose={() => onOpenChange(false)} />
+            <PeopleTab open={open} />
           </TabsContent>
 
           <TabsContent value="url" className="mt-0 px-4 pb-4 pt-3">
@@ -103,15 +97,12 @@ export function AddCalendarDialog({
 
 // ─── People tab ──────────────────────────────────────────────────────────────
 
-function PeopleTab({ onClose: _ }: { onClose: () => void }) {
+function PeopleTab({ open }: { open: boolean }) {
   const t = useT();
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<SearchResult[]>([]);
-  const [scopeRequired, setScopeRequired] = useState(false);
-  const [searching, setSearching] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const listRef = useRef<HTMLDivElement>(null);
   const shouldScrollActiveResultRef = useRef(false);
 
@@ -119,46 +110,57 @@ function PeopleTab({ onClose: _ }: { onClose: () => void }) {
   const overlayPeople = Array.isArray(rawOverlayPeople) ? rawOverlayPeople : [];
   const addPerson = useAddOverlayPerson();
   const removePerson = useRemoveOverlayPerson();
+  const contacts = usePeopleContacts("directory", open);
+  const directorySearch = usePeopleSearch(searchQuery, open, "directory");
 
-  const overlayEmails = new Set(overlayPeople.map((p) => p.email));
-  const selectableResults = results.filter((r) => !overlayEmails.has(r.email));
+  const overlayEmails = useMemo(
+    () => new Set(overlayPeople.map((p) => p.email.toLowerCase())),
+    [overlayPeople],
+  );
 
-  const search = useCallback(async (q: string) => {
-    setSearching(true);
-    try {
-      const data = await callAction<SearchResponse>(
-        "search-people",
-        q ? { q, scope: "directory" } : { scope: "directory" },
-        { method: "GET" },
-      );
-      setResults(data.results ?? []);
-      setScopeRequired(data.scopeRequired ?? false);
-    } catch {
-      // ignore
-    } finally {
-      setSearching(false);
-    }
-  }, []);
+  const results = useMemo(
+    () =>
+      filterPeopleResults(
+        mergePeopleResults(
+          contacts.data?.results,
+          directorySearch.data?.results,
+        ),
+        query,
+        new Set(),
+      ),
+    [contacts.data?.results, directorySearch.data?.results, query],
+  );
+  const selectableResults = results.filter(
+    (r) => !overlayEmails.has(r.email.toLowerCase()),
+  );
+
+  const searching =
+    contacts.isLoading ||
+    contacts.isFetching ||
+    directorySearch.isLoading ||
+    directorySearch.isFetching;
+  const scopeRequired = Boolean(
+    contacts.data?.scopeRequired || directorySearch.data?.scopeRequired,
+  );
 
   useEffect(() => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => search(query), query ? 300 : 0);
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-    };
-  }, [query, search]);
+    const timeout = window.setTimeout(
+      () => setSearchQuery(query),
+      query.trim() ? 300 : 0,
+    );
+    return () => window.clearTimeout(timeout);
+  }, [query]);
 
   useEffect(() => {
     setActiveIndex(results.length > 0 ? 0 : -1);
   }, [results]);
 
   useEffect(() => {
+    if (!open) return;
     setQuery("");
-    setResults([]);
-    setScopeRequired(false);
+    setSearchQuery("");
     setActiveIndex(-1);
-    search("");
-  }, [search]);
+  }, [open]);
 
   useEffect(() => {
     if (
@@ -198,7 +200,10 @@ function PeopleTab({ onClose: _ }: { onClose: () => void }) {
         return;
       }
       const trimmed = query.trim();
-      if (EMAIL_REGEX.test(trimmed) && !overlayEmails.has(trimmed)) {
+      if (
+        EMAIL_REGEX.test(trimmed) &&
+        !overlayEmails.has(trimmed.toLowerCase())
+      ) {
         handleAdd(trimmed);
         setQuery("");
       }
@@ -229,7 +234,7 @@ function PeopleTab({ onClose: _ }: { onClose: () => void }) {
           className="max-h-48 overflow-y-auto border-t border-border"
         >
           {results.map((person) => {
-            const alreadyAdded = overlayEmails.has(person.email);
+            const alreadyAdded = overlayEmails.has(person.email.toLowerCase());
             const selectableIdx = selectableResults.indexOf(person);
             const isActive = !alreadyAdded && selectableIdx === activeIndex;
             return (
