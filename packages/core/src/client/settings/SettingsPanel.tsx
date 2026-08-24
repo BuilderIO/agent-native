@@ -1054,9 +1054,14 @@ function LLMSectionInner({
     };
     window.addEventListener("agent-engine:configured-changed", refresh);
     window.addEventListener("focus", refresh);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
       window.removeEventListener("agent-engine:configured-changed", refresh);
       window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [refreshEnvKeys, refreshSettingsStatus]);
 
@@ -1116,9 +1121,11 @@ function LLMSectionInner({
   }, [envKeys, settingsStatus]);
   const builderConnected = connected || builderFlow.configured;
   const configurationKnown = envProbeAvailable && statusProbeAvailable;
+  const builderEngineSelected = selectedEngine === "builder";
   const anyKeyConfigured =
-    builderConnected ||
-    (configurationKnown &&
+    (builderEngineSelected && builderConnected) ||
+    (!builderEngineSelected &&
+      configurationKnown &&
       selectedEnginePackageInstalled &&
       (envConfigured || settingsConfigured));
   const sourceBadge = computeSourceBadge({
