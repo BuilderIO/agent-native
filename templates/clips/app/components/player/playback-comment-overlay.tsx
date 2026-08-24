@@ -103,9 +103,9 @@ export function PlaybackCommentOverlay({
             </p>
             <InlineMarkdown
               content={comment.content}
-              className="line-clamp-3 text-sm leading-5 text-white"
-              linkClassName="text-white underline decoration-white/60 hover:decoration-white"
-              codeClassName="bg-white/15 text-white"
+              className="line-clamp-3 text-sm leading-5 text-playback-overlay-foreground"
+              linkClassName="text-playback-overlay-foreground underline decoration-playback-overlay-foreground/60 hover:decoration-playback-overlay-foreground"
+              codeClassName="bg-playback-overlay-foreground/15 text-playback-overlay-foreground"
             />
           </div>
         </div>
