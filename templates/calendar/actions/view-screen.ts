@@ -6,11 +6,17 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { rowToBookingLink } from "../server/lib/booking-link-utils.js";
+import { getCalendarTimezone } from "../server/lib/calendar-settings.js";
 import type { CalendarEvent, CalendarEventDraft } from "../shared/api.js";
 import {
   CALENDAR_VIEW_PREFERENCES_KEY,
   normalizeCalendarViewPreferences,
 } from "../shared/calendar-view-preferences.js";
+import {
+  addDaysToDateKey,
+  dateKeyInTimezone,
+  dateTimeInTimezoneToIso,
+} from "../shared/timezone.js";
 import { extractVideoLink } from "./event-action-helpers.js";
 import { listCalendarEvents } from "./list-events.js";
 
@@ -49,6 +55,11 @@ async function fetchEventsForRange(
   }
 }
 
+function dateKeyFromParts(date: Date): string {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
 export default defineAction({
   description:
     "See what the user is currently looking at on screen. Returns the current view, date range, and visible events. Always call this first before taking any action.",
@@ -67,18 +78,22 @@ export default defineAction({
     const nav = navigation as any;
 
     if (nav?.view === "calendar" || !nav?.view) {
-      const now = new Date();
-      const viewDate = nav?.date ? new Date(nav.date) : now;
-
-      const from = new Date(viewDate);
-      from.setDate(from.getDate() - from.getDay());
-      from.setHours(0, 0, 0, 0);
-      const to = new Date(from);
-      to.setDate(to.getDate() + 7);
+      const email = getRequestUserEmail();
+      if (!email) throw new Error("no authenticated user");
+      const timezone = await getCalendarTimezone(email);
+      // Work in calendar days, then resolve the two edges to instants once.
+      const viewDay = nav?.date ?? dateKeyInTimezone(new Date(), timezone);
+      // Noon UTC so the weekday can never be shifted by an offset.
+      const weekday = new Date(`${viewDay}T12:00:00Z`).getUTCDay();
+      const weekStart = addDaysToDateKey(viewDay, -weekday);
 
       const eventResult = await fetchEventsForRange(
-        from.toISOString(),
-        to.toISOString(),
+        dateTimeInTimezoneToIso(weekStart, "00:00", timezone),
+        dateTimeInTimezoneToIso(
+          addDaysToDateKey(weekStart, 7),
+          "00:00",
+          timezone,
+        ),
       );
       const { events } = eventResult;
 
