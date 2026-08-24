@@ -1,0 +1,84 @@
+---
+title: "Calendário em um workspace com múltiplos apps"
+description: "Como o Calendário se conecta ao Dispatch e a outros aplicativos, os eventos reais que outros aplicativos podem automatizar e a delegação em linguagem natural em um workspace com múltiplos apps."
+---
+
+# Calendário em um workspace com múltiplos apps
+
+O Calendário é um aplicativo entre muitos em um workspace
+[Dispatch](/docs/template-dispatch). Esta página cobre o que isso realmente
+significa na prática: como a conexão funciona, e formas concretas pelas
+quais outros aplicativos podem agir sobre o seu calendário ou reagir ao que
+acontece nele. Veja [Calendário](/docs/template-calendar) para a visão
+geral.
+
+## Como o Calendário se conecta ao Dispatch
+
+Se isso é automático depende de como o Calendário e o Dispatch foram
+configurados juntos, não de se um deles está hospedado ou em execução
+local.
+
+### Mesmo workspace: automático
+
+Se o Calendário e o Dispatch foram gerados ou adicionados juntos em um único
+workspace Agent Native (via `create` ou `add-app`) e implantados como uma
+única unidade, eles já compartilham um `.env`, um `A2A_SECRET` e um registro
+de workspace. A descoberta e as chamadas A2A autenticadas simplesmente
+funcionam, sem nada para configurar, esteja esse workspace em execução na
+sua máquina ou em produção. Essa é a configuração esperada para um produto
+real com múltiplos apps construído sobre o Calendário.
+
+### Implantações separadas: um passo manual
+
+Se o Calendário e o Dispatch são dois projetos Agent Native criados de forma
+independente, eles não compartilham um segredo e ainda não podem se chamar.
+Conectá-los exige um passo manual em cada lado: adicionar um recurso
+`remote-agents/<id>.json` com um segredo compartilhado, a partir de
+Configurações → Agentes conectados, da aba Conexões da página Agent, ou
+Dispatch → Agentes → Adicionar agente externo. Veja [Protocolo
+A2A](/docs/a2a-protocol) para o passo a passo completo.
+
+Para verificar em qual situação você está, pergunte ao agente de qualquer um
+dos aplicativos "quais aplicativos você consegue ver?" Se o Calendário
+estiver ausente da resposta do Dispatch, você está no segundo caso.
+
+## Estratégias de integração
+
+**Automatizando a partir de eventos de calendário.** Criar um evento e criar
+uma reserva disparam eventos reais no barramento de eventos compartilhado do
+framework (`calendar.event.created`, `calendar.booking.created`). A
+[automação](/docs/automations) de qualquer aplicativo pode se inscrever em
+qualquer um dos dois, independentemente de qual aplicativo os define. Uma
+reserva chegando no seu calendário pode disparar o rascunho de um e-mail de
+boas-vindas no E-mail, ou uma agenda de reunião no Slides, construída antes
+da reunião acontecer. O Calendário não vem com uma dessas automações prontas
+de fábrica, mas o evento é real e está pronto para você conectar quando
+quiser construir uma.
+
+**Delegação em linguagem natural através do Dispatch.** Um aplicativo irmão
+não precisa de uma integração especial para funcionar com o Calendário. Ele
+pode entregar ao agente do Calendário uma solicitação em linguagem natural,
+como "encontre 30 minutos com o Sam na próxima semana," da mesma forma que
+você faria no chat, e o Calendário responde ou age diretamente sobre ela.
+Este é o mecanismo real por trás de algo como uma solicitação de agendamento
+que chega pelo E-mail ou pelo Slack e se transforma em um evento reservado:
+o Dispatch (ou o aplicativo que recebeu a mensagem) delega a solicitação ao
+agente do Calendário, e o Calendário a trata como qualquer outro prompt.
+
+**Permanecendo desacoplado.** O Calendário nunca precisa conhecer as
+credenciais do E-mail ou do Slack, nem vice-versa, para nada disso. O
+barramento de eventos e as automações que se inscrevem nele ficam entre os
+aplicativos, então o Calendário só precisa emitir um evento real ou
+responder a uma solicitação real. Ele não precisa saber quem está ouvindo,
+ou como.
+
+## Próximos passos
+
+- [**Calendário**](/docs/template-calendar) — a visão geral e os passos iniciais
+- [**Funcionalidades**](/docs/template-calendar-features) — visualizações, disponibilidade, busca de horários e links de reserva
+- [**Conversar com o Agent**](/docs/template-calendar-agent) — prompts por tarefa, estado da aplicação e Extensões
+- [**Guia do desenvolvedor**](/docs/template-calendar-developers) — início rápido, actions, modelo de dados e rotas
+- [**Dispatch**](/docs/template-dispatch) — o plano de controle do workspace sobre o qual esses padrões funcionam
+- [**Automações**](/docs/automations) — declarando uma automação que reage a um evento de calendário
+- [**Protocolo A2A**](/docs/a2a-protocol) — como os aplicativos se descobrem, se autenticam e se chamam entre si
+- [**Workspaces multi-app**](/docs/multi-app-workspace) — o padrão geral de compor aplicativos próprios em vez de aninhá-los

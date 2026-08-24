@@ -1,0 +1,488 @@
+---
+title: "日历：开发者指南"
+description: "快速入门、完整的 action 清单、数据模型、路由，以及如何扩展日历模板。"
+---
+
+# 开发者指南
+
+本页适用于任何想要定制或扩展日历模板的人：快速入门、每一个 action、数据模型、路由结构，以及如何在此基础上进行扩展。有关该应用的功能，请参阅 [日历](/docs/template-calendar)。
+
+## 快速入门
+
+本节将引导您从零安装开始，一直到连接好 Google Calendar 为止。无论您是在
+macOS 的终端中，还是在 Windows 的 PowerShell/命令提示符中，这些命令都完
+全相同，它们都是普通的 Node.js 工具命令。
+
+<Steps>
+
+### 创建应用
+
+```bash
+npx @agent-native/core@latest create my-calendar --standalone --template calendar
+cd my-calendar
+pnpm install
+```
+
+这需要先安装 [Node.js](https://nodejs.org) 22 或更高版本，以及
+[pnpm](https://pnpm.io)。如果您还没有安装它们，或者还没有配置好 LLM 连
+接（Builder.io、Anthropic/OpenAI 密钥，或本地 Ollama），请参阅
+[快速入门](/docs/getting-started)。
+
+### 启动开发服务器
+
+```bash
+pnpm dev
+```
+
+应用会在 `http://localhost:8082` 打开。如果没有自动打开，请在浏览器中访
+问该 URL。在未连接 Google 的情况下，日历也能完全正常运行。只有当您在连接
+之前尝试执行需要它的 action 时，才会遇到错误。
+
+### 连接 Google Calendar
+
+在应用中打开**设置**，在**常规**标签页找到**Google Calendar** 卡片，然
+后点击**连接 Google Calendar**。这会打开一个设置向导：
+
+1. **创建一个 Google Cloud 项目**，如果您还没有可用的项目：在
+   [Google Cloud Console](https://console.cloud.google.com/) 中，点击
+   页面顶部附近的项目下拉菜单，然后选择**新建项目**。为它起任意名称，点
+   击**创建**，并等待项目就绪的通知。在继续之前，请确保它已在同一个下
+   拉菜单中被选中。
+2. **启用该 API**：在选中项目的情况下，进入 **APIs & Services →
+   Library**，搜索“Google Calendar API”，打开它，然后点击**启用**。
+3. **配置同意屏幕**：在 **APIs & Services → OAuth consent screen** 下
+   设置一个同意屏幕（开发阶段选择“External”即可）。
+4. **创建凭证**：在 **APIs & Services → Credentials** 下，创建一个类型
+   为“Web application”的 OAuth 客户端 ID，并添加
+   `http://localhost:8082/_agent-native/google/callback` 作为授权重定
+   向 URI（8082 是日历默认的开发端口）。
+5. **添加凭证**：下载凭证 JSON 文件并在向导中上传，或者切换到“手动粘
+   贴”，直接输入 Client ID 和 Client Secret。
+
+日历会将这些信息保存到自己的密钥存储中，而不是 `.env` 文件，因此这一步在
+Windows 和 macOS 上完全相同。连接完成后，令牌会自动刷新。
+
+### 连接 Zoom（可选）
+
+与 Google 不同，Zoom 没有设置表单。请在项目根目录创建一个 `.env` 文件
+（或在已有的文件中添加）：
+
+```text
+ZOOM_CLIENT_ID=your-client-id
+ZOOM_CLIENT_SECRET=your-client-secret
+```
+
+从 [Zoom OAuth 应用](https://marketplace.zoom.us/)（Zoom Marketplace →
+Develop → Build App → OAuth）获取 Client ID 和 Secret，将
+`/_agent-native/zoom/callback` 设为重定向 URI，然后重启 `pnpm dev` 以使
+其读取新的值。即使未连接 Zoom，预订链接仍然可以提供 Google Meet，只是不
+能提供 Zoom。
+
+</Steps>
+
+<Callout tone="warning">
+
+在 Windows 上，某些编辑器在保存名为 `.env` 的文件时会添加隐藏的 `.txt`
+扩展名，导致生成一个日历永远不会读取的 `.env.txt` 文件。请在文件资源管理
+器中开启“文件名扩展名”（查看标签），并确认保存的文件名恰好是 `.env`，后
+面没有任何其他内容。
+
+</Callout>
+
+<Callout tone="info">
+
+**活动数据存放在 Google Calendar 中，而不是 SQL 里。** 每一个活动
+action 都会直接调用 Google Calendar API，本地并没有活动表。只有预订链
+接、预订记录、可用性和连接状态存储在本地。请永远不要使用原始 SQL 读取或
+写入活动数据。
+
+</Callout>
+
+## Action 清单
+
+每一个操作都是 `templates/calendar/actions/` 目录下的一个 TypeScript 文件，自动挂载在 `POST /_agent-native/actions/:name` 上。
+
+### 活动和参会者
+
+活动数据存放在 Google Calendar 中，从不存放在 SQL 里。
+
+| Action | 作用 |
+| --- | --- |
+| `list-events` | 列出某个日期范围内的活动 |
+| `search-events` | 按查询条件搜索活动 |
+| `get-event` | 按 id 读取一个活动 |
+| `create-event` | 创建一个活动，包括重复规则（RRULE）、工作地点，以及状态类型（`outOfOffice`、`focusTime`） |
+| `update-event` | 更新一个活动，包括重复规则、工作地点和状态类型 |
+| `delete-event` | 删除一个活动 |
+| `manage-event-draft` | 在写入任何数据或通知参会者之前，暂存一份尚未发送的邀请供用户审核 |
+| `rsvp-event` | 接受、拒绝或将邀请标记为待定 |
+| `get-attendee-timezones` | 读取按参会者设置的时区覆盖 |
+| `set-attendee-timezone` | 设置某位参会者的时区覆盖，以便其本地时间能够正确显示 |
+
+### 可用性和查找时段
+
+| Action | 作用 |
+| --- | --- |
+| `get-availability` | 读取每周日程、时区、缓冲时间、提前通知和提前预订窗口设置 |
+| `update-availability` | 更新每周日程、时区、缓冲时间、提前通知和提前预订窗口设置 |
+| `check-availability` | 查找某一天的空闲时段 |
+| `find-a-time` | 在组织者和指名的参会者之间共享搜索空闲时段，结合 Google 忙闲状态和本地冲突 |
+
+### 预订链接和预订记录
+
+| Action | 作用 |
+| --- | --- |
+| `create-booking-link` | 创建一个预订链接 |
+| `update-booking-link` | 更新一个预订链接 |
+| `duplicate-booking-link` | 复制一个预订链接，包括联合主持人（`hosts`） |
+| `list-booking-links` | 列出可访问的预订链接 |
+| `list-bookings` | 列出已确认的预约 |
+
+### 外部日历
+
+只读的 ICS 订阅源。
+
+| Action | 作用 |
+| --- | --- |
+| `add-external-calendar` | 订阅一个只读的 ICS/webcal 订阅源 |
+| `list-external-calendars` | 列出已订阅的订阅源 |
+| `remove-external-calendar` | 移除一个已订阅的订阅源 |
+| `update-external-calendars` | 更新已订阅的订阅源 |
+
+### 人员和叠加
+
+| Action | 作用 |
+| --- | --- |
+| `search-people` | 搜索 Google 联系人和 Workspace 目录 |
+| `get-overlay-people` | 读取被固定叠加到您视图中的其他人员 |
+| `update-overlay-people` | 更新被固定叠加到您视图中的其他人员 |
+
+### Zoom
+
+| Action | 作用 |
+| --- | --- |
+| `get-zoom-status` | 读取当前用户的 Zoom 连接状态。连接和断开连接通过 `/_agent-native/zoom/*` 路由完成，而不是通过 action，因为 OAuth 需要已登录的浏览器会话 |
+
+### Google Calendar 连接与同步
+
+| Action | 作用 |
+| --- | --- |
+| `connect-google-calendar` | 为已登录的浏览器会话返回 OAuth 连接 URL |
+| `sync-google-calendar` | 强制重新同步 |
+
+### 设置和偏好
+
+| Action | 作用 |
+| --- | --- |
+| `get-settings` | 读取用户级设置 |
+| `update-settings` | 更新用户级设置 |
+| `update-calendar-visual-preferences` | 更新仅本地生效的显示偏好设置（活动颜色、隐藏周末）。绝不会触及 Google Calendar |
+
+### 导航和界面状态
+
+| Action | 作用 |
+| --- | --- |
+| `navigate` | 将界面切换到某个视图、日期或活动 |
+| `view-screen` | 向代理回传当前视图信息 |
+
+### Provider API 升级调用
+
+原始的 Google Calendar（以及已连接的 CRM）API，用于上述 actions 覆盖范围过窄的情况。
+
+| Action | 作用 |
+| --- | --- |
+| `provider-api-catalog` | 列出可直接调用的原始 provider API |
+| `provider-api-docs` | 读取某个原始 provider API 接口的文档 |
+| `provider-api-request` | 直接调用原始的 Google Calendar（或已连接的 CRM）API |
+| `list-staged-datasets` | 列出为查询而暂存的大规模扫描结果，而不是直接返回原始结果 |
+| `query-staged-dataset` | 查询一个暂存数据集 |
+| `delete-staged-dataset` | 删除一个暂存数据集 |
+
+## 数据模型
+
+定义在 `templates/calendar/server/db/schema.ts` 中。只有非活动数据存储在本地，活动本身存放在 Google Calendar 中。
+
+<DataModel
+  id="doc-block-calendar6"
+  title="日历数据模型"
+  summary={
+    "只有非活动数据存储在本地，活动数据存放在 Google Calendar 中。预订链接使用 ownableColumns，因此共享系统适用于它们。预订用户名是一个独立的保留表，因为一个用户名会在该用户拥有的所有链接之间共享。"
+  }
+  entities={[
+    {
+      id: "booking_links",
+      name: "booking_links",
+      note: "Calendly 风格的链接定义（ownable）",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        {
+          name: "slug",
+          type: "string",
+          note: "唯一，公开页面位于 /book/{username}/{slug}",
+        },
+        { name: "title", type: "string" },
+        { name: "description", type: "string", nullable: true },
+        { name: "duration", type: "int", note: "主要时长（分钟）" },
+        {
+          name: "durations",
+          type: "json",
+          nullable: true,
+          note: "备选时长",
+        },
+        {
+          name: "hosts",
+          type: "json",
+          nullable: true,
+          note: "所有者之外的必需联合主持人",
+        },
+        { name: "customFields", type: "json", nullable: true },
+        {
+          name: "conferencing",
+          type: "json",
+          nullable: true,
+          note: "none | google_meet | zoom | custom",
+        },
+        { name: "color", type: "string", nullable: true },
+        { name: "isActive", type: "bool", note: "暂停但不删除" },
+        { name: "ownerEmail", type: "string" },
+        { name: "orgId", type: "id", nullable: true },
+      ],
+    },
+    {
+      id: "bookings",
+      name: "bookings",
+      note: "来自公开预订页面的已确认预约",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "slug", type: "string", fk: "booking_links.slug" },
+        { name: "name", type: "string" },
+        { name: "email", type: "string" },
+        { name: "start", type: "datetime" },
+        { name: "end", type: "datetime" },
+        { name: "eventTitle", type: "string", nullable: true },
+        { name: "notes", type: "string", nullable: true },
+        {
+          name: "fieldResponses",
+          type: "json",
+          nullable: true,
+          note: "自定义字段的回复内容",
+        },
+        {
+          name: "meetingLink",
+          type: "string",
+          nullable: true,
+          note: "Zoom、Google Meet 或自定义",
+        },
+        { name: "googleEventId", type: "string", nullable: true },
+        {
+          name: "calendarAccountId",
+          type: "string",
+          nullable: true,
+          note: "拥有该活动的已连接账户",
+        },
+        {
+          name: "cancelToken",
+          type: "string",
+          note: "支撑 /booking/manage/{token} 页面",
+        },
+        { name: "status", type: "enum", note: "confirmed | cancelled" },
+        { name: "ownerEmail", type: "string" },
+        { name: "orgId", type: "id", nullable: true },
+      ],
+    },
+    {
+      id: "booking_slug_redirects",
+      name: "booking_slug_redirects",
+      note: "在链接的 slug 被重命名后，让旧的公开 URL 保持可用",
+      fields: [
+        { name: "oldSlug", type: "string", pk: true },
+        {
+          name: "newSlug",
+          type: "string",
+          note: "该链接当前的 slug",
+        },
+        { name: "createdAt", type: "datetime" },
+      ],
+    },
+    {
+      id: "booking_usernames",
+      name: "booking_usernames",
+      note: "保留 /book/{username}/{slug} 中的 {username} 片段，每个所有者一个",
+      fields: [
+        { name: "username", type: "string", pk: true },
+        {
+          name: "ownerEmail",
+          type: "string",
+          note: "唯一，每个用户只有一个预订用户名",
+        },
+        { name: "createdAt", type: "datetime" },
+        { name: "updatedAt", type: "datetime" },
+      ],
+    },
+    {
+      id: "booking_username_changes",
+      name: "booking_username_changes",
+      note: "用于强制执行“每 30 天最多 3 次”变更限制的审计记录",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "ownerEmail", type: "string" },
+        { name: "oldUsername", type: "string", nullable: true },
+        { name: "newUsername", type: "string" },
+        { name: "createdAt", type: "datetime" },
+      ],
+    },
+    {
+      id: "booking_link_shares",
+      name: "booking_link_shares",
+      note: "预订链接的共享授权",
+      fields: [
+        { name: "id", type: "id", pk: true },
+        { name: "linkId", type: "id", fk: "booking_links.id" },
+        { name: "principal", type: "string", note: "用户或组织" },
+        { name: "role", type: "enum", note: "viewer | editor | admin" },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "booking_links",
+      to: "bookings",
+      kind: "1-n",
+      label: "包含预订记录",
+    },
+    {
+      from: "booking_links",
+      to: "booking_link_shares",
+      kind: "1-n",
+      label: "包含共享授权",
+    },
+  ]}
+/>
+
+可用性规则保存在按用户区分的设置中，键名为 `calendar-availability`。叠加人员保存在 `calendar-overlay-people` 键下，参会者时区覆盖保存在 `attendee-timezones` 键下，已订阅的 ICS 订阅源保存在 `external-calendars` 键下。Google 和 Zoom 的 OAuth 令牌存放在框架的 `oauth_tokens` 表中。临时性的界面状态（当前视图、日期、选中的活动）存放在 `application_state` 中的 `navigation` 键下。
+
+## 逐步解析一个 action
+
+`create-booking-link` 展示了值得在任何 action 中复用的模式：在数据触及数据库之前先验证输入，跨两个表强制执行一条规则，安全地解析已登录用户，以及把一种灵活的输入形状统一规范化一次，而不是在每个读取处都重复处理。
+
+<AnnotatedCode
+  id="doc-block-calendar8"
+  title="创建一个预订链接"
+  filename="templates/calendar/actions/create-booking-link.ts"
+  language="ts"
+  code={
+    'import { defineAction } from "@agent-native/core";\nimport {\n  getRequestUserEmail,\n  getRequestOrgId,\n} from "@agent-native/core/server/request-context";\nimport { eq } from "drizzle-orm";\nimport { nanoid } from "nanoid";\nimport { z } from "zod";\n\nimport { getDb, schema } from "../server/db/index.js";\nimport { normalizeBookingDurationInput } from "../server/lib/booking-durations.js";\nimport {\n  rowToBookingLink,\n  serializeBookingHosts,\n} from "../server/lib/booking-link-utils.js";\n\nconst hostsSchema = z\n  .union([\n    z.array(\n      z.union([\n        z.string(),\n        z.object({\n          email: z.string(),\n          displayName: z.string().optional(),\n        }),\n      ]),\n    ),\n    z.string(),\n  ])\n  .optional();\n\nexport default defineAction({\n  description:\n    "Create a new booking link/event type. Use this instead of raw SQL for booking links.",\n  schema: z.object({\n    title: z.string().min(1).describe("Booking link title"),\n    slug: z\n      .string()\n      .min(1)\n      .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)\n      .describe("URL slug, lowercase words separated by hyphens"),\n    duration: z.coerce\n      .number()\n      .int()\n      .min(5)\n      .max(24 * 60)\n      .describe("Default duration in minutes"),\n    description: z.string().optional().describe("Description"),\n    durations: z\n      .array(\n        z.coerce\n          .number()\n          .int()\n          .min(5)\n          .max(24 * 60),\n      )\n      .optional()\n      .describe("Optional duration choices, e.g. [30,45,60]"),\n    hosts: hostsSchema.describe(\n      "Required co-hosts besides the owner. Accepts emails, comma-separated emails, or {email, displayName} objects.",\n    ),\n    customFields: z.array(z.any()).optional().describe("Custom form fields"),\n    conferencing: z.any().optional().describe("Conferencing configuration"),\n    color: z.string().optional().describe("Display color"),\n    isActive: z.boolean().optional().describe("Whether the link is active"),\n  }),\n  run: async (args) => {\n    const body = args as Record<string, any>;\n    const durationInput = normalizeBookingDurationInput({\n      duration: body.duration,\n      durations: body.durations,\n    });\n    if ("error" in durationInput) {\n      throw new Error(durationInput.error);\n    }\n    const slug = String(body.slug).trim().toLowerCase();\n    const [existingLink, existingRedirect] = await Promise.all([\n      getDb()\n        .select({ id: schema.bookingLinks.id })\n        .from(schema.bookingLinks)\n        .where(eq(schema.bookingLinks.slug, slug)),\n      getDb()\n        .select({ oldSlug: schema.bookingSlugRedirects.oldSlug })\n        .from(schema.bookingSlugRedirects)\n        .where(eq(schema.bookingSlugRedirects.oldSlug, slug)),\n    ]);\n\n    if (existingLink.length > 0 || existingRedirect.length > 0) {\n      throw new Error("A booking link with this slug already exists");\n    }\n\n    const now = new Date().toISOString();\n    const id = nanoid();\n    const ownerEmail = (() => {\n      const e = getRequestUserEmail();\n      if (!e) throw new Error("no authenticated user");\n      return e;\n    })();\n    await getDb()\n      .insert(schema.bookingLinks)\n      .values({\n        id,\n        slug,\n        title: String(body.title).trim(),\n        description: body.description ? String(body.description).trim() : null,\n        duration: durationInput.duration,\n        durations: durationInput.durations\n          ? JSON.stringify(durationInput.durations)\n          : null,\n        hosts: serializeBookingHosts(body.hosts, ownerEmail),\n        customFields: body.customFields\n          ? JSON.stringify(body.customFields)\n          : null,\n        conferencing: body.conferencing\n          ? JSON.stringify(body.conferencing)\n          : null,\n        color: body.color ? String(body.color).trim() : null,\n        isActive: body.isActive ?? true,\n        ownerEmail,\n        orgId: getRequestOrgId(),\n        createdAt: now,\n        updatedAt: now,\n      });\n\n    const created = await getDb()\n      .select()\n      .from(schema.bookingLinks)\n      .where(eq(schema.bookingLinks.id, id));\n    return rowToBookingLink(created[0]);\n  },\n});'
+  }
+  annotations={[
+    {
+      lines: "37-41",
+      label: "Slug 格式会提前得到验证",
+      note: "这个正则表达式会在任何数据触及数据库之前，强制要求 URL slug 必须是小写字母并用连字符分隔，因此格式不正确的 slug 永远不会走到下面的唯一性检查那一步。",
+    },
+    {
+      lines: "59-61",
+      label: "Hosts 是可选的",
+      note: "省略 `hosts` 会创建一个单人链接。一个非空的列表会成为必需的联合主持人，他们也必须有空，`find-a-time` 才会提供某个时段。",
+    },
+    {
+      lines: "76-90",
+      label: "一个 slug 必须在两个表中都是未被占用的",
+      note: "一个新的 slug 必须在 `booking_links` 和 `booking_slug_redirects` 中都未被使用，否则一个新链接就可能悄悄占用一个 URL，而这个 URL 实际上是一个更早、已被重命名的链接仍在向访客转发的地址。",
+    },
+    {
+      lines: "94-98",
+      label: "已登录用户只解析一次，并被收窄为确定类型",
+      note: "`getRequestUserEmail()` 返回的是 `string | undefined`，因为严格来说，一次未经身份验证的调用是没有已登录用户的。把它包在一个立即执行函数中，可以让 action 在真的发生这种情况时立刻抛出错误，因此 `ownerEmail` 在函数余下的部分中就是一个普通的 `string`，而不需要之后每一行代码都重新检查一遍。",
+    },
+    {
+      lines: "110",
+      label: "联合主持人输入只规范化一次",
+      note: "`serializeBookingHosts` 接受邮箱地址、逗号分隔的字符串，或 `{email, displayName}` 对象，并始终以同一种 JSON 结构存储，因此每个读取方只需要处理一种格式。",
+    },
+  ]}
+/>
+
+## 路由参考
+
+<FileTree
+  id="doc-block-calendar7"
+  title="日历模板结构"
+  entries={[
+    {
+      path: "actions/",
+      note: "每一个可供代理调用的 action，涵盖活动、可用性、预订、人员、Zoom 和共享",
+    },
+    {
+      path: "app/routes/_app._index.tsx",
+      note: "主日历视图（日/周/月）",
+    },
+    { path: "app/routes/_app.agent.tsx", note: "全页代理聊天标签页" },
+    {
+      path: "app/routes/_app.availability.tsx",
+      note: "可用性编辑器",
+    },
+    {
+      path: "app/routes/_app.booking-links._index.tsx",
+      note: "预订链接列表，_app.booking-links.$id.tsx 用于编辑其中一个",
+    },
+    { path: "app/routes/_app.bookings.tsx", note: "已确认预订列表" },
+    {
+      path: "app/routes/_app.extensions.tsx",
+      note: "扩展组件路由",
+    },
+    {
+      path: "app/routes/_app.settings.tsx",
+      note: "Google/Zoom 连接、可用性默认值、共享",
+    },
+    {
+      path: "app/routes/book.$username.$slug.tsx",
+      note: "公开预订页面（标准路径：/book/{username}/{slug}）",
+    },
+    {
+      path: "app/routes/booking.manage.$token.tsx",
+      note: "访客的改期/取消页面",
+    },
+    {
+      path: "app/routes/event.tsx",
+      note: "代理在聊天中嵌入的独立活动预览页面",
+    },
+    {
+      path: "server/db/schema.ts",
+      note: "Drizzle 表：booking_links、bookings、booking_usernames、shares",
+    },
+    { path: "server/lib/zoom.ts", note: "Zoom OAuth 及会议创建" },
+    {
+      path: "server/lib/google-calendar.ts",
+      note: "Google Calendar API 客户端",
+    },
+    {
+      path: "shared/api.ts",
+      note: "服务器和客户端共用的 TypeScript 类型",
+    },
+  ]}
+/>
+
+为了兼容 URL 结构变更之前分享出去的链接，仍保留挂载了两个旧版路由：`book.$slug.tsx`（不含用户名片段）和 `meet.$username.$slug.tsx`，它们都会规范化为 `/book/:username/:slug`。`_app.team.tsx` 会重定向到 `/settings/organization`，团队管理位于设置中，而不是一个单独的页面。
+
+## 自定义
+
+应用的每一部分都是可编辑的源代码。可以从这里开始：
+
+- `templates/calendar/actions/`：添加一个包含 `defineAction` 的新文件，即可将新功能同时暴露给代理和前端。
+- `templates/calendar/app/routes/`：界面部分，如上文列出。
+- `templates/calendar/server/db/schema.ts`：使用 Drizzle 添加列或表。请保持代码与具体数据库方言无关，以便模板能够在 SQLite、Postgres、Turso、D1 和 Neon 上运行。
+- `templates/calendar/server/lib/`：provider 集成代码，包括 `google-calendar.ts`、`zoom.ts`、`people-search.ts`、`ical-fetcher.ts`、`find-time.ts`、`provider-api.ts`。
+- `templates/calendar/AGENTS.md`：代理指令。当您为代理教授新功能或新约定时，请更新此文件。
+- `templates/calendar/.agents/skills/`：代理遵循的详细模式。相关 skills：`event-management`、`availability-booking`、`real-time-sync`、`storing-data`、`delegate-to-agent`、`frontend-design`。
+- `templates/calendar/shared/api.ts`：服务器和客户端共用的 TypeScript 类型（`CalendarEvent`、`BookingLink`、`ExternalCalendar`、`ConferencingConfig` 等）。
+
+如果您添加了一项功能，请记得更新全部四个方面：界面、action、skill 或 AGENTS.md 条目，以及代理需要查看的任何应用状态。这正是让代理和界面保持一致的关键所在。
+
+## 接下来
+
+- [**日历**](/docs/template-calendar) — 概览及入门步骤
+- [**功能**](/docs/template-calendar-features) — 这些 actions 和数据模型所支撑的用户可见行为
+- [**与 Agent 对话**](/docs/template-calendar-agent) — 代理如何在这些 actions 和原始 Google Calendar API 之间做出选择
+- [**多应用工作区中的日历**](/docs/template-calendar-integrations) — 这些 actions 如何暴露给其他应用和 Dispatch
+- [**Actions**](/docs/actions-overview) — 该模板所构建于其上的 action 系统
+- [**共享**](/docs/sharing) — `booking_link_shares` 所使用的共享授权模型

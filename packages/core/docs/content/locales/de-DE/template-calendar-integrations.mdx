@@ -1,0 +1,41 @@
+---
+title: "Kalender in einem Multi-App-Arbeitsbereich"
+description: "Wie Kalender sich mit Dispatch und anderen Apps verbindet, welche echten Ereignisse andere Apps automatisieren können, und die Delegation in natürlicher Sprache über einen Multi-App-Arbeitsbereich hinweg."
+---
+
+# Kalender in einem Multi-App-Arbeitsbereich
+
+Kalender ist eine App unter vielen in einem [Dispatch](/docs/template-dispatch)-Arbeitsbereich. Diese Seite behandelt, was das in der Praxis tatsächlich bedeutet: wie die Verbindung funktioniert und auf welche konkreten Arten andere Apps auf Ihren Kalender einwirken oder auf das reagieren können, was dort passiert. Einen Überblick finden Sie unter [Kalender](/docs/template-calendar).
+
+## Wie Kalender sich mit Dispatch verbindet
+
+Ob dies automatisch geschieht, hängt davon ab, wie Kalender und Dispatch gemeinsam eingerichtet wurden, nicht davon, ob eine der beiden Apps gehostet wird oder lokal läuft.
+
+### Gleicher Arbeitsbereich: automatisch
+
+Wenn Kalender und Dispatch gemeinsam in einen Agent Native-Arbeitsbereich generiert oder hinzugefügt (über `create` oder `add-app`) und als eine Einheit bereitgestellt wurden, teilen sie sich bereits eine `.env`, ein `A2A_SECRET` und eine Arbeitsbereichsregistrierung. Erkennung und authentifizierte A2A-Aufrufe funktionieren beide einfach, ohne dass etwas eingerichtet werden muss, egal ob dieser Arbeitsbereich auf Ihrem Rechner oder in Produktion läuft. Das ist die erwartete Einrichtung für ein echtes Multi-App-Produkt, das auf Kalender aufbaut.
+
+### Getrennte Deployments: ein manueller Schritt
+
+Wenn Kalender und Dispatch zwei unabhängig erstellte Agent Native-Projekte sind, teilen sie sich kein Secret und können sich noch nicht gegenseitig aufrufen. Sie zu verbinden erfordert einen manuellen Schritt auf jeder Seite: Fügen Sie eine `remote-agents/<id>.json`-Ressource mit einem gemeinsamen Secret hinzu, über Settings → Connected Agents, den Tab Connections der Agent-Seite, oder Dispatch → Agents → Add external agent. Die vollständige Anleitung finden Sie unter [A2A-Protokoll](/docs/a2a-protocol).
+
+Um zu prüfen, in welcher Situation Sie sich befinden, fragen Sie den Agenten einer der beiden Apps: „Welche Apps kannst du sehen?“ Wenn Kalender in der Antwort von Dispatch fehlt, befinden Sie sich im zweiten Fall.
+
+## Integrationsstrategien
+
+**Automatisieren anhand von Kalenderereignissen.** Sowohl das Erstellen eines Termins als auch das Erstellen einer Buchung lösen ein echtes Ereignis auf dem gemeinsamen Framework-Event-Bus aus (`calendar.event.created`, `calendar.booking.created`). Die [Automatisierung](/docs/automations) jeder App kann eines der beiden abonnieren, unabhängig davon, welche App es definiert. Eine Buchung, die in Ihrem Kalender landet, könnte einen Willkommens-E-Mail-Entwurf in Mail auslösen, oder eine Meeting-Agenda in Slides, die vor dem Termin erstellt wird. Kalender liefert keine dieser Automatisierungen von Haus aus mit, aber das Ereignis ist real und bereit, jederzeit angebunden zu werden, wenn Sie eine bauen möchten.
+
+**Delegation in natürlicher Sprache über Dispatch.** Eine Schwester-App braucht keine spezielle Integration, um mit Kalender zusammenzuarbeiten. Sie kann dem Agenten von Kalender eine Anfrage in einfacher Sprache übergeben, wie „finde nächste Woche 30 Minuten mit Sam“, genauso wie Sie es im Chat tun würden, und Kalender beantwortet sie oder handelt direkt danach. Das ist der eigentliche Mechanismus hinter so etwas wie einer Planungsanfrage, die in Mail oder Slack eingeht und zu einem gebuchten Termin wird: Dispatch (oder die App, die die Nachricht empfangen hat) delegiert die Anfrage an den Agenten von Kalender, und Kalender behandelt sie wie jede andere Eingabeaufforderung.
+
+**Entkoppelt bleiben.** Kalender muss dafür nie die Zugangsdaten von Mail oder Slack kennen, oder umgekehrt. Der Event-Bus und die Automatisierungen, die ihn abonnieren, sitzen zwischen den Apps, sodass Kalender nur ein echtes Ereignis auslösen oder eine echte Anfrage beantworten muss. Es muss nicht wissen, wer zuhört oder wie.
+
+## Wie geht es weiter?
+
+- [**Kalender**](/docs/template-calendar) — der Überblick und die ersten Schritte
+- [**Funktionen**](/docs/template-calendar-features) — Ansichten, Verfügbarkeit, Terminsuche und Buchungslinks
+- [**Mit dem Agent sprechen**](/docs/template-calendar-agent) — Eingabeaufforderungen nach Aufgabe, Anwendungsstatus und Erweiterungen
+- [**Entwicklerhandbuch**](/docs/template-calendar-developers) — Schnellstart, Aktionen, Datenmodell und Routen
+- [**Dispatch**](/docs/template-dispatch) — die Arbeitsbereich-Steuerungsebene, unter der diese Muster laufen
+- [**Automatisierungen**](/docs/automations) — eine Automatisierung deklarieren, die auf ein Kalenderereignis reagiert
+- [**A2A-Protokoll**](/docs/a2a-protocol) — wie Apps sich entdecken, authentifizieren und gegenseitig aufrufen
+- [**Multi-App-Arbeitsbereiche**](/docs/multi-app-workspace) — das allgemeine Muster, Erstanbieter-Apps zu kombinieren, statt sie zu verschachteln
