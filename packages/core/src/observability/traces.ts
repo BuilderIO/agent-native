@@ -364,9 +364,7 @@ function emitLlmGenerationTrackingEvent(args: {
       .then(({ track }) => {
         track("$ai_generation", properties, {
           userId: args.userId ?? undefined,
-          // The call's END: PostHog reads back its start as
-          // `timestamp - $ai_latency`, and `$ai_latency` is `llmDurationMs`.
-          occurredAt: args.createdAt + Math.round(args.llmDurationMs),
+          occurredAt: args.createdAt,
         });
       })
       .catch(() => {});

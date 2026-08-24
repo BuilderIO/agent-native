@@ -12,12 +12,11 @@
  * PostHog's `$session_id`: the latter is the browser session used for session
  * replay, and the two are different lifetimes.
  *
- * A generation's and a span's event TIMESTAMP is the moment the operation
- * ENDED, not began. PostHog derives an operation's start by subtracting
- * `$ai_latency` from the timestamp (`operationStartMs`, unless the event was
- * OTel-ingested), so stamping the start drew every bar one full latency too
- * early: calls overlapped each other and a call's tools appeared under the
- * NEXT call. `created_at` keeps the start for readers that want it.
+ * Events are stamped when the operation BEGAN, which is what every backend
+ * except PostHog reads verbatim. PostHog alone treats an AI event's timestamp
+ * as the moment the operation ended and recovers the start by subtracting
+ * `$ai_latency`; that shift lives in its provider, not here, so one backend's
+ * convention cannot move everyone else's clock.
  *
  * PostHog DERIVES a trace's latency, tokens and cost from its children — its
  * trace query sums `$ai_latency` over every event whose `$ai_parent_id` is the
@@ -222,9 +221,6 @@ export function emitAiTraceEvent(input: AiTraceEventInput): void {
       created_at: new Date(input.createdAt).toISOString(),
     },
     input.userId,
-    // The trace carries no `$ai_latency` — PostHog derives the run's span from
-    // its children — so nothing is subtracted from this one and it stays the
-    // run's start.
     input.createdAt,
   );
 }
@@ -284,9 +280,7 @@ export function emitAiSpanEvent(input: AiSpanEventInput): void {
       created_at: new Date(input.createdAt).toISOString(),
     },
     input.userId,
-    // Stamped at the tool's completion: PostHog reads back the start as
-    // `timestamp - $ai_latency`.
-    input.createdAt + Math.round(input.latencySeconds * 1000),
+    input.createdAt,
   );
 }
 

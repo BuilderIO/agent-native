@@ -2533,10 +2533,10 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(generation?.properties?.tool_calls).toBe(1);
   });
 
-  // PostHog derives an operation's start as `timestamp - $ai_latency`, so an
-  // event stamped at the start is drawn a full latency too early: calls overlap
-  // each other and a call's tools land under the NEXT call.
-  it("stamps generations and spans at the moment they ended", async () => {
+  // The shared event is stamped when the operation BEGAN — Mixpanel, Amplitude,
+  // webhooks and Agent Native Analytics read it verbatim. PostHog's
+  // timestamp-is-end convention is applied in its own provider.
+  it("stamps generations and spans at the moment they began", async () => {
     const clock = manualClock();
     const runStart = Date.now();
     const byName = new Map<string, TrackingEvent[]>();
@@ -2549,6 +2549,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
         byName.set(event.name, list);
       },
     });
+
     await instrumentAgentLoop({
       runAgentLoop: async ({ send }) => {
         send({ type: "model_stream", status: "start" });
@@ -2580,7 +2581,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
         send: () => {},
         signal: new AbortController().signal,
       } as any,
-      runId: "run-ended-at",
+      runId: "run-started-at",
       threadId: null,
       userId: null,
       config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
@@ -2588,21 +2589,16 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
 
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    // Reconstruct the waterfall exactly as PostHog does.
     const startOf = (event: TrackingEvent): number =>
-      new Date(event.timestamp!).getTime() -
-      (event.properties?.["$ai_latency"] as number) * 1000 -
-      runStart;
+      Date.parse(event.timestamp!) - runStart;
 
     const generations = byName.get("$ai_generation") ?? [];
     const span = byName.get("$ai_span")?.[0];
     expect(generations).toHaveLength(2);
-    // Call one ran 0–4s, its tool 4–5s, call two 5–7s. No overlap anywhere.
+    // Call one ran 0–4s, its tool 4–5s, call two 5–7s.
     expect(startOf(generations[0])).toBe(0);
     expect(startOf(span!)).toBe(4000);
     expect(startOf(generations[1])).toBe(5000);
-    // The start is still readable directly, for anything that does not do the
-    // subtraction.
     expect(generations[1]?.properties?.created_at_ms).toBe(runStart + 5000);
   });
 
@@ -2804,9 +2800,8 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(generationLatency).toBe(0.03);
   });
 
-  // PostHog plots a span BACKWARD from its event timestamp by `$ai_latency`
-  // (`operationStartMs`), so a span stamped at its start drew the tool one full
-  // latency before it ran — ahead of the run that contains it.
+  // A span's own timestamp is the tool's start, and `$ai_latency` its duration,
+  // so the two together must land inside the run that contains it.
   it("places a tool span inside the run that contains it", async () => {
     const clock = manualClock();
     const byName = new Map<string, TrackingEvent[]>();
@@ -2862,9 +2857,9 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     // so the span resolves to exactly the run's window.
     const runStartMs = Date.parse(trace!.timestamp);
     const runEndMs = runStartMs + (trace!.properties?.duration_ms as number);
-    const spanEndMs = Date.parse(span!.timestamp);
-    const spanStartMs =
-      spanEndMs - (span!.properties?.["$ai_latency"] as number) * 1000;
+    const spanStartMs = Date.parse(span!.timestamp);
+    const spanEndMs =
+      spanStartMs + (span!.properties?.["$ai_latency"] as number) * 1000;
 
     expect(spanStartMs).toBe(runStartMs);
     expect(spanEndMs).toBe(runEndMs);

@@ -178,6 +178,29 @@ function isPostHogAiObservabilityEvent(eventName: string): boolean {
  * `$exception_list` — the framework's own `captureException()` emits camelCase
  * fields that PostHog would otherwise render as an empty, ungroupable issue.
  */
+/**
+ * PostHog reads an AI event's timestamp as the moment the operation ENDED and
+ * recovers its start by subtracting `$ai_latency` (its `operationStartMs`).
+ * The framework stamps events when the operation began — which Mixpanel,
+ * Amplitude, webhooks and Agent Native Analytics consume verbatim — so the
+ * shift belongs here, in the one backend that reads it that way. Events with no
+ * `$ai_latency` (a trace, an exception) are unshifted: there is nothing for
+ * PostHog to subtract.
+ */
+function postHogAiEndTimestamp(event: TrackingEvent): string | undefined {
+  const latencySeconds = Number(event.properties?.["$ai_latency"]);
+  if (
+    !event.timestamp ||
+    !Number.isFinite(latencySeconds) ||
+    latencySeconds <= 0
+  ) {
+    return event.timestamp;
+  }
+  const startedAt = Date.parse(event.timestamp);
+  if (Number.isNaN(startedAt)) return event.timestamp;
+  return new Date(startedAt + Math.round(latencySeconds * 1000)).toISOString();
+}
+
 function createPostHogProvider(
   apiKey: string,
   host: string,
@@ -198,7 +221,7 @@ function createPostHogProvider(
         // custom property, stamping the event with its ingestion time instead.
         // An agent run emits its whole tree in one burst at the end, so that
         // collapsed a five-minute waterfall into the 100ms it took to flush.
-        timestamp: event.timestamp,
+        timestamp: postHogAiEndTimestamp(event),
         properties: {
           distinct_id: distinctId,
           ...properties,
