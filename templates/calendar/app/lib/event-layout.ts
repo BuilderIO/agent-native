@@ -71,38 +71,64 @@ export function computeTimedEventLayout(
     return a.inputOrder - b.inputOrder;
   });
 
-  // Put overlapping events into the first layer that is free at their start.
-  // Reusing finished layers keeps chained overlaps from creating empty gaps.
-  const overlapLayers: EventEntry[][] = [];
-  const eventColumns = new Map<CalendarEvent, number>();
+  // Split the sorted events into connected overlap groups: a run of events
+  // where each overlaps the running span of the group before it. Interval
+  // graphs make this sweep exact — two events end up in the same component
+  // iff a chain of pairwise overlaps connects them — so an isolated event
+  // later in the day never inherits column math from an unrelated overlap
+  // earlier in the day.
+  const groups: EventEntry[][] = [];
+  let groupMaxEnd = -Infinity;
 
   for (const entry of sorted) {
-    let column = overlapLayers.findIndex((layerEntries) =>
-      layerEntries.every((placed) => !overlaps(placed.bounds, entry.bounds)),
-    );
-
-    if (column === -1) {
-      column = overlapLayers.length;
-      overlapLayers.push([]);
+    if (groups.length === 0 || entry.bounds.start >= groupMaxEnd) {
+      groups.push([]);
+      groupMaxEnd = -Infinity;
     }
-
-    overlapLayers[column].push(entry);
-    eventColumns.set(entry.event, column);
+    groups[groups.length - 1].push(entry);
+    groupMaxEnd = Math.max(groupMaxEnd, entry.bounds.end);
   }
 
-  const totalCols = overlapLayers.length;
+  let stackOrder = 0;
+  for (const group of groups) {
+    // Put overlapping events into the first layer that is free at their
+    // start. Reusing finished layers keeps chained overlaps from creating
+    // empty gaps.
+    const overlapLayers: EventEntry[][] = [];
+    const eventColumns = new Map<CalendarEvent, number>();
 
-  for (const [stackOrder, entry] of sorted.entries()) {
-    const col = eventColumns.get(entry.event)!;
+    for (const entry of group) {
+      let column = overlapLayers.findIndex((layerEntries) =>
+        layerEntries.every((placed) => !overlaps(placed.bounds, entry.bounds)),
+      );
 
-    result.set(entry.event.id, {
-      left: 0,
-      width: 100,
-      indent: col * OVERLAP_INDENT_PX,
-      col,
-      totalCols,
-      stackOrder,
-    });
+      if (column === -1) {
+        column = overlapLayers.length;
+        overlapLayers.push([]);
+      }
+
+      overlapLayers[column].push(entry);
+      eventColumns.set(entry.event, column);
+    }
+
+    const totalCols = overlapLayers.length;
+    // Give every overlap column a proportional slice of the day column so an
+    // event's right edge stays visible instead of being covered by whichever
+    // card renders on top of it.
+    const width = 100 / totalCols;
+
+    for (const entry of group) {
+      const col = eventColumns.get(entry.event)!;
+
+      result.set(entry.event.id, {
+        left: col * width,
+        width,
+        indent: col * OVERLAP_INDENT_PX,
+        col,
+        totalCols,
+        stackOrder: stackOrder++,
+      });
+    }
   }
 
   return result;

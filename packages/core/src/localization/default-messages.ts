@@ -479,6 +479,8 @@ const messages = {
     downloadDesktop: "Download Desktop",
     chatMode: "Chat mode",
     chat: "Chat",
+    mode: "Mode",
+    uiMode: "UI",
     cliTerminalMode: "CLI terminal mode",
     cli: "CLI",
     workspaceMode: "Files, agents, skills, and tasks",
@@ -1275,14 +1277,6 @@ const messages = {
         useCase: "Observability, metrics, logs, traces, dashboards",
         setupNote:
           "Grafana Cloud MCP is in public preview and requires Grafana Cloud Assistant MCP access. It is hosted Grafana Cloud only; self-hosted Grafana needs the local MCP server.",
-      },
-      googleWorkspace: {
-        description:
-          "Search Google Workspace data through its remote MCP server.",
-        useCase:
-          "Workspace search across Gmail, Drive, Calendar, Chat, Docs, Sheets, Slides",
-        setupNote:
-          "Google Workspace MCP is in Developer Preview. Enable the relevant Google Workspace and MCP APIs, configure an OAuth consent screen and client, then authorize the products you want to use.",
       },
       gitlab: {
         description:

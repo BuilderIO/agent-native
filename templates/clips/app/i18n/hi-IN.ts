@@ -349,6 +349,7 @@ const messages = {
   },
   meetingDetail: {
     untitledMeeting: "शीर्षकहीन बैठक",
+    recordedBy: "{{name}} द्वारा रिकॉर्ड किया गया",
     unassigned: "सौंपे नहीं गए",
     them: "उन्हें",
     me: "मुझे",
@@ -356,6 +357,10 @@ const messages = {
     meetingRemoved: "मीटिंग हटा दी गई",
     couldNotRemoveMeeting: "मीटिंग को हटाया नहीं जा सका",
     couldNotLoadMeeting: "इस मीटिंग को लोड नहीं किया जा सका.",
+    retry: "फिर से प्रयास करें",
+    meetingNotFound: "मीटिंग नहीं मिली",
+    meetingUnavailable: "यह मीटिंग उपलब्ध नहीं है।",
+    noAccess: "हो सकता है कि आपके पास इस मीटिंग तक पहुंच न हो.",
     transcriptCopied: "प्रतिलेख की प्रतिलिपि बनाई गई",
     couldNotCopyTranscript: "प्रतिलेख कॉपी नहीं किया जा सका",
     allMeetings: "सभी बैठकें",

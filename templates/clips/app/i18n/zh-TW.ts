@@ -336,6 +336,7 @@ const messages = {
   },
   meetingDetail: {
     untitledMeeting: "無標題會議",
+    recordedBy: "由 {{name}} 記錄",
     unassigned: "未指派",
     them: "他們",
     me: "我",
@@ -343,6 +344,10 @@ const messages = {
     meetingRemoved: "會議已刪除",
     couldNotRemoveMeeting: "無法刪除會議",
     couldNotLoadMeeting: "無法載入該會議。",
+    retry: "重試",
+    meetingNotFound: "找不到會議",
+    meetingUnavailable: "此會議無法使用。",
+    noAccess: "您可能無權存取此會議。",
     transcriptCopied: "複製逐字稿",
     couldNotCopyTranscript: "無法複製逐字稿",
     allMeetings: "所有會議",

@@ -32,7 +32,7 @@ export interface SendRuntimeLayerStateSemanticHandoffArgs {
   localhostConnectionRootPathByIdRef: RefObject<Map<string, string>>;
   overviewScreens: OverviewScreen[];
   runtimeLayerSnapshotsById: Record<string, RuntimeLayerSnapshot>;
-  setActiveLeftPanel: Dispatch<SetStateAction<DesignLeftPanel>>;
+  setActiveLeftPanel: Dispatch<SetStateAction<DesignLeftPanel | null>>;
   t: (key: string, options?: Record<string, unknown>) => string;
 }
 

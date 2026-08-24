@@ -37,7 +37,7 @@ export interface ApplyDesignEditorCommandArgs {
   overviewScreens: OverviewScreen[];
   setActiveFileId: Dispatch<SetStateAction<string | null>>;
   setActiveInspectorTab: Dispatch<SetStateAction<InspectorTab>>;
-  setActiveLeftPanel: Dispatch<SetStateAction<DesignLeftPanel>>;
+  setActiveLeftPanel: Dispatch<SetStateAction<DesignLeftPanel | null>>;
   setActiveTool: Dispatch<SetStateAction<DesignTool>>;
   setDrawMode: Dispatch<SetStateAction<boolean>>;
   setInteractDeviceName: Dispatch<SetStateAction<string>>;

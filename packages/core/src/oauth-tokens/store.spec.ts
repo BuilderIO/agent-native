@@ -171,6 +171,27 @@ describe("oauth token store", () => {
     });
   });
 
+  it("keeps the union of scopes when a shared Google token is reauthorized", async () => {
+    existingOwner = "steve@builder.io";
+    existingTokens = {
+      scope: "openid https://www.googleapis.com/auth/gmail.readonly",
+    };
+
+    await saveOAuthTokens(
+      "google",
+      "steve@builder.io",
+      { scope: "https://www.googleapis.com/auth/calendar.readonly" },
+      "steve@builder.io",
+    );
+
+    const stored = JSON.parse(
+      decryptSecretValue(String(lastInsert().args[4])),
+    ) as { scope?: string };
+    expect(stored.scope).toBe(
+      "openid https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/calendar.readonly",
+    );
+  });
+
   it("normalizes a matching legacy mixed-case user owner when saving", async () => {
     existingOwner = "user:Alice@Example.com";
 

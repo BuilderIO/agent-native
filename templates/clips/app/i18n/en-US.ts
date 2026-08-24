@@ -351,6 +351,7 @@ const messages = {
   },
   meetingDetail: {
     untitledMeeting: "Untitled meeting",
+    recordedBy: "Recorded by {{name}}",
     unassigned: "Unassigned",
     them: "Them",
     me: "Me",
@@ -358,6 +359,10 @@ const messages = {
     meetingRemoved: "Meeting removed",
     couldNotRemoveMeeting: "Couldn't remove meeting",
     couldNotLoadMeeting: "Couldn't load this meeting.",
+    retry: "Retry",
+    meetingNotFound: "Meeting not found",
+    meetingUnavailable: "This meeting isn't available.",
+    noAccess: "You may not have access to this meeting.",
     transcriptCopied: "Transcript copied",
     couldNotCopyTranscript: "Couldn't copy transcript",
     allMeetings: "All meetings",

@@ -44,6 +44,9 @@ import {
   sharedDbPool,
   onSharedDbPoolsClosed,
   onSharedDbPoolReplaced,
+  prepareLocalSqliteUrl,
+  sqliteFilenameFromUrl,
+  retrySqliteBusy,
 } from "../db/client.js";
 import {
   CORE_RESET_PASSWORD_EMAIL_ID,
@@ -778,7 +781,12 @@ export async function getBetterAuth(
   if (_auth) return _auth;
   if (_initPromise) return _initPromise;
 
-  _initPromise = createBetterAuthInstance(config);
+  // A failed boot must not be cached: every later request would replay the same
+  // stale error with no way back short of restarting the process.
+  _initPromise = createBetterAuthInstance(config).catch((error) => {
+    _initPromise = undefined;
+    throw error;
+  });
   _auth = await _initPromise;
   return _auth;
 }
@@ -1685,11 +1693,22 @@ async function createBetterAuthInstance(
  * as the shared app connection. Better Auth uses its own SQLite handle, so the
  * app connection's busy timeout does not protect first-run account creation.
  */
-export function configureLocalSqlite(sqlite: {
+export async function configureLocalSqlite(sqlite: {
   pragma(statement: string): unknown;
-}): void {
+  close?(): void;
+}): Promise<void> {
   sqlite.pragma("busy_timeout = 10000");
-  sqlite.pragma("journal_mode = WAL");
+  try {
+    // Vite can start a replacement Nitro runtime while the previous instance is
+    // still releasing app.db, and the busy timeout can expire during that
+    // handoff, so retry the idempotent WAL negotiation.
+    await retrySqliteBusy(async () => sqlite.pragma("journal_mode = WAL"), {
+      rethrow: true,
+    });
+  } catch (error) {
+    sqlite.close?.();
+    throw error;
+  }
 }
 
 export async function buildDatabaseConfig(
@@ -1786,9 +1805,11 @@ export async function buildDatabaseConfig(
   if (url.startsWith("file:") || !url.includes("://")) {
     // Local SQLite via better-sqlite3
     const { default: Database } = await import("better-sqlite3");
-    const filePath = url.replace(/^file:/, "");
-    const sqlite = new Database(filePath);
-    configureLocalSqlite(sqlite);
+    const sqliteUrl = await prepareLocalSqliteUrl(
+      url.startsWith("file:") ? url : `file:${url}`,
+    );
+    const sqlite = new Database(sqliteFilenameFromUrl(sqliteUrl));
+    await configureLocalSqlite(sqlite);
     const { drizzle } = await import("drizzle-orm/better-sqlite3");
     const db = drizzle(sqlite, { schema: sqliteAuthSchema });
     const { drizzleAdapter } = await import("better-auth/adapters/drizzle");

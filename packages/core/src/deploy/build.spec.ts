@@ -1,4 +1,5 @@
 import fs from "fs";
+import { createRequire } from "module";
 import os from "os";
 import path from "path";
 import { pathToFileURL } from "url";
@@ -66,10 +67,15 @@ import {
   resolveNitroBuildReplacements,
   runNitroBuildPipeline,
   sanitizeServerlessFunctionPackageManifest,
+  stubLocalOnlySqliteDriverForServerless,
   shouldBundleYjsRuntimeForPreset,
   shouldBundleFfmpegStaticForServerless,
   writeSingleTemplateNetlifyRedirects,
 } from "./build.js";
+import {
+  pruneBrowserRuntimeFromNonAgentClone,
+  pruneSsrIslandFromRewritingClone,
+} from "./function-bundle.js";
 import { IMMUTABLE_ASSET_CACHE_CONTROL } from "./immutable-assets.js";
 import {
   renderNetlifyStaticHeaders,
@@ -1596,15 +1602,15 @@ describe("copyInstalledBrowserRuntimePackages", () => {
     const chromiumDir = path.join(
       nodeModules,
       ".pnpm",
-      "@sparticuz+chromium@149.0.0",
+      "@sparticuz+chromium-min@149.0.0",
       "node_modules",
       "@sparticuz",
-      "chromium",
+      "chromium-min",
     );
     const chromiumDependenciesDir = path.join(
       nodeModules,
       ".pnpm",
-      "@sparticuz+chromium@149.0.0",
+      "@sparticuz+chromium-min@149.0.0",
       "node_modules",
     );
     const tarFsDir = path.join(chromiumDependenciesDir, "tar-fs");
@@ -1615,19 +1621,17 @@ describe("copyInstalledBrowserRuntimePackages", () => {
       "node_modules",
       "playwright-core",
     );
-    fs.mkdirSync(path.join(chromiumDir, "bin"), { recursive: true });
     fs.mkdirSync(path.join(chromiumDir, "build"), { recursive: true });
     fs.mkdirSync(tarFsDir, { recursive: true });
     fs.mkdirSync(playwrightCoreDir, { recursive: true });
     fs.writeFileSync(
       path.join(chromiumDir, "package.json"),
       JSON.stringify({
-        name: "@sparticuz/chromium",
+        name: "@sparticuz/chromium-min",
         dependencies: { "tar-fs": "3.1.3" },
         main: "build/index.js",
       }),
     );
-    fs.writeFileSync(path.join(chromiumDir, "bin", "chromium.br"), "binary");
     fs.writeFileSync(path.join(chromiumDir, "build", "index.js"), "export {};");
     fs.writeFileSync(
       path.join(tarFsDir, "package.json"),
@@ -1655,22 +1659,22 @@ describe("copyInstalledBrowserRuntimePackages", () => {
         "@agent-native/creative-context": "workspace:*",
       });
 
-    expect(findInstalledPackageRoot("@sparticuz/chromium", [nodeModules])).toBe(
-      chromiumDir,
-    );
+    expect(
+      findInstalledPackageRoot("@sparticuz/chromium-min", [nodeModules]),
+    ).toBe(chromiumDir);
     expect(copyInstalledBrowserRuntimePackages(serverDir, root)).toBe(3);
+    // chromium-min carries no browser binary — it fetches the pinned pack at
+    // launch, which is what takes 66MB out of every emitted function.
     expect(
       fs.existsSync(
-        path.join(
-          serverDir,
-          "node_modules",
-          "@sparticuz",
-          "chromium",
-          "bin",
-          "chromium.br",
-        ),
+        path.join(serverDir, "node_modules", "@sparticuz", "chromium-min"),
       ),
     ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(serverDir, "node_modules", "@sparticuz", "chromium", "bin"),
+      ),
+    ).toBe(false);
     expect(fs.existsSync(path.join(serverDir, "node_modules", "tar-fs"))).toBe(
       true,
     );
@@ -1685,9 +1689,9 @@ describe("copyInstalledBrowserRuntimePackages", () => {
     const { root, nodeModules, chromiumDir, serverDir } =
       setupBrowserRuntimeStore({ "some-unrelated-package": "1.0.0" });
 
-    expect(findInstalledPackageRoot("@sparticuz/chromium", [nodeModules])).toBe(
-      chromiumDir,
-    );
+    expect(
+      findInstalledPackageRoot("@sparticuz/chromium-min", [nodeModules]),
+    ).toBe(chromiumDir);
     expect(findServerlessBrowserRuntimeConsumer(root)).toBeNull();
     expect(copyInstalledBrowserRuntimePackages(serverDir, root)).toBe(0);
     expect(fs.existsSync(path.join(serverDir, "node_modules"))).toBe(false);
@@ -1795,6 +1799,7 @@ describe("sanitizeServerlessFunctionPackageManifest", () => {
           type: "module",
           dependencies: {
             "@libsql/linux-x64-gnu": "0.5.29",
+            "better-sqlite3": "12.11.1",
             electron: "41.9.0",
             "node-pty": "1.1.0",
             "playwright-core": "1.61.1",
@@ -1831,6 +1836,7 @@ describe("sanitizeServerlessFunctionPackageManifest", () => {
     );
     expect(packageJson.dependencies).toEqual({
       "@libsql/linux-x64-gnu": "0.5.29",
+      "better-sqlite3": "12.11.1",
       "playwright-core": "1.61.1",
     });
     expect(packageJson.optionalDependencies).toBeUndefined();
@@ -3442,5 +3448,217 @@ describe("bundleImportsLibsqlNativeAddon", () => {
     fs.writeFileSync(path.join(pkg, "index.js"), 'require("libsql");\n');
 
     expect(bundleImportsLibsqlNativeAddon(dir)).toBe(false);
+  });
+});
+
+describe("pruneSsrIslandFromRewritingClone", () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "ssr-island-"));
+  });
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  const REWRITING_ENTRY =
+    'const url = new URL(req.url);\nurl.pathname = "/_x";\n';
+
+  function scaffold(): void {
+    fs.writeFileSync(
+      path.join(dir, "main.mjs"),
+      'import "./_...page_.get.mjs";\nimport "./_process-run.mjs";\n',
+    );
+    // Rolldown emits backtick dynamic imports; a quote-only scan would miss this
+    // edge and delete a chunk the background function still needs.
+    fs.writeFileSync(
+      path.join(dir, "_process-run.mjs"),
+      "export const run = () => import(`./keep.mjs`);\n",
+    );
+    fs.writeFileSync(path.join(dir, "keep.mjs"), "export default 1;\n");
+    fs.writeFileSync(
+      path.join(dir, "_...page_.get.mjs"),
+      'import "./page-only.mjs";\n',
+    );
+    fs.writeFileSync(path.join(dir, "page-only.mjs"), "export default 2;\n");
+  }
+
+  it("drops the page island and keeps what the background entry still reaches", () => {
+    scaffold();
+
+    pruneSsrIslandFromRewritingClone(dir, REWRITING_ENTRY);
+
+    expect(fs.existsSync(path.join(dir, "_...page_.get.mjs"))).toBe(false);
+    expect(fs.existsSync(path.join(dir, "page-only.mjs"))).toBe(false);
+    expect(fs.existsSync(path.join(dir, "main.mjs"))).toBe(true);
+    expect(fs.existsSync(path.join(dir, "keep.mjs"))).toBe(true);
+  });
+
+  it("refuses to prune a clone whose entry does not rewrite the pathname", () => {
+    scaffold();
+
+    expect(() =>
+      pruneSsrIslandFromRewritingClone(dir, "export default handler;\n"),
+    ).toThrow(/rewrites url\.pathname/);
+  });
+
+  it("prunes nothing when a relative dynamic import cannot be resolved", () => {
+    scaffold();
+    fs.writeFileSync(
+      path.join(dir, "_process-run.mjs"),
+      "export const run = (n) => import(`./${n}.mjs`);\n",
+    );
+
+    expect(pruneSsrIslandFromRewritingClone(dir, REWRITING_ENTRY)).toBe(0);
+    expect(fs.existsSync(path.join(dir, "page-only.mjs"))).toBe(true);
+  });
+});
+
+describe("pruneBrowserRuntimeFromNonAgentClone", () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "browser-prune-"));
+    // Real installs, package.json included: the orphan-closure walk reads each
+    // package's manifest, so a directory without one reads as a broken install.
+    for (const pkg of [
+      path.join(dir, "node_modules", "@sparticuz", "chromium-min"),
+      path.join(dir, "node_modules", "playwright-core"),
+    ]) {
+      fs.mkdirSync(pkg, { recursive: true });
+      fs.writeFileSync(path.join(pkg, "package.json"), "{}");
+      fs.writeFileSync(path.join(pkg, "index.js"), "x".repeat(1024));
+    }
+  });
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("drops the browser runtime from a scheduled sweep clone", () => {
+    const freed = pruneBrowserRuntimeFromNonAgentClone(
+      dir,
+      'const url = new URL(req.url);\nurl.pathname = "/api/dashboard-report-sweep";\n',
+    );
+
+    expect(freed).toBeGreaterThan(0);
+    expect(fs.existsSync(path.join(dir, "node_modules", "@sparticuz"))).toBe(
+      false,
+    );
+  });
+
+  it("refuses a clone whose entry can reach an agent turn", () => {
+    // creative-context loads the browser through a non-literal dynamic import,
+    // so nothing static can prove it dead — this assertion is the only guard.
+    expect(() =>
+      pruneBrowserRuntimeFromNonAgentClone(
+        dir,
+        'url.pathname = "/_agent-native/agent-chat/_process-run";\n',
+      ),
+    ).toThrow(/agent-capable route/);
+    expect(fs.existsSync(path.join(dir, "node_modules", "@sparticuz"))).toBe(
+      true,
+    );
+  });
+
+  it("refuses a clone that does not rewrite the pathname at all", () => {
+    expect(() =>
+      pruneBrowserRuntimeFromNonAgentClone(dir, "export default handler;\n"),
+    ).toThrow(/rewrites url\.pathname/);
+  });
+});
+describe("serverless bundle trimming", () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "trim-"));
+  });
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("strips declaration files, which no runtime resolver reads", () => {
+    const pkg = path.join(dir, "node_modules", "some-pkg");
+    fs.mkdirSync(pkg, { recursive: true });
+    fs.writeFileSync(path.join(pkg, "index.js"), "module.exports = 1;\n");
+    fs.writeFileSync(path.join(pkg, "index.d.ts"), "export default 1;\n");
+
+    pruneServerlessFunctionDeadWeight(dir);
+
+    expect(fs.existsSync(path.join(pkg, "index.d.ts"))).toBe(false);
+    expect(fs.existsSync(path.join(pkg, "index.js"))).toBe(true);
+  });
+});
+
+describe("stubLocalOnlySqliteDriverForServerless", () => {
+  function seedDriver(root: string, files: Record<string, string>): string {
+    const packageDir = path.join(root, "node_modules", "better-sqlite3");
+    for (const [relative, contents] of Object.entries(files)) {
+      const target = path.join(packageDir, relative);
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.writeFileSync(target, contents);
+    }
+    return packageDir;
+  }
+
+  it("replaces the driver with a resolvable stub that throws when constructed", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "sqlite-stub-"));
+    const packageDir = seedDriver(root, {
+      "package.json": JSON.stringify({
+        name: "better-sqlite3",
+        version: "12.11.1",
+        main: "lib/index.js",
+      }),
+      "lib/index.js": "module.exports = class Real {};",
+      "deps/sqlite3/sqlite3.c": "x".repeat(2048),
+      "build/Release/better_sqlite3.node": "y".repeat(4096),
+    });
+
+    const freed = stubLocalOnlySqliteDriverForServerless(root);
+
+    expect(freed).toBeGreaterThan(0);
+    // The specifier must stay resolvable: drizzle-orm's bundled postgres chunk
+    // imports it at module scope, so a missing package is a cold-start crash.
+    expect(fs.existsSync(path.join(packageDir, "package.json"))).toBe(true);
+    expect(fs.existsSync(path.join(packageDir, "index.js"))).toBe(true);
+    expect(fs.existsSync(path.join(packageDir, "deps"))).toBe(false);
+    expect(fs.existsSync(path.join(packageDir, "build"))).toBe(false);
+
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(packageDir, "package.json"), "utf8"),
+    );
+    expect(manifest.version).toBe("12.11.1");
+    expect(manifest.main).toBe("index.js");
+    // The CLI's native-dependency preflight keys off this to avoid probing a
+    // package whose constructor throws by design.
+    expect(manifest.agentNativeServerlessStub).toBe(true);
+
+    const Stub = createRequire(import.meta.url)(packageDir);
+    expect(() => new Stub(":memory:")).toThrow(/not available in a serverless/);
+  });
+
+  it("does nothing when the driver was never bundled", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "sqlite-stub-absent-"));
+    expect(stubLocalOnlySqliteDriverForServerless(root)).toBe(0);
+  });
+
+  it("throws rather than stubbing a package tree it cannot read", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "sqlite-stub-broken-"));
+    seedDriver(root, { "lib/index.js": "module.exports = class Real {};" });
+    expect(() => stubLocalOnlySqliteDriverForServerless(root)).toThrow(
+      /no package\.json/,
+    );
+
+    const versionless = fs.mkdtempSync(
+      path.join(os.tmpdir(), "sqlite-stub-versionless-"),
+    );
+    seedDriver(versionless, {
+      "package.json": JSON.stringify({ name: "better-sqlite3" }),
+    });
+    expect(() => stubLocalOnlySqliteDriverForServerless(versionless)).toThrow(
+      /declares no version/,
+    );
   });
 });

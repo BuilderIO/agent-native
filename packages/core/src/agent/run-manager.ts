@@ -240,10 +240,11 @@ export function resolveRunNoProgressTimeoutMs(params: {
  * Every pair listed here suspends the no-progress backstop for as long as it is
  * open, so each one MUST be bounded by a watchdog of its own — tool calls by
  * the per-tool timeout, cross-app calls by the A2A poll timeout, the model
- * stream by `MODEL_STREAM_NO_PROGRESS_TIMEOUT_MS`, which the agent loop races
- * against every wait for the next engine frame. A pair added here without such
- * a bound turns the backstop off for the rest of the run, which is strictly
- * worse than the stall it was meant to catch.
+ * stream by the engine's own first-event abort plus the chunk budget (the 90s
+ * in-loop watchdog that used to sit here is gone — see
+ * run-lifecycle-invariants.ts). A pair added here without SOME bound turns the
+ * backstop off for the rest of the run, which is strictly worse than the stall
+ * it was meant to catch.
  *
  * Note what that leaves: the model-stream bound covers waiting for the engine,
  * not a hang while the loop processes a frame it already has. Nothing here

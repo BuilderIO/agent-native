@@ -202,6 +202,53 @@ describe("prepareSlidesChatAttachments", () => {
     );
   });
 
+  it("surfaces an already-hosted, url-only image instead of silently dropping it", async () => {
+    // No inline `data` — this is the shape a pre-uploaded image takes once
+    // `referenceImagePaths` merges into `images` and the framework wraps it
+    // as an image content part with a plain URL
+    // (packages/core/src/client/agent-chat-adapter.ts extractAttachmentsFromMessage).
+    const result = await prepareSlidesChatAttachments({
+      ownerEmail: "adam@builder.io",
+      message: "add this image",
+      attachments: [
+        {
+          type: "image",
+          name: "editor-ai.jpeg",
+          contentType: "image/jpeg",
+          url: "https://cdn.example.com/editor-ai.jpeg",
+        },
+      ],
+    });
+
+    expect(saveUploadedReferenceFileMock).not.toHaveBeenCalled();
+    expect(result?.message).toContain("<slides-chat-attachments>");
+    expect(result?.message).toContain("editor-ai.jpeg");
+    expect(result?.message).toContain(
+      "embeddable URL: https://cdn.example.com/editor-ai.jpeg",
+    );
+    expect(result?.attachments?.[0]?.url).toBe(
+      "https://cdn.example.com/editor-ai.jpeg",
+    );
+  });
+
+  it("ignores an already-hosted attachment whose extension isn't a supported reference type", async () => {
+    const result = await prepareSlidesChatAttachments({
+      ownerEmail: "adam@builder.io",
+      message: "use this clip",
+      attachments: [
+        {
+          type: "file",
+          name: "clip.mov",
+          contentType: "video/quicktime",
+          url: "https://cdn.example.com/clip.mov",
+        },
+      ],
+    });
+
+    expect(saveUploadedReferenceFileMock).not.toHaveBeenCalled();
+    expect(result).toBeUndefined();
+  });
+
   it("keeps unsupported attachments out of the slides upload context", async () => {
     const result = await prepareSlidesChatAttachments({
       ownerEmail: "adam@builder.io",

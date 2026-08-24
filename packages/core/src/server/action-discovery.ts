@@ -211,6 +211,10 @@ function wrapDefaultExport(
 function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
   const out: Partial<ActionEntry> = {};
   if (typeof entry.agentTool === "boolean") out.agentTool = entry.agentTool;
+  if (typeof entry.mcpTool === "boolean") out.mcpTool = entry.mcpTool;
+  if (typeof entry.deferLoading === "boolean") {
+    out.deferLoading = entry.deferLoading;
+  }
   if (typeof entry.requiresAuth === "boolean") {
     out.requiresAuth = entry.requiresAuth;
   }

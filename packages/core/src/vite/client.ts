@@ -1968,10 +1968,19 @@ function frameworkDevDynamicForwarder(): Plugin {
               ? `text/html,${accept}`
               : "text/html";
           }
-          // Embed-start uses document/iframe to select its transplant response.
-          // Only supply the classifier hint when the browser did not provide a
-          // destination; never overwrite the request's original intent.
-          if (req.headers["sec-fetch-dest"] === undefined) {
+          // Embed-start uses document/iframe to select its transplant response,
+          // and Nitro's own dev classifier already treats document/iframe/frame
+          // as non-asset, so those (and an already-"empty" value) pass through
+          // untouched. Everything else — undefined, or a real browser's
+          // destination for a fetch this route never anticipated, like
+          // "speculationrules" for the native Speculation-Rules auto-fetch —
+          // gets normalized to "empty" so Nitro's classifier falls back to its
+          // extension check instead of treating the request as a static asset.
+          const fetchDest = req.headers["sec-fetch-dest"];
+          if (
+            fetchDest === undefined ||
+            !/^(document|iframe|frame|empty)$/.test(String(fetchDest))
+          ) {
             req.headers["sec-fetch-dest"] = "empty";
           }
         }
@@ -2536,6 +2545,19 @@ function rolldownInputFix(): Plugin {
  * The template lists the packages in its `defineConfig({ ssrStubs })` call —
  * the framework never hardcodes package names.
  */
+/**
+ * Optional peers reached only through a `React.lazy` boundary whose module body
+ * guards on `typeof window === "undefined"`. The server can never import them,
+ * so their SSR chunk is pure unpack weight in every app that ships a terminal
+ * surface. Defaulted here rather than repeated in sixteen vite configs, where
+ * it would drift.
+ */
+const ALWAYS_SSR_STUBBED = [
+  "@xterm/xterm",
+  "@xterm/addon-fit",
+  "@xterm/addon-web-links",
+];
+
 function ssrStubPlugin(packages: string[]): Plugin | null {
   if (!packages.length) return null;
   const stubbed = new Set(packages);
@@ -3445,7 +3467,7 @@ function createAgentNativePlugins(
     // don't bloat the edge worker. Opt-in per template — the framework
     // hardcodes nothing (e.g. docs sites legitimately import `shiki` on
     // the server, so we can't blanket-stub it here).
-    ssrStubPlugin(options.ssrStubs ?? []),
+    ssrStubPlugin([...ALWAYS_SSR_STUBBED, ...(options.ssrStubs ?? [])]),
     ...userPlugins,
     appChangelogRawPlugin(),
     actionTypesPlugin(),

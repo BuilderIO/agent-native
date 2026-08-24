@@ -1503,6 +1503,69 @@ export function ensureS3FileUploadProvider(): void {
   registerFileUploadProvider(s3FileUploadProvider);
 }
 
+export interface OAuthCustodyBuilderKeyStatus {
+  privateKeyConfigured: boolean;
+  publicKeyConfigured: boolean;
+  orgName: string;
+  /**
+   * True when the key-pair lookup itself failed (credential store
+   * unreadable, org lookup error, a thrown import) rather than confirming
+   * no keys exist. privateKeyConfigured/publicKeyConfigured stay `false` in
+   * both cases — this is the only signal that tells "never configured"
+   * apart from "couldn't check right now", so a transient store blip can't
+   * read downstream as "the user never connected Builder keys".
+   */
+  keyLookupFailed: boolean;
+}
+
+/**
+ * Resolves the classic Builder key-pair status for a request that already
+ * has Builder MCP OAuth custody (the connection-status handler's `configured`
+ * is already `true` by the time this runs — OAuth alone proves the chat
+ * gateway). Exported so the connection-status route's OAuth-custody branch is
+ * unit-testable without standing up the full plugin.
+ */
+export async function resolveOAuthCustodyBuilderKeyStatus(
+  dependencies: {
+    resolveCredentialsDetailed: () => Promise<{
+      privateKey: string | null;
+      publicKey: string | null;
+      orgName: string | null;
+      lookupFailed: boolean;
+    }>;
+  } = {
+    resolveCredentialsDetailed: async () => {
+      const { resolveBuilderCredentialsDetailed } =
+        await import("./credential-provider.js");
+      return resolveBuilderCredentialsDetailed();
+    },
+  },
+): Promise<OAuthCustodyBuilderKeyStatus> {
+  try {
+    const creds = await dependencies.resolveCredentialsDetailed();
+    return {
+      privateKeyConfigured: !!creds.privateKey,
+      publicKeyConfigured: !!creds.publicKey,
+      orgName:
+        typeof creds.orgName === "string" && creds.orgName
+          ? creds.orgName
+          : "Builder OAuth",
+      keyLookupFailed: creds.lookupFailed,
+    };
+  } catch {
+    // OAuth already proves the chat gateway, so a thrown key-pair lookup
+    // here must not abort the response — but it is unreadable, not
+    // confirmed-absent, so keyLookupFailed has to say so (see the field doc
+    // above) instead of silently landing on the same `false`s as a real miss.
+    return {
+      privateKeyConfigured: false,
+      publicKeyConfigured: false,
+      orgName: "Builder OAuth",
+      keyLookupFailed: true,
+    };
+  }
+}
+
 export function createCoreRoutesPlugin(
   options: CoreRoutesPluginOptions = {},
 ): NitroPluginDef {
@@ -1754,7 +1817,12 @@ export function createCoreRoutesPlugin(
 
       for (const provider of [
         "figma",
+        "gmail",
+        "google_calendar",
+        "google_docs",
         "google_drive",
+        "google_sheets",
+        "google_slides",
         "github",
         "hubspot",
         "salesforce",
@@ -2296,29 +2364,15 @@ export function createCoreRoutesPlugin(
                 }
               }
               if (oauthAccess) {
-                let privateKeyConfigured = false;
-                let publicKeyConfigured = false;
-                let orgName = "Builder OAuth";
-                try {
-                  const { resolveBuilderCredentials } =
-                    await import("./credential-provider.js");
-                  const creds = await resolveBuilderCredentials();
-                  privateKeyConfigured = !!creds.privateKey;
-                  publicKeyConfigured = !!creds.publicKey;
-                  if (typeof creds.orgName === "string" && creds.orgName) {
-                    orgName = creds.orgName;
-                  }
-                } catch {
-                  // coercion-ok: OAuth already proves the chat gateway; missing
-                  // key flags only hide code-change send until secrets are readable.
-                }
+                const keyStatus = await resolveOAuthCustodyBuilderKeyStatus();
                 return withConnectToken({
                   ...requestStatus,
                   configured: true,
                   credentialSource: "user" as const,
-                  privateKeyConfigured,
-                  publicKeyConfigured,
-                  orgName,
+                  privateKeyConfigured: keyStatus.privateKeyConfigured,
+                  publicKeyConfigured: keyStatus.publicKeyConfigured,
+                  keyLookupFailed: keyStatus.keyLookupFailed,
+                  orgName: keyStatus.orgName,
                   spaces: [],
                 });
               }

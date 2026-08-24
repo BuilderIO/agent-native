@@ -1,7 +1,10 @@
 import type { ActionRunContext } from "@agent-native/core/action";
 import { listAutomationDefinitions } from "@agent-native/core/triggers";
 
-import { readAutomationFactoryId } from "./factory-scope.js";
+import {
+  factoryAutomationLeafName,
+  readAutomationFactoryId,
+} from "./factory-scope.js";
 import type { WorkspaceMemberIdentity } from "./require-workspace-member.js";
 
 const FACTORY_AUTOMATION_NAMES = {
@@ -39,7 +42,10 @@ export async function requireFactoryAutomation(
   }
   const lineage = context.automation;
   const expectedNames = FACTORY_AUTOMATION_NAMES[role];
-  if (!lineage || !expectedNames.has(lineage.triggerName)) {
+  if (
+    !lineage ||
+    !expectedNames.has(factoryAutomationLeafName(lineage.triggerName))
+  ) {
     throw new Error(
       "The action was not invoked by a governed Factory automation.",
     );
@@ -71,8 +77,11 @@ export async function requireFactoryAutomation(
   }
   if (
     expectedFactoryId &&
-    readAutomationFactoryId(definition.meta, definition.resource.content) !==
-      expectedFactoryId
+    readAutomationFactoryId(
+      definition.meta,
+      definition.resource.content,
+      definition.resource.path,
+    ) !== expectedFactoryId
   ) {
     throw new Error(
       "The action was not invoked by a governed Factory automation.",

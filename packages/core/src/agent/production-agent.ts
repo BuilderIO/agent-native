@@ -14,17 +14,16 @@ import { parseA2AAgentActivityPart } from "../a2a/activity.js";
 import type { Task } from "../a2a/types.js";
 import {
   describeToolParameterSignature,
+  isActionHiddenFromEveryAgentSurface,
   isAgentActionStopError,
   type ActionAutomationContext,
   type ActionCaller,
   stripUnsupportedSchemaKeywords,
 } from "../action.js";
 import {
-  ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS,
   MAX_BACKGROUND_RUN_CONTINUATIONS,
   MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS,
   MAX_TURN_WALL_CLOCK_MS,
-  MODEL_STREAM_NO_PROGRESS_TIMEOUT_MS,
 } from "../app-config/run-lifecycle-invariants.js";
 import { readAppState } from "../application-state/script-helpers.js";
 import { isReadOnlyShellCommand } from "../coding-tools/index.js";
@@ -701,6 +700,21 @@ export interface ActionEntry {
    *  MCP, A2A, job/trigger runners) while leaving it frontend/HTTP-callable.
    *  Set by `defineAction`'s `agentTool` option. */
   agentTool?: boolean;
+  /** Whether the action is exposed to EXTERNAL agents over MCP and the direct
+   *  A2A action surface. Defaults to `agentTool`. `false` is a hard veto on
+   *  every MCP tier (including the `--full-catalog` opt-in) while the in-app
+   *  agent keeps calling it; `true` declares curated connector-catalog
+   *  membership, and with `agentTool: false` makes the action MCP-only. Read
+   *  it through `isActionExposedToExternalAgents`, never as a raw field.
+   *  Set by `defineAction`'s `mcpTool` option. */
+  mcpTool?: boolean;
+  /** Whether the action's schema is held back from the agent's first-request
+   *  tool list — the action-owned form of the plugin's `initialToolNames`.
+   *  `false` always includes it (and narrows the derived default to the
+   *  actions that opted in); `true` keeps it out of the DERIVED set, reachable
+   *  through `tool-search`. Context cost, not access. Set by `defineAction`'s
+   *  `deferLoading` option. */
+  deferLoading?: boolean;
   /** Explicit opt-in metadata for public agent protocols. Public routes never
    *  imply public tool exposure; MCP/A2A/OpenAPI surfaces must filter for this. */
   publicAgent?: import("../action.js").PublicAgentActionConfig;
@@ -1424,7 +1438,6 @@ function maxRetriesForError(err: unknown): number {
   return MAX_RETRIES;
 }
 const TOOL_INPUT_ACTIVITY_INTERVAL_MS = 1500;
-const ACTION_PREPARATION_ZERO_BYTE_RESTART_LIMIT = 2;
 /**
  * How long an attempt must have run before its retry is worth narrating.
  *
@@ -3299,7 +3312,10 @@ export async function executeAgentToolCall(
   options: ExecuteAgentToolCallOptions,
 ): Promise<AgentToolCallExecutionResult> {
   const entry = options.actions[options.name];
-  if (!entry || entry.agentTool === false) {
+  // The caller's registry is the surface: A2A hands this the external one, so
+  // reject only what no surface may run — an MCP-only action is `agentTool:
+  // false` and still legitimately callable here.
+  if (!entry || isActionHiddenFromEveryAgentSurface(entry)) {
     return {
       status: "failed",
       output: `Unknown or unavailable tool: ${options.name}`,
@@ -4589,6 +4605,14 @@ export async function runAgentLoop(opts: {
    * App-level default limits applied to every tool call unless the individual
    * ActionEntry overrides them with its own timeoutMs / maxResultChars.
    */
+  /**
+   * The chunk's REAL soft-timeout budget, when the caller has one.
+   *
+   * Only `runToolTimeoutCeilingMs` reads it, and only so a per-tool timeout
+   * stays under the budget it actually runs inside. Absent, the generic hosted
+   * ceiling is used — right for callers that have no chunk of their own.
+   */
+  runSoftTimeoutMs?: number;
   toolLimits?: {
     timeoutMs?: number;
     maxResultChars?: number;
@@ -4713,13 +4737,23 @@ export async function runAgentLoop(opts: {
       : 0;
   // A per-tool timeout above the chunk's own soft timeout can never fire — the
   // chunk boundary always wins — so the 12-minute default is dead code on a
-  // ~40s hosted foreground chunk. Background-function runs resolve to a ~13min
-  // ceiling and keep the default unchanged.
+  // ~40s hosted foreground chunk.
+  //
+  // TAKEN FROM THE CALLER'S ACTUAL BUDGET, not re-derived. Re-deriving it asked
+  // `resolveRunSoftTimeoutMs` for the generic background ceiling (13 min) even
+  // when the caller was a background AUTOMATION, whose real budget is its own
+  // hard abort minus headroom (10 min − 20s = 9m40s via
+  // `resolveBackgroundAutomationSoftTimeoutMs`). The ceiling came out ABOVE the
+  // run budget, so every per-tool timeout on that path was dead code and the
+  // chunk boundary won instead — which is the exact failure
+  // `RUN_TOOL_TIMEOUT_HEADROOM_MS` exists to prevent, reintroduced by guessing
+  // at a number the caller already knew.
   const runToolTimeoutCeilingMs = resolveRunToolTimeoutCeilingMs(
-    resolveRunSoftTimeoutMs(undefined, {
-      useHostedDefault: true,
-      backgroundFunction: isInBackgroundFunctionRuntime(),
-    }),
+    opts.runSoftTimeoutMs ??
+      resolveRunSoftTimeoutMs(undefined, {
+        useHostedDefault: true,
+        backgroundFunction: isInBackgroundFunctionRuntime(),
+      }),
   );
   const toolCallHistory: AgentLoopToolCallSummary[] = [];
   const sourceSweepToolCallHistory = seedSourceSweepToolCallsFromHistory(
@@ -4984,14 +5018,7 @@ export async function runAgentLoop(opts: {
           lastProgressAt: number;
           bytes: number;
         };
-        type ZeroByteToolInputRestart = {
-          toolName: string;
-          firstStartedAt: number;
-          lastStartedAt: number;
-          count: number;
-        };
         const activeToolInputs = new Map<string, ActiveToolInputPreparation>();
-        let zeroByteToolInputRestart: ZeroByteToolInputRestart | undefined;
         let endedForNoProgress = false;
         // Bracket the engine call for the run manager's no-progress backstop
         // (`inFlightWorkDelta` in run-manager.ts). That backstop measures the
@@ -5049,63 +5076,59 @@ export async function runAgentLoop(opts: {
             ...(typeof progressBytes === "number" ? { progressBytes } : {}),
           });
         };
-        const actionPreparationDeadlineAt = () => {
-          let deadlineAt = Number.POSITIVE_INFINITY;
-          if (zeroByteToolInputRestart) {
-            deadlineAt = Math.min(
-              deadlineAt,
-              zeroByteToolInputRestart.firstStartedAt +
-                ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS,
-            );
-          }
-          let earliestStartedAt = Number.POSITIVE_INFINITY;
-          let latestPositiveProgressAt = 0;
-          for (const active of activeToolInputs.values()) {
-            if (active.startedAt < earliestStartedAt) {
-              earliestStartedAt = active.startedAt;
-            }
-            if (
-              active.bytes > 0 &&
-              active.lastProgressAt > latestPositiveProgressAt
-            ) {
-              latestPositiveProgressAt = active.lastProgressAt;
-            }
-          }
-          const progressAt =
-            latestPositiveProgressAt > 0
-              ? latestPositiveProgressAt
-              : earliestStartedAt;
-          if (Number.isFinite(progressAt)) {
-            deadlineAt = Math.min(
-              deadlineAt,
-              progressAt + ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS,
-            );
-          }
-          return Number.isFinite(deadlineAt) ? deadlineAt : undefined;
-        };
-        const modelStreamNoProgressDeadlineAt = () => {
-          const baseDeadlineAt =
-            lastModelStreamProgressAt + MODEL_STREAM_NO_PROGRESS_TIMEOUT_MS;
-          // FIX 2: cap the FIRST event's deadline tighter on the clamped
-          // foreground runtime — see FOREGROUND_FIRST_MODEL_EVENT_TIMEOUT_MS
-          // for the ordering invariant this protects.
+        /**
+         * The ONLY in-loop stall bound left, and it covers exactly one thing:
+         * a model call whose stream opened and produced NOTHING AT ALL.
+         *
+         * WHAT WAS HERE, AND WHY IT IS GONE. Two 90s watchdogs used to run for
+         * the whole stream — one on silence between engine frames, one on a
+         * tool input whose byte count stopped growing — plus a zero-byte
+         * restart tripwire. Each inferred death from the ABSENCE of a
+         * particular event, and that inference is unsound on this transport:
+         * the Anthropic SDK drops the provider's `ping` keepalives before they
+         * reach any consumer (`core/streaming.js`: `if (sse.event === 'ping')
+         * continue;`, with no opt-out), so a healthy stream mid-generation is
+         * byte-for-byte indistinguishable from a wedged one.
+         *
+         * That is not an edge case, it is normal operation. A tool whose input
+         * is not eagerly streamed emits no `input_json_delta` at all while the
+         * provider composes its arguments, so writing a large file or filing a
+         * long structured result is a content-silent window whose length is set
+         * by the size of the argument. Production bore it out: of 27 one-shot
+         * analyst runs, 2 completed. Guards added for reliability were the
+         * thing taking it away.
+         *
+         * WHAT STILL CATCHES A REAL WEDGE — none of which can fire on
+         * slow-but-healthy work:
+         *   • the engine's own first-event abort
+         *     (`FIRST_STREAM_EVENT_TIMEOUT_MS`, 120s): a connection that opens
+         *     and never speaks
+         *   • the engine's total-stream deadline (`STREAM_TOTAL_TIMEOUT_MS`,
+         *     14min): one model call end to end, which is what bounds a socket
+         *     that wedges MID-stream on the runtimes with no outer budget
+         *     (local dev and self-hosted resolve the soft timeout to 0)
+         *   • the run-manager backstop, for the segments OUTSIDE the stream
+         *     (`inFlightWorkDelta` suspends it while the stream is open)
+         *   • the per-tool timeout, which bounds tool EXECUTION at the tool
+         *   • the chunk / run budget, which bounds COST rather than health
+         *   • the stale reaper, which bounds worker liveness
+         *
+         * The cap below survives only because it guards the "nothing has
+         * happened yet" window on the clamped hosted FOREGROUND runtime, where
+         * the ~57s platform wall arrives before the engine's 120s bound could.
+         * The first real frame releases it, so long thinking, long tool inputs
+         * and long outputs are all past it by construction.
+         */
+        const noProgressDeadlineAt = () => {
           if (
             hasReceivedFirstEngineEvent ||
             !isClampedForegroundRuntimeForThisCall
           ) {
-            return baseDeadlineAt;
+            return Number.POSITIVE_INFINITY;
           }
-          return Math.min(
-            baseDeadlineAt,
-            lastModelStreamProgressAt + FOREGROUND_FIRST_MODEL_EVENT_TIMEOUT_MS,
+          return (
+            lastModelStreamProgressAt + FOREGROUND_FIRST_MODEL_EVENT_TIMEOUT_MS
           );
-        };
-        const noProgressDeadlineAt = () => {
-          const actionDeadlineAt = actionPreparationDeadlineAt();
-          const modelDeadlineAt = modelStreamNoProgressDeadlineAt();
-          return actionDeadlineAt === undefined
-            ? modelDeadlineAt
-            : Math.min(actionDeadlineAt, modelDeadlineAt);
         };
         const hasNoProgressStalled = () => Date.now() >= noProgressDeadlineAt();
         const checkpointNoProgress = () => {
@@ -5143,6 +5166,13 @@ export async function runAgentLoop(opts: {
           iterator: AsyncIterator<EngineEvent>,
         ): Promise<IteratorResult<EngineEvent>> => {
           const deadlineAt = noProgressDeadlineAt();
+          // No deadline at all is the COMMON case now — every runtime except a
+          // clamped hosted foreground call that has not yet seen its first
+          // frame. Await the iterator directly rather than racing it: a
+          // `setTimeout` of Infinity is coerced to 1ms by Node and would
+          // checkpoint instantly, turning "no bound" into "the tightest bound
+          // there is".
+          if (!Number.isFinite(deadlineAt)) return iterator.next();
           const timeoutMs = Math.max(0, deadlineAt - Date.now());
           if (timeoutMs <= 0) {
             checkpointNoProgress();
@@ -5182,36 +5212,6 @@ export async function runAgentLoop(opts: {
             lastProgressAt: now,
             bytes,
           });
-        };
-        const resetZeroByteToolInputRestart = (toolName?: string) => {
-          if (!zeroByteToolInputRestart) return;
-          if (!toolName || zeroByteToolInputRestart.toolName === toolName) {
-            zeroByteToolInputRestart = undefined;
-          }
-        };
-        const noteZeroByteToolInputStart = (toolName?: string) => {
-          if (!toolName) return false;
-          const now = Date.now();
-          if (zeroByteToolInputRestart?.toolName === toolName) {
-            zeroByteToolInputRestart = {
-              ...zeroByteToolInputRestart,
-              lastStartedAt: now,
-              count: zeroByteToolInputRestart.count + 1,
-            };
-          } else {
-            zeroByteToolInputRestart = {
-              toolName,
-              firstStartedAt: now,
-              lastStartedAt: now,
-              count: 1,
-            };
-          }
-          return (
-            zeroByteToolInputRestart.count >=
-              ACTION_PREPARATION_ZERO_BYTE_RESTART_LIMIT &&
-            now - zeroByteToolInputRestart.firstStartedAt >=
-              ACTION_PREPARATION_NO_PROGRESS_TIMEOUT_MS
-          );
         };
         const eventIterator = eventStream[Symbol.asyncIterator]();
         let eventIteratorDone = false;
@@ -5254,7 +5254,6 @@ export async function runAgentLoop(opts: {
               }
             }
             if (event.type === "text-delta") {
-              resetZeroByteToolInputRestart();
               streamedAssistantText += event.text;
               send({ type: "text", text: event.text });
             } else if (event.type === "thinking-delta") {
@@ -5276,17 +5275,12 @@ export async function runAgentLoop(opts: {
                 ...(event.id ? { id: event.id } : {}),
               });
               sendToolInputActivity(event.name, key, undefined, true);
-              if (noteZeroByteToolInputStart(event.name)) {
-                checkpointNoProgress();
-                break;
-              }
             } else if (event.type === "tool-input-delta") {
               const key = event.id ?? event.name;
               const toolName =
                 event.name ??
                 (event.id ? toolInputNames.get(event.id) : undefined);
               let progressBytes: number | undefined;
-              let startedZeroByteInput = false;
               if (key) {
                 const hadByteRecord = toolInputBytes.has(key);
                 const previous = hadByteRecord
@@ -5298,11 +5292,6 @@ export async function runAgentLoop(opts: {
                 toolInputBytes.set(key, progressBytes);
                 if (!hadByteRecord || progressBytes > previous) {
                   trackActiveToolInput(key, toolName, progressBytes);
-                  if (progressBytes > 0) {
-                    resetZeroByteToolInputRestart();
-                  } else if (!hadByteRecord) {
-                    startedZeroByteInput = true;
-                  }
                 }
               }
               if (event.text) {
@@ -5314,14 +5303,6 @@ export async function runAgentLoop(opts: {
                 });
               }
               sendToolInputActivity(toolName, key, progressBytes);
-              if (
-                startedZeroByteInput &&
-                toolName &&
-                noteZeroByteToolInputStart(toolName)
-              ) {
-                checkpointNoProgress();
-                break;
-              }
             } else if (event.type === "gateway-heartbeat") {
               send({ type: "stream_keepalive" });
             } else if (event.type === "tool-call") {
@@ -10236,6 +10217,24 @@ export function createProductionAgentHandler(
         )
       : null;
 
+    // The budget this run ACTUALLY executes inside, resolved once and used by
+    // both `startRun` (which arms the chunk timer with it) and the agent loop
+    // (which clamps per-tool timeouts under it). Resolving it only inside
+    // `startRun` left the loop to re-derive a generic hosted/background
+    // ceiling, so an app-configured chunk shorter than that ceiling got
+    // per-tool timeouts longer than the chunk containing them — dead code, and
+    // the chunk boundary won instead. `resolveRunSoftTimeoutMs` clamps an
+    // already-resolved number to itself, so passing it back in is a no-op.
+    const resolvedRunSoftTimeoutMs = resolveRunSoftTimeoutMs(
+      selfChainBudget && !selfChainBudget.skipToBoundary
+        ? selfChainBudget.softTimeoutMs
+        : options.runSoftTimeoutMs,
+      {
+        useHostedDefault: true,
+        backgroundFunction: runsInBackgroundFunction,
+      },
+    );
+
     const startedRun = startRun(
       runId,
       effectiveThreadId,
@@ -10356,6 +10355,15 @@ export function createProductionAgentHandler(
                   providerOptions: options.providerOptions,
                   executionMode: requestMode,
                   maxIterations: loopSettings.maxIterations,
+                  // Same `startRun` chunk and same signal as the main loop, so
+                  // the same budget. Left off, the loop re-derives the generic
+                  // hosted/background ceiling, which can sit above the chunk
+                  // these nested calls actually run inside — and then the
+                  // per-tool timeout is unreachable and the chunk boundary
+                  // preempts it.
+                  ...(resolvedRunSoftTimeoutMs > 0
+                    ? { runSoftTimeoutMs: resolvedRunSoftTimeoutMs }
+                    : {}),
                 });
 
                 // Attribute custom-agent sub-calls under their own label
@@ -10537,6 +10545,13 @@ export function createProductionAgentHandler(
           priorTurnInputTokens: turnInputTokens,
           finalResponseGuard: options.finalResponseGuard,
           finalResponseGuardRequestText: messageToPersist,
+          // The chunk this loop is running inside, so a per-tool timeout is
+          // clamped under the budget it can actually spend rather than under a
+          // re-derived generic ceiling. `0` (local dev) keeps the loop's own
+          // fallback.
+          ...(resolvedRunSoftTimeoutMs > 0
+            ? { runSoftTimeoutMs: resolvedRunSoftTimeoutMs }
+            : {}),
           ...(options.toolLimits ? { toolLimits: options.toolLimits } : {}),
           ...(threadId
             ? { threadId: effectiveThreadId, turnId: effectiveTurnId }
@@ -10706,10 +10721,7 @@ export function createProductionAgentHandler(
         // (durable-background worker, plain foreground POST) is unaffected:
         // `selfChainBudget` is `null` for them and this falls through to the
         // exact prior value.
-        softTimeoutMs:
-          selfChainBudget && !selfChainBudget.skipToBoundary
-            ? selfChainBudget.softTimeoutMs
-            : options.runSoftTimeoutMs,
+        softTimeoutMs: resolvedRunSoftTimeoutMs,
         useHostedSoftTimeoutDefault: true,
         // Lift the soft-timeout clamp to ~13min ONLY when this run is actually
         // executing inside a real Netlify `-background` function (15-min budget,

@@ -54,6 +54,19 @@ function git(args, { allowFailure = false, raw = false } = {}) {
   }
 }
 
+/**
+ * Which dirty paths may be handed to `git add`.
+ *
+ * A deleted-but-tracked path MUST be included: `git add --all -- <path>` is
+ * how its removal gets staged. Filtering to paths present on disk is what
+ * silently dropped deletions and let a rename ship as an add. A path that is
+ * neither on disk nor tracked is skipped, because that pathspec aborts the
+ * whole `add` and would take the good paths down with it.
+ */
+export function selectStageablePaths(paths, { exists, isTracked }) {
+  return paths.filter((file) => exists(file) || isTracked(file));
+}
+
 function main() {
   const branch = git(["rev-parse", "--abbrev-ref", "HEAD"]);
   if (branch === "HEAD" || branch === "main" || branch === "master") {
@@ -90,14 +103,28 @@ function main() {
   let committed = null;
   if (publishable.length > 0) {
     // Whole files only. `--` keeps a path that looks like a flag from being one.
-    // `--all` stages modified and newly-created files. Deleted paths are
-    // already staged by explicit cleanup commands; omitting absent paths
-    // avoids Git rejecting a pathspec that no longer exists on disk.
-    const existingPublishable = publishable.filter((file) =>
-      existsSync(path.join(REPO_ROOT, file)),
+    // `--all` stages modifications, additions AND deletions for the paths it
+    // is given. This used to filter to paths still present on disk, on the
+    // assumption that deletions were "already staged by explicit cleanup
+    // commands" — false for an ordinary `rm`, so every deletion was silently
+    // dropped and a rename shipped as an add with the old file still tracked.
+    // A helper whose contract is "publish the complete snapshot" must not
+    // quietly publish part of it. A path absent from disk is still stageable
+    // when Git tracks it; only a path that is neither is skipped, because
+    // that pathspec would abort the whole `add`.
+    // -z for the same reason `git status` is read with -z: without it Git
+    // C-quotes any path with non-ASCII or special characters, which would not
+    // match the raw path from the porcelain read and would silently drop that
+    // deletion — the exact failure this block was just fixed for.
+    const tracked = new Set(
+      git(["ls-files", "-z"], { raw: true }).split("\0").filter(Boolean),
     );
-    if (existingPublishable.length > 0) {
-      git(["add", "--all", "--", ...existingPublishable]);
+    const stageable = selectStageablePaths(publishable, {
+      exists: (file) => existsSync(path.join(REPO_ROOT, file)),
+      isTracked: (file) => tracked.has(file),
+    });
+    if (stageable.length > 0) {
+      git(["add", "--all", "--", ...stageable]);
     }
     const staged = git(["diff", "--cached", "--name-only"])
       .split("\n")

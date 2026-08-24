@@ -355,6 +355,7 @@ const messages = {
   },
   meetingDetail: {
     untitledMeeting: "제목 없는 회의",
+    recordedBy: "{{name}} 님이 기록함",
     unassigned: "할당되지 않음",
     them: "그들을",
     me: "나",
@@ -362,6 +363,10 @@ const messages = {
     meetingRemoved: "회의가 삭제되었습니다.",
     couldNotRemoveMeeting: "회의를 삭제할 수 없습니다.",
     couldNotLoadMeeting: "이 회의를 로드할 수 없습니다.",
+    retry: "다시 시도",
+    meetingNotFound: "회의를 찾을 수 없습니다",
+    meetingUnavailable: "이 회의는 사용할 수 없습니다.",
+    noAccess: "이 회의에 액세스할 수 없을 수도 있습니다.",
     transcriptCopied: "성적 증명서가 복사되었습니다.",
     couldNotCopyTranscript: "스크립트를 복사할 수 없습니다.",
     allMeetings: "모든 회의",

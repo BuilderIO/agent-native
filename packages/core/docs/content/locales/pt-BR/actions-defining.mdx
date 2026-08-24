@@ -117,6 +117,21 @@ O framework descobre automaticamente cada arquivo em `actions/` e o monta na ini
             "Defina como false para ocultar de toda lista de ferramentas do agente. Veja Acesso e Autorização.",
         },
         {
+          name: "mcpTool",
+          type: "boolean",
+          optional: true,
+          default: "agentTool",
+          description:
+            "Herda `agentTool`. Defina false para ocultar de agentes externos por MCP e A2A, ou true para declarar participação no catálogo curado. Veja Acesso e Autorização.",
+        },
+        {
+          name: "deferLoading",
+          type: "boolean",
+          optional: true,
+          description:
+            "Defina false para manter a action na primeira lista de ferramentas do agente, ou true para carregá-la sob demanda pelo tool-search. Veja Mantenha a superfície de actions pequena abaixo.",
+        },
+        {
           name: "toolCallable",
           type: "boolean",
           optional: true,
@@ -262,6 +277,7 @@ Toda action que o agente pode ver ocupa um slot na lista de ferramentas do model
 - Prefira **uma única action `update` no estilo CRUD** que receba um patch de campos opcionais, em vez de muitas actions por campo como `update-name`, `update-order` e `update-color`. O chamador só envia os campos que mudaram.
 - Antes de adicionar uma nova action de leitura para cada consulta ou filtro, considere primeiro uma opção mais geral: o [trio de API de provedor](/docs/template-dispatch-vault-integrations#provider-api) (`provider-api-catalog`, `provider-api-docs` e `provider-api-request`) para dados de provedor, ou a ferramenta dev `db-query` para dados do app.
 - Marque actions apenas de UI ou programáticas como [`agentTool: false`](/docs/actions-access-control#agent-tool). Elas continuam chamáveis a partir do frontend ou por HTTP, sem ocupar um slot na lista de ferramentas do modelo.
+- Marque com `deferLoading: false` o punhado de actions que o agente usa o tempo todo. São esses os schemas enviados na primeira requisição ao modelo; todo o resto carrega sob demanda pelo `tool-search` quando o agente precisa. Assim que uma action se exclui desse jeito, todas as não marcadas passam a ser adiadas, então marque o conjunto inicial inteiro de uma vez em vez de uma action por vez. Isso é sobre quanto custa o primeiro turno, não sobre acesso: uma action adiada é chamável assim que o `tool-search` a retorna. É a forma por action do array `initialToolNames` do plugin, e um app pode usar qualquer uma das duas.
 - Exclua ou oculte actions que a UI não usa mais, em vez de deixá-las expostas ao modelo.
 
 O repositório inclui um helper consultivo, `node scripts/audit-template-actions.mjs [template ...]` (alias `pnpm actions:audit`). Ele varre a pasta `actions/` de um template e sinaliza actions que a UI pode não estar mais usando, além de grupos de actions por campo que poderiam ser combinadas em uma só. Ele sempre sai com código 0 e nunca falha o CI, e suas heurísticas são conservadoras, então trate a saída dele como uma sugestão, não um erro.
