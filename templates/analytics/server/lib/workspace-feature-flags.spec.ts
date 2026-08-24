@@ -419,6 +419,27 @@ describe("verified fleet feature flag transaction", () => {
     );
   });
 
+  it("keeps mutation token-signing failures retryable before any request", async () => {
+    mocks.signA2AToken.mockRejectedValue(new Error("private signing failure"));
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+    const failure = setWorkspaceFeatureFlag(admin, {
+      appId: "mail",
+      key: "new-editor",
+      operation: "off",
+    });
+
+    await expect(failure).rejects.toMatchObject({
+      phase: "token-generation",
+      errorCode: "workspace_feature_flag_token_generation",
+      statusCode: 503,
+    });
+    await expect(failure).rejects.toSatisfy(
+      (error: unknown) => !isAgentActionStopError(error),
+    );
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it.each([
     [401, "authorization"],
     [404, "unsupported-target"],

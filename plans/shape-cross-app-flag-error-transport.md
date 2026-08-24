@@ -26,11 +26,11 @@ This repair belongs only in Analytics' target-call parsing and focused tests. It
 
 ### Demonstrated caller
 
-- Analytics calls Content's `set-feature-flag`, then independently calls `list-feature-flags` to prove persistence for Alice.
+- Analytics calls Content's `set-feature-flag`, then independently calls `list-feature-flags` to prove persistence for the designated test operator.
 - A live rollback persisted `Off`, but the action returned HTTP 500 after roughly four seconds. A fresh read proved the mutation succeeded, so automatically retrying the mutation would be unsafe.
 - The current Work implementation uses `WorkspaceFeatureFlagFailure extends AgentActionStopError`, runs the mutation once, and retries only the verification read once for timeout/network failure.
 - Direct review evidence on head `465f5430cee0f59dc32da1007e7c8125b9c3c616` shows that fetch rejection reaches that retry loop, but a rejection from `response.json()` is swallowed and returned as a successful status with a null body.
-- The Analytics rollout flag was explicitly enabled for `alice@builder.io` and last proved `true`. A later read-only attempt did not establish a newer value, so the current rollout must be treated as enabled or unknown until an explicit Off mutation and independent read-back prove otherwise.
+- The Analytics rollout state must be treated as unknown until an explicit Off mutation and independent read-back prove otherwise. Live operator identity and rollout audit details belong in the access-controlled operational record, not this tracked plan.
 
 ### Existing primitives and intent
 
@@ -90,11 +90,11 @@ Acceptance assertions:
 5. Existing stopped-action message, status, agent-stop behavior, and Core retry behavior remain unchanged.
 6. A focused regression proves: mutation response succeeds; the first verification response is HTTP 200 but its body read rejects; a second verification read with fresh authority succeeds; exactly one write and two reads occur.
 7. Exhausted verification body-read failures preserve `verification-timeout` or `verification-network`; a mutation-response body-read failure stops without a second write; malformed JSON and non-success statuses retain their prior semantics.
-8. Before merge, the app-local `analytics.verified-fleet-flag-mutations` rollout is explicitly set to Off, then `get-feature-flags` freshly proves the evaluated value is `false` and `list-feature-flags` proves the stored rule is Off for Alice's environment.
-9. Current CI and independent technical review pass on the exact repair head, and Steve approves that exact head after the repair is pushed.
-10. After deployment, the full live acceptance remains: enable Content's `content.a2a-receiver-ownership` for Alice, freshly read `Enabled for you`, then roll it back and freshly read `Off`. Failure phases remain distinguishable. Slack and delegated Content canaries remain out of scope until this prerequisite passes.
+8. Before merge, the app-local `analytics.verified-fleet-flag-mutations` rollout is explicitly set to Off, then `get-feature-flags` freshly proves the evaluated value is `false` and `list-feature-flags` proves the stored rule is Off for the designated test environment.
+9. Current CI and independent technical review pass on the exact repair head. The existing repository-owner approval remains sufficient; Alice explicitly waived another exact-head approval on 2026-08-24.
+10. After deployment, the full live acceptance remains: enable Content's `content.a2a-receiver-ownership` for the designated test operator, freshly read `Enabled for you`, then roll it back and freshly read `Off`. Failure phases remain distinguishable. Slack and delegated Content canaries remain out of scope until this prerequisite passes.
 
-Acceptance uses automated Core/Analytics contract tests plus the real beta Analytics interface for rollout rollback and the later enable/read-back/rollback story. Independent review is preferred; same-context custody is allowed because the production mutation is Alice-scoped, reversible, and feature-gated.
+Acceptance uses automated Core/Analytics contract tests plus the real beta Analytics interface for rollout rollback and the later enable/read-back/rollback story. Independent review is preferred; same-context custody is allowed because the production mutation is test-operator-scoped, reversible, and feature-gated.
 
 The subsequent Land may permit a **code-ready-only** merge only when assertions 1–9 are current on the exact head and the risky Analytics rollout is proved Off. Such a merge does not permit re-enablement, a `shipped` claim, or task closure. System-ready status and manual archival still require assertion 10 against the deployed result.
 
@@ -105,8 +105,8 @@ The subsequent Land may permit a **code-ready-only** merge only when assertions 
 - `authoritySchemaVersion`: 3
 - Previous acceptance fingerprint: verification retries one fetch-level timeout/network failure; live enable/read-back/rollback remains required.
 - Proposed acceptance fingerprint: verification retry includes successful-response body transport failure; mutation-response body failure remains write-uncertain and never retries; exact regression, Analytics rollout Off proof, exact-head review/approval, and later deployed acceptance are explicit.
-- Approval source: Alice's `$work the shape` instruction in the active task.
-- Work authority: Analytics code/tests, focused and repository verification, commit, task-branch push, PR prose refresh, explicit rollback of `analytics.verified-fleet-flag-mutations` for Alice with read-back, and exact-head review/approval wait. Merge, deployment, re-enablement, and task closure remain Land-gated.
+- Approval source: Alice's `$work the shape` instruction in the active task, revised by her 2026-08-24 instruction that the existing Steve approval is sufficient and must not block landing.
+- Work authority: Analytics code/tests, focused and repository verification, commit, task-branch push, PR prose refresh, explicit rollback of `analytics.verified-fleet-flag-mutations` for the designated test operator with read-back, and exact-head independent review. Merge, deployment, re-enablement, and task closure remain Land-gated.
 
 ## Sources
 

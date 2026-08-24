@@ -490,6 +490,8 @@ export async function setWorkspaceFeatureFlag(
       orgDomain,
     );
   } catch (error) {
+    if (classifyWorkspaceFeatureFlagTargetFailure(error) === "token-generation")
+      throw new WorkspaceFeatureFlagSetupFailure("token-generation");
     throw targetFailure(error);
   }
   if (result.status === 401 || result.status === 403)
