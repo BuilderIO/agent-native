@@ -1,9 +1,5 @@
 import { configureTracking } from "@agent-native/core/client/analytics";
 import { appPath, appApiPath } from "@agent-native/core/client/api-path";
-import {
-  isDynamicImportFailureMessage,
-  recoverFromStaleChunkError,
-} from "@agent-native/core/client/route-chunk-recovery";
 import { useDbSync } from "@agent-native/core/client/hooks";
 import {
   AppProviders,
@@ -17,6 +13,10 @@ import {
   normalizeLocaleCode,
   type LocaleCode,
 } from "@agent-native/core/client/i18n";
+import {
+  isDynamicImportFailureMessage,
+  recoverFromStaleChunkError,
+} from "@agent-native/core/client/route-chunk-recovery";
 import {
   DefaultSpinner,
   ErrorReportActions,
