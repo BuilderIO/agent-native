@@ -151,10 +151,11 @@ export function buildSitemapPaths(rootDir: string): string[] {
  *   `<meta http-equiv="refresh">` 200 page;
  * - draft docs, hidden by `VITE_SHOW_DRAFTS` — including every translation of a
  *   canonically-draft slug, matching `loadDocRespectingDraftVisibility`.
- * - docs pages, which must reach the SSR handler so `Accept: text/markdown`
- *   can select the Markdown representation before a CDN serves HTML.
  *
- * Both keep falling through to the SSR function, which still answers 301/404.
+ * Redirected and draft paths keep falling through to the SSR function, which
+ * still answers 301/404. Published docs stay prerendered because the Netlify
+ * edge negotiation hook rewrites Markdown requests to the SSR function before
+ * static routing can serve the HTML file.
  */
 export function buildPrerenderPaths(): string[] {
   const pages = buildDocsSitePages(path.resolve(__dirname, ".."));
@@ -164,17 +165,9 @@ export function buildPrerenderPaths(): string[] {
   return pages
     .filter(
       (page) =>
-        !draftSlugs.has(page.docSlug) &&
-        !isRedirectedDocsPath(page.path) &&
-        !isDocsPagePath(page.path),
+        !draftSlugs.has(page.docSlug) && !isRedirectedDocsPath(page.path),
     )
     .map((page) => page.path);
-}
-
-function isDocsPagePath(pagePath: string): boolean {
-  const segments = pagePath.split("/").filter(Boolean);
-  const docsIndex = segments[0] === "docs" ? 0 : 1;
-  return segments[docsIndex] === "docs";
 }
 
 export function buildAgentWebPages(rootDir: string): AgentWebPage[] {
