@@ -1372,6 +1372,12 @@ describe("database row batch actions", () => {
     expect(() => nextPosition(2_147_483_647)).toThrow(
       "Database position is outside the supported range.",
     );
+    expect(() => nextPosition("")).toThrow(
+      "Database position is outside the supported range.",
+    );
+    expect(() => nextPosition(true)).toThrow(
+      "Database position is outside the supported range.",
+    );
     expect(() => nextPosition("not-a-position")).toThrow(
       "Database position is outside the supported range.",
     );

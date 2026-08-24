@@ -871,7 +871,13 @@ async function withMutationLocks<T>(
 }
 
 export function nextPosition(max: unknown): number {
-  const value = Number(max ?? -1);
+  const raw = max ?? -1;
+  const value =
+    typeof raw === "number"
+      ? raw
+      : typeof raw === "string" && raw.trim() !== ""
+        ? Number(raw)
+        : Number.NaN;
   const next = value + 1;
   if (
     !Number.isSafeInteger(value) ||
