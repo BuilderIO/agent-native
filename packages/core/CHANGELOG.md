@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.172.1
+
+### Patch Changes
+
+- bad078e: Expose developer resources, explicit when-to-use guidance, and complete Markdown cache headers in generated agent-web surfaces.
+
 ## 0.172.0
 
 ### Minor Changes
