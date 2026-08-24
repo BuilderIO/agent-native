@@ -372,6 +372,7 @@ export function calendarListEvents(
     timeMax?: string;
     q?: string;
     singleEvents?: boolean;
+    showDeleted?: boolean;
     orderBy?: string;
     maxResults?: number;
     pageToken?: string;
@@ -380,21 +381,6 @@ export function calendarListEvents(
 ) {
   return googleFetch(
     `${CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events${qs({ ...params, supportsAttachments: true })}`,
-    accessToken,
-  );
-}
-
-export function calendarListEventInstances(
-  accessToken: string,
-  calendarId: string,
-  eventId: string,
-  params: {
-    maxResults?: number;
-    pageToken?: string;
-  } = {},
-) {
-  return googleFetch(
-    `${CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}/instances${qs(params)}`,
     accessToken,
   );
 }

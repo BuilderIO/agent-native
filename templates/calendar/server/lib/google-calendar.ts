@@ -24,7 +24,6 @@ import {
   createOAuth2Client,
   oauth2GetUserInfo,
   calendarListEvents,
-  calendarListEventInstances,
   calendarFreeBusy,
   calendarGetEvent,
   calendarInsertEvent,
@@ -1763,16 +1762,14 @@ export async function deleteEvent(
   const exceptionIds = new Set<string>([googleEventId]);
   let pageToken: string | undefined;
   do {
-    const response = await calendarListEventInstances(
-      client.accessToken,
-      "primary",
-      recurringEventId,
-      {
-        maxResults: 2500,
-        pageToken,
-      },
-    );
+    const response = await calendarListEvents(client.accessToken, "primary", {
+      singleEvents: false,
+      showDeleted: true,
+      maxResults: 2500,
+      pageToken,
+    });
     for (const event of response?.items || []) {
+      if (event.recurringEventId !== recurringEventId) continue;
       const originalStart =
         event.originalStartTime?.dateTime ||
         event.originalStartTime?.date ||

@@ -9,7 +9,6 @@ const oauth2GetUserInfoMock = vi.hoisted(() => vi.fn());
 const peopleGetProfileMock = vi.hoisted(() => vi.fn());
 const calendarGetEventMock = vi.hoisted(() => vi.fn());
 const calendarListEventsMock = vi.hoisted(() => vi.fn());
-const calendarListEventInstancesMock = vi.hoisted(() => vi.fn());
 const calendarFreeBusyMock = vi.hoisted(() => vi.fn());
 const calendarInsertEventMock = vi.hoisted(() => vi.fn());
 const calendarDeleteEventMock = vi.hoisted(() => vi.fn());
@@ -83,7 +82,6 @@ vi.mock("./google-api.js", () => ({
   oauth2GetUserInfo: oauth2GetUserInfoMock,
   peopleGetProfile: peopleGetProfileMock,
   calendarListEvents: calendarListEventsMock,
-  calendarListEventInstances: calendarListEventInstancesMock,
   calendarGetEvent: calendarGetEventMock,
   calendarInsertEvent: calendarInsertEventMock,
   calendarDeleteEvent: calendarDeleteEventMock,
@@ -1063,7 +1061,7 @@ describe("calendar event creation", () => {
 describe("calendar recurring event updates", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    calendarListEventInstancesMock.mockReset();
+    calendarListEventsMock.mockReset();
     listOAuthAccountsByOwnerMock.mockResolvedValue([
       {
         accountId: "steve@example.com",
@@ -1134,16 +1132,18 @@ describe("calendar recurring event updates", () => {
         start: { dateTime: "2026-05-06T15:00:00Z" },
         recurrence: ["RRULE:FREQ=WEEKLY"],
       });
-    calendarListEventInstancesMock
+    calendarListEventsMock
       .mockResolvedValueOnce({
         items: [
           {
             id: "instance-1",
+            recurringEventId: "series-1",
             originalStartTime: { dateTime: "2026-05-20T15:00:00Z" },
             start: { dateTime: "2026-05-01T15:00:00Z" },
           },
           {
             id: "instance-before",
+            recurringEventId: "series-1",
             originalStartTime: { dateTime: "2026-05-13T15:00:00Z" },
           },
         ],
@@ -1153,6 +1153,7 @@ describe("calendar recurring event updates", () => {
         items: [
           {
             id: "instance-2",
+            recurringEventId: "series-1",
             originalStartTime: { dateTime: "2026-05-27T15:00:00Z" },
             start: { dateTime: "2026-05-02T15:00:00Z" },
           },
@@ -1193,22 +1194,24 @@ describe("calendar recurring event updates", () => {
       "instance-before",
       undefined,
     );
-    expect(calendarListEventInstancesMock).toHaveBeenNthCalledWith(
+    expect(calendarListEventsMock).toHaveBeenNthCalledWith(
       1,
       "access-token",
       "primary",
-      "series-1",
       {
+        singleEvents: false,
+        showDeleted: true,
         maxResults: 2500,
         pageToken: undefined,
       },
     );
-    expect(calendarListEventInstancesMock).toHaveBeenNthCalledWith(
+    expect(calendarListEventsMock).toHaveBeenNthCalledWith(
       2,
       "access-token",
       "primary",
-      "series-1",
       {
+        singleEvents: false,
+        showDeleted: true,
         maxResults: 2500,
         pageToken: "page-2",
       },
@@ -1228,10 +1231,11 @@ describe("calendar recurring event updates", () => {
         start: { date: "2026-05-06" },
         recurrence: ["RRULE:FREQ=WEEKLY"],
       });
-    calendarListEventInstancesMock.mockResolvedValue({
+    calendarListEventsMock.mockResolvedValue({
       items: [
         {
           id: "instance-1",
+          recurringEventId: "series-1",
           originalStartTime: { date: "2026-05-20" },
         },
       ],
@@ -1253,11 +1257,15 @@ describe("calendar recurring event updates", () => {
       { recurrence: ["RRULE:FREQ=WEEKLY;UNTIL=20260519"] },
       { sendUpdates: undefined },
     );
-    expect(calendarListEventInstancesMock).toHaveBeenCalledWith(
+    expect(calendarListEventsMock).toHaveBeenCalledWith(
       "access-token",
       "primary",
-      "series-1",
-      { maxResults: 2500, pageToken: undefined },
+      {
+        singleEvents: false,
+        showDeleted: true,
+        maxResults: 2500,
+        pageToken: undefined,
+      },
     );
   });
 
