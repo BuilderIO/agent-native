@@ -132,7 +132,9 @@ export function RecordingPill() {
   const [paused, setPaused] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [enabled, setEnabled] = useState(demoMode);
-  const [micLevel, setMicLevel] = useState(0);
+  const [barHeights, setBarHeights] = useState<[number, number, number]>([
+    4, 4, 4,
+  ]);
   const [announcement, setAnnouncement] = useState("");
   const [confirmQuestion, setConfirmQuestion] = useState("");
   // What the confirm's action button does. Both intents share the confirm
@@ -188,6 +190,25 @@ export function RecordingPill() {
   modeRef.current = mode;
   elapsedRef.current = elapsed;
   viewUrlRef.current = viewUrl;
+
+  /**
+   * Turn a raw mic level into three lively bar heights. Square-root scaling
+   * keeps quiet speech visible (raw peaks hover low), and a fresh random
+   * spread per event makes the meter shimmer instead of breathing one shape.
+   */
+  function applyMicLevel(raw: number) {
+    const boosted = Math.min(
+      1,
+      Math.sqrt(Math.max(0, Math.min(1, raw))) * 1.15,
+    );
+    setBarHeights([
+      4 + Math.round(boosted * 10 * (0.45 + Math.random() * 0.55)),
+      4 + Math.round(boosted * 10 * (0.7 + Math.random() * 0.3)),
+      4 + Math.round(boosted * 10 * (0.45 + Math.random() * 0.55)),
+    ]);
+    if (levelDecayRef.current) clearTimeout(levelDecayRef.current);
+    levelDecayRef.current = setTimeout(() => setBarHeights([4, 4, 4]), 350);
+  }
 
   function clearPauseTransition() {
     pauseTransitionRef.current = null;
@@ -672,10 +693,7 @@ export function RecordingPill() {
         "voice:audio-level",
         (payload) => {
           if ((payload?.source ?? "mic") !== "mic") return;
-          const level = Math.max(0, Math.min(1, Number(payload?.level) || 0));
-          setMicLevel(level);
-          if (levelDecayRef.current) clearTimeout(levelDecayRef.current);
-          levelDecayRef.current = setTimeout(() => setMicLevel(0), 400);
+          applyMicLevel(Number(payload?.level) || 0);
         },
       ),
     );
@@ -809,7 +827,7 @@ export function RecordingPill() {
     const t = setInterval(() => {
       if (modeRef.current !== "done" && !pausedRef.current) {
         setElapsed((e) => e + 500);
-        setMicLevel(Math.random());
+        applyMicLevel(0.2 + Math.random() * 0.8);
       }
     }, 500);
     return () => clearInterval(t);
@@ -885,13 +903,9 @@ export function RecordingPill() {
   const showPaused = paused;
   const meterFlat = showPaused || !enabled;
   const timerText = formatTimer(elapsed);
-  const barHeights = meterFlat
+  const shownBarHeights: [number, number, number] = meterFlat
     ? [4, 4, 4]
-    : [
-        4 + Math.round(micLevel * 10 * 0.55),
-        4 + Math.round(micLevel * 10),
-        4 + Math.round(micLevel * 10 * 0.75),
-      ];
+    : barHeights;
 
   const doneCaption =
     doneStage === "uploaded"
@@ -1016,7 +1030,7 @@ export function RecordingPill() {
           </button>
           <span
             aria-live="off"
-            className="record-pill-mono ml-2.5 min-w-11 flex-none text-sm font-medium transition-colors duration-150"
+            className="record-pill-mono ml-1 flex-none text-sm font-medium transition-colors duration-150"
             style={{
               color: showPaused ? "var(--pill-on-chrome)" : "var(--pill-rec)",
             }}
@@ -1025,13 +1039,13 @@ export function RecordingPill() {
           </span>
           <span
             aria-hidden
-            className="ml-2.5 flex h-3.5 flex-none items-end gap-0.5 transition-opacity duration-150"
+            className="ml-2.5 flex h-3.5 w-[13px] flex-none items-end justify-center gap-0.5 transition-opacity duration-150"
             style={{ opacity: meterFlat ? 0.3 : 1 }}
           >
-            {barHeights.map((h, i) => (
+            {shownBarHeights.map((h, i) => (
               <i
                 key={i}
-                className="block w-[3px] rounded-[1px] bg-[var(--pill-meter)] transition-[height] duration-200"
+                className="block w-[3px] rounded-[1px] bg-[var(--pill-meter)] transition-[height] duration-100 ease-out"
                 style={{ height: `${h}px` }}
               />
             ))}
@@ -1041,7 +1055,7 @@ export function RecordingPill() {
             onClick={togglePause}
             disabled={!enabled || inConfirm}
             aria-label={showPaused ? "Resume" : "Pause"}
-            className="ml-2.5 flex size-[30px] flex-none items-center justify-center rounded-full text-[var(--pill-ghost-ink)] transition-colors duration-150 hover:text-[var(--pill-on-chrome)] disabled:cursor-default disabled:opacity-50"
+            className="ml-0.5 flex size-[30px] flex-none items-center justify-center rounded-full text-[var(--pill-ghost-ink)] transition-colors duration-150 hover:text-[var(--pill-on-chrome)] disabled:cursor-default disabled:opacity-50"
           >
             {showPaused ? (
               <IconPlayerPlayFilled size={14} aria-hidden />
@@ -1102,7 +1116,7 @@ export function RecordingPill() {
             <span className="inline-flex flex-none items-center">
               <span
                 aria-hidden
-                className="ml-2.5 h-[18px] w-px flex-none bg-[var(--pill-soft)]"
+                className="ml-1 h-[18px] w-px flex-none bg-[var(--pill-soft)]"
               />
               <button
                 type="button"
