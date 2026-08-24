@@ -14,6 +14,7 @@ import { parseA2AAgentActivityPart } from "../a2a/activity.js";
 import type { Task } from "../a2a/types.js";
 import {
   describeToolParameterSignature,
+  isActionHiddenFromEveryAgentSurface,
   isAgentActionStopError,
   type ActionAutomationContext,
   type ActionCaller,
@@ -699,6 +700,21 @@ export interface ActionEntry {
    *  MCP, A2A, job/trigger runners) while leaving it frontend/HTTP-callable.
    *  Set by `defineAction`'s `agentTool` option. */
   agentTool?: boolean;
+  /** Whether the action is exposed to EXTERNAL agents over MCP and the direct
+   *  A2A action surface. Defaults to `agentTool`. `false` is a hard veto on
+   *  every MCP tier (including the `--full-catalog` opt-in) while the in-app
+   *  agent keeps calling it; `true` declares curated connector-catalog
+   *  membership, and with `agentTool: false` makes the action MCP-only. Read
+   *  it through `isActionExposedToExternalAgents`, never as a raw field.
+   *  Set by `defineAction`'s `mcpTool` option. */
+  mcpTool?: boolean;
+  /** Whether the action's schema is held back from the agent's first-request
+   *  tool list — the action-owned form of the plugin's `initialToolNames`.
+   *  `false` always includes it (and narrows the derived default to the
+   *  actions that opted in); `true` keeps it out of the DERIVED set, reachable
+   *  through `tool-search`. Context cost, not access. Set by `defineAction`'s
+   *  `deferLoading` option. */
+  deferLoading?: boolean;
   /** Explicit opt-in metadata for public agent protocols. Public routes never
    *  imply public tool exposure; MCP/A2A/OpenAPI surfaces must filter for this. */
   publicAgent?: import("../action.js").PublicAgentActionConfig;
@@ -3296,7 +3312,10 @@ export async function executeAgentToolCall(
   options: ExecuteAgentToolCallOptions,
 ): Promise<AgentToolCallExecutionResult> {
   const entry = options.actions[options.name];
-  if (!entry || entry.agentTool === false) {
+  // The caller's registry is the surface: A2A hands this the external one, so
+  // reject only what no surface may run — an MCP-only action is `agentTool:
+  // false` and still legitimately callable here.
+  if (!entry || isActionHiddenFromEveryAgentSurface(entry)) {
     return {
       status: "failed",
       output: `Unknown or unavailable tool: ${options.name}`,
