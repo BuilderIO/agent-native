@@ -217,9 +217,13 @@ export default defineAction({
 
     let zoomMeetingLink: string | undefined;
     if (args.addZoom) {
-      const zoom = await prepareZoomMeetingPatch(email, calEvent);
-      zoomMeetingLink = zoom.meetingLink;
-      Object.assign(calEvent, zoom.patch);
+      try {
+        const zoom = await prepareZoomMeetingPatch(email, calEvent);
+        zoomMeetingLink = zoom.meetingLink;
+        Object.assign(calEvent, zoom.patch);
+      } catch (error) {
+        console.error("[create-event] Zoom meeting provisioning failed", error);
+      }
     }
 
     const result = await googleCalendar.createEvent(calEvent, {
