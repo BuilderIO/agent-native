@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.171.1
+
+### Patch Changes
+
+- c56a23e: Preserve explicitly safe stopped-action error codes and details across browser action transport.
+
 ## 0.171.0
 
 ### Minor Changes
