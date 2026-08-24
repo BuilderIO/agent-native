@@ -8908,6 +8908,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       // "absolute-container" so onUp skips the auto-layout conversion and
       // keeps the moved element's position:absolute.
       if (cursor !== document.body && isAbsolutePrimitiveContainer(cursor)) {
+        // Same-parent drop is a pure reposition: a target here re-appends the
+        // element as its parent's last child and changes its z-order.
+        if (cursor === el.parentElement) return null;
         return {
           anchor: cursor,
           placement: "inside",
@@ -11367,7 +11370,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         originalPosition: m.style.position,
         originalLeft: m.style.left,
         originalTop: m.style.top,
-        originalOpacity: m.style.opacity,
         originLeft: 0,
         originTop: 0,
       };
@@ -11382,11 +11384,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
     var originLeft = gestureState.originLeft;
     var originTop = gestureState.originTop;
-    function setMembersOpacity(value: string | null): void {
-      memberStates.forEach(function (state) {
-        state.el.style.opacity = value === null ? state.originalOpacity : value;
-      });
-    }
     var startX = e.clientX;
     var startY = e.clientY;
     // Snapshot the element being moved so that a concurrent select-element or
@@ -11591,7 +11588,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       ) {
         currentAutoLayoutTarget = null;
         hideInsertionGuide();
-        setMembersOpacity(null);
       } else {
         currentAutoLayoutTarget =
           !duplicatedForDrag && !bridgeSpaceKeyPressed
@@ -11609,10 +11605,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         }
         if (currentAutoLayoutTarget) {
           showInsertionGuideFor(currentAutoLayoutTarget);
-          setMembersOpacity("0.4");
         } else {
           hideInsertionGuide();
-          setMembersOpacity(null);
         }
       }
       // Snap guides only make sense for a free absolute placement — never at
@@ -11658,7 +11652,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         state.el.style.position = state.originalPosition;
         state.el.style.left = state.originalLeft;
         state.el.style.top = state.originalTop;
-        state.el.style.opacity = state.originalOpacity;
       });
       selectedEl = originalSelectedEl;
       positionOverlay(selectionOverlay, selectedEl);
@@ -11778,7 +11771,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (duplicatedForDrag) {
         postVisualDuplicateChange(originalSelectedEl, dragEl);
       } else if (currentAutoLayoutTarget) {
-        setMembersOpacity(null);
         // Nest-on-drop: a free element nests as an absolute child of a plain
         // container ("absolute-container", keeps left/top) or flow-inserts into
         // an existing auto-layout frame. The resolver never requests an implicit
@@ -11825,7 +11817,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           });
         }
       } else {
-        setMembersOpacity(null);
         dndLog("commit:free-absolute", { count: memberStates.length });
         // Free absolute placement: one style-change message per member, in
         // order — the host composes them against its synchronous same-tick
