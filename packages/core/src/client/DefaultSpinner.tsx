@@ -30,7 +30,11 @@ function isDevelopmentBuild(): boolean {
   return viteEnv?.DEV === true;
 }
 
-export function DefaultSpinner() {
+export function DefaultSpinner({
+  ariaLabel = "Loading",
+}: {
+  ariaLabel?: string;
+}) {
   const [showStallHint, setShowStallHint] = useState(false);
 
   useEffect(() => {
@@ -51,7 +55,7 @@ export function DefaultSpinner() {
     >
       <svg
         role="status"
-        aria-label="Loading"
+        aria-label={ariaLabel}
         width={24}
         height={24}
         viewBox="0 0 24 24"
