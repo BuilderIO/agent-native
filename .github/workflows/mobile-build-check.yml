@@ -1,0 +1,81 @@
+name: Mobile Build Check
+
+# Compile the generated Android and iOS projects without signing or publishing.
+# Release credentials and the complete extension/provisioning path stay in EAS.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "packages/mobile-app/**"
+      - "packages/core/**"
+      - "packages/shared-app-config/**"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/mobile-build-check.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: mobile-build-check-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  MOBILE_APP_PATH: packages/mobile-app
+  CI: "1"
+  # PR builds do not exercise push entitlements or the separately provisioned
+  # widget, keyboard, broadcast, and watch targets. EAS release builds do.
+  AGENT_NATIVE_MOBILE_DISABLE_APP_EXTENSIONS: "1"
+  AGENT_NATIVE_MOBILE_DISABLE_REMOTE_PUSH: "1"
+
+jobs:
+  android:
+    name: Android debug build
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Generate Android project
+        working-directory: ${{ env.MOBILE_APP_PATH }}
+        run: pnpm exec expo prebuild --platform android --no-install
+
+      - name: Export Android production bundle
+        working-directory: ${{ env.MOBILE_APP_PATH }}
+        run: pnpm exec expo export --platform android --output-dir .expo-ci-export
+
+      - name: Compile Android debug APK
+        working-directory: ${{ env.MOBILE_APP_PATH }}/android
+        run: ./gradlew :app:assembleDebug --no-daemon
+
+  ios:
+    # Expo SDK 57.0.6 does not currently compile reliably with the Xcode 26.x
+    # toolchains available to hosted CI. Keep the bundle/config gate truthful
+    # until the app upgrades to a compatible Expo patch.
+    name: iOS production bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Export iOS production bundle
+        working-directory: ${{ env.MOBILE_APP_PATH }}
+        run: pnpm exec expo export --platform ios --output-dir .expo-ci-export
