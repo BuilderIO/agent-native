@@ -19,7 +19,13 @@ import { useEffect, useRef, useState } from "react";
 import type { FocusEvent } from "react";
 import { flushSync } from "react-dom";
 
-const OVERLAY_SHADOW_GUTTER = 18;
+// Transparent apron around the pill, sized to ITS shadow rather than the
+// 18px shared overlay default: `0 12px 34px` extends ~46px below and ~34px
+// to the sides, and anything past the window edge clips into a hard
+// rectangle that shows on light backgrounds. 40px keeps the visible falloff
+// inside the window (the last few px of blur tail are imperceptible). Must
+// match the gutter in Rust `show_toolbar` and the wrapper padding below.
+const OVERLAY_SHADOW_GUTTER = 40;
 const SEG_MS = 180;
 const HOVER_INTENT_MS = 150;
 const BLINK_MS = 700;
@@ -842,7 +848,7 @@ export function RecordingPill() {
   return (
     <div
       data-tw-surface
-      className="record-pill-scope flex h-screen w-screen select-none items-end p-[18px]"
+      className="record-pill-scope flex h-screen w-screen select-none items-end p-[40px]"
     >
       <div aria-live="polite" className="sr-only">
         {announcement}

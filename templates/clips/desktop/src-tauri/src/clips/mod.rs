@@ -1023,7 +1023,10 @@ pub async fn show_toolbar(app: AppHandle) -> Result<(), String> {
     mark_popover_shown(&app);
     let (mx, my, mw, mh) = tray_monitor_physical_rect(&app);
     let scale = overlay_scale_factor(&app);
-    let gutter = overlay_shadow_gutter_physical(&app);
+    // The pill's shadow (0 12px 34px) needs more room than the shared 18px
+    // overlay gutter or it clips into a hard rectangle on light backgrounds.
+    // Must match OVERLAY_SHADOW_GUTTER in record-pill.tsx.
+    let gutter: u32 = (40.0 * scale).round() as u32;
     // CSS is authored in logical px, while this command sizes the native
     // window in physical px.
     let content_w: u32 = (248.0 * scale).round() as u32;
