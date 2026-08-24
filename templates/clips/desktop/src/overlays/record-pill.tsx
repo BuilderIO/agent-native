@@ -905,6 +905,26 @@ export function RecordingPill() {
     });
   }, [enabled, mode]);
 
+  // The pill is also the single writer of the menu bar's recording mode:
+  // stop square + ticking timer exactly while capture is live, the app logo
+  // otherwise. Rust infers nothing; a window-destroyed backstop covers the
+  // one report this effect can never send.
+  const trayLive = enabled && mode !== "done";
+  useEffect(() => {
+    if (!hasTauri) return;
+    void safeInvoke("tray_recording_status", {
+      active: trayLive,
+      title: trayLive ? formatTimer(elapsedRef.current) : null,
+    });
+  }, [trayLive]);
+  useEffect(() => {
+    if (!hasTauri || !trayLive) return;
+    void safeInvoke("tray_recording_status", {
+      active: true,
+      title: `${paused ? "⏸ " : ""}${formatTimer(elapsed)}`,
+    });
+  }, [trayLive, elapsed, paused]);
+
   // ---- interactions ----
 
   function handleMouseEnter() {
