@@ -1490,7 +1490,7 @@ function LLMSectionInner({
                     intent="neutral"
                     emphasis="outline"
                     onClick={handleTest}
-                    disabled={testing}
+                    disabled={testing || !anyKeyConfigured}
                     className={pillButtonClass(isPage, "outline")}
                   >
                     {testing ? (
