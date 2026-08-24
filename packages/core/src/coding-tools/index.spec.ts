@@ -496,6 +496,63 @@ describe("bash background execution", () => {
     expect(canonicalizeShellCommand("rg pattern src").unanalyzable).toBe(false);
   });
 
+  it("flags runtime-built text it cannot see through", () => {
+    for (const command of [
+      "$(printf git) checkout main",
+      "`printf git` checkout",
+      'echo "$(whoami)"',
+    ]) {
+      expect(canonicalizeShellCommand(command).unanalyzable).toBe(true);
+    }
+    // Single quotes make these literal, so there is nothing hidden.
+    expect(canonicalizeShellCommand("rg '$(foo)' src").unanalyzable).toBe(
+      false,
+    );
+    expect(canonicalizeShellCommand("rg '`foo`' src").unanalyzable).toBe(false);
+  });
+
+  // The exit-grace path can settle before the 1s SIGKILL escalation fires. If
+  // settling cancelled that escalation, a descendant that ignored SIGTERM would
+  // outlive the call untouched — here the parent shell dies on SIGTERM, so the
+  // call returns while the TERM-immune grandchild is still holding the pipe.
+  it("still SIGKILLs a TERM-ignoring descendant after the call returns", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-sigkill-"));
+    tmpRoots.push(root);
+    const pidFile = path.join(root, "child.pid");
+    const alive = (pid: number) => {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    // A real SIGTERM-immune process. A `trap '' TERM` shell is not enough: the
+    // group SIGTERM still reaches the `sleep` it is waiting on, so the shell
+    // exits anyway and the test passes with or without the escalation.
+    const immune = [
+      "process.on('SIGTERM', () => {});",
+      `require('fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));`,
+      "setTimeout(() => {}, 45000);",
+    ].join("");
+    await runCodingCommand(
+      `node -e ${JSON.stringify(immune)} & sleep 45`,
+      root,
+      1_000,
+    );
+
+    // The grandchild wrote its pid before trapping; it ignored our SIGTERM.
+    const pid = Number(fs.readFileSync(pidFile, "utf8").trim());
+    expect(Number.isInteger(pid)).toBe(true);
+
+    const deadline = Date.now() + 8_000;
+    while (alive(pid) && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    expect(alive(pid)).toBe(false);
+  }, 25_000);
+
   it("default timeout is 120000 ms", () => {
     // Verify the exported default via tool description which mentions 120000.
     const registry = createCodingToolRegistry({});

@@ -564,7 +564,11 @@ export async function runCodingCommand(
     };
   } finally {
     clearTimeout(timer);
-    if (sigkillTimer) clearTimeout(sigkillTimer);
+    // Deliberately NOT clearing `sigkillTimer`. It exists only when abort ran,
+    // and the exit-grace path can settle before the 1s escalation fires — a
+    // descendant that ignored SIGTERM would then outlive the call untouched.
+    // Letting it run costs nothing: it is unref'd, and `killGroup` on an
+    // already-dead group is a caught no-op.
     options.signal?.removeEventListener("abort", abort);
   }
 }
@@ -662,12 +666,19 @@ export function truncateBashOutput(
  * written against the literal text — every denylist entry is otherwise one pair
  * of quotes away from being bypassed.
  *
- * `unanalyzable` reports `$'…'`, whose ANSI-C escapes (`$'\x67it'` → `git`) this
- * pass does not decode. Callers must not treat the canonical form as
- * authoritative when it is set. Ordinary `$(…)`/backtick substitution is left
- * alone deliberately: its body stays visible in the string, so rules still match
- * it, and only an expansion that manufactures text absent from the source could
- * evade them.
+ * `unanalyzable` reports constructs whose executed text this pass cannot
+ * recover, so no rule matched against the canonical form can be trusted:
+ * `$'…'` ANSI-C escapes (`$'\x67it'` → `git`) and command substitution
+ * (`$(printf git) $(printf checkout) main` runs the forbidden operation while
+ * the string contains neither token). Callers must escalate rather than clear a
+ * command when this is set. Substitution inside single quotes is literal, so it
+ * does not set the flag.
+ *
+ * ponytail: plain parameter expansion (`$VAR`, `${VAR}`) can also build a token
+ * at runtime and is NOT flagged — doing so would make ordinary `cd $TMPDIR`
+ * commands require approval. Closing that needs a real shell parser, which is
+ * the upgrade path if this boundary ever has to hold against a determined
+ * attacker rather than a misbehaving model.
  */
 export function canonicalizeShellCommand(command: string): {
   canonical: string;
@@ -690,6 +701,10 @@ export function canonicalizeShellCommand(command: string): {
       if (next !== "\n") canonical += next;
       i += 1;
       continue;
+    }
+    // Substitution expands inside double quotes as well as unquoted.
+    if (ch === "`" || (ch === "$" && command[i + 1] === "(")) {
+      unanalyzable = true;
     }
     if (quote === '"') {
       if (ch === '"') quote = null;

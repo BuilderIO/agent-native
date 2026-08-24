@@ -111,7 +111,10 @@ export function buildAutomationTriggerPrompt(input: {
 }): string {
   let payloadStr: string;
   try {
-    payloadStr = JSON.stringify(input.payload, null, 2);
+    // JSON.stringify returns undefined (it does not throw) for undefined, a
+    // function, or a symbol at the top level, and an event can legitimately
+    // carry no payload. Normalize before anything reads it as a string.
+    payloadStr = JSON.stringify(input.payload, null, 2) ?? "(no payload)";
   } catch {
     payloadStr = String(input.payload);
   }

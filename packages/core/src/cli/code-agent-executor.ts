@@ -2870,11 +2870,14 @@ export function classifyCodeAgentCommandPermission(
   }
 
   // A command whose real text this pass cannot recover is not a command we can
-  // clear. Ask rather than fall through to `write` on a guess.
+  // clear. `$(printf git) $(printf checkout) main` runs the forbidden operation
+  // while containing neither token, so a rule that did not match proves nothing.
+  // Ask rather than fall through to `write` on a guess.
   if (unanalyzable) {
     return {
       kind: "approval-required",
-      reason: "command uses $'…' escaping that policy matching cannot decode",
+      reason:
+        "command builds its text at runtime (command substitution or $'…' escaping), so policy matching cannot see what will run",
     };
   }
 

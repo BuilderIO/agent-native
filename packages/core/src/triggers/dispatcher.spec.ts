@@ -917,6 +917,35 @@ describe("buildAutomationTriggerPrompt", () => {
     expect(prompt.match(/<\/event_payload>/g)).toHaveLength(1);
   });
 
+  // JSON.stringify returns undefined rather than throwing for these, and an
+  // event can legitimately arrive with no payload at all.
+  it.each([
+    ["undefined", undefined],
+    ["a function", () => "x"],
+    ["a symbol", Symbol("s")],
+  ])("does not crash on %s payload", (_label, payload) => {
+    const prompt = buildAutomationTriggerPrompt({
+      triggerName: "inbound-mail",
+      event: "mail.received",
+      eventId: "evt_1",
+      firedAt: "2026-08-24T00:00:00Z",
+      payload,
+      body: "Summarize the message.",
+    });
+    expect(prompt).toContain("Summarize the message.");
+    expect(prompt).not.toContain("undefined\n</event_payload>");
+  });
+
+  it("renders absent metadata as unknown rather than the string undefined", () => {
+    const prompt = buildAutomationTriggerPrompt({
+      triggerName: "inbound-mail",
+      payload: { a: 1 },
+      body: "Do the thing.",
+    });
+    expect(prompt).toContain("Event: (unknown)");
+    expect(prompt).not.toContain("undefined");
+  });
+
   it("caps an oversized payload so it cannot crowd out the instructions", () => {
     const prompt = buildAutomationTriggerPrompt({
       triggerName: "inbound-mail",

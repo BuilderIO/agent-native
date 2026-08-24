@@ -1063,10 +1063,31 @@ describe("classifyCodeAgentCommandPermission", () => {
     expect(classifyCodeAgentCommandPermission(command)).toMatchObject({ kind });
   });
 
-  it("asks rather than guessing when the real text cannot be recovered", () => {
+  // Each of these executes a forbidden operation whose tokens never appear in
+  // the source string, so "no rule matched" proves nothing about what will run.
+  it.each([
+    "$'\\x67it' checkout main",
+    "$(printf git) $(printf checkout) main",
+    "`printf git` checkout main",
+  ])("asks rather than guessing for %s", (command) => {
+    expect(classifyCodeAgentCommandPermission(command)).toMatchObject({
+      kind: "approval-required",
+    });
+  });
+
+  it("still blocks outright when the forbidden text is visible inside a substitution", () => {
     expect(
-      classifyCodeAgentCommandPermission("$'\\x67it' checkout main"),
-    ).toMatchObject({ kind: "approval-required" });
+      classifyCodeAgentCommandPermission('echo "$(git checkout main)"'),
+    ).toMatchObject({ kind: "forbidden" });
+  });
+
+  // Single quotes make substitution literal, so nothing is hidden and the
+  // command is not escalated. (The read-only allowlist separately refuses any
+  // raw `$(`, which is why this lands on `write` rather than `read`.)
+  it("does not escalate substitution syntax that single quotes make literal", () => {
+    expect(classifyCodeAgentCommandPermission("rg '$(foo)' src")).toMatchObject(
+      { kind: "write" },
+    );
   });
 
   it("leaves ordinary quoted arguments classified as before", () => {
