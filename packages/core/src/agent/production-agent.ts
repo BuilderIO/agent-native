@@ -6035,6 +6035,12 @@ export async function runAgentLoop(opts: {
             completedSideEffect: false,
           });
           recordToolResult(result, false);
+          // Control is genuinely handed to the user here — the result above
+          // tells the model "the turn is paused". `requestedActionStop` alone
+          // does not stop anything until after the tool loop drains, so
+          // without this the *rest* of this assistant message still executes
+          // while the human is still looking at the approval card.
+          turnYieldedToUser = true;
           requestedActionStop ??= {
             message: `Waiting for your approval to run ${toolCall.name}.`,
             errorCode: "needs-approval",
@@ -6734,6 +6740,16 @@ export async function runAgentLoop(opts: {
       // alongside genuine reads, which can reorder it ahead of a later mutating
       // call and break the model's intended sequencing.
       if (!entry) return null;
+      // A call that can pause the turn must not share a batch. `flushParallelBatch`
+      // dispatches through `Promise.all`, so a gated call and its siblings all
+      // start before the gate is reached, and `turnYieldedToUser` would then be
+      // set too late to stop a sibling that already ran. Serializing here is what
+      // makes that flag mean anything for the calls after it. `needsApproval` may
+      // be an async predicate, so this cannot resolve whether approval is truly
+      // required — declaring it at all is enough to serialize.
+      if (entry.needsApproval !== undefined || entry.endsTurn === true) {
+        return null;
+      }
       if (entry.readOnly === true) return "read";
       if (entry.parallelSafe === true) return "parallel-write";
       return null;
@@ -6763,7 +6779,8 @@ export async function runAgentLoop(opts: {
       toolCall: import("./engine/types.js").EngineToolCallPart,
     ): EngineContentPart => {
       const result =
-        `Not executed: ${toolCall.name} was called after an action that ends the turn. ` +
+        `Not executed: ${toolCall.name} was called after an action that paused the turn ` +
+        `(an action that ends the turn, or one waiting on the user's approval). ` +
         `The turn is paused for the user's answer — call it again on a later turn if still needed.`;
       send({
         type: "tool_start",
