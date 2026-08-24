@@ -477,6 +477,10 @@ body {
   span,
 .desktop-chat-first-hub
   .code-agents-rail--collapsed
+  .desktop-chat-first-rail-chat
+  span,
+.desktop-chat-first-hub
+  .code-agents-rail--collapsed
   .desktop-chat-first-rail-settings
   span,
 .desktop-chat-first-hub
@@ -1032,6 +1036,14 @@ body {
 
 .desktop-chat-first-hub
   .code-agents-rail--collapsed
+  .desktop-chat-first-rail-chat {
+  width: 40px;
+  justify-content: center;
+  padding-inline: 0;
+}
+
+.desktop-chat-first-hub
+  .code-agents-rail--collapsed
   [data-chat-first-rail-collapse] {
   background: hsl(var(--sidebar-accent));
   color: hsl(var(--sidebar-accent-foreground));
@@ -1042,6 +1054,18 @@ body {
   [data-chat-first-rail-collapse]:hover {
   background: hsl(var(--sidebar-accent) / 0.85);
   color: hsl(var(--sidebar-accent-foreground));
+}
+
+.desktop-chat-first-hub
+  .code-agents-rail--collapsed
+  [data-chat-first-app][data-app-id] {
+  background-color: transparent;
+}
+
+.desktop-chat-first-hub
+  .code-agents-rail--collapsed
+  [data-chat-first-app][data-app-id]:hover {
+  background-color: hsl(var(--sidebar-accent));
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1085,7 +1109,10 @@ body {
 
 .desktop-app-webview-surface,
 .code-agents-embedded-app-surface {
-  border-left: 1px solid hsl(var(--border));
+  border-radius: var(--agent-native-raised-radius, 8px) 0 0
+    var(--agent-native-raised-radius, 8px);
+  border-left: 0;
+  box-shadow: 0 0 0 1px hsl(var(--border));
 }
 
 .code-agents-primary-app-surface {

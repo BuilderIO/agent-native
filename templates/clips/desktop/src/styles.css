@@ -1131,9 +1131,17 @@ body[data-clips-route="recording-pill"] #root {
   cursor: pointer;
   border-radius: var(--radius-sm);
   transition:
+    opacity 120ms,
     color 120ms,
     background 120ms;
   flex-shrink: 0;
+  opacity: 0;
+}
+
+.readiness-item:hover .readiness-refresh,
+.readiness-item:focus-within .readiness-refresh,
+.readiness-item .readiness-refresh-rotating {
+  opacity: 1;
 }
 
 .readiness-refresh:hover {
@@ -1146,13 +1154,19 @@ body[data-clips-route="recording-pill"] #root {
   cursor: default;
 }
 
-.readiness-refresh-spinning svg {
-  animation: readiness-spin 0.8s linear infinite;
+.readiness-refresh-rotating svg {
+  animation: readiness-spin 420ms ease-out;
 }
 
 @keyframes readiness-spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .readiness-refresh-rotating svg {
+    animation: none;
   }
 }
 
@@ -1620,7 +1634,7 @@ body[data-clips-route="recording-pill"] #root {
   flex-direction: column;
   gap: 6px;
   margin-bottom: 4px;
-  max-height: 280px;
+  max-height: 420px;
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior: contain;

@@ -1,5 +1,92 @@
 # @agent-native/core
 
+## 0.172.3
+
+### Patch Changes
+
+- 0fedac0: Prebundle `diff-match-patch` so the collab text-to-Yjs path loads in the browser.
+
+  `diff-match-patch@1.0.5` ships one CJS file with no ESM entry. It is reached from
+  `collab/text-to-yjs.ts`, which in monorepo dev mode is a source-aliased core
+  module excluded from dep prebundling, so Vite never scanned the import and served
+  the dependency verbatim — its trailing `module.exports` lines threw in the
+  browser. It now has a default `optimizeDeps.include` entry like the other CJS
+  dependencies core reaches from client code.
+
+## 0.172.2
+
+### Patch Changes
+
+- f208c0e: Stop later tool calls in the same assistant message from running while an action
+  waits for human approval.
+
+  The approval gate told the model "the turn is paused" and set
+  `requestedActionStop`, but that flag is only read after the tool loop finishes.
+  The flag that actually suppresses the remaining calls is `turnYieldedToUser`,
+  which the approval path never set — so on `[write(needs approval),
+delete(no approval)]` in one message, the human saw an approval card for the
+  first while the second had already executed. The approval branch now yields the
+  turn like any other action that hands control to the user, and the message shown
+  for a suppressed call names the approval case as well as the ends-turn case.
+
+  A gated call is also no longer eligible for parallel batching. `flushParallelBatch`
+  dispatches a batch through `Promise.all`, so a gated call and its siblings all
+  start before the gate is reached and the suppression lands too late to stop a
+  sibling that already ran. Any action declaring `needsApproval` or `endsTurn` is
+  now serialized, which is what makes the suppression meaningful for the calls
+  after it.
+
+## 0.172.1
+
+### Patch Changes
+
+- bad078e: Expose developer resources, explicit when-to-use guidance, and complete Markdown cache headers in generated agent-web surfaces.
+
+## 0.172.0
+
+### Minor Changes
+
+- 5da9484: Add durable action-level approval preferences and recoverable harness checkpoints.
+
+### Patch Changes
+
+- bd7384b: Scope sidebar toggle events to the matching app chat surface.
+- 4fa0d0c: Harden the shell command policy and the untrusted-text prompt boundaries.
+  - `classifyCodeAgentCommandPermission` now matches its blocked and
+    approval-required rules against the quote-stripped form of the command as well
+    as the raw text. The shell removes quoting before the command word exists, so
+    `git 'checkout' main`, `gi''t checkout main`, `drizzle-kit "push"` and
+    `rm -'r'f /` previously ran as unclassified writes. A command using `$'…'`
+    escaping, which this pass cannot decode, now asks for approval instead of
+    falling through.
+  - `runCodingCommand` settles on `exit` with a short grace for `close` instead of
+    waiting on `close` alone, and spawns detached so a timeout signals the whole
+    process group. A command that backgrounds anything (`npm run dev &`) left a
+    grandchild holding the output pipe and the call never returned — past its
+    timeout too, whose `SIGTERM` went to an `sh -c` wrapper that had already
+    exited. When output is cut short this way the result says so rather than
+    reading as a clean finish.
+  - Automation trigger payloads are capped, wrapped in `<event_payload>` tags with
+    an explicit untrusted-data instruction, and no longer sit ahead of the
+    automation's own body — the same defense `condition-evaluator.ts` already
+    applied before this data reached a tool-less classifier, now applied on the
+    path that reaches an agent with the full tool surface.
+  - Prompt `<resource>` blocks escape both halves of the fence in the body, so
+    shared `AGENTS.md`/`LEARNINGS.md` content cannot forge a block header and pass
+    itself off as framework instructions.
+
+## 0.171.3
+
+### Patch Changes
+
+- 2292fac: Allow shared loading spinners to provide localized accessible labels.
+
+## 0.171.2
+
+### Patch Changes
+
+- 3afcb54: Add pin, reorder, and reload actions to workspace app rail context menus.
+
 ## 0.171.1
 
 ### Patch Changes

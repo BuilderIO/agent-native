@@ -1694,6 +1694,55 @@ const deDE = {
         builderPrivacyFull: "Builder.io Datenschutzrichtlinie",
       },
     },
+    about: {
+      eyebrow: "Über Agent-Native",
+      title: "Open-Source-Apps für Agents und Menschen",
+      intro:
+        "Agent-Native ist ein Open-Source-Framework für Anwendungen, in denen KI-Agents und Benutzeroberflächen dieselben Aktionen, Daten und den Anwendungsstatus teilen.",
+      sections: {
+        project: {
+          title: "Ein gemeinsames Betriebsmodell",
+          body: "Agent-Native behandelt Agent und Oberfläche als gleichwertige Partner. Eine Aktion kann ein UI-Steuerelement, ein Agent-Tool, eine HTTP-Route, eine MCP- oder A2A-Fähigkeit, einen CLI-Befehl und einen prüfbaren Ablauf versorgen. Gemeinsamer SQL-Status hält die menschliche und die Agentenansicht synchron.",
+        },
+        openSource: {
+          title: "Standardmäßig Open Source",
+          body: "Der Quellcode steht unter der MIT-Lizenz im Repository BuilderIO/agent-native zur Verfügung. Entwickler können ihn prüfen, lokal ausführen, Datenbank- und Modellanbieter wählen und an ihr Produkt anpassen. Gehostete Dienste werden getrennt von Forks und eigenen Deployments betrieben.",
+        },
+        hosted: {
+          title: "Gehostet und selbst gehostet",
+          body: "Builder.io betreibt die gehosteten Agent-Native-Anwendungen und die Dokumentation auf agent-native.com. Das Framework ist auch für Teams gedacht, die eigene Anwendungen bereitstellen und betreuen möchten. Aktionsverträge, Zugriffsgrenzen, Agentenanweisungen und öffentliche Protokolle sind im Code und in der Dokumentation prüfbar.",
+        },
+        community: {
+          title: "Öffentlich entwickelt",
+          body: "Das Projekt wird offen über GitHub-Issues, Pull Requests, Dokumentation und die Agent-Native-Community entwickelt. Lies die Dokumentation zur Architektur, prüfe den Quellcode einer Implementierung oder tausche dich über einen Anwendungsfall aus und trage eine Änderung bei.",
+        },
+      },
+    },
+    contact: {
+      eyebrow: "Kontakt",
+      title: "Builder.io zu Agent-Native kontaktieren",
+      intro:
+        "Nutze die Support-, Quellcode- und Community-Kanäle für Fragen, Fehlerberichte, Verbesserungsvorschläge oder Sicherheitsmeldungen zu Agent-Native.",
+      emailLabel: "support@builder.io per E-Mail kontaktieren",
+      sections: {
+        support: {
+          title: "Produkt- und gehosteter Service-Support",
+          body: "Bei Fragen zu einer gehosteten Anwendung, zum Kontozugriff, zu einem Dokumentationsproblem oder zu nicht lösbarem Verhalten schreibe an support@builder.io. Füge die öffentliche URL, eine reproduzierbare Beschreibung und relevante Anfrage- oder Run-IDs hinzu. Sende keine Passwörter, API-Schlüssel, Bearer-Tokens oder privaten Kundendaten.",
+        },
+        source: {
+          title: "Open-Source-Projekt und Community",
+          body: "Nutze das GitHub-Repository für Quellcodefehler, Vorschläge, Pull Requests und Implementierungsdiskussionen. Discord eignet sich für Fragen, die vom Austausch mit anderen Entwicklern profitieren. Suche zuerst in Issues und Dokumentation, damit Maintainer den nötigen Kontext erhalten.",
+        },
+        security: {
+          title: "Sicherheitsmeldungen",
+          body: "Veröffentliche eine ungepatchte Schwachstelle nicht in einem öffentlichen Issue oder Chat. Kontaktiere Builder.io über den verfügbaren Sicherheitskanal und sende nur die zur Reproduktion und Bewertung nötigen Informationen. Halte Zugangsdaten, private Daten und Exploit-Material aus normalen Supportanfragen heraus.",
+        },
+        legal: {
+          title: "Rechtliches und Datenschutz",
+          body: "Bei Datenschutzfragen lies zuerst die Agent-Native-Datenschutzrichtlinie und die rechtlichen Ressourcen von Builder.io. Builder.io, Inc. befindet sich in 95 3rd Street, 2nd Floor, San Francisco, CA 94103, Vereinigte Staaten. Bedingungen für den gehosteten Dienst und Pflichten beim Self-Hosting stehen in den Nutzungsbedingungen.",
+        },
+      },
+    },
     terms: {
       eyebrow: "Nutzungsbedingungen",
       title: "Agent-Native gehostete Anwendungen",

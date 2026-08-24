@@ -199,6 +199,7 @@ import { buildCurrentTimeUserContext } from "./runtime-context.js";
 import {
   consumeAgentToolApproval,
   createAgentToolApproval,
+  isAgentToolAlwaysAllowed,
   resolveAgentToolApprovalTurnId,
 } from "./tool-approval-store.js";
 import type { AgentToolApprovalBinding } from "./tool-approval-store.js";
@@ -3291,6 +3292,7 @@ export interface ExecuteAgentToolCallOptions {
     binding: AgentApprovalBinding,
   ) => Promise<string | void>;
   consumeApproval?: (binding: AgentApprovalBinding) => Promise<boolean>;
+  isToolAlwaysAllowed?: (binding: AgentApprovalBinding) => Promise<boolean>;
   send?: (event: AgentChatEvent) => void;
 }
 
@@ -3403,6 +3405,7 @@ export async function executeAgentToolCall(
       approvedToolCalls: options.approvedToolCalls,
       onApprovalRequired: options.onApprovalRequired,
       consumeApproval: options.consumeApproval,
+      isToolAlwaysAllowed: options.isToolAlwaysAllowed,
     });
   } catch (error) {
     return {
@@ -4635,6 +4638,8 @@ export async function runAgentLoop(opts: {
     binding: AgentApprovalBinding,
   ) => Promise<string | void>;
   consumeApproval?: (binding: AgentApprovalBinding) => Promise<boolean>;
+  /** User-scoped action-type policy, checked only after needsApproval. */
+  isToolAlwaysAllowed?: (binding: AgentApprovalBinding) => Promise<boolean>;
   /**
    * In-loop processor seam (see `processors.ts`). Each processor can observe
    * streamed chunks, observe model responses around tool execution, and
@@ -5959,6 +5964,15 @@ export async function runAgentLoop(opts: {
           // than silently running a high-consequence action.
           mustApprove = true;
         }
+        if (mustApprove && opts.isToolAlwaysAllowed) {
+          try {
+            mustApprove = !(await opts.isToolAlwaysAllowed(approvalBinding));
+          } catch {
+            // Fail closed: an unreadable policy must leave the approval gate in
+            // place instead of turning a storage outage into authorization.
+            mustApprove = true;
+          }
+        }
         if (mustApprove) {
           // `askId` identifies THIS gate hit, distinct from any earlier ask
           // for the same approvalKey/toolCallId. A failed resume (expired
@@ -6021,6 +6035,12 @@ export async function runAgentLoop(opts: {
             completedSideEffect: false,
           });
           recordToolResult(result, false);
+          // Control is genuinely handed to the user here — the result above
+          // tells the model "the turn is paused". `requestedActionStop` alone
+          // does not stop anything until after the tool loop drains, so
+          // without this the *rest* of this assistant message still executes
+          // while the human is still looking at the approval card.
+          turnYieldedToUser = true;
           requestedActionStop ??= {
             message: `Waiting for your approval to run ${toolCall.name}.`,
             errorCode: "needs-approval",
@@ -6720,6 +6740,16 @@ export async function runAgentLoop(opts: {
       // alongside genuine reads, which can reorder it ahead of a later mutating
       // call and break the model's intended sequencing.
       if (!entry) return null;
+      // A call that can pause the turn must not share a batch. `flushParallelBatch`
+      // dispatches through `Promise.all`, so a gated call and its siblings all
+      // start before the gate is reached, and `turnYieldedToUser` would then be
+      // set too late to stop a sibling that already ran. Serializing here is what
+      // makes that flag mean anything for the calls after it. `needsApproval` may
+      // be an async predicate, so this cannot resolve whether approval is truly
+      // required — declaring it at all is enough to serialize.
+      if (entry.needsApproval !== undefined || entry.endsTurn === true) {
+        return null;
+      }
       if (entry.readOnly === true) return "read";
       if (entry.parallelSafe === true) return "parallel-write";
       return null;
@@ -6749,7 +6779,8 @@ export async function runAgentLoop(opts: {
       toolCall: import("./engine/types.js").EngineToolCallPart,
     ): EngineContentPart => {
       const result =
-        `Not executed: ${toolCall.name} was called after an action that ends the turn. ` +
+        `Not executed: ${toolCall.name} was called after an action that paused the turn ` +
+        `(an action that ends the turn, or one waiting on the user's approval). ` +
         `The turn is paused for the user's answer — call it again on a later turn if still needed.`;
       send({
         type: "tool_start",
@@ -9562,6 +9593,14 @@ export function createProductionAgentHandler(
         if (!ownerEmail) return false;
         return consumeAgentToolApproval(approvalStoreBinding(binding));
       },
+      isToolAlwaysAllowed: async (binding: AgentApprovalBinding) => {
+        if (!ownerEmail) return false;
+        return isAgentToolAlwaysAllowed({
+          ownerEmail,
+          orgId: getRequestOrgId() ?? null,
+          toolName: binding.toolName,
+        });
+      },
     };
     const approvedToolCallsForExecution = requestedApprovedToolCalls;
     if (
@@ -10565,6 +10604,7 @@ export function createProductionAgentHandler(
             : {}),
           onApprovalRequired: approvalHooks.onApprovalRequired,
           consumeApproval: approvalHooks.consumeApproval,
+          isToolAlwaysAllowed: approvalHooks.isToolAlwaysAllowed,
           // A worker PROVEN to be running inside the real 15-min Netlify
           // `-background` function (`runsInBackgroundFunction`) has minutes of
           // budget left on THIS invocation. Let it catch a recoverable
@@ -10614,6 +10654,7 @@ export function createProductionAgentHandler(
               approvedToolCalls: approvedToolCallsForExecution,
               onApprovalRequired: approvalHooks.onApprovalRequired,
               consumeApproval: approvalHooks.consumeApproval,
+              isToolAlwaysAllowed: approvalHooks.isToolAlwaysAllowed,
               send,
             });
             return;

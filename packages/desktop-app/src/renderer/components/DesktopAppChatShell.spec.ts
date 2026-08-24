@@ -46,6 +46,7 @@ describe("desktop app chat shell", () => {
     expect(source).toContain("storageKey={`desktop-app-chat:${appId}`}");
     expect(source).toContain('position="left"');
     expect(source).toContain('agentChatSurface="desktop"');
+    expect(source).toContain("toggleScopeId={toggleScopeId}");
     expect(source).toContain("restoreActiveThread={false}");
     expect(source).toContain("enabled={showChatSidebar}");
     expect(source).not.toContain(
@@ -78,7 +79,7 @@ describe("desktop app chat shell", () => {
     );
 
     expect(shellCss).toMatch(
-      /\.desktop-app-webview-surface,\s*\.code-agents-embedded-app-surface\s*\{\s*border-left: 1px solid hsl\(var\(--border\)\);\s*\}/,
+      /\.desktop-app-webview-surface,\s*\.code-agents-embedded-app-surface\s*\{[\s\S]*?border-radius: var\(--agent-native-raised-radius, 8px\) 0 0\s+var\(--agent-native-raised-radius, 8px\);[\s\S]*?border-left: 0;[\s\S]*?box-shadow: 0 0 0 1px hsl\(var\(--border\)\);[\s\S]*?\}/,
     );
   });
 

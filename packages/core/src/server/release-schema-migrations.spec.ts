@@ -83,14 +83,22 @@ describe("framework release schema migrations", () => {
       expect.arrayContaining([
         "provider_session_id",
         "owner_email",
+        "generation",
         "stopped_at",
       ]),
     );
     const timestampMigration = AGENT_HARNESS_SESSION_MIGRATIONS.find(
       (migration) => migration.version === 3,
     );
+    const generationMigration = AGENT_HARNESS_SESSION_MIGRATIONS.find(
+      (migration) => migration.version === 4,
+    );
     expect(timestampMigration?.sql).toMatchObject({
       postgres: expect.stringContaining("ALTER COLUMN created_at TYPE BIGINT"),
+    });
+    expect(generationMigration?.sql).toMatchObject({
+      postgres: expect.stringContaining("generation BIGINT"),
+      sqlite: expect.stringContaining("generation INTEGER"),
     });
     expect(
       (

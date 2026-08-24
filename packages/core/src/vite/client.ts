@@ -1206,6 +1206,7 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
     { specifier: "clsx" },
     { specifier: "cmdk" },
     { specifier: "date-fns" },
+    { specifier: "diff-match-patch" },
     { specifier: "drizzle-orm" },
     { specifier: "drizzle-orm/pg-core", packageName: "drizzle-orm" },
     { specifier: "drizzle-orm/sqlite-core", packageName: "drizzle-orm" },

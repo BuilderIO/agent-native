@@ -154,6 +154,15 @@ const AGENT_PANEL_PREPARE_EVENT = "agent-panel:prepare";
 const AGENT_PANEL_SET_MODE_EVENT = "agent-panel:set-mode";
 const AGENT_PANEL_OPEN_SETTINGS_EVENT = "agent-panel:open-settings";
 
+export function shouldHandleAgentSidebarToggle(
+  event: Event,
+  toggleScopeId?: string | null,
+): boolean {
+  const detail = (event as CustomEvent<{ scopeId?: unknown }>).detail;
+  if (!detail || detail.scopeId === undefined) return true;
+  return typeof detail.scopeId === "string" && detail.scopeId === toggleScopeId;
+}
+
 function postPerAppChatSidebarStateToEmbeddedFrames(open: boolean): void {
   const message = buildAppChatSidebarStateMessage(open);
   for (const frame of document.querySelectorAll("iframe")) {
@@ -3113,6 +3122,8 @@ export interface AgentSidebarProps {
   onFullscreenRequest?: () => void;
   /** Ambient resource context rendered as a composer chip. */
   scope?: import("./use-chat-threads.js").ChatThreadScope | null;
+  /** Identity used to route host-scoped sidebar toggle events. */
+  toggleScopeId?: string;
   /** Keep app-owned chat history isolated to the supplied scope. */
   isolateHistoryByScope?: boolean;
   /** @deprecated Scope context now appears inside the composer. */
@@ -3177,6 +3188,7 @@ export function AgentSidebar({
   openOnChatRunning = false,
   onFullscreenRequest,
   scope,
+  toggleScopeId,
   isolateHistoryByScope = false,
   showScopeBadge,
   browserTabId,
@@ -3544,7 +3556,8 @@ export function AgentSidebar({
   }, [setOpenPersisted]);
 
   useEffect(() => {
-    const toggleHandler = () => {
+    const toggleHandler = (event: Event) => {
+      if (!shouldHandleAgentSidebarToggle(event, toggleScopeId)) return;
       if (isPerAppChatHosted) {
         requestPerAppChatCommand("toggle");
         return;
@@ -3595,7 +3608,7 @@ export function AgentSidebar({
       window.removeEventListener("agent-panel:open", openHandler);
       window.removeEventListener("agent-panel:close", closeHandler);
     };
-  }, [setOpenPersisted, frameCodeMode, isPerAppChatHosted]);
+  }, [setOpenPersisted, frameCodeMode, isPerAppChatHosted, toggleScopeId]);
 
   // Listen for sidebar mode commands from the frame parent.
   // When frame is in "code" mode, hide the app sidebar.

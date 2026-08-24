@@ -3,10 +3,13 @@ import type { AgentChatTranslation } from "../core-messages.js";
 const messages: AgentChatTranslation = {
   "approval.alwaysAllow": "Permitir siempre",
   "approval.alwaysAllowHint": "Aprobar y permitir siempre este comando exacto",
+  "approval.alwaysAllowAction": "Permitir siempre esta acción",
+  "approval.alwaysAllowActionHint": "Aprobar y permitir siempre esta acción",
   "approval.approve": "Aprobar",
   "approval.approved": "Aprobado. Ejecutando {{tool}} de nuevo...",
   "approval.denied": "Denegado. {{tool}} no se ejecutó.",
   "approval.deny": "Denegar",
+  "approval.moreOptions": "Más opciones de aprobación",
   "approval.question": "¿Aprobar la ejecución de {{tool}}?",
   "auth.expiredDescription":
     "Es posible que tu sesión haya caducado. Cierra sesión y vuelve a iniciarla para reconectarte.",

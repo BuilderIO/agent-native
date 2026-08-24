@@ -1563,8 +1563,8 @@ describe("tool approval continuation", () => {
     const source = readFileSync("src/client/AssistantChat.tsx", {
       encoding: "utf8",
     });
-    const start = source.indexOf("onApprove: (approvalKey: string) => {");
-    const end = source.indexOf("...(approvalActions?.onDeny", start);
+    const start = source.indexOf("const approveToolCall = useCallback");
+    const end = source.indexOf("const approvalCtx = useMemo", start);
     const approvalSource = source.slice(start, end);
 
     expect(start).toBeGreaterThan(-1);
