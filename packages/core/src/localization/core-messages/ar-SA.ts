@@ -3,10 +3,13 @@ import type { AgentChatTranslation } from "../core-messages.js";
 const messages: AgentChatTranslation = {
   "approval.alwaysAllow": "السماح دائمًا",
   "approval.alwaysAllowHint": "الموافقة على هذا الأمر المحدد والسماح به دائمًا",
+  "approval.alwaysAllowAction": "السماح بهذا الإجراء دائمًا",
+  "approval.alwaysAllowActionHint": "الموافقة والسماح بهذا الإجراء دائمًا",
   "approval.approve": "موافقة",
   "approval.approved": "تمت الموافقة. جارٍ إعادة تشغيل {{tool}}...",
   "approval.denied": "تم الرفض. لم يتم تشغيل {{tool}}.",
   "approval.deny": "رفض",
+  "approval.moreOptions": "المزيد من خيارات الموافقة",
   "approval.question": "هل توافق على تشغيل {{tool}}؟",
   "auth.expiredDescription":
     "ربما انتهت صلاحية جلستك. سجّل الخروج ثم ادخل مجددًا لإعادة الاتصال.",

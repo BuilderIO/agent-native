@@ -2324,7 +2324,7 @@ describe("ApprovalAffordance", () => {
     expect(approvalCopy.className).toContain("flex-1");
     expect(actionButtons.map((button) => button.textContent)).toEqual([
       "Approve",
-      "Always allow",
+      "",
       "Deny",
     ]);
     for (const button of actionButtons) {
@@ -2501,7 +2501,7 @@ describe("ApprovalAffordance", () => {
     expect(container.textContent).toContain("Denied. bash did not run.");
   });
 
-  it("renders Always allow only when onAlwaysAllow is provided, and it approves on click", () => {
+  it("renders Always allow only when onAlwaysAllow is provided, and it approves on click", async () => {
     const onApprove = vi.fn();
     const onAlwaysAllow = vi.fn();
     act(() => {
@@ -2521,16 +2521,33 @@ describe("ApprovalAffordance", () => {
       Array.from(container.querySelectorAll("button")).map(
         (button) => button.textContent,
       ),
-    ).toEqual(["bash", "Approve", "Always allow", "Deny"]);
+    ).toEqual(["bash", "Approve", "", "Deny"]);
 
-    const alwaysAllowButton = Array.from(
-      container.querySelectorAll("button"),
-    ).find(
-      (button) => button.textContent === "Always allow",
+    const menuButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.getAttribute("aria-label") === "More approval options",
     ) as HTMLButtonElement;
-    act(() => alwaysAllowButton.click());
+    act(() => {
+      menuButton.dispatchEvent(
+        new MouseEvent("pointerdown", {
+          bubbles: true,
+          button: 0,
+          cancelable: true,
+        }),
+      );
+      menuButton.click();
+    });
 
-    expect(onAlwaysAllow).toHaveBeenCalledWith("approval-1");
+    const alwaysAllowItem = Array.from(
+      document.body.querySelectorAll('[role="menuitem"]'),
+    ).find((item) => item.textContent?.includes("Always allow this action")) as
+      | HTMLElement
+      | undefined;
+    expect(alwaysAllowItem).toBeDefined();
+    await act(async () => {
+      alwaysAllowItem?.click();
+    });
+
+    expect(onAlwaysAllow).toHaveBeenCalledWith("approval-1", "bash");
     expect(onApprove).not.toHaveBeenCalled();
     expect(container.textContent).toContain("Approved. Re-running bash...");
   });

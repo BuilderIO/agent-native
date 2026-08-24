@@ -1,10 +1,13 @@
 const messages = {
   "approval.alwaysAllow": "Always allow",
   "approval.alwaysAllowHint": "Approve and always allow this exact command",
+  "approval.alwaysAllowAction": "Always allow this action",
+  "approval.alwaysAllowActionHint": "Approve and always allow this action",
   "approval.approve": "Approve",
   "approval.approved": "Approved. Re-running {{tool}}...",
   "approval.denied": "Denied. {{tool}} did not run.",
   "approval.deny": "Deny",
+  "approval.moreOptions": "More approval options",
   "approval.question": "Approve to run {{tool}}?",
   "auth.expiredDescription":
     "Your session may have expired. Log out and log back in to reconnect.",

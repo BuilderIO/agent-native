@@ -5,6 +5,8 @@ import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 import {
   AGENT_TOOL_APPROVAL_INDEX_SQL,
   AGENT_TOOL_APPROVAL_LOGICAL_INDEX_SQL,
+  AGENT_TOOL_APPROVAL_POLICY_INDEX_SQL,
+  AGENT_TOOL_APPROVAL_POLICY_TABLE_SQL,
   AGENT_TOOL_APPROVAL_RECOVERY_INDEX_SQL,
   AGENT_TOOL_APPROVAL_TABLE_SQL,
 } from "./tool-approval-migrations.js";
@@ -19,6 +21,7 @@ const APPROVAL_TTL_MS = 60 * 60_000;
 const APPROVAL_CLEANUP_AGE_MS = 24 * 60 * 60_000;
 
 let initPromise: Promise<void> | undefined;
+let policyInitPromise: Promise<void> | undefined;
 
 export async function ensureAgentToolApprovalTable(): Promise<void> {
   if (!initPromise) {
@@ -58,6 +61,34 @@ export async function ensureAgentToolApprovalTable(): Promise<void> {
   return initPromise;
 }
 
+export async function ensureAgentToolApprovalPolicyTable(): Promise<void> {
+  if (!policyInitPromise) {
+    policyInitPromise = (async () => {
+      const createSql =
+        AGENT_TOOL_APPROVAL_POLICY_TABLE_SQL[
+          isPostgres() ? "postgres" : "sqlite"
+        ];
+      if (isPostgres()) {
+        await ensureTableExists("agent_tool_approval_policies", createSql);
+        await ensureIndexExists(
+          "idx_agent_tool_approval_policies_scope",
+          AGENT_TOOL_APPROVAL_POLICY_INDEX_SQL,
+        );
+        return;
+      }
+      const client = getDbExec();
+      await retryOnDdlRace(() => client.execute(createSql));
+      await retryOnDdlRace(() =>
+        client.execute(AGENT_TOOL_APPROVAL_POLICY_INDEX_SQL),
+      );
+    })().catch((error) => {
+      policyInitPromise = undefined;
+      throw error;
+    });
+  }
+  return policyInitPromise;
+}
+
 export interface AgentToolApprovalBinding {
   ownerEmail: string;
   orgId?: string | null;
@@ -71,6 +102,78 @@ export interface AgentToolApprovalBinding {
 
 export function hashAgentToolApprovalKey(approvalKey: string): string {
   return createHash("sha256").update(approvalKey).digest("hex");
+}
+
+export interface AgentToolApprovalPolicyBinding {
+  ownerEmail: string;
+  orgId?: string | null;
+  toolName: string;
+}
+
+function normalizeApprovalPolicyBinding(
+  binding: AgentToolApprovalPolicyBinding,
+): AgentToolApprovalPolicyBinding {
+  const ownerEmail = binding.ownerEmail.trim().toLowerCase();
+  const toolName = binding.toolName.trim();
+  if (!ownerEmail) throw new Error("Approval policy owner is required.");
+  if (!toolName) throw new Error("Approval policy tool name is required.");
+  return {
+    ownerEmail,
+    orgId: binding.orgId?.trim() || null,
+    toolName,
+  };
+}
+
+function approvalPolicyId(binding: AgentToolApprovalPolicyBinding): string {
+  return `agent-tool-approval-policy-${createHash("sha256")
+    .update(
+      `${binding.ownerEmail}\u0000${binding.orgId ?? ""}\u0000${binding.toolName}`,
+    )
+    .digest("hex")}`;
+}
+
+export async function setAgentToolApprovalPolicy(input: {
+  binding: AgentToolApprovalPolicyBinding;
+  enabled: boolean;
+}): Promise<void> {
+  const binding = normalizeApprovalPolicyBinding(input.binding);
+  await ensureAgentToolApprovalPolicyTable();
+  const now = Date.now();
+  const id = approvalPolicyId(binding);
+  await getDbExec().execute({
+    sql: `INSERT INTO agent_tool_approval_policies
+      (id, owner_email, org_id, tool_name, enabled, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        enabled = excluded.enabled,
+        updated_at = excluded.updated_at`,
+    args: [
+      id,
+      binding.ownerEmail,
+      binding.orgId,
+      binding.toolName,
+      input.enabled,
+      now,
+      now,
+    ],
+  });
+}
+
+export async function isAgentToolAlwaysAllowed(
+  input: AgentToolApprovalPolicyBinding,
+): Promise<boolean> {
+  const binding = normalizeApprovalPolicyBinding(input);
+  await ensureAgentToolApprovalPolicyTable();
+  const result = await getDbExec().execute({
+    sql: `SELECT 1 FROM agent_tool_approval_policies
+      WHERE owner_email = ?
+        AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = ?)
+        AND tool_name = ?
+        AND enabled = TRUE
+      LIMIT 1`,
+    args: [binding.ownerEmail, binding.orgId, binding.orgId, binding.toolName],
+  });
+  return (result.rows ?? []).length > 0;
 }
 
 /**

@@ -199,6 +199,7 @@ import { buildCurrentTimeUserContext } from "./runtime-context.js";
 import {
   consumeAgentToolApproval,
   createAgentToolApproval,
+  isAgentToolAlwaysAllowed,
   resolveAgentToolApprovalTurnId,
 } from "./tool-approval-store.js";
 import type { AgentToolApprovalBinding } from "./tool-approval-store.js";
@@ -3291,6 +3292,7 @@ export interface ExecuteAgentToolCallOptions {
     binding: AgentApprovalBinding,
   ) => Promise<string | void>;
   consumeApproval?: (binding: AgentApprovalBinding) => Promise<boolean>;
+  isToolAlwaysAllowed?: (binding: AgentApprovalBinding) => Promise<boolean>;
   send?: (event: AgentChatEvent) => void;
 }
 
@@ -3403,6 +3405,7 @@ export async function executeAgentToolCall(
       approvedToolCalls: options.approvedToolCalls,
       onApprovalRequired: options.onApprovalRequired,
       consumeApproval: options.consumeApproval,
+      isToolAlwaysAllowed: options.isToolAlwaysAllowed,
     });
   } catch (error) {
     return {
@@ -4635,6 +4638,8 @@ export async function runAgentLoop(opts: {
     binding: AgentApprovalBinding,
   ) => Promise<string | void>;
   consumeApproval?: (binding: AgentApprovalBinding) => Promise<boolean>;
+  /** User-scoped action-type policy, checked only after needsApproval. */
+  isToolAlwaysAllowed?: (binding: AgentApprovalBinding) => Promise<boolean>;
   /**
    * In-loop processor seam (see `processors.ts`). Each processor can observe
    * streamed chunks, observe model responses around tool execution, and
@@ -5958,6 +5963,15 @@ export async function runAgentLoop(opts: {
           // Fail closed: a throwing predicate means we require approval rather
           // than silently running a high-consequence action.
           mustApprove = true;
+        }
+        if (mustApprove && opts.isToolAlwaysAllowed) {
+          try {
+            mustApprove = !(await opts.isToolAlwaysAllowed(approvalBinding));
+          } catch {
+            // Fail closed: an unreadable policy must leave the approval gate in
+            // place instead of turning a storage outage into authorization.
+            mustApprove = true;
+          }
         }
         if (mustApprove) {
           // `askId` identifies THIS gate hit, distinct from any earlier ask
@@ -9562,6 +9576,14 @@ export function createProductionAgentHandler(
         if (!ownerEmail) return false;
         return consumeAgentToolApproval(approvalStoreBinding(binding));
       },
+      isToolAlwaysAllowed: async (binding: AgentApprovalBinding) => {
+        if (!ownerEmail) return false;
+        return isAgentToolAlwaysAllowed({
+          ownerEmail,
+          orgId: getRequestOrgId() ?? null,
+          toolName: binding.toolName,
+        });
+      },
     };
     const approvedToolCallsForExecution = requestedApprovedToolCalls;
     if (
@@ -10565,6 +10587,7 @@ export function createProductionAgentHandler(
             : {}),
           onApprovalRequired: approvalHooks.onApprovalRequired,
           consumeApproval: approvalHooks.consumeApproval,
+          isToolAlwaysAllowed: approvalHooks.isToolAlwaysAllowed,
           // A worker PROVEN to be running inside the real 15-min Netlify
           // `-background` function (`runsInBackgroundFunction`) has minutes of
           // budget left on THIS invocation. Let it catch a recoverable
@@ -10614,6 +10637,7 @@ export function createProductionAgentHandler(
               approvedToolCalls: approvedToolCallsForExecution,
               onApprovalRequired: approvalHooks.onApprovalRequired,
               consumeApproval: approvalHooks.consumeApproval,
+              isToolAlwaysAllowed: approvalHooks.isToolAlwaysAllowed,
               send,
             });
             return;

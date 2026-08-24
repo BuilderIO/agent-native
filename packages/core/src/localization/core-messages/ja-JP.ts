@@ -4,10 +4,13 @@ const messages: AgentChatTranslation = {
   "approval.alwaysAllow": "常に許可",
   "approval.alwaysAllowHint":
     "この完全に同じコマンドを承認し、今後も常に許可します",
+  "approval.alwaysAllowAction": "このアクションを常に許可",
+  "approval.alwaysAllowActionHint": "承認してこのアクションを常に許可します",
   "approval.approve": "承認",
   "approval.approved": "承認しました。{{tool}} を再実行しています...",
   "approval.denied": "拒否しました。{{tool}} は実行されませんでした。",
   "approval.deny": "拒否",
+  "approval.moreOptions": "その他の承認オプション",
   "approval.question": "{{tool}} の実行を承認しますか？",
   "auth.expiredDescription":
     "セッションの有効期限が切れた可能性があります。再接続するには、ログアウトしてからもう一度ログインしてください。",
