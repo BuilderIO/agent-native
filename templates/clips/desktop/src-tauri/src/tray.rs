@@ -63,6 +63,19 @@ fn stop_square_icon(w: u32, h: u32) -> tauri::image::Image<'static> {
 /// this state — plus the window-destroyed backstop in lib.rs.
 static TRAY_RECORDING: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
+/// Millis timestamp of the last recording-mode write. The pill refreshes the
+/// title every 500ms while live, so 2.5s of silence means the writer is gone
+/// and the dead-man loop below clears the status item — a stale menu-bar
+/// timer is structurally impossible, not just handled per code path.
+static TRAY_LAST_WRITE_MS: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
 
 pub fn tray_recording_active() -> bool {
     TRAY_RECORDING.load(std::sync::atomic::Ordering::SeqCst)
@@ -70,6 +83,7 @@ pub fn tray_recording_active() -> bool {
 
 fn apply_tray_mode(app: &tauri::AppHandle, active: bool, title: Option<String>) {
     TRAY_RECORDING.store(active, std::sync::atomic::Ordering::SeqCst);
+    TRAY_LAST_WRITE_MS.store(now_ms(), std::sync::atomic::Ordering::SeqCst);
     let Some(tray) = app.tray_by_id("main") else {
         return;
     };
@@ -424,6 +438,21 @@ pub fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     // resource table. `set_menu` is atomic — replacing the entire menu
     // is the documented Tauri 2 way to update a tray (there's no
     // partial-update API for items).
+    // Dead-man switch for recording mode: see TRAY_LAST_WRITE_MS.
+    let deadman_handle = app.handle().clone();
+    tauri::async_runtime::spawn(async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+            if tray_recording_active()
+                && now_ms().saturating_sub(
+                    TRAY_LAST_WRITE_MS.load(std::sync::atomic::Ordering::SeqCst),
+                ) > 2_500
+            {
+                apply_tray_mode(&deadman_handle, false, None);
+            }
+        }
+    });
+
     let app_handle = app.handle().clone();
     app.handle().listen("meetings:updated", move |event| {
         #[derive(serde::Deserialize)]

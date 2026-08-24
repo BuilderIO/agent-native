@@ -442,6 +442,23 @@ export function RecordingPill() {
   pausedRef.current = paused;
   const enabledRef = useRef(false);
   enabledRef.current = enabled;
+  const elapsedAnchorRef = useRef<{ elapsedMs: number; at: number } | null>(
+    null,
+  );
+
+  // The recorder reports state every 500ms; rendering only those ticks makes
+  // the clock feel like it starts late and counts in lurches. Interpolate
+  // from the last report at 250ms so the timer runs the moment capture is
+  // live and re-anchors on every real tick.
+  useEffect(() => {
+    if (!enabled || paused || mode === "done") return;
+    const t = setInterval(() => {
+      const anchor = elapsedAnchorRef.current;
+      if (!anchor) return;
+      setElapsed(anchor.elapsedMs + (performance.now() - anchor.at));
+    }, 250);
+    return () => clearInterval(t);
+  }, [enabled, paused, mode]);
 
   function enterConfirm(intent: "delete" | "restart") {
     if (modeRef.current !== "recording") return;
@@ -594,6 +611,9 @@ export function RecordingPill() {
       return;
     }
     setPendingAction("cancel");
+    // Vanish now — feedback must not wait on the recorder's teardown. The
+    // window close (or its 3s fallback) follows behind.
+    setEnabled(false);
     void safeEmit("clips:recorder-cancel").then(() =>
       scheduleCloseFallback("cancel"),
     );
@@ -642,6 +662,10 @@ export function RecordingPill() {
             (pending === "resume" && !nextPaused);
           if (!pending || reached) setPaused(nextPaused);
           if (reached) clearPauseTransition();
+          elapsedAnchorRef.current = {
+            elapsedMs: payload.elapsedMs ?? 0,
+            at: performance.now(),
+          };
           setElapsed(payload.elapsedMs ?? 0);
         },
       ),
@@ -655,6 +679,9 @@ export function RecordingPill() {
           fallbackTimerRef.current = null;
         }
         if (payload) {
+          if (!elapsedAnchorRef.current) {
+            elapsedAnchorRef.current = { elapsedMs: 0, at: performance.now() };
+          }
           // A live session owns the pill now: release any restart hold, and
           // if a completion card from the previous session is still up, this
           // reused window becomes the new session's pill.
@@ -669,6 +696,7 @@ export function RecordingPill() {
           }
         } else if (modeRef.current !== "done") {
           setElapsed(0);
+          elapsedAnchorRef.current = null;
           resetToRest();
         }
       }),
