@@ -1018,7 +1018,10 @@ export function RecordingPill() {
           </button>
           <span
             aria-live="off"
-            className="record-pill-mono ml-2.5 min-w-11 flex-none text-sm font-medium"
+            className="record-pill-mono ml-2.5 min-w-11 flex-none text-sm font-medium transition-colors duration-150"
+            style={{
+              color: showPaused ? "var(--pill-on-chrome)" : "var(--pill-rec)",
+            }}
           >
             {timerText}
           </span>
