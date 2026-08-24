@@ -44,6 +44,11 @@ export function TabItem({ active, onClick, children, forceState }: TabItemProps)
       aria-selected={isActive}
       onClick={onClick}
       onKeyDown={handleKeyDown}
+      className={
+        isActive
+          ? "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--b-text-primary)]"
+          : "hover:bg-[var(--b-action-tab-bg-hover)] hover:text-[var(--b-action-tab-text-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--b-text-primary)]"
+      }
       style={{
         fontFamily: "var(--b-font-mono)",
         fontSize: "var(--b-t-label-1)",
@@ -51,11 +56,12 @@ export function TabItem({ active, onClick, children, forceState }: TabItemProps)
         letterSpacing: "0.02em",
         padding: "8px 14px",
         border: "none",
-        borderBottom: `2px solid ${isActive ? "var(--b-action-tab-indicator)" : "transparent"}`,
+        outline: "none",
+        boxShadow: isActive ? "inset 0 -2px 0 0 var(--b-action-tab-indicator)" : "none",
         background: isActive ? "var(--b-action-tab-bg-active)" : isHovered ? "var(--b-action-tab-bg-hover)" : "var(--b-action-tab-bg)",
         color: isActive ? "var(--b-action-tab-text-active)" : isHovered ? "var(--b-action-tab-text-hover)" : "var(--b-action-tab-text)",
         cursor: "pointer",
-        transition: "background 0.15s, color 0.15s, border-color 0.15s",
+        transition: "background 0.15s, color 0.15s",
       }}
     >
       {children}

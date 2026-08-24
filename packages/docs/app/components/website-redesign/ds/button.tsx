@@ -69,6 +69,21 @@ function variantStyle(variant: ButtonVariant, forceState?: CommonProps["forceSta
   }
 }
 
+function hoverClass(variant: ButtonVariant) {
+  switch (variant) {
+    case "cta":
+    case "primary":
+    case "primary-icon":
+      return "hover:bg-[var(--b-action-primary-hover)] hover:border-[var(--b-action-primary-hover)] hover:shadow-[0_0_16px_var(--b-action-primary-effect)]";
+    case "secondary":
+    case "secondary-icon":
+      return "hover:bg-[var(--b-action-secondary-hover)]";
+    case "primary-alt":
+    default:
+      return "";
+  }
+}
+
 export function Button({ variant = "primary", icon, children, forceState, ...rest }: ButtonProps) {
   const showsIconByDefault = variant === "cta" || variant.endsWith("-icon");
   const IconComponent = icon === null ? null : icon ?? (showsIconByDefault ? IconArrowUpRight : null);
@@ -82,13 +97,18 @@ export function Button({ variant = "primary", icon, children, forceState, ...res
     </>
   );
 
-  const focusVisibleClass =
-    "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--b-text-primary)]";
+  const interactiveClass = [
+    "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--b-text-primary)]",
+    "disabled:opacity-40 disabled:cursor-not-allowed",
+    hoverClass(variant),
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   if ("href" in rest && rest.href !== undefined) {
     const { href, ...anchorRest } = rest as ButtonAsAnchor;
     return (
-      <a href={href} style={style} className={focusVisibleClass} {...anchorRest}>
+      <a href={href} style={style} className={interactiveClass} {...anchorRest}>
         {content}
       </a>
     );
@@ -96,7 +116,7 @@ export function Button({ variant = "primary", icon, children, forceState, ...res
 
   const buttonRest = rest as Omit<ButtonAsButton, keyof CommonProps>;
   return (
-    <button type="button" style={style} className={focusVisibleClass} {...buttonRest}>
+    <button type="button" style={style} className={interactiveClass} {...buttonRest}>
       {content}
     </button>
   );

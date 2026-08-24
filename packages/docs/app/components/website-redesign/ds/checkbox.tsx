@@ -21,6 +21,7 @@ export function Checkbox({ label, id, ...rest }: CheckboxProps) {
       <input
         type="checkbox"
         id={id}
+        className="transition-colors duration-150 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-[var(--b-text-primary)]"
         style={{
           width: 16,
           height: 16,

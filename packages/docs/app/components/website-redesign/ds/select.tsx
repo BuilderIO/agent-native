@@ -97,6 +97,7 @@ export function Select<T extends string>({ options, value, onChange, placeholder
           setOpen((o) => !o);
           setFocusedIndex(options.findIndex((o) => o.value === value));
         }}
+        className="transition-[border-color,background] duration-150 hover:bg-[var(--c-neutral-800)]"
         style={{
           display: "inline-flex",
           alignItems: "center",
@@ -114,7 +115,11 @@ export function Select<T extends string>({ options, value, onChange, placeholder
         }}
       >
         {selected?.label ?? placeholder ?? "Select..."}
-        <IconChevronDown size={16} />
+        <IconChevronDown
+          size={16}
+          className="transition-transform duration-150"
+          style={{ transform: open ? "rotate(180deg)" : "rotate(0deg)" }}
+        />
       </button>
       {open && (
         <ul
@@ -149,6 +154,7 @@ export function Select<T extends string>({ options, value, onChange, placeholder
                 setOpen(false);
                 triggerRef.current?.focus();
               }}
+              className="transition-[background,color] duration-100 hover:bg-white/8"
               style={{
                 padding: "8px 10px",
                 borderRadius: "var(--b-radius-sm)",

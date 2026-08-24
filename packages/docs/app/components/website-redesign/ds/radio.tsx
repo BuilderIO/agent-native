@@ -21,6 +21,7 @@ export function Radio({ label, id, ...rest }: RadioProps) {
       <input
         type="radio"
         id={id}
+        className="transition-colors duration-150 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-[var(--b-text-primary)]"
         style={{ width: 16, height: 16, accentColor: "var(--b-action-primary-bg)" }}
         {...rest}
       />
