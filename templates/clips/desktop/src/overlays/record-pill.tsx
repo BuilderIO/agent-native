@@ -319,6 +319,19 @@ export function RecordingPill() {
     );
     for (const [k, open, delay] of changes) setSeg(k, open, delay);
     shrinkTimerRef.current = setTimeout(() => {
+      // Force-complete before measuring. Normally the transitions finished
+      // 40ms ago and this is a no-op; in a non-key window whose animation
+      // clock is throttled or frozen, a width transition can hang at its
+      // from-value forever — the end state must never depend on the clock.
+      for (const k of Object.keys(openSegsRef.current) as Seg[]) {
+        const el = segRefs.current[k];
+        if (!el) continue;
+        el.style.transition = "none";
+        el.style.width = openSegsRef.current[k]
+          ? `${segInnerWidth(k)}px`
+          : "0px";
+        el.style.opacity = openSegsRef.current[k] ? "1" : "0";
+      }
       syncWindowToContent();
     }, settleMs);
   }
