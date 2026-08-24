@@ -66,14 +66,26 @@ export function createFirstEventAbortController(
   let firstEventSeen = false;
 
   const abortFromParent = () => {
+    // Drop the outstanding deadline too. A parent abort ends this request, and
+    // the provider can take a moment to settle afterwards — a timer still
+    // armed through that window fires into an already-cancelled request and
+    // relabels a user Stop or a run-budget abort as a retryable provider
+    // failure. That window used to be small because the first frame cleared
+    // the timer outright; now that a deadline runs for the whole stream, it is
+    // the whole stream.
+    clearTimeout(timeout);
     if (!controller.signal.aborted) controller.abort(parentSignal.reason);
   };
 
   const fireTimeout = (message: string) => {
+    // Record a timeout ONLY when this controller wins the abort race. Setting
+    // the message first and checking `aborted` after made a deadline that
+    // merely fired into an already-aborted controller indistinguishable from
+    // one that caused the abort — and `didTimeout()` is what the engines read
+    // to decide a failure was the transport's fault and worth retrying.
+    if (controller.signal.aborted) return;
     timeoutMessage = message;
-    if (!controller.signal.aborted) {
-      controller.abort(new Error(message));
-    }
+    controller.abort(new Error(message));
   };
 
   let timeout = setTimeout(() => {
@@ -88,7 +100,11 @@ export function createFirstEventAbortController(
   return {
     signal: controller.signal,
     markFirstEvent: () => {
-      if (firstEventSeen || timeoutMessage) return;
+      // `aborted` subsumes the timeout check — `fireTimeout` only records a
+      // message when it aborts — and also covers the parent-abort case, so a
+      // frame processed after a Stop cannot re-arm a deadline on a dead
+      // request.
+      if (firstEventSeen || controller.signal.aborted) return;
       firstEventSeen = true;
       clearTimeout(timeout);
       timeout = setTimeout(

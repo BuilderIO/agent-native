@@ -72,6 +72,55 @@ describe("createFirstEventAbortController", () => {
     abort.cleanup();
   });
 
+  // A cancelled request is not a failed one. The engines read `didTimeout()` to
+  // decide a failure was the transport's fault and retryable, so a deadline
+  // left armed across a Stop would turn a user cancellation or a run-budget
+  // abort into a resumable provider error. The provider does not necessarily
+  // settle the moment the signal fires, and `cleanup()` only runs once it does.
+  it("does not classify a cancelled request as a timeout while the provider settles", () => {
+    const parent = new AbortController();
+    const abort = createFirstEventAbortController(parent.signal);
+
+    vi.advanceTimersByTime(5_000);
+    abort.markFirstEvent();
+    vi.advanceTimersByTime(5_000);
+    parent.abort("user");
+
+    // The provider takes its time unwinding, so `cleanup()` has not run yet.
+    vi.advanceTimersByTime(STREAM_TOTAL_TIMEOUT_MS * 2);
+
+    expect(abort.didTimeout()).toBe(false);
+    expect(abort.timeoutMessage()).toBeUndefined();
+    abort.cleanup();
+  });
+
+  it("does not classify a pre-first-event cancellation as a timeout", () => {
+    const parent = new AbortController();
+    const abort = createFirstEventAbortController(parent.signal);
+
+    parent.abort("run_timeout");
+    vi.advanceTimersByTime(FIRST_STREAM_EVENT_TIMEOUT_MS * 2);
+
+    expect(abort.didTimeout()).toBe(false);
+    expect(abort.timeoutMessage()).toBeUndefined();
+    abort.cleanup();
+  });
+
+  // A frame already in flight when the Stop lands must not re-arm a deadline
+  // on a request that is over.
+  it("does not re-arm a deadline for a frame that lands after cancellation", () => {
+    const parent = new AbortController();
+    const abort = createFirstEventAbortController(parent.signal);
+
+    parent.abort("user");
+    abort.markFirstEvent();
+    vi.advanceTimersByTime(STREAM_TOTAL_TIMEOUT_MS * 2);
+
+    expect(abort.didTimeout()).toBe(false);
+    expect(abort.timeoutMessage()).toBeUndefined();
+    abort.cleanup();
+  });
+
   it("stops both deadlines on cleanup", () => {
     const parent = new AbortController();
     const abort = createFirstEventAbortController(parent.signal);
