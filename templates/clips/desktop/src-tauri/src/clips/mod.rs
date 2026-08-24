@@ -997,12 +997,25 @@ pub async fn toolbar_save_position(app: AppHandle, x: i32, y: i32) -> Result<(),
     Ok(())
 }
 
+/// Whether the pill is holding its window through a stop flow. The tray's
+/// timer listener consults this so a straggling recorder-state tick can't
+/// repaint the menu-bar timer after the user already stopped.
+pub fn toolbar_finishing_active() -> bool {
+    TOOLBAR_FINISHING.load(Ordering::SeqCst)
+}
+
 /// Hold or release the stop-flow toolbar preservation described on
 /// `TOOLBAR_FINISHING`. The pill sets the hold synchronously before emitting
-/// `clips:recorder-stop` so the recorder's teardown cannot race it.
+/// `clips:recorder-stop` so the recorder's teardown cannot race it — which
+/// also makes it the earliest reliable "the user stopped" moment, so the
+/// menu bar returns to the app logo here instead of waiting for the
+/// recorder's own state teardown.
 #[tauri::command]
-pub async fn set_toolbar_finishing(hold: bool) -> Result<(), String> {
+pub async fn set_toolbar_finishing(app: AppHandle, hold: bool) -> Result<(), String> {
     TOOLBAR_FINISHING.store(hold, Ordering::SeqCst);
+    if hold {
+        crate::tray::set_tray_recording_mode(&app, false);
+    }
     Ok(())
 }
 

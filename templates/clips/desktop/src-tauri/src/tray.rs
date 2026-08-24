@@ -406,7 +406,8 @@ pub fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     // true but nothing is rolling yet.
     let mode_handle = app.handle().clone();
     app.handle().listen("clips:toolbar-enabled", move |event| {
-        let live = event.payload().trim() == "true";
+        let live = event.payload().trim() == "true"
+            && !crate::clips::toolbar_finishing_active();
         set_tray_recording_mode(&mode_handle, live && is_recording_active(&mode_handle));
     });
 
@@ -417,7 +418,9 @@ pub fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     {
         let timer_handle = app.handle().clone();
         app.handle().listen("clips:recorder-state", move |event| {
-            if !is_recording_active(&timer_handle) {
+            if !is_recording_active(&timer_handle)
+                || crate::clips::toolbar_finishing_active()
+            {
                 return;
             }
             #[derive(serde::Deserialize)]
