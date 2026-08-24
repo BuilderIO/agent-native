@@ -2384,6 +2384,15 @@ async function runRecordingCountdown(
   await showRegionGuidesForRecording(wantsScreen);
   let countdownGeneration: number;
   try {
+    {
+      const t0 = (window as unknown as { __perfRestartT0?: number })
+        .__perfRestartT0;
+      if (t0) {
+        console.log(
+          `[perf] restart: show_countdown invoked +${Math.round(performance.now() - t0)}ms`,
+        );
+      }
+    }
     countdownGeneration = await invoke<number>("show_countdown");
   } catch (err) {
     console.error("[clips-recorder] show_countdown failed:", err);
@@ -2685,8 +2694,9 @@ async function tryStartRewindFullscreenRecording(
     // Runs after `rewind_clip_prepare`, so the Rewind producer already carries
     // mic (+system) and whisper attaches to it instead of opening its own
     // ScreenCaptureKit stream — which would mute the clip's own audio legs.
-    // This runs inside the countdown's Promise.all: a transcription failure
-    // must never reject there, or it would abort the recording itself.
+    // This runs at the end of prepare(), under the live countdown: a
+    // transcription failure must never reject here, or it would cancel the
+    // countdown and abort the recording itself.
     const capture = await startTranscriptionCapture(
       { deviceId: params.micId, label: params.micLabel },
       includeSystemAudio,
@@ -2707,9 +2717,6 @@ async function tryStartRewindFullscreenRecording(
       void saveTranscriptFailure(TRANSCRIPTION_START_FAILURE);
     }
   };
-  await guardRecordingStart(invoke("show_preparing"), {
-    signal: params.signal,
-  });
   const recordingPromise = localOnly
     ? Promise.resolve<{ id: string; uploadMode: UploadMode }>({
         id: folderName,
@@ -2757,18 +2764,22 @@ async function tryStartRewindFullscreenRecording(
           }),
           { signal: params.signal },
         );
+        // Whisper stays after `rewind_clip_prepare` (it attaches to the
+        // producer that call registers) and inside prepare so it has settled
+        // before activation, while the countdown runs over all of it.
+        await startRewindTranscription();
         return preparedRecording;
       },
       async countdown() {
-        console.log("[rewind-latency] countdown shown after preparation");
-        await boundedCleanup(invoke("hide_preparing"));
-        // Overlap whisper startup with the countdown so the capture boundary
-        // never waits on it, but have both settled before activation.
-        await Promise.all([
-          runRecordingCountdown(true, params.signal),
-          startRewindTranscription(),
-        ]);
+        console.log("[rewind-latency] countdown shown; preparation overlapped");
+        await runRecordingCountdown(true, params.signal);
         console.log("[rewind-latency] countdown completed");
+      },
+      cancelCountdown() {
+        // Prepare failed under a live countdown: route through the same
+        // cancel event Escape uses so runRecordingCountdown tears the
+        // countdown chrome down before the failure surfaces.
+        void emit("clips:countdown-cancel", { cause: "prepare-failed" });
       },
       async activate(preparedRecording) {
         const activationStarted = performance.now();
@@ -2805,7 +2816,6 @@ async function tryStartRewindFullscreenRecording(
       });
     }
   } catch (err) {
-    await boundedCleanup(invoke("hide_preparing"));
     transcriptionAborted = true;
     // Cast: `transcriptionCapture` is only assigned inside the
     // `startRewindTranscription` closure, which TS's control-flow analysis
