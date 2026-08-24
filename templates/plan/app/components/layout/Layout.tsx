@@ -4,6 +4,7 @@ import {
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
 } from "@agent-native/core/client/agent-chat";
+import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
 import { IconMenu2 } from "@tabler/icons-react";
@@ -87,7 +88,8 @@ export function Layout({ children }: LayoutProps) {
 
   const ownsToolbar = routeOwnsToolbar(location.pathname);
   const planDetailRoute = isPlanDetailRoute(location.pathname);
-  const chatRoute = location.pathname === "/";
+  const chatRoute = location.pathname === "/chat";
+  const { session, isLoading: sessionLoading } = useSession();
   const chatHomeHandoffActive = useAgentChatHomeHandoff({
     storageKey: "plans",
     activePath: location.pathname,
@@ -96,10 +98,12 @@ export function Layout({ children }: LayoutProps) {
   const chatHomeHandoffPending = isAgentChatHomeHandoffActive("plans");
   useAgentChatHomeHandoffLinks({
     storageKey: "plans",
-    chatPath: "/",
+    chatPath: "/chat",
     requireActiveHandoff: true,
   });
   const hideAppNavigation = planDetailRoute && planReaderImmersive;
+  const hideAppHeader =
+    location.pathname === "/plans" && !sessionLoading && !session;
   const effectiveSidebarCollapsed = chatRoute
     ? chatSidebarCollapsed
     : sidebarCollapsed;
@@ -168,7 +172,7 @@ export function Layout({ children }: LayoutProps) {
             </button>
           </div>
         )
-      ) : (
+      ) : hideAppHeader ? null : (
         <Header onOpenMobileSidebar={() => setMobileSidebarOpen(true)} />
       )}
       <main className="agent-native-app-main flex-1 overflow-y-auto">

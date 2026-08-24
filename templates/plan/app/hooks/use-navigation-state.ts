@@ -131,7 +131,7 @@ function viewForPath(pathname: string): string {
   ) {
     return "plan";
   }
-  if (pathname === "/") {
+  if (pathname === "/chat") {
     return "chat";
   }
   if (
@@ -187,7 +187,7 @@ function localPathFromCommandPath(value: unknown): string | null {
 function pathForView(view?: string): string {
   switch (view) {
     case "chat":
-      return "/";
+      return "/chat";
     case "plan":
     case "plans":
       return "/plans";
@@ -198,7 +198,7 @@ function pathForView(view?: string): string {
     case "team":
       return "/settings/organization";
     default:
-      return "/";
+      return "/chat";
   }
 }
 

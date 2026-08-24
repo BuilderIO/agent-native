@@ -72,7 +72,7 @@ function buildBrandingCustomizationMessage(request: string) {
 }
 
 const navItems = [
-  { icon: IconMessageCircle, labelKey: "navigation.ask", href: "/" },
+  { icon: IconMessageCircle, labelKey: "navigation.ask", href: "/chat" },
   { icon: IconClipboardCheck, labelKey: "navigation.plan", href: "/plans" },
 ];
 
@@ -216,7 +216,7 @@ function PlanChatsSection({
 
   function openThread(threadId: string, options?: { isNew?: boolean }) {
     switchThread(threadId);
-    navigateWithAgentChatViewTransition(navigate, "/");
+    navigateWithAgentChatViewTransition(navigate, "/chat");
     window.requestAnimationFrame(() => {
       window.dispatchEvent(
         new CustomEvent("agent-chat:open-thread", {
@@ -652,8 +652,8 @@ export function Sidebar({
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive =
-            item.href === "/"
-              ? location.pathname === "/"
+            item.href === "/chat"
+              ? location.pathname === "/chat"
               : item.href === "/plans"
                 ? location.pathname.startsWith("/plans") ||
                   location.pathname.startsWith("/recaps") ||
@@ -681,7 +681,7 @@ export function Sidebar({
           return (
             <div key={item.href}>
               {link}
-              {item.href === "/" ? (
+              {item.href === "/chat" ? (
                 <PlanChatsSection collapsed={collapsed} open={isActive} />
               ) : null}
               {item.href === "/plans" && isActive ? (

@@ -101,9 +101,10 @@ test.describe("guest mode + claim", () => {
     await page.waitForLoadState("domcontentloaded");
 
     await expect(page.getByText(/viewing as a guest/i)).toHaveCount(0);
-    await expect(
-      page.getByRole("button", { name: /^sign in$/i }).first(),
-    ).toBeVisible();
+    await expect(page.getByRole("heading", { name: /^plan$/i })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /^sign in$/i })).toHaveCount(
+      0,
+    );
 
     // Create must NOT be offered as a real create to a guest.
     await expect(
@@ -129,25 +130,13 @@ test.describe("guest mode + claim", () => {
     await expect(page.getByText(/no cli yet/i)).toHaveCount(0);
   });
 
-  test("guest clicking the header sign-in action is sent to sign-in", async ({
-    page,
-  }) => {
+  test("logged-out plans page omits the app header", async ({ page }) => {
     await clearAuth(page);
     await page.goto("/plans");
     await page.waitForLoadState("domcontentloaded");
 
-    const signInButton = page.getByRole("button", { name: /^sign in$/i });
-    await expect(signInButton).toBeVisible({ timeout: 15_000 });
-    await signInButton.click();
-
-    // Must land on the framework sign-in surface.
-    await page.waitForURL(/\/sign-in\?c=/i, { timeout: 15_000 });
-    expect(page.url()).toMatch(/sign-in/i);
-    expect(new URL(page.url()).searchParams.get("c")).toBeTruthy();
-    // The sign-in page offers account creation (the only way to author plans).
-    await expect(page.getByText(/create account/i).first()).toBeVisible({
-      timeout: 15_000,
-    });
+    await expect(page.locator("header")).toHaveCount(0);
+    await expect(page.getByText("Start with /visual-plan")).toBeVisible();
   });
 
   test("anonymous create-visual-plan is rejected with a clean message (no plan minted)", async ({

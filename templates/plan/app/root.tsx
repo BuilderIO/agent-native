@@ -166,7 +166,7 @@ function AppContent() {
         changelogKey="plan"
       >
         <CommandMenu.Group heading={t("root.commandActions")}>
-          <CommandMenu.Item onSelect={() => go("/")}>
+          <CommandMenu.Item onSelect={() => go("/chat")}>
             {t("root.askPlan")}
           </CommandMenu.Item>
           <CommandMenu.Item onSelect={() => go("/plans")}>
@@ -224,7 +224,7 @@ export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
   const location = useLocation();
   const sessionBypass =
-    location.pathname === "/" ||
+    location.pathname === "/chat" ||
     location.pathname === "/plans" ||
     location.pathname.startsWith("/plans/") ||
     location.pathname === "/recaps" ||
