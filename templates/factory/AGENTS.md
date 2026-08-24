@@ -76,9 +76,11 @@ decisions, feedback, agent runs, and provider audit records.
 
 Rules start in shadow mode; hard guards apply. Organization automations use
 stored prompts; external mutations require durable, idempotent runs and
-provider confirmation. Use the visual editor for graph changes and agent chat
-for proposals; persist complete graphs with `save-factory-graph`. Change rules
-through triage actions, never graph JSON.
+provider confirmation. Poll and Builder/PR dispatch run only as this factory's
+scheduled job, not chat and not a workspace-owner email match; teammates may
+edit and Run now Factory jobs. Use the visual editor for graph changes and
+agent chat for proposals; persist complete graphs with `save-factory-graph`.
+Change rules through triage actions, never graph JSON.
 
 ## Source Changes
 

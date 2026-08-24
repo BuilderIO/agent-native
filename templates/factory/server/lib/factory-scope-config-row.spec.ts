@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   assertUniqueSlackChannelForFactory,
+  assignCreatedByIfMissing,
   builderSlackUserIdSchema,
   factoryAutomationLeafName,
   factoryConfigRowId,
@@ -106,6 +107,24 @@ describe("factoryAutomationLeafName", () => {
     expect(factoryAutomationLeafName("factory-slack-feedback")).toBe(
       "factory-slack-feedback",
     );
+  });
+});
+
+describe("assignCreatedByIfMissing", () => {
+  it("leaves an existing createdBy in place", () => {
+    const content = "---\ncreatedBy: teammate@example.com\n---\nObserve.\n";
+    expect(
+      assignCreatedByIfMissing(content, "settings-saver@example.com"),
+    ).toBe(content);
+  });
+
+  it("stamps createdBy when the field is missing", () => {
+    expect(
+      assignCreatedByIfMissing(
+        "---\ndomain: factory\n---\nObserve.\n",
+        "owner@example.com",
+      ),
+    ).toContain("createdBy: owner@example.com");
   });
 });
 
