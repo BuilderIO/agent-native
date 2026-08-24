@@ -166,6 +166,26 @@ vérification et l'e-mail de vérification de l'inscription n'est pas envoyé. U
 ou prévisualisez les environnements et nommez les comptes de test avec une adresse `+qa`
 (`name+qa@example.com`) pour qu'ils soient faciles à identifier.
 
+## Politique de vérification des e-mails {#email-verification-policy}
+
+`AUTH_SKIP_EMAIL_VERIFICATION` est une commodité locale et de contrôle qualité :
+un déploiement hébergé l'ignore. Pour définir la politique dans n'importe quel
+environnement, production comprise, déclarez-la dans la configuration :
+
+```ts
+defineAppConfig({ auth: { requireEmailVerification: false } });
+```
+
+L'alias de déploiement est `AUTH_REQUIRE_EMAIL_VERIFICATION=0`. Une valeur
+déclarée l'emporte à la fois sur `AUTH_SKIP_EMAIL_VERIFICATION` et sur la
+valeur par défaut de chaque environnement.
+
+`false` accepte une adresse non vérifiée comme identifiant de connexion —
+n'importe qui peut revendiquer n'importe quel e-mail — ne l'utilisez donc que
+là où l'inscription est déjà restreinte autrement. `true` sur un déploiement
+sans fournisseur d'e-mail désactive plutôt l'inscription par mot de passe, car
+la vérification ne pourrait jamais être délivrée.
+
 ## Prestataires sociaux {#social-providers}
 
 Définissez les variables d'environnement pour activer la connexion sociale. Better Auth les détecte automatiquement :
@@ -438,6 +458,7 @@ La route `/_agent-native/google/auth-url` par défaut le fait automatiquement :
 | --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `BETTER_AUTH_SECRET`                    | Clé de signature pour une meilleure authentification (générée automatiquement si elle n'est pas définie)                                                                                                                          |
 | `AUTH_SKIP_EMAIL_VERIFICATION`          | Défini sur `1` dans les environnements QA/preview pour permettre aux inscriptions par e-mail/mot de passe de se dérouler sans vérification ; le développement/test local est ignoré par défaut                                    |
+| `AUTH_REQUIRE_EMAIL_VERIFICATION`       | Défini sur `0` ou `1` pour déclarer la politique de vérification de l'inscription par mot de passe dans n'importe quel environnement, production comprise ; l'emporte sur `AUTH_SKIP_EMAIL_VERIFICATION`                          |
 | `AUTH_DISABLED`                         | Définissez sur `true` ou `1` pour ignorer la connexion/l'inscription ; toutes les requêtes s'exécutent en tant qu'utilisateur partagé (développement/aperçu local uniquement – pas pour la production avec de vrais utilisateurs) |
 | `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT` | Définissez sur `1` pour désactiver la connexion automatique de localhost sur une nouvelle base de données de développement                                                                                                        |
 | `AUTH_MODE`                             | `local` résout uniquement l'identité de CLI/agent (sous quel utilisateur de développement `pnpm action` s'exécute) ; jamais de contournement de connexion au navigateur                                                           |
