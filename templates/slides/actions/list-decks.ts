@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { isPostgres } from "@agent-native/core/db";
 import { buildDeepLink } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { accessFilter } from "@agent-native/core/sharing";
@@ -11,6 +12,16 @@ import { getDeckUrl } from "./_app-url.js";
 
 function slidesDeepLink(): string {
   return buildDeepLink({ app: "slides", view: "list" });
+}
+
+function parseJsonProjection(value: unknown, label: string): unknown {
+  if (value === null || value === undefined) return undefined;
+  if (typeof value !== "string") return value;
+  try {
+    return JSON.parse(value);
+  } catch (error) {
+    throw new Error(`Invalid ${label} JSON projection`, { cause: error });
+  }
 }
 
 export default defineAction({
@@ -26,13 +37,20 @@ export default defineAction({
       .describe(
         "Set to 'true' for full frontend deck payloads; omitted returns metadata only",
       ),
+    includePreview: z
+      .enum(["true", "false"])
+      .optional()
+      .describe(
+        "Set to 'true' with light mode to include only the first slide preview",
+      ),
     light: z
       .enum(["true", "false"])
       .optional()
       .describe(
         "Set to 'true' for a minimal id/title/updatedAt/visibility listing " +
           "used for cheap add/remove diffing (e.g. background polling). " +
-          "Never reads the deck body — no slides, no slideCount.",
+          "By default never reads the deck body — no slides, no slideCount. " +
+          "Use includePreview for the first slide only.",
       ),
     createdBy: z
       .enum(["all", "me"])
@@ -50,7 +68,7 @@ export default defineAction({
     const ownerEmail = getRequestUserEmail();
     const normalizedOwnerEmail = normalizeOwnerEmail(ownerEmail);
     if (
-      args.includeSlides === "true" &&
+      (args.includeSlides === "true" || args.includePreview === "true") &&
       ctx?.caller === "frontend" &&
       normalizedOwnerEmail === null
     ) {
@@ -75,9 +93,65 @@ export default defineAction({
     if (args.light === "true") {
       // Column-projected listing for cheap add/remove diffing (the client's
       // background poll and SSE-reconnect resync). The `data` column holds
-      // each deck's entire slide JSON and can be large — never select it
-      // here. Callers that need slide content use `includeSlides: "true"` or
-      // fetch the specific deck via `get-deck`.
+      // each deck's entire slide JSON and can be large. The home grid opts
+      // into the separate preview projection; polling keeps the metadata-only
+      // path below.
+      if (args.includePreview === "true") {
+        // Keep the list bounded at the database boundary. `data` is an opaque
+        // full-deck blob, so selecting it and parsing it here scales with every
+        // slide even though the caller only needs the first one.
+        const previewSlideProjection = isPostgres()
+          ? sql<
+              string | null
+            >`(${schema.decks.data}::jsonb -> 'slides' -> 0)::text`
+          : sql<
+              string | null
+            >`json_extract(${schema.decks.data}, '$.slides[0]')`;
+        const aspectRatioProjection = isPostgres()
+          ? sql<string | null>`(${schema.decks.data}::jsonb ->> 'aspectRatio')`
+          : sql<
+              string | null
+            >`json_extract(${schema.decks.data}, '$.aspectRatio')`;
+        const rows = await db
+          .select({
+            id: schema.decks.id,
+            title: schema.decks.title,
+            updatedAt: schema.decks.updatedAt,
+            visibility: schema.decks.visibility,
+            ownerEmail: schema.decks.ownerEmail,
+            previewSlide: previewSlideProjection,
+            aspectRatio: aspectRatioProjection,
+          })
+          .from(schema.decks)
+          .where(where)
+          .orderBy(desc(schema.decks.updatedAt));
+
+        return {
+          count: rows.length,
+          decks: rows.map((row) => {
+            const previewSlide = parseJsonProjection(
+              row.previewSlide,
+              "first slide preview",
+            );
+            return {
+              id: row.id,
+              title: row.title,
+              updatedAt: row.updatedAt,
+              visibility: row.visibility,
+              createdByMe:
+                normalizedOwnerEmail !== null &&
+                normalizeOwnerEmail(row.ownerEmail) === normalizedOwnerEmail,
+              ...(previewSlide && typeof previewSlide === "object"
+                ? { previewSlide }
+                : {}),
+              ...(typeof row.aspectRatio === "string"
+                ? { aspectRatio: row.aspectRatio }
+                : {}),
+            };
+          }),
+        };
+      }
+
       const rows = await db
         .select({
           id: schema.decks.id,
