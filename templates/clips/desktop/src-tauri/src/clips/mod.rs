@@ -2368,6 +2368,7 @@ pub async fn set_recording_state(app: AppHandle, active: bool) -> Result<(), Str
             *g = active;
         }
     }
+    crate::tray::set_tray_recording_mode(&app, active);
     crate::tray::rebuild_tray_menu(&app);
     Ok(())
 }

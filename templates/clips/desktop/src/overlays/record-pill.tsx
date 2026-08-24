@@ -440,6 +440,8 @@ export function RecordingPill() {
 
   const pausedRef = useRef(false);
   pausedRef.current = paused;
+  const enabledRef = useRef(false);
+  enabledRef.current = enabled;
 
   function enterConfirm(intent: "delete" | "restart") {
     if (modeRef.current !== "recording") return;
@@ -524,7 +526,9 @@ export function RecordingPill() {
   }
 
   function stop() {
-    if (!enabled || modeRef.current === "done") return;
+    // Guarded through the ref: the tray-stop listener holds a first-render
+    // closure of this function, where the `enabled` state is still false.
+    if (!enabledRef.current || modeRef.current === "done") return;
     setDoneDurationMs(elapsedRef.current);
     if (sessionRef.current.localOnly) {
       setSavedLocally(true);
@@ -703,6 +707,16 @@ export function RecordingPill() {
         "clips:native-upload-finished",
         (payload) => handleUploadFinished(payload ?? {}),
       ),
+    );
+    track(
+      // The menu-bar status item doubles as a Stop button while recording;
+      // route its click through the same stop flow so the finishing hold and
+      // completion card run. Before capture is live there is nothing to stop,
+      // so the click falls back to opening Clips.
+      safeListen("clips:tray-stop-request", () => {
+        if (enabledRef.current && modeRef.current !== "done") stop();
+        else void safeInvoke("show_popover");
+      }),
     );
     track(
       safeListen<{ level?: number; source?: string }>(

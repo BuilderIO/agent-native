@@ -11,6 +11,86 @@ use crate::tray_meetings::{build_meetings_section, handle_meeting_menu_click, Me
 use crate::util::{is_meeting_active, is_recording_active};
 use crate::TRAY_PNG;
 
+/// A rounded stop square rendered at the same pixel size as the normal tray
+/// icon, used as the menu-bar icon while a recording is live (CleanShot's
+/// pattern: the status item becomes stop + elapsed time, and clicking it
+/// stops the recording). Template-style: black with alpha, so macOS tints it
+/// for menu-bar appearance.
+fn stop_square_icon(w: u32, h: u32) -> tauri::image::Image<'static> {
+    let mut rgba = vec![0u8; (w * h * 4) as usize];
+    let side = ((w.min(h) as f32) * 0.62).round() as i32;
+    let x0 = (w as i32 - side) / 2;
+    let y0 = (h as i32 - side) / 2;
+    let radius = (side as f32 * 0.28).max(1.0);
+    let inside_rounded = |x: i32, y: i32| -> bool {
+        if x < x0 || y < y0 || x >= x0 + side || y >= y0 + side {
+            return false;
+        }
+        let rx = radius as i32;
+        let corners = [
+            (x0 + rx, y0 + rx),
+            (x0 + side - 1 - rx, y0 + rx),
+            (x0 + rx, y0 + side - 1 - rx),
+            (x0 + side - 1 - rx, y0 + side - 1 - rx),
+        ];
+        for (cx, cy) in corners {
+            let in_corner_box = (x < x0 + rx || x > x0 + side - 1 - rx)
+                && (y < y0 + rx || y > y0 + side - 1 - rx);
+            if in_corner_box {
+                let dx = (x - cx) as f32;
+                let dy = (y - cy) as f32;
+                let near = (x - cx).abs() <= rx && (y - cy).abs() <= rx;
+                if near {
+                    return dx * dx + dy * dy <= radius * radius;
+                }
+            }
+        }
+        true
+    };
+    for y in 0..h as i32 {
+        for x in 0..w as i32 {
+            if inside_rounded(x, y) {
+                let idx = ((y as u32 * w + x as u32) * 4) as usize;
+                rgba[idx + 3] = 255;
+            }
+        }
+    }
+    tauri::image::Image::new_owned(rgba, w, h)
+}
+
+fn format_tray_timer(elapsed_ms: f64) -> String {
+    let total = (elapsed_ms / 1000.0).floor().max(0.0) as u64;
+    let minutes = total / 60;
+    if minutes >= 100 {
+        return format!("{}:{:02}h", minutes / 60, minutes % 60);
+    }
+    format!("{}:{:02}", minutes, total % 60)
+}
+
+/// Swap the status item between its normal identity and recording mode
+/// (stop square + timer title). Called from `set_recording_state`.
+pub fn set_tray_recording_mode(app: &tauri::AppHandle, active: bool) {
+    let Some(tray) = app.tray_by_id("main") else {
+        return;
+    };
+    if active {
+        if let Ok(base) = tauri::image::Image::from_bytes(TRAY_PNG) {
+            let icon = stop_square_icon(base.width(), base.height());
+            let _ = tray.set_icon(Some(icon));
+            let _ = tray.set_icon_as_template(true);
+        }
+        #[cfg(target_os = "macos")]
+        let _ = tray.set_title(Some("0:00"));
+    } else {
+        if let Ok(base) = tauri::image::Image::from_bytes(TRAY_PNG) {
+            let _ = tray.set_icon(Some(base));
+            let _ = tray.set_icon_as_template(true);
+        }
+        #[cfg(target_os = "macos")]
+        let _ = tray.set_title(None::<String>);
+    }
+}
+
 fn physical_tray_rect(rect: tauri::Rect) -> (i32, i32, i32, i32) {
     let (x, y) = match rect.position {
         tauri::Position::Physical(position) => (position.x, position.y),
@@ -295,10 +375,16 @@ pub fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                     meeting_active
                 );
                 if active && !meeting_active {
-                    // Opening Clips must never double as an implicit Stop.
-                    // Keep the recording alive and restore the parked popover;
-                    // its active-recording view exposes an explicit Stop button.
-                    force_show_popover(app);
+                    // The status item IS the stop button while recording — it
+                    // shows a stop square and the elapsed time, so the click
+                    // is an explicit Stop, not an implicit one. Route through
+                    // the pill so its finishing hold and completion card run;
+                    // if the pill window is somehow gone, stop directly.
+                    if app.get_webview_window("toolbar").is_some() {
+                        let _ = app.emit("clips:tray-stop-request", ());
+                    } else {
+                        let _ = app.emit("clips:recorder-stop", ());
+                    }
                 } else {
                     toggle_popover(app);
                 }
@@ -314,6 +400,38 @@ pub fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     // resource table. `set_menu` is atomic — replacing the entire menu
     // is the documented Tauri 2 way to update a tray (there's no
     // partial-update API for items).
+    // Mirror the recorder's 500ms state ticks into the status-item title
+    // while a recording is live. macOS-only: other platforms have no inline
+    // tray text.
+    #[cfg(target_os = "macos")]
+    {
+        let timer_handle = app.handle().clone();
+        app.handle().listen("clips:recorder-state", move |event| {
+            if !is_recording_active(&timer_handle) {
+                return;
+            }
+            #[derive(serde::Deserialize)]
+            struct Payload {
+                paused: Option<bool>,
+                #[serde(rename = "elapsedMs")]
+                elapsed_ms: Option<f64>,
+            }
+            let Ok(payload) = serde_json::from_str::<Payload>(event.payload()) else {
+                return;
+            };
+            let Some(tray) = timer_handle.tray_by_id("main") else {
+                return;
+            };
+            let time = format_tray_timer(payload.elapsed_ms.unwrap_or(0.0));
+            let title = if payload.paused.unwrap_or(false) {
+                format!("⏸ {time}")
+            } else {
+                time
+            };
+            let _ = tray.set_title(Some(title));
+        });
+    }
+
     let app_handle = app.handle().clone();
     app.handle().listen("meetings:updated", move |event| {
         #[derive(serde::Deserialize)]
