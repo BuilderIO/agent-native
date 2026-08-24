@@ -108,83 +108,83 @@ Calendar API를 직접 호출합니다. 로컬 이벤트 테이블은 존재하�
 
 이벤트 데이터는 Google Calendar에 있으며 절대 SQL에 저장되지 않습니다.
 
-| 액션 | 동작 |
-| --- | --- |
-| `list-events` | 날짜 범위 내 이벤트 목록 조회 |
-| `search-events` | 검색어로 이벤트 검색 |
-| `get-event` | id로 이벤트 하나 조회 |
-| `create-event` | 반복 규칙(RRULE), 근무 위치, 상태 유형(`outOfOffice`, `focusTime`)을 포함해 이벤트 생성 |
-| `update-event` | 반복, 근무 위치, 상태 유형을 포함해 이벤트 수정 |
-| `delete-event` | 이벤트 삭제 |
-| `manage-event-draft` | 아무것도 기록되거나 게스트에게 알림이 가기 전에, 사용자가 검토할 미발송 초대를 임시 저장 |
-| `rsvp-event` | 초대에 대해 수락, 거절, 또는 미정으로 표시 |
-| `get-attendee-timezones` | 게스트별 시간대 재정의 값 조회 |
-| `set-attendee-timezone` | 게스트의 현지 시간이 올바르게 표시되도록 게스트별 시간대 재정의 값 설정 |
+| 액션                     | 동작                                                                                     |
+| ------------------------ | ---------------------------------------------------------------------------------------- |
+| `list-events`            | 날짜 범위 내 이벤트 목록 조회                                                            |
+| `search-events`          | 검색어로 이벤트 검색                                                                     |
+| `get-event`              | id로 이벤트 하나 조회                                                                    |
+| `create-event`           | 반복 규칙(RRULE), 근무 위치, 상태 유형(`outOfOffice`, `focusTime`)을 포함해 이벤트 생성  |
+| `update-event`           | 반복, 근무 위치, 상태 유형을 포함해 이벤트 수정                                          |
+| `delete-event`           | 이벤트 삭제                                                                              |
+| `manage-event-draft`     | 아무것도 기록되거나 게스트에게 알림이 가기 전에, 사용자가 검토할 미발송 초대를 임시 저장 |
+| `rsvp-event`             | 초대에 대해 수락, 거절, 또는 미정으로 표시                                               |
+| `get-attendee-timezones` | 게스트별 시간대 재정의 값 조회                                                           |
+| `set-attendee-timezone`  | 게스트의 현지 시간이 올바르게 표시되도록 게스트별 시간대 재정의 값 설정                  |
 
 ### 가용성과 시간 찾기
 
-| 액션 | 동작 |
-| --- | --- |
-| `get-availability` | 주간 일정, 시간대, 버퍼, 통보 기간, 사전 예약 기간 설정 조회 |
-| `update-availability` | 주간 일정, 시간대, 버퍼, 통보 기간, 사전 예약 기간 설정 수정 |
-| `check-availability` | 특정 날짜의 빈 시간대 조회 |
-| `find-a-time` | 주최자와 지정된 참석자들 전체를 대상으로 하는 공용 빈 시간 검색으로, Google 프리/비지와 로컬 충돌을 결합 |
+| 액션                  | 동작                                                                                                     |
+| --------------------- | -------------------------------------------------------------------------------------------------------- |
+| `get-availability`    | 주간 일정, 시간대, 버퍼, 통보 기간, 사전 예약 기간 설정 조회                                             |
+| `update-availability` | 주간 일정, 시간대, 버퍼, 통보 기간, 사전 예약 기간 설정 수정                                             |
+| `check-availability`  | 특정 날짜의 빈 시간대 조회                                                                               |
+| `find-a-time`         | 주최자와 지정된 참석자들 전체를 대상으로 하는 공용 빈 시간 검색으로, Google 프리/비지와 로컬 충돌을 결합 |
 
 ### 예약 링크와 예약
 
-| 액션 | 동작 |
-| --- | --- |
-| `create-booking-link` | 예약 링크 생성 |
-| `update-booking-link` | 예약 링크 수정 |
+| 액션                     | 동작                                         |
+| ------------------------ | -------------------------------------------- |
+| `create-booking-link`    | 예약 링크 생성                               |
+| `update-booking-link`    | 예약 링크 수정                               |
 | `duplicate-booking-link` | 공동 호스트(`hosts`)를 포함해 예약 링크 복제 |
-| `list-booking-links` | 접근 가능한 예약 링크 목록 조회 |
-| `list-bookings` | 확정된 예약 목록 조회 |
+| `list-booking-links`     | 접근 가능한 예약 링크 목록 조회              |
+| `list-bookings`          | 확정된 예약 목록 조회                        |
 
 ### 외부 캘린더
 
 읽기 전용 ICS 피드입니다.
 
-| 액션 | 동작 |
-| --- | --- |
-| `add-external-calendar` | 읽기 전용 ICS/webcal 피드 구독 |
-| `list-external-calendars` | 구독한 피드 목록 조회 |
-| `remove-external-calendar` | 구독한 피드 제거 |
-| `update-external-calendars` | 구독한 피드 수정 |
+| 액션                        | 동작                           |
+| --------------------------- | ------------------------------ |
+| `add-external-calendar`     | 읽기 전용 ICS/webcal 피드 구독 |
+| `list-external-calendars`   | 구독한 피드 목록 조회          |
+| `remove-external-calendar`  | 구독한 피드 제거               |
+| `update-external-calendars` | 구독한 피드 수정               |
 
 ### 사람과 오버레이
 
-| 액션 | 동작 |
-| --- | --- |
-| `search-people` | Google 연락처와 Workspace 디렉터리 검색 |
-| `get-overlay-people` | 내 화면에 고정된 다른 사람들의 캘린더 목록 조회 |
+| 액션                    | 동작                                            |
+| ----------------------- | ----------------------------------------------- |
+| `search-people`         | Google 연락처와 Workspace 디렉터리 검색         |
+| `get-overlay-people`    | 내 화면에 고정된 다른 사람들의 캘린더 목록 조회 |
 | `update-overlay-people` | 내 화면에 고정된 다른 사람들의 캘린더 목록 수정 |
 
 ### Zoom
 
-| 액션 | 동작 |
-| --- | --- |
+| 액션              | 동작                                                                                                                                                               |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `get-zoom-status` | 현재 사용자의 Zoom 연결 상태 조회. 연결 및 연결 해제는 OAuth가 로그인된 브라우저 세션을 필요로 하므로 액션이 아니라 `/_agent-native/zoom/*` 라우트를 통해 이루어짐 |
 
 ### Google Calendar 연결과 동기화
 
-| 액션 | 동작 |
-| --- | --- |
+| 액션                      | 동작                                              |
+| ------------------------- | ------------------------------------------------- |
 | `connect-google-calendar` | 로그인된 브라우저 세션을 위한 OAuth 연결 URL 반환 |
-| `sync-google-calendar` | 강제로 재동기화 |
+| `sync-google-calendar`    | 강제로 재동기화                                   |
 
 ### 설정과 환경설정
 
-| 액션 | 동작 |
-| --- | --- |
-| `get-settings` | 사용자 수준 설정 조회 |
-| `update-settings` | 사용자 수준 설정 수정 |
+| 액션                                 | 동작                                                                                           |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| `get-settings`                       | 사용자 수준 설정 조회                                                                          |
+| `update-settings`                    | 사용자 수준 설정 수정                                                                          |
 | `update-calendar-visual-preferences` | 로컬에만 있는 표시 환경설정(이벤트 색상, 주말 숨기기) 수정. Google Calendar에는 전혀 영향 없음 |
 
 ### 내비게이션과 UI 상태
 
-| 액션 | 동작 |
-| --- | --- |
-| `navigate` | UI를 특정 보기, 날짜, 이벤트로 이동 |
+| 액션          | 동작                                |
+| ------------- | ----------------------------------- |
+| `navigate`    | UI를 특정 보기, 날짜, 이벤트로 이동 |
 | `view-screen` | 에이전트를 위해 현재 화면 상태 조회 |
 
 ### 프로바이더 API 에스컬레이션
@@ -192,14 +192,14 @@ Calendar API를 직접 호출합니다. 로컬 이벤트 테이블은 존재하�
 위 액션들이 너무 제한적일 때 사용하는, 원시 Google Calendar(및 연결된 CRM)
 API입니다.
 
-| 액션 | 동작 |
-| --- | --- |
-| `provider-api-catalog` | 직접 호출할 수 있는 원시 프로바이더 API 목록 조회 |
-| `provider-api-docs` | 원시 프로바이더 API 엔드포인트의 문서 조회 |
-| `provider-api-request` | 원시 Google Calendar(또는 연결된 CRM) API 직접 호출 |
-| `list-staged-datasets` | 원시 결과를 반환하는 대신 조회를 위해 저장된 대규모 스캔 목록 조회 |
-| `query-staged-dataset` | 저장된 데이터셋 조회 |
-| `delete-staged-dataset` | 저장된 데이터셋 삭제 |
+| 액션                    | 동작                                                               |
+| ----------------------- | ------------------------------------------------------------------ |
+| `provider-api-catalog`  | 직접 호출할 수 있는 원시 프로바이더 API 목록 조회                  |
+| `provider-api-docs`     | 원시 프로바이더 API 엔드포인트의 문서 조회                         |
+| `provider-api-request`  | 원시 Google Calendar(또는 연결된 CRM) API 직접 호출                |
+| `list-staged-datasets`  | 원시 결과를 반환하는 대신 조회를 위해 저장된 대규모 스캔 목록 조회 |
+| `query-staged-dataset`  | 저장된 데이터셋 조회                                               |
+| `delete-staged-dataset` | 저장된 데이터셋 삭제                                               |
 
 ## 데이터 모델
 

@@ -103,97 +103,97 @@ ZOOM_CLIENT_SECRET=your-client-secret
 
 活動資料存在於 Google Calendar 中，絕不會存在 SQL 裡。
 
-| Action | 功能說明 |
-| --- | --- |
-| `list-events` | 列出某個日期範圍內的活動 |
-| `search-events` | 依查詢字串搜尋活動 |
-| `get-event` | 依 id 讀取一個活動 |
-| `create-event` | 建立一個活動，包括重複規則（RRULE）、工作地點，以及狀態類型（`outOfOffice`、`focusTime`） |
-| `update-event` | 更新一個活動，包括重複規則、工作地點，以及狀態類型 |
-| `delete-event` | 刪除一個活動 |
-| `manage-event-draft` | 在任何內容被寫入或來賓收到通知之前，先暫存一個尚未傳送的邀請供使用者審核 |
-| `rsvp-event` | 接受、拒絕，或將邀請標記為暫定 |
-| `get-attendee-timezones` | 讀取個別來賓的時區覆寫設定 |
-| `set-attendee-timezone` | 設定個別來賓的時區覆寫，讓對方的當地時間持續正確顯示 |
+| Action                   | 功能說明                                                                                  |
+| ------------------------ | ----------------------------------------------------------------------------------------- |
+| `list-events`            | 列出某個日期範圍內的活動                                                                  |
+| `search-events`          | 依查詢字串搜尋活動                                                                        |
+| `get-event`              | 依 id 讀取一個活動                                                                        |
+| `create-event`           | 建立一個活動，包括重複規則（RRULE）、工作地點，以及狀態類型（`outOfOffice`、`focusTime`） |
+| `update-event`           | 更新一個活動，包括重複規則、工作地點，以及狀態類型                                        |
+| `delete-event`           | 刪除一個活動                                                                              |
+| `manage-event-draft`     | 在任何內容被寫入或來賓收到通知之前，先暫存一個尚未傳送的邀請供使用者審核                  |
+| `rsvp-event`             | 接受、拒絕，或將邀請標記為暫定                                                            |
+| `get-attendee-timezones` | 讀取個別來賓的時區覆寫設定                                                                |
+| `set-attendee-timezone`  | 設定個別來賓的時區覆寫，讓對方的當地時間持續正確顯示                                      |
 
 ### 可用性與尋找時段
 
-| Action | 功能說明 |
-| --- | --- |
-| `get-availability` | 讀取每週時間表、時區、緩衝時間、通知時間，以及提前預訂範圍設定 |
-| `update-availability` | 更新每週時間表、時區、緩衝時間、通知時間，以及提前預訂範圍設定 |
-| `check-availability` | 找出某一天的空閒時段 |
-| `find-a-time` | 針對主辦人和指名的與會者進行共用的空閒時段搜尋，結合 Google 的空閒/忙碌狀態與本機的行程衝突 |
+| Action                | 功能說明                                                                                    |
+| --------------------- | ------------------------------------------------------------------------------------------- |
+| `get-availability`    | 讀取每週時間表、時區、緩衝時間、通知時間，以及提前預訂範圍設定                              |
+| `update-availability` | 更新每週時間表、時區、緩衝時間、通知時間，以及提前預訂範圍設定                              |
+| `check-availability`  | 找出某一天的空閒時段                                                                        |
+| `find-a-time`         | 針對主辦人和指名的與會者進行共用的空閒時段搜尋，結合 Google 的空閒/忙碌狀態與本機的行程衝突 |
 
 ### 預訂連結與預訂
 
-| Action | 功能說明 |
-| --- | --- |
-| `create-booking-link` | 建立一個預訂連結 |
-| `update-booking-link` | 更新一個預訂連結 |
+| Action                   | 功能說明                                    |
+| ------------------------ | ------------------------------------------- |
+| `create-booking-link`    | 建立一個預訂連結                            |
+| `update-booking-link`    | 更新一個預訂連結                            |
 | `duplicate-booking-link` | 複製一個預訂連結，包括共同主持人（`hosts`） |
-| `list-booking-links` | 列出可存取的預訂連結 |
-| `list-bookings` | 列出已確認的預約 |
+| `list-booking-links`     | 列出可存取的預訂連結                        |
+| `list-bookings`          | 列出已確認的預約                            |
 
 ### 外部行事曆
 
 唯讀的 ICS 訂閱來源。
 
-| Action | 功能說明 |
-| --- | --- |
-| `add-external-calendar` | 訂閱唯讀的 ICS/webcal 來源 |
-| `list-external-calendars` | 列出已訂閱的來源 |
-| `remove-external-calendar` | 移除一個已訂閱的來源 |
-| `update-external-calendars` | 更新已訂閱的來源 |
+| Action                      | 功能說明                   |
+| --------------------------- | -------------------------- |
+| `add-external-calendar`     | 訂閱唯讀的 ICS/webcal 來源 |
+| `list-external-calendars`   | 列出已訂閱的來源           |
+| `remove-external-calendar`  | 移除一個已訂閱的來源       |
+| `update-external-calendars` | 更新已訂閱的來源           |
 
 ### 人員與疊加
 
-| Action | 功能說明 |
-| --- | --- |
-| `search-people` | 搜尋 Google 聯絡人和 Workspace 目錄 |
-| `get-overlay-people` | 讀取哪些其他人的行事曆已固定疊加到您的檢視畫面中 |
+| Action                  | 功能說明                                         |
+| ----------------------- | ------------------------------------------------ |
+| `search-people`         | 搜尋 Google 聯絡人和 Workspace 目錄              |
+| `get-overlay-people`    | 讀取哪些其他人的行事曆已固定疊加到您的檢視畫面中 |
 | `update-overlay-people` | 更新哪些其他人的行事曆已固定疊加到您的檢視畫面中 |
 
 ### Zoom
 
-| Action | 功能說明 |
-| --- | --- |
+| Action            | 功能說明                                                                                                                                        |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | `get-zoom-status` | 讀取目前使用者的 Zoom 連線狀態。連線和取消連線是透過 `/_agent-native/zoom/*` 路由進行，而不是透過 action，因為 OAuth 需要已登入的瀏覽器工作階段 |
 
 ### Google Calendar 連線與同步
 
-| Action | 功能說明 |
-| --- | --- |
+| Action                    | 功能說明                                  |
+| ------------------------- | ----------------------------------------- |
 | `connect-google-calendar` | 傳回已登入瀏覽器工作階段的 OAuth 連線網址 |
-| `sync-google-calendar` | 強制重新同步 |
+| `sync-google-calendar`    | 強制重新同步                              |
 
 ### 設定與偏好
 
-| Action | 功能說明 |
-| --- | --- |
-| `get-settings` | 讀取使用者層級的設定 |
-| `update-settings` | 更新使用者層級的設定 |
+| Action                               | 功能說明                                                                     |
+| ------------------------------------ | ---------------------------------------------------------------------------- |
+| `get-settings`                       | 讀取使用者層級的設定                                                         |
+| `update-settings`                    | 更新使用者層級的設定                                                         |
 | `update-calendar-visual-preferences` | 更新僅限本機的顯示偏好設定（活動顏色、隱藏週末）。絕不會動到 Google Calendar |
 
 ### 導覽與 UI 狀態
 
-| Action | 功能說明 |
-| --- | --- |
-| `navigate` | 將 UI 移動到某個檢視、日期或活動 |
-| `view-screen` | 為代理讀回目前的檢視畫面 |
+| Action        | 功能說明                         |
+| ------------- | -------------------------------- |
+| `navigate`    | 將 UI 移動到某個檢視、日期或活動 |
+| `view-screen` | 為代理讀回目前的檢視畫面         |
 
 ### 提供者 API 升級呼叫
 
 原始的 Google Calendar（以及已連線的 CRM）API，用於上述 actions 範圍過窄的情況。
 
-| Action | 功能說明 |
-| --- | --- |
-| `provider-api-catalog` | 列出可直接呼叫的原始提供者 API |
-| `provider-api-docs` | 讀取某個原始提供者 API 端點的文件 |
-| `provider-api-request` | 直接呼叫原始的 Google Calendar（或已連線的 CRM）API |
-| `list-staged-datasets` | 列出已暫存供查詢用的大型掃描結果，而不是直接傳回原始結果 |
-| `query-staged-dataset` | 查詢一個暫存資料集 |
-| `delete-staged-dataset` | 刪除一個暫存資料集 |
+| Action                  | 功能說明                                                 |
+| ----------------------- | -------------------------------------------------------- |
+| `provider-api-catalog`  | 列出可直接呼叫的原始提供者 API                           |
+| `provider-api-docs`     | 讀取某個原始提供者 API 端點的文件                        |
+| `provider-api-request`  | 直接呼叫原始的 Google Calendar（或已連線的 CRM）API      |
+| `list-staged-datasets`  | 列出已暫存供查詢用的大型掃描結果，而不是直接傳回原始結果 |
+| `query-staged-dataset`  | 查詢一個暫存資料集                                       |
+| `delete-staged-dataset` | 刪除一個暫存資料集                                       |
 
 ## 資料模型
 
