@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.172.7
+
+### Patch Changes
+
+- be8c373: Fix Analytics chat composer drafts to prefer the stable tab identity over a late-arriving thread identity, preventing typed text from disappearing when the draft scope changes.
+
 ## 0.172.6
 
 ### Patch Changes
