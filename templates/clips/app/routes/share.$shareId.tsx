@@ -1174,6 +1174,7 @@ export default function ShareRoute() {
             {session ? null : (
               <SignedOutShareActions
                 recordingId={recording.id}
+                startAt={searchParams.get("at")}
                 onCtaClick={fireShareCtaClick}
               />
             )}
