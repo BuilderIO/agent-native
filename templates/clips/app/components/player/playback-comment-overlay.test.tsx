@@ -116,17 +116,20 @@ describe("PlaybackCommentOverlay", () => {
     expect(container.textContent).toContain("Label");
     expect(
       container.querySelector('[class*="line-clamp-3"]')?.className,
-    ).toContain("text-playback-overlay-foreground");
+    ).toContain("text-background dark:text-foreground");
     expect(container.querySelector("a")?.className).toContain(
-      "text-playback-overlay-foreground",
+      "text-background",
+    );
+    expect(container.querySelector("a")?.className).toContain(
+      "dark:text-foreground",
     );
     expect(container.querySelector("code")?.className).toContain(
-      "text-playback-overlay-foreground",
+      "bg-background/15 text-background",
+    );
+    expect(container.querySelector("code")?.className).toContain(
+      "dark:bg-foreground/15 dark:text-foreground",
     );
     expect(container.innerHTML).not.toContain("text-primary-foreground");
-    expect(container.querySelector("code")?.className).toContain(
-      "bg-playback-overlay-foreground/15",
-    );
 
     act(() => root.unmount());
     container.remove();

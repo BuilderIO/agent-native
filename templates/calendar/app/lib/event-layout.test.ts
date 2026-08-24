@@ -37,7 +37,7 @@ describe("computeTimedEventLayout", () => {
     });
   });
 
-  it("divides the column width proportionally across overlap layers", () => {
+  it("lets nested later events overlap the earliest card", () => {
     const layout = computeTimedEventLayout(
       [
         event("a", "08:00", "09:00"),
@@ -48,13 +48,33 @@ describe("computeTimedEventLayout", () => {
       DAY,
     );
 
-    expect(layout.get("a")).toMatchObject({ col: 0, left: 0, width: 25 });
-    expect(layout.get("b")).toMatchObject({ col: 1, left: 25, width: 25 });
-    expect(layout.get("c")).toMatchObject({ col: 2, left: 50, width: 25 });
-    expect(layout.get("d")).toMatchObject({ col: 3, left: 75, width: 25 });
+    expect(layout.get("a")).toMatchObject({
+      col: 0,
+      left: 0,
+      width: 100,
+      indent: 0,
+    });
+    expect(layout.get("b")).toMatchObject({
+      col: 1,
+      left: 0,
+      width: 100,
+      indent: 16,
+    });
+    expect(layout.get("c")).toMatchObject({
+      col: 2,
+      left: 0,
+      width: 100,
+      indent: 16,
+    });
+    expect(layout.get("d")).toMatchObject({
+      col: 3,
+      left: 0,
+      width: 100,
+      indent: 16,
+    });
   });
 
-  it("indents the later event while splitting the shared column width", () => {
+  it("overlays a later event across the earlier event", () => {
     const layout = computeTimedEventLayout(
       [event("gym", "16:00", "18:00"), event("friyay", "17:00", "18:00")],
       DAY,
@@ -62,20 +82,20 @@ describe("computeTimedEventLayout", () => {
 
     expect(layout.get("gym")).toMatchObject({
       left: 0,
-      width: 50,
+      width: 100,
       indent: 0,
       col: 0,
     });
     expect(layout.get("friyay")).toMatchObject({
-      left: 50,
-      width: 50,
+      left: 0,
+      width: 100,
       indent: 16,
       col: 1,
       totalCols: 2,
     });
   });
 
-  it("adds another inset layer for simultaneous events", () => {
+  it("overlays a later event that starts inside a longer event", () => {
     const layout = computeTimedEventLayout(
       [event("a", "09:00", "11:00"), event("b", "09:20", "10:00")],
       DAY,
@@ -83,15 +103,37 @@ describe("computeTimedEventLayout", () => {
 
     expect(layout.get("a")).toMatchObject({
       left: 0,
-      width: 50,
+      width: 100,
       indent: 0,
       col: 0,
     });
     expect(layout.get("b")).toMatchObject({
+      left: 0,
+      width: 100,
+      indent: 16,
+      col: 1,
+    });
+  });
+
+  it("keeps later same-start events in readable lanes", () => {
+    const layout = computeTimedEventLayout(
+      [
+        event("background", "08:00", "12:00"),
+        event("later-a", "09:00", "10:00"),
+        event("later-b", "09:00", "10:00"),
+      ],
+      DAY,
+    );
+
+    expect(layout.get("later-a")).toMatchObject({
+      left: 0,
+      width: 100,
+      indent: 16,
+    });
+    expect(layout.get("later-b")).toMatchObject({
       left: 50,
       width: 50,
       indent: 16,
-      col: 1,
     });
   });
 
@@ -111,8 +153,8 @@ describe("computeTimedEventLayout", () => {
       DAY,
     );
 
-    expect(layout.get("a")).toMatchObject({ left: 0, width: 50, indent: 0 });
-    expect(layout.get("b")).toMatchObject({ left: 50, width: 50, indent: 16 });
+    expect(layout.get("a")).toMatchObject({ left: 0, width: 100, indent: 0 });
+    expect(layout.get("b")).toMatchObject({ left: 0, width: 100, indent: 16 });
   });
 
   it("reuses a free overlap layer after an earlier event ends", () => {
@@ -141,17 +183,23 @@ describe("computeTimedEventLayout", () => {
 
     expect(layout.get("first")).toMatchObject({
       col: 0,
+      left: 0,
+      width: 100,
       indent: 0,
       totalCols: 2,
     });
     expect(layout.get("middle")).toMatchObject({
       col: 1,
+      left: 0,
+      width: 100,
       indent: 16,
       totalCols: 2,
     });
     expect(layout.get("last")).toMatchObject({
       col: 0,
-      indent: 0,
+      left: 0,
+      width: 100,
+      indent: 16,
       totalCols: 2,
     });
   });
@@ -165,12 +213,12 @@ describe("computeTimedEventLayout", () => {
 
     expect(layout.get("overnight")).toMatchObject({
       left: 0,
-      width: 50,
+      width: 100,
       indent: 0,
     });
     expect(layout.get("later")).toMatchObject({
-      left: 50,
-      width: 50,
+      left: 0,
+      width: 100,
       indent: 16,
     });
   });
@@ -187,7 +235,7 @@ describe("computeTimedEventLayout", () => {
 
     expect(layout.get("morning-a")).toMatchObject({
       left: 0,
-      width: 50,
+      width: 100,
       totalCols: 2,
     });
     expect(layout.get("morning-b")).toMatchObject({

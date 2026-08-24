@@ -757,6 +757,43 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       active: isActive,
       enabled: desktopIdentityEnabled,
     });
+    const desktopIdentityRepairRef = useRef<Promise<boolean> | null>(null);
+    const repairDesktopIdentitySession = useCallback(() => {
+      if (
+        !isActive ||
+        !desktopIdentityGateEligible ||
+        desktopIdentityEnabled !== true ||
+        desktopIdentityStatus !== "signed-in"
+      ) {
+        return Promise.resolve(false);
+      }
+      const existingRepair = desktopIdentityRepairRef.current;
+      if (existingRepair) return existingRepair;
+      const identity = window.electronAPI?.identity;
+      if (!identity) return Promise.resolve(false);
+      const repair = identity
+        .ensureAppSession(app.id)
+        .catch((error) => {
+          console.warn("[desktop-identity] app session repair failed", {
+            appId: app.id,
+            reason: error instanceof Error ? error.message : "unknown error",
+          });
+          return false;
+        })
+        .finally(() => {
+          if (desktopIdentityRepairRef.current === repair) {
+            desktopIdentityRepairRef.current = null;
+          }
+        });
+      desktopIdentityRepairRef.current = repair;
+      return repair;
+    }, [
+      app.id,
+      desktopIdentityEnabled,
+      desktopIdentityGateEligible,
+      desktopIdentityStatus,
+      isActive,
+    ]);
     const deferDesktopWebviewLoad = shouldDeferDesktopAppWebviewLoad({
       eligible: desktopIdentityGateEligible,
       enabled: desktopIdentityEnabled,
@@ -961,11 +998,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
           }
           let synchronized: boolean | null;
           try {
-            synchronized = preserveLoadedSession
-              ? await identity.ensureAppSession(app.id, {
-                  preserveExistingSession: true,
-                })
-              : await identity.ensureAppSession(app.id);
+            synchronized = await identity.ensureAppSession(app.id);
           } catch (error) {
             console.warn("[desktop-identity] lazy app synchronization failed", {
               appId: app.id,
@@ -1279,7 +1312,14 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         onAuthStateChangeRef.current?.("unknown");
         void readAppWebviewAuthState(wv).then((state) => {
           if (disposed || sequence !== authProbeSequenceRef.current) return;
-          onAuthStateChangeRef.current?.(state);
+          const repair =
+            state === "unauthenticated"
+              ? repairDesktopIdentitySession()
+              : Promise.resolve(false);
+          void repair.then((repaired) => {
+            if (disposed || sequence !== authProbeSequenceRef.current) return;
+            onAuthStateChangeRef.current?.(repaired ? "authenticated" : state);
+          });
         });
       };
 
@@ -1400,6 +1440,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       applyGuestTheme,
       applyGuestSurfaceVisibility,
       executeGuestScript,
+      repairDesktopIdentitySession,
       syncGuestAppChatSidebar,
       deferDesktopWebviewLoad,
     ]);
@@ -1458,7 +1499,14 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       }
       void readAppWebviewAuthState(wv).then((state) => {
         if (!active || sequence !== authProbeSequenceRef.current) return;
-        onAuthStateChangeRef.current?.(state);
+        const repair =
+          state === "unauthenticated"
+            ? repairDesktopIdentitySession()
+            : Promise.resolve(false);
+        void repair.then((repaired) => {
+          if (!active || sequence !== authProbeSequenceRef.current) return;
+          onAuthStateChangeRef.current?.(repaired ? "authenticated" : state);
+        });
       });
       return () => {
         active = false;
@@ -1468,6 +1516,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       desktopIdentitySessionReady,
       desktopIdentityStatus,
       isActive,
+      repairDesktopIdentitySession,
       url,
     ]);
 

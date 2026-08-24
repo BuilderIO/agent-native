@@ -1,3 +1,4 @@
+import { isActionHiddenFromEveryAgentSurface } from "../action.js";
 import { parseMcpToolName } from "../mcp-client/manager.js";
 import { isMcpToolAllowedForRequest } from "../mcp-client/visibility.js";
 import { getRequestRunContext } from "../server/request-context.js";
@@ -156,7 +157,7 @@ export function searchToolRegistry(
 
   for (const [name, entry] of Object.entries(registry)) {
     if (!entry?.tool || name === TOOL_SEARCH_ACTION_NAME) continue;
-    if (entry.agentTool === false) continue;
+    if (isActionHiddenFromEveryAgentSurface(entry)) continue;
     if (name.startsWith("mcp__") && !isMcpToolAllowedForRequest(name)) {
       continue;
     }

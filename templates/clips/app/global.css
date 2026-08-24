@@ -38,7 +38,6 @@
   --sidebar-ring: 0 0% 40%;
   --highlight: 197 100% 50%;
   --highlight-foreground: 0 0% 10%;
-  --playback-overlay-foreground: 0 0% 100%;
 }
 
 .dark {
@@ -81,7 +80,6 @@
 @theme inline {
   --color-highlight: hsl(var(--highlight));
   --color-highlight-foreground: hsl(var(--highlight-foreground));
-  --color-playback-overlay-foreground: hsl(var(--playback-overlay-foreground));
 }
 
 @layer base {

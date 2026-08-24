@@ -9,6 +9,7 @@ import {
 } from "../../a2a/artifact-response.js";
 import { collectFinalResponseTextFromAgentEvents } from "../../a2a/response-text.js";
 import type { AgentSkill } from "../../a2a/types.js";
+import { isActionExposedToExternalAgents } from "../../action.js";
 import { resolveMainChatMaxOutputTokens } from "../../agent/engine/output-tokens.js";
 import type { EngineTool } from "../../agent/engine/types.js";
 import {
@@ -54,6 +55,27 @@ export function filterAgentTools(
 ): Record<string, ActionEntry> {
   return Object.fromEntries(
     Object.entries(actions).filter(([, entry]) => entry.agentTool !== false),
+  );
+}
+
+/**
+ * The MCP-only actions: `agentTool: false` paired with an explicit
+ * `mcpTool: true`.
+ *
+ * `filterAgentTools` drops these, which is right for every in-app surface and
+ * wrong for the two external ones. Rather than have the MCP and A2A mounts
+ * read the unfiltered registry — and re-derive which agent-hidden actions are
+ * safe to serve — the plugin re-merges exactly this set into those two mounts.
+ * A caller that wants "everything external" merges this with the agent surface;
+ * nobody has to remember which raw fields make an action MCP-only.
+ */
+export function filterMcpOnlyActions(
+  actions: Record<string, ActionEntry>,
+): Record<string, ActionEntry> {
+  return Object.fromEntries(
+    Object.entries(actions).filter(
+      ([, entry]) => entry.agentTool === false && entry.mcpTool === true,
+    ),
   );
 }
 
@@ -140,7 +162,10 @@ export function filterDirectA2AActions(
   return Object.fromEntries(
     Object.entries(actions).filter(([name, entry]) => {
       const exposure = entry.publicAgent;
+      // `mcpTool: true` is catalog membership declared beside the action; the
+      // exposure resolver below is the veto no config list can re-open.
       const selected =
+        entry.mcpTool === true ||
         catalog.has(name) ||
         (autoReads &&
           isAuthenticatedReadAction(entry) &&
@@ -151,7 +176,7 @@ export function filterDirectA2AActions(
         selected &&
         rawQueryAllowed &&
         !denied.has(name) &&
-        entry.agentTool !== false &&
+        isActionExposedToExternalAgents(entry) &&
         entry.readOnly === true &&
         exposure?.expose === true &&
         exposure.readOnly === true &&
@@ -180,7 +205,7 @@ export function filterDelegatedA2ACapabilityActions(
       const exposure = entry.publicAgent;
       return (
         !denied.has(name) &&
-        entry.agentTool !== false &&
+        isActionExposedToExternalAgents(entry) &&
         entry.readOnly !== true &&
         exposure?.expose === true &&
         exposure.readOnly === false &&
@@ -689,22 +714,45 @@ The caller already selected this app to own the current objective. Start with th
 }
 
 /**
- * The first-request tool catalog: an explicit `initialToolNames` verbatim, or
- * the app's OWN actions by default.
+ * The first-request tool catalog, in precedence order:
+ *
+ *  1. An explicit `initialToolNames`, plus every action that declares
+ *     `deferLoading: false`. The configured list stays authoritative — an
+ *     action it names is never dropped by a `deferLoading: true` — so a
+ *     template can annotate its actions before deleting the array, not after.
+ *  2. Otherwise, the actions that declared `deferLoading: false`, if any did.
+ *  3. Otherwise, the app's OWN actions, minus any marked `deferLoading: true`.
+ *
+ * Step 2 is what makes `deferLoading` a replacement for the array rather than
+ * a second copy of it: opting a few starter actions out of deferral on an app
+ * with no configured list defers everything else, instead of leaving the whole
+ * registry in and the annotation decorative.
  *
  * "Its own actions" excludes the framework kits. They arrive in this same
  * registry through `autoDiscoverActions` -> `mergeCoreSharingActions`, so the
  * plain `Object.keys` default promoted ~45 sharing/review/history/flag schemas
  * into every app's first request whether or not the app had those surfaces. They
  * remain in `availableTools` and are still found by `tool-search`; an app that
- * wants one on turn one names it in `initialToolNames`.
+ * wants one on turn one sets `deferLoading: false` or names it in
+ * `initialToolNames`.
  */
 export function resolveInitialToolNames(
   templateActions: Record<string, ActionEntry>,
   configured?: string[],
 ): string[] {
-  if (configured) return configured;
-  return Object.entries(templateActions)
-    .filter(([name, entry]) => !isFrameworkGroupedAction(name, entry))
+  const entries = Object.entries(templateActions);
+  // A framework-grouped action stays out of the DERIVED set, but an explicit
+  // `deferLoading: false` on one is a declaration, not a leak: it is the same
+  // opt-in `initialToolNames` already gave apps for these names.
+  const eager = entries
+    .filter(([, entry]) => entry.deferLoading === false)
+    .map(([name]) => name);
+  if (configured) return [...new Set([...configured, ...eager])];
+  if (eager.length > 0) return eager;
+  return entries
+    .filter(
+      ([name, entry]) =>
+        !isFrameworkGroupedAction(name, entry) && entry.deferLoading !== true,
+    )
     .map(([name]) => name);
 }

@@ -237,6 +237,11 @@ const {
   CHECKPOINT_TERMINAL_EVENT_SEQ,
   getCurrentTurnEventsForThread,
   __resetNoRunningRunsProbeForTests,
+  describeStaleReap,
+  staleWindowMsForRow,
+  BACKGROUND_PROCESSING_RUN_STALE_MS,
+  BACKGROUND_RUN_STALE_MS,
+  RUN_STALE_MS,
 } = await import("./run-store.js");
 
 // Mock storage for ledger SELECT responses, keyed by toolKey
@@ -1629,5 +1634,124 @@ describe("terminal status is `completed` iff the terminal reason is `done`", () 
         "(status = 'running' OR terminal_reason IS NULL OR terminal_reason = '')",
       );
     }
+  });
+});
+
+describe("stale-reap forensics", () => {
+  const BASE = 1_000_000;
+
+  it("picks the same window the reap SQL does, for all three cases", () => {
+    // Mirrors `backgroundAwareStaleCutoffSql`. A background row WITH a
+    // dispatch payload has a successor to reach, so it gets the tight
+    // post-claim window; one without has nothing to recover and gets the
+    // wider background window; foreground keeps the tight default.
+    expect(
+      staleWindowMsForRow({
+        dispatchMode: "background-processing",
+        hasDispatchPayload: true,
+      }),
+    ).toBe(BACKGROUND_PROCESSING_RUN_STALE_MS);
+    expect(
+      staleWindowMsForRow({
+        dispatchMode: "background-processing",
+        hasDispatchPayload: false,
+      }),
+    ).toBe(BACKGROUND_RUN_STALE_MS);
+    expect(staleWindowMsForRow({ dispatchMode: "background" })).toBe(
+      BACKGROUND_RUN_STALE_MS,
+    );
+    expect(staleWindowMsForRow({ dispatchMode: "foreground" })).toBe(
+      RUN_STALE_MS,
+    );
+    expect(staleWindowMsForRow({})).toBe(RUN_STALE_MS);
+  });
+
+  it("an explicit maxStaleMs overrides the dispatch-mode window", () => {
+    expect(
+      staleWindowMsForRow({ dispatchMode: "background", maxStaleMs: 1234 }),
+    ).toBe(1234);
+  });
+
+  it("separates a dead worker from a live worker that stopped producing", () => {
+    // Dead worker: heartbeat and progress stop together.
+    const dead = describeStaleReap({
+      startedAt: BASE,
+      heartbeatAt: BASE + 300_000,
+      lastProgressAt: BASE + 300_000,
+      inFlightSince: null,
+      dispatchMode: "background-processing",
+      hasDispatchPayload: false,
+      now: BASE + 400_000,
+    });
+    expect(dead).toContain("hbAheadOfProgress=0");
+
+    // Live worker, wedged loop: the heartbeat runs on for the better part of an
+    // hour past the last real progress. This is the shape one production run
+    // showed and that nothing recorded.
+    const wedged = describeStaleReap({
+      startedAt: BASE,
+      heartbeatAt: BASE + 3_309_000,
+      lastProgressAt: BASE + 293_000,
+      inFlightSince: null,
+      dispatchMode: "background-processing",
+      hasDispatchPayload: false,
+      now: BASE + 3_400_000,
+    });
+    expect(wedged).toContain("hbAheadOfProgress=3016000");
+  });
+
+  it("reports the window actually applied and whether a successor was possible", () => {
+    const detail = describeStaleReap({
+      startedAt: BASE,
+      heartbeatAt: BASE + 10_000,
+      lastProgressAt: BASE + 5_000,
+      inFlightSince: BASE + 8_000,
+      dispatchMode: "background-processing",
+      hasDispatchPayload: false,
+      now: BASE + 120_000,
+    });
+    expect(detail).toContain(`window=${BACKGROUND_RUN_STALE_MS}`);
+    expect(detail).toContain("dispatch=background-processing");
+    expect(detail).toContain("redispatchable=0");
+    expect(detail).toContain("sinceHeartbeat=110000");
+    expect(detail).toContain("sinceProgress=115000");
+    expect(detail).toContain("inFlight=1");
+    expect(detail).toContain("inFlightFor=112000");
+    // `runAge` is measured to the liveness basis, not to the reap — the reap
+    // time is detection latency, not run duration.
+    expect(detail).toContain("runAge=10000");
+  });
+
+  it("carries no user content — only numbers, booleans and an enum", () => {
+    const detail = describeStaleReap({
+      startedAt: BASE,
+      heartbeatAt: BASE + 1,
+      lastProgressAt: BASE + 1,
+      inFlightSince: null,
+      dispatchMode: "background",
+      hasDispatchPayload: true,
+      now: BASE + 2,
+    });
+    // Every token is `key=<number|enum>`; nothing free-form can reach it.
+    for (const part of detail.split(" ")) {
+      expect(part).toMatch(
+        /^[a-zA-Z]+=(-?\d+|none|background[a-z-]*|foreground)$/,
+      );
+    }
+  });
+
+  it("omits fields it has no value for rather than reporting zero", () => {
+    const detail = describeStaleReap({
+      startedAt: null,
+      heartbeatAt: null,
+      lastProgressAt: null,
+      inFlightSince: null,
+      dispatchMode: null,
+      now: BASE,
+    });
+    expect(detail).not.toContain("sinceHeartbeat");
+    expect(detail).not.toContain("hbAheadOfProgress");
+    expect(detail).toContain("inFlight=0");
+    expect(detail).toContain("dispatch=none");
   });
 });

@@ -1,25 +1,26 @@
 ---
 title: "存取與授權"
-description: "誰可以呼叫一個 action：曝露旗標（agentTool、toolCallable）、以 ctx 為基礎的範圍限定、accessFilter/assertAccess，以及 authorize 守衛。"
+description: "誰可以呼叫一個 action：曝露旗標（agentTool、mcpTool、toolCallable）、以 ctx 為基礎的範圍限定、accessFilter/assertAccess，以及 authorize 守衛。"
 ---
 
 # 存取與授權
 
-五項設定決定誰可以呼叫一個 action：代理、前端、擴充功能、外部 API 呼叫者，或是在沒有人工先核准的情況下沒有任何人可以呼叫。大多數 action 永遠不需要碰這些設定，因為預設值已經符合一般 UI 與代理的使用情境。
+六項設定決定誰可以呼叫一個 action：代理、前端、擴充功能、外部 API 呼叫者，或是在沒有人工先核准的情況下沒有任何人可以呼叫。大多數 action 永遠不需要碰這些設定，因為預設值已經符合一般 UI 與代理的使用情境。
 
 ### 曝露旗標 {#exposure-flags}
 
-這五個旗標預設都是寬鬆值，因此只有在需要收緊特定介面時才需要設定其中一個。下方表格是快速摘要，其後的章節則補充每個旗標各自需要的細節。
+這六個旗標預設都是寬鬆值，其中 `mcpTool` 是繼承 `agentTool` 而來，因此只有在需要收緊特定介面時才需要設定其中一個。下方表格是快速摘要，其後的章節則補充每個旗標各自需要的細節。
 
 | 旗標            | 預設值       | 收緊後的值 → 誰仍然可以呼叫                                                      | 典型用途                                                            |
 | --------------- | ------------ | -------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
 | `agentTool`     | `true`       | `false` → 僅限 UI、HTTP 與 CLI（對模型、MCP 與 A2A 隱藏）                        | 不該佔用工具位置的僅限 UI 或程式化用途的 action                     |
+| `mcpTool`       | `agentTool`  | `false` → 只有你自己應用程式的代理（對 MCP 與 A2A 隱藏）                         | 需要對端具備應用程式畫面或工作階段的 action                         |
 | `toolCallable`  | `true`       | `false` → 除了沙盒化擴充功能 iframe 橋接以外的一切都仍可呼叫（該橋接會收到 403） | 敏感的帳號或組織變更（刪除帳號、變更成員資格）                      |
 | `publicAgent`   | 關閉（私有） | `{ expose: true }` → 將此 action 加入**公開**的 MCP/A2A/OpenAPI 介面             | 不需要驗證的安全讀取或匯入工具                                      |
 | `needsApproval` | `false`      | `true` → 代理會**暫停**，必須由人工核准該次特定呼叫                              | 具有重大影響的副作用（傳送電子郵件、刷卡扣款、刪除）                |
 | `authorize`     | 無           | 一個守衛函式 → 只有它接受的呼叫者才能通過，適用於**每一種**介面                  | 限定角色才能執行的操作（每個應用程式各自的 RBAC、僅限管理員的操作） |
 
-這些旗標彼此獨立，設定其中一個不會影響其他旗標。`agentTool` 控制模型能看到什麼，請參閱下方的[對模型隱藏](#agent-tool)。`toolCallable` 只控制擴充功能 iframe，請參閱下方的[封鎖擴充功能 iframe](#tool-callable)。`publicAgent` 會新增一個選擇加入的公開介面，公開的網頁路由絕不代表工具也會公開曝露，請參閱下方的[曝露給公開代理](#public-agent)。`needsApproval` 會在呼叫已經發出之後、於執行前設下關卡，請參閱下方的[要求人工核准](#needs-approval)。`authorize` 則決定此呼叫者是否完全可以執行此 action，適用於每一條分派路徑，且在進入 `run()` 之前執行，請參閱下方的[依角色限制呼叫者](#authorize)。
+這些旗標彼此獨立，只有一個例外：未宣告的 `mcpTool` 會繼承 `agentTool`。`agentTool` 控制模型能看到什麼，請參閱下方的[對模型隱藏](#agent-tool)。`mcpTool` 會把這一點進一步收斂到只針對外部代理，請參閱下方的[對外部代理隱藏](#mcp-tool)。`toolCallable` 只控制擴充功能 iframe，請參閱下方的[封鎖擴充功能 iframe](#tool-callable)。`publicAgent` 會新增一個選擇加入的公開介面，公開的網頁路由絕不代表工具也會公開曝露，請參閱下方的[曝露給公開代理](#public-agent)。`needsApproval` 會在呼叫已經發出之後、於執行前設下關卡，請參閱下方的[要求人工核准](#needs-approval)。`authorize` 則決定此呼叫者是否完全可以執行此 action，適用於每一條分派路徑，且在進入 `run()` 之前執行，請參閱下方的[依角色限制呼叫者](#authorize)。
 
 ## 對模型隱藏 {#agent-tool}
 
@@ -38,6 +39,44 @@ export default defineAction({
 ```
 
 當您新增一個僅供 UI 使用或純粹程式化用途的 action，或是當 UI 不再使用某個原本仍會曝露給模型的 action 時，可以使用此設定。
+
+## 對外部代理隱藏 {#mcp-tool}
+
+`agentTool` 是全有或全無：一個 action 要嘛對所有代理都是工具，要嘛對誰都不是。`mcpTool` 把它一分為二，讓一個 action 對你自己應用程式的代理仍是一般工具，同時永遠不會經由 MCP 與 A2A 抵達 Claude、Cursor 或兄弟應用程式：
+
+```ts
+export default defineAction({
+  description: "Open the record inspector beside the current selection.",
+  mcpTool: false, // needs a live screen on the other end
+  schema: z.object({ recordId: z.string() }),
+  run: async ({ recordId }) => {
+    /* ... */
+  },
+});
+```
+
+當一個 action 的結果只有搭配你應用程式的 UI、開啟中的工作階段，或呼叫者眼前的目前選取才有意義時，就使用它。`mcpTool` 只能收緊 `agentTool`，不能放寬：宣告了 `agentTool: false` 的 action 在任何地方都仍然隱藏。它管的是對外的工具介面本身，而不是你自己的代理在回答一次 `ask_app` 提問時能做什麼——那次執行屬於你自己的代理，它會保留完整的工具清單。
+
+未宣告時，`mcpTool` 會跟隨 `agentTool`，而不是一律取 `true`：把一個 action 對代理隱藏，也就同時對外部代理隱藏了，一個旗標仍然只對應一個決定。
+
+相反的值還有另一個用途。預設情況下，外部代理拿到的是一份精選的小型目錄，而不是你的整個 action 登錄表，而 `mcpTool: true` 就是一個 action 宣告自己屬於該目錄的方式：
+
+```ts
+export default defineAction({
+  description: "List the databases connected to this workspace.",
+  mcpTool: true, // served to external agents, not just discoverable
+  http: { method: "GET" },
+  run: async () => {
+    /* ... */
+  },
+});
+```
+
+這與外掛的 `mcp: { connectorCatalog: [...] }` 清單是同一份目錄，只是宣告寫在 action 上，而不是寫在一個每次重新命名都要同步的獨立陣列裡。兩種寫法都有效，應用程式可以一次搬移一個 action。沒有列入的部分仍可透過 `tool-search` 找到。
+
+把兩個旗標反過來搭配——`agentTool: false` 搭配 `mcpTool: true`——就會得到一個**僅限 MCP** 的 action：外部代理拿得到，你自己應用程式的代理永遠看不到。適合用在外部工具需要、而你自己的代理沒有理由呼叫的匯出、同步或交接。
+
+列在目錄中並不等於擁有權限。外部呼叫者仍然必須通過 OAuth scope 檢查與 `externalAgents` 政策；在不經過模型的直接 A2A 路徑上，還要通過下方的 `publicAgent` 選擇加入。
 
 ## 封鎖擴充功能 iframe {#tool-callable}
 
