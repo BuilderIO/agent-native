@@ -2875,8 +2875,13 @@ async function tryStartRewindFullscreenRecording(
     }
     if (!localOnly && id) {
       forgetRewindClipOrigin(id);
-      await cleanupCancelledRemoteRecording(params.serverUrl, id).catch(
-        () => {},
+      void cleanupCancelledRemoteRecording(params.serverUrl, id).catch(
+        (err) => {
+          console.warn(
+            "[clips-recorder] cancelled recording cleanup failed:",
+            err,
+          );
+        },
       );
     }
     // The transcription engine is process-global, so this stop must land

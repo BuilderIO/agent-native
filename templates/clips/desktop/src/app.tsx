@@ -404,6 +404,7 @@ const CAM_ON_KEY = "clips:camera-on";
 const MIC_ON_KEY = "clips:mic-on";
 const SYSTEM_AUDIO_KEY = "clips:system-audio";
 const READINESS_REVIEWED_KEY = "clips:readiness-reviewed";
+const VIDEO_STORAGE_CONFIGURED_KEY = "clips:video-storage-configured";
 // The docs section for the tray's rolling buffer, published under the same
 // Rewind name the settings tab uses.
 const REWIND_DOCS_URL =
@@ -489,55 +490,55 @@ async function hasConfiguredVideoStorage(
 ): Promise<VideoStorageProbe> {
   const base = serverUrl.replace(/\/+$/, "");
 
-  // Track whether any endpoint gave a definitive answer. If both checks throw
-  // or return non-OK/unparseable responses, we can't tell and return "unknown".
-  let sawDefinitiveAnswer = false;
-
-  try {
-    const uploadStatus = await fetchWithAbortTimeout(
-      `${base}/_agent-native/file-upload/status`,
-      {
-        credentials: "include",
-        cache: "no-store",
-      },
-      VIDEO_STORAGE_PROBE_TIMEOUT_MS,
-    );
-    if (uploadStatus.ok) {
-      const body = (await uploadStatus.json().catch(() => null)) as {
+  // One endpoint's answer: "configured", "missing" (a definitive
+  // not-configured), or "unknown" (threw, non-OK, or unparseable).
+  const probeEndpoint = async (path: string): Promise<VideoStorageProbe> => {
+    try {
+      const res = await fetchWithAbortTimeout(
+        `${base}${path}`,
+        {
+          credentials: "include",
+          cache: "no-store",
+        },
+        VIDEO_STORAGE_PROBE_TIMEOUT_MS,
+      );
+      if (!res.ok) return "unknown";
+      // coercion-ok: an unparseable body maps to the typed "unknown" probe
+      // result, which callers treat as distinct from configured/missing.
+      const body = (await res.json().catch(() => null)) as {
         configured?: boolean;
       } | null;
-      if (body) {
-        sawDefinitiveAnswer = true;
-        if (body.configured) return "configured";
-      }
+      if (!body) return "unknown";
+      return body.configured ? "configured" : "missing";
+    } catch {
+      return "unknown";
     }
-  } catch {
-    // Fall through to the Builder status endpoint.
-  }
+  };
 
-  try {
-    const builderStatus = await fetchWithAbortTimeout(
-      `${base}/_agent-native/builder/status`,
-      {
-        credentials: "include",
-        cache: "no-store",
-      },
-      VIDEO_STORAGE_PROBE_TIMEOUT_MS,
-    );
-    if (builderStatus.ok) {
-      const body = (await builderStatus.json().catch(() => null)) as {
-        configured?: boolean;
-      } | null;
-      if (body) {
-        sawDefinitiveAnswer = true;
-        if (body.configured) return "configured";
-      }
-    }
-  } catch {
-    // Network error or unreachable server — treat as indeterminate below.
+  const probes = [
+    probeEndpoint("/_agent-native/file-upload/status"),
+    probeEndpoint("/_agent-native/builder/status"),
+  ];
+  // The probes run concurrently. "configured" wins as soon as either endpoint
+  // reports it, but "missing" is only declared after both have settled — a
+  // Builder-credits-only user has file-upload configured:false and builder
+  // configured:true and must not be routed to storage setup.
+  let probe: VideoStorageProbe;
+  if ((await Promise.race(probes)) === "configured") {
+    probe = "configured";
+  } else {
+    const results = await Promise.all(probes);
+    probe = results.includes("configured")
+      ? "configured"
+      : results.includes("missing")
+        ? "missing"
+        : "unknown";
   }
-
-  return sawDefinitiveAnswer ? "missing" : "unknown";
+  // Last-known-good cache: seeds the next launch's Start button so it isn't
+  // held behind this round-trip. Only "configured" is ever cached —
+  // "missing"/"unknown" must always re-probe.
+  if (probe === "configured") saveBool(VIDEO_STORAGE_CONFIGURED_KEY, true);
+  return probe;
 }
 
 function authTokenStorageKey(serverUrl: string): string {
@@ -1210,8 +1211,13 @@ export function App({
   const serverHostForSignIn = serverUrl
     .replace(/^https?:\/\//, "")
     .replace(/\/+$/, "");
+  // Seeded from the last-known-good cache so a machine that ever probed
+  // "configured" gets an enabled Start button instantly; the probes below
+  // still run and correct a since-deconfigured server within seconds.
   const [videoStorageStatus, setVideoStorageStatus] =
-    useState<VideoStorageStatus>("checking");
+    useState<VideoStorageStatus>(() =>
+      loadBool(VIDEO_STORAGE_CONFIGURED_KEY, false) ? "configured" : "checking",
+    );
   const [signedInAs, setSignedInAs] = useState<string | null>(null);
   const [signInPending, setSignInPending] = useState<
     "google" | "magic-link" | null
@@ -1277,7 +1283,10 @@ export function App({
       return true;
     }
 
-    setVideoStorageStatus((prev) => (prev === "missing" ? prev : "checking"));
+    // Deliberately no "checking" reset here: the status may already be seeded
+    // from the last-known-good cache or the mount-time warmup probe, and
+    // downgrading "configured" to "checking" would re-disable Start for the
+    // probe's whole round-trip. A definitive probe result below still wins.
     const probe = await hasConfiguredVideoStorage(serverUrl);
     if (probe === "unknown") {
       // The check couldn't be completed (offline/unreachable). Never downgrade
@@ -1297,6 +1306,17 @@ export function App({
   useEffect(() => {
     void refreshVideoStorageStatus();
   }, [refreshVideoStorageStatus]);
+
+  // Warm the storage probe at mount, in parallel with checkAuth, instead of
+  // serializing it behind the session check. Both are cookie-authenticated:
+  // an anon session settles "unknown" (never a definitive answer), and the
+  // anon UI has no Start button, so a wrong enable can't leak. The authed
+  // refresh above re-probes and last-write-wins.
+  useEffect(() => {
+    void hasConfiguredVideoStorage(serverUrl).then((probe) => {
+      if (probe === "configured") setVideoStorageStatus("configured");
+    });
+  }, [serverUrl]);
 
   useEffect(() => {
     if (
@@ -2567,6 +2587,13 @@ export function App({
     };
   }, []);
 
+  // Warm the multi-second SCShareableContent lookup while the popover is
+  // open so a recording start within the cache TTL skips it. Fire-and-forget.
+  useEffect(() => {
+    if (!popoverVisible) return;
+    invoke("native_fullscreen_prefetch_capture_content").catch(() => {});
+  }, [popoverVisible]);
+
   const speechPermissionChecked = useRef(false);
   useEffect(() => {
     if (!popoverVisible || !micOn || speechPermissionChecked.current) return;
@@ -3755,8 +3782,19 @@ export function App({
     track(
       listen("clips:recorder-cancel", async () => {
         if (restartInFlightRef.current) return;
+        const cancelDone = recorder.cancel();
+        // Optimistic feedback: bring the popover back and clear the tray's
+        // recording state the moment the cancel is dispatched — the recorder
+        // teardown can take seconds and neither call depends on it. The flow
+        // gate below must NOT be released here: it stays latched until
+        // cancel() resolves so a fast Start can't race the tearing-down
+        // session.
+        if (!cancelled) {
+          invoke("set_recording_state", { active: false }).catch(() => {});
+          invoke("show_popover").catch(() => {});
+        }
         try {
-          await recorder.cancel();
+          await cancelDone;
         } finally {
           if (!cancelled) {
             (
@@ -3768,8 +3806,6 @@ export function App({
             setRecorder(null);
             setRecordingFlowActive(false);
             setBubbleSessionEpoch((epoch) => epoch + 1);
-            invoke("set_recording_state", { active: false }).catch(() => {});
-            invoke("show_popover").catch(() => {});
           }
         }
       }),

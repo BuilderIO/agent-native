@@ -721,6 +721,7 @@ pub(crate) fn start_segmented_custom_screencapturekit_backend_at(
         capture_region,
         defer_recording_output,
         true,
+        None,
     )
 }
 
@@ -2567,6 +2568,7 @@ fn rotate_screencapturekit_segment(
         restart.target_display_id,
         restart.capture_region,
         false,
+        None,
     );
 
     let (backend, _, _) = match start_result {
@@ -2831,6 +2833,7 @@ fn start_segment_backend(
                 capture_region,
                 false,
                 false,
+                None,
             )
         } else {
             start_screencapturekit_backend_at(
@@ -2842,6 +2845,7 @@ fn start_segment_backend(
                 target_display_id,
                 capture_region,
                 false,
+                None,
             )
         };
         match sck_result {
@@ -2896,6 +2900,75 @@ fn start_segment_backend(
     }
 }
 
+/// How long a popover-open `SCShareableContent` prefetch stays usable for a
+/// recording start. Short on purpose: there is no display-configuration-change
+/// hook invalidating the snapshot, so the TTL is the staleness bound.
+#[cfg(target_os = "macos")]
+const SHAREABLE_CONTENT_PREFETCH_TTL: Duration = Duration::from_secs(15);
+
+#[cfg(target_os = "macos")]
+static PREFETCHED_SHAREABLE_CONTENT: Mutex<Option<(Instant, SCShareableContent)>> =
+    Mutex::new(None);
+
+/// Consume the popover-open prefetch for an initial recording start. Returns
+/// `None` (callers then do their own fresh fetch) when the snapshot is
+/// missing, expired, or does not contain the requested display — a monitor
+/// plugged in after the prefetch must not be resolved against stale content.
+/// Take-once so resume/rotation paths can never reuse an old snapshot.
+#[cfg(target_os = "macos")]
+fn take_prefetched_shareable_content(target_display_id: Option<u32>) -> Option<SCShareableContent> {
+    let mut guard = PREFETCHED_SHAREABLE_CONTENT.lock().ok()?;
+    let (fetched_at, content) = guard.take()?;
+    if fetched_at.elapsed() > SHAREABLE_CONTENT_PREFETCH_TTL {
+        return None;
+    }
+    if let Some(id) = target_display_id {
+        if !content.displays().iter().any(|d| d.display_id() == id) {
+            return None;
+        }
+    }
+    Some(content)
+}
+
+/// Fire-and-forget warm-up called when the recorder popover opens: fetch the
+/// multi-second `SCShareableContent` snapshot now so a recording start within
+/// the TTL skips it. Best-effort — failures are logged and the start paths
+/// fall back to their own fetch, so this can never fail a recording.
+#[tauri::command]
+pub async fn native_fullscreen_prefetch_capture_content() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        // Debounce rapid popover reopen toggles so blocking-pool fetches
+        // don't pile up; a snapshot this young is fresh enough to keep.
+        let recently_fetched = PREFETCHED_SHAREABLE_CONTENT
+            .lock()
+            .ok()
+            .and_then(|guard| {
+                guard
+                    .as_ref()
+                    .map(|(at, _)| at.elapsed() < SHAREABLE_CONTENT_PREFETCH_TTL / 3)
+            })
+            .unwrap_or(false);
+        if recently_fetched {
+            return Ok(());
+        }
+        match tauri::async_runtime::spawn_blocking(SCShareableContent::get).await {
+            Ok(Ok(content)) => {
+                if let Ok(mut guard) = PREFETCHED_SHAREABLE_CONTENT.lock() {
+                    *guard = Some((Instant::now(), content));
+                }
+            }
+            Ok(Err(err)) => {
+                eprintln!("[clips-tray] shareable-content prefetch unavailable: {err:?}");
+            }
+            Err(join_err) => {
+                eprintln!("[clips-tray] shareable-content prefetch task panicked: {join_err}");
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Configure and start a fresh ScreenCaptureKit capture writing into
 /// `output_path`. Shared by the initial start and the resume path.
 #[cfg(target_os = "macos")]
@@ -2914,9 +2987,15 @@ pub(crate) fn start_screencapturekit_backend_at(
     // the no-warm fallback), preserving the original record-immediately
     // behavior.
     defer_recording_output: bool,
+    // Popover-open prefetch (initial start only — resume/rotation pass `None`
+    // and keep their self-contained fresh fetch).
+    prefetched_content: Option<SCShareableContent>,
 ) -> Result<(NativeFullscreenBackend, Option<u32>, Option<u32>), String> {
-    let content =
-        SCShareableContent::get().map_err(|e| format!("shareable content lookup failed: {e:?}"))?;
+    let content = match prefetched_content {
+        Some(content) => content,
+        None => SCShareableContent::get()
+            .map_err(|e| format!("shareable content lookup failed: {e:?}"))?,
+    };
     let displays = content.displays();
     let display = target_display_id
         .and_then(|id| displays.iter().find(|d| d.display_id() == id))
@@ -4842,6 +4921,7 @@ fn start_screencapturekit_recording(
             capture_region,
             defer_recording_output,
             false,
+            take_prefetched_shareable_content(target_display_id),
         )?
     } else {
         start_screencapturekit_backend_at(
@@ -4853,6 +4933,7 @@ fn start_screencapturekit_recording(
             target_display_id,
             capture_region,
             defer_recording_output,
+            take_prefetched_shareable_content(target_display_id),
         )?
     };
     let (fallback_width, fallback_height) = primary_monitor_size(app);
@@ -5138,7 +5219,9 @@ pub(crate) fn stop_native_recording(
     wait_for_finalize: bool,
 ) -> Result<(), String> {
     match backend {
-        NativeFullscreenBackend::Screencapture { child } => stop_screencapture(child),
+        NativeFullscreenBackend::Screencapture { child } => {
+            stop_screencapture(child, wait_for_finalize)
+        }
         #[cfg(target_os = "macos")]
         NativeFullscreenBackend::CustomScreenCaptureKit {
             stream,
@@ -5240,7 +5323,7 @@ pub(crate) fn stop_native_recording(
     }
 }
 
-fn stop_screencapture(child: &mut Child) -> Result<(), String> {
+fn stop_screencapture(child: &mut Child, wait_for_finalize: bool) -> Result<(), String> {
     if child
         .try_wait()
         .map_err(|e| format!("screencapture status check failed: {e}"))?
@@ -5257,6 +5340,26 @@ fn stop_screencapture(child: &mut Child) -> Result<(), String> {
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status();
+
+    // Discard path: the movie file is deleted immediately after this returns,
+    // so the long graceful wait for `screencapture` to finish writing it just
+    // delays the cancel. Give SIGINT a short grace, then hard-kill and reap.
+    if !wait_for_finalize {
+        let grace_deadline = Instant::now() + Duration::from_millis(250);
+        while Instant::now() < grace_deadline {
+            if child
+                .try_wait()
+                .map_err(|e| format!("screencapture wait failed: {e}"))?
+                .is_some()
+            {
+                return Ok(());
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        let _ = child.kill();
+        let _ = child.wait();
+        return Ok(());
+    }
 
     let deadline = Instant::now() + Duration::from_secs(15);
     loop {

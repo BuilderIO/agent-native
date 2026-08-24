@@ -164,6 +164,7 @@ pub fn run() {
             native_screen::native_fullscreen_recording_available,
             native_screen::native_fullscreen_take_upload_finished,
             native_screen::native_fullscreen_claim_upload_open,
+            native_screen::native_fullscreen_prefetch_capture_content,
             native_screen::native_fullscreen_recording_warm,
             native_screen::native_fullscreen_recording_begin,
             native_screen::native_fullscreen_recording_stop_and_upload,
