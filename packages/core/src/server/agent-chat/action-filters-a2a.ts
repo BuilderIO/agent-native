@@ -717,23 +717,24 @@ The caller already selected this app to own the current objective. Start with th
  * The first-request tool catalog, in precedence order:
  *
  *  1. An explicit `initialToolNames`, plus every action that declares
- *     `important: true`. The configured list stays authoritative — an action
- *     it names is never dropped by an `important: false` — so a template can
- *     annotate its actions before deleting the array, not after.
- *  2. Otherwise, the actions marked `important: true`, if any app action is.
- *  3. Otherwise, the app's OWN actions, minus any marked `important: false`.
+ *     `deferLoading: false`. The configured list stays authoritative — an
+ *     action it names is never dropped by a `deferLoading: true` — so a
+ *     template can annotate its actions before deleting the array, not after.
+ *  2. Otherwise, the actions that declared `deferLoading: false`, if any did.
+ *  3. Otherwise, the app's OWN actions, minus any marked `deferLoading: true`.
  *
- * Step 2 is what makes `important` a replacement for the array rather than a
- * second copy of it: marking the starter actions on an app that has no
- * configured list narrows the first request to those, instead of leaving the
- * whole registry in and the annotation decorative.
+ * Step 2 is what makes `deferLoading` a replacement for the array rather than
+ * a second copy of it: opting a few starter actions out of deferral on an app
+ * with no configured list defers everything else, instead of leaving the whole
+ * registry in and the annotation decorative.
  *
  * "Its own actions" excludes the framework kits. They arrive in this same
  * registry through `autoDiscoverActions` -> `mergeCoreSharingActions`, so the
  * plain `Object.keys` default promoted ~45 sharing/review/history/flag schemas
  * into every app's first request whether or not the app had those surfaces. They
  * remain in `availableTools` and are still found by `tool-search`; an app that
- * wants one on turn one marks it `important` or names it in `initialToolNames`.
+ * wants one on turn one sets `deferLoading: false` or names it in
+ * `initialToolNames`.
  */
 export function resolveInitialToolNames(
   templateActions: Record<string, ActionEntry>,
@@ -741,17 +742,17 @@ export function resolveInitialToolNames(
 ): string[] {
   const entries = Object.entries(templateActions);
   // A framework-grouped action stays out of the DERIVED set, but an explicit
-  // `important: true` on one is a declaration, not a leak: it is the same
+  // `deferLoading: false` on one is a declaration, not a leak: it is the same
   // opt-in `initialToolNames` already gave apps for these names.
-  const important = entries
-    .filter(([, entry]) => entry.important === true)
+  const eager = entries
+    .filter(([, entry]) => entry.deferLoading === false)
     .map(([name]) => name);
-  if (configured) return [...new Set([...configured, ...important])];
-  if (important.length > 0) return important;
+  if (configured) return [...new Set([...configured, ...eager])];
+  if (eager.length > 0) return eager;
   return entries
     .filter(
       ([name, entry]) =>
-        !isFrameworkGroupedAction(name, entry) && entry.important !== false,
+        !isFrameworkGroupedAction(name, entry) && entry.deferLoading !== true,
     )
     .map(([name]) => name);
 }

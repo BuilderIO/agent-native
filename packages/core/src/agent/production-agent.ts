@@ -710,12 +710,13 @@ export interface ActionEntry {
    *  it through `isActionExposedToExternalAgents`, never as a raw field.
    *  Set by `defineAction`'s `mcpTool` option. */
   mcpTool?: boolean;
-  /** Whether the action belongs in the agent's first-request tool list — the
-   *  action-owned form of the plugin's `initialToolNames`. `true` always
-   *  includes it (and narrows the derived default to the marked actions);
-   *  `false` keeps it out of the DERIVED set, reachable through `tool-search`.
-   *  Context cost, not access. Set by `defineAction`'s `important` option. */
-  important?: boolean;
+  /** Whether the action's schema is held back from the agent's first-request
+   *  tool list — the action-owned form of the plugin's `initialToolNames`.
+   *  `false` always includes it (and narrows the derived default to the
+   *  actions that opted in); `true` keeps it out of the DERIVED set, reachable
+   *  through `tool-search`. Context cost, not access. Set by `defineAction`'s
+   *  `deferLoading` option. */
+  deferLoading?: boolean;
   /** Explicit opt-in metadata for public agent protocols. Public routes never
    *  imply public tool exposure; MCP/A2A/OpenAPI surfaces must filter for this. */
   publicAgent?: import("../action.js").PublicAgentActionConfig;

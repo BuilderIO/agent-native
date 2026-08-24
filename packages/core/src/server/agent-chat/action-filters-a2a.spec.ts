@@ -352,31 +352,31 @@ describe("resolveInitialToolNames", () => {
     ).toEqual(["share-resource"]);
   });
 
-  it("narrows the derived list to the actions marked important", () => {
+  it("narrows the derived list to the actions that opted out of deferral", () => {
     expect(
       resolveInitialToolNames({
-        "list-forms": action({ important: true }),
-        "create-form": action({ important: true }),
+        "list-forms": action({ deferLoading: false }),
+        "create-form": action({ deferLoading: false }),
         "export-form-archive": action(),
       }),
     ).toEqual(["list-forms", "create-form"]);
   });
 
-  it("drops `important: false` from the derived list", () => {
+  it("drops `deferLoading: true` from the derived list", () => {
     expect(
       resolveInitialToolNames({
         "list-forms": action(),
-        "export-form-archive": action({ important: false }),
+        "export-form-archive": action({ deferLoading: true }),
       }),
     ).toEqual(["list-forms"]);
   });
 
-  it("adds important actions to a configured list without duplicating it", () => {
+  it("adds eager actions to a configured list without duplicating it", () => {
     expect(
       resolveInitialToolNames(
         {
-          "list-forms": action({ important: true }),
-          "create-form": action({ important: true }),
+          "list-forms": action({ deferLoading: false }),
+          "create-form": action({ deferLoading: false }),
           "export-form-archive": action(),
         },
         ["list-forms", "export-form-archive"],
@@ -384,22 +384,22 @@ describe("resolveInitialToolNames", () => {
     ).toEqual(["list-forms", "export-form-archive", "create-form"]);
   });
 
-  it("keeps a configured name that the action marked unimportant", () => {
+  it("keeps a configured name that the action marked deferred", () => {
     // The array is the app's explicit, current statement; an annotation must
     // not silently delete a name the app still lists.
     expect(
       resolveInitialToolNames(
-        { "export-form-archive": action({ important: false }) },
+        { "export-form-archive": action({ deferLoading: true }) },
         ["export-form-archive"],
       ),
     ).toEqual(["export-form-archive"]);
   });
 
-  it("honors `important: true` on a framework kit action", () => {
+  it("honors `deferLoading: false` on a framework kit action", () => {
     const [kitName] = Object.keys(CORE_ACTION_GROUPS);
     expect(
       resolveInitialToolNames({
-        [kitName]: action({ important: true }),
+        [kitName]: action({ deferLoading: false }),
         "create-form": action(),
       }),
     ).toEqual([kitName]);

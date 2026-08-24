@@ -120,11 +120,11 @@ description: "defineAction() 的结构:schema、run,以及 HTTP 配置,还有如
             "继承 `agentTool`。设为 false 可对经由 MCP 和 A2A 的外部代理隐藏,设为 true 则声明它属于精选目录。见“访问与授权”。",
         },
         {
-          name: "important",
+          name: "deferLoading",
           type: "boolean",
           optional: true,
           description:
-            "设为 true 可把该 action 放进代理的第一份工具列表。见下方“让 action 界面保持精简”。",
+            "设为 false 可让该 action 留在代理的第一份工具列表里,设为 true 则通过 tool-search 按需加载。见下方“让 action 界面保持精简”。",
         },
         {
           name: "toolCallable",
@@ -271,7 +271,7 @@ POST 是默认方法,`http: { method: "GET" }` 会让它变成 GET。React 钩�
 - 优先选择**一个 CRUD 风格的 `update` action**,它接受一份包含可选字段的补丁,而不是 `update-name`、`update-order`、`update-color` 这样按字段拆分的许多 action。调用者只需要发送发生变化的字段。
 - 在为每一种查询或过滤条件新增一个读取类 action 之前,先考虑更通用的方案:面向 provider 数据的 [provider API 三件套](/docs/template-dispatch-vault-integrations#provider-api)(`provider-api-catalog`、`provider-api-docs` 和 `provider-api-request`),或者面向应用数据的开发用 `db-query` 工具。
 - 把仅供 UI 使用或程序化调用的 action 标记为 [`agentTool: false`](/docs/actions-access-control#agent-tool)。它们仍然可以从前端或通过 HTTP 调用,但不会占用模型工具列表中的位置。
-- 把代理时时都要用的少数几个 action 标记为 `important: true`。第一次模型请求发送的正是这些 schema;其余的会在代理需要时通过 `tool-search` 按需加载。只要标记了哪怕一个 action,这第一次请求就会收窄到被标记的集合,所以要一次性标完整套起步 action,而不是一次标一个。这关乎第一轮的开销,而不是访问权限:未标记的 action 在 `tool-search` 返回它的那一刻就可以调用。它是插件 `initialToolNames` 数组的按 action 写法,应用两者用其一即可。
+- 把代理时时都要用的少数几个 action 标记为 `deferLoading: false`。第一次模型请求发送的正是这些 schema;其余的会在代理需要时通过 `tool-search` 按需加载。只要有一个 action 这样退出,所有未标记的 action 就都会被推迟,所以要一次性标完整套起步 action,而不是一次标一个。这关乎第一轮的开销,而不是访问权限:被推迟的 action 在 `tool-search` 返回它的那一刻就可以调用。它是插件 `initialToolNames` 数组的按 action 写法,应用两者用其一即可。
 - 删除或隐藏 UI 已经不再使用的 action,而不是继续把它们暴露给模型。
 
 仓库内置了一个仅供参考的辅助工具 `node scripts/audit-template-actions.mjs [template ...]`(别名 `pnpm actions:audit`)。它会扫描某个模板的 `actions/` 文件夹,标记出 UI 可能已经不再使用的 action,以及那些可以合并为一个的、按字段拆分的 action 组。它总是以退出码 0 结束,从不会让 CI 失败,而且它的启发式规则是保守的,所以请把它的输出当作建议,而不是错误。

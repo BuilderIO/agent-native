@@ -198,26 +198,26 @@ describe("defineAction", () => {
     expect(action.agentTool).toBeUndefined();
   });
 
-  it("threads through mcpTool and important, and leaves both undefined by default", () => {
+  it("threads through mcpTool and deferLoading, and leaves both undefined by default", () => {
     const external = defineAction({
       description: "share a plan with an external agent",
       parameters: { id: { type: "string" } },
       mcpTool: true,
-      important: true,
+      deferLoading: false,
       run: async () => "ok",
     });
     expect(external.mcpTool).toBe(true);
-    expect(external.important).toBe(true);
+    expect(external.deferLoading).toBe(false);
 
     const inAppOnly = defineAction({
       description: "open the inspector panel",
       parameters: { id: { type: "string" } },
       mcpTool: false,
-      important: false,
+      deferLoading: true,
       run: async () => "ok",
     });
     expect(inAppOnly.mcpTool).toBe(false);
-    expect(inAppOnly.important).toBe(false);
+    expect(inAppOnly.deferLoading).toBe(true);
 
     // Undefined is a third state both surfaces read — it must not collapse to
     // the default value here, or the declaration becomes unreadable.
@@ -227,7 +227,7 @@ describe("defineAction", () => {
       run: async () => "ok",
     });
     expect(plain.mcpTool).toBeUndefined();
-    expect(plain.important).toBeUndefined();
+    expect(plain.deferLoading).toBeUndefined();
   });
 
   it("resolves external exposure from mcpTool, falling back to agentTool", () => {

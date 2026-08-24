@@ -124,11 +124,11 @@ description: "defineAction() की संरचना: schema, run, और HTTP
             "`agentTool` से विरासत में लेता है। MCP और A2A के ज़रिए बाहरी एजेंट्स से छिपाने के लिए false करें, या चुनी हुई सूची में सदस्यता घोषित करने के लिए true करें। Access और Authorization देखें।",
         },
         {
-          name: "important",
+          name: "deferLoading",
           type: "boolean",
           optional: true,
           description:
-            "action को एजेंट की पहली टूल सूची में रखने के लिए true करें। नीचे “action सतह को छोटा रखें” देखें।",
+            "false करने पर action एजेंट की पहली टूल सूची में बना रहता है, और true करने पर वह tool-search के ज़रिए ज़रूरत पड़ने पर लोड होता है। नीचे “action सतह को छोटा रखें” देखें।",
         },
         {
           name: "toolCallable",
@@ -276,7 +276,7 @@ POST डिफ़ॉल्ट है, और `http: { method: "GET" }` इसे
 - कई प्रति-फ़ील्ड actions जैसे `update-name`, `update-order`, और `update-color` के बजाय, ऑप्शनल फ़ील्ड्स का एक patch लेने वाले **एक CRUD-स्टाइल `update` action** को प्राथमिकता दें। कॉलर केवल बदले गए फ़ील्ड्स भेजता है।
 - हर query या filter के लिए एक नया read action जोड़ने से पहले, पहले एक अधिक सामान्य विकल्प पर विचार करें: provider डेटा के लिए [provider API trio](/docs/template-dispatch-vault-integrations#provider-api) (`provider-api-catalog`, `provider-api-docs`, और `provider-api-request`), या ऐप डेटा के लिए dev `db-query` टूल।
 - UI-only या प्रोग्रामेटिक actions को [`agentTool: false`](/docs/actions-access-control#agent-tool) चिह्नित करें। वे मॉडल की tool list में स्लॉट लिए बिना फ्रंटएंड से या HTTP पर कॉल करने योग्य बने रहते हैं।
-- जिन गिने-चुने actions तक एजेंट लगातार पहुँचता है, उन्हें `important: true` से चिह्नित करें। पहली मॉडल रिक्वेस्ट में यही schemas भेजे जाते हैं; बाकी सब ज़रूरत पड़ने पर `tool-search` के ज़रिए लोड होते हैं। एक भी action चिह्नित करते ही वह पहली रिक्वेस्ट सिर्फ़ चिह्नित समूह तक सिमट जाती है, इसलिए पूरा शुरुआती सेट एक साथ चिह्नित करें, एक-एक करके नहीं। यह पहुँच का नहीं, पहले टर्न की लागत का मामला है: बिना चिह्न वाला action भी उसी क्षण कॉल किया जा सकता है जब `tool-search` उसे लौटाता है। यह प्लगइन के `initialToolNames` array का per-action रूप है, और कोई app दोनों में से कोई भी इस्तेमाल कर सकती है।
+- जिन गिने-चुने actions तक एजेंट लगातार पहुँचता है, उन्हें `deferLoading: false` से चिह्नित करें। पहली मॉडल रिक्वेस्ट में यही schemas भेजे जाते हैं; बाकी सब ज़रूरत पड़ने पर `tool-search` के ज़रिए लोड होते हैं। जैसे ही एक भी action इस तरह बाहर होता है, हर बिना चिह्न वाला action टाल दिया जाता है, इसलिए पूरा शुरुआती सेट एक साथ चिह्नित करें, एक-एक करके नहीं। यह पहुँच का नहीं, पहले टर्न की लागत का मामला है: टाला गया action भी उसी क्षण कॉल किया जा सकता है जब `tool-search` उसे लौटाता है। यह प्लगइन के `initialToolNames` array का per-action रूप है, और कोई app दोनों में से कोई भी इस्तेमाल कर सकती है।
 - उन actions को हटाएं या छिपाएं जिन्हें UI अब उपयोग नहीं करता, बजाय उन्हें मॉडल के सामने एक्सपोज़्ड छोड़ने के।
 
 रेपो में एक सलाहकार हेल्पर शामिल है, `node scripts/audit-template-actions.mjs [template ...]` (उपनाम `pnpm actions:audit`)। यह किसी टेम्पलेट के `actions/` फ़ोल्डर को स्कैन करता है और उन actions को फ़्लैग करता है जिन्हें UI अब उपयोग नहीं करता होगा, साथ ही प्रति-फ़ील्ड actions के उन समूहों को जिन्हें एक में जोड़ा जा सकता है। यह हमेशा कोड 0 के साथ exit होता है और कभी CI को फेल नहीं करता, और इसकी heuristics रूढ़िवादी हैं, इसलिए इसके आउटपुट को एक सुझाव मानें, error नहीं।

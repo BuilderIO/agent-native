@@ -537,22 +537,23 @@ interface DefineActionWithSchema<
    *  `isActionExposedToExternalAgents` below, which every external surface
    *  reads instead of testing these two fields itself. */
   mcpTool?: boolean;
-  /** Put this action in the agent's FIRST-REQUEST tool list rather than leaving
-   *  it to `tool-search`. The action-owned form of the plugin's
-   *  `initialToolNames` array, so the app's starter surface is declared beside
-   *  each action instead of in a list that drifts as actions are renamed.
+  /** Whether this action's schema is held back from the agent's FIRST-REQUEST
+   *  tool list and loaded on demand through `tool-search` instead. The
+   *  action-owned form of the plugin's `initialToolNames` array, so the app's
+   *  starter surface is declared beside each action rather than in a list that
+   *  drifts as actions are renamed.
    *
-   *  - `true` — always in the initial set. As soon as ANY action declares this,
-   *    the derived default flips from "every one of the app's own actions" to
-   *    "the ones marked important", which is what makes deleting
+   *  - `false` — always in the initial set. As soon as ANY action declares
+   *    this, the derived default flips from "every one of the app's own
+   *    actions" to "the ones that opted in", which is what makes deleting
    *    `initialToolNames` a real trim rather than a rename.
-   *  - `false` — never in the DERIVED set. An explicit `initialToolNames` entry
+   *  - `true` — never in the DERIVED set. An explicit `initialToolNames` entry
    *    still wins, so a stale list is never silently overridden.
    *  - `undefined` (default) — unchanged behavior.
    *
-   *  This is about first-turn context cost, not access: an omitted action is
+   *  This is about first-turn context cost, not access: a deferred action is
    *  still callable the moment `tool-search` returns it. */
-  important?: boolean;
+  deferLoading?: boolean;
   /** If true, the framework will NOT emit a screen-refresh change event after a
    *  successful call. Auto-inferred as `true` when `http.method === "GET"`.
    *  Only set this manually when you need to override the inference — e.g. a
@@ -727,9 +728,10 @@ interface DefineActionWithParams<
    *  declares curated connector-catalog membership, and with `agentTool:
    *  false` makes the action MCP-only. See the schema overload above. */
   mcpTool?: boolean;
-  /** Put this action in the agent's first-request tool list. The action-owned
-   *  form of the plugin's `initialToolNames`. See the schema overload above. */
-  important?: boolean;
+  /** Whether this action's schema is held back from the agent's first-request
+   *  tool list and loaded through `tool-search` instead. The action-owned form
+   *  of the plugin's `initialToolNames`. See the schema overload above. */
+  deferLoading?: boolean;
   /** If true, the framework will NOT emit a screen-refresh change event after a
    *  successful call. Auto-inferred as `true` when `http.method === "GET"`. */
   readOnly?: boolean;
@@ -813,7 +815,7 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly maxBodyBytes?: number;
   readonly agentTool?: boolean;
   readonly mcpTool?: boolean;
-  readonly important?: boolean;
+  readonly deferLoading?: boolean;
   readonly readOnly?: boolean;
   readonly grounding?: boolean;
   readonly allowInPlanMode?: boolean;
@@ -1020,16 +1022,19 @@ export function defineAction(options: any) {
   // from the agent tool surfaces; undefined is preserved (treated as exposed).
   const agentTool: boolean | undefined =
     typeof options.agentTool === "boolean" ? options.agentTool : undefined;
-  // mcpTool / important: like `agentTool`, `undefined` is a distinct third
+  // mcpTool / deferLoading: like `agentTool`, `undefined` is a distinct third
   // state and must survive to the entry. Both flags mean something different
   // when declared than when omitted — an explicit `mcpTool: true` puts the
-  // action on the curated external catalog, and an explicit `important: true`
-  // narrows the derived first-request set — so collapsing undefined to the
-  // default here would erase the declaration the surfaces read.
+  // action on the curated external catalog, and an explicit
+  // `deferLoading: false` narrows the derived first-request set — so
+  // collapsing undefined to the default here would erase the declaration the
+  // surfaces read.
   const mcpTool: boolean | undefined =
     typeof options.mcpTool === "boolean" ? options.mcpTool : undefined;
-  const important: boolean | undefined =
-    typeof options.important === "boolean" ? options.important : undefined;
+  const deferLoading: boolean | undefined =
+    typeof options.deferLoading === "boolean"
+      ? options.deferLoading
+      : undefined;
   const parallelSafe: boolean | undefined =
     typeof options.parallelSafe === "boolean"
       ? options.parallelSafe
@@ -1086,7 +1091,7 @@ export function defineAction(options: any) {
       : {}),
     ...(typeof agentTool === "boolean" ? { agentTool } : {}),
     ...(typeof mcpTool === "boolean" ? { mcpTool } : {}),
-    ...(typeof important === "boolean" ? { important } : {}),
+    ...(typeof deferLoading === "boolean" ? { deferLoading } : {}),
     ...(typeof readOnly === "boolean" ? { readOnly } : {}),
     ...(typeof options.grounding === "boolean"
       ? { grounding: options.grounding }

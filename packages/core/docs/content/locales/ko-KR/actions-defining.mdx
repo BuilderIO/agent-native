@@ -124,11 +124,11 @@ description: "defineAction()의 구조: schema, run, HTTP 설정, 그리고 acti
             "`agentTool`을 물려받습니다. false로 설정하면 MCP와 A2A를 통한 외부 에이전트에서 숨겨지고, true로 설정하면 엄선된 카탈로그 소속임을 선언합니다. 액세스 및 권한 부여를 참고하세요.",
         },
         {
-          name: "important",
+          name: "deferLoading",
           type: "boolean",
           optional: true,
           description:
-            "true로 설정하면 해당 action이 에이전트의 첫 도구 목록에 들어갑니다. 아래 action 표면을 작게 유지하기를 참고하세요.",
+            "false로 설정하면 해당 action이 에이전트의 첫 도구 목록에 남고, true로 설정하면 tool-search를 통해 필요할 때 로드됩니다. 아래 action 표면을 작게 유지하기를 참고하세요.",
         },
         {
           name: "toolCallable",
@@ -276,7 +276,7 @@ POST가 기본값이며, `http: { method: "GET" }`을 지정하면 GET이 됩니
 - `update-name`, `update-order`, `update-color`처럼 필드별로 action을 여러 개 만드는 대신, 선택적 필드로 이루어진 패치를 받는 **하나의 CRUD 스타일 `update` action**을 선호하세요. 호출자는 바뀐 필드만 보내면 됩니다.
 - 모든 쿼리나 필터마다 새 읽기 action을 추가하기 전에, 더 범용적인 선택지를 먼저 고려하세요. 프로바이더 데이터에는 [provider API 트리오](/docs/template-dispatch-vault-integrations#provider-api)(`provider-api-catalog`, `provider-api-docs`, `provider-api-request`)를, 앱 데이터에는 개발용 `db-query` 도구를 사용하세요.
 - UI 전용이거나 프로그래밍 방식 action은 [`agentTool: false`](/docs/actions-access-control#agent-tool)로 표시하세요. 모델의 도구 목록에는 자리를 차지하지 않으면서, 프런트엔드나 HTTP를 통해서는 계속 호출할 수 있습니다.
-- 에이전트가 늘 손을 뻗는 소수의 action에는 `important: true`를 표시하세요. 첫 모델 요청에 실려 가는 것이 바로 그 스키마들이고, 나머지는 에이전트가 필요로 할 때 `tool-search`를 통해 그때그때 로드됩니다. 단 하나만 표시해도 그 첫 요청은 표시된 집합으로 좁혀지므로, 한 번에 하나씩이 아니라 시작에 필요한 묶음을 한꺼번에 표시하세요. 이것은 접근 권한이 아니라 첫 턴의 비용에 대한 이야기입니다. 표시하지 않은 action도 `tool-search`가 반환하는 순간 호출할 수 있습니다. 플러그인의 `initialToolNames` 배열을 action 단위로 표현한 것이며, 앱은 둘 중 어느 쪽이든 쓸 수 있습니다.
+- 에이전트가 늘 손을 뻗는 소수의 action에는 `deferLoading: false`를 표시하세요. 첫 모델 요청에 실려 가는 것이 바로 그 스키마들이고, 나머지는 에이전트가 필요로 할 때 `tool-search`를 통해 그때그때 로드됩니다. 한 action이라도 이렇게 빠지는 순간 표시하지 않은 action은 모두 뒤로 미뤄지므로, 한 번에 하나씩이 아니라 시작에 필요한 묶음을 한꺼번에 표시하세요. 이것은 접근 권한이 아니라 첫 턴의 비용에 대한 이야기입니다. 뒤로 미룬 action도 `tool-search`가 반환하는 순간 호출할 수 있습니다. 플러그인의 `initialToolNames` 배열을 action 단위로 표현한 것이며, 앱은 둘 중 어느 쪽이든 쓸 수 있습니다.
 - UI가 더 이상 사용하지 않는 action은 모델에 노출된 채로 두지 말고 삭제하거나 숨기세요.
 
 이 저장소에는 참고용 도우미 `node scripts/audit-template-actions.mjs [template ...]`(별칭 `pnpm actions:audit`)가 포함되어 있습니다. 이 스크립트는 템플릿의 `actions/` 폴더를 스캔하여 UI가 더 이상 사용하지 않을 수 있는 action과, 하나로 합칠 수 있는 필드별 action 그룹을 알려줍니다. 항상 종료 코드 0으로 끝나며 CI를 실패시키지 않고, 휴리스틱도 보수적이므로 그 출력은 오류가 아니라 제안으로 다루세요.
