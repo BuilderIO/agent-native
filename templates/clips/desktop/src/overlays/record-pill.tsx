@@ -162,6 +162,9 @@ export function RecordingPill() {
     null,
   );
 
+  const settleBatchRef = useRef(0);
+  const pendingSegsRef = useRef<Set<Seg>>(new Set());
+  const finishSettleRef = useRef<(() => void) | null>(null);
   const pillRef = useRef<HTMLDivElement | null>(null);
   const cardRef = useRef<HTMLDivElement | null>(null);
   const segRefs = useRef<Record<Seg, HTMLSpanElement | null>>({
@@ -317,23 +320,51 @@ export function RecordingPill() {
       Math.ceil(Math.max(pillW, targetW)) + 12,
       Math.ceil(pill.getBoundingClientRect().height),
     );
-    for (const [k, open, delay] of changes) setSeg(k, open, delay);
-    shrinkTimerRef.current = setTimeout(() => {
-      // Force-complete before measuring. Normally the transitions finished
-      // 40ms ago and this is a no-op; in a non-key window whose animation
-      // clock is throttled or frozen, a width transition can hang at its
-      // from-value forever — the end state must never depend on the clock.
-      for (const k of Object.keys(openSegsRef.current) as Seg[]) {
-        const el = segRefs.current[k];
-        if (!el) continue;
-        el.style.transition = "none";
-        el.style.width = openSegsRef.current[k]
-          ? `${segInnerWidth(k)}px`
-          : "0px";
-        el.style.opacity = openSegsRef.current[k] ? "1" : "0";
+    // The settle is driven by the transitions actually ending, not by a
+    // timer — a throttled clock runs them late, and snapping on a fixed
+    // schedule cuts the choreography off mid-motion.
+    const batch = ++settleBatchRef.current;
+    pendingSegsRef.current.clear();
+    for (const [k, open, delay] of changes) {
+      const before = segCurrentWidth(k);
+      setSeg(k, open, delay);
+      const el = segRefs.current[k];
+      const after = el ? Number.parseFloat(el.style.width) : before;
+      if (!reducedRef.current && Math.abs(after - before) > 0.5) {
+        pendingSegsRef.current.add(k);
       }
+    }
+    const finishSettle = () => {
+      if (settleBatchRef.current !== batch) return;
+      if (shrinkTimerRef.current) clearTimeout(shrinkTimerRef.current);
+      pendingSegsRef.current.clear();
+      animatingUntilRef.current = Date.now();
       syncWindowToContent();
-    }, settleMs);
+    };
+    finishSettleRef.current = finishSettle;
+    if (pendingSegsRef.current.size === 0) {
+      finishSettle();
+      return;
+    }
+    // Dead-clock fallback: if the ends never fire, force every segment to
+    // its intended state so the pill can never strand half-open. Sized well
+    // past any late-running transition so it never clips a live one.
+    shrinkTimerRef.current = setTimeout(
+      () => {
+        if (settleBatchRef.current !== batch) return;
+        for (const k of Object.keys(openSegsRef.current) as Seg[]) {
+          const el = segRefs.current[k];
+          if (!el) continue;
+          el.style.transition = "none";
+          el.style.width = openSegsRef.current[k]
+            ? `${segInnerWidth(k)}px`
+            : "0px";
+          el.style.opacity = openSegsRef.current[k] ? "1" : "0";
+        }
+        finishSettle();
+      },
+      Math.max(1_000, settleMs * 3),
+    );
   }
 
   /** Snap every segment to its resting state (Stop visible, all confirm and
@@ -664,6 +695,17 @@ export function RecordingPill() {
     };
   }, []);
 
+  function handleSegTransitionEnd(e: React.TransitionEvent) {
+    if (e.propertyName !== "width") return;
+    const el = e.target as HTMLElement;
+    const entry = (Object.keys(segRefs.current) as Seg[]).find(
+      (k) => segRefs.current[k] === el,
+    );
+    if (!entry) return;
+    pendingSegsRef.current.delete(entry);
+    if (pendingSegsRef.current.size === 0) finishSettleRef.current?.();
+  }
+
   // Escape resumes during confirm — window-level, per the spec.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -842,10 +884,8 @@ export function RecordingPill() {
     if (e.button !== 0) return;
     const target = e.target as HTMLElement;
     if (target.closest("button")) return;
-    if (modeRef.current === "confirm") {
-      exitConfirm();
-      return;
-    }
+    // During confirm only Delete, Resume, or Esc answer the question — a
+    // stray tap must never resume the recording.
     if (hasTauri) {
       getCurrentWindow()
         .startDragging()
@@ -964,6 +1004,7 @@ export function RecordingPill() {
         <div
           ref={pillRef}
           onMouseDown={handlePillMouseDown}
+          onTransitionEnd={handleSegTransitionEnd}
           onMouseEnter={handleMouseEnter}
           onMouseLeave={handleMouseLeave}
           onFocusCapture={handleFocusCapture}
