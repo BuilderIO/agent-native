@@ -215,9 +215,7 @@ export function Bubble() {
     };
     attemptPlayRef.current = attemptPlay;
 
-    const onPlaying = () => {
-      if (stopped) return;
-      lastFailure = null;
+    const maybeClaimWebrtcPath = () => {
       const claims = shouldClaimWebrtcPath({
         fallbackRequested: fallbackRequestedRef.current,
         videoWidth: video.videoWidth,
@@ -233,6 +231,12 @@ export function Bubble() {
         }
         return "webrtc";
       });
+    };
+
+    const onPlaying = () => {
+      if (stopped) return;
+      lastFailure = null;
+      maybeClaimWebrtcPath();
     };
 
     video.addEventListener("playing", onPlaying);
@@ -251,6 +255,7 @@ export function Bubble() {
     const heartbeat = setInterval(() => {
       if (stopped) return;
       attemptPlay();
+      maybeClaimWebrtcPath();
       const unrendered = shouldReportUnrendered({
         trackArrivedAt: trackArrivedAtRef.current,
         now: Date.now(),
