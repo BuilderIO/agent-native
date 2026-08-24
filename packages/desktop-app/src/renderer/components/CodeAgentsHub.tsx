@@ -2934,7 +2934,13 @@ export default function CodeAgentsHub({
                       className="code-agents-nav-link desktop-chat-first-rail-chat"
                       data-chat-first-rail-chat
                       onClick={() =>
-                        window.dispatchEvent(new Event("agent-panel:toggle"))
+                        window.dispatchEvent(
+                          new CustomEvent("agent-panel:toggle", {
+                            detail: {
+                              scopeId: activeChatFirstSurfaceTab?.appId,
+                            },
+                          }),
+                        )
                       }
                       aria-label="Toggle chat sidebar"
                       title="Toggle chat sidebar"

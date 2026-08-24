@@ -16,6 +16,7 @@ import {
   resolveAgentPanelChatSurface,
   shouldAllowAgentChatSurfaceSettingsMode,
   shouldDefaultAgentChatSurfacePageNewChatButton,
+  shouldHandleAgentSidebarToggle,
   shouldShowAgentPanelFullViewAction,
   shouldShowAgentPanelPageNewChatButton,
   shouldShowAgentPanelChatTabBar,
@@ -253,6 +254,26 @@ describe("AgentPanel shortcut hints", () => {
       toggleSidebar: "^\\",
       widenChat: "^⇧\\",
     });
+  });
+});
+
+describe("AgentSidebar toggle routing", () => {
+  it("routes a scoped toggle only to the matching mounted sidebar", () => {
+    const event = new CustomEvent("agent-panel:toggle", {
+      detail: { scopeId: "mail" },
+    });
+    const mountedScopes = [{ id: "mail" }, { id: "calendar" }];
+
+    expect(
+      mountedScopes.filter((scope) =>
+        shouldHandleAgentSidebarToggle(event, scope),
+      ),
+    ).toEqual([{ id: "mail" }]);
+    expect(
+      shouldHandleAgentSidebarToggle(new Event("agent-panel:toggle"), {
+        id: "calendar",
+      }),
+    ).toBe(true);
   });
 });
 

@@ -154,6 +154,15 @@ const AGENT_PANEL_PREPARE_EVENT = "agent-panel:prepare";
 const AGENT_PANEL_SET_MODE_EVENT = "agent-panel:set-mode";
 const AGENT_PANEL_OPEN_SETTINGS_EVENT = "agent-panel:open-settings";
 
+export function shouldHandleAgentSidebarToggle(
+  event: Event,
+  scope?: { id: string } | null,
+): boolean {
+  const detail = (event as CustomEvent<{ scopeId?: unknown }>).detail;
+  if (!detail || detail.scopeId === undefined) return true;
+  return typeof detail.scopeId === "string" && detail.scopeId === scope?.id;
+}
+
 function postPerAppChatSidebarStateToEmbeddedFrames(open: boolean): void {
   const message = buildAppChatSidebarStateMessage(open);
   for (const frame of document.querySelectorAll("iframe")) {
@@ -3544,7 +3553,8 @@ export function AgentSidebar({
   }, [setOpenPersisted]);
 
   useEffect(() => {
-    const toggleHandler = () => {
+    const toggleHandler = (event: Event) => {
+      if (!shouldHandleAgentSidebarToggle(event, scope)) return;
       if (isPerAppChatHosted) {
         requestPerAppChatCommand("toggle");
         return;
