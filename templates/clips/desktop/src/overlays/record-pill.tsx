@@ -35,7 +35,7 @@ const RIGHT_EDGE_ANCHOR_PX = 200;
 const FINALIZING_RESULT_STORAGE_KEY = "clips-finalizing-result";
 
 type PillMode = "recording" | "confirm" | "done";
-type Seg = "stop" | "q" | "del" | "res" | "extras";
+type Seg = "q" | "del" | "res" | "extras";
 type DoneStage = "finishing" | "uploading" | "uploaded" | "failed";
 
 type RecorderSession = {
@@ -103,9 +103,12 @@ function formatDurationCopy(ms: number): string {
 
 /**
  * The recording pill — one dark capsule with four modes: recording, paused,
- * confirm, done. Left edge anchored: hover extras and the inline delete
- * confirm grow rightward while the dot, timer, pause button, and Stop hold
- * position (near the right screen edge the anchor mirrors). Stop swaps the
+ * confirm, done. The leading circle is both the recording indicator and the
+ * stop/save action (red while live, amber blinking while paused), with the
+ * timer plain against the chrome beside it. Left edge anchored: hover extras
+ * and the inline confirms grow rightward while the stop circle, timer, and
+ * pause button hold position (near the right screen edge the anchor
+ * mirrors). Stop swaps the
  * pill for the completion card in place; the link is copied only when the
  * user clicks Copy (an automatic copy would clear their clipboard
  * unannounced). While paused the pause circle swaps to a play glyph — the
@@ -178,7 +181,6 @@ export function RecordingPill() {
   const pillRef = useRef<HTMLDivElement | null>(null);
   const cardRef = useRef<HTMLDivElement | null>(null);
   const segRefs = useRef<Record<Seg, HTMLSpanElement | null>>({
-    stop: null,
     q: null,
     del: null,
     res: null,
@@ -293,7 +295,6 @@ export function RecordingPill() {
   // under-measure a transition target, so the window budget is computed from
   // this intent instead of from the DOM.
   const openSegsRef = useRef<Record<Seg, boolean>>({
-    stop: true,
     q: false,
     del: false,
     res: false,
@@ -390,13 +391,6 @@ export function RecordingPill() {
       el.style.opacity = "0";
       openSegsRef.current[k] = false;
     }
-    const stopEl = segRefs.current.stop;
-    if (stopEl) {
-      stopEl.style.transition = "none";
-      stopEl.style.width = "auto";
-      stopEl.style.opacity = "1";
-      openSegsRef.current.stop = true;
-    }
     setMode("recording");
     clearPauseTransition();
     setPaused(false);
@@ -439,7 +433,6 @@ export function RecordingPill() {
     revealedRef.current = false;
     transitionSegs([
       ["extras", false, 0],
-      ["stop", false, 0],
       ["q", true, 0],
       ["del", true, 20],
       ["res", true, 40],
@@ -458,7 +451,6 @@ export function RecordingPill() {
       ["res", false, 0],
       ["del", false, 20],
       ["q", false, 40],
-      ["stop", true, 40],
     ]);
     setAnnouncement(pausedRef.current ? "Paused" : "Recording");
   }
@@ -747,18 +739,11 @@ export function RecordingPill() {
     return () => clearInterval(t);
   }, [blinking]);
 
-  // Fit the native window to the measured pill once fonts have settled, and
-  // pin the Stop segment to an explicit pixel width so its later collapse
-  // animates from a number instead of `auto`.
+  // Fit the native window to the measured pill once fonts have settled.
   useEffect(() => {
     let cancelled = false;
     const fit = () => {
       if (cancelled) return;
-      const el = segRefs.current.stop;
-      if (el) {
-        el.style.width = `${segInnerWidth("stop")}px`;
-        el.style.opacity = "1";
-      }
       syncWindowToContent();
     };
     if (document.fonts?.ready) {
@@ -1026,16 +1011,21 @@ export function RecordingPill() {
           onMouseLeave={handleMouseLeave}
           onFocusCapture={handleFocusCapture}
           onBlurCapture={handleBlurCapture}
-          className={`flex h-[42px] flex-none items-center rounded-full bg-[var(--pill-chrome)] pt-1.5 pr-2 pb-1.5 pl-4 text-[var(--pill-on-chrome)] record-pill-shadow ${enabled ? "" : "opacity-80"}`}
+          className={`flex h-[42px] flex-none items-center rounded-full bg-[var(--pill-chrome)] p-1.5 text-[var(--pill-on-chrome)] record-pill-shadow ${enabled ? "" : "opacity-80"}`}
         >
-          <span
-            aria-hidden
-            className="size-2 flex-none rounded-full transition-colors duration-150"
+          <button
+            type="button"
+            onClick={stop}
+            disabled={!enabled || inConfirm}
+            aria-label="Stop and save"
+            className="flex size-[30px] flex-none items-center justify-center rounded-full text-[var(--pill-on-chrome)] transition-colors duration-150 disabled:cursor-default"
             style={{
               background: showPaused ? "var(--pill-paused)" : "var(--pill-rec)",
-              opacity: blinking && blinkDim ? 0.3 : 1,
+              opacity: blinking && blinkDim ? 0.55 : 1,
             }}
-          />
+          >
+            <IconPlayerStopFilled size={12} aria-hidden />
+          </button>
           <span
             aria-live="off"
             className="record-pill-mono ml-2.5 min-w-11 flex-none text-sm font-medium"
@@ -1068,26 +1058,6 @@ export function RecordingPill() {
               <IconPlayerPauseFilled size={14} aria-hidden />
             )}
           </button>
-          <span
-            ref={(el) => {
-              segRefs.current.stop = el;
-            }}
-            className="record-pill-seg"
-            style={{ width: "auto", opacity: 1 }}
-          >
-            <span className="inline-flex flex-none items-center">
-              <button
-                type="button"
-                onClick={stop}
-                disabled={!enabled}
-                aria-label="Stop and save"
-                className="ml-2.5 flex h-[30px] flex-none items-center gap-1.5 rounded-full bg-[var(--pill-on-chrome)] px-3.5 text-[13px] font-semibold text-[var(--pill-chrome)]"
-              >
-                <IconPlayerStopFilled size={13} aria-hidden />
-                Stop
-              </button>
-            </span>
-          </span>
           <span
             ref={(el) => {
               segRefs.current.q = el;
