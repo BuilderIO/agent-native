@@ -3292,11 +3292,14 @@ export function App({
       // A restart hands off the already-live display stream from the take
       // it's replacing (see `discardForRestart`/`preAcquiredDisplayStream`
       // below) — it must keep recording the same screen, not re-prompt.
-      if (source === "full-screen" && !options?.resumeCapture) {
+      if (
+        (source === "full-screen" || source === "region") &&
+        !options?.resumeCapture
+      ) {
         try {
           // Must resolve before `recordingFlowActive` flips the toolbar on
-          // below — the toolbar reads the pick to place itself on the
-          // chosen screen the first time it's shown.
+          // below — the toolbar and region selector read the pick to place
+          // themselves on the chosen screen the first time they are shown.
           await pickFullscreenRecordingDisplay();
         } catch (err) {
           recordingFlowGateRef.current = false;
@@ -3834,22 +3837,25 @@ export function App({
   const showCameraRow = mode !== "screen"; // screen-only has no camera
   const showSourceRow = mode !== "camera"; // camera-only has no screen source
 
-  const pendingUploadBanner = recordingStopFinalizing ? (
-    <FinalizingUploadBanner />
-  ) : pendingUploads.length > 0 ? (
-    <PendingUploadBanner
-      uploads={pendingUploads}
-      retryingUploadId={retryingUploadId}
-      retryingUploadStatus={retryingUploadStatus}
-      exportingUploadId={exportingUploadId}
-      dismissingUploadId={dismissingUploadId}
-      onExport={exportPendingUpload}
-      onRetry={retryPendingUpload}
-      onDismiss={dismissPendingUpload}
-      onOpenFolder={openPendingUploadFolder}
-      onConnectStorage={(upload) => openVideoStorageSetup(upload.serverUrl)}
-    />
-  ) : null;
+  const pendingUploadBanner =
+    authStatus === "authed" ? (
+      recordingStopFinalizing ? (
+        <FinalizingUploadBanner />
+      ) : pendingUploads.length > 0 ? (
+        <PendingUploadBanner
+          uploads={pendingUploads}
+          retryingUploadId={retryingUploadId}
+          retryingUploadStatus={retryingUploadStatus}
+          exportingUploadId={exportingUploadId}
+          dismissingUploadId={dismissingUploadId}
+          onExport={exportPendingUpload}
+          onRetry={retryPendingUpload}
+          onDismiss={dismissPendingUpload}
+          onOpenFolder={openPendingUploadFolder}
+          onConnectStorage={(upload) => openVideoStorageSetup(upload.serverUrl)}
+        />
+      ) : null
+    ) : null;
 
   async function copyRewindAgentPrompt() {
     try {

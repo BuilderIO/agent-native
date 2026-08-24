@@ -355,6 +355,7 @@ const messages = {
   },
   meetingDetail: {
     untitledMeeting: "제목 없는 회의",
+    recordedBy: "{{name}} 님이 기록함",
     unassigned: "할당되지 않음",
     them: "그들을",
     me: "나",

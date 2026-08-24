@@ -349,6 +349,7 @@ const messages = {
   },
   meetingDetail: {
     untitledMeeting: "शीर्षकहीन बैठक",
+    recordedBy: "{{name}} द्वारा रिकॉर्ड किया गया",
     unassigned: "सौंपे नहीं गए",
     them: "उन्हें",
     me: "मुझे",

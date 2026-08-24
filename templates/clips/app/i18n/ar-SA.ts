@@ -348,6 +348,7 @@ const messages = {
   },
   meetingDetail: {
     untitledMeeting: "لقاء بلا عنوان",
+    recordedBy: "سجّله {{name}}",
     unassigned: "غير معين",
     them: "هم",
     me: "أنا",

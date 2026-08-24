@@ -336,6 +336,7 @@ const messages = {
   },
   meetingDetail: {
     untitledMeeting: "無標題會議",
+    recordedBy: "由 {{name}} 記錄",
     unassigned: "未指派",
     them: "他們",
     me: "我",

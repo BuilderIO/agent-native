@@ -210,6 +210,9 @@ export default defineAction({
     // Lifecycle view filters
     if (args.view === "trash") {
       whereClauses.push(isNotNull(schema.recordings.trashedAt));
+      if (orgId) {
+        whereClauses.push(eq(schema.recordings.organizationId, orgId));
+      }
     } else {
       whereClauses.push(isNull(schema.recordings.trashedAt));
       if (args.view === "archive") {

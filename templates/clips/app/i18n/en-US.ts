@@ -351,6 +351,7 @@ const messages = {
   },
   meetingDetail: {
     untitledMeeting: "Untitled meeting",
+    recordedBy: "Recorded by {{name}}",
     unassigned: "Unassigned",
     them: "Them",
     me: "Me",

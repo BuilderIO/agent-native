@@ -368,6 +368,7 @@ const messages = {
   },
   meetingDetail: {
     untitledMeeting: "Treffen ohne Titel",
+    recordedBy: "Aufgezeichnet von {{name}}",
     unassigned: "Nicht zugewiesen",
     them: "Ihnen",
     me: "Mich",
